@@ -20,9 +20,9 @@
 	--color-owl-muted: #a6a399;
 	--color-owl-faint: #8a867c;
 
-	/* 主色：Claude 珊瑚橙 */
-	--color-owl-accent: #d97757;
-	--color-owl-accent-hover: #c4633f;
+	/* 主色：owl 图标绿（owl.svg 羽辐的 #2f9e5a） */
+	--color-owl-accent: #2f9e5a;
+	--color-owl-accent-hover: #28864d;
 
 	--font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 	/* AI 回复与问候语的衬线（Claude 的标志性排版）：西文 Georgia，中文回落宋体 */
@@ -37,7 +37,7 @@ html {
 /*
  * 浅色主题：html[data-owl-theme="light"] 时整体覆盖 --color-owl-* 变量。
  * 工具类（bg-owl-bg 等）引用的是变量，所以所有组件无需改动即可换肤。
- * 暖纸色调，与深色的 Claude 风格同族；主色珊瑚橙两套通用。
+ * 暖纸色调，与深色的 Claude 风格同族；主色图标绿两套通用。
  */
 html[data-owl-theme="light"] {
 	color-scheme: light;

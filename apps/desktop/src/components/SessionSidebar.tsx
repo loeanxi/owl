@@ -33,6 +33,8 @@ type SessionRow = {
 };
 
 const PINNED_KEY = "owl.pinnedSessions";
+/** 置顶项目（localStorage）：置顶栏里的项目快捷入口，项目本身仍留在「项目」分组。 */
+const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
@@ -118,6 +120,16 @@ function relativeTime(iso: string): string {
 function loadPinned(): string[] {
 	try {
 		const raw = localStorage.getItem(PINNED_KEY);
+		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+	} catch {
+		return [];
+	}
+}
+
+function loadPinnedProjects(): string[] {
+	try {
+		const raw = localStorage.getItem(PINNED_PROJECTS_KEY);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
 	} catch {
@@ -292,6 +304,7 @@ export function SessionSidebar({
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
 	const [browsing, setBrowsing] = useState(false);
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
+	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
@@ -433,6 +446,19 @@ export function SessionSidebar({
 		});
 	};
 
+	/** 项目置顶/取消置顶：按置顶先后排序（与置顶会话的手动排序同习惯）。 */
+	const toggleProjectPin = (path: string): void => {
+		setPinnedProjects((current) => {
+			const next = current.some((p) => samePath(p, path))
+				? current.filter((p) => !samePath(p, path))
+				: [...current, path];
+			localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(next));
+			return next;
+		});
+	};
+
+	const isProjectPinned = (path: string): boolean => pinnedProjects.some((p) => samePath(p, path));
+
 	/** 归档/取消归档：写服务端 archive.json，成功后重拉列表（archivedAt 随 session.list 下发）。 */
 	const toggleArchive = async (row: SessionRow): Promise<void> => {
 		const id = row.id;
@@ -549,15 +575,22 @@ export function SessionSidebar({
 	}, [sessions, activeProject, knownProjects]);
 
 	// 搜索时项目行按名称/路径/自身会话过滤，避免搜会话时冒出一堆不相干项目。
-	const visibleProjects = useMemo(() => {
-		if (!search) return projectPaths;
-		return projectPaths.filter(
-			(path) =>
-				projectLabel(path).toLowerCase().includes(search) ||
-				path.toLowerCase().includes(search) ||
-				sessions.some((row) => samePath(row.cwd, path) && !isArchivedRow(row) && sessionMatches(row)),
-		);
-	}, [projectPaths, sessions, search]); // eslint-disable-line react-hooks/exhaustive-deps
+	const projectMatchesSearch = (path: string): boolean =>
+		!search ||
+		projectLabel(path).toLowerCase().includes(search) ||
+		path.toLowerCase().includes(search) ||
+		sessions.some((row) => samePath(row.cwd, path) && !isArchivedRow(row) && sessionMatches(row));
+
+	const visibleProjects = useMemo(
+		() => projectPaths.filter(projectMatchesSearch),
+		[projectPaths, sessions, search], // eslint-disable-line react-hooks/exhaustive-deps
+	);
+
+	// 置顶项目行（按置顶先后），搜索时同样按项目过滤。
+	const pinnedProjectRows = useMemo(
+		() => (search ? pinnedProjects.filter(projectMatchesSearch) : pinnedProjects),
+		[pinnedProjects, search, sessions], // eslint-disable-line react-hooks/exhaustive-deps
+	);
 
 	const recentSessions = useMemo(() => {
 		const rows = sessions.filter((row) => !isArchivedRow(row) && sessionMatches(row));
@@ -697,9 +730,42 @@ export function SessionSidebar({
 		);
 	};
 
+	/** 置顶栏里的项目行：点击切换项目（当前项目不重复切换），悬停露出取消置顶。 */
+	const pinnedProjectRow = (path: string): React.JSX.Element => {
+		const isCurrent = samePath(path, activeProject);
+		return (
+			<div
+				key={`pinned:${normPath(path)}`}
+				className="group/row flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text"
+			>
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+					title={path}
+					onClick={() => {
+						if (!isCurrent) onSelectProject(path);
+					}}
+				>
+					<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
+					<span className="truncate text-xs">{projectLabel(path)}</span>
+				</button>
+				{isCurrent && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
+				<button
+					type="button"
+					className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+					title="取消置顶"
+					onClick={() => toggleProjectPin(path)}
+				>
+					<IconPin className="h-3.5 w-3.5" filled />
+				</button>
+			</div>
+		);
+	};
+
 	/** 项目行：chevron 展开/收起会话列表；名称点击切换项目（当前项目点击仅展开/收起）；悬停露出操作菜单。 */
 	const projectRow = (path: string): React.JSX.Element => {
 		const isCurrent = samePath(path, activeProject);
+		const projectPinned = isProjectPinned(path);
 		const menuId = `${PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
 		const expanded = search !== "" || projectGroupOpen(path);
 		const rows = sessions
@@ -731,6 +797,18 @@ export function SessionSidebar({
 						</span>
 					</button>
 					<div className="flex shrink-0 items-center gap-0.5">
+						<button
+							type="button"
+							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
+								projectPinned
+									? "text-owl-accent"
+									: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
+							}`}
+							title={projectPinned ? "取消置顶" : "置顶项目"}
+							onClick={() => toggleProjectPin(path)}
+						>
+							<IconPin className="h-3.5 w-3.5" filled={projectPinned} />
+						</button>
 						{isCurrent && (
 							<button
 								type="button"
@@ -802,6 +880,7 @@ export function SessionSidebar({
 	const noMatch =
 		search !== "" &&
 		visibleProjects.length === 0 &&
+		pinnedProjectRows.length === 0 &&
 		recentSessions.length === 0 &&
 		archivedSessions.filter(sessionMatches).length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
@@ -879,7 +958,7 @@ export function SessionSidebar({
 			</div>
 
 			<div ref={scrollRef} className="mt-2 flex-1 overflow-y-auto pb-3">
-				{pinnedSessions.length > 0 && (
+				{(pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && (
 					<Section
 						id="pinned"
 						label="置顶"
@@ -912,6 +991,7 @@ export function SessionSidebar({
 							</>
 						}
 					>
+						{pinnedProjectRows.map((path) => pinnedProjectRow(path))}
 						{pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true))}
 					</Section>
 				)}

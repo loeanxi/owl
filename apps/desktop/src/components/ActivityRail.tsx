@@ -1,7 +1,7 @@
-import { IconClock, IconFolder, IconHome, IconMore, IconSettings } from "./icons.tsx";
+import { IconHome, IconMore, IconSettings } from "./icons.tsx";
 
-/** rail 当前高亮项。聊天是默认视图；其余对应侧栏分组，后续新功能再加枚举。 */
-export type RailView = "chat" | "projects" | "recent";
+/** rail 当前高亮项。目前只有聊天视图；后续新功能再加枚举。 */
+export type RailView = "chat";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -13,7 +13,7 @@ export function ActivityRail({
 	onOpenSettings,
 }: {
 	view: RailView;
-	/** 点击 rail 图标：聊天回到会话视图，项目/最近定位到侧栏对应分组。 */
+	/** 点击 rail 图标：回到聊天视图。 */
 	onSelect: (view: RailView) => void;
 	onOpenSettings: () => void;
 }): React.JSX.Element {
@@ -30,22 +30,6 @@ export function ActivityRail({
 		>
 			<button type="button" className={itemClass(view === "chat")} title="聊天" onClick={() => onSelect("chat")}>
 				<IconHome className="h-[18px] w-[18px]" />
-			</button>
-			<button
-				type="button"
-				className={itemClass(view === "projects")}
-				title="项目"
-				onClick={() => onSelect("projects")}
-			>
-				<IconFolder className="h-[18px] w-[18px]" />
-			</button>
-			<button
-				type="button"
-				className={itemClass(view === "recent")}
-				title="最近"
-				onClick={() => onSelect("recent")}
-			>
-				<IconClock className="h-[18px] w-[18px]" />
 			</button>
 
 			<div className="my-1.5 h-px w-6 bg-owl-border" />
