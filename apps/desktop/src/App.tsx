@@ -158,7 +158,8 @@ export default function App(): React.JSX.Element {
 	};
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
-	const openSession = async (targetSessionId: string): Promise<void> => {
+	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
+	const openSession = async (targetSessionId: string, options?: { silent?: boolean }): Promise<void> => {
 		const response = await client.request<{
 			sessionId: string;
 			cwd: string;
@@ -171,9 +172,11 @@ export default function App(): React.JSX.Element {
 		});
 		if (!response.ok || !response.result) {
 			console.error("session.resume failed:", response.error);
-			setEntries([
-				{ kind: "toolResult", toolName: "会话恢复失败", ok: false, brief: response.error ?? "未知错误" },
-			]);
+			if (!options?.silent) {
+				setEntries([
+					{ kind: "toolResult", toolName: "会话恢复失败", ok: false, brief: response.error ?? "未知错误" },
+				]);
+			}
 			return;
 		}
 		const { sessionId: resumedId, cwd, messages } = response.result;
@@ -201,7 +204,7 @@ export default function App(): React.JSX.Element {
 				const pool = withMessages.length > 0 ? withMessages : rows;
 				const latest = pool.reduce((a, b) => (rowTime(a) >= rowTime(b) ? a : b));
 				if (sessionIdRef.current) return;
-				await openSession(String(latest.id));
+				await openSession(String(latest.id), { silent: true });
 			} catch {
 				// 桥瞬断时静默放弃，侧边栏手动点会话仍可恢复
 			}
