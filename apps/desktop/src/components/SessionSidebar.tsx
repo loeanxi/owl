@@ -123,11 +123,10 @@ function loadCollapsed(): Set<string> {
 	}
 }
 
-/** 可折叠分组：头部（箭头 + 标题 + 数量，悬停露出操作按钮）+ 展开内容 + 可选下拉菜单。 */
+/** 可折叠分组：头部（箭头 + 标题，悬停露出操作按钮）+ 展开内容 + 可选下拉菜单。 */
 function Section({
 	id,
 	label,
-	count,
 	open,
 	onToggle,
 	actions,
@@ -138,7 +137,6 @@ function Section({
 }: {
 	id: string;
 	label: string;
-	count?: number;
 	open: boolean;
 	onToggle: () => void;
 	/** 悬停/菜单打开时显示在头部的快捷按钮（⋯、＋ 等）。 */
@@ -165,15 +163,6 @@ function Section({
 						className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 					/>
 					<span className="text-xs font-medium text-owl-muted">{label}</span>
-					{typeof count === "number" && count > 0 && (
-						<span
-							className={`ml-auto pr-1 text-[10px] tabular-nums text-owl-faint/80 ${
-								actions ? "group-hover/header:invisible" : ""
-							}`}
-						>
-							{count}
-						</span>
-					)}
 				</button>
 				{actions && (
 					<div
@@ -589,7 +578,6 @@ export function SessionSidebar({
 					<Section
 						id="pinned"
 						label="置顶"
-						count={pinnedSessions.length}
 						open={isOpen("pinned")}
 						onToggle={() => toggleSection("pinned")}
 						showMenu={openMenu === "pinned"}
@@ -626,7 +614,6 @@ export function SessionSidebar({
 				<Section
 					id="projects"
 					label="项目"
-					count={visibleProjects.length}
 					open={isOpen("projects")}
 					onToggle={() => toggleSection("projects")}
 					headerRef={projectHeaderRef}
@@ -700,7 +687,6 @@ export function SessionSidebar({
 				<Section
 					id="recent"
 					label="最近"
-					count={recentSessions.length}
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
 					headerRef={recentHeaderRef}
