@@ -27,7 +27,7 @@ export interface WorkbenchProps {
 	client: BridgeClient;
 	/** 项目目录（App 显式跟踪的工作区）。 */
 	cwd: string;
-	/** App 持有的 store（底部栏 / 工作台共用同一实例）。 */
+	/** App 持有的 store（与开始页快捷入口共用同一实例）。 */
 	store: SidebarStore;
 	open: boolean;
 	onSetOpen: (open: boolean) => void;

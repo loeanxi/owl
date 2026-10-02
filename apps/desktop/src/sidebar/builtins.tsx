@@ -4,7 +4,7 @@
  * ctx.betterSidebar"对等设计）。模块加载即注册；HMR 下重复调用幂等。
  *
  * 编辑器是懒加载 chunk（React.lazy）：语言包 + CodeMirror ~600KB 不进首屏。
- * 单例 tab 的图标沿用 quick.tsx 的彩色（工作台 tab 条与底部栏 / 开始页一致）。
+ * 单例 tab 的图标沿用 quick.tsx 的彩色（工作台 tab 条与开始页一致）。
  */
 import { lazy } from "react";
 import { registerTab, type TabDefinition } from "./registry.ts";

@@ -6,6 +6,11 @@
  * 鼠标/键盘经 iab.input 转发回页面，agent 的 browser_* 工具驱动的是同一个
  * 页面 —— 用户看得见 agent 的每一步，agent 也能被手动引导。URL 记在
  * tab.path 上随分屏树持久化，重开应用还原。
+ *
+ * 帧走 canvas 直绘（ref + rAF），刻意不进 React state：screencast 每秒多帧，
+ * 逐帧 setState 会把地址栏/横幅这类受控输入正在编辑的内容冲掉（受控组件
+ * 重渲染会拿 state 覆写 DOM value）。state 只留低频量：绑定页元信息、帧的
+ * 尺寸（视口切换才变）、舞台尺寸、文件选择横幅。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
@@ -54,25 +59,23 @@ interface StageGeometry {
 export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
 	const [page, setPage] = useState<IabPageInfo | undefined>(undefined);
 	const [draft, setDraft] = useState(() => parseIabPath(tab.path).url ?? "");
-	const [frame, setFrame] = useState<Frame | undefined>(undefined);
+	const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>(undefined);
 	const [fileChooser, setFileChooser] = useState<{ multiple: boolean } | undefined>(undefined);
 	const [filePathDraft, setFilePathDraft] = useState("");
 	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 	const stageRef = useRef<HTMLDivElement>(null);
+	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const lastMoveSent = useRef(0);
 	// ref 镜像：iab 消息回调与输入转发读最新值，免 stale closure
 	const pageRef = useRef<IabPageInfo | undefined>(undefined);
 	pageRef.current = page;
 	const frameRef = useRef<Frame | undefined>(undefined);
-	frameRef.current = frame;
+	const drawScheduled = useRef(false);
 
 	const applyPage = useCallback(
 		(next: IabPageInfo): void => {
 			const current = pageRef.current;
-			if (
-				current?.pageId !== next.pageId ||
-				current.url !== next.url
-			) {
+			if (current?.pageId !== next.pageId || current.url !== next.url) {
 				// 绑定/换页/URL 被带走：持久化跟着走（pageId 优先，URL 兜底，重开应用还原）
 				store.setTabPath(tab.id, encodeIabPath(next.pageId, next.url));
 				setDraft(next.url);
@@ -82,6 +85,29 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		},
 		[store, tab.id],
 	);
+
+	/** 把 frameRef 里的最新帧画到 canvas（rAF 合并同帧多次触发）。 */
+	const drawFrame = useCallback((): void => {
+		drawScheduled.current = false;
+		const canvas = canvasRef.current;
+		const current = frameRef.current;
+		if (!canvas || !current) return;
+		if (canvas.width !== current.width || canvas.height !== current.height) {
+			canvas.width = current.width;
+			canvas.height = current.height;
+		}
+		const image = new Image();
+		image.onload = () => {
+			canvas.getContext("2d")?.drawImage(image, 0, 0);
+		};
+		image.src = `data:image/png;base64,${current.data}`;
+	}, []);
+
+	const scheduleDraw = useCallback((): void => {
+		if (drawScheduled.current) return;
+		drawScheduled.current = true;
+		requestAnimationFrame(drawFrame);
+	}, [drawFrame]);
 
 	/** 舞台几何：帧按适应窗口缩放居中；没有帧时返回 undefined。 */
 	const stageGeometry = (): StageGeometry | undefined => {
@@ -175,12 +201,18 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		};
 	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// IAB 消息：帧流按 pageId 收；页面清单跟踪标题/URL/关闭；filechooser 弹横幅
+	// IAB 消息：帧流按 pageId 直绘 canvas；页面清单跟踪标题/URL/关闭；filechooser 弹横幅
 	useEffect(() => {
 		return client.onIabMessage((message) => {
 			if (message.type === "iab.frame") {
 				if (message.pageId === pageRef.current?.pageId) {
-					setFrame({ data: message.data, width: message.width, height: message.height });
+					const next = { data: message.data, width: message.width, height: message.height };
+					frameRef.current = next;
+					// 尺寸变化（视口切换）才进 state；普通帧只重绘 canvas
+					setFrameSize((prev) =>
+						prev && prev.width === next.width && prev.height === next.height ? prev : { width: next.width, height: next.height },
+					);
+					scheduleDraw();
 				}
 				return;
 			}
@@ -196,17 +228,18 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				} else {
 					// 绑定的页面被关掉（agent browser_tabs close / 桥重启）：回起始页
 					pageRef.current = undefined;
+					frameRef.current = undefined;
 					setPage(undefined);
-					setFrame(undefined);
+					setFrameSize(undefined);
 					setFileChooser(undefined);
 					store.setTabPath(tab.id, undefined);
 				}
 			}
 		});
-	}, [client, applyPage, store, tab.id]);
+	}, [client, applyPage, scheduleDraw, store, tab.id]);
 
-	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 帧到达时兜底：
-	// 面板在后台绑定时 clientWidth 是 0，靠 observer 的后续回调自愈不可靠。
+	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 帧尺寸就位时兜底：
+	// 面板在后台绑定时 clientWidth 是 0，只靠 observer 的后续回调不可靠。
 	useEffect(() => {
 		const element = stageRef.current;
 		if (!element) return;
@@ -226,7 +259,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			observer.disconnect();
 			window.removeEventListener("resize", measure);
 		};
-	}, [page?.pageId, frame !== undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [page?.pageId, frameSize !== undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// wheel 用原生非 passive 监听才能 preventDefault（React 的 onWheel 是 passive）
 	useEffect(() => {
@@ -323,8 +356,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const toolbarButton =
 		"flex h-6 w-6 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
 	const scale = (() => {
-		if (!frame || stageSize.width === 0) return undefined;
-		return Math.min(stageSize.width / frame.width, stageSize.height / frame.height);
+		if (!frameSize || stageSize.width === 0) return undefined;
+		return Math.min(stageSize.width / frameSize.width, stageSize.height / frameSize.height);
 	})();
 	const viewportLabel = page ? `${page.viewport.width} × ${page.viewport.height}` : "";
 	const viewportIsPreset = VIEWPORT_PRESETS.some((preset) => preset.label === viewportLabel);
@@ -406,6 +439,40 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				</div>
 			) : (
 				<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black/40">
+					{frameSize && scale ? (
+						<div
+							tabIndex={0}
+							className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default outline-none"
+							style={{ width: frameSize.width * scale, height: frameSize.height * scale }}
+							onKeyDown={onKeyDown}
+							onContextMenu={(e) => e.preventDefault()}
+							onMouseDown={(e) => {
+								(e.currentTarget as HTMLDivElement).focus();
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "down", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+							}}
+							onMouseUp={(e) => {
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+							}}
+							onMouseMove={(e) => {
+								const now = Date.now();
+								if (now - lastMoveSent.current < 40) return;
+								lastMoveSent.current = now;
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
+							}}
+						>
+							<canvas ref={canvasRef} className="h-full w-full select-none bg-white" />
+						</div>
+					) : (
+						<div className="flex h-full items-center justify-center">
+							<span className="animate-pulse text-xs text-owl-faint">正在连接页面…</span>
+						</div>
+					)}
 					{fileChooser && (
 						<div className="absolute inset-x-2 top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-owl-accent/50 bg-owl-panel/95 px-3 py-2 shadow-lg">
 							<span className="shrink-0 text-xs text-owl-text">
@@ -438,45 +505,6 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 							>
 								忽略
 							</button>
-						</div>
-					)}
-					{frame && scale ? (
-						<div
-							tabIndex={0}
-							className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default outline-none"
-							style={{ width: frame.width * scale, height: frame.height * scale }}
-							onKeyDown={onKeyDown}
-							onContextMenu={(e) => e.preventDefault()}
-							onMouseDown={(e) => {
-								(e.currentTarget as HTMLDivElement).focus();
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "down", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
-							}}
-							onMouseUp={(e) => {
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
-							}}
-							onMouseMove={(e) => {
-								const now = Date.now();
-								if (now - lastMoveSent.current < 40) return;
-								lastMoveSent.current = now;
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
-							}}
-						>
-							<img
-								src={`data:image/png;base64,${frame.data}`}
-								alt="页面预览"
-								draggable={false}
-								className="h-full w-full select-none bg-white"
-							/>
-						</div>
-					) : (
-						<div className="flex h-full items-center justify-center">
-							<span className="animate-pulse text-xs text-owl-faint">正在连接页面…</span>
 						</div>
 					)}
 					{scale !== undefined && (

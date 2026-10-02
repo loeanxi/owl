@@ -6,7 +6,7 @@
  *
  * 持久化按项目目录进 localStorage，v2 存树；旧版平面 tab 列表读取时自动
  * 迁移成单 leaf。state 快照里同时给出摊平的 tabs 与全局 activeId，让
- * BottomDockBar / 工具行这类消费者不必关心树结构。
+ * 工具行这类消费者不必关心树结构。
  *
  * React 经 useSyncExternalStore 消费；fs_changed 事件总线也挂在这里。
  */
@@ -33,7 +33,7 @@ export interface SidebarState {
 	tree: SplitNode;
 	/** 当前聚焦的 leaf id（激活 tab 所在的 leaf）。 */
 	activePane: string;
-	/** 全树摊平的 tab（派生快照，供工具行/底部栏按 kind 查询）。 */
+	/** 全树摊平的 tab（派生快照，供工具行按 kind 查询）。 */
 	tabs: SidebarTab[];
 	/** 全局激活 tab id（activePane 的 activeTab，派生）。 */
 	activeId: string | null;

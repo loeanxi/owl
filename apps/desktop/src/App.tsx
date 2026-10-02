@@ -99,7 +99,7 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKBENCH_DOCK_KEY, dock);
 	};
 
-	// 工作台 store 按项目提升到 App：底部栏与 Workbench 共用同一实例。
+	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
 	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

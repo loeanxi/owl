@@ -1,6 +1,6 @@
 /**
  * 快捷入口元数据 —— 对应 dsh-better-sidebar 的 buildNewTabOptions（开始页 /
- * 底部栏 / 工作台空态三处共用的同一份卡片清单）。彩色图标走固定色值（与
+ * 工作台空态两处共用的同一份卡片清单）。彩色图标走固定色值（与
  * VSCode 文件图标同理，不随主题 token 变），排版照搬 DSH 开始页：实心橙
  * 文件夹、蓝终端、绿变动、蓝浏览器、琥珀任务、蓝侧聊。
  */
@@ -107,7 +107,7 @@ export interface QuickAction {
 	icon: (size?: number) => ReactNode;
 	/** 快捷键提示（App 里有对应的键盘处理）。 */
 	hint?: string;
-	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的，不进底部栏。tabTitle 是落成 tab 条上的短标题。 */
+	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的。tabTitle 是落成 tab 条上的短标题。 */
 	multi?: boolean;
 	tabTitle?: string;
 	/** 占位卡：功能未实现时置灰。 */
@@ -124,7 +124,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "sidechat", label: "侧边对话(beta)", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
 ];
 
-/** 按 kind 取快捷入口（底部栏 / 开始页共用）。 */
+/** 按 kind 取快捷入口（开始页 / 空态卡片共用）。 */
 export function quickActionOf(kind: string): QuickAction | undefined {
 	return QUICK_ACTIONS.find((action) => action.kind === kind);
 }
