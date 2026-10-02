@@ -46,6 +46,8 @@ const RECENT_LIMIT = 30;
 const KNOWN_PROJECTS_KEY = "owl.projects";
 /** 项目行操作菜单的 id 前缀（openMenu 状态，按项目路径区分）。 */
 const PROJECT_ROW_MENU_PREFIX = "project-row:";
+/** 置顶栏项目行操作菜单的 id 前缀：与「项目」分组的行菜单互不干扰。 */
+const PINNED_PROJECT_ROW_MENU_PREFIX = "pinned-project-row:";
 
 type PinnedSort = "recent" | "manual";
 type ListSort = "recent" | "name";
@@ -738,14 +740,24 @@ export function SessionSidebar({
 			.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row))
 			.sort(byLatest);
 
-	/** 置顶栏里的项目行：chevron 展开该项目的会话列表，名称点击切换项目（当前项目点击仅展开/收起）。 */
+	/**
+	 * 置顶栏里的项目行：chevron 展开该项目的会话列表，名称点击切换项目（当前项目点击仅展开/收起）；
+	 * 右侧操作与「项目」分组的项目行一致（置顶 / 新建会话 / ⋯ 菜单）。
+	 * 非当前项目的「新建会话」= 切换过去（switchProject 本身就以全新会话开场）。
+	 */
 	const pinnedProjectRow = (path: string): React.JSX.Element => {
 		const isCurrent = samePath(path, activeProject);
+		const menuId = `${PINNED_PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
 		const expanded = search !== "" || projectGroupOpen(path, "pinned");
 		const rows = projectSessionRows(path);
+		const startChat = (): void => {
+			if (isCurrent) onNewChat();
+			else onSelectProject(path);
+			setOpenMenu(null);
+		};
 		return (
-			<div key={`pinned:${normPath(path)}`}>
-				<div className="group/row flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text">
+			<div key={menuId}>
+				<div className="group/row relative flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text">
 					<button
 						type="button"
 						className="flex shrink-0 items-center p-0.5"
@@ -766,15 +778,68 @@ export function SessionSidebar({
 						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
 						<span className="truncate text-xs">{projectLabel(path)}</span>
 					</button>
-					{isCurrent && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
-					<button
-						type="button"
-						className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
-						title="取消置顶"
-						onClick={() => toggleProjectPin(path)}
-					>
-						<IconPin className="h-3.5 w-3.5" filled />
-					</button>
+					<div className="flex shrink-0 items-center gap-0.5">
+						<button
+							type="button"
+							className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+							title="取消置顶"
+							onClick={() => toggleProjectPin(path)}
+						>
+							<IconPin className="h-3.5 w-3.5" filled />
+						</button>
+						<button
+							type="button"
+							className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+							title={isCurrent ? "在本项目新建会话" : "切换到此项目并新建会话"}
+							onClick={startChat}
+						>
+							<IconPlus className="h-3.5 w-3.5" />
+						</button>
+						<button
+							type="button"
+							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
+								openMenu === menuId
+									? "text-owl-text opacity-100"
+									: "text-owl-faint opacity-0 group-hover/row:opacity-100 hover:text-owl-text"
+							}`}
+							title="项目操作"
+							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
+						>
+							<IconMore className="h-3.5 w-3.5" />
+						</button>
+						{isCurrent && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
+					</div>
+					{openMenu === menuId && (
+						<div
+							data-menu-root
+							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+						>
+							{isCurrent ? (
+								<MenuRow
+									label="新建会话"
+									onClick={() => {
+										setOpenMenu(null);
+										onNewChat();
+									}}
+								/>
+							) : (
+								<MenuRow
+									label="切换到此项目"
+									onClick={() => {
+										setOpenMenu(null);
+										onSelectProject(path);
+									}}
+								/>
+							)}
+							<MenuRow
+								label="在资源管理器中打开"
+								onClick={() => {
+									setOpenMenu(null);
+									void revealProject(path);
+								}}
+							/>
+						</div>
+					)}
 				</div>
 				{expanded && (
 					<div className="mt-0.5 pl-4">

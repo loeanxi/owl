@@ -1018,37 +1018,29 @@ export default function (pi: ExtensionAPI) {
 			});
 		},
 
-		renderCall(args, theme) {
+		renderCall(args) {
 			const input = args as { query?: unknown; queries?: unknown };
 			const rawQueryList: unknown[] = Array.isArray(input.queries)
 				? input.queries
 				: (input.query !== undefined ? expandQueryString(input.query) : []);
 			const queryList = normalizeQueryList(rawQueryList);
 			if (queryList.length === 0) {
-				return new Text(theme.fg("toolTitle", theme.bold("search ")) + theme.fg("error", "(no query)"), 0, 0);
+				return "search (no query)";
 			}
 			if (queryList.length === 1) {
-				const q = queryList[0];
-				return new Text(theme.fg("toolTitle", theme.bold("search ")) + theme.fg("accent", `"${q}"`), 0, 0);
+				return `search "${queryList[0]}"`;
 			}
-			const lines = [theme.fg("toolTitle", theme.bold("search ")) + theme.fg("accent", `${queryList.length} queries`)];
+			const lines = [`search ${queryList.length} queries`];
 			for (const q of queryList.slice(0, 5)) {
-				lines.push(theme.fg("muted", `  "${q}"`));
+				lines.push(`  "${q}"`);
 			}
 			if (queryList.length > 5) {
-				lines.push(theme.fg("muted", `  ... and ${queryList.length - 5} more`));
+				lines.push(`  ... and ${queryList.length - 5} more`);
 			}
-			return new Text(lines.join("\n"), 0, 0);
+			return lines.join("\n");
 		},
 
-		renderResult(result, { expanded, isPartial }, theme) {
-			type QueryDetail = {
-				query: string;
-				provider: string | null;
-				answer: string | null;
-				sources: Array<{ title: string; url: string }>;
-				error: string | null;
-			};
+		renderResult(result, { expanded, isPartial }) {
 			const details = result.details as {
 				queryCount?: number;
 				successfulQueries?: number;
@@ -1059,97 +1051,56 @@ export default function (pi: ExtensionAPI) {
 				phase?: string;
 				progress?: number;
 				currentQuery?: string;
-				curated?: boolean;
-				curatedFrom?: number;
-				curatedQueries?: QueryDetail[];
-				cancelled?: boolean;
-				cancelReason?: string;
-				browserConnected?: boolean;
-				lastHeartbeatAgeMs?: number | null;
-				cancelledQueries?: import("./render-search-error.ts").CancelledQueryDetail[];
-				curatorUrl?: string;
-				browserOpenError?: string;
-				timeoutSeconds?: number;
-				shortcut?: string;
 				summary?: {
 					text: string;
-					workflow: SummaryWorkflow;
+					workflow: string;
 					model: string | null;
 					durationMs: number;
 					tokenEstimate: number;
 					fallbackUsed: boolean;
 					fallbackReason?: string;
-					phase?: "summary-model" | "deterministic-fallback";
+					phase?: string;
 					edited?: boolean;
 				};
 			};
 
 			if (isPartial) {
-				if (details?.phase === "curator-fallback") {
-					const lines = [theme.fg("warning", "Open the search curator manually:")];
-					if (details?.curatorUrl) lines.push(theme.fg("muted", `  ${details.curatorUrl}`));
-					if (details?.browserOpenError) lines.push(theme.fg("dim", `  auto-open failed: ${details.browserOpenError}`));
-					const timeout = typeof details?.timeoutSeconds === "number" ? details.timeoutSeconds : undefined;
-					const shortcut = typeof details?.shortcut === "string" ? details.shortcut : curateKey;
-					lines.push(theme.fg("dim", timeout ? `  auto-submits after ${timeout}s idle; ${shortcut} reopens` : `  ${shortcut} reopens`));
-					return new Text(lines.join("\n"), 0, 0);
-				}
-				if (details?.phase === "curating" || details?.phase === "waiting-for-approval" || details?.phase === "generating-summary") {
-					const phaseText = details?.phase === "generating-summary"
-						? "generating summary draft..."
-						: details?.phase === "waiting-for-approval"
-							? "summary draft ready; approve in browser..."
-							: "waiting for summary approval in browser...";
-					const lines = [theme.fg("accent", phaseText)];
-					if (details?.curatorUrl) {
-						lines.push(theme.fg("muted", `  ${details.curatorUrl}`));
-					}
-					const timeout = typeof details?.timeoutSeconds === "number" ? details.timeoutSeconds : undefined;
-					const shortcut = typeof details?.shortcut === "string" ? details.shortcut : curateKey;
-					if (timeout) {
-						lines.push(theme.fg("dim", `  auto-submits after ${timeout}s idle; ${shortcut} reopens`));
-					} else {
-						lines.push(theme.fg("dim", `  ${shortcut} reopens`));
-					}
-					return new Text(lines.join("\n"), 0, 0);
+				if (details?.phase === "generating-summary") {
+					return "generating summary draft...";
 				}
 				if (details?.phase === "searching") {
 					const progress = details?.progress ?? 0;
 					const bar = "\u2588".repeat(Math.floor(progress * 10)) + "\u2591".repeat(10 - Math.floor(progress * 10));
 					const query = details?.currentQuery || "";
 					const display = query.length > 40 ? query.slice(0, 37) + "..." : query;
-					return new Text(theme.fg("accent", `[${bar}] ${display}`), 0, 0);
+					return `[${bar}] ${display}`;
 				}
 				const progress = details?.progress ?? 0;
 				const bar = "\u2588".repeat(Math.floor(progress * 10)) + "\u2591".repeat(10 - Math.floor(progress * 10));
-				return new Text(theme.fg("accent", `[${bar}] ${details?.phase || "searching"}`), 0, 0);
+				return `[${bar}] ${details?.phase || "searching"}`;
 			}
 
 			if (details?.error) {
-				// Expandable Ctrl+O diagnostics: which queries completed, per-query errors,
-				// browser connection state, cancel reason. See render-search-error.ts.
+				// Expandable diagnostics: which queries completed, per-query errors.
+				// See render-search-error.ts.
 				const plan = buildSearchErrorPlan(details as SearchErrorDetails);
-				if (plan) return renderSearchErrorPlan(plan, expanded, theme);
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+				if (plan) return renderSearchErrorPlan(plan, expanded);
+				return `Error: ${details.error}`;
 			}
 
-			let statusLine: string;
 			const queryInfo = details?.queryCount === 1 ? "" : `${details?.successfulQueries}/${details?.queryCount} queries, `;
-			statusLine = theme.fg("success", `${queryInfo}${details?.totalResults ?? 0} sources`);
-			if (details?.curated && details?.curatedFrom) {
-				statusLine += theme.fg("muted", ` (${details.queryCount}/${details.curatedFrom} queries curated)`);
-			}
+			let statusLine = `${queryInfo}${details?.totalResults ?? 0} sources`;
 			if (details?.fetchId && details?.fetchUrls) {
-				statusLine += theme.fg("muted", ` (fetching ${details.fetchUrls.length} URLs)`);
+				statusLine += ` (fetching ${details.fetchUrls.length} URLs)`;
 			} else if (details?.fetchId) {
-				statusLine += theme.fg("muted", " (content ready)");
+				statusLine += " (content ready)";
 			}
 
 			// Build expanded lines first so collapsed view can reference total count
 			const lines = [statusLine];
 			if (details?.summary?.text) {
 				lines.push("");
-				lines.push(theme.fg("accent", `── Summary (${details.summary.workflow}) ` + "─".repeat(32)));
+				lines.push(`── Summary (${details.summary.workflow}) ` + "─".repeat(32));
 				lines.push("");
 				for (const line of details.summary.text.split("\n")) {
 					lines.push(`  ${line}`);
@@ -1166,88 +1117,35 @@ export default function (pi: ExtensionAPI) {
 				if (details.summary.fallbackReason) {
 					metaParts.push(`reason=${details.summary.fallbackReason}`);
 				}
-				lines.push(theme.fg("dim", "  " + metaParts.filter(Boolean).join(" · ")));
+				lines.push("  " + metaParts.filter(Boolean).join(" · "));
 			}
 
-			const queryDetails = details?.curatedQueries;
-			if (queryDetails?.length) {
-				const kept = queryDetails.length;
-				const from = details?.curatedFrom ?? kept;
-				lines.push("");
-				lines.push(theme.fg("accent", `\u2500\u2500 Curated Results (${kept} of ${from} queries kept) ` + "\u2500".repeat(24)));
-
-				for (const cq of queryDetails) {
-					lines.push("");
-					const dq = cq.query.length > 65 ? cq.query.slice(0, 62) + "..." : cq.query;
-					const providerLabel = cq.provider ? ` (${cq.provider})` : "";
-					lines.push(theme.fg("accent", `  "${dq}"${providerLabel}`));
-
-					if (cq.error) {
-						lines.push(theme.fg("error", `  ${cq.error}`));
-					} else if (cq.answer) {
-						lines.push("");
-						for (const line of cq.answer.split("\n")) {
-							lines.push(`  ${line}`);
-						}
-					}
-
-					if (cq.sources.length > 0) {
-						lines.push("");
-						for (const s of cq.sources) {
-							const domain = s.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-							const title = s.title.length > 50 ? s.title.slice(0, 47) + "..." : s.title;
-							lines.push(theme.fg("muted", `  \u25b8 ${title}`) + theme.fg("dim", ` \u00b7 ${domain}`));
-						}
-					}
-				}
-				lines.push("");
-			} else {
+			{
 				const textContent = result.content.find((c) => c.type === "text")?.text || "";
 				const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
 				for (const line of preview.split("\n")) {
-					lines.push(theme.fg("dim", line));
+					lines.push(line);
 				}
 			}
 
 			if (details?.fetchUrls && details.fetchUrls.length > 0) {
-				if (details.curated) {
-					lines.push(theme.fg("muted", `Fetching ${details.fetchUrls.length} URLs in background`));
-				} else {
-					lines.push(theme.fg("muted", "Fetching:"));
-					for (const u of details.fetchUrls.slice(0, 5)) {
-						const display = u.length > 60 ? u.slice(0, 57) + "..." : u;
-						lines.push(theme.fg("dim", "  " + display));
-					}
-					if (details.fetchUrls.length > 5) {
-						lines.push(theme.fg("dim", `  ... and ${details.fetchUrls.length - 5} more`));
-					}
+				lines.push(`Fetching ${details.fetchUrls.length} URLs in background:`);
+				for (const u of details.fetchUrls.slice(0, 5)) {
+					const display = u.length > 60 ? u.slice(0, 57) + "..." : u;
+					lines.push("  " + display);
+				}
+				if (details.fetchUrls.length > 5) {
+					lines.push(`  ... and ${details.fetchUrls.length - 5} more`);
 				}
 			}
 
 			const totalLines = lines.length;
 
 			if (!expanded) {
-				const box = new Box(1, 0);
-				box.addChild(new Text(statusLine, 0, 0));
-
-				let collapsedLines = 1; // statusLine
+				const collapsedLines: string[] = [statusLine];
 				const summaryPreview = details?.summary?.text?.trim() || "";
 				if (summaryPreview) {
-					const preview = summaryPreview.length > 120 ? summaryPreview.slice(0, 117) + "..." : summaryPreview;
-					box.addChild(new Text(theme.fg("dim", preview), 0, 0));
-					collapsedLines++;
-				} else if (details?.curatedQueries?.length) {
-					for (const cq of details.curatedQueries.slice(0, 3)) {
-						const dq = cq.query.length > 55 ? cq.query.slice(0, 52) + "..." : cq.query;
-						const srcCount = cq.sources?.length ?? 0;
-						const suffix = cq.error ? theme.fg("error", " (error)") : theme.fg("dim", ` · ${srcCount} sources`);
-						box.addChild(new Text(theme.fg("accent", `  "${dq}"`) + suffix, 0, 0));
-						collapsedLines++;
-					}
-					if (details.curatedQueries.length > 3) {
-						box.addChild(new Text(theme.fg("dim", `  ... and ${details.curatedQueries.length - 3} more`), 0, 0));
-						collapsedLines++;
-					}
+					collapsedLines.push(summaryPreview.length > 120 ? summaryPreview.slice(0, 117) + "..." : summaryPreview);
 				} else {
 					const textContent = result.content.find((c) => c.type === "text")?.text || "";
 					const firstContentLine = textContent.split("\n").find(l => {
@@ -1256,19 +1154,17 @@ export default function (pi: ExtensionAPI) {
 					});
 					const fallbackLine = (firstContentLine?.trim() || "").replace(/\*\*/g, "");
 					if (fallbackLine) {
-						const preview = fallbackLine.length > 120 ? fallbackLine.slice(0, 117) + "..." : fallbackLine;
-						box.addChild(new Text(theme.fg("dim", preview), 0, 0));
-						collapsedLines++;
+						collapsedLines.push(fallbackLine.length > 120 ? fallbackLine.slice(0, 117) + "..." : fallbackLine);
 					}
 				}
-				const moreLines = Math.max(0, totalLines - collapsedLines);
+				const moreLines = Math.max(0, totalLines - collapsedLines.length);
 				if (moreLines > 0) {
-					box.addChild(new Text(theme.fg("muted", `\n... (${moreLines} more lines, ${totalLines} total, ctrl+o to expand)`), 0, 0));
+					collapsedLines.push(`... (${moreLines} more lines, ${totalLines} total, ctrl+o to expand)`);
 				}
-				return box;
+				return collapsedLines.join("\n");
 			}
 
-			return new Text(lines.join("\n"), 0, 0);
+			return lines.join("\n");
 		},
 	});
 
@@ -1374,9 +1270,9 @@ export default function (pi: ExtensionAPI) {
 	if (fetchContentEnabled) pi.registerTool({
 		name: toolNames.fetchContent,
 		label: "Fetch Content",
-		description: `Fetch URL(s). Available modes: ${fetchModeDescription}. Direct image URLs return resized image content when supported by the selected mode. Supports YouTube transcripts, GitHub repositories, PDFs, and local videos when supported by the selected mode. ${fetchContentStorageNote}`,
+		description: `Fetch URL(s). Available modes: ${fetchModeDescription}. Direct image URLs return resized image content when supported by the selected mode. Supports GitHub repositories and PDFs. ${fetchContentStorageNote}`,
 		promptSnippet:
-			"Use to fetch URL content, direct images, GitHub repos, and videos.",
+			"Use to fetch URL content, direct images, and GitHub repos.",
 		parameters: Type.Object({
 			url: Type.Optional(Type.String({ description: "Single URL to fetch" })),
 			urls: Type.Optional(Type.Array(Type.String(), { description: "Multiple URLs (parallel)" })),
@@ -1384,32 +1280,16 @@ export default function (pi: ExtensionAPI) {
 				description: "Force cloning large GitHub repositories that exceed the size threshold",
 			})),
 			prompt: Type.Optional(Type.String({
-				description: fetchModeConfig.allowedModes.includes("answer")
-					? "Question or instruction for video analysis, or the page-local question required by answer mode."
-					: "Question or instruction for video analysis.",
+				description: "Question or instruction required by answer mode.",
 			})),
 			mode: Type.Optional(StringEnum(fetchModeConfig.allowedModes, {
 				description: `Fetch mode. ${fetchModeDescription}.`,
 			})),
 			...(fetchModeConfig.allowedModes.includes("answer") ? {
 				answerModel: Type.Optional(Type.String({
-					description: "Optional provider/model-id override for answer mode. Defaults to fetch.answerProvider + fetch.answerModel when configured, otherwise the current Pi model.",
+					description: "Optional provider/model-id override for answer mode. Defaults to fetch.answerProvider + fetch.answerModel when configured, otherwise the current model.",
 				})),
 			} : {}),
-			timestamp: Type.Optional(Type.String({
-				description: "Extract video frame(s) at a timestamp or time range. Single: '1:23:45', '23:45', or '85' (seconds). Range: '23:41-25:00' extracts evenly-spaced frames across that span (default 6). Use frames with ranges to control density; single+frames uses a fixed 5s interval. YouTube requires yt-dlp + ffmpeg; local videos require ffmpeg. Use a range when you know the approximate area but not the exact moment — you'll get a contact sheet to visually identify the right frame.",
-			})),
-			frames: Type.Optional(Type.Integer({
-				minimum: 1,
-				maximum: 12,
-				description: "Number of frames to extract. Use with timestamp range for custom density, with single timestamp to get N frames at 5s intervals, or alone to sample across the entire video. Requires yt-dlp + ffmpeg for YouTube, ffmpeg for local video.",
-			})),
-			model: Type.Optional(Type.String({
-				description: "Override the Gemini model for video/YouTube analysis (e.g. 'gemini-3.6-flash'). Defaults to config or gemini-3.6-flash.",
-			})),
-			auth: Type.Optional(Type.Union([Type.String(), Type.Boolean()], {
-				description: "Opt into an authFetch profile for local browser-cookie fetching. Use a profile name, or true only when exactly one profile exists.",
-			})),
 			proxy: Type.Optional(Type.String({
 				description: "http(s) or socks proxy URL (e.g. http://host:port or socks5h://host:port) used for this fetch. Needed when the target is unreachable directly; localhost and NO_PROXY hosts always bypass the proxy. Empty string forces direct access.",
 			})),
@@ -1433,26 +1313,11 @@ export default function (pi: ExtensionAPI) {
 				if (mode === "answer" && !options.prompt) {
 					return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };
 				}
-				if (mode === "raw" && (options.forceClone === true || options.timestamp || options.frames || options.prompt || options.model || options.answerModel)) {
-					return { content: [{ type: "text", text: "Error: mode raw cannot be combined with forceClone, prompt, timestamp, frames, model, or answerModel." }], details: { error: "Incompatible raw mode options" } };
+				if (mode === "raw" && (options.forceClone === true || options.prompt || options.answerModel)) {
+					return { content: [{ type: "text", text: "Error: mode raw cannot be combined with forceClone, prompt, or answerModel." }], details: { error: "Incompatible raw mode options" } };
 				}
 				if (mode !== "answer" && options.answerModel) {
 					return { content: [{ type: "text", text: "Error: answerModel requires mode answer." }], details: { error: "answerModel requires mode answer" } };
-				}
-				if (mode === "answer" && options.model) {
-					return { content: [{ type: "text", text: "Error: use answerModel, not model, with mode answer." }], details: { error: "model is incompatible with mode answer" } };
-				}
-				if (mode === "answer" && options.auth !== undefined) {
-					return { content: [{ type: "text", text: "Error: auth cannot be combined with mode answer." }], details: { error: "auth cannot be combined with mode answer" } };
-				}
-				let authFetchProfile: AuthFetchProfile | undefined;
-				if (options.auth !== undefined) {
-					try {
-						authFetchProfile = resolveAuthFetchProfile(options.auth);
-					} catch (err) {
-						const error = err instanceof Error ? err.message : String(err);
-						return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
-					}
 				}
 				if (urlList.length === 0) {
 					return {
@@ -1466,12 +1331,9 @@ export default function (pi: ExtensionAPI) {
 					details: { phase: "fetch", progress: 0 },
 				});
 
-				const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = { ...options, mode };
+				const { answerModel: _answerModel, ...extractionOptions } = { ...options, mode };
 				const { prompt: _prompt, ...answerExtractionOptions } = extractionOptions;
-				const fetchOptions = {
-					...(mode === "answer" ? answerExtractionOptions : extractionOptions),
-					...(authFetchProfile ? { authFetchProfile } : {}),
-				};
+				const fetchOptions = mode === "answer" ? answerExtractionOptions : extractionOptions;
 				const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames, options.proxy));
 				const presentedResults = mode === "answer"
 					? await Promise.all(fetchResults.map(async result => {
@@ -1502,14 +1364,14 @@ export default function (pi: ExtensionAPI) {
 					timestamp: Date.now(),
 					urls: stripThumbnails(fetchResults),
 				} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
-				const storedContent = storeFetchResult(pi, responseId, data, authFetchProfile);
+				storeFetchResult(pi, responseId, data);
 
 				if (urlList.length === 1) {
 					const result = presentedResults[0];
 					if (result.error) {
 						return {
 							content: [{ type: "text", text: `Error: ${result.error}` }],
-							details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, ...(storedContent ? { responseId } : {}), prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
+							details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, responseId, prompt: params.prompt },
 						};
 					}
 
@@ -1520,25 +1382,18 @@ export default function (pi: ExtensionAPI) {
 
 					if (truncated) {
 						output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
-						output += storedContent
-							? getSearchContentEnabled
-								? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
-								: "Content retrieval is not registered."
-							: "Authenticated fetch cache is off; repeat the fetch to read more.";
+						output += getSearchContentEnabled
+							? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
+							: "Content retrieval is not registered.";
 					}
 
 					const content: Array<TextContent | ImageContent> = [];
-					if (result.frames?.length) {
-						for (const frame of result.frames) {
-							content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
-							content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
-						}
-					} else if (result.thumbnail) {
+					if (result.thumbnail) {
 						content.push({ type: "image", data: result.thumbnail.data, mimeType: result.thumbnail.mimeType });
 					}
 					content.push({ type: "text", text: output });
 
-					const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
+					const imageCount = result.thumbnail ? 1 : 0;
 					return {
 						content,
 						details: {
@@ -1547,14 +1402,11 @@ export default function (pi: ExtensionAPI) {
 							successful: 1,
 							totalChars: fullLength,
 							title: result.title,
-							...(storedContent ? { responseId } : {}),
+							responseId,
 							truncated,
 							hasImage: imageCount > 0,
 							imageCount,
 							prompt: params.prompt,
-							timestamp: params.timestamp,
-							frames: params.frames,
-							duration: result.duration,
 							mode,
 							mimeType: result.mimeType,
 							status: result.status,
@@ -1574,15 +1426,13 @@ export default function (pi: ExtensionAPI) {
 						output += `- ${title || url} (${content.length} chars)\n`;
 					}
 				}
-				output += storedContent
-					? getSearchContentEnabled
-						? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
-						: "\n---\nContent retrieval is not registered."
-					: "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
+				output += getSearchContentEnabled
+					? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
+					: "\n---\nContent retrieval is not registered.";
 
 				return {
 					content: [{ type: "text", text: output }],
-					details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
+					details: { urls: urlList, urlCount: urlList.length, successful, totalChars, responseId },
 				};
 			});
 		},
@@ -1592,51 +1442,39 @@ export default function (pi: ExtensionAPI) {
 			try {
 				normalized = normalizeFetchContentParams(args);
 			} catch {
-				return new Text(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("error", "(invalid parameters)"), 0, 0);
+				return "fetch (invalid parameters)";
 			}
 			const { urlList, options } = normalized;
-			const { prompt, timestamp, frames, model, mode, answerModel, auth } = options;
+			const { prompt, mode, answerModel } = options;
 			if (urlList.length === 0) {
-				return new Text(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("error", "(no URL)"), 0, 0);
+				return "fetch (no URL)";
 			}
 			const lines: string[] = [];
 			if (urlList.length === 1) {
-				lines.push(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("accent", urlList[0]));
+				lines.push(`fetch ${urlList[0]}`);
 			} else {
-				lines.push(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("accent", `${urlList.length} URLs`));
+				lines.push(`fetch ${urlList.length} URLs`);
 				for (const u of urlList.slice(0, 5)) {
-					lines.push(theme.fg("muted", "  " + u));
+					lines.push("  " + u);
 				}
 				if (urlList.length > 5) {
-					lines.push(theme.fg("muted", `  ... and ${urlList.length - 5} more`));
+					lines.push(`  ... and ${urlList.length - 5} more`);
 				}
 			}
 			if (mode && mode !== "readable") {
-				lines.push(theme.fg("dim", "  mode: ") + theme.fg("warning", mode));
-			}
-			if (timestamp) {
-				lines.push(theme.fg("dim", "  timestamp: ") + theme.fg("warning", timestamp));
-			}
-			if (typeof frames === "number") {
-				lines.push(theme.fg("dim", "  frames: ") + theme.fg("warning", String(frames)));
+				lines.push(`  mode: ${mode}`);
 			}
 			if (prompt) {
 				const display = prompt.length > 250 ? prompt.slice(0, 247) + "..." : prompt;
-				lines.push(theme.fg("dim", "  prompt: ") + theme.fg("muted", `"${display}"`));
-			}
-			if (model) {
-				lines.push(theme.fg("dim", "  model: ") + theme.fg("warning", model));
+				lines.push(`  prompt: "${display}"`);
 			}
 			if (answerModel) {
-				lines.push(theme.fg("dim", "  answer model: ") + theme.fg("warning", answerModel));
+				lines.push(`  answer model: ${answerModel}`);
 			}
-			if (auth !== undefined) {
-				lines.push(theme.fg("dim", "  auth: ") + theme.fg("warning", auth === true ? "true" : auth));
-			}
-			return new Text(lines.join("\n"), 0, 0);
+			return lines.join("\n");
 		},
 
-		renderResult(result, { expanded, isPartial }, theme) {
+		renderResult(result, { expanded, isPartial }) {
 			const details = result.details as {
 				urlCount?: number;
 				successful?: number;
@@ -1650,15 +1488,12 @@ export default function (pi: ExtensionAPI) {
 				hasImage?: boolean;
 				imageCount?: number;
 				prompt?: string;
-				timestamp?: string;
-				frames?: number;
-				duration?: number;
 			};
 
 			if (isPartial) {
 				const progress = details?.progress ?? 0;
 				const bar = "\u2588".repeat(Math.floor(progress * 10)) + "\u2591".repeat(10 - Math.floor(progress * 10));
-				return new Text(theme.fg("accent", `[${bar}] ${details?.phase || "fetching"}`), 0, 0);
+				return `[${bar}] ${details?.phase || "fetching"}`;
 			}
 
 			if (details?.error) {
@@ -1673,54 +1508,44 @@ export default function (pi: ExtensionAPI) {
 					if (fd.urls.length > 8) extras.push(`  ... and ${fd.urls.length - 8} more`);
 				}
 				const plan = buildSearchErrorPlan({ error: details.error, extraLines: extras });
-				if (plan) return renderSearchErrorPlan(plan, expanded, theme);
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+				if (plan) return renderSearchErrorPlan(plan, expanded);
+				return `Error: ${details.error}`;
 			}
 
 			if (details?.urlCount === 1) {
 				const title = details?.title || "Untitled";
 				const imgCount = details?.imageCount ?? (details?.hasImage ? 1 : 0);
 				const imageBadge = imgCount > 1
-					? theme.fg("accent", ` [${imgCount} images]`)
+					? ` [${imgCount} images]`
 					: imgCount === 1
-						? theme.fg("accent", " [image]")
+						? " [image]"
 						: "";
-				let statusLine = theme.fg("success", title) + theme.fg("muted", ` (${details?.totalChars ?? 0} chars)`) + imageBadge;
+				let statusLine = `${title} (${details?.totalChars ?? 0} chars)${imageBadge}`;
 				if (details?.truncated) {
-					statusLine += theme.fg("warning", " [truncated]");
-				}
-				if (typeof details?.duration === "number") {
-					statusLine += theme.fg("muted", ` | ${formatSeconds(Math.floor(details.duration))} total`);
+					statusLine += " [truncated]";
 				}
 				const textContent = result.content.find((c) => c.type === "text")?.text || "";
 				if (!expanded) {
 					const brief = textContent.length > 200 ? textContent.slice(0, 200) + "..." : textContent;
-					return new Text(statusLine + "\n" + theme.fg("dim", brief), 0, 0);
+					return statusLine + "\n" + brief;
 				}
 				const lines = [statusLine];
 				if (details?.prompt) {
 					const display = details.prompt.length > 250 ? details.prompt.slice(0, 247) + "..." : details.prompt;
-					lines.push(theme.fg("dim", `  prompt: "${display}"`));
-				}
-				if (details?.timestamp) {
-					lines.push(theme.fg("dim", `  timestamp: ${details.timestamp}`));
-				}
-				if (typeof details?.frames === "number") {
-					lines.push(theme.fg("dim", `  frames: ${details.frames}`));
+					lines.push(`  prompt: "${display}"`);
 				}
 				const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-				lines.push(theme.fg("dim", preview));
-				return new Text(lines.join("\n"), 0, 0);
+				lines.push(preview);
+				return lines.join("\n");
 			}
 
-			const countColor = (details?.successful ?? 0) > 0 ? "success" : "error";
-			const statusLine = theme.fg(countColor, `${details?.successful}/${details?.urlCount} URLs`) + theme.fg("muted", getSearchContentEnabled ? " (content stored)" : " (content fetched)");
+			const statusLine = `${details?.successful}/${details?.urlCount} URLs${getSearchContentEnabled ? " (content stored)" : " (content fetched)"}`;
 			if (!expanded) {
-				return new Text(statusLine, 0, 0);
+				return statusLine;
 			}
 			const textContent = result.content.find((c) => c.type === "text")?.text || "";
 			const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-			return new Text(statusLine + "\n" + theme.fg("dim", preview), 0, 0);
+			return statusLine + "\n" + preview;
 		},
 	});
 
@@ -2050,10 +1875,10 @@ export default function (pi: ExtensionAPI) {
 				const queries = Array.isArray(findText) ? findText : [findText];
 				target += `${target ? " · " : ""}find ${queries.length}`;
 			}
-			return new Text(theme.fg("toolTitle", theme.bold("get_content ")) + theme.fg("accent", target || responseId.slice(0, 8)), 0, 0);
+			return `get_content ${target || responseId.slice(0, 8)}`;
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result, { expanded }) {
 			const details = result.details as {
 				error?: string;
 				query?: string;
@@ -2074,15 +1899,15 @@ export default function (pi: ExtensionAPI) {
 				if (details.url) extras.push(`url: ${details.url}`);
 				else if (details.title) extras.push(`resource: ${details.title}`);
 				const plan = buildSearchErrorPlan({ error: details.error, extraLines: extras });
-				if (plan) return renderSearchErrorPlan(plan, expanded, theme);
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
+				if (plan) return renderSearchErrorPlan(plan, expanded);
+				return `Error: ${details.error}`;
 			}
 
 			let statusLine: string;
 			if (typeof details?.matchCount === "number") {
-				statusLine = theme.fg("success", details?.title || details?.query || "Content") + theme.fg("muted", ` (${details.matchCount} matches, ${details.returnedMatches ?? 0} shown)`);
+				statusLine = `${details?.title || details?.query || "Content"} (${details.matchCount} matches, ${details.returnedMatches ?? 0} shown)`;
 			} else if (details?.query) {
-				statusLine = theme.fg("success", `"${details.query}"`) + theme.fg("muted", ` (${details.resultCount} results)`);
+				statusLine = `"${details.query}" (${details.resultCount} results)`;
 			} else {
 				const start = details?.offset ?? 0;
 				const returned = details?.returnedChars ?? details?.contentLength ?? 0;
@@ -2090,16 +1915,16 @@ export default function (pi: ExtensionAPI) {
 				const slice = details?.nextOffset !== undefined || start > 0
 					? `, showing ${start}-${end}`
 					: "";
-				statusLine = theme.fg("success", details?.title || "Content") + theme.fg("muted", ` (${details?.contentLength ?? 0} chars${slice})`);
+				statusLine = `${details?.title || "Content"} (${details?.contentLength ?? 0} chars${slice})`;
 			}
 
 			if (!expanded) {
-				return new Text(statusLine, 0, 0);
+				return statusLine;
 			}
 
 			const textContent = result.content.find((c) => c.type === "text")?.text || "";
 			const preview = textContent.length > 500 ? textContent.slice(0, 500) + "..." : textContent;
-			return new Text(statusLine + "\n" + theme.fg("dim", preview), 0, 0);
+			return statusLine + "\n" + preview;
 		},
 	});
 	}
