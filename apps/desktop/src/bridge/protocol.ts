@@ -15,6 +15,8 @@ export type {
 	ModelsRemoveModelRequest,
 	ModelsRemoveProviderRequest,
 	PermissionRequestMessage,
+	ProjectCreateRequest,
+	ProjectCreateResult,
 	ProviderModelsMessage,
 	ServerEventMessage,
 	ServerResponseMessage,

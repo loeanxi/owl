@@ -84,7 +84,7 @@ export function SettingsPage({
 			setError("");
 			return true;
 		}
-		setError(response.error ?? "操作失败");
+		if (!/取消/.test(response.error ?? "")) setError(response.error ?? "操作失败");
 		return false;
 	}
 

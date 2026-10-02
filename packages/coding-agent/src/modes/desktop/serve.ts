@@ -14,13 +14,13 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
-import { dirname, extname, join, normalize, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { type WebSocket, WebSocketServer } from "ws";
-import { getAgentDir } from "../../config.ts";
+import { expandTildePath, getAgentDir } from "../../config.ts";
 import {
 	type AgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
@@ -386,6 +386,28 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: found });
 				return;
 			}
+			case "project.create": {
+				// 新建/打开项目目录：mkdir -p 后返回规范绝对路径，前端拿它当 session.create 的 cwd。
+				const raw = request.path?.trim();
+				if (!raw || !isAbsolute(expandTildePath(raw))) {
+					reply(ws, request.id, {
+						ok: false,
+						error: "需要绝对路径，例如 D:\\mycode\\new-project（支持 ~ 前缀）",
+					});
+					return;
+				}
+				try {
+					const path = resolve(expandTildePath(raw));
+					mkdirSync(path, { recursive: true });
+					reply(ws, request.id, { ok: true, result: { path } });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `无法创建目录：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
 			case "models.list": {
 				// owl 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
 				// 内置目录本身不再直接暴露：只有用户主动配置过凭据的供应商才会带出目录模型。
@@ -521,27 +543,47 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "auth.login": {
 				// pi /login 的桌面版：oauth 走浏览器（notify 里开浏览器 + 广播进度），api_key 直接落 auth.json。
 				// 流程中的提问（AuthPrompt）转发到界面，由 auth.prompt.respond 带回答案。
+				// 用户换厂商重新登录 = 自动放弃上一个（否则旧回调服务器挂着，新流程会卡死）。
+				if (activeLogin) {
+					pendingPrompt?.reject(new Error("登录已取消"));
+					pendingPrompt = null;
+					activeLogin.controller.abort();
+				}
 				const services = await getListingServices();
 				const controller = new AbortController();
 				activeLogin = { controller };
 				try {
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
-						prompt: (ask) => {
-							const answer = new Promise<string>((resolve, reject) => {
-								pendingPrompt = { ask, resolve, reject };
-							});
-							const cleanup = () => {
-								pendingPrompt = null;
+					prompt: (ask) => {
+						// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程
+						// 会永远挂在 prompt 上，堵死 Models 的认证操作队列。
+						const answer = new Promise<string>((resolve, reject) => {
+							const onAbort = () => reject(new Error("登录已取消"));
+							ask.signal?.addEventListener("abort", onAbort, { once: true });
+							pendingPrompt = {
+								ask,
+								resolve: (value) => {
+									ask.signal?.removeEventListener("abort", onAbort);
+									resolve(value);
+								},
+								reject: (error) => {
+									ask.signal?.removeEventListener("abort", onAbort);
+									reject(error);
+								},
 							};
-							answer.then(cleanup, cleanup);
-							broadcast({
-								type: "event",
-								sessionId: "",
-								event: { type: "auth_prompt", ask },
-							});
-							return answer;
-						},
+						});
+						const cleanup = () => {
+							pendingPrompt = null;
+						};
+						answer.then(cleanup, cleanup);
+						broadcast({
+							type: "event",
+							sessionId: "",
+							event: { type: "auth_prompt", ask },
+						});
+						return answer;
+					},
 						notify: (event) => {
 							// auth_url（回调流）与 device_code（设备码流）都自动打开对应页面
 							if (event.type === "auth_url") openInBrowser(event.url);
@@ -555,10 +597,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					});
 					reply(ws, request.id, { ok: true, result: { provider: request.provider, authType: request.authType } });
 				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+					if (controller.signal.aborted) {
+						// 被新登录/取消替换，静默结束，避免旧流程往界面甩报错
+						reply(ws, request.id, { ok: false, error: "登录已取消" });
+					} else {
+						reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+					}
 				} finally {
-					activeLogin = null;
-					pendingPrompt = null;
+					// 只清理仍归属于本次流程的状态，别误伤替换进来的新登录
+					if (activeLogin?.controller === controller) activeLogin = null;
 				}
 				return;
 			}

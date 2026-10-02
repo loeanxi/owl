@@ -35,6 +35,21 @@ export interface SessionListRequest {
 	sessionDir?: string;
 }
 
+export interface ProjectCreateRequest {
+	type: "project.create";
+	id: string;
+	/**
+	 * Absolute project directory (支持 ~ 前缀). Created recursively when missing,
+	 * so this doubles as "open existing project" (mkdir on an existing dir is a no-op).
+	 */
+	path: string;
+}
+
+export interface ProjectCreateResult {
+	/** Resolved absolute path (backslashes on Windows) — use as session.create cwd. */
+	path: string;
+}
+
 export interface ModelsListRequest {
 	type: "models.list";
 	id: string;
@@ -108,6 +123,7 @@ export type DesktopClientRequest =
 	| SessionPromptRequest
 	| SessionAbortRequest
 	| SessionListRequest
+	| ProjectCreateRequest
 	| ModelsListRequest
 	| ModelsPutProviderRequest
 	| ModelsPutModelRequest
