@@ -44,14 +44,22 @@ function AssistantEntry({ entry }: { entry: Extract<ChatEntry, { kind: "assistan
 
 export function ChatStream({ entries }: { entries: ChatEntry[] }): React.JSX.Element {
 	const container = useRef<HTMLElement>(null);
-	const bottom = useRef<HTMLDivElement>(null);
-	// 只在视口贴近底部时才跟随新内容滚动：流式输出期间用户往上翻历史，不被拽回底部。
+	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
+	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
 	const stick = useRef(true);
 	const prevEntries = useRef<ChatEntry[]>([]);
 
+	const onWheel = (event: React.WheelEvent<HTMLElement>): void => {
+		// 向上滚（deltaY<0）是明确的用户意图，先于滚动发生：直接停跟随。
+		// 触控板/高精度滚轮单次位移很小，靠位移阈值判断会漏，必须在 wheel 上拦。
+		if (event.deltaY < 0) stick.current = false;
+	};
+
 	const onScroll = (): void => {
 		const el = container.current;
-		stick.current = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+		if (!el) return;
+		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
+		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
 	};
 
 	useEffect(() => {
@@ -60,11 +68,18 @@ export function ChatStream({ entries }: { entries: ChatEntry[] }): React.JSX.Ele
 		const userJustSent = last?.kind === "user" && last !== prevLast;
 		prevEntries.current = entries;
 		if (!stick.current && !userJustSent) return;
-		bottom.current?.scrollIntoView({ behavior: "smooth" });
+		// 直接设 scrollTop：瞬时定位，不与用户滚动抢平滑动画队列。
+		const el = container.current;
+		if (el) el.scrollTop = el.scrollHeight;
 	}, [entries]);
 
 	return (
-		<main ref={container} onScroll={onScroll} className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+		<main
+			ref={container}
+			onWheel={onWheel}
+			onScroll={onScroll}
+			className="flex-1 space-y-5 overflow-y-auto px-6 py-5"
+		>
 			{entries.length === 0 && (
 				<div className="mt-[22vh] flex flex-col items-center">
 					<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
@@ -91,7 +106,6 @@ export function ChatStream({ entries }: { entries: ChatEntry[] }): React.JSX.Ele
 					</div>
 				);
 			})}
-			<div ref={bottom} />
 		</main>
 	);
 }

@@ -6,18 +6,19 @@
  * （bg-owl-bg / text-owl-muted / border-owl-border …）。
  */
 @theme {
-	/* 表面：主背景 → 侧栏最暗 → 面板/输入卡 → 悬停 */
+	/* 表面：主背景 → 侧栏 → 图标栏最深 → 面板/输入卡 → 悬停 */
 	--color-owl-bg: #262624;
 	--color-owl-sidebar: #1f1e1d;
+	--color-owl-rail: #1a1918;
 	--color-owl-panel: #2f2e2b;
 	--color-owl-bubble: #30302e;
 	--color-owl-hover: #35342f;
-	--color-owl-border: #3d3c38;
+	--color-owl-border: #45443e;
 
 	/* 文字：奶油白正文 → 次级 → 弱化 */
 	--color-owl-text: #e9e7e0;
 	--color-owl-muted: #a6a399;
-	--color-owl-faint: #77746b;
+	--color-owl-faint: #8a867c;
 
 	/* 主色：Claude 珊瑚橙 */
 	--color-owl-accent: #d97757;
