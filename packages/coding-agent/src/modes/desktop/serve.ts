@@ -42,10 +42,15 @@ import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
+import {
+	cancelAllPendingQuestions,
+	cancelPendingQuestionsForSession,
+	resolveQuestion,
+	setQuestionChannel,
+} from "../../core/question-channel.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
-import { cancelPendingQuestionsForSession, createAskUserQuestionExtension, type PendingQuestion } from "./ask-user.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import type { IabFrameMessage, IabOpenResult, IabPageInfo, IabStateResult } from "./protocol.ts";
 import {
@@ -352,8 +357,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const iabTools = iab.tools();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
-	/** requestId → resolver for ask_user_question 工具等待用户作答 */
-	const pendingQuestions: Map<string, PendingQuestion> = new Map();
 	/** Shared services for non-session queries (models.list); built lazily. */
 	let listServices: AgentSessionServices | undefined;
 	/** MCP connections established at startup. */
@@ -378,7 +381,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
 		}
 		// abort 会顺带经 signal 取消挂起的提问，这里兜底清掉可能漏网的
-		cancelPendingQuestionsForSession(pendingQuestions, sessionId);
+		cancelPendingQuestionsForSession(sessionId);
 		mounted.unsubscribe();
 		sessions.delete(sessionId);
 	}
@@ -478,6 +481,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 		return false;
 	}
+
+	// 「向用户提问」通道：owl-ask-user 插件经 question-channel 注册表取用这条
+	// WebSocket 往返；桥关闭时摘除（之后插件的工具会被每轮 reconcile 摘掉）。
+	setQuestionChannel({ broadcast, hasConnectedClients });
 
 	function reply(ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }): void {
 		if (ws.readyState === ws.OPEN) {
@@ -692,20 +699,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				});
 			},
 		};
-		// 「向用户提问」扩展：ask_user_question 工具经 question_request/question.response 往返等用户作答。
-		const askUserExtension = createAskUserQuestionExtension({
-			broadcast,
-			hasConnectedClients,
-			getSessionId: () => sessionIdHolder.current,
-			pendingQuestions,
-		});
+		// 「向用户提问」由插件 owl-ask-user（settings plugins）经 question-channel 通道提供，
+		// 不再是内联扩展；插件的启停走设置页插件列表。
 		const owlAddenda = await loadOwlAddenda();
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const runtime = await createAgentSessionRuntime(
 			buildFactory(
 				args.agentDir,
 				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-				[...builtInExtensions, permissionExtension, owlMemoryExtension, askUserExtension],
+				[...builtInExtensions, permissionExtension, owlMemoryExtension],
 				owlAddenda,
 			),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
@@ -1290,13 +1292,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "question.response": {
-				const pending = pendingQuestions.get(request.requestId);
-				if (!pending) {
+				const resolved = resolveQuestion(request.requestId, {
+					cancelled: request.cancelled === true,
+					answers: request.answers ?? [],
+				});
+				if (!resolved) {
 					reply(ws, request.id, { ok: false, error: `Unknown question request: ${request.requestId}` });
 					return;
 				}
-				pendingQuestions.delete(request.requestId);
-				pending.resolve({ cancelled: request.cancelled === true, answers: request.answers ?? [] });
 				reply(ws, request.id, { ok: true });
 				return;
 			}
@@ -1619,9 +1622,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			if (archiveTimer) clearInterval(archiveTimer);
 			for (const { unsubscribe } of sessions.values()) unsubscribe();
 			sessions.clear();
-			// 桥关闭：别让挂起的提问把工具协程永远吊着
-			for (const entry of pendingQuestions.values()) entry.resolve({ cancelled: true, answers: [] });
-			pendingQuestions.clear();
+			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在
+			// 每轮 reconcile 时把工具摘掉）
+			cancelAllPendingQuestions();
+			setQuestionChannel(undefined);
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();
 			terminals.killAll();

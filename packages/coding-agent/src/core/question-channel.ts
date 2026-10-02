@@ -12,11 +12,11 @@
  * 同一份 dist 模块实例，这里就是两边共享的接缝。
  */
 
-import type { QuestionAnswerPayload } from "../modes/desktop/protocol.ts";
+import type { DesktopServerMessage, QuestionAnswerPayload } from "../modes/desktop/protocol.ts";
 
 /** 桥注入的提问通道：向所有已连接的桌面 UI 广播 + 连接探针。 */
 export interface QuestionChannel {
-	broadcast: (message: unknown) => void;
+	broadcast: (message: DesktopServerMessage) => void;
 	/** 没有任何桌面 UI 连着时提问必然无人应答，插件应在出发前就报错。 */
 	hasConnectedClients: () => boolean;
 }

@@ -294,7 +294,8 @@ export default function (pi: ExtensionAPI): void {
 					}
 				});
 			} finally {
-				// resolveQuestion 已删的幂等；abort 路径靠这里摘除登记
+				// 正常路径下登记已被 resolveQuestion 摘除（此处 no-op）；abort 抢跑时靠这里清掉残留登记
+				resolveQuestion(requestId, { cancelled: true, answers: [] });
 			}
 
 			if (outcome.cancelled) return declineResult();
