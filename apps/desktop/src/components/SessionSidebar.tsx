@@ -276,8 +276,8 @@ export function SessionSidebar({
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为分组 id。 */
-	const [openMenu, setOpenMenu] = useState<"pinned" | "projects" | "recent" | null>(null);
+	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含项目行自己的菜单）。 */
+	const [openMenu, setOpenMenu] = useState<"pinned" | "projects" | "project-row" | "recent" | null>(null);
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
 		loadChoice(PINNED_SORT_KEY, ["recent", "manual"] as const, "manual"),
 	);
@@ -388,6 +388,15 @@ export function SessionSidebar({
 			if (response.ok) void refresh();
 		} catch {
 			// 桥未连接等瞬时失败：列表不动，用户重试即可
+		}
+	};
+
+	/** 在系统资源管理器中定位当前项目目录。 */
+	const revealProject = async (): Promise<void> => {
+		try {
+			await client.request({ type: "open.external", action: "reveal", target: ".", cwd: activeProject });
+		} catch {
+			// 桥未连接等瞬时失败：静默跳过
 		}
 	};
 
@@ -716,8 +725,8 @@ export function SessionSidebar({
 					}
 					menu={<MenuRow label="新建项目" onClick={openNewProject} />}
 				>
-					{/* 当前项目行：点击展开/收起会话列表；悬停右侧露出新会话/项目选项按钮 */}
-					<div className="group/project flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+					{/* 当前项目行：点击展开/收起会话列表；悬停右侧露出新会话/项目菜单按钮 */}
+					<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
 						<button
 							type="button"
 							className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -743,14 +752,39 @@ export function SessionSidebar({
 							</button>
 							<button
 								type="button"
-								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
-								title="项目选项"
-								onClick={() => setOpenMenu(openMenu === "projects" ? null : "projects")}
+								className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
+									openMenu === "project-row"
+										? "text-owl-text opacity-100"
+										: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
+								}`}
+								title="项目操作"
+								onClick={() => setOpenMenu(openMenu === "project-row" ? null : "project-row")}
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
 							<span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
 						</div>
+						{openMenu === "project-row" && (
+							<div
+								data-menu-root
+								className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+							>
+								<MenuRow
+									label="新建会话"
+									onClick={() => {
+										setOpenMenu(null);
+										onNewChat();
+									}}
+								/>
+								<MenuRow
+									label="在资源管理器中打开"
+									onClick={() => {
+										setOpenMenu(null);
+										void revealProject();
+									}}
+								/>
+							</div>
+						)}
 					</div>
 					{isOpen(PROJECT_SESSIONS_ID) && (
 						<div className="mt-0.5 pl-4">

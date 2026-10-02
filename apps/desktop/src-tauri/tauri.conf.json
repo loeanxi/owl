@@ -20,7 +20,7 @@
 		"targets": ["nsis"],
 		"icon": ["icons/icon.ico"],
 		"resources": [
-			"../../packages/coding-agent/dist/**"
+			"../../../packages/coding-agent/dist/**"
 		],
 		"windows": {
 			"nsis": {
