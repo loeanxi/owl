@@ -637,6 +637,16 @@ export class SettingsManager {
 		this.settings = deepMergeSettings(this.settings, overrides);
 	}
 
+	/** pire: merge overrides into global settings and persist them to settings.json */
+	applyGlobalOverridesAndSave(overrides: Partial<Settings>): Settings {
+		this.globalSettings = deepMergeSettings(this.globalSettings, overrides);
+		for (const field of Object.keys(overrides) as Array<keyof Settings>) {
+			this.markModified(field);
+		}
+		this.save();
+		return this.getGlobalSettings();
+	}
+
 	/** Mark a global field as modified during this session */
 	private markModified(field: keyof Settings, nestedKey?: string): void {
 		this.modifiedFields.add(field);

@@ -6,84 +6,41 @@
  *   CLI: services per cwd, session bound to them).
  * - Wire events are the same JsonAgentSessionEvent stream print mode emits
  *   (partials stripped, tool calls carry id + name).
- * - v1 scope: create / prompt / abort / list. Resume, fork, permission events,
- *   and MCP tools land with the desktop UI (Phase 2).
+ * - Tool approvals: with approvalMode "confirm", a built-in extension turns
+ *   every tool_call into a permission_request round-trip to the UI.
+ * - v1 scope: create / prompt / abort / list / models / settings. Resume, fork,
+ *   and diff-level approvals land with the desktop UI.
  */
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../../config.ts";
-import { createAgentSessionServices } from "../../core/agent-session-services.ts";
-import { createAgentSessionFromServices } from "../../core/agent-session-services.ts";
+import { createAgentSessionFromServices, createAgentSessionServices, type AgentSessionServices } from "../../core/agent-session-services.ts";
+import type { InlineExtension } from "../../core/extensions/index.ts";
 import {
 	type AgentSessionRuntime,
 	createAgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
 } from "../../core/agent-session-runtime.ts";
 import { SessionManager } from "../../core/session-manager.ts";
+import type { SettingsManager } from "../../core/settings-manager.ts";
 import { toJsonEvent, type JsonAgentSessionEvent } from "../json-event.ts";
+import type {
+	DesktopClientRequest,
+	DesktopServerMessage,
+	SessionCreateRequest,
+} from "./protocol.ts";
 
-// ---------------------------------------------------------------------------
-// Wire protocol (shared with the desktop UI)
-// ---------------------------------------------------------------------------
-
-export interface SessionCreateRequest {
-	type: "session.create";
-	id: string;
-	cwd?: string;
-	provider?: string;
-	model?: string;
-	agentDir?: string;
-}
-
-export interface SessionPromptRequest {
-	type: "session.prompt";
-	id: string;
-	sessionId: string;
-	message: string;
-	images?: ImageContent[];
-}
-
-export interface SessionAbortRequest {
-	type: "session.abort";
-	id: string;
-	sessionId: string;
-}
-
-export interface SessionListRequest {
-	type: "session.list";
-	id: string;
-	sessionDir?: string;
-}
-
-export interface PingRequest {
-	type: "ping";
-	id: string;
-}
-
-export type DesktopClientRequest =
-	| SessionCreateRequest
-	| SessionPromptRequest
-	| SessionAbortRequest
-	| SessionListRequest
-	| PingRequest;
-
-export type ServerEventMessage = {
-	type: "event";
-	sessionId: string;
-	event: JsonAgentSessionEvent;
-};
-
-export type ServerResponseMessage = {
-	type: "response";
-	id: string;
-	ok: boolean;
-	result?: unknown;
-	error?: string;
-};
-
-export type DesktopServerMessage = ServerEventMessage | ServerResponseMessage;
+export type {
+	DesktopClientRequest,
+	DesktopServerMessage,
+	ModelInfoMessage,
+	PermissionRequestMessage,
+	ServerEventMessage,
+	ServerResponseMessage,
+} from "./protocol.ts";
 
 // ---------------------------------------------------------------------------
 // Server
@@ -110,9 +67,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** sessionId → live runtime + event subscription */
 	const sessions = new Map<
 		string,
-		{ runtime: AgentSessionRuntime; unsubscribe: () => void; clients: Set<WebSocket> }
+		{ runtime: AgentSessionRuntime; unsubscribe: () => void }
 	>();
 	const clients = new Set<WebSocket>();
+	/** requestId → resolver for tool calls awaiting a user decision */
+	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
+	/** Shared services for non-session queries (models.list); built lazily. */
+	let listServices: AgentSessionServices | undefined;
 
 	function broadcast(message: DesktopServerMessage): void {
 		const payload = JSON.stringify(message);
@@ -129,14 +90,30 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 	}
 
+	function defaultAgentDir(): string {
+		return options.agentDir ?? getAgentDir();
+	}
+
+	async function getListingServices(): Promise<AgentSessionServices> {
+		if (!listServices) {
+			listServices = await createAgentSessionServices({
+				cwd: options.cwd ?? process.cwd(),
+				agentDir: defaultAgentDir(),
+			});
+		}
+		return listServices;
+	}
+
 	function buildFactory(
 		agentDir: string,
-		modelSpec?: { provider?: string; model?: string },
+		modelSpec: { provider?: string; model?: string } | undefined,
+		extensionFactories: InlineExtension[],
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const services = await createAgentSessionServices({
 				cwd: runtimeOptions.cwd,
 				agentDir,
+				resourceLoaderOptions: { extensionFactories },
 			});
 			let model;
 			if (modelSpec?.model) {
@@ -160,17 +137,43 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
 		const cwd = request.cwd ?? options.cwd ?? process.cwd();
-		const agentDir = request.agentDir ?? options.agentDir ?? getAgentDir();
+		const agentDir = request.agentDir ?? defaultAgentDir();
 		const sessionManager = SessionManager.create(cwd);
+		const confirmMode = request.approvalMode === "confirm";
+		const sessionIdHolder: { current: string } = { current: "" };
+		const permissionExtension: InlineExtension = {
+			name: "pire-permissions",
+			factory: (pi) => {
+				pi.on("tool_call", async (event) => {
+					if (!confirmMode) return {};
+					const requestId = randomUUID();
+					const approved = await new Promise<boolean>((resolve) => {
+						pendingPermissions.set(requestId, {
+							sessionId: sessionIdHolder.current,
+							resolve,
+						});
+						broadcast({
+							type: "permission_request",
+							requestId,
+							sessionId: sessionIdHolder.current,
+							toolName: event.toolName,
+							input: event.input,
+						});
+					});
+					return approved ? {} : { block: true, reason: "Denied by user" };
+				});
+			},
+		};
 		const runtime = await createAgentSessionRuntime(
-			buildFactory(agentDir, { provider: request.provider, model: request.model }),
+			buildFactory(agentDir, { provider: request.provider, model: request.model }, [permissionExtension]),
 			{ cwd, agentDir, sessionManager },
 		);
 		const sessionId = runtime.session.sessionManager.getSessionId();
+		sessionIdHolder.current = sessionId;
 		const unsubscribe = runtime.session.subscribe((event) => {
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
-		sessions.set(sessionId, { runtime, unsubscribe, clients: new Set() });
+		sessions.set(sessionId, { runtime, unsubscribe });
 		reply(ws, request.id, {
 			ok: true,
 			result: { sessionId, cwd, header: runtime.session.sessionManager.getHeader() },
@@ -196,7 +199,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true });
 				try {
 					await session.runtime.session.prompt(request.message, {
-						...(request.images ? { images: request.images } : {}),
+						...(request.images ? { images: request.images as ImageContent[] } : {}),
 					});
 				} catch (error) {
 					onDiagnostic(error instanceof Error ? error.message : String(error));
@@ -216,6 +219,48 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.list": {
 				const found = await SessionManager.listAll(request.sessionDir);
 				reply(ws, request.id, { ok: true, result: found });
+				return;
+			}
+			case "models.list": {
+				const services = await getListingServices();
+				const models = services.modelRuntime.getModels().map((model) => ({
+					provider: model.provider,
+					id: model.id,
+					name: model.name,
+					contextWindow: model.contextWindow,
+				}));
+				reply(ws, request.id, { ok: true, result: models });
+				return;
+			}
+			case "settings.get": {
+				const agentDir = defaultAgentDir();
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then(
+					(m) => m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				);
+				reply(ws, request.id, {
+					ok: true,
+					result: { agentDir, settings: settingsManager.getGlobalSettings() },
+				});
+				return;
+			}
+			case "settings.set": {
+				const agentDir = defaultAgentDir();
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then(
+					(m) => m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				);
+				const settings = settingsManager.applyGlobalOverridesAndSave(request.values as never);
+				reply(ws, request.id, { ok: true, result: settings });
+				return;
+			}
+			case "permission.response": {
+				const pending = pendingPermissions.get(request.requestId);
+				if (!pending) {
+					reply(ws, request.id, { ok: false, error: `Unknown permission request: ${request.requestId}` });
+					return;
+				}
+				pendingPermissions.delete(request.requestId);
+				pending.resolve(request.approved);
+				reply(ws, request.id, { ok: true });
 				return;
 			}
 		}
@@ -275,3 +320,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		console.log(`pire desktop bridge listening on http://127.0.0.1:${handle.port}`);
 	});
 }
+
+export type { JsonAgentSessionEvent };
