@@ -26,7 +26,7 @@ export function BottomDockBar({
 
 	return (
 		<div className="flex shrink-0 select-none items-center gap-2 border-t border-owl-border/60 bg-owl-rail/70 px-3 py-2" data-tauri-drag-region="deep">
-			{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => {
+			{QUICK_ACTIONS.filter((action) => !action.disabled && !action.multi).map((action) => {
 				const opened = state.tabs.some((tab) => tab.kind === action.kind);
 				const active = panelOpen && opened && activeKind === action.kind;
 				return (

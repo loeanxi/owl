@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ProviderModelsMessage, SessionStatsResult } from "../bridge/protocol.ts";
+import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult } from "../bridge/protocol.ts";
 import { Menu } from "./Menu.tsx";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -13,6 +13,42 @@ const THINKING_LABELS: Record<string, string> = {
 	xhigh: "超高",
 	max: "最高",
 };
+
+/** 审批模式三档：标准（逐次确认）/ 计划（只读工具做调研）/ 自动（全自动）。 */
+const APPROVAL_MODES: { value: ApprovalMode; label: string; title: string }[] = [
+	{ value: "confirm", label: "标准模式", title: "标准：每次工具调用前人工确认" },
+	{ value: "plan", label: "计划模式", title: "计划：只允许只读工具（read / ls / find / grep）调研并产出计划" },
+	{ value: "auto", label: "自动模式", title: "自动：全自动执行，工具调用不再确认" },
+];
+
+/** 审批模式小图标（16 viewBox 线性风格，与思考/上下文图标同族）。 */
+function ModeIcon({ mode, active }: { mode: ApprovalMode; active: boolean }): React.JSX.Element {
+	const tone = active ? "text-owl-accent" : "text-owl-faint";
+	if (mode === "plan") {
+		// 罗盘：调研与规划
+		return (
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+				<circle cx="8" cy="8" r="6.2" />
+				<path d="M10.6 5.4 9.1 9.1 5.4 10.6 6.9 6.9l3.7-1.5Z" />
+			</svg>
+		);
+	}
+	if (mode === "auto") {
+		// 闪电：全自动
+		return (
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+				<path d="M8.8 1.5 3.8 9h3l-.6 5.5L11.2 7h-3l.6-5.5Z" />
+			</svg>
+		);
+	}
+	// 盾形勾：标准（逐次把关）
+	return (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<path d="M8 1.8 13.2 3.9v4.3c0 2.9-2.2 5.1-5.2 6-3-.9-5.2-3.1-5.2-6V3.9L8 1.8Z" />
+			<path d="M5.9 8 7.5 9.6l2.6-2.9" />
+		</svg>
+	);
+}
 
 function formatTokens(value: number): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -74,6 +110,8 @@ export function Composer({
 	onModel,
 	thinkingLevel,
 	onThinkingLevel,
+	approvalMode,
+	onApprovalMode,
 	sessionInfo,
 }: {
 	disabled: boolean;
@@ -85,6 +123,8 @@ export function Composer({
 	onModel: (value: string) => void;
 	thinkingLevel: string;
 	onThinkingLevel: (level: string) => void;
+	approvalMode: ApprovalMode;
+	onApprovalMode: (mode: ApprovalMode) => void;
 	sessionInfo: SessionStatsResult | undefined;
 }): React.JSX.Element {
 	const [value, setValue] = useState("");

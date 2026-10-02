@@ -6,8 +6,9 @@
  *   CLI: services per cwd, session bound to them).
  * - Wire events are the same JsonAgentSessionEvent stream print mode emits
  *   (partials stripped, tool calls carry id + name).
- * - Tool approvals: with approvalMode "confirm", a built-in extension turns
- *   every tool_call into a permission_request round-trip to the UI.
+ * - Tool approvals: approvalMode "confirm" routes every tool_call through a
+ *   permission_request round-trip to the UI; "plan" only lets read-only tools
+ *   through; "auto" runs everything without asking.
  * - v1 scope: create / prompt / abort / list / models / settings. Resume, fork,
  *   and diff-level approvals land with the desktop UI.
  */
@@ -40,6 +41,8 @@ import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
+import { buildSystemPromptSections } from "../../core/system-prompt.ts";
+import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import {
 	invalidateDirectoryCache,
@@ -57,6 +60,7 @@ import {
 } from "./sidebar-fs.ts";
 import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "./sidebar-git.ts";
 import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch.ts";
+import { TerminalManager } from "./terminals.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
@@ -66,6 +70,18 @@ const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", 
 
 /** AgentSession ThinkingLevel 合法值（session.setThinkingLevel 校验用）。 */
 const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** plan 模式放行的只读内置工具；其余（bash/powershell/edit/write 及 MCP/扩展工具）一律拦截。 */
+const READ_ONLY_TOOLS = new Set(["read", "ls", "find", "grep"]);
+
+/** plan 模式的系统提示词附录：创建会话时即告知模型只读约束与目标（产出计划）。 */
+const PLAN_MODE_ADDENDUM = [
+	"<plan_mode>",
+	"当前会话处于「计划（plan）模式」：只允许使用只读工具（read / ls / find / grep）做调研，",
+	"创建、修改、删除文件或执行有副作用的命令都会被直接拒绝。",
+	"请完成调研后给出一份清晰、可执行的实施计划，等用户确认后再动手；不要尝试绕过只读约束。",
+	"</plan_mode>",
+].join("\n");
 
 interface ModelFileEntry {
 	id: string;
@@ -118,12 +134,16 @@ function writeModelsFile(agentDir: string, models: ModelsFile): void {
 }
 
 import type {
+	ApprovalMode,
 	DesktopClientRequest,
 	DesktopServerMessage,
 	ProviderModelsMessage,
 	SessionCreateRequest,
 	SessionResumeRequest,
 	SessionStatsResult,
+	SystemPromptPreviewResult,
+	TermDataMessage,
+	TermExitMessage,
 } from "./protocol.ts";
 
 /** 打开系统默认浏览器（OAuth 授权用）。 */
@@ -136,6 +156,7 @@ function openInBrowser(url: string): void {
 }
 
 export type {
+	ApprovalMode,
 	DesktopClientRequest,
 	DesktopServerMessage,
 	ModelInfoMessage,
@@ -287,9 +308,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		onDiagnostic(`settings load failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 	configureHttpDispatcher();
-	/** sessionId → live runtime + event subscription */
-	const sessions = new Map<string, { runtime: AgentSessionRuntime; unsubscribe: () => void }>();
+	/** sessionId → live runtime + event subscription（approvalMode 为运行时可变的审批模式 holder）。 */
+	const sessions = new Map<
+		string,
+		{ runtime: AgentSessionRuntime; unsubscribe: () => void; approvalMode: { current: ApprovalMode } }
+	>();
 	const clients = new Set<WebSocket>();
+	/** 终端会话表（term.* 路由的目标）；termId → 创建它的连接，断线时兜底回收 */
+	const terminals = new TerminalManager();
+	const wsTerms = new WeakMap<WebSocket, Set<string>>();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
 	/** Shared services for non-session queries (models.list); built lazily. */
@@ -549,16 +576,29 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			provider?: string;
 			model?: string;
 			thinkingLevel?: string;
-			confirmMode: boolean;
+			approvalMode: ApprovalMode;
 		},
 	): Promise<void> {
 		const { sessionManager } = args;
 		const sessionIdHolder: { current: string } = { current: "" };
+		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
+		const approvalModeHolder: { current: ApprovalMode } = { current: args.approvalMode };
 		const permissionExtension: InlineExtension = {
 			name: "owl-permissions",
 			factory: (pi) => {
 				pi.on("tool_call", async (event) => {
-					if (!args.confirmMode) return {};
+					const mode = approvalModeHolder.current;
+					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
+					if (mode === "plan" && !READ_ONLY_TOOLS.has(event.toolName)) {
+						return {
+							block: true,
+							reason:
+								`Plan mode: tool "${event.toolName}" was blocked — only read-only tools ` +
+								"(read / ls / find / grep) are allowed. 调研并产出计划，不要修改任何东西。",
+						};
+					}
+					// auto（以及 plan 下的只读工具）：不询问直接放行
+					if (mode !== "confirm") return {};
 					const requestId = randomUUID();
 					const approved = await new Promise<boolean>((resolve) => {
 						pendingPermissions.set(requestId, {
@@ -606,6 +646,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			},
 		};
 		const owlAddenda = await loadOwlAddenda();
+		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const runtime = await createAgentSessionRuntime(
 			buildFactory(
 				args.agentDir,
@@ -620,7 +661,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const unsubscribe = runtime.session.subscribe((event) => {
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
-		sessions.set(sessionId, { runtime, unsubscribe });
+		sessions.set(sessionId, { runtime, unsubscribe, approvalMode: approvalModeHolder });
 		reply(ws, requestId, { ok: true, result: sessionSnapshot(sessionId, sessionManager) });
 	}
 
@@ -632,14 +673,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			provider: request.provider,
 			model: request.model,
 			thinkingLevel: request.thinkingLevel,
-			confirmMode: request.approvalMode === "confirm",
+			approvalMode: request.approvalMode ?? "auto",
 		});
 	}
 
 	async function resumeSession(ws: WebSocket, request: SessionResumeRequest): Promise<void> {
-		// 幂等：已挂载的会话直接回快照（重复点击安全）
+		// 幂等：已挂载的会话直接回快照（重复点击安全）；顺带同步请求里带的审批模式
 		const existing = sessions.get(request.sessionId);
 		if (existing) {
+			if (request.approvalMode) existing.approvalMode.current = request.approvalMode;
 			const sessionManager = existing.runtime.session.sessionManager;
 			reply(ws, request.id, {
 				ok: true,
@@ -662,7 +704,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				provider: request.provider,
 				model: request.model,
 				thinkingLevel: request.thinkingLevel,
-				confirmMode: request.approvalMode === "confirm",
+				approvalMode: request.approvalMode ?? "auto",
 			});
 		} catch (error) {
 			reply(ws, request.id, {
@@ -826,6 +868,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						error: error instanceof Error ? error.message : String(error),
 					});
 				}
+				return;
+			}
+			case "session.setApprovalMode": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				if (request.approvalMode !== "auto" && request.approvalMode !== "confirm" && request.approvalMode !== "plan") {
+					reply(ws, request.id, { ok: false, error: `未知审批模式: ${String(request.approvalMode)}` });
+					return;
+				}
+				session.approvalMode.current = request.approvalMode;
+				reply(ws, request.id, { ok: true, result: { approvalMode: request.approvalMode } });
 				return;
 			}
 			case "session.stats": {
@@ -1128,6 +1184,37 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: settings });
 				return;
 			}
+			case "systemPrompt.preview": {
+				// 设置页「内置提示词」只读展示：与真实会话同一条组装路径（默认工具集）。
+				const cwd = options.cwd ?? process.cwd();
+				const toolDefs = createAllToolDefinitions(cwd);
+				const selectedTools = ["read", "bash", "edit", "write"] as const;
+				const sections = buildSystemPromptSections({
+					cwd,
+					selectedTools: [...selectedTools],
+					toolSnippets: Object.fromEntries(
+						selectedTools.map((name) => [name, toolDefs[name].promptSnippet ?? ""]),
+					),
+					toolGuidelines: Object.fromEntries(
+						selectedTools.map((name) => [name, toolDefs[name].promptGuidelines ?? []]),
+					),
+				});
+				// 去掉各分区的 <tag> 包裹，前端直接展示正文
+				const stripped = Object.fromEntries(
+					Object.entries(sections).map(([name, content]) => {
+						const open = `<${name}>\n`;
+						const close = `\n</${name}>`;
+						return [
+							name,
+							content.startsWith(open) && content.endsWith(close)
+								? content.slice(open.length, -close.length)
+								: content,
+						];
+					}),
+				);
+				reply(ws, request.id, { ok: true, result: { sections: stripped } satisfies SystemPromptPreviewResult });
+				return;
+			}
 			case "permission.response": {
 				const pending = pendingPermissions.get(request.requestId);
 				if (!pending) {
@@ -1269,14 +1356,51 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					if (!allowed.has(parsed.protocol)) {
 						throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
 					}
-					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
-						detached: true,
-						stdio: "ignore",
-					}).unref();
-				}
-				reply(ws, request.id, { ok: true });
-				return;
+				spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
+					detached: true,
+					stdio: "ignore",
+				}).unref();
 			}
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "term.create": {
+			// 输出定向回创建它的连接（不广播）；连接记账，断线时统一回收
+			const owned = wsTerms.get(ws) ?? new Set<string>();
+			wsTerms.set(ws, owned);
+			const { termId, shell } = terminals.create(request.cwd, request.cols, request.rows, {
+				onData: (id, data) => {
+					if (ws.readyState !== ws.OPEN) return;
+					const message: TermDataMessage = { type: "term.data", termId: id, data };
+					ws.send(JSON.stringify(message));
+				},
+				onExit: (id, exitCode) => {
+					owned.delete(id);
+					if (ws.readyState !== ws.OPEN) return;
+					const message: TermExitMessage = { type: "term.exit", termId: id, exitCode };
+					ws.send(JSON.stringify(message));
+				},
+			});
+			owned.add(termId);
+			reply(ws, request.id, { ok: true, result: { termId, shell } });
+			return;
+		}
+		case "term.input": {
+			terminals.write(request.termId, request.data);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "term.resize": {
+			terminals.resize(request.termId, request.cols, request.rows);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "term.kill": {
+			wsTerms.get(ws)?.delete(request.termId);
+			terminals.kill(request.termId);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -1320,7 +1444,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id ?? "?", { ok: false, error: text });
 			});
 		});
-		ws.on("close", () => clients.delete(ws));
+		ws.on("close", () => {
+			clients.delete(ws);
+			// 连接断开：回收它名下的终端（UI 关闭时也会主动 kill，这里是兜底）
+			const owned = wsTerms.get(ws);
+			if (owned) {
+				for (const termId of owned) terminals.kill(termId);
+				wsTerms.delete(ws);
+			}
+		});
 	});
 
 	const port = options.port ?? 8787;
@@ -1339,6 +1471,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			sessions.clear();
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();
+			terminals.killAll();
 			for (const client of clients) client.close();
 			wss.close();
 			await mcp?.close();

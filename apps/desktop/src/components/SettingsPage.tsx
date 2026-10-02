@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ProviderModelsMessage } from "../bridge/protocol.ts";
+import type { ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
 import { IconArchive, IconCode, IconCompose, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
 
@@ -19,6 +19,18 @@ type ArchiveEntry = { sessionId: string; archivedAt: string };
 type ArchiveConfigResult = { retentionDays: number; sessions: ArchiveEntry[] };
 
 type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string };
+
+/** 内置提示词分区的展示名（顺序即渲染顺序）。 */
+const BUILTIN_SECTION_TITLES: Record<string, string> = {
+	preamble: "人设与沟通规则（preamble）",
+	tools: "可用工具清单（tools）",
+	rules: "行为规则（rules）",
+	docs: "pi 文档指引（docs）",
+	addendum: "附加指令（addendum）",
+	project_context: "项目指令（project_context）",
+	skills: "可用技能（skills）",
+	cwd: "工作目录（cwd）",
+};
 
 /** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。 */
 function sessionDisplayName(row: SessionListRow): string {
@@ -137,6 +149,7 @@ export function SettingsPage({
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
 	const [userImpression, setUserImpression] = useState("");
+	const [builtinSections, setBuiltinSections] = useState<Record<string, string>>({});
 	const [savedMsg, setSavedMsg] = useState("");
 	const [groups, setGroups] = useState<ProviderModelsMessage[]>([]);
 	const [error, setError] = useState("");
@@ -240,6 +253,8 @@ export function SettingsPage({
 			}
 			if (models.ok && Array.isArray(models.result)) setGroups(models.result as ProviderModelsMessage[]);
 			if (providers.ok && Array.isArray(providers.result)) setCatalog(providers.result);
+			const preview = await client.request<SystemPromptPreviewResult>({ type: "systemPrompt.preview" });
+			if (preview.ok && preview.result?.sections) setBuiltinSections(preview.result.sections);
 		})();
 		void loadArchive();
 	}, [client]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1051,6 +1066,26 @@ export function SettingsPage({
 										onChange={(event) => setUserImpression(event.target.value)}
 										placeholder="还是空的。聊几句之后 Owl Si 会把了解到的偏好记在这里。"
 									/>
+								</SettingRow>
+								<SettingRow
+									title="内置提示词（只读）"
+									desc="Owl Si 出厂自带的提示词分区，与真实会话同一条组装路径（按默认工具集）；上面的自定义内容会追加在这些之后。"
+								>
+									<div className="space-y-1.5">
+										{Object.keys(builtinSections).length === 0 && (
+											<p className="text-[11px] text-owl-faint">尚未加载（需要连接桥后重进设置页）。</p>
+										)}
+										{Object.entries(builtinSections).map(([name, content]) => (
+											<details key={name} className="rounded-lg border border-owl-border bg-owl-sidebar/40">
+												<summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs text-owl-text transition-colors hover:text-owl-accent">
+													{BUILTIN_SECTION_TITLES[name] ?? name}
+												</summary>
+												<pre className="max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-owl-border/60 px-2.5 pb-2 pt-1.5 font-mono text-[11px] leading-relaxed text-owl-muted">
+													{content}
+												</pre>
+											</details>
+										))}
+									</div>
 								</SettingRow>
 							</>
 						)}

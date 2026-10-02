@@ -4,6 +4,15 @@
  * server-side leaks into the browser bundle.
  */
 
+/**
+ * 工具审批模式：
+ * - "confirm"（标准）：每次工具调用都经 permission_request 送 UI 确认；
+ * - "plan"（计划）：只放行只读工具（read/ls/find/grep），写类调用直接拦截，供调研与制定计划；
+ * - "auto"（自动）：全部放行，不再询问。
+ * 缺省为 "auto"（桥端独用/脚本场景的旧行为）。
+ */
+export type ApprovalMode = "auto" | "confirm" | "plan";
+
 export interface SessionCreateRequest {
 	type: "session.create";
 	id: string;
@@ -11,8 +20,7 @@ export interface SessionCreateRequest {
 	provider?: string;
 	model?: string;
 	agentDir?: string;
-	/** "confirm" routes tool calls to the UI as permission_request messages; default "auto". */
-	approvalMode?: "auto" | "confirm";
+	approvalMode?: ApprovalMode;
 	/** 初始思考强度（ThinkingLevel，服务端按模型能力收敛）。 */
 	thinkingLevel?: string;
 }
@@ -83,7 +91,7 @@ export interface SessionResumeRequest {
 	sessionId: string;
 	provider?: string;
 	model?: string;
-	approvalMode?: "auto" | "confirm";
+	approvalMode?: ApprovalMode;
 	thinkingLevel?: string;
 }
 
@@ -118,6 +126,14 @@ export interface SessionSetThinkingLevelRequest {
 	id: string;
 	sessionId: string;
 	level: string;
+}
+
+/** 会话进行中切换审批模式（标准/计划/自动），下次工具调用即生效。 */
+export interface SessionSetApprovalModeRequest {
+	type: "session.setApprovalMode";
+	id: string;
+	sessionId: string;
+	approvalMode: ApprovalMode;
 }
 
 /** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
@@ -203,6 +219,17 @@ export interface SettingsSetRequest {
 	type: "settings.set";
 	id: string;
 	values: Record<string, unknown>;
+}
+
+/** 内置系统提示词预览：按默认工具集现组各分区，设置页「提示词」只读展示（不含用户自定义部分）。 */
+export interface SystemPromptPreviewRequest {
+	type: "systemPrompt.preview";
+	id: string;
+}
+
+export interface SystemPromptPreviewResult {
+	/** 分区名 → 正文。preamble 为无标签文本；其余分区已去掉包裹用的 <tag>。 */
+	sections: Record<string, string>;
 }
 
 export interface PingRequest {
@@ -427,6 +454,64 @@ export interface OpenExternalRequest {
 	cwd?: string;
 }
 
+// ---------------------------------------------------------------------------
+// 终端：UI ↔ 桥的 PTY 会话（宿主 node-pty，一个终端 tab = 一个会话）。
+// 输出走独立的服务端消息、定向推给拥有它的连接：不进会话事件流、不广播。
+// ---------------------------------------------------------------------------
+
+/** 新建终端（cwd 绝对路径；行列数由前端 fit addon 算好后带上）。 */
+export interface TermCreateRequest {
+	type: "term.create";
+	id: string;
+	cwd: string;
+	cols: number;
+	rows: number;
+}
+
+export interface TermCreateResult {
+	termId: string;
+	/** 实际使用的 shell（展示用）。 */
+	shell: string;
+}
+
+/** 向终端写入按键（xterm onData 原样透传）。 */
+export interface TermInputRequest {
+	type: "term.input";
+	id: string;
+	termId: string;
+	data: string;
+}
+
+/** 前端容器尺寸变化后同步行列数。 */
+export interface TermResizeRequest {
+	type: "term.resize";
+	id: string;
+	termId: string;
+	cols: number;
+	rows: number;
+}
+
+/** 关闭终端（tab 关闭 / 连接断开时宿主也会兜底回收）。 */
+export interface TermKillRequest {
+	type: "term.kill";
+	id: string;
+	termId: string;
+}
+
+/** 终端输出（pty 已解码的 UTF-8 字符串，含 ANSI 序列，xterm 原样 write）。 */
+export interface TermDataMessage {
+	type: "term.data";
+	termId: string;
+	data: string;
+}
+
+/** 终端进程退出。 */
+export interface TermExitMessage {
+	type: "term.exit";
+	termId: string;
+	exitCode: number | undefined;
+}
+
 /** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
 export interface FsChangedEvent {
 	type: "fs_changed";
@@ -461,6 +546,7 @@ export type DesktopClientRequest =
 	| SessionResumeRequest
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest
+	| SessionSetApprovalModeRequest
 	| SessionStatsRequest
 	| SessionListRequest
 	| SessionRunningRequest
@@ -476,6 +562,7 @@ export type DesktopClientRequest =
 	| AuthCancelRequest
 	| SettingsGetRequest
 	| SettingsSetRequest
+	| SystemPromptPreviewRequest
 	| PingRequest
 	| PermissionResponseRequest
 	| FsTreeRequest
@@ -494,7 +581,11 @@ export type DesktopClientRequest =
 	| GitDiscardRequest
 	| GitLogRequest
 	| WatchSetRequest
-	| OpenExternalRequest;
+	| OpenExternalRequest
+	| TermCreateRequest
+	| TermInputRequest
+	| TermResizeRequest
+	| TermKillRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
 export interface AuthProvidersRequest {
@@ -573,7 +664,12 @@ export type ServerResponseMessage = {
 	error?: string;
 };
 
-export type DesktopServerMessage = ServerEventMessage | ServerResponseMessage | PermissionRequestMessage;
+export type DesktopServerMessage =
+	| ServerEventMessage
+	| ServerResponseMessage
+	| PermissionRequestMessage
+	| TermDataMessage
+	| TermExitMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

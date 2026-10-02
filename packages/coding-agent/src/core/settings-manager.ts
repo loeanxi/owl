@@ -130,6 +130,34 @@ export type PackageSource =
 			themes?: string[];
 	  };
 
+/**
+ * Unified plugin entry — the single settings field for wiring functionality into the agent.
+ * A plugin source is anything `packages` accepted (npm:/git/local directory) plus plain local
+ * extension files; object entries may scope which resources load and disable the entry outright.
+ * Supersedes the legacy `packages` and `extensions` fields, which are still merged in read-side
+ * for compatibility (see {@link effectivePlugins}).
+ */
+export type PluginSource =
+	| string
+	| {
+			source: string;
+			disabled?: boolean;
+			autoload?: boolean;
+			extensions?: string[];
+			skills?: string[];
+			prompts?: string[];
+			themes?: string[];
+	  };
+
+/**
+ * Read-side merge of the unified `plugins` field with the legacy `packages`/`extensions` fields.
+ * Order is stable (plugins, then packages, then extensions) so callers can scope-tag the result;
+ * dedupe and per-entry shape routing stay the caller's job.
+ */
+export function effectivePlugins(settings: Pick<Settings, "plugins" | "packages" | "extensions">): PluginSource[] {
+	return [...(settings.plugins ?? []), ...(settings.packages ?? []), ...(settings.extensions ?? [])];
+}
+
 export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
@@ -156,8 +184,9 @@ export interface Settings {
 	enableAnalytics?: boolean; // default: false - opt-in analytics data sharing
 	trackingId?: string; // analytics tracking identifier, generated when analytics is enabled
 	deviceId?: string; // stable UUID of this installation, created when a login first needs it; global setting only
-	packages?: PackageSource[]; // Array of npm/git package sources (string or object with filtering)
-	extensions?: string[]; // Array of local extension file paths or directories
+	packages?: PackageSource[]; // Array of npm/git package sources (string or object with filtering) — legacy, merged into `plugins` on read
+	extensions?: string[]; // Array of local extension file paths or directories — legacy, merged into `plugins` on read
+	plugins?: PluginSource[]; // Unified plugin entries (npm:/git/local directory/local extension file); supersedes packages + extensions
 	skills?: string[]; // Array of local skill file paths or directories
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
@@ -1197,6 +1226,38 @@ export class SettingsManager {
 
 	getPackages(): PackageSource[] {
 		return [...(this.settings.packages ?? [])];
+	}
+
+	getPlugins(): PluginSource[] {
+		return [...(this.settings.plugins ?? [])];
+	}
+
+	setPlugins(plugins: PluginSource[]): void {
+		this.globalSettings.plugins = plugins;
+		this.markModified("plugins");
+		this.save();
+	}
+
+	setProjectPlugins(plugins: PluginSource[]): void {
+		this.updateProjectSettings("plugins", (settings) => {
+			settings.plugins = plugins;
+		});
+	}
+
+	/**
+	 * One-time fold of the legacy `packages`/`extensions` fields into `plugins` (global settings).
+	 * Legacy fields are emptied in the same save so the merged list cannot double-apply.
+	 */
+	migrateLegacyPluginsToPlugins(): PluginSource[] {
+		const merged = effectivePlugins(this.globalSettings);
+		this.globalSettings.plugins = merged;
+		this.globalSettings.packages = [];
+		this.globalSettings.extensions = [];
+		this.markModified("plugins");
+		this.markModified("packages");
+		this.markModified("extensions");
+		this.save();
+		return [...merged];
 	}
 
 	setPackages(packages: PackageSource[]): void {

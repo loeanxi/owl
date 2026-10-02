@@ -8,6 +8,7 @@
  */
 import { lazy } from "react";
 import { registerTab, type TabDefinition } from "./registry.ts";
+import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
@@ -18,6 +19,7 @@ import { IconFile, IconImage } from "./icons.tsx";
 import { quickActionOf } from "./quick.tsx";
 
 const EditorTab = lazy(() => import("./tabs/EditorTab.tsx").then((m) => ({ default: m.EditorTab })));
+const TerminalTab = lazy(() => import("./tabs/TerminalTab.tsx").then((m) => ({ default: m.TerminalTab })));
 
 /** 单例快捷 tab 的彩色图标（kind 必须已在 QUICK_ACTIONS 里）。 */
 function quickIcon(kind: string): TabDefinition["icon"] {
@@ -40,6 +42,19 @@ const DEFINITIONS: TabDefinition[] = [
 		title: "文件变动",
 		icon: quickIcon("changes"),
 		component: ChangesTab,
+	},
+	{
+		kind: "terminal",
+		title: "终端",
+		icon: quickIcon("terminal"),
+		// xterm + 语言包都重，走懒加载 chunk
+		component: TerminalTab,
+	},
+	{
+		kind: "browser",
+		title: "浏览器",
+		icon: quickIcon("browser"),
+		component: BrowserTab,
 	},
 	{
 		kind: "tasks",

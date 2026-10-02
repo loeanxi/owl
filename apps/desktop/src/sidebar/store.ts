@@ -310,6 +310,33 @@ export class SidebarStore {
 		this.insertTab({ id: kind, kind, title: title ?? kind });
 	}
 
+	/** 新建多实例 tab（终端 / 浏览器）：每次都开新的，标题按同类数量编号。 */
+	openNew(kind: string, title: string, path?: string): void {
+		const count = this.state.tabs.filter((tab) => tab.kind === kind).length;
+		const id = `${kind}:${freshId("t")}`;
+		this.insertTab({ id, kind, title: count > 0 ? `${title} ${count + 1}` : title, ...(path !== undefined ? { path } : {}) });
+	}
+
+	/** 更新 tab 的附加数据（浏览器 tab 的 URL），随布局持久化。 */
+	setTabPath(tabId: string, path: string | undefined): void {
+		const leaf = findLeafWithTab(this.state.tree, tabId);
+		if (!leaf) return;
+		const tree = replaceLeaf(this.state.tree, leaf.id, (l) => ({
+			...l,
+			tabs: l.tabs.map((tab) =>
+				tab.id === tabId
+					? path !== undefined
+						? { ...tab, path }
+						: (() => {
+								const { path: _drop, ...rest } = tab;
+								return rest as SidebarTab;
+							})()
+					: tab,
+			),
+		}));
+		this.commit({ tree });
+	}
+
 	/** 打开文件 tab（editor / image），按路径去重。 */
 	openFileTab(kind: string, path: string, title: string): void {
 		const id = `${kind}:${path}`;

@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from "react";
 import { IconGitBranch } from "./icons.tsx";
+import type { SidebarStore } from "./store.ts";
 
 interface IconProps {
 	size?: number;
@@ -99,22 +100,24 @@ export const IconUserStar = (p: IconProps): ReactNode =>
 	);
 
 export interface QuickAction {
-	/** 工作台 tab kind（terminal / browser 目前只是占位卡，未注册 tab）。 */
+	/** 工作台 tab kind。 */
 	kind: string;
 	label: string;
 	color: string;
 	icon: (size?: number) => ReactNode;
-	/** 右侧快捷键提示（仅展示，见 App 的快捷键处理）。 */
+	/** 快捷键提示（App 里有对应的键盘处理）。 */
 	hint?: string;
-	/** 占位卡：置灰不可点（owl 尚无终端/浏览器宿主能力）。 */
+	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的，不进底部栏。 */
+	multi?: boolean;
+	/** 占位卡：功能未实现时置灰。 */
 	disabled?: boolean;
 }
 
 export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "files", label: "文件", color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
-	{ kind: "terminal", label: "新建终端", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", disabled: true },
+	{ kind: "terminal", label: "新建终端", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true },
 	{ kind: "changes", label: "文件变动", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
-	{ kind: "browser", label: "浏览器", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", disabled: true },
+	{ kind: "browser", label: "浏览器", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
 	{ kind: "tasks", label: "任务管理", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
 	{ kind: "impression", label: "用户印象", color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
 	{ kind: "sidechat", label: "侧边对话(beta)", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
@@ -123,4 +126,12 @@ export const QUICK_ACTIONS: QuickAction[] = [
 /** 按 kind 取快捷入口（底部栏 / 开始页共用）。 */
 export function quickActionOf(kind: string): QuickAction | undefined {
 	return QUICK_ACTIONS.find((action) => action.kind === kind);
+}
+
+/** 统一的快捷入口打开逻辑：单例去重，终端/浏览器每次开新的。 */
+export function openQuickAction(store: SidebarStore, kind: string): void {
+	const action = quickActionOf(kind);
+	if (!action || action.disabled) return;
+	if (action.multi) store.openNew(kind, action.label);
+	else store.openSingleton(kind, action.label);
 }

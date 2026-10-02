@@ -16,7 +16,7 @@ import { IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } fro
 import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
 import { useTabRegistry, viewerKindFor, type TabComponentProps } from "./registry.ts";
 import { isImagePath } from "./registry.ts";
-import { QUICK_ACTIONS } from "./quick.tsx";
+import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
 
 const WIDTH_KEY = "owl.workbench.width";
 const HEIGHT_KEY = "owl.workbench.height";
@@ -340,7 +340,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 									className="flex min-h-12 items-center gap-3 rounded-xl border border-owl-border/60 bg-owl-panel px-3.5 text-left text-xs text-owl-text transition-colors hover:bg-owl-hover"
 									onClick={() => {
 										store.activateLeaf(leaf.id);
-										store.openSingleton(action.kind, registry.byKind.get(action.kind)?.title ?? action.label);
+										openQuickAction(store, action.kind);
 									}}
 								>
 									<span className="shrink-0" style={{ color: action.color }}>
@@ -410,7 +410,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 							className={`flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs transition-colors ${
 								active ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 							}`}
-							onClick={() => store.openSingleton(action.kind, registry.byKind.get(action.kind)?.title ?? action.label)}
+							onClick={() => openQuickAction(store, action.kind)}
 						>
 							<span style={{ color: action.color }}>{action.icon(14)}</span>
 						</button>

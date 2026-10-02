@@ -3,11 +3,15 @@ import type {
 	DesktopServerMessage,
 	PermissionRequestMessage,
 	ServerEventMessage,
+	TermDataMessage,
+	TermExitMessage,
 } from "./protocol.ts";
 
 export type PermissionRequest = PermissionRequestMessage;
 export type SessionEventHandler = (event: ServerEventMessage) => void;
 export type PermissionHandler = (request: PermissionRequest) => void;
+export type TermMessage = TermDataMessage | TermExitMessage;
+export type TermMessageHandler = (message: TermMessage) => void;
 
 type Pending = { resolve: (value: any) => void };
 
@@ -21,6 +25,7 @@ export class BridgeClient {
 	private pending = new Map<string, Pending>();
 	private sessionHandlers = new Set<SessionEventHandler>();
 	private permissionHandlers = new Set<PermissionHandler>();
+	private termHandlers = new Set<TermMessageHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -55,6 +60,10 @@ export class BridgeClient {
 			}
 			if (message.type === "permission_request") {
 				for (const handler of this.permissionHandlers) handler(message);
+				return;
+			}
+			if (message.type === "term.data" || message.type === "term.exit") {
+				for (const handler of this.termHandlers) handler(message);
 			}
 		};
 		ws.onclose = () => {
@@ -78,6 +87,12 @@ export class BridgeClient {
 	onPermissionRequest(handler: PermissionHandler): () => void {
 		this.permissionHandlers.add(handler);
 		return () => this.permissionHandlers.delete(handler);
+	}
+
+	/** 终端输出/退出（每个 TerminalTab 按 termId 过滤自己的流）。 */
+	onTermMessage(handler: TermMessageHandler): () => void {
+		this.termHandlers.add(handler);
+		return () => this.termHandlers.delete(handler);
 	}
 
 	onStatus(handler: (connected: boolean) => void): () => void {

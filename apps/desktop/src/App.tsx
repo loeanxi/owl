@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BridgeClient } from "./bridge/client.ts";
-import type { PermissionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
+import type { ApprovalMode, PermissionRequest, ProviderModelsMessage, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream } from "./components/ChatStream.tsx";
@@ -13,7 +13,7 @@ import { isThemePreference, setThemePreference } from "./theme.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { BottomDockBar } from "./sidebar/BottomDockBar.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
-import { useTabRegistry } from "./sidebar/registry.ts";
+import { openQuickAction } from "./sidebar/quick.tsx";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -24,6 +24,12 @@ const WORKSPACE_KEY = "owl.workspaceDir";
 const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
+const APPROVAL_KEY = "owl.approvalMode";
+
+/** localStorage 里记录的审批模式是否合法（防旧值/手改值落到未知档位）。 */
+function isApprovalMode(value: string | null): value is ApprovalMode {
+	return value === "auto" || value === "confirm" || value === "plan";
+}
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const DOCK_BAR_KEY = "owl.dock.visible";
@@ -66,6 +72,11 @@ export default function App(): React.JSX.Element {
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
 	const [modelValue, setModelValue] = useState(() => localStorage.getItem(MODEL_KEY) ?? "");
 	const [thinkingLevel, setThinkingLevel] = useState(() => localStorage.getItem(THINKING_KEY) ?? "medium");
+	// 审批模式（标准 confirm / 计划 plan / 自动 auto）：输入栏切换，会话中可即时下发
+	const [approvalMode, setApprovalMode] = useState<ApprovalMode>(() => {
+		const stored = localStorage.getItem(APPROVAL_KEY);
+		return isApprovalMode(stored) ? stored : "confirm";
+	});
 	const [sessionInfo, setSessionInfo] = useState<SessionStatsResult | undefined>(undefined);
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
@@ -91,7 +102,6 @@ export default function App(): React.JSX.Element {
 	// 工作台 store 按项目提升到 App：底部栏与 Workbench 共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
 	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
-	const registry = useTabRegistry();
 
 	// 面板开合/停靠的 ref 镜像：快捷键与卡片回调里免 stale closure。
 	const dockRef = useRef(workbenchDock);
@@ -110,11 +120,18 @@ export default function App(): React.JSX.Element {
 		setWorkbenchOpenPersisted(true);
 	};
 
-	/** 打开一个单例 tab（底部栏 / 开始页卡片入口）：不动停靠位，只保证面板展开。 */
+	/** 打开一个快捷 tab（底部栏 / 开始页卡片入口）：不动停靠位，只保证面板展开。 */
 	const requestOpenKind = (kind: string): void => {
-		workbenchStore.openSingleton(kind, registry.byKind.get(kind)?.title ?? kind);
+		openQuickAction(workbenchStore, kind);
 		if (dockRef.current === "bottom") setDockBarVisible(true);
 		setWorkbenchOpenPersisted(true);
+	};
+
+	/** 快捷键开终端 / 浏览器 tab：面板没开就先展开（不切停靠位）。 */
+	const openInPanel = (kind: string): void => {
+		if (!openRef.current) setWorkbenchOpenPersisted(true);
+		openQuickAction(workbenchStore, kind);
+		if (dockRef.current === "bottom") setDockBarVisible(true);
 	};
 
 	const workspaceRef = useRef(workspaceDir);
@@ -177,12 +194,17 @@ export default function App(): React.JSX.Element {
 		setSessionFeed({ running, entries });
 	}, [running, entries]);
 
-	// Ctrl + ` 呼出/收起底部工作台（与开始页"新建终端"卡上的提示呼应）
+	// Ctrl + ` 新建终端、Ctrl + T 新建浏览器 tab（与开始页卡片上的提示一致；
+	// DSH 同款语义：终端落在当前停靠位，面板没开时顺手展开）
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent): void => {
-			if (event.ctrlKey && (event.key === "`" || event.code === "Backquote")) {
+			if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+			if (event.key === "`" || event.code === "Backquote") {
 				event.preventDefault();
-				togglePanelAt("bottom");
+				openInPanel("terminal");
+			} else if (event.ctrlKey && (event.key === "t" || event.key === "T")) {
+				event.preventDefault();
+				openInPanel("browser");
 			}
 		};
 		window.addEventListener("keydown", onKey);
@@ -251,7 +273,7 @@ export default function App(): React.JSX.Element {
 			cwd: workspaceRef.current,
 			...selectedModel(),
 			thinkingLevel,
-			approvalMode: "confirm",
+			approvalMode,
 		});
 		if (!response.ok || !response.result) {
 			console.error("session.create failed:", response.error);
@@ -294,7 +316,7 @@ export default function App(): React.JSX.Element {
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
-			approvalMode: "confirm",
+			approvalMode,
 			...selectedModel(),
 		});
 		if (!response.ok || !response.result) {
@@ -368,6 +390,17 @@ export default function App(): React.JSX.Element {
 			.then((response) => {
 				if (response.ok && response.result) setSessionInfo(response.result);
 			})
+			.catch(() => {});
+	};
+
+	// 审批模式切换：与模型/思考同款——先记本地，再有会话就即时下发（下次工具调用生效）。
+	const handleApprovalModeChange = (mode: ApprovalMode): void => {
+		setApprovalMode(mode);
+		localStorage.setItem(APPROVAL_KEY, mode);
+		const current = sessionIdRef.current;
+		if (!current) return;
+		void client
+			.request({ type: "session.setApprovalMode", sessionId: current, approvalMode: mode })
 			.catch(() => {});
 	};
 
@@ -464,14 +497,11 @@ export default function App(): React.JSX.Element {
 							{modelLabel}
 						</span>
 					)}
-					<span className="hidden shrink-0 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint lg:inline" title="权限模式：每次工具调用需确认">
-						标准模式
-					</span>
 					<div className="min-w-4 flex-1" data-tauri-drag-region="deep" />
 					{/* 右侧功能簇：底部工作台 / 右列工作台 / 窗口控制 */}
 					<button
 						type="button"
-						title="底部工作台（Ctrl + `）"
+						title="底部工作台"
 						aria-label="底部工作台"
 						className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")}
 						onClick={() => togglePanelAt("bottom")}
@@ -503,6 +533,8 @@ export default function App(): React.JSX.Element {
 							onModel={handleModelChange}
 							thinkingLevel={thinkingLevel}
 							onThinkingLevel={handleThinkingChange}
+							approvalMode={approvalMode}
+							onApprovalMode={handleApprovalModeChange}
 							sessionInfo={sessionInfo}
 						/>
 						{workbenchDock === "right" && dockBarVisible && (

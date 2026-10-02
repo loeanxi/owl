@@ -2,6 +2,7 @@
  * Re-exports the kernel wire protocol so the UI and bridge share one definition.
  */
 export type {
+	ApprovalMode,
 	DesktopClientRequest,
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
@@ -24,6 +25,7 @@ export type {
 	SessionCreateRequest,
 	SessionListRequest,
 	SessionPromptRequest,
+	SessionSetApprovalModeRequest,
 	SessionSetModelRequest,
 	SessionSetThinkingLevelRequest,
 	SessionStatsRequest,
@@ -32,6 +34,8 @@ export type {
 	SessionRunningResult,
 	SettingsGetRequest,
 	SettingsSetRequest,
+	SystemPromptPreviewRequest,
+	SystemPromptPreviewResult,
 	FsEntry,
 	FsListing,
 	FsReadResult,
@@ -40,6 +44,13 @@ export type {
 	GitStatusResult,
 	GitStatusEntry,
 	GitLogEntry,
+	TermCreateRequest,
+	TermCreateResult,
+	TermInputRequest,
+	TermResizeRequest,
+	TermKillRequest,
+	TermDataMessage,
+	TermExitMessage,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
 import type { PermissionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
