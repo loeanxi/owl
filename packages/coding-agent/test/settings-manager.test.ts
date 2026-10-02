@@ -3,7 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS } from "../src/core/http-dispatcher.ts";
-import { type Settings, SettingsManager } from "../src/core/settings-manager.ts";
+import { type Settings, effectivePlugins, SettingsManager } from "../src/core/settings-manager.ts";
 
 describe("SettingsManager", () => {
 	const testDir = join(process.cwd(), "test-settings-tmp");
