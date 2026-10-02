@@ -584,7 +584,7 @@ export interface IabViewportRequest {
 export type IabInputPayload =
 	| { kind: "mouse"; action: "move" | "down" | "up"; x: number; y: number; button?: "left" | "right" | "middle" }
 	| { kind: "wheel"; x: number; y: number; deltaX: number; deltaY: number }
-	| { kind: "key"; key: string; down: boolean; text?: string };
+	| { kind: "key"; key: string; down: boolean; text?: string; modifiers?: string[] };
 
 export interface IabInputRequest {
 	type: "iab.input";

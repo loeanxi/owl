@@ -1,17 +1,30 @@
 /**
- * 浏览器 tab —— 内嵌预览 + 外部打开兜底。
+ * 浏览器 tab —— 内嵌真浏览器（owl IAB）。
  *
- * 对应 DSH 由宿主桌面提供的浏览器视图，owl 的自制版本走 iframe：适合
- * localhost 开发服务器、文档站等可内嵌页面；主流站点多数带 X-Frame-Options
- * 拒绝内嵌（跨域下无法程序化探测），所以工具条常驻「外部打开」。URL 记在
- * tab.path 上，随分屏树按项目持久化，重开应用还原。
+ * 旧版是 iframe（被 X-Frame-Options 卡死，且 agent 看不见）。现在是桥进程
+ * 托管的私有无头浏览器（browser-hub.ts）的 screencast 视图：帧流显示页面，
+ * 鼠标/键盘经 iab.input 转发回页面，agent 的 browser_* 工具驱动的是同一个
+ * 页面 —— 用户看得见 agent 的每一步，agent 也能被手动引导。URL 记在
+ * tab.path 上随分屏树持久化，重开应用还原。
  */
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
+import { bindIabPage, unbindIabPage } from "../iab-bound.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
 
 /** 起始页的快捷目标（开发预览是浏览器 tab 的主场景）。 */
-const QUICK_URLS = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:8080", "http://127.0.0.1:8787"];
+const QUICK_URLS = ["http://localhost:5188", "http://localhost:5173", "http://127.0.0.1:18970", "http://127.0.0.1:3000"];
+
+/** 视口预设（ZCode IAB 的 1280×860 默认档 + 常用响应式档位）。 */
+const VIEWPORT_PRESETS = [
+	{ label: "1280 × 860", width: 1280, height: 860 },
+	{ label: "1920 × 1080", width: 1920, height: 1080 },
+	{ label: "768 × 1024", width: 768, height: 1024 },
+	{ label: "390 × 844", width: 390, height: 844 },
+];
+
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
 
 /** 归一化输入：补协议、localhost 容错，空串返回空。 */
 function normalizeUrl(raw: string): string {
@@ -23,104 +36,306 @@ function normalizeUrl(raw: string): string {
 	return `https://${text}`;
 }
 
-function isProbablyIframable(url: string): boolean {
-	return /^https?:\/\//i.test(url) && !/\/\/(github\.com|google\.com|www\.google\.com)\//i.test(url);
+interface Frame {
+	data: string;
+	width: number;
+	height: number;
 }
 
-export function BrowserTab({ api, tab, store }: TabComponentProps): React.JSX.Element {
-	// URL 持久化在 tab.path（store.setTabPath 落盘）；空 = 起始页
-	const [url, setUrl] = useState(tab.path ?? "");
+/** 事件坐标 → 页面视口坐标的换算上下文（帧居中显示，四周是信箱留黑）。 */
+interface StageGeometry {
+	scale: number;
+	offsetX: number;
+	offsetY: number;
+	frame: Frame;
+	rect: DOMRect;
+}
+
+export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
+	const [page, setPage] = useState<IabPageInfo | undefined>(undefined);
 	const [draft, setDraft] = useState(tab.path ?? "");
-	const [stack, setStack] = useState<string[]>(tab.path ? [tab.path] : []);
-	const [cursor, setCursor] = useState(tab.path ? 0 : -1);
-	const [reloadKey, setReloadKey] = useState(0);
-	const inputRef = useRef<HTMLInputElement>(null);
+	const [frame, setFrame] = useState<Frame | undefined>(undefined);
+	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+	const stageRef = useRef<HTMLDivElement>(null);
+	const lastMoveSent = useRef(0);
+	// ref 镜像：iab 消息回调与输入转发读最新值，免 stale closure
+	const pageRef = useRef<IabPageInfo | undefined>(undefined);
+	pageRef.current = page;
+	const frameRef = useRef<Frame | undefined>(undefined);
+	frameRef.current = frame;
+
+	const applyPage = useCallback(
+		(next: IabPageInfo): void => {
+			const current = pageRef.current;
+			if (current && current.pageId === next.pageId && current.url !== next.url) {
+				// agent 或页面自身把 URL 带走了：持久化跟着走（重开应用还原到新地址）
+				store.setTabPath(tab.id, next.url);
+				setDraft(next.url);
+			}
+			pageRef.current = next;
+			setPage(next);
+		},
+		[store, tab.id],
+	);
+
+	/** 舞台几何：帧按适应窗口缩放居中；没有帧时返回 undefined。 */
+	const stageGeometry = (): StageGeometry | undefined => {
+		const element = stageRef.current;
+		const current = frameRef.current;
+		if (!element || !current || current.width === 0 || element.clientWidth === 0) return undefined;
+		const scale = Math.min(element.clientWidth / current.width, element.clientHeight / current.height);
+		const rect = element.getBoundingClientRect();
+		return {
+			scale,
+			offsetX: (rect.width - current.width * scale) / 2,
+			offsetY: (rect.height - current.height * scale) / 2,
+			frame: current,
+			rect,
+		};
+	};
+
+	const toPageCoords = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
+		const geometry = stageGeometry();
+		if (!geometry) return undefined;
+		const clamp = (value: number, max: number): number => Math.min(Math.max(value, 0), Math.max(max - 1, 0));
+		return {
+			x: clamp((clientX - geometry.rect.left - geometry.offsetX) / geometry.scale, geometry.frame.width),
+			y: clamp((clientY - geometry.rect.top - geometry.offsetY) / geometry.scale, geometry.frame.height),
+		};
+	};
+
+	const sendInput = (input: IabInputPayload): void => {
+		const current = pageRef.current;
+		if (!current) return;
+		void client.request({ type: "iab.input", pageId: current.pageId, input }).catch(() => {});
+	};
+
+	// 挂载：按持久化的 URL 绑定页面（hub 按 URL 复用已有页，没有就新建）。
+	// 桥还没连上时请求会被立即拒绝：挂 onStatus 等下次连上后重试，不能丢。
+	useEffect(() => {
+		const initial = tab.path ? normalizeUrl(tab.path) : undefined;
+		if (!initial) return;
+		let cancelled = false;
+		let retryOff: (() => void) | undefined;
+		const attempt = (): void => {
+			void client
+				.request<{ page: IabPageInfo }>({ type: "iab.open", url: initial })
+				.then((response) => {
+					if (!cancelled && response.ok && response.result) applyPage(response.result.page);
+				})
+				.catch(() => {
+					if (cancelled) return;
+					retryOff?.();
+					retryOff = client.onStatus((up) => {
+						if (!up || cancelled) return;
+						retryOff?.();
+						retryOff = undefined;
+						attempt();
+					});
+				});
+		};
+		attempt();
+		return () => {
+			cancelled = true;
+			retryOff?.();
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// 页面就位：登记 + 订阅帧流；卸载/换页时退订
+	useEffect(() => {
+		if (!page) return;
+		bindIabPage(page.pageId);
+		void client.request({ type: "iab.attach", pageId: page.pageId }).catch(() => {});
+		const boundPageId = page.pageId;
+		return () => {
+			unbindIabPage(boundPageId);
+			void client.request({ type: "iab.detach", pageId: boundPageId }).catch(() => {});
+		};
+	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// IAB 消息：帧流按 pageId 收；页面清单用来跟踪标题/URL/关闭
+	useEffect(() => {
+		return client.onIabMessage((message) => {
+			if (message.type === "iab.frame") {
+				if (message.pageId === pageRef.current?.pageId) {
+					setFrame({ data: message.data, width: message.width, height: message.height });
+				}
+				return;
+			}
+			if (message.type === "iab.pages" && pageRef.current) {
+				const current = pageRef.current;
+				const mine = message.pages.find((candidate) => candidate.pageId === current.pageId);
+				if (mine) {
+					if (mine.url !== current.url || mine.title !== current.title) applyPage(mine);
+				} else {
+					// 绑定的页面被关掉（agent browser_tabs close / 桥重启）：回起始页
+					pageRef.current = undefined;
+					setPage(undefined);
+					setFrame(undefined);
+					store.setTabPath(tab.id, undefined);
+				}
+			}
+		});
+	}, [client, applyPage, store, tab.id]);
+
+	// 舞台尺寸 → 适应窗口缩放
+	useEffect(() => {
+		const element = stageRef.current;
+		if (!element) return;
+		const observer = new ResizeObserver(() => {
+			setStageSize({ width: element.clientWidth, height: element.clientHeight });
+		});
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// wheel 用原生非 passive 监听才能 preventDefault（React 的 onWheel 是 passive）
+	useEffect(() => {
+		const element = stageRef.current;
+		if (!element || !page) return;
+		const onWheel = (event: WheelEvent): void => {
+			event.preventDefault();
+			const coords = toPageCoords(event.clientX, event.clientY);
+			if (!coords) return;
+			sendInput({ kind: "wheel", x: coords.x, y: coords.y, deltaX: event.deltaX, deltaY: event.deltaY });
+		};
+		element.addEventListener("wheel", onWheel, { passive: false });
+		return () => element.removeEventListener("wheel", onWheel);
+	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const navigate = (raw: string): void => {
 		const next = normalizeUrl(raw);
-		setUrl(next);
 		setDraft(next);
-		if (!next) {
-			store.setTabPath(tab.id, undefined);
-			return;
-		}
-		store.setTabPath(tab.id, next);
-		setStack((current) => {
-			const trimmed = current.slice(0, cursor + 1);
-			if (trimmed[trimmed.length - 1] === next) return trimmed;
-			const merged = [...trimmed, next];
-			setCursor(merged.length - 1);
-			return merged;
-		});
-		setReloadKey((key) => key + 1);
+		if (!next) return;
+		const current = pageRef.current;
+		void client
+			.request<{ page: IabPageInfo }>(
+				current ? { type: "iab.open", pageId: current.pageId, url: next } : { type: "iab.open", url: next },
+			)
+			.then((response) => {
+				if (response.ok && response.result) {
+					applyPage(response.result.page);
+					store.setTabPath(tab.id, response.result.page.url);
+				}
+			})
+			.catch(() => {});
 	};
 
-	const jump = (delta: number): void => {
-		const next = Math.min(Math.max(cursor + delta, 0), stack.length - 1);
-		if (next === cursor) return;
-		setCursor(next);
-		setUrl(stack[next] ?? "");
-		setDraft(stack[next] ?? "");
-		store.setTabPath(tab.id, stack[next]);
-		setReloadKey((key) => key + 1);
+	const runNav = (action: "back" | "forward" | "reload"): void => {
+		const current = pageRef.current;
+		if (!current) return;
+		void client.request({ type: "iab.nav", pageId: current.pageId, action }).catch(() => {});
+	};
+
+	const applyViewportPreset = (preset: (typeof VIEWPORT_PRESETS)[number]): void => {
+		const current = pageRef.current;
+		if (!current) return;
+		void client
+			.request({ type: "iab.viewport", pageId: current.pageId, width: preset.width, height: preset.height })
+			.catch(() => {});
 	};
 
 	const openExternal = (): void => {
-		if (url) void api.openExternal("url", url).catch(() => {});
+		if (pageRef.current?.url) void api.openExternal("url", pageRef.current.url).catch(() => {});
 	};
+
+	// 键盘：画布聚焦时全部转发给页面（含 Ctrl+T 等组合键——那是页面的快捷键，
+	// 不是工作台的；App 的全局快捷键靠 data-iab-capture 让路）
+	const onKeyDown = (event: React.KeyboardEvent): void => {
+		if (!pageRef.current) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const modifiers = [
+			...(event.ctrlKey ? ["Control"] : []),
+			...(event.shiftKey ? ["Shift"] : []),
+			...(event.altKey ? ["Alt"] : []),
+			...(event.metaKey ? ["Meta"] : []),
+		];
+		sendInput({
+			kind: "key",
+			key: event.key,
+			down: true,
+			...(event.key.length === 1 ? { text: event.key } : {}),
+			...(modifiers.length > 0 ? { modifiers } : {}),
+		});
+		// 修饰键的抬起要跟（普通键 press 已在 down 侧完成，up 无需转发）
+		if (MODIFIER_KEYS.has(event.key)) sendInput({ kind: "key", key: event.key, down: false });
+	};
+
+	const mouseButtonOf = (button: number): "left" | "right" | "middle" =>
+		button === 2 ? "right" : button === 1 ? "middle" : "left";
 
 	const toolbarButton =
 		"flex h-6 w-6 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
+	const scale = (() => {
+		if (!frame || stageSize.width === 0) return undefined;
+		return Math.min(stageSize.width / frame.width, stageSize.height / frame.height);
+	})();
+	const viewportLabel = page ? `${page.viewport.width} × ${page.viewport.height}` : "";
+	const viewportIsPreset = VIEWPORT_PRESETS.some((preset) => preset.label === viewportLabel);
 
 	return (
-		<div className="flex h-full flex-col overflow-hidden bg-owl-bg">
-			{/* 工具条：后退 / 前进 / 刷新 / 地址栏 / 外部打开 */}
+		<div className="flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
+			{/* 工具条：后退 / 前进 / 刷新 / 地址栏 / 视口 / 外部打开 */}
 			<div className="flex shrink-0 select-none items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
-				<button type="button" title="后退" className={toolbarButton} disabled={cursor <= 0} onClick={() => jump(-1)}>
+				<button type="button" title="后退" className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="h-3 w-3">
 						<path d="M10 3 5 8l5 5" />
 					</svg>
 				</button>
-				<button type="button" title="前进" className={toolbarButton} disabled={cursor >= stack.length - 1} onClick={() => jump(1)}>
+				<button type="button" title="前进" className={toolbarButton} disabled={!page} onClick={() => runNav("forward")}>
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="h-3 w-3">
 						<path d="m6 3 5 5-5 5" />
 					</svg>
 				</button>
-				<button
-					type="button"
-					title="刷新"
-					className={toolbarButton}
-					disabled={!url}
-					onClick={() => setReloadKey((key) => key + 1)}
-				>
+				<button type="button" title="刷新" className={toolbarButton} disabled={!page} onClick={() => runNav("reload")}>
 					<IconRefresh size={11} />
 				</button>
 				<input
 					value={draft}
-					placeholder="输入 URL（localhost 开发服务器、可内嵌站点）"
+					placeholder="输入 URL，回车打开（agent 也能看到这个页面）"
 					spellCheck={false}
 					onChange={(e) => setDraft(e.target.value)}
 					onKeyDown={(e) => {
 						if (e.key === "Enter") {
 							e.preventDefault();
 							navigate(draft);
-							inputRef.current?.blur();
+							(e.target as HTMLInputElement).blur();
 						}
 					}}
 					className="h-6.5 min-w-0 flex-1 rounded-md border border-owl-border/50 bg-owl-panel px-2.5 text-xs text-owl-text outline-none placeholder:text-owl-faint focus:border-owl-accent/60"
 				/>
-				<button type="button" title="在系统浏览器打开" className={toolbarButton} disabled={!url} onClick={openExternal}>
+				{page && (
+					<select
+						title="视口大小"
+						value={viewportLabel}
+						onChange={(e) => {
+							const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === e.target.value);
+							if (preset) applyViewportPreset(preset);
+						}}
+						className="h-6.5 shrink-0 rounded-md border border-owl-border/50 bg-owl-panel px-1 font-mono text-[10px] text-owl-muted outline-none focus:border-owl-accent/60"
+					>
+						{!viewportIsPreset && <option value={viewportLabel}>{viewportLabel}</option>}
+						{VIEWPORT_PRESETS.map((preset) => (
+							<option key={preset.label} value={preset.label}>
+								{preset.label}
+							</option>
+						))}
+					</select>
+				)}
+				<button type="button" title="在系统浏览器打开" className={toolbarButton} disabled={!page?.url} onClick={openExternal}>
 					<IconExternal size={11} />
 				</button>
 			</div>
 
-			{/* 内容：空 URL = 起始页；否则 iframe（key 换代实现硬刷新） */}
-			{!url ? (
+			{/* 内容：起始页 或 screencast 舞台 */}
+			{!page ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-					<p className="text-sm text-owl-muted">内嵌预览</p>
+					<p className="text-sm text-owl-muted">内嵌浏览器</p>
 					<p className="max-w-sm text-xs leading-relaxed text-owl-faint">
-						适合 localhost 开发服务器和允许内嵌的站点。主流网站（GitHub、Google
-						等）拒绝被嵌入，输完地址点右侧图标即可在系统浏览器打开。
+						桥进程托管的独立浏览器：不受 X-Frame-Options 限制，随便开什么站；
+						Agent 的 browser_* 工具驱动的是同一个页面，它的每一步操作你都看得到。
 					</p>
 					<div className="mt-1 flex flex-wrap justify-center gap-2">
 						{QUICK_URLS.map((candidate) => (
@@ -136,23 +351,50 @@ export function BrowserTab({ api, tab, store }: TabComponentProps): React.JSX.El
 					</div>
 				</div>
 			) : (
-				<div className="relative min-h-0 flex-1">
-					<iframe
-						key={reloadKey}
-						src={url}
-						title="浏览器预览"
-						className="h-full w-full border-0 bg-white"
-						referrerPolicy="no-referrer"
-					/>
-					{!isProbablyIframable(url) && (
-						<div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-2">
-							<span className="pointer-events-auto flex items-center gap-2 rounded-full border border-owl-border/60 bg-owl-panel/95 px-3 py-1 text-[10px] text-owl-faint shadow">
-								该站点可能禁止内嵌
-								<button type="button" className="flex items-center gap-1 text-owl-accent transition-colors hover:text-owl-accent-hover" onClick={openExternal}>
-									外部打开
-								</button>
-							</span>
+				<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black/40">
+					{frame && scale ? (
+						<div
+							tabIndex={0}
+							className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default outline-none"
+							style={{ width: frame.width * scale, height: frame.height * scale }}
+							onKeyDown={onKeyDown}
+							onContextMenu={(e) => e.preventDefault()}
+							onMouseDown={(e) => {
+								(e.currentTarget as HTMLDivElement).focus();
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "down", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+							}}
+							onMouseUp={(e) => {
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+							}}
+							onMouseMove={(e) => {
+								const now = Date.now();
+								if (now - lastMoveSent.current < 40) return;
+								lastMoveSent.current = now;
+								const coords = toPageCoords(e.clientX, e.clientY);
+								if (!coords) return;
+								sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
+							}}
+						>
+							<img
+								src={`data:image/jpeg;base64,${frame.data}`}
+								alt="页面预览"
+								draggable={false}
+								className="h-full w-full select-none bg-white"
+							/>
 						</div>
+					) : (
+						<div className="flex h-full items-center justify-center">
+							<span className="animate-pulse text-xs text-owl-faint">正在连接页面…</span>
+						</div>
+					)}
+					{scale !== undefined && (
+						<span className="pointer-events-none absolute bottom-1.5 right-2 rounded bg-owl-panel/90 px-1.5 py-0.5 font-mono text-[10px] text-owl-faint">
+							{page.viewport.width}×{page.viewport.height} · {Math.round(scale * 100)}%
+						</span>
 					)}
 				</div>
 			)}

@@ -14,6 +14,7 @@ import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { BottomDockBar } from "./sidebar/BottomDockBar.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
+import { isIabPageBound } from "./sidebar/iab-bound.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -193,22 +194,37 @@ export default function App(): React.JSX.Element {
 		setSessionFeed({ running, entries });
 	}, [running, entries]);
 
-	// Ctrl + ` 新建终端、Ctrl + T 新建浏览器 tab（与开始页卡片上的提示一致；
-	// DSH 同款语义：终端落在当前停靠位，面板没开时顺手展开）
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent): void => {
-			if (!event.ctrlKey || event.altKey || event.shiftKey) return;
-			if (event.key === "`" || event.code === "Backquote") {
-				event.preventDefault();
-				openInPanel("terminal");
-			} else if (event.ctrlKey && (event.key === "t" || event.key === "T")) {
-				event.preventDefault();
-				openInPanel("browser");
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, []); // eslint-disable-line react-hooks/exhaustive-deps
+		// Ctrl + ` 新建终端、Ctrl + T 新建浏览器 tab（与开始页卡片上的提示一致；
+		// DSH 同款语义：终端落在当前停靠位，面板没开时顺手展开。
+		// 焦点在内嵌浏览器里时不抢：那些组合键属于页面本身）
+		useEffect(() => {
+			const onKey = (event: KeyboardEvent): void => {
+				if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+				if ((event.target as HTMLElement | null)?.closest?.("[data-iab-capture]")) return;
+				if (event.key === "`" || event.code === "Backquote") {
+					event.preventDefault();
+					openInPanel("terminal");
+				} else if (event.ctrlKey && (event.key === "t" || event.key === "T")) {
+					event.preventDefault();
+					openInPanel("browser");
+				}
+			};
+			window.addEventListener("keydown", onKey);
+			return () => window.removeEventListener("keydown", onKey);
+		}, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+		// IAB 联动（ZCode 同款）：agent 用 browser_* 工具开/切页面时，如果没有
+		// 面板在看那个页面，自动开一个浏览器 tab 并展开工作台——用户始终看得见
+		// agent 的浏览器操作。用户自己开的面板（origin=ui）不打扰。
+		useEffect(() => {
+			return client.onIabMessage((message) => {
+				if (message.type !== "iab.pages" || message.origin !== "agent") return;
+				const target = message.pages.find((page) => page.active) ?? message.pages[0];
+				if (!target || isIabPageBound(target.pageId)) return;
+				workbenchStore.openNew("browser", target.title || "浏览器", target.url || undefined);
+				if (!openRef.current) setWorkbenchOpenPersisted(true);
+			});
+		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect(() => {
 		if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {

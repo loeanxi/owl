@@ -45,6 +45,8 @@ import type { SettingsManager } from "../../core/settings-manager.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
+import { BrowserHub } from "./browser-hub.ts";
+import type { IabFrameMessage, IabOpenResult, IabPageInfo, IabStateResult } from "./protocol.ts";
 import {
 	invalidateDirectoryCache,
 	listWorkspaceDirectory,
@@ -73,7 +75,7 @@ const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", 
 const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 /** plan 模式放行的只读内置工具；其余（bash/powershell/edit/write 及 MCP/扩展工具）一律拦截。 */
-const READ_ONLY_TOOLS = new Set(["read", "ls", "find", "grep"]);
+const READ_ONLY_TOOLS = new Set(["read", "ls", "find", "grep", "browser_snapshot", "browser_screenshot", "browser_tabs"]);
 
 /** plan 模式的系统提示词附录：创建会话时即告知模型只读约束与目标（产出计划）。 */
 const PLAN_MODE_ADDENDUM = [
@@ -318,6 +320,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** 终端会话表（term.* 路由的目标）；termId → 创建它的连接，断线时兜底回收 */
 	const terminals = new TerminalManager();
 	const wsTerms = new WeakMap<WebSocket, Set<string>>();
+	/** IAB 帧流订阅：连接 → 它在看的 pageId 集合（断线兜底回收）。 */
+	const iabSubscriptions = new WeakMap<WebSocket, Set<string>>();
+	/** 内嵌浏览器 hub：UI 面板与 agent 工具共用的无头浏览器。 */
+	const iab = new BrowserHub({
+		onFrame: (pageId, data, width, height) => {
+			const message: IabFrameMessage = { type: "iab.frame", pageId, data, width, height };
+			const payload = JSON.stringify(message);
+			for (const client of clients) {
+				if (client.readyState === client.OPEN && iabSubscriptions.get(client)?.has(pageId)) {
+					client.send(payload);
+				}
+			}
+		},
+		onPagesChanged: (pages: IabPageInfo[], origin) => broadcast({ type: "iab.pages", pages, origin }),
+		onDiagnostic,
+	});
+	/** browser_* 工具定义（工具执行时才拉起浏览器，列定义零开销）。 */
+	const iabTools = iab.tools();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
 	/** Shared services for non-session queries (models.list); built lazily. */
@@ -483,7 +503,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
-				customTools: await getMcpTools(),
+				customTools: [...(await getMcpTools()), ...iabTools],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
 			});
@@ -1402,6 +1422,72 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			reply(ws, request.id, { ok: true });
 			return;
 		}
+		case "iab.open": {
+			// 绑定/打开页面：pageId 只绑定，url 按 URL 复用或新建，双给 = 导航既有页
+			try {
+				const page = await iab.open({
+					...(request.pageId !== undefined ? { pageId: request.pageId } : {}),
+					...(request.url !== undefined ? { url: request.url } : {}),
+				});
+				reply(ws, request.id, { ok: true, result: { page } satisfies IabOpenResult });
+			} catch (error) {
+				reply(ws, request.id, {
+					ok: false,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return;
+		}
+		case "iab.nav": {
+			try {
+				await iab.nav(request.pageId, request.action);
+				reply(ws, request.id, { ok: true });
+			} catch (error) {
+				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+			}
+			return;
+		}
+		case "iab.viewport": {
+			try {
+				await iab.setViewport(request.pageId, request.width, request.height);
+				reply(ws, request.id, { ok: true });
+			} catch (error) {
+				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+			}
+			return;
+		}
+		case "iab.input": {
+			try {
+				await iab.input(request.pageId, request.input);
+				reply(ws, request.id, { ok: true });
+			} catch (error) {
+				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+			}
+			return;
+		}
+		case "iab.attach": {
+			// 先记账再抓首帧：保证首帧一定送到这条连接（screencast 只推增量）
+			const owned = iabSubscriptions.get(ws) ?? new Set<string>();
+			owned.add(request.pageId);
+			iabSubscriptions.set(ws, owned);
+			await iab.captureFrame(request.pageId);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "iab.detach": {
+			iabSubscriptions.get(ws)?.delete(request.pageId);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "iab.close": {
+			await iab.closePage(request.pageId);
+			reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "iab.state": {
+			reply(ws, request.id, { ok: true, result: { pages: iab.listPages() } satisfies IabStateResult });
+			return;
+		}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -1453,6 +1539,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				for (const termId of owned) terminals.kill(termId);
 				wsTerms.delete(ws);
 			}
+			iabSubscriptions.delete(ws);
 		});
 	});
 
@@ -1473,6 +1560,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();
 			terminals.killAll();
+			await iab.dispose();
 			for (const client of clients) client.close();
 			wss.close();
 			await mcp?.close();

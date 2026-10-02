@@ -51,6 +51,13 @@ export type {
 	TermKillRequest,
 	TermDataMessage,
 	TermExitMessage,
+	IabPageInfo,
+	IabPagesMessage,
+	IabFrameMessage,
+	IabServerMessage,
+	IabOpenResult,
+	IabStateResult,
+	IabInputPayload,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
 import type { PermissionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";

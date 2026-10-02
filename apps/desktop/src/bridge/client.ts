@@ -1,6 +1,7 @@
 import type {
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
+	IabServerMessage,
 	PermissionRequestMessage,
 	ServerEventMessage,
 	TermDataMessage,
@@ -12,6 +13,7 @@ export type SessionEventHandler = (event: ServerEventMessage) => void;
 export type PermissionHandler = (request: PermissionRequest) => void;
 export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
+export type IabMessageHandler = (message: IabServerMessage) => void;
 
 type Pending = { resolve: (value: any) => void };
 
@@ -26,6 +28,7 @@ export class BridgeClient {
 	private sessionHandlers = new Set<SessionEventHandler>();
 	private permissionHandlers = new Set<PermissionHandler>();
 	private termHandlers = new Set<TermMessageHandler>();
+	private iabHandlers = new Set<IabMessageHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -64,6 +67,10 @@ export class BridgeClient {
 			}
 			if (message.type === "term.data" || message.type === "term.exit") {
 				for (const handler of this.termHandlers) handler(message);
+				return;
+			}
+			if (message.type === "iab.frame" || message.type === "iab.pages") {
+				for (const handler of this.iabHandlers) handler(message);
 			}
 		};
 		ws.onclose = () => {
@@ -93,6 +100,12 @@ export class BridgeClient {
 	onTermMessage(handler: TermMessageHandler): () => void {
 		this.termHandlers.add(handler);
 		return () => this.termHandlers.delete(handler);
+	}
+
+	/** 内嵌浏览器帧流/页面清单（BrowserTab 按 pageId 过滤；App 监听 agent 触发的开页）。 */
+	onIabMessage(handler: IabMessageHandler): () => void {
+		this.iabHandlers.add(handler);
+		return () => this.iabHandlers.delete(handler);
 	}
 
 	onStatus(handler: (connected: boolean) => void): () => void {
