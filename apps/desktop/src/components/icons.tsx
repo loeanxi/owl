@@ -235,3 +235,35 @@ export function IconInfo({ className }: { className?: string }): React.JSX.Eleme
 		</Svg>
 	);
 }
+
+/** 聊天流节点：思考过程（灯泡） */
+export function IconLightbulb({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M9 18h6" />
+			<path d="M10 21h4" />
+			<path d="M12 3a6 6 0 0 0-3.9 10.6c.6.5.9 1.2.9 2v.4h6v-.4c0-.8.3-1.5.9-2A6 6 0 0 0 12 3z" />
+		</Svg>
+	);
+}
+
+/** 聊天流节点：工具调用（终端提示符） */
+export function IconTerminal({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="m5 6 6 6-6 6" />
+			<path d="M13 18h7" />
+		</Svg>
+	);
+}
+
+/** 聊天流节点：出错（叹号圆片） */
+export function IconAlert({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="9" />
+			<path d="M12 7.5V13" />
+			<path d="M12 16.5h.01" />
+		</Svg>
+	);
+}

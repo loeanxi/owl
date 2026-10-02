@@ -36,6 +36,7 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
+import { builtInExtensions } from "../../extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
@@ -651,7 +652,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			buildFactory(
 				args.agentDir,
 				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-				[permissionExtension, owlMemoryExtension],
+				[...builtInExtensions, permissionExtension, owlMemoryExtension],
 				owlAddenda,
 			),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },

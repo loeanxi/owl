@@ -17,7 +17,6 @@ import { openQuickAction } from "./sidebar/quick.tsx";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
-import type { ProviderModelsMessage } from "./bridge/protocol.ts";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
 /** 未选择过项目时的默认工作目录；启动时会自动创建，保证开箱即可对话。 */

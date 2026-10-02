@@ -38,13 +38,14 @@ import ignore from "ignore";
 import { minimatch } from "minimatch";
 import { gt, maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
 import { CONFIG_DIR_NAME } from "../config.ts";
+import { isExtensionFile } from "./extensions/loader.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import { type PiManifest, readPiManifest } from "./pi-manifest.ts";
-import type { PackageSource, SettingsManager } from "./settings-manager.ts";
+import type { PackageSource, PluginSource, SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_PATH_PREFIX } from "./source-info.ts";
 
 const NETWORK_TIMEOUT_MS = 10000;
@@ -922,17 +923,43 @@ export class DefaultPackageManager implements PackageManager {
 		const globalSettings = this.settingsManager.getGlobalSettings();
 		const projectSettings = this.settingsManager.getProjectSettings();
 
-		// Collect all packages with scope (project first so cwd resources win collisions)
-		const allPackages: Array<{ pkg: PackageSource; scope: SourceScope }> = [];
+		// Collect all packages with scope (project first so cwd resources win collisions). The unified
+		// `plugins` field feeds the same list: pattern-shaped strings are builtin-load overrides, local
+		// single extension files route straight to the extension loader, everything else (npm:/git/local
+		// directory) goes through the package pipeline. Legacy `packages` keep their existing intake.
+		const allPackages: Array<{ pkg: PackageSource | PluginSource; scope: SourceScope }> = [];
+		const pluginLocalFiles: Array<{ entry: string; scope: SourceScope }> = [];
+		const pluginOverridePatterns: { project: string[]; user: string[] } = { project: [], user: [] };
+		const collectPlugins = (plugins: PluginSource[], scope: "project" | "user"): void => {
+			for (const plugin of plugins) {
+				if (typeof plugin === "string") {
+					if (isOverridePattern(plugin)) {
+						pluginOverridePatterns[scope].push(plugin);
+						continue;
+					}
+					if (this.parseSource(plugin).type === "local" && isExtensionFile(basename(plugin))) {
+						pluginLocalFiles.push({ entry: plugin, scope });
+						continue;
+					}
+				}
+				allPackages.push({ pkg: plugin, scope });
+			}
+		};
+		collectPlugins(projectSettings.plugins ?? [], "project");
 		for (const pkg of projectSettings.packages ?? []) {
 			allPackages.push({ pkg, scope: "project" });
 		}
+		collectPlugins(globalSettings.plugins ?? [], "user");
 		for (const pkg of globalSettings.packages ?? []) {
 			allPackages.push({ pkg, scope: "user" });
 		}
 
-		// Dedupe: project scope wins over global for same package identity
-		const packageSources = this.dedupePackages(allPackages);
+		// Dedupe: project scope wins over global for same package identity — a project-disabled
+		// entry therefore shadows a global enable — then drop disabled entries. Past the disabled
+		// filter every remaining plugin object is structurally a PackageSource again.
+		const packageSources = this.dedupePackages(allPackages).filter(
+			(entry) => !(typeof entry.pkg === "object" && "disabled" in entry.pkg && entry.pkg.disabled === true),
+		) as Array<{ pkg: PackageSource; scope: SourceScope }>;
 		await this.resolvePackageSources(packageSources, accumulator, onMissing);
 
 		const globalBaseDir = this.agentDir;
@@ -966,22 +993,37 @@ export class DefaultPackageManager implements PackageManager {
 			);
 		}
 
+		// Plugin entries that are local single extension files load directly (no package manifest).
+		for (const scope of ["project", "user"] as const) {
+			const entries = pluginLocalFiles.filter((file) => file.scope === scope).map((file) => file.entry);
+			if (entries.length === 0) continue;
+			this.resolveLocalEntries(
+				entries,
+				"extensions",
+				accumulator.extensions,
+				{ source: "local", scope, origin: "top-level" },
+				scope === "project" ? projectBaseDir : globalBaseDir,
+			);
+		}
+
 		this.addAutoDiscoveredResources(accumulator, globalSettings, projectSettings, globalBaseDir, projectBaseDir);
 
 		// Built-in extensions are enabled unless the user `extensions` setting excludes them, for example
 		// with `-builtin:mcp`. A matching `+`, `-`, or `!` entry in the project setting overrides that.
+		// Plugin entries may carry the same override patterns.
 		for (const name of this.builtinExtensions) {
 			const path = `${BUILTIN_PATH_PREFIX}${name}`;
 			const projectEnabled = applyAutoloadDisabledPatterns(
 				[path],
-				getOverridePatterns(projectSettings.extensions ?? []),
+				getOverridePatterns([...(projectSettings.extensions ?? []), ...pluginOverridePatterns.project]),
 				projectBaseDir,
 			).get(path);
 			this.addResource(
 				accumulator.extensions,
 				path,
 				{ source: "builtin", scope: projectEnabled === undefined ? "user" : "project", origin: "top-level" },
-				projectEnabled ?? isEnabledByOverrides(path, globalSettings.extensions ?? [], globalBaseDir),
+				projectEnabled ??
+					isEnabledByOverrides(path, [...(globalSettings.extensions ?? []), ...pluginOverridePatterns.user], globalBaseDir),
 			);
 		}
 
@@ -1740,8 +1782,8 @@ export class DefaultPackageManager implements PackageManager {
 	 * is a delta over the global entry, so both are kept (delta first).
 	 */
 	private dedupePackages(
-		packages: Array<{ pkg: PackageSource; scope: SourceScope }>,
-	): Array<{ pkg: PackageSource; scope: SourceScope }> {
+		packages: Array<{ pkg: PackageSource | PluginSource; scope: SourceScope }>,
+	): Array<{ pkg: PackageSource | PluginSource; scope: SourceScope }> {
 		const result: Array<{ pkg: PackageSource; scope: SourceScope }> = [];
 		const seen = new Map<string, number>();
 		for (const entry of packages) {

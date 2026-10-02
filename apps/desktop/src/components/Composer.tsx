@@ -260,6 +260,39 @@ export function Composer({
 					</Menu>
 					<div className="flex-1" />
 					<Menu
+						triggerClassName={pillClass}
+						triggerTitle={APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.title}
+						panelClassName="right-0 w-64"
+						trigger={
+							<>
+								<ModeIcon mode={approvalMode} active={approvalMode !== "confirm"} />
+								<span>{APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.label ?? approvalMode}</span>
+								<Chevron />
+							</>
+						}
+					>
+						{(close: () => void) => (
+							<div>
+								{APPROVAL_MODES.map((entry) => (
+									<button
+										key={entry.value}
+										type="button"
+										className={`${menuItemClass} ${entry.value === approvalMode ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+										title={entry.title}
+										onClick={() => {
+											onApprovalMode(entry.value);
+											close();
+										}}
+									>
+										<ModeIcon mode={entry.value} active={entry.value === approvalMode} />
+										<span className="flex-1">{entry.label}</span>
+										{entry.value === approvalMode && <span className="text-owl-accent">✓</span>}
+									</button>
+								))}
+							</div>
+						)}
+					</Menu>
+					<Menu
 						triggerClassName="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-muted"
 						triggerTitle="查看上下文"
 						panelClassName="right-0 w-72"

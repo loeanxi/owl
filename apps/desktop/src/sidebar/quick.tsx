@@ -107,15 +107,16 @@ export interface QuickAction {
 	icon: (size?: number) => ReactNode;
 	/** 快捷键提示（App 里有对应的键盘处理）。 */
 	hint?: string;
-	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的，不进底部栏。 */
+	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的，不进底部栏。tabTitle 是落成 tab 条上的短标题。 */
 	multi?: boolean;
+	tabTitle?: string;
 	/** 占位卡：功能未实现时置灰。 */
 	disabled?: boolean;
 }
 
 export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "files", label: "文件", color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
-	{ kind: "terminal", label: "新建终端", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true },
+	{ kind: "terminal", label: "新建终端", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true, tabTitle: "终端" },
 	{ kind: "changes", label: "文件变动", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
 	{ kind: "browser", label: "浏览器", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
 	{ kind: "tasks", label: "任务管理", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
@@ -132,6 +133,6 @@ export function quickActionOf(kind: string): QuickAction | undefined {
 export function openQuickAction(store: SidebarStore, kind: string): void {
 	const action = quickActionOf(kind);
 	if (!action || action.disabled) return;
-	if (action.multi) store.openNew(kind, action.label);
+	if (action.multi) store.openNew(kind, action.tabTitle ?? action.label);
 	else store.openSingleton(kind, action.label);
 }

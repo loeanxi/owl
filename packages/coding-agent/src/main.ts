@@ -40,6 +40,7 @@ import {
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
+import { builtInExtensions } from "./extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
@@ -551,7 +552,7 @@ export interface MainOptions {
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
-	const extensionFactories = [...(options?.extensionFactories ?? [])];
+	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (offlineMode) {
 		process.env.PI_OFFLINE = "1";

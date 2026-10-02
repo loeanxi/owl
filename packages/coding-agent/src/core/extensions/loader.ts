@@ -726,7 +726,7 @@ export async function loadExtensionsCached(
 	return loadExtensionsInternal(paths, cwd, eventBus, runtime, true);
 }
 
-function isExtensionFile(name: string): boolean {
+export function isExtensionFile(name: string): boolean {
 	return name.endsWith(".ts") || name.endsWith(".js");
 }
 
