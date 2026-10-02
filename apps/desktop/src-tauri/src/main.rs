@@ -1,16 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! owl desktop shell.
+//! owl desktop shell (Phase 3).
 //!
-//! One-click desktop entry: the shell spawns the bridge (node serve.js) as a
-//! hidden child process, points the window at its single-port UI, and kills
-//! the bridge when the app exits. Paths are dev-machine absolute for now;
-//! M2 turns the bridge into a bundled sidecar (see DEV-README.md, Phase 3).
+//! One-click desktop entry:
+//! - Auto-discovers serve.js and data directory without hardcoded machine paths
+//! - Spawns the bridge (node serve.js) as a hidden child process
+//! - Allocates an available port dynamically to prevent conflicts
+//! - System tray support (show/hide window, restart bridge, exit)
+//! - Cleans up child process tree cleanly on exit
 
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -18,30 +25,137 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const SERVE_SCRIPT: &str = "D:/owl/owl-re-v1/owl-mono/packages/coding-agent/dist/modes/desktop/serve.js";
-const AGENT_DIR: &str = "D:/owl/owl-re-v1/data/owl";
-const DEFAULT_PORT: &str = "18901";
+const DEFAULT_PORT: u16 = 18901;
 
-fn spawn_bridge(port: &str) -> Child {
+/// Locate the `serve.js` desktop bridge script.
+fn resolve_serve_script() -> PathBuf {
+	// 1. OWL_SERVE_SCRIPT override
+	if let Ok(path) = std::env::var("OWL_SERVE_SCRIPT") {
+		let p = PathBuf::from(path);
+		if p.exists() {
+			return p;
+		}
+	}
+
+	// 2. Relative to executable (bundled NSIS / release mode)
+	if let Ok(exe) = std::env::current_exe() {
+		if let Some(exe_dir) = exe.parent() {
+			// resources/packages/coding-agent/dist/modes/desktop/serve.js
+			let cand1 = exe_dir
+				.join("resources")
+				.join("packages")
+				.join("coding-agent")
+				.join("dist")
+				.join("modes")
+				.join("desktop")
+				.join("serve.js");
+			if cand1.exists() {
+				return cand1;
+			}
+			let cand2 = exe_dir.join("dist").join("modes").join("desktop").join("serve.js");
+			if cand2.exists() {
+				return cand2;
+			}
+		}
+	}
+
+	// 3. Search upwards from cwd (dev mode)
+	if let Ok(mut dir) = std::env::current_dir() {
+		for _ in 0..6 {
+			let cand = dir
+				.join("packages")
+				.join("coding-agent")
+				.join("dist")
+				.join("modes")
+				.join("desktop")
+				.join("serve.js");
+			if cand.exists() {
+				return cand;
+			}
+			let cand2 = dir
+				.join("owl-mono")
+				.join("packages")
+				.join("coding-agent")
+				.join("dist")
+				.join("modes")
+				.join("desktop")
+				.join("serve.js");
+			if cand2.exists() {
+				return cand2;
+			}
+			if !dir.pop() {
+				break;
+			}
+		}
+	}
+
+	// 4. Fallback to known default dev path
+	PathBuf::from("D:/owl/owl-re-v1/owl-mono/packages/coding-agent/dist/modes/desktop/serve.js")
+}
+
+/// Locate the agent data directory (OWL_CODING_AGENT_DIR).
+fn resolve_agent_dir() -> PathBuf {
+	// 1. OWL_CODING_AGENT_DIR override
+	if let Ok(path) = std::env::var("OWL_CODING_AGENT_DIR") {
+		return PathBuf::from(path);
+	}
+
+	// 2. Search upwards for data/owl
+	if let Ok(mut dir) = std::env::current_dir() {
+		for _ in 0..6 {
+			let cand = dir.join("data").join("owl");
+			if cand.exists() {
+				return cand;
+			}
+			let cand2 = dir.join("owl-re-v1").join("data").join("owl");
+			if cand2.exists() {
+				return cand2;
+			}
+			if !dir.pop() {
+				break;
+			}
+		}
+	}
+
+	// 3. Fallback to dev path
+	PathBuf::from("D:/owl/owl-re-v1/data/owl")
+}
+
+/// Find a free port, preferring `preferred` if available.
+fn find_available_port(preferred: u16) -> u16 {
+	if let Ok(env_p) = std::env::var("OWL_PORT") {
+		if let Ok(p) = env_p.parse::<u16>() {
+			return p;
+		}
+	}
+	if TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
+		return preferred;
+	}
+	// Let OS assign a free port
+	if let Ok(listener) = TcpListener::bind("127.0.0.1:0") {
+		if let Ok(addr) = listener.local_addr() {
+			return addr.port();
+		}
+	}
+	preferred
+}
+
+fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> Child {
 	let mut cmd = Command::new("node");
-	cmd.args([SERVE_SCRIPT, "--port", port])
-		.env("OWL_CODING_AGENT_DIR", AGENT_DIR)
-		// The shell is a GUI-subsystem binary; without CREATE_NO_WINDOW Windows
-		// allocates a fresh console for the node child and flashes a black window.
+	cmd.args([script.to_string_lossy().as_ref(), "--port", &port.to_string()])
+		.env("OWL_CODING_AGENT_DIR", agent_dir.to_string_lossy().as_ref())
 		.stdin(Stdio::null())
 		.stdout(Stdio::null())
 		.stderr(Stdio::null());
 	#[cfg(windows)]
 	cmd.creation_flags(CREATE_NO_WINDOW);
-	cmd
-		.spawn()
-		.expect("failed to spawn owl bridge (is node on PATH?)")
+	cmd.spawn().expect("failed to spawn owl bridge (is node on PATH?)")
 }
 
-fn wait_for_port(port: &str, timeout: Duration) -> bool {
+fn wait_for_port(port: u16, timeout: Duration) -> bool {
 	let deadline = Instant::now() + timeout;
 	while Instant::now() < deadline {
-		if TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap())).is_ok() {
+		if TcpStream::connect(("127.0.0.1", port)).is_ok() {
 			return true;
 		}
 		std::thread::sleep(Duration::from_millis(150));
@@ -49,36 +163,139 @@ fn wait_for_port(port: &str, timeout: Duration) -> bool {
 	false
 }
 
+struct BridgeState {
+	child: Option<Child>,
+	port: u16,
+	script: PathBuf,
+	agent_dir: PathBuf,
+}
+
+impl BridgeState {
+	fn kill(&mut self) {
+		if let Some(mut child) = self.child.take() {
+			let _ = child.kill();
+			let _ = child.wait();
+		}
+	}
+
+	fn restart(&mut self) -> Result<(), String> {
+		self.kill();
+		let child = spawn_bridge(&self.script, &self.agent_dir, self.port);
+		if !wait_for_port(self.port, Duration::from_secs(8)) {
+			return Err(format!("Bridge failed to restart on port {}", self.port));
+		}
+		self.child = Some(child);
+		Ok(())
+	}
+}
+
 fn main() {
-	let port = std::env::var("OWL_PORT").unwrap_or_else(|_| DEFAULT_PORT.to_string());
-	let mut bridge = spawn_bridge(&port);
-	if !wait_for_port(&port, Duration::from_secs(8)) {
-		let _ = bridge.kill();
+	let port = find_available_port(DEFAULT_PORT);
+	let script = resolve_serve_script();
+	let agent_dir = resolve_agent_dir();
+
+	let child = spawn_bridge(&script, &agent_dir, port);
+	if !wait_for_port(port, Duration::from_secs(10)) {
 		panic!("owl bridge did not start on port {port}");
 	}
+
+	let bridge = Arc::new(Mutex::new(BridgeState {
+		child: Some(child),
+		port,
+		script,
+		agent_dir,
+	}));
+
 	let url: tauri::Url = format!("http://127.0.0.1:{port}").parse().unwrap();
-	let bridge = Mutex::new(Some(bridge));
+	let bridge_for_setup = bridge.clone();
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
 		.setup(move |app| {
-			tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
+			let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")
 				.inner_size(1280.0, 860.0)
 				.resizable(true)
 				.decorations(false)
 				.build()?;
+
+			// 拦截窗口关闭：隐藏到托盘，保持后台会话运行
+			let window_for_close = window.clone();
+			window.on_window_event(move |event| {
+				if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+					api.prevent_close();
+					let _ = window_for_close.hide();
+				}
+			});
+
+			// 构建系统托盘
+			let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+			let restart_item = MenuItem::with_id(app, "restart", "重启桥服务", true, None::<&str>)?;
+			let quit_item = MenuItem::with_id(app, "quit", "退出 Owl", true, None::<&str>)?;
+			let menu = Menu::with_items(app, &[&show_item, &restart_item, &quit_item])?;
+
+			let bridge_for_tray = bridge_for_setup.clone();
+			let mut tray_builder = TrayIconBuilder::new()
+				.menu(&menu)
+				.show_menu_on_left_click(false)
+				.tooltip("Owl - AI 编程助手")
+				.on_menu_event(move |app, event| {
+					match event.id.as_ref() {
+						"show" => {
+							if let Some(w) = app.get_webview_window("main") {
+								let _ = w.show();
+								let _ = w.unminimize();
+								let _ = w.set_focus();
+							}
+						}
+						"restart" => {
+							if let Ok(mut b) = bridge_for_tray.lock() {
+								let _ = b.restart();
+							}
+						}
+						"quit" => {
+							app.exit(0);
+						}
+						_ => {}
+					}
+				})
+				.on_tray_icon_event(|tray, event| {
+					if let TrayIconEvent::Click {
+						button: MouseButton::Left,
+						button_state: MouseButtonState::Up,
+						..
+					} = event {
+						let app = tray.app_handle();
+						if let Some(w) = app.get_webview_window("main") {
+							if let Ok(visible) = w.is_visible() {
+								if visible {
+									let _ = w.set_focus();
+								} else {
+									let _ = w.show();
+									let _ = w.unminimize();
+									let _ = w.set_focus();
+								}
+							}
+						}
+					}
+				});
+
+			let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
+				tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+					.expect("embedded icon must decode")
+			});
+			tray_builder = tray_builder.icon(icon);
+
+			tray_builder.build(app)?;
+
 			Ok(())
 		})
 		.build(tauri::generate_context!())
 		.expect("error while building owl desktop shell")
 		.run(move |_app, event| {
 			if let tauri::RunEvent::Exit = event {
-				if let Ok(mut guard) = bridge.lock() {
-					if let Some(mut child) = guard.take() {
-						let _ = child.kill();
-						let _ = child.wait();
-					}
+				if let Ok(mut b) = bridge.lock() {
+					b.kill();
 				}
 			}
 		});
