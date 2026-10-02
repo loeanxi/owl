@@ -39,8 +39,10 @@ const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
-/** 项目行内嵌会话列表的折叠标记（存进 collapsed 集合）。 */
-const PROJECT_SESSIONS_ID = "project-sessions";
+/** 项目分组内嵌会话列表的折叠标记前缀（存进 collapsed 集合，按项目路径区分）。 */
+const PROJECT_GROUP_PREFIX = "project-sessions:";
+/** 到访过的项目（localStorage）：没有会话的项目也能常驻「项目」分组。 */
+const KNOWN_PROJECTS_KEY = "owl.projects";
 
 type PinnedSort = "recent" | "manual";
 type ListSort = "recent" | "name";
@@ -62,11 +64,19 @@ function saveChoice(key: string, value: string): void {
 	}
 }
 
+/** Windows 大小写不敏感 + 分隔符统一后的路径规范化（同项目比较与折叠键共用）。 */
+function normPath(p: string | undefined): string {
+	return (p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 /** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目。 */
 function samePath(a: string | undefined, b: string | undefined): boolean {
-	const norm = (p: string | undefined): string =>
-		(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-	return norm(a) === norm(b) && norm(a) !== "";
+	return normPath(a) !== "" && normPath(a) === normPath(b);
+}
+
+/** 项目分组的折叠标记（存进 collapsed 集合），按项目路径区分。 */
+function projectGroupKey(path: string): string {
+	return `${PROJECT_GROUP_PREFIX}${normPath(path)}`;
 }
 
 function projectLabel(cwd: string): string {
@@ -127,6 +137,16 @@ function loadCollapsed(): Set<string> {
 		return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
 	} catch {
 		return new Set();
+	}
+}
+
+function loadKnownProjects(): string[] {
+	try {
+		const raw = localStorage.getItem(KNOWN_PROJECTS_KEY);
+		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+	} catch {
+		return [];
 	}
 }
 
@@ -280,8 +300,8 @@ export function SessionSidebar({
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含项目行自己的菜单）。 */
-	const [openMenu, setOpenMenu] = useState<"pinned" | "projects" | "project-row" | "recent" | null>(null);
+	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
+	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
 		loadChoice(PINNED_SORT_KEY, ["recent", "manual"] as const, "manual"),
 	);
@@ -292,6 +312,8 @@ export function SessionSidebar({
 	const [confirmDelete, setConfirmDelete] = useState<SessionRow | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [deleteError, setDeleteError] = useState("");
+	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。 */
+	const [knownProjects, setKnownProjects] = useState<string[]>(loadKnownProjects);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const projectHeaderRef = useRef<HTMLDivElement>(null);
 	const recentHeaderRef = useRef<HTMLDivElement>(null);
@@ -314,6 +336,22 @@ export function SessionSidebar({
 			document.removeEventListener("keydown", onKey);
 		};
 	}, [openMenu]);
+
+	// 当前项目变化时登记进项目列表：新建项目、切项目、恢复历史会话都会走到这里。
+	// 不登记的话，没有会话的项目会在切走后从「项目」分组消失。
+	useEffect(() => {
+		if (!activeProject) return;
+		setKnownProjects((current) => {
+			if (current.some((p) => samePath(p, activeProject))) return current;
+			const next = [...current, activeProject];
+			try {
+				localStorage.setItem(KNOWN_PROJECTS_KEY, JSON.stringify(next));
+			} catch {
+				// localStorage 不可用时项目列表退化为「有会话的项目 + 当前项目」
+			}
+			return next;
+		});
+	}, [activeProject]);
 
 	const refresh = async (): Promise<void> => {
 		try {
@@ -392,11 +430,11 @@ export function SessionSidebar({
 			});
 			if (!response.ok) return;
 			if (unarchiving) {
-				// 恢复后行会回到原位置（置顶/当前项目分组/最近）：
+				// 恢复后行会回到原位置（置顶/项目分组/最近）：
 				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
 				setCollapsed((current) => {
 					const next = new Set(current);
-					next.delete(PROJECT_SESSIONS_ID);
+					next.delete(projectGroupKey(row.cwd ?? activeProject));
 					next.delete("recent");
 					localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
 					return next;
@@ -408,10 +446,10 @@ export function SessionSidebar({
 		}
 	};
 
-	/** 在系统资源管理器中定位当前项目目录。 */
-	const revealProject = async (): Promise<void> => {
+	/** 在系统资源管理器中定位项目目录（缺省为当前项目）。 */
+	const revealProject = async (path: string = activeProject): Promise<void> => {
 		try {
-			await client.request({ type: "open.external", action: "reveal", target: ".", cwd: activeProject });
+			await client.request({ type: "open.external", action: "reveal", target: ".", cwd: path });
 		} catch {
 			// 桥未连接等瞬时失败：静默跳过
 		}
@@ -468,11 +506,41 @@ export function SessionSidebar({
 		return rows.sort(byLatest);
 	}, [sessions, pinned, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// 当前项目的会话：项目分组下嵌套展示（其余项目的会话只在「最近」出现）。
-	const projectSessions = useMemo(
-		() => sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, activeProject)).sort(byLatest),
-		[sessions, activeProject], // eslint-disable-line react-hooks/exhaustive-deps
-	);
+	// 项目列表 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目，按路径去重。
+	// 排序：当前项目置顶，其余按最近会话活动时间降序（无会话的按名称垫底）。
+	const projectPaths = useMemo(() => {
+		const map = new Map<string, { path: string; latest: string }>();
+		const track = (path: string | undefined, time?: string): void => {
+			if (!path) return;
+			const key = normPath(path);
+			const existing = map.get(key);
+			if (!existing) map.set(key, { path, latest: time ?? "" });
+			else if ((time ?? "") > existing.latest) existing.latest = time ?? "";
+		};
+		track(activeProject);
+		for (const row of sessions) track(row.cwd, sessionTime(row));
+		for (const path of knownProjects) track(path);
+		return [...map.values()]
+			.sort((a, b) => {
+				const aCurrent = samePath(a.path, activeProject);
+				const bCurrent = samePath(b.path, activeProject);
+				if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+				if (a.latest !== b.latest) return a.latest > b.latest ? -1 : 1;
+				return projectLabel(a.path).localeCompare(projectLabel(b.path), "zh-CN");
+			})
+			.map((entry) => entry.path);
+	}, [sessions, activeProject, knownProjects]);
+
+	// 搜索时项目行按名称/路径/自身会话过滤，避免搜会话时冒出一堆不相干项目。
+	const visibleProjects = useMemo(() => {
+		if (!search) return projectPaths;
+		return projectPaths.filter(
+			(path) =>
+				projectLabel(path).toLowerCase().includes(search) ||
+				path.toLowerCase().includes(search) ||
+				sessions.some((row) => samePath(row.cwd, path) && !isArchivedRow(row) && sessionMatches(row)),
+		);
+	}, [projectPaths, sessions, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const recentSessions = useMemo(() => {
 		const rows = sessions.filter((row) => !isArchivedRow(row) && sessionMatches(row));
@@ -612,9 +680,111 @@ export function SessionSidebar({
 		);
 	};
 
+	/** 项目行：chevron 展开/收起会话列表；名称点击切换项目（当前项目点击仅展开/收起）；悬停露出操作菜单。 */
+	const projectRow = (path: string): React.JSX.Element => {
+		const isCurrent = samePath(path, activeProject);
+		const groupKey = projectGroupKey(path);
+		const menuId = `project-row:${groupKey}`;
+		const rows = sessions
+			.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row))
+			.sort(byLatest);
+		return (
+			<div key={groupKey}>
+				<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+					<button
+						type="button"
+						className="flex shrink-0 items-center p-0.5"
+						aria-expanded={isOpen(groupKey)}
+						title={isOpen(groupKey) ? "收起会话列表" : "展开会话列表"}
+						onClick={() => toggleSection(groupKey)}
+					>
+						<IconChevron
+							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${isOpen(groupKey) ? "rotate-90" : ""}`}
+						/>
+					</button>
+					<button
+						type="button"
+						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+						title={path}
+						onClick={() => (isCurrent ? toggleSection(groupKey) : onSelectProject(path))}
+					>
+						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
+						<span className={`truncate text-xs ${isCurrent ? "text-owl-text" : "text-owl-muted"}`}>
+							{projectLabel(path)}
+						</span>
+					</button>
+					<div className="flex shrink-0 items-center gap-0.5">
+						{isCurrent && (
+							<button
+								type="button"
+								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+								title="在本项目新建会话"
+								onClick={onNewChat}
+							>
+								<IconPlus className="h-3.5 w-3.5" />
+							</button>
+						)}
+						<button
+							type="button"
+							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
+								openMenu === menuId
+									? "text-owl-text opacity-100"
+									: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
+							}`}
+							title="项目操作"
+							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
+						>
+							<IconMore className="h-3.5 w-3.5" />
+						</button>
+						{isCurrent && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
+					</div>
+					{openMenu === menuId && (
+						<div
+							data-menu-root
+							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+						>
+							{isCurrent ? (
+								<MenuRow
+									label="新建会话"
+									onClick={() => {
+										setOpenMenu(null);
+										onNewChat();
+									}}
+								/>
+							) : (
+								<MenuRow
+									label="切换到此项目"
+									onClick={() => {
+										setOpenMenu(null);
+										onSelectProject(path);
+									}}
+								/>
+							)}
+							<MenuRow
+								label="在资源管理器中打开"
+								onClick={() => {
+									setOpenMenu(null);
+									void revealProject(path);
+								}}
+							/>
+						</div>
+					)}
+				</div>
+				{isOpen(groupKey) && (
+					<div className="mt-0.5 pl-4">
+						{rows.map((row, index) => sessionRow(row, index, false))}
+						{rows.length === 0 && (
+							<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
+						)}
+					</div>
+				)}
+			</div>
+		);
+	};
+
 	const noMatch =
 		search !== "" &&
-		projectSessions.filter(sessionMatches).length === 0 &&
+		visibleProjects.length === 0 &&
 		recentSessions.length === 0 &&
 		archivedSessions.filter(sessionMatches).length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
@@ -753,75 +923,8 @@ export function SessionSidebar({
 					}
 					menu={<MenuRow label="新建项目" onClick={openNewProject} />}
 				>
-					{/* 当前项目行：点击展开/收起会话列表；悬停右侧露出新会话/项目菜单按钮 */}
-					<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
-						<button
-							type="button"
-							className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-							onClick={() => toggleSection(PROJECT_SESSIONS_ID)}
-							aria-expanded={isOpen(PROJECT_SESSIONS_ID)}
-						>
-							<IconChevron
-								className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${
-									isOpen(PROJECT_SESSIONS_ID) ? "rotate-90" : ""
-								}`}
-							/>
-							<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
-							<span className="truncate text-xs text-owl-text">{projectLabel(activeProject)}</span>
-						</button>
-						<div className="flex shrink-0 items-center gap-0.5">
-							<button
-								type="button"
-								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
-								title="在本项目新建会话"
-								onClick={onNewChat}
-							>
-								<IconPlus className="h-3.5 w-3.5" />
-							</button>
-							<button
-								type="button"
-								className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
-									openMenu === "project-row"
-										? "text-owl-text opacity-100"
-										: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
-								}`}
-								title="项目操作"
-								onClick={() => setOpenMenu(openMenu === "project-row" ? null : "project-row")}
-							>
-								<IconMore className="h-3.5 w-3.5" />
-							</button>
-							<span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
-						</div>
-						{openMenu === "project-row" && (
-							<div
-								data-menu-root
-								className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
-							>
-								<MenuRow
-									label="新建会话"
-									onClick={() => {
-										setOpenMenu(null);
-										onNewChat();
-									}}
-								/>
-								<MenuRow
-									label="在资源管理器中打开"
-									onClick={() => {
-										setOpenMenu(null);
-										void revealProject();
-									}}
-								/>
-							</div>
-						)}
-					</div>
-					{isOpen(PROJECT_SESSIONS_ID) && (
-						<div className="mt-0.5 pl-4">
-							{projectSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false))}
-							{projectSessions.filter(sessionMatches).length === 0 && (
-								<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
-							)}
-						</div>
-					)}
+					{/* 项目列表：当前项目置顶，其余按最近活动排序；点击项目名切换，chevron 展开会话 */}
+					{visibleProjects.map((path) => projectRow(path))}
 					<button
 						type="button"
 						className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-owl-faint transition-colors hover:bg-owl-hover/60 hover:text-owl-text"

@@ -362,22 +362,27 @@ export default function App(): React.JSX.Element {
 					</button>
 					<WindowControls />
 				</header>
-				<ChatStream entries={entries} />
-				<Composer
-					disabled={running || !connected}
-					running={running}
-					onSend={(text) => void sendPrompt(text)}
-					onAbort={() => void abort()}
-					providers={providers}
-					model={modelValue}
-					onModel={handleModelChange}
-					thinkingLevel={thinkingLevel}
-					onThinkingLevel={handleThinkingChange}
-					sessionInfo={sessionInfo}
-				/>
+				{/* 工作台放在顶栏之下：打开时不把顶栏的窗口按钮挤去左边 */}
+				<div className="flex min-h-0 flex-1">
+					<div className="flex min-w-0 flex-1 flex-col">
+						<ChatStream entries={entries} />
+						<Composer
+							disabled={running || !connected}
+							running={running}
+							onSend={(text) => void sendPrompt(text)}
+							onAbort={() => void abort()}
+							providers={providers}
+							model={modelValue}
+							onModel={handleModelChange}
+							thinkingLevel={thinkingLevel}
+							onThinkingLevel={handleThinkingChange}
+							sessionInfo={sessionInfo}
+						/>
+					</div>
+					{/* 侧边栏工作台：常挂载（隐藏时不丢编辑器草稿），按项目持久化布局 */}
+					<Workbench client={client} cwd={workspaceDir} open={workbenchOpen} onSetOpen={setWorkbenchOpen} />
+				</div>
 			</div>
-			{/* 侧边栏工作台：常挂载（隐藏时不丢编辑器草稿），按项目持久化布局 */}
-			<Workbench client={client} cwd={workspaceDir} open={workbenchOpen} onSetOpen={setWorkbenchOpen} />
 			{permission && (
 				<PermissionDialog
 					request={permission}
