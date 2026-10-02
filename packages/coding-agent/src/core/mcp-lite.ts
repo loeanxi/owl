@@ -1,5 +1,5 @@
 /**
- * pire MCP lite: connect stdio/HTTP MCP servers with the official SDK and
+ * owl MCP lite: connect stdio/HTTP MCP servers with the official SDK and
  * expose their tools as native tool definitions (exposure "direct" only —
  * deferred/codemode discovery is a later concern).
  *
@@ -60,7 +60,7 @@ async function connectServer(
 	config: McpServerConfig,
 	onDiagnostic?: (message: string) => void,
 ): Promise<McpConnection> {
-	const client = new Client({ name: "pire", version: "1.0.0" });
+	const client = new Client({ name: "owl", version: "1.0.0" });
 	const http = config as { url?: string; headers?: Record<string, string> };
 	const stdio = config as { command: string; args?: string[]; env?: Record<string, string>; cwd?: string };
 	const transport =
@@ -114,7 +114,10 @@ function defineMcpTool(
 			const result = (await client.callTool({
 				name: tool.name,
 				arguments: (params ?? {}) as Record<string, unknown>,
-			})) as { content?: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean };
+			})) as {
+				content?: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>;
+				isError?: boolean;
+			};
 			const content = (result.content ?? [])
 				.map((part: any) =>
 					part.type === "image"

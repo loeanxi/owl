@@ -1,5 +1,13 @@
 # Development Rules
 
+## Repository Location (moved 2026-10-02 — read first)
+
+- The project root moved from `D:\pire\pi-re-v1` to `D:\owl\owl-re-v1`. `D:\pire\pi-re-v1` NO LONGER EXISTS; only `D:\owl\owl-re-v1\owl-mono` is real.
+- Do not trust the shell's cwd between commands (it may reset to an unrelated default such as `D:\mycode\Magiccode`). Use absolute paths under `D:\owl\owl-re-v1\owl-mono\...`, or `cd` within the same command, and `ls` to verify before writing.
+- The launcher scripts at the project root are STALE and broken: `owl-dev.cmd`, `owl-dev.sh`, `owl-desktop.cmd`, and `DEV-README.md` still hardcode `D:\pire\pi-re-v1` (e.g. `OWL_HOME`). Do not run them as-is; invoke npm/npx directly inside `D:\owl\owl-re-v1\owl-mono`.
+- The isolated agent data dir is now `D:\owl\owl-re-v1\data\owl` (auth.json, models.json). Point `OWL_CODING_AGENT_DIR` there if you set it.
+- Never recreate files or directories under `D:\pire` to "fix" a missing path — fix the path reference instead.
+
 ## Conversational Style
 
 - Keep answers short and concise
@@ -97,7 +105,7 @@ When closing issues via commit:
 
 ## Testing pi Interactive Mode with tmux
 
-For testing pi's interactive mode, load and follow [.pi/skills/interactive-testing.md](.pi/skills/interactive-testing.md).
+For testing pi's interactive mode, load and follow [.owl/skills/interactive-testing.md](.owl/skills/interactive-testing.md).
 
 ## Changelog
 
@@ -118,7 +126,7 @@ Attribution:
 
 ## Releasing
 
-For release preparation, publishing, verification, or recovery, load and follow [.pi/skills/release.md](.pi/skills/release.md).
+For release preparation, publishing, verification, or recovery, load and follow [.owl/skills/release.md](.owl/skills/release.md).
 
 ## User Override
 

@@ -1,7 +1,7 @@
 [package]
-name = "pire-desktop"
+name = "owl-desktop"
 version = "0.1.0"
-description = "pire desktop shell"
+description = "owl desktop shell"
 edition = "2021"
 
 [build-dependencies]

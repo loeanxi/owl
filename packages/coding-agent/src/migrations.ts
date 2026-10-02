@@ -73,10 +73,10 @@ export function migrateAuthToAuthJson(): string[] {
 }
 
 /**
- * Migrate sessions from ~/.pi/agent/*.jsonl to proper session directories.
+ * Migrate sessions from ~/.owl/agent/*.jsonl to proper session directories.
  *
- * Bug in v0.30.0: Sessions were saved to ~/.pi/agent/ instead of
- * ~/.pi/agent/sessions/<encoded-cwd>/. This migration moves them
+ * Bug in v0.30.0: Sessions were saved to ~/.owl/agent/ instead of
+ * ~/.owl/agent/sessions/<encoded-cwd>/. This migration moves them
  * to the correct location based on the cwd in their session header.
  *
  * See: https://github.com/earendil-works/pi-mono/issues/320
@@ -110,7 +110,7 @@ export function migrateSessionsFromAgentRoot(): void {
 
 			// Compute the correct session directory (same encoding as session-manager.ts)
 			const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-			const correctDir = join(agentDir, "sessions", safePath);
+			const correctDir = join(agentDir, "Owl-history", safePath);
 
 			// Create directory if needed
 			if (!existsSync(correctDir)) {

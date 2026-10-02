@@ -94,7 +94,7 @@ See [Sessions and Context](sessions.md) for resuming, forking, naming, and stori
 - `--fork <path|id>`<br>
   Forks an existing session into a new session for the current project.
 - `--session-dir <dir>`<br>
-  Overrides storage and lookup. It takes precedence over `PI_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
+  Overrides storage and lookup. It takes precedence over `OWL_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
 - `--no-session`<br>
   Uses an in-memory session that is not persisted.
 - `-n`, `--name <name>`<br>
@@ -147,7 +147,7 @@ Built-in extensions add two more tools. They are off by default; the MCP extensi
 
 ### Enable codemode
 
-To turn on `codemode` for every session, add it to the default tools in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+To turn on `codemode` for every session, add it to the default tools in `~/.owl/agent/settings.json` or a project's `.owl/settings.json`:
 
 ```json
 {
@@ -314,6 +314,6 @@ These commands work outside a session, so agents can run them through `bash`. Se
 | `pi mcp login <server> [--timeout <seconds>]` | Sign in to an OAuth server: open the authorization page and wait for the browser (default 300 seconds); a terminal also accepts the pasted redirect URL |
 | `pi mcp logout <server>` | Delete the stored OAuth credentials of a server |
 
-`add` and `remove` change `~/.pi/agent/mcp.json`, or `.pi/mcp.json` in the current directory with `--local` (`-l`). `add` also takes `--exposure <mode>` (see [Exposure](mcp.md#exposure)) and `--description <text>` and does not connect; run `pi mcp list` to check the server.
+`add` and `remove` change `~/.owl/agent/mcp.json`, or `.owl/mcp.json` in the current directory with `--local` (`-l`). `add` also takes `--exposure <mode>` (see [Exposure](mcp.md#exposure)) and `--description <text>` and does not connect; run `pi mcp list` to check the server.
 
-Project `.pi/mcp.json` files are only read for projects that are already trusted.
+Project `.owl/mcp.json` files are only read for projects that are already trusted.

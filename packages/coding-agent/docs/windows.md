@@ -18,7 +18,7 @@ For most native Windows users, installing [Git for Windows](https://git-scm.com/
 
 Pi resolves Bash in this order:
 
-1. `shellPath` from `~/.pi/agent/settings.json`
+1. `shellPath` from `~/.owl/agent/settings.json`
 2. Git Bash under `Program Files` or `Program Files (x86)`
 3. `bash.exe` on `PATH`, including Cygwin, MSYS2, or legacy WSL Bash
 
@@ -34,7 +34,7 @@ If Pi cannot find Bash, it reports the locations it checked. Install Git for Win
 
 The optional `powershell` tool runs commands through `pwsh.exe` when available, then falls back to Windows PowerShell. It starts PowerShell with `-NoProfile -NonInteractive -ExecutionPolicy Bypass`. Administrator-enforced execution policies can still take precedence.
 
-To replace the model-facing `bash` tool with `powershell`, add this to `~/.pi/agent/settings.json`:
+To replace the model-facing `bash` tool with `powershell`, add this to `~/.owl/agent/settings.json`:
 
 ```json
 {

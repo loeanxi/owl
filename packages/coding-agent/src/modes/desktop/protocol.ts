@@ -13,6 +13,8 @@ export interface SessionCreateRequest {
 	agentDir?: string;
 	/** "confirm" routes tool calls to the UI as permission_request messages; default "auto". */
 	approvalMode?: "auto" | "confirm";
+	/** 初始思考强度（ThinkingLevel，服务端按模型能力收敛）。 */
+	thinkingLevel?: string;
 }
 
 export interface SessionPromptRequest {
@@ -29,10 +31,64 @@ export interface SessionAbortRequest {
 	sessionId: string;
 }
 
+/**
+ * 恢复历史会话：定位 Owl-history 里的 JSONL、以续聊方式挂载运行时，
+ * 响应带消息快照（rebuild 用）与会话 cwd（前端切项目视图用）。
+ * 已挂载的会话幂等返回快照；后续 session.prompt 直接续聊。
+ */
+export interface SessionResumeRequest {
+	type: "session.resume";
+	id: string;
+	sessionId: string;
+	provider?: string;
+	model?: string;
+	approvalMode?: "auto" | "confirm";
+	thinkingLevel?: string;
+}
+
 export interface SessionListRequest {
 	type: "session.list";
 	id: string;
 	sessionDir?: string;
+}
+
+/** 会话进行中切换模型（对应 AgentSession.setModel，含鉴权检查与思考级别自适应）。 */
+export interface SessionSetModelRequest {
+	type: "session.setModel";
+	id: string;
+	sessionId: string;
+	provider: string;
+	model: string;
+}
+
+/** 会话进行中调整思考强度（对应 AgentSession.setThinkingLevel）。 */
+export interface SessionSetThinkingLevelRequest {
+	type: "session.setThinkingLevel";
+	id: string;
+	sessionId: string;
+	level: string;
+}
+
+/** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
+export interface SessionStatsRequest {
+	type: "session.stats";
+	id: string;
+	sessionId: string;
+}
+
+export interface SessionStatsResult {
+	model?: { provider: string; id: string; name?: string };
+	thinkingLevel: string;
+	availableThinkingLevels: string[];
+	supportsThinking: boolean;
+	contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+	stats?: {
+		userMessages: number;
+		assistantMessages: number;
+		toolCalls: number;
+		tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+		cost: number;
+	};
 }
 
 export interface ProjectCreateRequest {
@@ -122,6 +178,10 @@ export type DesktopClientRequest =
 	| SessionCreateRequest
 	| SessionPromptRequest
 	| SessionAbortRequest
+	| SessionResumeRequest
+	| SessionSetModelRequest
+	| SessionSetThinkingLevelRequest
+	| SessionStatsRequest
 	| SessionListRequest
 	| ProjectCreateRequest
 	| ModelsListRequest
@@ -174,6 +234,7 @@ export interface ModelInfoMessage {
 	id: string;
 	name: string;
 	contextWindow?: number;
+	reasoning?: boolean;
 }
 
 /**

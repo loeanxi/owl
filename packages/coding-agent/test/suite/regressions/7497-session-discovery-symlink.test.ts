@@ -14,7 +14,7 @@ describe("regression #7497: discover sessions through symlinked directories", ()
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-session-discovery-"));
 		const agentDir = join(tempDir, "agent");
-		sessionsDir = join(agentDir, "sessions");
+		sessionsDir = join(agentDir, "Owl-history");
 		mkdirSync(sessionsDir, { recursive: true });
 		vi.stubEnv(ENV_AGENT_DIR, agentDir);
 	});

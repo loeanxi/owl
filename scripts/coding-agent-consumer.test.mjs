@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { installCodingAgentConsumer, packReleasePackages, smokeTestCodingAgentConsumer } from "./coding-agent-consumer.mjs";
 
-const codingAgentName = "@earendil-works/pi-coding-agent";
+const codingAgentName = "@owl/owl-coding-agent";
 const devPackages = ["pi-client", "pi-protocol", "pi-server"].map((name) => `@earendil-works/${name}`);
 
 function createFixture(t, { importServer = false, declareServer = false } = {}) {
@@ -27,7 +27,7 @@ function createFixture(t, { importServer = false, declareServer = false } = {}) 
 				"./experimental/plugin": { source: "./src/experimental/plugin.ts" },
 			} : "./dist/index.js",
 			...(isAgent ? {
-				bin: { pi: "dist/bundle/cli.js" },
+				bin: { owl: "dist/bundle/cli.js" },
 				dependencies: {
 					"@earendil-works/chord": "1.0.0",
 					...(declareServer ? { "@earendil-works/pi-server": "1.0.0" } : {}),

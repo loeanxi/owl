@@ -17,13 +17,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function readPiManifest(packageJsonPath: string): PiManifest | null {
 	try {
 		const pkg: unknown = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8")));
-		if (!isObject(pkg) || !isObject(pkg.pi)) {
+		if (!isObject(pkg) || !isObject(pkg.owl)) {
 			return null;
 		}
 
 		const manifest: PiManifest = {};
 		for (const field of RESOURCE_FIELDS) {
-			const entries = pkg.pi[field];
+			const entries = pkg.owl[field];
 			if (Array.isArray(entries) && entries.every((entry) => typeof entry === "string")) {
 				manifest[field] = entries;
 			}

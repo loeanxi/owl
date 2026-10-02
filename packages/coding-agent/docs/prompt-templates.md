@@ -6,7 +6,7 @@ A template can accept arguments and appear in command completion. Pi can load te
 
 ## Create a template
 
-Create `~/.pi/agent/prompts/review.md`:
+Create `~/.owl/agent/prompts/review.md`:
 
 ```markdown
 ---

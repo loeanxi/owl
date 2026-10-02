@@ -148,7 +148,7 @@ function main() {
 
 	const subject =
 		toSubject(extractLastAssistantText(payload.transcript_path)) ||
-		`pire: 完成新功能后自动提交（${fileCount} 个文件）`;
+		`owl: 完成新功能后自动提交（${fileCount} 个文件）`;
 
 	const statLines = git(repo, ["diff", "--cached", "--stat"]).split("\n");
 	const stat = statLines.slice(0, 15).join("\n") + (statLines.length > 15 ? "\n…" : "");

@@ -7,7 +7,6 @@
 
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
-import { setCapabilityOverrides } from "./core/tui-seam.ts";
 import chalk from "chalk";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
 import {
@@ -47,17 +46,13 @@ import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import type { CreateAgentSessionOptions } from "./core/sdk.ts";
-import {
-	formatMissingSessionCwdPrompt,
-	getMissingSessionCwdIssue,
-	MissingSessionCwdError,
-	type SessionCwdIssue,
-} from "./core/session-cwd.ts";
+import { getMissingSessionCwdIssue, MissingSessionCwdError, type SessionCwdIssue } from "./core/session-cwd.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { collectSettingsDiagnostics, deduplicateDiagnostics } from "./core/settings-diagnostics.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
+import { setCapabilityOverrides } from "./core/tui-seam.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { runPrintMode } from "./modes/index.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
@@ -351,7 +346,7 @@ export async function createSessionManager(
 	parsed: Args,
 	cwd: string,
 	sessionDir: string | undefined,
-	settingsManager: SettingsManager,
+	_settingsManager: SettingsManager,
 ): Promise<SessionManager> {
 	if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
 		return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
@@ -406,7 +401,7 @@ export async function createSessionManager(
 
 	if (parsed.resume) {
 		try {
-			const selectedPath = null; // TODO(pire): session picker moves to the desktop UI
+			const selectedPath = null; // TODO(owl): session picker moves to the desktop UI
 			if (!selectedPath) {
 				console.log(chalk.dim("No session selected"));
 				process.exit(0);
@@ -545,7 +540,7 @@ function resolveCliPaths(cwd: string, paths: string[] | undefined): string[] | u
 
 async function promptForMissingSessionCwd(
 	issue: SessionCwdIssue,
-	settingsManager: SettingsManager,
+	_settingsManager: SettingsManager,
 ): Promise<string | undefined> {
 	return issue.fallbackCwd;
 }
@@ -577,9 +572,6 @@ export async function main(args: string[], options?: MainOptions) {
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
 
-
-
-
 	const parsed = parseArgs(args);
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
@@ -598,7 +590,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (parsed.export) {
-		console.error(chalk.red("pire: session HTML export is removed"));
+		console.error(chalk.red("owl: session HTML export is removed"));
 		process.exit(1);
 	}
 
@@ -617,12 +609,11 @@ export async function main(args: string[], options?: MainOptions) {
 	validateSessionIdFlags(parsed);
 
 	// Run migrations (pass cwd for project-local migrations)
-	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
+	const { deprecationWarnings } = runMigrations(cwd);
 	time("runMigrations");
 
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
 	const startupSettingsDiagnostics = collectSettingsDiagnostics(startupSettingsManager);
-
 
 	if (appMode === "interactive" && parsed.useTheme !== undefined) {
 		startupSettingsManager.applyOverrides({ theme: parsed.useTheme });
@@ -663,11 +654,6 @@ export async function main(args: string[], options?: MainOptions) {
 	time("createSessionManager");
 
 	const trustStore = new ProjectTrustStore(agentDir);
-	const sessionCwd = sessionManager.getCwd();
-	const autoTrustOnReloadCwd =
-		parsed.projectTrustOverride === undefined && !hasTrustRequiringProjectResources(sessionCwd)
-			? sessionCwd
-			: undefined;
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
@@ -813,7 +799,7 @@ export async function main(args: string[], options?: MainOptions) {
 		sessionManager,
 	});
 	time("createAgentSessionRuntime");
-	const { services, session, modelFallbackMessage } = runtime;
+	const { services, session } = runtime;
 	const { settingsManager, modelRuntime, resourceLoader } = services;
 	setCapabilityOverrides(settingsManager.getTerminalCapabilityOverrides());
 	applyHttpProxySettings(settingsManager.getGlobalSettings().httpProxy);
@@ -891,7 +877,7 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (appMode === "rpc" || appMode === "interactive") {
 		printTimings();
-		console.error(chalk.red(`pire: ${appMode} mode is removed - use the desktop UI or -p print mode`));
+		console.error(chalk.red(`owl: ${appMode} mode is removed - use the desktop UI or -p print mode`));
 		process.exit(1);
 	} else {
 		printTimings();

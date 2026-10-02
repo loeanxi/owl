@@ -36,7 +36,7 @@ function runEntry(entry: string, experimental: boolean) {
 				...process.env,
 				HOME: directory,
 				USERPROFILE: directory,
-				PI_CODING_AGENT_DIR: join(directory, "agent"),
+				OWL_CODING_AGENT_DIR: join(directory, "agent"),
 				PI_OFFLINE: "1",
 				PI_EXPERIMENTAL: experimental ? "1" : "0",
 			},
@@ -44,23 +44,10 @@ function runEntry(entry: string, experimental: boolean) {
 	);
 }
 
-describe("stable and development CLI entrypoints", () => {
+describe("stable CLI entrypoint", () => {
 	// #9132: enabling experiments must not pull remote-server dependencies into the published CLI.
 	it("does not dispatch experimental commands from the stable entrypoint", () => {
 		const result = runEntry("cli.ts", true);
-		expect(result.status, result.stderr).toBe(0);
-		expect(result.stdout.trim()).toBe(VERSION);
-	});
-
-	it("keeps experimental dispatch in the development entrypoint", () => {
-		const result = runEntry("experimental/cli.ts", true);
-		expect(result.status, result.stderr).toBe(1);
-		expect(result.stderr).toContain("Invalid --server-id");
-		expect(result.stdout).not.toContain(VERSION);
-	});
-
-	it("falls back to the stable CLI when experiments are disabled", () => {
-		const result = runEntry("experimental/cli.ts", false);
 		expect(result.status, result.stderr).toBe(0);
 		expect(result.stdout.trim()).toBe(VERSION);
 	});

@@ -15,7 +15,7 @@ curl -fsSL https://pi.dev/install.sh | sh
 Alternatively, install Pi from npm. This requires Node.js 22.19 or newer:
 
 ```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts @owl/owl-coding-agent
 ```
 
 Pi does not require dependency lifecycle scripts for a normal npm installation.
@@ -110,7 +110,7 @@ Start with the least powerful mechanism that meets your need:
 If you installed Pi with npm, run:
 
 ```bash
-npm uninstall -g @earendil-works/pi-coding-agent
+npm uninstall -g @owl/owl-coding-agent
 ```
 
 If you used the installer, run it again and choose **Uninstall Pi**:
@@ -119,4 +119,4 @@ If you used the installer, run it again and choose **Uninstall Pi**:
 curl -fsSL https://pi.dev/install.sh | sh
 ```
 
-Neither method removes configuration, credentials, sessions, or installed Pi packages from `~/.pi/agent/`.
+Neither method removes configuration, credentials, sessions, or installed Pi packages from `~/.owl/agent/`.

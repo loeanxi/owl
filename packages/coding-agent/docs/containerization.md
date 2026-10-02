@@ -20,7 +20,7 @@ The method changes where extensions run. When the complete Pi process runs insid
 An isolated process can still affect resources you expose to it:
 
 - A read-write host mount lets Pi modify those host files.
-- Mounting `~/.pi/agent` exposes your Pi credentials, settings, extensions, and sessions.
+- Mounting `~/.owl/agent` exposes your Pi credentials, settings, extensions, and sessions.
 - Environment variables passed into a container are available to processes inside it.
 - Network access may allow code or tool output to leave the environment.
 - Tool-only isolation does not constrain the host Pi process or extension tools that do not use the isolated backend.
@@ -33,7 +33,7 @@ Plain Docker provides the simplest whole-process container boundary.
 
 ### Build the image
 
-Create `Dockerfile.pi`:
+Create `Dockerfile.owl`:
 
 ```dockerfile
 FROM node:24-bookworm-slim
@@ -41,7 +41,7 @@ FROM node:24-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep \
   && rm -rf /var/lib/apt/lists/*
-RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+RUN npm install -g --ignore-scripts @owl/owl-coding-agent
 
 WORKDIR /workspace
 ENTRYPOINT ["pi"]
@@ -50,7 +50,7 @@ ENTRYPOINT ["pi"]
 Build it from the directory containing the file:
 
 ```bash
-docker build -t pi-sandbox -f Dockerfile.pi .
+docker build -t pi-sandbox -f Dockerfile.owl .
 ```
 
 ### Start Pi
@@ -61,13 +61,13 @@ From the working folder you want Pi to access, run:
 docker run --rm -it \
   -e ANTHROPIC_API_KEY \
   -v "$PWD:/workspace" \
-  -v pi-agent-home:/root/.pi/agent \
+  -v pi-agent-home:/root/.owl/agent \
   pi-sandbox
 ```
 
 Replace `ANTHROPIC_API_KEY` with the credential required by your provider. The named `pi-agent-home` volume keeps container-local settings, credentials, and sessions between runs.
 
-Do not mount the host's `~/.pi/agent` unless the container should have access to your host Pi configuration and credentials.
+Do not mount the host's `~/.owl/agent` unless the container should have access to your host Pi configuration and credentials.
 
 ### Verify the workspace
 
@@ -163,9 +163,9 @@ Gondolin requires Node.js 23.6 or newer and QEMU installed through your operatin
 From a Pi source checkout:
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
-cp -R packages/coding-agent/examples/extensions/gondolin ~/.pi/agent/extensions/gondolin
-cd ~/.pi/agent/extensions/gondolin
+mkdir -p ~/.owl/agent/extensions
+cp -R packages/coding-agent/examples/extensions/gondolin ~/.owl/agent/extensions/gondolin
+cd ~/.owl/agent/extensions/gondolin
 npm install --ignore-scripts
 ```
 
@@ -175,7 +175,7 @@ Run Pi from the working folder you want mounted:
 
 ```bash
 cd /path/to/working-folder
-pi -e ~/.pi/agent/extensions/gondolin
+pi -e ~/.owl/agent/extensions/gondolin
 ```
 
 The extension mounts the host working folder at `/workspace` in the VM and overrides `read`, `write`, `edit`, `bash`, `grep`, `find`, and `ls`. File changes under `/workspace` write through to the host.

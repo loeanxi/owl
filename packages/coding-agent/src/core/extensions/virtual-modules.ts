@@ -2,12 +2,14 @@ import * as bundledPiAgentCore from "@earendil-works/pi-agent-core";
 import * as bundledPiAiCompat from "@earendil-works/pi-ai/compat";
 import * as bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
 import * as bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
+
 const bundledPiTui: Record<string, unknown> = {};
+
 import * as bundledTypebox from "typebox";
 import * as bundledTypeboxCompile from "typebox/compile";
 import * as bundledTypeboxValue from "typebox/value";
 // This import is safe because loader.ts exports are not re-exported from index.ts.
-// Extensions can therefore import from @earendil-works/pi-coding-agent.
+// Extensions can therefore import from @owl/owl-coding-agent.
 import * as bundledPiCodingAgent from "../../index.ts";
 
 /** Modules available to extensions in source and compiled binary runtimes. */
@@ -27,7 +29,7 @@ export const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@earendil-works/pi-ai/compat": bundledPiAiCompat,
 	"@earendil-works/pi-ai/oauth": bundledPiAiOauth,
 	"@earendil-works/pi-ai/providers/all": bundledPiAiProviders,
-	"@earendil-works/pi-coding-agent": bundledPiCodingAgent,
+	"@owl/owl-coding-agent": bundledPiCodingAgent,
 	"@mariozechner/pi-agent-core": bundledPiAgentCore,
 	"@mariozechner/pi-tui": bundledPiTui,
 	"@mariozechner/pi-ai": bundledPiAiCompat,

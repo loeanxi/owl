@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import { applyPatch } from "diff";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -27,6 +28,8 @@ import {
 	createWriteTool,
 } from "../src/index.ts";
 import * as shellModule from "../src/utils/shell.ts";
+import { getShellConfig } from "../src/utils/shell.ts";
+import { FD_AVAILABLE, RG_AVAILABLE, UNREADABLE_FILES_SUPPORTED } from "./capabilities.ts";
 
 const readTool = createReadTool(process.cwd());
 const writeTool = createWriteTool(process.cwd());
@@ -35,6 +38,28 @@ const bashTool = createBashTool(process.cwd());
 const grepTool = createGrepTool(process.cwd());
 const findTool = createFindTool(process.cwd());
 const lsTool = createLsTool(process.cwd());
+
+/**
+ * The bash tool tests below run real commands through whatever `getShellConfig()`
+ * resolves. Some Windows hosts only expose the WSL launcher (`C:\Windows\System32\
+ * bash.exe`) and no working in-distro `/bin/bash`, so every command exits 1 with
+ * `execvpe(/bin/bash) failed: No such file or directory`. That is a host
+ * capability gap, not a product failure, so probe once at collection time and
+ * skip the real-command cases with `it.skipIf(!BASH_AVAILABLE)`.
+ */
+const BASH_AVAILABLE: boolean = (() => {
+	try {
+		const { shell, args } = getShellConfig();
+		const probe = spawnSync(shell, [...args, "echo pi-bash-probe"], {
+			encoding: "utf-8",
+			timeout: 10_000,
+			windowsHide: true,
+		});
+		return probe.status === 0 && (probe.stdout ?? "").includes("pi-bash-probe");
+	} catch {
+		return false;
+	}
+})();
 
 // Helper to extract text from content blocks
 function getTextOutput(result: any): string {
@@ -432,7 +457,7 @@ describe("Coding Agent Tools", () => {
 			expect(readFileSync(testFile, "utf-8")).toBe(originalContent);
 		});
 
-		it("should include EACCES for read-only files", async () => {
+		it.skipIf(!UNREADABLE_FILES_SUPPORTED)("should include EACCES for read-only files", async () => {
 			const testFile = join(testDir, "edit-readonly.txt");
 			writeFileSync(testFile, "hello\n");
 			chmodSync(testFile, 0o444);
@@ -471,7 +496,7 @@ describe("Coding Agent Tools", () => {
 			expect(result).toEqual({ error: `Could not edit file: ${missingFile}. Error code: ENOENT.` });
 		});
 
-		it("should include EACCES in diff preview for unreadable files", async () => {
+		it.skipIf(!UNREADABLE_FILES_SUPPORTED)("should include EACCES in diff preview for unreadable files", async () => {
 			const unreadableFile = join(testDir, "unreadable-preview.txt");
 			writeFileSync(unreadableFile, "hello\n");
 			chmodSync(unreadableFile, 0o222);
@@ -483,34 +508,37 @@ describe("Coding Agent Tools", () => {
 	});
 
 	describe("bash tool", () => {
-		it("should execute simple commands", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should execute simple commands", async () => {
 			const result = await bashTool.execute("test-call-8", { command: "echo 'test output'" });
 
 			expect(getTextOutput(result)).toContain("test output");
 			expect(result.details).toBeUndefined();
 		});
 
-		it("should report non-zero exit codes as error results with structured content", async () => {
-			const result = await bashTool.execute("test-call-9", { command: "echo out; exit 3" });
-			expect(result.isError).toBe(true);
-			expect(getTextOutput(result)).toBe("out\n\n\nCommand exited with code 3");
-			expect(result.structuredContent).toEqual({
-				output: "out\n",
-				truncated: false,
-				exit_code: 3,
-				wall_time_seconds: expect.any(Number),
-			});
+		it.skipIf(!BASH_AVAILABLE)(
+			"should report non-zero exit codes as error results with structured content",
+			async () => {
+				const result = await bashTool.execute("test-call-9", { command: "echo out; exit 3" });
+				expect(result.isError).toBe(true);
+				expect(getTextOutput(result)).toBe("out\n\n\nCommand exited with code 3");
+				expect(result.structuredContent).toEqual({
+					output: "out\n",
+					truncated: false,
+					exit_code: 3,
+					wall_time_seconds: expect.any(Number),
+				});
 
-			const ok = await bashTool.execute("test-call-9b", { command: "echo fine" });
-			expect(ok.isError).toBeUndefined();
-			expect(ok.structuredContent).toMatchObject({ output: "fine\n", exit_code: 0 });
+				const ok = await bashTool.execute("test-call-9b", { command: "echo fine" });
+				expect(ok.isError).toBeUndefined();
+				expect(ok.structuredContent).toMatchObject({ output: "fine\n", exit_code: 0 });
 
-			const empty = await bashTool.execute("test-call-9c", { command: "true" });
-			expect(getTextOutput(empty)).toBe("(no output)");
-			expect(empty.structuredContent).toMatchObject({ output: "", truncated: false });
-		});
+				const empty = await bashTool.execute("test-call-9c", { command: "true" });
+				expect(getTextOutput(empty)).toBe("(no output)");
+				expect(empty.structuredContent).toMatchObject({ output: "", truncated: false });
+			},
+		);
 
-		it("should return up to 1 MiB of output in structured content", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should return up to 1 MiB of output in structured content", async () => {
 			// 3000 lines exceed the model-facing 2000 line limit but not 1 MiB.
 			const medium = await bashTool.execute("test-call-9d", { command: "seq 1 3000" });
 			expect(getTextOutput(medium)).not.toContain("\n1\n2\n");
@@ -716,7 +744,7 @@ describe("Coding Agent Tools", () => {
 			}
 		});
 
-		it("should prepend command prefix when configured", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should prepend command prefix when configured", async () => {
 			const bashWithPrefix = createBashTool(testDir, {
 				commandPrefix: "export TEST_VAR=hello",
 			});
@@ -725,7 +753,7 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result).trim()).toBe("hello");
 		});
 
-		it("should include output from both prefix and command", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should include output from both prefix and command", async () => {
 			const bashWithPrefix = createBashTool(testDir, {
 				commandPrefix: "echo prefix-output",
 			});
@@ -734,7 +762,7 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result).trim()).toBe("prefix-output\ncommand-output");
 		});
 
-		it("should work without command prefix", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should work without command prefix", async () => {
 			const bashWithoutPrefix = createBashTool(testDir, {});
 
 			const result = await bashWithoutPrefix.execute("test-prefix-3", { command: "echo no-prefix" });
@@ -799,7 +827,7 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result).trim()).toBe("€");
 		});
 
-		it("should expose local bash operations for extension reuse", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should expose local bash operations for extension reuse", async () => {
 			const ops = createLocalBashOperations();
 			const chunks: Buffer[] = [];
 
@@ -812,18 +840,21 @@ describe("Coding Agent Tools", () => {
 			expect(Buffer.concat(chunks).toString("utf-8").trim()).toBe("from-local-ops");
 		});
 
-		it("should preserve executeBash sanitization when using local bash operations", async () => {
-			const result = await executeBashWithOperations(
-				"printf '\\033[31mred\\033[0m\\r\\n'",
-				process.cwd(),
-				createLocalBashOperations(),
-			);
+		it.skipIf(!BASH_AVAILABLE)(
+			"should preserve executeBash sanitization when using local bash operations",
+			async () => {
+				const result = await executeBashWithOperations(
+					"printf '\\033[31mred\\033[0m\\r\\n'",
+					process.cwd(),
+					createLocalBashOperations(),
+				);
 
-			expect(result.exitCode).toBe(0);
-			expect(result.output).toBe("red\n");
-		});
+				expect(result.exitCode).toBe(0);
+				expect(result.output).toBe("red\n");
+			},
+		);
 
-		it("should persist full output when truncation happens by line count only", async () => {
+		it.skipIf(!BASH_AVAILABLE)("should persist full output when truncation happens by line count only", async () => {
 			const bash = createBashTool(testDir);
 			const result = await bash.execute("test-call-line-truncation", { command: "seq 3000" });
 			const output = getTextOutput(result);
@@ -846,27 +877,30 @@ describe("Coding Agent Tools", () => {
 			expect(fullOutput).toContain("2998\n2999\n3000");
 		});
 
-		it("executeBash should persist full output when truncation happens by line count only", async () => {
-			const result = await executeBashWithOperations("seq 3000", process.cwd(), createLocalBashOperations());
-			const fullOutputPath = result.fullOutputPath;
+		it.skipIf(!BASH_AVAILABLE)(
+			"executeBash should persist full output when truncation happens by line count only",
+			async () => {
+				const result = await executeBashWithOperations("seq 3000", process.cwd(), createLocalBashOperations());
+				const fullOutputPath = result.fullOutputPath;
 
-			expect(result.truncated).toBe(true);
-			expect(fullOutputPath).toBeDefined();
+				expect(result.truncated).toBe(true);
+				expect(fullOutputPath).toBeDefined();
 
-			for (let i = 0; i < 20 && (!fullOutputPath || !existsSync(fullOutputPath)); i++) {
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
+				for (let i = 0; i < 20 && (!fullOutputPath || !existsSync(fullOutputPath)); i++) {
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				}
 
-			expect(fullOutputPath).toBeDefined();
-			expect(existsSync(fullOutputPath!)).toBe(true);
-			const fullOutput = readFileSync(fullOutputPath!, "utf-8");
-			expect(fullOutput).toContain("1\n2\n3");
-			expect(fullOutput).toContain("2998\n2999\n3000");
-		});
+				expect(fullOutputPath).toBeDefined();
+				expect(existsSync(fullOutputPath!)).toBe(true);
+				const fullOutput = readFileSync(fullOutputPath!, "utf-8");
+				expect(fullOutput).toContain("1\n2\n3");
+				expect(fullOutput).toContain("2998\n2999\n3000");
+			},
+		);
 	});
 
 	describe("grep tool", () => {
-		it("should include filename when searching a single file", async () => {
+		it.skipIf(!RG_AVAILABLE)("should include filename when searching a single file", async () => {
 			const testFile = join(testDir, "example.txt");
 			writeFileSync(testFile, "first line\nmatch line\nlast line");
 
@@ -879,7 +913,7 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("example.txt:2: match line");
 		});
 
-		it("should respect global limit and include context lines", async () => {
+		it.skipIf(!RG_AVAILABLE)("should respect global limit and include context lines", async () => {
 			const testFile = join(testDir, "context.txt");
 			const content = ["before", "match one", "after", "middle", "match two", "after two"].join("\n");
 			writeFileSync(testFile, content);
@@ -900,7 +934,7 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("match two");
 		});
 
-		it("should treat flag-like patterns as search text", async () => {
+		it.skipIf(!RG_AVAILABLE)("should treat flag-like patterns as search text", async () => {
 			const marker = join(testDir, "grep-injection-marker");
 			const payload = join(testDir, "payload.sh");
 			const testFile = join(testDir, "target.txt");
@@ -919,7 +953,7 @@ describe("Coding Agent Tools", () => {
 	});
 
 	describe("find tool", () => {
-		it("should include hidden files that are not gitignored", async () => {
+		it.skipIf(!FD_AVAILABLE)("should include hidden files that are not gitignored", async () => {
 			const hiddenDir = join(testDir, ".secret");
 			mkdirSync(hiddenDir);
 			writeFileSync(join(hiddenDir, "hidden.txt"), "hidden");
@@ -939,7 +973,7 @@ describe("Coding Agent Tools", () => {
 			expect(outputLines).toContain(".secret/hidden.txt");
 		});
 
-		it("should respect .gitignore", async () => {
+		it.skipIf(!FD_AVAILABLE)("should respect .gitignore", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
 			writeFileSync(join(testDir, "kept.txt"), "kept");
@@ -954,7 +988,7 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("ignored.txt");
 		});
 
-		it("should surface fd glob parse errors", async () => {
+		it.skipIf(!FD_AVAILABLE)("should surface fd glob parse errors", async () => {
 			await expect(
 				findTool.execute("test-call-15", {
 					pattern: "[",
@@ -963,7 +997,7 @@ describe("Coding Agent Tools", () => {
 			).rejects.toThrow(/error parsing glob|fd exited with code 1|fd error/i);
 		});
 
-		it("should treat flag-like patterns as search text", async () => {
+		it.skipIf(!FD_AVAILABLE)("should treat flag-like patterns as search text", async () => {
 			const result = await findTool.execute("test-call-find-flag-pattern", {
 				pattern: "--help",
 				path: testDir,
@@ -1046,7 +1080,7 @@ describe("tool cwd resolution", () => {
 		expect(content).toBe("new text");
 	});
 
-	it("grep uses ctx.cwd when provided", async () => {
+	it.skipIf(!RG_AVAILABLE)("grep uses ctx.cwd when provided", async () => {
 		const testFile = join(testDir, "ctx-cwd-grep.txt");
 		writeFileSync(testFile, "match in ctx.cwd");
 		const tool = createGrepToolDefinition("/");
@@ -1061,7 +1095,7 @@ describe("tool cwd resolution", () => {
 		expect(output).toContain("ctx-cwd-grep.txt");
 	});
 
-	it("find uses ctx.cwd when provided", async () => {
+	it.skipIf(!FD_AVAILABLE)("find uses ctx.cwd when provided", async () => {
 		writeFileSync(join(testDir, "ctx-cwd-find.txt"), "find me");
 		const tool = createFindToolDefinition("/");
 		const result = await tool.execute(
@@ -1083,17 +1117,22 @@ describe("tool cwd resolution", () => {
 		expect(output).toContain("ctx-cwd-ls.txt");
 	});
 
-	it("bash uses ctx.cwd when provided", async () => {
+	it.skipIf(!BASH_AVAILABLE)("bash uses ctx.cwd when provided", async () => {
 		const tool = createBashToolDefinition("/", { exposeSessionEnvironment: false });
+		writeFileSync(join(testDir, "ctx-cwd-bash-canary.txt"), "canary-in-ctx-cwd\n");
+		// Assert the command's working directory positively instead of matching `pwd`
+		// output: shells spell the same directory differently (POSIX prints
+		// /tmp/..., Git Bash maps %TEMP% to /tmp/..., Windows bash prints /c/...).
+		// Relative access to a file that only exists in testDir is unambiguous.
 		const result = await tool.execute(
 			"test-bash-ctx-cwd",
-			{ command: "pwd" },
+			{ command: "wc -l < ctx-cwd-bash-canary.txt" },
 			undefined,
 			undefined,
 			fakeCtx(testDir),
 		);
 		const output = getTextOutput(result);
-		expect(output).toContain(testDir);
+		expect(output.trim()).toBe("1");
 	});
 });
 

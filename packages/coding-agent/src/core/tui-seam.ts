@@ -1,8 +1,8 @@
 /**
- * pire seam: minimal stand-ins for symbols that outlived the packages they came
+ * owl seam: minimal stand-ins for symbols that outlived the packages they came
  * from (@earendil-works/pi-tui, the TUI theme module, core/keybindings).
  *
- * TODO(pire): excise this file together with core/extensions in Phase 1b/2 —
+ * TODO(owl): excise this file together with core/extensions in Phase 1b/2 —
  * the extension runner still types against the retired TUI surface.
  */
 

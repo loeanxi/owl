@@ -1,8 +1,8 @@
-import { getNativeClipboard } from "../core/tui-seam.ts";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { getNativeClipboard } from "../core/tui-seam.ts";
 
 import { runClipboardCommand } from "./clipboard-command.ts";
 import { detectSupportedImageMimeType } from "./mime.ts";

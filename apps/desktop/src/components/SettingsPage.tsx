@@ -123,18 +123,20 @@ export function SettingsPage({
 	}
 
 	const input =
-		"mt-1 w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 font-mono text-sm";
+		"mt-1 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-sm text-owl-text outline-none transition-colors focus:border-owl-accent";
 	const smallInput =
-		"mt-1 w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-xs";
+		"mt-1 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent";
 	const btn =
-		"rounded border border-neutral-700 px-2.5 py-1 text-xs hover:border-neutral-500 disabled:opacity-40";
+		"rounded-lg border border-owl-border px-2.5 py-1 text-xs text-owl-muted transition-colors hover:border-owl-faint hover:text-owl-text disabled:opacity-40";
+	const btnAccent =
+		"rounded-lg bg-owl-accent px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:opacity-40";
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-			<div className="flex h-[85vh] w-[760px] flex-col rounded-lg border border-neutral-700 bg-neutral-900 p-4">
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+			<div className="flex h-[85vh] w-[760px] flex-col rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
 				<div className="flex items-center justify-between">
 					<h2 className="text-sm font-semibold">设置</h2>
-					<button type="button" className="text-neutral-500 hover:text-neutral-300" onClick={onClose}>
+					<button type="button" className="text-owl-faint transition-colors hover:text-owl-text" onClick={onClose}>
 						✕
 					</button>
 				</div>
@@ -145,7 +147,7 @@ export function SettingsPage({
 					{/* ============ 模型与供应商 ============ */}
 					<section>
 						<div className="flex items-center justify-between">
-							<h3 className="text-xs font-semibold text-neutral-300">模型与供应商</h3>
+							<h3 className="text-xs font-semibold text-owl-muted">模型与供应商</h3>
 							<button
 								type="button"
 								className={btn}
@@ -158,15 +160,15 @@ export function SettingsPage({
 								{showProviderForm ? "收起" : "+ 添加供应商"}
 							</button>
 						</div>
-						<p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
+						<p className="mt-1 text-[11px] leading-relaxed text-owl-faint">
 							模型只来自你在这里添加的声明（保存到 agent 目录的 models.json），不内置任何目录。新会话立即生效。
 						</p>
 
 						{/* 快捷接入：像 /login 一样选厂商 */}
-						<div className="rounded border border-neutral-700 bg-neutral-950/60 p-3">
-							<div className="text-xs font-semibold text-neutral-200">快捷接入（选厂商 → 浏览器登录或贴 API Key）</div>
+						<div className="rounded-xl border border-owl-border bg-owl-sidebar/60 p-3">
+							<div className="text-xs font-semibold text-owl-text">快捷接入（选厂商 → 浏览器登录或贴 API Key）</div>
 							<select
-								className="mt-2 w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm"
+								className="mt-2 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-sm text-owl-text outline-none focus:border-owl-accent"
 								value={quickProvider}
 								onChange={(e) => {
 									setQuickProvider(e.target.value);
@@ -185,14 +187,14 @@ export function SettingsPage({
 								<div className="mt-2 space-y-2">
 									<div className="flex gap-2">
 										<input
-											className="flex-1 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-xs"
+											className="flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 											value={quickKey}
 											onChange={(e) => setQuickKey(e.target.value)}
 											placeholder="粘贴 API Key…"
 										/>
 										<button
 											type="button"
-											className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700 disabled:opacity-40"
+											className={btnAccent}
 											disabled={busy || !quickKey.trim()}
 											onClick={() => {
 												setQuickHint("正在保存 Key…");
@@ -228,7 +230,7 @@ export function SettingsPage({
 											浏览器登录（OAuth）
 										</button>
 									)}
-									{quickHint && <div className="text-[11px] text-neutral-400">{quickHint}</div>}
+									{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
 									{loginAsk && (
 										<div className="rounded border border-amber-700 bg-amber-950/40 p-2">
 											<div className="text-[11px] text-amber-200">{loginAsk.message ?? "登录流程需要输入"}</div>
@@ -237,7 +239,7 @@ export function SettingsPage({
 													<input
 														autoFocus
 														type={loginAsk.type === "secret" ? "password" : "text"}
-														className="flex-1 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-xs"
+														className="flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 														value={askAnswer}
 														placeholder={loginAsk.placeholder}
 														onChange={(e) => setAskAnswer(e.target.value)}
@@ -247,7 +249,7 @@ export function SettingsPage({
 													/>
 													<button
 														type="button"
-														className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700"
+														className={btnAccent}
 														onClick={() => respondPrompt(askAnswer.trim())}
 													>
 														提交
@@ -266,7 +268,7 @@ export function SettingsPage({
 											<div className="mt-1.5 text-right">
 												<button
 													type="button"
-													className="text-[11px] text-neutral-500 hover:text-red-400"
+													className="text-[11px] text-owl-faint transition-colors hover:text-red-400"
 													onClick={() => {
 														setLoginAsk(null);
 														void client.request({ type: "auth.cancel" }).then(() => setQuickHint("登录已取消"));
@@ -282,21 +284,21 @@ export function SettingsPage({
 						</div>
 
 						{showProviderForm && (
-							<div className="mt-2 space-y-2 rounded border border-neutral-700 bg-neutral-950/60 p-3">
+							<div className="mt-2 space-y-2 rounded-xl border border-owl-border bg-owl-sidebar/60 p-3">
 								<div className="grid grid-cols-2 gap-2">
-									<label className="block text-[11px] text-neutral-400">
+									<label className="block text-[11px] text-owl-muted">
 										供应商 ID *（字母数字开头，可含 . _ -）
 										<input className={input} value={pKey} onChange={(e) => setPKey(e.target.value)} placeholder="如 zai" />
 									</label>
-									<label className="block text-[11px] text-neutral-400">
+									<label className="block text-[11px] text-owl-muted">
 										显示名
 										<input className={input} value={pName} onChange={(e) => setPName(e.target.value)} placeholder="如 Z.AI 智谱" />
 									</label>
-									<label className="block text-[11px] text-neutral-400">
+									<label className="block text-[11px] text-owl-muted">
 										Base URL *
 										<input className={input} value={pUrl} onChange={(e) => setPUrl(e.target.value)} placeholder="https://..." />
 									</label>
-									<label className="block text-[11px] text-neutral-400">
+									<label className="block text-[11px] text-owl-muted">
 										API 协议 *
 										<select className={input} value={pApi} onChange={(e) => setPApi(e.target.value)}>
 											{API_OPTIONS.map((o) => (
@@ -307,7 +309,7 @@ export function SettingsPage({
 										</select>
 									</label>
 								</div>
-								<label className="block text-[11px] text-neutral-400">
+								<label className="block text-[11px] text-owl-muted">
 									API Key（也可以填 <code>$环境变量名</code> 引用）
 									<input className={input} value={pApiKey} onChange={(e) => setPApiKey(e.target.value)} placeholder="sk-..." />
 								</label>
@@ -317,7 +319,7 @@ export function SettingsPage({
 									</button>
 									<button
 										type="button"
-										className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700 disabled:opacity-40"
+										className={btnAccent}
 										disabled={busy || !pKey.trim() || !pUrl.trim()}
 										onClick={() => {
 											void run({
@@ -343,15 +345,15 @@ export function SettingsPage({
 
 						<div className="mt-2 space-y-2">
 							{groups.length === 0 && (
-								<div className="rounded border border-dashed border-neutral-700 px-3 py-4 text-center text-xs text-neutral-500">
+								<div className="rounded-xl border border-dashed border-owl-border px-3 py-4 text-center text-xs text-owl-faint">
 									还没有任何模型 — 点右上角「+ 添加供应商」开始
 								</div>
 							)}
 							{groups.map((group) => (
-								<div key={group.id} className="rounded border border-neutral-700 bg-neutral-950/40 p-3">
+								<div key={group.id} className="rounded-xl border border-owl-border bg-owl-sidebar/40 p-3">
 									<div className="flex items-center justify-between">
-										<div className="text-xs font-semibold text-neutral-200">
-											{group.name ?? group.id} <span className="text-neutral-500">({group.id})</span>
+										<div className="text-xs font-semibold text-owl-text">
+											{group.name ?? group.id} <span className="font-normal text-owl-faint">({group.id})</span>
 										</div>
 										<button
 											type="button"
@@ -367,14 +369,14 @@ export function SettingsPage({
 									</div>
 									<div className="mt-2 space-y-1">
 										{group.models.map((model) => (
-											<div key={model.id} className="flex items-center justify-between rounded bg-neutral-900 px-2 py-1">
-												<span className="font-mono text-xs text-neutral-300">
+											<div key={model.id} className="flex items-center justify-between rounded-lg bg-owl-panel px-2 py-1">
+												<span className="font-mono text-xs text-owl-text">
 													{model.id}
-													{model.contextWindow ? <span className="text-neutral-600"> · {Math.round(model.contextWindow / 1000)}k</span> : null}
+													{model.contextWindow ? <span className="text-owl-faint"> · {Math.round(model.contextWindow / 1000)}k</span> : null}
 												</span>
 												<button
 													type="button"
-													className="text-[11px] text-neutral-500 hover:text-red-400 disabled:opacity-40"
+													className="text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
 													disabled={busy}
 													onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}
 												>
@@ -382,30 +384,30 @@ export function SettingsPage({
 												</button>
 											</div>
 										))}
-										{group.models.length === 0 && <div className="text-[11px] text-neutral-600">该供应商还没有模型</div>}
+										{group.models.length === 0 && <div className="text-[11px] text-owl-faint">该供应商还没有模型</div>}
 									</div>
 
 									{modelFormFor === group.id ? (
-										<div className="mt-2 space-y-2 rounded border border-neutral-800 p-2">
+										<div className="mt-2 space-y-2 rounded-lg border border-owl-border p-2">
 											<div className="grid grid-cols-2 gap-2">
-												<label className="block text-[11px] text-neutral-400">
+												<label className="block text-[11px] text-owl-muted">
 													模型 ID *
 													<input className={smallInput} value={mId} onChange={(e) => setMId(e.target.value)} placeholder="如 glm-5.3-flash" />
 												</label>
-												<label className="block text-[11px] text-neutral-400">
+												<label className="block text-[11px] text-owl-muted">
 													显示名
 													<input className={smallInput} value={mName} onChange={(e) => setMName(e.target.value)} />
 												</label>
-												<label className="block text-[11px] text-neutral-400">
+												<label className="block text-[11px] text-owl-muted">
 													上下文窗口（tokens）
 													<input className={smallInput} value={mCtx} onChange={(e) => setMCtx(e.target.value)} placeholder="128000" />
 												</label>
-												<label className="block text-[11px] text-neutral-400">
+												<label className="block text-[11px] text-owl-muted">
 													最大输出（tokens）
 													<input className={smallInput} value={mMax} onChange={(e) => setMMax(e.target.value)} placeholder="8192" />
 												</label>
 											</div>
-											<label className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+											<label className="flex items-center gap-1.5 text-[11px] text-owl-muted">
 												<input type="checkbox" checked={mReasoning} onChange={(e) => setMReasoning(e.target.checked)} />
 												推理模型
 											</label>
@@ -415,7 +417,7 @@ export function SettingsPage({
 												</button>
 												<button
 													type="button"
-													className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700 disabled:opacity-40"
+													className={btnAccent}
 													disabled={busy || !mId.trim()}
 													onClick={() => {
 														void run({
@@ -462,21 +464,21 @@ export function SettingsPage({
 
 					{/* ============ 常规设置 ============ */}
 					<section>
-						<label className="block text-xs text-neutral-400">工作目录（新会话的 cwd）</label>
+						<label className="block text-xs text-owl-muted">工作目录（新会话的 cwd）</label>
 						<input
 							className={input}
 							value={workspaceDir}
 							onChange={(event) => onWorkspaceDir(event.target.value)}
 						/>
-						<label className="mt-3 block text-xs text-neutral-400">agent 目录（隔离的数据目录）</label>
+						<label className="mt-3 block text-xs text-owl-muted">agent 目录（隔离的数据目录）</label>
 						<input
-							className="rounded border border-neutral-800 bg-neutral-950 px-2 py-1.5 font-mono text-xs text-neutral-500"
+							className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-xs text-owl-faint"
 							value={agentDir}
 							readOnly
 						/>
-						<label className="mt-3 block text-xs text-neutral-400">settings.json（高级；JSON 保存写回）</label>
+						<label className="mt-3 block text-xs text-owl-muted">settings.json（高级；JSON 保存写回）</label>
 						<textarea
-							className="h-40 w-full rounded border border-neutral-800 bg-neutral-950 p-2 font-mono text-xs"
+							className="h-40 w-full rounded-lg border border-owl-border bg-owl-sidebar p-2 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 							value={raw}
 							onChange={(event) => setRaw(event.target.value)}
 						/>
@@ -484,12 +486,16 @@ export function SettingsPage({
 				</div>
 
 				<div className="mt-3 flex justify-end gap-2">
-					<button type="button" className="rounded border border-neutral-700 px-3 py-1.5 text-sm" onClick={onClose}>
+					<button
+						type="button"
+						className="rounded-lg border border-owl-border px-3 py-1.5 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+						onClick={onClose}
+					>
 						关闭
 					</button>
 					<button
 						type="button"
-						className="rounded bg-sky-800 px-3 py-1.5 text-sm hover:bg-sky-700"
+						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover"
 						onClick={() => {
 							void (async () => {
 								try {

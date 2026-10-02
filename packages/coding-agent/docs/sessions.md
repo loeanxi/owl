@@ -47,7 +47,7 @@ See [Compaction Reference](compaction.md) for thresholds, retained boundaries, b
 
 ## Control session storage
 
-By default, Pi stores sessions under `~/.pi/agent/sessions/`, grouped by working directory. Use `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting to choose another location. The CLI option has highest precedence.
+By default, Pi stores sessions under `~/.owl/agent/sessions/`, grouped by working directory. Use `--session-dir`, `OWL_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting to choose another location. The CLI option has highest precedence.
 
 Use `--no-session` for an ephemeral run. An ephemeral session cannot be resumed after Pi exits.
 

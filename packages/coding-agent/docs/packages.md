@@ -16,7 +16,7 @@ pi install ./local-package
 
 `pi list` shows configured packages. Use `pi remove <source>` to remove one and `pi update --extensions` to reconcile package installations. See [Command Line](cli.md#package-commands) for every package command and option.
 
-Personal installs are written to `~/.pi/agent/settings.json`. Add `--local` or `-l` to write the package declaration to `.pi/settings.json`. Pi reads declarations from that file only after project trust is granted.
+Personal installs are written to `~/.owl/agent/settings.json`. Add `--local` or `-l` to write the package declaration to `.owl/settings.json`. Pi reads declarations from that file only after project trust is granted.
 
 Project packages are installed and loaded only after project trust is resolved. Packages can execute extension code and can include skills that instruct the model to run programs. Review third-party package source before installing it. Review project package declarations before granting project trust.
 
@@ -81,7 +81,7 @@ Pi supplies these packages to extensions and skills:
 
 - `@earendil-works/pi-ai`
 - `@earendil-works/pi-agent-core`
-- `@earendil-works/pi-coding-agent`
+- `@owl/owl-coding-agent`
 - `@earendil-works/pi-tui`
 - `typebox`
 

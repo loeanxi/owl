@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { type WebSocket, WebSocketServer } from "ws";
 import { expandTildePath, getAgentDir } from "../../config.ts";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
 	type AgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
@@ -36,6 +37,7 @@ import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
+import type { AgentSession } from "../../core/agent-session.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,17 @@ import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 // ---------------------------------------------------------------------------
 
 const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
+
+/** AgentSession ThinkingLevel 合法值（session.setThinkingLevel 校验用）。 */
+const THINKING_LEVEL_VALUES = new Set([
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+]);
 
 interface ModelFileEntry {
 	id: string;
@@ -75,6 +88,7 @@ function declaredProviderModels(models: ModelsFile): ProviderModelsMessage[] {
 				id: model.id,
 				name: model.name ?? model.id,
 				...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+				...(model.reasoning ? { reasoning: model.reasoning } : {}),
 			})),
 		});
 	}
@@ -98,6 +112,8 @@ import type {
 	DesktopServerMessage,
 	ProviderModelsMessage,
 	SessionCreateRequest,
+	SessionResumeRequest,
+	SessionStatsResult,
 } from "./protocol.ts";
 
 /** 打开系统默认浏览器（OAuth 授权用）。 */
@@ -272,7 +288,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	function buildFactory(
 		agentDir: string,
-		modelSpec: { provider?: string; model?: string } | undefined,
+		modelSpec: { provider?: string; model?: string; thinkingLevel?: string } | undefined,
 		extensionFactories: InlineExtension[],
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
@@ -295,22 +311,76 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				sessionManager: runtimeOptions.sessionManager,
 				customTools: await getMcpTools(),
 				...(model ? { model } : {}),
+				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
 			});
 			return { ...session, services, diagnostics: services.diagnostics };
 		};
 	}
 
-	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
-		const cwd = request.cwd ?? options.cwd ?? process.cwd();
-		const agentDir = request.agentDir ?? defaultAgentDir();
-		const sessionManager = SessionManager.create(cwd);
-		const confirmMode = request.approvalMode === "confirm";
+	/** 会话快照：恢复/创建时回给前端回放用（消息来自事件流投影，续聊上下文同源）。 */
+	function sessionSnapshot(
+		sessionId: string,
+		sessionManager: SessionManager,
+	): { sessionId: string; cwd: string; messages: unknown[]; thinkingLevel?: unknown; header: unknown } {
+		const projection = sessionManager.buildSessionProjection();
+		return {
+			sessionId,
+			cwd: sessionManager.getCwd(),
+			messages: projection.messages,
+			thinkingLevel: projection.thinkingLevel,
+			header: sessionManager.getHeader(),
+		};
+	}
+
+	/** 会话运行时状态（UI 输入栏的模型/思考/上下文展示与切换依据）。 */
+	function sessionStateSnapshot(session: AgentSession): SessionStatsResult {
+		const model = session.model;
+		const stats = session.getSessionStats();
+		const contextUsage = session.getContextUsage();
+		return {
+			...(model
+				? {
+						model: {
+							provider: String(model.provider),
+							id: model.id,
+							...(model.name ? { name: model.name } : {}),
+						},
+					}
+				: {}),
+			thinkingLevel: session.thinkingLevel,
+			availableThinkingLevels: session.getAvailableThinkingLevels(),
+			supportsThinking: session.supportsThinking(),
+			...(contextUsage ? { contextUsage } : {}),
+			stats: {
+				userMessages: stats.userMessages,
+				assistantMessages: stats.assistantMessages,
+				toolCalls: stats.toolCalls,
+				tokens: stats.tokens,
+				cost: stats.cost,
+			},
+		};
+	}
+
+	/** 挂载会话运行时（session.create 与 session.resume 共用）：权限扩展、事件订阅、登记。 */
+	async function mountSession(
+		ws: WebSocket,
+		requestId: string,
+		args: {
+			sessionManager: SessionManager;
+			agentDir: string;
+			provider?: string;
+			model?: string;
+			thinkingLevel?: string;
+			confirmMode: boolean;
+		},
+	): Promise<void> {
+		const { sessionManager } = args;
 		const sessionIdHolder: { current: string } = { current: "" };
 		const permissionExtension: InlineExtension = {
 			name: "owl-permissions",
 			factory: (pi) => {
 				pi.on("tool_call", async (event) => {
-					if (!confirmMode) return {};
+					if (!args.confirmMode) return {};
 					const requestId = randomUUID();
 					const approved = await new Promise<boolean>((resolve) => {
 						pendingPermissions.set(requestId, {
@@ -330,8 +400,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			},
 		};
 		const runtime = await createAgentSessionRuntime(
-			buildFactory(agentDir, { provider: request.provider, model: request.model }, [permissionExtension]),
-			{ cwd, agentDir, sessionManager },
+			buildFactory(
+				args.agentDir,
+				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
+				[permissionExtension],
+			),
+			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
 		);
 		const sessionId = runtime.session.sessionManager.getSessionId();
 		sessionIdHolder.current = sessionId;
@@ -339,10 +413,55 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
 		sessions.set(sessionId, { runtime, unsubscribe });
-		reply(ws, request.id, {
-			ok: true,
-			result: { sessionId, cwd, header: runtime.session.sessionManager.getHeader() },
+		reply(ws, requestId, { ok: true, result: sessionSnapshot(sessionId, sessionManager) });
+	}
+
+	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
+		const sessionManager = SessionManager.create(request.cwd ?? options.cwd ?? process.cwd());
+		await mountSession(ws, request.id, {
+			sessionManager,
+			agentDir: request.agentDir ?? defaultAgentDir(),
+			provider: request.provider,
+			model: request.model,
+			thinkingLevel: request.thinkingLevel,
+			confirmMode: request.approvalMode === "confirm",
 		});
+	}
+
+	async function resumeSession(ws: WebSocket, request: SessionResumeRequest): Promise<void> {
+		// 幂等：已挂载的会话直接回快照（重复点击安全）
+		const existing = sessions.get(request.sessionId);
+		if (existing) {
+			const sessionManager = existing.runtime.session.sessionManager;
+			reply(ws, request.id, {
+				ok: true,
+				result: sessionSnapshot(request.sessionId, sessionManager),
+			});
+			return;
+		}
+		// 定位历史文件：listAll 返回的 SessionInfo 带 path 与原 cwd
+		const found = (await SessionManager.listAll()).find((row) => row.id === request.sessionId);
+		if (!found?.path || !existsSync(found.path)) {
+			reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+			return;
+		}
+		try {
+			// open() 自行读会话头恢复 cwd（找不到头时回落 process.cwd，与 TUI 行为一致）
+			const sessionManager = SessionManager.open(found.path);
+			await mountSession(ws, request.id, {
+				sessionManager,
+				agentDir: defaultAgentDir(),
+				provider: request.provider,
+				model: request.model,
+				thinkingLevel: request.thinkingLevel,
+				confirmMode: request.approvalMode === "confirm",
+			});
+		} catch (error) {
+			reply(ws, request.id, {
+				ok: false,
+				error: `无法恢复会话：${error instanceof Error ? error.message : String(error)}`,
+			});
+		}
 	}
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
@@ -379,6 +498,66 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				await session.runtime.session.abort();
 				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "session.setModel": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				try {
+					const model = session.runtime.services.modelRuntime.getModel(request.provider, request.model);
+					if (!model) {
+						reply(ws, request.id, {
+							ok: false,
+							error: `Model not found: ${request.provider}/${request.model}`,
+						});
+						return;
+					}
+					await session.runtime.session.setModel(model);
+					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "session.setThinkingLevel": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const level = request.level as ThinkingLevel;
+				if (!THINKING_LEVEL_VALUES.has(level)) {
+					reply(ws, request.id, { ok: false, error: `未知思考强度: ${request.level}` });
+					return;
+				}
+				try {
+					session.runtime.session.setThinkingLevel(level);
+					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "session.stats": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				return;
+			}
+			case "session.resume": {
+				await resumeSession(ws, request);
 				return;
 			}
 			case "session.list": {
@@ -431,6 +610,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 								id: model.id,
 								name: model.name,
 								...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+								...(model.reasoning ? { reasoning: model.reasoning } : {}),
 							});
 						}
 					}
@@ -654,6 +834,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				pendingPermissions.delete(request.requestId);
 				pending.resolve(request.approved);
 				reply(ws, request.id, { ok: true });
+				return;
+			}
+			default: {
+				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
+				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
+				const unmatched = request as { id?: string; type?: string };
+				reply(ws, unmatched.id ?? "?", {
+					ok: false,
+					error: `未知请求类型：${String(unmatched.type)}（UI 与桥版本不匹配，请重启应用）`,
+				});
 				return;
 			}
 		}

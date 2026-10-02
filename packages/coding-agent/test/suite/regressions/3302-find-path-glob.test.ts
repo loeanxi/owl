@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
+import { FD_AVAILABLE } from "../../capabilities.ts";
 
 /**
  * Regression test for https://github.com/earendil-works/pi/issues/3302
@@ -16,7 +17,7 @@ import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
  * and prepends `**\/` so the pattern can match against the absolute candidate
  * path that fd feeds to the matcher.
  */
-describe("issue #3302 find returns no results for path-based glob patterns", () => {
+describe.skipIf(!FD_AVAILABLE)("issue #3302 find returns no results for path-based glob patterns", () => {
 	let tempRoot: string;
 
 	beforeEach(() => {

@@ -17,7 +17,7 @@ Pi normally invokes Bash with `bash -c`. On Unix systems, it uses `/bin/bash`, t
 
 ## Choose a Bash executable
 
-Set `shellPath` in `~/.pi/agent/settings.json` when Pi should use a specific executable:
+Set `shellPath` in `~/.owl/agent/settings.json` when Pi should use a specific executable:
 
 ```json
 {

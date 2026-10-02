@@ -51,8 +51,16 @@ vi.mock("../src/utils/clipboard-command.ts", () => ({
 	}),
 }));
 
-vi.mock("@earendil-works/pi-tui", () => ({
-	getNativeClipboard: () => ({ getImage: async () => createTinyBmp1x1Red24bpp() }),
+// readClipboardImage reads the native clipboard through the owl seam, not
+// through @earendil-works/pi-tui (retired). The seam is headless and always
+// reports "no image", so the native side must be mocked here to exercise it.
+vi.mock("../src/core/tui-seam.ts", () => ({
+	getNativeClipboard: () => ({
+		getText: () => undefined,
+		setText: () => {},
+		getFilePaths: () => [],
+		getImage: () => createTinyBmp1x1Red24bpp(),
+	}),
 }));
 
 describe("readClipboardImage BMP conversion", () => {

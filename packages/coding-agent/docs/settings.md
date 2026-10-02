@@ -61,7 +61,7 @@ CLI tool options override this setting for one invocation; `--tools` does not ac
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `sessionDir` | string | Agent session directory | Session storage directory. Relative paths resolve from the working directory. `PI_CODING_AGENT_SESSION_DIR` and `--session-dir` override this setting. |
+| `sessionDir` | string | Agent session directory | Session storage directory. Relative paths resolve from the working directory. `OWL_CODING_AGENT_SESSION_DIR` and `--session-dir` override this setting. |
 
 ### Compaction
 
@@ -144,7 +144,7 @@ See [Shell aliases](shell-aliases.md) for shell setup and [Pi Packages](packages
 
 ## Resources
 
-Resource paths in user settings resolve from the agent directory. Paths in project settings resolve from the project `.pi` directory. Absolute paths and `~` are supported.
+Resource paths in user settings resolve from the agent directory. Paths in project settings resolve from the project `.owl` directory. Absolute paths and `~` are supported.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|

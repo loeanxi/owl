@@ -84,6 +84,19 @@ export function getShellConfig(customShellPath?: string): ShellConfig {
 		if (programFilesX86) {
 			paths.push(`${programFilesX86}\\Git\\bin\\bash.exe`);
 		}
+		const localAppData = process.env.LOCALAPPDATA;
+		if (localAppData) {
+			paths.push(`${localAppData}\\Programs\\Git\\bin\\bash.exe`);
+		}
+		// A Git install outside the standard locations (portable, custom root, scoop)
+		// still puts git.exe on PATH. Derive the sibling bin\bash.exe from it, because
+		// the bare bash.exe found on PATH is usually the WSL launcher, which fails with
+		// "execvpe(/bin/bash) failed" when no distribution is installed.
+		const gitOnPath = findExecutableOnPath("git.exe");
+		const gitRoot = gitOnPath?.replace(/[\\/](?:cmd|bin|mingw64[\\/]bin)[\\/][^\\/]+$/i, "");
+		if (gitRoot) {
+			paths.push(`${gitRoot}\\bin\\bash.exe`);
+		}
 
 		for (const path of paths) {
 			if (existsSync(path)) {

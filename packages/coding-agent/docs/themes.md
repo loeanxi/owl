@@ -60,7 +60,7 @@ See [CLI resources](cli.md#resources) for the command-line option.
 
 Copy one of the [built-in themes](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/src/modes/interactive/theme) or create a new JSON file conforming to the [schema](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json). The built-in themes use OKHSL colors, with variables for colors that several roles share, so you can adjust a hue, saturation, or lightness directly.
 
-1. Save the file as `<agent-dir>/themes/my-theme.json`. The agent directory defaults to `~/.pi/agent`.
+1. Save the file as `<agent-dir>/themes/my-theme.json`. The agent directory defaults to `~/.owl/agent`.
 2. Set its `name` to `my-theme`.
 3. Change values in `vars` and `colors`.
 4. Select `my-theme` through `/settings`.
@@ -129,7 +129,7 @@ If `export` colors are omitted, Pi derives HTML page and panel backgrounds from 
 
 ## Load a theme from a project or package
 
-Place a project theme in `.pi/themes/`. Project themes load only after [project trust](security.md#understand-project-trust) is granted.
+Place a project theme in `.owl/themes/`. Project themes load only after [project trust](security.md#understand-project-trust) is granted.
 
 You can also load theme files and directories through the `themes` setting or distribute them in a Pi package. See [Configuration](configuration.md), [Settings](settings.md#resources), and [Pi Packages](packages.md).
 

@@ -8,14 +8,14 @@ For programmatic creation, persistence, and tree navigation, see the [`SessionMa
 ## File Location
 
 ```
-~/.pi/agent/sessions/--<path>--/<timestamp>_<session-id>.jsonl
+~/.owl/agent/sessions/--<path>--/<timestamp>_<session-id>.jsonl
 ```
 
 By default, `<session-id>` is a UUID. Callers can supply a custom ID through the SDK or `--session-id`. For `<path>`, Pi removes the leading path separator and replaces `/`, `\\`, and `:` with `-`.
 
 ## Deleting Sessions
 
-Sessions can be removed by deleting their `.jsonl` files under `~/.pi/agent/sessions/`.
+Sessions can be removed by deleting their `.jsonl` files under `~/.owl/agent/sessions/`.
 
 Pi also supports deleting sessions interactively from `/resume` (select a session and press `Ctrl+D`, then confirm). When available, pi uses the `trash` CLI to avoid permanent deletion.
 
@@ -38,7 +38,7 @@ Source on GitHub ([pi](https://github.com/earendil-works/pi)):
 - [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi/blob/main/packages/ai/src/types.ts) - Base message and content-block types
 - [`packages/agent/src/types.ts`](https://github.com/earendil-works/pi/blob/main/packages/agent/src/types.ts) - Extensible `AgentMessage` union
 
-For TypeScript definitions in your project, inspect `node_modules/@earendil-works/pi-coding-agent/dist/` and `node_modules/@earendil-works/pi-ai/dist/`.
+For TypeScript definitions in your project, inspect `node_modules/@owl/owl-coding-agent/dist/` and `node_modules/@earendil-works/pi-ai/dist/`.
 
 ## Messages
 

@@ -1,11 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Model, type Transport } from "@earendil-works/pi-ai";
-import type {
-	TuiMode as RendererTuiMode,
-	ScrollViewScrollbar,
-	TerminalCapabilities,
-	WheelScrollLines,
-} from "./tui-seam.ts";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -14,6 +8,12 @@ import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+import type {
+	TuiMode as RendererTuiMode,
+	ScrollViewScrollbar,
+	TerminalCapabilities,
+	WheelScrollLines,
+} from "./tui-seam.ts";
 
 export interface CompactionModelOverride {
 	reserveTokens?: number;
@@ -637,7 +637,7 @@ export class SettingsManager {
 		this.settings = deepMergeSettings(this.settings, overrides);
 	}
 
-	/** pire: merge overrides into global settings and persist them to settings.json */
+	/** owl: merge overrides into global settings and persist them to settings.json */
 	applyGlobalOverridesAndSave(overrides: Partial<Settings>): Settings {
 		this.globalSettings = deepMergeSettings(this.globalSettings, overrides);
 		for (const field of Object.keys(overrides) as Array<keyof Settings>) {

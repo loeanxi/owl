@@ -24,6 +24,10 @@ export type {
 	SessionCreateRequest,
 	SessionListRequest,
 	SessionPromptRequest,
+	SessionSetModelRequest,
+	SessionSetThinkingLevelRequest,
+	SessionStatsRequest,
+	SessionStatsResult,
 	SettingsGetRequest,
 	SettingsSetRequest,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";

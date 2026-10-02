@@ -25,7 +25,7 @@ Install Termux from [GitHub or F-Droid](https://github.com/termux/termux-app#ins
 3. Install Pi:
 
    ```bash
-   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+   npm install -g --ignore-scripts @owl/owl-coding-agent
    ```
 
 4. Verify the installation:
@@ -76,7 +76,7 @@ The Termux clipboard API supports text only. Pi's clipboard-paste shortcut inser
 
 ## Add Termux-specific instructions
 
-Pi detects that it is running in Termux, but it cannot infer how you want it to interact with Android. Add only the environment details relevant to your work to `~/.pi/agent/AGENTS.md`:
+Pi detects that it is running in Termux, but it cannot infer how you want it to interact with Android. Add only the environment details relevant to your work to `~/.owl/agent/AGENTS.md`:
 
 ````markdown
 # Termux environment

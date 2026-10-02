@@ -4,9 +4,9 @@
 原作者 Mario Zechner / earendil-works）的基础上改造而来，去掉了 TUI 终端界面，改为以桌面应用
 作为主要入口。
 
-## 桌面版 pire
+## 桌面版 owl
 
-改造的核心产物是 `apps/desktop` 下的桌面客户端，代号 **pire**：
+改造的核心产物是 `apps/desktop` 下的桌面客户端，代号 **owl**：
 
 - **桥服务器**（`packages/coding-agent/src/modes/desktop/`）：一个 JSON/WS 服务，把 agent 会话、
   模型切换、设置读写、权限确认暴露成 WebSocket 协议，并直接托管构建好的前端 UI，单端口访问。
@@ -23,19 +23,19 @@
 
 | 环境变量 | 作用 |
 |---|---|
-| `PI_CODING_AGENT_DIR` | 配置根目录：settings / auth / models / 扩展 / 技能 / 提示词 / 主题 / 会话 / 扩展包 |
+| `OWL_CODING_AGENT_DIR` | 配置根目录：settings / auth / models / 扩展 / 技能 / 提示词 / 主题 / 会话 / 扩展包 |
 
 会话和 `pi install` 的扩展包都在它下面（`sessions\<编码cwd>\`、`npm\`），
-所以设了这一个变量就等于整体搬走，与 `~/.pi/agent` 零交集。
+所以设了这一个变量就等于整体搬走，与 `~/.owl/agent` 零交集。
 
 刻意**不设**的两个变量：
 
-- `PI_CODING_AGENT_SESSION_DIR` — 覆盖后变平铺布局，而 `SessionManager.listAll()`
+- `OWL_CODING_AGENT_SESSION_DIR` — 覆盖后变平铺布局，而 `SessionManager.listAll()`
   只遍历 `getSessionsDir()` 的子目录，桌面端 `session.list` 会扫不到任何会话。
-- `PI_PACKAGE_DIR` — 它覆盖的是 **pi 自身的安装目录**（Nix/Guix store 路径用），
+- `OWL_PACKAGE_DIR` — 它覆盖的是 **pi 自身的安装目录**（Nix/Guix store 路径用），
   不是扩展包目录。上游文档在此处有误，`config.ts:390` 的实现为准。
 
-仓库外的 `pi-re-v1/pi-dev.cmd`（Windows）与 `pi-dev.sh`（Git Bash）会预设该变量后启动改造版，
+仓库外的 `pi-re-v1/owl-dev.cmd`（Windows）与 `owl-dev.sh`（Git Bash）会预设该变量后启动改造版，
 详见 `pi-re-v1/DEV-README.md`。
 
 ```bash

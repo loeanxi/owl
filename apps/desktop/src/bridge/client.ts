@@ -12,7 +12,7 @@ export type PermissionHandler = (request: PermissionRequest) => void;
 type Pending = { resolve: (value: any) => void };
 
 /**
- * Typed WebSocket client for the pire desktop bridge.
+ * Typed WebSocket client for the owl desktop bridge.
  * Auto-reconnects; event/permission handlers survive reconnects.
  */
 export class BridgeClient {

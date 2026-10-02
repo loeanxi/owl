@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+/*
+ * Claude Desktop 深色风格的 design tokens。
+ * 命名统一走 owl-* 前缀，Tailwind v4 会为每个 --color-* 生成对应工具类
+ * （bg-owl-bg / text-owl-muted / border-owl-border …）。
+ */
+@theme {
+	/* 表面：主背景 → 侧栏最暗 → 面板/输入卡 → 悬停 */
+	--color-owl-bg: #262624;
+	--color-owl-sidebar: #1f1e1d;
+	--color-owl-panel: #2f2e2b;
+	--color-owl-bubble: #30302e;
+	--color-owl-hover: #35342f;
+	--color-owl-border: #3d3c38;
+
+	/* 文字：奶油白正文 → 次级 → 弱化 */
+	--color-owl-text: #e9e7e0;
+	--color-owl-muted: #a6a399;
+	--color-owl-faint: #77746b;
+
+	/* 主色：Claude 珊瑚橙 */
+	--color-owl-accent: #d97757;
+	--color-owl-accent-hover: #c4633f;
+
+	--font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+	/* AI 回复与问候语的衬线（Claude 的标志性排版）：西文 Georgia，中文回落宋体 */
+	--font-serif: Georgia, "Source Han Serif SC", "Noto Serif SC", "SimSun", serif;
+}
+
+html {
+	color-scheme: dark;
+	background-color: var(--color-owl-bg);
+}
+
+::selection {
+	background-color: color-mix(in srgb, var(--color-owl-accent) 35%, transparent);
+}
+
+/* 细暖色滚动条 */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-owl-border) transparent;
+}
+*::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+	background: var(--color-owl-border);
+	border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+	background: var(--color-owl-faint);
+}
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
