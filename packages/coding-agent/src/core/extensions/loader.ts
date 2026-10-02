@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Provider } from "@earendil-works/pi-ai";
-import type { KeyId } from "./tui-seam.ts";
+import type { KeyId } from "../tui-seam.ts";
 import type { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { resolvePath } from "../../utils/paths.ts";

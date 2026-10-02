@@ -20,9 +20,16 @@ export type TerminalColors = unknown;
 export type TerminalColorMode = "truecolor" | "256" | "16";
 export type ScrollViewScrollbar = unknown;
 export type TerminalCapabilities = Record<string, unknown>;
-export type WheelScrollLines = number;
+export type WheelScrollLines = number | "auto";
 export type TuiMode = string;
-export type Theme = Record<string, unknown>;
+export interface Theme {
+	name: string;
+	sourcePath?: string;
+	sourceInfo?: unknown;
+	[member: string]: unknown;
+}
+export type AutocompleteItem = unknown;
+export type AutocompleteProvider = unknown;
 
 export interface KeybindingsManager {
 	getResolvedBindings?: () => unknown;
@@ -34,28 +41,45 @@ export type AppKeybinding = string;
 
 // ---- values ----------------------------------------------------------------
 
-export const theme: Theme = {};
+export const theme: Theme = { name: "dark" };
 
-export function detectCapabilities(): TerminalCapabilities {
+export function detectCapabilities(..._args: unknown[]): TerminalCapabilities {
 	return {};
 }
 
-export function getTerminalColorMode(): TerminalColorMode {
+export function getTerminalColorMode(..._args: unknown[]): TerminalColorMode {
 	return "truecolor";
 }
 
-export function setCapabilityOverrides(_overrides: unknown): void {}
+export function setCapabilityOverrides(..._args: unknown[]): void {}
+
+/** Theme loading is retired with the TUI; sessions run unstyled. */
+export function loadThemeFromPath(path?: string, ..._rest: unknown[]): Theme {
+	return { name: path ? String(path) : "unnamed" };
+}
+
+export interface NativeClipboard {
+	getText(): string | undefined;
+	setText(text: string): void;
+	getFilePaths(): string[];
+	getImage(): Uint8Array | undefined;
+}
 
 /** Headless clipboard: the desktop UI owns clipboard access. */
-export function getNativeClipboard(): string | null {
-	return null;
+export function getNativeClipboard(..._args: unknown[]): NativeClipboard {
+	return {
+		getText: () => undefined,
+		setText: () => {},
+		getFilePaths: () => [],
+		getImage: () => undefined,
+	};
 }
 
 /** Startup prompts are headless until the desktop settings page lands. */
-export async function showStartupInput(_options: unknown): Promise<string | undefined> {
+export async function showStartupInput(..._args: unknown[]): Promise<string | undefined> {
 	return undefined;
 }
-export async function showStartupSelector<T>(_options: unknown): Promise<T | undefined> {
+export async function showStartupSelector<T>(..._args: unknown[]): Promise<T | undefined> {
 	return undefined;
 }
 
