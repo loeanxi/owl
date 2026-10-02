@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FsEntry, FsListing, FsSearchHit } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
+import { useSidebarState } from "../store.ts";
 import {
 	IconChevronDown,
 	IconChevronRight,
@@ -91,7 +92,7 @@ function gitDecoration(path: string, git: TabComponentProps["gitStatus"]): { col
 
 export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponentProps): React.JSX.Element {
 	const state = useSidebarState(store);
-	const expanded = useMemo(() => new Set(state.expanded), [state.expanded]);
+	const expanded = useMemo(() => new Set<string>(state.expanded), [state.expanded]);
 	// 列表缓存 + 版本号：缓存变更用 version 触发重渲染（Map 本身引用稳定）。
 	const cacheRef = useRef(new Map<string, FsListing>());
 	const [version, setVersion] = useState(0);

@@ -18,10 +18,10 @@ import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
-import { indentUnit, type LanguageSupport } from "@codemirror/language";
+import { indentUnit, HighlightStyle, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
 import { EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { HighlightStyle, syntaxHighlighting, tags as t } from "@lezer/highlight";
+import { tags as t } from "@lezer/highlight";
 import type { TabComponentProps } from "../registry.ts";
 import { IconLoader, IconRefresh, IconSave } from "../icons.tsx";
 
