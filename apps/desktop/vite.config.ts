@@ -6,6 +6,9 @@ export default defineConfig({
 	plugins: [react(), tailwindcss()],
 	server: {
 		port: 5188,
+		watch: {
+			ignored: ["**/src-tauri/**"],
+		},
 		proxy: {
 			// dev: WebSocket through vite to the local bridge
 			"/ws": {

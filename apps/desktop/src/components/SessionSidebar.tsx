@@ -39,10 +39,10 @@ const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
-/** 项目分组内嵌会话列表的折叠标记前缀（存进 collapsed 集合，按项目路径区分）。 */
-const PROJECT_GROUP_PREFIX = "project-sessions:";
 /** 到访过的项目（localStorage）：没有会话的项目也能常驻「项目」分组。 */
 const KNOWN_PROJECTS_KEY = "owl.projects";
+/** 项目行操作菜单的 id 前缀（openMenu 状态，按项目路径区分）。 */
+const PROJECT_ROW_MENU_PREFIX = "project-row:";
 
 type PinnedSort = "recent" | "manual";
 type ListSort = "recent" | "name";
@@ -72,11 +72,6 @@ function normPath(p: string | undefined): string {
 /** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目。 */
 function samePath(a: string | undefined, b: string | undefined): boolean {
 	return normPath(a) !== "" && normPath(a) === normPath(b);
-}
-
-/** 项目分组的折叠标记（存进 collapsed 集合），按项目路径区分。 */
-function projectGroupKey(path: string): string {
-	return `${PROJECT_GROUP_PREFIX}${normPath(path)}`;
 }
 
 function projectLabel(cwd: string): string {
@@ -314,6 +309,8 @@ export function SessionSidebar({
 	const [deleteError, setDeleteError] = useState("");
 	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。 */
 	const [knownProjects, setKnownProjects] = useState<string[]>(loadKnownProjects);
+	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
+	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const projectHeaderRef = useRef<HTMLDivElement>(null);
 	const recentHeaderRef = useRef<HTMLDivElement>(null);
@@ -389,6 +386,24 @@ export function SessionSidebar({
 		});
 	};
 
+	/** 展开/收起某个项目的会话列表（首次交互前默认只展开当前项目）。 */
+	const toggleProjectGroup = (path: string): void => {
+		const key = normPath(path);
+		setOpenProjects((current) => {
+			const expandedNow = (current?.has(key) ?? false) || (current === null && samePath(path, activeProject));
+			const next = new Set(current ?? []);
+			if (expandedNow) next.delete(key);
+			else next.add(key);
+			return next;
+		});
+	};
+
+	/** 项目会话列表是否展开（null 视作「只有当前项目」）。 */
+	const projectGroupOpen = (path: string): boolean => {
+		if (openProjects === null) return samePath(path, activeProject);
+		return openProjects.has(normPath(path));
+	};
+
 	const isOpen = (id: string): boolean => query.trim() !== "" || !collapsed.has(id);
 
 	// rail 定位：展开目标分组并滚动到可视区。
@@ -432,9 +447,11 @@ export function SessionSidebar({
 			if (unarchiving) {
 				// 恢复后行会回到原位置（置顶/项目分组/最近）：
 				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
+				if (row.cwd) {
+					setOpenProjects((current) => new Set(current ?? []).add(normPath(row.cwd as string)));
+				}
 				setCollapsed((current) => {
 					const next = new Set(current);
-					next.delete(projectGroupKey(row.cwd ?? activeProject));
 					next.delete("recent");
 					localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
 					return next;
@@ -683,30 +700,30 @@ export function SessionSidebar({
 	/** 项目行：chevron 展开/收起会话列表；名称点击切换项目（当前项目点击仅展开/收起）；悬停露出操作菜单。 */
 	const projectRow = (path: string): React.JSX.Element => {
 		const isCurrent = samePath(path, activeProject);
-		const groupKey = projectGroupKey(path);
-		const menuId = `project-row:${groupKey}`;
+		const menuId = `${PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
+		const expanded = search !== "" || projectGroupOpen(path);
 		const rows = sessions
 			.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row))
 			.sort(byLatest);
 		return (
-			<div key={groupKey}>
+			<div key={menuId}>
 				<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
 					<button
 						type="button"
 						className="flex shrink-0 items-center p-0.5"
-						aria-expanded={isOpen(groupKey)}
-						title={isOpen(groupKey) ? "收起会话列表" : "展开会话列表"}
-						onClick={() => toggleSection(groupKey)}
+						aria-expanded={expanded}
+						title={expanded ? "收起会话列表" : "展开会话列表"}
+						onClick={() => toggleProjectGroup(path)}
 					>
 						<IconChevron
-							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${isOpen(groupKey) ? "rotate-90" : ""}`}
+							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${expanded ? "rotate-90" : ""}`}
 						/>
 					</button>
 					<button
 						type="button"
 						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
 						title={path}
-						onClick={() => (isCurrent ? toggleSection(groupKey) : onSelectProject(path))}
+						onClick={() => (isCurrent ? toggleProjectGroup(path) : onSelectProject(path))}
 					>
 						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
 						<span className={`truncate text-xs ${isCurrent ? "text-owl-text" : "text-owl-muted"}`}>
@@ -770,7 +787,7 @@ export function SessionSidebar({
 						</div>
 					)}
 				</div>
-				{isOpen(groupKey) && (
+				{expanded && (
 					<div className="mt-0.5 pl-4">
 						{rows.map((row, index) => sessionRow(row, index, false))}
 						{rows.length === 0 && (
