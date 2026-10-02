@@ -1150,6 +1150,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
 						prompt: (ask) => {
+							// 快捷接入贴了 API Key（authType=api_key）："Enter xxx key" 这类 secret 提问
+							// 直接用贴的 Key 代答，不再转发界面让用户贴第二遍。
+							if (request.authType === "api_key" && request.apiKey && ask.type === "secret") {
+								return Promise.resolve(request.apiKey);
+							}
 							if (!enterpriseMode && ask.type === "text" && ask.message.includes("GitHub Enterprise")) {
 								return Promise.resolve("");
 							}

@@ -31,6 +31,7 @@ export function QuestionDialog({
 }): React.JSX.Element {
 	const [states, setStates] = useState<QuestionUiState[]>(() => request.questions.map(initialState));
 	const [missing, setMissing] = useState<Set<number>>(new Set());
+	const [attempted, setAttempted] = useState(false);
 
 	const isAnswered = (s: QuestionUiState) => s.picked.size > 0 || s.custom.trim() !== "";
 
@@ -98,6 +99,7 @@ export function QuestionDialog({
 		});
 		if (unanswered.size > 0) {
 			setMissing(unanswered);
+			setAttempted(true);
 			return;
 		}
 		const answers: QuestionAnswerPayload[] = [];
@@ -229,7 +231,11 @@ export function QuestionDialog({
 				</div>
 				<div className="flex items-center justify-between border-t border-owl-border px-4 py-3">
 					<span className="text-xs text-owl-muted">
-						{missing.size > 0 ? `还有 ${missing.size} 题未作答` : "全部已作答，提交后 agent 继续"}
+						{missing.size > 0
+							? `还有 ${missing.size} 题未作答`
+							: attempted
+								? "全部已作答，提交后 agent 继续"
+								: "未作答的题提交时会标红提醒"}
 					</span>
 					<div className="flex gap-2">
 						<button

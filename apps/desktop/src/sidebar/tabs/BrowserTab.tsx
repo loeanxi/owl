@@ -205,16 +205,28 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		});
 	}, [client, applyPage, store, tab.id]);
 
-	// 舞台尺寸 → 适应窗口缩放
+	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 帧到达时兜底：
+	// 面板在后台绑定时 clientWidth 是 0，靠 observer 的后续回调自愈不可靠。
 	useEffect(() => {
 		const element = stageRef.current;
 		if (!element) return;
-		const observer = new ResizeObserver(() => {
-			setStageSize({ width: element.clientWidth, height: element.clientHeight });
-		});
+		const measure = (): void => {
+			setStageSize((current) => {
+				const width = element.clientWidth;
+				const height = element.clientHeight;
+				if (current.width === width && current.height === height) return current;
+				return { width, height };
+			});
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
 		observer.observe(element);
-		return () => observer.disconnect();
-	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+		window.addEventListener("resize", measure);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	}, [page?.pageId, frame !== undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// wheel 用原生非 passive 监听才能 preventDefault（React 的 onWheel 是 passive）
 	useEffect(() => {

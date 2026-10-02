@@ -221,6 +221,8 @@ export function SettingsPage({
 	const [quickHint, setQuickHint] = useState("");
 	const [loginAsk, setLoginAsk] = useState<{ type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] } | null>(null);
 	const [askAnswer, setAskAnswer] = useState("");
+	// 登录 / 保存 Key 成功的弹窗内容（null = 不显示）
+	const [authSuccess, setAuthSuccess] = useState<{ title: string; message: string } | null>(null);
 	// GitHub 企业版登录：勾选后桥不再自动代答「企业域名」，把提问转给界面
 	const [enterpriseLogin, setEnterpriseLogin] = useState(false);
 
@@ -264,6 +266,22 @@ export function SettingsPage({
 		setAskAnswer("");
 		setQuickHint("已提交，等待登录流程继续…");
 		void client.request({ type: "auth.prompt.respond", answer });
+	}
+
+	/**
+	 * auth.login 的收尾。它的 result 是对象（{ provider, authType }）而非数组，
+	 * 不能走 apply()——数组判断会把成功误判成「操作失败」，这里只看 ok。
+	 * 成功：弹窗提醒 + 后台刷新模型列表；用户取消（「登录已取消」）保持静默。
+	 */
+	function finishAuthLogin(response: { ok: boolean; error?: string }, providerId: string, title: string): void {
+		if (!response.ok) {
+			if (!/取消/.test(response.error ?? "")) setError(response.error ?? "操作失败");
+			return;
+		}
+		setQuickHint(`${title} ✓ 该厂商的模型已可用`);
+		const name = catalog.find((p) => p.id === providerId)?.name ?? providerId;
+		setAuthSuccess({ title, message: `${name} 的模型已可用，新会话即可选用。` });
+		void client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
 	}
 
 	function apply(response: { ok: boolean; result?: unknown; error?: string }): boolean {
@@ -547,10 +565,8 @@ export function SettingsPage({
 														void client
 															.request({ type: "auth.login", provider: quickProvider, authType: "api_key", apiKey: quickKey.trim() })
 															.then((response) => {
-																if (!apply(response)) return;
-																setQuickKey("");
-																setQuickHint("API Key 已保存 ✓ 该厂商的模型已可用");
-																return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+																if (response.ok) setQuickKey("");
+																finishAuthLogin(response, quickProvider, "API Key 已保存");
 															});
 													}}
 												>
@@ -566,12 +582,8 @@ export function SettingsPage({
 														onClick={() => {
 															setQuickHint("正在启动登录流程… 浏览器即将打开；如流程需要输入，会显示在下方");
 															void client
-																.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
-																.then((response) => {
-																	if (!apply(response)) return;
-																	setQuickHint("登录成功 ✓ 该厂商的模型已可用");
-																	return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
-																});
+															.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
+															.then((response) => finishAuthLogin(response, quickProvider, "登录成功"));
 														}}
 													>
 														浏览器登录（OAuth）
@@ -1202,6 +1214,23 @@ export function SettingsPage({
 					</button>
 				</div>
 			</div>
+
+			{/* ============ 登录 / 保存 Key 成功弹窗 ============ */}
+			{authSuccess && (
+				<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setAuthSuccess(null)}>
+					<div
+						className="w-[360px] rounded-xl border border-owl-border bg-owl-panel p-5 text-center shadow-2xl shadow-black/40"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-lg text-emerald-400">✓</div>
+						<div className="mt-3 text-sm font-semibold text-owl-text">{authSuccess.title}</div>
+						<div className="mt-1 text-xs leading-relaxed text-owl-muted">{authSuccess.message}</div>
+						<button type="button" className={`${btnAccent} mt-4 w-full py-1.5`} onClick={() => setAuthSuccess(null)}>
+							知道了
+						</button>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

@@ -31,9 +31,7 @@ import {
 	type SummaryGenerationContext,
 	type SummaryMeta,
 } from "./summary-review.ts";
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { findModelWithProviderRouting, isModelInScope, splitThinkingSuffix } from "./summary-model-scope.ts";
 import {
@@ -674,7 +672,7 @@ export default function (pi: ExtensionAPI) {
 		proxy?: string;
 	}
 
-	function loadSummaryModelChoices(
+	async function loadSummaryModelChoices(
 		summaryContext: SummaryGenerationContext,
 	): Promise<{ summaryModels: Array<{ value: string; label: string }>; defaultSummaryModel: string | null }> {
 		const summaryModels: Array<{ value: string; label: string }> = [];
@@ -883,7 +881,7 @@ export default function (pi: ExtensionAPI) {
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(searchProviderSchema(`Search provider or non-empty list of allowed providers to search simultaneously; ${allPolicyDescription}; omit this field to use the configured provider, or use auto when none is configured`, allowedSearchProviders)),
 			workflow: Type.Optional(
-				StringEnum(SEARCH_WORKFLOWS, {
+				StringEnum([...SEARCH_WORKFLOWS], {
 					description: "Search workflow mode: none = return raw results (default), auto-summary = generate a grounded summary of the search results",
 				}),
 			),
