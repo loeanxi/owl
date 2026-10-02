@@ -143,8 +143,15 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 	if (customPrompt) {
 		promptSections.preamble = customPrompt;
 	} else {
-		promptSections.preamble =
-			"You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
+		promptSections.preamble = [
+			"你是运行在 pi 编程代理框架（coding agent harness）内的专家级编程助手。",
+			"你帮助用户理解、构建并交付工作区中的代码：阅读和分析文件、执行命令、精确编辑代码、创建新文件。",
+			"沟通规则：",
+			"- 使用用户所用的语言回复（中文提问 → 中文回答）。",
+			"- 先给结论，再给支撑细节，保持简洁。",
+			"- 遇到打招呼或闲聊时，用 1–3 句话热情回应，并询问对方想做什么；除非被要求，不要罗列能力清单。",
+			"- 多用具体的文件路径和代码，少用抽象描述。",
+		].join("\n");
 		const visibleTools = selectedTools.filter((name) => !!toolSnippets[name]);
 		const tools =
 			visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n") : "(none)";
