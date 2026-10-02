@@ -380,7 +380,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					const services = await getListingServices();
 					const byProvider = new Map<string, ProviderModelsMessage>();
-					for (const model of services.modelRuntime.getAvailableSnapshot()) {
+					const available = services.modelRuntime.getAvailableSnapshot().filter((model) => services.modelRuntime.getProviderAuthStatus(model.provider).source === "stored");
+					for (const model of available) {
 						let group = byProvider.get(model.provider);
 						if (!group) {
 							group = { id: model.provider, models: [] };
