@@ -11,6 +11,7 @@ import { registerTab, type TabDefinition } from "./registry.ts";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
+import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { SideChatTab } from "./tabs/SideChatTab.tsx";
 import { IconFile, IconImage } from "./icons.tsx";
@@ -45,6 +46,12 @@ const DEFINITIONS: TabDefinition[] = [
 		title: "任务管理",
 		icon: quickIcon("tasks"),
 		component: TasksTab,
+	},
+	{
+		kind: "impression",
+		title: "用户印象",
+		icon: quickIcon("impression"),
+		component: ImpressionTab,
 	},
 	{
 		kind: "sidechat",

@@ -86,6 +86,18 @@ export const IconChatDiscussion = (p: IconProps): ReactNode =>
 		</>,
 	);
 
+/** 人像+星（用户印象：助手对用户的长期记忆）。 */
+export const IconUserStar = (p: IconProps): ReactNode =>
+	stroked(
+		p.size,
+		p.className,
+		<>
+			<circle cx="10" cy="8" r="4" />
+			<path d="M2 21c0-3.5 3.6-6 8-6 1.2 0 2.4.2 3.4.6" />
+			<path d="m17.5 14.5 1.1 2.2 2.4.35-1.75 1.7.4 2.4-2.15-1.15-2.15 1.15.4-2.4-1.75-1.7 2.4-.35Z" />
+		</>,
+	);
+
 export interface QuickAction {
 	/** 工作台 tab kind（terminal / browser 目前只是占位卡，未注册 tab）。 */
 	kind: string;
@@ -104,6 +116,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "changes", label: "文件变动", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
 	{ kind: "browser", label: "浏览器", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", disabled: true },
 	{ kind: "tasks", label: "任务管理", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
+	{ kind: "impression", label: "用户印象", color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
 	{ kind: "sidechat", label: "侧边对话(beta)", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
 ];
 
