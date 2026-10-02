@@ -97,12 +97,14 @@ function prune(node: SplitNode): SplitNode | null {
 
 /** 从树上移除一个 tab，随后折叠空 leaf；整树空时回一个空 leaf（工作台空态）。 */
 function removeTab(node: SplitNode, tabId: string): SplitNode {
+	const leaf = findLeafWithTab(node, tabId);
+	if (!leaf) return node;
 	const next = prune(
-		replaceLeaf(node, tabId, (leaf) => ({
-			...leaf,
-			tabs: leaf.tabs.filter((tab) => tab.id !== tabId),
+		replaceLeaf(node, leaf.id, (l) => ({
+			...l,
+			tabs: l.tabs.filter((tab) => tab.id !== tabId),
 			activeTab:
-				leaf.activeTab === tabId ? (leaf.tabs.find((tab) => tab.id !== tabId)?.id ?? null) : leaf.activeTab,
+				l.activeTab === tabId ? (l.tabs.find((tab) => tab.id !== tabId)?.id ?? null) : l.activeTab,
 		})),
 	);
 	return next ?? makeLeaf();
