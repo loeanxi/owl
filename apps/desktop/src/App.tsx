@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BridgeClient } from "./bridge/client.ts";
 import type { PermissionRequest, ServerEventMessage, SessionStatsResult } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
+import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream } from "./components/ChatStream.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
@@ -21,6 +22,7 @@ export default function App(): React.JSX.Element {
 	const [connected, setConnected] = useState(false);
 	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	const [railView, setRailView] = useState<RailView>("chat");
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
@@ -208,12 +210,21 @@ export default function App(): React.JSX.Element {
 
 	return (
 		<div className="flex h-screen bg-owl-bg text-owl-text">
+			<ActivityRail
+				view={railView}
+				onSelect={(view) => setRailView(view)}
+				onOpenSettings={() => setShowSettings(true)}
+			/>
 			<SessionSidebar
 				client={client}
 				activeId={sessionId}
 				activeProject={workspaceDir}
 				refreshKey={sessionId ?? ""}
-				onNewChat={newChat}
+				focus={railView}
+				onNewChat={() => {
+					setRailView("chat");
+					newChat();
+				}}
 				onSelectProject={switchProject}
 				onOpenSession={(id) => void openSession(id)}
 			/>
