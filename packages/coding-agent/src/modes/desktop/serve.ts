@@ -11,11 +11,11 @@
  * - v1 scope: create / prompt / abort / list / models / settings. Resume, fork,
  *   and diff-level approvals land with the desktop UI.
  */
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, normalize, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../../config.ts";
@@ -50,6 +50,60 @@ export type {
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Static UI — single-port mode: the bridge also serves the built desktop UI,
+// so `node serve.js` alone is the whole app. Override with PI_RE_UI_DIR.
+// ---------------------------------------------------------------------------
+
+const UI_CONTENT_TYPES: Record<string, string> = {
+	".html": "text/html; charset=utf-8",
+	".js": "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".json": "application/json; charset=utf-8",
+	".svg": "image/svg+xml",
+	".png": "image/png",
+	".ico": "image/x-icon",
+	".woff2": "font/woff2",
+	".map": "application/json",
+};
+
+function resolveUiRoot(): string | null {
+	const explicit = process.env.PI_RE_UI_DIR;
+	if (explicit && existsSync(join(explicit, "index.html"))) return explicit;
+	// 从本文件位置向上找仓库根的 apps/desktop/dist，不依赖固定层级
+	let dir = dirname(fileURLToPath(import.meta.url));
+	for (let i = 0; i < 8; i++) {
+		const candidate = join(dir, "apps", "desktop", "dist");
+		if (existsSync(join(candidate, "index.html"))) return candidate;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return null;
+}
+
+function serveUi(uiRoot: string, requestPath: string, response: ServerResponse, headOnly: boolean): void {
+	let relative = "/";
+	try {
+		relative = normalize(decodeURIComponent(requestPath.split("?")[0] ?? "/"));
+	} catch {
+		// 非法编码按 "/" 处理
+	}
+	let filePath = join(uiRoot, relative.replace(/^[/\\]+/, ""));
+	// 目录穿越防护：逃出 uiRoot 一律回退 SPA 入口
+	if (filePath !== uiRoot && !filePath.startsWith(uiRoot + sep)) filePath = join(uiRoot, "index.html");
+	if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
+		filePath = join(uiRoot, "index.html"); // SPA fallback
+	}
+	try {
+		const body = readFileSync(filePath);
+		response.writeHead(200, { "Content-Type": UI_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream" });
+		response.end(headOnly ? undefined : body);
+	} catch {
+		response.writeHead(500).end();
+	}
+}
 
 export interface DesktopServerOptions {
 	port?: number;
@@ -299,8 +353,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 	}
 
-	const httpServer = createServer((_request, response) => {
-		response.writeHead(426).end("pire desktop bridge: WebSocket only");
+	const uiRoot = resolveUiRoot();
+	const httpServer = createServer((request, response) => {
+		if (!uiRoot) {
+			response.writeHead(426).end("pire desktop bridge: WebSocket only");
+			return;
+		}
+		serveUi(uiRoot, request.url ?? "/", response, request.method === "HEAD");
 	});
 	const wss = new WebSocketServer({ server: httpServer });
 	wss.on("connection", (ws) => {
