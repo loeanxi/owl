@@ -38,6 +38,40 @@ export interface SessionDeleteRequest {
 	sessionId: string;
 }
 
+/** 归档历史会话：归档状态由桥端持久化（Owl-history/archive.json），不写进会话文件。 */
+export interface SessionArchiveRequest {
+	type: "session.archive";
+	id: string;
+	sessionId: string;
+}
+
+/** 取消归档。 */
+export interface SessionUnarchiveRequest {
+	type: "session.unarchive";
+	id: string;
+	sessionId: string;
+}
+
+/**
+ * 读取/修改归档自动清理配置。带 retentionDays = 设置（并立即巡检一次），
+ * 缺省 = 仅读取。归档超过保留期的会话由桥端定时任务自动删除。
+ */
+export interface SessionArchiveConfigRequest {
+	type: "session.archiveConfig";
+	id: string;
+	retentionDays?: number;
+}
+
+export interface SessionArchiveEntry {
+	sessionId: string;
+	archivedAt: string;
+}
+
+export interface SessionArchiveConfigResult {
+	retentionDays: number;
+	sessions: SessionArchiveEntry[];
+}
+
 /**
  * 恢复历史会话：定位 Owl-history 里的 JSONL、以续聊方式挂载运行时，
  * 响应带消息快照（rebuild 用）与会话 cwd（前端切项目视图用）。
@@ -411,6 +445,9 @@ export type DesktopClientRequest =
 	| SessionPromptRequest
 	| SessionAbortRequest
 	| SessionDeleteRequest
+	| SessionArchiveRequest
+	| SessionUnarchiveRequest
+	| SessionArchiveConfigRequest
 	| SessionResumeRequest
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest

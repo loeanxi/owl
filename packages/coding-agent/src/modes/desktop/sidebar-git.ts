@@ -71,7 +71,8 @@ export function parseStatusZ(out: string): { branch?: string; upstream?: string;
 		if (part.length < 4) continue;
 		const x = part[0]!;
 		const y = part[1]!;
-		const path = part.slice(4);
+		// porcelain v1 条目 = XY + 一个空格 + path，路径从索引 3 起。
+		const path = part.slice(3);
 		// 重命名条目带第二个 NUL 段（旧路径）。
 		const next = parts[index + 1];
 		if ((x === "R" || x === "C" || y === "R" || y === "C") && next !== undefined && next !== "") {
@@ -165,7 +166,7 @@ export async function gitDiscard(cwd: string, path: string): Promise<void> {
 /** `git log --pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e` 的纯解析。 */
 export function parseLog(out: string): GitLogEntry[] {
 	return out
-		.split("")
+		.split("\u001e")
 		.filter((record) => record.trim() !== "")
 		.map((record) => {
 			const [hash = "", short = "", subject = "", author = "", time = "0"] = record.split("\u001f");

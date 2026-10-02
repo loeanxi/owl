@@ -233,6 +233,51 @@ export interface DesktopServerHandle {
 	close(): Promise<void>;
 }
 
+// ---------------------------------------------------------------------------
+// 会话归档：归档是侧边栏元数据，不写进会话文件，统一记在
+// <agentDir>/Owl-history/archive.json —— { retentionDays, sessions: {id: {archivedAt, path?}} }。
+// 桥端定时巡检：归档超过 retentionDays（默认 15 天）的会话自动删除 JSONL。
+// ---------------------------------------------------------------------------
+
+interface ArchiveMetaEntry {
+	archivedAt: string;
+	/** 归档时定位到的 JSONL 路径（巡检优先用它，找不到再按 id 全盘搜索）。 */
+	path?: string;
+}
+
+interface ArchiveMetaFile {
+	retentionDays?: number;
+	sessions?: Record<string, ArchiveMetaEntry>;
+}
+
+export const DEFAULT_ARCHIVE_RETENTION_DAYS = 15;
+/** 巡检间隔：1 小时（保留期以天为单位，小时级精度足够）。 */
+const ARCHIVE_PURGE_INTERVAL_MS = 60 * 60 * 1000;
+
+function archiveMetaPath(agentDir: string): string {
+	return join(agentDir, "Owl-history", "archive.json");
+}
+
+function readArchiveMeta(agentDir: string): ArchiveMetaFile {
+	try {
+		const parsed = JSON.parse(readFileSync(archiveMetaPath(agentDir), "utf-8")) as ArchiveMetaFile;
+		return parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+function writeArchiveMeta(agentDir: string, meta: ArchiveMetaFile): void {
+	const path = archiveMetaPath(agentDir);
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+function archiveRetentionDays(meta: ArchiveMetaFile): number {
+	const value = meta.retentionDays;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_ARCHIVE_RETENTION_DAYS;
+}
+
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
 	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[owl] ${message}`));
 	/** sessionId → live runtime + event subscription */
@@ -246,6 +291,78 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	let mcp: McpConnections | undefined;
 	/** 侧边栏文件树 watcher：项目（resolved cwd）→ watcher 集。 */
 	const sidebarWatchers = new Map<string, DirectoryWatchers>();
+	/** 归档过期巡检定时器（close() 时清理）。 */
+	let archiveTimer: ReturnType<typeof setInterval> | undefined;
+
+	/** 按 id 定位历史会话的 JSONL 文件。 */
+	async function findSessionFile(sessionId: string): Promise<string | undefined> {
+		return (await SessionManager.listAll()).find((row) => row.id === sessionId)?.path;
+	}
+
+	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
+	async function unmountSessionRuntime(sessionId: string): Promise<void> {
+		const mounted = sessions.get(sessionId);
+		if (!mounted) return;
+		try {
+			await mounted.runtime.session.abort();
+		} catch {
+			// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
+		}
+		mounted.unsubscribe();
+		sessions.delete(sessionId);
+	}
+
+	/**
+	 * 巡检归档：删掉归档超过保留期的会话 JSONL（先卸载运行时），顺带清掉
+	 * 文件已不存在的幽灵记录。任何一条失败都留着下轮再试。
+	 */
+	async function purgeExpiredArchivedSessions(): Promise<number> {
+		const agentDir = defaultAgentDir();
+		const meta = readArchiveMeta(agentDir);
+		const entries = meta.sessions ?? {};
+		const cutoff = Date.now() - archiveRetentionDays(meta) * 86_400_000;
+		let purged = 0;
+		let removedGhosts = 0;
+		for (const [sessionId, entry] of Object.entries(entries)) {
+			const archivedAt = Date.parse(entry.archivedAt);
+			const expired = archivedAt > 0 && archivedAt <= cutoff;
+			const path =
+				entry.path && existsSync(entry.path)
+					? entry.path
+					: expired
+						? await findSessionFile(sessionId)
+						: undefined;
+			if (!path) {
+				if (!existsSync(entry.path ?? "")) {
+					// 文件已不在（手动删过）：无论到期与否，记录清掉
+					delete entries[sessionId];
+					removedGhosts++;
+				}
+				continue;
+			}
+			if (!expired) continue;
+			await unmountSessionRuntime(sessionId);
+			try {
+				unlinkSync(path);
+				purged++;
+				delete entries[sessionId];
+			} catch (error) {
+				onDiagnostic(`归档清理失败（${sessionId}）：${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		if (purged > 0 || removedGhosts > 0) {
+			meta.sessions = entries;
+			writeArchiveMeta(agentDir, meta);
+		}
+		return purged;
+	}
+
+	function startArchivePurgeTimer(): void {
+		void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
+		archiveTimer = setInterval(() => {
+			void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
+		}, ARCHIVE_PURGE_INTERVAL_MS);
+	}
 
 	function resolveMcpServerConfigs(): Record<string, McpServerConfig> {
 		if (options.mcpServers) return options.mcpServers;
@@ -523,25 +640,22 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "session.delete": {
-				// 已挂载的会话先卸载：停掉进行中的回复、退订事件并移出运行时表，
-				// 否则运行时继续 append 会把删掉的 JSONL 重新写出来。
-				const mounted = sessions.get(request.sessionId);
-				if (mounted) {
-					try {
-						await mounted.runtime.session.abort();
-					} catch {
-						// 没有进行中的回复时 abort 可能抛错，删除流程不受影响
-					}
-					mounted.unsubscribe();
-					sessions.delete(request.sessionId);
-				}
-				const found = (await SessionManager.listAll()).find((row) => row.id === request.sessionId);
-				if (!found?.path) {
+				// 已挂载的会话先卸载：否则运行时继续 append 会把删掉的 JSONL 重新写出来。
+				await unmountSessionRuntime(request.sessionId);
+				const found = await findSessionFile(request.sessionId);
+				if (!found) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
 				try {
-					unlinkSync(found.path);
+					unlinkSync(found);
+					// 归档记录里可能有它：一并清掉，避免设置页出现幽灵条目
+					const agentDir = defaultAgentDir();
+					const meta = readArchiveMeta(agentDir);
+					if (meta.sessions && request.sessionId in meta.sessions) {
+						delete meta.sessions[request.sessionId];
+						writeArchiveMeta(agentDir, meta);
+					}
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					reply(ws, request.id, {
@@ -549,6 +663,55 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						error: `无法删除会话文件：${error instanceof Error ? error.message : String(error)}`,
 					});
 				}
+				return;
+			}
+			case "session.archive": {
+				const agentDir = defaultAgentDir();
+				const meta = readArchiveMeta(agentDir);
+				meta.sessions = meta.sessions ?? {};
+				const sessionPath = await findSessionFile(request.sessionId);
+				meta.sessions[request.sessionId] = {
+					archivedAt: new Date().toISOString(),
+					...(sessionPath ? { path: sessionPath } : {}),
+				};
+				writeArchiveMeta(agentDir, meta);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "session.unarchive": {
+				const agentDir = defaultAgentDir();
+				const meta = readArchiveMeta(agentDir);
+				if (meta.sessions && request.sessionId in meta.sessions) {
+					delete meta.sessions[request.sessionId];
+					writeArchiveMeta(agentDir, meta);
+				}
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "session.archiveConfig": {
+				const agentDir = defaultAgentDir();
+				const meta = readArchiveMeta(agentDir);
+				if (request.retentionDays !== undefined) {
+					const days = request.retentionDays;
+					if (!Number.isInteger(days) || days < 1 || days > 3650) {
+						reply(ws, request.id, { ok: false, error: "保留天数必须是 1-3650 的整数" });
+						return;
+					}
+					meta.retentionDays = days;
+					writeArchiveMeta(agentDir, meta);
+					// 改完立刻巡检一次：新保留期可能立即过期若干会话
+					void purgeExpiredArchivedSessions().catch((error) =>
+						onDiagnostic(`归档巡检失败：${String(error)}`),
+					);
+				}
+				const sessions = Object.entries(meta.sessions ?? {}).map(([sessionId, entry]) => ({
+					sessionId,
+					archivedAt: entry.archivedAt,
+				}));
+				reply(ws, request.id, {
+					ok: true,
+					result: { retentionDays: archiveRetentionDays(meta), sessions },
+				});
 				return;
 			}
 			case "session.setModel": {
@@ -613,7 +776,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "session.list": {
 				const found = await SessionManager.listAll(request.sessionDir);
-				reply(ws, request.id, { ok: true, result: found });
+				// 附带归档标记：sidebar 据此把会话放进「归档」分组
+				const meta = readArchiveMeta(defaultAgentDir());
+				reply(ws, request.id, {
+					ok: true,
+					result: found.map((row) => {
+						const archived = meta.sessions?.[row.id];
+						return archived ? { ...row, archivedAt: archived.archivedAt } : row;
+					}),
+				});
 				return;
 			}
 			case "project.create": {
@@ -1062,10 +1233,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		httpServer.once("error", reject);
 		httpServer.listen(port, host, resolve);
 	});
+	startArchivePurgeTimer();
 
 		return {
 			port,
 			async close() {
+				if (archiveTimer) clearInterval(archiveTimer);
 				for (const { unsubscribe } of sessions.values()) unsubscribe();
 				sessions.clear();
 				for (const watchers of sidebarWatchers.values()) watchers.close();

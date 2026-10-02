@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProviderModelsMessage } from "../bridge/protocol.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
-import { IconCode, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
+import { IconArchive, IconCode, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
 
 const API_OPTIONS = [
 	{ value: "openai-completions", label: "OpenAI 兼容（openai-completions）" },
@@ -10,9 +10,38 @@ const API_OPTIONS = [
 	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
 ];
 
-type SettingsSection = "general" | "models" | "packages" | "appearance" | "json" | "about";
+type SettingsSection = "general" | "models" | "packages" | "appearance" | "archived" | "json" | "about";
 
 type PackageEntry = string | { source: string; extensions?: string[] };
+
+type ArchiveEntry = { sessionId: string; archivedAt: string };
+
+type ArchiveConfigResult = { retentionDays: number; sessions: ArchiveEntry[] };
+
+type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string };
+
+/** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。 */
+function sessionDisplayName(row: SessionListRow): string {
+	const named = row.name?.trim();
+	if (named) return named;
+	const first = row.firstMessage?.trim().replace(/\s+/g, " ");
+	if (first) return first.length > 48 ? `${first.slice(0, 48)}…` : first;
+	return row.id ? `会话 ${row.id.slice(0, 8)}` : "未命名会话";
+}
+
+/** 距自动删除还剩几天（保留期 - 已归档天数）。 */
+function daysLeft(archivedAt: string, retentionDays: number): number {
+	const t = Date.parse(archivedAt);
+	if (!Number.isFinite(t)) return retentionDays;
+	return retentionDays - Math.floor((Date.now() - t) / 86_400_000);
+}
+
+function formatDateTime(iso: string): string {
+	const t = new Date(iso);
+	return Number.isFinite(t.getTime())
+		? t.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+		: iso;
+}
 
 function pkgLabel(entry: PackageEntry): string {
 	return typeof entry === "string" ? entry : entry.source;
@@ -127,6 +156,12 @@ export function SettingsPage({
 	const [loginAsk, setLoginAsk] = useState<{ type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] } | null>(null);
 	const [askAnswer, setAskAnswer] = useState("");
 
+	// 归档：保留期 + 已归档会话列表（session.list 拿标题，两步确认删除）
+	const [archiveCfg, setArchiveCfg] = useState<ArchiveConfigResult>({ retentionDays: 15, sessions: [] });
+	const [retentionInput, setRetentionInput] = useState("15");
+	const [sessionTitles, setSessionTitles] = useState<Record<string, SessionListRow>>({});
+	const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+
 	// 扩展与插件：新增输入框
 	const [pkgInput, setPkgInput] = useState("");
 	const [extInput, setExtInput] = useState("");
@@ -191,7 +226,83 @@ export function SettingsPage({
 			if (models.ok && Array.isArray(models.result)) setGroups(models.result as ProviderModelsMessage[]);
 			if (providers.ok && Array.isArray(providers.result)) setCatalog(providers.result);
 		})();
-	}, [client]);
+		void loadArchive();
+	}, [client]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	/** 拉取归档配置 + 会话列表（只为了拿标题）。 */
+	async function loadArchive(): Promise<void> {
+		const [cfg, list] = await Promise.all([
+			client.request<ArchiveConfigResult>({ type: "session.archiveConfig" }),
+			client.request<SessionListRow[]>({ type: "session.list" }),
+		]);
+		if (cfg.ok && cfg.result) {
+			setArchiveCfg(cfg.result);
+			setRetentionInput(String(cfg.result.retentionDays));
+		}
+		if (list.ok && Array.isArray(list.result)) {
+			const map: Record<string, SessionListRow> = {};
+			for (const row of list.result as SessionListRow[]) {
+				if (row.id) map[row.id] = row;
+			}
+			setSessionTitles(map);
+		}
+	}
+
+	/** 保存保留期：桥端写 archive.json 并立即巡检一次。 */
+	async function saveRetention(): Promise<void> {
+		const days = Number(retentionInput);
+		if (!Number.isInteger(days) || days < 1) {
+			setError("保留天数必须是正整数");
+			return;
+		}
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request<ArchiveConfigResult>({
+				type: "session.archiveConfig",
+				retentionDays: days,
+			});
+			if (response.ok && response.result) {
+				setArchiveCfg(response.result);
+				setRetentionInput(String(response.result.retentionDays));
+				flashSaved();
+			} else {
+				setError(response.error ?? "保存失败");
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 恢复归档会话。 */
+	async function restoreArchived(sessionId: string): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({ type: "session.unarchive", sessionId });
+			if (response.ok) await loadArchive();
+			else setError(response.error ?? "恢复失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 立即删除归档会话（JSONL 文件真删，不可恢复）。 */
+	async function deleteArchived(sessionId: string): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({ type: "session.delete", sessionId });
+			if (response.ok) {
+				setConfirmDelId(null);
+				await loadArchive();
+			} else {
+				setError(response.error ?? "删除失败");
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
 
 	function flashSaved() {
 		setSavedMsg("已保存 ✓");
@@ -276,6 +387,7 @@ export function SettingsPage({
 						<NavItem icon={<IconPlug />} label="扩展与插件" active={section === "packages"} onClick={() => setSection("packages")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<div className="px-2.5 pb-1 pt-3 text-[10px] font-semibold tracking-wider text-owl-faint">高级</div>
+						<NavItem icon={<IconArchive />} label="归档" active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
 						<NavItem icon={<IconInfo />} label="关于" active={section === "about"} onClick={() => setSection("about")} />
 					</nav>

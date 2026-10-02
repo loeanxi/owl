@@ -25,11 +25,12 @@ type SessionRow = {
 	timestamp?: string;
 	created?: string;
 	firstMessage?: string;
+	/** 归档时间（ISO）。存在 = 已归档；由桥端 archive.json 下发。 */
+	archivedAt?: string;
 	[key: string]: unknown;
 };
 
 const PINNED_KEY = "owl.pinnedSessions";
-const ARCHIVED_KEY = "owl.archivedSessions";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
@@ -108,16 +109,8 @@ function relativeTime(iso: string): string {
 }
 
 function loadPinned(): string[] {
-	return loadIdList(PINNED_KEY);
-}
-
-function loadArchived(): string[] {
-	return loadIdList(ARCHIVED_KEY);
-}
-
-function loadIdList(key: string): string[] {
 	try {
-		const raw = localStorage.getItem(key);
+		const raw = localStorage.getItem(PINNED_KEY);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
 	} catch {
@@ -277,7 +270,6 @@ export function SessionSidebar({
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState("");
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
-	const [archived, setArchived] = useState<string[]>(loadArchived);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
@@ -328,21 +320,17 @@ export function SessionSidebar({
 		if (client && connected) void refresh();
 	}, [client, connected, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// 置顶/归档的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
+	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；
 	// 必须等 session.list 真正返回过至少一条（或确认没有任何会话）后才允许清理。
+	// （归档记录由桥端 archive.json 管理，不在这里清理。）
 	useEffect(() => {
 		if (sessions.length === 0) return;
 		const alive = new Set(sessions.map((row) => row.id).filter(Boolean));
-		for (const [value, setter, key] of [
-			[pinned, setPinned, PINNED_KEY],
-			[archived, setArchived, ARCHIVED_KEY],
-		] as const) {
-			const valid = value.filter((id) => alive.has(id));
-			if (valid.length !== value.length) {
-				setter(valid);
-				localStorage.setItem(key, JSON.stringify(valid));
-			}
+		const valid = pinned.filter((id) => alive.has(id));
+		if (valid.length !== pinned.length) {
+			setPinned(valid);
+			localStorage.setItem(PINNED_KEY, JSON.stringify(valid));
 		}
 	}, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -385,12 +373,19 @@ export function SessionSidebar({
 		});
 	};
 
-	const toggleArchive = (id: string): void => {
-		setArchived((current) => {
-			const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
-			localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
-			return next;
-		});
+	/** 归档/取消归档：写服务端 archive.json，成功后重拉列表（archivedAt 随 session.list 下发）。 */
+	const toggleArchive = async (row: SessionRow): Promise<void> => {
+		const id = row.id;
+		if (!id) return;
+		try {
+			const response = await client.request({
+				type: row.archivedAt ? "session.unarchive" : "session.archive",
+				sessionId: id,
+			});
+			if (response.ok) void refresh();
+		} catch {
+			// 桥未连接等瞬时失败：列表不动，用户重试即可
+		}
 	};
 
 	/** 确认删除：桥上卸载运行时并删历史文件；删的是当前会话时切到新会话。 */
@@ -410,11 +405,6 @@ export function SessionSidebar({
 				localStorage.setItem(PINNED_KEY, JSON.stringify(next));
 				return next;
 			});
-			setArchived((current) => {
-				const next = current.filter((v) => v !== id);
-				localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
-				return next;
-			});
 			setConfirmDelete(null);
 			if (id === activeId) onNewChat();
 			void refresh();
@@ -428,7 +418,7 @@ export function SessionSidebar({
 	const search = query.trim().toLowerCase();
 
 	/** 已归档的会话只出现在「归档」分组，其余分组一律隐藏。 */
-	const isArchivedRow = (row: SessionRow): boolean => row.id !== undefined && archived.includes(row.id);
+	const isArchivedRow = (row: SessionRow): boolean => typeof row.archivedAt === "string" && row.archivedAt !== "";
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
 	const sessionMatches = (row: SessionRow): boolean =>
@@ -439,18 +429,20 @@ export function SessionSidebar({
 	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
 
 	const pinnedSessions = useMemo(() => {
-		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row));
+		const rows = sessions.filter(
+			(row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row),
+		);
 		if (pinnedSort === "manual") {
 			// 手动排序 = 置顶操作发生的先后顺序（pinned 数组序）
 			return rows.sort((a, b) => pinned.indexOf(a.id as string) - pinned.indexOf(b.id as string));
 		}
 		return rows.sort(byLatest);
-	}, [sessions, pinned, archived, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [sessions, pinned, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 当前项目的会话：项目分组下嵌套展示（其余项目的会话只在「最近」出现）。
 	const projectSessions = useMemo(
 		() => sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, activeProject)).sort(byLatest),
-		[sessions, archived, activeProject], // eslint-disable-line react-hooks/exhaustive-deps
+		[sessions, activeProject], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 
 	const recentSessions = useMemo(() => {
@@ -459,12 +451,9 @@ export function SessionSidebar({
 			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
 		}
 		return rows.slice(0, RECENT_LIMIT);
-	}, [sessions, archived, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const archivedSessions = useMemo(
-		() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest),
-		[sessions, archived], // eslint-disable-line react-hooks/exhaustive-deps
-	);
+	const archivedSessions = useMemo(() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest), [sessions]);
 
 	const submitNewProject = async (): Promise<void> => {
 		const path = newPath.trim();
@@ -513,7 +502,11 @@ export function SessionSidebar({
 						<span className="truncate text-xs leading-5">{sessionTitle(row)}</span>
 					</span>
 					<span className="mt-0.5 flex w-full items-center gap-1 pl-[18px] text-[10px] leading-4 text-owl-faint/80">
-						<span className="shrink-0">{relativeTime(sessionTime(row))}</span>
+						<span className="shrink-0">
+							{archivedRow && row.archivedAt
+								? `归档于 ${relativeTime(row.archivedAt)}`
+								: relativeTime(sessionTime(row))}
+						</span>
 						{row.cwd && (
 							<>
 								<span className="shrink-0">·</span>
@@ -544,7 +537,7 @@ export function SessionSidebar({
 							type="button"
 							className={`${rowBtn} ${archivedRow ? "text-owl-accent" : "hover:text-owl-text"}`}
 							title={archivedRow ? "取消归档" : "归档"}
-							onClick={() => toggleArchive(id)}
+							onClick={() => void toggleArchive(row)}
 						>
 							<IconArchive className="h-3.5 w-3.5" />
 						</button>
