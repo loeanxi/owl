@@ -394,11 +394,16 @@ export function SessionSidebar({
 		});
 	};
 
-	/** 展开/收起某个项目的会话列表（首次交互前默认只展开当前项目）。 */
-	const toggleProjectGroup = (path: string): void => {
-		const key = normPath(path);
+	/**
+	 * 展开/收起某个项目的会话列表。scope 区分「项目」/「置顶」两组行，展开状态互不联动；
+	 * 首次交互前（openProjects 为 null）默认只展开「项目」分组里的当前项目。
+	 */
+	const toggleProjectGroup = (path: string, scope: "project" | "pinned"): void => {
+		const key = `${scope}:${normPath(path)}`;
 		setOpenProjects((current) => {
-			const expandedNow = (current?.has(key) ?? false) || (current === null && samePath(path, activeProject));
+			const expandedNow =
+				(current?.has(key) ?? false) ||
+				(current === null && scope === "project" && samePath(path, activeProject));
 			const next = new Set(current ?? []);
 			if (expandedNow) next.delete(key);
 			else next.add(key);
@@ -406,10 +411,10 @@ export function SessionSidebar({
 		});
 	};
 
-	/** 项目会话列表是否展开（null 视作「只有当前项目」）。 */
-	const projectGroupOpen = (path: string): boolean => {
-		if (openProjects === null) return samePath(path, activeProject);
-		return openProjects.has(normPath(path));
+	/** 项目会话列表是否展开（openProjects 为 null 视作「项目」分组里仅当前项目展开）。 */
+	const projectGroupOpen = (path: string, scope: "project" | "pinned"): boolean => {
+		if (openProjects === null) return scope === "project" && samePath(path, activeProject);
+		return openProjects.has(`${scope}:${normPath(path)}`);
 	};
 
 	const isOpen = (id: string): boolean => query.trim() !== "" || !collapsed.has(id);
@@ -455,7 +460,9 @@ export function SessionSidebar({
 				// 恢复后行会回到原位置（置顶/项目分组/最近）：
 				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
 				if (row.cwd) {
-					setOpenProjects((current) => new Set(current ?? []).add(normPath(row.cwd as string)));
+					setOpenProjects((current) =>
+						new Set(current ?? []).add(`project:${normPath(row.cwd as string)}`),
+					);
 				}
 				setCollapsed((current) => {
 					const next = new Set(current);
@@ -711,56 +718,26 @@ export function SessionSidebar({
 		);
 	};
 
-	/** 置顶栏里的项目行：点击切换项目（当前项目不重复切换），悬停露出取消置顶。 */
-	const pinnedProjectRow = (path: string): React.JSX.Element => {
-		const isCurrent = samePath(path, activeProject);
-		return (
-			<div
-				key={`pinned:${normPath(path)}`}
-				className="group/row flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text"
-			>
-				<button
-					type="button"
-					className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-					title={path}
-					onClick={() => {
-						if (!isCurrent) onSelectProject(path);
-					}}
-				>
-					<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
-					<span className="truncate text-xs">{projectLabel(path)}</span>
-				</button>
-				{isCurrent && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
-				<button
-					type="button"
-					className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
-					title="取消置顶"
-					onClick={() => toggleProjectPin(path)}
-				>
-					<IconPin className="h-3.5 w-3.5" filled />
-				</button>
-			</div>
-		);
-	};
-
-	/** 项目行：chevron 展开/收起会话列表；名称点击切换项目（当前项目点击仅展开/收起）；悬停露出操作菜单。 */
-	const projectRow = (path: string): React.JSX.Element => {
-		const isCurrent = samePath(path, activeProject);
-		const projectPinned = isProjectPinned(path);
-		const menuId = `${PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
-		const expanded = search !== "" || projectGroupOpen(path);
-		const rows = sessions
+	/** 项目下的未归档会话（按最近活动排序，搜索时同步过滤）。「项目」/「置顶」两组行共用。 */
+	const projectSessionRows = (path: string): SessionRow[] =>
+		sessions
 			.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row))
 			.sort(byLatest);
+
+	/** 置顶栏里的项目行：chevron 展开该项目的会话列表，名称点击切换项目（当前项目点击仅展开/收起）。 */
+	const pinnedProjectRow = (path: string): React.JSX.Element => {
+		const isCurrent = samePath(path, activeProject);
+		const expanded = search !== "" || projectGroupOpen(path, "pinned");
+		const rows = projectSessionRows(path);
 		return (
-			<div key={menuId}>
-				<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+			<div key={`pinned:${normPath(path)}`}>
+				<div className="group/row flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text">
 					<button
 						type="button"
 						className="flex shrink-0 items-center p-0.5"
 						aria-expanded={expanded}
 						title={expanded ? "收起会话列表" : "展开会话列表"}
-						onClick={() => toggleProjectGroup(path)}
+						onClick={() => toggleProjectGroup(path, "pinned")}
 					>
 						<IconChevron
 							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -770,7 +747,59 @@ export function SessionSidebar({
 						type="button"
 						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
 						title={path}
-						onClick={() => (isCurrent ? toggleProjectGroup(path) : onSelectProject(path))}
+						onClick={() => (isCurrent ? toggleProjectGroup(path, "pinned") : onSelectProject(path))}
+					>
+						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
+						<span className="truncate text-xs">{projectLabel(path)}</span>
+					</button>
+					{isCurrent && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
+					<button
+						type="button"
+						className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+						title="取消置顶"
+						onClick={() => toggleProjectPin(path)}
+					>
+						<IconPin className="h-3.5 w-3.5" filled />
+					</button>
+				</div>
+				{expanded && (
+					<div className="mt-0.5 pl-4">
+						{rows.map((row, index) => sessionRow(row, index, false))}
+						{rows.length === 0 && (
+							<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
+						)}
+					</div>
+				)}
+			</div>
+		);
+	};
+
+	/** 项目行：chevron 展开/收起会话列表；名称点击切换项目（当前项目点击仅展开/收起）；悬停露出操作菜单。 */
+	const projectRow = (path: string): React.JSX.Element => {
+		const isCurrent = samePath(path, activeProject);
+		const projectPinned = isProjectPinned(path);
+		const menuId = `${PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
+		const expanded = search !== "" || projectGroupOpen(path, "project");
+		const rows = projectSessionRows(path);
+		return (
+			<div key={menuId}>
+				<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+					<button
+						type="button"
+						className="flex shrink-0 items-center p-0.5"
+						aria-expanded={expanded}
+						title={expanded ? "收起会话列表" : "展开会话列表"}
+						onClick={() => toggleProjectGroup(path, "project")}
+					>
+						<IconChevron
+							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+						/>
+					</button>
+					<button
+						type="button"
+						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+						title={path}
+						onClick={() => (isCurrent ? toggleProjectGroup(path, "project") : onSelectProject(path))}
 					>
 						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
 						<span className={`truncate text-xs ${isCurrent ? "text-owl-text" : "text-owl-muted"}`}>
