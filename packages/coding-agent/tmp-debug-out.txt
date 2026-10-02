@@ -1,0 +1,6 @@
+FILE-BEFORE: {"plugins":["npm:already-there"],"packages":["npm:legacy-pkg",{"source":"npm:filtered","extensions":["+dist/index.ts"]}],"extensions":["/local/ext.ts"]}
+GLOBAL: {"plugins":["npm:already-there"],"packages":["npm:legacy-pkg",{"source":"npm:filtered","extensions":["+dist/index.ts"]}],"extensions":["/local/ext.ts"]}
+PACKAGES: ["npm:legacy-pkg",{"source":"npm:filtered","extensions":["+dist/index.ts"]}]
+EXT: ["/local/ext.ts"]
+MIGRATED: ["npm:already-there","npm:legacy-pkg",{"source":"npm:filtered","extensions":["+dist/index.ts"]},"/local/ext.ts"]
+FILE-AFTER: {"plugins":["npm:already-there"],"packages":["npm:legacy-pkg",{"source":"npm:filtered","extensions":["+dist/index.ts"]}],"extensions":["/local/ext.ts"]}AFTER-SET: <missing>

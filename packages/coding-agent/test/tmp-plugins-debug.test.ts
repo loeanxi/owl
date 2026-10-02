@@ -36,7 +36,7 @@ describe("debug plugins migrate", () => {
 		const migrated = manager.migrateLegacyPluginsToPlugins();
 		dbg.push(`MIGRATED: ${JSON.stringify(migrated)}`);
 		dbg.push(`FILE-AFTER: ${existsSync(settingsPath) ? readFileSync(settingsPath, "utf-8") : "<missing>"}`);
-		writeFileSync(join(testDir, "debug1.txt"), dbg.join("\n"));
+		writeFileSync("tmp-debug-out.txt", dbg.join("\n"));
 		expect(true).toBe(true);
 	});
 
@@ -45,7 +45,7 @@ describe("debug plugins migrate", () => {
 		const manager = SettingsManager.create(projectDir, agentDir);
 		manager.setPlugins(["npm:x"]);
 		const out = existsSync(settingsPath) ? readFileSync(settingsPath, "utf-8") : "<missing>";
-		writeFileSync(join(testDir, "debug2.txt"), `AFTER-SET: ${out}`);
+		writeFileSync("tmp-debug-out.txt", `AFTER-SET: ${out}`, { flag: "a" });
 		expect(true).toBe(true);
 	});
 });

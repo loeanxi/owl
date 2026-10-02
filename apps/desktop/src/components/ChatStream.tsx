@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { ChatEntry } from "../hooks/transcript.ts";
-import { IconAlert, IconChat, IconCheck, IconLightbulb, IconTerminal } from "./icons.tsx";
+import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+/** 提问导航展开/收起偏好的 localStorage 键。 */
+const QNAV_KEY = "owl.qnav.open";
 
 export function renderMarkdown(text: string): string {
 	return md.render(text);
@@ -17,11 +20,12 @@ export function renderMarkdown(text: string): string {
  * 数节点即可回溯每一轮「问 → 做 → 答」。
  */
 
-/** 时间轴上的一行：node 是左轨节点，content 是右侧内容。 */
+/** 时间轴上的一行：node 是左轨节点，content 是右侧内容；提问行带 questionIndex 作跳转锚点。 */
 type TimelineRow = {
 	key: string;
 	node: React.JSX.Element;
 	content: React.JSX.Element;
+	questionIndex?: number;
 };
 
 /** 提问节点：accent 实心圆 + 提问序号，整条链上唯一的大号节点，承担「提问追踪」锚点。 */
@@ -115,6 +119,7 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 			const firstLine = entry.text.split("\n").find((part) => part.trim() !== "") ?? "";
 			rows.push({
 				key: `q${index}`,
+				questionIndex: turn,
 				node: <QuestionNode index={turn} title={firstLine} />,
 				// 提问气泡右对齐，但收在内容列以内（列本身封顶 max-w-3xl），不再贴窗口右缘
 				content: (
@@ -189,6 +194,106 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 		});
 	});
 	return rows;
+}
+
+/** 提问导航的一项：提问序号 + 提问首行 + 本轮回答首行（预览）。 */
+type QuestionMark = { n: number; text: string; preview: string };
+
+function firstLineOf(text: string): string {
+	return text.split("\n").find((part) => part.trim() !== "") ?? "";
+}
+
+/** 从转录提取全部提问及其回答预览，供提问导航浮层使用。 */
+function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
+	const questions: QuestionMark[] = [];
+	let current: QuestionMark | undefined;
+	for (const entry of entries) {
+		if (entry.kind === "user") {
+			current = { n: questions.length + 1, text: firstLineOf(entry.text), preview: "" };
+			questions.push(current);
+		} else if (current && !current.preview && entry.kind === "assistant" && entry.text) {
+			current.preview = firstLineOf(entry.text);
+		}
+	}
+	return questions;
+}
+
+/**
+ * 提问导航浮层：贴聊天区左缘的悬浮卡，列出本会话全部提问（带回答首行预览）。
+ * 点击项平滑滚动到对应提问；当前视口所在提问高亮；可收起成一个小按钮，偏好持久化。
+ */
+function QuestionNavigator({
+	questions,
+	active,
+	onJump,
+}: {
+	questions: QuestionMark[];
+	active: number;
+	onJump: (n: number) => void;
+}): React.JSX.Element | null {
+	const [open, setOpen] = useState(() => localStorage.getItem(QNAV_KEY) !== "0");
+	const toggle = (): void => {
+		setOpen((value) => {
+			localStorage.setItem(QNAV_KEY, value ? "0" : "1");
+			return !value;
+		});
+	};
+	if (questions.length === 0) return null;
+	if (!open) {
+		return (
+			<button
+				type="button"
+				title={`提问导航（${questions.length} 个提问）`}
+				aria-label="提问导航"
+				onClick={toggle}
+				className="absolute left-2 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg border border-owl-border bg-owl-panel/90 text-owl-muted shadow-lg shadow-black/20 backdrop-blur-sm transition-colors hover:text-owl-text"
+			>
+				<IconList className="h-3.5 w-3.5" />
+			</button>
+		);
+	}
+	return (
+		<div className="absolute left-2 top-1/2 z-20 flex max-h-[72vh] w-60 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
+			<header className="flex shrink-0 items-center justify-between border-b border-owl-border/60 py-1.5 pl-3 pr-1.5">
+				<span className="text-xs font-medium text-owl-muted">提问导航 · {questions.length}</span>
+				<button
+					type="button"
+					title="收起提问导航"
+					aria-label="收起提问导航"
+					onClick={toggle}
+					className="flex h-6 w-6 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
+				>
+					<IconChevron className="h-3.5 w-3.5 rotate-180" />
+				</button>
+			</header>
+			<div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+				{questions.map((question) => (
+					<button
+						key={question.n}
+						type="button"
+						onClick={() => onJump(question.n)}
+						className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+							question.n === active ? "bg-owl-accent/10" : "hover:bg-owl-hover"
+						}`}
+					>
+						<span
+							className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+								question.n === active ? "bg-owl-accent text-white" : "bg-owl-hover text-owl-muted"
+							}`}
+						>
+							{question.n}
+						</span>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-xs text-owl-text">{question.text}</span>
+							{question.preview && (
+								<span className="block truncate text-[11px] leading-4 text-owl-faint">{question.preview}</span>
+							)}
+						</span>
+					</button>
+				))}
+			</div>
+		</div>
+	);
 }
 
 export function ChatStream({

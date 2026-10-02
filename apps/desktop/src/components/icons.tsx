@@ -267,3 +267,14 @@ export function IconAlert({ className }: { className?: string }): React.JSX.Elem
 		</Svg>
 	);
 }
+
+/** 提问导航开关（列表） */
+export function IconList({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M4 6.5h16" />
+			<path d="M4 12h16" />
+			<path d="M4 17.5h16" />
+		</Svg>
+	);
+}
