@@ -62,6 +62,14 @@ export {
 	type ReadToolOptions,
 } from "./read.ts";
 export {
+	createTodoTool,
+	createTodoToolDefinition,
+	type TodoItem,
+	type TodoToolDetails,
+	type TodoToolInput,
+	type TodoToolOptions,
+} from "./todo.ts";
+export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	formatSize,
@@ -88,11 +96,12 @@ import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createPowerShellTool, createPowerShellToolDefinition, type PowerShellToolOptions } from "./powershell.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
+import { createTodoTool, createTodoToolDefinition, type TodoToolOptions } from "./todo.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "powershell" | "edit" | "write" | "grep" | "find" | "ls";
+export type ToolName = "read" | "bash" | "powershell" | "edit" | "write" | "grep" | "find" | "ls" | "todo";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -102,6 +111,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"grep",
 	"find",
 	"ls",
+	"todo",
 ]);
 
 export interface ToolsOptions {
@@ -113,6 +123,7 @@ export interface ToolsOptions {
 	grep?: GrepToolOptions;
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
+	todo?: TodoToolOptions;
 }
 
 export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
@@ -133,6 +144,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
 			return createLsToolDefinition(cwd, options?.ls);
+		case "todo":
+			return createTodoToolDefinition(cwd, options?.todo);
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -156,6 +169,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createFindTool(cwd, options?.find);
 		case "ls":
 			return createLsTool(cwd, options?.ls);
+		case "todo":
+			return createTodoTool(cwd, options?.todo);
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -189,6 +204,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		grep: createGrepToolDefinition(cwd, options?.grep),
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
+		todo: createTodoToolDefinition(cwd, options?.todo),
 	};
 }
 
@@ -220,5 +236,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd, options?.grep),
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
+		todo: createTodoTool(cwd, options?.todo),
 	};
 }

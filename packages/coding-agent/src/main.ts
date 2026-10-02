@@ -922,6 +922,8 @@ export async function main(args: string[], options?: MainOptions) {
 			initialImages,
 		});
 		restoreStdout();
+		// 收掉 MCP 连接：子进程的 stdio 流会吊住事件循环，不关的话 print 模式跑完进程退不出
+		await cliMcpConnections?.close().catch(() => {});
 		if (exitCode !== 0) {
 			process.exitCode = exitCode;
 		}

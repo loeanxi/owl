@@ -9,6 +9,7 @@ import {
 	powershellToolSystemPromptContribution,
 } from "../src/core/tools/powershell.ts";
 import { createReadToolDefinition, readToolSystemPromptContribution } from "../src/core/tools/read.ts";
+import { createTodoToolDefinition, todoToolSystemPromptContribution } from "../src/core/tools/todo.ts";
 import { createWriteToolDefinition, writeToolSystemPromptContribution } from "../src/core/tools/write.ts";
 
 const cases = [
@@ -20,6 +21,7 @@ const cases = [
 	["grep", grepToolSystemPromptContribution, createGrepToolDefinition],
 	["find", findToolSystemPromptContribution, createFindToolDefinition],
 	["ls", lsToolSystemPromptContribution, createLsToolDefinition],
+	["todo", todoToolSystemPromptContribution, createTodoToolDefinition],
 ] as const;
 
 describe("built-in tool system prompt contributions", () => {

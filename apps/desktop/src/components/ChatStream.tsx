@@ -99,6 +99,67 @@ function ToolCardView({
 	);
 }
 
+/** todo 工具卡片里的单个任务项（渲染防御：字段缺失按默认处理）。 */
+type TodoItemView = { content: string; status?: string; priority?: string };
+
+function parseTodoArgs(args: string): TodoItemView[] | undefined {
+	if (!args) return undefined;
+	try {
+		const parsed = JSON.parse(args) as { todos?: TodoItemView[] };
+		if (!Array.isArray(parsed.todos)) return undefined;
+		return parsed.todos.filter((item) => typeof item?.content === "string");
+	} catch {
+		return undefined;
+	}
+}
+
+/** todo 工具专属卡片：勾选态清单 + 完成进度条；解析不了参数时退回通用工具卡片。 */
+function TodoCardView({ args, status }: { args: string; status: "running" | "done" }): React.JSX.Element {
+	const items = parseTodoArgs(args);
+	if (!items) return <ToolCardView name="todo" args={args} status={status} />;
+	const done = items.filter((item) => item.status === "completed").length;
+	const pct = items.length === 0 ? 0 : Math.round((done / items.length) * 100);
+	return (
+		<div className="rounded-lg border border-owl-border bg-owl-sidebar/70 p-2.5 text-xs">
+			<div className="flex items-center justify-between gap-2">
+				<span className="font-medium text-owl-text">任务清单</span>
+				<span className="text-owl-faint">
+					{done}/{items.length} 完成{status === "running" ? " · 更新中…" : ""}
+				</span>
+			</div>
+			<div className="mt-2 h-1 overflow-hidden rounded-full bg-owl-hover">
+				<div className="h-full rounded-full bg-owl-accent transition-all duration-300" style={{ width: `${pct}%` }} />
+			</div>
+			<ul className="mt-2 space-y-1">
+				{items.map((item, index) => (
+					<li key={index} className="flex items-start gap-1.5">
+						<span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+							{item.status === "completed" ? (
+								<IconCheck className="h-3 w-3 text-emerald-500" />
+							) : item.status === "in_progress" ? (
+								<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-accent" />
+							) : (
+								<span className="h-2.5 w-2.5 rounded-full border border-owl-border" />
+							)}
+						</span>
+						<span
+							className={
+								item.status === "completed"
+									? "text-owl-faint line-through"
+									: item.status === "in_progress"
+										? "text-owl-text font-medium"
+										: "text-owl-muted"
+							}
+						>
+							{item.content}
+						</span>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
 function AnswerCard({ text }: { text: string }): React.JSX.Element {
 	return (
 		<div
@@ -152,7 +213,12 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 							<IconTerminal className="h-3 w-3" />
 						</StepNode>
 					),
-					content: <ToolCardView name={tool.name} args={tool.args} status={tool.status} />,
+					content:
+						tool.name === "todo" ? (
+							<TodoCardView args={tool.args} status={tool.status} />
+						) : (
+							<ToolCardView name={tool.name} args={tool.args} status={tool.status} />
+						),
 				});
 			}
 			if (entry.text) {

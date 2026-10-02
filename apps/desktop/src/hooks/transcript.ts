@@ -156,12 +156,25 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 						: undefined,
 			});
 		} else if (message.role === "toolResult") {
-			const output = JSON.stringify(message.output ?? message.content ?? "");
+			const toolName = message.toolName ?? "tool";
+			// todo 的结果摘要直接取文本首行（"任务清单已更新 — 3 items: …"），
+			// 裸 JSON 上屏反而读不懂清单状态。
+			let brief: string;
+			if (toolName === "todo") {
+				const text = (message.content ?? [])
+					.filter((part: AnyEvent) => part.type === "text")
+					.map((part: AnyEvent) => part.text ?? "")
+					.join("\n");
+				brief = firstTextLine(text);
+			} else {
+				const output = JSON.stringify(message.output ?? message.content ?? "");
+				brief = output.length > 400 ? `${output.slice(0, 400)}…` : output;
+			}
 			entries.push({
 				kind: "toolResult",
-				toolName: message.toolName ?? "tool",
+				toolName,
 				ok: !message.isError,
-				brief: output.length > 400 ? `${output.slice(0, 400)}…` : output,
+				brief,
 			});
 		}
 	}
@@ -172,7 +185,11 @@ function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
-		.filter((part: AnyEvent) => part.type === "text")
-		.map((part: AnyEvent) => part.text ?? "")
+		.filter((part) => part.type === "text")
+		.map((part) => part.text ?? "")
 		.join("\n");
+}
+
+function firstTextLine(text: string): string {
+	return text.split("\n").find((part) => part.trim() !== "") ?? "";
 }
