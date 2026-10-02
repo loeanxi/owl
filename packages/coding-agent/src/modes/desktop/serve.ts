@@ -22,7 +22,6 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
-import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { expandTildePath, getAgentDir } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
@@ -36,6 +35,7 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
+import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
@@ -1035,10 +1035,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
-					prompt: (ask) => {
-						if (!enterpriseMode && ask.type === "text" && ask.message.includes("GitHub Enterprise")) {
-							return Promise.resolve("");
-						}
+						prompt: (ask) => {
+							if (!enterpriseMode && ask.type === "text" && ask.message.includes("GitHub Enterprise")) {
+								return Promise.resolve("");
+							}
 							// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程
 							// 会永远挂在 prompt 上，堵死 Models 的认证操作队列。
 							const answer = new Promise<string>((resolve, reject) => {
