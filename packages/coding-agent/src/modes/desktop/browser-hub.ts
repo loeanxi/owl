@@ -513,14 +513,83 @@ export class BrowserHub {
 			execute: async () =>
 				hub.withAgent(async () => {
 					const entry = await hub.agentPage();
-					const buffer = await entry.page.screenshot({ type: "jpeg", quality: 70, caret: "hide" });
+					const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
 					return {
 						content: [
 							{ type: "text" as const, text: `当前页面截图：${entry.info.url}` },
-							{ type: "image" as const, data: buffer.toString("base64"), mimeType: "image/jpeg" },
+							{ type: "image" as const, data: buffer.toString("base64"), mimeType: "image/png" },
 						],
 						details: undefined,
 					};
+				}),
+		};
+
+		const waitParams = Type.Object({
+			ms: Type.Number({ description: "等待毫秒数（1-5000）" }),
+		});
+		const wait: ToolDefinition<typeof waitParams> = {
+			name: "browser_wait",
+			label: "浏览器：等待",
+			description:
+				"等待页面异步内容（SPA 切换、接口返回）出现后再拍快照，上限 5000ms。" +
+				"优先用 browser_snapshot 观察具体状态判断，不要盲目等待。",
+			promptSnippet: "browser_wait: 等待内嵌浏览器页面内容出现（≤5s）",
+			parameters: waitParams,
+			execute: async (_id, params) => {
+				const ms = Math.min(Math.max(Math.round(params.ms), 1), 5000);
+				await sleep(ms);
+				return text(`已等待 ${ms}ms。用 browser_snapshot 观察。`);
+			},
+		};
+
+		const consoleParams = Type.Object({
+			action: Type.Optional(
+				Type.Union([Type.Literal("list"), Type.Literal("clear")], { description: "list=读取最近消息（默认），clear=清空" }),
+			),
+		});
+		const consoleTool: ToolDefinition<typeof consoleParams> = {
+			name: "browser_console",
+			label: "浏览器：控制台消息",
+			description: "读取/清空内嵌浏览器当前页面的 console 输出与未捕获报错（排查页面 JS 报错用）。",
+			promptSnippet: "browser_console: 读取内嵌浏览器的 console 输出与报错",
+			parameters: consoleParams,
+			execute: async (_id, params) =>
+				hub.withAgent(async () => {
+					const entry = await hub.agentPage();
+					if (params.action === "clear") {
+						entry.console.length = 0;
+						return text("已清空。");
+					}
+					if (entry.console.length === 0) return text("（本页暂无 console 输出）");
+					return text(entry.console.slice(-50).join("\n"));
+				}),
+		};
+
+		const fileChooserParams = Type.Object({
+			paths: Type.Array(Type.String({ description: "本机文件的绝对路径" }), {
+				description: "要提交的文件路径（页面允许多选时可传多个）",
+			}),
+		});
+		const setFileChooser: ToolDefinition<typeof fileChooserParams> = {
+			name: "browser_set_file_chooser",
+			label: "浏览器：应答文件选择框",
+			description:
+				"当页面弹出文件选择框（browser_snapshot 会给出提示）时，提供本机文件绝对路径完成选择。" +
+				"页面没有在等待文件时调用会报错。",
+			promptSnippet: "browser_set_file_chooser: 页面弹出文件选择框时提供本机文件路径",
+			parameters: fileChooserParams,
+			execute: async (_id, params) =>
+				hub.withAgent(async () => {
+					const entry = await hub.agentPage();
+					const pending = entry.pendingChooser;
+					if (!pending) return text("页面当前没有等待中的文件选择框。");
+					if (!pending.multiple && params.paths.length > 1) {
+						return text("该选择框只允许单选，paths 只能提供一个文件。");
+					}
+					await pending.chooser.setFiles(params.paths);
+					entry.pendingChooser = null;
+					await sleep(ACTION_SETTLE_MS);
+					return text(`已提交 ${params.paths.length} 个文件。用 browser_snapshot 确认页面反应。`);
 				}),
 		};
 
@@ -577,7 +646,7 @@ export class BrowserHub {
 				}),
 		};
 
-		return [navigate, snapshot, click, type, pressKey, scroll, screenshot, tabs];
+		return [navigate, snapshot, click, type, pressKey, scroll, screenshot, wait, consoleTool, setFileChooser, tabs];
 	}
 }
 
@@ -622,6 +691,7 @@ const SNAPSHOT_SCRIPT = `
 				if (type === "checkbox") return "checkbox";
 				if (type === "radio") return "radio";
 				if (type === "button" || type === "submit") return "button";
+				if (type === "file") return "file";
 				return "textbox";
 			}
 			if (tag === "SELECT") return "combobox";

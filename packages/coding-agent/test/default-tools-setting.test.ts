@@ -229,7 +229,14 @@ describe("defaultTools setting", () => {
 			const excluded = await createFileSession({ excludeTools: ["grep"] });
 			writeSettings({ defaultTools: ["+grep", "+inactive_tool"] });
 			await excluded.reload();
-			expect(excluded.getActiveToolNames().sort()).toEqual(["bash", "edit", "inactive_tool", "read", "todo", "write"]);
+			expect(excluded.getActiveToolNames().sort()).toEqual([
+				"bash",
+				"edit",
+				"inactive_tool",
+				"read",
+				"todo",
+				"write",
+			]);
 			excluded.dispose();
 		});
 	});

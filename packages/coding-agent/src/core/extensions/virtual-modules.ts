@@ -3,7 +3,9 @@ import * as bundledPiAiCompat from "@earendil-works/pi-ai/compat";
 import * as bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
 import * as bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
 
-const bundledPiTui: Record<string, unknown> = {};
+// owl: the TUI package was cut from the workspace, but extensions still import
+// it at module scope — serve them the inert stand-in instead of an empty object.
+import * as bundledPiTui from "./pi-tui-stub.ts";
 
 import * as bundledTypebox from "typebox";
 import * as bundledTypeboxCompile from "typebox/compile";

@@ -19,6 +19,11 @@ export type {
 	ProjectCreateRequest,
 	ProjectCreateResult,
 	ProviderModelsMessage,
+	QuestionAnswerPayload,
+	QuestionOptionPayload,
+	QuestionPayload,
+	QuestionRequestMessage,
+	QuestionResponseRequest,
 	ServerEventMessage,
 	ServerResponseMessage,
 	SessionAbortRequest,
@@ -55,12 +60,16 @@ export type {
 	IabPagesMessage,
 	IabFrameMessage,
 	IabServerMessage,
+	IabFileChooserMessage,
+	IabFileResponseRequest,
 	IabOpenResult,
 	IabStateResult,
 	IabInputPayload,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
-import type { PermissionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
+import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
 /** Alias used by UI components. */
 export type PermissionRequest = PermissionRequestMessage;
+/** Alias used by UI components. */
+export type QuestionRequest = QuestionRequestMessage;

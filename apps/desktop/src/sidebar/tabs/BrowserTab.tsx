@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
-import { bindIabPage, unbindIabPage } from "../iab-bound.ts";
+import { bindIabPage, encodeIabPath, parseIabPath, unbindIabPage } from "../iab-bound.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
 
 /** 起始页的快捷目标（开发预览是浏览器 tab 的主场景）。 */
@@ -53,8 +53,10 @@ interface StageGeometry {
 
 export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
 	const [page, setPage] = useState<IabPageInfo | undefined>(undefined);
-	const [draft, setDraft] = useState(tab.path ?? "");
+	const [draft, setDraft] = useState(() => parseIabPath(tab.path).url ?? "");
 	const [frame, setFrame] = useState<Frame | undefined>(undefined);
+	const [fileChooser, setFileChooser] = useState<{ multiple: boolean } | undefined>(undefined);
+	const [filePathDraft, setFilePathDraft] = useState("");
 	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 	const stageRef = useRef<HTMLDivElement>(null);
 	const lastMoveSent = useRef(0);
@@ -67,9 +69,12 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const applyPage = useCallback(
 		(next: IabPageInfo): void => {
 			const current = pageRef.current;
-			if (current && current.pageId === next.pageId && current.url !== next.url) {
-				// agent 或页面自身把 URL 带走了：持久化跟着走（重开应用还原到新地址）
-				store.setTabPath(tab.id, next.url);
+			if (
+				current?.pageId !== next.pageId ||
+				current.url !== next.url
+			) {
+				// 绑定/换页/URL 被带走：持久化跟着走（pageId 优先，URL 兜底，重开应用还原）
+				store.setTabPath(tab.id, encodeIabPath(next.pageId, next.url));
 				setDraft(next.url);
 			}
 			pageRef.current = next;
@@ -110,18 +115,34 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		void client.request({ type: "iab.input", pageId: current.pageId, input }).catch(() => {});
 	};
 
-	// 挂载：按持久化的 URL 绑定页面（hub 按 URL 复用已有页，没有就新建）。
-	// 桥还没连上时请求会被立即拒绝：挂 onStatus 等下次连上后重试，不能丢。
+	// 挂载：按持久化路径绑定页面（pageId 优先，失效回落 URL）。桥还没连上时
+	// 请求会被立即拒绝：挂 onStatus 等下次连上后重试，不能丢。
 	useEffect(() => {
-		const initial = tab.path ? normalizeUrl(tab.path) : undefined;
-		if (!initial) return;
+		const parsed = parseIabPath(tab.path);
+		const initialPageId = parsed.pageId;
+		const initialUrl = parsed.url ? normalizeUrl(parsed.url) : undefined;
+		if (!initialPageId && !initialUrl) return;
 		let cancelled = false;
 		let retryOff: (() => void) | undefined;
+		let fellBack = false;
 		const attempt = (): void => {
+			const request =
+				initialPageId && !fellBack
+					? { type: "iab.open" as const, pageId: initialPageId }
+					: { type: "iab.open" as const, url: initialUrl ?? "about:blank" };
 			void client
-				.request<{ page: IabPageInfo }>({ type: "iab.open", url: initial })
+				.request<{ page: IabPageInfo }>(request)
 				.then((response) => {
-					if (!cancelled && response.ok && response.result) applyPage(response.result.page);
+					if (cancelled) return;
+					if (response.ok && response.result) {
+						applyPage(response.result.page);
+						return;
+					}
+					// pageId 已失效（桥重启过）：回落按 URL 绑定
+					if (initialPageId && !fellBack && initialUrl) {
+						fellBack = true;
+						attempt();
+					}
 				})
 				.catch(() => {
 					if (cancelled) return;
@@ -154,13 +175,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		};
 	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// IAB 消息：帧流按 pageId 收；页面清单用来跟踪标题/URL/关闭
+	// IAB 消息：帧流按 pageId 收；页面清单跟踪标题/URL/关闭；filechooser 弹横幅
 	useEffect(() => {
 		return client.onIabMessage((message) => {
 			if (message.type === "iab.frame") {
 				if (message.pageId === pageRef.current?.pageId) {
 					setFrame({ data: message.data, width: message.width, height: message.height });
 				}
+				return;
+			}
+			if (message.type === "iab.filechooser") {
+				if (message.pageId === pageRef.current?.pageId) setFileChooser({ multiple: message.multiple });
 				return;
 			}
 			if (message.type === "iab.pages" && pageRef.current) {
@@ -173,6 +198,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					pageRef.current = undefined;
 					setPage(undefined);
 					setFrame(undefined);
+					setFileChooser(undefined);
 					store.setTabPath(tab.id, undefined);
 				}
 			}
@@ -216,7 +242,6 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			.then((response) => {
 				if (response.ok && response.result) {
 					applyPage(response.result.page);
-					store.setTabPath(tab.id, response.result.page.url);
 				}
 			})
 			.catch(() => {});
@@ -238,6 +263,23 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 
 	const openExternal = (): void => {
 		if (pageRef.current?.url) void api.openExternal("url", pageRef.current.url).catch(() => {});
+	};
+
+	// 文件选择框应答：绝对路径 | 分隔（真正的系统对话框在无头浏览器里弹不出）
+	const submitFileChooser = (): void => {
+		const current = pageRef.current;
+		if (!current) return;
+		const paths = filePathDraft.split("|").map((path) => path.trim()).filter((path) => path !== "");
+		if (paths.length === 0) return;
+		void client
+			.request({ type: "iab.fileResponse", pageId: current.pageId, paths })
+			.then((response) => {
+				if (response.ok) {
+					setFileChooser(undefined);
+					setFilePathDraft("");
+				}
+			})
+			.catch(() => {});
 	};
 
 	// 键盘：画布聚焦时全部转发给页面（含 Ctrl+T 等组合键——那是页面的快捷键，
@@ -352,6 +394,40 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				</div>
 			) : (
 				<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black/40">
+					{fileChooser && (
+						<div className="absolute inset-x-2 top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-owl-accent/50 bg-owl-panel/95 px-3 py-2 shadow-lg">
+							<span className="shrink-0 text-xs text-owl-text">
+								页面请求选择文件（允许多选：{fileChooser.multiple ? "是" : "否"}）
+							</span>
+							<input
+								value={filePathDraft}
+								onChange={(e) => setFilePathDraft(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										submitFileChooser();
+									}
+								}}
+								placeholder="本机文件绝对路径，多个用 | 分隔"
+								spellCheck={false}
+								className="h-6 min-w-32 flex-1 rounded border border-owl-border/50 bg-owl-bg px-2 font-mono text-[11px] text-owl-text outline-none focus:border-owl-accent/60"
+							/>
+							<button
+								type="button"
+								onClick={submitFileChooser}
+								className="shrink-0 rounded bg-owl-accent px-2 py-1 text-[11px] text-white transition-opacity hover:opacity-90"
+							>
+								提交
+							</button>
+							<button
+								type="button"
+								onClick={() => setFileChooser(undefined)}
+								className="shrink-0 text-xs text-owl-faint transition-colors hover:text-owl-text"
+							>
+								忽略
+							</button>
+						</div>
+					)}
 					{frame && scale ? (
 						<div
 							tabIndex={0}
@@ -380,7 +456,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 							}}
 						>
 							<img
-								src={`data:image/jpeg;base64,${frame.data}`}
+								src={`data:image/png;base64,${frame.data}`}
 								alt="页面预览"
 								draggable={false}
 								className="h-full w-full select-none bg-white"

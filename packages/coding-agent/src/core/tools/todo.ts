@@ -8,8 +8,18 @@ const todoPriorities = ["high", "medium", "low"] as const;
 
 const todoItemSchema = Type.Object({
 	content: Type.String({ description: "Task description, concise and actionable" }),
-	status: Type.Optional(Type.Union(todoStatuses.map((s) => Type.Literal(s)), { description: "pending | in_progress | completed (default: pending)" })),
-	priority: Type.Optional(Type.Union(todoPriorities.map((p) => Type.Literal(p)), { description: "high | medium | low (default: medium)" })),
+	status: Type.Optional(
+		Type.Union(
+			todoStatuses.map((s) => Type.Literal(s)),
+			{ description: "pending | in_progress | completed (default: pending)" },
+		),
+	),
+	priority: Type.Optional(
+		Type.Union(
+			todoPriorities.map((p) => Type.Literal(p)),
+			{ description: "high | medium | low (default: medium)" },
+		),
+	),
 });
 
 const todoSchema = Type.Object({
@@ -57,9 +67,7 @@ const STATUS_ICONS: Record<TodoItem["status"], string> = {
 
 function renderList(todos: TodoItem[]): string {
 	if (todos.length === 0) return "(The task list is empty)";
-	return todos
-		.map((item, index) => `${STATUS_ICONS[item.status]} ${index + 1}. ${item.content}`)
-		.join("\n");
+	return todos.map((item, index) => `${STATUS_ICONS[item.status]} ${index + 1}. ${item.content}`).join("\n");
 }
 
 function summarize(todos: TodoItem[]): string {
@@ -101,7 +109,9 @@ function normalizeItems(input: Static<typeof todoItemSchema>[]): { items: TodoIt
 		}
 	}
 	if (demoted > 0) {
-		notes.push(`Only one task may be in_progress at a time; ${demoted} extra in_progress task(s) were reset to pending`);
+		notes.push(
+			`Only one task may be in_progress at a time; ${demoted} extra in_progress task(s) were reset to pending`,
+		);
 	}
 	return { items, notes };
 }

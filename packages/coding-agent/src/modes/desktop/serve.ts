@@ -36,7 +36,6 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
-import { builtInExtensions } from "../../extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
@@ -44,7 +43,9 @@ import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
+import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
+import { cancelPendingQuestionsForSession, createAskUserQuestionExtension, type PendingQuestion } from "./ask-user.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import type { IabFrameMessage, IabOpenResult, IabPageInfo, IabStateResult } from "./protocol.ts";
 import {
@@ -75,7 +76,17 @@ const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", 
 const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 /** plan 模式放行的只读内置工具；其余（bash/powershell/edit/write 及 MCP/扩展工具）一律拦截。 */
-const READ_ONLY_TOOLS = new Set(["read", "ls", "find", "grep", "browser_snapshot", "browser_screenshot", "browser_tabs"]);
+const READ_ONLY_TOOLS = new Set([
+	"read",
+	"ls",
+	"find",
+	"grep",
+	"browser_snapshot",
+	"browser_screenshot",
+	"browser_tabs",
+	"browser_console",
+	"browser_wait",
+]);
 
 /** plan 模式的系统提示词附录：创建会话时即告知模型只读约束与目标（产出计划）。 */
 const PLAN_MODE_ADDENDUM = [
@@ -334,12 +345,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 		},
 		onPagesChanged: (pages: IabPageInfo[], origin) => broadcast({ type: "iab.pages", pages, origin }),
+		onFileChooser: (pageId: string, multiple: boolean) => broadcast({ type: "iab.filechooser", pageId, multiple }),
 		onDiagnostic,
 	});
 	/** browser_* 工具定义（工具执行时才拉起浏览器，列定义零开销）。 */
 	const iabTools = iab.tools();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
+	/** requestId → resolver for ask_user_question 工具等待用户作答 */
+	const pendingQuestions: Map<string, PendingQuestion> = new Map();
 	/** Shared services for non-session queries (models.list); built lazily. */
 	let listServices: AgentSessionServices | undefined;
 	/** MCP connections established at startup. */
@@ -363,6 +377,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		} catch {
 			// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
 		}
+		// abort 会顺带经 signal 取消挂起的提问，这里兜底清掉可能漏网的
+		cancelPendingQuestionsForSession(pendingQuestions, sessionId);
 		mounted.unsubscribe();
 		sessions.delete(sessionId);
 	}
@@ -453,6 +469,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				client.send(payload);
 			}
 		}
+	}
+
+	/** ask_user_question 出发前的守卫：一个 UI 都没连着时提问必然无人应答。 */
+	function hasConnectedClients(): boolean {
+		for (const client of clients) {
+			if (client.readyState === client.OPEN) return true;
+		}
+		return false;
 	}
 
 	function reply(ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }): void {
@@ -666,13 +690,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				});
 			},
 		};
+		// 「向用户提问」扩展：ask_user_question 工具经 question_request/question.response 往返等用户作答。
+		const askUserExtension = createAskUserQuestionExtension({
+			broadcast,
+			hasConnectedClients,
+			getSessionId: () => sessionIdHolder.current,
+			pendingQuestions,
+		});
 		const owlAddenda = await loadOwlAddenda();
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const runtime = await createAgentSessionRuntime(
 			buildFactory(
 				args.agentDir,
 				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-				[...builtInExtensions, permissionExtension, owlMemoryExtension],
+				[...builtInExtensions, permissionExtension, owlMemoryExtension, askUserExtension],
 				owlAddenda,
 			),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
@@ -897,7 +928,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
-				if (request.approvalMode !== "auto" && request.approvalMode !== "confirm" && request.approvalMode !== "plan") {
+				if (
+					request.approvalMode !== "auto" &&
+					request.approvalMode !== "confirm" &&
+					request.approvalMode !== "plan"
+				) {
 					reply(ws, request.id, { ok: false, error: `未知审批模式: ${String(request.approvalMode)}` });
 					return;
 				}
@@ -1247,6 +1282,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true });
 				return;
 			}
+			case "question.response": {
+				const pending = pendingQuestions.get(request.requestId);
+				if (!pending) {
+					reply(ws, request.id, { ok: false, error: `Unknown question request: ${request.requestId}` });
+					return;
+				}
+				pendingQuestions.delete(request.requestId);
+				pending.resolve({ cancelled: request.cancelled === true, answers: request.answers ?? [] });
+				reply(ws, request.id, { ok: true });
+				return;
+			}
 			case "fs.tree": {
 				reply(ws, request.id, { ok: true, result: await listWorkspaceDirectory(request.cwd, request.path ?? "") });
 				return;
@@ -1377,117 +1423,126 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					if (!allowed.has(parsed.protocol)) {
 						throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
 					}
-				spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
-					detached: true,
-					stdio: "ignore",
-				}).unref();
+					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
+						detached: true,
+						stdio: "ignore",
+					}).unref();
+				}
+				reply(ws, request.id, { ok: true });
+				return;
 			}
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "term.create": {
-			// 输出定向回创建它的连接（不广播）；连接记账，断线时统一回收
-			const owned = wsTerms.get(ws) ?? new Set<string>();
-			wsTerms.set(ws, owned);
-			const { termId, shell } = terminals.create(request.cwd, request.cols, request.rows, {
-				onData: (id, data) => {
-					if (ws.readyState !== ws.OPEN) return;
-					const message: TermDataMessage = { type: "term.data", termId: id, data };
-					ws.send(JSON.stringify(message));
-				},
-				onExit: (id, exitCode) => {
-					owned.delete(id);
-					if (ws.readyState !== ws.OPEN) return;
-					const message: TermExitMessage = { type: "term.exit", termId: id, exitCode };
-					ws.send(JSON.stringify(message));
-				},
-			});
-			owned.add(termId);
-			reply(ws, request.id, { ok: true, result: { termId, shell } });
-			return;
-		}
-		case "term.input": {
-			terminals.write(request.termId, request.data);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "term.resize": {
-			terminals.resize(request.termId, request.cols, request.rows);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "term.kill": {
-			wsTerms.get(ws)?.delete(request.termId);
-			terminals.kill(request.termId);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "iab.open": {
-			// 绑定/打开页面：pageId 只绑定，url 按 URL 复用或新建，双给 = 导航既有页
-			try {
-				const page = await iab.open({
-					...(request.pageId !== undefined ? { pageId: request.pageId } : {}),
-					...(request.url !== undefined ? { url: request.url } : {}),
+			case "term.create": {
+				// 输出定向回创建它的连接（不广播）；连接记账，断线时统一回收
+				const owned = wsTerms.get(ws) ?? new Set<string>();
+				wsTerms.set(ws, owned);
+				const { termId, shell } = terminals.create(request.cwd, request.cols, request.rows, {
+					onData: (id, data) => {
+						if (ws.readyState !== ws.OPEN) return;
+						const message: TermDataMessage = { type: "term.data", termId: id, data };
+						ws.send(JSON.stringify(message));
+					},
+					onExit: (id, exitCode) => {
+						owned.delete(id);
+						if (ws.readyState !== ws.OPEN) return;
+						const message: TermExitMessage = { type: "term.exit", termId: id, exitCode };
+						ws.send(JSON.stringify(message));
+					},
 				});
-				reply(ws, request.id, { ok: true, result: { page } satisfies IabOpenResult });
-			} catch (error) {
-				reply(ws, request.id, {
-					ok: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
+				owned.add(termId);
+				reply(ws, request.id, { ok: true, result: { termId, shell } });
+				return;
 			}
-			return;
-		}
-		case "iab.nav": {
-			try {
-				await iab.nav(request.pageId, request.action);
+			case "term.input": {
+				terminals.write(request.termId, request.data);
 				reply(ws, request.id, { ok: true });
-			} catch (error) {
-				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				return;
 			}
-			return;
-		}
-		case "iab.viewport": {
-			try {
-				await iab.setViewport(request.pageId, request.width, request.height);
+			case "term.resize": {
+				terminals.resize(request.termId, request.cols, request.rows);
 				reply(ws, request.id, { ok: true });
-			} catch (error) {
-				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				return;
 			}
-			return;
-		}
-		case "iab.input": {
-			try {
-				await iab.input(request.pageId, request.input);
+			case "term.kill": {
+				wsTerms.get(ws)?.delete(request.termId);
+				terminals.kill(request.termId);
 				reply(ws, request.id, { ok: true });
-			} catch (error) {
-				reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				return;
 			}
-			return;
-		}
-		case "iab.attach": {
-			// 先记账再抓首帧：保证首帧一定送到这条连接（screencast 只推增量）
-			const owned = iabSubscriptions.get(ws) ?? new Set<string>();
-			owned.add(request.pageId);
-			iabSubscriptions.set(ws, owned);
-			await iab.captureFrame(request.pageId);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "iab.detach": {
-			iabSubscriptions.get(ws)?.delete(request.pageId);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "iab.close": {
-			await iab.closePage(request.pageId);
-			reply(ws, request.id, { ok: true });
-			return;
-		}
-		case "iab.state": {
-			reply(ws, request.id, { ok: true, result: { pages: iab.listPages() } satisfies IabStateResult });
-			return;
-		}
+			case "iab.open": {
+				// 绑定/打开页面：pageId 只绑定，url 按 URL 复用或新建，双给 = 导航既有页
+				try {
+					const page = await iab.open({
+						...(request.pageId !== undefined ? { pageId: request.pageId } : {}),
+						...(request.url !== undefined ? { url: request.url } : {}),
+					});
+					reply(ws, request.id, { ok: true, result: { page } satisfies IabOpenResult });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "iab.nav": {
+				try {
+					await iab.nav(request.pageId, request.action);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "iab.viewport": {
+				try {
+					await iab.setViewport(request.pageId, request.width, request.height);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "iab.input": {
+				try {
+					await iab.input(request.pageId, request.input);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "iab.attach": {
+				// 先记账再抓首帧：保证首帧一定送到这条连接（screencast 只推增量）
+				const owned = iabSubscriptions.get(ws) ?? new Set<string>();
+				owned.add(request.pageId);
+				iabSubscriptions.set(ws, owned);
+				await iab.captureFrame(request.pageId);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "iab.detach": {
+				iabSubscriptions.get(ws)?.delete(request.pageId);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "iab.close": {
+				await iab.closePage(request.pageId);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "iab.state": {
+				reply(ws, request.id, { ok: true, result: { pages: iab.listPages() } satisfies IabStateResult });
+				return;
+			}
+			case "iab.fileResponse": {
+				try {
+					await iab.fileResponse(request.pageId, request.paths);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -1557,6 +1612,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			if (archiveTimer) clearInterval(archiveTimer);
 			for (const { unsubscribe } of sessions.values()) unsubscribe();
 			sessions.clear();
+			// 桥关闭：别让挂起的提问把工具协程永远吊着
+			for (const entry of pendingQuestions.values()) entry.resolve({ cancelled: true, answers: [] });
+			pendingQuestions.clear();
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();
 			terminals.killAll();

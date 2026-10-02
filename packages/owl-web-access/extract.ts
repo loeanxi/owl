@@ -6,11 +6,7 @@ import { extractRSCContent } from "./rsc-extract.ts";
 import { extractPDFToMarkdown, isPDF, loadPDFConfig } from "./pdf-extract.ts";
 import { extractGitHub } from "./github-extract.ts";
 import { extractGitHubIssuePr } from "./github-issue-pr.ts";
-import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.ts";
 import { CredentialResolutionError } from "./credential-source.ts";
-import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
-import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
-import { extractWithParallelMcp } from "./parallel-mcp.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
 import { extractWithQuerit, isQueritAvailable } from "./querit.ts";
@@ -19,13 +15,10 @@ import { extractWithOllama, isOllamaFetchAvailable } from "./ollama.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { extractWithCrawl4ai, isCrawl4aiAvailable } from "./crawl4ai.ts";
 import { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } from "./brightdata-unlocker.ts";
-import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
-import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type DomainPolicy, type Lookup, type SsrfConfig } from "./ssrf-protection.ts";
-import { formatSeconds, getWebSearchConfigPath, type ProxiedRequestInit } from "./utils.ts";
+import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
+import { getWebSearchConfigPath, type ProxiedRequestInit } from "./utils.ts";
 import { isImageEnabled } from "./feature-config.ts";
-import { assertAuthFetchUrl, authFetchRedirectGuard, type AuthFetchProfile } from "./auth-fetch.ts";
-import { getBrowserCookiesForHosts, getLastBrowserCookieDiagnostic } from "./chrome-cookies.ts";
 import { sanitizeInlineDataUris } from "./data-uri-sanitize.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -68,11 +61,11 @@ function loadFetchTimeoutMs(): number {
 const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large", "PDF extraction is disabled", "Image fetching is disabled"];
 const MIN_USEFUL_CONTENT = 500;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const FETCH_PROVIDERS = ["http", "firecrawl", "crawl4ai", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"] as const;
+const FETCH_PROVIDERS = ["http", "firecrawl", "crawl4ai", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "brightdata"] as const;
 type FetchProvider = typeof FETCH_PROVIDERS[number];
 type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: boolean };
-const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "crawl4ai", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"];
-const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"]);
+const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "crawl4ai", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "brightdata"];
+const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "brightdata"]);
 
 function isDefuddleConsoleError(args: Parameters<typeof console.error>): boolean {
 	const prefix = args[0];
@@ -139,8 +132,7 @@ function isAbortException(err: unknown): boolean {
 }
 
 function isRedirectPolicyError(message: string): boolean {
-	return message.startsWith("Authenticated fetch refused cross-origin redirect") ||
-		message.startsWith("Blocked internal ") ||
+	return message.startsWith("Blocked internal ") ||
 		message.startsWith("Blocked hostname by fetch_content domain policy") ||
 		message.startsWith("Hostname not allowed by fetch_content domain policy") ||
 		message.startsWith("Too many redirects fetching ") ||
@@ -155,58 +147,6 @@ function imageGateError(): string | null {
 	} catch (err) {
 		return errorMessage(err);
 	}
-}
-
-async function resolveAuthCookieHeader(url: string | URL, profile: AuthFetchProfile): Promise<string> {
-	const parsed = assertAuthFetchUrl(profile, url.toString());
-	const result = await getBrowserCookiesForHosts({ hosts: [parsed.hostname], profile: profile.chromeProfile, requestUrl: parsed });
-	if (result?.cookieHeader) return result.cookieHeader;
-	if (!result) {
-		const diagnostic = getLastBrowserCookieDiagnostic();
-		throw new Error(`Authenticated fetch profile ${profile.name} could not read browser cookies${diagnostic ? `: ${diagnostic}` : ""}`);
-	}
-	throw new Error(`Authenticated fetch profile ${profile.name} could not build a cookie header`);
-}
-
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
-async function fetchAuthenticatedRemoteUrl(
-	url: string,
-	init: RequestInit,
-	validationOptions: { ssrf: SsrfConfig; domainPolicy: DomainPolicy; lookup?: Lookup; proxy?: string },
-	profile: AuthFetchProfile,
-): Promise<Response> {
-	let current = await validateRemoteUrl(url, {
-		allowRanges: validationOptions.ssrf.allowRanges,
-		trustEnvProxy: validationOptions.ssrf.trustEnvProxy,
-		domainPolicy: validationOptions.domainPolicy,
-		proxy: validationOptions.proxy,
-		...(validationOptions.lookup ? { lookup: validationOptions.lookup } : {}),
-	});
-	let requestInit = init;
-	for (let redirects = 0; redirects <= 5; redirects++) {
-		const cookieHeader = await resolveAuthCookieHeader(current, profile);
-		const headers = { ...(requestInit.headers as Record<string, string>), cookie: cookieHeader };
-		const response = await fetch(current, { ...requestInit, headers, redirect: "manual" });
-		if (!REDIRECT_STATUSES.has(response.status)) return response;
-		const location = response.headers.get("location");
-		if (!location) return response;
-		if (redirects === 5) throw new Error(`Too many redirects fetching ${current.toString()}`);
-		const from = current;
-		current = await validateRemoteUrl(new URL(location, current), {
-			allowRanges: validationOptions.ssrf.allowRanges,
-			trustEnvProxy: validationOptions.ssrf.trustEnvProxy,
-			domainPolicy: validationOptions.domainPolicy,
-			proxy: validationOptions.proxy,
-			...(validationOptions.lookup ? { lookup: validationOptions.lookup } : {}),
-		});
-		authFetchRedirectGuard(profile, from, current);
-		if (response.status === 303 || ((response.status === 301 || response.status === 302) && requestInit.method?.toUpperCase() === "POST")) {
-			const { body: _body, ...nextInit } = requestInit;
-			requestInit = { ...nextInit, method: "GET" };
-		}
-	}
-	throw new Error(`Too many redirects fetching ${current.toString()}`);
 }
 
 function loadFetchRouting(): FetchRouting {
@@ -324,23 +264,12 @@ function getTurndown(): Promise<TurndownService> {
 
 const fetchLimit = pLimit(CONCURRENT_LIMIT);
 
-export interface VideoFrame {
-	data: string;
-	mimeType: string;
-	timestamp: string;
-}
-
-export type FrameData = { data: string; mimeType: string };
-export type FrameResult = FrameData | { error: string };
-
 export interface ExtractedContent {
 	url: string;
 	title: string;
 	content: string;
 	error: string | null;
 	thumbnail?: { data: string; mimeType: string };
-	frames?: VideoFrame[];
-	duration?: number;
 	mimeType?: string;
 	status?: number;
 }
@@ -351,12 +280,9 @@ export interface ExtractOptions {
 	timeoutMs?: number;
 	forceClone?: boolean;
 	prompt?: string;
-	timestamp?: string;
-	frames?: number;
 	model?: string;
 	mode?: "readable" | "raw" | "answer";
 	answerModel?: string;
-	authFetchProfile?: AuthFetchProfile;
 	toolNames?: RegisteredToolNames;
 	/** Optional HTTP(S) or SOCKS proxy URL; routed through the curl-backed transport. */
 	proxy?: string;
@@ -436,91 +362,6 @@ async function extractWithJinaReader(
 	}
 }
 
-function parseTimestamp(ts: string): number | null {
-	const num = Number(ts);
-	if (!isNaN(num) && num >= 0) return Math.floor(num);
-	const parts = ts.split(":").map(Number);
-	if (parts.some(p => isNaN(p) || p < 0)) return null;
-	if (parts.length === 3) return Math.floor(parts[0] * 3600 + parts[1] * 60 + parts[2]);
-	if (parts.length === 2) return Math.floor(parts[0] * 60 + parts[1]);
-	return null;
-}
-
-type TimestampSpec = { type: "single"; seconds: number } | { type: "range"; start: number; end: number };
-
-function parseTimestampSpec(ts: string): TimestampSpec | null {
-	const dashIdx = ts.indexOf("-", 1);
-	if (dashIdx > 0) {
-		const start = parseTimestamp(ts.slice(0, dashIdx));
-		const end = parseTimestamp(ts.slice(dashIdx + 1));
-		if (start !== null && end !== null && end > start) return { type: "range", start, end };
-	}
-	const seconds = parseTimestamp(ts);
-	return seconds !== null ? { type: "single", seconds } : null;
-}
-
-const DEFAULT_RANGE_FRAMES = 6;
-const MIN_FRAME_INTERVAL = 5;
-
-function computeRangeTimestamps(start: number, end: number, maxFrames: number = DEFAULT_RANGE_FRAMES): number[] {
-	if (maxFrames <= 1) return [start];
-	const duration = end - start;
-	const idealInterval = duration / (maxFrames - 1);
-	if (idealInterval < MIN_FRAME_INTERVAL) {
-		const timestamps: number[] = [];
-		for (let t = start; t <= end && timestamps.length < maxFrames; t += MIN_FRAME_INTERVAL) {
-			timestamps.push(t);
-		}
-		return timestamps;
-	}
-	return Array.from({ length: maxFrames }, (_, i) => Math.round(start + i * idealInterval));
-}
-
-function buildFrameResult(
-	url: string, label: string, requestedCount: number,
-	frames: VideoFrame[], error: string | null, duration?: number,
-): ExtractedContent {
-	if (frames.length === 0) {
-		const msg = error ?? "Frame extraction failed";
-		return { url, title: `Frames ${label} (0/${requestedCount})`, content: msg, error: msg };
-	}
-	return {
-		url,
-		title: `Frames ${label} (${frames.length}/${requestedCount})`,
-		content: `${frames.length} frames extracted from ${label}`,
-		error: null,
-		frames,
-		...(duration !== undefined ? { duration } : {}),
-	};
-}
-
-async function extractLocalFrames(
-	filePath: string, timestamps: number[],
-): Promise<{ frames: VideoFrame[]; error: string | null }> {
-	const results = await Promise.all(timestamps.map(async (t) => {
-		const frame = await extractVideoFrame(filePath, t);
-		if ("error" in frame) return { error: frame.error };
-		return { ...frame, timestamp: formatSeconds(t) };
-	}));
-	const frames = results.filter((f): f is VideoFrame => "data" in f);
-	const firstError = results.find((f): f is { error: string } => "error" in f);
-	return { frames, error: frames.length === 0 && firstError ? firstError.error : null };
-}
-
-type LocalVideoInfoResult =
-	| { status: "video"; info: NonNullable<ReturnType<typeof isVideoFile>> }
-	| { status: "not-video" }
-	| { status: "invalid"; error: string };
-
-function safeVideoInfo(url: string): LocalVideoInfoResult {
-	try {
-		const info = isVideoFile(url);
-		return info ? { status: "video", info } : { status: "not-video" };
-	} catch (err) {
-		return { status: "invalid", error: errorMessage(err) };
-	}
-}
-
 export async function extractContent(
 	url: string,
 	signal?: AbortSignal,
@@ -552,164 +393,10 @@ export async function extractContent(
 		}
 	}
 
-	if (options?.authFetchProfile || options?.mode === "raw") {
+	if (options?.mode === "raw") {
 		try {
 			return await extractViaHttp(url, resolveFetchTimeoutMs(options), signal, options);
 		} catch (err) {
-			return { url, title: "", content: "", error: errorMessage(err) };
-		}
-	}
-
-	if (options?.frames || options?.timestamp) {
-		const disabled = imageGateError();
-		if (disabled) return { url, title: "", content: "", error: disabled };
-	}
-
-	if (options?.frames && !options.timestamp) {
-		const frameCount = options.frames;
-		const ytInfo = isYouTubeURL(url);
-		if (ytInfo.isYouTube && ytInfo.videoId) {
-			const streamInfo = await getYouTubeStreamInfo(ytInfo.videoId);
-			if ("error" in streamInfo) {
-				return { url, title: "Frames", content: streamInfo.error, error: streamInfo.error };
-			}
-			if (streamInfo.duration === null) {
-				const error = "Cannot determine video duration. Use a timestamp range instead.";
-				return { url, title: "Frames", content: error, error };
-			}
-			const dur = Math.floor(streamInfo.duration);
-			const timestamps = computeRangeTimestamps(0, dur, frameCount);
-			const result = await extractYouTubeFrames(ytInfo.videoId, timestamps, streamInfo);
-			const label = `${formatSeconds(0)}-${formatSeconds(dur)}`;
-			return buildFrameResult(url, label, timestamps.length, result.frames, result.error, streamInfo.duration);
-		}
-
-		const localVideo = safeVideoInfo(url);
-		if (localVideo.status === "invalid") {
-			return { url, title: "", content: "", error: localVideo.error };
-		}
-		if (localVideo.status === "video") {
-			const durationResult = await getLocalVideoDuration(localVideo.info.absolutePath);
-			if (typeof durationResult !== "number") {
-				return { url, title: "Frames", content: durationResult.error, error: durationResult.error };
-			}
-			const dur = Math.floor(durationResult);
-			const timestamps = computeRangeTimestamps(0, dur, frameCount);
-			const result = await extractLocalFrames(localVideo.info.absolutePath, timestamps);
-			const label = `${formatSeconds(0)}-${formatSeconds(dur)}`;
-			return buildFrameResult(url, label, timestamps.length, result.frames, result.error, durationResult);
-		}
-
-		return { url, title: "", content: "", error: "Frame extraction only works with YouTube and local video files" };
-	}
-
-	if (options?.timestamp) {
-		const spec = parseTimestampSpec(options.timestamp);
-		if (!spec) {
-			return {
-				url,
-				title: "",
-				content: "",
-				error: `Invalid timestamp format: "${options.timestamp}". Use "H:MM:SS", "MM:SS", "85", or "start-end".`,
-			};
-		}
-
-		const frameCount = options.frames;
-		const ytInfo = isYouTubeURL(url);
-		if (ytInfo.isYouTube && ytInfo.videoId) {
-			const streamInfo = await getYouTubeStreamInfo(ytInfo.videoId);
-			if ("error" in streamInfo) {
-				if (spec.type === "range") {
-					const label = `${formatSeconds(spec.start)}-${formatSeconds(spec.end)}`;
-					return { url, title: `Frames ${label}`, content: streamInfo.error, error: streamInfo.error };
-				}
-				if (frameCount) {
-					const end = spec.seconds + (frameCount - 1) * MIN_FRAME_INTERVAL;
-					const label = `${formatSeconds(spec.seconds)}-${formatSeconds(end)}`;
-					return { url, title: `Frames ${label}`, content: streamInfo.error, error: streamInfo.error };
-				}
-				return { url, title: `Frame at ${options.timestamp}`, content: streamInfo.error, error: streamInfo.error };
-			}
-
-			if (spec.type === "range") {
-				const label = `${formatSeconds(spec.start)}-${formatSeconds(spec.end)}`;
-				if (streamInfo.duration !== null && spec.end > streamInfo.duration) {
-					const error = `Timestamp ${formatSeconds(spec.end)} exceeds video duration (${formatSeconds(Math.floor(streamInfo.duration))})`;
-					return { url, title: `Frames ${label}`, content: error, error };
-				}
-				const timestamps = frameCount
-					? computeRangeTimestamps(spec.start, spec.end, frameCount)
-					: computeRangeTimestamps(spec.start, spec.end);
-				const result = await extractYouTubeFrames(ytInfo.videoId, timestamps, streamInfo);
-				return buildFrameResult(url, label, timestamps.length, result.frames, result.error, result.duration ?? undefined);
-			}
-
-			if (frameCount) {
-				const end = spec.seconds + (frameCount - 1) * MIN_FRAME_INTERVAL;
-				const label = `${formatSeconds(spec.seconds)}-${formatSeconds(end)}`;
-				if (streamInfo.duration !== null && end > streamInfo.duration) {
-					const error = `Timestamp ${formatSeconds(end)} exceeds video duration (${formatSeconds(Math.floor(streamInfo.duration))})`;
-					return { url, title: `Frames ${label}`, content: error, error };
-				}
-				const timestamps = computeRangeTimestamps(spec.seconds, end, frameCount);
-				const result = await extractYouTubeFrames(ytInfo.videoId, timestamps, streamInfo);
-				return buildFrameResult(url, label, timestamps.length, result.frames, result.error, result.duration ?? undefined);
-			}
-
-			if (streamInfo.duration !== null && spec.seconds > streamInfo.duration) {
-				const error = `Timestamp ${formatSeconds(spec.seconds)} exceeds video duration (${formatSeconds(Math.floor(streamInfo.duration))})`;
-				return { url, title: `Frame at ${options.timestamp}`, content: error, error };
-			}
-			const frame = await extractYouTubeFrame(ytInfo.videoId, spec.seconds, streamInfo);
-			if ("error" in frame) {
-				return { url, title: `Frame at ${options.timestamp}`, content: frame.error, error: frame.error };
-			}
-			return { url, title: `Frame at ${options.timestamp}`, content: `Video frame at ${options.timestamp}`, error: null, thumbnail: frame };
-		}
-
-		const localVideo = safeVideoInfo(url);
-		if (localVideo.status === "invalid") {
-			return { url, title: "", content: "", error: localVideo.error };
-		}
-		if (localVideo.status === "video") {
-			if (spec.type === "range") {
-				const timestamps = frameCount
-					? computeRangeTimestamps(spec.start, spec.end, frameCount)
-					: computeRangeTimestamps(spec.start, spec.end);
-				const result = await extractLocalFrames(localVideo.info.absolutePath, timestamps);
-				const label = `${formatSeconds(spec.start)}-${formatSeconds(spec.end)}`;
-				return buildFrameResult(url, label, timestamps.length, result.frames, result.error);
-			}
-
-			if (frameCount) {
-				const end = spec.seconds + (frameCount - 1) * MIN_FRAME_INTERVAL;
-				const timestamps = computeRangeTimestamps(spec.seconds, end, frameCount);
-				const result = await extractLocalFrames(localVideo.info.absolutePath, timestamps);
-				const label = `${formatSeconds(spec.seconds)}-${formatSeconds(end)}`;
-				return buildFrameResult(url, label, timestamps.length, result.frames, result.error);
-			}
-
-			const frame = await extractVideoFrame(localVideo.info.absolutePath, spec.seconds);
-			if ("error" in frame) {
-				return { url, title: `Frame at ${options.timestamp}`, content: frame.error, error: frame.error };
-			}
-			return { url, title: `Frame at ${options.timestamp}`, content: `Video frame at ${options.timestamp}`, error: null, thumbnail: frame };
-		}
-
-		return { url, title: "", content: "", error: "Timestamp extraction only works with YouTube and local video files" };
-	}
-
-	const localVideo = safeVideoInfo(url);
-	if (localVideo.status === "invalid") {
-		return { url, title: "", content: "", error: localVideo.error };
-	}
-	if (localVideo.status === "video") {
-		try {
-			const result = await extractVideo(localVideo.info, signal, options);
-			if (signal?.aborted) return abortedResult(url);
-			return result ?? { url, title: "", content: "", error: `Video analysis requires Gemini access. Either:\n  1. Sign into gemini.google.com in Chrome (free, uses cookies)\n  2. Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}` };
-		} catch (err) {
-			if (isAbortError(err)) return abortedResult(url);
 			return { url, title: "", content: "", error: errorMessage(err) };
 		}
 	}
@@ -742,31 +429,6 @@ export async function extractContent(
 		if (isConfigParseError(err)) {
 			return { url, title: "", content: "", error: message };
 		}
-	}
-
-	const ytInfo = isYouTubeURL(url);
-	let youtubeEnabled = false;
-	try {
-		youtubeEnabled = isYouTubeEnabled();
-	} catch (err) {
-		return { url, title: "", content: "", error: errorMessage(err) };
-	}
-	if (ytInfo.isYouTube && youtubeEnabled) {
-		try {
-			const ytResult = await extractYouTube(url, signal, options?.prompt, options?.model);
-			if (ytResult) return ytResult;
-			if (signal?.aborted) return abortedResult(url);
-		} catch (err) {
-			const message = errorMessage(err);
-			if (isAbortError(err)) return abortedResult(url);
-			return { url, title: "", content: "", error: message };
-		}
-		return {
-			url,
-			title: "",
-			content: "",
-			error: "Could not extract YouTube video content. Sign into Google in a supported Chromium browser for automatic access, or set GEMINI_API_KEY.",
-		};
 	}
 
 	if (signal?.aborted) return abortedResult(url);
@@ -824,8 +486,6 @@ export async function extractContent(
 	let queritError: string | null = null;
 	let kagiError: string | null = null;
 	let ollamaError: string | null = null;
-	let parallelError: string | null = null;
-	let parallelMcpError: string | null = null;
 	let brightdataError: string | null = null;
 
 	if (remoteUrl && providerOrder[0] !== "http") {
@@ -966,65 +626,25 @@ export async function extractContent(
 			continue;
 		}
 
-		if (provider === "parallel") {
-			try {
-				if (isParallelAvailable()) {
-					const parallelResult = await extractWithParallel(url, signal, options);
-					if (parallelResult) return withDeclaredLinks(parallelResult);
+			if (provider === "brightdata") {
+				try {
+					if (isBrightDataUnlockerAvailable()) {
+						const ssrf = loadSsrfConfig();
+						const brightdataResult = await extractWithBrightDataUnlocker(url, signal, {
+							timeoutMs: options?.timeoutMs,
+							...(options?.lookup ? { lookup: options.lookup } : {}),
+							ssrf,
+						});
+						if (brightdataResult) return withDeclaredLinks(brightdataResult);
+					}
+				} catch (err) {
+					if (isAbortError(err)) return abortedResult(url);
+					brightdataError = errorMessage(err);
+					if (isConfigParseError(err)) return parseErrorResult(brightdataError);
 				}
-			} catch (err) {
-				if (isAbortError(err)) return abortedResult(url);
-				parallelError = errorMessage(err);
-				if (isConfigParseError(err)) return parseErrorResult(parallelError);
+				continue;
 			}
-			continue;
 		}
-
-		if (provider === "parallel-mcp") {
-			try {
-				const parallelMcpResult = await extractWithParallelMcp(url, signal, options);
-				if (parallelMcpResult) return withDeclaredLinks(parallelMcpResult);
-			} catch (err) {
-				if (isAbortError(err)) return abortedResult(url);
-				parallelMcpError = errorMessage(err);
-				if (isConfigParseError(err)) return parseErrorResult(parallelMcpError);
-			}
-			continue;
-		}
-
-		if (provider === "brightdata") {
-			try {
-				if (isBrightDataUnlockerAvailable()) {
-					const ssrf = loadSsrfConfig();
-					const brightdataResult = await extractWithBrightDataUnlocker(url, signal, {
-						timeoutMs: options?.timeoutMs,
-						...(options?.lookup ? { lookup: options.lookup } : {}),
-						ssrf,
-					});
-					if (brightdataResult) return withDeclaredLinks(brightdataResult);
-				}
-			} catch (err) {
-				if (isAbortError(err)) return abortedResult(url);
-				brightdataError = errorMessage(err);
-				if (isConfigParseError(err)) return parseErrorResult(brightdataError);
-			}
-			continue;
-		}
-
-		if (provider === "gemini") {
-			let geminiResult: ExtractedContent | null = null;
-			try {
-				geminiResult = await extractWithUrlContext(url, signal)
-					?? await extractWithGeminiWeb(url, signal);
-			} catch (err) {
-				if (isAbortError(err)) return abortedResult(url);
-				if (err instanceof CredentialResolutionError || isConfigParseError(err)) {
-					return parseErrorResult(errorMessage(err));
-				}
-			}
-			if (geminiResult) return withDeclaredLinks(geminiResult);
-		}
-	}
 
 	if (signal?.aborted) return abortedResult(url);
 	const finalHttpResult = httpResult as ExtractedContent | null;
@@ -1048,8 +668,6 @@ export async function extractContent(
 		...(queritError ? [`Querit fallback failed: ${queritError}`] : []),
 		...(kagiError ? [`Kagi fallback failed: ${kagiError}`] : []),
 		...(ollamaError ? [`Ollama fallback failed: ${ollamaError}`] : []),
-		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
-		...(parallelMcpError ? [`Parallel MCP fallback failed: ${parallelMcpError}`] : []),
 		...(brightdataError ? [`Bright Data fallback failed: ${brightdataError}`] : []),
 		"",
 		"Fallback options:",
@@ -1061,10 +679,7 @@ export async function extractContent(
 		`  • Set queritApiKey in ${WEB_SEARCH_CONFIG_PATH} or QUERIT_API_KEY`,
 		`  • Set kagiApiKey in ${WEB_SEARCH_CONFIG_PATH} or KAGI_API_KEY`,
 		`  • Set ollamaApiKey in ${WEB_SEARCH_CONFIG_PATH} or OLLAMA_API_KEY`,
-		`  • Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
 		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
-		`  • Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
-		"  • Sign into gemini.google.com in Chrome",
 		...(searchToolName ? [`  • Use ${searchToolName} to find content about this topic`] : []),
 	].join("\n");
 	return { ...(finalHttpResult ?? { url, title: "", content: "", error: null }), error: guidance };
@@ -1193,7 +808,6 @@ async function extractViaHttp(
 	try {
 		const ssrf = loadSsrfConfig();
 		const domainPolicy = loadFetchContentDomainPolicy();
-		const authProfile = options?.authFetchProfile;
 		const requestInit: ProxiedRequestInit = {
 			signal: controller.signal,
 			__proxy: options?.proxy,
@@ -1209,19 +823,17 @@ async function extractViaHttp(
 				"Upgrade-Insecure-Requests": "1",
 			},
 		};
-		const response = authProfile
-			? await fetchAuthenticatedRemoteUrl(url, requestInit, { ssrf, domainPolicy, proxy: options?.proxy, ...(options?.lookup ? { lookup: options.lookup } : {}) }, authProfile)
-			: await fetchRemoteUrl(
-				url,
-				requestInit,
-				{
-					allowRanges: ssrf.allowRanges,
-					trustEnvProxy: ssrf.trustEnvProxy,
-					domainPolicy,
-					proxy: options?.proxy,
-					...(options?.lookup ? { lookup: options.lookup } : {}),
-				},
-			);
+		const response = await fetchRemoteUrl(
+			url,
+			requestInit,
+			{
+				allowRanges: ssrf.allowRanges,
+				trustEnvProxy: ssrf.trustEnvProxy,
+				domainPolicy,
+				proxy: options?.proxy,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+			},
+		);
 
 		if (!response.ok && options?.mode !== "raw") {
 			activityMonitor.logComplete(activityId, response.status);
@@ -1277,7 +889,7 @@ async function extractViaHttp(
 			}
 			try {
 				const buffer = await readResponseBufferWithLimit(response, maxResponseSize, () => responseSizeLimitError(maxResponseSize));
-				const { resizeImage } = await import("@earendil-works/pi-coding-agent");
+				const { resizeImage } = await import("@owl/owl-coding-agent");
 				const resized = await resizeImage(new Uint8Array(buffer), mimeType, { maxWidth: 2000, maxHeight: 2000 });
 				activityMonitor.logComplete(activityId, response.status);
 				if (!resized) return { url, title: "", content: "", error: `Could not decode image: ${mimeType}`, mimeType, status: response.status };

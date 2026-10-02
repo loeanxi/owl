@@ -16,3 +16,21 @@ export function unbindIabPage(pageId: string): void {
 export function isIabPageBound(pageId: string): boolean {
 	return boundPages.has(pageId);
 }
+
+/**
+ * tab.path 的 IAB 编码：`iab:<pageId>|<url>`。
+ * pageId 优先绑定（agent 换页/同 URL 多页都不会绑错），桥重启后 pageId 失效，
+ * 回落按 URL 绑定；纯 URL 的旧路径天然兼容。
+ */
+export function encodeIabPath(pageId: string, url: string): string {
+	return `iab:${pageId}|${url}`;
+}
+
+export function parseIabPath(path: string | undefined): { pageId?: string; url?: string } {
+	if (!path) return {};
+	if (path.startsWith("iab:")) {
+		const [pageId = "", ...rest] = path.slice(4).split("|");
+		return { ...(pageId ? { pageId } : {}), ...(rest.length > 0 && rest[0] ? { url: rest.join("|") } : {}) };
+	}
+	return { url: path };
+}

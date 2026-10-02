@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BridgeClient } from "./bridge/client.ts";
-import type { ApprovalMode, PermissionRequest, ProviderModelsMessage, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
+import type { ApprovalMode, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream } from "./components/ChatStream.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
+import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
@@ -14,7 +15,7 @@ import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { BottomDockBar } from "./sidebar/BottomDockBar.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
-import { isIabPageBound } from "./sidebar/iab-bound.ts";
+import { isIabPageBound, encodeIabPath } from "./sidebar/iab-bound.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -69,6 +70,8 @@ export default function App(): React.JSX.Element {
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
+	/** agent 提问队列：ask_user_question 的 question_request 按到达顺序排队弹出 */
+	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
 	const [modelValue, setModelValue] = useState(() => localStorage.getItem(MODEL_KEY) ?? "");
 	const [thinkingLevel, setThinkingLevel] = useState(() => localStorage.getItem(THINKING_KEY) ?? "medium");
@@ -182,10 +185,19 @@ export default function App(): React.JSX.Element {
 				});
 			}
 		});
+		const offQuestion = client.onQuestionRequest((request) => {
+			setQuestions((current) => [...current, request]);
+			void notifyAgentStatus({
+				title: "Owl 向你提问",
+				body: request.questions[0]?.question ?? "Agent 需要你作答后才能继续",
+				critical: true,
+			});
+		});
 		return () => {
 			offStatus();
 			offEvents();
 			offPermission();
+			offQuestion();
 		};
 	}, [client]);
 
@@ -221,7 +233,7 @@ export default function App(): React.JSX.Element {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
 				const target = message.pages.find((page) => page.active) ?? message.pages[0];
 				if (!target || isIabPageBound(target.pageId)) return;
-				workbenchStore.openNew("browser", target.title || "浏览器", target.url || undefined);
+				workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
 				if (!openRef.current) setWorkbenchOpenPersisted(true);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -567,6 +579,16 @@ export default function App(): React.JSX.Element {
 					onDecide={(approved) => {
 						client.respondPermission(permission.requestId, approved);
 						setPermission(undefined);
+					}}
+				/>
+			)}
+			{questions[0] && (
+				<QuestionDialog
+					key={questions[0].requestId}
+					request={questions[0]}
+					onAnswer={(answers, cancelled) => {
+						client.respondQuestion(questions[0].requestId, answers, cancelled);
+						setQuestions((current) => current.slice(1));
 					}}
 				/>
 			)}

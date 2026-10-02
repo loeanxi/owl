@@ -86,7 +86,17 @@ function getAliases(): Record<string, string> {
 
 	const piCodingAgentEntry = packageIndex;
 	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@earendil-works/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	// owl: the TUI package was cut from the workspace, so upstream resolution
+	// throws. Extensions still import it at module scope; alias to the inert
+	// stub next to this loader instead of failing every extension load.
+	let piTuiEntry: string;
+	try {
+		piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	} catch {
+		piTuiEntry = ["./pi-tui-stub.js", "./pi-tui-stub.ts"]
+			.map((relative) => path.resolve(__dirname, relative))
+			.find((candidate) => fs.existsSync(candidate)) ?? path.resolve(__dirname, "./pi-tui-stub.js");
+	}
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.

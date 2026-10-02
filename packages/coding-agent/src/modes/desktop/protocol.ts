@@ -653,6 +653,39 @@ export interface PermissionResponseRequest {
 	approved: boolean;
 }
 
+/** 提问选项：label 是答案的唯一标识（回传按 label 对账），preview 为可选 markdown 对比材料。 */
+export interface QuestionOptionPayload {
+	label: string;
+	description?: string;
+	preview?: string;
+}
+
+/** 单个问题：多选时 selectedLabels 可含多个；customText 是"其他"自由文本答案。 */
+export interface QuestionPayload {
+	question: string;
+	/** 侧栏/卡片短标题（≤16 字符）。 */
+	header: string;
+	multiSelect: boolean;
+	options: QuestionOptionPayload[];
+}
+
+/** 一题的答案：selectedLabels 命中 option.label；customText 表示选了"其他"并自填；note 为附加备注。 */
+export interface QuestionAnswerPayload {
+	index: number;
+	selectedLabels?: string[];
+	customText?: string;
+	note?: string;
+}
+
+/** UI 应答提问：cancelled=true 表示用户放弃整套问卷，answers 为空。 */
+export interface QuestionResponseRequest {
+	type: "question.response";
+	id: string;
+	requestId: string;
+	cancelled?: boolean;
+	answers: QuestionAnswerPayload[];
+}
+
 export interface ProviderModelsMessage {
 	id: string;
 	name?: string;
@@ -720,7 +753,8 @@ export type DesktopClientRequest =
 	| IabDetachRequest
 	| IabCloseRequest
 	| IabFileResponseRequest
-	| IabStateRequest;
+	| IabStateRequest
+	| QuestionResponseRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
 export interface AuthProvidersRequest {
@@ -791,6 +825,15 @@ export type PermissionRequestMessage = {
 	input: unknown;
 };
 
+/** 服务端广播：agent 的 ask_user_question 工具在等用户作答（question.response 应答）。 */
+export type QuestionRequestMessage = {
+	type: "question_request";
+	requestId: string;
+	sessionId: string;
+	toolCallId: string;
+	questions: QuestionPayload[];
+};
+
 export type ServerResponseMessage = {
 	type: "response";
 	id: string;
@@ -803,6 +846,7 @@ export type DesktopServerMessage =
 	| ServerEventMessage
 	| ServerResponseMessage
 	| PermissionRequestMessage
+	| QuestionRequestMessage
 	| TermDataMessage
 	| TermExitMessage
 	| IabServerMessage;

@@ -3,14 +3,18 @@ import type {
 	DesktopServerMessage,
 	IabServerMessage,
 	PermissionRequestMessage,
+	QuestionAnswerPayload,
+	QuestionRequestMessage,
 	ServerEventMessage,
 	TermDataMessage,
 	TermExitMessage,
 } from "./protocol.ts";
 
 export type PermissionRequest = PermissionRequestMessage;
+export type QuestionRequest = QuestionRequestMessage;
 export type SessionEventHandler = (event: ServerEventMessage) => void;
 export type PermissionHandler = (request: PermissionRequest) => void;
+export type QuestionHandler = (request: QuestionRequest) => void;
 export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
@@ -27,6 +31,7 @@ export class BridgeClient {
 	private pending = new Map<string, Pending>();
 	private sessionHandlers = new Set<SessionEventHandler>();
 	private permissionHandlers = new Set<PermissionHandler>();
+	private questionHandlers = new Set<QuestionHandler>();
 	private termHandlers = new Set<TermMessageHandler>();
 	private iabHandlers = new Set<IabMessageHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
@@ -65,11 +70,15 @@ export class BridgeClient {
 				for (const handler of this.permissionHandlers) handler(message);
 				return;
 			}
+			if (message.type === "question_request") {
+				for (const handler of this.questionHandlers) handler(message);
+				return;
+			}
 			if (message.type === "term.data" || message.type === "term.exit") {
 				for (const handler of this.termHandlers) handler(message);
 				return;
 			}
-			if (message.type === "iab.frame" || message.type === "iab.pages") {
+			if (message.type === "iab.frame" || message.type === "iab.pages" || message.type === "iab.filechooser") {
 				for (const handler of this.iabHandlers) handler(message);
 			}
 		};
@@ -94,6 +103,11 @@ export class BridgeClient {
 	onPermissionRequest(handler: PermissionHandler): () => void {
 		this.permissionHandlers.add(handler);
 		return () => this.permissionHandlers.delete(handler);
+	}
+
+	onQuestionRequest(handler: QuestionHandler): () => void {
+		this.questionHandlers.add(handler);
+		return () => this.questionHandlers.delete(handler);
 	}
 
 	/** 终端输出/退出（每个 TerminalTab 按 termId 过滤自己的流）。 */
@@ -131,5 +145,10 @@ export class BridgeClient {
 
 	respondPermission(requestId: string, approved: boolean): void {
 		void this.request({ type: "permission.response", requestId, approved });
+	}
+
+	/** 应答 agent 的提问；cancelled=true 表示用户放弃整份问卷。 */
+	respondQuestion(requestId: string, answers: QuestionAnswerPayload[], cancelled = false): void {
+		void this.request({ type: "question.response", requestId, answers, ...(cancelled ? { cancelled: true } : {}) });
 	}
 }
