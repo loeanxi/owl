@@ -167,7 +167,6 @@ function Section({
 	menu,
 	showMenu,
 	children,
-	headerRef,
 }: {
 	id: string;
 	label: string;
@@ -179,12 +178,10 @@ function Section({
 	menu?: React.ReactNode;
 	showMenu?: boolean;
 	children: React.ReactNode;
-	headerRef?: React.Ref<HTMLDivElement>;
 }): React.JSX.Element {
 	return (
 		<div id={id} data-section={id} className="mt-3 first:mt-0">
 			<div
-				ref={headerRef}
 				className="group/header relative flex items-center rounded-md px-3 py-1 transition-colors hover:bg-owl-hover/40"
 			>
 				<button
@@ -289,7 +286,7 @@ export function SessionSidebar({
 	refreshKey: string;
 	/** 递增时重拉会话列表（设置页恢复/删除归档会话后由 App 递增）。 */
 	revision: number;
-	/** rail 点击项目/最近时定位到对应分组。 */
+	/** rail 当前视图；变化时把会话列表滚回顶部。 */
 	focus: RailView;
 	onNewChat: () => void;
 	onSelectProject: (path: string) => void;
@@ -325,8 +322,6 @@ export function SessionSidebar({
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const projectHeaderRef = useRef<HTMLDivElement>(null);
-	const recentHeaderRef = useRef<HTMLDivElement>(null);
 
 	// 菜单打开时：点击菜单外或按 Esc 关闭
 	useEffect(() => {
@@ -419,23 +414,9 @@ export function SessionSidebar({
 
 	const isOpen = (id: string): boolean => query.trim() !== "" || !collapsed.has(id);
 
-	// rail 定位：展开目标分组并滚动到可视区。
+	// rail 回到聊天视图：把会话列表滚回顶部。
 	useEffect(() => {
-		if (focus === "chat") {
-			scrollRef.current?.scrollTo({ top: 0 });
-			return;
-		}
-		setCollapsed((current) => {
-			if (!current.has(focus)) return current;
-			const next = new Set(current);
-			next.delete(focus);
-			localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
-			return next;
-		});
-		requestAnimationFrame(() => {
-			const target = focus === "projects" ? projectHeaderRef.current : recentHeaderRef.current;
-			target?.scrollIntoView({ behavior: "smooth", block: "start" });
-		});
+		if (focus === "chat") scrollRef.current?.scrollTo({ top: 0 });
 	}, [focus]);
 
 	const togglePin = (id: string): void => {
@@ -1001,7 +982,6 @@ export function SessionSidebar({
 					label="项目"
 					open={isOpen("projects")}
 					onToggle={() => toggleSection("projects")}
-					headerRef={projectHeaderRef}
 					showMenu={openMenu === "projects"}
 					actions={
 						<>
@@ -1040,7 +1020,6 @@ export function SessionSidebar({
 					label="最近"
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
-					headerRef={recentHeaderRef}
 					showMenu={openMenu === "recent"}
 					actions={
 						<>
