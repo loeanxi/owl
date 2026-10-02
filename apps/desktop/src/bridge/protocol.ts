@@ -5,6 +5,8 @@ export type {
 	DesktopClientRequest,
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
+	AuthLoginRequest,
+	AuthProvidersRequest,
 	ModelInfoMessage,
 	ModelsPutModelRequest,
 	ModelsPutProviderRequest,

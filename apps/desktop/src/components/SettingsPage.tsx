@@ -43,6 +43,12 @@ export function SettingsPage({
 	const [mMax, setMMax] = useState("");
 	const [mReasoning, setMReasoning] = useState(false);
 
+	// 快捷接入（像 /login：选厂商 → 登录或贴 Key）
+	const [catalog, setCatalog] = useState<{ id: string; name: string; oauth: boolean; apiKey: boolean }[]>([]);
+	const [quickProvider, setQuickProvider] = useState("");
+	const [quickKey, setQuickKey] = useState("");
+	const [quickHint, setQuickHint] = useState("");
+
 	function apply(response: { ok: boolean; result?: unknown; error?: string }): boolean {
 		if (response.ok && Array.isArray(response.result)) {
 			setGroups(response.result as ProviderModelsMessage[]);
@@ -55,15 +61,17 @@ export function SettingsPage({
 
 	useEffect(() => {
 		void (async () => {
-			const [settings, models] = await Promise.all([
+			const [settings, models, providers] = await Promise.all([
 				client.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" }),
 				client.request<ProviderModelsMessage[]>({ type: "models.list" }),
+				client.request<{ id: string; name: string; oauth: boolean; apiKey: boolean }[]>({ type: "auth.providers" }),
 			]);
 			if (settings.ok && settings.result) {
 				setAgentDir(settings.result.agentDir);
 				setRaw(JSON.stringify(settings.result.settings, null, 2));
 			}
 			if (models.ok && Array.isArray(models.result)) setGroups(models.result as ProviderModelsMessage[]);
+			if (providers.ok && Array.isArray(providers.result)) setCatalog(providers.result);
 		})();
 	}, [client]);
 
@@ -124,6 +132,77 @@ export function SettingsPage({
 						<p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
 							模型只来自你在这里添加的声明（保存到 agent 目录的 models.json），不内置任何目录。新会话立即生效。
 						</p>
+
+						{/* 快捷接入：像 /login 一样选厂商 */}
+						<div className="rounded border border-neutral-700 bg-neutral-950/60 p-3">
+							<div className="text-xs font-semibold text-neutral-200">快捷接入（选厂商 → 浏览器登录或贴 API Key）</div>
+							<select
+								className="mt-2 w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm"
+								value={quickProvider}
+								onChange={(e) => {
+									setQuickProvider(e.target.value);
+									setQuickKey("");
+									setQuickHint("");
+								}}
+							>
+								<option value="">选择厂商…</option>
+								{catalog.map((p) => (
+									<option key={p.id} value={p.id}>
+										{p.name} ({p.id}){p.oauth ? " · 可浏览器登录" : ""}
+									</option>
+								))}
+							</select>
+							{quickProvider && (
+								<div className="mt-2 space-y-2">
+									<div className="flex gap-2">
+										<input
+											className="flex-1 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-xs"
+											value={quickKey}
+											onChange={(e) => setQuickKey(e.target.value)}
+											placeholder="粘贴 API Key…"
+										/>
+										<button
+											type="button"
+											className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700 disabled:opacity-40"
+											disabled={busy || !quickKey.trim()}
+											onClick={() => {
+												setQuickHint("正在保存 Key…");
+												void client
+													.request({ type: "auth.login", provider: quickProvider, authType: "api_key", apiKey: quickKey.trim() })
+													.then((response) => {
+														if (!apply(response)) return;
+														setQuickKey("");
+														setQuickHint("API Key 已保存 ✓ 该厂商的模型已可用");
+														return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+													});
+											}}
+										>
+											保存 API Key
+										</button>
+									</div>
+									{catalog.find((p) => p.id === quickProvider)?.oauth && (
+										<button
+											type="button"
+											className={btn}
+											disabled={busy}
+											onClick={() => {
+												setQuickHint("已打开浏览器，请在浏览器完成授权（完成后这里会自动刷新）…");
+												void client
+													.request({ type: "auth.login", provider: quickProvider, authType: "oauth" })
+													.then((response) => {
+														if (!apply(response)) return;
+														setQuickHint("登录成功 ✓ 该厂商的模型已可用");
+														return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+													});
+											}}
+										>
+											浏览器登录（OAuth）
+										</button>
+									)}
+									{quickHint && <div className="text-[11px] text-neutral-400">{quickHint}</div>}
+								</div>
+							)}
+						</div>
 
 						{showProviderForm && (
 							<div className="mt-2 space-y-2 rounded border border-neutral-700 bg-neutral-950/60 p-3">

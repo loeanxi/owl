@@ -1,5 +1,5 @@
 /**
- * pire desktop bridge.
+ * owl desktop bridge.
  *
  * JSON over WebSocket between the desktop UI and agent sessions.
  * - Session lifecycle rides on AgentSessionRuntime (same factory pattern as the
@@ -12,6 +12,7 @@
  *   and diff-level approvals land with the desktop UI.
  */
 
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
@@ -38,7 +39,7 @@ import type { SettingsManager } from "../../core/settings-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 
 // ---------------------------------------------------------------------------
-// models.json — pire 的模型声明（唯一模型来源；不复用 pi 内置目录）
+// models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
 // ---------------------------------------------------------------------------
 
 const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
@@ -91,16 +92,22 @@ function readModelsFile(agentDir: string): ModelsFile {
 function writeModelsFile(agentDir: string, models: ModelsFile): void {
 	writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, "\t")}\n`);
 }
+
 import type {
 	DesktopClientRequest,
 	DesktopServerMessage,
-	ModelsPutModelRequest,
-	ModelsPutProviderRequest,
-	ModelsRemoveModelRequest,
-	ModelsRemoveProviderRequest,
 	ProviderModelsMessage,
 	SessionCreateRequest,
 } from "./protocol.ts";
+
+/** 打开系统默认浏览器（OAuth 授权用）。 */
+function openInBrowser(url: string): void {
+	try {
+		spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+	} catch {
+		// 打不开就让用户手动复制链接（URL 会通过事件广播给 UI）
+	}
+}
 
 export type {
 	DesktopClientRequest,
@@ -118,7 +125,7 @@ export type {
 
 // ---------------------------------------------------------------------------
 // Static UI — single-port mode: the bridge also serves the built desktop UI,
-// so `node serve.js` alone is the whole app. Override with PI_RE_UI_DIR.
+// so `node serve.js` alone is the whole app. Override with OWL_UI_DIR.
 // ---------------------------------------------------------------------------
 
 const UI_CONTENT_TYPES: Record<string, string> = {
@@ -134,7 +141,7 @@ const UI_CONTENT_TYPES: Record<string, string> = {
 };
 
 function resolveUiRoot(): string | null {
-	const explicit = process.env.PI_RE_UI_DIR;
+	const explicit = process.env.OWL_UI_DIR;
 	if (explicit && existsSync(join(explicit, "index.html"))) return explicit;
 	// 从本文件位置向上找仓库根的 apps/desktop/dist，不依赖固定层级
 	let dir = dirname(fileURLToPath(import.meta.url));
@@ -175,7 +182,7 @@ function serveUi(uiRoot: string, requestPath: string, response: ServerResponse, 
 export interface DesktopServerOptions {
 	port?: number;
 	host?: string;
-	/** Default agent dir (defaults to PI_CODING_AGENT_DIR / ~/.pi/agent). */
+	/** Default agent dir (defaults to OWL_CODING_AGENT_DIR / ~/.owl/agent). */
 	agentDir?: string;
 	/** Default cwd for session.create requests that omit one. */
 	cwd?: string;
@@ -191,7 +198,7 @@ export interface DesktopServerHandle {
 }
 
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
-	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[pire] ${message}`));
+	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[owl] ${message}`));
 	/** sessionId → live runtime + event subscription */
 	const sessions = new Map<string, { runtime: AgentSessionRuntime; unsubscribe: () => void }>();
 	const clients = new Set<WebSocket>();
@@ -253,7 +260,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 		return listServices;
 	}
-	void getListingServices; // pire: models.list 已改为只读 models.json，保留 getter 备后续声明式扩展
+	void getListingServices; // owl: models.list 已改为只读 models.json，保留 getter 备后续声明式扩展
 
 	function buildFactory(
 		agentDir: string,
@@ -266,7 +273,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				agentDir,
 				resourceLoaderOptions: { extensionFactories },
 			});
-			let model;
+			let model: ReturnType<typeof services.modelRuntime.getModel>;
 			if (modelSpec?.model) {
 				model = modelSpec.provider
 					? services.modelRuntime.getModel(modelSpec.provider, modelSpec.model)
@@ -292,7 +299,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const confirmMode = request.approvalMode === "confirm";
 		const sessionIdHolder: { current: string } = { current: "" };
 		const permissionExtension: InlineExtension = {
-			name: "pire-permissions",
+			name: "owl-permissions",
 			factory: (pi) => {
 				pi.on("tool_call", async (event) => {
 					if (!confirmMode) return {};
@@ -372,7 +379,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "models.list": {
-				// pire 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
+				// owl 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
 				// 内置目录本身不再直接暴露：只有用户主动配置过凭据的供应商才会带出目录模型。
 				const agentDir = defaultAgentDir();
 				const declared = declaredProviderModels(readModelsFile(agentDir));
@@ -380,7 +387,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					const services = await getListingServices();
 					const byProvider = new Map<string, ProviderModelsMessage>();
-					const available = services.modelRuntime.getAvailableSnapshot().filter((model) => services.modelRuntime.getProviderAuthStatus(model.provider).source === "stored");
+					const available = services.modelRuntime
+						.getAvailableSnapshot()
+						.filter((model) => services.modelRuntime.getProviderAuthStatus(model.provider).source === "stored");
 					for (const model of available) {
 						let group = byProvider.get(model.provider);
 						if (!group) {
@@ -489,6 +498,42 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
 				return;
 			}
+			case "auth.providers": {
+				// 内置厂商目录（供桌面下拉选择）：id / 显示名 / 支持的认证方式
+				const services = await getListingServices();
+				const result = services.modelRuntime.getProviders().map((provider) => ({
+					id: provider.id,
+					name: provider.name,
+					oauth: Boolean(provider.auth?.oauth),
+					apiKey: Boolean(provider.auth?.apiKey),
+				}));
+				reply(ws, request.id, { ok: true, result });
+				return;
+			}
+			case "auth.login": {
+				// pi /login 的桌面版：oauth 走浏览器（notify 里开浏览器 + 广播进度），api_key 直接落 auth.json
+				const services = await getListingServices();
+				try {
+					await services.modelRuntime.login(request.provider, request.authType, {
+						prompt: async () => {
+							if (request.authType === "api_key" && request.apiKey) return request.apiKey;
+							throw new Error("该登录流程需要终端交互输入，桌面端不支持");
+						},
+						notify: (event) => {
+							if (event.type === "auth_url") openInBrowser(event.url);
+							broadcast({
+								type: "event",
+								sessionId: "",
+								event: { type: "auth_notify", detail: event },
+							});
+						},
+					});
+					reply(ws, request.id, { ok: true, result: { provider: request.provider, authType: request.authType } });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			case "settings.get": {
 				const agentDir = defaultAgentDir();
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
@@ -526,7 +571,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const uiRoot = resolveUiRoot();
 	const httpServer = createServer((request, response) => {
 		if (!uiRoot) {
-			response.writeHead(426).end("pire desktop bridge: WebSocket only");
+			response.writeHead(426).end("owl desktop bridge: WebSocket only");
 			return;
 		}
 		serveUi(uiRoot, request.url ?? "/", response, request.method === "HEAD");
@@ -578,9 +623,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const portArg = process.argv.indexOf("--port");
-	const port = portArg > 0 ? Number(process.argv[portArg + 1]) : Number(process.env.PI_RE_PORT ?? 8787);
+	const port = portArg > 0 ? Number(process.argv[portArg + 1]) : Number(process.env.OWL_PORT ?? 8787);
 	void startDesktopServer({ port }).then((handle) => {
-		console.log(`pire desktop bridge listening on http://127.0.0.1:${handle.port}`);
+		console.log(`owl desktop bridge listening on http://127.0.0.1:${handle.port}`);
 	});
 }
 

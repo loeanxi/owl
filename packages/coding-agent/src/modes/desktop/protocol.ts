@@ -1,5 +1,5 @@
 /**
- * pire desktop wire protocol — shared between the bridge (serve.ts) and the
+ * owl desktop wire protocol — shared between the bridge (serve.ts) and the
  * desktop UI. Types only: import from the UI with `import type` so nothing
  * server-side leaks into the browser bundle.
  */
@@ -98,7 +98,7 @@ export interface PermissionResponseRequest {
 export interface ProviderModelsMessage {
 	id: string;
 	name?: string;
-	/** pire 固定为 "models_json"：模型只来自声明文件，不复用内置目录 */
+	/** owl 固定为 "models_json"：模型只来自声明文件，不复用内置目录 */
 	authSource?: string;
 	models: ModelInfoMessage[];
 }
@@ -113,10 +113,31 @@ export type DesktopClientRequest =
 	| ModelsPutModelRequest
 	| ModelsRemoveModelRequest
 	| ModelsRemoveProviderRequest
+	| AuthProvidersRequest
+	| AuthLoginRequest
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| PingRequest
 	| PermissionResponseRequest;
+
+/** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
+export interface AuthProvidersRequest {
+	type: "auth.providers";
+	id: string;
+}
+
+/**
+ * 登录/存 key（对应 pi 的 /login）。
+ * - authType "oauth"：桥会打开浏览器，进度通过 auth_notify 事件广播，长请求。
+ * - authType "api_key"：apiKey 随请求带上，写入 auth.json。
+ */
+export interface AuthLoginRequest {
+	type: "auth.login";
+	id: string;
+	provider: string;
+	authType: "api_key" | "oauth";
+	apiKey?: string;
+}
 
 export interface ModelInfoMessage {
 	id: string;

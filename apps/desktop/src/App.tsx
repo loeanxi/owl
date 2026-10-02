@@ -8,7 +8,7 @@ import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { ModelSwitcher } from "./components/ModelSwitcher.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
-import type { ModelInfoMessage } from "./bridge/protocol.ts";
+import type { ProviderModelsMessage } from "./bridge/protocol.ts";
 
 const WORKSPACE_KEY = "pire.workspaceDir";
 
@@ -20,7 +20,7 @@ export default function App(): React.JSX.Element {
 	const [running, setRunning] = useState(false);
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
-	const [models, setModels] = useState<ModelInfoMessage[]>([]);
+	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? "D:/pire/acceptance-ws",
 	);
@@ -45,8 +45,8 @@ export default function App(): React.JSX.Element {
 	useEffect(() => {
 		if (!connected) return;
 		void client
-			.request<ModelInfoMessage[]>({ type: "models.list" })
-			.then((response) => response.ok && setModels(response.result ?? []))
+			.request<ProviderModelsMessage[]>({ type: "models.list" })
+			.then((response) => response.ok && setProviders(response.result ?? []))
 			.catch(() => {});
 	}, [connected, client]);
 
@@ -98,11 +98,11 @@ export default function App(): React.JSX.Element {
 		<div className="flex h-screen bg-neutral-950 text-neutral-200">
 			<SessionSidebar client={client} activeId={sessionId} onNewChat={newChat} />
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
+				<header className="flex items-center gap-3 px-4 py-2">
 					<span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-red-500"}`} />
 					<span className="text-sm text-neutral-400">{connected ? "bridge 已连接" : "桥未连接"}</span>
 					<div className="flex-1" />
-					<ModelSwitcher models={models} />
+					<ModelSwitcher providers={providers} />
 					<button
 						type="button"
 						className="rounded border border-neutral-700 px-2 py-1 text-sm hover:bg-neutral-800"

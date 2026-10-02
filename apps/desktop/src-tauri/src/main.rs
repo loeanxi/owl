@@ -14,14 +14,12 @@ use std::time::{Duration, Instant};
 
 const SERVE_SCRIPT: &str = "D:/pire/pi-re-v1/pi-mono/packages/coding-agent/dist/modes/desktop/serve.js";
 const AGENT_DIR: &str = "D:/pire/pi-re-v1/data/agent";
-const PACKAGE_DIR: &str = "D:/pire/pi-re-v1/data/packages";
 const DEFAULT_PORT: &str = "18901";
 
 fn spawn_bridge(port: &str) -> Child {
 	Command::new("node")
 		.args([SERVE_SCRIPT, "--port", port])
 		.env("PI_CODING_AGENT_DIR", AGENT_DIR)
-		.env("PI_PACKAGE_DIR", PACKAGE_DIR)
 		.spawn()
 		.expect("failed to spawn pire bridge (is node on PATH?)")
 }

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- S4-B favicon 适配：8 根粗羽辐 + 角羽，16px 不糊 -->
+  <path d="M204.0 128.0 L232.0 128.0" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M181.7 181.7 L201.5 201.5" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M128.0 204.0 L128.0 232.0" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M74.3 181.7 L54.5 201.5" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M52.0 128.0 L24.0 128.0" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M128.0 52.0 L128.0 24.0" stroke="#2f9e5a" stroke-width="22" stroke-linecap="round"/>
+  <path d="M104.6 72.8 L84.2 24.9" stroke="#2f9e5a" stroke-width="26" stroke-linecap="round"/>
+  <path d="M151.4 72.8 L171.8 24.9" stroke="#2f9e5a" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="95" cy="118" r="30" fill="#241d16"/>
+  <circle cx="161" cy="118" r="30" fill="#241d16"/>
+  <circle cx="95" cy="118" r="13" fill="#5ecf82"/>
+  <circle cx="161" cy="118" r="13" fill="#5ecf82"/>
+  <path d="M128 136 L142 154 Q128 172 114 154 Z" fill="#c4a82a"/>
+</svg>

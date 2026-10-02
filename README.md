@@ -19,15 +19,23 @@
 
 ### 本地开发
 
-改造版的运行时数据与已安装版 pi 完全隔离，通过三个环境变量控制：
+改造版的运行时数据与已安装版 pi 完全隔离，只需要一个环境变量：
 
 | 环境变量 | 作用 |
 |---|---|
-| `PI_CODING_AGENT_DIR` | 配置目录（settings / auth / 扩展 / 技能 / 提示词 / 主题） |
-| `PI_CODING_AGENT_SESSION_DIR` | 会话存储 |
-| `PI_PACKAGE_DIR` | `pi install` 安装的包 |
+| `PI_CODING_AGENT_DIR` | 配置根目录：settings / auth / models / 扩展 / 技能 / 提示词 / 主题 / 会话 / 扩展包 |
 
-仓库外的 `pi-re-v1/pi-dev.cmd`（Windows）与 `pi-dev.sh`（Git Bash）会预设这些变量后启动改造版，
+会话和 `pi install` 的扩展包都在它下面（`sessions\<编码cwd>\`、`npm\`），
+所以设了这一个变量就等于整体搬走，与 `~/.pi/agent` 零交集。
+
+刻意**不设**的两个变量：
+
+- `PI_CODING_AGENT_SESSION_DIR` — 覆盖后变平铺布局，而 `SessionManager.listAll()`
+  只遍历 `getSessionsDir()` 的子目录，桌面端 `session.list` 会扫不到任何会话。
+- `PI_PACKAGE_DIR` — 它覆盖的是 **pi 自身的安装目录**（Nix/Guix store 路径用），
+  不是扩展包目录。上游文档在此处有误，`config.ts:390` 的实现为准。
+
+仓库外的 `pi-re-v1/pi-dev.cmd`（Windows）与 `pi-dev.sh`（Git Bash）会预设该变量后启动改造版，
 详见 `pi-re-v1/DEV-README.md`。
 
 ```bash
