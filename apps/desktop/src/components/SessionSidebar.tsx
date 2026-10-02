@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProjectCreateResult } from "../bridge/protocol.ts";
-import { IconChat, IconChevron, IconFolder, IconPin, IconSearch } from "./icons.tsx";
+import {
+	IconChat,
+	IconCheck,
+	IconChevron,
+	IconCompose,
+	IconFolder,
+	IconMore,
+	IconPin,
+	IconPlus,
+	IconSearch,
+} from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 
 type SessionRow = {
@@ -18,8 +28,32 @@ type SessionRow = {
 
 const PINNED_KEY = "owl.pinnedSessions";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
+/** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；项目/最近 name=按名称。 */
+const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
+const PROJECT_SORT_KEY = "owl.sidebar.projectSort";
+const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
+
+type PinnedSort = "recent" | "manual";
+type ListSort = "recent" | "name";
+
+function loadChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+	try {
+		const value = localStorage.getItem(key);
+		return allowed.includes(value as T) ? (value as T) : fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+function saveChoice(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		// localStorage 不可用时排序偏好退化为会话内状态
+	}
+}
 
 /** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目。 */
 function samePath(a: string | undefined, b: string | undefined): boolean {
@@ -89,13 +123,16 @@ function loadCollapsed(): Set<string> {
 	}
 }
 
-/** 可折叠分组：头部（箭头 + 标题 + 数量）+ 展开内容。 */
+/** 可折叠分组：头部（箭头 + 标题 + 数量，悬停露出操作按钮）+ 展开内容 + 可选下拉菜单。 */
 function Section({
 	id,
 	label,
 	count,
 	open,
 	onToggle,
+	actions,
+	menu,
+	showMenu,
 	children,
 	headerRef,
 }: {
@@ -104,15 +141,23 @@ function Section({
 	count?: number;
 	open: boolean;
 	onToggle: () => void;
+	/** 悬停/菜单打开时显示在头部的快捷按钮（⋯、＋ 等）。 */
+	actions?: React.ReactNode;
+	/** 点击 ⋯ 展开的下拉菜单内容（Codex 式）。 */
+	menu?: React.ReactNode;
+	showMenu?: boolean;
 	children: React.ReactNode;
 	headerRef?: React.Ref<HTMLDivElement>;
 }): React.JSX.Element {
 	return (
 		<div id={id} data-section={id} className="mt-3 first:mt-0">
-			<div ref={headerRef}>
+			<div
+				ref={headerRef}
+				className="group/header relative flex items-center rounded-md px-3 py-1 transition-colors hover:bg-owl-hover/40"
+			>
 				<button
 					type="button"
-					className="flex w-full items-center gap-1 rounded-md px-3 py-1 text-left transition-colors hover:bg-owl-hover/40"
+					className="flex min-w-0 flex-1 items-center gap-1 text-left"
 					onClick={onToggle}
 					aria-expanded={open}
 				>
@@ -121,13 +166,82 @@ function Section({
 					/>
 					<span className="text-xs font-medium text-owl-muted">{label}</span>
 					{typeof count === "number" && count > 0 && (
-						<span className="ml-auto pr-1 text-[10px] tabular-nums text-owl-faint/80">{count}</span>
+						<span
+							className={`ml-auto pr-1 text-[10px] tabular-nums text-owl-faint/80 ${
+								actions ? "group-hover/header:invisible" : ""
+							}`}
+						>
+							{count}
+						</span>
 					)}
 				</button>
+				{actions && (
+					<div
+						data-menu-root
+						className={`flex shrink-0 items-center gap-0.5 transition-opacity ${
+							showMenu ? "opacity-100" : "opacity-0 group-hover/header:opacity-100"
+						}`}
+					>
+						{actions}
+					</div>
+				)}
+				{menu && showMenu && (
+					<div
+						data-menu-root
+						className="absolute right-2 top-full z-30 mt-1 w-56 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+					>
+						{menu}
+					</div>
+				)}
 			</div>
 			{open && <div className="mt-0.5 px-2">{children}</div>}
 		</div>
 	);
+}
+
+/** 分组菜单里的普通条目：label 左、勾选 ✓ 右（Codex 式）。 */
+function MenuRow({
+	label,
+	checked,
+	disabled,
+	hint,
+	onClick,
+}: {
+	label: string;
+	checked?: boolean;
+	disabled?: boolean;
+	hint?: string;
+	onClick?: () => void;
+}): React.JSX.Element {
+	return (
+		<button
+			type="button"
+			disabled={disabled}
+			title={disabled ? "该功能开发中" : undefined}
+			className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs transition-colors ${
+				disabled
+					? "cursor-default text-owl-faint/50"
+					: "text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+			}`}
+			onClick={onClick}
+		>
+			<span className="flex items-center gap-2">
+				{label}
+				{hint && <span className="text-[10px] font-normal text-owl-faint/70">{hint}</span>}
+			</span>
+			{checked && <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-text" />}
+		</button>
+	);
+}
+
+/** 分组菜单里的小节标题（如「排序方式」）。 */
+function MenuLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
+	return <p className="px-3 pb-1 pt-2 text-[10px] text-owl-faint/80">{children}</p>;
+}
+
+/** 分组菜单分隔线。 */
+function MenuDivider(): React.JSX.Element {
+	return <div className="my-1 border-t border-owl-border/70" />;
 }
 
 export function SessionSidebar({
@@ -165,9 +279,39 @@ export function SessionSidebar({
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
+	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为分组 id。 */
+	const [openMenu, setOpenMenu] = useState<"pinned" | "projects" | "recent" | null>(null);
+	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
+		loadChoice(PINNED_SORT_KEY, ["recent", "manual"] as const, "manual"),
+	);
+	const [projectSort, setProjectSort] = useState<ListSort>(() =>
+		loadChoice(PROJECT_SORT_KEY, ["recent", "name"] as const, "recent"),
+	);
+	const [recentSort, setRecentSort] = useState<ListSort>(() =>
+		loadChoice(RECENT_SORT_KEY, ["recent", "name"] as const, "recent"),
+	);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const projectHeaderRef = useRef<HTMLDivElement>(null);
 	const recentHeaderRef = useRef<HTMLDivElement>(null);
+
+	// 菜单打开时：点击菜单外或按 Esc 关闭
+	useEffect(() => {
+		if (!openMenu) return;
+		const onDown = (event: MouseEvent): void => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest("[data-menu-root]")) return;
+			setOpenMenu(null);
+		};
+		const onKey = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") setOpenMenu(null);
+		};
+		document.addEventListener("mousedown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [openMenu]);
 
 	const refresh = async (): Promise<void> => {
 		try {
@@ -249,16 +393,18 @@ export function SessionSidebar({
 		return list;
 	}, [sessions, activeProject]);
 
-	const visibleProjects = useMemo(
-		() =>
-			search
-				? projects.filter(
-						(cwd) =>
-							projectLabel(cwd).toLowerCase().includes(search) || cwd.toLowerCase().includes(search),
-					)
-				: projects,
-		[projects, search],
-	);
+	const visibleProjects = useMemo(() => {
+		const list = search
+			? projects.filter(
+					(cwd) =>
+						projectLabel(cwd).toLowerCase().includes(search) || cwd.toLowerCase().includes(search),
+				)
+			: [...projects];
+		if (projectSort === "name") {
+			list.sort((a, b) => projectLabel(a).localeCompare(projectLabel(b), "zh-CN"));
+		}
+		return list;
+	}, [projects, search, projectSort]);
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
 	const sessionMatches = (row: SessionRow): boolean =>
@@ -266,18 +412,22 @@ export function SessionSidebar({
 		sessionTitle(row).toLowerCase().includes(search) ||
 		(row.cwd ?? "").toLowerCase().includes(search);
 
-	const pinnedSessions = useMemo(
-		() =>
-			sessions
-				.filter((row) => row.id !== undefined && pinned.includes(row.id))
-				.sort((a, b) => (sessionTime(a) < sessionTime(b) ? 1 : -1)),
-		[sessions, pinned],
-	);
+	const pinnedSessions = useMemo(() => {
+		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id));
+		if (pinnedSort === "manual") {
+			// 手动排序 = 置顶操作发生的先后顺序（pinned 数组序）
+			return rows.sort((a, b) => pinned.indexOf(a.id as string) - pinned.indexOf(b.id as string));
+		}
+		return rows.sort((a, b) => (sessionTime(a) < sessionTime(b) ? 1 : -1));
+	}, [sessions, pinned, pinnedSort]);
 
-	const recentSessions = useMemo(
-		() => sessions.filter(sessionMatches).slice(0, RECENT_LIMIT),
-		[sessions, search], // eslint-disable-line react-hooks/exhaustive-deps
-	);
+	const recentSessions = useMemo(() => {
+		const rows = sessions.filter(sessionMatches);
+		if (recentSort === "name") {
+			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
+		}
+		return rows.slice(0, RECENT_LIMIT);
+	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const submitNewProject = async (): Promise<void> => {
 		const path = newPath.trim();
@@ -357,8 +507,32 @@ export function SessionSidebar({
 		recentSessions.length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
 
-	return (
-		<aside className="flex w-64 shrink-0 flex-col border-r border-owl-border bg-owl-sidebar">
+		/** 分组头部快捷按钮的统一样式。 */
+		const actionBtn =
+			"rounded p-1 text-owl-faint transition-colors hover:bg-owl-border/60 hover:text-owl-text";
+		const switchPinnedSort = (value: PinnedSort): void => {
+			setPinnedSort(value);
+			saveChoice(PINNED_SORT_KEY, value);
+			setOpenMenu(null);
+		};
+		const switchProjectSort = (value: ListSort): void => {
+			setProjectSort(value);
+			saveChoice(PROJECT_SORT_KEY, value);
+			setOpenMenu(null);
+		};
+		const switchRecentSort = (value: ListSort): void => {
+			setRecentSort(value);
+			saveChoice(RECENT_SORT_KEY, value);
+			setOpenMenu(null);
+		};
+		const openNewProject = (): void => {
+			setShowNewProject(true);
+			setCreateError("");
+			setOpenMenu(null);
+		};
+
+		return (
+			<aside className="flex w-64 shrink-0 flex-col border-r border-owl-border bg-owl-sidebar">
 			<div
 				className="flex select-none items-center gap-2 px-3 pb-1 pt-3"
 				data-tauri-drag-region="deep"
@@ -418,6 +592,32 @@ export function SessionSidebar({
 						count={pinnedSessions.length}
 						open={isOpen("pinned")}
 						onToggle={() => toggleSection("pinned")}
+						showMenu={openMenu === "pinned"}
+						actions={
+							<button
+								type="button"
+								className={actionBtn}
+								title="置顶选项"
+								onClick={() => setOpenMenu(openMenu === "pinned" ? null : "pinned")}
+							>
+								<IconMore className="h-3.5 w-3.5" />
+							</button>
+						}
+						menu={
+							<>
+								<MenuRow
+									label="最近更新"
+									checked={pinnedSort === "recent"}
+									onClick={() => switchPinnedSort("recent")}
+								/>
+								<MenuRow
+									label="手动排序"
+									checked={pinnedSort === "manual"}
+									hint="按置顶先后"
+									onClick={() => switchPinnedSort("manual")}
+								/>
+							</>
+						}
 					>
 						{pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true))}
 					</Section>
@@ -430,6 +630,40 @@ export function SessionSidebar({
 					open={isOpen("projects")}
 					onToggle={() => toggleSection("projects")}
 					headerRef={projectHeaderRef}
+					showMenu={openMenu === "projects"}
+					actions={
+						<>
+							<button
+								type="button"
+								className={actionBtn}
+								title="项目选项"
+								onClick={() => setOpenMenu(openMenu === "projects" ? null : "projects")}
+							>
+								<IconMore className="h-3.5 w-3.5" />
+							</button>
+							<button type="button" className={actionBtn} title="新建项目" onClick={openNewProject}>
+								<IconPlus className="h-3.5 w-3.5" />
+							</button>
+						</>
+					}
+					menu={
+						<>
+							<MenuRow label="新建项目" onClick={openNewProject} />
+							<MenuRow label="整理侧边栏" disabled hint="开发中" />
+							<MenuDivider />
+							<MenuLabel>排序方式</MenuLabel>
+							<MenuRow
+								label="按最近使用"
+								checked={projectSort === "recent"}
+								onClick={() => switchProjectSort("recent")}
+							/>
+							<MenuRow
+								label="按名称"
+								checked={projectSort === "name"}
+								onClick={() => switchProjectSort("name")}
+							/>
+						</>
+					}
 				>
 					{visibleProjects.map((cwd) => (
 						<button
@@ -470,6 +704,39 @@ export function SessionSidebar({
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
 					headerRef={recentHeaderRef}
+					showMenu={openMenu === "recent"}
+					actions={
+						<>
+							<button
+								type="button"
+								className={actionBtn}
+								title="最近选项"
+								onClick={() => setOpenMenu(openMenu === "recent" ? null : "recent")}
+							>
+								<IconMore className="h-3.5 w-3.5" />
+							</button>
+							<button type="button" className={actionBtn} title="新建聊天" onClick={onNewChat}>
+								<IconCompose className="h-3.5 w-3.5" />
+							</button>
+						</>
+					}
+					menu={
+						<>
+							<MenuRow label="整理侧边栏" disabled hint="开发中" />
+							<MenuDivider />
+							<MenuLabel>排序方式</MenuLabel>
+							<MenuRow
+								label="按最近更新"
+								checked={recentSort === "recent"}
+								onClick={() => switchRecentSort("recent")}
+							/>
+							<MenuRow
+								label="按名称"
+								checked={recentSort === "name"}
+								onClick={() => switchRecentSort("name")}
+							/>
+						</>
+					}
 				>
 					{recentSessions.map((row, index) => sessionRow(row, index, false))}
 					{recentSessions.length === 0 && (

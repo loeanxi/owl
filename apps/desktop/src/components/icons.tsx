@@ -119,3 +119,32 @@ export function IconChat({ className }: { className?: string }): React.JSX.Eleme
 		</Svg>
 	);
 }
+
+/** 分组菜单项右端的选中勾 */
+export function IconCheck({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="m4.5 12.5 5 5 10-11" />
+		</Svg>
+	);
+}
+
+/** 分组头部快速操作：新建 */
+export function IconPlus({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M12 5v14" />
+			<path d="M5 12h14" />
+		</Svg>
+	);
+}
+
+/** 分组头部快速操作：新建聊天（笔形） */
+export function IconCompose({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M12 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6" />
+			<path d="M18.2 2.8a2 2 0 0 1 2.9 2.9L13 13.8l-3.9 1 1-3.9z" />
+		</Svg>
+	);
+}
