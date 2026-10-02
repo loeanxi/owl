@@ -512,6 +512,117 @@ export interface TermExitMessage {
 	exitCode: number | undefined;
 }
 
+// ---------------------------------------------------------------------------
+// 内嵌浏览器（owl IAB）—— 桥进程托管的私有无头浏览器（playwright-core + 系统
+// Edge/Chrome），UI 通过 screencast 帧流显示，agent 通过 browser_* 工具驱动，
+// 双方看到的是同一批页面。帧流与终端同策略：只推给订阅它的那条连接，不广播；
+// 页面清单变化（导航/开关页）才广播。
+// ---------------------------------------------------------------------------
+
+/** IAB 里的一个页面（= 无头浏览器的一个 tab）。 */
+export interface IabPageInfo {
+	pageId: string;
+	url: string;
+	title: string;
+	/** 当前 CSS 视口（用户可由 iab.viewport 调整）。 */
+	viewport: { width: number; height: number };
+	/** agent 最近操作/导航的页面（每连接至多一个，供 UI 高亮与自动开 tab）。 */
+	active: boolean;
+}
+
+/**
+ * 页面清单广播。origin 标记触发方：agent 工具触发的变化带 "agent"，
+ * UI 据此自动开一个绑定该页面的浏览器 tab（ZCode IAB「agent 开页 = 面板自动可见」的对应实现）。
+ */
+export interface IabPagesMessage {
+	type: "iab.pages";
+	pages: IabPageInfo[];
+	origin: "agent" | "ui";
+}
+
+/** screencast 帧（JPEG base64，尺寸 = 页面视口）。 */
+export interface IabFrameMessage {
+	type: "iab.frame";
+	pageId: string;
+	data: string;
+	width: number;
+	height: number;
+}
+
+export type IabServerMessage = IabPagesMessage | IabFrameMessage;
+
+/** 打开/绑定一个页面：带 url 找不到就新建，带 pageId 直接复用（不存在则报错）。 */
+export interface IabOpenRequest {
+	type: "iab.open";
+	id: string;
+	url?: string;
+	pageId?: string;
+}
+
+export interface IabOpenResult {
+	page: IabPageInfo;
+}
+
+/** 页面级导航（工具条后退/前进/刷新）。 */
+export interface IabNavRequest {
+	type: "iab.nav";
+	id: string;
+	pageId: string;
+	action: "back" | "forward" | "reload";
+}
+
+/** 调整页面视口（CSS 像素；前端「适应窗口」按缩放显示，不改这个值）。 */
+export interface IabViewportRequest {
+	type: "iab.viewport";
+	id: string;
+	pageId: string;
+	width: number;
+	height: number;
+}
+
+/** 输入转发：坐标均为页面视口坐标（前端按画布缩放换算）。 */
+export type IabInputPayload =
+	| { kind: "mouse"; action: "move" | "down" | "up"; x: number; y: number; button?: "left" | "right" | "middle" }
+	| { kind: "wheel"; x: number; y: number; deltaX: number; deltaY: number }
+	| { kind: "key"; key: string; down: boolean; text?: string };
+
+export interface IabInputRequest {
+	type: "iab.input";
+	id: string;
+	pageId: string;
+	input: IabInputPayload;
+}
+
+/** 订阅/退订某页面的帧流（按连接记账，断线兜底回收，与 term.* 同策略）。 */
+export interface IabAttachRequest {
+	type: "iab.attach";
+	id: string;
+	pageId: string;
+}
+
+export interface IabDetachRequest {
+	type: "iab.detach";
+	id: string;
+	pageId: string;
+}
+
+/** 关闭一个页面；关掉最后一个页面时无头浏览器保留待复用。 */
+export interface IabCloseRequest {
+	type: "iab.close";
+	id: string;
+	pageId: string;
+}
+
+/** 当前全部页面（连接/重连后拉一次初始状态）。 */
+export interface IabStateRequest {
+	type: "iab.state";
+	id: string;
+}
+
+export interface IabStateResult {
+	pages: IabPageInfo[];
+}
+
 /** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
 export interface FsChangedEvent {
 	type: "fs_changed";
@@ -585,7 +696,15 @@ export type DesktopClientRequest =
 	| TermCreateRequest
 	| TermInputRequest
 	| TermResizeRequest
-	| TermKillRequest;
+	| TermKillRequest
+	| IabOpenRequest
+	| IabNavRequest
+	| IabViewportRequest
+	| IabInputRequest
+	| IabAttachRequest
+	| IabDetachRequest
+	| IabCloseRequest
+	| IabStateRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
 export interface AuthProvidersRequest {
@@ -669,7 +788,8 @@ export type DesktopServerMessage =
 	| ServerResponseMessage
 	| PermissionRequestMessage
 	| TermDataMessage
-	| TermExitMessage;
+	| TermExitMessage
+	| IabServerMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

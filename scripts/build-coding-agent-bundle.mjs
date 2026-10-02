@@ -23,6 +23,9 @@ const allowedExternalPackages = new Set([
 	"@earendil-works/chord/node",
 	"@silvia-odwyer/photon-node",
 	"jiti",
+	// 浏览器 hub（modes/desktop/browser-hub.ts）：playwright 官方不建议打包，
+	// 作为运行时依赖留在 node_modules，由 bundle 顶部的 createRequire 解析。
+	"playwright-core",
 	// Optional native accelerators. Their callers fall back to JavaScript when absent.
 	"bufferutil",
 	"utf-8-validate",
@@ -86,7 +89,7 @@ function commonBuildOptions() {
 		banner,
 		bundle: true,
 		define: { PI_BUNDLED_NODE: "true" },
-		external: ["@earendil-works/chord", "@silvia-odwyer/photon-node"],
+		external: ["@earendil-works/chord", "@silvia-odwyer/photon-node", "playwright-core"],
 		format: "esm",
 		legalComments: "none",
 		logLevel: "warning",

@@ -6,6 +6,8 @@
  */
 
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
@@ -40,7 +42,10 @@ import {
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
+import type { ToolDefinition } from "./core/extensions/index.ts";
 import { builtInExtensions } from "./extensions/index.ts";
+import { connectMcpServers, type McpConnections } from "./core/mcp-lite.ts";
+import type { McpServerConfig } from "./core/mcp-servers.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
@@ -95,6 +100,29 @@ function reportDiagnostics(diagnostics: readonly AgentSessionRuntimeDiagnostic[]
 function isTruthyEnvFlag(value: string | undefined): boolean {
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
+}
+
+// owl: TUI/-p/RPC 模式的 MCP 接线 —— 与桌面桥（serve.ts resolveMcpServerConfigs）同源，
+// 读 <agentDir>/settings.json 的 mcpServers。连接进程级缓存：运行时随切项目重建，
+// 但 MCP 子进程不跟着反复拉起。失败只报 warning，不拦会话启动。
+let cliMcpConnections: McpConnections | undefined;
+async function getCliMcpTools(agentDir: string, warn: (message: string) => void): Promise<ToolDefinition[]> {
+	if (!cliMcpConnections) {
+		let servers: Record<string, McpServerConfig> = {};
+		try {
+			const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")) as {
+				mcpServers?: Record<string, McpServerConfig>;
+			};
+			servers = raw.mcpServers ?? {};
+		} catch {
+			// settings 缺失/损坏 = 没有 MCP 服务器，与桌面桥行为一致
+		}
+		cliMcpConnections =
+			Object.keys(servers).length > 0
+				? await connectMcpServers(servers, warn)
+				: { tools: [], connections: [], close: async () => {} };
+	}
+	return cliMcpConnections.tools;
 }
 
 function resolveAppMode(parsed: Args, stdinIsTTY: boolean, stdoutIsTTY: boolean): AppMode {
@@ -780,7 +808,12 @@ export async function main(args: string[], options?: MainOptions) {
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
-			customTools: sessionOptions.customTools,
+			customTools: [
+				...(sessionOptions.customTools ?? []),
+				...(await getCliMcpTools(agentDir, (message) =>
+					diagnostics.push({ type: "warning", message }),
+				)),
+			],
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
