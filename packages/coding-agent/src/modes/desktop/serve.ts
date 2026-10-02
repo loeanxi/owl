@@ -273,6 +273,19 @@ function archiveRetentionDays(meta: ArchiveMetaFile): number {
 
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
 	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[owl] ${message}`));
+	// 桥进程不经过 main.ts，需自行装代理 dispatcher：fetch 只有装了 EnvHttpProxyAgent
+	// 才认 HTTP(S)_PROXY，否则 OAuth 设备码请求直连 github.com，直连不通时就地超时——
+	// 浏览器永远不弹，UI 停在「正在启动登录流程…」。
+	try {
+		const settingsManager = await import("../../core/settings-manager.ts").then((m) =>
+			m.SettingsManager.create(options.cwd ?? process.cwd(), options.agentDir ?? getAgentDir()),
+		);
+		applyHttpProxySettings(settingsManager.getGlobalSettings().httpProxy);
+	} catch (error) {
+		// settings 坏了只降级为「仅环境变量」，别拦着桥启动
+		onDiagnostic(`settings load failed: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	configureHttpDispatcher();
 	/** sessionId → live runtime + event subscription */
 	const sessions = new Map<string, { runtime: AgentSessionRuntime; unsubscribe: () => void }>();
 	const clients = new Set<WebSocket>();
