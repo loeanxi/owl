@@ -633,6 +633,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			factory: (pi) => {
 				pi.on("tool_call", async (event) => {
 					const mode = approvalModeHolder.current;
+					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
+					if (event.toolName === "ask_user_question") return {};
 					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
 					if (mode === "plan" && !READ_ONLY_TOOLS.has(event.toolName)) {
 						return {

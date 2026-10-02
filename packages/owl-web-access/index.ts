@@ -1937,357 +1937,61 @@ export default function (pi: ExtensionAPI) {
 	], toolActivation);
 
 	if (isCommandEnabled(initConfig, "websearch")) pi.registerCommand("websearch", {
-		description: "Open web search curator",
+		description: "Search the web and send the results into the session",
 		handler: async (args, ctx) => {
-			const sessionToken = randomUUID();
-			const commandCallId = `cmd:${sessionToken}`;
-			closeCurator(commandCallId);
-
 			const raw = args.trim();
 			const queries = raw.length > 0
 				? normalizeQueryList(raw.split(","))
 				: [];
+			if (queries.length === 0) {
+				ctx.ui.notify("Usage: /websearch <query> [, <query>...] — results are sent as a follow-up message", "info");
+				return;
+			}
 
-			let bootstrap: CuratorBootstrap;
+			let resolvedProvider: SearchProviderSelection;
 			try {
-				bootstrap = await loadCuratorBootstrap(undefined, ctx);
+				resolvedProvider = resolveRequestedProvider(undefined);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				ctx.ui.notify(`Failed to load web search config: ${message}`, "error");
 				return;
 			}
-			const availableProviders = bootstrap.availableProviders;
-			const initialProvider = bootstrap.defaultProvider;
-			const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
-			let currentProvider: SearchProvider = initialProvider;
-			const commandConfig = loadConfig();
-			const rawSearchProvider = normalizeProviderInput(
-				commandConfig.searchProvider ?? commandConfig.provider ?? "auto",
-				`provider in ${WEB_SEARCH_CONFIG_PATH}`,
-			) ?? "auto";
-			let currentSearchProvider: SearchProviderSelection = Array.isArray(rawSearchProvider)
-				? rawSearchProvider
-				: rawSearchProvider === "auto" ? "auto" : initialProvider;
-			const summaryContext: SummaryGenerationContext = {
-				model: ctx.model,
-				modelRegistry: ctx.modelRegistry,
-				sessionManager: ctx.sessionManager,
-				scopedModels: ctx.scopedModels,
-			};
-			const summaryModelChoices = await loadSummaryModelChoices(summaryContext);
 
-			ctx.ui.notify("Opening web search curator...", "info");
-
-			const collected = new Map<number, QueryResultData>();
-			const searchAbort = new AbortController();
-			let aborted = false;
-			let commandHandle: CuratorServerHandle | null = null;
-			const isCommandActive = () => commandHandle !== null && activeCurators.get(commandCallId) === commandHandle;
-
-			function sendFollowUpFromReturn(payload: ReturnType<typeof buildSearchReturn>) {
-				pi.sendMessage({
-					customType: "web-search-results",
-					content: payload.content,
-					display: true,
-					details: payload.details,
-				}, { triggerTurn: true, deliverAs: "followUp" });
-			}
-
-			try {
-				const handle = await startCuratorServer(
-					{
-						queries,
-						initialResultIndexCapacity: curatorResultIndexCapacity(queries.length),
-						sessionToken,
-						timeout: curatorTimeoutSeconds,
-						availableProviders,
-						defaultProvider: initialProvider,
-						searchProvider: toCuratorProvider(currentSearchProvider) ?? "auto",
-						summaryModels: summaryModelChoices.summaryModels,
-						defaultSummaryModel: summaryModelChoices.defaultSummaryModel,
-					},
-					{
-						async onSummarize(selectedQueryIndices, summarizeSignal, model, feedback) {
-							if (commandHandle && !isCommandActive()) {
-								throw new Error("Curator session is no longer active.");
-							}
-							return generateSummaryForSelectedIndices(
-								selectedQueryIndices,
-								collected,
-								summaryContext,
-								summarizeSignal,
-								model,
-								feedback,
-							);
-						},
-						onSubmit(payload) {
-							if (commandHandle && !isCommandActive()) return;
-							aborted = true;
-							searchAbort.abort();
-							const filtered = payload.selectedQueryIndices.length > 0
-								? filterByQueryIndices(payload.selectedQueryIndices, collected)
-								: collectAllResultsAndUrls(collected);
-							const base: SearchReturnOptions = {
-								queryList: filtered.results.map(r => r.query),
-								results: filtered.results,
-								urls: filtered.urls,
-								includeContent: false,
-								curated: true,
-								curatedFrom: collected.size,
-							};
-							if (!payload.rawResults) {
-								const resolvedSummary = resolveSummaryForSubmit(payload, collected);
-								base.workflow = "summary-review";
-								base.approvedSummary = resolvedSummary.approvedSummary;
-								base.summaryMeta = resolvedSummary.summaryMeta;
-							}
-							sendFollowUpFromReturn(buildSearchReturn(base));
-							closeCurator(commandCallId);
-						},
-						onCancel(reason) {
-							if (commandHandle && !isCommandActive()) return;
-							aborted = true;
-							searchAbort.abort();
-							if (reason === "timeout") {
-								const all = collectAllResultsAndUrls(collected);
-								const resolvedSummary = resolveSummaryForSubmit({ selectedQueryIndices: [], summary: undefined, summaryMeta: undefined }, collected);
-								sendFollowUpFromReturn(buildSearchReturn({
-									queryList: all.results.map(r => r.query),
-									results: all.results,
-									urls: all.urls,
-									includeContent: false,
-									curated: true,
-									curatedFrom: collected.size,
-									workflow: "summary-review",
-									approvedSummary: resolvedSummary.approvedSummary,
-									summaryMeta: resolvedSummary.summaryMeta,
-								}));
-							}
-							closeCurator(commandCallId);
-						},
-						onProviderChange(provider) {
-							if (commandHandle && !isCommandActive()) return;
-							const normalized = normalizeProviderInput(provider);
-							if (!normalized || normalized === "auto" || Array.isArray(normalized)) return;
-							currentProvider = normalized;
-							currentSearchProvider = normalized;
-							try {
-								saveConfig({ provider: normalized });
-							} catch (err) {
-								const message = err instanceof Error ? err.message : String(err);
-								console.error(`Failed to persist default provider: ${message}`);
-							}
-						},
-						async onAddSearch(query, provider) {
-							return runWithProxy(undefined, async () => {
-								if (commandHandle && !isCommandActive()) {
-									throw new Error("Curator session is no longer active.");
-								}
-								const requestedProvider = resolveCuratorSearchProvider(provider, currentSearchProvider);
-								const response = await search(query, {
-									provider: requestedProvider,
-									signal: searchAbort.signal,
-									extensionContext: ctx,
-								});
-								if (commandHandle && !isCommandActive()) {
-									throw new Error("Curator session is no longer active.");
-								}
-								return toCuratorSearchEntries(response);
-							});
-						},
-						onAddSearchResults(entries) {
-							if (commandHandle && !isCommandActive()) return;
-							for (const entry of entries) {
-								collected.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
-							}
-						},
-						async onRewriteQuery(query, rewriteSignal) {
-							if (commandHandle && !isCommandActive()) {
-								throw new Error("Curator session is no longer active.");
-							}
-							return rewriteSearchQuery(query, summaryContext, rewriteSignal);
-						},
-					},
-				);
-
-				commandHandle = handle;
-				activeCurators.set(commandCallId, handle);
-				let browserOpenError: string | null = null;
-				if (!shouldAutoOpenCuratorBrowser(loadConfig())) {
-					ctx.ui.notify(`Search curator is running. Open manually: ${handle.url}`, "info");
-				} else {
-					const open = platform() === "darwin" ? await getGlimpseOpen() : null;
-					if (open) {
-						try {
-							const win = openInGlimpse(open, handle.url, "Search Curator");
-							glimpseWins.set(commandCallId, win);
-							win.on("closed", () => {
-								if (glimpseWins.get(commandCallId) === win) {
-									glimpseWins.delete(commandCallId);
-									closeCurator(commandCallId);
-								}
-							});
-						} catch (err) {
-							const message = err instanceof Error ? err.message : String(err);
-							console.error(`Failed to open Glimpse curator window: ${message}`);
-							glimpseWins.delete(commandCallId);
-							try {
-								await openInBrowser(pi, handle.url);
-							} catch (browserErr) {
-								browserOpenError = browserErr instanceof Error ? browserErr.message : String(browserErr);
-							}
-						}
-					} else {
-						try {
-							await openInBrowser(pi, handle.url);
-						} catch (browserErr) {
-							browserOpenError = browserErr instanceof Error ? browserErr.message : String(browserErr);
-						}
+			ctx.ui.notify(`Searching (${queries.length} ${queries.length === 1 ? "query" : "queries"})...`, "info");
+			const results: QueryResultData[] = [];
+			const urls: string[] = [];
+			const inlineContent: ExtractedContent[] = [];
+			await runSearchQueries(queries, async (query) => {
+				try {
+					const response = await search(query, { provider: resolvedProvider });
+					for (const result of response.results) {
+						if (!urls.includes(result.url)) urls.push(result.url);
 					}
-					if (browserOpenError) {
-						console.error(`Failed to open curator UI: ${browserOpenError}`);
-						ctx.ui.notify(`Search curator is running, but the browser did not open automatically. Open manually: ${handle.url}`, "info");
-					}
+					if (response.inlineContent) inlineContent.push(...response.inlineContent);
+					const providers = response.providerResponses?.map(entry => entry.provider) ?? [response.provider];
+					results.push({ query, answer: response.answer, results: response.results, error: null, provider: response.provider, providers });
+				} catch (err) {
+					if (isAbortError(err)) return;
+					const message = err instanceof Error ? err.message : String(err);
+					results.push({ query, answer: "", results: [], error: message, provider: toFailureProvider(resolvedProvider) });
 				}
+			});
 
-				if (queries.length > 0) {
-					(async () => {
-						await runSearchQueries(queries, async (query, qi) => {
-							if (aborted || !isCommandActive()) return;
-							const requestedProvider = currentSearchProvider;
-							try {
-								const response = await runWithProxy(undefined, () => search(query, {
-									provider: requestedProvider,
-									signal: searchAbort.signal,
-									extensionContext: ctx,
-								}));
-								if (aborted || !isCommandActive()) return;
-								const entries = toCuratorSearchEntries(response);
-								for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-									const entry = entries[entryIndex];
-									const resultIndex = curatorResultIndex(qi, entryIndex, queries.length);
-									const indexedEntry: IndexedCuratorSearchEntry = {
-										...entry,
-										queryIndex: resultIndex,
-										query,
-									};
-									collected.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
-									if (entry.error) {
-										handle.pushError(resultIndex, entry.error, entry.provider, { query, slotIndex: qi });
-									} else {
-										handle.pushResult(resultIndex, { ...entry, query, slotIndex: qi });
-									}
-								}
-							} catch (err) {
-								if (aborted || !isCommandActive()) return;
-								const message = err instanceof Error ? err.message : String(err);
-								const failedProvider = toCuratorProvider(requestedProvider);
-								handle.pushError(qi, message, failedProvider, { query, slotIndex: qi });
-								collected.set(qi, { query, answer: "", results: [], error: message, provider: failedProvider });
-							}
-						});
-						if (!aborted && isCommandActive()) handle.searchesDone();
-					})();
-				} else {
-					if (isCommandActive()) handle.searchesDone();
-				}
-			} catch (err) {
-				closeCurator(commandCallId);
-				const message = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`Failed to open curator: ${message}`, "error");
-			}
-		},
-	});
-
-	if (isCommandEnabled(initConfig, "curator")) pi.registerCommand("curator", {
-		description: "Toggle or configure the search curator workflow",
-		handler: async (args, ctx) => {
-			const arg = args.trim().toLowerCase();
-
-			let newWorkflow: WebSearchWorkflow;
-			if (arg.length === 0) {
-				const current = resolveWebSearchWorkflow(loadConfigForExtensionInit().workflow, true);
-				newWorkflow = current === "none" ? "summary-review" : "none";
-			} else if (arg === "on") {
-				newWorkflow = "summary-review";
-			} else if (arg === "off") {
-				newWorkflow = "none";
-			} else if (arg === "none" || arg === "summary-review" || arg === "auto-summary") {
-				newWorkflow = arg;
-			} else {
-				ctx.ui.notify(`Unknown option: ${arg}. Use on, off, summary-review, or auto-summary.`, "error");
-				return;
-			}
-
-			try {
-				saveConfig({ workflow: newWorkflow });
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`Failed to save config: ${message}`, "error");
-				return;
-			}
-
-			const label = newWorkflow === "none"
-				? `Curator disabled — ${toolNames.webSearch} will return raw results`
-				: newWorkflow === "auto-summary"
-					? `Auto-summary enabled — ${toolNames.webSearch} will generate a summary without opening the curator`
-					: `Curator enabled — ${toolNames.webSearch} will open curator and auto-generate a summary draft`;
+			const payload = buildSearchReturn({
+				queryList: queries,
+				results,
+				urls,
+				includeContent: false,
+				inlineContent: inlineContent.length > 0 ? inlineContent : undefined,
+			});
 			pi.sendMessage({
-				customType: "curator-config",
-				content: [{ type: "text", text: label }],
+				customType: "web-search-results",
+				content: payload.content,
 				display: true,
-				details: { workflow: newWorkflow },
-			}, { triggerTurn: false, deliverAs: "followUp" });
-		},
-	});
-
-	if (isCommandEnabled(initConfig, "google-account")) pi.registerCommand("google-account", {
-		description: "Show the active Google account for Gemini Web",
-		handler: async () => {
-			if (!isBrowserCookieAccessAllowed()) {
-				pi.sendMessage({
-					customType: "google-account",
-					content: [{ type: "text", text: `Gemini Web browser cookie access is disabled. Set allowBrowserCookies: true in ${WEB_SEARCH_CONFIG_PATH} to enable it.` }],
-					display: true,
-					details: { available: false, cookieAccessAllowed: false },
-				}, { triggerTurn: true, deliverAs: "followUp" });
-				return;
-			}
-
-			const cookies = await isGeminiWebAvailable();
-			if (!cookies) {
-				const diagnostic = getGeminiWebAvailabilityDiagnostic();
-				const diagnosticDetails = getGeminiWebAvailabilityDiagnosticDetails();
-				const attempted = formatCookieAttempts(diagnosticDetails?.attempts ?? []);
-				const text = diagnostic
-					? `Gemini Web is unavailable: ${diagnostic}${attempted ? ` Attempted browser profiles: ${attempted}.` : ""}`
-					: "Gemini Web is unavailable. Sign into gemini.google.com in a supported Chromium-based browser.";
-				pi.sendMessage({
-					customType: "google-account",
-					content: [{ type: "text", text }],
-					display: true,
-					details: { available: false, cookieAccessAllowed: true, diagnostic, cookieDiagnostic: diagnosticDetails },
-				}, { triggerTurn: true, deliverAs: "followUp" });
-				return;
-			}
-
-			const email = await getActiveGoogleEmail(cookies);
-			const text = email
-				? `Active Google account: ${email}`
-				: "Gemini Web is available, but the active Google account could not be determined.";
-
-			pi.sendMessage({
-				customType: "google-account",
-				content: [{ type: "text", text }],
-				display: true,
-				details: { available: true, email: email ?? null },
+				details: payload.details,
 			}, { triggerTurn: true, deliverAs: "followUp" });
 		},
 	});
-
-	function formatCookieAttempts(attempts: { browser: string; profile: string; status: string }[]): string {
-		return attempts.map(({ browser, profile, status }) => `${browser}/${profile} (${status})`).join(", ");
-	}
 
 	if (isCommandEnabled(initConfig, "search")) pi.registerCommand("search", {
 		description: "Browse stored web search results",
