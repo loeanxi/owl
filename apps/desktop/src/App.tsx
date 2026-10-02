@@ -9,6 +9,7 @@ import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
+import { TodoPin } from "./components/TodoPin.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
@@ -535,6 +536,8 @@ export default function App(): React.JSX.Element {
 				<div className={`flex min-h-0 flex-1 ${workbenchDock === "right" ? "flex-row" : "flex-col"}`}>
 					<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 						<ChatStream entries={entries} onQuickAction={requestOpenKind} />
+						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
+						<TodoPin entries={entries} />
 						<Composer
 							disabled={running || !connected}
 							running={running}

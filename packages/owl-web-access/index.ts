@@ -216,20 +216,10 @@ function resolveFetchModeConfig(config: WebSearchConfig): { defaultMode: FetchMo
 	return { defaultMode: defaultMode as FetchMode, allowedModes };
 }
 
-// Limit each batch independently so separate Pi tool calls can still run in parallel.
+// Limit each batch independently so separate tool calls can still run in parallel.
 function runSearchQueries<T>(queries: string[], run: (query: string, index: number) => Promise<T>): Promise<T[]> {
 	const limit = pLimit(SEARCH_QUERY_CONCURRENCY);
 	return Promise.all(queries.map((query, index) => limit(() => run(query, index))));
-}
-
-// Keep primary query indexes stable for curator slots, then interleave additional
-// provider entries deterministically instead of assigning by completion order.
-function curatorResultIndex(queryIndex: number, entryIndex: number, queryCount: number): number {
-	return entryIndex * queryCount + queryIndex;
-}
-
-function curatorResultIndexCapacity(queryCount: number): number {
-	return queryCount * RESOLVED_SEARCH_PROVIDERS.length;
 }
 
 function searchProviderSchema(description: string, allowedProviders: readonly ResolvedSearchProvider[]) {
@@ -245,7 +235,7 @@ function isToolEnabled(config: WebSearchConfig, key: keyof ToolNames): boolean {
 	return key !== "webSearch" && key !== "sourceCheck" || config.webSearch?.enabled !== false;
 }
 
-function isCommandEnabled(config: WebSearchConfig, name: "websearch" | "curator" | "search" | "google-account"): boolean {
+function isCommandEnabled(config: WebSearchConfig, name: "websearch" | "search"): boolean {
 	return config.commands?.[name]?.enabled !== false;
 }
 
@@ -289,7 +279,7 @@ function loadConfigForExtensionInit(): WebSearchConfig {
 		return loadConfig();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[pi-web-access] ${message}`);
+		console.error(`[owl-web-access] ${message}`);
 		return {};
 	}
 }
@@ -311,15 +301,9 @@ function resolveRequestedProvider(requested: unknown): SearchProviderSelection {
 	return provider;
 }
 
-function toCuratorProvider(provider: SearchProviderSelection): SearchProvider | undefined {
+function toFailureProvider(provider: SearchProviderSelection): SearchProvider | undefined {
 	if (Array.isArray(provider)) return "all";
 	return provider === "auto" ? undefined : provider;
-}
-
-function resolveCuratorSearchProvider(requested: unknown, current: SearchProviderSelection): SearchProviderSelection {
-	const normalized = normalizeProviderInput(requested);
-	if (!normalized || normalized === "auto") return current;
-	return normalized === "all" && Array.isArray(current) ? current : normalized;
 }
 
 function normalizeRecencyFilter(value: unknown): RecencyFilter | undefined {
@@ -328,11 +312,13 @@ function normalizeRecencyFilter(value: unknown): RecencyFilter | undefined {
 		: undefined;
 }
 
-function normalizeCuratorTimeoutSeconds(value: unknown): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	const normalized = Math.floor(value);
-	if (normalized < 1) return undefined;
-	return Math.min(normalized, MAX_CURATOR_TIMEOUT_SECONDS);
+// Workflows the search tool supports. "summary-review" (the retired browser
+// curator) normalizes to "auto-summary" so old configs keep generating summaries.
+const SEARCH_WORKFLOWS = ["none", "auto-summary"] as const;
+type SearchWorkflow = typeof SEARCH_WORKFLOWS[number];
+
+function normalizeSearchWorkflow(value: unknown): SearchWorkflow {
+	return value === "auto-summary" || value === "summary-review" ? "auto-summary" : "none";
 }
 
 function normalizeQueryList(queryList: unknown[]): string[] {
@@ -372,14 +358,6 @@ function expandQueryString(query: unknown): string[] {
 	return [query];
 }
 
-function getCuratorTimeoutSeconds(): number {
-	const source = loadConfig();
-	const explicit = normalizeCuratorTimeoutSeconds(source.curatorTimeoutSeconds);
-	if (explicit !== undefined) return explicit;
-	// Remote users must notice and click a printed link, so allow more idle time.
-	return resolveCuratorNetworkConfig().enabled ? DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS : DEFAULT_CURATOR_TIMEOUT_SECONDS;
-}
-
 export function getSummaryGenerationDeadlineMs(): number {
 	const value = loadConfig().summaryGenerationDeadlineMs;
 	if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
@@ -395,176 +373,8 @@ export function getSummaryInstructions(): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function shouldAutoOpenCuratorBrowser(config: WebSearchConfig): boolean {
-	if (config.autoOpenBrowser === false) return false;
-	if (resolveCuratorNetworkConfig().enabled && config.autoOpenBrowser !== true) return false;
-	return true;
-}
-
-async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
-	const allowedProviders = new Set(getAllowedSearchProviders());
-	const geminiWebAvail = allowedProviders.has("gemini") ? await getOptionalGeminiWebAvailability() : null;
-	const geminiApiAvail = allowedProviders.has("gemini") && isGeminiApiAvailable();
-	const providers = {
-		openai: allowedProviders.has("openai") && await isOpenAISearchAvailable(ctx),
-		brave: allowedProviders.has("brave") && isBraveAvailable(),
-		parallel: allowedProviders.has("parallel") && isParallelAvailable(),
-		"parallel-mcp": allowedProviders.has("parallel-mcp") && isParallelMcpAvailable(),
-		tinyfish: allowedProviders.has("tinyfish") && isTinyFishAvailable(),
-		search1api: allowedProviders.has("search1api") && isSearch1APIAvailable(),
-		searchinfinity: allowedProviders.has("searchinfinity") && isSearchinfinityAvailable(),
-		querit: allowedProviders.has("querit") && isQueritAvailable(),
-		tavily: allowedProviders.has("tavily") && isTavilyAvailable(),
-		you: allowedProviders.has("you") && isYouAvailable(),
-		firecrawl: allowedProviders.has("firecrawl") && isFirecrawlAvailable(),
-		jina: allowedProviders.has("jina") && isJinaSearchAvailable(),
-		serpdive: allowedProviders.has("serpdive") && isSerpdiveAvailable(),
-		kagi: allowedProviders.has("kagi") && isKagiAvailable(),
-		bocha: allowedProviders.has("bocha") && isBochaAvailable(),
-		ollama: allowedProviders.has("ollama") && isOllamaAvailable(),
-		searxng: allowedProviders.has("searxng") && isSearXNGAvailable(),
-		duckduckgo: allowedProviders.has("duckduckgo") && isDuckDuckGoAvailable(),
-		perplexity: allowedProviders.has("perplexity") && isPerplexityAvailable(),
-		exa: allowedProviders.has("exa") && isExaAvailable(),
-		gemini: geminiApiAvail || !!geminiWebAvail,
-		kimi: allowedProviders.has("kimi") && await isKimiSearchAvailable(ctx),
-		anysearch: allowedProviders.has("anysearch") && isAnySearchAvailable(),
-		xcrawl: allowedProviders.has("xcrawl") && isXcrawlAvailable(),
-		xai: allowedProviders.has("xai") && await isXaiSearchAvailable(ctx),
-		mistral: allowedProviders.has("mistral") && isMistralAvailable(),
-		brightdata: allowedProviders.has("brightdata") && isBrightDataAvailable(),
-		serpbase: allowedProviders.has("serpbase") && isSerpBaseAvailable(),
-		serpapi: allowedProviders.has("serpapi") && isSerpApiAvailable(),
-		serper: allowedProviders.has("serper") && isSerperAvailable(),
-		serply: allowedProviders.has("serply") && isSerplyAvailable(),
-		baizhi: allowedProviders.has("baizhi") && isBaizhiAvailable(),
-		zai: allowedProviders.has("zai") && isZaiAvailable(),
-		valyu: allowedProviders.has("valyu") && isValyuAvailable(),
-	};
-	return {
-		all: ALL_SEARCH_PROVIDERS.some(provider => provider === "gemini" ? geminiApiAvail : providers[provider]),
-		...providers,
-	};
-}
-
-async function getOptionalGeminiWebAvailability() {
-	try {
-		return await isGeminiWebAvailable();
-	} catch {
-		return null;
-	}
-}
-
-function shouldPreferOpenAI(options: Pick<PendingCurate, "numResults" | "recencyFilter"> | undefined, preferOpenAICodexDefault: boolean): boolean {
-	if (options?.recencyFilter) return false;
-	if (typeof options?.numResults === "number" && Number.isFinite(options.numResults) && Math.floor(options.numResults) !== 5) {
-		return false;
-	}
-	return preferOpenAICodexDefault;
-}
-
-async function loadCuratorBootstrap(
-	requestedProvider: unknown,
-	ctx: ExtensionContext,
-	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
-): Promise<CuratorBootstrap> {
-	const provider = resolveRequestedProvider(requestedProvider);
-	const availableProviders = await getProviderAvailability(ctx);
-	if (Array.isArray(provider)) availableProviders.all = true;
-	return {
-		availableProviders,
-		defaultProvider: resolveCuratorDefaultProvider(provider, availableProviders, ctx, options),
-		timeoutSeconds: getCuratorTimeoutSeconds(),
-	};
-}
-
-export function resolveCuratorDefaultProvider(
-	provider: SearchProviderSelection,
-	available: ProviderAvailability,
-	ctx?: Parameters<typeof isOpenAISubscriptionModelSelected>[0],
-	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
-): SearchProvider {
-	return resolveProvider(provider, available, options, isOpenAISubscriptionModelSelected(ctx), ctx);
-}
-
-function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: boolean, fallback: ResolvedSearchProvider): ResolvedSearchProvider | "auto" {
-	if (available.searxng) return "searxng";
-	if (preferOpenAI && available.openai) return "openai";
-	if (available.exa) return "exa";
-	for (const provider of ALL_SEARCH_PROVIDERS) {
-		if (provider === "ollama" && available.bocha) return "bocha";
-		if (available[provider]) return provider;
-	}
-	const allowed = getAllowedSearchProviders();
-	return allowed.includes(fallback) ? fallback : "auto";
-}
-
-function resolveProvider(
-	provider: SearchProviderSelection,
-	available: ProviderAvailability,
-	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
-	preferOpenAICodexDefault = false,
-	ctx?: Pick<ExtensionContext, "model">,
-): SearchProvider {
-	if (Array.isArray(provider)) return "all";
-	const preferOpenAI = shouldPreferOpenAI(options, preferOpenAICodexDefault);
-
-	if (provider === "auto") {
-		const routing = getConfiguredSearchRouting();
-		if (routing) {
-			for (const candidate of routing.providers) {
-				if (candidate === "openai" && routing.useCurrentModel === true && !isCurrentModelHostedSearchEligible(ctx)) continue;
-				if (available[candidate]) return candidate;
-			}
-			return routing.providers.find(candidate => candidate !== "openai" || routing.useCurrentModel !== true || isCurrentModelHostedSearchEligible(ctx)) ?? routing.providers[0];
-		}
-		return firstAvailableProvider(available, preferOpenAI, "exa");
-	}
-	if (provider === "all") {
-		return available.all ? "all" : firstAvailableProvider(available, preferOpenAI, "exa");
-	}
-	if (ALL_SEARCH_PROVIDERS.includes(provider) && !available[provider]) {
-		return firstAvailableProvider(available, provider === "openai" ? false : preferOpenAI, provider);
-	}
-	return provider;
-}
-
 const pendingFetches = new Map<string, AbortController>();
 let sessionActive = false;
-let widgetVisible = false;
-let widgetUnsubscribe: (() => void) | null = null;
-const pendingCurates = new Map<string, PendingCurate>();
-const activeCurators = new Map<string, CuratorServerHandle>();
-const glimpseWins = new Map<string, GlimpseWindow>();
-
-interface PendingCurate {
-	phase: "searching" | "curating";
-	workflow: CuratorWorkflow;
-	summaryContext: SummaryGenerationContext;
-	searchResults: Map<number, QueryResultData>;
-	resultSlots: Map<number, number>;
-	allInlineContent: ExtractedContent[];
-	queryList: string[];
-	includeContent: boolean;
-	numResults?: number;
-	recencyFilter?: "day" | "week" | "month" | "year";
-	domainFilter?: string[];
-	availableProviders: ProviderAvailability;
-	defaultProvider: SearchProvider;
-	searchProvider: SearchProviderSelection;
-	summaryModels: Array<{ value: string; label: string }>;
-	defaultSummaryModel: string | null;
-	timeoutSeconds: number;
-	proxy?: string;
-	curatorUrl?: string;
-	onUpdate: ((update: { content: Array<{ type: string; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
-	signal: AbortSignal | undefined;
-	abortSearches: () => void;
-	finish: (value: AgentToolResult<Record<string, unknown>>) => void;
-	cancel: (reason?: "user" | "stale") => void;
-	browserPromise?: Promise<void>;
-	browserOpenError?: string;
-}
 
 
 const DEFAULT_MAX_INLINE_CONTENT_CHARS = 30_000;
@@ -580,11 +390,10 @@ function getMaxInlineContentChars(config = loadConfig()): number {
 }
 
 function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
-	return results.map(({ thumbnail, frames, ...rest }) => rest);
+	return results.map(({ thumbnail, ...rest }) => rest);
 }
 
-function storeFetchResult(pi: { appendEntry(type: string, data: unknown): void }, responseId: string, data: StoredSearchData & { type: "fetch"; urls: ExtractedContent[] }, authProfile?: AuthFetchProfile): boolean {
-	if (authProfile?.cache === "off") return false;
+function storeFetchResult(pi: { appendEntry(type: string, data: unknown): void }, responseId: string, data: StoredSearchData & { type: "fetch"; urls: ExtractedContent[] }): boolean {
 	pi.appendEntry("web-search-results", storeFetchedContentResult(responseId, data));
 	return true;
 }
@@ -695,23 +504,6 @@ function formatSourceCheckResult(artifact: ResearchArtifact, getSearchContentToo
 	return lines.join("\n");
 }
 
-function duplicateQuerySet(results: QueryResultData[]): Set<string> {
-	const counts = new Map<string, number>();
-	for (const result of results) {
-		counts.set(result.query, (counts.get(result.query) ?? 0) + 1);
-	}
-	const duplicates = new Set<string>();
-	for (const [query, count] of counts) {
-		if (count > 1) duplicates.add(query);
-	}
-	return duplicates;
-}
-
-function formatQueryHeader(query: string, provider: string | undefined, duplicateQueries: Set<string>): string {
-	const suffix = duplicateQueries.has(query) && provider ? ` (${provider})` : "";
-	return `## Query: "${query}"${suffix}\n\n`;
-}
-
 function hasFullInlineCoverage(urls: string[], inlineContent: ExtractedContent[] | undefined): boolean {
 	if (!inlineContent || inlineContent.length === 0) return false;
 	const coveredUrls = new Set(inlineContent.map(c => c.url));
@@ -761,251 +553,12 @@ function abortPendingFetches(): void {
 	pendingFetches.clear();
 }
 
-function closeCurator(callId?: string): void {
-	if (callId !== undefined) {
-		const win = glimpseWins.get(callId);
-		glimpseWins.delete(callId);
-		try { win?.close(); } catch {}
-		pendingCurates.get(callId)?.cancel("stale");
-		pendingCurates.delete(callId);
-		const curator = activeCurators.get(callId);
-		activeCurators.delete(callId);
-		try { curator?.close(); } catch {}
-		return;
-	}
-
-	for (const win of glimpseWins.values()) {
-		try { win.close(); } catch {}
-	}
-	glimpseWins.clear();
-	for (const pc of pendingCurates.values()) {
-		try { pc.cancel("stale"); } catch {}
-	}
-	pendingCurates.clear();
-	for (const curator of activeCurators.values()) {
-		try { curator.close(); } catch {}
-	}
-	activeCurators.clear();
-}
-
-async function openInBrowser(pi: ExtensionAPI, url: string): Promise<void> {
-	const plat = platform();
-	if (plat !== "darwin" && plat !== "win32") {
-		await new Promise<void>((resolve, reject) => {
-			const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
-			const timer = setTimeout(resolve, 100);
-			child.once("error", (err) => {
-				clearTimeout(timer);
-				reject(err);
-			});
-			child.once("exit", (code) => {
-				clearTimeout(timer);
-				if (code === 0) resolve();
-				else reject(new Error(`Failed to open browser (exit code ${code ?? "unknown"})`));
-			});
-			child.unref();
-		});
-		return;
-	}
-	const result = plat === "darwin"
-		? await pi.exec("open", [url])
-		: await pi.exec("cmd", ["/c", "start", "", url]);
-	if (result.code !== 0) {
-		throw new Error(result.stderr || `Failed to open browser (exit code ${result.code})`);
-	}
-}
-
-interface GlimpseWindow {
-	on(event: "closed", handler: () => void): void;
-	on(event: "message", handler: (data: unknown) => void): void;
-	on(event: "ready", handler: (info: { screen?: { visibleHeight?: number } }) => void): void;
-	close(): void;
-	_write(obj: Record<string, unknown>): void;
-}
-
-let glimpseOpen: ((html: string, opts: Record<string, unknown>) => GlimpseWindow) | null | undefined;
-
-function findGlimpseMjs(): string | null {
-	try {
-		const req = createRequire(import.meta.url);
-		return req.resolve("glimpseui");
-	} catch {
-		// Optional dependency.
-	}
-	try {
-		const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf-8" }).trim();
-		const entry = join(globalRoot, "glimpseui", "src", "glimpse.mjs");
-		if (existsSync(entry)) return entry;
-	} catch {
-		// npm may be unavailable.
-	}
-	return null;
-}
-
-async function getGlimpseOpen() {
-	if (glimpseOpen !== undefined) return glimpseOpen;
-	const resolved = findGlimpseMjs();
-	if (resolved) {
-		try {
-			glimpseOpen = (await import(resolved)).open;
-			return glimpseOpen;
-		} catch {}
-	}
-	glimpseOpen = null;
-	return glimpseOpen;
-}
-
-function openInGlimpse(
-	open: (html: string, opts: Record<string, unknown>) => GlimpseWindow,
-	url: string,
-	title: string,
-): GlimpseWindow {
-	const shellHTML = `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>${title}</title></head>
-<body style="margin:0; background:#1a1a2e;">
-  <script>window.location.replace(${JSON.stringify(url)});</script>
-</body>
-</html>`;
-	const win = open(shellHTML, {
-		width: 800,
-		height: 900,
-		title,
-	});
-
-	let maxHeight = 1200;
-	win.on("ready", (info) => {
-		const visibleHeight = info?.screen?.visibleHeight;
-		if (typeof visibleHeight === "number" && visibleHeight > 0) {
-			maxHeight = Math.floor(visibleHeight * 0.85);
-		}
-	});
-	win.on("message", (data) => {
-		if (!data || typeof data !== "object") return;
-		const msg = data as Record<string, unknown>;
-		if (msg.type !== "resize" || typeof msg.height !== "number") return;
-		const clamped = Math.max(400, Math.min(Math.round(msg.height), maxHeight));
-		win._write({ type: "resize", width: 800, height: clamped });
-	});
-
-	return win;
-}
-
-function extractDomain(url: string): string {
-	try { return new URL(url).hostname; }
-	catch { return url; }
-}
-
-function toCuratorSearchEntries(response: AttributedSearchResponse): CuratorSearchEntry[] {
-	const providerResponses = response.provider === "all" && response.providerResponses?.length
-		? response.providerResponses
-		: [response];
-	const entries: CuratorSearchEntry[] = providerResponses.map(result => ({
-		answer: result.answer,
-		results: result.results.map(source => ({ ...source, domain: extractDomain(source.url) })),
-		provider: result.provider,
-	}));
-	for (const failure of response.providerErrors ?? []) {
-		entries.push({
-			answer: "",
-			results: [],
-			provider: failure.provider,
-			error: failure.error,
-		});
-	}
-	return entries;
-}
-
-function indexedCuratorEntryToQueryResult(entry: IndexedCuratorSearchEntry): QueryResultData {
-	return {
-		query: entry.query,
-		answer: entry.answer,
-		results: entry.results.map(source => ({
-			title: source.title,
-			url: source.url,
-			snippet: source.snippet ?? "",
-		})),
-		error: entry.error ?? null,
-		provider: entry.provider,
-	};
-}
-
-function updateWidget(ctx: ExtensionContext): void {
-	const theme = ctx.ui.theme;
-	const entries = activityMonitor.getEntries();
-	const lines: string[] = [];
-
-	lines.push(theme.fg("accent", "─── Web Search Activity " + "─".repeat(36)));
-
-	if (entries.length === 0) {
-		lines.push(theme.fg("muted", "  No activity yet"));
-	} else {
-		for (const e of entries) {
-			lines.push("  " + formatEntryLine(e, theme));
-		}
-	}
-
-	lines.push(theme.fg("accent", "─".repeat(60)));
-
-	const rateInfo = activityMonitor.getRateLimitInfo();
-	const resetMs = rateInfo.oldestTimestamp ? Math.max(0, rateInfo.oldestTimestamp + rateInfo.windowMs - Date.now()) : 0;
-	const resetSec = Math.ceil(resetMs / 1000);
-	lines.push(
-		theme.fg("muted", `Rate: ${rateInfo.used}/${rateInfo.max}`) +
-			(resetMs > 0 ? theme.fg("dim", ` (resets in ${resetSec}s)`) : ""),
-	);
-
-	ctx.ui.setWidget("web-activity", lines);
-}
-
-function formatEntryLine(
-	entry: ActivityEntry,
-	theme: ExtensionTheme,
-): string {
-	const typeStr = entry.type === "api" ? "API" : "GET";
-	const target =
-		entry.type === "api"
-			? `"${truncateToWidth(entry.query || "", 28, "")}"`
-			: truncateToWidth(entry.url?.replace(/^https?:\/\//, "") || "", 30, "");
-
-	const duration = entry.endTime
-		? `${((entry.endTime - entry.startTime) / 1000).toFixed(1)}s`
-		: `${((Date.now() - entry.startTime) / 1000).toFixed(1)}s`;
-
-	let statusStr: string;
-	let indicator: string;
-	if (entry.error) {
-		statusStr = "err";
-		indicator = theme.fg("error", "✗");
-	} else if (entry.status === null) {
-		statusStr = "...";
-		indicator = theme.fg("warning", "⋯");
-	} else if (entry.status === 0) {
-		statusStr = "abort";
-		indicator = theme.fg("muted", "○");
-	} else {
-		statusStr = String(entry.status);
-		indicator = entry.status >= 200 && entry.status < 300 ? theme.fg("success", "✓") : theme.fg("error", "✗");
-	}
-
-	return `${typeStr.padEnd(4)} ${target.padEnd(32)} ${statusStr.padStart(5)} ${duration.padStart(5)} ${indicator}`;
-}
-
 function handleSessionChange(ctx: ExtensionContext): void {
 	abortPendingFetches();
-	closeCurator();
 	clearCloneCache();
 	sessionActive = true;
 	restoreFromSession(ctx);
-	// Unsubscribe before clear() to avoid callback with stale ctx
-	widgetUnsubscribe?.();
-	widgetUnsubscribe = null;
 	activityMonitor.clear();
-	if (widgetVisible) {
-		// Re-subscribe with new ctx
-		widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
-		updateWidget(ctx);
-	}
 }
 
 export default function (pi: ExtensionAPI) {
@@ -1023,7 +576,6 @@ export default function (pi: ExtensionAPI) {
 		: allExcludedProviders.length > 0
 		? `all searches eligible allowed providers (${allEligibleProviders.map(providerLabel).join(", ")}); explicit-only allowed providers (${allExcludedProviders.map(providerLabel).join(", ")}) remain excluded`
 		: `all searches every eligible allowed provider (${allEligibleProviders.map(providerLabel).join(", ")})`;
-	const curatorRunState = registerCuratorRunLifecycle(pi);
 	const toolNames = resolveToolNames(initConfig);
 	const webSearchEnabled = isToolEnabled(initConfig, "webSearch");
 	const sourceCheckEnabled = isToolEnabled(initConfig, "sourceCheck");
@@ -1049,8 +601,6 @@ export default function (pi: ExtensionAPI) {
 	const fetchModeDescription = fetchModeConfig.allowedModes
 		.map(mode => `${mode}${mode === fetchModeConfig.defaultMode ? " (default)" : ""}: ${FETCH_MODE_DESCRIPTIONS[mode]}`)
 		.join("; ");
-	const curateKey = initConfig.shortcuts?.curate || DEFAULT_SHORTCUTS.curate;
-	const activityKey = initConfig.shortcuts?.activity || DEFAULT_SHORTCUTS.activity;
 
 	function startBackgroundFetch(urls: string[], proxy?: string): string | null {
 		if (urls.length === 0) return null;
@@ -1118,119 +668,13 @@ export default function (pi: ExtensionAPI) {
 		urls: string[];
 		includeContent: boolean;
 		inlineContent?: ExtractedContent[];
-		curated?: boolean;
-		curatedFrom?: number;
 		workflow?: SummaryWorkflow;
 		approvedSummary?: string;
 		summaryMeta?: SummaryMeta;
 		proxy?: string;
 	}
 
-	function normalizeSummaryMeta(meta: SummaryMeta | undefined, summaryText: string): SummaryMeta {
-		const normalizedText = summaryText.trim();
-		if (!meta) {
-			return {
-				model: null,
-				durationMs: 0,
-				tokenEstimate: normalizedText.length > 0 ? Math.max(1, Math.ceil(normalizedText.length / 4)) : 0,
-				fallbackUsed: false,
-				edited: false,
-			};
-		}
-
-		return {
-			model: meta.model,
-			durationMs: Number.isFinite(meta.durationMs) && meta.durationMs >= 0 ? meta.durationMs : 0,
-			tokenEstimate: Number.isFinite(meta.tokenEstimate) && meta.tokenEstimate >= 0
-				? meta.tokenEstimate
-				: (normalizedText.length > 0 ? Math.max(1, Math.ceil(normalizedText.length / 4)) : 0),
-			fallbackUsed: meta.fallbackUsed === true,
-			fallbackReason: meta.fallbackReason,
-			phase: meta.phase,
-			edited: meta.edited === true,
-		};
-	}
-
-	function buildCurationCancelledReturn(
-		reason: "user" | "stale",
-		partial?: {
-			queries?: QueryResultData[];
-			queryCount?: number;
-			browserConnected?: boolean;
-			lastHeartbeatAgeMs?: number | null;
-			curatorUrl?: string;
-			browserOpenError?: string;
-		},
-	): AgentToolResult<Record<string, unknown>> {
-		const message = `Search curation cancelled (${reason}).`;
-		const cancelledQueries = partial?.queries?.length
-			? partial.queries.map(q => ({
-				query: q.query,
-				provider: q.provider ?? null,
-				error: q.error,
-				resultCount: q.results?.length ?? 0,
-			}))
-			: undefined;
-		const extraLines: string[] = [];
-		if (partial?.curatorUrl) extraLines.push(`curator: ${partial.curatorUrl}`);
-		if (partial?.browserOpenError) extraLines.push(`browser open error: ${partial.browserOpenError}`);
-		return {
-			content: [{ type: "text", text: message }],
-			details: {
-				error: message,
-				cancelled: true,
-				cancelReason: reason,
-				browserConnected: partial?.browserConnected,
-				lastHeartbeatAgeMs: partial?.lastHeartbeatAgeMs,
-				queryCount: partial?.queryCount,
-				cancelledQueries,
-				extraLines: extraLines.length > 0 ? extraLines : undefined,
-			},
-		};
-	}
-
-	async function generateSummaryForSelectedIndices(
-		selectedQueryIndices: number[],
-		resultsByIndex: Map<number, QueryResultData>,
-		summaryContext: SummaryGenerationContext,
-		signal?: AbortSignal,
-		modelOverride?: string,
-		feedback?: string,
-	): Promise<{ summary: string; meta: SummaryMeta }> {
-		const selectedResults: QueryResultData[] = [];
-		for (const qi of selectedQueryIndices) {
-			const result = resultsByIndex.get(qi);
-			if (result) selectedResults.push(result);
-		}
-		if (selectedResults.length === 0) {
-			throw new Error("No selected results available for summary generation");
-		}
-		try {
-			return await generateSummaryDraft(
-				selectedResults,
-				summaryContext,
-				signal,
-				modelOverride,
-				feedback,
-				undefined,
-				getSummaryGenerationDeadlineMs(),
-				getSummaryInstructions(),
-			);
-		} catch (err) {
-			const isEmptyResponse = err instanceof Error && err.message.includes("Summary model returned empty response");
-			if (!isEmptyResponse) throw err;
-			const deterministic = buildDeterministicSummary(selectedResults);
-			return {
-				summary: deterministic.summary,
-				meta: {
-					...deterministic.meta,
-					fallbackReason: "summary-model-empty-response",
-				},
-			};
-		}
-	}
-
-	async function loadSummaryModelChoices(
+	function loadSummaryModelChoices(
 		summaryContext: SummaryGenerationContext,
 	): Promise<{ summaryModels: Array<{ value: string; label: string }>; defaultSummaryModel: string | null }> {
 		const summaryModels: Array<{ value: string; label: string }> = [];
@@ -1306,27 +750,6 @@ export default function (pi: ExtensionAPI) {
 		return { summaryModels, defaultSummaryModel };
 	}
 
-	function resolveSummaryForSubmit(
-		payload: { selectedQueryIndices: number[]; summary?: string; summaryMeta?: SummaryMeta },
-		resultsByIndex: Map<number, QueryResultData>,
-	): { approvedSummary: string; summaryMeta: SummaryMeta } {
-		const submittedSummary = typeof payload.summary === "string" ? payload.summary.trim() : "";
-		if (submittedSummary.length > 0) {
-			return {
-				approvedSummary: submittedSummary,
-				summaryMeta: normalizeSummaryMeta(payload.summaryMeta, submittedSummary),
-			};
-		}
-
-		const selected = filterByQueryIndices(payload.selectedQueryIndices, resultsByIndex).results;
-		const fallbackResults = selected.length > 0 ? selected : orderedSearchResults(resultsByIndex);
-		const deterministic = buildDeterministicSummary(fallbackResults);
-		return {
-			approvedSummary: deterministic.summary,
-			summaryMeta: deterministic.meta,
-		};
-	}
-
 	function buildSearchReturn(opts: SearchReturnOptions): AgentToolResult<Record<string, unknown>> {
 		const sc = opts.results.filter(r => !r.error).length;
 		const tr = opts.results.reduce((sum, r) => sum + r.results.length, 0);
@@ -1337,9 +760,6 @@ export default function (pi: ExtensionAPI) {
 		if (hasApprovedSummary) {
 			output = opts.approvedSummary!.trim();
 		} else {
-			if (opts.curated) {
-				output += "[These results were manually curated by the user in the browser. Use them as-is — do not re-search or discard.]\n\n";
-			}
 			const providerNames = opts.results.map(result => {
 				const providers = result.providers ?? (result.provider ? [result.provider] : []);
 				return providers.join(", ") || "unknown";
@@ -1347,12 +767,9 @@ export default function (pi: ExtensionAPI) {
 			output += opts.results.length === 1
 				? `**Provider:** ${providerNames[0]}\n\n`
 				: `**Providers used:** ${providerNames.map((name, index) => `Query ${index + 1}: ${name}`).join("; ")}\n\n`;
-			const duplicateQueries = opts.curated ? duplicateQuerySet(opts.results) : new Set<string>();
-			for (const { query, answer, results, error, provider } of opts.results) {
+			for (const { query, answer, results, error } of opts.results) {
 				if (opts.queryList.length > 1) {
-					output += opts.curated
-						? formatQueryHeader(query, provider, duplicateQueries)
-						: `## Query: "${query}"\n\n`;
+					output += `## Query: "${query}"\n\n`;
 				}
 				if (error) output += `Error: ${error}\n\n`;
 				else output += formatSearchSummary(results, answer) + "\n\n";
@@ -1418,17 +835,6 @@ export default function (pi: ExtensionAPI) {
 				originalChars: presentation.originalChars,
 				returnedChars: presentation.returnedChars,
 				omittedChars: presentation.omittedChars,
-				...(opts.curated ? {
-					curated: true,
-					curatedFrom: opts.curatedFrom,
-					curatedQueries: opts.results.map(r => ({
-						query: r.query,
-						provider: r.provider || null,
-						answer: r.answer || null,
-						sources: r.results.map(s => ({ title: s.title, url: s.url })),
-						error: r.error,
-					})),
-				} : {}),
 				...((opts.workflow && hasApprovedSummary)
 					? {
 						summary: {
@@ -1448,328 +854,22 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
-	function filterByQueryIndices(selectedQueryIndices: number[], results: Map<number, QueryResultData>) {
-		const filteredResults: QueryResultData[] = [];
-		const filteredUrls: string[] = [];
-		for (const qi of selectedQueryIndices) {
-			const r = results.get(qi);
-			if (r) {
-				filteredResults.push(r);
-				for (const res of r.results) {
-					if (!filteredUrls.includes(res.url)) filteredUrls.push(res.url);
-				}
-			}
-		}
-		return { results: filteredResults, urls: filteredUrls };
-	}
-
-	function orderedSearchResults(resultsByIndex: Map<number, QueryResultData>): QueryResultData[] {
-		return [...resultsByIndex.entries()]
-			.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
-			.map(([, result]) => result);
-	}
-
-	function collectAllResultsAndUrls(resultsByIndex: Map<number, QueryResultData>) {
-		const results = orderedSearchResults(resultsByIndex);
-		const urls: string[] = [];
-		for (const result of results) {
-			for (const source of result.results) {
-				if (!urls.includes(source.url)) urls.push(source.url);
-			}
-		}
-		return { results, urls };
-	}
-
-	async function openCuratorBrowser(callId: string, pc: PendingCurate, ctx: ExtensionContext, searchesComplete = true): Promise<void> {
-		if (pendingCurates.get(callId) !== pc) return;
-		let handle: CuratorServerHandle | null = null;
-		const sendCuratorFallbackUpdate = (message: string) => {
-			if (!handle) return;
-			pc.onUpdate?.({
-				content: [{ type: "text", text: `${message}\nOpen manually: ${handle.url}` }],
-				details: {
-					phase: "curator-fallback",
-					progress: searchesComplete ? 1 : 0.5,
-					curatorUrl: handle.url,
-					timeoutSeconds: pc.timeoutSeconds,
-					shortcut: curateKey,
-					browserOpenError: pc.browserOpenError,
-				},
-			});
-		};
-		try {
-			pc.phase = "curating";
-
-			const searchAbort = new AbortController();
-			const addSearchSignal = pc.signal
-				? AbortSignal.any([pc.signal, searchAbort.signal])
-				: searchAbort.signal;
-
-			const sessionToken = randomUUID();
-			handle = await startCuratorServer(
-				{
-					queries: pc.queryList,
-					initialResultIndexCapacity: curatorResultIndexCapacity(pc.queryList.length),
-					sessionToken,
-					timeout: pc.timeoutSeconds,
-					availableProviders: pc.availableProviders,
-					defaultProvider: pc.defaultProvider,
-					searchProvider: toCuratorProvider(pc.searchProvider) ?? "auto",
-					summaryModels: pc.summaryModels,
-					defaultSummaryModel: pc.defaultSummaryModel,
-				},
-				{
-					async onSummarize(selectedQueryIndices, summarizeSignal, model, feedback) {
-						return runWithProxy(pc.proxy, async () => {
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							pc.onUpdate?.({
-								content: [{ type: "text", text: "Generating summary draft..." }],
-								details: { phase: "generating-summary", progress: 0.9, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
-							});
-							const draft = await generateSummaryForSelectedIndices(
-								selectedQueryIndices,
-								pc.searchResults,
-								pc.summaryContext,
-								summarizeSignal,
-								model,
-								feedback,
-							);
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							pc.onUpdate?.({
-								content: [{ type: "text", text: "Summary draft ready — waiting for approval..." }],
-								details: { phase: "waiting-for-approval", progress: 1, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
-							});
-							return draft;
-						});
-					},
-					onSubmit(payload) {
-						if (pendingCurates.get(callId) !== pc) return;
-						if (payload.autoApproveRemainingSearches) curatorRunState.approveRemainingSearches();
-						searchAbort.abort();
-						const filtered = payload.selectedQueryIndices.length > 0
-							? filterByQueryIndices(payload.selectedQueryIndices, pc.searchResults)
-							: collectAllResultsAndUrls(pc.searchResults);
-						const filteredInline = pc.allInlineContent.filter(c => filtered.urls.includes(c.url));
-						const base: SearchReturnOptions = {
-							queryList: filtered.results.map(r => r.query),
-							results: filtered.results,
-							urls: filtered.urls,
-							includeContent: pc.includeContent,
-							inlineContent: filteredInline.length > 0 ? filteredInline : undefined,
-							curated: true,
-							curatedFrom: pc.searchResults.size,
-							proxy: pc.proxy,
-						};
-						if (!payload.rawResults) {
-							const resolvedSummary = resolveSummaryForSubmit(payload, pc.searchResults);
-							base.workflow = pc.workflow;
-							base.approvedSummary = resolvedSummary.approvedSummary;
-							base.summaryMeta = resolvedSummary.summaryMeta;
-						}
-						pc.finish(buildSearchReturn(base));
-						closeCurator(callId);
-					},
-					onCancel(reason) {
-						if (pendingCurates.get(callId) !== pc) return;
-						searchAbort.abort();
-						if (reason === "timeout") {
-							const resolvedSummary = resolveSummaryForSubmit({ selectedQueryIndices: [], summary: undefined, summaryMeta: undefined }, pc.searchResults);
-							const all = collectAllResultsAndUrls(pc.searchResults);
-							const filteredInline = pc.allInlineContent.filter(c => all.urls.includes(c.url));
-							pc.finish(buildSearchReturn({
-								queryList: all.results.map(r => r.query),
-								results: all.results,
-								urls: all.urls,
-								includeContent: pc.includeContent,
-								inlineContent: filteredInline.length > 0 ? filteredInline : undefined,
-								curated: true,
-								curatedFrom: pc.searchResults.size,
-								workflow: pc.workflow,
-								approvedSummary: resolvedSummary.approvedSummary,
-								summaryMeta: resolvedSummary.summaryMeta,
-								proxy: pc.proxy,
-							}));
-						} else {
-							const conn = activeCurators.get(callId)?.getConnectionState();
-							pc.finish(buildCurationCancelledReturn(reason, {
-								queries: orderedSearchResults(pc.searchResults),
-								queryCount: pc.queryList.length,
-								browserConnected: conn?.browserConnected,
-								lastHeartbeatAgeMs: conn?.lastHeartbeatAgeMs,
-								curatorUrl: pc.curatorUrl,
-								browserOpenError: pc.browserOpenError,
-							}));
-						}
-						closeCurator(callId);
-					},
-					onProviderChange(provider) {
-						if (pendingCurates.get(callId) !== pc) return;
-						const normalized = normalizeProviderInput(provider);
-						if (!normalized || normalized === "auto" || Array.isArray(normalized)) return;
-						pc.defaultProvider = normalized;
-						pc.searchProvider = normalized;
-						try {
-							saveConfig({ provider: normalized });
-						} catch (err) {
-							const message = err instanceof Error ? err.message : String(err);
-							console.error(`Failed to persist default provider: ${message}`);
-						}
-					},
-					async onAddSearch(query, provider) {
-						return runWithProxy(pc.proxy, async () => {
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							const requestedProvider = resolveCuratorSearchProvider(provider, pc.searchProvider);
-							const response = await search(query, {
-								provider: requestedProvider,
-								numResults: pc.numResults,
-								recencyFilter: pc.recencyFilter,
-								domainFilter: pc.domainFilter,
-								includeContent: pc.includeContent,
-								signal: addSearchSignal,
-								extensionContext: ctx,
-							});
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
-							return toCuratorSearchEntries(response);
-						});
-					},
-					onAddSearchResults(entries) {
-						if (pendingCurates.get(callId) !== pc) return;
-						for (const entry of entries) {
-							pc.searchResults.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
-						}
-					},
-					async onRewriteQuery(query, rewriteSignal) {
-						return runWithProxy(pc.proxy, async () => {
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							return rewriteSearchQuery(query, pc.summaryContext, rewriteSignal);
-						});
-					},
-				},
-			);
-
-			if (pendingCurates.get(callId) !== pc) {
-				handle.close();
-				return;
-			}
-
-			activeCurators.set(callId, handle);
-			pc.curatorUrl = handle.url;
-
-			for (const [qi, data] of pc.searchResults) {
-				const slotIndex = pc.resultSlots.get(qi);
-				if (data.error) {
-					handle.pushError(qi, data.error, data.provider, { query: data.query, slotIndex });
-				} else {
-					handle.pushResult(qi, {
-						answer: data.answer,
-						results: data.results.map(r => ({ ...r, domain: extractDomain(r.url) })),
-						provider: data.provider || pc.defaultProvider,
-						query: data.query,
-						slotIndex,
-					});
-				}
-			}
-			if (searchesComplete) handle.searchesDone();
-
-			pc.onUpdate?.({
-				content: [{ type: "text", text: searchesComplete ? "Waiting for summary approval in browser..." : "Searches streaming to browser..." }],
-				details: {
-					phase: "curating",
-					progress: searchesComplete ? 1 : 0.5,
-					curatorUrl: handle.url,
-					timeoutSeconds: pc.timeoutSeconds,
-					shortcut: curateKey,
-				},
-			});
-
-			if (!shouldAutoOpenCuratorBrowser(loadConfig())) {
-				sendCuratorFallbackUpdate("Search curator is running. Open the curator URL manually.");
-				return;
-			}
-
-			const open = platform() === "darwin" ? await getGlimpseOpen() : null;
-			if (open) {
-				try {
-					const win = openInGlimpse(open, handle.url, "Search Curator");
-					glimpseWins.set(callId, win);
-					win.on("closed", () => {
-						if (glimpseWins.get(callId) === win) {
-							glimpseWins.delete(callId);
-							closeCurator(callId);
-						}
-					});
-					return;
-				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err);
-					console.error(`Failed to open Glimpse curator window: ${message}`);
-					glimpseWins.delete(callId);
-				}
-			}
-			await openInBrowser(pi, handle.url);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`Failed to open curator UI: ${message}`);
-			if (handle && activeCurators.get(callId) === handle && pendingCurates.get(callId) === pc) {
-				pc.browserOpenError = message;
-				sendCuratorFallbackUpdate("Search curator is running, but the browser did not open automatically.");
-			} else if (pendingCurates.get(callId) === pc || (handle && activeCurators.get(callId) === handle)) {
-				closeCurator(callId);
-			}
-		}
-	}
-
-	pi.registerShortcut(curateKey, {
-		description: "Review search results",
-		handler: async (ctx) => {
-			const entries = [...pendingCurates.entries()];
-			if (entries.length === 0) return;
-			const [callId, pc] = entries[entries.length - 1];
-
-			if (pc.phase === "searching") {
-				pc.browserPromise = openCuratorBrowser(callId, pc, ctx, false);
-				ctx.ui.notify("Opening curator — remaining searches will stream in", "info");
-				return;
-			}
-		},
-	});
-
-	pi.registerShortcut(activityKey, {
-		description: "Toggle web search activity",
-		handler: async (ctx) => {
-			widgetVisible = !widgetVisible;
-			if (widgetVisible) {
-				widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
-				updateWidget(ctx);
-			} else {
-				widgetUnsubscribe?.();
-				widgetUnsubscribe = null;
-				ctx.ui.setWidget("web-activity", undefined);
-			}
-		},
-	});
-
 	pi.on("session_start", async (_event, ctx) => handleSessionChange(ctx));
 	pi.on("session_tree", async (_event, ctx) => handleSessionChange(ctx));
 
 	pi.on("session_shutdown", () => {
 		sessionActive = false;
 		abortPendingFetches();
-		closeCurator();
 		clearCloneCache();
 		clearResults();
-		// Unsubscribe before clear() to avoid callback with stale ctx
-		widgetUnsubscribe?.();
-		widgetUnsubscribe = null;
 		activityMonitor.clear();
-		widgetVisible = false;
 	});
 
 	if (webSearchEnabled) pi.registerTool({
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web with ${allowedSearchProviders.map(providerLabel).join(", ")}. Provider arrays run simultaneously; ${allPolicyDescription}. The default workflow is none: it returns bounded source-linked search results or provider answers without a curator or generated summary, identifies the providers used, and stores full results for retrieval by responseId. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query. When includeContent is true, full page content is fetched in the background. Set workflow to "summary-review" to open the curator with an auto-generated summary draft or "auto-summary" to generate a summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it.`,
+			`Search the web with ${allowedSearchProviders.map(providerLabel).join(", ")}. Provider arrays run simultaneously; ${allPolicyDescription}. The default workflow is none: it returns bounded source-linked search results or provider answers without a generated summary, identifies the providers used, and stores full results for retrieval by responseId. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query. When includeContent is true, full page content is fetched in the background. Set workflow to "auto-summary" to generate a grounded summary of the results with a separate model call. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1783,8 +883,8 @@ export default function (pi: ExtensionAPI) {
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(searchProviderSchema(`Search provider or non-empty list of allowed providers to search simultaneously; ${allPolicyDescription}; omit this field to use the configured provider, or use auto when none is configured`, allowedSearchProviders)),
 			workflow: Type.Optional(
-				StringEnum(["none", "summary-review", "auto-summary"], {
-					description: "Search workflow mode: none = no curator (default), summary-review = open curator with auto summary draft, auto-summary = generate summary without opening curator",
+				StringEnum(SEARCH_WORKFLOWS, {
+					description: "Search workflow mode: none = return raw results (default), auto-summary = generate a grounded summary of the search results",
 				}),
 			),
 			proxy: Type.Optional(Type.String({
@@ -1792,15 +892,16 @@ export default function (pi: ExtensionAPI) {
 			})),
 		}),
 
-		async execute(callId, params, signal, onUpdate, ctx) {
+		async execute(_callId, params, signal, onUpdate, ctx) {
 			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 				const rawQueryList: unknown[] = Array.isArray(params.queries)
 					? params.queries
 					: (params.query !== undefined ? expandQueryString(params.query) : []);
 				const queryList = normalizeQueryList(rawQueryList);
 				const configWorkflow = loadConfigForExtensionInit().workflow;
-				const workflow = curatorRunState.resolve(params.workflow, configWorkflow, ctx?.hasUI !== false);
-				const shouldCurate = workflow === "summary-review";
+				const workflow = params.workflow !== undefined
+					? normalizeSearchWorkflow(params.workflow)
+					: normalizeSearchWorkflow(configWorkflow);
 				const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
 
 				if (queryList.length === 0) {
@@ -1810,207 +911,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
-				if (shouldCurate && !ctx) {
-					return {
-						content: [{ type: "text", text: "Error: Curation requires an active extension context." }],
-						details: { error: "Missing extension context" },
-					};
-				}
-
-				if (shouldCurate) {
-				closeCurator(callId);
-
-				let resolvePromise: (value: AgentToolResult<Record<string, unknown>>) => void = () => {};
-				const promise = new Promise<AgentToolResult<Record<string, unknown>>>((resolve) => {
-					resolvePromise = resolve;
-				});
-				const includeContent = params.includeContent ?? false;
-				const searchResults = new Map<number, QueryResultData>();
-				const resultSlots = new Map<number, number>();
-				const allInlineContent: ExtractedContent[] = [];
-				const searchAbort = new AbortController();
-				const searchSignal = signal
-					? AbortSignal.any([signal, searchAbort.signal])
-					: searchAbort.signal;
-				let cancelled = false;
-
-				const requestedProvider = resolveRequestedProvider(params.provider);
-				const bootstrap = await loadCuratorBootstrap(requestedProvider, ctx, {
-					numResults: params.numResults,
-					recencyFilter,
-				});
-				const availableProviders = bootstrap.availableProviders;
-				const defaultProvider = bootstrap.defaultProvider;
-				const searchProvider = requestedProvider;
-				const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
-				const curatorWorkflow: CuratorWorkflow = "summary-review";
-
-				const summaryContext: SummaryGenerationContext = {
-					model: ctx.model,
-					modelRegistry: ctx.modelRegistry,
-					sessionManager: ctx.sessionManager,
-					scopedModels: ctx.scopedModels,
-				};
-				const summaryModelChoices = await loadSummaryModelChoices(summaryContext);
-
-				const pc: PendingCurate = {
-					phase: "searching",
-					workflow: curatorWorkflow,
-					summaryContext,
-					searchResults,
-					resultSlots,
-					allInlineContent,
-					queryList,
-					includeContent,
-					numResults: params.numResults,
-					recencyFilter,
-					domainFilter: params.domainFilter,
-					availableProviders,
-					defaultProvider,
-					searchProvider,
-					summaryModels: summaryModelChoices.summaryModels,
-					defaultSummaryModel: summaryModelChoices.defaultSummaryModel,
-					timeoutSeconds: curatorTimeoutSeconds,
-					proxy: typeof params.proxy === "string" ? params.proxy : undefined,
-					onUpdate: onUpdate as PendingCurate["onUpdate"],
-					signal,
-					abortSearches: () => {
-						if (!searchAbort.signal.aborted) searchAbort.abort();
-					},
-					finish: () => {},
-					cancel: () => {},
-				};
-
-				const finish = (value: AgentToolResult<Record<string, unknown>>) => {
-					if (cancelled) return;
-					cancelled = true;
-					pc.abortSearches();
-					signal?.removeEventListener("abort", onAbort);
-					pendingCurates.delete(callId);
-					resolvePromise(value);
-				};
-
-				const cancel = (reason: "user" | "stale" = "stale") => {
-					if (cancelled) return;
-					const conn = activeCurators.get(callId)?.getConnectionState();
-					finish(buildCurationCancelledReturn(reason, {
-						queries: orderedSearchResults(searchResults),
-						queryCount: queryList.length,
-						browserConnected: conn?.browserConnected,
-						lastHeartbeatAgeMs: conn?.lastHeartbeatAgeMs,
-						curatorUrl: pc.curatorUrl,
-						browserOpenError: pc.browserOpenError,
-					}));
-				};
-
-				pc.finish = finish;
-				pc.cancel = cancel;
-
-				const onAbort = () => closeCurator(callId);
-				pendingCurates.set(callId, pc);
-				signal?.addEventListener("abort", onAbort, { once: true });
-				pc.browserPromise = openCuratorBrowser(callId, pc, ctx, false);
-
 				let completedSearches = 0;
-				await runSearchQueries(queryList, async (query, qi) => {
-					if (signal?.aborted || cancelled || searchAbort.signal.aborted) return;
-					onUpdate?.({
-						content: [{ type: "text", text: `Searching "${query}" (${completedSearches}/${queryList.length} complete)...` }],
-						details: { phase: "searching", progress: completedSearches / queryList.length, currentQuery: query },
-					});
-					const requestedProvider = pc.searchProvider;
-					try {
-						const response = await search(query, {
-							provider: requestedProvider,
-							numResults: params.numResults,
-							recencyFilter,
-							domainFilter: params.domainFilter,
-							includeContent: params.includeContent,
-							signal: searchSignal,
-							extensionContext: ctx,
-						});
-						if (signal?.aborted || cancelled || searchAbort.signal.aborted) return;
-						if (response.inlineContent) allInlineContent.push(...response.inlineContent);
-						const entries = toCuratorSearchEntries(response);
-						const curator = activeCurators.get(callId);
-						for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-							const entry = entries[entryIndex];
-							const resultIndex = curatorResultIndex(qi, entryIndex, queryList.length);
-							const indexedEntry: IndexedCuratorSearchEntry = {
-								...entry,
-								queryIndex: resultIndex,
-								query,
-							};
-							searchResults.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
-							resultSlots.set(resultIndex, qi);
-							if (curator) {
-								if (entry.error) {
-									curator.pushError(resultIndex, entry.error, entry.provider, { query, slotIndex: qi });
-								} else {
-									curator.pushResult(resultIndex, { ...entry, query, slotIndex: qi });
-								}
-							}
-						}
-					} catch (err) {
-						if (signal?.aborted || cancelled || searchAbort.signal.aborted) return;
-						const message = err instanceof Error ? err.message : String(err);
-						const failedProvider = toCuratorProvider(requestedProvider);
-						searchResults.set(qi, { query, answer: "", results: [], error: message, provider: failedProvider });
-						resultSlots.set(qi, qi);
-						const curator = activeCurators.get(callId);
-						if (curator) {
-							curator.pushError(qi, message, failedProvider, { query, slotIndex: qi });
-						}
-					} finally {
-						completedSearches++;
-						if (!signal?.aborted && !cancelled && !searchAbort.signal.aborted) {
-							onUpdate?.({
-								content: [{ type: "text", text: `Completed ${completedSearches}/${queryList.length} searches.` }],
-								details: { phase: "searching", progress: completedSearches / queryList.length, currentQuery: query },
-							});
-						}
-					}
-				});
-
-				if (signal?.aborted || cancelled || searchAbort.signal.aborted) {
-					cancel();
-					return promise;
-				}
-
-				await pc.browserPromise;
-				const curator = activeCurators.get(callId);
-				if (curator && !cancelled) {
-					curator.searchesDone();
-					if (pc.browserOpenError) {
-						pc.onUpdate?.({
-							content: [{ type: "text", text: `All searches complete. Open the curator manually: ${pc.curatorUrl}` }],
-							details: {
-								phase: "curator-fallback",
-								progress: 1,
-								curatorUrl: pc.curatorUrl,
-								timeoutSeconds: pc.timeoutSeconds,
-								shortcut: curateKey,
-								browserOpenError: pc.browserOpenError,
-							},
-						});
-					} else {
-						pc.onUpdate?.({
-							content: [{ type: "text", text: "All searches complete — waiting for summary approval in browser..." }],
-							details: {
-								phase: "curating",
-								progress: 1,
-								curatorUrl: pc.curatorUrl,
-								timeoutSeconds: pc.timeoutSeconds,
-								shortcut: curateKey,
-							},
-						});
-					}
-				}
-
-				return promise;
-			}
-
-			let completedSearches = 0;
 			const allUrls: string[] = [];
 			const allInlineContent: ExtractedContent[] = [];
 			const resolvedProvider = resolveRequestedProvider(params.provider);
@@ -2038,9 +939,9 @@ export default function (pi: ExtensionAPI) {
 				} catch (err) {
 					if (signal?.aborted || isAbortError(err)) throw err;
 					const message = err instanceof Error ? err.message : String(err);
-					const requestedProvider = toCuratorProvider(resolvedProvider);
+					const failedProvider = toFailureProvider(resolvedProvider);
 					return {
-						result: { query, answer: "", results: [], error: message, provider: requestedProvider } satisfies QueryResultData,
+						result: { query, answer: "", results: [], error: message, provider: failedProvider } satisfies QueryResultData,
 						inlineContent: undefined,
 					};
 				} finally {
@@ -2081,18 +982,26 @@ export default function (pi: ExtensionAPI) {
 					scopedModels: ctx.scopedModels,
 				};
 				const summaryModelChoices = await loadSummaryModelChoices(summaryContext);
-				const generated = await generateSummaryDraft(
-					searchResults,
-					summaryContext,
-					signal,
-					summaryModelChoices.defaultSummaryModel ?? undefined,
-					undefined,
-					undefined,
-					getSummaryGenerationDeadlineMs(),
-					getSummaryInstructions(),
-				);
-				approvedSummary = generated.summary;
-				summaryMeta = generated.meta;
+				try {
+					const generated = await generateSummaryDraft(
+						searchResults,
+						summaryContext,
+						signal,
+						summaryModelChoices.defaultSummaryModel ?? undefined,
+						undefined,
+						undefined,
+						getSummaryGenerationDeadlineMs(),
+						getSummaryInstructions(),
+					);
+					approvedSummary = generated.summary;
+					summaryMeta = generated.meta;
+				} catch (err) {
+					const isEmptyResponse = err instanceof Error && err.message.includes("Summary model returned empty response");
+					if (!isEmptyResponse) throw err;
+					const deterministic = buildDeterministicSummary(searchResults);
+					approvedSummary = deterministic.summary;
+					summaryMeta = { ...deterministic.meta, fallbackReason: "summary-model-empty-response" };
+				}
 			}
 
 			return buildSearchReturn({

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { ChatEntry } from "../hooks/transcript.ts";
+import { parseTodoArgs } from "../hooks/todo.ts";
 import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 
@@ -97,20 +98,6 @@ function ToolCardView({
 			{args && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-owl-muted">{args}</pre>}
 		</div>
 	);
-}
-
-/** todo 工具卡片里的单个任务项（渲染防御：字段缺失按默认处理）。 */
-type TodoItemView = { content: string; status?: string; priority?: string };
-
-function parseTodoArgs(args: string): TodoItemView[] | undefined {
-	if (!args) return undefined;
-	try {
-		const parsed = JSON.parse(args) as { todos?: TodoItemView[] };
-		if (!Array.isArray(parsed.todos)) return undefined;
-		return parsed.todos.filter((item) => typeof item?.content === "string");
-	} catch {
-		return undefined;
-	}
 }
 
 /** todo 工具专属卡片：勾选态清单 + 完成进度条；解析不了参数时退回通用工具卡片。 */

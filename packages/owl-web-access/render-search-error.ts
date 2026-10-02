@@ -8,9 +8,9 @@
  * gathered before the cancel, so even an expandable view would have nothing to show.
  *
  * This module is the single source of truth for the error/cancel render PLAN
- * (plain strings, no theme/ANSI), so it is unit-testable without pi's runtime
- * (@mariozechner/pi-tui Text/Box). index.ts.renderResult delegates to it and only
- * applies theme colors + creates Text/Box components.
+ * (plain strings, no theme/ANSI), so it is unit-testable without the host's TUI
+ * components. index.ts.renderResult delegates to it and only applies theme
+ * colors + creates the terminal components.
  *
  * Contract for callers:
  *   const plan = buildSearchErrorPlan(details);

@@ -109,6 +109,7 @@ function getAliases(): Record<string, string> {
 
 	_aliases = {
 		"@owl/owl-coding-agent": piCodingAgentEntry,
+		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,
 		"@earendil-works/pi-ai/providers/all": piAiProvidersEntry,

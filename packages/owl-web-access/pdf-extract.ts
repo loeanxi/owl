@@ -60,7 +60,6 @@ export const MAX_DATALAB_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_OUTPUT_DIR = join(tmpdir(), "pi-web-pdf");
 const CONFIG_PATH = getWebSearchConfigPath();
-const PAGE_MARKER_PATTERN = /^<!-- Page (\d+) -->$/gm;
 
 export function loadPDFConfig(): PDFConfig {
 	if (!existsSync(CONFIG_PATH)) {
@@ -138,7 +137,12 @@ async function getUnpdf() {
 		typeof (Promise as PromiseConstructor & { try?: unknown }).try !==
 		"function"
 	) {
-		const { default: promiseTry } = await import("promise.try");
+		// promise.try ships no type declarations; import through a non-literal
+		// specifier so it stays an untyped dynamic dependency.
+		const moduleName = "promise.try";
+		const { default: promiseTry } = (await import(moduleName)) as {
+			default: { shim(): void };
+		};
 		promiseTry.shim();
 	}
 
@@ -309,10 +313,6 @@ async function writeMarkdownResult(options: {
 		chars: content.length,
 		outputPath,
 	};
-}
-
-function countPageMarkers(markdown: string): number {
-	return [...markdown.matchAll(PAGE_MARKER_PATTERN)].length;
 }
 
 function shouldRethrowExtractionError(
