@@ -48,9 +48,7 @@ describe("buildSystemPrompt", () => {
 				skills: [],
 			});
 
-			expect(defaultPrompt.startsWith("你是运行在 pi 编程代理框架（coding agent harness）内的专家级编程助手。")).toBe(
-				true,
-			);
+			expect(defaultPrompt.startsWith("你是 Owl Si，Owl 桌面端的超级智能助手。")).toBe(true);
 			expect(defaultPrompt).toContain("- 使用用户所用的语言回复（中文提问 → 中文回答）。");
 			expect(customPrompt.startsWith("You are Exact.\n\n<cwd>")).toBe(true);
 		});

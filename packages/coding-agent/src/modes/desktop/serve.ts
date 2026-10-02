@@ -969,7 +969,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
 					prompt: (ask) => {
-						if (!enterpriseMode && ask.type === "text" && /GitHub Enterprise/.test(ask.message ?? "")) {
+						if (!enterpriseMode && ask.type === "text" && ask.message.includes("GitHub Enterprise")) {
 							return Promise.resolve("");
 						}
 							// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程

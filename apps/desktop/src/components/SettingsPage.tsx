@@ -164,6 +164,8 @@ export function SettingsPage({
 	const [quickHint, setQuickHint] = useState("");
 	const [loginAsk, setLoginAsk] = useState<{ type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] } | null>(null);
 	const [askAnswer, setAskAnswer] = useState("");
+	// GitHub 企业版登录：勾选后桥不再自动代答「企业域名」，把提问转给界面
+	const [enterpriseLogin, setEnterpriseLogin] = useState(false);
 
 	// 归档：保留期 + 已归档会话列表（session.list 拿标题，两步确认删除）
 	const [archiveCfg, setArchiveCfg] = useState<ArchiveConfigResult>({ retentionDays: 15, sessions: [] });
@@ -494,23 +496,33 @@ export function SettingsPage({
 												</button>
 											</div>
 											{catalog.find((p) => p.id === quickProvider)?.oauth && (
-												<button
-													type="button"
-													className={btn}
-													disabled={busy}
-													onClick={() => {
-														setQuickHint("正在启动登录流程… 流程中的提问会显示在下方，按提示作答后浏览器才会打开");
-														void client
-															.request({ type: "auth.login", provider: quickProvider, authType: "oauth" })
-															.then((response) => {
-																if (!apply(response)) return;
-																setQuickHint("登录成功 ✓ 该厂商的模型已可用");
-																return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
-															});
-													}}
-												>
-													浏览器登录（OAuth）
-												</button>
+												<div className="flex items-center gap-3">
+													<button
+														type="button"
+														className={btn}
+														disabled={busy}
+														onClick={() => {
+															setQuickHint("正在启动登录流程… 浏览器即将打开；如流程需要输入，会显示在下方");
+															void client
+																.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
+																.then((response) => {
+																	if (!apply(response)) return;
+																	setQuickHint("登录成功 ✓ 该厂商的模型已可用");
+																	return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+																});
+														}}
+													>
+														浏览器登录（OAuth）
+													</button>
+													<label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-owl-muted">
+														<input
+															type="checkbox"
+															checked={enterpriseLogin}
+															onChange={(e) => setEnterpriseLogin(e.target.checked)}
+														/>
+														GitHub 企业版（登录时先问企业域名）
+													</label>
+												</div>
 											)}
 											{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
 											{loginAsk && (
