@@ -876,6 +876,100 @@ export function SettingsPage({
 							</>
 						)}
 
+						{/* -------- 归档 -------- */}
+						{section === "archived" && (
+							<>
+								<SectionHeader
+									title="归档"
+									desc="侧边栏「归档」分组的会话在这里管理。超过保留期的归档会话会被自动删除（每小时巡检一次，应用启动时也会巡检）。"
+								/>
+								<SettingRow
+									title="自动清理保留期"
+									desc={`归档超过 ${archiveCfg.retentionDays} 天的会话将被自动删除，文件不可恢复。`}
+									control={
+										<div className="flex items-center gap-1.5">
+											<input
+												className="w-16 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 text-right font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
+												value={retentionInput}
+												disabled={busy}
+												onChange={(event) => setRetentionInput(event.target.value.replace(/\D/g, ""))}
+												onKeyDown={(event) => {
+													if (event.key === "Enter") void saveRetention();
+												}}
+											/>
+											<span className="text-[11px] text-owl-faint">天</span>
+											<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveRetention()}>
+												保存
+											</button>
+										</div>
+									}
+								/>
+								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="按归档时间排序；「恢复」放回侧边栏，「删除」立即删文件。">
+									{archiveCfg.sessions.length === 0 ? (
+										<p className="text-[11px] text-owl-faint">暂无归档会话。</p>
+									) : (
+										<div className="space-y-1">
+											{[...archiveCfg.sessions]
+												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
+												.map((entry) => {
+													const left = daysLeft(entry.archivedAt, archiveCfg.retentionDays);
+													const title = sessionDisplayName(
+														sessionTitles[entry.sessionId] ?? { id: entry.sessionId },
+													);
+													return (
+														<div
+															key={entry.sessionId}
+															className="flex items-center gap-2 rounded-lg bg-owl-sidebar/60 px-2 py-1.5"
+														>
+															<div className="min-w-0 flex-1">
+																<div className="truncate text-xs text-owl-text" title={title}>
+																	{title}
+																</div>
+																<div className="mt-0.5 text-[10px] text-owl-faint">
+																	归档于 {formatDateTime(entry.archivedAt)} ·{" "}
+																	{left > 0 ? `${left} 天后自动删除` : "待自动清理"}
+																</div>
+															</div>
+															<button
+																type="button"
+																className={btn}
+																disabled={busy}
+																onClick={() => void restoreArchived(entry.sessionId)}
+															>
+																恢复
+															</button>
+															{confirmDelId === entry.sessionId ? (
+																<>
+																	<button
+																		type="button"
+																		className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-40"
+																		disabled={busy}
+																		onClick={() => void deleteArchived(entry.sessionId)}
+																	>
+																		确认删除
+																	</button>
+																	<button type="button" className={btn} onClick={() => setConfirmDelId(null)}>
+																		取消
+																	</button>
+																</>
+															) : (
+																<button
+																	type="button"
+																	className={`${btn} hover:border-red-500/60 hover:text-red-300`}
+																	onClick={() => setConfirmDelId(entry.sessionId)}
+																>
+																	删除
+																</button>
+															)}
+														</div>
+													);
+												})}
+										</div>
+									)}
+								</SettingRow>
+							</>
+						)}
+
 						{/* -------- settings.json（高级） -------- */}
 						{section === "json" && (
 							<>
