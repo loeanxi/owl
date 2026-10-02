@@ -554,6 +554,8 @@ export default function App(): React.JSX.Element {
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
 						<Composer
+							client={client}
+							connected={connected}
 							disabled={running || !connected}
 							running={running}
 							onSend={(text) => void sendPrompt(text)}
@@ -566,6 +568,9 @@ export default function App(): React.JSX.Element {
 							approvalMode={approvalMode}
 							onApprovalMode={handleApprovalModeChange}
 							sessionInfo={sessionInfo}
+							workspaceDir={workspaceDir}
+							projects={projects}
+							onSwitchProject={switchProject}
 						/>
 					</div>
 					<Workbench

@@ -21,8 +21,8 @@
 	},
 	"devDependencies": {
 		"@owl/owl-coding-agent": "*",
-		"esbuild": "^0.28.1",
-		"typescript": "^7.0.2"
+		"esbuild": "0.28.2",
+		"typescript": "7.0.2"
 	},
 	"owl": {
 		"extensions": ["./dist/index.js"],
