@@ -182,7 +182,10 @@ export function SessionSidebar({
 	}, [client, connected, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
+	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；
+	// 必须等 session.list 真正返回过至少一条（或确认没有任何会话）后才允许清理。
 	useEffect(() => {
+		if (sessions.length === 0) return;
 		const alive = new Set(sessions.map((row) => row.id).filter(Boolean));
 		const valid = pinned.filter((id) => alive.has(id));
 		if (valid.length !== pinned.length) {
