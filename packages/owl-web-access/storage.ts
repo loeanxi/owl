@@ -1,7 +1,7 @@
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, type Stats, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@owl/owl-coding-agent";
 import type { ExtractedContent } from "./extract.ts";
 import type { SearchResult } from "./perplexity.ts";
 import { getWebSearchConfigDir } from "./utils.ts";
@@ -104,7 +104,6 @@ function metadataForUrls(urls: ExtractedContent[]): StoredFetchUrlMetadata[] {
 		contentLength: url.content.length,
 		...(url.mimeType ? { mimeType: truncateMetadataText(url.mimeType) } : {}),
 		...(typeof url.status === "number" ? { status: url.status } : {}),
-		...(typeof url.duration === "number" ? { duration: url.duration } : {}),
 	}));
 }
 

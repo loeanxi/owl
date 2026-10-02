@@ -11,23 +11,17 @@ let cachedWebSearchConfigDir: string | undefined;
 export function getWebSearchConfigDir(): string {
 	if (cachedWebSearchConfigDir) return cachedWebSearchConfigDir;
 
-	const explicitDir = process.env.PI_CODING_AGENT_DIR;
+	const explicitDir = process.env.OWL_CODING_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
 	if (explicitDir) return cachedWebSearchConfigDir = explicitDir;
 
 	const xdgConfigHome = process.env.XDG_CONFIG_HOME;
 	if (xdgConfigHome) {
-		const xdgDir = join(xdgConfigHome, "pi");
+		const xdgDir = join(xdgConfigHome, "owl");
 		if (existsSync(join(xdgDir, "web-search.json"))) return cachedWebSearchConfigDir = xdgDir;
-
-		const legacyDir = join(homedir(), ".pi");
-		if (existsSync(join(legacyDir, "web-search.json"))) return cachedWebSearchConfigDir = legacyDir;
 		return cachedWebSearchConfigDir = xdgDir;
 	}
-	const agentDir = join(homedir(), ".pi", "agent");
+	const agentDir = join(homedir(), ".owl", "agent");
 	if (existsSync(join(agentDir, "web-search.json"))) return cachedWebSearchConfigDir = agentDir;
-
-	const legacyDir = join(homedir(), ".pi");
-	if (existsSync(join(legacyDir, "web-search.json"))) return cachedWebSearchConfigDir = legacyDir;
 
 	return cachedWebSearchConfigDir = agentDir;
 }

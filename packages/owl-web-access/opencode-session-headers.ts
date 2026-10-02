@@ -1,5 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@owl/owl-coding-agent";
 
 type SessionManager = Pick<ExtensionContext, "sessionManager">["sessionManager"];
 

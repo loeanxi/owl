@@ -1,5 +1,5 @@
 import type { complete, Api, Message, Model } from "@earendil-works/pi-ai/compat";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@owl/owl-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { findModelWithProviderRouting, isModelInScope } from "./summary-model-scope.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
