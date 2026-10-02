@@ -132,6 +132,7 @@ function Section({
 
 export function SessionSidebar({
 	client,
+	connected,
 	activeId,
 	activeProject,
 	refreshKey,
@@ -141,6 +142,8 @@ export function SessionSidebar({
 	onOpenSession,
 }: {
 	client: BridgeClient;
+	/** 桥连接状态：挂载时 WS 往往尚未 open，未连接的请求会被直接拒绝。 */
+	connected: boolean;
 	activeId: string | undefined;
 	/** 当前项目（工作目录）绝对路径。 */
 	activeProject: string;
@@ -167,12 +170,16 @@ export function SessionSidebar({
 	const recentHeaderRef = useRef<HTMLDivElement>(null);
 
 	const refresh = async (): Promise<void> => {
-		const response = await client.request<SessionRow[]>({ type: "session.list" });
-		if (response.ok) setSessions(response.result ?? []);
+		try {
+			const response = await client.request<SessionRow[]>({ type: "session.list" });
+			if (response.ok) setSessions(response.result ?? []);
+		} catch {
+			// 桥断开/重连瞬间的失败静默跳过：connected 或 refreshKey 变化会重试
+		}
 	};
 	useEffect(() => {
-		if (client) void refresh();
-	}, [client, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+		if (client && connected) void refresh();
+	}, [client, connected, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	useEffect(() => {

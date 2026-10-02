@@ -17,6 +17,27 @@ const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 
+/** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
+type SessionRowLite = {
+	id?: string;
+	cwd?: string;
+	modified?: string;
+	created?: string;
+	messageCount?: number;
+	[key: string]: unknown;
+};
+
+/** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目（与侧边栏同规则）。 */
+function samePath(a: string | undefined, b: string | undefined): boolean {
+	const norm = (p: string | undefined): string =>
+		(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+	return norm(a) === norm(b) && norm(a) !== "";
+}
+
+function rowTime(row: SessionRowLite): string {
+	return String(row.modified ?? row.created ?? "");
+}
+
 export default function App(): React.JSX.Element {
 	const client = useMemo(() => new BridgeClient(), []);
 	const [connected, setConnected] = useState(false);
@@ -163,6 +184,30 @@ export default function App(): React.JSX.Element {
 		void refreshStats(resumedId);
 	};
 
+	// 启动自动续聊：连接后自动恢复当前项目最近一个有消息的会话（Claude Desktop 同款行为）。
+	// 每次启动只尝试一次；若用户抢先发消息/点会话（sessionId 已就位），则不打扰。
+	const restoreTriedRef = useRef(false);
+	useEffect(() => {
+		if (!connected || restoreTriedRef.current) return;
+		restoreTriedRef.current = true;
+		void (async () => {
+			try {
+				const response = await client.request<SessionRowLite[]>({ type: "session.list" });
+				if (!response.ok || !response.result) return;
+				const rows = response.result.filter((row) => row.id && samePath(row.cwd, workspaceRef.current));
+				if (rows.length === 0) return;
+				// 优先有消息的会话：新会话按钮创建的空会话不算「上次正在聊的内容」。
+				const withMessages = rows.filter((row) => (row.messageCount ?? 0) > 0);
+				const pool = withMessages.length > 0 ? withMessages : rows;
+				const latest = pool.reduce((a, b) => (rowTime(a) >= rowTime(b) ? a : b));
+				if (sessionIdRef.current) return;
+				await openSession(String(latest.id));
+			} catch {
+				// 桥瞬断时静默放弃，侧边栏手动点会话仍可恢复
+			}
+		})();
+	}, [connected, client]); // eslint-disable-line react-hooks/exhaustive-deps
+
 	// 输入栏的模型/思考切换：未建会话时只记选择（localStorage + 状态），
 	// 已有会话则即时下发到运行中的 session（setModel 自带思考级别自适应）。
 	const handleModelChange = (value: string): void => {
@@ -217,6 +262,7 @@ export default function App(): React.JSX.Element {
 			/>
 			<SessionSidebar
 				client={client}
+				connected={connected}
 				activeId={sessionId}
 				activeProject={workspaceDir}
 				refreshKey={sessionId ?? ""}
