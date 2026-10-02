@@ -45,6 +45,38 @@ export interface SettingsGetRequest {
 	id: string;
 }
 
+export interface ModelsPutProviderRequest {
+	type: "models.putProvider";
+	id: string;
+	provider: {
+		key: string;
+		name?: string;
+		baseUrl: string;
+		api: string;
+		apiKey?: string;
+	};
+}
+
+export interface ModelsPutModelRequest {
+	type: "models.putModel";
+	id: string;
+	providerKey: string;
+	model: { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean };
+}
+
+export interface ModelsRemoveModelRequest {
+	type: "models.removeModel";
+	id: string;
+	providerKey: string;
+	modelId: string;
+}
+
+export interface ModelsRemoveProviderRequest {
+	type: "models.removeProvider";
+	id: string;
+	providerKey: string;
+}
+
 export interface SettingsSetRequest {
 	type: "settings.set";
 	id: string;
@@ -63,22 +95,46 @@ export interface PermissionResponseRequest {
 	approved: boolean;
 }
 
+export interface ProviderModelsMessage {
+	id: string;
+	name?: string;
+	/** pire 固定为 "models_json"：模型只来自声明文件，不复用内置目录 */
+	authSource?: string;
+	models: ModelInfoMessage[];
+}
+
 export type DesktopClientRequest =
 	| SessionCreateRequest
 	| SessionPromptRequest
 	| SessionAbortRequest
 	| SessionListRequest
 	| ModelsListRequest
+	| ModelsPutProviderRequest
+	| ModelsPutModelRequest
+	| ModelsRemoveModelRequest
+	| ModelsRemoveProviderRequest
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| PingRequest
 	| PermissionResponseRequest;
 
 export interface ModelInfoMessage {
-	provider: string;
 	id: string;
 	name: string;
 	contextWindow?: number;
+}
+
+/**
+ * One provider's slice of the model selector, mirroring the pi TUI ModelSelector's
+ * data source: only providers with configured credentials (the runtime's available
+ * snapshot), grouped and annotated with where the credentials come from.
+ */
+export interface ProviderModelsMessage {
+	id: string;
+	name?: string;
+	/** pi AuthStatus.source: "stored" | "runtime" | "environment" | "models_json_key" | … */
+	authSource?: string;
+	models: ModelInfoMessage[];
 }
 
 export type ServerEventMessage = {

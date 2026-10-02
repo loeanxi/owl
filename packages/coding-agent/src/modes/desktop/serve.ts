@@ -11,30 +11,94 @@
  * - v1 scope: create / prompt / abort / list / models / settings. Resume, fork,
  *   and diff-level approvals land with the desktop UI.
  */
-import { createServer, type ServerResponse } from "node:http";
+
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { WebSocketServer, type WebSocket } from "ws";
 import type { ImageContent } from "@earendil-works/pi-ai";
+import { type WebSocket, WebSocketServer } from "ws";
 import { getAgentDir } from "../../config.ts";
-import { createAgentSessionFromServices, createAgentSessionServices, type AgentSessionServices } from "../../core/agent-session-services.ts";
-import type { InlineExtension } from "../../core/extensions/index.ts";
 import {
 	type AgentSessionRuntime,
-	createAgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
+	createAgentSessionRuntime,
 } from "../../core/agent-session-runtime.ts";
-import { SessionManager } from "../../core/session-manager.ts";
-import type { SettingsManager } from "../../core/settings-manager.ts";
+import {
+	type AgentSessionServices,
+	createAgentSessionFromServices,
+	createAgentSessionServices,
+} from "../../core/agent-session-services.ts";
+import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
-import type { ToolDefinition } from "../../core/extensions/index.ts";
-import { toJsonEvent, type JsonAgentSessionEvent } from "../json-event.ts";
+import { SessionManager } from "../../core/session-manager.ts";
+import type { SettingsManager } from "../../core/settings-manager.ts";
+import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
+
+// ---------------------------------------------------------------------------
+// models.json — pire 的模型声明（唯一模型来源；不复用 pi 内置目录）
+// ---------------------------------------------------------------------------
+
+const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
+
+interface ModelFileEntry {
+	id: string;
+	name?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+}
+
+interface ProviderFileEntry {
+	name?: string;
+	baseUrl?: string;
+	api?: string;
+	apiKey?: string;
+	models?: ModelFileEntry[];
+}
+
+interface ModelsFile {
+	providers?: Record<string, ProviderFileEntry>;
+}
+
+function declaredProviderModels(models: ModelsFile): ProviderModelsMessage[] {
+	const result: ProviderModelsMessage[] = [];
+	for (const [id, provider] of Object.entries(models.providers ?? {})) {
+		result.push({
+			id,
+			...(provider.name ? { name: provider.name } : {}),
+			authSource: "models_json",
+			models: (provider.models ?? []).map((model) => ({
+				id: model.id,
+				name: model.name ?? model.id,
+				...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+			})),
+		});
+	}
+	return result;
+}
+
+function readModelsFile(agentDir: string): ModelsFile {
+	try {
+		return JSON.parse(readFileSync(join(agentDir, "models.json"), "utf-8")) as ModelsFile;
+	} catch {
+		return {};
+	}
+}
+
+function writeModelsFile(agentDir: string, models: ModelsFile): void {
+	writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, "\t")}\n`);
+}
 import type {
 	DesktopClientRequest,
 	DesktopServerMessage,
+	ModelsPutModelRequest,
+	ModelsPutProviderRequest,
+	ModelsRemoveModelRequest,
+	ModelsRemoveProviderRequest,
+	ProviderModelsMessage,
 	SessionCreateRequest,
 } from "./protocol.ts";
 
@@ -43,6 +107,7 @@ export type {
 	DesktopServerMessage,
 	ModelInfoMessage,
 	PermissionRequestMessage,
+	ProviderModelsMessage,
 	ServerEventMessage,
 	ServerResponseMessage,
 } from "./protocol.ts";
@@ -98,7 +163,9 @@ function serveUi(uiRoot: string, requestPath: string, response: ServerResponse, 
 	}
 	try {
 		const body = readFileSync(filePath);
-		response.writeHead(200, { "Content-Type": UI_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream" });
+		response.writeHead(200, {
+			"Content-Type": UI_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream",
+		});
 		response.end(headOnly ? undefined : body);
 	} catch {
 		response.writeHead(500).end();
@@ -126,10 +193,7 @@ export interface DesktopServerHandle {
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
 	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[pire] ${message}`));
 	/** sessionId → live runtime + event subscription */
-	const sessions = new Map<
-		string,
-		{ runtime: AgentSessionRuntime; unsubscribe: () => void }
-	>();
+	const sessions = new Map<string, { runtime: AgentSessionRuntime; unsubscribe: () => void }>();
 	const clients = new Set<WebSocket>();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
@@ -189,6 +253,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 		return listServices;
 	}
+	void getListingServices; // pire: models.list 已改为只读 models.json，保留 getter 备后续声明式扩展
 
 	function buildFactory(
 		agentDir: string,
@@ -207,9 +272,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					? services.modelRuntime.getModel(modelSpec.provider, modelSpec.model)
 					: services.modelRuntime.getModels().find((candidate) => candidate.id === modelSpec.model);
 				if (!model) {
-					throw new Error(
-						`Model not found: ${[modelSpec.provider, modelSpec.model].filter(Boolean).join("/")}`,
-					);
+					throw new Error(`Model not found: ${[modelSpec.provider, modelSpec.model].filter(Boolean).join("/")}`);
 				}
 			}
 			const session = await createAgentSessionFromServices({
@@ -309,20 +372,97 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "models.list": {
-				const services = await getListingServices();
-				const models = services.modelRuntime.getModels().map((model) => ({
-					provider: model.provider,
-					id: model.id,
-					name: model.name,
-					contextWindow: model.contextWindow,
-				}));
-				reply(ws, request.id, { ok: true, result: models });
+				// pire: 只出 models.json 里声明的模型，不复用 pi 内置目录。
+				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(defaultAgentDir())) });
+				return;
+			}
+			case "models.putProvider": {
+				const agentDir = defaultAgentDir();
+				const models = readModelsFile(agentDir);
+				const { key, baseUrl, api } = request.provider;
+				if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(key)) {
+					reply(ws, request.id, { ok: false, error: "供应商 ID 只能包含字母、数字、点、下划线、连字符" });
+					return;
+				}
+				if (!/^https?:\/\//.test(baseUrl)) {
+					reply(ws, request.id, { ok: false, error: "Base URL 必须以 http:// 或 https:// 开头" });
+					return;
+				}
+				if (!SUPPORTED_MODEL_APIS.has(api)) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `api 必须是：${[...SUPPORTED_MODEL_APIS].join(" / ")}`,
+					});
+					return;
+				}
+				const existing = models.providers?.[key];
+				models.providers = {
+					...(models.providers ?? {}),
+					[key]: {
+						...existing,
+						...(request.provider.name ? { name: request.provider.name } : {}),
+						baseUrl,
+						api,
+						...(request.provider.apiKey ? { apiKey: request.provider.apiKey } : {}),
+						models: existing?.models ?? [],
+					},
+				};
+				writeModelsFile(agentDir, models);
+				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				return;
+			}
+			case "models.putModel": {
+				const agentDir = defaultAgentDir();
+				const models = readModelsFile(agentDir);
+				const provider = models.providers?.[request.providerKey];
+				if (!provider) {
+					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+					return;
+				}
+				if (!request.model.id.trim()) {
+					reply(ws, request.id, { ok: false, error: "模型 ID 不能为空" });
+					return;
+				}
+				const entry: ModelFileEntry = { id: request.model.id.trim() };
+				if (request.model.name) entry.name = request.model.name;
+				if (request.model.contextWindow) entry.contextWindow = request.model.contextWindow;
+				if (request.model.maxTokens) entry.maxTokens = request.model.maxTokens;
+				if (request.model.reasoning != null) entry.reasoning = request.model.reasoning;
+				const rest = (provider.models ?? []).filter((m) => m.id !== entry.id);
+				provider.models = [...rest, entry];
+				writeModelsFile(agentDir, models);
+				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				return;
+			}
+			case "models.removeModel": {
+				const agentDir = defaultAgentDir();
+				const models = readModelsFile(agentDir);
+				const provider = models.providers?.[request.providerKey];
+				if (!provider) {
+					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+					return;
+				}
+				provider.models = (provider.models ?? []).filter((m) => m.id !== request.modelId);
+				writeModelsFile(agentDir, models);
+				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				return;
+			}
+			case "models.removeProvider": {
+				const agentDir = defaultAgentDir();
+				const models = readModelsFile(agentDir);
+				if (!models.providers?.[request.providerKey]) {
+					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+					return;
+				}
+				delete models.providers[request.providerKey];
+				writeModelsFile(agentDir, models);
+				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
 				return;
 			}
 			case "settings.get": {
 				const agentDir = defaultAgentDir();
-				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then(
-					(m) => m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+					m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
 				);
 				reply(ws, request.id, {
 					ok: true,
@@ -332,8 +472,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "settings.set": {
 				const agentDir = defaultAgentDir();
-				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then(
-					(m) => m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+					m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
 				);
 				const settings = settingsManager.applyGlobalOverridesAndSave(request.values as never);
 				reply(ws, request.id, { ok: true, result: settings });
