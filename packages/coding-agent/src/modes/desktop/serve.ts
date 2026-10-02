@@ -232,6 +232,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return mcp.tools;
 	}
 
+	/** 进行中的登录（auth.login 长请求）与其待回答的界面提问。 */
+	let activeLogin: { controller: AbortController } | null = null;
+	let pendingPrompt: {
+		ask: { type: string; message?: string; placeholder?: string; options?: readonly { id: string; label: string }[] };
+		resolve: (value: string) => void;
+		reject: (error: Error) => void;
+	} | null = null;
+
 	function broadcast(message: DesktopServerMessage): void {
 		const payload = JSON.stringify(message);
 		for (const client of clients) {
@@ -511,13 +519,28 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "auth.login": {
-				// pi /login 的桌面版：oauth 走浏览器（notify 里开浏览器 + 广播进度），api_key 直接落 auth.json
+				// pi /login 的桌面版：oauth 走浏览器（notify 里开浏览器 + 广播进度），api_key 直接落 auth.json。
+				// 流程中的提问（AuthPrompt）转发到界面，由 auth.prompt.respond 带回答案。
 				const services = await getListingServices();
+				const controller = new AbortController();
+				activeLogin = { controller };
 				try {
 					await services.modelRuntime.login(request.provider, request.authType, {
-						prompt: async () => {
-							if (request.authType === "api_key" && request.apiKey) return request.apiKey;
-							throw new Error("该登录流程需要终端交互输入，桌面端不支持");
+						signal: controller.signal,
+						prompt: (ask) => {
+							const answer = new Promise<string>((resolve, reject) => {
+								pendingPrompt = { ask, resolve, reject };
+							});
+							const cleanup = () => {
+								pendingPrompt = null;
+							};
+							answer.then(cleanup, cleanup);
+							broadcast({
+								type: "event",
+								sessionId: "",
+								event: { type: "auth_prompt", ask },
+							});
+							return answer;
 						},
 						notify: (event) => {
 							if (event.type === "auth_url") openInBrowser(event.url);
@@ -531,7 +554,26 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: true, result: { provider: request.provider, authType: request.authType } });
 				} catch (error) {
 					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				} finally {
+					activeLogin = null;
+					pendingPrompt = null;
 				}
+				return;
+			}
+			case "auth.prompt.respond": {
+				if (!pendingPrompt) {
+					reply(ws, request.id, { ok: false, error: "当前没有等待回答的登录提问" });
+					return;
+				}
+				pendingPrompt.resolve(request.answer);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "auth.cancel": {
+				activeLogin?.controller.abort();
+				pendingPrompt?.reject(new Error("登录已取消"));
+				pendingPrompt = null;
+				reply(ws, request.id, { ok: true });
 				return;
 			}
 			case "settings.get": {

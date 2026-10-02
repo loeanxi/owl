@@ -115,6 +115,8 @@ export type DesktopClientRequest =
 	| ModelsRemoveProviderRequest
 	| AuthProvidersRequest
 	| AuthLoginRequest
+	| AuthPromptRespondRequest
+	| AuthCancelRequest
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| PingRequest
@@ -137,6 +139,19 @@ export interface AuthLoginRequest {
 	provider: string;
 	authType: "api_key" | "oauth";
 	apiKey?: string;
+}
+
+/** 回答登录流程的提问（AuthPrompt：text/secret 填字符串，select 填 option id）。 */
+export interface AuthPromptRespondRequest {
+	type: "auth.prompt.respond";
+	id: string;
+	answer: string;
+}
+
+/** 取消进行中的登录流程。 */
+export interface AuthCancelRequest {
+	type: "auth.cancel";
+	id: string;
 }
 
 export interface ModelInfoMessage {

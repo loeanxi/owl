@@ -48,6 +48,35 @@ export function SettingsPage({
 	const [quickProvider, setQuickProvider] = useState("");
 	const [quickKey, setQuickKey] = useState("");
 	const [quickHint, setQuickHint] = useState("");
+	const [loginAsk, setLoginAsk] = useState<{ type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] } | null>(null);
+	const [askAnswer, setAskAnswer] = useState("");
+
+	useEffect(() => {
+		const off = client.onSessionEvent((msg) => {
+			const ev = msg.event as {
+				type?: string;
+				ask?: { type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] };
+				detail?: { type?: string; message?: string; userCode?: string; verificationUri?: string };
+			};
+			if (ev?.type === "auth_prompt" && ev.ask) {
+				setLoginAsk(ev.ask);
+				setAskAnswer("");
+			} else if (ev?.type === "auth_notify" && ev.detail) {
+				const d = ev.detail;
+				if (d.type === "device_code") setQuickHint(`设备码 ${d.userCode} — 请打开 ${d.verificationUri} 输入`);
+				else if (d.type === "auth_url") setQuickHint("已打开浏览器，请在浏览器完成授权…");
+				else if (d.message) setQuickHint(d.message);
+			}
+		});
+		return off;
+	}, [client]);
+
+	function respondPrompt(answer: string) {
+		setLoginAsk(null);
+		setAskAnswer("");
+		setQuickHint("已提交，等待登录流程继续…");
+		void client.request({ type: "auth.prompt.respond", answer });
+	}
 
 	function apply(response: { ok: boolean; result?: unknown; error?: string }): boolean {
 		if (response.ok && Array.isArray(response.result)) {
@@ -200,6 +229,54 @@ export function SettingsPage({
 										</button>
 									)}
 									{quickHint && <div className="text-[11px] text-neutral-400">{quickHint}</div>}
+									{loginAsk && (
+										<div className="rounded border border-amber-700 bg-amber-950/40 p-2">
+											<div className="text-[11px] text-amber-200">{loginAsk.message ?? "登录流程需要输入"}</div>
+											{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
+												<div className="mt-1.5 flex gap-2">
+													<input
+														autoFocus
+														type={loginAsk.type === "secret" ? "password" : "text"}
+														className="flex-1 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-xs"
+														value={askAnswer}
+														placeholder={loginAsk.placeholder}
+														onChange={(e) => setAskAnswer(e.target.value)}
+														onKeyDown={(e) => {
+															if (e.key === "Enter" && askAnswer.trim()) respondPrompt(askAnswer.trim());
+														}}
+													/>
+													<button
+														type="button"
+														className="rounded bg-sky-800 px-3 py-1 text-xs hover:bg-sky-700"
+														onClick={() => respondPrompt(askAnswer.trim())}
+													>
+														提交
+													</button>
+												</div>
+											)}
+											{loginAsk.type === "select" && (
+												<div className="mt-1.5 flex flex-wrap gap-1">
+													{(loginAsk.options ?? []).map((o) => (
+														<button key={o.id} type="button" className={btn} onClick={() => respondPrompt(o.id)}>
+															{o.label}
+														</button>
+													))}
+												</div>
+											)}
+											<div className="mt-1.5 text-right">
+												<button
+													type="button"
+													className="text-[11px] text-neutral-500 hover:text-red-400"
+													onClick={() => {
+														setLoginAsk(null);
+														void client.request({ type: "auth.cancel" }).then(() => setQuickHint("登录已取消"));
+													}}
+												>
+													取消登录
+												</button>
+											</div>
+										</div>
+									)}
 								</div>
 							)}
 						</div>
