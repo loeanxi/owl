@@ -43,6 +43,12 @@ function formatDateTime(iso: string): string {
 		: iso;
 }
 
+/** 项目显示名：路径末段（与侧边栏同规则）。 */
+function projectLabel(cwd: string): string {
+	const parts = cwd.replace(/\\/g, "/").replace(/\/+$/, "").split("/");
+	return parts[parts.length - 1] || cwd;
+}
+
 function pkgLabel(entry: PackageEntry): string {
 	return typeof entry === "string" ? entry : entry.source;
 }
@@ -115,11 +121,14 @@ export function SettingsPage({
 	workspaceDir,
 	onWorkspaceDir,
 	onClose,
+	onSessionsChanged,
 }: {
 	client: BridgeClient;
 	workspaceDir: string;
 	onWorkspaceDir: (dir: string) => void;
 	onClose: () => void;
+	/** 会话列表发生变化（恢复/删除归档会话）：让侧边栏同步重拉，避免两边状态对不上。 */
+	onSessionsChanged?: () => void;
 }): React.JSX.Element {
 	const [section, setSection] = useState<SettingsSection>("general");
 	const [agentDir, setAgentDir] = useState("");
@@ -274,14 +283,18 @@ export function SettingsPage({
 		}
 	}
 
-	/** 恢复归档会话。 */
+	/** 恢复归档会话：放回原项目分组，并同步刷新侧边栏。 */
 	async function restoreArchived(sessionId: string): Promise<void> {
 		setBusy(true);
 		setError("");
 		try {
 			const response = await client.request({ type: "session.unarchive", sessionId });
-			if (response.ok) await loadArchive();
-			else setError(response.error ?? "恢复失败");
+			if (response.ok) {
+				onSessionsChanged?.();
+				await loadArchive();
+			} else {
+				setError(response.error ?? "恢复失败");
+			}
 		} finally {
 			setBusy(false);
 		}
@@ -295,6 +308,7 @@ export function SettingsPage({
 			const response = await client.request({ type: "session.delete", sessionId });
 			if (response.ok) {
 				setConfirmDelId(null);
+				onSessionsChanged?.();
 				await loadArchive();
 			} else {
 				setError(response.error ?? "删除失败");
@@ -904,7 +918,7 @@ export function SettingsPage({
 										</div>
 									}
 								/>
-								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="按归档时间排序；「恢复」放回侧边栏，「删除」立即删文件。">
+								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="按归档时间排序；「恢复」放回侧边栏原位置（所属项目），「删除」立即删文件。">
 									{archiveCfg.sessions.length === 0 ? (
 										<p className="text-[11px] text-owl-faint">暂无归档会话。</p>
 									) : (
@@ -913,9 +927,9 @@ export function SettingsPage({
 												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
 												.map((entry) => {
 													const left = daysLeft(entry.archivedAt, archiveCfg.retentionDays);
-													const title = sessionDisplayName(
-														sessionTitles[entry.sessionId] ?? { id: entry.sessionId },
-													);
+													const row = sessionTitles[entry.sessionId];
+													const title = sessionDisplayName(row ?? { id: entry.sessionId });
+													const origin = row?.cwd ? projectLabel(row.cwd) : "";
 													return (
 														<div
 															key={entry.sessionId}
@@ -926,7 +940,8 @@ export function SettingsPage({
 																	{title}
 																</div>
 																<div className="mt-0.5 text-[10px] text-owl-faint">
-																	归档于 {formatDateTime(entry.archivedAt)} ·{" "}
+																	归档于 {formatDateTime(entry.archivedAt)}
+																	{origin ? ` · 来自 ${origin}` : ""} ·{" "}
 																	{left > 0 ? `${left} 天后自动删除` : "待自动清理"}
 																</div>
 															</div>

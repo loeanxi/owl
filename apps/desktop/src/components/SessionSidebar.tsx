@@ -14,6 +14,7 @@ import {
 	IconPlus,
 	IconSearch,
 	IconTrash,
+	IconUnarchive,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 
@@ -381,11 +382,24 @@ export function SessionSidebar({
 		const id = row.id;
 		if (!id) return;
 		try {
+			const unarchiving = Boolean(row.archivedAt);
 			const response = await client.request({
-				type: row.archivedAt ? "session.unarchive" : "session.archive",
+				type: unarchiving ? "session.unarchive" : "session.archive",
 				sessionId: id,
 			});
-			if (response.ok) void refresh();
+			if (!response.ok) return;
+			if (unarchiving) {
+				// 恢复后行会回到原位置（置顶/当前项目分组/最近）：
+				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
+				setCollapsed((current) => {
+					const next = new Set(current);
+					next.delete(PROJECT_SESSIONS_ID);
+					next.delete("recent");
+					localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+					return next;
+				});
+			}
+			void refresh();
 		} catch {
 			// 桥未连接等瞬时失败：列表不动，用户重试即可
 		}
@@ -506,7 +520,7 @@ export function SessionSidebar({
 	const rowBtn =
 		"shrink-0 rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60";
 
-	/** 会话行：图标 + 标题 + 次行（时间 · 项目），悬停露出置顶/归档/删除按钮。 */
+	/** 会话行：图标 + 标题 + 次行（时间 · 项目），悬停露出置顶/归档/删除按钮；归档行常显「恢复」按钮。 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, archivedRow = false): React.JSX.Element => {
 		const id = row.id;
 		const isPinned = id !== undefined && pinned.includes(id);
@@ -559,14 +573,25 @@ export function SessionSidebar({
 								<IconPin className="h-3.5 w-3.5" filled={isPinned} />
 							</button>
 						)}
-						<button
-							type="button"
-							className={`${rowBtn} ${archivedRow ? "text-owl-accent" : "hover:text-owl-text"}`}
-							title={archivedRow ? "取消归档" : "归档"}
-							onClick={() => void toggleArchive(row)}
-						>
-							<IconArchive className="h-3.5 w-3.5" />
-						</button>
+						{archivedRow ? (
+							<button
+								type="button"
+								className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+								title="恢复到原位置"
+								onClick={() => void toggleArchive(row)}
+							>
+								<IconUnarchive className="h-3.5 w-3.5" />
+							</button>
+						) : (
+							<button
+								type="button"
+								className={`${rowBtn} hover:text-owl-text`}
+								title="归档"
+								onClick={() => void toggleArchive(row)}
+							>
+								<IconArchive className="h-3.5 w-3.5" />
+							</button>
+						)}
 						<button
 							type="button"
 							className={`${rowBtn} hover:text-red-400`}

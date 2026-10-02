@@ -131,6 +131,18 @@ export function IconArchive({ className }: { className?: string }): React.JSX.El
 	);
 }
 
+/** 会话行操作：取消归档（收纳盒 + 向上取出箭头），与「归档」图标区分开 */
+export function IconUnarchive({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<rect width="20" height="5" x="2" y="3" rx="1" />
+			<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+			<path d="m9 14 3-3 3 3" />
+			<path d="M12 17v-6" />
+		</Svg>
+	);
+}
+
 /** 会话行操作：删除（垃圾桶） */
 export function IconTrash({ className }: { className?: string }): React.JSX.Element {
 	return (
