@@ -924,23 +924,17 @@ export class DefaultPackageManager implements PackageManager {
 		const projectSettings = this.settingsManager.getProjectSettings();
 
 		// Collect all packages with scope (project first so cwd resources win collisions). The unified
-		// `plugins` field feeds the same list: pattern-shaped strings are builtin-load overrides, local
-		// single extension files route straight to the extension loader, everything else (npm:/git/local
-		// directory) goes through the package pipeline. Legacy `packages` keep their existing intake.
+		// `plugins` field feeds the same list: pattern-shaped strings are builtin-load overrides, and
+		// local single extension files are diverted to the extension loader only after dedupe (so a
+		// project-scoped disable still shadows a user-scoped enable of the same source). Legacy
+		// `packages` keep their existing intake.
 		const allPackages: Array<{ pkg: PackageSource | PluginSource; scope: SourceScope }> = [];
-		const pluginLocalFiles: Array<{ entry: string; scope: SourceScope }> = [];
 		const pluginOverridePatterns: { project: string[]; user: string[] } = { project: [], user: [] };
 		const collectPlugins = (plugins: PluginSource[], scope: "project" | "user"): void => {
 			for (const plugin of plugins) {
-				if (typeof plugin === "string") {
-					if (isOverridePattern(plugin)) {
-						pluginOverridePatterns[scope].push(plugin);
-						continue;
-					}
-					if (this.parseSource(plugin).type === "local" && isExtensionFile(basename(plugin))) {
-						pluginLocalFiles.push({ entry: plugin, scope });
-						continue;
-					}
+				if (typeof plugin === "string" && isOverridePattern(plugin)) {
+					pluginOverridePatterns[scope].push(plugin);
+					continue;
 				}
 				allPackages.push({ pkg: plugin, scope });
 			}
@@ -960,7 +954,20 @@ export class DefaultPackageManager implements PackageManager {
 		const packageSources = this.dedupePackages(allPackages).filter(
 			(entry) => !(typeof entry.pkg === "object" && "disabled" in entry.pkg && entry.pkg.disabled === true),
 		) as Array<{ pkg: PackageSource; scope: SourceScope }>;
-		await this.resolvePackageSources(packageSources, accumulator, onMissing);
+
+		// Local single extension files load directly (no package manifest); the rest go through
+		// the package pipeline (npm:/git/local directory).
+		const pluginLocalFiles: Array<{ entry: string; scope: SourceScope }> = [];
+		const pipelineSources: Array<{ pkg: PackageSource; scope: SourceScope }> = [];
+		for (const entry of packageSources) {
+			const sourceString = typeof entry.pkg === "string" ? entry.pkg : entry.pkg.source;
+			if (this.parseSource(sourceString).type === "local" && isExtensionFile(basename(sourceString))) {
+				pluginLocalFiles.push({ entry: sourceString, scope: entry.scope });
+				continue;
+			}
+			pipelineSources.push(entry);
+		}
+		await this.resolvePackageSources(pipelineSources, accumulator, onMissing);
 
 		const globalBaseDir = this.agentDir;
 		const projectBaseDir = join(this.cwd, CONFIG_DIR_NAME);

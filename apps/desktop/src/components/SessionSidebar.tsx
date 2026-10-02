@@ -35,6 +35,8 @@ const PINNED_KEY = "owl.pinnedSessions";
 /** 置顶项目（localStorage）：置顶栏里的项目快捷入口，项目本身仍留在「项目」分组。 */
 const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
+/** 整条侧边栏收起（localStorage）：收起后原位只留 owl 图标窄条，点击图标展开。 */
+const MINIMIZED_KEY = "owl.sidebar.minimized";
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
@@ -305,6 +307,8 @@ export function SessionSidebar({
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
 	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+	/** 整条侧边栏收起：owl 图标点击触发，收起后只剩窄条。 */
+	const [minimized, setMinimized] = useState(() => localStorage.getItem(MINIMIZED_KEY) === "1");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
@@ -392,6 +396,15 @@ export function SessionSidebar({
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
 			localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+			return next;
+		});
+	};
+
+	/** 收起/展开整条侧边栏（头部 owl 图标触发），状态持久化到 localStorage。 */
+	const toggleMinimized = (): void => {
+		setMinimized((current) => {
+			const next = !current;
+			localStorage.setItem(MINIMIZED_KEY, next ? "1" : "0");
 			return next;
 		});
 	};
@@ -915,14 +928,45 @@ export function SessionSidebar({
 			setOpenMenu(null);
 		};
 
+		// 收起态：原位留一条窄栏，owl 图标停在展开时的位置，点击即展开。
+		if (minimized) {
+			return (
+				<aside
+					className="flex w-12 shrink-0 select-none flex-col items-center border-r border-owl-border bg-owl-sidebar pt-3"
+					data-tauri-drag-region="deep"
+					aria-label="会话侧边栏（已收起）"
+				>
+					<button
+						type="button"
+						className="rounded-md p-1 transition-colors hover:bg-owl-hover/60"
+						title="展开侧边栏"
+						aria-label="展开侧边栏"
+						aria-expanded={false}
+						onClick={toggleMinimized}
+					>
+						<img src="/owl.svg" alt="owl" className="h-6 w-6" draggable={false} />
+					</button>
+				</aside>
+			);
+		}
+
 		return (
 			<aside className="flex w-64 shrink-0 flex-col border-r border-owl-border bg-owl-sidebar">
 			<div
 				className="flex select-none items-center gap-2 px-3 pb-1 pt-3"
 				data-tauri-drag-region="deep"
 			>
-				<img src="/owl.svg" alt="owl" className="h-6 w-6" draggable={false} />
-				<span className="font-serif text-base tracking-wide text-owl-text">owl</span>
+				<button
+					type="button"
+					className="-ml-1 flex shrink-0 items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-owl-hover/60"
+					title="收起侧边栏"
+					aria-label="收起侧边栏"
+					aria-expanded={!minimized}
+					onClick={toggleMinimized}
+				>
+					<img src="/owl.svg" alt="owl" className="h-6 w-6" draggable={false} />
+					<span className="font-serif text-base tracking-wide text-owl-text">owl</span>
+				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<button
 					type="button"

@@ -125,6 +125,88 @@ describe("DefaultPackageManager", () => {
 			expect(result.extensions.some((r) => r.path === extPath && r.enabled)).toBe(true);
 		});
 
+		describe("plugins field", () => {
+			const writeExtension = (relativePath: string): string => {
+				const extPath = join(agentDir, relativePath);
+				mkdirSync(join(extPath, ".."), { recursive: true });
+				writeFileSync(extPath, "export default function() {}");
+				return extPath;
+			};
+
+			it("routes a local single-file plugin straight to the extension loader", async () => {
+				const extPath = writeExtension(join("tools", "single-plugin.ts"));
+				settingsManager.setPlugins(["tools/single-plugin.ts"]);
+
+				const result = await packageManager.resolve();
+				expect(result.extensions.some((r) => r.path === extPath && r.enabled)).toBe(true);
+			});
+
+			it("routes a local directory plugin through the package pipeline", async () => {
+				const pkgRoot = join(agentDir, "tools", "dir-plugin");
+				mkdirSync(join(pkgRoot, "extensions"), { recursive: true });
+				const extPath = join(pkgRoot, "extensions", "from-dir.ts");
+				writeFileSync(extPath, "export default function() {}");
+				settingsManager.setPlugins(["tools/dir-plugin"]);
+
+				const result = await packageManager.resolve();
+				expect(result.extensions.some((r) => r.path === extPath && r.enabled)).toBe(true);
+			});
+
+			it("skips entries disabled with { disabled: true }", async () => {
+				writeExtension(join("tools", "toggleable.ts"));
+				settingsManager.setPlugins([{ source: "tools/toggleable.ts", disabled: true }]);
+
+				const result = await packageManager.resolve();
+				expect(result.extensions.some((r) => pathEndsWith(r.path, "toggleable.ts"))).toBe(false);
+			});
+
+			it("lets a project-scoped disable shadow a user-scoped enable of the same plugin", async () => {
+				const extPath = writeExtension(join("tools", "scoped.ts"));
+				// Absolute path so both scopes resolve to the same package identity
+				settingsManager.setPlugins([extPath]);
+				settingsManager.setProjectPlugins([{ source: extPath, disabled: true }]);
+
+				const result = await packageManager.resolve();
+				expect(result.extensions.some((r) => r.path === extPath)).toBe(false);
+			});
+
+			it("applies plugin pattern entries to builtin extension load state", async () => {
+				const pm = new DefaultPackageManager({
+					cwd: tempDir,
+					agentDir,
+					settingsManager,
+					builtinExtensions: ["mcp", "llama.cpp"],
+				});
+				settingsManager.setPlugins(["-builtin:mcp"]);
+
+				const result = await pm.resolve();
+				const mcp = result.extensions.find((r) => r.path === "builtin:mcp");
+				const llama = result.extensions.find((r) => r.path === "builtin:llama.cpp");
+				expect(mcp?.enabled).toBe(false);
+				expect(llama?.enabled).toBe(true);
+			});
+
+			it("still honors legacy packages and extensions alongside plugins", async () => {
+				const legacyExt = writeExtension(join("extensions", "legacy.ts"));
+				const pluginExt = writeExtension(join("tools", "new.ts"));
+				const pkgRoot = join(agentDir, "vendor", "legacy-pkg");
+				mkdirSync(join(pkgRoot, "extensions"), { recursive: true });
+				const pkgExtPath = join(pkgRoot, "extensions", "pkg-ext.ts");
+				writeFileSync(pkgExtPath, "export default function() {}");
+
+				settingsManager.setPackages(["vendor/legacy-pkg"]);
+				settingsManager.setPlugins(["tools/new.ts"]);
+
+				const result = await packageManager.resolve();
+				expect(result.extensions.some((r) => r.path === legacyExt && r.enabled)).toBe(true);
+				expect(result.extensions.some((r) => r.path === pluginExt && r.enabled)).toBe(true);
+				expect(result.extensions.some((r) => r.path === pkgExtPath && r.enabled)).toBe(true);
+				// no duplicate intake of the same path
+				const paths = result.extensions.map((r) => r.path);
+				expect(new Set(paths).size).toBe(paths.length);
+			});
+		});
+
 		it("should resolve built-in extensions with user exclusions and project overrides", async () => {
 			const pm = new DefaultPackageManager({
 				cwd: tempDir,
