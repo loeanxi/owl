@@ -22,6 +22,8 @@ await build({
 		...hostExternals,
 		...hostExternals.map((id) => `${id}/*`),
 		"node:*",
+		// unpdf 的 pdfjs 可选原生依赖（仅图像渲染用，文本提取不需要）
+		"canvas",
 	],
 	banner: {
 		js: "// owl-web-access — ported from nicobailon/pi-web-access (MIT). Host SDK modules are provided by the owl agent at runtime.",
