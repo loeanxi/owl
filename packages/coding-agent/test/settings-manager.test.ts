@@ -745,4 +745,71 @@ describe("SettingsManager", () => {
 			expect(manager.getShellPath()).toBe(homedir());
 		});
 	});
+
+	describe("plugins field", () => {
+		it("roundtrips plugins through setPlugins and persists them", () => {
+			const manager = SettingsManager.inMemory();
+			const plugins = ["npm:pi-web-access", { source: "npm:plan-mode", extensions: ["+dist/index.ts"] }];
+
+			manager.setPlugins(plugins);
+
+			expect(manager.getPlugins()).toEqual(plugins);
+			const stored = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")) as Settings;
+			expect(stored.plugins).toEqual(plugins);
+		});
+
+		it("effectivePlugins merges plugins with legacy packages and extensions in stable order", () => {
+			const merged = effectivePlugins({
+				plugins: ["npm:new"],
+				packages: ["npm:legacy-pkg"],
+				extensions: ["legacy-ext.ts"],
+			});
+
+			expect(merged).toEqual(["npm:new", "npm:legacy-pkg", "legacy-ext.ts"]);
+		});
+
+		it("effectivePlugins tolerates absent legacy fields", () => {
+			expect(effectivePlugins({ plugins: ["npm:only"] })).toEqual(["npm:only"]);
+			expect(effectivePlugins({})).toEqual([]);
+		});
+
+		it("migrateLegacyPluginsToPlugins folds legacy fields into plugins and empties them in one save", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(
+				settingsPath,
+				JSON.stringify({
+					plugins: ["npm:already-there"],
+					packages: ["npm:legacy-pkg", { source: "npm:filtered", extensions: ["+dist/index.ts"] }],
+					extensions: ["/local/ext.ts"],
+				}),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			const migrated = manager.migrateLegacyPluginsToPlugins();
+
+			expect(migrated).toEqual([
+				"npm:already-there",
+				"npm:legacy-pkg",
+				{ source: "npm:filtered", extensions: ["+dist/index.ts"] },
+				"/local/ext.ts",
+			]);
+			expect(manager.getPlugins()).toEqual(migrated);
+			expect(manager.getPackages()).toEqual([]);
+			expect(manager.getExtensionPaths()).toEqual([]);
+
+			const stored = JSON.parse(readFileSync(settingsPath, "utf-8")) as Settings;
+			expect(stored.plugins).toEqual(migrated);
+			expect(stored.packages).toEqual([]);
+			expect(stored.extensions).toEqual([]);
+		});
+
+		it("migrateLegacyPluginsToPlugins is a no-op fold when no legacy entries exist", () => {
+			const manager = SettingsManager.inMemory();
+			manager.setPlugins(["npm:keep"]);
+
+			expect(manager.migrateLegacyPluginsToPlugins()).toEqual(["npm:keep"]);
+			expect(manager.getPackages()).toEqual([]);
+			expect(manager.getExtensionPaths()).toEqual([]);
+		});
+	});
 });
