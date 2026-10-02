@@ -582,8 +582,8 @@ export function SettingsPage({
 														onClick={() => {
 															setQuickHint("正在启动登录流程… 浏览器即将打开；如流程需要输入，会显示在下方");
 															void client
-															.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
-															.then((response) => finishAuthLogin(response, quickProvider, "登录成功"));
+																.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
+																.then((response) => finishAuthLogin(response, quickProvider, "登录成功"));
 														}}
 													>
 														浏览器登录（OAuth）
