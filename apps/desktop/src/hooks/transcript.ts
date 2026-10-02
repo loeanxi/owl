@@ -1,14 +1,39 @@
 import type { ServerEventMessage } from "../bridge/protocol.ts";
+import { summarizeToolCall } from "./summarize.ts";
 
-export type ToolCard = { id: string; name: string; args: string; status: "running" | "done" };
+export type ToolStatus = "running" | "ok" | "error";
 
 /** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
 export type ToolResultImage = { data: string; mimeType: string };
 
+/** 工具输出：已从 content 解码成纯文本，不再是 JSON 字符串。 */
+export type ToolOutput = {
+	text: string;
+	totalLines: number;
+	images?: ToolResultImage[];
+	/** bash 等超限截断时，服务端把全文写入的临时文件路径（details.fullOutputPath）。 */
+	fullPath?: string;
+};
+
+export type ToolCard = {
+	id: string;
+	name: string;
+	/** 原始参数 JSON（todo 清单解析等仍需要）。 */
+	args: string;
+	/** 人话摘要（动词 + 关键参数），替代裸 JSON 上屏。 */
+	summary: string;
+	/** 展开后的参数细节（完整命令/完整路径）。 */
+	detail?: string;
+	status: ToolStatus;
+	/** 工具结果；流式期间尚无，agent_end 重建后由 toolResult 挂上。 */
+	output?: ToolOutput;
+};
+
 export type ChatEntry =
 	| { kind: "user"; text: string }
 	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string }
-	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string; images?: ToolResultImage[] };
+	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
+	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
 
 type AnyEvent = Record<string, any>; // wire events are forward-compat; render defensively
 
@@ -76,6 +101,7 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 						id: ae.toolCall?.id ?? `tool-${ae.contentIndex}`,
 						name: ae.toolCall?.toolName ?? toolCall?.name ?? "tool",
 						args: "",
+						summary: ae.toolCall?.toolName ?? toolCall?.name ?? "tool",
 						status: "running",
 					});
 					break;
@@ -83,7 +109,12 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 				case "toolcall_end": {
 					const card = current.tools.find((tool) => tool.id === ae.toolCall?.id);
 					if (card) {
-						card.args = JSON.stringify(ae.toolCall?.arguments ?? {}, null, 2);
+						// 结果要等 agent_end 重建才回来，这里先把参数落上、换成人话摘要；
+						// status 保持 running（结果未知，不假装完成）。
+						card.args = JSON.stringify(ae.toolCall?.arguments ?? {});
+						const summarized = summarizeToolCall(card.name, ae.toolCall?.arguments);
+						card.summary = summarized.summary;
+						card.detail = summarized.detail;
 					}
 					break;
 				}
@@ -142,8 +173,10 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 				.map((part: AnyEvent) => ({
 					id: part.id,
 					name: part.name,
-					args: JSON.stringify(part.arguments ?? {}, null, 2),
-					status: "done",
+					args: JSON.stringify(part.arguments ?? {}),
+					...summarizeToolCall(part.name, part.arguments),
+					// 失败结果随后由 toolResult 覆盖；先按成功占位
+					status: "ok" as const,
 				}));
 			entries.push({
 				kind: "assistant",
@@ -159,39 +192,56 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 						: undefined,
 			});
 		} else if (message.role === "toolResult") {
-			const toolName = message.toolName ?? "tool";
-			const content = (message.content ?? []) as AnyEvent[];
-			const textParts = content
-				.filter((part: AnyEvent) => part.type === "text")
-				.map((part: AnyEvent) => part.text ?? "");
-			const images = content
-				.filter((part: AnyEvent) => part.type === "image" && part.data)
-				.map((part: AnyEvent) => ({ data: part.data, mimeType: part.mimeType ?? "image/png" }));
-			// todo 的结果摘要直接取文本首行（"任务清单已更新 — 3 items: …"），
-			// 裸 JSON 上屏反而读不懂清单状态。
-			let brief: string;
-			if (toolName === "todo") {
-				brief = firstTextLine(textParts.join("\n"));
-			} else if (images.length > 0) {
-				// 带图结果（如 browser_screenshot）：只上屏文字摘要，base64 绝不进转录
-				brief = firstTextLine(textParts.join("\n")) || `（返回 ${images.length} 张截图）`;
-			} else if (message.output !== undefined) {
-				const output = JSON.stringify(message.output);
-				brief = output.length > 400 ? `${output.slice(0, 400)}…` : output;
+			// 结果不再单独成行：挂回对应工具卡（时间轴按「工具」组织，成败随之）
+			const output = toolOutputOf(message);
+			const card = findToolCard(entries, message.toolCallId);
+			if (card) {
+				card.status = message.isError ? "error" : "ok";
+				card.output = output;
 			} else {
-				const text = textParts.join("\n");
-				brief = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+				// 找不到所属调用（防御）：退回独立的兜底行
+				entries.push({
+					kind: "toolResult",
+					toolName: message.toolName ?? "tool",
+					ok: !message.isError,
+					brief: firstTextLine(output.text) || `（${message.isError ? "失败" : "完成"}，无文本输出）`,
+				});
 			}
-			entries.push({
-				kind: "toolResult",
-				toolName,
-				ok: !message.isError,
-				brief,
-				...(images.length > 0 ? { images } : {}),
-			});
 		}
 	}
 	return entries;
+}
+
+/** 按 toolCallId 向前找所属工具卡（结果总在调用之后）。 */
+function findToolCard(entries: ChatEntry[], toolCallId: unknown): ToolCard | undefined {
+	if (typeof toolCallId !== "string") return undefined;
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.kind === "user") return undefined;
+		if (entry.kind !== "assistant") continue;
+		const card = entry.tools.find((tool) => tool.id === toolCallId);
+		if (card) return card;
+	}
+	return undefined;
+}
+
+/** 把 toolResult 消息解码成结构化输出：纯文本拼接（不再 stringify 数组）、图片、全文路径。 */
+function toolOutputOf(message: AnyEvent): ToolOutput {
+	const content = (message.content ?? []) as AnyEvent[];
+	const text = content
+		.filter((part: AnyEvent) => part.type === "text")
+		.map((part: AnyEvent) => part.text ?? "")
+		.join("\n");
+	const images = content
+		.filter((part: AnyEvent) => part.type === "image" && part.data)
+		.map((part: AnyEvent) => ({ data: part.data, mimeType: part.mimeType ?? "image/png" }));
+	const details = (message.details ?? {}) as AnyEvent;
+	return {
+		text,
+		totalLines: text === "" ? 0 : text.split("\n").length,
+		...(images.length > 0 ? { images } : {}),
+		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
+	};
 }
 
 function textOf(content: unknown): string {
