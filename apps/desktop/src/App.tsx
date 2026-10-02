@@ -351,7 +351,7 @@ export default function App(): React.JSX.Element {
 						type="button"
 						title="工作台（文件 / 编辑器 / Git 变动）"
 						aria-label="工作台"
-						className={`rounded-lg border p-1.5 transition-colors ${
+						className={`rounded-md border p-1 transition-colors ${
 							workbenchOpen
 								? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
 								: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
