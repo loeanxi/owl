@@ -31,6 +31,13 @@ export interface SessionAbortRequest {
 	sessionId: string;
 }
 
+/** 删除历史会话：卸载运行时（若已挂载）并删掉 Owl-history 里的 JSONL 文件。 */
+export interface SessionDeleteRequest {
+	type: "session.delete";
+	id: string;
+	sessionId: string;
+}
+
 /**
  * 恢复历史会话：定位 Owl-history 里的 JSONL、以续聊方式挂载运行时，
  * 响应带消息快照（rebuild 用）与会话 cwd（前端切项目视图用）。
@@ -403,6 +410,7 @@ export type DesktopClientRequest =
 	| SessionCreateRequest
 	| SessionPromptRequest
 	| SessionAbortRequest
+	| SessionDeleteRequest
 	| SessionResumeRequest
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest

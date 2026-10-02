@@ -14,7 +14,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -520,6 +520,35 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				await session.runtime.session.abort();
 				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "session.delete": {
+				// 已挂载的会话先卸载：停掉进行中的回复、退订事件并移出运行时表，
+				// 否则运行时继续 append 会把删掉的 JSONL 重新写出来。
+				const mounted = sessions.get(request.sessionId);
+				if (mounted) {
+					try {
+						await mounted.runtime.session.abort();
+					} catch {
+						// 没有进行中的回复时 abort 可能抛错，删除流程不受影响
+					}
+					mounted.unsubscribe();
+					sessions.delete(request.sessionId);
+				}
+				const found = (await SessionManager.listAll()).find((row) => row.id === request.sessionId);
+				if (!found?.path) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				try {
+					unlinkSync(found.path);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `无法删除会话文件：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
 				return;
 			}
 			case "session.setModel": {

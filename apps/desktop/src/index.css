@@ -34,6 +34,26 @@ html {
 	background-color: var(--color-owl-bg);
 }
 
+/*
+ * 浅色主题：html[data-owl-theme="light"] 时整体覆盖 --color-owl-* 变量。
+ * 工具类（bg-owl-bg 等）引用的是变量，所以所有组件无需改动即可换肤。
+ * 暖纸色调，与深色的 Claude 风格同族；主色珊瑚橙两套通用。
+ */
+html[data-owl-theme="light"] {
+	color-scheme: light;
+	--color-owl-bg: #faf9f5;
+	--color-owl-sidebar: #f1efe8;
+	--color-owl-rail: #e9e7de;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f4f2ec;
+	--color-owl-hover: #e8e5da;
+	--color-owl-border: #d9d5c7;
+
+	--color-owl-text: #3d3a32;
+	--color-owl-muted: #6e6a5e;
+	--color-owl-faint: #9a9585;
+}
+
 ::selection {
 	background-color: color-mix(in srgb, var(--color-owl-accent) 35%, transparent);
 }

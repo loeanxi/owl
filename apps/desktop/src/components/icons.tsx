@@ -120,6 +120,28 @@ export function IconChat({ className }: { className?: string }): React.JSX.Eleme
 	);
 }
 
+/** 会话行操作：归档（收纳盒） */
+export function IconArchive({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<rect width="20" height="5" x="2" y="3" rx="1" />
+			<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+			<path d="M10 12h4" />
+		</Svg>
+	);
+}
+
+/** 会话行操作：删除（垃圾桶） */
+export function IconTrash({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M3 6h18" />
+			<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+			<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+		</Svg>
+	);
+}
+
 /** 分组菜单项右端的选中勾 */
 export function IconCheck({ className }: { className?: string }): React.JSX.Element {
 	return (

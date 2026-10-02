@@ -1,0 +1,349 @@
+/**
+ * 文件变动 tab：Git 视角（暂存 / 提交 / 丢弃）+ 统一 diff 查看。
+ *
+ * 移植自 dsh-better-sidebar ChangesTab 的 Git 视角子集：porcelain 状态分组、
+ * 行级 stage/unstage/discard、吸底提交条（Ctrl+Enter）；点击文件在下半面板
+ * 看 diff（parseUnifiedDiff + annotateCharDiff 字符级高亮，VS Code 同款视觉）。
+ * "本轮 AI 改动"视角（会话事件折叠）依赖 owl 会话事件索引，后续接入。
+ */
+import { useEffect, useMemo, useState } from "react";
+import type { GitStatusEntry } from "../../bridge/protocol.ts";
+import type { TabComponentProps } from "../registry.ts";
+import { annotateCharDiff, parseUnifiedDiff, type DiffFile } from "../diff.ts";
+import { IconGitBranch, IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
+
+/** porcelain 字母 → 行色。 */
+function statusColor(entry: GitStatusEntry): string {
+	const letter = entry.x !== " " && entry.x !== "?" ? entry.x : entry.y;
+	if (entry.y === "?") return "text-emerald-300/80";
+	if (letter === "A") return "text-emerald-300";
+	if (letter === "D") return "text-red-400";
+	if (letter === "R" || letter === "C") return "text-sky-300";
+	return "text-amber-300";
+}
+
+function statusLetter(entry: GitStatusEntry): string {
+	if (entry.y === "?") return "U";
+	const letter = entry.x !== " " && entry.x !== "?" ? entry.x : entry.y;
+	return letter === " " ? "M" : letter;
+}
+
+/** 一段 unified diff 的只读渲染（红删绿增 + 行内字符级高亮）。 */
+function DiffView({ text }: { text: string }): React.JSX.Element {
+	const files = useMemo<DiffFile[]>(() => {
+		const parsed = parseUnifiedDiff(text);
+		for (const file of parsed) {
+			for (const hunk of file.hunks) annotateCharDiff(hunk);
+		}
+		return parsed;
+	}, [text]);
+	if (files.length === 0) {
+		return <div className="px-3 py-2 text-xs text-owl-faint">没有差异</div>;
+	}
+	return (
+		<div className="font-mono text-[11.5px] leading-[1.5]">
+			{files.map((file) => (
+				<div key={`${file.path}-${file.isNew ? "n" : ""}${file.isDeleted ? "d" : ""}`} className="mb-3">
+					<div className="sticky top-0 z-10 flex items-center gap-2 border-y border-owl-border/40 bg-owl-panel/95 px-3 py-1 backdrop-blur">
+						<span className="truncate text-[11px] text-owl-text" title={file.oldPath !== undefined ? `${file.oldPath} → ${file.path}` : file.path}>
+							{file.isNew && <span className="mr-1.5 rounded bg-emerald-500/20 px-1 text-emerald-300">新增</span>}
+							{file.isDeleted && <span className="mr-1.5 rounded bg-red-500/20 px-1 text-red-300">删除</span>}
+							{file.isRename && <span className="mr-1.5 rounded bg-sky-500/20 px-1 text-sky-300">重命名</span>}
+							{file.path}
+						</span>
+					</div>
+					{file.hunks.map((hunk, hunkIndex) => (
+						<div key={hunkIndex}>
+							<div className="bg-owl-panel/60 px-3 py-0.5 text-owl-faint">{hunk.header}</div>
+							{hunk.lines.map((line, lineIndex) => (
+								<div
+									key={lineIndex}
+									className={`flex ${line.type === "add" ? "bg-emerald-500/10" : line.type === "del" ? "bg-red-500/10" : ""}`}
+								>
+									<span className="w-10 shrink-0 pr-1 text-right text-owl-faint/60 select-none">{line.oldNo ?? ""}</span>
+									<span className="w-10 shrink-0 pr-1 text-right text-owl-faint/60 select-none">{line.newNo ?? ""}</span>
+									<span className={`w-4 shrink-0 select-none ${line.type === "add" ? "text-emerald-400" : line.type === "del" ? "text-red-400" : "text-transparent"}`}>
+										{line.type === "add" ? "+" : line.type === "del" ? "−" : " "}
+									</span>
+									<span className="whitespace-pre-wrap break-all">
+										{line.spans === undefined
+											? line.text
+											: line.spans.map((span, spanIndex) => (
+													<span
+														key={spanIndex}
+														className={
+															span.mark === 1
+																? line.type === "add"
+																	? "rounded-sm bg-emerald-500/25"
+																	: "rounded-sm bg-red-500/30"
+																: undefined
+														}
+													>
+														{span.text}
+													</span>
+												))}
+									</span>
+								</div>
+							))}
+						</div>
+					))}
+				</div>
+			))}
+		</div>
+	);
+}
+
+export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentProps): React.JSX.Element {
+	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
+	const [diff, setDiff] = useState<string | undefined>(undefined);
+	const [diffLoading, setDiffLoading] = useState(false);
+	const [diffError, setDiffError] = useState<string | undefined>(undefined);
+	const [message, setMessage] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | undefined>(undefined);
+	const [expandedDiff, setExpandedDiff] = useState(false);
+
+	const entries = gitStatus?.entries ?? [];
+	const staged = entries.filter((entry) => entry.x !== " " && entry.x !== "?");
+	const worktree = entries.filter((entry) => entry.x === " " && entry.y !== " " && entry.y !== "?");
+	const untracked = entries.filter((entry) => entry.y === "?");
+
+	useEffect(() => {
+		// 项目切换后清掉已不存在的选中
+		if (selected !== undefined && !entries.some((entry) => entry.path === selected.path)) {
+			setSelected(undefined);
+			setDiff(undefined);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [gitStatus]);
+
+	const openDiff = (path: string, stagedView: boolean): void => {
+		setSelected({ path, staged: stagedView });
+		setDiffLoading(true);
+		setDiffError(undefined);
+		void api
+			.gitDiff(cwd, path, stagedView)
+			.then((text) => setDiff(text))
+			.catch((err: unknown) => setDiffError(err instanceof Error ? err.message : String(err)))
+			.finally(() => setDiffLoading(false));
+	};
+
+	const act = async (action: () => Promise<unknown>): Promise<void> => {
+		setBusy(true);
+		setError(undefined);
+		try {
+			await action();
+			onGitRefresh();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const commit = async (): Promise<void> => {
+		if (message.trim() === "") return;
+		setBusy(true);
+		try {
+			await api.gitCommit(cwd, message.trim());
+			setMessage("");
+			onGitRefresh();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	if (gitStatus !== undefined && !gitStatus.repo) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+				<IconGitBranch size={22} className="text-owl-faint" />
+				<div className="text-xs text-owl-muted">此目录不是 Git 仓库</div>
+				<div className="text-[11px] text-owl-faint">在项目根目录执行 git init 后，这里会显示文件变动</div>
+			</div>
+		);
+	}
+
+	const group = (title: string, rows: GitStatusEntry[], stagedView: boolean): React.JSX.Element => (
+		<div className="px-1">
+			<div className="flex items-center justify-between px-2 py-1 text-[11px] text-owl-faint">
+				<span>
+					{title} <span className="ml-1 rounded bg-owl-panel px-1">{rows.length}</span>
+				</span>
+				{stagedView ? (
+					rows.length > 0 && (
+						<button type="button" className="hover:text-owl-text" title="全部取消暂存" onClick={() => void act(() => api.gitUnstage(cwd, rows.map((row) => row.path)))}>
+							<IconUndo size={12} />
+						</button>
+					)
+				) : (
+					rows.length > 0 && (
+						<button type="button" className="hover:text-owl-text" title="全部暂存" onClick={() => void act(() => api.gitStage(cwd, rows.map((row) => row.path)))}>
+							+
+						</button>
+					)
+				)}
+			</div>
+			{rows.map((entry) => {
+				const isSelected = selected?.path === entry.path && selected.staged === stagedView;
+				return (
+					<div
+						key={`${entry.path}-${stagedView ? "s" : "w"}`}
+						className={`group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-[3px] hover:bg-owl-hover ${isSelected ? "bg-owl-hover" : ""}`}
+						onClick={() => openDiff(entry.path, stagedView)}
+					>
+						<span className={`shrink-0 text-[10px] font-semibold ${statusColor(entry)}`}>{statusLetter(entry)}</span>
+						<span className="min-w-0 flex-1 truncate text-xs text-owl-text" title={entry.origPath !== undefined ? `${entry.origPath} → ${entry.path}` : entry.path}>
+							{entry.origPath !== undefined && <span className="text-owl-faint">{entry.origPath} → </span>}
+							{entry.path}
+						</span>
+						<span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+							{stagedView ? (
+								<button
+									type="button"
+									title="取消暂存"
+									className="rounded p-0.5 text-owl-muted hover:text-owl-text"
+									onClick={(e) => {
+										e.stopPropagation();
+										void act(() => api.gitUnstage(cwd, [entry.path]));
+									}}
+								>
+									<IconUndo size={12} />
+								</button>
+							) : (
+								<button
+									type="button"
+									title="暂存"
+									className="rounded p-0.5 text-owl-muted hover:text-owl-text"
+									onClick={(e) => {
+										e.stopPropagation();
+										void act(() => api.gitStage(cwd, [entry.path]));
+									}}
+								>
+									+
+								</button>
+							)}
+							{!stagedView && (
+								<button
+									type="button"
+									title="丢弃修改"
+									className="rounded p-0.5 text-owl-muted hover:text-red-300"
+									onClick={(e) => {
+										e.stopPropagation();
+										void act(() => api.gitDiscard(cwd, entry.path));
+									}}
+								>
+									<IconTrash size={12} />
+								</button>
+							)}
+						</span>
+					</div>
+				);
+			})}
+		</div>
+	);
+
+	return (
+		<div className="flex h-full flex-col overflow-hidden">
+			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
+				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint">
+					{gitStatus?.branch !== undefined && (
+						<>
+							<IconGitBranch size={11} className="mr-1 inline align-[-1px]" />
+							{gitStatus.branch}
+							{gitStatus.upstream !== undefined && <span className="text-owl-faint/70"> ⟂ {gitStatus.upstream}</span>}
+						</>
+					)}
+				</span>
+				<button type="button" title="刷新" className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={onGitRefresh}>
+					<IconRefresh size={14} />
+				</button>
+			</div>
+			{error !== undefined && (
+				<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
+					{error}
+					<button type="button" className="ml-2 underline" onClick={() => setError(undefined)}>
+						关闭
+					</button>
+				</div>
+			)}
+			<div className="min-h-0 flex-1 overflow-y-auto py-1">
+				{gitStatus === undefined && (
+					<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
+						<IconLoader size={13} className="animate-spin" /> 读取 Git 状态…
+					</div>
+				)}
+				{staged.length > 0 && group("已暂存", staged, true)}
+				{worktree.length > 0 && group("更改", worktree, false)}
+				{untracked.length > 0 && group("未跟踪", untracked, false)}
+				{gitStatus !== undefined && entries.length === 0 && (
+					<div className="px-3 py-6 text-center text-xs text-owl-faint">工作区干净，没有未提交的改动</div>
+				)}
+			</div>
+
+			{/* diff 预览面板（可展开为独占视图） */}
+			{selected !== undefined && (
+				<div className={`${expandedDiff ? "h-[78%]" : "h-[45%]"} flex shrink-0 flex-col border-t border-owl-border/60`}>
+					<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1">
+						<IconPencil size={11} className="shrink-0 text-owl-faint" />
+						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted" title={selected.path}>
+							{selected.path}
+							{selected.staged && <span className="ml-1.5 text-emerald-300/80">已暂存</span>}
+						</span>
+						<button type="button" title={expandedDiff ? "收起" : "展开"} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
+							{expandedDiff ? "▾" : "▴"}
+						</button>
+						<button
+							type="button"
+							title="关闭"
+							className="rounded p-1 text-owl-muted hover:text-owl-text"
+							onClick={() => {
+								setSelected(undefined);
+								setDiff(undefined);
+							}}
+						>
+							<IconX size={12} />
+						</button>
+					</div>
+					<div className="min-h-0 flex-1 overflow-auto">
+						{diffLoading && (
+							<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
+								<IconLoader size={13} className="animate-spin" /> 读取 diff…
+							</div>
+						)}
+						{diffError !== undefined && <div className="px-3 py-2 text-xs text-red-300">{diffError}</div>}
+						{!diffLoading && diffError === undefined && diff !== undefined && <DiffView text={diff} />}
+					</div>
+				</div>
+			)}
+
+			{/* 吸底提交条 */}
+			{(staged.length > 0 || message !== "") && (
+				<div className="shrink-0 border-t border-owl-border/60 p-2">
+					<textarea
+						value={message}
+						onChange={(e) => setMessage(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+								e.preventDefault();
+								void commit();
+							}
+						}}
+						rows={2}
+						placeholder={`提交信息（Ctrl+Enter 提交 ${staged.length} 个文件）`}
+						className="w-full resize-none rounded-lg border border-owl-border/50 bg-owl-panel px-2.5 py-1.5 text-xs text-owl-text placeholder:text-owl-faint focus:border-owl-accent/60 focus:outline-none"
+					/>
+					<button
+						type="button"
+						disabled={busy || message.trim() === "" || staged.length === 0}
+						className="mt-1.5 w-full rounded-lg bg-owl-accent py-1.5 text-xs font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+						onClick={() => void commit()}
+					>
+						{busy ? "提交中…" : `提交 ${staged.length} 个已暂存文件`}
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}

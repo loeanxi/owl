@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProviderModelsMessage } from "../bridge/protocol.ts";
+import { isThemePreference, setThemePreference } from "../theme.ts";
 import { IconCode, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
 
 const API_OPTIONS = [
@@ -740,15 +741,24 @@ export function SettingsPage({
 						{section === "appearance" && (
 							<>
 								<SectionHeader title="外观" desc="界面与主题配色。" />
-								<SettingRow title="主题" desc="写入 settings.json 的 theme 字段（dark / light）。当前桌面界面为固定深色，此值供代理端主题系统使用。">
+								<SettingRow
+									title="主题"
+									desc="写入 settings.json 的 theme 字段，桌面界面即时生效；「跟随系统」依据操作系统的深浅色偏好自动切换。"
+								>
 									<select
 										className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 										value={theme}
 										disabled={busy}
-										onChange={(event) => void saveSettings({ theme: event.target.value })}
+										onChange={(event) => {
+											const next = event.target.value;
+											void saveSettings({ theme: next }).then((ok) => {
+												if (ok && isThemePreference(next)) setThemePreference(next);
+											});
+										}}
 									>
 										<option value="dark">深色（dark）</option>
 										<option value="light">浅色（light）</option>
+										<option value="system">跟随系统（system）</option>
 									</select>
 								</SettingRow>
 							</>

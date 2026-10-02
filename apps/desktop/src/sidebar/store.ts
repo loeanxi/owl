@@ -154,6 +154,18 @@ export class SidebarStore {
 		this.commit({ ...this.state, expanded: [...set] });
 	}
 
+	/** 展开一条路径的全部祖先（搜索结果定位用），目录本身不展开。 */
+	expandTo(path: string): void {
+		const segments = path.split("/").filter(Boolean);
+		const set = new Set(this.state.expanded);
+		let prefix = "";
+		for (let index = 0; index < segments.length - 1; index += 1) {
+			prefix = prefix === "" ? segments[index]! : `${prefix}/${segments[index]}`;
+			set.add(prefix);
+		}
+		this.commit({ ...this.state, expanded: [...set] });
+	}
+
 	/** 路径重命名后同步已开的文件 tab（id/title/path）与展开目录。 */
 	remapPath(oldPath: string, newPath: string): void {
 		const mapOne = (path: string): string => (path === oldPath || path.startsWith(`${oldPath}/`) ? newPath + path.slice(oldPath.length) : path);

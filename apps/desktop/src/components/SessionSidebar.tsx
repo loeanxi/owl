@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProjectCreateResult } from "../bridge/protocol.ts";
 import {
+	IconArchive,
 	IconChat,
 	IconCheck,
 	IconChevron,
@@ -11,6 +12,7 @@ import {
 	IconPin,
 	IconPlus,
 	IconSearch,
+	IconTrash,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 
@@ -27,13 +29,15 @@ type SessionRow = {
 };
 
 const PINNED_KEY = "owl.pinnedSessions";
+const ARCHIVED_KEY = "owl.archivedSessions";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
-/** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；项目/最近 name=按名称。 */
+/** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
-const PROJECT_SORT_KEY = "owl.sidebar.projectSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
+/** 项目行内嵌会话列表的折叠标记（存进 collapsed 集合）。 */
+const PROJECT_SESSIONS_ID = "project-sessions";
 
 type PinnedSort = "recent" | "manual";
 type ListSort = "recent" | "name";
@@ -104,8 +108,16 @@ function relativeTime(iso: string): string {
 }
 
 function loadPinned(): string[] {
+	return loadIdList(PINNED_KEY);
+}
+
+function loadArchived(): string[] {
+	return loadIdList(ARCHIVED_KEY);
+}
+
+function loadIdList(key: string): string[] {
 	try {
-		const raw = localStorage.getItem(PINNED_KEY);
+		const raw = localStorage.getItem(key);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
 	} catch {
@@ -265,6 +277,7 @@ export function SessionSidebar({
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState("");
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
+	const [archived, setArchived] = useState<string[]>(loadArchived);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
@@ -273,12 +286,13 @@ export function SessionSidebar({
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
 		loadChoice(PINNED_SORT_KEY, ["recent", "manual"] as const, "manual"),
 	);
-	const [projectSort, setProjectSort] = useState<ListSort>(() =>
-		loadChoice(PROJECT_SORT_KEY, ["recent", "name"] as const, "recent"),
-	);
 	const [recentSort, setRecentSort] = useState<ListSort>(() =>
 		loadChoice(RECENT_SORT_KEY, ["recent", "name"] as const, "recent"),
 	);
+	/** 待确认删除的会话（非 null 时显示确认弹窗）。 */
+	const [confirmDelete, setConfirmDelete] = useState<SessionRow | null>(null);
+	const [deleting, setDeleting] = useState(false);
+	const [deleteError, setDeleteError] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const projectHeaderRef = useRef<HTMLDivElement>(null);
 	const recentHeaderRef = useRef<HTMLDivElement>(null);
@@ -314,16 +328,21 @@ export function SessionSidebar({
 		if (client && connected) void refresh();
 	}, [client, connected, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
+	// 置顶/归档的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；
 	// 必须等 session.list 真正返回过至少一条（或确认没有任何会话）后才允许清理。
 	useEffect(() => {
 		if (sessions.length === 0) return;
 		const alive = new Set(sessions.map((row) => row.id).filter(Boolean));
-		const valid = pinned.filter((id) => alive.has(id));
-		if (valid.length !== pinned.length) {
-			setPinned(valid);
-			localStorage.setItem(PINNED_KEY, JSON.stringify(valid));
+		for (const [value, setter, key] of [
+			[pinned, setPinned, PINNED_KEY],
+			[archived, setArchived, ARCHIVED_KEY],
+		] as const) {
+			const valid = value.filter((id) => alive.has(id));
+			if (valid.length !== value.length) {
+				setter(valid);
+				localStorage.setItem(key, JSON.stringify(valid));
+			}
 		}
 	}, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -366,34 +385,50 @@ export function SessionSidebar({
 		});
 	};
 
+	const toggleArchive = (id: string): void => {
+		setArchived((current) => {
+			const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
+			localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
+			return next;
+		});
+	};
+
+	/** 确认删除：桥上卸载运行时并删历史文件；删的是当前会话时切到新会话。 */
+	const deleteSession = async (row: SessionRow): Promise<void> => {
+		const id = row.id;
+		if (!id) return;
+		setDeleting(true);
+		setDeleteError("");
+		try {
+			const response = await client.request({ type: "session.delete", sessionId: id });
+			if (!response.ok) {
+				setDeleteError(response.error ?? "删除失败");
+				return;
+			}
+			setPinned((current) => {
+				const next = current.filter((v) => v !== id);
+				localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+				return next;
+			});
+			setArchived((current) => {
+				const next = current.filter((v) => v !== id);
+				localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
+				return next;
+			});
+			setConfirmDelete(null);
+			if (id === activeId) onNewChat();
+			void refresh();
+		} catch (error) {
+			setDeleteError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setDeleting(false);
+		}
+	};
+
 	const search = query.trim().toLowerCase();
 
-	// 有会话记录的项目（去重，按最近活动排序）；当前项目即使还没有会话也保持在列表里。
-	const projects = useMemo(() => {
-		const byCwd = new Map<string, { cwd: string; latest: string }>();
-		for (const row of sessions) {
-			if (!row.cwd) continue;
-			const existing = byCwd.get(row.cwd.toLowerCase());
-			const ts = sessionTime(row);
-			if (!existing || ts > existing.latest) byCwd.set(row.cwd.toLowerCase(), { cwd: row.cwd, latest: ts });
-		}
-		const list = [...byCwd.values()].sort((a, b) => (a.latest < b.latest ? 1 : -1)).map((p) => p.cwd);
-		if (!list.some((cwd) => samePath(cwd, activeProject))) list.unshift(activeProject);
-		return list;
-	}, [sessions, activeProject]);
-
-	const visibleProjects = useMemo(() => {
-		const list = search
-			? projects.filter(
-					(cwd) =>
-						projectLabel(cwd).toLowerCase().includes(search) || cwd.toLowerCase().includes(search),
-				)
-			: [...projects];
-		if (projectSort === "name") {
-			list.sort((a, b) => projectLabel(a).localeCompare(projectLabel(b), "zh-CN"));
-		}
-		return list;
-	}, [projects, search, projectSort]);
+	/** 已归档的会话只出现在「归档」分组，其余分组一律隐藏。 */
+	const isArchivedRow = (row: SessionRow): boolean => row.id !== undefined && archived.includes(row.id);
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
 	const sessionMatches = (row: SessionRow): boolean =>
@@ -401,22 +436,35 @@ export function SessionSidebar({
 		sessionTitle(row).toLowerCase().includes(search) ||
 		(row.cwd ?? "").toLowerCase().includes(search);
 
+	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
+
 	const pinnedSessions = useMemo(() => {
-		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id));
+		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row));
 		if (pinnedSort === "manual") {
 			// 手动排序 = 置顶操作发生的先后顺序（pinned 数组序）
 			return rows.sort((a, b) => pinned.indexOf(a.id as string) - pinned.indexOf(b.id as string));
 		}
-		return rows.sort((a, b) => (sessionTime(a) < sessionTime(b) ? 1 : -1));
-	}, [sessions, pinned, pinnedSort]);
+		return rows.sort(byLatest);
+	}, [sessions, pinned, archived, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 当前项目的会话：项目分组下嵌套展示（其余项目的会话只在「最近」出现）。
+	const projectSessions = useMemo(
+		() => sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, activeProject)).sort(byLatest),
+		[sessions, archived, activeProject], // eslint-disable-line react-hooks/exhaustive-deps
+	);
 
 	const recentSessions = useMemo(() => {
-		const rows = sessions.filter(sessionMatches);
+		const rows = sessions.filter((row) => !isArchivedRow(row) && sessionMatches(row));
 		if (recentSort === "name") {
 			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
 		}
 		return rows.slice(0, RECENT_LIMIT);
-	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [sessions, archived, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	const archivedSessions = useMemo(
+		() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest),
+		[sessions, archived], // eslint-disable-line react-hooks/exhaustive-deps
+	);
 
 	const submitNewProject = async (): Promise<void> => {
 		const path = newPath.trim();
@@ -439,8 +487,12 @@ export function SessionSidebar({
 		}
 	};
 
-	/** 会话行：图标 + 标题 + 次行（时间 · 项目），悬停露出置顶按钮。 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean): React.JSX.Element => {
+	/** 会话行悬停操作按钮的统一样式。 */
+	const rowBtn =
+		"shrink-0 rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60";
+
+	/** 会话行：图标 + 标题 + 次行（时间 · 项目），悬停露出置顶/归档/删除按钮。 */
+	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, archivedRow = false): React.JSX.Element => {
 		const id = row.id;
 		const isPinned = id !== undefined && pinned.includes(id);
 		return (
@@ -473,18 +525,41 @@ export function SessionSidebar({
 					</span>
 				</button>
 				{id && (
-					<button
-						type="button"
-						className={`shrink-0 rounded p-1 transition-colors hover:bg-owl-border/60 ${
-							pinnedRow
-								? "text-owl-accent"
-								: `text-owl-faint opacity-0 group-hover/row:opacity-100 ${isPinned ? "text-owl-accent" : ""}`
-						}`}
-						title={isPinned ? "取消置顶" : "置顶"}
-						onClick={() => togglePin(id)}
-					>
-						<IconPin className="h-3.5 w-3.5" filled={isPinned} />
-					</button>
+					<div className="flex shrink-0 items-center gap-0.5">
+						{!archivedRow && (
+							<button
+								type="button"
+								className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
+									pinnedRow
+										? "text-owl-accent"
+										: `text-owl-faint opacity-0 group-hover/row:opacity-100 ${isPinned ? "text-owl-accent" : ""}`
+								}`}
+								title={isPinned ? "取消置顶" : "置顶"}
+								onClick={() => togglePin(id)}
+							>
+								<IconPin className="h-3.5 w-3.5" filled={isPinned} />
+							</button>
+						)}
+						<button
+							type="button"
+							className={`${rowBtn} ${archivedRow ? "text-owl-accent" : "hover:text-owl-text"}`}
+							title={archivedRow ? "取消归档" : "归档"}
+							onClick={() => toggleArchive(id)}
+						>
+							<IconArchive className="h-3.5 w-3.5" />
+						</button>
+						<button
+							type="button"
+							className={`${rowBtn} hover:text-red-400`}
+							title="删除会话"
+							onClick={() => {
+								setConfirmDelete(row);
+								setDeleteError("");
+							}}
+						>
+							<IconTrash className="h-3.5 w-3.5" />
+						</button>
+					</div>
 				)}
 			</div>
 		);
@@ -492,8 +567,9 @@ export function SessionSidebar({
 
 	const noMatch =
 		search !== "" &&
-		visibleProjects.length === 0 &&
+		projectSessions.filter(sessionMatches).length === 0 &&
 		recentSessions.length === 0 &&
+		archivedSessions.filter(sessionMatches).length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
 
 		/** 分组头部快捷按钮的统一样式。 */
@@ -502,11 +578,6 @@ export function SessionSidebar({
 		const switchPinnedSort = (value: PinnedSort): void => {
 			setPinnedSort(value);
 			saveChoice(PINNED_SORT_KEY, value);
-			setOpenMenu(null);
-		};
-		const switchProjectSort = (value: ListSort): void => {
-			setProjectSort(value);
-			saveChoice(PROJECT_SORT_KEY, value);
 			setOpenMenu(null);
 		};
 		const switchRecentSort = (value: ListSort): void => {
@@ -633,44 +704,34 @@ export function SessionSidebar({
 							</button>
 						</>
 					}
-					menu={
-						<>
-							<MenuRow label="新建项目" onClick={openNewProject} />
-							<MenuRow label="整理侧边栏" disabled hint="开发中" />
-							<MenuDivider />
-							<MenuLabel>排序方式</MenuLabel>
-							<MenuRow
-								label="按最近使用"
-								checked={projectSort === "recent"}
-								onClick={() => switchProjectSort("recent")}
-							/>
-							<MenuRow
-								label="按名称"
-								checked={projectSort === "name"}
-								onClick={() => switchProjectSort("name")}
-							/>
-						</>
-					}
+					menu={<MenuRow label="新建项目" onClick={openNewProject} />}
 				>
-					{visibleProjects.map((cwd) => (
+					{/* 当前项目行：点击展开/收起项目下的会话列表 */}
+					<div className="flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
 						<button
-							key={cwd}
 							type="button"
-							className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-								samePath(cwd, activeProject)
-									? "bg-owl-hover text-owl-text"
-									: "text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text"
-							}`}
-							title={cwd}
-							onClick={() => onSelectProject(cwd)}
+							className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+							onClick={() => toggleSection(PROJECT_SESSIONS_ID)}
+							aria-expanded={isOpen(PROJECT_SESSIONS_ID)}
 						>
+							<IconChevron
+								className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${
+									isOpen(PROJECT_SESSIONS_ID) ? "rotate-90" : ""
+								}`}
+							/>
 							<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
-							<span className="truncate">{projectLabel(cwd)}</span>
-							{samePath(cwd, activeProject) && (
-								<span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
-							)}
+							<span className="truncate text-xs text-owl-text">{projectLabel(activeProject)}</span>
 						</button>
-					))}
+						<span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
+					</div>
+					{isOpen(PROJECT_SESSIONS_ID) && (
+						<div className="mt-0.5 pl-4">
+							{projectSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false))}
+							{projectSessions.filter(sessionMatches).length === 0 && (
+								<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
+							)}
+						</div>
+					)}
 					<button
 						type="button"
 						className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-owl-faint transition-colors hover:bg-owl-hover/60 hover:text-owl-text"
@@ -732,6 +793,17 @@ export function SessionSidebar({
 					)}
 				</Section>
 
+				{archivedSessions.length > 0 && (
+					<Section
+						id="archived"
+						label="归档"
+						open={isOpen("archived")}
+						onToggle={() => toggleSection("archived")}
+					>
+						{archivedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false, true))}
+					</Section>
+				)}
+
 				{noMatch && <p className="px-3 py-3 text-xs text-owl-faint/70">无匹配结果</p>}
 			</div>
 
@@ -772,6 +844,36 @@ export function SessionSidebar({
 								disabled={creating || !newPath.trim()}
 							>
 								{creating ? "创建中…" : "创建并切换"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{confirmDelete && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
+					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
+						<h2 className="mb-1 text-sm font-semibold text-owl-text">删除会话</h2>
+						<p className="mb-3 break-all text-xs text-owl-muted">
+							「{sessionTitle(confirmDelete)}」的聊天记录将被永久删除，此操作不可恢复。
+						</p>
+						{deleteError && <p className="mt-2 text-xs text-red-400">{deleteError}</p>}
+						<div className="mt-4 flex justify-end gap-2">
+							<button
+								type="button"
+								className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+								onClick={() => setConfirmDelete(null)}
+								disabled={deleting}
+							>
+								取消
+							</button>
+							<button
+								type="button"
+								className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-50"
+								onClick={() => void deleteSession(confirmDelete)}
+								disabled={deleting}
+							>
+								{deleting ? "删除中…" : "删除"}
 							</button>
 						</div>
 					</div>

@@ -9,6 +9,9 @@ import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
+import { isThemePreference, setThemePreference } from "./theme.ts";
+import { Workbench } from "./sidebar/Workbench.tsx";
+import { IconPanelRight } from "./sidebar/icons.tsx";
 import type { ProviderModelsMessage } from "./bridge/protocol.ts";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
@@ -16,6 +19,7 @@ const WORKSPACE_KEY = "owl.workspaceDir";
 const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
+const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -55,6 +59,16 @@ export default function App(): React.JSX.Element {
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
 	);
+	// 侧边栏工作台（文件树 / 编辑器 / Git 变动）：开合状态持久化。
+	const [workbenchOpen, setWorkbenchOpen] = useState(
+		() => localStorage.getItem(WORKBENCH_OPEN_KEY) === "1",
+	);
+	const toggleWorkbench = (): void => {
+		setWorkbenchOpen((open) => {
+			localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "0" : "1");
+			return !open;
+		});
+	};
 	const workspaceRef = useRef(workspaceDir);
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
@@ -86,6 +100,14 @@ export default function App(): React.JSX.Element {
 		void client
 			.request<ProviderModelsMessage[]>({ type: "models.list" })
 			.then((response) => response.ok && setProviders(response.result ?? []))
+			.catch(() => {});
+		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用。
+		void client
+			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
+			.then((response) => {
+				const theme = (response.result?.settings as Record<string, unknown> | undefined)?.theme;
+				if (isThemePreference(theme)) setThemePreference(theme);
+			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
 		// project.create 即 mkdir -p：目录已有时是幂等空操作，顺带把路径规范化后回填显示。
@@ -302,6 +324,21 @@ export default function App(): React.JSX.Element {
 					<div className="flex-1" />
 					<button
 						type="button"
+						title="工作台（文件 / 编辑器 / Git 变动）"
+						className={`rounded-lg border px-2.5 py-1 text-sm transition-colors ${
+							workbenchOpen
+								? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
+								: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+						}`}
+						onClick={toggleWorkbench}
+					>
+						<span className="flex items-center gap-1.5">
+							<IconPanelRight size={14} />
+							工作台
+						</span>
+					</button>
+					<button
+						type="button"
 						className="rounded-lg border border-owl-border px-2.5 py-1 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
 						onClick={() => setShowSettings(true)}
 					>
@@ -323,6 +360,8 @@ export default function App(): React.JSX.Element {
 					sessionInfo={sessionInfo}
 				/>
 			</div>
+			{/* 侧边栏工作台：常挂载（隐藏时不丢编辑器草稿），按项目持久化布局 */}
+			<Workbench client={client} cwd={workspaceDir} open={workbenchOpen} onSetOpen={setWorkbenchOpen} />
 			{permission && (
 				<PermissionDialog
 					request={permission}
