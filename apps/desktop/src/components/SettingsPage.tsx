@@ -636,7 +636,7 @@ export function SettingsPage({
 								<SettingRow title={`扩展包（packages，${packages.length}）`} desc="支持 npm:包名 形式；对象条目可带附加扩展入口。">
 									<div className="flex gap-2">
 										<input
-											className={smallInput}
+											className={`${smallInput} min-w-0 flex-1`}
 											value={pkgInput}
 											onChange={(event) => setPkgInput(event.target.value)}
 											placeholder="npm:some-package"
@@ -650,7 +650,7 @@ export function SettingsPage({
 										/>
 										<button
 											type="button"
-											className={btnAccent}
+											className={`${btnAccent} shrink-0`}
 											disabled={busy || !pkgInput.trim()}
 											onClick={() => {
 												void saveSettings({ packages: [...packages, pkgInput.trim()] }).then((ok) => {
@@ -690,7 +690,7 @@ export function SettingsPage({
 								<SettingRow title={`本地扩展（extensions，${extensions.length}）`} desc="直接加载的扩展脚本路径。">
 									<div className="flex gap-2">
 										<input
-											className={smallInput}
+											className={`${smallInput} min-w-0 flex-1`}
 											value={extInput}
 											onChange={(event) => setExtInput(event.target.value)}
 											placeholder="C:\\path\\to\\extension.ts"
@@ -704,7 +704,7 @@ export function SettingsPage({
 										/>
 										<button
 											type="button"
-											className={btnAccent}
+											className={`${btnAccent} shrink-0`}
 											disabled={busy || !extInput.trim()}
 											onClick={() => {
 												void saveSettings({ extensions: [...extensions, extInput.trim()] }).then((ok) => {
