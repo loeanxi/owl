@@ -10,7 +10,7 @@
  * 变更通过现有 WS 协议以 fs_changed 事件广播，不单独开 socket。
  */
 
-import { watch, type FSWatcher } from "node:fs";
+import { type FSWatcher, watch } from "node:fs";
 import { invalidateDirectoryCache } from "./sidebar-fs.ts";
 
 /** 一阵文件系统事件折叠成一次推送的窗口。 */

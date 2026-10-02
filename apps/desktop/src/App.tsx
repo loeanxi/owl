@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BridgeClient } from "./bridge/client.ts";
-import type { PermissionRequest, ServerEventMessage, SessionStatsResult } from "./bridge/protocol.ts";
+import type { PermissionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream } from "./components/ChatStream.tsx";
@@ -10,8 +10,12 @@ import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
-import { Workbench } from "./sidebar/Workbench.tsx";
-import { IconPanelRight } from "./sidebar/icons.tsx";
+import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
+import { BottomDockBar } from "./sidebar/BottomDockBar.tsx";
+import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
+import { useTabRegistry } from "./sidebar/registry.ts";
+import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
+import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
 import type { ProviderModelsMessage } from "./bridge/protocol.ts";
 
@@ -21,6 +25,8 @@ const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
+const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
+const DOCK_BAR_KEY = "owl.dock.visible";
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -53,6 +59,8 @@ export default function App(): React.JSX.Element {
 	const [railView, setRailView] = useState<RailView>("chat");
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
+	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
+	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
@@ -62,16 +70,53 @@ export default function App(): React.JSX.Element {
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
 	);
-	// 侧边栏工作台（文件树 / 编辑器 / Git 变动）：开合状态持久化。
+	// 侧边栏工作台（文件树 / 编辑器 / Git 变动 / 任务 / 侧聊）：开合与停靠位置持久化。
 	const [workbenchOpen, setWorkbenchOpen] = useState(
 		() => localStorage.getItem(WORKBENCH_OPEN_KEY) === "1",
 	);
-	const toggleWorkbench = (): void => {
-		setWorkbenchOpen((open) => {
-			localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "0" : "1");
-			return !open;
-		});
+	const [workbenchDock, setWorkbenchDock] = useState<WorkbenchDock>(() =>
+		localStorage.getItem(WORKBENCH_DOCK_KEY) === "right" ? "right" : "bottom",
+	);
+	// 底部栏目（快捷卡条）：X 收起后从顶栏的底部面板按钮唤回。
+	const [dockBarVisible, setDockBarVisible] = useState(() => localStorage.getItem(DOCK_BAR_KEY) !== "0");
+	const setWorkbenchOpenPersisted = (open: boolean): void => {
+		setWorkbenchOpen(open);
+		localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "1" : "0");
 	};
+	const setDockPersisted = (dock: WorkbenchDock): void => {
+		setWorkbenchDock(dock);
+		localStorage.setItem(WORKBENCH_DOCK_KEY, dock);
+	};
+
+	// 工作台 store 按项目提升到 App：底部栏与 Workbench 共用同一实例。
+	const workbenchKey = normProjectKey(workspaceDir);
+	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	const registry = useTabRegistry();
+
+	// 面板开合/停靠的 ref 镜像：快捷键与卡片回调里免 stale closure。
+	const dockRef = useRef(workbenchDock);
+	dockRef.current = workbenchDock;
+	const openRef = useRef(workbenchOpen);
+	openRef.current = workbenchOpen;
+
+	/** 在指定停靠位打开面板；再点一次同位按钮 = 收起（顶部两个按钮共用）。 */
+	const togglePanelAt = (target: WorkbenchDock): void => {
+		if (openRef.current && dockRef.current === target) {
+			setWorkbenchOpenPersisted(false);
+			return;
+		}
+		if (target === "bottom") setDockBarVisible(true);
+		setDockPersisted(target);
+		setWorkbenchOpenPersisted(true);
+	};
+
+	/** 打开一个单例 tab（底部栏 / 开始页卡片入口）：不动停靠位，只保证面板展开。 */
+	const requestOpenKind = (kind: string): void => {
+		workbenchStore.openSingleton(kind, registry.byKind.get(kind)?.title ?? kind);
+		if (dockRef.current === "bottom") setDockBarVisible(true);
+		setWorkbenchOpenPersisted(true);
+	};
+
 	const workspaceRef = useRef(workspaceDir);
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
@@ -84,8 +129,23 @@ export default function App(): React.JSX.Element {
 			if (up) setEverConnected(true);
 		});
 		const offEvents = client.onSessionEvent((message: ServerEventMessage) => {
+			// 全会话运行状态跟踪：agent_start / agent_settled 成对出现（abort、出错也走 settled），
+			// 必须在下面的当前会话过滤之前记录，否则后台会话的绿点状态丢失。
+			const eventType = (message.event as { type?: string }).type;
+			if (eventType === "agent_start") {
+				setRunningSessions((current) => new Set(current).add(message.sessionId));
+			} else if (eventType === "agent_settled") {
+				setRunningSessions((current) => {
+					if (!current.has(message.sessionId)) return current;
+					const next = new Set(current);
+					next.delete(message.sessionId);
+					return next;
+				});
+			}
+			// 旁路会话（侧边对话等）的事件由各自 tab 消费，主转录只跟当前会话
+			if (message.sessionId !== sessionIdRef.current) return;
 			setEntries((current) => applyEvent(current, message));
-			if ((message.event as { type?: string }).type === "agent_settled") {
+			if (eventType === "agent_settled") {
 				setRunning(false);
 				void refreshStats();
 				void notifyAgentStatus({
@@ -112,6 +172,23 @@ export default function App(): React.JSX.Element {
 		};
 	}, [client]);
 
+	// 任务管理 tab 的 feed：流式 delta 只重渲染订阅者，不牵连整个工作台
+	useEffect(() => {
+		setSessionFeed({ running, entries });
+	}, [running, entries]);
+
+	// Ctrl + ` 呼出/收起底部工作台（与开始页"新建终端"卡上的提示呼应）
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent): void => {
+			if (event.ctrlKey && (event.key === "`" || event.code === "Backquote")) {
+				event.preventDefault();
+				togglePanelAt("bottom");
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []); // eslint-disable-line react-hooks/exhaustive-deps
+
 	useEffect(() => {
 		if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
 			void Notification.requestPermission().catch(() => {});
@@ -123,6 +200,11 @@ export default function App(): React.JSX.Element {
 		void client
 			.request<ProviderModelsMessage[]>({ type: "models.list" })
 			.then((response) => response.ok && setProviders(response.result ?? []))
+			.catch(() => {});
+		// 连接后拉一次运行中的会话：UI 刷新或桥重连后恢复侧边栏的运行状态点。
+		void client
+			.request<SessionRunningResult>({ type: "session.running" })
+			.then((response) => response.ok && setRunningSessions(new Set(response.result?.running ?? [])))
 			.catch(() => {});
 		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用。
 		void client
@@ -301,6 +383,32 @@ export default function App(): React.JSX.Element {
 		if (sessionId) await client.request({ type: "session.abort", sessionId });
 	};
 
+	// -- 顶栏（对照 DSH 会话头：标题 + 元信息 chips + 右侧功能簇） --------------
+	const sessionTitle = useMemo(() => {
+		const first = entries.find((entry) => entry.kind === "user");
+		if (!first) return "新对话";
+		const line = first.text.split("\n").find((part) => part.trim() !== "") ?? "";
+		return line.length > 42 ? `${line.slice(0, 42)}…` : line || "新对话";
+	}, [entries]);
+	const modelLabel = useMemo(() => {
+		const slash = modelValue.indexOf("/");
+		if (slash <= 0) return undefined;
+		const providerId = modelValue.slice(0, slash);
+		const modelId = modelValue.slice(slash + 1);
+		return (
+			providers.find((provider) => provider.id === providerId)?.models.find((entry) => entry.id === modelId)?.name ??
+			modelId
+		);
+	}, [providers, modelValue]);
+	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
+
+	const headerButtonClass = (active: boolean): string =>
+		`rounded-md border p-1 transition-colors ${
+			active
+				? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
+				: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+		}`;
+
 	return (
 		<div className="flex h-screen bg-owl-bg text-owl-text">
 			<ActivityRail
@@ -316,6 +424,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={sessionId ?? ""}
 				revision={sidebarRev}
 				focus={railView}
+				runningSessions={runningSessions}
 				onNewChat={() => {
 					setRailView("chat");
 					newChat();
@@ -325,47 +434,65 @@ export default function App(): React.JSX.Element {
 			/>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header
-					className="flex select-none items-center gap-3 border-b border-owl-border/60 px-4 py-2"
+					className="flex shrink-0 select-none items-center gap-2.5 border-b border-owl-border/60 px-4 py-2"
 					data-tauri-drag-region="deep"
 				>
 					{/* 桥是界面与本地 agent 进程的内部管道：正常只留绿点，异常才出文案 */}
 					{connected ? (
-						<span className="h-2 w-2 rounded-full bg-emerald-500" title="已连接" />
+						<span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="已连接" />
 					) : (
-						<span className="flex items-center gap-2">
+						<span className="flex shrink-0 items-center gap-2">
 							<span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
 							<span className="text-sm text-red-400">
 								{everConnected ? "连接已断开，正在重连…" : "正在连接…"}
 							</span>
 						</span>
 					)}
+					{/* 会话标题（取首条提问），DSH 的 "Greeting and session start" 同位 */}
+					<h1 className="max-w-56 shrink-0 truncate text-sm font-semibold text-owl-text" title={sessionTitle}>
+						{sessionTitle}
+					</h1>
 					<span
-						className="max-w-72 truncate rounded bg-owl-sidebar px-2 py-0.5 font-mono text-xs text-owl-faint"
+						className="flex min-w-0 items-center gap-1.5 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint"
 						title={workspaceDir}
 					>
-						{workspaceDir}
+						<IconFolder size={11} />
+						<span className="truncate">{projectBasename}</span>
 					</span>
-					<div className="flex-1" />
-					{/* 设置入口只留左侧功能栏的齿轮，顶栏不重复 */}
+					{modelLabel && (
+						<span className="hidden shrink-0 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint md:inline" title={`模型：${modelLabel}`}>
+							{modelLabel}
+						</span>
+					)}
+					<span className="hidden shrink-0 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint lg:inline" title="权限模式：每次工具调用需确认">
+						标准模式
+					</span>
+					<div className="min-w-4 flex-1" data-tauri-drag-region="deep" />
+					{/* 右侧功能簇：底部工作台 / 右列工作台 / 窗口控制 */}
 					<button
 						type="button"
-						title="工作台（文件 / 编辑器 / Git 变动）"
-						aria-label="工作台"
-						className={`rounded-md border p-1 transition-colors ${
-							workbenchOpen
-								? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
-								: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
-						}`}
-						onClick={toggleWorkbench}
+						title="底部工作台（Ctrl + `）"
+						aria-label="底部工作台"
+						className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")}
+						onClick={() => togglePanelAt("bottom")}
+					>
+						<IconPanelBottom size={14} />
+					</button>
+					<button
+						type="button"
+						title="右列工作台"
+						aria-label="右列工作台"
+						className={headerButtonClass(workbenchOpen && workbenchDock === "right")}
+						onClick={() => togglePanelAt("right")}
 					>
 						<IconPanelRight size={14} />
 					</button>
 					<WindowControls />
 				</header>
-				{/* 工作台放在顶栏之下：打开时不把顶栏的窗口按钮挤去左边 */}
-				<div className="flex min-h-0 flex-1">
-					<div className="flex min-w-0 flex-1 flex-col">
-						<ChatStream entries={entries} />
+				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
+				<div className={`flex min-h-0 flex-1 ${workbenchDock === "right" ? "flex-row" : "flex-col"}`}>
+					<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+						<ChatStream entries={entries} onQuickAction={requestOpenKind} />
 						<Composer
 							disabled={running || !connected}
 							running={running}
@@ -378,9 +505,28 @@ export default function App(): React.JSX.Element {
 							onThinkingLevel={handleThinkingChange}
 							sessionInfo={sessionInfo}
 						/>
+						{workbenchDock === "right" && dockBarVisible && (
+							<BottomDockBar store={workbenchStore} panelOpen={workbenchOpen} onOpenKind={requestOpenKind} onHide={() => {
+								setDockBarVisible(false);
+								localStorage.setItem(DOCK_BAR_KEY, "0");
+							}} />
+						)}
 					</div>
-					{/* 侧边栏工作台：常挂载（隐藏时不丢编辑器草稿），按项目持久化布局 */}
-					<Workbench client={client} cwd={workspaceDir} open={workbenchOpen} onSetOpen={setWorkbenchOpen} />
+					<Workbench
+						client={client}
+						cwd={workspaceDir}
+						store={workbenchStore}
+						open={workbenchOpen}
+						onSetOpen={setWorkbenchOpenPersisted}
+						dock={workbenchDock}
+						onSetDock={setDockPersisted}
+					/>
+					{workbenchDock === "bottom" && dockBarVisible && (
+						<BottomDockBar store={workbenchStore} panelOpen={workbenchOpen} onOpenKind={requestOpenKind} onHide={() => {
+							setDockBarVisible(false);
+							localStorage.setItem(DOCK_BAR_KEY, "0");
+						}} />
+					)}
 				</div>
 			</div>
 			{permission && (

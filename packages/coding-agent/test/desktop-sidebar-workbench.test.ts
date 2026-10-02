@@ -153,14 +153,9 @@ describe("读写与行级操作", () => {
 
 describe("git porcelain / log 解析（纯函数）", () => {
 	it("parseStatusZ：分支头、XY 状态、重命名旧路径", () => {
-		const out = [
-			"## main...origin/main [ahead 1]",
-			" M src/app.ts",
-			"R  old.ts",
-			"new.ts",
-			"?? notes.md",
-			"",
-		].join("\0");
+		const out = ["## main...origin/main [ahead 1]", " M src/app.ts", "R  old.ts", "new.ts", "?? notes.md", ""].join(
+			"\0",
+		);
 		const parsed = parseStatusZ(out);
 		expect(parsed.branch).toBe("main");
 		expect(parsed.upstream).toBe("origin/main");
@@ -174,7 +169,13 @@ describe("git porcelain / log 解析（纯函数）", () => {
 		const out = ["abc123", "abc12", "feat: x", "alice", "1700000000", ""].join("\u001f") + "\u001e";
 		const entries = parseLog(out);
 		expect(entries).toHaveLength(1);
-		expect(entries[0]).toEqual({ hash: "abc123", short: "abc12", subject: "feat: x", author: "alice", time: 1700000000 });
+		expect(entries[0]).toEqual({
+			hash: "abc123",
+			short: "abc12",
+			subject: "feat: x",
+			author: "alice",
+			time: 1700000000,
+		});
 	});
 });
 

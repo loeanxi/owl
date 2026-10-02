@@ -156,3 +156,11 @@ export const IconPlus = (p: IconProps): ReactNode =>
 			<path d="M12 5v14" />
 		</>
 	));
+/** 底部停靠面板（DSH 的 bottom-toggle 同款：圆角矩形 + 底部实心条）。 */
+export const IconPanelBottom = (p: IconProps): ReactNode =>
+	base(p.size, p.className, (
+		<>
+			<rect x="3" y="4" width="18" height="16" rx="2.5" />
+			<path d="M3 15.5h18" strokeWidth="2.6" />
+		</>
+	));

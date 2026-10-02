@@ -83,14 +83,14 @@ export class SidebarStore {
 
 	getState = (): SidebarState => this.state;
 
-	/** 打开单例 tab（files / changes）：已开则激活。 */
-	openSingleton(kind: string): void {
+	/** 打开单例 tab（files / changes / tasks / sidechat…）：已开则激活。 */
+	openSingleton(kind: string, title?: string): void {
 		const existing = this.state.tabs.find((tab) => tab.id === kind);
 		if (existing !== undefined) {
 			this.activate(kind);
 			return;
 		}
-		const tab: SidebarTab = { id: kind, kind, title: kind === "files" ? "文件" : kind === "changes" ? "文件变动" : kind };
+		const tab: SidebarTab = { id: kind, kind, title: title ?? kind };
 		this.commit({
 			...this.state,
 			tabs: [...this.state.tabs, tab],

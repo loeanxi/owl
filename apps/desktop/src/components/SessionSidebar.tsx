@@ -4,7 +4,6 @@ import type { ProjectCreateResult } from "../bridge/protocol.ts";
 import { hasTauri, pickFolder } from "../bridge/native.ts";
 import {
 	IconArchive,
-	IconChat,
 	IconCheck,
 	IconChevron,
 	IconCompose,
@@ -269,6 +268,7 @@ export function SessionSidebar({
 	connected,
 	activeId,
 	activeProject,
+	runningSessions,
 	refreshKey,
 	revision,
 	focus,
@@ -282,6 +282,8 @@ export function SessionSidebar({
 	activeId: string | undefined;
 	/** 当前项目（工作目录）绝对路径。 */
 	activeProject: string;
+	/** agent run 活跃的会话 id 集合：行首状态点绿色展示。 */
+	runningSessions: ReadonlySet<string>;
 	/** 变化时重新拉取会话列表（如新会话创建后）。 */
 	refreshKey: string;
 	/** 递增时重拉会话列表（设置页恢复/删除归档会话后由 App 递增）。 */
@@ -629,42 +631,41 @@ export function SessionSidebar({
 	const rowBtn =
 		"shrink-0 rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60";
 
-	/** 会话行：图标 + 标题 + 次行（时间 · 项目），悬停露出置顶/归档/删除按钮；归档行常显「恢复」按钮。 */
+	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
+	const sessionRowTip = (row: SessionRow, archivedRow: boolean): string => {
+		const time =
+			archivedRow && row.archivedAt ? `归档于 ${relativeTime(row.archivedAt)}` : relativeTime(sessionTime(row));
+		return `${sessionTitle(row)}\n${time}${row.cwd ? ` · ${row.cwd}` : ""}`;
+	};
+
+	/**
+	 * 会话行（单行紧凑式）：左侧运行状态点（agent run 活跃 = 绿色脉冲）+ 标题，
+	 * 悬停露出置顶/归档/删除按钮；归档行常显「恢复」按钮。
+	 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, archivedRow = false): React.JSX.Element => {
 		const id = row.id;
 		const isPinned = id !== undefined && pinned.includes(id);
+		const isRunning = id !== undefined && runningSessions.has(id);
 		return (
 			<div
 				key={id ?? index}
-				className={`group/row flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${
+				className={`group/row flex h-7 items-center gap-2 rounded-lg px-2 transition-colors ${
 					id === activeId ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text"
 				}`}
 			>
+				<span
+					className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
+						isRunning ? "animate-pulse bg-emerald-500" : "bg-owl-faint/40"
+					}`}
+					title={isRunning ? "Agent 运行中" : undefined}
+				/>
 				<button
 					type="button"
-					className="flex min-w-0 flex-1 flex-col items-start text-left"
-					title={`${sessionTitle(row)}\n${row.cwd ?? ""}`}
+					className="min-w-0 flex-1 truncate text-left text-xs"
+					title={sessionRowTip(row, archivedRow)}
 					onClick={() => id && onOpenSession(id)}
 				>
-					<span className="flex w-full items-center gap-1.5">
-						<IconChat className="h-3 w-3 shrink-0 text-owl-faint/70" />
-						<span className="truncate text-xs leading-5">{sessionTitle(row)}</span>
-					</span>
-					<span className="mt-0.5 flex w-full items-center gap-1 pl-[18px] text-[10px] leading-4 text-owl-faint/80">
-						<span className="shrink-0">
-							{archivedRow && row.archivedAt
-								? `归档于 ${relativeTime(row.archivedAt)}`
-								: relativeTime(sessionTime(row))}
-						</span>
-						{row.cwd && (
-							<>
-								<span className="shrink-0">·</span>
-								<span className="truncate" title={row.cwd}>
-									{projectLabel(row.cwd)}
-								</span>
-							</>
-						)}
-					</span>
+					{sessionTitle(row)}
 				</button>
 				{id && (
 					<div className="flex shrink-0 items-center gap-0.5">

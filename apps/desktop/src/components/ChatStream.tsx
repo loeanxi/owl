@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import MarkdownIt from "markdown-it";
 import type { ChatEntry } from "../hooks/transcript.ts";
+import { StartPage } from "./StartPage.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -42,7 +43,14 @@ function AssistantEntry({ entry }: { entry: Extract<ChatEntry, { kind: "assistan
 	);
 }
 
-export function ChatStream({ entries }: { entries: ChatEntry[] }): React.JSX.Element {
+export function ChatStream({
+	entries,
+	onQuickAction,
+}: {
+	entries: ChatEntry[];
+	/** 空会话开始页的菜单卡回调（打开工作台对应面板）。 */
+	onQuickAction?: (kind: string) => void;
+}): React.JSX.Element {
 	const container = useRef<HTMLElement>(null);
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
@@ -80,13 +88,13 @@ export function ChatStream({ entries }: { entries: ChatEntry[] }): React.JSX.Ele
 			onScroll={onScroll}
 			className="flex-1 space-y-5 overflow-y-auto px-6 py-5"
 		>
-			{entries.length === 0 && (
+			{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : (
 				<div className="mt-[22vh] flex flex-col items-center">
 					<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
 					<p className="mt-5 font-serif text-2xl text-owl-text">✳ 有什么可以帮你的？</p>
 					<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
 				</div>
-			)}
+			))}
 			{entries.map((entry, index) => {
 				if (entry.kind === "user") {
 					return (

@@ -9,6 +9,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { SidebarApi } from "./api.ts";
+import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import type { SidebarStore, SidebarTab } from "./store.ts";
 
@@ -19,6 +20,8 @@ export interface TabComponentProps {
 	/** 当前项目目录（绝对路径）。 */
 	cwd: string;
 	tab: SidebarTab;
+	/** 原始桥客户端（需要会话级 API 的 tab 用：侧边对话自建会话等）。 */
+	client: BridgeClient;
 	/** 从树/搜索打开一个文件（走 viewer 匹配）。 */
 	onOpenFile: (path: string) => void;
 	/** 文件树发生变更（含增删改后）——changes tab 用它刷新状态。 */

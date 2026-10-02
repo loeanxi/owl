@@ -12,8 +12,8 @@
 import { execFile } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { SidebarError, messageOf, toWirePath } from "./sidebar-fs.ts";
 import type { GitLogEntry, GitStatusResult } from "./protocol.ts";
+import { messageOf, SidebarError, toWirePath } from "./sidebar-fs.ts";
 
 const GIT_TIMEOUT_MS = 15_000;
 const GIT_MAX_BUFFER = 32 * 1024 * 1024;
@@ -127,7 +127,13 @@ async function untrackedDiff(cwd: string, path: string): Promise<string> {
 	const lines = body.split("\n");
 	if (lines.at(-1) === "") lines.pop();
 	const posix = path.split("\\").join("/");
-	const header = [`diff --git a/${posix} b/${posix}`, "new file mode 100644", "--- /dev/null", `+++ b/${posix}`, `@@ -0,0 +1,${lines.length} @@`];
+	const header = [
+		`diff --git a/${posix} b/${posix}`,
+		"new file mode 100644",
+		"--- /dev/null",
+		`+++ b/${posix}`,
+		`@@ -0,0 +1,${lines.length} @@`,
+	];
 	return [...header, ...lines.map((line) => `+${line}`), ""].join("\n");
 }
 
@@ -177,11 +183,7 @@ export function parseLog(out: string): GitLogEntry[] {
 /** 提交历史（新→旧）。 */
 export async function gitLog(cwd: string, count = 50): Promise<GitLogEntry[]> {
 	if (!(await isRepo(cwd))) return [];
-	const out = await git(cwd, [
-		"log",
-		`-n${count}`,
-		"--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e",
-	]);
+	const out = await git(cwd, ["log", `-n${count}`, "--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e"]);
 	return parseLog(out);
 }
 

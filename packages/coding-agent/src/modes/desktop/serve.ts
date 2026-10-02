@@ -18,10 +18,12 @@ import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSyn
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { type WebSocket, WebSocketServer } from "ws";
+import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { expandTildePath, getAgentDir } from "../../config.ts";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentSession } from "../../core/agent-session.ts";
 import {
 	type AgentSessionRuntime,
 	type CreateAgentSessionRuntimeFactory,
@@ -37,10 +39,8 @@ import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
-import type { AgentSession } from "../../core/agent-session.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import {
-	SidebarError,
 	invalidateDirectoryCache,
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
@@ -49,6 +49,7 @@ import {
 	removeWorkspaceEntry,
 	renameWorkspaceEntry,
 	resolveUnderWorkspace,
+	SidebarError,
 	searchWorkspaceFiles,
 	toWirePath,
 	writeWorkspaceFile,
@@ -63,15 +64,7 @@ import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch
 const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
 
 /** AgentSession ThinkingLevel 合法值（session.setThinkingLevel 校验用）。 */
-const THINKING_LEVEL_VALUES = new Set([
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-]);
+const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 interface ModelFileEntry {
 	id: string;
@@ -327,11 +320,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const archivedAt = Date.parse(entry.archivedAt);
 			const expired = archivedAt > 0 && archivedAt <= cutoff;
 			const path =
-				entry.path && existsSync(entry.path)
-					? entry.path
-					: expired
-						? await findSessionFile(sessionId)
-						: undefined;
+				entry.path && existsSync(entry.path) ? entry.path : expired ? await findSessionFile(sessionId) : undefined;
 			if (!path) {
 				if (!existsSync(entry.path ?? "")) {
 					// 文件已不在（手动删过）：无论到期与否，记录清掉
@@ -700,9 +689,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					meta.retentionDays = days;
 					writeArchiveMeta(agentDir, meta);
 					// 改完立刻巡检一次：新保留期可能立即过期若干会话
-					void purgeExpiredArchivedSessions().catch((error) =>
-						onDiagnostic(`归档巡检失败：${String(error)}`),
-					);
+					void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
 				}
 				const sessions = Object.entries(meta.sessions ?? {}).map(([sessionId, entry]) => ({
 					sessionId,
@@ -785,6 +772,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						return archived ? { ...row, archivedAt: archived.archivedAt } : row;
 					}),
 				});
+				return;
+			}
+			case "session.running": {
+				// 已挂载且 agent run 活跃的会话 id 列表（UI 刷新后恢复侧边栏绿点状态）
+				const running = [...sessions.entries()]
+					.filter(([, entry]) => entry.runtime.session.isStreaming)
+					.map(([sessionId]) => sessionId);
+				reply(ws, request.id, { ok: true, result: { running } });
 				return;
 			}
 			case "project.create": {
@@ -957,35 +952,35 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
-					prompt: (ask) => {
-						// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程
-						// 会永远挂在 prompt 上，堵死 Models 的认证操作队列。
-						const answer = new Promise<string>((resolve, reject) => {
-							const onAbort = () => reject(new Error("登录已取消"));
-							ask.signal?.addEventListener("abort", onAbort, { once: true });
-							pendingPrompt = {
-								ask,
-								resolve: (value) => {
-									ask.signal?.removeEventListener("abort", onAbort);
-									resolve(value);
-								},
-								reject: (error) => {
-									ask.signal?.removeEventListener("abort", onAbort);
-									reject(error);
-								},
+						prompt: (ask) => {
+							// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程
+							// 会永远挂在 prompt 上，堵死 Models 的认证操作队列。
+							const answer = new Promise<string>((resolve, reject) => {
+								const onAbort = () => reject(new Error("登录已取消"));
+								ask.signal?.addEventListener("abort", onAbort, { once: true });
+								pendingPrompt = {
+									ask,
+									resolve: (value) => {
+										ask.signal?.removeEventListener("abort", onAbort);
+										resolve(value);
+									},
+									reject: (error) => {
+										ask.signal?.removeEventListener("abort", onAbort);
+										reject(error);
+									},
+								};
+							});
+							const cleanup = () => {
+								pendingPrompt = null;
 							};
-						});
-						const cleanup = () => {
-							pendingPrompt = null;
-						};
-						answer.then(cleanup, cleanup);
-						broadcast({
-							type: "event",
-							sessionId: "",
-							event: { type: "auth_prompt", ask },
-						});
-						return answer;
-					},
+							answer.then(cleanup, cleanup);
+							broadcast({
+								type: "event",
+								sessionId: "",
+								event: { type: "auth_prompt", ask },
+							});
+							return answer;
+						},
 						notify: (event) => {
 							// auth_url（回调流）与 device_code（设备码流）都自动打开对应页面
 							if (event.type === "auth_url") openInBrowser(event.url);
@@ -1071,15 +1066,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "fs.write": {
-				reply(ws, request.id, { ok: true, result: await writeWorkspaceFile(request.cwd, request.path, request.content) });
+				reply(ws, request.id, {
+					ok: true,
+					result: await writeWorkspaceFile(request.cwd, request.path, request.content),
+				});
 				return;
 			}
 			case "fs.mkdir": {
-				reply(ws, request.id, { ok: true, result: await mkdirWorkspaceEntry(request.cwd, request.path, request.name) });
+				reply(ws, request.id, {
+					ok: true,
+					result: await mkdirWorkspaceEntry(request.cwd, request.path, request.name),
+				});
 				return;
 			}
 			case "fs.rename": {
-				reply(ws, request.id, { ok: true, result: await renameWorkspaceEntry(request.cwd, request.path, request.name) });
+				reply(ws, request.id, {
+					ok: true,
+					result: await renameWorkspaceEntry(request.cwd, request.path, request.name),
+				});
 				return;
 			}
 			case "fs.remove": {
@@ -1095,7 +1099,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "git.diff": {
-				reply(ws, request.id, { ok: true, result: { diff: await gitDiff(request.cwd, request.path, request.staged === true) } });
+				reply(ws, request.id, {
+					ok: true,
+					result: { diff: await gitDiff(request.cwd, request.path, request.staged === true) },
+				});
 				return;
 			}
 			case "git.stage": {
@@ -1176,7 +1183,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					if (!allowed.has(parsed.protocol)) {
 						throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
 					}
-					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], { detached: true, stdio: "ignore" }).unref();
+					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
+						detached: true,
+						stdio: "ignore",
+					}).unref();
 				}
 				reply(ws, request.id, { ok: true });
 				return;
@@ -1235,20 +1245,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	});
 	startArchivePurgeTimer();
 
-		return {
-			port,
-			async close() {
-				if (archiveTimer) clearInterval(archiveTimer);
-				for (const { unsubscribe } of sessions.values()) unsubscribe();
-				sessions.clear();
-				for (const watchers of sidebarWatchers.values()) watchers.close();
-				sidebarWatchers.clear();
-				for (const client of clients) client.close();
-				wss.close();
-				await mcp?.close();
-				await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-			},
-		};
+	return {
+		port,
+		async close() {
+			if (archiveTimer) clearInterval(archiveTimer);
+			for (const { unsubscribe } of sessions.values()) unsubscribe();
+			sessions.clear();
+			for (const watchers of sidebarWatchers.values()) watchers.close();
+			sidebarWatchers.clear();
+			for (const client of clients) client.close();
+			wss.close();
+			await mcp?.close();
+			await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+		},
+	};
 }
 
 // ---------------------------------------------------------------------------

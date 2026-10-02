@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { open, readdir, realpath, rename, rm, mkdir, stat, lstat, unlink, writeFile, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { FsEntry, FsListing, FsReadBinResult, FsReadResult, FsSearchHit } from "./protocol.ts";
 
@@ -208,7 +208,9 @@ const MEDIA_TYPES: Record<string, string> = {
 
 export function mediaTypeForPath(path: string): string {
 	const dot = path.lastIndexOf(".");
-	return dot >= 0 ? (MEDIA_TYPES[path.slice(dot).toLowerCase()] ?? "application/octet-stream") : "application/octet-stream";
+	return dot >= 0
+		? (MEDIA_TYPES[path.slice(dot).toLowerCase()] ?? "application/octet-stream")
+		: "application/octet-stream";
 }
 
 /** 读取一个文件：文本全文（限 READ_LIMIT）或二进制头嗅探。 */
@@ -259,7 +261,11 @@ export async function readWorkspaceFileBinary(cwd: string, target: string): Prom
 }
 
 /** 原子写文本文件：临时兄弟文件 + rename，失败不落半个文件。 */
-export async function writeWorkspaceFile(cwd: string, target: string, content: string): Promise<{ path: string; size: number }> {
+export async function writeWorkspaceFile(
+	cwd: string,
+	target: string,
+	content: string,
+): Promise<{ path: string; size: number }> {
 	const absolute = await resolveUnderWorkspace(cwd, target);
 	const tmp = `${absolute}.${randomUUID()}.tmp`;
 	try {

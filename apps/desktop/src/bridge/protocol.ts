@@ -28,6 +28,8 @@ export type {
 	SessionSetThinkingLevelRequest,
 	SessionStatsRequest,
 	SessionStatsResult,
+	SessionRunningRequest,
+	SessionRunningResult,
 	SettingsGetRequest,
 	SettingsSetRequest,
 	FsEntry,

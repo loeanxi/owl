@@ -93,6 +93,16 @@ export interface SessionListRequest {
 	sessionDir?: string;
 }
 
+/** 查询当前 agent run 活跃的已挂载会话 id：UI 刷新后据此恢复侧边栏的运行状态点。 */
+export interface SessionRunningRequest {
+	type: "session.running";
+	id: string;
+}
+
+export interface SessionRunningResult {
+	running: string[];
+}
+
 /** 会话进行中切换模型（对应 AgentSession.setModel，含鉴权检查与思考级别自适应）。 */
 export interface SessionSetModelRequest {
 	type: "session.setModel";
@@ -453,6 +463,7 @@ export type DesktopClientRequest =
 	| SessionSetThinkingLevelRequest
 	| SessionStatsRequest
 	| SessionListRequest
+	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest
 	| ModelsPutProviderRequest
