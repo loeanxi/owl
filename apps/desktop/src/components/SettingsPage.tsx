@@ -499,7 +499,7 @@ export function SettingsPage({
 													className={btn}
 													disabled={busy}
 													onClick={() => {
-														setQuickHint("正在启动登录流程…");
+														setQuickHint("正在启动登录流程… 流程中的提问会显示在下方，按提示作答后浏览器才会打开");
 														void client
 															.request({ type: "auth.login", provider: quickProvider, authType: "oauth" })
 															.then((response) => {

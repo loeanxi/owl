@@ -155,7 +155,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 
 	return (
 		<aside
-			className={`${open ? "" : "hidden"} relative flex ${
+			className={`${open ? "" : "hidden"} relative flex flex-col ${
 				dock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
 			} border-owl-border/60 bg-owl-sidebar`}
 			style={dock === "right" ? { width } : { height }}
