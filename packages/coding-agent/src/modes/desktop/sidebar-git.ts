@@ -52,12 +52,8 @@ async function isRepo(cwd: string): Promise<boolean> {
 	}
 }
 
-/** `status --porcelain=v1 -z -b` 解析：首行 `## branch…`，其后 XY<space>path。 */
-export async function gitStatus(cwd: string): Promise<GitStatusResult> {
-	if (!(await isRepo(cwd))) {
-		return { repo: false, entries: [] };
-	}
-	const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b"]);
+/** `status --porcelain=v1 -z -b` 的纯解析（分支头 + NUL 分隔条目），便于测试。 */
+export function parseStatusZ(out: string): { branch?: string; upstream?: string; entries: GitStatusResult["entries"] } {
 	const parts = out.split("\0");
 	const entries: GitStatusResult["entries"] = [];
 	let branch: string | undefined;
@@ -85,7 +81,16 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 			entries.push({ path, x, y });
 		}
 	}
-	return { repo: true, branch, upstream, entries };
+	return { branch, upstream, entries };
+}
+
+/** `git.status`：非仓库返回 repo:false（前端空态），仓库返回解析后的状态。 */
+export async function gitStatus(cwd: string): Promise<GitStatusResult> {
+	if (!(await isRepo(cwd))) {
+		return { repo: false, entries: [] };
+	}
+	const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b"]);
+	return { repo: true, ...parseStatusZ(out) };
 }
 
 /**
@@ -157,6 +162,17 @@ export async function gitDiscard(cwd: string, path: string): Promise<void> {
 	await git(cwd, ["checkout", "-q", "--", path]);
 }
 
+/** `git log --pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e` 的纯解析。 */
+export function parseLog(out: string): GitLogEntry[] {
+	return out
+		.split("")
+		.filter((record) => record.trim() !== "")
+		.map((record) => {
+			const [hash = "", short = "", subject = "", author = "", time = "0"] = record.split("\u001f");
+			return { hash, short, subject, author, time: Number(time) || 0 };
+		});
+}
+
 /** 提交历史（新→旧）。 */
 export async function gitLog(cwd: string, count = 50): Promise<GitLogEntry[]> {
 	if (!(await isRepo(cwd))) return [];
@@ -165,13 +181,7 @@ export async function gitLog(cwd: string, count = 50): Promise<GitLogEntry[]> {
 		`-n${count}`,
 		"--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e",
 	]);
-	return out
-		.split("\u001e")
-		.filter((record) => record.trim() !== "")
-		.map((record) => {
-			const [hash = "", short = "", subject = "", author = "", time = "0"] = record.split("\u001f");
-			return { hash, short, subject, author, time: Number(time) || 0 };
-		});
+	return parseLog(out);
 }
 
 /** 把 git 报告的路径（仓库根相对）归一到 workspace 相对 POSIX 形式。 */

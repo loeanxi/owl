@@ -5,7 +5,7 @@
  * 挂载、非激活的隐藏（编辑器草稿不丢）；fs_changed 事件在这里统一接桥并
  * 分发（store.onFsChanged）+ 防抖刷新 Git 状态快照。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import { createSidebarApi } from "./api.ts";
@@ -234,7 +234,15 @@ export function Workbench({ client, cwd, open, onSetOpen }: WorkbenchProps): Rea
 						const isActive = tab.id === activeTab?.id;
 						return (
 							<div key={tab.id} className={`h-full ${isActive ? "" : "hidden"}`}>
-								<Component {...tabPropsOf(tab.id)} />
+								<Suspense
+									fallback={
+										<div className="flex h-full items-center justify-center">
+											<IconLoader size={18} className="animate-spin text-owl-faint" />
+										</div>
+									}
+								>
+									<Component {...tabPropsOf(tab.id)} />
+								</Suspense>
 							</div>
 						);
 					})

@@ -2,13 +2,17 @@
  * 内置 tab 注册：files / changes / editor / image 与第三方扩展走同一套
  * registerTab API（dsh-better-sidebar 的"内置 5 tab 也走 ctx.betterSidebar"
  * 对等设计）。模块加载即注册；HMR 下重复调用幂等。
+ *
+ * 编辑器是懒加载 chunk（React.lazy）：语言包 + CodeMirror ~600KB 不进首屏。
  */
+import { lazy } from "react";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
-import { EditorTab } from "./tabs/EditorTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { IconFile, IconGitBranch, IconImage, IconFolder } from "./icons.tsx";
+
+const EditorTab = lazy(() => import("./tabs/EditorTab.tsx").then((m) => ({ default: m.EditorTab })));
 
 const DEFINITIONS: TabDefinition[] = [
 	{
