@@ -2,9 +2,8 @@
  * PDF Content Extractor
  *
  * Converts PDFs to Markdown. The `auto` provider chain runs Datalab
- * (deterministic, layout-aware) first, then Gemini API, with unpdf as the
- * deterministic local fallback; the chain can also be pinned with
- * `pdf.provider`.
+ * (deterministic, layout-aware) first, with unpdf as the deterministic local
+ * fallback; the chain can also be pinned with `pdf.provider`.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -20,8 +19,6 @@ import {
 	extractPDFViaDatalab,
 	type DatalabMode,
 } from "./datalab-pdf-extract.ts";
-import { isGeminiApiAvailable } from "./gemini-api.ts";
-import { extractPDFViaGemini } from "./gemini-pdf-extract.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
 export interface PDFExtractResult {
@@ -38,14 +35,12 @@ export interface PDFExtractOptions {
 	outputDir?: string;
 	filename?: string;
 	signal?: AbortSignal;
-	geminiTimeoutMs?: number;
 }
 
-export type PDFProvider = "auto" | "gemini" | "datalab" | "unpdf";
+export type PDFProvider = "auto" | "datalab" | "unpdf";
 
 export const PDF_PROVIDER_VALUES = new Set<PDFProvider>([
 	"auto",
-	"gemini",
 	"datalab",
 	"unpdf",
 ]);
@@ -171,7 +166,6 @@ export async function extractPDFToMarkdown(
 		outputDir = DEFAULT_OUTPUT_DIR,
 		filename,
 		signal,
-		geminiTimeoutMs,
 	} = options;
 
 	const pdfConfig = loadPDFConfig();
@@ -198,31 +192,6 @@ export async function extractPDFToMarkdown(
 					markdownBody: result.markdown,
 					title: urlTitle,
 					pages: result.pages,
-					outputDir,
-					filename,
-					url,
-				});
-			}
-		} catch (err) {
-			if (shouldRethrowExtractionError(err, signal)) throw err;
-		}
-	}
-
-	if (provider === "auto" || provider === "gemini") {
-		try {
-			if (isGeminiApiAvailable()) {
-				const markdownBody = await extractPDFViaGemini(buffer, {
-					maxPages: safeMaxPages,
-					title: urlTitle,
-					...(signal ? { signal } : {}),
-					...(geminiTimeoutMs !== undefined
-						? { timeoutMs: geminiTimeoutMs }
-						: {}),
-				});
-				return writeMarkdownResult({
-					markdownBody,
-					title: urlTitle,
-					pages: countPageMarkers(markdownBody),
 					outputDir,
 					filename,
 					url,

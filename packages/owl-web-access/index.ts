@@ -1,19 +1,16 @@
-import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text, truncateToWidth, type KeyId } from "@earendil-works/pi-tui";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@owl/owl-coding-agent";
 import { Type } from "typebox";
 import pLimit from "p-limit";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
-import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
 import { findContent, type FindMode } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
-import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
-import { ALL_SEARCH_PROVIDERS, assertSearchProviderSelectionAllowed, getAllowedSearchProviders, getConfiguredSearchRouting, normalizeSearchProviderSelection, providerLabel, RESOLVED_SEARCH_PROVIDERS, search, type AttributedSearchResponse, type ProviderAvailability, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
+import { assertSearchProviderSelectionAllowed, getAllowedSearchProviders, normalizeSearchProviderSelection, providerLabel, RESOLVED_SEARCH_PROVIDERS, ALL_SEARCH_PROVIDERS, search, type ProviderAvailability, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
 export type { ProviderAvailability } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
-import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, resolveCuratorNetworkConfig, runWithProxy } from "./utils.ts";
+import { getWebSearchConfigDir, getWebSearchConfigPath, runWithProxy } from "./utils.ts";
 import {
 	clearResults,
 	deleteResult,
@@ -26,8 +23,7 @@ import {
 	type QueryResultData,
 	type StoredSearchData,
 } from "./storage.ts";
-import { activityMonitor, type ActivityEntry } from "./activity.ts";
-import { startCuratorServer, type CuratorSearchEntry, type CuratorServerHandle, type IndexedCuratorSearchEntry } from "./curator-server.ts";
+import { activityMonitor } from "./activity.ts";
 import {
 	buildDeterministicSummary,
 	generateSummaryDraft,
@@ -36,50 +32,10 @@ import {
 	type SummaryMeta,
 } from "./summary-review.ts";
 import { randomUUID } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
-import { createRequire } from "node:module";
-import { platform } from "node:os";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { isPerplexityAvailable } from "./perplexity.ts";
-import { isExaAvailable } from "./exa.ts";
-import { isGeminiApiAvailable } from "./gemini-api.ts";
-import { getActiveGoogleEmail, getGeminiWebAvailabilityDiagnostic, getGeminiWebAvailabilityDiagnosticDetails, isGeminiWebAvailable } from "./gemini-web.ts";
-import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
-import { isBraveAvailable } from "./brave.ts";
-import { isCurrentModelHostedSearchEligible, isOpenAISearchAvailable, isOpenAISubscriptionModelSelected } from "./openai-search.ts";
-import { isParallelAvailable } from "./parallel.ts";
-import { isParallelMcpAvailable } from "./parallel-mcp.ts";
-import { isTinyFishAvailable } from "./tinyfish.ts";
-import { isSearch1APIAvailable } from "./search1api.ts";
-import { isSearchinfinityAvailable } from "./searchinfinity.ts";
-import { isQueritAvailable } from "./querit.ts";
-import { isTavilyAvailable } from "./tavily.ts";
-import { isYouAvailable } from "./you.ts";
-import { isFirecrawlAvailable } from "./firecrawl.ts";
-import { isJinaSearchAvailable } from "./jina-search.ts";
-import { isSerpdiveAvailable } from "./serpdive.ts";
-import { isKagiAvailable } from "./kagi.ts";
-import { isBochaAvailable } from "./bocha.ts";
-import { isOllamaAvailable } from "./ollama.ts";
-import { isSearXNGAvailable } from "./searxng.ts";
-import { isDuckDuckGoAvailable } from "./duckduckgo.ts";
-import { isAnySearchAvailable } from "./anysearch.ts";
-import { isXaiSearchAvailable } from "./xai-search.ts";
-import { isMistralAvailable } from "./mistral-search.ts";
-import { isKimiSearchAvailable } from "./kimi-search.ts";
-import { isBrightDataAvailable } from "./brightdata.ts";
-import { isSerpBaseAvailable } from "./serpbase.ts";
-import { isSerpApiAvailable } from "./serpapi.ts";
-import { isSerperAvailable } from "./serper.ts";
-import { isSerplyAvailable } from "./serply.ts";
-import { isBaizhiAvailable } from "./baizhi.ts";
-import { isZaiAvailable } from "./zai.ts";
-import { isValyuAvailable } from "./valyu.ts";
-import { isXcrawlAvailable } from "./xcrawl.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { findModelWithProviderRouting, isModelInScope, splitThinkingSuffix } from "./summary-model-scope.ts";
-import { registerCuratorRunLifecycle, resolveWebSearchWorkflow, type WebSearchWorkflow } from "./curator-run.ts";
 import {
 	buildResearchArtifact,
 	withClaimAssessment,
@@ -99,8 +55,6 @@ function StringEnum<T extends string[]>(values: T, options?: { description?: str
 		...(options?.default && { default: options.default }),
 	});
 }
-
-type ExtensionTheme = ExtensionContext["ui"]["theme"];
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
@@ -132,20 +86,16 @@ function isAbortError(err: unknown): boolean {
 
 /** Shared collapsed/expanded renderer for an error/cancel plan produced by
  * buildSearchErrorPlan(). Used by every tool renderResult's error branch so
- * Ctrl+O (app.tools.expand) reveals diagnostics instead of a dead-end single line. */
-function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: ExtensionTheme) {
+ * the expanded view reveals diagnostics instead of a dead-end single line. */
+function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean): string {
 	if (expanded) {
-		return new Text(plan.expanded.map((l, i) => i === 0 ? theme.fg("error", l) : theme.fg("toolOutput", l)).join("\n"), 0, 0);
+		return plan.expanded.join("\n");
 	}
-	const box = new Box(1, 0, (t) => theme.bg("toolErrorBg", t));
-	box.addChild(new Text(theme.fg("error", plan.expanded[0]), 0, 0));
-	for (const line of plan.collapsed) {
-		box.addChild(new Text(theme.fg("dim", line), 0, 0));
-	}
+	const lines = [plan.expanded[0], ...plan.collapsed];
 	if (plan.expandHint) {
-		box.addChild(new Text(theme.fg("muted", plan.expandHint), 0, 0));
+		lines.push(plan.expandHint);
 	}
-	return box;
+	return lines.join("\n");
 }
 
 interface WebSearchConfig {
@@ -168,9 +118,6 @@ interface WebSearchConfig {
 	provider?: unknown;
 	searchProvider?: unknown;
 	workflow?: string;
-	curatorTimeoutSeconds?: unknown;
-	autoOpenBrowser?: unknown;
-	curatorRemote?: unknown;
 	summaryModel?: string;
 	summaryGenerationDeadlineMs?: unknown;
 	summaryInstructions?: unknown;
@@ -185,12 +132,8 @@ interface WebSearchConfig {
 	};
 	tools?: Partial<Record<keyof ToolNames, { enabled?: boolean }>>;
 	toolActivation?: unknown;
-	commands?: Partial<Record<"websearch" | "curator" | "search" | "google-account", { enabled?: boolean }>>;
+	commands?: Partial<Record<"websearch" | "search", { enabled?: boolean }>>;
 	toolNames?: Partial<ToolNames>;
-	shortcuts?: {
-		curate?: KeyId;
-		activity?: KeyId;
-	};
 	ssrf?: {
 		/** CIDR ranges exempted from the SSRF guard (e.g. fake-IP proxy ranges). */
 		allowRanges?: string[];
@@ -199,15 +142,7 @@ interface WebSearchConfig {
 	};
 }
 
-type CuratorWorkflow = "summary-review";
-export type CuratorProvider = SearchProvider;
-type SummaryWorkflow = "summary-review" | "auto-summary";
-
-interface CuratorBootstrap {
-	availableProviders: ProviderAvailability;
-	defaultProvider: SearchProvider;
-	timeoutSeconds: number;
-}
+type SummaryWorkflow = "auto-summary";
 
 function parseConfigRoot(raw: string): Record<string, unknown> {
 	let parsed: unknown;
@@ -254,10 +189,6 @@ const DEFAULT_TOOL_NAMES: ToolNames = {
 	getSearchContent: "get_search_content",
 };
 const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" } satisfies Record<string, KeyId>;
-const DEFAULT_CURATOR_TIMEOUT_SECONDS = 20;
-const DEFAULT_REMOTE_CURATOR_TIMEOUT_SECONDS = 60;
-const MAX_CURATOR_TIMEOUT_SECONDS = 600;
 const MAX_SUMMARY_GENERATION_DEADLINE_MS = 600_000;
 const SEARCH_QUERY_CONCURRENCY = 3;
 const FETCH_MODES = ["readable", "raw", "answer"] as const;
