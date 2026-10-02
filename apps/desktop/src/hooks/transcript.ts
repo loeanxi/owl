@@ -23,6 +23,10 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 	const event = message.event as AnyEvent;
 	switch (event.type) {
 		case "message_start": {
+			// system/user 消息由 sendPrompt 或 rebuild 负责入列，这里只给 assistant 建流式气泡，
+			// 否则每轮会多出带空"思考过程"的空气泡。
+			const message = event.message as AnyEvent | undefined;
+			if (!message || message.role !== "assistant") return entries;
 			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [] }];
 		}
 		case "message_update": {
@@ -78,8 +82,20 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 		}
 		case "agent_end": {
 			// Authoritative rebuild: messages include tool results the stream didn't show.
+			// 注意 event.messages 只含"本轮" agent run（从本次 user 消息起），不含更早轮次——
+			// 整表替换会把历史覆盖掉（表现为"一回答完，前面的对话全没了"）。
+			// 因此只重建最后一条用户消息之后的部分，之前的转录原样保留。
 			const messages = (event.messages ?? []) as AnyEvent[];
-			return rebuild(messages);
+			const rebuilt = rebuild(messages);
+			let lastUser = -1;
+			for (let i = entries.length - 1; i >= 0; i--) {
+				if (entries[i].kind === "user") {
+					lastUser = i;
+					break;
+				}
+			}
+			if (lastUser === -1) return entries.length > 0 ? entries : rebuilt;
+			return [...entries.slice(0, lastUser), ...rebuilt];
 		}
 		default:
 			return entries;

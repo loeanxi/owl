@@ -186,8 +186,12 @@ function serveUi(uiRoot: string, requestPath: string, response: ServerResponse, 
 	}
 	try {
 		const body = readFileSync(filePath);
+		const isHtml = extname(filePath).toLowerCase() === ".html";
 		response.writeHead(200, {
 			"Content-Type": UI_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream",
+			// 入口 HTML 不许缓存：dist 重建后已打开的窗口刷新/重开必须拿到新 bundle
+			//（资源文件本身带内容哈希，可安全缓存）。
+			...(isHtml ? { "Cache-Control": "no-cache" } : {}),
 		});
 		response.end(headOnly ? undefined : body);
 	} catch {
