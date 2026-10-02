@@ -19,16 +19,16 @@
 import { randomUUID } from "node:crypto";
 import { open, readdir, realpath, rename, rm, mkdir, stat, lstat, unlink, writeFile, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { FsEntry, FsListing, FsReadBinResult, FsReadResult } from "./protocol.ts";
+import type { FsEntry, FsListing, FsReadBinResult, FsReadResult, FsSearchHit } from "./protocol.ts";
 
 /** 侧边栏路由的结构化错误：code 过线给前端，用于区分提示文案。 */
 export class SidebarError extends Error {
-	constructor(
-		public code: string,
-		message: string,
-	) {
+	code: string;
+
+	constructor(code: string, message: string) {
 		super(message);
 		this.name = "SidebarError";
+		this.code = code;
 	}
 }
 
@@ -354,11 +354,6 @@ export async function removeWorkspaceEntry(cwd: string, target: string): Promise
 // ---------------------------------------------------------------------------
 // 全局文件名搜索（有界 BFS）
 // ---------------------------------------------------------------------------
-
-export interface FsSearchHit {
-	path: string;
-	isDir: boolean;
-}
 
 /** 搜索预算：最多访问的目录数与返回的命中数（防巨型仓库拖死桥）。 */
 const SEARCH_DIR_BUDGET = 2_000;

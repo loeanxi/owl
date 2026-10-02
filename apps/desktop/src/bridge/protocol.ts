@@ -30,6 +30,14 @@ export type {
 	SessionStatsResult,
 	SettingsGetRequest,
 	SettingsSetRequest,
+	FsEntry,
+	FsListing,
+	FsReadResult,
+	FsReadBinResult,
+	FsSearchHit,
+	GitStatusResult,
+	GitStatusEntry,
+	GitLogEntry,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
 import type { PermissionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";

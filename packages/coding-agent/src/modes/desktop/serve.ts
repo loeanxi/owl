@@ -39,6 +39,22 @@ import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
+import {
+	SidebarError,
+	invalidateDirectoryCache,
+	listWorkspaceDirectory,
+	mkdirWorkspaceEntry,
+	readWorkspaceFile,
+	readWorkspaceFileBinary,
+	removeWorkspaceEntry,
+	renameWorkspaceEntry,
+	resolveUnderWorkspace,
+	searchWorkspaceFiles,
+	toWirePath,
+	writeWorkspaceFile,
+} from "./sidebar-fs.ts";
+import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "./sidebar-git.ts";
+import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
@@ -228,6 +244,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	let listServices: AgentSessionServices | undefined;
 	/** MCP connections established at startup. */
 	let mcp: McpConnections | undefined;
+	/** 侧边栏文件树 watcher：项目（resolved cwd）→ watcher 集。 */
+	const sidebarWatchers = new Map<string, DirectoryWatchers>();
 
 	function resolveMcpServerConfigs(): Record<string, McpServerConfig> {
 		if (options.mcpServers) return options.mcpServers;
@@ -840,6 +858,129 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true });
 				return;
 			}
+			case "fs.tree": {
+				reply(ws, request.id, { ok: true, result: await listWorkspaceDirectory(request.cwd, request.path ?? "") });
+				return;
+			}
+			case "fs.read": {
+				reply(ws, request.id, { ok: true, result: await readWorkspaceFile(request.cwd, request.path) });
+				return;
+			}
+			case "fs.readBin": {
+				reply(ws, request.id, { ok: true, result: await readWorkspaceFileBinary(request.cwd, request.path) });
+				return;
+			}
+			case "fs.write": {
+				reply(ws, request.id, { ok: true, result: await writeWorkspaceFile(request.cwd, request.path, request.content) });
+				return;
+			}
+			case "fs.mkdir": {
+				reply(ws, request.id, { ok: true, result: await mkdirWorkspaceEntry(request.cwd, request.path, request.name) });
+				return;
+			}
+			case "fs.rename": {
+				reply(ws, request.id, { ok: true, result: await renameWorkspaceEntry(request.cwd, request.path, request.name) });
+				return;
+			}
+			case "fs.remove": {
+				reply(ws, request.id, { ok: true, result: await removeWorkspaceEntry(request.cwd, request.path) });
+				return;
+			}
+			case "fs.search": {
+				reply(ws, request.id, { ok: true, result: await searchWorkspaceFiles(request.cwd, request.query) });
+				return;
+			}
+			case "git.status": {
+				reply(ws, request.id, { ok: true, result: await gitStatus(request.cwd) });
+				return;
+			}
+			case "git.diff": {
+				reply(ws, request.id, { ok: true, result: { diff: await gitDiff(request.cwd, request.path, request.staged === true) } });
+				return;
+			}
+			case "git.stage": {
+				await gitStage(request.cwd, request.paths);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "git.unstage": {
+				await gitUnstage(request.cwd, request.paths);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "git.commit": {
+				await gitCommit(request.cwd, request.message);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "git.discard": {
+				await gitDiscard(request.cwd, request.path);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "git.log": {
+				reply(ws, request.id, { ok: true, result: await gitLog(request.cwd, request.count) });
+				return;
+			}
+			case "watch.set": {
+				// watcher 集按项目归一（resolve 后的绝对路径做 key）；replace 语义
+				// 由 add/remove 差分实现，避免每次展开/收起都重建全部句柄。
+				const key = resolve(request.cwd);
+				let watchers = sidebarWatchers.get(key);
+				if (watchers === undefined) {
+					watchers = createDirectoryWatchers(
+						(dir) => {
+							broadcast({
+								type: "event",
+								sessionId: "",
+								event: { type: "fs_changed", cwd: key, dirs: [toWirePath(key, dir)] },
+							});
+						},
+						(dir, error) => {
+							onDiagnostic(`sidebar watch ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+						},
+					);
+					sidebarWatchers.set(key, watchers);
+				}
+				const wanted = new Set<string>();
+				for (const relativeDir of request.dirs.slice(0, 64)) {
+					await resolveUnderWorkspace(request.cwd, relativeDir)
+						.then((absolute) => wanted.add(absolute))
+						.catch(() => {});
+				}
+				for (const dir of watchers.dirs()) {
+					if (!wanted.has(dir)) watchers.remove(dir);
+				}
+				for (const dir of wanted) {
+					watchers.add(dir);
+				}
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "open.external": {
+				if (request.action === "reveal") {
+					// workspace 相对路径 → 围栏解析成绝对路径，文件管理器定位。
+					const base = request.cwd ?? process.cwd();
+					const absolute = await resolveUnderWorkspace(base, request.target);
+					if (process.platform === "darwin") {
+						spawn("open", ["-R", absolute], { detached: true, stdio: "ignore" }).unref();
+					} else if (process.platform === "win32") {
+						spawn("explorer", [`/select,${absolute}`], { detached: true, stdio: "ignore" }).unref();
+					} else {
+						spawn("xdg-open", [absolute], { detached: true, stdio: "ignore" }).unref();
+					}
+				} else {
+					// 自定义协议（vscode:// 等）白名单后交给系统处理器；argv 直传不落 shell。
+					const allowed = new Set(["vscode:", "cursor:", "zed:", "file:", "http:", "https:"]);
+					const parsed = new URL(request.target);
+					if (!allowed.has(parsed.protocol)) {
+						throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
+					}
+					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], { detached: true, stdio: "ignore" }).unref();
+				}
+				reply(ws, request.id, { ok: true });
+				return;
+			}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -873,10 +1014,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			void handleRequest(ws, request).catch((error) => {
-				reply(ws, request.id ?? "?", {
-					ok: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
+				// SidebarError 带 code 前缀过线（already-exists 等分支前端用来决定文案）。
+				const text =
+					error instanceof SidebarError
+						? `${error.code}: ${error.message}`
+						: error instanceof Error
+							? error.message
+							: String(error);
+				reply(ws, request.id ?? "?", { ok: false, error: text });
 			});
 		});
 		ws.on("close", () => clients.delete(ws));
@@ -889,17 +1034,19 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		httpServer.listen(port, host, resolve);
 	});
 
-	return {
-		port,
-		async close() {
-			for (const { unsubscribe } of sessions.values()) unsubscribe();
-			sessions.clear();
-			for (const client of clients) client.close();
-			wss.close();
-			await mcp?.close();
-			await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-		},
-	};
+		return {
+			port,
+			async close() {
+				for (const { unsubscribe } of sessions.values()) unsubscribe();
+				sessions.clear();
+				for (const watchers of sidebarWatchers.values()) watchers.close();
+				sidebarWatchers.clear();
+				for (const client of clients) client.close();
+				wss.close();
+				await mcp?.close();
+				await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+			},
+		};
 }
 
 // ---------------------------------------------------------------------------

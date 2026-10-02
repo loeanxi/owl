@@ -148,3 +148,56 @@ export function IconCompose({ className }: { className?: string }): React.JSX.El
 		</Svg>
 	);
 }
+
+/** 设置侧栏：模型与供应商（滑杆） */
+export function IconSliders({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M21 5h-7M10 5H3" />
+			<path d="M21 12h-9M8 12H3" />
+			<path d="M21 19h-5M12 19H3" />
+			<path d="M14 3v4M8 10v4M16 17v4" />
+		</Svg>
+	);
+}
+
+/** 设置侧栏：扩展与插件（插头） */
+export function IconPlug({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M9 7V3M15 7V3" />
+			<path d="M6 7h12v4a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5z" />
+			<path d="M12 16v5" />
+		</Svg>
+	);
+}
+
+/** 设置侧栏：外观（太阳） */
+export function IconSun({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="4" />
+			<path d="M12 2.5v2M12 19.5v2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M2.5 12h2M19.5 12h2M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" />
+		</Svg>
+	);
+}
+
+/** 设置侧栏：settings.json（代码括号） */
+export function IconCode({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="m16 18 6-6-6-6" />
+			<path d="m8 6-6 6 6 6" />
+		</Svg>
+	);
+}
+
+/** 设置侧栏：关于（信息） */
+export function IconInfo({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="9" />
+			<path d="M12 8h.01M12 11.5V16" />
+		</Svg>
+	);
+}

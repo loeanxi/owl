@@ -233,6 +233,12 @@ export interface GitLogEntry {
 	time: number;
 }
 
+/** 全局文件名搜索的命中行。 */
+export interface FsSearchHit {
+	path: string;
+	isDir: boolean;
+}
+
 export interface FsTreeRequest {
 	type: "fs.tree";
 	id: string;
