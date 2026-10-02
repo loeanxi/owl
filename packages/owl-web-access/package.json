@@ -1,0 +1,41 @@
+{
+	"name": "owl-web-access",
+	"version": "0.1.0",
+	"description": "Web search, URL fetching, GitHub repo/issue/PR reading, and PDF extraction for the Owl coding agent. Ported from nicobailon/pi-web-access (MIT).",
+	"license": "MIT",
+	"author": "Owl contributors (upstream: Nico Bailon <pi-web-access>)",
+	"type": "module",
+	"private": true,
+	"files": ["dist", "*.ts"],
+	"keywords": ["owl-package", "owl", "owl-coding-agent", "extension", "web-search", "web-fetch"],
+	"scripts": {
+		"build": "node scripts/build.js",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@mozilla/readability": "^0.6.0",
+		"defuddle": "0.19.3",
+		"linkedom": "^0.16.0",
+		"p-limit": "^6.1.0",
+		"promise.try": "^2.0.1",
+		"turndown": "^7.2.0",
+		"undici": "^8.11.2",
+		"unpdf": "^1.6.2"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@owl/owl-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"@earendil-works/pi-ai": "*",
+		"@types/turndown": "^5.0.5",
+		"esbuild": "^0.28.1",
+		"typebox": "1.3.27",
+		"typescript": "^7.0.2"
+	},
+	"owl": {
+		"extensions": ["./dist/index.js"]
+	}
+}

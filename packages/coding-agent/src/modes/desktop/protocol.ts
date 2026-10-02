@@ -540,6 +540,13 @@ export interface IabPagesMessage {
 	origin: "agent" | "ui";
 }
 
+/** 页面弹出了文件选择框（无头浏览器弹不出系统对话框）：UI 提示横幅，agent 可用 browser_set_file_chooser 提供路径。 */
+export interface IabFileChooserMessage {
+	type: "iab.filechooser";
+	pageId: string;
+	multiple: boolean;
+}
+
 /** screencast 帧（JPEG base64，尺寸 = 页面视口）。 */
 export interface IabFrameMessage {
 	type: "iab.frame";
@@ -549,7 +556,7 @@ export interface IabFrameMessage {
 	height: number;
 }
 
-export type IabServerMessage = IabPagesMessage | IabFrameMessage;
+export type IabServerMessage = IabPagesMessage | IabFrameMessage | IabFileChooserMessage;
 
 /** 打开/绑定一个页面：带 url 找不到就新建，带 pageId 直接复用（不存在则报错）。 */
 export interface IabOpenRequest {
@@ -611,6 +618,14 @@ export interface IabCloseRequest {
 	type: "iab.close";
 	id: string;
 	pageId: string;
+}
+
+/** 应答页面的文件选择框：paths 为本机绝对路径（通常由 agent 的 browser_set_file_chooser 下发）。 */
+export interface IabFileResponseRequest {
+	type: "iab.fileResponse";
+	id: string;
+	pageId: string;
+	paths: string[];
 }
 
 /** 当前全部页面（连接/重连后拉一次初始状态）。 */
@@ -704,6 +719,7 @@ export type DesktopClientRequest =
 	| IabAttachRequest
 	| IabDetachRequest
 	| IabCloseRequest
+	| IabFileResponseRequest
 	| IabStateRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */

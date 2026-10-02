@@ -10,7 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import pw from "playwright-core";
-import type { Browser, CDPSession, Page } from "playwright-core";
+import type { Browser, CDPSession, FileChooser, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ToolDefinition } from "../../core/extensions/index.ts";
 import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
@@ -19,12 +19,20 @@ import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
 const DEFAULT_VIEWPORT = { width: 1280, height: 860 };
 /** snapshot 单次返回的元素上限（超出截断并提示，防大页面刷爆上下文）。 */
 const SNAPSHOT_LIMIT = 400;
+/** 单页 console 环形缓冲上限（browser_console 读取最近 50 条）。 */
+const CONSOLE_BUFFER_LIMIT = 100;
+/** 点击/输入/滚动后的静默期：给 SPA 渲染留时间，减少模型无效往返。 */
+const ACTION_SETTLE_MS = 250;
+
+const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface BrowserHubCallbacks {
 	/** 页面清单变化（导航/开关页/标题变化）。origin 标记触发方（agent 工具 or UI）。 */
 	onPagesChanged: (pages: IabPageInfo[], origin: "agent" | "ui") => void;
-	/** 一帧 screencast（JPEG base64）。 */
+	/** 一帧 screencast（PNG base64，文字锐利）。 */
 	onFrame: (pageId: string, data: string, width: number, height: number) => void;
+	/** 页面弹出了文件选择框（无头浏览器弹不出系统对话框，需要 UI 提示 / agent 应答）。 */
+	onFileChooser: (pageId: string, multiple: boolean) => void;
 	onDiagnostic: (message: string) => void;
 }
 
@@ -32,6 +40,10 @@ interface PageEntry {
 	page: Page;
 	cdp: CDPSession;
 	info: IabPageInfo;
+	/** 页面 console/未捕获报错的环形缓冲（browser_console 读取）。 */
+	console: string[];
+	/** 页面当前等待应答的文件选择框（如有）。 */
+	pendingChooser: { chooser: FileChooser; multiple: boolean } | null;
 }
 
 /** 注入页面的 ref 记账器：元素 ↔ 数字 ref，双击快照里的 ref 即可定位回元素。 */
@@ -129,6 +141,8 @@ export class BrowserHub {
 			page,
 			cdp,
 			info: { pageId, url: "", title: "", viewport: { ...DEFAULT_VIEWPORT }, active: false },
+			console: [],
+			pendingChooser: null,
 		};
 		this.pages.set(pageId, entry);
 		page.on("close", () => {
@@ -142,16 +156,29 @@ export class BrowserHub {
 		page.on("framenavigated", (frame) => {
 			if (frame === page.mainFrame()) this.refreshPageMeta(entry);
 		});
+		page.on("console", (message) => this.pushConsole(entry, `[${message.type()}] ${message.text()}`));
+		page.on("pageerror", (error) => this.pushConsole(entry, `[pageerror] ${error.message}`));
+		// 无头浏览器弹不出系统文件对话框：拦下事件，交给 UI 提示 / agent 应答
+		page.on("filechooser", (chooser) => {
+			entry.pendingChooser = { chooser, multiple: chooser.isMultiple() };
+			this.callbacks.onFileChooser(pageId, chooser.isMultiple());
+		});
 		cdp.on("Page.screencastFrame", (params) => {
 			const meta = params.metadata;
 			void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
 			if (!meta) return;
 			this.callbacks.onFrame(pageId, params.data, meta.deviceWidth ?? 0, meta.deviceHeight ?? 0);
 		});
-		await cdp.send("Page.startScreencast", { format: "jpeg", quality: 70 }).catch(() => {});
+		// PNG 帧：本地 WS 带宽充裕，换文字锐利（JPEG 的糊字在 UI 放大后没法看）
+		await cdp.send("Page.startScreencast", { format: "png" }).catch(() => {});
 		if (url) await page.goto(url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
 		await this.refreshPageMeta(entry);
 		return entry;
+	}
+
+	private pushConsole(entry: PageEntry, line: string): void {
+		entry.console.push(line);
+		if (entry.console.length > CONSOLE_BUFFER_LIMIT) entry.console.shift();
 	}
 
 	private async refreshPageMeta(entry: PageEntry): Promise<void> {
@@ -239,12 +266,24 @@ export class BrowserHub {
 		const entry = this.pages.get(pageId);
 		if (!entry) return;
 		try {
-			const buffer = await entry.page.screenshot({ type: "jpeg", quality: 70, caret: "hide" });
+			const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
 			const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
 			this.callbacks.onFrame(pageId, buffer.toString("base64"), viewport.width, viewport.height);
 		} catch {
 			// 页面正在导航时截图可能失败：忽略，等 screencast 帧补上
 		}
+	}
+
+	/** 应答等待中的文件选择框（agent 工具与 iab.fileResponse 共用）。 */
+	async fileResponse(pageId: string, paths: string[]): Promise<void> {
+		const entry = this.requirePage(pageId);
+		const pending = entry.pendingChooser;
+		if (!pending) throw new Error("页面当前没有等待中的文件选择框");
+		const clean = paths.map((path) => path.trim()).filter((path) => path !== "");
+		if (clean.length === 0) throw new Error("paths 为空");
+		if (!pending.multiple && clean.length > 1) throw new Error("该选择框只允许单选，paths 只能提供一个文件");
+		await pending.chooser.setFiles(clean);
+		entry.pendingChooser = null;
 	}
 
 	async input(pageId: string, payload: IabInputPayload): Promise<void> {
@@ -359,13 +398,20 @@ export class BrowserHub {
 			execute: async () =>
 				hub.withAgent(async () => {
 					const entry = await hub.agentPage();
-					const result = await entry.page.evaluate(SNAPSHOT_SCRIPT) as { url: string; title: string; lines: string[] };
+					const result = (await entry.page.evaluate(SNAPSHOT_SCRIPT)) as {
+						url: string;
+						title: string;
+						lines: string[];
+					};
+					const chooserHint = entry.pendingChooser
+						? `\n\n⚠️ 页面正在等待文件选择（允许多选：${entry.pendingChooser.multiple ? "是" : "否"}）。用 browser_set_file_chooser 提供本机绝对路径完成选择。`
+						: "";
 					const truncated =
 						result.lines.length >= SNAPSHOT_LIMIT
 							? `\n(已达 ${SNAPSHOT_LIMIT} 条上限，已截断——用更精确的 URL 或先操作缩小范围)`
 							: "";
 					return text(
-						`页面：${result.title}\nURL：${result.url}\n\n${result.lines.join("\n")}${truncated}`,
+						`页面：${result.title}\nURL：${result.url}\n\n${result.lines.join("\n")}${chooserHint}${truncated}`,
 					);
 				}),
 		};
@@ -386,6 +432,7 @@ export class BrowserHub {
 					if (!point) return text(`ref=${params.ref} 已失效（页面可能刷新过），请重新 browser_snapshot。`);
 					await entry.page.mouse.move(point.x, point.y);
 					await entry.page.mouse.click(point.x, point.y);
+					await sleep(ACTION_SETTLE_MS);
 					return text(`已点击 ref=${params.ref}${point.name ? `（${point.name}）` : ""}。用 browser_snapshot 观察结果。`);
 				}),
 		};
@@ -414,6 +461,7 @@ export class BrowserHub {
 						await entry.page.keyboard.press("Delete");
 					}
 					await entry.page.keyboard.type(params.text, { delay: 10 });
+					await sleep(ACTION_SETTLE_MS);
 					return text(`已输入到 ref=${params.ref}。用 browser_snapshot 确认。`);
 				}),
 		};
@@ -431,6 +479,7 @@ export class BrowserHub {
 				hub.withAgent(async () => {
 					const entry = await hub.agentPage();
 					await entry.page.keyboard.press(params.key);
+					await sleep(ACTION_SETTLE_MS);
 					return text(`已按下 ${params.key}。`);
 				}),
 		};
