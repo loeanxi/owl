@@ -6,7 +6,7 @@ import chalk from "chalk";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.ts";
-import { migrateKeybindingsConfig } from "./core/keybindings.ts";
+import { migrateKeybindingsConfig } from "./core/tui-seam.ts";
 import { stripBom } from "./utils/text.ts";
 
 const MIGRATION_GUIDE_URL =

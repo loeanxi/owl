@@ -1,0 +1,20 @@
+{
+	"hooks": {
+		"enabled": true,
+		"events": {
+			"Stop": [
+				{
+					"hooks": [
+						{
+							"type": "process",
+							"command": "node",
+							"args": ["${ZCODE_PROJECT_DIR}/.zcode/hooks/auto-commit.mjs", "${ZCODE_PROJECT_DIR}"],
+							"timeoutMs": 30000,
+							"statusMessage": "自动提交本轮完成的功能改动"
+						}
+					]
+				}
+			]
+		}
+	}
+}

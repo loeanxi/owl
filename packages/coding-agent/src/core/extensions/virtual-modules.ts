@@ -2,7 +2,7 @@ import * as bundledPiAgentCore from "@earendil-works/pi-agent-core";
 import * as bundledPiAiCompat from "@earendil-works/pi-ai/compat";
 import * as bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
 import * as bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
-import * as bundledPiTui from "@earendil-works/pi-tui";
+const bundledPiTui: Record<string, unknown> = {};
 import * as bundledTypebox from "typebox";
 import * as bundledTypeboxCompile from "typebox/compile";
 import * as bundledTypeboxValue from "typebox/value";
