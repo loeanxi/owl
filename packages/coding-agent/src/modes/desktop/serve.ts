@@ -372,8 +372,37 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "models.list": {
-				// pire: 只出 models.json 里声明的模型，不复用 pi 内置目录。
-				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(defaultAgentDir())) });
+				// pire 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
+				// 内置目录本身不再直接暴露：只有用户主动配置过凭据的供应商才会带出目录模型。
+				const agentDir = defaultAgentDir();
+				const declared = declaredProviderModels(readModelsFile(agentDir));
+				const credentialed: ProviderModelsMessage[] = [];
+				try {
+					const services = await getListingServices();
+					const byProvider = new Map<string, ProviderModelsMessage>();
+					for (const model of services.modelRuntime.getAvailableSnapshot()) {
+						let group = byProvider.get(model.provider);
+						if (!group) {
+							group = { id: model.provider, models: [] };
+							byProvider.set(model.provider, group);
+						}
+						if (!group.models.some((entry) => entry.id === model.id)) {
+							group.models.push({
+								id: model.id,
+								name: model.name,
+								...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+							});
+						}
+					}
+					credentialed.push(...byProvider.values());
+				} catch {
+					// services 不可用时跳过凭据部分
+				}
+				const declaredIds = new Set(declared.map((group) => group.id));
+				reply(ws, request.id, {
+					ok: true,
+					result: [...declared, ...credentialed.filter((group) => !declaredIds.has(group.id))],
+				});
 				return;
 			}
 			case "models.putProvider": {
