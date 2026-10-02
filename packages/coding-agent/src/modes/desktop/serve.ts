@@ -13,6 +13,8 @@
  */
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -26,6 +28,9 @@ import {
 } from "../../core/agent-session-runtime.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
+import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
+import type { McpServerConfig } from "../../core/mcp-servers.ts";
+import type { ToolDefinition } from "../../core/extensions/index.ts";
 import { toJsonEvent, type JsonAgentSessionEvent } from "../json-event.ts";
 import type {
 	DesktopClientRequest,
@@ -53,6 +58,8 @@ export interface DesktopServerOptions {
 	agentDir?: string;
 	/** Default cwd for session.create requests that omit one. */
 	cwd?: string;
+	/** MCP servers (name → config); when omitted, read from settings.json `mcpServers`. */
+	mcpServers?: Record<string, McpServerConfig>;
 	/** Called for diagnostics; defaults to console.error. */
 	onDiagnostic?: (message: string) => void;
 }
@@ -74,6 +81,31 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
 	/** Shared services for non-session queries (models.list); built lazily. */
 	let listServices: AgentSessionServices | undefined;
+	/** MCP connections established at startup. */
+	let mcp: McpConnections | undefined;
+
+	function resolveMcpServerConfigs(): Record<string, McpServerConfig> {
+		if (options.mcpServers) return options.mcpServers;
+		try {
+			const raw = JSON.parse(readFileSync(join(defaultAgentDir(), "settings.json"), "utf-8")) as {
+				mcpServers?: Record<string, McpServerConfig>;
+			};
+			return raw.mcpServers ?? {};
+		} catch {
+			return {};
+		}
+	}
+
+	async function getMcpTools(): Promise<ToolDefinition[]> {
+		if (!mcp) {
+			const servers = resolveMcpServerConfigs();
+			mcp =
+				Object.keys(servers).length > 0
+					? await connectMcpServers(servers, onDiagnostic)
+					: { tools: [], connections: [], close: async () => {} };
+		}
+		return mcp.tools;
+	}
 
 	function broadcast(message: DesktopServerMessage): void {
 		const payload = JSON.stringify(message);
@@ -129,6 +161,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
+				customTools: await getMcpTools(),
 				...(model ? { model } : {}),
 			});
 			return { ...session, services, diagnostics: services.diagnostics };
@@ -304,6 +337,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			sessions.clear();
 			for (const client of clients) client.close();
 			wss.close();
+			await mcp?.close();
 			await new Promise<void>((resolve) => httpServer.close(() => resolve()));
 		},
 	};
