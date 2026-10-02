@@ -104,3 +104,7 @@ export type ServerResponseMessage = {
 };
 
 export type DesktopServerMessage = ServerEventMessage | ServerResponseMessage | PermissionRequestMessage;
+
+/** Omit that distributes over unions (so each request variant keeps its fields). */
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type DesktopClientRequestWithoutId = DistributiveOmit<DesktopClientRequest, "id">;
