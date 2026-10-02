@@ -12,6 +12,7 @@ import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
+import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
@@ -43,13 +44,6 @@ type SessionRowLite = {
 	messageCount?: number;
 	[key: string]: unknown;
 };
-
-/** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目（与侧边栏同规则）。 */
-function samePath(a: string | undefined, b: string | undefined): boolean {
-	const norm = (p: string | undefined): string =>
-		(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-	return norm(a) === norm(b) && norm(a) !== "";
-}
 
 function rowTime(row: SessionRowLite): string {
 	return String(row.modified ?? row.created ?? "");
@@ -83,6 +77,8 @@ export default function App(): React.JSX.Element {
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
 	);
+	// 输入框项目选择器的候选列表：与侧边栏同源（当前 ∪ 有会话 ∪ 到访过），切换项目/侧边栏变更时刷新。
+	const [projects, setProjects] = useState<string[]>([]);
 	// 侧边栏工作台（文件树 / 编辑器 / Git 变动 / 任务 / 侧聊）：开合与停靠位置持久化。
 	const [workbenchOpen, setWorkbenchOpen] = useState(
 		() => localStorage.getItem(WORKBENCH_OPEN_KEY) === "1",
@@ -380,6 +376,32 @@ export default function App(): React.JSX.Element {
 			}
 		})();
 	}, [connected, client]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 输入框项目选择器的候选列表：session.list 的项目 ∪ 到访过的项目 ∪ 当前项目（与侧边栏同源）。
+	// 切项目 / 侧边栏重拉（恢复、删除归档）时刷新；桥瞬断静默跳过。
+	useEffect(() => {
+		if (!connected) return;
+		let cancelled = false;
+		void client
+			.request<SessionRowLite[]>({ type: "session.list" })
+			.then((response) => {
+				if (!response.ok || !response.result || cancelled) return;
+				const seen = new Map<string, string>();
+				const track = (path: string | undefined): void => {
+					if (!path) return;
+					const key = normPath(path);
+					if (!seen.has(key)) seen.set(key, path);
+				};
+				track(workspaceRef.current);
+				for (const row of response.result) track(row.cwd);
+				for (const path of loadKnownProjects()) track(path);
+				setProjects([...seen.values()]);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [connected, client, workspaceDir, sidebarRev]);
 
 	// 输入栏的模型/思考切换：未建会话时只记选择（localStorage + 状态），
 	// 已有会话则即时下发到运行中的 session（setModel 自带思考级别自适应）。

@@ -8,23 +8,23 @@
 // minified-export mapping); this entry is a clean rewrite of the upstream
 // `dist/pi/index.js` extension against the Owl extension API (@owl/owl-coding-agent).
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@owl/owl-coding-agent";
+import { he as auditDenial, N as guardEvaluate } from "../vendor/chunks/index-96rww7g0.js";
+import type { Denial, SafetyNetAnalysis, SafetyNetEvaluation } from "../vendor/chunks/index-gj6afr0n.js";
 import {
-	A as unusableCwdDenial,
-	P as genericDenial,
-	Xe as describeCause,
-	be as denialToReason,
-	c as loadConfig,
 	d as analyzeToolCall,
-	et as resolveConfigCwd,
-	L as isFlagEnabled,
+	be as denialToReason,
+	Xe as describeCause,
 	o as flags,
+	P as genericDenial,
+	xe as isAuditAllowed,
+	L as isFlagEnabled,
+	c as loadConfig,
+	et as resolveConfigCwd,
 	p as SafetyNetError,
 	q as toolCallKind,
-	xe as isAuditAllowed,
+	A as unusableCwdDenial,
 	ye as verdictToDenial,
 } from "../vendor/chunks/index-gj6afr0n.js";
-import type { Denial, SafetyNetAnalysis, SafetyNetEvaluation } from "../vendor/chunks/index-gj6afr0n.js";
-import { N as guardEvaluate, he as auditDenial } from "../vendor/chunks/index-96rww7g0.js";
 import { ee as referenceDoc } from "../vendor/chunks/index-pm924a1e.js";
 
 const COMMAND_NAME = "safety-net";
@@ -115,9 +115,12 @@ function extract(event: ToolCallEvent, ctx: ExtensionContext, paths: unknown): E
 	if (!configCwd) {
 		return {
 			kind: "malformed",
-			denial: unusableCwdDenial({ directory: "session", problem: "unusable", cwd: ctx.cwd }, {
-				toolName: event.toolName,
-			}),
+			denial: unusableCwdDenial(
+				{ directory: "session", problem: "unusable", cwd: ctx.cwd },
+				{
+					toolName: event.toolName,
+				},
+			),
 			cwd: ctx.cwd,
 		};
 	}

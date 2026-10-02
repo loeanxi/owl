@@ -1,6 +1,9 @@
 import { useState } from "react";
+import type { BridgeClient } from "../bridge/client.ts";
 import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult } from "../bridge/protocol.ts";
 import { Menu } from "./Menu.tsx";
+import { NewProjectDialog } from "./NewProjectDialog.tsx";
+import { projectLabel, samePath } from "../utils/paths.ts";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -63,7 +66,7 @@ function contextTone(percent: number | null): string {
 	return "text-emerald-400";
 }
 
-/** 上下文用量环形指示（套在模型选择器左侧，随时可见余量）。 */
+/** 上下文用量环形指示（套在上下文选择器左侧，随时可见余量）。 */
 function ContextRing({ percent }: { percent: number | null }): React.JSX.Element {
 	const clamped = Math.min(100, Math.max(0, percent ?? 0));
 	const circumference = 2 * Math.PI * 6;
@@ -86,6 +89,44 @@ function ContextRing({ percent }: { percent: number | null }): React.JSX.Element
 	);
 }
 
+/** 笔记本：本地运行位置（对照 Claude 输入框的 Local chip）。 */
+function LaptopIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.Element {
+	return (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<rect x="3" y="2.8" width="10" height="7.2" rx="1.2" />
+			<path d="M1.6 13h12.8" />
+		</svg>
+	);
+}
+
+/** 云朵：远程会话（占位项）。 */
+function CloudIcon(): React.JSX.Element {
+	return (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0">
+			<path d="M4.6 12h6.6a2.7 2.7 0 0 0 .5-5.35 3.7 3.7 0 0 0-7.25.75A2.6 2.6 0 0 0 4.6 12Z" />
+		</svg>
+	);
+}
+
+/** 文件夹加号：新建/打开项目目录（对照 Claude 输入框的 folder-plus chip）。 */
+function FolderPlusIcon(): React.JSX.Element {
+	return (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" className="h-3.5 w-3.5 shrink-0">
+			<path d="M1.8 4c0-.66.54-1.2 1.2-1.2h2.9l1.5 1.7h5.6c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3c-.66 0-1.2-.54-1.2-1.2V4Z" />
+			<path d="M8 7.2v3M6.5 8.7h3" />
+		</svg>
+	);
+}
+
+/** 空心文件夹：项目 chip 与项目菜单项。 */
+function FolderIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.Element {
+	return (
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<path d="M1.8 4c0-.66.54-1.2 1.2-1.2h2.9l1.5 1.7h5.6c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3c-.66 0-1.2-.54-1.2-1.2V4Z" />
+		</svg>
+	);
+}
+
 function Chevron(): React.JSX.Element {
 	return (
 			<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3 text-owl-faint">
@@ -94,13 +135,32 @@ function Chevron(): React.JSX.Element {
 		);
 }
 
-const pillClass =
-	"flex h-8 items-center gap-1.5 rounded-full border border-owl-border px-3 text-xs text-owl-muted " +
+/**
+ * 输入框顶部环境 chip（Claude 同款布局）：填充式小圆角，无边框。
+ * 运行位置 / 项目 / 添加项目。
+ */
+const envChipClass =
+	"flex h-7 items-center gap-1.5 rounded-lg bg-owl-hover/40 px-2.5 text-xs text-owl-muted " +
+	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40";
+
+/** 环境行的纯图标 chip（添加项目）。 */
+const envIconButtonClass =
+	"flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-owl-hover/40 text-owl-muted " +
+	"transition-colors hover:bg-owl-hover hover:text-owl-text";
+
+/**
+ * 输入框底部选择器（精简 ghost 风）：无边框文字按钮，悬停才浮出底色。
+ * 审批模式 / 思考强度 / 模型 / 上下文。
+ */
+const ghostPillClass =
+	"flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
 
 export function Composer({
+	client,
+	connected,
 	disabled,
 	running,
 	onSend,
@@ -113,7 +173,13 @@ export function Composer({
 	approvalMode,
 	onApprovalMode,
 	sessionInfo,
+	workspaceDir,
+	projects,
+	onSwitchProject,
 }: {
+	client: BridgeClient;
+	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
+	connected: boolean;
 	disabled: boolean;
 	running: boolean;
 	onSend: (text: string) => void;
@@ -126,8 +192,15 @@ export function Composer({
 	approvalMode: ApprovalMode;
 	onApprovalMode: (mode: ApprovalMode) => void;
 	sessionInfo: SessionStatsResult | undefined;
+	/** 当前项目（工作目录）绝对路径。 */
+	workspaceDir: string;
+	/** 候选项目列表（与侧边栏同源：当前 ∪ 有会话 ∪ 到访过）。 */
+	projects: string[];
+	/** 切换项目 = 换工作目录并从新会话开始（与侧边栏点击项目同语义）。 */
+	onSwitchProject: (path: string) => void;
 }): React.JSX.Element {
 	const [value, setValue] = useState("");
+	const [showNewProject, setShowNewProject] = useState(false);
 	const submit = (): void => {
 		const text = value.trim();
 		if (!text) return;
@@ -149,6 +222,14 @@ export function Composer({
 		? sessionInfo.availableThinkingLevels
 		: [...ALL_THINKING_LEVELS];
 	const thinkingDisabled = sessionInfo !== undefined && !sessionInfo.supportsThinking;
+
+	// 项目选择器排序：当前项目置顶，其余按名称；显示名取路径末段。
+	const sortedProjects = [...projects].sort((a, b) => {
+		const aCurrent = samePath(a, workspaceDir);
+		const bCurrent = samePath(b, workspaceDir);
+		if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+		return projectLabel(a).localeCompare(projectLabel(b), "zh-CN");
+	});
 
 	const modelMenu = (close: () => void): React.JSX.Element => (
 		<div className="max-h-72 w-72 overflow-y-auto">
@@ -190,8 +271,111 @@ export function Composer({
 	return (
 		<div className="bg-owl-bg px-4 pt-2 pb-4">
 			<div className="mx-auto max-w-3xl rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70">
+				{/* 环境行（Claude 同款）：运行位置 · 项目 · 添加项目 */}
+				<div className="flex items-center gap-1 px-2.5 pt-2.5">
+					<Menu
+						triggerClassName={envChipClass}
+						triggerTitle={connected ? "运行位置：本地（已连接）" : "运行位置：本地（连接断开）"}
+						panelClassName="w-64"
+						trigger={
+							<>
+								<LaptopIcon tone={connected ? "text-owl-accent" : "text-red-400"} />
+								<span>本地</span>
+							</>
+						}
+					>
+						{() => (
+							<div>
+								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">运行位置</p>
+								<button type="button" className={`${menuItemClass} bg-owl-hover text-owl-text`}>
+									<LaptopIcon tone="text-owl-text" />
+									<span className="flex-1">本地（此电脑）</span>
+									{connected ? (
+										<span className="flex items-center gap-1 text-[10px] text-emerald-400">
+											<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+											已连接
+										</span>
+									) : (
+										<span className="flex items-center gap-1 text-[10px] text-red-400">
+											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+											重连中
+										</span>
+									)}
+								</button>
+								<button type="button" className={`${menuItemClass} cursor-default text-owl-faint/60`} title="该功能开发中" disabled>
+									<CloudIcon />
+									<span className="flex-1">远程会话</span>
+									<span className="text-[10px] text-owl-faint/70">开发中</span>
+								</button>
+							</div>
+						)}
+					</Menu>
+					<Menu
+						triggerClassName={envChipClass}
+						triggerTitle={`项目：${workspaceDir}（点击切换）`}
+						panelClassName="w-64"
+						trigger={
+							<>
+								<FolderIcon />
+								<span className="max-w-40 truncate">{projectLabel(workspaceDir)}</span>
+								<Chevron />
+							</>
+						}
+					>
+						{(close) => (
+							<div>
+								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">项目（工作目录）</p>
+								<div className="max-h-56 overflow-y-auto">
+									{sortedProjects.map((path) => {
+										const active = samePath(path, workspaceDir);
+										return (
+											<button
+												key={path}
+												type="button"
+												title={path}
+												className={`${menuItemClass} ${active ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+												onClick={() => {
+													if (!active) onSwitchProject(path);
+													close();
+												}}
+											>
+												<FolderIcon tone={active ? "text-owl-text" : "text-owl-faint"} />
+												<span className="flex-1 truncate">{projectLabel(path)}</span>
+												{active && <span className="text-owl-accent">✓</span>}
+											</button>
+										);
+									})}
+									{sortedProjects.length === 0 && (
+										<p className="px-3 py-2 text-xs text-owl-faint">尚无项目</p>
+									)}
+								</div>
+								<div className="my-1 border-t border-owl-border/70" />
+								<button
+									type="button"
+									className={`${menuItemClass} text-owl-muted`}
+									onClick={() => {
+										close();
+										setShowNewProject(true);
+									}}
+								>
+									<FolderPlusIcon />
+									<span className="flex-1">新建项目…</span>
+								</button>
+							</div>
+						)}
+					</Menu>
+					<button
+						type="button"
+						className={envIconButtonClass}
+						title="新建项目（选择或输入目录，不存在会自动创建）"
+						aria-label="新建项目"
+						onClick={() => setShowNewProject(true)}
+					>
+						<FolderPlusIcon />
+					</button>
+				</div>
 				<textarea
-					className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-3 text-sm text-owl-text outline-none placeholder:text-owl-faint"
+					className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-2.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
 					placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
 					value={value}
 					rows={2}
@@ -203,66 +387,12 @@ export function Composer({
 						}
 					}}
 				/>
-				<div className="flex items-center gap-2 px-2 pt-1 pb-2">
+				{/* 选择行（精简 ghost）：审批模式居左，思考 / 模型 / 上下文 / 发送居右 */}
+				<div className="flex items-center gap-1 px-2 pt-1 pb-2">
 					<Menu
-						triggerClassName={pillClass}
-						triggerTitle="切换模型"
-						panelClassName="w-72"
-						trigger={
-							<>
-								<ContextRing percent={percent} />
-								<span className="max-w-44 truncate">{activeName}</span>
-								<Chevron />
-							</>
-						}
-					>
-						{(close: () => void) => modelMenu(close)}
-					</Menu>
-					<Menu
-						triggerClassName={pillClass}
-						triggerTitle={thinkingDisabled ? "当前模型不支持思考" : "调整思考强度"}
-						panelClassName="w-36"
-						trigger={
-							<>
-								<svg
-									viewBox="0 0 16 16"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="1.3"
-									className={`h-3.5 w-3.5 shrink-0 ${thinkingDisabled ? "text-owl-faint" : "text-owl-accent"}`}
-								>
-									<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
-									<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
-								</svg>
-								<span>思考·{THINKING_LABELS[thinkingLevel] ?? thinkingLevel}</span>
-								<Chevron />
-							</>
-						}
-					>
-						{(close: () => void) => (
-							<div>
-								{levels.map((level) => (
-									<button
-										key={level}
-										type="button"
-										className={`${menuItemClass} ${level === thinkingLevel ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
-										onClick={() => {
-											onThinkingLevel(level);
-											close();
-										}}
-									>
-										<span className="flex-1">{THINKING_LABELS[level] ?? level}</span>
-										{level === thinkingLevel && <span className="text-owl-accent">✓</span>}
-									</button>
-								))}
-							</div>
-						)}
-					</Menu>
-					<div className="flex-1" />
-					<Menu
-						triggerClassName={pillClass}
+						triggerClassName={ghostPillClass}
 						triggerTitle={APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.title}
-						panelClassName="right-0 w-64"
+						panelClassName="left-0 w-64"
 						trigger={
 							<>
 								<ModeIcon mode={approvalMode} active={approvalMode !== "confirm"} />
@@ -271,7 +401,7 @@ export function Composer({
 							</>
 						}
 					>
-						{(close: () => void) => (
+						{(close) => (
 							<div>
 								{APPROVAL_MODES.map((entry) => (
 									<button
@@ -292,17 +422,70 @@ export function Composer({
 							</div>
 						)}
 					</Menu>
+					<div className="flex-1" />
 					<Menu
-						triggerClassName="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-muted"
+						triggerClassName={ghostPillClass}
+						triggerTitle={thinkingDisabled ? "当前模型不支持思考" : "调整思考强度"}
+						panelClassName="right-0 w-36"
+						trigger={
+							<>
+								<svg
+									viewBox="0 0 16 16"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.3"
+									className={`h-3.5 w-3.5 shrink-0 ${thinkingDisabled ? "text-owl-faint" : "text-owl-accent"}`}
+								>
+									<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
+									<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
+								</svg>
+								<span>思考·{THINKING_LABELS[thinkingLevel] ?? thinkingLevel}</span>
+								<Chevron />
+							</>
+						}
+					>
+						{(close) => (
+							<div>
+								{levels.map((level) => (
+									<button
+										key={level}
+										type="button"
+										className={`${menuItemClass} ${level === thinkingLevel ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+										onClick={() => {
+											onThinkingLevel(level);
+											close();
+										}}
+									>
+										<span className="flex-1">{THINKING_LABELS[level] ?? level}</span>
+										{level === thinkingLevel && <span className="text-owl-accent">✓</span>}
+									</button>
+								))}
+							</div>
+						)}
+					</Menu>
+					<Menu
+						triggerClassName={ghostPillClass}
+						triggerTitle="切换模型"
+						panelClassName="right-0 w-72"
+						trigger={
+							<>
+								<span className="max-w-44 truncate">{activeName}</span>
+								<Chevron />
+							</>
+						}
+					>
+						{(close: () => void) => modelMenu(close)}
+					</Menu>
+					<Menu
+						triggerClassName={ghostPillClass}
 						triggerTitle="查看上下文"
 						panelClassName="right-0 w-72"
 						trigger={
 							<>
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className="h-3.5 w-3.5">
-									<circle cx="8" cy="8" r="6.2" />
-									<path d="M8 4.8v6.4M5.6 6.4h3.1a1.5 1.5 0 0 1 0 3H5.6" />
-								</svg>
-								<span>{percent !== null ? `${Math.round(percent)}%` : "上下文"}</span>
+								<ContextRing percent={percent} />
+								<span className={percent !== null ? contextTone(percent) : undefined}>
+									{percent !== null ? `${Math.round(percent)}%` : "上下文"}
+								</span>
 							</>
 						}
 					>
@@ -369,6 +552,16 @@ export function Composer({
 					)}
 				</div>
 			</div>
+			{showNewProject && (
+				<NewProjectDialog
+					client={client}
+					onClose={() => setShowNewProject(false)}
+					onCreated={(path) => {
+						setShowNewProject(false);
+						onSwitchProject(path);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

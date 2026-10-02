@@ -157,6 +157,40 @@ function AnswerCard({ text }: { text: string }): React.JSX.Element {
 	);
 }
 
+/** 工具结果卡片：文字摘要 + 图片内容块（如 browser_screenshot）。图片默认限高，点击切换完整大图。 */
+function ToolResultView({ entry }: { entry: Extract<ChatEntry, { kind: "toolResult" }> }): React.JSX.Element {
+	const [zoomed, setZoomed] = useState(false);
+	const images = entry.images ?? [];
+	return (
+		<div className="rounded-lg border border-owl-border/60 px-3 py-2 text-xs">
+			<div className="break-words font-mono">
+				<span className={entry.ok ? "text-emerald-600" : "text-red-500"}>{entry.toolName}</span>{" "}
+				<span className="text-owl-faint">{entry.brief}</span>
+			</div>
+			{images.length > 0 && (
+				<div className="mt-2 space-y-2">
+					{images.map((image, index) => (
+						<img
+							key={index}
+							src={`data:${image.mimeType};base64,${image.data}`}
+							alt={`${entry.toolName} 截图 ${index + 1}`}
+							className={`w-full cursor-zoom-in rounded-lg border border-owl-border ${zoomed ? "" : "max-h-72 object-contain object-top"}`}
+							onClick={() => setZoomed((value) => !value)}
+						/>
+					))}
+					<button
+						type="button"
+						onClick={() => setZoomed((value) => !value)}
+						className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
+					>
+						{zoomed ? "收起" : "查看完整大图"}
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
 /** 把扁平转录拆成时间轴行：一条 assistant 消息按 思考/各工具/回答/报错 拆成多行，各自成节点。 */
 function buildRows(entries: ChatEntry[]): TimelineRow[] {
 	const rows: TimelineRow[] = [];
@@ -239,11 +273,7 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 					{entry.ok ? <IconCheck className="h-3 w-3" /> : <IconAlert className="h-3 w-3" />}
 				</StepNode>
 			),
-			content: (
-				<div className="break-words rounded-lg border border-owl-border/60 px-3 py-1.5 font-mono text-xs text-owl-faint">
-					<span className={entry.ok ? "text-emerald-600" : "text-red-500"}>{entry.toolName}</span> {entry.brief}
-				</div>
-			),
+			content: <ToolResultView entry={entry} />,
 		});
 	});
 	return rows;

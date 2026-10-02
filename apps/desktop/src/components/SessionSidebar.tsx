@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ProjectCreateResult } from "../bridge/protocol.ts";
-import { hasTauri, pickFolder } from "../bridge/native.ts";
+import { KNOWN_PROJECTS_KEY, loadKnownProjects, normPath, projectLabel, samePath } from "../utils/paths.ts";
+import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import {
 	IconArchive,
 	IconCheck,
@@ -42,8 +42,6 @@ const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
-/** 到访过的项目（localStorage）：没有会话的项目也能常驻「项目」分组。 */
-const KNOWN_PROJECTS_KEY = "owl.projects";
 /** 项目行操作菜单的 id 前缀（openMenu 状态，按项目路径区分）。 */
 const PROJECT_ROW_MENU_PREFIX = "project-row:";
 /** 置顶栏项目行操作菜单的 id 前缀：与「项目」分组的行菜单互不干扰。 */
@@ -67,21 +65,6 @@ function saveChoice(key: string, value: string): void {
 	} catch {
 		// localStorage 不可用时排序偏好退化为会话内状态
 	}
-}
-
-/** Windows 大小写不敏感 + 分隔符统一后的路径规范化（同项目比较与折叠键共用）。 */
-function normPath(p: string | undefined): string {
-	return (p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
-
-/** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目。 */
-function samePath(a: string | undefined, b: string | undefined): boolean {
-	return normPath(a) !== "" && normPath(a) === normPath(b);
-}
-
-function projectLabel(cwd: string): string {
-	const parts = cwd.replace(/\\/g, "/").replace(/\/+$/, "").split("/");
-	return parts[parts.length - 1] || cwd;
 }
 
 function sessionTime(row: SessionRow): string {
@@ -147,16 +130,6 @@ function loadCollapsed(): Set<string> {
 		return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
 	} catch {
 		return new Set();
-	}
-}
-
-function loadKnownProjects(): string[] {
-	try {
-		const raw = localStorage.getItem(KNOWN_PROJECTS_KEY);
-		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
-	} catch {
-		return [];
 	}
 }
 
@@ -301,11 +274,7 @@ export function SessionSidebar({
 }): React.JSX.Element {
 	const [sessions, setSessions] = useState<SessionRow[]>([]);
 	const [showNewProject, setShowNewProject] = useState(false);
-	const [newPath, setNewPath] = useState("");
-	const [creating, setCreating] = useState(false);
-	const [createError, setCreateError] = useState("");
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
-	const [browsing, setBrowsing] = useState(false);
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
 	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -606,41 +575,6 @@ export function SessionSidebar({
 	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const archivedSessions = useMemo(() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest), [sessions]);
-
-	const submitNewProject = async (): Promise<void> => {
-		const path = newPath.trim();
-		if (!path) return;
-		setCreating(true);
-		setCreateError("");
-		try {
-			const response = await client.request<ProjectCreateResult>({ type: "project.create", path });
-			if (!response.ok || !response.result) {
-				setCreateError(response.error ?? "创建失败");
-				return;
-			}
-			onSelectProject(response.result.path);
-			setShowNewProject(false);
-			setNewPath("");
-		} catch (error) {
-			setCreateError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setCreating(false);
-		}
-	};
-
-	/** 系统资源管理器选择项目目录（仅桌面壳有此入口）。 */
-	const browseProject = async (): Promise<void> => {
-		setBrowsing(true);
-		setCreateError("");
-		try {
-			const selected = await pickFolder("选择项目目录");
-			if (selected) setNewPath(selected);
-		} catch (error) {
-			setCreateError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setBrowsing(false);
-		}
-	};
 
 	/** 会话行悬停操作按钮的统一样式。 */
 	const rowBtn =
@@ -989,7 +923,6 @@ export function SessionSidebar({
 		};
 		const openNewProject = (): void => {
 			setShowNewProject(true);
-			setCreateError("");
 			setOpenMenu(null);
 		};
 
@@ -1144,10 +1077,7 @@ export function SessionSidebar({
 					<button
 						type="button"
 						className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-owl-faint transition-colors hover:bg-owl-hover/60 hover:text-owl-text"
-						onClick={() => {
-							setShowNewProject(true);
-							setCreateError("");
-						}}
+						onClick={openNewProject}
 					>
 						<span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-sm leading-none">＋</span>
 						新建项目
@@ -1216,59 +1146,14 @@ export function SessionSidebar({
 			</div>
 
 			{showNewProject && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
-					<div className="w-96 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
-						<h2 className="mb-1 text-sm font-semibold text-owl-text">新建项目</h2>
-						<p className="mb-3 text-xs text-owl-muted">
-							选择或输入项目目录（不存在会自动创建）：
-						</p>
-						<div className="flex gap-2">
-							<input
-								type="text"
-								className="min-w-0 flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-3 py-2 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
-								placeholder="D:\mycode\new-project"
-								value={newPath}
-								autoFocus
-								disabled={creating}
-								onChange={(event) => setNewPath(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter") void submitNewProject();
-									if (event.key === "Escape") setShowNewProject(false);
-								}}
-							/>
-							{hasTauri() && (
-								<button
-									type="button"
-									className="shrink-0 rounded-lg border border-owl-border px-3 py-2 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text disabled:opacity-50"
-									title="打开系统资源管理器选择文件夹"
-									onClick={() => void browseProject()}
-									disabled={browsing || creating}
-								>
-									{browsing ? "打开中…" : "浏览…"}
-								</button>
-							)}
-						</div>
-						{createError && <p className="mt-2 text-xs text-red-400">{createError}</p>}
-						<div className="mt-4 flex justify-end gap-2">
-							<button
-								type="button"
-								className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-								onClick={() => setShowNewProject(false)}
-								disabled={creating}
-							>
-								取消
-							</button>
-							<button
-								type="button"
-								className="rounded-lg bg-owl-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:opacity-50"
-								onClick={() => void submitNewProject()}
-								disabled={creating || !newPath.trim()}
-							>
-								{creating ? "创建中…" : "创建并切换"}
-							</button>
-						</div>
-					</div>
-				</div>
+				<NewProjectDialog
+					client={client}
+					onClose={() => setShowNewProject(false)}
+					onCreated={(path) => {
+						setShowNewProject(false);
+						onSelectProject(path);
+					}}
+				/>
 			)}
 
 			{confirmDelete && (

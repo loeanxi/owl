@@ -2,10 +2,13 @@ import type { ServerEventMessage } from "../bridge/protocol.ts";
 
 export type ToolCard = { id: string; name: string; args: string; status: "running" | "done" };
 
+/** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
+export type ToolResultImage = { data: string; mimeType: string };
+
 export type ChatEntry =
 	| { kind: "user"; text: string }
 	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string }
-	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
+	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string; images?: ToolResultImage[] };
 
 type AnyEvent = Record<string, any>; // wire events are forward-compat; render defensively
 
@@ -157,24 +160,34 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 			});
 		} else if (message.role === "toolResult") {
 			const toolName = message.toolName ?? "tool";
+			const content = (message.content ?? []) as AnyEvent[];
+			const textParts = content
+				.filter((part: AnyEvent) => part.type === "text")
+				.map((part: AnyEvent) => part.text ?? "");
+			const images = content
+				.filter((part: AnyEvent) => part.type === "image" && part.data)
+				.map((part: AnyEvent) => ({ data: part.data, mimeType: part.mimeType ?? "image/png" }));
 			// todo 的结果摘要直接取文本首行（"任务清单已更新 — 3 items: …"），
 			// 裸 JSON 上屏反而读不懂清单状态。
 			let brief: string;
 			if (toolName === "todo") {
-				const text = (message.content ?? [])
-					.filter((part: AnyEvent) => part.type === "text")
-					.map((part: AnyEvent) => part.text ?? "")
-					.join("\n");
-				brief = firstTextLine(text);
-			} else {
-				const output = JSON.stringify(message.output ?? message.content ?? "");
+				brief = firstTextLine(textParts.join("\n"));
+			} else if (images.length > 0) {
+				// 带图结果（如 browser_screenshot）：只上屏文字摘要，base64 绝不进转录
+				brief = firstTextLine(textParts.join("\n")) || `（返回 ${images.length} 张截图）`;
+			} else if (message.output !== undefined) {
+				const output = JSON.stringify(message.output);
 				brief = output.length > 400 ? `${output.slice(0, 400)}…` : output;
+			} else {
+				const text = textParts.join("\n");
+				brief = text.length > 400 ? `${text.slice(0, 400)}…` : text;
 			}
 			entries.push({
 				kind: "toolResult",
 				toolName,
 				ok: !message.isError,
 				brief,
+				...(images.length > 0 ? { images } : {}),
 			});
 		}
 	}
