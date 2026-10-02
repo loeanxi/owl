@@ -43,3 +43,5 @@ plans/
 .pi/hf-sessions-backup/
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
