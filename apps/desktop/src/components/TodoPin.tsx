@@ -93,15 +93,15 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 										<span className="h-2.5 w-2.5 rounded-full border border-owl-border" />
 									)}
 								</span>
-								<span
-									className={
-										item.status === "completed"
-											? "text-owl-faint line-through"
-											: item.status === "in_progress"
-												? "font-medium text-owl-text"
-												: "text-owl-muted"
-									}
-								>
+						<span
+							className={`min-w-0 break-words ${
+								item.status === "completed"
+									? "text-owl-faint line-through"
+									: item.status === "in_progress"
+										? "font-medium text-owl-text"
+										: "text-owl-muted"
+							}`}
+						>
 									{item.content}
 								</span>
 							</li>

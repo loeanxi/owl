@@ -73,7 +73,7 @@ function ThinkingCard({ thinking }: { thinking: string }): React.JSX.Element {
 	return (
 		<details className="rounded-lg border border-owl-border bg-owl-sidebar/70 px-3 py-2 text-xs text-owl-faint">
 			<summary className="cursor-pointer">思考过程</summary>
-			<pre className="mt-2 whitespace-pre-wrap">{thinking}</pre>
+			<pre className="mt-2 whitespace-pre-wrap break-words">{thinking}</pre>
 		</details>
 	);
 }
@@ -95,7 +95,7 @@ function ToolCardView({
 					{status === "running" ? "运行中…" : "已完成"}
 				</span>
 			</div>
-			{args && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-owl-muted">{args}</pre>}
+			{args && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-owl-muted">{args}</pre>}
 		</div>
 	);
 }
@@ -130,13 +130,13 @@ function TodoCardView({ args, status }: { args: string; status: "running" | "don
 							)}
 						</span>
 						<span
-							className={
+							className={`min-w-0 break-words ${
 								item.status === "completed"
 									? "text-owl-faint line-through"
 									: item.status === "in_progress"
 										? "text-owl-text font-medium"
 										: "text-owl-muted"
-							}
+							}`}
 						>
 							{item.content}
 						</span>
@@ -150,7 +150,7 @@ function TodoCardView({ args, status }: { args: string; status: "running" | "don
 function AnswerCard({ text }: { text: string }): React.JSX.Element {
 	return (
 		<div
-			className="space-y-2 font-serif leading-relaxed [&_code]:rounded [&_code]:bg-owl-sidebar [&_code]:px-1 [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-owl-border [&_pre]:bg-owl-sidebar [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs"
+			className="break-words space-y-2 font-serif leading-relaxed [&_code]:rounded [&_code]:bg-owl-sidebar [&_code]:px-1 [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-owl-border [&_pre]:bg-owl-sidebar [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs"
 			// markdown-it with html:false escapes raw HTML; tool content is data, not markup
 			dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
 		/>
@@ -172,7 +172,7 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 				// 提问气泡右对齐，但收在内容列以内（列本身封顶 max-w-3xl），不再贴窗口右缘
 				content: (
 					<div className="flex justify-end">
-						<div className="max-w-[85%] rounded-2xl bg-owl-bubble px-4 py-2.5 text-sm whitespace-pre-wrap">
+						<div className="max-w-[85%] rounded-2xl bg-owl-bubble px-4 py-2.5 text-sm break-words whitespace-pre-wrap">
 							{entry.text}
 						</div>
 					</div>
@@ -227,7 +227,7 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 							<IconAlert className="h-3 w-3" />
 						</StepNode>
 					),
-					content: <div className="text-xs text-red-400">{entry.error}</div>,
+					content: <div className="break-words text-xs text-red-400">{entry.error}</div>,
 				});
 			}
 			return;
@@ -240,7 +240,7 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 				</StepNode>
 			),
 			content: (
-				<div className="rounded-lg border border-owl-border/60 px-3 py-1.5 font-mono text-xs text-owl-faint">
+				<div className="break-words rounded-lg border border-owl-border/60 px-3 py-1.5 font-mono text-xs text-owl-faint">
 					<span className={entry.ok ? "text-emerald-600" : "text-red-500"}>{entry.toolName}</span> {entry.brief}
 				</div>
 			),
