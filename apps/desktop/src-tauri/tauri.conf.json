@@ -20,7 +20,7 @@
 		"targets": ["nsis"],
 		"icon": ["icons/icon.ico"],
 		"resources": [
-			"../../../packages/coding-agent/dist/**"
+			"D:/owl/owl-re-v1/owl-mono/packages/coding-agent/dist/**"
 		],
 		"windows": {
 			"nsis": {

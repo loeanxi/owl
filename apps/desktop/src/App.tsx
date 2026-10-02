@@ -98,7 +98,7 @@ export default function App(): React.JSX.Element {
 			if (request) {
 				void notifyAgentStatus({
 					title: "Owl 需要人工确认",
-					body: `Agent 请求执行工具：${request.toolCall?.name ?? "工具操作"}`,
+					body: `Agent 请求执行工具：${request.toolName ?? "工具操作"}`,
 					critical: true,
 				});
 			}
