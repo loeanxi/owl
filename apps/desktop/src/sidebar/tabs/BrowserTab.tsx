@@ -86,7 +86,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		[store, tab.id],
 	);
 
-	/** 把 frameRef 里的最新帧画到 canvas（rAF 合并同帧多次触发）。 */
+	/** 把 frameRef 里的最新帧画到 canvas（setTimeout 合并同帧多次触发）。
+	 *  刻意不用 requestAnimationFrame：内嵌在桌面壳里的页面 rAF 可能被永久饿死
+	 *  （实测 ZCode IAB 中 rAF 不触发而 visibilityState 仍为 visible），会黑屏。 */
 	const drawFrame = useCallback((): void => {
 		drawScheduled.current = false;
 		const canvas = canvasRef.current;
@@ -106,7 +108,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const scheduleDraw = useCallback((): void => {
 		if (drawScheduled.current) return;
 		drawScheduled.current = true;
-		requestAnimationFrame(drawFrame);
+		setTimeout(drawFrame, 0);
 	}, [drawFrame]);
 
 	/** 舞台几何：帧按适应窗口缩放居中；没有帧时返回 undefined。 */
