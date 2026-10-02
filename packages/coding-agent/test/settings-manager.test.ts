@@ -747,14 +747,29 @@ describe("SettingsManager", () => {
 	});
 
 	describe("plugins field", () => {
-		it("roundtrips plugins through setPlugins and persists them", () => {
-			const manager = SettingsManager.create(projectDir, agentDir);
+		// Unique dir per test: save() flushes asynchronously, so a shared dir lets one test's
+		// late write clobber the next test's fixture file.
+		let pluginsDir: string;
+		let pluginsAgentDir: string;
+		let pluginsProjectDir: string;
+
+		beforeEach(() => {
+			pluginsDir = join(testDir, `plugins-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+			pluginsAgentDir = join(pluginsDir, "agent");
+			pluginsProjectDir = join(pluginsDir, "project");
+			mkdirSync(pluginsAgentDir, { recursive: true });
+			mkdirSync(join(pluginsProjectDir, ".owl"), { recursive: true });
+		});
+
+		it("roundtrips plugins through setPlugins and persists them", async () => {
+			const manager = SettingsManager.create(pluginsProjectDir, pluginsAgentDir);
 			const plugins = ["npm:pi-web-access", { source: "npm:plan-mode", extensions: ["+dist/index.ts"] }];
 
 			manager.setPlugins(plugins);
+			await manager.flush();
 
 			expect(manager.getPlugins()).toEqual(plugins);
-			const stored = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf-8")) as Settings;
+			const stored = JSON.parse(readFileSync(join(pluginsAgentDir, "settings.json"), "utf-8")) as Settings;
 			expect(stored.plugins).toEqual(plugins);
 		});
 
@@ -773,8 +788,8 @@ describe("SettingsManager", () => {
 			expect(effectivePlugins({})).toEqual([]);
 		});
 
-		it("migrateLegacyPluginsToPlugins folds legacy fields into plugins and empties them in one save", () => {
-			const settingsPath = join(agentDir, "settings.json");
+		it("migrateLegacyPluginsToPlugins folds legacy fields into plugins and empties them in one save", async () => {
+			const settingsPath = join(pluginsAgentDir, "settings.json");
 			writeFileSync(
 				settingsPath,
 				JSON.stringify({
@@ -784,8 +799,9 @@ describe("SettingsManager", () => {
 				}),
 			);
 
-			const manager = SettingsManager.create(projectDir, agentDir);
+			const manager = SettingsManager.create(pluginsProjectDir, pluginsAgentDir);
 			const migrated = manager.migrateLegacyPluginsToPlugins();
+			await manager.flush();
 
 			expect(migrated).toEqual([
 				"npm:already-there",
@@ -803,7 +819,7 @@ describe("SettingsManager", () => {
 			expect(stored.extensions).toEqual([]);
 		});
 
-		it("migrateLegacyPluginsToPlugins is a no-op fold when no legacy entries exist", () => {
+		it("migrateLegacyPluginsToPlugins is a no-op fold when no legacy entries exist", async () => {
 			const manager = SettingsManager.inMemory();
 			manager.setPlugins(["npm:keep"]);
 

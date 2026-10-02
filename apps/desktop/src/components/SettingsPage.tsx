@@ -10,9 +10,22 @@ const API_OPTIONS = [
 	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
 ];
 
-type SettingsSection = "general" | "models" | "packages" | "prompts" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "prompts" | "appearance" | "archived" | "json" | "about";
 
-type PackageEntry = string | { source: string; extensions?: string[] };
+/** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
+type PluginEntry =
+	| string
+	| {
+			source: string;
+			disabled?: boolean;
+			autoload?: boolean;
+			extensions?: string[];
+			skills?: string[];
+			prompts?: string[];
+			themes?: string[];
+	  };
+
+type PluginType = "npm" | "git" | "本地文件" | "本地目录";
 
 type ArchiveEntry = { sessionId: string; archivedAt: string };
 
@@ -61,8 +74,37 @@ function projectLabel(cwd: string): string {
 	return parts[parts.length - 1] || cwd;
 }
 
-function pkgLabel(entry: PackageEntry): string {
+function pluginSourceLabel(entry: PluginEntry): string {
 	return typeof entry === "string" ? entry : entry.source;
+}
+
+/** 按来源字符串判定插件类型（与加载管线的路由一致）。 */
+function pluginType(source: string): PluginType {
+	if (source.startsWith("npm:")) return "npm";
+	if (/^(git|ssh|https?):/i.test(source) || source.endsWith(".git") || /^git@/i.test(source)) return "git";
+	if (/\.(ts|js|mjs|cjs|tsx|jsx)$/i.test(source)) return "本地文件";
+	return "本地目录";
+}
+
+function pluginBadgeClass(type: PluginType): string {
+	switch (type) {
+		case "npm":
+			return "border-sky-400/30 text-sky-400";
+		case "git":
+			return "border-violet-400/30 text-violet-400";
+		case "本地文件":
+			return "border-emerald-400/30 text-emerald-400";
+		default:
+			return "border-amber-400/30 text-amber-400";
+	}
+}
+
+/** 启停切换：字符串 → 对象（停用）；重新启用且对象只剩 source 时折叠回字符串。 */
+function togglePluginEntry(entry: PluginEntry): PluginEntry {
+	if (typeof entry === "string") return { source: entry, disabled: true };
+	if (!entry.disabled) return { ...entry, disabled: true };
+	const { disabled: _disabled, ...rest } = entry;
+	return Object.keys(rest).length === 1 ? rest.source : rest;
 }
 
 /** 设置侧栏导航项 */
@@ -188,9 +230,8 @@ export function SettingsPage({
 	const [sessionTitles, setSessionTitles] = useState<Record<string, SessionListRow>>({});
 	const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
 
-	// 扩展与插件：新增输入框
-	const [pkgInput, setPkgInput] = useState("");
-	const [extInput, setExtInput] = useState("");
+	// 插件：新增输入框
+	const [pluginInput, setPluginInput] = useState("");
 
 	useEffect(() => {
 		const off = client.onSessionEvent((msg) => {
@@ -347,7 +388,7 @@ export function SettingsPage({
 
 	/**
 	 * 写回 settings.json。桥端 applyGlobalOverridesAndSave 做深合并：
-	 * 对象键增量合并、数组整体替换 —— 所以改 packages/extensions 必须传完整数组。
+	 * 对象键增量合并、数组整体替换 —— 所以改 plugins/packages/extensions 必须传完整数组。
 	 */
 	async function saveSettings(partial: Record<string, unknown>): Promise<boolean> {
 		setBusy(true);
@@ -387,7 +428,8 @@ export function SettingsPage({
 		}
 	}
 
-	const packages = Array.isArray(settingsObj.packages) ? (settingsObj.packages as PackageEntry[]) : [];
+	const plugins = Array.isArray(settingsObj.plugins) ? (settingsObj.plugins as PluginEntry[]) : [];
+	const packages = Array.isArray(settingsObj.packages) ? (settingsObj.packages as PluginEntry[]) : [];
 	const extensions = Array.isArray(settingsObj.extensions) ? (settingsObj.extensions as string[]) : [];
 	const theme = typeof settingsObj.theme === "string" ? settingsObj.theme : "dark";
 	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "未知";
@@ -419,7 +461,7 @@ export function SettingsPage({
 						<div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold tracking-wider text-owl-faint">个人</div>
 						<NavItem icon={<IconSettings />} label="常规" active={section === "general"} onClick={() => setSection("general")} />
 						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
-						<NavItem icon={<IconPlug />} label="扩展与插件" active={section === "packages"} onClick={() => setSection("packages")} />
+						<NavItem icon={<IconPlug />} label="插件" active={section === "plugins"} onClick={() => setSection("plugins")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
 						<div className="px-2.5 pb-1 pt-3 text-[10px] font-semibold tracking-wider text-owl-faint">高级</div>
@@ -788,21 +830,43 @@ export function SettingsPage({
 							</>
 						)}
 
-						{/* -------- 扩展与插件 -------- */}
-						{section === "packages" && (
+						{/* -------- 插件 -------- */}
+						{section === "plugins" && (
 							<>
-								<SectionHeader title="扩展与插件" desc="settings.json 的 packages / extensions 列表；修改后新会话生效。" />
-								<SettingRow title={`扩展包（packages，${packages.length}）`} desc="支持 npm:包名 形式；对象条目可带附加扩展入口。">
+								<SectionHeader title="插件" desc="settings.json 的 plugins 列表 —— 功能统一走插件；修改后新会话生效。" />
+								{(packages.length > 0 || extensions.length > 0) && (
+									<div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2">
+										<div className="text-[11px] leading-relaxed text-owl-muted">
+											检测到旧版扩展配置：packages（{packages.length}）/ extensions（{extensions.length}），
+											仍在兼容加载；迁移后统一由插件管理。
+										</div>
+										<button
+											type="button"
+											className={`${btn} shrink-0`}
+											disabled={busy}
+											onClick={() =>
+												void saveSettings({
+													plugins: [...plugins, ...packages, ...extensions],
+													packages: [],
+													extensions: [],
+												})
+											}
+										>
+											迁移到插件
+										</button>
+									</div>
+								)}
+								<SettingRow title={`插件（${plugins.length}）`} desc="支持 npm:包名、git URL、本地目录或 .ts/.js 单文件；停用的插件新会话不再加载。">
 									<div className="flex gap-2">
 										<input
 											className={`${smallInput} min-w-0 flex-1`}
-											value={pkgInput}
-											onChange={(event) => setPkgInput(event.target.value)}
-											placeholder="npm:some-package"
+											value={pluginInput}
+											onChange={(event) => setPluginInput(event.target.value)}
+											placeholder="npm:some-package 或 git URL 或本地路径"
 											onKeyDown={(event) => {
-												if (event.key === "Enter" && pkgInput.trim()) {
-													void saveSettings({ packages: [...packages, pkgInput.trim()] }).then((ok) => {
-														if (ok) setPkgInput("");
+												if (event.key === "Enter" && pluginInput.trim()) {
+													void saveSettings({ plugins: [...plugins, pluginInput.trim()] }).then((ok) => {
+														if (ok) setPluginInput("");
 													});
 												}
 											}}
@@ -810,10 +874,10 @@ export function SettingsPage({
 										<button
 											type="button"
 											className={`${btnAccent} shrink-0`}
-											disabled={busy || !pkgInput.trim()}
+											disabled={busy || !pluginInput.trim()}
 											onClick={() => {
-												void saveSettings({ packages: [...packages, pkgInput.trim()] }).then((ok) => {
-													if (ok) setPkgInput("");
+												void saveSettings({ plugins: [...plugins, pluginInput.trim()] }).then((ok) => {
+													if (ok) setPluginInput("");
 												});
 											}}
 										>
@@ -822,76 +886,60 @@ export function SettingsPage({
 									</div>
 								</SettingRow>
 								<div className="space-y-1">
-									{packages.length === 0 && (
+									{plugins.length === 0 && (
 										<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-											还没有安装任何扩展包
+											还没有安装任何插件
 										</div>
 									)}
-									{packages.map((entry, index) => (
-										<div key={`${pkgLabel(entry)}-${index}`} className="flex items-center justify-between rounded-lg border border-owl-border bg-owl-sidebar/40 px-2.5 py-1.5">
-											<div className="min-w-0">
-												<span className="block truncate font-mono text-xs text-owl-text">{pkgLabel(entry)}</span>
-												{typeof entry === "object" && entry.extensions && entry.extensions.length > 0 && (
-													<span className="mt-0.5 block text-[10px] text-owl-faint">扩展入口：{entry.extensions.join(", ")}</span>
-												)}
-											</div>
-											<button
-												type="button"
-												className="ml-2 shrink-0 text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
-												disabled={busy}
-												onClick={() => void saveSettings({ packages: packages.filter((_, i) => i !== index) })}
+									{plugins.map((entry, index) => {
+										const label = pluginSourceLabel(entry);
+										const type = pluginType(label);
+										const disabled = typeof entry === "object" && entry.disabled === true;
+										return (
+											<div
+												key={`${label}-${index}`}
+												className={`flex items-center justify-between rounded-lg border border-owl-border bg-owl-sidebar/40 px-2.5 py-1.5 ${disabled ? "opacity-55" : ""}`}
 											>
-												删除
-											</button>
-										</div>
-									))}
-								</div>
-								<SettingRow title={`本地扩展（extensions，${extensions.length}）`} desc="直接加载的扩展脚本路径。">
-									<div className="flex gap-2">
-										<input
-											className={`${smallInput} min-w-0 flex-1`}
-											value={extInput}
-											onChange={(event) => setExtInput(event.target.value)}
-											placeholder="C:\\path\\to\\extension.ts"
-											onKeyDown={(event) => {
-												if (event.key === "Enter" && extInput.trim()) {
-													void saveSettings({ extensions: [...extensions, extInput.trim()] }).then((ok) => {
-														if (ok) setExtInput("");
-													});
-												}
-											}}
-										/>
-										<button
-											type="button"
-											className={`${btnAccent} shrink-0`}
-											disabled={busy || !extInput.trim()}
-											onClick={() => {
-												void saveSettings({ extensions: [...extensions, extInput.trim()] }).then((ok) => {
-													if (ok) setExtInput("");
-												});
-											}}
-										>
-											添加
-										</button>
-									</div>
-								</SettingRow>
-								{extensions.length > 0 && (
-									<div className="space-y-1">
-										{extensions.map((entry, index) => (
-											<div key={`${entry}-${index}`} className="flex items-center justify-between rounded-lg border border-owl-border bg-owl-sidebar/40 px-2.5 py-1.5">
-												<span className="block truncate font-mono text-xs text-owl-text">{entry}</span>
-												<button
-													type="button"
-													className="ml-2 shrink-0 text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
-													disabled={busy}
-													onClick={() => void saveSettings({ extensions: extensions.filter((_, i) => i !== index) })}
-												>
-													删除
-												</button>
+												<div className="flex min-w-0 items-center gap-2">
+													<span className={`shrink-0 rounded border px-1.5 py-px text-[10px] ${pluginBadgeClass(type)}`}>
+														{type}
+													</span>
+													<div className="min-w-0">
+														<span className="block truncate font-mono text-xs text-owl-text">{label}</span>
+														{typeof entry === "object" && entry.extensions && entry.extensions.length > 0 && (
+															<span className="mt-0.5 block text-[10px] text-owl-faint">
+																扩展入口：{entry.extensions.join(", ")}
+															</span>
+														)}
+													</div>
+												</div>
+												<div className="ml-2 flex shrink-0 items-center gap-2.5">
+													<button
+														type="button"
+														className={`text-[11px] transition-colors disabled:opacity-40 ${disabled ? "text-owl-faint hover:text-owl-text" : "text-emerald-400 hover:text-emerald-300"}`}
+														disabled={busy}
+														title={disabled ? "启用该插件（新会话加载）" : "停用该插件（新会话不加载）"}
+														onClick={() => {
+															const next = [...plugins];
+															next[index] = togglePluginEntry(entry);
+															void saveSettings({ plugins: next });
+														}}
+													>
+														{disabled ? "○ 已停用" : "● 启用中"}
+													</button>
+													<button
+														type="button"
+														className="text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
+														disabled={busy}
+														onClick={() => void saveSettings({ plugins: plugins.filter((_, i) => i !== index) })}
+													>
+														删除
+													</button>
+												</div>
 											</div>
-										))}
-									</div>
-								)}
+										);
+									})}
+								</div>
 							</>
 						)}
 

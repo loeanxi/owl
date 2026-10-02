@@ -336,6 +336,15 @@ export function ChatStream({
 	const updateActiveQuestion = (): void => {
 		const el = container.current;
 		if (!el || questions.length === 0) return;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+		if (atBottom) {
+			// 贴底 = 正在读最后一个提问的回答（短回答时其节点不在顶部判定线内）
+			setActiveQuestion((prev) => {
+				const last = questions[questions.length - 1].n;
+				return prev === last ? prev : last;
+			});
+			return;
+		}
 		const base = el.getBoundingClientRect().top;
 		let active = 0;
 		for (const question of questions) {

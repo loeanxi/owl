@@ -25,8 +25,13 @@
 	--color-owl-accent-hover: #28864d;
 
 	--font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-	/* AI 回复与问候语的衬线（Claude 的标志性排版）：西文 Georgia，中文回落宋体 */
-	--font-serif: Georgia, "Source Han Serif SC", "Noto Serif SC", "SimSun", serif;
+	/*
+	 * AI 回复与问候语的衬线（Claude 的标志性排版）：西文 Georgia。
+	 * 中文不能落 Noto Serif SC / Source Han Serif SC：本机装的 Noto VF 与
+	 * 思源宋 Heavy 家族在 Chromium/DirectWrite 下按 400 请求也会选中粗字面，
+	 * 整段回答会渲染成粗体（2026-10 实测）；落宋体又是点阵感。故中文走雅黑。
+	 */
+	--font-serif: Georgia, "Microsoft YaHei", "PingFang SC", serif;
 }
 
 html {
