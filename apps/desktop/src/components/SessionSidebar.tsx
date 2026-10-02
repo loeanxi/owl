@@ -246,6 +246,7 @@ export function SessionSidebar({
 	activeId,
 	activeProject,
 	refreshKey,
+	revision,
 	focus,
 	onNewChat,
 	onSelectProject,
@@ -259,6 +260,8 @@ export function SessionSidebar({
 	activeProject: string;
 	/** 变化时重新拉取会话列表（如新会话创建后）。 */
 	refreshKey: string;
+	/** 递增时重拉会话列表（设置页恢复/删除归档会话后由 App 递增）。 */
+	revision: number;
 	/** rail 点击项目/最近时定位到对应分组。 */
 	focus: RailView;
 	onNewChat: () => void;
@@ -322,7 +325,7 @@ export function SessionSidebar({
 	};
 	useEffect(() => {
 		if (client && connected) void refresh();
-	}, [client, connected, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [client, connected, refreshKey, revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；

@@ -48,6 +48,8 @@ export default function App(): React.JSX.Element {
 	const [connected, setConnected] = useState(false);
 	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
+	const [sidebarRev, setSidebarRev] = useState(0);
 	const [railView, setRailView] = useState<RailView>("chat");
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
@@ -312,6 +314,7 @@ export default function App(): React.JSX.Element {
 				activeId={sessionId}
 				activeProject={workspaceDir}
 				refreshKey={sessionId ?? ""}
+				revision={sidebarRev}
 				focus={railView}
 				onNewChat={() => {
 					setRailView("chat");
@@ -343,27 +346,19 @@ export default function App(): React.JSX.Element {
 						{workspaceDir}
 					</span>
 					<div className="flex-1" />
+					{/* 设置入口只留左侧功能栏的齿轮，顶栏不重复 */}
 					<button
 						type="button"
 						title="工作台（文件 / 编辑器 / Git 变动）"
-						className={`rounded-lg border px-2.5 py-1 text-sm transition-colors ${
+						aria-label="工作台"
+						className={`rounded-lg border p-1.5 transition-colors ${
 							workbenchOpen
 								? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
 								: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 						}`}
 						onClick={toggleWorkbench}
 					>
-						<span className="flex items-center gap-1.5">
-							<IconPanelRight size={14} />
-							工作台
-						</span>
-					</button>
-					<button
-						type="button"
-						className="rounded-lg border border-owl-border px-2.5 py-1 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-						onClick={() => setShowSettings(true)}
-					>
-						设置
+						<IconPanelRight size={14} />
 					</button>
 					<WindowControls />
 				</header>
@@ -401,6 +396,7 @@ export default function App(): React.JSX.Element {
 						localStorage.setItem(WORKSPACE_KEY, dir);
 					}}
 					onClose={() => setShowSettings(false)}
+					onSessionsChanged={() => setSidebarRev((v) => v + 1)}
 				/>
 			)}
 		</div>

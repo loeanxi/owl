@@ -5,9 +5,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const buttonClass =
-	"inline-flex h-6 w-8 items-center justify-center rounded text-owl-faint " +
+	"inline-flex h-6 w-7 items-center justify-center rounded text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-muted " +
-	"[svg]:h-2.5 [svg]:w-2.5";
+	"[svg]:h-2 [svg]:w-2";
 
 /** 无边框窗口的自绘控制按钮：最小化 / 最大化还原 / 关闭。 */
 export function WindowControls(): React.JSX.Element | null {
@@ -74,8 +74,8 @@ export function WindowControls(): React.JSX.Element | null {
 				aria-label="关闭"
 				title="关闭"
 				className={
-					"inline-flex h-6 w-8 items-center justify-center rounded text-owl-faint " +
-					"transition-colors hover:bg-red-600 hover:text-white [svg]:h-2.5 [svg]:w-2.5"
+					"inline-flex h-6 w-7 items-center justify-center rounded text-owl-faint " +
+					"transition-colors hover:bg-red-600 hover:text-white [svg]:h-2 [svg]:w-2"
 				}
 				onClick={() => void current.close()}
 			>
