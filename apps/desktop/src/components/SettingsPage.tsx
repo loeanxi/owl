@@ -63,7 +63,7 @@ export function SettingsPage({
 				setAskAnswer("");
 			} else if (ev?.type === "auth_notify" && ev.detail) {
 				const d = ev.detail;
-				if (d.type === "device_code") setQuickHint(`设备码 ${d.userCode} — 请打开 ${d.verificationUri} 输入`);
+				if (d.type === "device_code") setQuickHint(`验证页面已在浏览器打开 — 输入设备码：${d.userCode}`);
 				else if (d.type === "auth_url") setQuickHint("已打开浏览器，请在浏览器完成授权…");
 				else if (d.message) setQuickHint(d.message);
 			}
@@ -215,7 +215,7 @@ export function SettingsPage({
 											className={btn}
 											disabled={busy}
 											onClick={() => {
-												setQuickHint("已打开浏览器，请在浏览器完成授权（完成后这里会自动刷新）…");
+												setQuickHint("正在启动登录流程…");
 												void client
 													.request({ type: "auth.login", provider: quickProvider, authType: "oauth" })
 													.then((response) => {

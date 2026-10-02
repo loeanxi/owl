@@ -103,7 +103,7 @@ import type {
 /** 打开系统默认浏览器（OAuth 授权用）。 */
 function openInBrowser(url: string): void {
 	try {
-		spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+		spawn("rundll32", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore" }).unref();
 	} catch {
 		// 打不开就让用户手动复制链接（URL 会通过事件广播给 UI）
 	}
@@ -543,7 +543,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 							return answer;
 						},
 						notify: (event) => {
+							// auth_url（回调流）与 device_code（设备码流）都自动打开对应页面
 							if (event.type === "auth_url") openInBrowser(event.url);
+							if (event.type === "device_code") openInBrowser(event.verificationUri);
 							broadcast({
 								type: "event",
 								sessionId: "",
