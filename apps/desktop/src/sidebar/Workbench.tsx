@@ -1,28 +1,25 @@
 /**
  * 工作台外壳 —— 移植 dsh-better-sidebar 的双工作台布局：同一组 tab 可以停靠
- * 在右列（width 拖拽）或聊天列底部（height 拖拽，顶缘拉伸手柄），对应 DSH 的
- * bottomPanel / 原生右栏。所有 tab 保持挂载、非激活的隐藏（编辑器草稿不丢）；
- * fs_changed 事件在这里统一接桥并分发（store.onFsChanged）+ 防抖刷新 Git 快照。
- *
- * 与上游差异：owl 自己就是宿主，不需要 portal + 中心列测量那套——底部停靠
- * 直接参与聊天列的 flex 流（ChatStream / Composer 之上、底部栏之下）。
+ * 在右列（width 拖拽）或聊天列底部（height 拖拽，顶缘拉伸手柄）。内容区是
+ * split tree（store.ts）：每个 leaf 一条 tab 条，tab 按住拖到另一个 leaf 的
+ * 边缘 25% 区域切开 50/50、拖到中心合并（split-pane.tsx 的 zoneAt 同规则，
+ * 用指针事件自绘拖拽而非 HTML5 DnD，WebView2 下更稳也更好测）；分隔条可拖
+ * 调比例。所有 tab 保持挂载、非激活的隐藏（编辑器草稿不丢）；fs_changed 在
+ * 这里统一接桥分发 + 防抖刷新 Git 快照。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
-import { normProjectKey, type SidebarStore, useSidebarState } from "./store.ts";
+import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
 import { useTabRegistry, viewerKindFor, type TabComponentProps } from "./registry.ts";
 import { isImagePath } from "./registry.ts";
 import { QUICK_ACTIONS } from "./quick.tsx";
 
 const WIDTH_KEY = "owl.workbench.width";
 const HEIGHT_KEY = "owl.workbench.height";
-
-/** 单例快捷 tab：固定在工具行，不进 tab 条（与 DSH 的固定入口同规则）。 */
-const SINGLETON_KINDS = new Set(QUICK_ACTIONS.map((action) => action.kind));
 
 export type WorkbenchDock = "right" | "bottom";
 
@@ -41,9 +38,28 @@ export interface WorkbenchProps {
 const HEIGHT_MIN = 140;
 const WIDTH_MIN = 280;
 
+interface DragState {
+	id: string;
+	title: string;
+	x: number;
+	y: number;
+}
+
+interface DropTarget {
+	leafId: string;
+	zone: DropZone;
+}
+
+/** 落点 → 遮罩样式（DSH：边缘 25% 实心高亮，中心虚线框）。 */
+const ZONE_OVERLAY: Record<DropZone, string> = {
+	left: "top-0 bottom-0 left-0 w-1/4 bg-owl-accent/20",
+	right: "top-0 bottom-0 right-0 w-1/4 bg-owl-accent/20",
+	up: "top-0 left-0 right-0 h-1/4 bg-owl-accent/20",
+	down: "bottom-0 left-0 right-0 h-1/4 bg-owl-accent/20",
+	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
+};
+
 export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock }: WorkbenchProps): React.JSX.Element {
-	// store 由 App 按项目创建下发（底部栏共用）；这里只跟随项目 key 变化刷新。
-	const projectKey = normProjectKey(cwd);
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
@@ -59,6 +75,102 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const gitTimer = useRef<number | undefined>(undefined);
 
 	registerBuiltins();
+
+	// -- 拖拽分屏：指针自绘（leaf rect 命中 → 25% 边缘分区） -------------------
+	const [dragTab, setDragTab] = useState<DragState | null>(null);
+	const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+	const dropTargetRef = useRef<DropTarget | null>(null);
+	const leafRefs = useRef(new Map<string, HTMLElement>());
+	const dragRaf = useRef(0);
+	// 拖完的 click 抑制：mouseup 后 click 才派发，setTimeout(0) 复位来得及
+	const justDraggedRef = useRef(false);
+
+	const hitTest = useCallback((x: number, y: number): void => {
+		let hit: DropTarget | null = null;
+		for (const [leafId, el] of leafRefs.current) {
+			const rect = el.getBoundingClientRect();
+			if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) continue;
+			const rx = (x - rect.left) / rect.width;
+			const ry = (y - rect.top) / rect.height;
+			const zone: DropZone = rx < 0.25 ? "left" : rx > 0.75 ? "right" : ry < 0.25 ? "up" : ry > 0.75 ? "down" : "center";
+			hit = { leafId, zone };
+			break;
+		}
+		const current = dropTargetRef.current;
+		if ((current?.leafId ?? null) !== (hit?.leafId ?? null) || (current !== null && hit !== null && current.zone !== hit.zone)) {
+			dropTargetRef.current = hit;
+			setDropTarget(hit);
+		}
+	}, []);
+
+	const beginTabDrag = useCallback(
+		(tab: SidebarTab, e: React.MouseEvent): void => {
+			if (e.button !== 0) return;
+			e.preventDefault();
+			const startX = e.clientX;
+			const startY = e.clientY;
+			let started = false;
+			let lastX = startX;
+			let lastY = startY;
+			const onMove = (m: MouseEvent): void => {
+				if (!started) {
+					if (Math.abs(m.clientX - startX) + Math.abs(m.clientY - startY) < 5) return;
+					started = true;
+					justDraggedRef.current = true;
+				}
+				lastX = m.clientX;
+				lastY = m.clientY;
+				if (dragRaf.current !== 0) return;
+				dragRaf.current = window.requestAnimationFrame(() => {
+					dragRaf.current = 0;
+					setDragTab({ id: tab.id, title: tab.title, x: lastX, y: lastY });
+					hitTest(lastX, lastY);
+				});
+			};
+			const onUp = (): void => {
+				window.removeEventListener("mousemove", onMove);
+				window.removeEventListener("mouseup", onUp);
+				if (dragRaf.current !== 0) {
+					window.cancelAnimationFrame(dragRaf.current);
+					dragRaf.current = 0;
+				}
+				const target = dropTargetRef.current;
+				if (started && target) store.moveTab(tab.id, target.leafId, target.zone);
+				setDragTab(null);
+				setDropTarget(null);
+				dropTargetRef.current = null;
+				window.setTimeout(() => {
+					justDraggedRef.current = false;
+				}, 0);
+			};
+			window.addEventListener("mousemove", onMove);
+			window.addEventListener("mouseup", onUp);
+		},
+		[hitTest, store],
+	);
+
+	// -- 分隔条拖拽：比例写 ref 态（不落盘），松手 persist --------------------
+	const startDividerDrag = useCallback(
+		(node: Extract<SplitNode, { kind: "split" }>, e: React.MouseEvent): void => {
+			e.preventDefault();
+			const parent = (e.currentTarget as HTMLElement).parentElement;
+			if (!parent) return;
+			const rect = parent.getBoundingClientRect();
+			const onMove = (m: MouseEvent): void => {
+				const ratio =
+					node.dir === "row" ? (m.clientX - rect.left) / rect.width : (m.clientY - rect.top) / rect.height;
+				store.setRatio(node.id, ratio, { persist: false });
+			};
+			const onUp = (): void => {
+				window.removeEventListener("mousemove", onMove);
+				window.removeEventListener("mouseup", onUp);
+				store.persist();
+			};
+			window.addEventListener("mousemove", onMove);
+			window.addEventListener("mouseup", onUp);
+		},
+		[store],
+	);
 
 	// -- Git 状态快照：项目切换 / fs_changed（防抖）/ 主动刷新 ----------------
 	const refreshGit = useCallback(() => {
@@ -84,11 +196,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		return client.onSessionEvent((message) => {
 			const event = message.event as { type?: string; cwd?: string; dirs?: unknown };
 			if (event.type !== "fs_changed") return;
-			if (event.cwd !== undefined && normProjectKey(String(event.cwd)) !== projectKey) return;
+			if (event.cwd !== undefined && normProjectKey(String(event.cwd)) !== normProjectKey(cwd)) return;
 			const dirs = Array.isArray(event.dirs) ? event.dirs.map(String) : [];
 			store.fsChanged(dirs);
 		});
-	}, [client, store, projectKey]);
+	}, [client, store, cwd]);
 
 	// -- 打开文件（viewer 匹配） ----------------------------------------------
 	const openFile = useCallback(
@@ -101,7 +213,21 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		[store, open, onSetOpen],
 	);
 
-	// -- 拖拽调宽 / 调高（拖拽期间走 ref，松手时持久化） -----------------------
+	const tabPropsOf = useCallback(
+		(tabId: string): TabComponentProps => ({
+			api,
+			store,
+			cwd,
+			client,
+			tab: state.tabs.find((tab) => tab.id === tabId)!,
+			onOpenFile: openFile,
+			gitStatus,
+			onGitRefresh: refreshGit,
+		}),
+		[api, store, cwd, client, state.tabs, openFile, gitStatus, refreshGit],
+	);
+
+	// -- 拖拽调宽 / 调高（工作台外壳；拖拽期间走 ref，松手时持久化） ----------
 	const sizeRef = useRef(dock === "right" ? width : height);
 	sizeRef.current = dock === "right" ? width : height;
 	const startResize = (e: React.MouseEvent): void => {
@@ -110,21 +236,20 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		const startX = e.clientX;
 		const startY = e.clientY;
 		const maxSide =
+			dock === "right" ? Math.max(window.innerWidth * 0.6, 420) : Math.max(window.innerHeight * 0.7, 320);
+		const onMove =
 			dock === "right"
-				? Math.max(window.innerWidth * 0.6, 420)
-				: Math.max(window.innerHeight * 0.7, 320);
-		const onMove = dock === "right"
-			? (move: MouseEvent): void => {
-					const next = Math.min(Math.max(window.innerWidth - move.clientX, WIDTH_MIN), maxSide);
-					sizeRef.current = next;
-					setWidth(next);
-				}
-			: (move: MouseEvent): void => {
-					// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
-					const next = Math.min(Math.max(origin + (startY - move.clientY), HEIGHT_MIN), maxSide);
-					sizeRef.current = next;
-					setHeight(next);
-				};
+				? (move: MouseEvent): void => {
+						const next = Math.min(Math.max(window.innerWidth - move.clientX, WIDTH_MIN), maxSide);
+						sizeRef.current = next;
+						setWidth(next);
+					}
+				: (move: MouseEvent): void => {
+						// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
+						const next = Math.min(Math.max(origin + (startY - move.clientY), HEIGHT_MIN), maxSide);
+						sizeRef.current = next;
+						setHeight(next);
+					};
 		const onUp = (): void => {
 			window.removeEventListener("mousemove", onMove);
 			window.removeEventListener("mouseup", onUp);
@@ -134,21 +259,138 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		window.addEventListener("mouseup", onUp);
 	};
 
-	const activeTab = state.tabs.find((tab) => tab.id === state.activeId) ?? state.tabs.at(-1);
+	// -- split tree 渲染 -------------------------------------------------------
+	const renderNode = (node: SplitNode, style: React.CSSProperties): React.JSX.Element => {
+		if (node.kind === "split") {
+			return (
+				<div key={node.id} style={style} className={`flex min-h-0 min-w-0 ${node.dir === "row" ? "flex-row" : "flex-col"}`}>
+					{renderNode(node.a, { flex: `${node.ratio * 100} 1 0%` })}
+					{/* 分隔条：7px 命中区 + 居中 1px 细线（DSH divider 同款） */}
+					<div
+						role="separator"
+						className={`group relative z-10 shrink-0 ${node.dir === "row" ? "-mx-1 w-2 cursor-col-resize" : "-my-1 h-2 cursor-row-resize"}`}
+						onMouseDown={(e) => startDividerDrag(node, e)}
+					>
+						<div
+							className={`absolute bg-owl-border/50 transition-colors group-hover:bg-owl-accent/60 ${
+								node.dir === "row" ? "inset-y-0 left-1/2 w-px -translate-x-1/2" : "inset-x-0 top-1/2 h-px -translate-y-1/2"
+							}`}
+						/>
+					</div>
+					{renderNode(node.b, { flex: `${(1 - node.ratio) * 100} 1 0%` })}
+				</div>
+			);
+		}
 
-	// 激活非最前 tab 时的内容渲染集合（全部挂载，非激活隐藏）。
-	const tabPropsOf = (tabId: string): TabComponentProps => ({
-		api,
-		store,
-		cwd,
-		client,
-		tab: state.tabs.find((tab) => tab.id === tabId)!,
-		onOpenFile: openFile,
-		gitStatus,
-		onGitRefresh: refreshGit,
-	});
+		const leaf = node;
+		return (
+			<section
+				key={leaf.id}
+				ref={(el) => {
+					if (el) leafRefs.current.set(leaf.id, el);
+					else leafRefs.current.delete(leaf.id);
+				}}
+				style={style}
+				className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"
+			>
+				{/* leaf 的 tab 条 */}
+				{leaf.tabs.length > 0 && (
+					<div className="flex shrink-0 select-none items-stretch overflow-x-auto border-b border-owl-border/40 bg-owl-rail/60">
+						{leaf.tabs.map((tab) => {
+							const def = registry.byKind.get(tab.kind);
+							const isActive = tab.id === leaf.activeTab;
+							return (
+								<div
+									key={tab.id}
+									role="button"
+									tabIndex={0}
+									title={tab.path}
+									onMouseDown={(e) => beginTabDrag(tab, e)}
+									onClick={() => {
+										if (!justDraggedRef.current) store.activate(tab.id);
+									}}
+									onAuxClick={(e) => {
+										if (e.button === 1) store.closeTab(tab.id);
+									}}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") store.activate(tab.id);
+									}}
+									className={`group flex max-w-44 shrink-0 cursor-pointer items-center gap-1.5 border-r border-owl-border/30 px-2.5 py-1.5 text-xs ${
+										isActive ? "bg-owl-sidebar text-owl-text" : "text-owl-muted hover:text-owl-text"
+									}`}
+								>
+									{def?.icon(12)}
+									<span className="min-w-0 truncate">{tab.title}</span>
+									{state.dirty[tab.id] === true && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="未保存" />}
+									<button
+										type="button"
+										className="ml-0.5 shrink-0 rounded p-0.5 text-owl-faint opacity-0 group-hover:opacity-100 hover:bg-owl-hover hover:text-owl-text"
+										onMouseDown={(e) => e.stopPropagation()}
+										onClick={(e) => {
+											e.stopPropagation();
+											store.closeTab(tab.id);
+										}}
+									>
+										<IconX size={10} />
+									</button>
+								</div>
+							);
+						})}
+					</div>
+				)}
 
-	const dynamicTabs = state.tabs.filter((tab) => !SINGLETON_KINDS.has(tab.kind));
+				{/* 内容区：所有 tab 常挂载、非激活隐藏（编辑器草稿不丢） */}
+				<div className="relative min-h-0 flex-1 overflow-hidden">
+					{leaf.tabs.length === 0 ? (
+						/* 空 leaf：DSH paneEmptyCards 同款卡片（放进当前 leaf） */
+						<div className="grid h-full content-start gap-2.5 overflow-y-auto p-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+							{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => (
+								<button
+									key={action.kind}
+									type="button"
+									className="flex min-h-12 items-center gap-3 rounded-xl border border-owl-border/60 bg-owl-panel px-3.5 text-left text-xs text-owl-text transition-colors hover:bg-owl-hover"
+									onClick={() => {
+										store.activateLeaf(leaf.id);
+										store.openSingleton(action.kind, registry.byKind.get(action.kind)?.title ?? action.label);
+									}}
+								>
+									<span className="shrink-0" style={{ color: action.color }}>
+										{action.icon(16)}
+									</span>
+									<span>{action.label}</span>
+								</button>
+							))}
+						</div>
+					) : (
+						leaf.tabs.map((tab) => {
+							const def = registry.byKind.get(tab.kind);
+							if (def === undefined) return null;
+							const Component = def.component;
+							const isActive = tab.id === leaf.activeTab;
+							return (
+								<div key={tab.id} className={`h-full ${isActive ? "" : "hidden"}`}>
+									<Suspense
+										fallback={
+											<div className="flex h-full items-center justify-center">
+												<IconLoader size={18} className="animate-spin text-owl-faint" />
+											</div>
+										}
+									>
+										<Component {...tabPropsOf(tab.id)} />
+									</Suspense>
+								</div>
+							);
+						})
+					)}
+				</div>
+
+				{/* 拖放落点遮罩 */}
+				{dropTarget?.leafId === leaf.id && (
+					<div className={`pointer-events-none absolute z-20 rounded-sm ${ZONE_OVERLAY[dropTarget.zone]}`} />
+				)}
+			</section>
+		);
+	};
 
 	const dockButtonClass = (active: boolean): string =>
 		`rounded-md p-1.5 transition-colors ${active ? "bg-owl-hover text-owl-text" : "text-owl-faint hover:bg-owl-hover hover:text-owl-text"}`;
@@ -170,8 +412,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			{/* 工具行：快捷单例（彩色图标）+ 停靠切换 + 关闭 */}
 			<div className="flex shrink-0 select-none items-center gap-1 border-b border-owl-border/60 px-2 py-1.5" data-tauri-drag-region="deep">
 				{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => {
-					const opened = state.tabs.some((tab) => tab.kind === action.kind);
-					const active = opened && activeTab?.kind === action.kind;
+					const active = state.activeId === action.kind;
 					return (
 						<button
 							key={action.kind}
@@ -186,7 +427,6 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 						</button>
 					);
 				})}
-				{dynamicTabs.length > 4 && <span className="ml-1 text-[10px] text-owl-faint">{state.tabs.length} 个标签</span>}
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<button type="button" title="停靠到右列" aria-label="停靠到右列" className={dockButtonClass(dock === "right")} onClick={() => onSetDock("right")}>
 					<IconPanelRight size={14} />
@@ -199,91 +439,18 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 				</button>
 			</div>
 
-			{/* TabBar（文件 tab：按路径去重的编辑器/图片页） */}
-			{dynamicTabs.length > 0 && (
-				<div className="flex shrink-0 select-none items-stretch overflow-x-auto border-b border-owl-border/40 bg-owl-rail/60">
-					{dynamicTabs.map((tab) => {
-						const def = registry.byKind.get(tab.kind);
-						const isActive = tab.id === activeTab?.id;
-						return (
-							<div
-								key={tab.id}
-								role="button"
-								tabIndex={0}
-								title={tab.path}
-								onClick={() => store.activate(tab.id)}
-								onAuxClick={(e) => {
-									if (e.button === 1) store.closeTab(tab.id);
-								}}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") store.activate(tab.id);
-								}}
-								className={`group flex max-w-44 shrink-0 cursor-pointer items-center gap-1.5 border-r border-owl-border/30 px-2.5 py-1.5 text-xs ${
-									isActive ? "bg-owl-sidebar text-owl-text" : "text-owl-muted hover:text-owl-text"
-								}`}
-							>
-								{def?.icon(12)}
-								<span className="min-w-0 truncate">{tab.title}</span>
-								{state.dirty[tab.id] === true && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="未保存" />}
-								<button
-									type="button"
-									className="ml-0.5 shrink-0 rounded p-0.5 text-owl-faint opacity-0 group-hover:opacity-100 hover:bg-owl-hover hover:text-owl-text"
-									onClick={(e) => {
-										e.stopPropagation();
-										store.closeTab(tab.id);
-									}}
-								>
-									<IconX size={10} />
-								</button>
-							</div>
-						);
-					})}
+			{/* 内容：split tree（空 leaf 显示入口卡片） */}
+			<div className="flex min-h-0 flex-1 flex-col">{renderNode(state.tree, { flex: "1 1 0%" })}</div>
+
+			{/* 跟随光标的拖拽浮签 */}
+			{dragTab && (
+				<div
+					className="pointer-events-none fixed z-50 max-w-48 truncate rounded-md border border-owl-border bg-owl-panel px-2 py-1 text-xs text-owl-text shadow-xl"
+					style={{ left: dragTab.x + 10, top: dragTab.y + 10 }}
+				>
+					{dragTab.title}
 				</div>
 			)}
-
-			{/* 内容区：所有 tab 常挂载、非激活隐藏（编辑器草稿不丢） */}
-			<div className="min-h-0 flex-1 overflow-hidden">
-				{state.tabs.length === 0 ? (
-					/* 空态卡片：DSH paneEmptyCards 同款网格（胶囊卡 + 彩色图标） */
-					<div className="grid h-full content-start gap-2.5 overflow-y-auto p-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
-						{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => (
-							<button
-								key={action.kind}
-								type="button"
-								className="flex min-h-12 items-center gap-3 rounded-xl border border-owl-border/60 bg-owl-panel px-3.5 text-left text-xs text-owl-text transition-colors hover:bg-owl-hover"
-								onClick={() => {
-									store.openSingleton(action.kind, registry.byKind.get(action.kind)?.title ?? action.label);
-								}}
-							>
-								<span className="shrink-0" style={{ color: action.color }}>
-									{action.icon(16)}
-								</span>
-								<span>{action.label}</span>
-							</button>
-						))}
-					</div>
-				) : (
-					state.tabs.map((tab) => {
-						const def = registry.byKind.get(tab.kind);
-						if (def === undefined) return null;
-						const Component = def.component;
-						const isActive = tab.id === activeTab?.id;
-						return (
-							<div key={tab.id} className={`h-full ${isActive ? "" : "hidden"}`}>
-								<Suspense
-									fallback={
-										<div className="flex h-full items-center justify-center">
-											<IconLoader size={18} className="animate-spin text-owl-faint" />
-										</div>
-									}
-								>
-									<Component {...tabPropsOf(tab.id)} />
-								</Suspense>
-							</div>
-						);
-					})
-				)}
-			</div>
 
 			{/* 状态条：git 分支 + 桥状态占位 */}
 			<div className="flex shrink-0 items-center gap-2 border-t border-owl-border/40 px-2.5 py-1 text-[10px] text-owl-faint">

@@ -962,10 +962,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const services = await getListingServices();
 				const controller = new AbortController();
 				activeLogin = { controller };
+				// GitHub Copilot 的第一个提问是「企业域名」：桌面默认替用户答空串（github.com）
+				// 直接拉起浏览器；enterprise=true（界面勾选企业版）时才转发给界面。
+				const enterpriseMode = request.enterprise === true;
 				try {
 					await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
-						prompt: (ask) => {
+					prompt: (ask) => {
+						if (!enterpriseMode && ask.type === "text" && /GitHub Enterprise/.test(ask.message ?? "")) {
+							return Promise.resolve("");
+						}
 							// ask.signal 随 interaction.signal 中止：不接上的话，被替换/取消的流程
 							// 会永远挂在 prompt 上，堵死 Models 的认证操作队列。
 							const answer = new Promise<string>((resolve, reject) => {

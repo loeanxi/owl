@@ -505,6 +505,8 @@ export interface AuthProvidersRequest {
 /**
  * 登录/存 key（对应 pi 的 /login）。
  * - authType "oauth"：桥会打开浏览器，进度通过 auth_notify 事件广播，长请求。
+ *   GitHub Copilot 默认跳过「企业域名」提问直接用 github.com 拉起浏览器；
+ *   enterprise=true 时才把该提问转发给界面（GitHub 企业版用户用）。
  * - authType "api_key"：apiKey 随请求带上，写入 auth.json。
  */
 export interface AuthLoginRequest {
@@ -513,6 +515,7 @@ export interface AuthLoginRequest {
 	provider: string;
 	authType: "api_key" | "oauth";
 	apiKey?: string;
+	enterprise?: boolean;
 }
 
 /** 回答登录流程的提问（AuthPrompt：text/secret 填字符串，select 填 option id）。 */
