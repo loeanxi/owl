@@ -1,116 +1,83 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# owl
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+一个桌面优先的编码 agent。本仓库在 [pi](https://github.com/badlogic/pi-mono)（pi-mono，MIT 协议，
+原作者 Mario Zechner / earendil-works）的基础上改造而来，去掉了 TUI 终端界面，改为以桌面应用
+作为主要入口。
 
-# Pi Agent Harness
+## 桌面版 pire
 
-This is the home of the Pi agent harness project including our self extensible coding agent.
+改造的核心产物是 `apps/desktop` 下的桌面客户端，代号 **pire**：
 
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+- **桥服务器**（`packages/coding-agent/src/modes/desktop/`）：一个 JSON/WS 服务，把 agent 会话、
+  模型切换、设置读写、权限确认暴露成 WebSocket 协议，并直接托管构建好的前端 UI，单端口访问。
+- **前端 UI**（`apps/desktop/src/`）：React 实现的聊天界面，含会话侧栏、消息流、输入区、
+  模型切换器、权限确认弹窗和设置页。
+- **Tauri 壳**（`apps/desktop/src-tauri/`）：一键启动的 Windows 桌面程序，拉起桥进程并指向单端口 UI。
 
-To learn more about Pi:
+协议定义在 `packages/coding-agent/src/modes/desktop/protocol.ts`，UI 侧
+`apps/desktop/src/bridge/protocol.ts` 以 type-only 方式引用同一份定义，两端不重复维护类型。
 
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+### 本地开发
 
-## All Packages
+改造版的运行时数据与已安装版 pi 完全隔离，通过三个环境变量控制：
 
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Standalone application-composition runtime for services, replicated state, RPC, and plugins |
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-durable](packages/durable)** | Durable conversation, task, and document runtime |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| 环境变量 | 作用 |
+|---|---|
+| `PI_CODING_AGENT_DIR` | 配置目录（settings / auth / 扩展 / 技能 / 提示词 / 主题） |
+| `PI_CODING_AGENT_SESSION_DIR` | 会话存储 |
+| `PI_PACKAGE_DIR` | `pi install` 安装的包 |
 
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Permissions & Containerization
-
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
-
-## Development
+仓库外的 `pi-re-v1/pi-dev.cmd`（Windows）与 `pi-dev.sh`（Git Bash）会预设这些变量后启动改造版，
+详见 `pi-re-v1/DEV-README.md`。
 
 ```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+# 启动桥 + 内置 UI（单端口）
+node packages/coding-agent/dist/modes/desktop/serve.js --port 18901
+
+# 前端热更新开发
+cd apps/desktop && npm run dev
 ```
 
-## Building standalone binaries from release source
+## 仓库结构
 
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
+| 包 | 说明 |
+|---|---|
+| [packages/ai](packages/ai) | 多厂商 LLM 统一 API（OpenAI、Anthropic、Google 等） |
+| [packages/agent](packages/agent) | agent 运行时，负责工具调用与状态管理 |
+| [packages/coding-agent](packages/coding-agent) | agent 主体，含 CLI 与桌面桥服务器 |
+| [packages/codemode](packages/codemode) | 代码模式运行时 |
+| [packages/tui](packages/tui) | 终端 UI 库（桌面版改造中已不再使用） |
+
+这些包的 npm 作用域仍沿用上游的 `@earendil-works/*`，因为包名在源码导入和构建配置中被广泛引用，
+改动会牵连整个构建链。改造只发生在行为和入口层面，不动包标识。
+
+## 开发
 
 ```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
+npm install --ignore-scripts  # 安装依赖
+npm run build                 # 全量构建
+npm run check                 # lint + 类型检查
+./test.sh                     # 跑测试
 ```
 
-The archive includes release model data and native prebuilds. `--offline-model-data` uses that model data without refreshing provider catalogs. The script installs dependencies and builds the executable with its runtime assets; pass `--skip-install` if dependencies are already provided.
+日常只改了 `coding-agent` 时可以局部重建：
 
-## Supply-chain hardening
+```bash
+cd packages/coding-agent && npm run build
+```
 
-We treat npm dependency changes as reviewed code changes.
+## 权限与容器化
 
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
+本项目不内置文件系统、进程、网络或凭据访问的权限边界，默认以启动它的用户权限运行。
+需要更强隔离时，请自行容器化或沙箱化，参考
+[packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md)。
 
-## Share your OSS coding agent sessions
+桌面版的权限确认（`approvalMode: "confirm"`）是交互式的逐次授权，与上述操作系统级隔离是两回事。
 
-If you use Pi or other coding agents for open source work, please share your sessions.
+## 致谢与许可
 
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
+本项目基于 [pi-mono](https://github.com/badlogic/pi-mono) 改造，原作者为 Mario Zechner，
+版权归其所有，按 MIT 协议发布。`LICENSE` 中的版权声明予以完整保留。
 
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
-
-## License
-
-MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+MIT 协议允许自由使用、修改和分发，包括闭源商用，条件是保留版权声明与许可声明。
+`CHANGELOG` 中指向上游 issue / PR 的链接作为历史记录一并保留。
