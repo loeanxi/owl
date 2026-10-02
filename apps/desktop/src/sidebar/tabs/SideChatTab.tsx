@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "../../hooks/transcript.ts";
-import { renderMarkdown } from "../../components/ChatStream.tsx";
+import { renderMarkdown, InlineSummary } from "../../components/ChatStream.tsx";
 import { IconChatDiscussion } from "../quick.tsx";
 import { IconLoader, IconRefresh, IconX } from "../icons.tsx";
 import { normProjectKey } from "../store.ts";
@@ -181,10 +181,14 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 									<div key={tool.id} className="flex items-center gap-1.5 text-[10px] text-owl-faint">
 										{tool.status === "running" ? (
 											<IconLoader size={9} className="animate-spin text-owl-accent" />
+										) : tool.status === "error" ? (
+											<span className="text-red-400">✗</span>
 										) : (
 											<span className="text-emerald-500">✓</span>
 										)}
-										<span className="font-mono">{tool.name}</span>
+										<span className="min-w-0 truncate">
+											<InlineSummary text={tool.summary} />
+										</span>
 									</div>
 								))}
 								{entry.text && (

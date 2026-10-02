@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import type { ChatEntry } from "../hooks/transcript.ts";
+import type { ChatEntry, ToolCard, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
+import { toolGroupLabel } from "../hooks/summarize.ts";
 import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 
@@ -10,6 +11,9 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 /** 提问导航展开/收起偏好的 localStorage 键。 */
 const QNAV_KEY = "owl.qnav.open";
 
+/** 工具输出默认只预览末尾几行（结论/报错多在尾部），展开才看全文。 */
+const OUTPUT_PREVIEW_LINES = 10;
+
 export function renderMarkdown(text: string): string {
 	return md.render(text);
 }
@@ -17,8 +21,11 @@ export function renderMarkdown(text: string): string {
 /**
  * 聊天流 —— 用户提问与 agent 回答收进同一条居中内容列（响应式：窄窗满宽、宽窗封顶
  * max-w-3xl 居中）。左缘是提问追踪节点轨：每次提问是带序号的强调节点，其后的思考 /
- * 工具调用 / 调用结果 / 回答依次成节点，纵向连线串成一条可扫读的执行链；顺着轨道
- * 数节点即可回溯每一轮「问 → 做 → 答」。
+ * 工具 / 回答依次成节点，纵向连线串成一条可扫读的执行链。
+ *
+ * 过程采用「渐进披露」：工具调用默认收成一行人话摘要，连续同类工具合并成组
+ * （「运行了 4 条命令」），点击逐级展开参数与输出；失败行自动展开标红。答案正文
+ * 永远是主角，思考过程整轮合并成一条轻量折叠行。
  */
 
 /** 时间轴上的一行：node 是左轨节点，content 是右侧内容；提问行带 questionIndex 作跳转锚点。 */
@@ -69,41 +76,202 @@ function StepNode({
 	);
 }
 
-function ThinkingCard({ thinking }: { thinking: string }): React.JSX.Element {
+/** 渲染含 `code` 反引号的摘要行（工具摘要里的命令/路径/模式）。 */
+export function InlineSummary({ text }: { text: string }): React.JSX.Element {
+	const parts = text.split(/`([^`]*)`/);
 	return (
-		<details className="rounded-lg border border-owl-border bg-owl-sidebar/70 px-3 py-2 text-xs text-owl-faint">
-			<summary className="cursor-pointer">思考过程</summary>
-			<pre className="mt-2 whitespace-pre-wrap break-words">{thinking}</pre>
+		<>
+			{parts.map((part, index) =>
+				index % 2 === 1 ? (
+					<code key={index} className="rounded bg-owl-bg/70 px-1 font-mono text-[11px] text-owl-text">
+						{part}
+					</code>
+				) : part ? (
+					<span key={index}>{part}</span>
+				) : null,
+			)}
+		</>
+	);
+}
+
+/** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号。 */
+function StatusIcon({ status }: { status: ToolStatus }): React.JSX.Element {
+	if (status === "running") {
+		return (
+			<span
+				aria-label="运行中"
+				className="h-3 w-3 shrink-0 animate-spin rounded-full border border-owl-accent/30 border-t-owl-accent"
+			/>
+		);
+	}
+	if (status === "error") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-red-400" />;
+	return <IconCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
+}
+
+/** 思考过程：整轮合并成一条轻量折叠行，默认收起，不再一段一个全宽条。 */
+function ThinkingRow({ thinking }: { thinking: string }): React.JSX.Element {
+	const lines = useMemo(
+		() => thinking.split("\n").filter((line) => line.trim() !== "").length,
+		[thinking],
+	);
+	return (
+		<details className="group text-xs text-owl-faint">
+			<summary className="flex cursor-pointer select-none list-none items-center gap-1.5 py-0.5 [&::-webkit-details-marker]:hidden">
+				<IconChevron className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
+				思考过程 · {lines} 行
+			</summary>
+			<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-owl-sidebar/50 px-3 py-2 text-[11px] leading-relaxed">
+				{thinking}
+			</pre>
 		</details>
 	);
 }
 
-function ToolCardView({
-	name,
-	args,
-	status,
-}: {
-	name: string;
-	args: string;
-	status: "running" | "done";
-}): React.JSX.Element {
+function tailLines(text: string, count: number): { preview: string; dropped: number } {
+	const lines = text.split("\n");
+	if (lines.length <= count) return { preview: text, dropped: 0 };
+	return { preview: lines.slice(-count).join("\n"), dropped: lines.length - count };
+}
+
+/**
+ * 单个工具调用行：一行人话摘要（状态图标 + 摘要 + 展开箭头），展开看参数细节与
+ * 输出（默认末 10 行，可看全文）；失败自动展开标红。
+ */
+function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
+	const [open, setOpen] = useState(card.status === "error");
+	const [fullOutput, setFullOutput] = useState(false);
+	const [zoomed, setZoomed] = useState(false);
+	// 失败时弹开（含流式中 running→error 的转变）；用户随后手动收起不再打扰
+	useEffect(() => {
+		if (card.status === "error") setOpen(true);
+	}, [card.status]);
+
+	const output = card.output;
+	const { preview, dropped } = output ? tailLines(output.text, OUTPUT_PREVIEW_LINES) : { preview: "", dropped: 0 };
+	const hasMore = (output?.totalLines ?? 0) > OUTPUT_PREVIEW_LINES;
+	const images = output?.images ?? [];
+
 	return (
-		<div className="rounded-lg border border-owl-border bg-owl-sidebar/70 p-2 text-xs">
-			<div className="flex items-center gap-2">
-				<span className="font-mono text-owl-accent">{name}</span>
-				<span className={status === "running" ? "text-owl-accent" : "text-owl-faint"}>
-					{status === "running" ? "运行中…" : "已完成"}
+		<div className="min-w-0">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-owl-hover/50"
+			>
+				<StatusIcon status={card.status} />
+				<span
+					className={`min-w-0 flex-1 truncate ${card.status === "error" ? "text-red-400" : "text-owl-muted"}`}
+				>
+					<InlineSummary text={card.summary} />
 				</span>
-			</div>
-			{args && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-owl-muted">{args}</pre>}
+				<IconChevron
+					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
+				/>
+			</button>
+			{open && (
+				<div className="mb-1 ml-3 space-y-1.5 border-l border-owl-border/50 pl-3 pt-0.5">
+					{card.detail && (
+						<pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-owl-bg/60 px-2.5 py-1.5 font-mono text-[11px] text-owl-muted">
+							{card.detail}
+						</pre>
+					)}
+					{output && output.text !== "" && (
+						<>
+							<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-owl-bg/60 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-owl-muted">
+								{fullOutput || !hasMore ? output.text : `…（前 ${dropped} 行已省略）\n${preview}`}
+							</pre>
+							{hasMore && (
+								<button
+									type="button"
+									onClick={() => setFullOutput((value) => !value)}
+									className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
+								>
+									{fullOutput ? "收起输出" : `查看完整输出（共 ${output.totalLines} 行）`}
+								</button>
+							)}
+						</>
+					)}
+					{/* 服务端 50KB 截断后全文在临时文件里；文本里没带路径时补一行提示 */}
+					{output?.fullPath && !output.text.includes(output.fullPath) && (
+						<p className="truncate font-mono text-[11px] text-owl-faint" title={output.fullPath}>
+							完整输出：{output.fullPath}
+						</p>
+					)}
+					{images.length > 0 && (
+						<div className="space-y-2">
+							{images.map((image, index) => (
+								<img
+									key={index}
+									src={`data:${image.mimeType};base64,${image.data}`}
+									alt={`${card.name} 截图 ${index + 1}`}
+									className={`w-full cursor-zoom-in rounded-lg border border-owl-border ${zoomed ? "" : "max-h-72 object-contain object-top"}`}
+									onClick={() => setZoomed((value) => !value)}
+								/>
+							))}
+							<button
+								type="button"
+								onClick={() => setZoomed((value) => !value)}
+								className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
+							>
+								{zoomed ? "收起" : "查看完整大图"}
+							</button>
+						</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
 
-/** todo 工具专属卡片：勾选态清单 + 完成进度条；解析不了参数时退回通用工具卡片。 */
-function TodoCardView({ args, status }: { args: string; status: "running" | "done" }): React.JSX.Element {
-	const items = parseTodoArgs(args);
-	if (!items) return <ToolCardView name="todo" args={args} status={status} />;
+/** 连续同类工具的合组：「运行了 4 条命令」；失败自动展开，展开后每行再各自展开。 */
+function ToolGroupView({ name, cards }: { name: string; cards: ToolCard[] }): React.JSX.Element {
+	const [open, setOpen] = useState(() => cards.some((card) => card.status === "error"));
+	const errorCount = cards.filter((card) => card.status === "error").length;
+	const running = cards.some((card) => card.status === "running");
+	useEffect(() => {
+		if (errorCount > 0) setOpen(true);
+	}, [errorCount]);
+
+	const label = toolGroupLabel(name, cards.length) ?? `${name} × ${cards.length}`;
+	return (
+		<div className="min-w-0">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-owl-hover/50"
+			>
+				<IconChevron
+					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
+				/>
+				<span className="min-w-0 flex-1 truncate text-owl-muted">{label}</span>
+				{running ? (
+					<span className="flex shrink-0 items-center gap-1.5 text-owl-accent">
+						<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-accent" />
+						运行中…
+					</span>
+				) : errorCount > 0 ? (
+					<span className="shrink-0 text-red-400">
+						{errorCount} 个失败
+					</span>
+				) : null}
+			</button>
+			{open && (
+				<div className="mt-0.5 space-y-0.5">
+					{cards.map((card) => (
+						<ToolRowView key={card.id} card={card} />
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** todo 工具专属卡片：勾选态清单 + 完成进度条；解析不了参数时退回通用工具行。 */
+function TodoCardView({ card }: { card: ToolCard }): React.JSX.Element {
+	const items = parseTodoArgs(card.args);
+	if (!items) return <ToolRowView card={card} />;
 	const done = items.filter((item) => item.status === "completed").length;
 	const pct = items.length === 0 ? 0 : Math.round((done / items.length) * 100);
 	return (
@@ -111,7 +279,7 @@ function TodoCardView({ args, status }: { args: string; status: "running" | "don
 			<div className="flex items-center justify-between gap-2">
 				<span className="font-medium text-owl-text">任务清单</span>
 				<span className="text-owl-faint">
-					{done}/{items.length} 完成{status === "running" ? " · 更新中…" : ""}
+					{done}/{items.length} 完成{card.status === "running" ? " · 更新中…" : ""}
 				</span>
 			</div>
 			<div className="mt-2 h-1 overflow-hidden rounded-full bg-owl-hover">
@@ -157,50 +325,132 @@ function AnswerCard({ text }: { text: string }): React.JSX.Element {
 	);
 }
 
-/** 工具结果卡片：文字摘要 + 图片内容块（如 browser_screenshot）。图片默认限高，点击切换完整大图。 */
-function ToolResultView({ entry }: { entry: Extract<ChatEntry, { kind: "toolResult" }> }): React.JSX.Element {
-	const [zoomed, setZoomed] = useState(false);
-	const images = entry.images ?? [];
+/** 孤立结果行（找不到所属工具卡的防御兜底，如会话恢复失败）。 */
+function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolResult" }> }): React.JSX.Element {
 	return (
-		<div className="rounded-lg border border-owl-border/60 px-3 py-2 text-xs">
-			<div className="break-words font-mono">
-				<span className={entry.ok ? "text-emerald-600" : "text-red-500"}>{entry.toolName}</span>{" "}
-				<span className="text-owl-faint">{entry.brief}</span>
-			</div>
-			{images.length > 0 && (
-				<div className="mt-2 space-y-2">
-					{images.map((image, index) => (
-						<img
-							key={index}
-							src={`data:${image.mimeType};base64,${image.data}`}
-							alt={`${entry.toolName} 截图 ${index + 1}`}
-							className={`w-full cursor-zoom-in rounded-lg border border-owl-border ${zoomed ? "" : "max-h-72 object-contain object-top"}`}
-							onClick={() => setZoomed((value) => !value)}
-						/>
-					))}
-					<button
-						type="button"
-						onClick={() => setZoomed((value) => !value)}
-						className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
-					>
-						{zoomed ? "收起" : "查看完整大图"}
-					</button>
-				</div>
-			)}
+		<div className="flex items-center gap-2 text-xs">
+			<span className={entry.ok ? "text-emerald-500" : "text-red-400"}>{entry.ok ? "✓" : "✗"}</span>
+			<span className="font-mono text-owl-accent">{entry.toolName}</span>
+			<span className="min-w-0 flex-1 text-owl-faint">{entry.brief}</span>
 		</div>
 	);
 }
 
-/** 把扁平转录拆成时间轴行：一条 assistant 消息按 思考/各工具/回答/报错 拆成多行，各自成节点。 */
+/** 工具节点配色：运行中脉冲 / 失败红 / 其余绿。 */
+function toolTone(status: ToolStatus): "running" | "ok" | "error" {
+	return status === "running" ? "running" : status === "error" ? "error" : "ok";
+}
+
+function toolNode(card: ToolCard): React.JSX.Element {
+	return (
+		<StepNode tone={toolTone(card.status)} title={`工具调用：${card.name}`}>
+			<IconTerminal className="h-3 w-3" />
+		</StepNode>
+	);
+}
+
+function toolRow(key: string, card: ToolCard): TimelineRow {
+	return {
+		key,
+		node: toolNode(card),
+		content: card.name === "todo" ? <TodoCardView card={card} /> : <ToolRowView card={card} />,
+	};
+}
+
+/** 一轮提问聚合出的内容（同一轮可能有多条 assistant 消息：工具调用把它们隔开）。 */
+type TurnAcc = { thinking: string[]; tools: ToolCard[]; texts: string[]; error?: string };
+
+const isGroupable = (name: string): boolean => toolGroupLabel(name, 1) !== undefined;
+
+/** 把一轮的聚合内容排成时间轴行：思考一条 → 工具按连续同名合组 → 回答正文 → 报错。 */
+function turnRows(acc: TurnAcc, turn: number): TimelineRow[] {
+	const rows: TimelineRow[] = [];
+	const thinking = acc.thinking.join("\n\n").trim();
+	if (thinking) {
+		rows.push({
+			key: `t${turn}-thinking`,
+			node: (
+				<StepNode tone="muted" title="思考过程">
+					<IconLightbulb className="h-3 w-3" />
+				</StepNode>
+			),
+			content: <ThinkingRow thinking={thinking} />,
+		});
+	}
+	let index = 0;
+	let groupIndex = 0;
+	while (index < acc.tools.length) {
+		const tool = acc.tools[index]!;
+		if (!isGroupable(tool.name)) {
+			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
+			index += 1;
+			continue;
+		}
+		let end = index + 1;
+		while (end < acc.tools.length && acc.tools[end]!.name === tool.name) end += 1;
+		const group = acc.tools.slice(index, end);
+		if (group.length === 1) {
+			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
+		} else {
+			const tone = group.some((card) => card.status === "running")
+				? "running"
+				: group.some((card) => card.status === "error")
+					? "error"
+					: "ok";
+			rows.push({
+				key: `t${turn}-group-${groupIndex}-${tool.name}`,
+				node: (
+					<StepNode tone={tone} title={`工具调用：${tool.name} × ${group.length}`}>
+						<IconTerminal className="h-3 w-3" />
+					</StepNode>
+				),
+				content: <ToolGroupView name={tool.name} cards={group} />,
+			});
+		}
+		groupIndex += 1;
+		index = end;
+	}
+	if (acc.texts.length > 0) {
+		rows.push({
+			key: `t${turn}-text`,
+			node: (
+				<StepNode tone="answer" title="回答">
+					<IconChat className="h-3 w-3" />
+				</StepNode>
+			),
+			content: <AnswerCard text={acc.texts.join("\n\n")} />,
+		});
+	}
+	if (acc.error) {
+		rows.push({
+			key: `t${turn}-error`,
+			node: (
+				<StepNode tone="error" title="出错了">
+					<IconAlert className="h-3 w-3" />
+				</StepNode>
+			),
+			content: <div className="break-words text-xs text-red-400">{acc.error}</div>,
+		});
+	}
+	return rows;
+}
+
+/** 把扁平转录拆成时间轴行：按提问分轮，每轮内 思考/工具组/回答 各自成节点。 */
 function buildRows(entries: ChatEntry[]): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	let turn = 0;
+	let acc: TurnAcc = { thinking: [], tools: [], texts: [] };
+	const flush = (): void => {
+		rows.push(...turnRows(acc, turn));
+		acc = { thinking: [], tools: [], texts: [] };
+	};
 	entries.forEach((entry, index) => {
 		if (entry.kind === "user") {
+			flush();
 			turn += 1;
 			const firstLine = entry.text.split("\n").find((part) => part.trim() !== "") ?? "";
 			rows.push({
-				key: `q${index}`,
+				key: `q${turn}`,
 				questionIndex: turn,
 				node: <QuestionNode index={turn} title={firstLine} />,
 				// 提问气泡右对齐，但收在内容列以内（列本身封顶 max-w-3xl），不再贴窗口右缘
@@ -215,67 +465,21 @@ function buildRows(entries: ChatEntry[]): TimelineRow[] {
 			return;
 		}
 		if (entry.kind === "assistant") {
-			if (entry.thinking) {
-				rows.push({
-					key: `a${index}-thinking`,
-					node: (
-						<StepNode tone="muted" title="思考过程">
-							<IconLightbulb className="h-3 w-3" />
-						</StepNode>
-					),
-					content: <ThinkingCard thinking={entry.thinking} />,
-				});
-			}
-			for (const tool of entry.tools) {
-				rows.push({
-					key: `a${index}-tool-${tool.id}`,
-					node: (
-						<StepNode tone={tool.status === "running" ? "running" : "muted"} title={`工具调用：${tool.name}`}>
-							<IconTerminal className="h-3 w-3" />
-						</StepNode>
-					),
-					content:
-						tool.name === "todo" ? (
-							<TodoCardView args={tool.args} status={tool.status} />
-						) : (
-							<ToolCardView name={tool.name} args={tool.args} status={tool.status} />
-						),
-				});
-			}
-			if (entry.text) {
-				rows.push({
-					key: `a${index}-text`,
-					node: (
-						<StepNode tone="answer" title="回答">
-							<IconChat className="h-3 w-3" />
-						</StepNode>
-					),
-					content: <AnswerCard text={entry.text} />,
-				});
-			}
-			if (entry.error) {
-				rows.push({
-					key: `a${index}-error`,
-					node: (
-						<StepNode tone="error" title="出错了">
-							<IconAlert className="h-3 w-3" />
-						</StepNode>
-					),
-					content: <div className="break-words text-xs text-red-400">{entry.error}</div>,
-				});
-			}
+			if (entry.thinking.trim()) acc.thinking.push(entry.thinking);
+			acc.tools.push(...entry.tools);
+			if (entry.text) acc.texts.push(entry.text);
+			if (entry.error) acc.error = entry.error;
 			return;
 		}
-		rows.push({
-			key: `r${index}`,
-			node: (
-				<StepNode tone={entry.ok ? "ok" : "error"} title={entry.ok ? "调用结果" : "调用失败"}>
-					{entry.ok ? <IconCheck className="h-3 w-3" /> : <IconAlert className="h-3 w-3" />}
-				</StepNode>
-			),
-			content: <ToolResultView entry={entry} />,
-		});
+		// 孤立工具结果（防御）：收尾当前轮后单独成行
+		flush();
+		rows.push({ key: `r${index}`, node: (
+			<StepNode tone={entry.ok ? "ok" : "error"} title={entry.ok ? "调用结果" : "调用失败"}>
+				{entry.ok ? <IconCheck className="h-3 w-3" /> : <IconAlert className="h-3 w-3" />}
+			</StepNode>
+		), content: <OrphanResultRow entry={entry} /> });
 	});
+	flush();
 	return rows;
 }
 

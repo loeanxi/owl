@@ -1,4 +1,5 @@
 import type { PermissionRequest } from "../bridge/protocol.ts";
+import { describeToolInput } from "../hooks/summarize.ts";
 
 export function PermissionDialog({
 	request,
@@ -14,8 +15,9 @@ export function PermissionDialog({
 				<p className="mt-1 text-sm">
 					Agent 想运行 <span className="font-mono text-owl-accent">{request.toolName}</span>
 				</p>
+				{/* 人话说明（命令/路径/编辑内容）；未知工具退回 JSON，保证看得到全貌 */}
 				<pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-owl-sidebar p-3 text-xs whitespace-pre-wrap text-owl-text">
-					{JSON.stringify(request.input, null, 2)}
+					{describeToolInput(request.toolName, request.input)}
 				</pre>
 				<div className="mt-3 flex justify-end gap-2">
 					<button

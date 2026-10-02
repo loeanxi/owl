@@ -8,12 +8,14 @@ import { useEffect, useMemo, useRef } from "react";
 import { useSessionFeed } from "../feed.ts";
 import { IconLayers } from "../quick.tsx";
 import { IconLoader } from "../icons.tsx";
+import { InlineSummary } from "../../components/ChatStream.tsx";
+import type { ToolStatus } from "../../hooks/transcript.ts";
 
 interface ToolRow {
 	id: string;
 	name: string;
-	brief: string;
-	status: "running" | "done";
+	summary: string;
+	status: ToolStatus;
 }
 
 type TimelineItem =
@@ -41,8 +43,7 @@ function useTimeline(): { items: TimelineItem[]; rounds: number; toolCalls: numb
 			if (entry.kind === "assistant") {
 				for (const tool of entry.tools) {
 					toolCalls += 1;
-					const brief = tool.args ? firstLine(tool.args.replace(/^{\s*"[\s\S]*?"\s*:\s*/, "").replace(/"\s*}\s*$/, "").replace(/\\/g, "")) : "";
-					items.push({ type: "tool", round, row: { id: tool.id, name: tool.name, brief, status: tool.status } });
+					items.push({ type: "tool", round, row: { id: tool.id, name: tool.name, summary: tool.summary, status: tool.status } });
 				}
 				continue;
 			}
@@ -119,14 +120,19 @@ export function TasksTab(): React.JSX.Element {
 									<li key={item.row.id || `t-${index}`} className="rounded-lg border border-owl-border/40 bg-owl-panel/60 px-2.5 py-1.5">
 										<div className="flex items-center gap-2 text-xs">
 											<span
-												className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.row.status === "running" ? "animate-pulse bg-owl-accent" : "bg-owl-faint"}`}
+												className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+													item.row.status === "running"
+														? "animate-pulse bg-owl-accent"
+														: item.row.status === "error"
+															? "bg-red-400"
+															: "bg-emerald-500"
+												}`}
 											/>
-											<span className="font-mono text-owl-accent">{item.row.name}</span>
-											<span className={item.row.status === "running" ? "text-owl-accent" : "text-owl-faint"}>
-												{item.row.status === "running" ? "运行中…" : "已完成"}
+											<span className={`min-w-0 flex-1 truncate ${item.row.status === "error" ? "text-red-400" : "text-owl-muted"}`}>
+												<InlineSummary text={item.row.summary} />
 											</span>
+											{item.row.status === "running" && <span className="shrink-0 text-owl-accent">运行中…</span>}
 										</div>
-										{item.row.brief && <p className="mt-0.5 truncate font-mono text-[10px] text-owl-faint">{item.row.brief}</p>}
 									</li>
 								);
 							}
