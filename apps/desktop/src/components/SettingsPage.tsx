@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProviderModelsMessage } from "../bridge/protocol.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
-import { IconArchive, IconCode, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
+import { IconArchive, IconCode, IconCompose, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
 
 const API_OPTIONS = [
 	{ value: "openai-completions", label: "OpenAI 兼容（openai-completions）" },
@@ -10,7 +10,7 @@ const API_OPTIONS = [
 	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
 ];
 
-type SettingsSection = "general" | "models" | "packages" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "packages" | "prompts" | "appearance" | "archived" | "json" | "about";
 
 type PackageEntry = string | { source: string; extensions?: string[] };
 
@@ -135,6 +135,8 @@ export function SettingsPage({
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
 	const [raw, setRaw] = useState("");
 	const [shellPath, setShellPath] = useState("");
+	const [customPrompt, setCustomPrompt] = useState("");
+	const [userImpression, setUserImpression] = useState("");
 	const [savedMsg, setSavedMsg] = useState("");
 	const [groups, setGroups] = useState<ProviderModelsMessage[]>([]);
 	const [error, setError] = useState("");
@@ -233,6 +235,8 @@ export function SettingsPage({
 				setSettingsObj(obj);
 				setRaw(JSON.stringify(obj, null, 2));
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
+				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
+				if (typeof obj.owlUserImpression === "string") setUserImpression(obj.owlUserImpression);
 			}
 			if (models.ok && Array.isArray(models.result)) setGroups(models.result as ProviderModelsMessage[]);
 			if (providers.ok && Array.isArray(providers.result)) setCatalog(providers.result);
@@ -402,6 +406,7 @@ export function SettingsPage({
 						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label="扩展与插件" active={section === "packages"} onClick={() => setSection("packages")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
+						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
 						<div className="px-2.5 pb-1 pt-3 text-[10px] font-semibold tracking-wider text-owl-faint">高级</div>
 						<NavItem icon={<IconArchive />} label="归档" active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
@@ -993,6 +998,59 @@ export function SettingsPage({
 												})}
 										</div>
 									)}
+								</SettingRow>
+							</>
+						)}
+
+						{/* -------- 提示词 -------- */}
+						{section === "prompts" && (
+							<>
+								<SectionHeader
+									title="提示词"
+									desc="自定义提示词与用户印象都追加在内置提示词之后，保存后新会话生效（进行中的会话不受影响）。"
+								/>
+								<SettingRow
+									title="自定义提示词"
+									desc="写给 Owl Si 的长期指令（人设、口径、偏好等），对所有新会话生效；留空则只用内置提示词。"
+									control={
+										<button
+											type="button"
+											className={btnAccent}
+											disabled={busy}
+											onClick={() => void saveSettings({ owlCustomPrompt: customPrompt })}
+										>
+											保存
+										</button>
+									}
+								>
+									<textarea
+										className="h-40 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
+										value={customPrompt}
+										onChange={(event) => setCustomPrompt(event.target.value)}
+										placeholder={"例如：\n- 回复里少用表情符号\n- 我主攻 TypeScript，解释时默认我懂 TS\n- 提交信息用中文"}
+										spellCheck={false}
+									/>
+								</SettingRow>
+								<SettingRow
+									title="用户印象（Owl Si 对你的记忆）"
+									desc="Owl Si 在聊天中了解到值得记住的信息时会自动更新这份档案，也会随会话注入提示词；这里可以直接查看和修改。"
+									control={
+										<button
+											type="button"
+											className={btnAccent}
+											disabled={busy}
+											onClick={() => void saveSettings({ owlUserImpression: userImpression })}
+										>
+											保存
+										</button>
+									}
+								>
+									<textarea
+										className="h-40 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
+										value={userImpression}
+										onChange={(event) => setUserImpression(event.target.value)}
+										placeholder="还是空的。聊几句之后 Owl Si 会把了解到的偏好记在这里。"
+									/>
 								</SettingRow>
 							</>
 						)}

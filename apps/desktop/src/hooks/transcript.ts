@@ -9,6 +9,31 @@ export type ChatEntry =
 
 type AnyEvent = Record<string, any>; // wire events are forward-compat; render defensively
 
+/**
+ * 把供应商错误整理成可读中文。OpenAI 兼容 SDK 的报错形如
+ * `429: {"code":"1308","message":"已达到 5 小时的使用上限。…"}`，
+ * 裸上屏是一坨 JSON —— 这里解析出状态码与 message 再映射；解析不出就原样放行。
+ */
+export function formatProviderError(raw: string | undefined): string | undefined {
+	if (!raw) return undefined;
+	const match = raw.match(/^\s*(\d{3})\s*[:\-]\s*(\{[\s\S]*\})\s*$/);
+	if (match) {
+		const status = match[1]!;
+		let message = "";
+		try {
+			const body = JSON.parse(match[2]!) as { message?: string; error?: { message?: string } };
+			message = body.message ?? body.error?.message ?? "";
+		} catch {
+			// body 不是 JSON：走下面的兜底文案
+		}
+		if (status === "429") return `额度或限流：${message || "请求过于频繁或额度已用尽，请稍后再试。"}`;
+		if (status === "401" || status === "403") return `API 密钥无效或无权限：${message || raw}`;
+		if (status.startsWith("5")) return `模型服务暂时不可用（HTTP ${status}）：${message || "请稍后重试。"}`;
+		if (message) return `${message}（HTTP ${status}）`;
+	}
+	return raw;
+}
+
 function lastAssistant(entries: ChatEntry[]): (ChatEntry & { kind: "assistant" }) | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
@@ -125,7 +150,10 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 					.map((part: AnyEvent) => part.thinking ?? "")
 					.join("\n"),
 				tools,
-				error: message.stopReason === "error" || message.stopReason === "aborted" ? message.errorMessage : undefined,
+				error:
+					message.stopReason === "error" || message.stopReason === "aborted"
+						? formatProviderError(message.errorMessage)
+						: undefined,
 			});
 		} else if (message.role === "toolResult") {
 			const output = JSON.stringify(message.output ?? message.content ?? "");

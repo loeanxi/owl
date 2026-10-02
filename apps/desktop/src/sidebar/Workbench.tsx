@@ -81,7 +81,6 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 	const dropTargetRef = useRef<DropTarget | null>(null);
 	const leafRefs = useRef(new Map<string, HTMLElement>());
-	const dragRaf = useRef(0);
 	// 拖完的 click 抑制：mouseup 后 click 才派发，setTimeout(0) 复位来得及
 	const justDraggedRef = useRef(false);
 
@@ -110,30 +109,20 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			const startX = e.clientX;
 			const startY = e.clientY;
 			let started = false;
-			let lastX = startX;
-			let lastY = startY;
 			const onMove = (m: MouseEvent): void => {
 				if (!started) {
 					if (Math.abs(m.clientX - startX) + Math.abs(m.clientY - startY) < 5) return;
 					started = true;
 					justDraggedRef.current = true;
 				}
-				lastX = m.clientX;
-				lastY = m.clientY;
-				if (dragRaf.current !== 0) return;
-				dragRaf.current = window.requestAnimationFrame(() => {
-					dragRaf.current = 0;
-					setDragTab({ id: tab.id, title: tab.title, x: lastX, y: lastY });
-					hitTest(lastX, lastY);
-				});
+				// 同步更新：mousemove 本身与浏览器帧对齐（原生节流），
+				// 不排 rAF——后台/节流窗口里 rAF 会停摆，拖拽会整个卡死。
+				setDragTab({ id: tab.id, title: tab.title, x: m.clientX, y: m.clientY });
+				hitTest(m.clientX, m.clientY);
 			};
 			const onUp = (): void => {
 				window.removeEventListener("mousemove", onMove);
 				window.removeEventListener("mouseup", onUp);
-				if (dragRaf.current !== 0) {
-					window.cancelAnimationFrame(dragRaf.current);
-					dragRaf.current = 0;
-				}
 				const target = dropTargetRef.current;
 				if (started && target) store.moveTab(tab.id, target.leafId, target.zone);
 				setDragTab(null);

@@ -20,6 +20,7 @@ import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { expandTildePath, getAgentDir } from "../../config.ts";
@@ -431,12 +432,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		agentDir: string,
 		modelSpec: { provider?: string; model?: string; thinkingLevel?: string } | undefined,
 		extensionFactories: InlineExtension[],
+		appendSystemPrompt: string[],
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const services = await createAgentSessionServices({
 				cwd: runtimeOptions.cwd,
 				agentDir,
-				resourceLoaderOptions: { extensionFactories },
+				resourceLoaderOptions: {
+					extensionFactories,
+					...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
+				},
 			});
 			let model: ReturnType<typeof services.modelRuntime.getModel>;
 			if (modelSpec?.model) {
@@ -502,6 +507,38 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 	}
 
+	/**
+	 * 设置里维护的 Owl 附加提示词：自定义提示词 + 用户印象（含维护指引）。
+	 * 挂会话时作为 addendum 注入系统提示词尾部；读取失败只降级不拦会话。
+	 */
+	async function loadOwlAddenda(): Promise<string[]> {
+		try {
+			const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+				m.SettingsManager.create(options.cwd ?? process.cwd(), defaultAgentDir()),
+			);
+			const settings = settingsManager.getGlobalSettings();
+			const addenda: string[] = [];
+			const custom = settings.owlCustomPrompt?.trim();
+			if (custom) addenda.push(custom);
+			const impression = settings.owlUserImpression?.trim();
+			if (impression) {
+				addenda.push(
+					[
+						"<user_impression>",
+						impression,
+						"</user_impression>",
+						"",
+						"以上是当前记录的「对用户的印象」。当互动中了解到值得长期记住的新信息（偏好、习惯、背景等）时，用 update_user_impression 工具保存更新后的完整印象；没有值得记住的新信息就不要调用。",
+					].join("\n"),
+				);
+			}
+			return addenda;
+		} catch (error) {
+			onDiagnostic(`owl addenda load failed: ${error instanceof Error ? error.message : String(error)}`);
+			return [];
+		}
+	}
+
 	/** 挂载会话运行时（session.create 与 session.resume 共用）：权限扩展、事件订阅、登记。 */
 	async function mountSession(
 		ws: WebSocket,
@@ -540,11 +577,41 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				});
 			},
 		};
+		// Owl 记忆扩展：「用户印象」工具 —— 模型把对用户的长期印象写回全局设置，
+		// 设置页同源可改；下次会话挂载时通过 addendum 注入生效。
+		const owlMemoryExtension: InlineExtension = {
+			name: "owl-memory",
+			factory: (pi) => {
+				pi.registerTool({
+					name: "update_user_impression",
+					label: "更新用户印象",
+					description:
+						"把对用户的长期印象（偏好、习惯、背景、沟通风格等）合并写入 Owl 的「用户印象」档案。" +
+						"参数传更新后的完整印象文本（保留仍有效的旧内容，不要清空）。只在了解到值得长期记住的新信息时调用。",
+					promptSnippet: "update_user_impression: 把对用户的长期印象保存到 Owl 的「用户印象」档案",
+					parameters: Type.Object({
+						impression: Type.String({ description: "更新后的完整用户印象（Markdown 文本）" }),
+					}),
+					execute: async (_toolCallId, params) => {
+						const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+							m.SettingsManager.create(args.sessionManager.getCwd(), args.agentDir),
+						);
+						settingsManager.applyGlobalOverridesAndSave({ owlUserImpression: params.impression } as never);
+						return {
+							content: [{ type: "text", text: "已更新「用户印象」，下次会话开始生效。" }],
+							details: undefined,
+						};
+					},
+				});
+			},
+		};
+		const owlAddenda = await loadOwlAddenda();
 		const runtime = await createAgentSessionRuntime(
 			buildFactory(
 				args.agentDir,
 				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-				[permissionExtension],
+				[permissionExtension, owlMemoryExtension],
+				owlAddenda,
 			),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
 		);

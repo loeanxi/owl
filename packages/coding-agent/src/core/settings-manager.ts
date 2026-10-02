@@ -186,6 +186,10 @@ export interface Settings {
 	fullscreenScrollbar?: ScrollViewScrollbar; // default: "auto"; no effect in regular TUI mode
 	fullscreenCopyOnSelect?: boolean; // default: true; no effect in regular TUI mode
 	fullscreenWheelScrollLines?: WheelScrollLines; // default: "auto"; lines per wheel event, 1-100
+	/** Owl 桌面端：追加到内置系统提示词之后的自定义提示词（设置页「提示词」编辑，新会话生效）。 */
+	owlCustomPrompt?: string;
+	/** Owl 桌面端：助手对用户的长期印象。随会话注入系统提示词，可由模型的 update_user_impression 工具或设置页维护。 */
+	owlUserImpression?: string;
 }
 
 function isMergeableObject(value: unknown): value is Record<string, unknown> {
