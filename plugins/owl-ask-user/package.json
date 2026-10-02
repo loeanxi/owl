@@ -1,0 +1,9 @@
+{
+	"name": "owl-ask-user",
+	"private": true,
+	"type": "module",
+	"description": "owl「向用户提问」插件：ask_user_question 工具，问卷经桌面桥 WebSocket 往返由 UI 作答",
+	"owl": {
+		"extensions": ["./index.ts"]
+	}
+}

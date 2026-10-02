@@ -401,6 +401,19 @@ export {
 	type VirtualModelDefinition,
 	type VirtualModelStateData,
 } from "./core/virtual-models.ts";
+// 「向用户提问」桥通道：桌面桥注入，插件（owl-ask-user）经此别名共享同一实例
+export {
+	cancelAllPendingQuestions,
+	cancelPendingQuestionsForSession,
+	getQuestionChannel,
+	registerPendingQuestion,
+	resolveQuestion,
+	setQuestionChannel,
+	type PendingQuestion,
+	type QuestionChannel,
+	type QuestionOutcome,
+} from "./core/question-channel.ts";
+export type { QuestionAnswerPayload, QuestionOptionPayload, QuestionPayload } from "./modes/desktop/protocol.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
