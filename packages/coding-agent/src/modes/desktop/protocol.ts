@@ -159,6 +159,225 @@ export interface PingRequest {
 	id: string;
 }
 
+// ---------------------------------------------------------------------------
+// 侧边栏工作台（owl workbench）— fs / git / watch / open.external
+//
+// 路径约定：所有 path/dir 都是 workspace 相对路径（POSIX 分隔符，客户端从
+// 文件树拿到什么就发什么），服务端在 `cwd` 下解析并强制围栏（realpath 规范
+// 化后必须仍在 cwd 内）。cwd 是前端显式跟踪的项目目录，与 DSH 插件按
+// sessionId 解析 cwd 的设计不同——owl 在未建会话时也要能浏览项目文件。
+// ---------------------------------------------------------------------------
+
+/** 文件树一行（资源管理器行语义：目录优先排序在服务端做，行本身只带事实）。 */
+export interface FsEntry {
+	/** 基名。 */
+	name: string;
+	/** workspace 相对路径（POSIX 分隔符，目录行不带尾斜杠）。 */
+	path: string;
+	isDir: boolean;
+	/** POSIX 隐藏项（`.` 开头），前端置灰。 */
+	hidden: boolean;
+	/** 该行是软链接；isDir 描述的是链接目标的类型。 */
+	isSymlink: boolean;
+	/** 软链接目标缺失或不可读（stat 失败）。 */
+	broken: boolean;
+}
+
+/** 一层目录列表。truncated 表示超出单层行数上限。 */
+export interface FsListing {
+	path: string;
+	entries: FsEntry[];
+	truncated: boolean;
+}
+
+/** 文本/二进制通吃的读取结果。二进制只回 4KB base64 头（嗅探用）。 */
+export interface FsReadResult {
+	kind: "text" | "binary";
+	content: string;
+	truncated: boolean;
+	size: number;
+	/** 二进制时的 base64 头（≤4096 字节）。 */
+	head?: string;
+}
+
+/** 图片等媒体预览的整文件读取（base64，受 mediaLimit 限制）。 */
+export interface FsReadBinResult {
+	base64: string;
+	size: number;
+	truncated: boolean;
+	mediaType: string;
+}
+
+/** git status 一行：X=暂存区状态，Y=工作树状态（porcelain 字母，见 git-status(1)）。 */
+export interface GitStatusEntry {
+	path: string;
+	x: string;
+	y: string;
+	/** 重命名/复制时的新旧名（旧名仅提示用）。 */
+	origPath?: string;
+}
+
+export interface GitStatusResult {
+	branch?: string;
+	upstream?: string;
+	entries: GitStatusEntry[];
+	/** cwd 不是 git 仓库时为 false，entries 为空（前端显示"非 Git 仓库"空态）。 */
+	repo: boolean;
+}
+
+export interface GitLogEntry {
+	hash: string;
+	short: string;
+	subject: string;
+	author: string;
+	time: number;
+}
+
+export interface FsTreeRequest {
+	type: "fs.tree";
+	id: string;
+	cwd: string;
+	/** 相对 cwd 的目录；缺省 = cwd 本身（根层）。 */
+	path?: string;
+}
+
+export interface FsReadRequest {
+	type: "fs.read";
+	id: string;
+	cwd: string;
+	path: string;
+}
+
+/** 整文件 base64 读取（图片预览用，默认 8MB 上限）。 */
+export interface FsReadBinRequest {
+	type: "fs.readBin";
+	id: string;
+	cwd: string;
+	path: string;
+}
+
+export interface FsWriteRequest {
+	type: "fs.write";
+	id: string;
+	cwd: string;
+	path: string;
+	content: string;
+}
+
+export interface FsMkdirRequest {
+	type: "fs.mkdir";
+	id: string;
+	cwd: string;
+	/** 父目录（workspace 相对，须已存在）。 */
+	path: string;
+	/** 新目录名（单段，不得已存在）。 */
+	name: string;
+}
+
+export interface FsRenameRequest {
+	type: "fs.rename";
+	id: string;
+	cwd: string;
+	path: string;
+	/** 新基名（单段 = 重命名而非移动）。 */
+	name: string;
+}
+
+export interface FsRemoveRequest {
+	type: "fs.remove";
+	id: string;
+	cwd: string;
+	path: string;
+}
+
+/** 全局文件名搜索（服务端预算内 BFS，不设 caller 可控边界）。 */
+export interface FsSearchRequest {
+	type: "fs.search";
+	id: string;
+	cwd: string;
+	query: string;
+}
+
+export interface GitStatusRequest {
+	type: "git.status";
+	id: string;
+	cwd: string;
+}
+
+export interface GitDiffRequest {
+	type: "git.diff";
+	id: string;
+	cwd: string;
+	/** 缺省 = 整个仓库的 diff。 */
+	path?: string;
+	staged?: boolean;
+}
+
+export interface GitStageRequest {
+	type: "git.stage";
+	id: string;
+	cwd: string;
+	paths: string[];
+}
+
+export interface GitUnstageRequest {
+	type: "git.unstage";
+	id: string;
+	cwd: string;
+	paths: string[];
+}
+
+export interface GitCommitRequest {
+	type: "git.commit";
+	id: string;
+	cwd: string;
+	message: string;
+}
+
+export interface GitDiscardRequest {
+	type: "git.discard";
+	id: string;
+	cwd: string;
+	path: string;
+}
+
+export interface GitLogRequest {
+	type: "git.log";
+	id: string;
+	cwd: string;
+	count?: number;
+}
+
+/**
+ * 替换某项目当前被 watch 的目录集（replace 语义：服务端按需增删 watcher）。
+ * 客户端在展开/收起目录后发全集；变更通过 fs_changed 事件广播。
+ */
+export interface WatchSetRequest {
+	type: "watch.set";
+	id: string;
+	cwd: string;
+	/** workspace 相对目录（POSIX 分隔符）。 */
+	dirs: string[];
+}
+
+/** 在系统里打开一个路径（资源管理器定位）或自定义协议 URL（vscode:// 等）。 */
+export interface OpenExternalRequest {
+	type: "open.external";
+	id: string;
+	action: "reveal" | "url";
+	/** reveal = workspace 相对路径；url = 完整自定义协议 URL。 */
+	target: string;
+	cwd?: string;
+}
+
+/** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
+export interface FsChangedEvent {
+	type: "fs_changed";
+	cwd: string;
+	/** 发生变更的目录（workspace 相对，POSIX 分隔符）。 */
+	dirs: string[];
+}
+
 export interface PermissionResponseRequest {
 	type: "permission.response";
 	id: string;
@@ -196,7 +415,24 @@ export type DesktopClientRequest =
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| PingRequest
-	| PermissionResponseRequest;
+	| PermissionResponseRequest
+	| FsTreeRequest
+	| FsReadRequest
+	| FsReadBinRequest
+	| FsWriteRequest
+	| FsMkdirRequest
+	| FsRenameRequest
+	| FsRemoveRequest
+	| FsSearchRequest
+	| GitStatusRequest
+	| GitDiffRequest
+	| GitStageRequest
+	| GitUnstageRequest
+	| GitCommitRequest
+	| GitDiscardRequest
+	| GitLogRequest
+	| WatchSetRequest
+	| OpenExternalRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
 export interface AuthProvidersRequest {
