@@ -422,16 +422,6 @@ export default function App(): React.JSX.Element {
 		const line = first.text.split("\n").find((part) => part.trim() !== "") ?? "";
 		return line.length > 42 ? `${line.slice(0, 42)}…` : line || "新对话";
 	}, [entries]);
-	const modelLabel = useMemo(() => {
-		const slash = modelValue.indexOf("/");
-		if (slash <= 0) return undefined;
-		const providerId = modelValue.slice(0, slash);
-		const modelId = modelValue.slice(slash + 1);
-		return (
-			providers.find((provider) => provider.id === providerId)?.models.find((entry) => entry.id === modelId)?.name ??
-			modelId
-		);
-	}, [providers, modelValue]);
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
 
 	const headerButtonClass = (active: boolean): string =>
@@ -491,11 +481,6 @@ export default function App(): React.JSX.Element {
 						<IconFolder size={11} />
 						<span className="truncate">{projectBasename}</span>
 					</span>
-					{modelLabel && (
-						<span className="hidden shrink-0 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint md:inline" title={`模型：${modelLabel}`}>
-							{modelLabel}
-						</span>
-					)}
 					<div className="min-w-4 flex-1" data-tauri-drag-region="deep" />
 					{/* 右侧功能簇：底部工作台 / 右列工作台 / 窗口控制 */}
 					<button

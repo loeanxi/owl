@@ -316,13 +316,6 @@ export function ChatStream({
 		if (event.deltaY < 0) stick.current = false;
 	};
 
-	const onScroll = (): void => {
-		const el = container.current;
-		if (!el) return;
-		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
-		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
-	};
-
 	useEffect(() => {
 		const last = entries[entries.length - 1];
 		const prevLast = prevEntries.current[prevEntries.current.length - 1];
@@ -336,31 +329,76 @@ export function ChatStream({
 
 	const rows = useMemo(() => buildRows(entries), [entries]);
 
+	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
+	const questions = useMemo(() => buildQuestions(entries), [entries]);
+	const [activeQuestion, setActiveQuestion] = useState(0);
+
+	const updateActiveQuestion = (): void => {
+		const el = container.current;
+		if (!el || questions.length === 0) return;
+		const base = el.getBoundingClientRect().top;
+		let active = 0;
+		for (const question of questions) {
+			const node = el.querySelector(`[data-qidx="${question.n}"]`);
+			if (!node) break;
+			// 顶部 140px 以内的最后一个提问 = 当前视口所在提问
+			if (node.getBoundingClientRect().top - base <= 140) active = question.n;
+			else break;
+		}
+		setActiveQuestion((prev) => (prev === active ? prev : active));
+	};
+
+	const jumpToQuestion = (n: number): void => {
+		const el = container.current;
+		const node = el?.querySelector(`[data-qidx="${n}"]`);
+		if (!el || !node) return;
+		// 导航跳转是明确的翻历史意图：关掉贴底跟随，避免流式输出把视图拽回去
+		stick.current = false;
+		const top = node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
+		el.scrollTo({ top, behavior: "smooth" });
+	};
+
+	// 会话切换/恢复后立即校准高亮，不等首次滚动
+	useEffect(() => {
+		updateActiveQuestion();
+	}, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	const onScrollWithTracking = (): void => {
+		const el = container.current;
+		if (!el) return;
+		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
+		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+		updateActiveQuestion();
+	};
+
 	return (
-		<main ref={container} onWheel={onWheel} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-5 sm:px-6">
-			{/* 统一内容列：宽窗封顶居中、窄窗满宽，提问与回答同列 */}
-			<div className="mx-auto w-full max-w-3xl">
-				{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : (
-					<div className="mt-[22vh] flex flex-col items-center">
-						<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
-						<p className="mt-5 font-serif text-2xl text-owl-text">✳ 有什么可以帮你的？</p>
-						<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
-					</div>
-				))}
-				{rows.map((row, i) => {
-					const isLast = i === rows.length - 1;
-					return (
-						<div key={row.key} className="flex gap-2 sm:gap-3">
-							{/* 节点轨：节点 + 纵向连线，行间无空隙保证链路连续 */}
-							<div className="flex w-6 shrink-0 flex-col items-center">
-								{row.node}
-								{!isLast && <div className="w-px flex-1 bg-owl-border/50" aria-hidden="true" />}
-							</div>
-							<div className={`min-w-0 flex-1 ${isLast ? "" : "pb-4"}`}>{row.content}</div>
+		<div className="relative min-h-0 flex-1">
+			<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="h-full overflow-y-auto px-3 py-5 sm:px-6">
+				{/* 统一内容列：宽窗封顶居中、窄窗满宽，提问与回答同列 */}
+				<div className="mx-auto w-full max-w-3xl">
+					{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : (
+						<div className="mt-[22vh] flex flex-col items-center">
+							<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
+							<p className="mt-5 font-serif text-2xl text-owl-text">✳ 有什么可以帮你的？</p>
+							<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
 						</div>
-					);
-				})}
-			</div>
-		</main>
+					))}
+					{rows.map((row, i) => {
+						const isLast = i === rows.length - 1;
+						return (
+							<div key={row.key} data-qidx={row.questionIndex} className="flex gap-2 sm:gap-3">
+								{/* 节点轨：节点 + 纵向连线，行间无空隙保证链路连续 */}
+								<div className="flex w-6 shrink-0 flex-col items-center">
+									{row.node}
+									{!isLast && <div className="w-px flex-1 bg-owl-border/50" aria-hidden="true" />}
+								</div>
+								<div className={`min-w-0 flex-1 ${isLast ? "" : "pb-4"}`}>{row.content}</div>
+							</div>
+						);
+					})}
+				</div>
+			</main>
+			<QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} />
+		</div>
 	);
 }
