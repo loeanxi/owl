@@ -10,14 +10,7 @@
 		"frontendDist": "../dist"
 	},
 	"app": {
-		"windows": [
-			{
-				"title": "pire",
-				"width": 1280,
-				"height": 860,
-				"resizable": true
-			}
-		],
+		"windows": [],
 		"security": {
 			"csp": null
 		}
