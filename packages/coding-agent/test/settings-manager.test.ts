@@ -748,7 +748,7 @@ describe("SettingsManager", () => {
 
 	describe("plugins field", () => {
 		it("roundtrips plugins through setPlugins and persists them", () => {
-			const manager = SettingsManager.inMemory();
+			const manager = SettingsManager.create(projectDir, agentDir);
 			const plugins = ["npm:pi-web-access", { source: "npm:plan-mode", extensions: ["+dist/index.ts"] }];
 
 			manager.setPlugins(plugins);
