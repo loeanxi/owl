@@ -13,7 +13,6 @@ import { TodoPin } from "./components/TodoPin.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
-import { BottomDockBar } from "./sidebar/BottomDockBar.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
 import { isIabPageBound, encodeIabPath } from "./sidebar/iab-bound.ts";
@@ -34,7 +33,6 @@ function isApprovalMode(value: string | null): value is ApprovalMode {
 }
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
-const DOCK_BAR_KEY = "owl.dock.visible";
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -92,8 +90,6 @@ export default function App(): React.JSX.Element {
 	const [workbenchDock, setWorkbenchDock] = useState<WorkbenchDock>(() =>
 		localStorage.getItem(WORKBENCH_DOCK_KEY) === "right" ? "right" : "bottom",
 	);
-	// 底部栏目（快捷卡条）：X 收起后从顶栏的底部面板按钮唤回。
-	const [dockBarVisible, setDockBarVisible] = useState(() => localStorage.getItem(DOCK_BAR_KEY) !== "0");
 	const setWorkbenchOpenPersisted = (open: boolean): void => {
 		setWorkbenchOpen(open);
 		localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "1" : "0");
@@ -119,15 +115,13 @@ export default function App(): React.JSX.Element {
 			setWorkbenchOpenPersisted(false);
 			return;
 		}
-		if (target === "bottom") setDockBarVisible(true);
 		setDockPersisted(target);
 		setWorkbenchOpenPersisted(true);
 	};
 
-	/** 打开一个快捷 tab（底部栏 / 开始页卡片入口）：不动停靠位，只保证面板展开。 */
+	/** 打开一个快捷 tab（开始页卡片入口）：不动停靠位，只保证面板展开。 */
 	const requestOpenKind = (kind: string): void => {
 		openQuickAction(workbenchStore, kind);
-		if (dockRef.current === "bottom") setDockBarVisible(true);
 		setWorkbenchOpenPersisted(true);
 	};
 
@@ -135,7 +129,6 @@ export default function App(): React.JSX.Element {
 	const openInPanel = (kind: string): void => {
 		if (!openRef.current) setWorkbenchOpenPersisted(true);
 		openQuickAction(workbenchStore, kind);
-		if (dockRef.current === "bottom") setDockBarVisible(true);
 	};
 
 	const workspaceRef = useRef(workspaceDir);
@@ -552,12 +545,6 @@ export default function App(): React.JSX.Element {
 							onApprovalMode={handleApprovalModeChange}
 							sessionInfo={sessionInfo}
 						/>
-						{workbenchDock === "right" && dockBarVisible && (
-							<BottomDockBar store={workbenchStore} panelOpen={workbenchOpen} onOpenKind={requestOpenKind} onHide={() => {
-								setDockBarVisible(false);
-								localStorage.setItem(DOCK_BAR_KEY, "0");
-							}} />
-						)}
 					</div>
 					<Workbench
 						client={client}
@@ -568,12 +555,6 @@ export default function App(): React.JSX.Element {
 						dock={workbenchDock}
 						onSetDock={setDockPersisted}
 					/>
-					{workbenchDock === "bottom" && dockBarVisible && (
-						<BottomDockBar store={workbenchStore} panelOpen={workbenchOpen} onOpenKind={requestOpenKind} onHide={() => {
-							setDockBarVisible(false);
-							localStorage.setItem(DOCK_BAR_KEY, "0");
-						}} />
-					)}
 				</div>
 			</div>
 			{permission && (
