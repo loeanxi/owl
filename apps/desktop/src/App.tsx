@@ -12,6 +12,7 @@ import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { Workbench } from "./sidebar/Workbench.tsx";
 import { IconPanelRight } from "./sidebar/icons.tsx";
+import { notifyAgentStatus } from "./utils/notification.ts";
 import type { ProviderModelsMessage } from "./bridge/protocol.ts";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
@@ -85,15 +86,35 @@ export default function App(): React.JSX.Element {
 			if ((message.event as { type?: string }).type === "agent_settled") {
 				setRunning(false);
 				void refreshStats();
+				void notifyAgentStatus({
+					title: "Owl 任务完成",
+					body: "Agent 已完成当前回答与代码修改",
+					critical: false,
+				});
 			}
 		});
-		const offPermission = client.onPermissionRequest(setPermission);
+		const offPermission = client.onPermissionRequest((request) => {
+			setPermission(request);
+			if (request) {
+				void notifyAgentStatus({
+					title: "Owl 需要人工确认",
+					body: `Agent 请求执行工具：${request.toolCall?.name ?? "工具操作"}`,
+					critical: true,
+				});
+			}
+		});
 		return () => {
 			offStatus();
 			offEvents();
 			offPermission();
 		};
 	}, [client]);
+
+	useEffect(() => {
+		if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+			void Notification.requestPermission().catch(() => {});
+		}
+	}, []);
 
 	useEffect(() => {
 		if (!connected) return;

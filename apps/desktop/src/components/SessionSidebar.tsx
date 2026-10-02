@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProjectCreateResult } from "../bridge/protocol.ts";
+import { hasTauri, pickFolder } from "../bridge/native.ts";
 import {
 	IconArchive,
 	IconChat,
@@ -269,6 +270,8 @@ export function SessionSidebar({
 	const [newPath, setNewPath] = useState("");
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState("");
+	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
+	const [browsing, setBrowsing] = useState(false);
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -473,6 +476,20 @@ export function SessionSidebar({
 			setCreateError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setCreating(false);
+		}
+	};
+
+	/** 系统资源管理器选择项目目录（仅桌面壳有此入口）。 */
+	const browseProject = async (): Promise<void> => {
+		setBrowsing(true);
+		setCreateError("");
+		try {
+			const selected = await pickFolder("选择项目目录");
+			if (selected) setNewPath(selected);
+		} catch (error) {
+			setCreateError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBrowsing(false);
 		}
 	};
 
@@ -699,8 +716,8 @@ export function SessionSidebar({
 					}
 					menu={<MenuRow label="新建项目" onClick={openNewProject} />}
 				>
-					{/* 当前项目行：点击展开/收起项目下的会话列表 */}
-					<div className="flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+					{/* 当前项目行：点击展开/收起会话列表；悬停右侧露出新会话/项目选项按钮 */}
+					<div className="group/project flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
 						<button
 							type="button"
 							className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -715,7 +732,25 @@ export function SessionSidebar({
 							<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
 							<span className="truncate text-xs text-owl-text">{projectLabel(activeProject)}</span>
 						</button>
-						<span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
+						<div className="flex shrink-0 items-center gap-0.5">
+							<button
+								type="button"
+								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+								title="在本项目新建会话"
+								onClick={onNewChat}
+							>
+								<IconPlus className="h-3.5 w-3.5" />
+							</button>
+							<button
+								type="button"
+								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+								title="项目选项"
+								onClick={() => setOpenMenu(openMenu === "projects" ? null : "projects")}
+							>
+								<IconMore className="h-3.5 w-3.5" />
+							</button>
+							<span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />
+						</div>
 					</div>
 					{isOpen(PROJECT_SESSIONS_ID) && (
 						<div className="mt-0.5 pl-4">
@@ -805,21 +840,34 @@ export function SessionSidebar({
 					<div className="w-96 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
 						<h2 className="mb-1 text-sm font-semibold text-owl-text">新建项目</h2>
 						<p className="mb-3 text-xs text-owl-muted">
-							输入项目目录的绝对路径（不存在会自动创建）：
+							选择或输入项目目录（不存在会自动创建）：
 						</p>
-						<input
-							type="text"
-							className="w-full rounded-lg border border-owl-border bg-owl-sidebar px-3 py-2 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
-							placeholder="D:\mycode\new-project"
-							value={newPath}
-							autoFocus
-							disabled={creating}
-							onChange={(event) => setNewPath(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") void submitNewProject();
-								if (event.key === "Escape") setShowNewProject(false);
-							}}
-						/>
+						<div className="flex gap-2">
+							<input
+								type="text"
+								className="min-w-0 flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-3 py-2 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
+								placeholder="D:\mycode\new-project"
+								value={newPath}
+								autoFocus
+								disabled={creating}
+								onChange={(event) => setNewPath(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") void submitNewProject();
+									if (event.key === "Escape") setShowNewProject(false);
+								}}
+							/>
+							{hasTauri() && (
+								<button
+									type="button"
+									className="shrink-0 rounded-lg border border-owl-border px-3 py-2 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text disabled:opacity-50"
+									title="打开系统资源管理器选择文件夹"
+									onClick={() => void browseProject()}
+									disabled={browsing || creating}
+								>
+									{browsing ? "打开中…" : "浏览…"}
+								</button>
+							)}
+						</div>
 						{createError && <p className="mt-2 text-xs text-red-400">{createError}</p>}
 						<div className="mt-4 flex justify-end gap-2">
 							<button

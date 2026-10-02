@@ -60,6 +60,7 @@ fn main() {
 	let bridge = Mutex::new(Some(bridge));
 
 	tauri::Builder::default()
+		.plugin(tauri_plugin_dialog::init())
 		.setup(move |app| {
 			tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")
