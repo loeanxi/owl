@@ -261,16 +261,20 @@ export class BrowserHub {
 		await entry.page.close().catch(() => {}); // close 事件统一清账与广播
 	}
 
-	/** attach 时先推一帧全量截图，screencast 只管后续增量。 */
+	/** attach 时先推一帧全量截图，screencast 只管后续增量。截图可能因页面
+	 *  正在导航而失败，静态页之后也不会自己重绘——失败就重试，保证首帧必达。 */
 	async captureFrame(pageId: string): Promise<void> {
 		const entry = this.pages.get(pageId);
 		if (!entry) return;
-		try {
-			const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
-			const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
-			this.callbacks.onFrame(pageId, buffer.toString("base64"), viewport.width, viewport.height);
-		} catch {
-			// 页面正在导航时截图可能失败：忽略，等 screencast 帧补上
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
+				const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
+				this.callbacks.onFrame(pageId, buffer.toString("base64"), viewport.width, viewport.height);
+				return;
+			} catch {
+				await sleep(300);
+			}
 		}
 	}
 

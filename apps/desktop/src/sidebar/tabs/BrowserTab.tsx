@@ -191,13 +191,20 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	// 页面就位：登记 + 订阅帧流；卸载/换页时退订
+	// 页面就位：登记 + 订阅帧流；卸载/换页时退订。绑定 3 秒后仍无一帧
+	// （attach 时首帧可能丢）就重发一次 attach，让桥重新抓全量帧。
 	useEffect(() => {
 		if (!page) return;
 		bindIabPage(page.pageId);
 		void client.request({ type: "iab.attach", pageId: page.pageId }).catch(() => {});
 		const boundPageId = page.pageId;
+		const retryTimer = setTimeout(() => {
+			if (!frameRef.current) {
+				void client.request({ type: "iab.attach", pageId: boundPageId }).catch(() => {});
+			}
+		}, 3_000);
 		return () => {
+			clearTimeout(retryTimer);
 			unbindIabPage(boundPageId);
 			void client.request({ type: "iab.detach", pageId: boundPageId }).catch(() => {});
 		};
@@ -240,8 +247,15 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		});
 	}, [client, applyPage, scheduleDraw, store, tab.id]);
 
-	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 帧尺寸就位时兜底：
-	// 面板在后台绑定时 clientWidth 是 0，只靠 observer 的后续回调不可靠。
+	// canvas 挂载/舞台尺寸就位时补画缓冲帧：后台绑定期间收到的帧当时画不进
+	// （canvas 未挂载），激活切回来时靠这次补绘显示，否则白屏
+	useEffect(() => {
+		if (frameSize && stageSize.width > 0) scheduleDraw();
+	}, [frameSize, stageSize.width, scheduleDraw]);
+
+	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 1s 兜底轮询：
+	// 嵌在桌面壳里的页面 ResizeObserver/rAF 可能被永久饿死（实测连初始回调
+	// 都不触发），不能只依赖它们；尺寸没变时 measure 返回原对象，不会重渲染。
 	useEffect(() => {
 		const element = stageRef.current;
 		if (!element) return;
@@ -257,9 +271,11 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		const observer = new ResizeObserver(measure);
 		observer.observe(element);
 		window.addEventListener("resize", measure);
+		const poll = setInterval(measure, 1_000);
 		return () => {
 			observer.disconnect();
 			window.removeEventListener("resize", measure);
+			clearInterval(poll);
 		};
 	}, [page?.pageId, frameSize !== undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 

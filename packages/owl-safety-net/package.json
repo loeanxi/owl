@@ -1,0 +1,36 @@
+{
+	"name": "owl-safety-net",
+	"version": "2.4.15-owl.1",
+	"description": "Safety net for the Owl coding agent — blocks destructive shell commands and secret-file access before execution. Engine vendored from kenryu42/cc-safety-net 2.4.15 (MIT) with an Owl-native extension entry.",
+	"license": "MIT",
+	"author": "Owl contributors (upstream: J Liew <jliew@420024lab.com>, kenryu42/cc-safety-net)",
+	"type": "module",
+	"private": true,
+	"keywords": [
+		"owl-package",
+		"owl",
+		"owl-coding-agent",
+		"extension",
+		"safety",
+		"security"
+	],
+	"scripts": {
+		"build": "node scripts/build.js",
+		"typecheck": "tsc --noEmit",
+		"smoke": "node scripts/smoke.mjs"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"esbuild": "^0.28.1",
+		"typescript": "^7.0.2"
+	},
+	"owl": {
+		"extensions": ["./dist/index.js"],
+		"forkedFrom": {
+			"name": "cc-safety-net",
+			"version": "2.4.15",
+			"repository": "git+https://github.com/kenryu42/cc-safety-net.git",
+			"commit": "8459b51d72d96c56ca60b3fdb3ae5b19eb5603ed"
+		}
+	}
+}
