@@ -3,8 +3,8 @@
  * 扩展（追踪钩子）与桌面桥（影响清单/还原）经这里拿到同一个会话追踪器实例。
  */
 import { join } from "node:path";
-import { RewindSnapshotStore } from "./store.ts";
 import { SessionRewindTracker } from "./engine.ts";
+import { RewindSnapshotStore } from "./store.ts";
 
 export const REWIND_SNAPSHOT_DIR_NAME = "rewind-snapshots";
 

@@ -47,6 +47,8 @@ import {
 	resolveQuestion,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
+import { listRewindTargets } from "../../core/rewind/engine.ts";
+import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
@@ -64,6 +66,11 @@ import type {
 	IabOpenResult,
 	IabPageInfo,
 	IabStateResult,
+	RewindExecuteResult,
+	RewindImpactFile,
+	RewindImpactResult,
+	RewindTargetsResult,
+	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
 import {
@@ -391,6 +398,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			pending.resolve(false);
 		}
 		cancelPendingQuestionsForSession(sessionId);
+		disposeSessionRewindTracker(sessionId);
 		if (mounted) {
 			try {
 				await mounted.runtime.session.abort();
@@ -634,19 +642,58 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 	}
 
-	/** 会话快照：恢复/创建时回给前端回放用（消息来自事件流投影，续聊上下文同源）。 */
-	function sessionSnapshot(
-		sessionId: string,
-		sessionManager: SessionManager,
-	): { sessionId: string; cwd: string; messages: unknown[]; thinkingLevel?: unknown; header: unknown } {
+	/** 会话快照：恢复/创建/回退时回给前端回放用（消息来自事件流投影，续聊上下文同源）。
+	 *  messageEntryIds 与 messages 按下标对齐，回退按钮靠它知道每条用户消息的会话条目。 */
+	function sessionSnapshot(sessionId: string, sessionManager: SessionManager): SessionSnapshotPayload {
 		const projection = sessionManager.buildSessionProjection();
+		const messages: unknown[] = [];
+		const messageEntryIds: (string | undefined)[] = [];
+		for (const entry of projection.entries) {
+			for (const message of entry.messages) {
+				messages.push(message);
+				messageEntryIds.push(entry.sourceEntry.id);
+			}
+		}
 		return {
 			sessionId,
 			cwd: sessionManager.getCwd(),
-			messages: projection.messages,
+			messages,
+			messageEntryIds,
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 		};
+	}
+
+	/** 回退目标合法性：必须是当前分支上的用户消息条目。 */
+	function validateRewindTarget(sessionManager: SessionManager, entryId: string) {
+		const entry = sessionManager.getEntry(entryId);
+		if (!entry || entry.type !== "message" || entry.message.role !== "user") return null;
+		if (!sessionManager.getBranch().some((branchEntry) => branchEntry.id === entryId)) return null;
+		return entry;
+	}
+
+	/** 工作区相对显示路径（回退影响清单用；解析不出时回退原路径）。 */
+	function displayPathOf(absolutePath: string, cwd: string): string {
+		const normalizedCwd = resolve(cwd);
+		const normalizedPath = resolve(absolutePath);
+		if (normalizedPath.toLowerCase().startsWith(normalizedCwd.toLowerCase() + sep)) {
+			return normalizedPath.slice(normalizedCwd.length + 1).split(sep).join("/");
+		}
+		return absolutePath;
+	}
+
+	/** 单文件备份上限：settings.json 的 owlRewind.maxFileBytes（与扩展侧 pi.getSettings() 同源）。 */
+	async function rewindMaxFileBytes(cwd: string): Promise<number | undefined> {
+		try {
+			const { SettingsManager }: typeof import("../../core/settings-manager.ts") = await import(
+				"../../core/settings-manager.ts"
+			);
+			const settingsManager = await SettingsManager.create(cwd, defaultAgentDir());
+			const value = settingsManager.getSettings().owlRewind?.maxFileBytes;
+			return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** 桌面端内置斜杠命令：都在 UI / 桥本地执行，session.prompt 不认识它们（不能当文本发）。 */
@@ -976,6 +1023,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.delete": {
 				// 已挂载的会话先卸载：否则运行时继续 append 会把删掉的 JSONL 重新写出来。
 				await unmountSessionRuntime(request.sessionId);
+				getSessionRewindTracker(defaultAgentDir(), request.sessionId).destroyAll();
+				disposeSessionRewindTracker(request.sessionId);
 				const found = await findSessionFile(request.sessionId);
 				if (!found) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
@@ -1145,6 +1194,113 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					await session.runtime.session.compact();
 					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			// -- 会话回退（owl-rewind） --------------------------------------------------
+			case "rewind.targets": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const sessionManager = session.runtime.session.sessionManager;
+				const targets = listRewindTargets(sessionManager.buildSessionProjection().entries.map((entry) => entry.sourceEntry));
+				reply(ws, request.id, { ok: true, result: { targets } satisfies RewindTargetsResult });
+				return;
+			}
+			case "rewind.impact": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const sessionManager = session.runtime.session.sessionManager;
+				const targetEntry = validateRewindTarget(sessionManager, request.entryId);
+				if (!targetEntry) {
+					reply(ws, request.id, { ok: false, error: "回退目标必须是当前会话分支上的用户消息" });
+					return;
+				}
+				try {
+					const tracker = getSessionRewindTracker(defaultAgentDir(), request.sessionId, {
+						maxFileBytes: await rewindMaxFileBytes(sessionManager.getCwd()),
+					});
+					const plan = tracker.planRestore({ entryId: request.entryId, time: targetEntry.timestamp }, sessionManager);
+					const cwd = sessionManager.getCwd();
+					const files: RewindImpactFile[] = plan.actions.map((item) => ({
+						path: item.path,
+						displayPath: displayPathOf(item.path, cwd),
+						action: item.action,
+						size: item.size,
+					}));
+					reply(ws, request.id, { ok: true, result: { files, unchanged: plan.unchanged } satisfies RewindImpactResult });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "rewind.execute": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const agentSession = session.runtime.session;
+				const sessionManager = agentSession.sessionManager;
+				const targetEntry = validateRewindTarget(sessionManager, request.entryId);
+				if (!targetEntry) {
+					reply(ws, request.id, { ok: false, error: "回退目标必须是当前会话分支上的用户消息" });
+					return;
+				}
+				try {
+					// 进行中的回合必须先停（abort 内部等 idle），否则 leaf 移动会被在途 append 打架
+					if (agentSession.isStreaming || agentSession.isCompacting) {
+						await agentSession.abort();
+					}
+					const tracker = getSessionRewindTracker(defaultAgentDir(), request.sessionId, {
+						maxFileBytes: await rewindMaxFileBytes(sessionManager.getCwd()),
+					});
+					let restored = 0;
+					let deleted = 0;
+					let skipped: Array<{ path: string; reason: string }> = [];
+					if (request.mode === "both") {
+						// 先还原文件再移动 leaf：还原失败时原地报错，会话保持原状
+						const plan = tracker.planRestore({ entryId: request.entryId, time: targetEntry.timestamp }, sessionManager);
+						const result = tracker.applyRestore(plan);
+						restored = result.restored;
+						deleted = result.deleted;
+						skipped = result.skipped;
+					}
+					const navigation = await agentSession.navigateTree(request.entryId);
+					if (navigation.cancelled) {
+						reply(ws, request.id, { ok: false, error: "回退已被取消" });
+						return;
+					}
+					// navigateTree 只改内存 leaf（重启会回落到文件末尾）；追加一条 custom
+					// 标记把新分支钉住，顺带留审计记录。custom 条目不进模型上下文、转录不渲染。
+					sessionManager.appendCustomEntry("owl-rewind", {
+						target: request.entryId,
+						mode: request.mode,
+						via: "desktop",
+						time: new Date().toISOString(),
+					});
+					tracker.prune();
+					const result: RewindExecuteResult = {
+						editorText: navigation.editorText,
+						snapshot: sessionSnapshot(request.sessionId, sessionManager),
+						restored,
+						deleted,
+						skipped,
+					};
+					reply(ws, request.id, { ok: true, result });
 				} catch (error) {
 					reply(ws, request.id, {
 						ok: false,

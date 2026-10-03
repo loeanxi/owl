@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NewsAssistantResult, NewsItem } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { useT } from "../../i18n/index.ts";
 import { NewsClient, errorText } from "./news-client.ts";
@@ -6,22 +6,24 @@ import { NewsClient, errorText } from "./news-client.ts";
 export interface NewsContext { items: NewsItem[]; quote?: string; storyId?: string; reportId?: string; }
 interface AssistantTurn { question: string; result: NewsAssistantResult; }
 
-export function NewsAssistant({ api, context, onContext, onClose, onItem, onToChat }: {
+export function NewsAssistant({ api, context, onContext, onClose, onItem, onToChat, prefill }: {
 	api: NewsClient; context: NewsContext; onContext: (context: NewsContext) => void;
 	onClose: () => void; onItem: (id: string) => void; onToChat: (text: string) => void;
+	prefill?: { id: number; text: string };
 }): React.JSX.Element {
 	const t = useT();
 	const [question, setQuestion] = useState("");
 	const [turns, setTurns] = useState<AssistantTurn[]>([]);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	useEffect(() => { if (prefill) setQuestion(prefill.text); }, [prefill]);
 	const suggestions = [t("news.suggestImpact"), t("news.suggestVerify"), t("news.suggestCompare")];
 	async function send(): Promise<void> {
 		if (!question.trim() || busy) return;
 		const submitted = question.trim();
 		setBusy(true); setError("");
 		try {
-			const result = await api.query<NewsAssistantResult>({ action: "assistant", request: {
+			const result = await api.query({ action: "assistant", request: {
 				question: submitted, itemIds: context.items.map((item) => item.id),
 				...(context.quote ? { quote: context.quote } : {}),
 				...(context.storyId ? { storyId: context.storyId } : {}),

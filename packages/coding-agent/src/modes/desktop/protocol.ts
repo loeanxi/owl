@@ -148,6 +148,79 @@ export interface SessionCompactRequest {
 	sessionId: string;
 }
 
+// -- 会话回退（owl-rewind） ----------------------------------------------------
+// 回退本体 = AgentSession.navigateTree（leaf 指针前移，被撤回内容留在日志里），
+// 文件还原 = owl-rewind 扩展的写前备份。快照存储在 <agentDir>/rewind-snapshots/。
+
+/** 一条可回退的用户消息（当前分支、当前可见上下文内的）。 */
+export interface RewindTarget {
+	entryId: string;
+	text: string;
+	timestamp: string;
+}
+
+export interface RewindTargetsRequest {
+	type: "rewind.targets";
+	id: string;
+	sessionId: string;
+}
+
+export interface RewindTargetsResult {
+	targets: RewindTarget[];
+}
+
+/** 回退前的影响清单：对照真实磁盘算出的差量（只算不动盘）。 */
+export interface RewindImpactRequest {
+	type: "rewind.impact";
+	id: string;
+	sessionId: string;
+	entryId: string;
+}
+
+export interface RewindImpactFile {
+	path: string;
+	/** 工作区相对显示路径（解析不出时回退绝对路径） */
+	displayPath: string;
+	action: "restore" | "delete";
+	size: number;
+}
+
+export interface RewindImpactResult {
+	files: RewindImpactFile[];
+	/** 已追踪但内容与目标状态一致、无需改动的文件数 */
+	unchanged: number;
+}
+
+/** 执行回退。mode=both 时先按备份还原文件再移动会话 leaf。 */
+export interface RewindExecuteRequest {
+	type: "rewind.execute";
+	id: string;
+	sessionId: string;
+	entryId: string;
+	mode: "conversation" | "both";
+}
+
+export interface RewindExecuteResult {
+	/** 被回退的目标消息文本（UI 回填输入框） */
+	editorText?: string;
+	snapshot: SessionSnapshotPayload;
+	restored: number;
+	deleted: number;
+	/** 单文件跳过/失败清单（目录被移走、符号链接等） */
+	skipped: Array<{ path: string; reason: string }>;
+}
+
+/** 会话快照（session.create/resume/rewind 共用）：消息 + 对齐的会话条目 id。 */
+export interface SessionSnapshotPayload {
+	sessionId: string;
+	cwd: string;
+	messages: unknown[];
+	/** 与 messages 按下标对齐的会话条目 id（回退按钮需要；无条目来源的消息为 undefined） */
+	messageEntryIds: (string | undefined)[];
+	thinkingLevel?: unknown;
+	header: unknown;
+}
+
 /** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */
 export interface SlashCommandEntry {
 	/** 触发名（不含前导斜杠）：内置命令名 / 模板名 / 扩展命令名 / skill:<name>。 */
@@ -1116,6 +1189,9 @@ export type DesktopClientRequest =
 	| SessionSetThinkingLevelRequest
 	| SessionSetApprovalModeRequest
 	| SessionCompactRequest
+	| RewindTargetsRequest
+	| RewindImpactRequest
+	| RewindExecuteRequest
 	| SessionStatsRequest
 	| CommandsListRequest
 	| SkillsListRequest

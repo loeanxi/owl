@@ -16,10 +16,10 @@
  * 可整体停用。追踪边界与安全模型见 DEV-README「会话回退」一节。
  */
 import { getAgentDir } from "../../config.ts";
-import { getSessionRewindTracker } from "../../core/rewind/registry.ts";
-import { listRewindTargets } from "../../core/rewind/engine.ts";
-import { resolveToCwd } from "../../core/tools/path-utils.ts";
 import type { ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
+import { listRewindTargets } from "../../core/rewind/engine.ts";
+import { getSessionRewindTracker } from "../../core/rewind/registry.ts";
+import { resolveToCwd } from "../../core/tools/path-utils.ts";
 
 const MARKER_ENTRY_TYPE = "owl-rewind";
 
@@ -27,20 +27,23 @@ export function createOwlRewindExtension(): ExtensionFactory {
 	return (pi) => {
 		if (pi.getSettings().owlRewind?.enabled === false) return;
 		const agentDir = getAgentDir();
+		const maxFileBytes = pi.getSettings().owlRewind?.maxFileBytes;
+		const trackerFor = (sessionId: string): ReturnType<typeof getSessionRewindTracker> =>
+			getSessionRewindTracker(agentDir, sessionId, { maxFileBytes });
 
 		pi.on("before_agent_start", (_event, ctx) => {
-			getSessionRewindTracker(agentDir, ctx.sessionManager.getSessionId()).stageBoundaryRescan();
+			trackerFor(ctx.sessionManager.getSessionId()).stageBoundaryRescan();
 		});
 
 		pi.on("agent_start", (_event, ctx) => {
-			getSessionRewindTracker(agentDir, ctx.sessionManager.getSessionId()).ensureBoundaryCommitted(ctx.sessionManager);
+			trackerFor(ctx.sessionManager.getSessionId()).ensureBoundaryCommitted(ctx.sessionManager);
 		});
 
 		pi.on("tool_call", (event, ctx) => {
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const path = (event.input as { path?: unknown } | undefined)?.path;
 			if (typeof path !== "string" || !path.trim()) return;
-			getSessionRewindTracker(agentDir, ctx.sessionManager.getSessionId()).stageCapture(
+			trackerFor(ctx.sessionManager.getSessionId()).stageCapture(
 				event.toolCallId,
 				resolveToCwd(path, ctx.cwd),
 				ctx.sessionManager,
@@ -50,7 +53,7 @@ export function createOwlRewindExtension(): ExtensionFactory {
 		pi.on("tool_result", (event, ctx) => {
 			// 只处理 write/edit 的结果；其余工具没有暂存，直接空转
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
-			const tracker = getSessionRewindTracker(agentDir, ctx.sessionManager.getSessionId());
+			const tracker = trackerFor(ctx.sessionManager.getSessionId());
 			tracker.commitCapture(event.toolCallId, event.isError === true);
 			tracker.prune();
 		});
@@ -60,9 +63,12 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				"回退到更早的用户消息（/rewind 列出候选；/rewind <序号> 仅回退对话；/rewind <序号> code 连文件一起还原）",
 			handler: async (argsText, ctx) => {
 				const sessionManager = ctx.sessionManager;
-				const tracker = getSessionRewindTracker(agentDir, sessionManager.getSessionId());
+				const tracker = trackerFor(sessionManager.getSessionId());
 				const send = (text: string): void => {
-					void pi.sendMessage({ customType: MARKER_ENTRY_TYPE, content: text, display: true }, { triggerTurn: false });
+					void pi.sendMessage(
+						{ customType: MARKER_ENTRY_TYPE, content: text, display: true },
+						{ triggerTurn: false },
+					);
 				};
 				const projection = sessionManager.buildSessionProjection();
 				const targets = listRewindTargets(projection.entries.map((entry) => entry.sourceEntry));
@@ -81,7 +87,9 @@ export function createOwlRewindExtension(): ExtensionFactory {
 						})
 						.reverse()
 						.join("\n");
-					send(`可回退到以下用户消息（1 = 最近一条）：\n${lines}\n\n用 /rewind <序号> 回退（加 code 参数连文件一起还原）。桌面端也可以直接点消息旁的 ↶ 按钮。`);
+					send(
+						`可回退到以下用户消息（1 = 最近一条）：\n${lines}\n\n用 /rewind <序号> 回退（加 code 参数连文件一起还原）。桌面端也可以直接点消息旁的 ↶ 按钮。`,
+					);
 				};
 
 				if (args.length === 0) {
@@ -104,7 +112,9 @@ export function createOwlRewindExtension(): ExtensionFactory {
 					if (plan.actions.length > 0) {
 						const result = tracker.applyRestore(plan);
 						restoreNote = `；文件已还原 ${result.restored} 个、删除 ${result.deleted} 个${
-							result.skipped.length > 0 ? `（跳过 ${result.skipped.length} 个：${result.skipped.map((s) => s.reason).join("、")}）` : ""
+							result.skipped.length > 0
+								? `（跳过 ${result.skipped.length} 个：${result.skipped.map((s) => s.reason).join("、")}）`
+								: ""
 						}`;
 					} else {
 						restoreNote = "；没有需要还原的文件改动";
@@ -126,7 +136,9 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				});
 				tracker.prune();
 				const brief = target.text.split("\n").find((line) => line.trim() !== "") ?? "";
-				send(`已回退到：${brief.slice(0, 60)}${brief.length > 60 ? "…" : ""}${restoreNote}。请重新编辑并发送这条消息。`);
+				send(
+					`已回退到：${brief.slice(0, 60)}${brief.length > 60 ? "…" : ""}${restoreNote}。请重新编辑并发送这条消息。`,
+				);
 			},
 		});
 	};

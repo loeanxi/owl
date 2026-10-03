@@ -238,6 +238,8 @@ export interface Settings {
 	owlSkillExtras?: string[];
 	/** Owl 跨会话记忆：自动抽取历史会话中的稳定事实并注入系统提示词。条目在设置页与 /memory 可见可删。 */
 	owlMemory?: OwlMemorySettings;
+	/** Owl 会话回退：写前备份工作区文件、消息气泡 ↶ 一键回退（owl-rewind 内置扩展）。 */
+	owlRewind?: OwlRewindSettings;
 	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
 	owlSidebar?: OwlSidebarSettings;
 }
@@ -253,6 +255,13 @@ export interface OwlSkillGroup {
 export interface OwlMemorySettings {
 	/** 是否启用跨会话记忆（自动抽取 + 注入）。默认 true。 */
 	enabled?: boolean;
+}
+
+export interface OwlRewindSettings {
+	/** 是否启用会话回退与文件检查点。默认 true。 */
+	enabled?: boolean;
+	/** 单文件备份上限（字节）；超出不追踪不备份。默认 8MB。 */
+	maxFileBytes?: number;
 }
 
 function isMergeableObject(value: unknown): value is Record<string, unknown> {

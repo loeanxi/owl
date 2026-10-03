@@ -16,15 +16,20 @@
  * （其后磁盘未变）。锚点条目不在当前分支上的记录（被回退掉的旧未来）
  * 一律按时间戳参与比较，wall-clock 顺序即真实顺序。
  */
-import { lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+
 import { createHash } from "node:crypto";
 import {
-	captureFileState,
-	type RewindRecord,
-	type RewindSnapshotStore,
-	type RestoreJournal,
-} from "./store.ts";
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { captureFileState, type RestoreJournal, type RewindRecord, type RewindSnapshotStore } from "./store.ts";
 
 /** 锚点解析只需要会话分支的结构子集（ReadonlySessionManager 天然满足）。 */
 export interface RewindBranchEntry {
@@ -233,12 +238,19 @@ export class SessionRewindTracker {
 			state ??= timeline[timeline.length - 1]!;
 			const disk = diskStateOf(path);
 			if (!state.existed) {
-				if (disk.exists) actions.push({ path, action: "delete", size: 0, hash: null, dirRealPath: state.dirRealPath });
+				if (disk.exists)
+					actions.push({ path, action: "delete", size: 0, hash: null, dirRealPath: state.dirRealPath });
 				else unchanged += 1;
 				continue;
 			}
 			if (!disk.exists || disk.hash !== state.hash) {
-				actions.push({ path, action: "restore", size: state.size, hash: state.hash, dirRealPath: state.dirRealPath });
+				actions.push({
+					path,
+					action: "restore",
+					size: state.size,
+					hash: state.hash,
+					dirRealPath: state.dirRealPath,
+				});
 			} else {
 				unchanged += 1;
 			}
@@ -247,7 +259,11 @@ export class SessionRewindTracker {
 	}
 
 	/** 记录是否发生在目标之后：时间戳必须更新；锚点能定位到当前分支时还要位置不早于目标。 */
-	private recordAfterTarget(record: RewindRecord, target: { entryId: string; time: string }, targetPos: number): boolean {
+	private recordAfterTarget(
+		record: RewindRecord,
+		target: { entryId: string; time: string },
+		targetPos: number,
+	): boolean {
 		if (record.time < target.time) return false;
 		if (targetPos >= 0) {
 			const anchorPos = this.branchPosCache?.get(record.anchorId);
