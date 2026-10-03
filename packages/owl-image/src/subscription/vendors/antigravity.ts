@@ -250,16 +250,56 @@ export async function antigravityRefresh(blob: SubscriptionBlob): Promise<Subscr
 		refreshToken: next.refreshToken.length > 0 ? next.refreshToken : blob.refreshToken,
 		label: blob.label,
 		email: blob.email.length > 0 ? blob.email : next.email,
+		// 刷新不丢已引导的项目 id。
+		...(blob.projectId !== undefined ? { projectId: blob.projectId } : {}),
 	};
 }
 
 /**
- * Resolve the managed project id for the logged-in account. Most accounts
- * have one; when loadCodeAssist reports none, the hardcoded fallback keeps
- * generation working (mirrors the reference's ensureProjectContext).
- * Returns '' only when every endpoint fails, letting generate() throw then.
+ * Resolve the managed project id for the logged-in account, following the
+ * reference implementation's three-stage flow (project.ts):
+ *
+ * 1. loadCodeAssist reports the account's own cloudaicompanionProject → use it.
+ * 2. None reported → auto-provision one via `v1internal:onboardUser` (tier
+ *    from allowedTiers, default FREE), polling until done. This is the stage
+ *    upstream dsh-image-gen trimmed out — without it, every account without a
+ *    pre-existing managed project bills the shared community fallback pool,
+ *    whose image quota being exhausted shows up as 429 regardless of the
+ *    account's own (chat) quota shown in the Antigravity IDE.
+ * 3. Onboarding failed → community fallback id as a last resort.
  */
-export async function antigravityResolveProject(blob: SubscriptionBlob): Promise<string> {
+export interface AntigravityProjectResolution {
+	projectId: string
+	source: "managed" | "onboarded" | "fallback"
+}
+
+interface LoadCodeAssistPayload {
+	cloudaicompanionProject?: string | { id?: string }
+	currentTier?: { id?: string }
+	allowedTiers?: Array<{ id?: string; isDefault?: boolean }>
+}
+
+interface OnboardUserPayload {
+	done?: boolean
+	response?: { cloudaicompanionProject?: { id?: string } }
+}
+
+function extractManagedProjectId(payload: LoadCodeAssistPayload | null): string | undefined {
+	if (payload === null || payload === undefined) return undefined;
+	const project = payload.cloudaicompanionProject;
+	if (typeof project === "string" && project.length > 0) return project;
+	if (typeof project === "object" && project !== null && typeof project.id === "string" && project.id.length > 0) return project.id;
+	return undefined;
+}
+
+function defaultTierId(payload: LoadCodeAssistPayload | null): string {
+	const tiers = payload?.allowedTiers ?? [];
+	const preferred = tiers.find((tier) => tier?.isDefault === true) ?? tiers[0];
+	return typeof preferred?.id === "string" && preferred.id.length > 0 ? preferred.id : "FREE";
+}
+
+/** Ask for the account's own managed project; null when every endpoint fails. */
+async function loadManagedProject(blob: SubscriptionBlob, duetProject: string): Promise<LoadCodeAssistPayload | null> {
 	const metadata = { ideType: "ANTIGRAVITY", platform: platformOf(), pluginType: "GEMINI" };
 	for (const base of LOAD_ENDPOINTS) {
 		try {
@@ -268,27 +308,64 @@ export async function antigravityResolveProject(blob: SubscriptionBlob): Promise
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${blob.accessToken}`,
-					...loadHeaders(""),
+					...loadHeaders(duetProject),
 				},
 				body: JSON.stringify({ metadata }),
 				signal: AbortSignal.timeout(25_000),
 			});
 			if (!response.ok) continue;
-			const payload = (await response.json().catch(() => null)) as { cloudaicompanionProject?: unknown } | null;
-			if (payload === null) continue;
-			const project = payload.cloudaicompanionProject;
-			const id =
-				typeof project === "string"
-					? project
-					: typeof project === "object" && project !== null && typeof (project as { id?: unknown }).id === "string"
-						? (project as { id: string }).id
-						: "";
-			if (id.length > 0) return id;
+			const payload = (await response.json().catch(() => null)) as LoadCodeAssistPayload | null;
+			if (payload !== null) return payload;
 		} catch {
 			// try the next endpoint
 		}
 	}
-	return DEFAULT_PROJECT_ID;
+	return null;
+}
+
+/** Auto-provision the account's own managed project via onboardUser; polls until done. */
+async function onboardManagedProject(blob: SubscriptionBlob, tierId: string, duetProject: string): Promise<string | undefined> {
+	const metadata = { ideType: "ANTIGRAVITY", platform: platformOf(), pluginType: "GEMINI" };
+	for (const base of ANTIGRAVITY_ENDPOINTS) {
+		for (let attempt = 0; attempt < 5; attempt += 1) {
+			try {
+				const response = await doFetch(`${base}/v1internal:onboardUser`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${blob.accessToken}`,
+						...contentHeaders(duetProject),
+					},
+					body: JSON.stringify({ tierId, metadata }),
+					signal: AbortSignal.timeout(25_000),
+				});
+				if (!response.ok) break;
+				const payload = (await response.json().catch(() => null)) as OnboardUserPayload | null;
+				if (payload === null) break;
+				const id = payload.response?.cloudaicompanionProject?.id;
+				if (payload.done === true && typeof id === "string" && id.length > 0) return id;
+				if (payload.done === true && duetProject.length > 0) return duetProject;
+			} catch {
+				break;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 3_000));
+		}
+	}
+	return undefined;
+}
+
+export async function antigravityResolveProject(blob: SubscriptionBlob): Promise<AntigravityProjectResolution> {
+	// 与参考实现一致:load 阶段把回退项目作为 duetProject 提示带上。
+	const duetProject = DEFAULT_PROJECT_ID;
+	const loadPayload = await loadManagedProject(blob, duetProject);
+	const managedId = extractManagedProjectId(loadPayload);
+	if (managedId !== undefined) return { projectId: managedId, source: "managed" };
+
+	const tierId = defaultTierId(loadPayload);
+	const onboardedId = await onboardManagedProject(blob, tierId, duetProject);
+	if (onboardedId !== undefined) return { projectId: onboardedId, source: "onboarded" };
+
+	return { projectId: duetProject, source: "fallback" };
 }
 
 function platformOf(): string {

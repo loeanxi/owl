@@ -143,7 +143,18 @@ export function MapWorkspace({
 	const storageInitialized = useRef(false);
 	const queryAbort = useRef<AbortController | undefined>(undefined);
 	const queryEpoch = useRef(0);
-	const lastLookup = useRef<{ action: "search" | "nearby" | "reverse"; query?: string; point?: MapCoordinate; category?: MapCategory; radius?: number; locationPanel?: boolean; searchNearby?: boolean } | undefined>(undefined);
+	const lastLookup = useRef<
+		| {
+				action: "search" | "nearby" | "reverse";
+				query?: string;
+				point?: MapCoordinate;
+				category?: MapCategory;
+				radius?: number;
+				locationPanel?: boolean;
+				searchNearby?: boolean;
+		  }
+		| undefined
+	>(undefined);
 	const sendEpoch = useRef(0);
 	const sendPending = useRef(false);
 	const pendingMessage = useRef("");
@@ -163,7 +174,10 @@ export function MapWorkspace({
 	const detailPlace = rows.find((place) => place.id === detailId);
 	const hasDetail = Boolean(detailPlace);
 	const centerLabel = locationName || m("mapCenter");
-	const partialResults = sources.some((source) => source.status === "error") && sources.some((source) => source.status === "ok") && rows.length > 0;
+	const partialResults =
+		sources.some((source) => source.status === "error") &&
+		sources.some((source) => source.status === "ok") &&
+		rows.length > 0;
 	const labels: RealMapLabels = {
 		mapLabel: m("mapLabel"),
 		zoomIn: m("zoomIn"),
@@ -207,7 +221,8 @@ export function MapWorkspace({
 		queryAbort.current?.abort();
 		setMapLoading(false);
 		const update = frame.update;
-		if (update.result.sources.length > 0 && update.result.sources.every((source) => source.status === "error")) {
+		if (!update.result.sources.some((source) => source.status === "ok")) {
+			setSources(update.result.sources);
 			setMapError(update.result.sources.find((source) => source.error)?.error || m("mapUnavailable"));
 			return;
 		}
@@ -388,7 +403,7 @@ export function MapWorkspace({
 		const epoch = ++queryEpoch.current;
 		setMapLoading(true);
 		setHasSearched(true);
-		setView("results");
+		if (view === "home") setView("results");
 		setMapError(undefined);
 		setSources([]);
 		setDetailId(undefined);
@@ -487,7 +502,15 @@ export function MapWorkspace({
 		selectedCategory = category,
 		selectedRadius = radius,
 	): Promise<MapResult<RealPlace> | undefined> {
-		lastLookup.current = { action: "nearby", point: { ...point }, category: selectedCategory, radius: selectedRadius };
+		lastLookup.current = {
+			action: "nearby",
+			point: { ...point },
+			category: selectedCategory,
+			radius: selectedRadius,
+		};
+		const startingCenter = { ...centerRef.current };
+		const lookupLocationName =
+			straightLineDistance(point, startingCenter) > 100 ? pointLabel(point) : locationName || pointLabel(point);
 		const request = beginQuery();
 		setCategory(selectedCategory);
 		setRadius(selectedRadius);
@@ -495,13 +518,16 @@ export function MapWorkspace({
 			const result = await maps.nearby(point, selectedCategory, selectedRadius, request.signal);
 			if (request.epoch !== queryEpoch.current) return undefined;
 			if (!applyResult(result, "", "nearby", point)) return undefined;
-			centerRef.current = { lat: point.lat, lng: point.lng };
-			setCenter(centerRef.current);
-			setCenterChanged(false);
+			if (straightLineDistance(startingCenter, centerRef.current) < 1) {
+				centerRef.current = { lat: point.lat, lng: point.lng };
+				setCenter(centerRef.current);
+				setLocationName(lookupLocationName);
+				setCenterChanged(false);
+			}
 			recordSearch(
 				m(categoryLabels[selectedCategory]),
 				point,
-				locationName || pointLabel(point),
+				lookupLocationName,
 				"nearby",
 				selectedCategory,
 				selectedRadius,
@@ -518,7 +544,6 @@ export function MapWorkspace({
 	async function selectCoordinate(point: MapCoordinate, searchNearby = false): Promise<boolean> {
 		lastLookup.current = { action: "reverse", point: { ...point }, searchNearby };
 		const request = beginQuery();
-		setView("results");
 		const manual: RealPlace = {
 			id: `user:${point.lat},${point.lng}`,
 			...point,
@@ -545,7 +570,14 @@ export function MapWorkspace({
 		try {
 			const result = await maps.reverse(point, copy.language, request.signal);
 			if (request.epoch !== queryEpoch.current) return false;
-			if (!applyResult({ data: [manual, ...result.data.filter((place) => place.id !== manual.id)], sources: result.sources }, pointLabel(point), "search")) return false;
+			if (
+				!applyResult(
+					{ data: [manual, ...result.data.filter((place) => place.id !== manual.id)], sources: result.sources },
+					pointLabel(point),
+					"search",
+				)
+			)
+				return false;
 			const match = result.data[0];
 			centerOn(point, match ? placeName(match) : pointLabel(point));
 			setLocationCandidates([]);
@@ -567,7 +599,8 @@ export function MapWorkspace({
 		const request = lastLookup.current;
 		if (!request) return;
 		if (request.action === "search") void searchPlaces(request.query ?? "", request.locationPanel);
-		else if (request.action === "nearby") void nearbyPlaces(request.point ?? centerRef.current, request.category ?? category, request.radius ?? radius);
+		else if (request.action === "nearby")
+			void nearbyPlaces(request.point ?? centerRef.current, request.category ?? category, request.radius ?? radius);
 		else if (request.point) void selectCoordinate(request.point, request.searchNearby);
 	}
 	function chooseLocation(place: RealPlace): void {
@@ -1358,14 +1391,7 @@ export function MapWorkspace({
 										{mapError && (
 											<div className="map-conversation-error" role="alert">
 												<p>{mapError}</p>
-												<button
-													type="button"
-													onClick={() =>
-														resultKind === "nearby"
-															? void nearbyPlaces()
-															: void searchPlaces(resultQuery || locationInput)
-													}
-												>
+												<button type="button" onClick={retryLookup}>
 													{m("retry")}
 												</button>
 											</div>

@@ -27,6 +27,13 @@ await mkdir(cwd);
 await writeFile(join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
 await writeFile(join(agentDir, "settings.json"), JSON.stringify({ plugins: [], theme: "dark", uiLanguage: "zh-CN", cacheWarming: { mode: "off" }, owlNotifications: { enabled: false } }));
 const previousEnvironment = Object.fromEntries(["OWL_CODING_AGENT_DIR", "PI_OFFLINE", "PI_RE_BRIDGE"].map((key) => [key, process.env[key]]));
+// The App also queries model settings on connect. Remove ambient credential variables in this
+// child process so the otherwise real desktop model-list path cannot discover user credentials.
+for (const key of Object.keys(process.env)) {
+  if (!/(?:API_KEY|TOKEN|SECRET|OPENAI|ANTHROPIC|AWS_|GOOGLE_|GEMINI|AZURE_|COPILOT)/i.test(key)) continue;
+  previousEnvironment[key] = process.env[key];
+  delete process.env[key];
+}
 process.env.OWL_CODING_AGENT_DIR = agentDir;
 process.env.PI_OFFLINE = "1";
 const loader = createJiti(import.meta.url, {
@@ -136,6 +143,11 @@ async function newRun(name, twoModels = false, samples = 1) {
     await screenshot("create-three-calls.png");
   }
   await area().getByRole("group", { name: "每题运行次数", exact: true }).getByRole("button", { name: String(samples), exact: true }).click();
+  await page.locator(".owl-activity-rail").getByRole("button", { name: "聊天", exact: true }).click();
+  await entryButton().click();
+  assert.equal(await area().getByRole("textbox", { name: "测评名称", exact: true }).inputValue(), name);
+  assert.equal(await area().locator("#eval-select-G01").isChecked(), true);
+  await area().getByRole("group", { name: "每题运行次数", exact: true }).getByRole("button", { name: String(samples), exact: true, pressed: true }).waitFor();
   await screenshot(`create-${samples}-${twoModels ? "two" : "one"}.png`);
   await area().getByRole("button", { name: "开始测评", exact: true }).click();
   await area().locator(".eval-result-card").first().waitFor();

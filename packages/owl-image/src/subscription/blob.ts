@@ -16,6 +16,8 @@ export interface SubscriptionBlob {
 	expiresAt: number;
 	label: string;
 	email: string;
+	/** Antigravity 托管项目 id(项目引导成功后持久化,跨会话复用,免重复引导)。 */
+	projectId?: string;
 }
 
 /** Serialize a blob for storage; at least one token must be present. */
@@ -25,12 +27,14 @@ export function serializeBlob(obj: Partial<SubscriptionBlob>): string {
 	if (accessToken.length === 0 && refreshToken.length === 0) {
 		throw new Error("oauth blob needs accessToken or refreshToken");
 	}
+	const projectId = asString(obj.projectId);
 	return JSON.stringify({
 		accessToken,
 		refreshToken,
 		expiresAt: Number(obj.expiresAt) || 0,
 		label: asString(obj.label),
 		email: asString(obj.email),
+		...(projectId.length > 0 ? { projectId } : {}),
 	});
 }
 
@@ -45,5 +49,6 @@ export function parseBlob(text: string): SubscriptionBlob {
 		expiresAt: Number(row.expiresAt) || 0,
 		label: asString(row.label),
 		email: asString(row.email),
+		...(typeof row.projectId === "string" && row.projectId.length > 0 ? { projectId: row.projectId } : {}),
 	};
 }

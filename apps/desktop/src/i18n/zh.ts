@@ -567,6 +567,10 @@ export const zh = {
 	"settings.appearance.foregroundDesc": "正文文字的颜色，深浅模式分别记录。当前编辑{mode}。",
 	"settings.appearance.colorDefault": "默认",
 	"settings.appearance.note": "颜色更改立即生效并保存；强调色在深浅主题下通用，背景与前景按深浅模式分别记录。",
+	"settings.appearance.themePresets": "主题预设",
+	"settings.appearance.themePresetsDesc": "选择整套界面配色；切换预设会清除已设置的自定义背景与前景色，强调色保持不变。",
+	"settings.appearance.presetGraphite": "经典黑",
+	"settings.appearance.presetOwlGreen": "猫头鹰绿",
 
 	// ---- 设置页：通知与提醒（owlNotifications，原生 Toast 快捷裁决） ----
 	"settings.navNotifications": "通知",

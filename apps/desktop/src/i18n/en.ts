@@ -568,6 +568,10 @@ export const en: Dict = {
 	"settings.appearance.foregroundDesc": "Text color of the interface, stored per theme. Editing {mode}.",
 	"settings.appearance.colorDefault": "Default",
 	"settings.appearance.note": "Color changes apply and save immediately. The accent color applies to both themes; background and foreground are stored per theme.",
+	"settings.appearance.themePresets": "Theme presets",
+	"settings.appearance.themePresetsDesc": "Pick a full color scheme. Switching presets clears custom background and foreground colors; the accent color is kept.",
+	"settings.appearance.presetGraphite": "Classic black",
+	"settings.appearance.presetOwlGreen": "Owl green",
 
 	// ---- Settings: notifications & alerts (owlNotifications, native toast quick decisions) ----
 	"settings.navNotifications": "Notifications",

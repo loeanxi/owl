@@ -26,6 +26,7 @@ test("invalid fields fall back independently without discarding valid colors", (
 			unrelated: "ignored",
 		}),
 		{
+			preset: "",
 			accent: "#8b5cf6",
 			dark: { background: "#111111", foreground: "" },
 			light: { background: "", foreground: "#faf9f5" },
@@ -35,4 +36,12 @@ test("invalid fields fall back independently without discarding valid colors", (
 
 test("non-object nested values do not crash parsing", () => {
 	assert.deepEqual(parseOwlAppearance({ dark: "#262624", light: "light" }), { ...DEFAULT_OWL_APPEARANCE });
+});
+
+test("known presets are kept and unknown ones fall back to the default preset", () => {
+	assert.equal(parseOwlAppearance({ preset: "owl-green" }).preset, "owl-green");
+	assert.equal(parseOwlAppearance({ preset: "" }).preset, "");
+	for (const bad of ["green", "OWL-GREEN", 42, {}, null]) {
+		assert.equal(parseOwlAppearance({ preset: bad }).preset, "");
+	}
 });

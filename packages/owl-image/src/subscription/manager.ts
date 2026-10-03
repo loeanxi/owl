@@ -25,6 +25,7 @@ import {
 	antigravityGenerateImage,
 	antigravityRefresh,
 	antigravityResolveProject,
+	type AntigravityProjectResolution,
 } from "./vendors/antigravity.ts";
 
 /** Reference image passed to edit calls. */
@@ -157,19 +158,30 @@ export class SubscriptionManager {
 				`订阅生图最多支持 ${String(SUBSCRIPTION_MAX_REFERENCE_IMAGES)} 张参考图，当前 ${String(references.length)} 张`,
 			);
 		}
-		const projectId = await this.ensureAntigravityProject(session);
+		const project = await this.ensureAntigravityProject(session);
 		const aspectRatio = antigravityAspectRatioOf(options.size);
-		const result = await antigravityGenerateImage({
-			blob: session,
-			projectId,
-			prompt: text,
-			...(options.model !== undefined && options.model.trim().length > 0 ? { model: options.model.trim() } : {}),
-			...(aspectRatio !== undefined ? { aspectRatio } : {}),
-			hd: options.quality === "hd" || options.quality === "high",
-			...(references.length > 0 ? { referenceImages: references } : {}),
-			...(options.signal !== undefined ? { signal: options.signal } : {}),
-			...(options.proxy !== undefined ? { proxy: options.proxy } : {}),
-		});
+		let result;
+		try {
+			result = await antigravityGenerateImage({
+				blob: session,
+				projectId: project.projectId,
+				prompt: text,
+				...(options.model !== undefined && options.model.trim().length > 0 ? { model: options.model.trim() } : {}),
+				...(aspectRatio !== undefined ? { aspectRatio } : {}),
+				hd: options.quality === "hd" || options.quality === "high",
+				...(references.length > 0 ? { referenceImages: references } : {}),
+				...(options.signal !== undefined ? { signal: options.signal } : {}),
+				...(options.proxy !== undefined ? { proxy: options.proxy } : {}),
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			// 诊断:回退到社区共享项目说明"自动引导托管项目"没有成功——那个公共池
+			// 的生图配额大概率已被社区流量耗尽,429/配额类失败多半源于此而非账号本身。
+			const diagnosis = project.source === "fallback"
+				? `\n(诊断:本次用的是社区共享项目 ${project.projectId}——你的账号自动引导托管项目未成功;公共池生图配额可能已被耗尽,可重试一次让引导重跑,或到 Antigravity IDE 确认账号状态。)`
+				: "";
+			throw new Error(`${message}${diagnosis}`);
+		}
 		return { b64: result.b64 };
 	}
 
@@ -178,13 +190,27 @@ export class SubscriptionManager {
 	 * Antigravity generation envelope needs. Re-resolved when the account
 	 * signs out or a different account logs in.
 	 */
-	private async ensureAntigravityProject(blob: SubscriptionBlob): Promise<string> {
+	private async ensureAntigravityProject(blob: SubscriptionBlob): Promise<AntigravityProjectResolution> {
 		const cacheKey = blob.refreshToken.length > 0 ? blob.refreshToken : blob.accessToken.slice(0, 32);
 		const cached = this.projectCache.get(cacheKey);
 		if (cached !== undefined) return cached;
-		const projectId = await antigravityResolveProject(blob);
-		this.projectCache.set(cacheKey, projectId);
-		return projectId;
+		// 之前引导成功过的项目已持久化在登录 blob 里,直接复用,不再走发现/引导。
+		if (blob.projectId !== undefined && blob.projectId.length > 0) {
+			const persisted: AntigravityProjectResolution = { projectId: blob.projectId, source: "persisted" };
+			this.projectCache.set(cacheKey, persisted);
+			return persisted;
+		}
+		const resolved = await antigravityResolveProject(blob);
+		this.projectCache.set(cacheKey, resolved);
+		if (resolved.source !== "fallback") {
+			// 引导成功写回登录 blob,跨会话复用;失败不写,下次生图重新引导。
+			try {
+				writeStoredBlob({ ...blob, projectId: resolved.projectId });
+			} catch {
+				// 持久化失败不影响本次生成
+			}
+		}
+		return resolved;
 	}
 }
 

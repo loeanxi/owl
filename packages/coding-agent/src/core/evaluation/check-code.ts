@@ -1,5 +1,5 @@
-import { loadQuickJSWasm } from "@earendil-works/pi-codemode";
 import { stripTypeScriptTypes } from "node:module";
+import { loadQuickJSWasm } from "@earendil-works/pi-codemode";
 import { JSException, QuickJS, type QuickJSOptions } from "quickjs-wasi";
 import type { EvaluationCheck, EvaluationTask } from "./types.ts";
 
@@ -39,22 +39,46 @@ await test('空输入与不同并发数',async()=>{equal(await mapLimit([],2,x=>
 await test('非法limit及异常拒绝',async()=>{for(const limit of [0,-1,1.5]){let bad=false;try{await mapLimit([1],limit,x=>x);}catch(e){bad=e instanceof RangeError;}assert(bad,'未拒绝非法limit');}let caught=false;try{await mapLimit([1,2],2,()=>Promise.reject(new Error('expected')));}catch{caught=true;}assert(caught,'吞掉mapper异常');});`,
 };
 
-interface ProbeOutcome { label: string; passed: boolean; detail: string }
+interface ProbeOutcome {
+	label: string;
+	passed: boolean;
+	detail: string;
+}
 
-export async function checkEvaluationCode(task: EvaluationTask, source: string, signal?: AbortSignal): Promise<EvaluationCheck[]> {
+export async function checkEvaluationCode(
+	task: EvaluationTask,
+	source: string,
+	signal?: AbortSignal,
+): Promise<EvaluationCheck[]> {
 	const spec = task.checks.find((check) => check.kind.startsWith("code-"));
 	const probe = task.builtin ? probes[task.id] : undefined;
-	if (!probe || !spec) return [{ id: "code-tests", label: "代码行为检查", status: "unchecked", detail: "自定义代码未配置隔离测试用例；Java、Python等语言需对应检查环境，未按通过计分。" }];
+	if (!probe || !spec)
+		return [
+			{
+				id: "code-tests",
+				label: "代码行为检查",
+				status: "unchecked",
+				detail: "自定义代码未配置隔离测试用例；Java、Python等语言需对应检查环境，未按通过计分。",
+			},
+		];
 	signal?.throwIfAborted();
 	let wasm: QuickJSOptions["wasm"];
-	try { wasm = (await loadQuickJSWasm()) as QuickJSOptions["wasm"]; }
-	catch { return [{ id: spec.id, label: spec.label, status: "unchecked", detail: "JavaScript隔离检查环境不可用。" }]; }
+	try {
+		wasm = (await loadQuickJSWasm()) as QuickJSOptions["wasm"];
+	} catch {
+		return [{ id: spec.id, label: spec.label, status: "unchecked", detail: "JavaScript隔离检查环境不可用。" }];
+	}
 	const start = Date.now();
-	const vm = await QuickJS.create({ wasm, memoryLimit: 32 * 1024 * 1024, interruptHandler: () => Boolean(signal?.aborted) || Date.now() - start > 2000 });
+	const vm = await QuickJS.create({
+		wasm,
+		memoryLimit: 32 * 1024 * 1024,
+		interruptHandler: () => Boolean(signal?.aborted) || Date.now() - start > 2000,
+	});
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
 		let code = source.trim();
-		if (/\b(?:interface|type)\s+\w+\s*[={]|:\s*(?:number|string|boolean|unknown)(?:\[\])?\b/.test(code)) code = stripTypeScriptTypes(code, { mode: "strip" });
+		if (/\b(?:interface|type)\s+\w+\s*[={]|:\s*(?:number|string|boolean|unknown)(?:\[\])?\b/.test(code))
+			code = stripTypeScriptTypes(code, { mode: "strip" });
 		code = code.replace(/^\s*export\s+(?:default\s+)?(?=(?:async\s+)?function|const |let |class )/gm, "");
 		const program = `(async function(){'use strict';
 const json=JSON.stringify.bind(JSON);const assert=(ok,msg)=>{if(!ok)throw new Error(msg||'与预期不符');};
@@ -68,20 +92,44 @@ return json(outcomes);})()`;
 		try {
 			const settled = vm.resolvePromise(value);
 			vm.executePendingJobs();
-			const result = await Promise.race([settled, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("隔离执行超时或Promise未完成")), 2500); })]);
+			const result = await Promise.race([
+				settled,
+				new Promise<never>((_, reject) => {
+					timeout = setTimeout(() => reject(new Error("隔离执行超时或Promise未完成")), 2500);
+				}),
+			]);
 			if ("error" in result) {
 				const detail = result.error.consume((handle) => handle.toString());
-				return [{ id: spec.id, label: spec.label, status: "failed", detail: detail.slice(0,500) }];
+				return [{ id: spec.id, label: spec.label, status: "failed", detail: detail.slice(0, 500) }];
 			}
 			const serialized = result.value.consume((handle) => handle.toString());
 			const outcomes = JSON.parse(serialized) as ProbeOutcome[];
 			const passed = outcomes.length === 3 && outcomes.every((outcome) => outcome.passed === true);
-			return [{ id: spec.id, label: spec.label, status: passed ? "passed" : "failed", detail: outcomes.map((outcome) => `${outcome.passed ? "通过" : "失败"}：${outcome.label}${outcome.passed ? "" : `（${outcome.detail}）`}`).join("；") }];
-		} finally { value.dispose(); }
+			return [
+				{
+					id: spec.id,
+					label: spec.label,
+					status: passed ? "passed" : "failed",
+					detail: outcomes
+						.map(
+							(outcome) =>
+								`${outcome.passed ? "通过" : "失败"}：${outcome.label}${outcome.passed ? "" : `（${outcome.detail}）`}`,
+						)
+						.join("；"),
+				},
+			];
+		} finally {
+			value.dispose();
+		}
 	} catch (error) {
 		signal?.throwIfAborted();
 		const detail = error instanceof Error ? error.message : String(error);
 		if (error instanceof JSException) error.dispose();
-		return [{ id: spec.id, label: spec.label, status: "failed", detail: `隔离代码检查未完成：${detail.slice(0,500)}` }];
-	} finally { if (timeout) clearTimeout(timeout); vm.dispose(); }
+		return [
+			{ id: spec.id, label: spec.label, status: "failed", detail: `隔离代码检查未完成：${detail.slice(0, 500)}` },
+		];
+	} finally {
+		if (timeout) clearTimeout(timeout);
+		vm.dispose();
+	}
 }

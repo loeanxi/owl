@@ -146,7 +146,8 @@ async function geometry() {
     const lane = document.querySelector(".owl-shell-conversation");
     const composer = document.querySelector(".owl-composer-surface");
     const composerColumn = composer.querySelector(".max-w-3xl");
-    const workbench = document.querySelector(".owl-workbench-shell");
+    const workbenchNode = document.querySelector(".owl-workbench-shell");
+    const workbench = workbenchNode?.getBoundingClientRect().width > 0 && workbenchNode?.getBoundingClientRect().height > 0 ? workbenchNode : null;
     const chat = document.querySelector(".owl-chat-scroll");
     const options = [...element.querySelectorAll('[role="radio"], [role="checkbox"]')].map(rect);
     const ancestors = []; for (let parent = element; parent; parent = parent.parentElement) ancestors.push({ position: getComputedStyle(parent).position, bg: getComputedStyle(parent).backgroundColor, rect: rect(parent), className: parent.className });
@@ -245,6 +246,7 @@ try {
       await card().getByPlaceholder("自由输入…", { exact: true }).fill("补充问题");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("保留备注");
+      await card().getByRole("button", { name: "预览", exact: true }).click();
       await card().getByRole("button", { name: "下一题", exact: true }).click();
       await card().getByRole("radio", { name: "解释", exact: false }).click();
       await card().getByRole("button", { name: "收起", exact: true }).click(); await pause();
@@ -565,18 +567,27 @@ try {
       const handle = await page.locator('[data-workbench-size-handle="bottom"]').boundingBox();
       await page.mouse.move(handle.x + 100, handle.y + 3); await page.mouse.down(); await page.mouse.move(handle.x + 100, handle.y - 230, { steps: 5 }); await page.mouse.up(); await pause();
       const g = await geometry(); assertAnchor(g);
-      assert.ok(g.workbench.height >= before.workbench.height + 200, "Bottom workbench height did not change after drag");
+      const sizing = await page.locator(".owl-workbench-shell").evaluate((element) => {
+        const content = document.querySelector(".owl-shell-content");
+        const reserved = Number.parseFloat(getComputedStyle(content).getPropertyValue("--owl-question-chat-min-height"));
+        return { requested: Number.parseFloat(element.style.height), max: content.getBoundingClientRect().height - reserved, computedMax: getComputedStyle(element).maxHeight };
+      });
+      result.bottomHeightDrag = { ...g, beforeWorkbenchHeight: before.workbench.height, sizing };
+      assert.ok(sizing.requested >= before.workbench.height + 200, "Bottom drag did not request the expected height");
+      assert.ok(g.workbench.height >= before.workbench.height + 100, "Bottom workbench height did not change after drag");
+      assert.ok(Math.abs(g.workbench.height - Math.min(sizing.requested, sizing.max)) <= 1, "Bottom workbench did not respect available chat space");
       const body = await card().locator(".owl-question-card__body").evaluate((el) => ({ clientHeight: el.clientHeight, scrollHeight: el.scrollHeight }));
       await card().getByText("确认合入", { exact: true }).click(); await submit();
       assert.equal(answerRequests().at(-1).requestId, "layout-matrix");
-      return { ...g, beforeWorkbenchHeight: before.workbench.height, body };
+      return { ...g, beforeWorkbenchHeight: before.workbench.height, sizing, body };
     });
+    if (await card().count()) await cancel();
     await page.setViewportSize({ width: 1280, height: 720 });
     await emitQuestion("short-bottom", [{ ...officeQuestion, question: officeQuestion.question + " 以下是审阅说明。".repeat(20) }]);
     await caseRun("short-window-max-bottom-drag-retains-scrollable-question-and-clickable-submit", async () => {
       const handle = await page.locator('[data-workbench-size-handle="bottom"]').boundingBox();
       await page.mouse.move(handle.x + 100, handle.y + 3); await page.mouse.down(); await page.mouse.move(handle.x + 100, 5, { steps: 5 }); await page.mouse.up(); await pause();
-      const details = await page.locator('.owl-question-card').last().evaluate((el) => {
+      const details = await card().evaluate((el) => {
         const rect = el.getBoundingClientRect(); const body = el.querySelector(".owl-question-card__body"); const submit = el.querySelector(".owl-question-card__footer").getBoundingClientRect();
         return { cardHeight: rect.height, bodyHeight: body.clientHeight, bodyScroll: body.scrollHeight, footer: { y: submit.y, height: submit.height } };
       });
