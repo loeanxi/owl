@@ -185,12 +185,12 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 }
 
 /** Completed turns stay immediately before the next user entry; the latest turn has its own footer. */
-export function collectHistoricalArtifacts(entries: readonly ChatEntry[], cwd: string): Map<number, FileArtifact[]> {
+export function collectHistoricalArtifacts(entries: readonly ChatEntry[], cwd: string, options: ArtifactOptions = {}): Map<number, FileArtifact[]> {
 	const turns = new Map<number, FileArtifact[]>();
 	let start = 0;
 	entries.forEach((entry, index) => {
 		if (entry.kind !== "user") return;
-		const artifacts = collectArtifacts(entries.slice(start, index), cwd);
+		const artifacts = collectArtifacts(entries.slice(start, index), cwd, options);
 		if (artifacts.length > 0) turns.set(index, artifacts);
 		start = index;
 	});

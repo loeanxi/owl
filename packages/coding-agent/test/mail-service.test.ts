@@ -547,9 +547,11 @@ describe("explicit send confirmation", () => {
 		const work = await connect(service, google, "work", "send");
 		const saved = (await service.handle({
 			action: "draft.save",
-			draft: { ...draft(work), threadId: "work-thread" },
+			draft: { ...draft(work), threadId: "work-thread", subject: "Re: 项目进度" },
 		})) as MailDraft;
 		expect(saved.id).toBe("saved-draft");
+		const created = google.calls.find((call) => call.url.pathname.endsWith("/drafts"))!;
+		expect(JSON.parse(String(created.init.body))).toMatchObject({ message: { threadId: "work-thread" } });
 		const prepared = (await service.handle({ action: "send.prepare", draft: saved })) as MailSendConfirmation;
 		await service.handle({ action: "send.confirm", confirmationId: prepared.confirmationId });
 		const send = google.calls.find((call) => call.url.pathname.endsWith("/drafts/send"))!;
@@ -557,6 +559,36 @@ describe("explicit send confirmation", () => {
 		expect(sent.id).toBe("saved-draft");
 		expect(sent.message.threadId).toBe("work-thread");
 		expect(Buffer.from(sent.message.raw, "base64url").toString()).toContain(
+			"In-Reply-To: <message-work-thread@example.com>",
+		);
+	});
+
+	it("keeps a changed subject bound to its source while letting Gmail create a new thread", async () => {
+		const { service, google } = await harness();
+		const work = await connect(service, google, "work", "send");
+		const edited: MailDraft = { ...draft(work), threadId: "work-thread", subject: "新的项目讨论" };
+		const direct = (await service.handle({ action: "send.prepare", draft: edited })) as MailSendConfirmation;
+		expect(direct.draft).toMatchObject({
+			accountId: work.id,
+			threadId: "work-thread",
+			subject: "新的项目讨论",
+			inReplyTo: "<message-work-thread@example.com>",
+		});
+		await service.handle({ action: "send.confirm", confirmationId: direct.confirmationId });
+		const sentDirect = google.calls.find((call) => call.url.pathname.endsWith("/messages/send"))!;
+		expect(JSON.parse(String(sentDirect.init.body))).not.toHaveProperty("threadId");
+		const saved = (await service.handle({ action: "draft.save", draft: edited })) as MailDraft;
+		expect(saved.threadId).toBe("work-thread");
+		expect(saved.subject).toBe("新的项目讨论");
+		const created = google.calls.find((call) => call.url.pathname.endsWith("/drafts"))!;
+		expect(JSON.parse(String(created.init.body))).not.toHaveProperty("message.threadId");
+		const prepared = (await service.handle({ action: "send.prepare", draft: saved })) as MailSendConfirmation;
+		await service.handle({ action: "send.confirm", confirmationId: prepared.confirmationId });
+		const sentDraft = google.calls.find((call) => call.url.pathname.endsWith("/drafts/send"))!;
+		const message = JSON.parse(String(sentDraft.init.body)) as { id: string; message: { raw: string } };
+		expect(message).not.toHaveProperty("message.threadId");
+		expect(message.id).toBe("saved-draft");
+		expect(Buffer.from(message.message.raw, "base64url").toString()).toContain(
 			"In-Reply-To: <message-work-thread@example.com>",
 		);
 	});

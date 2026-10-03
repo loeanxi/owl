@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { calculateNewsHeat } from "../../src/core/news/editorial.ts";
 import { DEFAULT_NEWS_CONFIGURATION } from "../../src/core/news/industry.ts";
 import { NewsService } from "../../src/core/news/service.ts";
 import { collectNewsSource } from "../../src/core/news/sources.ts";
@@ -258,6 +259,66 @@ describe("news known/unknown payment recovery", () => {
 });
 
 describe("news live publication filtering", () => {
+	it("reads six-hour heat percentages without writing snapshots and excludes lag-induced rises", async () => {
+		vi.useFakeTimers();
+		const now = Date.now();
+		const cutoff = now - 6 * 3600000;
+		const old = new Date(now - 8 * 3600000).toISOString();
+		const changed = vi.fn();
+		const service = new NewsService({
+			agentDir: temporary(),
+			callModel: async (request) => modelResponse(request.capability),
+			onChanged: changed,
+		});
+		try {
+			service.store.saveStory({
+				id: "heat",
+				title: "发布新模型",
+				summary: "发布新模型。",
+				category: "launch",
+				tags: [],
+				entities: [],
+				createdAt: old,
+				updatedAt: old,
+				reports: [],
+				sourceCount: 0,
+				manual: false,
+				relatedStoryIds: [],
+			});
+			const add = (id: string, at: string) => {
+				const origin = service.store.saveSource({ ...source, id, publisherGroup: id });
+				const item = service.store.ingest(origin, {
+					title: "发布新模型",
+					url: `https://example.com/${id}`,
+					body: "发布新模型",
+					publishedAt: at,
+				}).item;
+				service.store.commitAnalysis(item.id, 1, analysis);
+				service.store.editItem(item.id, { selected: true, novel: true });
+				service.store.moveItem(item.id, "heat");
+				return item.id;
+			};
+			add("one", old);
+			add("two", old);
+			const previous = calculateNewsHeat(service.store.stories(), new Date(cutoff))[0]!.heat;
+			service.store.setMeta("heat-history-v1", [{ at: cutoff, values: { heat: previous } }]);
+			const newest = add("three", new Date(now).toISOString());
+			const rise = (await service.handle({ action: "hot" }))[0]!;
+			expect(rise.change).toBeCloseTo(((rise.heat - previous) / previous) * 100);
+			expect(rise.trend).toBe("rising");
+			service.store.editItem(newest, { publishedAt: old, timelineAt: old });
+			const lag = (await service.handle({ action: "hot" }))[0]!;
+			expect(lag.change).toBeLessThanOrEqual(0);
+			expect(lag.trend).toBe("steady");
+			expect(service.store.getMeta("heat-history-v1")).toEqual([{ at: cutoff, values: { heat: previous } }]);
+			expect(changed).not.toHaveBeenCalled();
+			service.store.setMeta("heat-history-v1", []);
+			expect((await service.handle({ action: "hot" }))[0]?.trend).toBe("new");
+		} finally {
+			await service.close();
+			vi.useRealTimers();
+		}
+	});
 	it("reuses paid evaluation results even when gold labels change and saves separate evaluation records", async () => {
 		const calls = vi.fn<NewsModelCaller>(async (request) => modelResponse(request.capability));
 		const service = new NewsService({

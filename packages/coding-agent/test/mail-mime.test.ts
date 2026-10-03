@@ -1,7 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { buildMime, parseThread, summarizeThread } from "../src/core/mail/mime.ts";
+import { buildMime, parseThread, summarizeThread, validateDraft } from "../src/core/mail/mime.ts";
 
 describe("Gmail MIME", () => {
+	it("unfolds valid reply headers without accepting standalone header injection newlines", () => {
+		const parsed = parseThread(
+			{
+				id: "thread",
+				messages: [
+					{
+						payload: {
+							headers: [
+								{
+									name: "Subject",
+									value: `=?UTF-8?B?${Buffer.from("周").toString("base64")}?=\r\n =?UTF-8?B?${Buffer.from("报").toString("base64")}?=`,
+								},
+								{ name: "Reply-To", value: "Reply Team\r\n\t<support@example.com>" },
+								{ name: "Message-ID", value: "<parent@example.com>" },
+								{ name: "References", value: "<first@example.com>\r\n\t<second@example.com>" },
+							],
+						},
+					},
+				],
+			},
+			"work",
+		);
+		const message = parsed.messages[0];
+		expect(message.subject).toBe("周报");
+		expect(message.replyTo).toBe("Reply Team <support@example.com>");
+		expect(message.references).toBe("<first@example.com> <second@example.com>");
+		expect(() =>
+			validateDraft({
+				accountId: "work",
+				threadId: "thread",
+				to: message.replyTo!,
+				subject: `Re: ${message.subject}`,
+				body: "已确认",
+				inReplyTo: message.messageId,
+				references: message.references,
+			}),
+		).not.toThrow();
+		const injected = parseThread(
+			{
+				id: "thread",
+				messages: [
+					{
+						payload: {
+							headers: [{ name: "References", value: "<first@example.com>\r\nBcc: attacker@example.com" }],
+						},
+					},
+				],
+			},
+			"work",
+		);
+		expect(() =>
+			validateDraft({
+				accountId: "work",
+				to: "user@example.com",
+				subject: "Reply",
+				body: "body",
+				references: injected.messages[0].references,
+			}),
+		).toThrow("换行");
+	});
+
 	it("decodes recursive multipart text and encoded subject, while retaining attachment metadata", () => {
 		const thread = {
 			id: "thread",

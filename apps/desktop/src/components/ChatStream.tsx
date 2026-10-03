@@ -6,8 +6,9 @@ import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
-import { collectHistoricalArtifacts, workspaceArtifactPath } from "../hooks/artifacts.ts";
+import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
+import type { BridgeClient } from "../bridge/client.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 

@@ -57,6 +57,10 @@ export interface NewsServiceOptions extends Pick<NewsFetchOptions, "fetch" | "re
 		| { provider: string; id: string; name: string }[]
 		| Promise<{ provider: string; id: string; name: string }[]>;
 }
+interface NewsHeatSnapshot {
+	at: number;
+	values: Record<string, number>;
+}
 
 function bounded(value: unknown, minimum: number, maximum: number, label: string): number {
 	const number = Number(value);
@@ -269,6 +273,16 @@ export class NewsService {
 	}
 	private schedule(): void {
 		const now = Date.now();
+		const heatHistory = this.store.getMeta<NewsHeatSnapshot[]>("heat-history-v1") ?? [];
+		if (!heatHistory.length || now - heatHistory[heatHistory.length - 1]!.at >= 300000) {
+			const values = Object.fromEntries(
+				calculateNewsHeat(this.store.stories(), new Date(now)).map((event) => [event.story.id, event.heat]),
+			);
+			this.store.setMeta("heat-history-v1", [
+				...heatHistory.filter((snapshot) => snapshot.at >= now - 8 * 3600000),
+				{ at: now, values },
+			]);
+		}
 		if (this.configuration.collectEnabled)
 			for (const source of this.store.sources()) {
 				if (
@@ -935,7 +949,25 @@ export class NewsService {
 			return await operation;
 		} finally {
 			this.pending.delete(operation);
-			this.changed();
+			if (
+				[
+					"configure",
+					"saveSource",
+					"deleteSource",
+					"run",
+					"retry",
+					"ingest",
+					"bookmark",
+					"read",
+					"withdraw",
+					"editItem",
+					"moveItem",
+					"evaluate",
+					"assistant",
+					"previewSource",
+				].includes(request.action)
+			)
+				this.changed();
 		}
 	}
 	private async dispatch(request: NewsRequest): Promise<NewsResultByAction[NewsRequest["action"]]> {
@@ -959,23 +991,39 @@ export class NewsService {
 				return story?.reports.some((item) => this.visible(item)) ? this.publicStory(story) : null;
 			}
 			case "hot": {
-				const heat = calculateNewsHeat(this.store.stories());
-				const previous = this.store.getMeta<Record<string, number>>("heat-snapshot") ?? {};
+				const now = Date.now();
+				const cutoff = now - 6 * 3600000;
+				const stories = this.store.stories();
+				const heat = calculateNewsHeat(stories, new Date(now));
+				const history = this.store.getMeta<NewsHeatSnapshot[]>("heat-history-v1") ?? [];
+				const previous = [...history].reverse().find((snapshot) => snapshot.at <= cutoff);
+				const historical = previous
+					? new Map(calculateNewsHeat(stories, new Date(previous.at)).map((event) => [event.story.id, event.heat]))
+					: new Map<string, number>();
 				const events = heat.slice(0, Math.floor(bounded(request.limit ?? 30, 1, 100, "热点条数"))).map((event) => {
-					const old = previous[event.story.id];
+					const observed = previous?.values[event.story.id];
+					const lagging =
+						!!previous &&
+						event.story.reports.some(
+							(item) =>
+								!item.backfill &&
+								Date.parse(item.publishedAt) <= previous.at &&
+								Date.parse(item.discoveredAt) > previous.at,
+						);
+					const old =
+						observed === undefined
+							? undefined
+							: lagging
+								? Math.max(observed, historical.get(event.story.id) ?? observed)
+								: observed;
+					const change = old && old > 0 ? ((event.heat - old) / old) * 100 : null;
 					return {
 						...event,
 						story: this.publicStory(event.story),
-						change: old === undefined ? null : event.heat - old,
+						change,
+						trend: change === null ? ("new" as const) : change > 15 ? ("rising" as const) : ("steady" as const),
 					};
 				});
-				if (Date.now() - (this.store.getMeta<number>("heat-at") ?? 0) > 3600000) {
-					this.store.setMeta("heat-at", Date.now());
-					this.store.setMeta(
-						"heat-snapshot",
-						Object.fromEntries(heat.map((event) => [event.story.id, event.heat])),
-					);
-				}
 				return events;
 			}
 			case "topics":

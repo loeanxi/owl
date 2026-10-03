@@ -19,7 +19,7 @@ export function RewindDialog({
 	client: BridgeClient;
 	sessionId: string;
 	target: { entryId: string; text: string };
-	onDone: (result: RewindExecuteResult) => void;
+	onDone: (result: RewindExecuteResult, affectedFiles: RewindImpactFile[]) => void;
 	onClose: () => void;
 }): React.JSX.Element {
 	const t = useT();
@@ -69,8 +69,12 @@ export function RewindDialog({
 				entryId: target.entryId,
 				mode,
 			});
-			if (response.ok && response.result) onDone(response.result);
-			else setError(response.error ?? t("rewind.failed"));
+			if (response.ok && response.result) {
+				// 影响清单随结果带回：App 据此收尾这些文件的工作台 tab（过期缓冲）
+				onDone(response.result, mode === "both" ? (impact?.files ?? []) : []);
+			} else {
+				setError(response.error ?? t("rewind.failed"));
+			}
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : String(caught));
 		} finally {

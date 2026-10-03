@@ -48,6 +48,7 @@ interface PreparedSend {
 	accountId: string;
 	accountEmail: string;
 	draft: MailDraft;
+	gmailThreadId?: string;
 	raw: string;
 	expiresAt: number;
 }
@@ -526,16 +527,23 @@ export class MailService {
 	private async boundDraft(
 		input: MailDraft,
 		capability: "compose" | "send",
-	): Promise<{ account: StoredMailAccount; draft: MailDraft }> {
+	): Promise<{ account: StoredMailAccount; draft: MailDraft; gmailThreadId?: string }> {
 		const draft = validateDraft(input);
 		const account = this.account(draft.accountId);
 		this.requireCapability(account, capability);
+		let gmailThreadId: string | undefined;
 		if (draft.threadId) {
 			const thread = await this.getThread(account.id, draft.threadId);
 			const parent = draft.inReplyTo
 				? thread.messages.find((message) => message.messageId === draft.inReplyTo)
 				: thread.messages.at(-1);
 			if (!parent) throw new Error("回复来源不属于此邮箱会话，请重新打开原邮件。");
+			const [subject, parentSubject, originalSubject] = [draft.subject, parent.subject, thread.subject].map(
+				(value) => value.replace(/^(?:\s*re\s*:\s*)+/i, "").trim(),
+			);
+			// Gmail requires matching subjects to join a thread. The UI retains the
+			// original source binding even when an edited subject starts a new thread.
+			if (subject === parentSubject || subject === originalSubject) gmailThreadId = draft.threadId;
 			draft.inReplyTo = parent.messageId;
 			draft.references =
 				[
@@ -548,11 +556,11 @@ export class MailService {
 			throw new Error("回复邮件必须关联原邮箱会话。");
 		}
 		validateDraft(draft);
-		return { account, draft };
+		return { account, draft, gmailThreadId };
 	}
 
 	private async saveDraft(input: MailDraft): Promise<MailDraft> {
-		const { account, draft } = await this.boundDraft(input, "compose");
+		const { account, draft, gmailThreadId } = await this.boundDraft(input, "compose");
 		// Refresh before the write and recheck scopes in case the grant changed.
 		await this.accessToken(account);
 		this.requireCapability(account, "compose");
@@ -564,7 +572,7 @@ export class MailService {
 				body: JSON.stringify({
 					message: {
 						raw: buildMime(draft, account.email),
-						...(draft.threadId ? { threadId: draft.threadId } : {}),
+						...(gmailThreadId ? { threadId: gmailThreadId } : {}),
 					},
 				}),
 			},
@@ -575,7 +583,7 @@ export class MailService {
 	}
 
 	private async prepareSend(input: MailDraft): Promise<MailSendConfirmation> {
-		const { account, draft } = await this.boundDraft(input, "send");
+		const { account, draft, gmailThreadId } = await this.boundDraft(input, "send");
 		for (const [id, confirmation] of this.confirmations) {
 			if (confirmation.expiresAt <= this.now()) this.confirmations.delete(id);
 		}
@@ -586,6 +594,7 @@ export class MailService {
 			accountId: account.id,
 			accountEmail: account.email,
 			draft: structuredClone(draft),
+			gmailThreadId,
 			raw: buildMime(draft, account.email),
 			expiresAt,
 		});
@@ -611,7 +620,7 @@ export class MailService {
 		if (confirmation.draft.id) this.requireCapability(account, "compose");
 		const message = {
 			raw: confirmation.raw,
-			...(confirmation.draft.threadId ? { threadId: confirmation.draft.threadId } : {}),
+			...(confirmation.gmailThreadId ? { threadId: confirmation.gmailThreadId } : {}),
 		};
 		const sent = await this.gmail<{ id?: string; threadId?: string }>(
 			account,

@@ -22,7 +22,15 @@ import { startDesktopServer } from "../src/modes/desktop/serve.ts";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
-	for (const close of cleanup.splice(0).reverse()) await close();
+	const errors: unknown[] = [];
+	for (const close of cleanup.splice(0).reverse()) {
+		try {
+			await close();
+		} catch (error) {
+			errors.push(error);
+		}
+	}
+	if (errors.length) throw new AggregateError(errors, "News bridge fixture cleanup failed");
 });
 
 const privateBody = "这段完整正文仅用于管理诊断，未许可公开全文。";
@@ -167,6 +175,7 @@ async function fixture() {
 	const absolute = resolve(directory);
 	if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-news-bridge-"))
 		throw new Error("Unexpected fixture cleanup path");
+	cleanup.push(() => rm(absolute, { recursive: true, force: true }));
 	const cwd = join(directory, "workspace");
 	const agentDir = join(directory, "profile");
 	await mkdir(cwd);
@@ -201,10 +210,9 @@ async function fixture() {
 		closed = true;
 		try {
 			for (const client of clients) await client.close();
+		} finally {
 			socket.terminate();
 			await handle.close();
-		} finally {
-			await rm(absolute, { recursive: true, force: true });
 		}
 	});
 	await new Promise<void>((fulfill, reject) => {
@@ -311,7 +319,8 @@ describe("news on the real desktop bridge", () => {
 		expect(tools.tools.map((tool) => tool.name)).toContain("owl_news_latest");
 		const latest = await client.callTool({ name: "owl_news_latest", arguments: { mode: "selected" } });
 		expect(latest.isError).not.toBe(true);
-		expect((latest.structuredContent?.data as NewsListResult).items.map((entry) => entry.id)).toEqual([item.id]);
+		const publicMcp = latest.structuredContent as { data: NewsListResult };
+		expect(publicMcp.data.items.map((entry) => entry.id)).toEqual([item.id]);
 		expect(bridge.calls).toHaveLength(beforeRead);
 
 		const answer = await bridge.news({
@@ -328,7 +337,8 @@ describe("news on the real desktop bridge", () => {
 		expect((await localFetch(`${bridge.base}/api/news/v1/items/${item.id}`)).status).toBe(404);
 		await expect((await localFetch(`${bridge.base}/api/news/feed.xml`)).text()).resolves.not.toContain(item.id);
 		const hidden = await client.callTool({ name: "owl_news_latest", arguments: { mode: "all" } });
-		expect((hidden.structuredContent?.data as NewsListResult).total).toBe(0);
+		const hiddenMcp = hidden.structuredContent as { data: NewsListResult };
+		expect(hiddenMcp.data.total).toBe(0);
 		expect(await bridge.news({ action: "adminItem", id: item.id })).toMatchObject({
 			withdrawn: true,
 			originalTitle: title,

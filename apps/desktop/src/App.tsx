@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { hasTauri } from "./bridge/native.ts";
-import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, RewindExecuteResult, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -266,12 +266,21 @@ export default function App(): React.JSX.Element {
 		if (clicked?.kind === "user") setRewindTarget({ entryId, text: clicked.text });
 	};
 
-	const handleRewindDone = (result: RewindExecuteResult): void => {
+	const handleRewindDone = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
 		setRewindTarget(undefined);
 		const messages = result.snapshot.messages as Record<string, unknown>[];
 		setEntries(rebuild(messages, result.snapshot.messageEntryIds));
 		if (typeof result.editorText === "string") {
 			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
+		}
+		// 收尾工作台：被还原/删除的文件在编辑器里的旧缓冲不会自己感知磁盘变化，
+		// 关掉无未保存改动的匹配 tab（脏 tab 留给用户自己决定），重开即是新内容。
+		const affected = new Set(affectedFiles.map((file) => file.displayPath));
+		if (affected.size > 0) {
+			const workbenchState = workbenchStore.getState();
+			for (const tab of workbenchState.tabs) {
+				if (tab.path && affected.has(tab.path) && !workbenchState.dirty[tab.id]) workbenchStore.closeTab(tab.id);
+			}
 		}
 		void refreshStats();
 	};

@@ -330,11 +330,14 @@ export function antigravityImageBody(options: {
 	};
 }
 
-/** Wrap the inner request in the Antigravity agent envelope. */
-export function antigravityEnvelope(projectId: string, request: Record<string, unknown>): Record<string, unknown> {
+/** Wrap the inner request in the Antigravity agent envelope. The model id is
+ * overridable per call: Google retires/renames these internal image models
+ * without notice, so config  is the escape hatch instead of
+ * waiting for a plugin release. */
+export function antigravityEnvelope(projectId: string, request: Record<string, unknown>, model?: string): Record<string, unknown> {
 	return {
 		project: projectId,
-		model: ANTIGRAVITY_IMAGE_MODEL,
+		model: model !== undefined && model.trim().length > 0 ? model.trim() : ANTIGRAVITY_IMAGE_MODEL,
 		userAgent: "antigravity",
 		requestId: `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
 		requestType: "agent",
@@ -372,7 +375,7 @@ export async function antigravityGenerateImage(options: {
 		...(options.hd !== undefined ? { hd: options.hd } : {}),
 		...(options.referenceImages !== undefined ? { referenceImages: options.referenceImages } : {}),
 	});
-	const body = antigravityEnvelope(options.projectId, inner);
+	const body = antigravityEnvelope(options.projectId, inner, options.model);
 	let lastError = "no endpoint succeeded";
 	for (const base of ANTIGRAVITY_ENDPOINTS) {
 		const url = `${base}/v1internal:streamGenerateContent?alt=sse`;
