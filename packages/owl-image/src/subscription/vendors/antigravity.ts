@@ -269,26 +269,27 @@ export async function antigravityRefresh(blob: SubscriptionBlob): Promise<Subscr
  * 3. Onboarding failed → community fallback id as a last resort.
  */
 export interface AntigravityProjectResolution {
-	projectId: string
-	source: "managed" | "onboarded" | "fallback"
+	projectId: string;
+	source: "managed" | "onboarded" | "fallback";
 }
 
 interface LoadCodeAssistPayload {
-	cloudaicompanionProject?: string | { id?: string }
-	currentTier?: { id?: string }
-	allowedTiers?: Array<{ id?: string; isDefault?: boolean }>
+	cloudaicompanionProject?: string | { id?: string };
+	currentTier?: { id?: string };
+	allowedTiers?: Array<{ id?: string; isDefault?: boolean }>;
 }
 
 interface OnboardUserPayload {
-	done?: boolean
-	response?: { cloudaicompanionProject?: { id?: string } }
+	done?: boolean;
+	response?: { cloudaicompanionProject?: { id?: string } };
 }
 
 function extractManagedProjectId(payload: LoadCodeAssistPayload | null): string | undefined {
 	if (payload === null || payload === undefined) return undefined;
 	const project = payload.cloudaicompanionProject;
 	if (typeof project === "string" && project.length > 0) return project;
-	if (typeof project === "object" && project !== null && typeof project.id === "string" && project.id.length > 0) return project.id;
+	if (typeof project === "object" && project !== null && typeof project.id === "string" && project.id.length > 0)
+		return project.id;
 	return undefined;
 }
 
@@ -324,7 +325,11 @@ async function loadManagedProject(blob: SubscriptionBlob, duetProject: string): 
 }
 
 /** Auto-provision the account's own managed project via onboardUser; polls until done. */
-async function onboardManagedProject(blob: SubscriptionBlob, tierId: string, duetProject: string): Promise<string | undefined> {
+async function onboardManagedProject(
+	blob: SubscriptionBlob,
+	tierId: string,
+	duetProject: string,
+): Promise<string | undefined> {
 	const metadata = { ideType: "ANTIGRAVITY", platform: platformOf(), pluginType: "GEMINI" };
 	for (const base of ANTIGRAVITY_ENDPOINTS) {
 		for (let attempt = 0; attempt < 5; attempt += 1) {

@@ -150,7 +150,7 @@ export function parseLiveSavedState(raw: string | null): LiveSavedState {
 					!isMapCategory(item.category) ||
 					typeof item.radiusMeters !== "number" ||
 					item.radiusMeters < 100 ||
-					item.radiusMeters > 10000
+					item.radiusMeters > 5000
 				)
 					continue;
 				history.push({

@@ -34,7 +34,7 @@ const built = await build({ entryPoints: [join(scriptDir, "fixtures/question-car
   define: { "process.env.NODE_ENV": '"production"' }, metafile: true,
   loader: { ".svg": "dataurl", ".png": "dataurl", ".woff2": "dataurl" },
   plugins: [{ name: "baseline-source-snapshots", setup(build) {
-    if (baselineOnly) build.onLoad({ filter: /(?:App|QuestionDialog|QuestionDock)\.tsx$|question-(?:card|dock)\.css$/ }, async (args) => {
+    if (baselineOnly) build.onLoad({ filter: /(?:App|Composer|QuestionDialog|QuestionDock)\.tsx$|question-(?:card|dock)\.css$/ }, async (args) => {
       const filename = args.path.replace(/\\/g, "/").split("/").at(-1);
       const file = filename.replace(/\.(tsx|css)$/, ".before.$1");
       const contents = await readFile(join(output, file), "utf8");
@@ -128,10 +128,24 @@ const compactQuestions = [
     { label: "解释", description: "说明问题和原因" }, { label: "修复", description: "完成具体修改" },
   ] },
 ];
+const polishedQuestion = { header: "下一步", question: "接下来你想做什么？", multiSelect: false, options: [
+  { label: "规范 commit message（推荐）", description: "约定 type/scope 格式（如 feat(desktop):），让历史可追溯，便于生成 changelog" },
+  { label: "桌面端功能或 bug", description: "整理并检查最近改动过的桌面端文件，或继续修复发现的问题" },
+  { label: "检查测试覆盖", description: "抽查桌面端/UI 相关代码的测试覆盖情况，给出改进清单" },
+  { label: "其他任务", description: "你有其他想法或问题，直接告诉我" },
+] };
 const q = (requestId, questions = [officeQuestion], sessionId = "fixture-session") => ({ type: "question_request", requestId, sessionId, toolCallId: `tool-${requestId}`, questions });
-const card = () => page.locator('.owl-question-card:visible, div.bg-owl-panel:visible').filter({ hasText: /第 \d+ \/ \d+ 题/ }).last();
+const card = () => page.locator('.owl-question-card:visible').last();
 const answerRequests = () => result.requests.filter((request) => request.type === "question.response");
 const pause = () => page.waitForTimeout(100);
+const composer = () => page.locator(".owl-composer-surface");
+const environment = () => composer().getByRole("button", { name: "新建项目", exact: true });
+async function customInput() {
+  const input = card().getByPlaceholder("自由输入…", { exact: true });
+  if (!(await input.isVisible())) await card().getByRole("button", { name: "其他", exact: true }).click();
+  await input.waitFor({ state: "visible" });
+  return input;
+}
 async function emitQuestion(requestId, questions) { send(q(requestId, questions)); await card().waitFor({ state: "visible" }); await pause(); }
 async function caseRun(name, operation) {
   const entry = { name, success: false };
@@ -149,9 +163,10 @@ async function geometry() {
     const workbenchNode = document.querySelector(".owl-workbench-shell");
     const workbench = workbenchNode?.getBoundingClientRect().width > 0 && workbenchNode?.getBoundingClientRect().height > 0 ? workbenchNode : null;
     const chat = document.querySelector(".owl-chat-scroll");
+    const body = element.querySelector(".owl-question-card__body");
     const options = [...element.querySelectorAll('[role="radio"], [role="checkbox"]')].map(rect);
     const ancestors = []; for (let parent = element; parent; parent = parent.parentElement) ancestors.push({ position: getComputedStyle(parent).position, bg: getComputedStyle(parent).backgroundColor, rect: rect(parent), className: parent.className });
-    return { card: rect(element), lane: rect(lane), composer: rect(composer), composerColumn: composerColumn ? rect(composerColumn) : null, workbench: workbench ? rect(workbench) : null, chat: rect(chat), options, ancestors, dock: workbench?.dataset.dock, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
+    return { card: rect(element), body: { ...rect(body), clientHeight: body.clientHeight, scrollHeight: body.scrollHeight }, lane: rect(lane), composer: rect(composer), composerColumn: composerColumn ? rect(composerColumn) : null, workbench: workbench ? rect(workbench) : null, chat: rect(chat), options, ancestors, dock: workbench?.dataset.dock, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
   });
 }
 function assertAnchor(g) {
@@ -193,6 +208,105 @@ try {
   await cancel();
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.locator('.owl-workbench-dock-actions button').nth(2).click(); await pause();
+  await emitQuestion("screenshot-question", [polishedQuestion]);
+  result.polishedGeometry = await geometry();
+  await page.screenshot({ path: join(output, "10-polished-four-options-dark.png") });
+  await caseRun("single-question-long-short-options-have-equal-row-heights-and-clear-label-description", async () => {
+    const g = await geometry(); assertAnchor(g);
+    assert.ok(g.card.height <= 280, `Screenshot question is ${g.card.height}px tall`);
+    assert.ok(g.body.scrollHeight <= g.body.clientHeight + 1, `Ordinary four choices should not require body scrolling: ${g.body.scrollHeight}/${g.body.clientHeight}`);
+    assert.equal(g.options.length, 4);
+    for (const [first, second] of [[0, 1], [2, 3]]) {
+      assert.ok(Math.abs(g.options[first].y - g.options[second].y) <= 1, "Options do not share a row");
+      assert.ok(Math.abs(g.options[first].height - g.options[second].height) <= 1, "Mixed-length descriptions leave uneven row heights");
+      assert.ok(Math.abs(g.options[first].bottom - g.options[second].bottom) <= 1, "Option bottom edges are uneven");
+    }
+    const text = await card().evaluate((el) => {
+      const labels = [...el.querySelectorAll(".owl-question-card__option-label")];
+      const descriptions = [...el.querySelectorAll(".owl-question-card__description")];
+      return { labels: labels.map((label) => ({ text: label.textContent, fontSize: parseFloat(getComputedStyle(label).fontSize), color: getComputedStyle(label).color })),
+        descriptions: descriptions.map((description) => ({ text: description.textContent, fontSize: parseFloat(getComputedStyle(description).fontSize), color: getComputedStyle(description).color, overflow: getComputedStyle(description).overflow, textOverflow: getComputedStyle(description).textOverflow, lineClamp: getComputedStyle(description).webkitLineClamp, width: description.clientWidth, scrollWidth: description.scrollWidth, height: description.clientHeight, scrollHeight: description.scrollHeight })) };
+    });
+    for (let i = 0; i < 4; i++) {
+      assert.equal(text.labels[i].text, polishedQuestion.options[i].label);
+      assert.equal(text.descriptions[i].text, polishedQuestion.options[i].description);
+      assert.ok(text.labels[i].fontSize >= text.descriptions[i].fontSize);
+      assert.notEqual(text.labels[i].color, text.descriptions[i].color, "Label and secondary description need a visible hierarchy");
+      assert.ok(text.descriptions[i].scrollWidth <= text.descriptions[i].width + 1 && text.descriptions[i].scrollHeight <= text.descriptions[i].height + 1, "Description is clipped within the option");
+      assert.notEqual(text.descriptions[i].textOverflow, "ellipsis");
+      assert.ok(text.descriptions[i].lineClamp === "none" || text.descriptions[i].lineClamp === "0");
+    }
+    assert.ok(g.scrollWidth <= g.viewport);
+    return { ...g, text };
+  });
+  await caseRun("single-question-has-no-full-width-progress-and-optional-fields-start-hidden", async () => {
+    const visibleBars = await card().locator('.owl-question-card__progress button[aria-current], .owl-question-card__progress [class*="rounded-full"]').evaluateAll((nodes) => nodes.filter((node) => node.getBoundingClientRect().width > 0).map((node) => node.getBoundingClientRect().width));
+    assert.deepEqual(visibleBars, [], "Single question should not display progress bars");
+    assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).isVisible(), false);
+    assert.equal(await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).isVisible(), false);
+    await card().getByRole("button", { name: "其他", exact: true }).waitFor();
+    await card().getByRole("button", { name: "＋ 添加备注", exact: true }).waitFor();
+  });
+  await caseRun("pending-current-question-hides-environment-row-without-hiding-composer-and-mode-model", async () => {
+    assert.equal(await environment().count(), 0);
+    assert.equal(await composer().locator(".owl-composer-environment").count(), 0);
+    assert.equal(await composer().getByRole("textbox", { name: "任务输入", exact: true }).isVisible(), true);
+    assert.equal(await composer().getByRole("button", { name: "发送", exact: true }).isVisible(), true);
+    await composer().getByRole("button", { name: "标准模式", exact: false }).waitFor();
+    await composer().getByRole("button", { name: "test-model", exact: false }).waitFor();
+  });
+  if (!baselineOnly) {
+    await caseRun("optional-other-and-note-buttons-expand-preserve-inputs-and-submit-exact-answer", async () => {
+      const input = await customInput(); await input.fill("  先做排版  ");
+      await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
+      await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("  降低视觉干扰  ");
+      await card().getByRole("button", { name: "收起", exact: true }).click(); await pause();
+      assert.equal(await environment().count(), 0, "Collapsing a pending question must keep the environment row hidden");
+      await card().getByRole("button", { name: "展开", exact: true }).click(); await pause();
+      assert.equal(await input.inputValue(), "  先做排版  ");
+      assert.equal(await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).inputValue(), "  降低视觉干扰  ");
+      await page.screenshot({ path: join(output, "11-polished-optional-fields.png") });
+      await submit();
+      assert.equal(answerRequests().at(-1).requestId, "screenshot-question");
+      assert.deepEqual(answerRequests().at(-1).answers, [{ index: 0, customText: "先做排版", note: "降低视觉干扰" }]);
+      assert.equal(await environment().isVisible(), true, "Environment should return after submitting");
+    });
+    await emitQuestion("polished-layout", [polishedQuestion]);
+    await caseRun("polished-single-question-light-theme-and-narrow-layout-keep-descriptions-readable", async () => {
+      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "light")); await pause();
+      assertAnchor(await geometry());
+      await page.screenshot({ path: join(output, "12-polished-four-options-light.png") });
+      await page.setViewportSize({ width: 760, height: 760 }); await pause();
+      const g = await geometry(); assertAnchor(g);
+      assert.ok(g.card.width < 560 && g.scrollWidth <= g.viewport);
+      for (let i = 1; i < 4; i++) {
+        assert.ok(Math.abs(g.options[i].x - g.options[0].x) <= 1);
+        assert.ok(g.options[i].y > g.options[i - 1].y);
+      }
+      await card().getByText(polishedQuestion.options[3].description, { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(output, "13-polished-four-options-narrow-light.png") });
+      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "dark"));
+      await page.screenshot({ path: join(output, "14-polished-four-options-narrow-dark.png") });
+      return g;
+    });
+    await page.setViewportSize({ width: 1280, height: 860 }); await pause();
+  }
+  await cancel();
+  if (!baselineOnly) await caseRun("cancelled-question-restores-environment-row-and-ordinary-running-hides-it", async () => {
+    assert.equal(await environment().isVisible(), true);
+    const draft = composer().getByRole("textbox", { name: "任务输入", exact: true });
+    await draft.fill("保留的任务草稿");
+    send({ type: "event", sessionId: "fixture-session", event: { type: "agent_start" } }); await pause();
+    assert.equal(await environment().count(), 0);
+    const stop = composer().getByRole("button", { name: "中止", exact: true });
+    assert.equal(await stop.isVisible(), true); await stop.focus();
+    assert.equal(await stop.evaluate((el) => el === document.activeElement), true);
+    await stop.click(); await pause();
+    assert.equal(result.requests.at(-1).type, "session.abort");
+    send({ type: "event", sessionId: "fixture-session", event: { type: "agent_settled" } }); await pause();
+    assert.equal(await environment().isVisible(), true);
+    assert.equal(await draft.inputValue(), "保留的任务草稿"); await draft.fill("");
+  });
   await emitQuestion("compact-questionnaire", compactQuestions);
   const compactGeometry = await geometry();
   result.compactGeometry = compactGeometry;
@@ -243,7 +357,7 @@ try {
     });
     await caseRun("folded-question-hides-controls-keeps-draft-and-native-enter-restores-it", async () => {
       await card().getByRole("checkbox", { name: "代码语法", exact: false }).click();
-      await card().getByPlaceholder("自由输入…", { exact: true }).fill("补充问题");
+      await (await customInput()).fill("补充问题");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("保留备注");
       await card().getByRole("button", { name: "预览", exact: true }).click();
@@ -374,7 +488,7 @@ try {
       await card().getByText("Excel", { exact: true }).click();
       await card().getByRole("heading", { name: "Excel 预览" }).waitFor();
       assert.equal(await card().locator("script").count(), 0);
-      await card().getByPlaceholder("自由输入…", { exact: true }).fill("  CSV  ");
+      await (await customInput()).fill("  CSV  ");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("  便于导入  ");
       await card().getByRole("button", { name: "下一题", exact: true }).click();
@@ -393,7 +507,7 @@ try {
       await card().getByText("说明", { exact: true }).click();
       await card().getByText("图表", { exact: true }).click();
       await card().getByText("图表", { exact: true }).click();
-      await card().getByPlaceholder("自由输入…", { exact: true }).fill("  CSV 校验  ");
+      await (await customInput()).fill("  CSV 校验  ");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("  中文字段  ");
       await card().getByRole("button", { name: "下一题", exact: true }).click();
@@ -427,13 +541,13 @@ try {
     await emitQuestion("keyboard-submit");
     await caseRun("control-enter-inside-question-card-submits-selected-answer", async () => {
       await card().getByText("确认合入", { exact: true }).click();
-      await card().getByPlaceholder("自由输入…", { exact: true }).press("Control+Enter"); await pause();
+      await (await customInput()).press("Control+Enter"); await pause();
       assert.equal(answerRequests().at(-1).requestId, "keyboard-submit");
       assert.deepEqual(answerRequests().at(-1).answers, [{ index: 0, selectedLabels: ["确认合入"] }]);
     });
     await emitQuestion("keyboard-cancel");
     await caseRun("escape-inside-question-card-cancels", async () => {
-      await card().getByPlaceholder("自由输入…", { exact: true }).press("Escape"); await pause();
+      await (await customInput()).press("Escape"); await pause();
       assert.equal(answerRequests().at(-1).requestId, "keyboard-cancel");
       assert.equal(answerRequests().at(-1).cancelled, true);
     });
@@ -472,10 +586,11 @@ try {
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("old note");
       await card().getByRole("button", { name: "下一题", exact: true }).click();
-      await card().getByPlaceholder("自由输入…", { exact: true }).fill("old custom");
+      await (await customInput()).fill("old custom");
       await cancel();
       await card().getByText(officeQuestion.question, { exact: true }).waitFor();
-      assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).inputValue(), "");
+      assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).isVisible(), false, "New request must reset the optional input's expanded state");
+      assert.equal(await (await customInput()).inputValue(), "");
       assert.equal(await card().locator("textarea").count(), 0);
       assert.match(await card().locator(".owl-question-card__count").innerText(), /已答 0\/1/);
       await card().getByText("暂不处理", { exact: true }).click(); await submit();
@@ -502,7 +617,7 @@ try {
     });
     await emitQuestion("preserved-draft", questionnaire);
     await caseRun("partial-answer-current-step-note-and-preview-survive-session-switch", async () => {
-      await card().getByPlaceholder("自由输入…", { exact: true }).fill("draft format");
+      await (await customInput()).fill("draft format");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
       await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("draft note");
       await card().getByRole("button", { name: "下一题", exact: true }).click();
@@ -514,7 +629,7 @@ try {
       await page.getByRole("button", { name: "费用测试审阅", exact: false }).first().click(); await pause();
       await card().getByText("选择需要交付的内容", { exact: true }).waitFor();
       await card().getByRole("heading", { name: "表格预览" }).waitFor();
-      assert.match(await card().getByText("表格", { exact: true }).evaluate((el) => el.closest("div").className), /border-owl-accent/);
+      assert.equal(await card().getByRole("checkbox", { name: "表格", exact: true }).getAttribute("aria-checked"), "true");
       await card().getByRole("button", { name: "上一题", exact: true }).click();
       assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).inputValue(), "draft format");
       assert.equal(await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).inputValue(), "draft note");

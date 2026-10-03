@@ -219,6 +219,7 @@ export function Composer({
 	connected,
 	disabled,
 	running,
+	hideEnvironment = false,
 	onSend,
 	onAbort,
 	providers,
@@ -240,6 +241,8 @@ export function Composer({
 	connected: boolean;
 	disabled: boolean;
 	running: boolean;
+	/** Hide secondary environment controls while the active conversation needs attention. */
+	hideEnvironment?: boolean;
 	onSend: (text: string, images?: ComposerImage[]) => void;
 	onAbort: () => void;
 	providers: ProviderModelsMessage[];
@@ -486,7 +489,7 @@ export function Composer({
 		<div className="owl-composer-surface px-4 pt-2 pb-4">
 			<div className="mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
-				<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
+				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1.5 px-1 pb-2">
 					<Menu
 						triggerClassName={envChipClass}
 						triggerTitle={connected ? t("composer.runLocationLocalConnected") : t("composer.runLocationLocalDisconnected")}
@@ -587,7 +590,7 @@ export function Composer({
 					>
 						<FolderPlusIcon />
 					</button>
-				</div>
+				</div>}
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div
 					className={"relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}

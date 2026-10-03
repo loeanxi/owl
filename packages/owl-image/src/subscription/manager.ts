@@ -19,13 +19,13 @@ import { createPkce, type Pkce } from "./oauth.ts";
 import { clearStoredBlob, writeStoredBlob } from "./store.ts";
 import {
 	ANTIGRAVITY_REDIRECT_URI,
+	type AntigravityProjectResolution,
 	antigravityAuthorizeUrl,
 	antigravityConfig,
 	antigravityExchangeCode,
 	antigravityGenerateImage,
 	antigravityRefresh,
 	antigravityResolveProject,
-	type AntigravityProjectResolution,
 } from "./vendors/antigravity.ts";
 
 /** Reference image passed to edit calls. */
@@ -48,7 +48,10 @@ export class SubscriptionManager {
 	private pending: { pkce: Pkce } | undefined;
 	private refreshLock: Promise<SubscriptionBlob> | undefined;
 	/** Antigravity needs a per-account project id on every generation call. */
-	private readonly projectCache = new Map<string, { projectId: string; source: "managed" | "onboarded" | "fallback" | "persisted" }>();
+	private readonly projectCache = new Map<
+		string,
+		{ projectId: string; source: "managed" | "onboarded" | "fallback" | "persisted" }
+	>();
 
 	/** Read the stored blob, or undefined when signed out. */
 	readBlob(): SubscriptionBlob | undefined {
@@ -177,9 +180,10 @@ export class SubscriptionManager {
 			const message = error instanceof Error ? error.message : String(error);
 			// 诊断:回退到社区共享项目说明"自动引导托管项目"没有成功——那个公共池
 			// 的生图配额大概率已被社区流量耗尽,429/配额类失败多半源于此而非账号本身。
-			const diagnosis = project.source === "fallback"
-				? `\n(诊断:本次用的是社区共享项目 ${project.projectId}——你的账号自动引导托管项目未成功;公共池生图配额可能已被耗尽,可重试一次让引导重跑,或到 Antigravity IDE 确认账号状态。)`
-				: "";
+			const diagnosis =
+				project.source === "fallback"
+					? `\n(诊断:本次用的是社区共享项目 ${project.projectId}——你的账号自动引导托管项目未成功;公共池生图配额可能已被耗尽,可重试一次让引导重跑,或到 Antigravity IDE 确认账号状态。)`
+					: "";
 			throw new Error(`${message}${diagnosis}`);
 		}
 		return { b64: result.b64 };

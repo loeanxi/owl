@@ -9,7 +9,9 @@ import {
 	calculateContextTokens,
 	compact,
 	DEFAULT_COMPACTION_SETTINGS,
+	estimateContextBreakdown,
 	estimateContextTokens,
+	estimateTokens,
 	findCutPoint,
 	getLastAssistantUsage,
 	prepareCompaction,
@@ -268,6 +270,50 @@ describe("estimateContextTokens", () => {
 		expect(estimate.lastUsageIndex).toBe(1);
 		expect(estimate.trailingTokens).toBeGreaterThan(0);
 		expect(estimate.tokens).toBe(150 + estimate.trailingTokens);
+	});
+});
+
+describe("estimateContextBreakdown", () => {
+	it("categorizes system prompt, tool definitions, messages and tool results", () => {
+		const messages: AgentMessage[] = [
+			{
+				role: "system",
+				content: "You are Owl.",
+				sections: { persona: "x".repeat(400) },
+				toolsAdded: { read: { description: "z".repeat(200) } },
+				timestamp: Date.now(),
+			},
+			createUserMessage("Hello there"),
+			createAssistantMessage("Hi!"),
+			{
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text", text: "y".repeat(800) }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+		];
+
+		const breakdown = estimateContextBreakdown(messages);
+
+		expect(breakdown.systemPrompt).toBeGreaterThan(0);
+		expect(breakdown.toolDefinitions).toBeGreaterThan(0);
+		expect(breakdown.messages).toBeGreaterThan(0);
+		expect(breakdown.toolResults).toBeGreaterThan(0);
+		// 与逐消息估算同口径：四类之和 = 全部消息的 estimateTokens 之和
+		const total = breakdown.systemPrompt + breakdown.toolDefinitions + breakdown.messages + breakdown.toolResults;
+		const sumAll = messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+		expect(total).toBe(sumAll);
+	});
+
+	it("returns zeros for an empty message list", () => {
+		expect(estimateContextBreakdown([])).toEqual({
+			systemPrompt: 0,
+			toolDefinitions: 0,
+			messages: 0,
+			toolResults: 0,
+		});
 	});
 });
 

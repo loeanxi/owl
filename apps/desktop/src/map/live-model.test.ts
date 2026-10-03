@@ -175,3 +175,19 @@ test("cancelling a map lookup aborts its fetch and releases the pending wait", a
 	abort.abort();
 	await assert.rejects(pending, { name: "AbortError" });
 });
+
+test("browser fetch keeps its global receiver and uses the server's language and result bounds", async () => {
+	const urls: URL[] = [];
+	const fetcher: typeof fetch = async function (this: unknown, input) {
+		assert.equal(this, globalThis, "Window.fetch cannot be called with a map client as its receiver");
+		urls.push(new URL(String(input), "http://localhost"));
+		return new Response(JSON.stringify({ data: [place], sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io" }] }));
+	};
+	const client = new RealMapClient(fetcher);
+	await client.search("宁波", "en");
+	await client.nearby({ lat: 29.87, lng: 121.55 }, "cafe", 2000);
+	await client.reverse({ lat: 29.87, lng: 121.55 }, "en");
+	assert.equal(urls[0].searchParams.get("lang"), "en");
+	assert.ok(Number(urls[1].searchParams.get("limit")) <= 30);
+	assert.equal(urls[2].searchParams.get("lang"), "en");
+});

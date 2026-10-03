@@ -12,9 +12,14 @@ export interface EvaluationCheckedArtifact {
 export function extractEvaluationArtifact(task: EvaluationTask, output: string): EvaluationArtifact | null {
 	const fences = [...output.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)];
 	let content = output.trim();
-	if (task.outputType === "svg") content = fences.find((m) => /^(?:svg|xml)\s*$/i.test(m[1]))?.[2] ?? output.match(/<svg\b[\s\S]*<\/svg\s*>/i)?.[0] ?? "";
+	if (task.outputType === "svg")
+		content =
+			fences.find((m) => /^(?:svg|xml)\s*$/i.test(m[1]))?.[2] ?? output.match(/<svg\b[\s\S]*<\/svg\s*>/i)?.[0] ?? "";
 	else if (task.outputType === "html")
-		content = fences.find((m) => /^html\s*$/i.test(m[1]))?.[2] ?? output.match(/(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*<\/html\s*>/i)?.[0] ?? "";
+		content =
+			fences.find((m) => /^html\s*$/i.test(m[1]))?.[2] ??
+			output.match(/(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*<\/html\s*>/i)?.[0] ??
+			"";
 	else if (task.outputType === "code")
 		content =
 			fences.find((m) => /^(?:javascript|js|typescript|ts)\s*$/i.test(m[1]))?.[2] ?? fences[0]?.[2] ?? content;
@@ -58,7 +63,10 @@ export async function checkEvaluationArtifact(
 	} else if (artifact.type === "svg") {
 		try {
 			const document = new DOMParser().parseFromString(artifact.content, "image/svg+xml");
-			formatValid = isEvaluationSvgWellFormed(artifact.content) && document.documentElement?.localName === "svg" && !document.querySelector("parsererror");
+			formatValid =
+				isEvaluationSvgWellFormed(artifact.content) &&
+				document.documentElement?.localName === "svg" &&
+				!document.querySelector("parsererror");
 		} catch {
 			formatValid = false;
 		}
@@ -82,10 +90,12 @@ export async function checkEvaluationArtifact(
 				: "包含禁止的嵌入、SVG脚本或外部资源，保留源码并停用预览。",
 		});
 	}
-	if (formatValid && artifact.type === "code") checks.push(...await checkEvaluationCode(task, artifact.content, signal));
+	if (formatValid && artifact.type === "code")
+		checks.push(...(await checkEvaluationCode(task, artifact.content, signal)));
 	const requirement = formatValid ? checkEvaluationSvgRequirement(task, artifact) : undefined;
 	if (requirement) checks.push(requirement);
-	if (artifact.previewAllowed && (artifact.type === "svg" || artifact.type === "html")) checks.push(...await checkEvaluationBrowser(task, artifact, signal));
+	if (artifact.previewAllowed && (artifact.type === "svg" || artifact.type === "html"))
+		checks.push(...(await checkEvaluationBrowser(task, artifact, signal)));
 	for (const spec of task.checks)
 		if (!checks.some((check) => check.id === spec.id))
 			checks.push({

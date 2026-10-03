@@ -16,13 +16,14 @@ import "./question-card.css";
 interface QuestionUiState {
 	picked: Set<string>;
 	custom: string;
+	customOpen: boolean;
 	note: string;
 	noteOpen: boolean;
 	previewOpen: Set<string>;
 }
 
 function initialState(): QuestionUiState {
-	return { picked: new Set<string>(), custom: "", note: "", noteOpen: false, previewOpen: new Set<string>() };
+	return { picked: new Set<string>(), custom: "", customOpen: false, note: "", noteOpen: false, previewOpen: new Set<string>() };
 }
 
 export function QuestionDialog({
@@ -124,6 +125,8 @@ export function QuestionDialog({
 	if (!question || !state) return null;
 	const unanswered = missing.has(qi);
 	const answeredCount = states.filter(isAnswered).length;
+	const customVisible = state.customOpen || state.custom.trim() !== "";
+	const noteVisible = state.noteOpen || state.note.trim() !== "";
 
 	return (
 		<section
@@ -144,13 +147,13 @@ export function QuestionDialog({
 				}
 			}}
 		>
-			{/* 进度：第 x / N 题 + 圆点（绿=已答，描边=当前） */}
+			{/* 单题只显示计数；多题用短进度点导航，避免整条强调色压过问题。 */}
 			<div className="owl-question-card__progress">
-				<span className="owl-question-card__step font-semibold text-owl-accent">
+				<span className="owl-question-card__step">
 					{t("question.progress", { i: qi + 1, n: total })}
 				</span>
 				{collapsed && <span className="owl-question-card__summary" title={question.question}>{question.question}</span>}
-				<div hidden={collapsed} className="flex min-w-0 flex-1 items-center gap-1.5">
+				<div hidden={collapsed || total < 2} className="owl-question-card__steps">
 					{request.questions.map((q, i) => (
 						<button
 							key={i}
@@ -158,13 +161,8 @@ export function QuestionDialog({
 							title={q.header || q.question}
 							aria-label={t("question.progress", { i: i + 1, n: total })}
 							aria-current={i === qi ? "step" : undefined}
-							className={`h-1.5 flex-1 rounded-full transition-colors ${
-								i === qi
-									? "bg-owl-accent"
-									: isAnswered(states[i])
-										? "bg-owl-accent/40 hover:bg-owl-accent/60"
-										: "bg-owl-border hover:bg-owl-muted/40"
-							}`}
+							className="owl-question-card__step-dot"
+							data-answered={isAnswered(states[i])}
 							onClick={() => {
 								setCurrent(i);
 								setMissing(new Set());
@@ -172,7 +170,7 @@ export function QuestionDialog({
 						/>
 					))}
 				</div>
-				<span hidden={collapsed} className="owl-question-card__count text-[11px] text-owl-muted">
+				<span hidden={collapsed} className="owl-question-card__count" data-single={total < 2}>
 					{t("question.answeredCount", { n: answeredCount, total })}
 				</span>
 				<button
@@ -188,18 +186,16 @@ export function QuestionDialog({
 			</div>
 			<div id={`${questionId}-body`} hidden={collapsed} className="owl-question-card__body">
 				<div className="owl-question-card__heading">
-					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						{question.header && (
-							<span className="owl-question-card__badge rounded bg-owl-sidebar px-1.5 py-0.5 font-mono text-[11px] text-owl-muted">
-								{question.header}
-							</span>
-						)}
-						{question.multiSelect && <span className="text-[11px] text-owl-muted">{t("question.multiSelectHint")}</span>}
-					</div>
-					<p id={questionId} className="text-sm font-medium">{question.question}</p>
+					{(question.header || question.multiSelect) && (
+						<div className="owl-question-card__caption">
+							{question.header && <span>{question.header}</span>}
+							{question.multiSelect && <span>{t("question.multiSelectHint")}</span>}
+						</div>
+					)}
+					<p id={questionId} className="owl-question-card__question">{question.question}</p>
 				</div>
 				{unanswered && <p className="mt-1 text-xs text-red-400">{t("question.missingWarning")}</p>}
-				<div className="owl-question-card__options">
+				<div className="owl-question-card__options" role={question.multiSelect ? "group" : "radiogroup"} aria-labelledby={questionId}>
 					{question.options.map((option) => {
 						const picked = state.picked.has(option.label);
 						const previewVisible =
@@ -211,9 +207,8 @@ export function QuestionDialog({
 									aria-label={option.label}
 									aria-checked={picked}
 									tabIndex={0}
-									className={`owl-question-card__choice flex cursor-pointer items-start gap-2 rounded-lg border transition-colors ${
-										picked ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
-									}`}
+									className="owl-question-card__choice"
+									data-picked={picked}
 									onClick={(event) => {
 										event.currentTarget.focus({ preventScroll: true });
 										pick(qi, option.label, question.multiSelect);
@@ -227,7 +222,7 @@ export function QuestionDialog({
 									}}
 								>
 									<span
-										className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border text-[10px] text-white ${
+										className={`owl-question-card__indicator mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border text-[10px] text-white ${
 											question.multiSelect ? "rounded-sm" : "rounded-full"
 										} ${picked ? "border-owl-accent bg-owl-accent" : "border-owl-border"}`}
 									>
@@ -242,7 +237,7 @@ export function QuestionDialog({
 									{option.preview && (
 										<button
 											type="button"
-											className="shrink-0 rounded border border-owl-border px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+										className="owl-question-card__preview-toggle shrink-0 rounded border border-owl-border px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 											onClick={(event) => {
 												event.stopPropagation();
 												togglePreview(qi, option.label);
@@ -263,9 +258,11 @@ export function QuestionDialog({
 						);
 					})}
 				</div>
-				<div className="owl-question-card__extras">
+				<div hidden={!customVisible && !noteVisible} className="owl-question-card__extras">
 					{/* 「其他」自由文本行：单选下输入即顶掉已选选项；多选下是额外一项 */}
 					<div
+						hidden={!customVisible}
+						id={`${questionId}-custom`}
 						className={`owl-question-card__custom flex cursor-pointer items-center gap-2 rounded-lg border transition-colors ${
 							state.custom.trim() !== "" ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
 						}`}
@@ -283,34 +280,47 @@ export function QuestionDialog({
 						/>
 					</div>
 					{/* 每题备注 */}
-					{state.noteOpen ? (
+					{noteVisible && (
 						<textarea
+							id={`${questionId}-note`}
 							value={state.note}
 							onChange={(event) => patch(qi, { note: event.target.value })}
 							placeholder={t("question.notePlaceholder")}
 							rows={2}
 							className="w-full resize-y rounded-lg border border-owl-border bg-owl-sidebar px-2.5 py-1.5 text-xs outline-none placeholder:text-owl-muted/60 focus:border-owl-accent"
 						/>
-					) : (
-						<button
-							type="button"
-							className="text-[11px] text-owl-muted hover:text-owl-text"
-							onClick={() => patch(qi, { noteOpen: true })}
-						>
-							{t("question.addNote")}
-						</button>
 					)}
 				</div>
 			</div>
 			<div hidden={collapsed} className="owl-question-card__footer">
-				<button
-					type="button"
-					className="rounded-lg border border-owl-border px-3 py-1.5 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+				<div className="owl-question-card__secondary-actions">
+					<button
+						type="button"
+						className="owl-question-card__extra-toggle"
+						aria-expanded={customVisible}
+						aria-controls={`${questionId}-custom`}
+						onClick={() => patch(qi, { customOpen: !customVisible })}
+					>
+						{t("question.other")}
+					</button>
+					<button
+						type="button"
+						className="owl-question-card__extra-toggle"
+						aria-expanded={noteVisible}
+						aria-controls={`${questionId}-note`}
+						onClick={() => patch(qi, { noteOpen: !noteVisible })}
+					>
+						{t("question.addNote")}
+					</button>
+				</div>
+				<div className="owl-question-card__actions">
+					<button
+						type="button"
+						className="owl-question-card__cancel"
 						onClick={() => onAnswer([], true)}
 					>
 						{t("common.cancel")}
 					</button>
-				<div className="owl-question-card__actions">
 					{qi > 0 && (
 						<button
 							type="button"

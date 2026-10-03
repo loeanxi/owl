@@ -1165,6 +1165,7 @@ export default function App(): React.JSX.Element {
 								connected={connected}
 								disabled={running || submitting || !connected}
 								running={running}
+								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
 								onSend={(text, images) => void sendPrompt(text, images)}
 								onAbort={() => void abort()}
 								providers={providers}
