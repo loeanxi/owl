@@ -152,6 +152,7 @@ export function NewsManagement({
 								<label key={capability}>
 									{t(`news.capability.${capability}`)}
 									<select
+										aria-label={t(`news.capability.${capability}`)}
 										value={
 											config.models[capability]
 												? `${config.models[capability]?.provider}/${config.models[capability]?.id}`

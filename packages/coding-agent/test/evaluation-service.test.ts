@@ -124,7 +124,7 @@ async function settle(service: EvaluationService, runId: string): Promise<Evalua
 }
 
 describe("durable model evaluation", () => {
-	it("publishes successive partial answers before completion while masking thinking and retaining the last body on cancellation", async () => {
+	it("publishes supplier thinking and partial answers before completion while masking identity and retaining progress on cancellation", async () => {
 		const pending = new Map<string, EvaluationInvocation>();
 		let markReady: (() => void) | undefined;
 		const ready = new Promise<void>((done) => {
@@ -137,18 +137,31 @@ describe("durable model evaluation", () => {
 			return new Promise<EvaluationInvocationResult>(() => {});
 		});
 		const started = await start(service);
+		expect(started.results.every((result) => result.thinking === "" && result.generationPhase === "waiting")).toBe(
+			true,
+		);
 		await ready;
 		const waiting = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
 		expect(
 			waiting.results.every(
-				(result) => result.status === "running" && result.output === "" && result.artifact === null,
+				(result) =>
+					result.status === "running" &&
+					result.output === "" &&
+					result.artifact === null &&
+					result.thinking === "fixture private first reasoning" &&
+					result.generationPhase === "thinking",
 			),
 		).toBe(true);
 		for (const request of pending.values())
 			request.onPartial("first body paragraph", "fixture private first reasoning");
 		const first = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
 		expect(
-			first.results.every((result) => result.status === "running" && result.output === "first body paragraph"),
+			first.results.every(
+				(result) =>
+					result.status === "running" &&
+					result.output === "first body paragraph" &&
+					result.generationPhase === "answering",
+			),
 		).toBe(true);
 		for (const request of pending.values())
 			request.onPartial("first body paragraph\n\nsecond body paragraph", "fixture private later reasoning");
@@ -157,8 +170,9 @@ describe("durable model evaluation", () => {
 			true,
 		);
 		expect(first.results.every((result) => result.output === "first body paragraph")).toBe(true);
+		expect(growing.results.every((result) => result.thinking === "fixture private later reasoning")).toBe(true);
 		for (const result of growing.results)
-			for (const field of ["thinking", "profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"])
+			for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"])
 				expect(result).not.toHaveProperty(field);
 		await service.handle({ action: "run.cancel", runId: started.id });
 		const cancelled = await settle(service, started.id);
@@ -169,7 +183,10 @@ describe("durable model evaluation", () => {
 		expect(
 			cancelled.results.every(
 				(result) =>
-					result.status === "cancelled" && result.output === "first body paragraph\n\nsecond body paragraph",
+					result.status === "cancelled" &&
+					result.output === "first body paragraph\n\nsecond body paragraph" &&
+					result.thinking === "fixture private later reasoning" &&
+					result.generationPhase === undefined,
 			),
 		).toBe(true);
 		const afterLate = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
@@ -222,7 +239,7 @@ describe("durable model evaluation", () => {
 			expect(result.status).toBe("completed");
 			expect(result).not.toHaveProperty("profile");
 			expect(result).not.toHaveProperty("profileId");
-			expect(result).not.toHaveProperty("thinking");
+			expect(result.thinking).toBe("private reasoning");
 			expect(result).not.toHaveProperty("durationMs");
 			expect(result).not.toHaveProperty("usage");
 			expect(result).not.toHaveProperty("costUsd");
@@ -432,6 +449,51 @@ describe("durable model evaluation", () => {
 		expect(
 			revealed.results.every(
 				(result) => result.durationMs !== null && result.durationMs !== undefined && result.durationMs < 50,
+			),
+		).toBe(true);
+	});
+
+	it("exposes checking phase while preserving collected thinking and removes phase for completed results", async () => {
+		let markChecking: (() => void) | undefined;
+		let releaseChecking: (() => void) | undefined;
+		let count = 0;
+		const checkingStarted = new Promise<void>((done) => {
+			markChecking = done;
+		});
+		const checkerGate = new Promise<void>((done) => {
+			releaseChecking = done;
+		});
+		const { service } = await setup(
+			async () => reply,
+			1000,
+			async () => {
+				count++;
+				if (count === 2) markChecking?.();
+				await checkerGate;
+				return { artifact: null, checks: [] };
+			},
+		);
+		const begun = await start(service);
+		await checkingStarted;
+		const checking = (await service.handle({ action: "run.get", runId: begun.id })) as EvaluationRunView;
+		expect(
+			checking.results.every(
+				(result) =>
+					result.status === "running" &&
+					result.generationPhase === "checking" &&
+					result.output === reply.text &&
+					result.thinking === reply.thinking,
+			),
+		).toBe(true);
+		expect(checking.results.every((result) => result.profile === undefined && result.usage === undefined)).toBe(true);
+		releaseChecking?.();
+		const complete = await settle(service, begun.id);
+		expect(
+			complete.results.every(
+				(result) =>
+					result.status === "completed" &&
+					result.generationPhase === undefined &&
+					result.thinking === reply.thinking,
 			),
 		).toBe(true);
 	});

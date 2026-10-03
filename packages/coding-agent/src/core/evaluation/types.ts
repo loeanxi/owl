@@ -80,6 +80,7 @@ export interface EvaluationActualModel {
 	providerThinkingLevel: string | null;
 }
 export type EvaluationResultStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+export type EvaluationGenerationPhase = "waiting" | "thinking" | "answering" | "checking";
 export interface EvaluationResult {
 	id: string;
 	taskId: string;
@@ -89,6 +90,8 @@ export interface EvaluationResult {
 	status: EvaluationResultStatus;
 	output: string;
 	thinking: string;
+	/** Present only while queued/running; terminal outcomes are represented by status. */
+	generationPhase?: EvaluationGenerationPhase;
 	artifact: EvaluationArtifact | null;
 	checks: EvaluationCheck[];
 	error: string | null;
@@ -124,12 +127,11 @@ export interface EvaluationRun {
 export interface EvaluationResultView
 	extends Omit<
 		EvaluationResult,
-		"profileId" | "thinking" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"
+		"profileId" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"
 	> {
 	anonymousLabel: string;
 	revealed: boolean;
 	profile?: EvaluationProfile;
-	thinking?: string;
 	startedAt?: string | null;
 	finishedAt?: string | null;
 	durationMs?: number | null;

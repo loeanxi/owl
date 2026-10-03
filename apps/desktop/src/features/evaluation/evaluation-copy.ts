@@ -3,6 +3,7 @@ import { getUiLanguage, useT } from "../../i18n/index.ts";
 const zh = {
 	title: "模型测评", local: "本地", offline: "本地服务未连接", reconnect: "重新加载", loading: "正在读取测评数据…",
 	waitingBody: "等待模型输出正文，收到后自动更新。", streamingBody: "正在接收模型正文", followOutput: "继续跟随输出",
+	process: "作答过程", returnedThinking: "思考过程", responseBody: "正文回答", waitingFirstSegment: "等待供应商返回首段内容。", queueDetail: "当前任务正在排队，开始后会显示供应商返回的内容。", thinking: "思考中", answering: "作答中", checking: "检查中", receivingThinking: "等待正文回答", checkingDetail: "正在检查最终输出", requestSent: "请求已发出", thinkingNotReturned: "尚未收到供应商返回的思考文本。",
 	newRun: "新建测评", evaluation: "测评", library: "题库", history: "运行记录", summary: "测评汇总", currentRun: "当前测评",
 	direct: "直接回答", directHint: "固定题目，独立上下文；不带聊天历史，不调用工具。", noRuns: "开始你的第一次模型测评",
 	noRunsHint: "选择同一组题目，比较已配置模型的作品、质量、速度和费用。", createTitle: "新建一次测评", createDesc: "选好题目与模型配置，用相同任务比较真实回答。",
@@ -37,6 +38,7 @@ const zh = {
 const en: { [K in keyof typeof zh]: string } = {
 	title: "Model evaluation", local: "Local", offline: "Local service disconnected", reconnect: "Reload", loading: "Loading evaluation data…",
 	waitingBody: "Waiting for answer text. It will appear as the model responds.", streamingBody: "Receiving answer text", followOutput: "Follow new output",
+	process: "Response process", returnedThinking: "Thinking", responseBody: "Answer text", waitingFirstSegment: "Waiting for the provider's first content segment.", queueDetail: "This task is queued. Provider content will appear when it starts.", thinking: "Thinking", answering: "Answering", checking: "Checking", receivingThinking: "Waiting for the answer text", checkingDetail: "Checking the final output", requestSent: "Request sent", thinkingNotReturned: "No thinking text has been returned by the provider yet.",
 	newRun: "New evaluation", evaluation: "Evaluation", library: "Task library", history: "Run history", summary: "Summary", currentRun: "Current evaluation",
 	direct: "Direct answers", directHint: "Fixed tasks in fresh contexts, without chat history or tools.", noRuns: "Start your first model evaluation",
 	noRunsHint: "Compare configured models on the same tasks: artifacts, quality, speed and cost.", createTitle: "Create an evaluation", createDesc: "Choose tasks and model configurations to compare real answers.",

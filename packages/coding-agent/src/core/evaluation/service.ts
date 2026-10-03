@@ -65,17 +65,34 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 			for (let number = index + 1; number > 0; number = Math.floor((number - 1) / 26)) {
 				anonymousLabel = String.fromCharCode(65 + ((number - 1) % 26)) + anonymousLabel;
 			}
-			const { profileId, thinking, startedAt, finishedAt, durationMs, usage, costUsd, actualModel, ...anonymous } =
-				result;
+			const {
+				profileId,
+				thinking,
+				generationPhase,
+				startedAt,
+				finishedAt,
+				durationMs,
+				usage,
+				costUsd,
+				actualModel,
+				...anonymous
+			} = result;
 			results.push({
 				...structuredClone(anonymous),
+				// The user requested live supplier reasoning as well as live answer text.
+				thinking: thinking ?? "",
+				...(result.status === "queued" || result.status === "running"
+					? {
+							generationPhase:
+								generationPhase ?? (result.output ? "answering" : thinking ? "thinking" : "waiting"),
+						}
+					: {}),
 				error: !group.revealed && result.error ? "本次生成未完成；揭晓后可查看详细原因" : result.error,
 				anonymousLabel,
 				revealed: group.revealed,
 				...(group.revealed
 					? {
 							profile: structuredClone(run.profiles.find((profile) => profile.id === profileId)),
-							thinking,
 							startedAt,
 							finishedAt,
 							durationMs,
@@ -345,6 +362,7 @@ export class EvaluationService {
 			status: "queued",
 			output: "",
 			thinking: "",
+			generationPhase: "waiting",
 			artifact: null,
 			checks: [],
 			error: null,
@@ -461,6 +479,7 @@ export class EvaluationService {
 						if (controller.signal.aborted) return;
 						result.output = text;
 						result.thinking = thinking;
+						result.generationPhase = text ? "answering" : thinking ? "thinking" : "waiting";
 						if (Date.now() - lastSave > 500) {
 							lastSave = Date.now();
 							this.persist(run);
@@ -485,6 +504,8 @@ export class EvaluationService {
 				);
 			}
 			if (!result.output.trim()) throw new Error("模型未输出答案");
+			result.generationPhase = "checking";
+			this.persist(run);
 			const checked = await Promise.race([this.check(task, result.output, controller.signal), aborted]);
 			result.artifact = checked.artifact;
 			result.checks = checked.checks;
@@ -498,6 +519,7 @@ export class EvaluationService {
 			if (onAbort) controller.signal.removeEventListener("abort", onAbort);
 			result.finishedAt = new Date().toISOString();
 			result.durationMs = (generationEnded ?? Date.now()) - started;
+			delete result.generationPhase;
 			if (!run.results.some((entry) => entry.status === "queued" || entry.status === "running")) {
 				if (run.status === "running") run.status = this.closing ? "interrupted" : "completed";
 			}
