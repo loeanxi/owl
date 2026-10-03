@@ -12,6 +12,7 @@
  * @module owl-genui/client/EChartNode
  */
 import { renderInline } from './inline.ts'
+import { t } from './i18n/index.ts'
 import { useEffect, useRef, useState } from 'react'
 import css from './GenuiBlock.module.css'
 import { createChart as lazyCreateChart, type EChartsInstance } from './echarts-lazy.ts'
@@ -85,10 +86,11 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
   // and dropping `data` would silently lose half the answer. The unnamed
   // data entry opts its preset out of the legend (same as the series-less
   // branch) unless it carries a real label.
+  const dataSeries = { label: data.length > 0 ? t('block.chart.untitledSeries') : '', data }
   const entries = series !== undefined && series.length > 0
-    ? (data.length > 0 ? [{ label: '', data }, ...series] : series)
-    : [{ label: '', data }]
-  const showLegend = entries.every(entry => entry.label !== '')
+    ? (data.length > 0 ? [dataSeries, ...series] : series)
+    : [dataSeries]
+  const showLegend = entries.length > 1 || entries[0]!.label !== ''
 
   // Shared tooltip base: renderMode 'richText' prevents ECharts from writing
   // tooltip content via innerHTML — labels/formatters are model output and
