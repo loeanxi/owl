@@ -1540,6 +1540,46 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "imageConfig.get":
+			case "imageConfig.set":
+			case "imageSub.login":
+			case "imageSub.logout": {
+				// owl-image 图像生成：设置页「图像生成」卡片的数据面（文件操作 + 动态
+				// import 插件 dist 做订阅登录），详见 ./owl-image-settings.ts 头注释。
+				const agentDir = defaultAgentDir();
+				const imageSettings = await import("./owl-image-settings.ts");
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+					m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				);
+				const pluginSources = settingsManager.getGlobalSettings().plugins;
+				if (request.type === "imageConfig.get") {
+					reply(ws, request.id, {
+						ok: true,
+						result: {
+							config: imageSettings.readImageConfigPublic(agentDir),
+							keyStatus: imageSettings.apiKeyStatus(agentDir),
+							subscription: imageSettings.subscriptionStatus(agentDir),
+							configPath: imageSettings.imageConfigPath(agentDir),
+							pluginInstalled: imageSettings.findOwlImageDist(pluginSources) !== undefined,
+						},
+					});
+				} else if (request.type === "imageConfig.set") {
+					const written = imageSettings.writeImageConfig(agentDir, request.config, request.apiKeys);
+					if (!written.ok) {
+						reply(ws, request.id, { ok: false, error: written.error });
+					} else {
+						reply(ws, request.id, { ok: true, result: { ok: true } });
+					}
+				} else if (request.type === "imageSub.login") {
+					const login = await imageSettings.subscriptionLogin(pluginSources);
+					if (login.ok) reply(ws, request.id, { ok: true, result: { ok: true, url: login.url } });
+					else reply(ws, request.id, { ok: false, error: login.error });
+				} else {
+					imageSettings.subscriptionLogout(agentDir);
+					reply(ws, request.id, { ok: true, result: { ok: true } });
+				}
+				return;
+			}
 			case "settings.set": {
 				const agentDir = defaultAgentDir();
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
