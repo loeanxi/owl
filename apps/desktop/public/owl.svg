@@ -1,33 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- S4 精修 B · 夜视角羽：两根斜长角羽 + 暗色眼窝里发光的夜视瞳（守夜人）
-       细节定稿：采纳 B1 辉光瞳（径向渐变柔光晕 + 瞳内亮心），其余保持基线 -->
-  <path d="M208.0 128.0 L234.0 128.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M201.9 158.6 L225.9 168.6" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M184.6 184.6 L203.0 203.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M158.6 201.9 L168.6 225.9" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M128.0 208.0 L128.0 234.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M97.4 201.9 L87.4 225.9" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M71.4 184.6 L53.0 203.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M54.1 158.6 L30.1 168.6" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M48.0 128.0 L22.0 128.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M54.1 97.4 L30.1 87.4" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M71.4 71.4 L53.0 53.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M128.0 48.0 L128.0 22.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M184.6 71.4 L203.0 53.0" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M201.9 97.4 L225.9 87.4" stroke="#2f9e5a" stroke-width="16" stroke-linecap="round"/>
-  <path d="M108.2 67.1 L92.2 17.7" stroke="#2f9e5a" stroke-width="17" stroke-linecap="round"/>
-  <path d="M147.8 67.1 L163.8 17.7" stroke="#2f9e5a" stroke-width="17" stroke-linecap="round"/>
-  <circle cx="94" cy="116" r="28" fill="#241d16"/>
-  <circle cx="162" cy="116" r="28" fill="#241d16"/>
-  <defs>
-    <radialGradient id="halo"><stop offset="0%" stop-color="#5ecf82" stop-opacity="0.55"/><stop offset="60%" stop-color="#5ecf82" stop-opacity="0.18"/><stop offset="100%" stop-color="#5ecf82" stop-opacity="0"/></radialGradient>
-    <radialGradient id="pup"><stop offset="0%" stop-color="#9df0c1"/><stop offset="65%" stop-color="#5ecf82"/><stop offset="100%" stop-color="#41b06a"/></radialGradient>
-  </defs>
-  <circle cx="94" cy="116" r="22" fill="url(#halo)"/>
-  <circle cx="162" cy="116" r="22" fill="url(#halo)"/>
-  <circle cx="94" cy="116" r="11.5" fill="url(#pup)"/>
-  <circle cx="162" cy="116" r="11.5" fill="url(#pup)"/>
-  <circle cx="90.5" cy="112.5" r="3.5" fill="#fffdf8"/>
-  <circle cx="158.5" cy="112.5" r="3.5" fill="#fffdf8"/>
-  <path d="M128 138 L140 153 Q128 168 116 153 Z" fill="#c4a82a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <path d="M5 4.5 11.5 8a15 15 0 0 1 9 0L27 4.5l-1 10c1.4 7.3-2.5 12.8-10 15-7.5-2.2-11.4-7.7-10-15L5 4.5Z" fill="#2f9e5a"/>
+  <path d="M7 13.5c2.5-2.5 6-2.2 9 1 3-3.2 6.5-3.5 9-1v4c0 5-4.1 8.2-9 10-4.9-1.8-9-5-9-10v-4Z" fill="#173f2c"/>
+  <ellipse cx="11.5" cy="16" rx="3.5" ry="4" fill="#c2f5d4"/>
+  <ellipse cx="20.5" cy="16" rx="3.5" ry="4" fill="#c2f5d4"/>
+  <ellipse cx="12.25" cy="16" rx="1.5" ry="2.25" fill="#102c1e"/>
+  <ellipse cx="19.75" cy="16" rx="1.5" ry="2.25" fill="#102c1e"/>
+  <path d="m13.8 21 2.2-2 2.2 2L16 24l-2.2-3Z" fill="#81d5a0"/>
 </svg>

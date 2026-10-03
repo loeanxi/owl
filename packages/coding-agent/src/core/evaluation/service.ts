@@ -1,12 +1,20 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { getAgentDir } from "../../config.ts";
-import { checkEvaluationArtifact } from "./checkers.ts";
-import { createEvaluationModelAccess, type EvaluationInvocationResult, type EvaluationInvoker } from "./model.ts";
+import { checkEvaluationArtifact, extractEvaluationArtifact } from "./checkers.ts";
+import {
+	createEvaluationModelAccess,
+	type EvaluationConversation,
+	type EvaluationInvocationResult,
+	type EvaluationInvoker,
+	validateEvaluationConversation,
+} from "./model.ts";
 import { EvaluationStore } from "./store.ts";
 import { BUILTIN_EVALUATION_TASKS } from "./tasks.ts";
 import type {
 	EvaluationArtifact,
 	EvaluationCheck,
+	EvaluationFollowup,
+	EvaluationFollowupView,
 	EvaluationGroup,
 	EvaluationModel,
 	EvaluationProfile,
@@ -54,6 +62,28 @@ function runSummary(run: EvaluationRun): EvaluationRunSummary {
 	};
 }
 
+function followupView(turn: EvaluationFollowup, revealed: boolean): EvaluationFollowupView {
+	const { startedAt, finishedAt, durationMs, usage, costUsd, actualModel, generationPhase, ...publicTurn } = turn;
+	return {
+		...structuredClone(publicTurn),
+		thinking: turn.thinking ?? "",
+		error: !revealed && turn.error ? "本次追问未完成；揭晓后可查看详细原因" : turn.error,
+		...(turn.status === "queued" || turn.status === "running"
+			? { generationPhase: generationPhase ?? (turn.output ? "answering" : turn.thinking ? "thinking" : "waiting") }
+			: {}),
+		...(revealed
+			? {
+					startedAt,
+					finishedAt,
+					durationMs,
+					usage: structuredClone(usage),
+					costUsd,
+					...(actualModel ? { actualModel: structuredClone(actualModel) } : {}),
+				}
+			: {}),
+	};
+}
+
 /** The stored run contains identities; every browser response goes through this projection. */
 export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 	const results: EvaluationResultView[] = [];
@@ -75,12 +105,14 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 				usage,
 				costUsd,
 				actualModel,
+				followups,
 				...anonymous
 			} = result;
 			results.push({
 				...structuredClone(anonymous),
 				// The user requested live supplier reasoning as well as live answer text.
 				thinking: thinking ?? "",
+				followups: (followups ?? []).map((turn) => followupView(turn, group.revealed)),
 				...(result.status === "queued" || result.status === "running"
 					? {
 							generationPhase:
@@ -277,6 +309,24 @@ export class EvaluationService {
 			}
 			case "run.reveal":
 				return this.reveal(request);
+			case "conversation.send":
+				return this.sendFollowup(request);
+			case "conversation.cancel": {
+				const run = this.store.getRun(request.runId);
+				const result = run.results.find((entry) => entry.id === request.resultId);
+				const turn = result?.followups?.find((entry) => entry.id === request.followupId);
+				if (!turn) throw new Error("追问不存在");
+				if (turn.status === "queued") {
+					turn.status = "cancelled";
+					turn.error = "用户停止追问";
+					turn.finishedAt = new Date().toISOString();
+					delete turn.generationPhase;
+					this.persist(run);
+				} else if (turn.status === "running") {
+					this.active.get(turn.id)?.controller.abort(new Error("用户停止追问"));
+				}
+				return evaluationRunView(run);
+			}
 			default:
 				throw new Error("未知模型测评请求");
 		}
@@ -430,53 +480,140 @@ export class EvaluationService {
 		this.store.saveRun(run);
 	}
 
+	private conversation(result: EvaluationResult, turn: EvaluationFollowup): EvaluationConversation {
+		const earlier = (result.followups ?? []).slice(
+			0,
+			(result.followups ?? []).findIndex((entry) => entry.id === turn.id),
+		);
+		return {
+			originalAnswer: result.output,
+			turns: earlier
+				.filter((entry) => entry.status === "completed" && entry.output.trim())
+				.map((entry) => ({ prompt: entry.prompt, output: entry.output })),
+			prompt: turn.prompt,
+		};
+	}
+
+	private sendFollowup(request: Extract<EvaluationRequest, { action: "conversation.send" }>): EvaluationRunView {
+		if (typeof request.prompt !== "string" || !request.prompt.trim() || request.prompt.length > 10_000)
+			throw new Error("追问不能为空且最多 10000 字");
+		const run = this.store.getRun(request.runId);
+		const result = run.results.find((entry) => entry.id === request.resultId);
+		if (!result || result.status === "queued" || result.status === "running" || !result.output.trim())
+			throw new Error("请等首次作答结束且收到正文后再追问");
+		const previous = result.followups ?? [];
+		if (previous.some((turn) => turn.status === "queued" || turn.status === "running"))
+			throw new Error("这段会话已有追问正在生成");
+		if (previous.length >= 20) throw new Error("每段会话最多追问 20 次，请新建测评继续");
+		const task = run.tasks.find((entry) => entry.id === result.taskId);
+		const profile = run.profiles.find((entry) => entry.id === result.profileId);
+		if (!task || !profile) throw new Error("题目或模型快照丢失");
+		const turn: EvaluationFollowup = {
+			id: randomUUID(),
+			prompt: request.prompt.trim(),
+			status: "queued",
+			output: "",
+			thinking: "",
+			generationPhase: "waiting",
+			artifact: null,
+			checks: [],
+			error: null,
+			startedAt: null,
+			finishedAt: null,
+			durationMs: null,
+			usage: null,
+			costUsd: null,
+		};
+		const conversation: EvaluationConversation = {
+			originalAnswer: result.output,
+			turns: previous
+				.filter((entry) => entry.status === "completed" && entry.output.trim())
+				.map((entry) => ({ prompt: entry.prompt, output: entry.output })),
+			prompt: turn.prompt,
+		};
+		validateEvaluationConversation(profile, task, conversation);
+		result.followups = [...previous, turn];
+		this.persist(run);
+		queueMicrotask(() => this.pump());
+		return evaluationRunView(run);
+	}
+
 	private pump(): void {
 		if (this.closing) return;
 		while (this.active.size < this.concurrency) {
-			const run = this.store
-				.listRuns()
-				.find((entry) => entry.status === "running" && entry.results.some((result) => result.status === "queued"));
-			const result = run?.results.find((entry) => entry.status === "queued");
+			const runs = this.store.listRuns();
+			let run: EvaluationRun | undefined;
+			let result: EvaluationResult | undefined;
+			let followup: EvaluationFollowup | undefined;
+			// A user turn receives the next free slot without interrupting existing model calls.
+			for (const entry of runs) {
+				const candidate = entry.results.find((original) =>
+					original.followups?.some((turn) => turn.status === "queued"),
+				);
+				if (!candidate) continue;
+				run = entry;
+				result = candidate;
+				followup = candidate.followups?.find((turn) => turn.status === "queued");
+				break;
+			}
+			if (!result) {
+				run = runs.find(
+					(entry) => entry.status === "running" && entry.results.some((item) => item.status === "queued"),
+				);
+				result = run?.results.find((entry) => entry.status === "queued");
+			}
 			if (!run || !result) return;
+			const target = followup ?? result;
 			const controller = new AbortController();
-			result.status = "running";
-			result.startedAt = new Date().toISOString();
+			target.status = "running";
+			target.startedAt = new Date().toISOString();
 			this.persist(run);
-			const promise = this.execute(run, result, controller).finally(() => {
-				this.active.delete(result.id);
+			const promise = this.execute(run, result, controller, followup).finally(() => {
+				this.active.delete(target.id);
 				this.pump();
 			});
-			this.active.set(result.id, { controller, promise });
+			this.active.set(target.id, { controller, promise });
 			// Disk failures are exceptional; terminate this work item without an unhandled rejection.
 			void promise.catch(() => {});
 		}
 	}
 
-	private async execute(run: EvaluationRun, result: EvaluationResult, controller: AbortController): Promise<void> {
+	private async execute(
+		run: EvaluationRun,
+		original: EvaluationResult,
+		controller: AbortController,
+		followup?: EvaluationFollowup,
+	): Promise<void> {
+		const result = followup ?? original;
 		const started = Date.now();
 		let lastSave = 0;
 		let timedOut = false;
+		let acceptingPartials = true;
 		let generationEnded: number | undefined;
-		const timeout = setTimeout(() => {
-			timedOut = true;
-			controller.abort(new Error("模型测评请求超时"));
-		}, this.timeoutMs);
+		const timeout = setTimeout(
+			() => {
+				timedOut = true;
+				controller.abort(new Error("模型测评请求超时"));
+			},
+			run.profiles.find((profile) => profile.id === original.profileId)?.timeoutMs ?? this.timeoutMs,
+		);
 		let onAbort: (() => void) | undefined;
 		const aborted = new Promise<never>((_resolve, reject) => {
 			onAbort = () => reject(controller.signal.reason);
 			controller.signal.addEventListener("abort", onAbort, { once: true });
 		});
 		try {
-			const task = run.tasks.find((entry) => entry.id === result.taskId);
-			const profile = run.profiles.find((entry) => entry.id === result.profileId);
+			const task = run.tasks.find((entry) => entry.id === original.taskId);
+			const profile = run.profiles.find((entry) => entry.id === original.profileId);
 			if (!task || !profile) throw new Error("题目或模型快照丢失");
 			const invoked: EvaluationInvocationResult = await Promise.race([
 				this.invoke({
 					task: structuredClone(task),
 					profile: structuredClone(profile),
+					...(followup ? { conversation: this.conversation(original, followup) } : {}),
 					signal: controller.signal,
 					onPartial: (text, thinking) => {
-						if (controller.signal.aborted) return;
+						if (controller.signal.aborted || !acceptingPartials) return;
 						result.output = text;
 						result.thinking = thinking;
 						result.generationPhase = text ? "answering" : thinking ? "thinking" : "waiting";
@@ -488,6 +625,7 @@ export class EvaluationService {
 				}),
 				aborted,
 			]);
+			acceptingPartials = false;
 			generationEnded = Date.now();
 			controller.signal.throwIfAborted();
 			result.output = invoked.text;
@@ -504,23 +642,50 @@ export class EvaluationService {
 				);
 			}
 			if (!result.output.trim()) throw new Error("模型未输出答案");
-			result.generationPhase = "checking";
-			this.persist(run);
-			const checked = await Promise.race([this.check(task, result.output, controller.signal), aborted]);
-			result.artifact = checked.artifact;
-			result.checks = checked.checks;
+			// Exploration artifacts retain format/sandbox checks, without regrading the fixed task.
+			const previewTask: EvaluationTask = followup
+				? {
+						...task,
+						id: `conversation-${task.id}`,
+						builtin: false,
+						checks: task.checks.filter((spec) => ["format", "safe", "render"].includes(spec.kind)),
+					}
+				: task;
+			const artifactCandidate = followup ? extractEvaluationArtifact(previewTask, result.output) : null;
+			let validJson = false;
+			if (artifactCandidate?.type === "json") {
+				try {
+					JSON.parse(artifactCandidate.content);
+					validJson = true;
+				} catch {
+					// A textual response does not need an artifact.
+				}
+			}
+			const containsArtifact =
+				!followup ||
+				(artifactCandidate !== null &&
+					(task.outputType === "svg" || task.outputType === "html" || validJson || /```/.test(result.output)));
+			if (containsArtifact) {
+				result.generationPhase = "checking";
+				this.persist(run);
+				const checked = await Promise.race([this.check(previewTask, result.output, controller.signal), aborted]);
+				controller.signal.throwIfAborted();
+				result.artifact = checked.artifact;
+				result.checks = checked.checks;
+			}
 			result.status = "completed";
 		} catch (error) {
 			result.status =
 				controller.signal.aborted && !timedOut ? (this.closing ? "interrupted" : "cancelled") : "failed";
 			result.error = timedOut ? "模型测评请求超时" : error instanceof Error ? error.message : String(error);
 		} finally {
+			acceptingPartials = false;
 			clearTimeout(timeout);
 			if (onAbort) controller.signal.removeEventListener("abort", onAbort);
 			result.finishedAt = new Date().toISOString();
 			result.durationMs = (generationEnded ?? Date.now()) - started;
 			delete result.generationPhase;
-			if (!run.results.some((entry) => entry.status === "queued" || entry.status === "running")) {
+			if (!followup && !run.results.some((entry) => entry.status === "queued" || entry.status === "running")) {
 				if (run.status === "running") run.status = this.closing ? "interrupted" : "completed";
 			}
 			this.persist(run);
@@ -530,16 +695,29 @@ export class EvaluationService {
 	async close(): Promise<void> {
 		this.closing = true;
 		for (const run of this.store.listRuns()) {
-			if (run.status !== "running") continue;
+			let changed = false;
 			for (const result of run.results) {
 				if (result.status === "queued") {
 					result.status = "interrupted";
 					result.error = "应用关闭，测评中断";
 					result.finishedAt = new Date().toISOString();
+					delete result.generationPhase;
+					changed = true;
+				}
+				for (const turn of result.followups ?? []) {
+					if (turn.status !== "queued") continue;
+					turn.status = "interrupted";
+					turn.error = "应用关闭，追问中断";
+					turn.finishedAt = new Date().toISOString();
+					delete turn.generationPhase;
+					changed = true;
 				}
 			}
-			run.status = "interrupted";
-			this.persist(run);
+			if (run.status === "running") {
+				run.status = "interrupted";
+				changed = true;
+			}
+			if (changed) this.persist(run);
 		}
 		for (const { controller } of this.active.values()) controller.abort(new Error("应用关闭，测评中断"));
 		await Promise.allSettled([...this.active.values()].map((entry) => entry.promise));

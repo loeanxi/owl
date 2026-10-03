@@ -24,15 +24,27 @@ export class EvaluationStore {
 			if (!run.id || !Array.isArray(run.results)) throw new Error(`模型测评记录格式错误：${name}`);
 			this.runs.set(run.id, run);
 			let changed = false;
+			let initialInterrupted = false;
 			for (const result of run.results) {
-				if (result.status !== "queued" && result.status !== "running") continue;
-				result.status = "interrupted";
-				result.error = "应用重启，测评中断；可以重跑此结果";
-				result.finishedAt = new Date().toISOString();
-				changed = true;
+				if (result.status === "queued" || result.status === "running") {
+					result.status = "interrupted";
+					result.error = "应用重启，测评中断；可以重跑此结果";
+					result.finishedAt = new Date().toISOString();
+					delete result.generationPhase;
+					changed = true;
+					initialInterrupted = true;
+				}
+				for (const turn of result.followups ?? []) {
+					if (turn.status !== "queued" && turn.status !== "running") continue;
+					turn.status = "interrupted";
+					turn.error = "应用重启，追问中断；可以重新追问";
+					turn.finishedAt = new Date().toISOString();
+					delete turn.generationPhase;
+					changed = true;
+				}
 			}
 			if (changed) {
-				run.status = "interrupted";
+				if (initialInterrupted) run.status = "interrupted";
 				run.updatedAt = new Date().toISOString();
 				this.saveRun(run);
 			}

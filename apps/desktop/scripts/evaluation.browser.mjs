@@ -117,6 +117,19 @@ async function screenshot(name) {
   await page.screenshot({ path: join(output, name), fullPage: true });
   result.screenshots.push(name);
 }
+async function openRating(card) {
+  await card.locator('[data-action="rating"]').click();
+  return page.getByRole("dialog");
+}
+async function closeDrawer() {
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+}
+async function rateCard(card, scores, note) {
+  const dialog = await openRating(card);
+  for (const [index, group] of (await dialog.locator(".eval-rating").all()).entries()) await group.getByRole("button", { name: `${scores[index]} 分`, exact: true }).click();
+  if (note) await dialog.locator(".eval-score-note").fill(note);
+  await closeDrawer();
+}
 const entryButton = () => page.locator('[data-fd-id="model-evaluation-entry"]');
 const area = () => page.locator(".owl-eval:visible");
 const latestStart = () => result.requests.filter((request) => request.type === "evaluation.request" && request.request.action === "run.start").at(-1);
@@ -220,7 +233,7 @@ try {
     firstRunId = await newRun("Browser one-call fixture");
     assert.equal(latestStart().request.samples, 1); assert.equal(latestStart().request.taskIds.length * latestStart().request.profiles.length, 1);
     assert.equal((await rpc({ action: "run.get", runId: firstRunId })).results.length, 1);
-    await area().locator(".eval-result-card").first().getByRole("button", { name: "作品预览", exact: true }).click();
+    await area().locator(".eval-result-card iframe").first().waitFor();
     const geometry = await page.frameLocator(".owl-eval .eval-artifact iframe").first().locator("svg").evaluate((element) => {
       const rectangle = element.getBoundingClientRect();
       return { x: rectangle.x, y: rectangle.y, right: rectangle.right, bottom: rectangle.bottom, width: rectangle.width, height: rectangle.height, viewportWidth: innerWidth, viewportHeight: innerHeight };
@@ -236,12 +249,16 @@ try {
       for (const key of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, key), false, `Anonymous result leaked ${key}`);
     }
     assert.equal(await area().locator(".eval-result-card").filter({ hasText: "Fixture Alpha" }).count(), 0);
-    const group = area().locator(".eval-rating").first();
+    await openRating(area().locator(".eval-result-card").first());
+    const group = page.getByRole("dialog").locator(".eval-rating").first();
     await group.getByRole("button", { name: "4 分", exact: true }).click();
+    await closeDrawer();
     await page.locator(".owl-activity-rail").getByRole("button", { name: "聊天", exact: true }).click();
     assert.equal(await area().count(), 0);
     await entryButton().click();
-    await area().locator(".eval-rating").first().getByRole("button", { name: "4 分", exact: true, pressed: true }).waitFor();
+    await openRating(area().locator(".eval-result-card").first());
+    await page.getByRole("dialog").locator(".eval-rating").first().getByRole("button", { name: "4 分", exact: true, pressed: true }).waitFor();
+    await closeDrawer();
     await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
     await area().getByRole("alert").filter({ hasText: "每个评价项" }).waitFor();
     assert.equal((await rpc({ action: "run.get", runId: firstRunId })).groups[0].revealed, false);
@@ -249,8 +266,7 @@ try {
   });
   await check("three criteria scoring reveals real identities without changing order", async () => {
     const before = await rpc({ action: "run.get", runId: firstRunId });
-    for (const [index, group] of (await area().locator(".eval-rating").all()).entries()) await group.getByRole("button", { name: `${[5, 3, 4][index]} 分`, exact: true }).click();
-    await area().locator(".eval-score-note").fill("Offline browser fixture review");
+    await rateCard(area().locator(".eval-result-card").first(), [5, 3, 4], "Offline browser fixture review");
     await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
     await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
     const after = await rpc({ action: "run.get", runId: firstRunId });
@@ -270,7 +286,7 @@ try {
     const before = await rpc({ action: "run.get", runId: comparedRunId });
     assert.equal(before.results.length, 2);
     assert.equal(before.results.every((item) => !item.profile && !item.actualModel), true);
-    for (const group of await area().locator(".eval-rating").all()) await group.getByRole("button", { name: "4 分", exact: true }).click();
+    for (const card of await area().locator(".eval-result-card").all()) await rateCard(card, [4, 4, 4]);
     await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
     await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
     const scored = await rpc({ action: "run.get", runId: comparedRunId });
@@ -310,8 +326,8 @@ try {
     const runId = await newRun("Browser distinct-rubric fixture", false, 1, ["G01", "G07"]);
     for (const [taskId, scores] of Object.entries({ G01: [5, 3, 4], G07: [1, 2, 5] })) {
       await area().locator(".eval-side-task").filter({ hasText: taskId }).click();
-      await area().locator(".eval-rating").first().waitFor();
-      for (const [index, group] of (await area().locator(".eval-rating").all()).entries()) await group.getByRole("button", { name: `${scores[index]} 分`, exact: true }).click();
+      await area().locator(".eval-result-card").first().waitFor();
+      await rateCard(area().locator(".eval-result-card").first(), scores);
       await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
       await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
     }

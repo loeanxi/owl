@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
-import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -10,6 +10,7 @@ import { NewsPage } from "./features/news/NewsPage.tsx";
 import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
 import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
+import { ResearchPage } from "./features/research/ResearchPage.tsx";
 import { MediaView } from "./features/media/MediaView.tsx";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
@@ -102,10 +103,17 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "mail" || view === "map" || view === "evaluation" || view === "media" ? view : "chat";
+		return view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "research" ? view : "chat";
 	});
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
+	const [researchMounted, setResearchMounted] = useState(railView === "research");
+	const [researchSessionId, setResearchSessionId] = useState<string>();
+	const [researchResumeRequest, setResearchResumeRequest] = useState<{ id: string; revision: number }>();
+	const [researchNewConversationRequest, setResearchNewConversationRequest] = useState(0);
+	const researchActionSequence = useRef(0);
+	const railViewRef = useRef(railView);
+	railViewRef.current = railView;
 	// 媒体桥视图懒挂载：首次点开 Rail「音乐」才渲染，之后保活（保留 tab/滚动位置）。
 	const [mediaMounted, setMediaMounted] = useState(railView === "media");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
@@ -285,7 +293,7 @@ export default function App(): React.JSX.Element {
 
 	/** 快捷键开终端 / 浏览器 tab：面板没开就先展开（不切停靠位）。 */
 	const openInPanel = (kind: string): void => {
-		setRailView("chat");
+		if (railView !== "research") setRailView("chat");
 		if (!openRef.current) setWorkbenchOpenPersisted(true);
 		openQuickAction(workbenchStore, kind);
 	};
@@ -294,6 +302,8 @@ export default function App(): React.JSX.Element {
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
+	const panelSessionIdRef = useRef<string | undefined>(undefined);
+	panelSessionIdRef.current = railView === "research" ? researchSessionId : sessionId;
 	useEffect(() => client.onNewsOpen((message) => {
 			if (message.sessionId !== sessionIdRef.current) return;
 		setShowSettings(false);
@@ -451,8 +461,9 @@ export default function App(): React.JSX.Element {
 
 	// 任务管理 tab 的 feed：流式 delta 只重渲染订阅者，不牵连整个工作台
 	useEffect(() => {
+		if (railView === "research") return;
 		setSessionFeed({ running, entries });
-	}, [running, entries]);
+	}, [running, entries, railView]);
 
 		// 全局快捷键（对照 Codex 桌面端菜单，全部动作的键盘入口收在这一个 handler）：
 		// 动作集经 shortcutsRef 每次渲染刷新，免 stale closure；
@@ -516,7 +527,7 @@ export default function App(): React.JSX.Element {
 			return client.onIabMessage((message) => {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
 				if (!isTabKindEnabled("browser", getSidebarConfig())) return;
-				const target = agentPageForSession(message, sessionIdRef.current);
+				const target = agentPageForSession(message, panelSessionIdRef.current);
 				if (!target) return;
 				// 已有面板在看：直接激活那个 tab；没有才开新 tab
 				const boundTabId = isIabPageBound(target.pageId) ? boundTabIdFor(target.pageId) : undefined;
@@ -704,6 +715,7 @@ export default function App(): React.JSX.Element {
 			cwd: string;
 			messages: Record<string, unknown>[];
 			messageEntryIds?: (string | undefined)[];
+			researchMode?: ResearchMode;
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
@@ -719,7 +731,17 @@ export default function App(): React.JSX.Element {
 			}
 			return;
 		}
-		const { sessionId: resumedId, cwd, messages, messageEntryIds } = response.result;
+		const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
+		if (researchMode !== undefined) {
+			if (options?.silent && railViewRef.current !== "chat") return;
+			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
+			setShowSettings(false);
+			setResearchMounted(true);
+			setRailView("research");
+			setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
+			return;
+		}
+		if (!options?.silent && railViewRef.current === "research") setRailView("chat");
 		setWorkspaceDir(cwd);
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
@@ -754,7 +776,7 @@ export default function App(): React.JSX.Element {
 	// 每次启动只尝试一次；若用户抢先发消息/点会话（sessionId 已就位），则不打扰。
 	const restoreTriedRef = useRef(false);
 	useEffect(() => {
-		if (!connected || restoreTriedRef.current) return;
+		if (!connected || restoreTriedRef.current || railView === "research") return;
 		restoreTriedRef.current = true;
 		void (async () => {
 			try {
@@ -772,7 +794,7 @@ export default function App(): React.JSX.Element {
 				// 桥瞬断时静默放弃，侧边栏手动点会话仍可恢复
 			}
 		})();
-	}, [connected, client]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [connected, client, railView]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 输入框项目选择器的候选列表：session.list 的项目 ∪ 到访过的项目 ∪ 当前项目（与侧边栏同源）。
 	// 切项目 / 侧边栏重拉（恢复、删除归档）时刷新；桥瞬断静默跳过。
@@ -1015,11 +1037,15 @@ export default function App(): React.JSX.Element {
 	const shortcuts = {
 		newChat: (): void => {
 			setShowSettings(false);
+			if (railView === "research") {
+				setResearchNewConversationRequest((current) => current + 1);
+				return;
+			}
 			setRailView("chat");
 			newChat();
 		},
 		openProject: (): void => {
-			setRailView("chat");
+			if (railView !== "research") setRailView("chat");
 			setShowProjectDialog(true);
 		},
 		closeWindow: (): void => { void closeMainWindow(); },
@@ -1051,12 +1077,12 @@ export default function App(): React.JSX.Element {
 		},
 		toggleBottomPanel: (): void => {
 			setShowSettings(false);
-			setRailView("chat");
+			if (railView !== "research") setRailView("chat");
 			togglePanelAt("bottom");
 		},
 		toggleRightPanel: (): void => {
 			setShowSettings(false);
-			setRailView("chat");
+			if (railView !== "research") setRailView("chat");
 			togglePanelAt("right");
 		},
 		openTerminal: (): void => openInPanel("terminal"),
@@ -1128,29 +1154,31 @@ export default function App(): React.JSX.Element {
 					setEvaluationMounted(true);
 					setRailView("evaluation");
 				}}
+				onOpenResearch={() => {
+					setShowSettings(false);
+					setResearchMounted(true);
+					setRailView("research");
+				}}
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
 				view={railView}
 				settingsOpen={showSettings}
-				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); }}
+				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); if (view === "research") setResearchMounted(true); }}
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
 			<SessionSidebar
 				client={client}
 				connected={connected}
-				activeId={sessionId}
+				activeId={railView === "research" ? researchSessionId : sessionId}
 				activeProject={workspaceDir}
-				refreshKey={sessionId ?? ""}
+				refreshKey={(railView === "research" ? researchSessionId : sessionId) ?? ""}
 				revision={sidebarRev}
 				focus={railView}
-				minimized={sidebarMinimized || showSettings || railView !== "chat"}
+				minimized={sidebarMinimized || showSettings || (railView !== "chat" && railView !== "research")}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
-				onNewChat={() => {
-					setRailView("chat");
-					newChat();
-				}}
+				onNewChat={shortcuts.newChat}
 				onSelectProject={switchProject}
 				onOpenSession={(id) => void openSession(id)}
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
@@ -1192,8 +1220,8 @@ export default function App(): React.JSX.Element {
 			{mediaMounted && <div style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
-			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
-				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
+			<div className="owl-main-frame" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
+				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep" style={{ display: railView === "research" && !showSettings ? "none" : undefined }}>
 					<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={sessionTitle}>{sessionTitle}</h1>
 					<span className="owl-shell-project" title={workspaceDir}>
 						<IconFolder size={12} /><span className="owl-shell-project-label">{projectBasename}</span>
@@ -1220,6 +1248,10 @@ export default function App(): React.JSX.Element {
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
 				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "") + (activeQuestion ? " has-pending-question" : "")}>
 					<div className="owl-shell-conversation">
+						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
+							<ResearchPage client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir} providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} projects={projects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId} resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest} questions={questions} question={questions.find((request) => request.sessionId === researchSessionId)} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))} waiting={Boolean(researchSessionId && (permission?.sessionId === researchSessionId || questions.some((request) => request.sessionId === researchSessionId)))} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} onOpenBrowser={() => openInPanel("browser")} workbenchOpen={workbenchOpen} onOpenSettings={shortcuts.openSettings} />
+						</div>}
+						<div style={{ display: railView === "research" && !showSettings ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
 						{conversationView === "context" ? (
 							<ContextView client={client} cwd={workspaceDir} />
 						) : (
@@ -1264,8 +1296,9 @@ export default function App(): React.JSX.Element {
 								draftRequest={draftRequest}
 							/>
 						</QuestionDock>
+						</div>
 					</div>
-					<BrowserSessionContext.Provider value={sessionId}>
+					<BrowserSessionContext.Provider value={railView === "research" ? researchSessionId : sessionId}>
 						<Workbench
 							client={client}
 							cwd={workspaceDir}

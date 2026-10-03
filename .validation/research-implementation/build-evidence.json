@@ -1,0 +1,16 @@
+{
+  "actualApp": true,
+  "bridge": "offline WebSocket fixture",
+  "paidCalls": 0,
+  "sources": {
+    "apps/desktop/src/features/research/research-results.ts": "4e594f37e0845aa793b92220f8843da69f261ba93f0683162ddc0ddeaf63f081",
+    "apps/desktop/src/features/research/research-entry-copy.ts": "9ac45c96967509a10ef525038c0c4b26406475fe77af1b870641c3a70b80d0d1",
+    "apps/desktop/src/components/ChatStream.tsx": "d9bbf993338e490e67cbf91be10ac49fcbb286ed46c70cfc8f1cafe1d0db0d64",
+    "apps/desktop/src/components/Composer.tsx": "62eda2ea1dae6bbc9d38bd87ec1808c1cc1094eb77b8192e649b56952c6becf0",
+    "apps/desktop/src/features/research/research-copy.ts": "fcc96cb8a42561306d06924d2dde6182011b3e189b3a134c2407592dd5fbc8ae",
+    "apps/desktop/src/features/research/research-session.ts": "b5510b9f82fc19eaf6e7c17515972d0d83393e1c408a7b7bbed36ae0b576419a",
+    "apps/desktop/src/features/research/research.css": "cc5036ca0b82bba643004f9a6bdec8d05873fa65c75be576678bb05d33a36cde",
+    "apps/desktop/src/features/research/ResearchPage.tsx": "63b688f39d074f67372a512172d86e7d892a5ea326940a23fffa4cc35acb4429",
+    "apps/desktop/src/App.tsx": "d7669db2f3547565839ac76c549723f03bbcf26705335a6cd045fc2ac3b259a6"
+  }
+}

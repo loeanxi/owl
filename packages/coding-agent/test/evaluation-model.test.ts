@@ -84,6 +84,58 @@ beforeEach(() => {
 });
 
 describe("direct evaluation model adapter", () => {
+	it("forwards only this result's text conversation with the same frozen model effort and no provider reasoning replay", async () => {
+		const access = createEvaluationModelAccess("D:\\offline-fixture");
+		const available = await access.listModels();
+		await access.invoke({
+			task,
+			profile: {
+				id: "profile",
+				provider: model.provider,
+				modelId: model.id,
+				thinkingLevel: "high",
+				model: available[0],
+				timeoutMs: 1234,
+				maxTokens: 500,
+			},
+			signal: new AbortController().signal,
+			onPartial: () => {},
+			conversation: {
+				originalAnswer: "fixed first answer",
+				turns: [{ prompt: "previous question", output: "previous successful answer" }],
+				prompt: "next question",
+			},
+		});
+		const [forwardedModel, context, options] = fixtures.stream.mock.calls[0] as [
+			Model<Api>,
+			Context,
+			ModelsSimpleStreamOptions,
+		];
+		expect(forwardedModel).toBe(model);
+		expect(context.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"user",
+			"assistant",
+			"user",
+		]);
+		expect(context.messages[0]).toMatchObject({
+			role: "user",
+			content: "Repair exactly this code\n\nconst result = 1;",
+		});
+		expect(context.messages[1]).toMatchObject({
+			role: "assistant",
+			content: [{ type: "text", text: "fixed first answer" }],
+		});
+		expect(context.messages[3]).toMatchObject({
+			role: "assistant",
+			content: [{ type: "text", text: "previous successful answer" }],
+		});
+		expect(context.messages[4]).toMatchObject({ role: "user", content: "next question" });
+		expect(JSON.stringify(context)).not.toMatch(/thinking|signature|responseId|tool/);
+		expect(options).toMatchObject({ maxRetries: 0, timeoutMs: 1234, maxTokens: 500, reasoning: "high" });
+	});
+
 	it("sends only the fixed user input, no system/skills/tools/history, with retries disabled and the requested supported effort", async () => {
 		const access = createEvaluationModelAccess("D:\\offline-fixture");
 		const available = await access.listModels();

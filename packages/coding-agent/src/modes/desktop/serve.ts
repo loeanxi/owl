@@ -62,6 +62,14 @@ import {
 	resolveQuestion,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
+import {
+	createResearchExtension,
+	getResearchMode,
+	normalizeResearchMode,
+	RESEARCH_MODE_ENTRY,
+	RESEARCH_PUBLISH_TOOL,
+	updateResearchMode,
+} from "../../core/research/agent.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
 import { SessionManager } from "../../core/session-manager.ts";
@@ -770,11 +778,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const sessionId = runtimeOptions.sessionManager.getSessionId();
+			const researchMode = getResearchMode(runtimeOptions.sessionManager);
 			const services = await createAgentSessionServices({
 				cwd: runtimeOptions.cwd,
 				agentDir,
 				resourceLoaderOptions: {
-					extensionFactories,
+					extensionFactories: [
+						...extensionFactories,
+						...(researchMode ? [createResearchExtension(runtimeOptions.sessionManager)] : []),
+					],
 					...desktopAgentPromptOptions(appendSystemPrompt),
 				},
 			});
@@ -862,6 +874,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function sessionSnapshot(sessionId: string, sessionManager: SessionManager): SessionSnapshotPayload {
 		const projection = sessionManager.buildSessionProjection();
 		const mailContext = getMailAgentContext(sessionManager);
+		const researchMode = getResearchMode(sessionManager);
 		const messages: unknown[] = [];
 		const messageEntryIds: (string | undefined)[] = [];
 		for (const entry of projection.entries) {
@@ -878,6 +891,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 			...(mailContext ? { mailContext } : {}),
+			...(researchMode ? { researchMode } : {}),
 		};
 	}
 
@@ -1067,6 +1081,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	): Promise<void> {
 		const { sessionManager } = args;
 		const mailContext = getMailAgentContext(sessionManager);
+		const researchMode = getResearchMode(sessionManager);
+		if (mailContext && researchMode) throw new Error("邮箱会话不能同时作为研究会话");
 		const sessionIdHolder: { current: string } = { current: sessionManager.getSessionId() };
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
 		const approvalModeHolder: { current: ApprovalMode } = { current: args.approvalMode };
@@ -1077,6 +1093,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const mode = approvalModeHolder.current;
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
 					if (event.toolName === "ask_user_question") return {};
+					// Publishing existing research material only changes the transcript, like an assistant reply.
+					if (researchMode && event.toolName === RESEARCH_PUBLISH_TOOL) return {};
 					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
 					if (mode === "plan" && !isReadOnlyDesktopTool(event.toolName, event.input)) {
 						return {
@@ -1166,7 +1184,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
+		const researchMode = request.researchMode === undefined ? undefined : normalizeResearchMode(request.researchMode);
 		const sessionManager = SessionManager.create(request.cwd ?? options.cwd ?? process.cwd());
+		if (researchMode) sessionManager.appendCustomEntry(RESEARCH_MODE_ENTRY, { mode: researchMode });
 		await mountSession(ws, request.id, {
 			sessionManager,
 			agentDir: request.agentDir ?? defaultAgentDir(),
@@ -1268,6 +1288,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				if (!session) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
+				}
+				if (request.researchMode !== undefined) {
+					if (session.runtime.session.isStreaming || session.runtime.session.isCompacting) {
+						throw new Error("请先停止当前处理，再调整研究方向");
+					}
+					updateResearchMode(session.runtime.session.sessionManager, request.researchMode);
 				}
 				reply(ws, request.id, { ok: true });
 				try {

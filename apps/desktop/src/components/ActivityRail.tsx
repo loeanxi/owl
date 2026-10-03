@@ -1,10 +1,11 @@
 import { useT } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
 import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
+import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media";
+export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -23,6 +24,7 @@ export function ActivityRail({
 	onOpenSettings: () => void;
 }): React.JSX.Element {
 	const t = useT();
+	const researchTitle = useResearchEntryText();
 	const mediaPlaying = useMediaPlayingDot();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 
@@ -51,6 +53,10 @@ export function ActivityRail({
 
 			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
 				<IconNews className="h-[18px] w-[18px]" />
+			</button>
+
+			<button type="button" className={itemClass(view === "research" && !settingsOpen)} title={researchTitle} aria-label={researchTitle} aria-current={view === "research" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("research")} data-fd-id="research-rail-entry">
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m16 8-2.4 5.6L8 16l2.4-5.6Z" /></svg>
 			</button>
 
 			<button

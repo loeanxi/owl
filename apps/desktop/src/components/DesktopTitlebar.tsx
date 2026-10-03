@@ -3,6 +3,7 @@ import { useT } from "../i18n/index.ts";
 import { IconPanelLeft } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
+import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
 import "./evaluation-entry.css";
 
 type MenuKey = "file" | "edit" | "view" | "help";
@@ -22,7 +23,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation";
+	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation" | "research";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	workbenchOpen: boolean;
 	workbenchDock: "right" | "bottom";
@@ -53,6 +54,7 @@ interface DesktopTitlebarProps {
 	onShowShortcuts: () => void;
 	onOpenAbout: () => void;
 	onOpenEvaluation: () => void;
+	onOpenResearch: () => void;
 }
 
 /** 可编辑目标（含内层命中后的向上回溯）；CodeMirror 与内嵌浏览器自理键位，不归菜单管。 */
@@ -70,6 +72,7 @@ function captureEditableTarget(): HTMLElement | null {
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
 	const evaluationText = useEvaluationText();
+	const researchTitle = useResearchEntryText();
 	const sidebarLabel = props.sidebarView === "evaluation"
 		? evaluationText("title")
 		: props.sidebarView === "mail"
@@ -306,6 +309,9 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					onClick={() => { setMenu(undefined); props.onOpenEvaluation(); }}
 				>
 					{evaluationText("title")}
+				</button>
+				<button type="button" className={`owl-desktop-menu-trigger owl-desktop-evaluation-entry${props.sidebarView === "research" ? " is-active" : ""}`} aria-pressed={props.sidebarView === "research"} data-fd-id="research-workbench-entry" onClick={() => { setMenu(undefined); props.onOpenResearch(); }}>
+					{researchTitle}
 				</button>
 			</div>
 			<span className="owl-desktop-app-name" data-tauri-drag-region="deep">OWL</span>

@@ -11,6 +11,9 @@ import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } 
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
+import { ResponseActivity, type ChatActivity } from "./ResponseActivity.tsx";
+
+export type { ChatActivity } from "./ResponseActivity.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -544,20 +547,6 @@ function QuestionNavigator({ questions, active, onJump, onClose }: {
 			</nav>
 		</aside>
 	);
-}
-
-export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
-
-function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
-	if (activity === "idle") return null;
-	let executing = false;
-	for (let index = entries.length - 1; index >= 0; index--) {
-		const entry = entries[index]!;
-		if (entry.kind === "user") break;
-		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
-	}
-	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
-	return <div className="owl-response-activity" data-state={activity} role="status"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" /><span>{label}</span></div>;
 }
 
 /**

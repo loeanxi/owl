@@ -6,6 +6,7 @@
 
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.
+- Added independent model evaluation conversations with persistent follow-up turns, inline artifacts, attempt selection, and first-answer scoring drawers.
 - Added a desktop Gmail workspace with independently authorized accounts, a unified inbox, scoped mailbox Agent conversations, editable reply drafts, and confirmation of the exact message before sending.
 - Added a copy key (`app.message.copy`, default `ctrl+x`) to OAuth sign-in screens in `/login`, `/mcp`, and `/mcp login`, which copies the sign-in URL when the browser cannot be opened or the wrapped link cannot be selected.
 

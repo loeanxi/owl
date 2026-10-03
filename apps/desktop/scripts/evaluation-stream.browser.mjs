@@ -52,7 +52,7 @@ const models = ["one", "two"].map((modelId) => ({ provider: "offline-stream", mo
 let bridge, vite, browser, page, rpcSocket, runId;
 const area = () => page.locator(".owl-eval:visible");
 const cards = () => area().locator(".eval-result-card");
-const text = (index) => cards().nth(index).locator(".eval-stream-scroll");
+const text = (index) => cards().nth(index).locator(".eval-messages");
 const entry = () => page.locator('[data-fd-id="model-evaluation-entry"]');
 async function rpc(request) {
   const id = randomUUID();
@@ -107,9 +107,9 @@ try {
   try { await Promise.race([ready, new Promise((_done, reject) => { readyTimer = setTimeout(() => reject(new Error("Fake invocation stage gates did not become ready")), 10000); })]); }
   finally { clearTimeout(readyTimer); }
   await cards().nth(1).waitFor(); runId = (await rpc({ action: "run.list" }))[0].id;
-  await check("waiting stage uses the process tab and still hides model identity", async () => {
+  await check("waiting stage uses separate conversation streams and still hides model identity", async () => {
     const run = await snapshot(); assert.equal(run.status, "running");
-    for (let index = 0; index < 2; index++) await cards().nth(index).getByRole("button", { name: "作答过程", exact: true, pressed: true }).waitFor();
+    for (let index = 0; index < 2; index++) await cards().nth(index).locator(".eval-chat-status[data-generation-phase=waiting]").waitFor();
     for (const item of run.results) { assert.equal(item.output, ""); assert.equal(item.thinking, ""); assert.equal(item.generationPhase, "waiting"); for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(item, field), false); }
     for (const model of models) assert.equal(await cards().filter({ hasText: model.name }).count(), 0);
     await screenshot("01-waiting.png");
@@ -120,13 +120,13 @@ try {
     const thinkingTwo = `${thinkingOne}\n${longBody("第二批模型思考", 40)}`;
     publish("", thinkingTwo); await seeBody("第二批模型思考");
     const run = await snapshot(); assert.ok(run.results.every((item) => item.status === "running" && item.generationPhase === "thinking" && item.output === "" && item.thinking === thinkingTwo));
-    for (let index = 0; index < 2; index++) { await cards().nth(index).locator(".eval-process-thinking").filter({ hasText: "第二批模型思考" }).waitFor(); assert.ok((await scrollState(index)).gap <= 2); }
+    for (let index = 0; index < 2; index++) { await cards().nth(index).locator(".eval-thinking-body").filter({ hasText: "第二批模型思考" }).waitFor(); assert.ok((await scrollState(index)).gap <= 2); }
     await screenshot("01-thinking-live.png");
   });
   const bodyOne = longBody("第一批正文", 65);
   await check("two cards receive growing body while their real service run is unfinished", async () => {
     publish(bodyOne); await seeBody("第一批正文"); const run = await snapshot(); assert.equal(run.status, "running"); assert.ok(run.results.every((item) => item.output === bodyOne && item.status === "running" && item.generationPhase === "answering"));
-    for (let index = 0; index < 2; index++) await cards().nth(index).locator(".eval-process-answer").filter({ hasText: "第一批正文" }).waitFor();
+    for (let index = 0; index < 2; index++) await cards().nth(index).locator(".eval-chat-answer").filter({ hasText: "第一批正文" }).waitFor();
     for (let index = 0; index < 2; index++) assert.ok((await scrollState(index)).gap <= 2);
     await screenshot("02-growing-body.png");
   });
@@ -134,29 +134,28 @@ try {
   await check("scrolling upward pauses only that card; continuing follows the next output", async () => {
     await text(0).evaluate((element) => { element.scrollTop = 0; }); await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).waitFor();
     publish(bodyTwo); await seeBody("第二批新增正文"); assert.ok((await scrollState(0)).top <= 2); assert.ok((await scrollState(1)).gap <= 2); assert.equal((await snapshot()).status, "running");
-    await cards().nth(0).getByRole("button", { name: "源码", exact: true }).click();
-    await cards().nth(0).getByRole("button", { name: "作答过程", exact: true }).click();
+    await cards().nth(0).locator(".eval-thinking summary").click();
     assert.ok((await scrollState(0)).top <= 2);
     await screenshot("03-paused-reading.png");
     await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).click(); assert.ok((await scrollState(0)).gap <= 2);
   });
   const bodyThree = `${bodyTwo}\n${longBody("第三批源码正文", 20)}`;
-  await check("explicit source tab is not overridden by later streamed paragraphs", async () => {
-    await cards().nth(0).getByRole("button", { name: "源码", exact: true }).click(); publish(bodyThree); await seeBody("第三批源码正文");
-    await cards().nth(0).getByRole("button", { name: "源码", exact: true, pressed: true }).waitFor(); assert.equal((await snapshot()).status, "running");
+  await check("explicitly collapsed thinking remains collapsed as the body grows", async () => {
+    publish(bodyThree); await seeBody("第三批源码正文");
+    assert.equal(await cards().nth(0).locator(".eval-thinking").getAttribute("open"), null); assert.equal((await snapshot()).status, "running");
   });
   const bodyFour = `${bodyThree}\n${longBody("第四批后台正文", 10)}`;
   await check("chat navigation preserves background stream and catches up on return", async () => {
     await page.locator(".owl-activity-rail").getByRole("button", { name: "聊天", exact: true }).click(); assert.equal(await area().count(), 0);
     publish(bodyFour); const run = await snapshot(); assert.ok(run.results.every((item) => item.output === bodyFour));
-    await entry().click(); await seeBody("第四批后台正文"); await cards().nth(0).getByRole("button", { name: "源码", exact: true, pressed: true }).waitFor();
+    await entry().click(); await seeBody("第四批后台正文"); assert.equal(await cards().nth(0).locator(".eval-thinking").getAttribute("open"), null);
   });
   await check("the process reports artifact checking after the producer finishes", async () => {
     for (const request of pending) finishes.get(request)({ text: bodyFour, thinking: providerThinking, stopReason: "stop", error: null, usage: null, costUsd: null });
     let checkingTimer;
     try { await Promise.race([checkingReady, new Promise((_done, reject) => { checkingTimer = setTimeout(() => reject(new Error("Checking stage did not start")), 8000); })]); }
     finally { clearTimeout(checkingTimer); }
-    for (let index = 0; index < 2; index++) await cards().nth(index).locator('.eval-live-status[data-generation-phase="checking"]').waitFor();
+    for (let index = 0; index < 2; index++) await cards().nth(index).locator('.eval-chat-status[data-generation-phase="checking"]').waitFor();
     assert.ok((await snapshot()).results.every((item) => item.status === "running" && item.generationPhase === "checking"));
     await screenshot("04-checking-stage.png");
   });

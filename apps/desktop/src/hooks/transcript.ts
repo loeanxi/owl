@@ -1,4 +1,5 @@
-import type { ServerEventMessage } from "../bridge/protocol.ts";
+import type { ResearchResult, ServerEventMessage } from "../bridge/protocol.ts";
+import { researchResultOf } from "../features/research/research-results.ts";
 import { t } from "../i18n/index.ts";
 import { summarizeToolCall } from "./summarize.ts";
 
@@ -25,6 +26,8 @@ export type ToolOutput = {
 	fullPath?: string;
 	/** owl-genui：render_ui 工具修复后的 GenUI spec（details.genuiSpec），ChatStream 渲染为交互卡片。 */
 	genuiSpec?: unknown;
+	/** Research tool's persisted result; prose is never treated as structured evidence. */
+	researchResult?: ResearchResult;
 };
 
 export type ToolCard = {
@@ -450,6 +453,7 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 		.filter((part: AnyEvent) => part.type === "image" && part.data)
 		.map((part: AnyEvent) => ({ data: part.data, mimeType: part.mimeType ?? "image/png" }));
 	const details = (message.details ?? {}) as AnyEvent;
+	const researchResult = message.isError === true ? undefined : researchResultOf(details.researchResult);
 	const artifacts: ToolResultArtifact[] = [];
 	if (Array.isArray(details.artifacts)) {
 		for (const item of details.artifacts) {
@@ -465,6 +469,7 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 		...(artifacts.length > 0 ? { artifacts } : {}),
 		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
 		...(details.genuiSpec !== undefined ? { genuiSpec: details.genuiSpec } : {}),
+		...(researchResult ? { researchResult } : {}),
 	};
 }
 

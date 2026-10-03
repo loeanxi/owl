@@ -2,9 +2,11 @@
 
 The desktop title bar opens this workspace with `view=evaluation`. The browser uses `evaluation.request`; `EvaluationService` owns question snapshots, queued calls, validation, anonymous projections and local persistence.
 
-- Each call has one fixed user prompt and optional input, with no chat history, project instructions or tools. The selected model and supported thinking level are frozen with the run. The two-call queue returns immediately from `run.start` and survives page changes and WebSocket reconnects.
+- Each initial evaluation call has one fixed user prompt and optional input, with no chat history, project instructions or tools. The selected model and supported thinking level are frozen with the run. The two-call queue returns immediately from `run.start` and survives page changes and WebSocket reconnects.
 - Questions, profiles, raw/partial answers, attempts, checks and ratings are stored under `<agentDir>/model-evaluations`. Question edits do not rewrite existing run snapshots. Restarted work is marked interrupted, and retries preserve earlier attempts.
-- While an active run is displayed, the desktop reads the partial-answer projection every 500 ms. Running cards start on the process tab and display supplier-returned thinking and answer text together. Text follows new content and pauses when the reader scrolls up. The phase distinguishes waiting, thinking, answering and artifact checking. Source text also updates during generation; artifact previews retain their completion checks.
+- Results are displayed as independent model conversations. Each window contains the original task, supplier-returned thinking, answer text and checked inline artifacts. Its composer, scroll position and follow-up cancellation are independent. Automatic checks and human scoring are available in drawers; retries are retained under the window's attempt selector.
+- While an evaluation or follow-up is active, the desktop reads the partial-answer projection every 500 ms. Text follows new content and pauses when the reader scrolls up. The phase distinguishes waiting, thinking, answering and artifact checking. Artifact previews retain their completion checks.
+- `conversation.send` starts a follow-up for a terminal result with a nonempty answer, using its frozen model configuration and text-only conversation history. Follow-up turns are persisted separately under that result, share the two-call concurrency limit, and can be cancelled with `conversation.cancel`. They do not change the original answer, checks, rating, sampling progress or evaluation statistics. Failed or cancelled follow-up replies are retained for viewing but are not replayed as successful assistant history.
 - Group ordering is shuffled once per question/sample. Supplier-returned thinking is visible before reveal. Model identity, requested/actual model metadata, timing, usage and cost remain omitted from anonymous result projections. Scoring requires all three rubric values (integers 1–5) for every completed result. Skipping reveals identity but does not invent a rating.
 - SVG checks cover XML nesting, resource policy, native rendering and question-specific geometry, data, repair, local edits or animation declarations. Human scoring covers shape, action and appearance. JSON relationship questions have fixed answers.
 - HTML checks use an installed Chrome/Edge in a fresh context, with outbound requests blocked. The eight fixed questions receive real interaction tests. `OWL_EVALUATION_BROWSER_PATH` can select an installed browser; no browser is downloaded. Missing infrastructure is reported as unchecked, while an executed failing condition is reported as failed.
@@ -15,13 +17,15 @@ Targeted validation:
 
 ```powershell
 # From packages/coding-agent (no paid providers)
-node ../../node_modules/vitest/dist/cli.js --run test/evaluation-service.test.ts test/evaluation-model.test.ts test/desktop-evaluation-bridge.test.ts test/core/evaluation-checkers.test.ts test/core/evaluation-browser-checks.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/evaluation-conversation.test.ts test/evaluation-service.test.ts test/evaluation-model.test.ts test/desktop-evaluation-bridge.test.ts test/core/evaluation-checkers.test.ts test/core/evaluation-browser-checks.test.ts
 
 # From the repository root
 node --test apps/desktop/src/features/evaluation/evaluation-model.test.ts apps/desktop/src/features/evaluation/evaluation-preview.test.ts apps/desktop/src/features/evaluation/evaluation-process.test.ts
 node apps/desktop/scripts/evaluation.browser.mjs
 node apps/desktop/scripts/evaluation-stream.browser.mjs
+node apps/desktop/scripts/evaluation-mini-chat.browser.mjs
 ```
 
 The browser integration script uses the real App, bridge and service with fake model/check adapters and temporary local data. It does not consume configured model credits or restart existing services. Its screenshots and report are saved in `.validation/model-evaluation`.
 The streaming script advances two fake producers manually while generation remains unfinished, then verifies live text, independent scroll following, tab selection, page navigation and retained output after cancellation. Its report and screenshots are saved in `.validation/model-evaluation-stream`.
+The mini-chat integration script verifies first-answer scoring, real follow-up RPCs and context, independent conversation state, cancellation, original-statistic isolation, sampling and persisted conversation recovery. It uses fake providers and writes its report to `.validation/model-evaluation-mini-chat`.

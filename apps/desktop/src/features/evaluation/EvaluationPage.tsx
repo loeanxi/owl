@@ -12,6 +12,7 @@ import { CATEGORIES, FINISHED_STATUSES, isolatedPreview } from "./evaluation-mod
 import { IconActivity, IconAlert, IconBook, IconCheck, IconClock, IconPlus } from "./EvaluationIcons.tsx";
 import { useEvaluation } from "./useEvaluation.ts";
 import "./evaluation.css";
+import "./evaluation-chat.css";
 
 type EvaluationSection = "results" | "create" | "library" | "history" | "summary";
 type EvaluationModal = { type: "details"; task: EvaluationTask } | { type: "editor"; task?: EvaluationTask; copy?: boolean } | { type: "preview"; artifact: EvaluationArtifact };
@@ -19,7 +20,7 @@ type EvaluationModal = { type: "details"; task: EvaluationTask } | { type: "edit
 export function EvaluationPage({ client, active = true, sidebarCollapsed = false }: { client: BridgeClient; active?: boolean; sidebarCollapsed?: boolean }): React.JSX.Element {
 	const t = useEvaluationText();
 	const state = useEvaluation(client, active);
-	const { api, snapshot, run, runId, loading, busy, connected, error, refresh, applyRun, perform, selectRun } = state;
+	const { api, snapshot, run, runId, loading, busy, connected, error, refresh, applyRun, applyCurrentRun, perform, selectRun } = state;
 	const [section, setSection] = useState<EvaluationSection>("results");
 	const [taskId, setTaskId] = useState("");
 	const [sample, setSample] = useState(1);
@@ -38,7 +39,7 @@ export function EvaluationPage({ client, active = true, sidebarCollapsed = false
 	return <div className="owl-eval">
 		<aside id="owl-evaluation-sidebar" className="eval-sidebar" hidden={sidebarCollapsed}><div className="eval-brand"><IconActivity /><strong>owl</strong><span className="eval-pill">LOCAL</span></div><div className="eval-module-label"><IconActivity />{t("title")}</div><nav className="eval-nav" aria-label={t("title")}><button className={section === "results" || section === "create" || section === "summary" ? "active" : ""} onClick={() => setSection("results")}><IconActivity />{t("evaluation")}</button><button className={section === "library" ? "active" : ""} onClick={() => setSection("library")}><IconBook />{t("library")}<span className="eval-spacer" />{snapshot?.tasks.length ?? 0}</button><button className={section === "history" ? "active" : ""} onClick={() => { refresh(); setSection("history"); }}><IconClock />{t("history")}<span className="eval-spacer" />{snapshot?.runs.length ?? 0}</button></nav>
 			{shownRun && <><div className="eval-subhead">{t("currentRun")}</div><div className="eval-run-mini"><strong>{shownRun.name}</strong><span className="eval-muted">{t(shownRun.status)} · {t("samples")}: {shownRun.samples}</span></div><div className="eval-side-tasks">{CATEGORIES.map((category) => { const tasks = shownRun.tasks.filter((item) => item.category === category); return tasks.length > 0 && <div key={category}><div className="eval-task-group"><span>{t(category)}</span><span>{tasks.length}</span></div>{tasks.map((item) => { const results = shownRun.results.filter((result) => result.taskId === item.id); return <button className={`eval-side-task ${taskId === item.id && section === "results" ? "active" : ""}`} key={item.id} title={item.title} onClick={() => { setTaskId(item.id); setSample(1); setSection("results"); }}><span className="eval-id">{item.id}</span><span className="task-title">{item.title}</span><span className="eval-task-indicator">{results.length > 0 && results.every((result) => FINISHED_STATUSES.has(result.status)) ? <IconCheck /> : <IconClock />}</span></button>; })}</div>; })}</div></>}
-			<div className="eval-sidebar-footer"><strong>{t("direct")}</strong>{t("directHint")}</div>
+			<div className="eval-sidebar-footer"><strong>{t("firstAnswerScored")}</strong>{t("conversationFooter")}</div>
 		</aside>
 		<main className="eval-main"><header className="eval-main-head"><IconActivity /><h1>{t("title")}</h1><span className="eval-muted">/ {t(currentSection)}</span><span className="eval-spacer" /><span className="eval-muted"><span className="eval-local-dot" style={connected ? undefined : { background: "#d88181" }} />{connected ? t("local") : t("offline")}</span><button className="eval-button" disabled={busy} onClick={refresh}>{t("refresh")}</button><button className="eval-button primary" disabled={busy} onClick={() => newRun()}><IconPlus />{t("newRun")}</button></header>
 			{error && <div className="eval-error" role="alert"><IconAlert /><span>{error}</span><span className="eval-spacer" /><button className="eval-link" onClick={refresh}>{t("reconnect")}</button></div>}{!connected && !error && <div className="eval-error" role="status"><IconAlert />{t("offline")}</div>}

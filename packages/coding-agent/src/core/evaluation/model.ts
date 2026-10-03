@@ -23,6 +23,12 @@ export interface EvaluationInvocation {
 	task: EvaluationTask;
 	signal: AbortSignal;
 	onPartial: (text: string, thinking: string) => void;
+	conversation?: EvaluationConversation;
+}
+export interface EvaluationConversation {
+	originalAnswer: string;
+	turns: { prompt: string; output: string }[];
+	prompt: string;
 }
 export interface EvaluationInvocationResult {
 	text: string;
@@ -34,6 +40,61 @@ export interface EvaluationInvocationResult {
 	actualModel?: EvaluationActualModel;
 }
 export type EvaluationInvoker = (request: EvaluationInvocation) => Promise<EvaluationInvocationResult>;
+
+/** Byte bounds intentionally reserve output space without silently truncating prior answers. */
+export function validateEvaluationConversation(
+	profile: EvaluationProfile,
+	task: EvaluationTask,
+	conversation: EvaluationConversation,
+): void {
+	const text = [task.prompt, task.input ?? "", conversation.originalAnswer, conversation.prompt];
+	for (const turn of conversation.turns) text.push(turn.prompt, turn.output);
+	const bytes = text.reduce((total, value) => total + Buffer.byteLength(value, "utf8"), 0);
+	const available = Math.min(200_000, Math.max(0, profile.model.contextWindow - profile.maxTokens - 1024));
+	if (bytes > available) throw new Error("这段会话已达到上下文长度上限，请新建测评继续");
+}
+
+/** Replays text only; provider reasoning signatures and global chat state are never synthesized. */
+export function buildEvaluationContext(request: EvaluationInvocation, model: Model<Api>): Context {
+	const context: Context = {
+		messages: [
+			{
+				role: "user",
+				content: request.task.input ? `${request.task.prompt}\n\n${request.task.input}` : request.task.prompt,
+				timestamp: Date.now(),
+			},
+		],
+	};
+	const conversation = request.conversation;
+	if (!conversation) return context;
+	validateEvaluationConversation(request.profile, request.task, conversation);
+	const appendAnswer = (text: string) => {
+		context.messages.push({
+			role: "assistant",
+			content: [{ type: "text", text }],
+			api: model.api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		});
+	};
+	appendAnswer(conversation.originalAnswer);
+	for (const turn of conversation.turns) {
+		context.messages.push({ role: "user", content: turn.prompt, timestamp: Date.now() });
+		appendAnswer(turn.output);
+	}
+	context.messages.push({ role: "user", content: conversation.prompt, timestamp: Date.now() });
+	return context;
+}
 
 /** Only expose off when the existing adapter sends an explicit disable switch or mapped effort. */
 export function evaluationThinkingLevels(model: Model<Api>): EvaluationThinkingLevel[] {
@@ -103,15 +164,7 @@ export function createEvaluationModelAccess(agentDir: string): {
 			if (!evaluationThinkingLevels(model).includes(level)) {
 				throw new Error("该模型不支持选定思考档位");
 			}
-			const context: Context = {
-				messages: [
-					{
-						role: "user",
-						content: request.task.input ? `${request.task.prompt}\n\n${request.task.input}` : request.task.prompt,
-						timestamp: Date.now(),
-					},
-				],
-			};
+			const context = buildEvaluationContext(request, model);
 			const stream = models.streamSimple(model, context, {
 				signal: request.signal,
 				maxRetries: 0,

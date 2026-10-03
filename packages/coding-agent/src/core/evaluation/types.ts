@@ -81,6 +81,33 @@ export interface EvaluationActualModel {
 }
 export type EvaluationResultStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export type EvaluationGenerationPhase = "waiting" | "thinking" | "answering" | "checking";
+/** Exploration turns are stored separately from the first scored answer. */
+export interface EvaluationFollowup {
+	id: string;
+	prompt: string;
+	status: EvaluationResultStatus;
+	output: string;
+	thinking: string;
+	generationPhase?: EvaluationGenerationPhase;
+	artifact: EvaluationArtifact | null;
+	checks: EvaluationCheck[];
+	error: string | null;
+	startedAt: string | null;
+	finishedAt: string | null;
+	durationMs: number | null;
+	usage: EvaluationUsage | null;
+	costUsd: number | null;
+	actualModel?: EvaluationActualModel;
+}
+export interface EvaluationFollowupView
+	extends Omit<EvaluationFollowup, "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"> {
+	startedAt?: string | null;
+	finishedAt?: string | null;
+	durationMs?: number | null;
+	usage?: EvaluationUsage | null;
+	costUsd?: number | null;
+	actualModel?: EvaluationActualModel;
+}
 export interface EvaluationResult {
 	id: string;
 	taskId: string;
@@ -103,6 +130,7 @@ export interface EvaluationResult {
 	rating: EvaluationRating | null;
 	retryOf: string | null;
 	actualModel?: EvaluationActualModel;
+	followups?: EvaluationFollowup[];
 }
 export interface EvaluationGroup {
 	taskId: string;
@@ -127,8 +155,9 @@ export interface EvaluationRun {
 export interface EvaluationResultView
 	extends Omit<
 		EvaluationResult,
-		"profileId" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"
+		"profileId" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel" | "followups"
 	> {
+	followups: EvaluationFollowupView[];
 	anonymousLabel: string;
 	revealed: boolean;
 	profile?: EvaluationProfile;
@@ -173,6 +202,8 @@ export type EvaluationRequest =
 	| { action: "run.cancel"; runId: string }
 	| { action: "run.append"; runId: string; samples: 3 | 5 }
 	| { action: "run.retry"; runId: string; resultId: string }
+	| { action: "conversation.send"; runId: string; resultId: string; prompt: string }
+	| { action: "conversation.cancel"; runId: string; resultId: string; followupId: string }
 	| {
 			action: "run.reveal";
 			runId: string;
@@ -191,4 +222,6 @@ export interface EvaluationResponseMap {
 	"run.append": EvaluationRunView;
 	"run.retry": EvaluationRunView;
 	"run.reveal": EvaluationRunView;
+	"conversation.send": EvaluationRunView;
+	"conversation.cancel": EvaluationRunView;
 }

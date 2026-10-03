@@ -12,10 +12,12 @@ export type { MapResultsMessage } from "../../core/maps/types.ts";
 
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
+import type { ResearchMode } from "../../core/research/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
 export type * from "../../core/evaluation/types.ts";
 export type * from "../../core/mail/types.ts";
+export type * from "../../core/research/types.ts";
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
 export interface MailClientRequest {
@@ -65,6 +67,8 @@ export interface SessionCreateRequest {
 	approvalMode?: ApprovalMode;
 	/** 初始思考强度（ThinkingLevel，服务端按模型能力收敛）。 */
 	thinkingLevel?: string;
+	/** Explicitly create a persistent research scope. Omit for ordinary chat. */
+	researchMode?: ResearchMode;
 }
 
 export interface SessionPromptRequest {
@@ -73,6 +77,8 @@ export interface SessionPromptRequest {
 	sessionId: string;
 	message: string;
 	images?: unknown[];
+	/** Update direction only within an existing research conversation. */
+	researchMode?: ResearchMode;
 }
 
 export interface SessionAbortRequest {
@@ -352,6 +358,8 @@ export interface SessionSnapshotPayload {
 	header: unknown;
 	/** Persisted mailbox scope; these sessions keep only mailbox tools when resumed. */
 	mailContext?: MailAgentContext;
+	/** Persisted research scope, restored from JSONL rather than inferred from UI state. */
+	researchMode?: ResearchMode;
 }
 
 /** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */

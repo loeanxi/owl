@@ -1,73 +1,108 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { EvaluationArtifact, EvaluationRating, EvaluationResultView, EvaluationTask } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
+import type { EvaluationArtifact, EvaluationFollowupView, EvaluationRating, EvaluationResultView, EvaluationTask } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 import type { EvaluationText } from "./evaluation-copy.ts";
-import { downloadEvaluationArtifact, isolatedPreview } from "./evaluation-model.ts";
+import { conversationMarkdown, type EvaluationConversationGroup, type EvaluationConversationState } from "./evaluation-conversation.ts";
+import { downloadEvaluationArtifact, FINISHED_STATUSES, isolatedPreview } from "./evaluation-model.ts";
 import { evaluationProcessStage } from "./evaluation-process.ts";
-import { IconAlert, IconCheck, IconClock, IconInfo } from "./EvaluationIcons.tsx";
+import { EvaluationDialog } from "./EvaluationDialogs.tsx";
+import { IconAlert, IconCheck, IconInfo } from "./EvaluationIcons.tsx";
 
-type ResultTab = "process" | "preview" | "source" | "answer" | "analysis";
+type Reply = EvaluationResultView | EvaluationFollowupView;
+type Drawer = { type: "rating" | "checks" } | { type: "source"; reply: Reply };
 
-export function EvaluationResultCard({ result, task, draft, busy, t, onDraft, onRetry, onExpand }: {
+export function EvaluationResultCard({ result, group, task, draft, busy, uiState, t, focused, onFocus, onAttempt, onDraft, onRetry, onExpand, onSend, onCancelFollowup, onExternal }: {
 	result: EvaluationResultView;
+	group: EvaluationConversationGroup;
 	task: EvaluationTask;
 	draft: EvaluationRating;
 	busy: boolean;
+	uiState: EvaluationConversationState;
 	t: EvaluationText;
+	focused: boolean;
+	onFocus: () => void;
+	onAttempt: (id: string) => void;
 	onDraft: (update: Partial<EvaluationRating>) => void;
 	onRetry: () => void;
 	onExpand: (artifact: EvaluationArtifact) => void;
+	onSend: (prompt: string) => Promise<void>;
+	onCancelFollowup: (followupId: string) => Promise<void>;
+	onExternal: (url: string) => void;
 }): React.JSX.Element {
-	const [tab, setTab] = useState<ResultTab>(result.status !== "completed" ? "process" : task.outputType === "code" || task.outputType === "json" ? "source" : "preview");
-	const textElement = useRef<HTMLElement | null>(null);
-	const following = useRef<Record<ResultTab, boolean>>({ process: true, preview: true, answer: true, source: true, analysis: true });
-	const readingPositions = useRef<Partial<Record<ResultTab, number>>>({});
-	const [followPaused, setFollowPaused] = useState(false);
-	const generating = result.status === "queued" || result.status === "running";
-	const stage = evaluationProcessStage(result);
-	const hasThinkingChannel = typeof result.thinking === "string";
-	const thinkingText = hasThinkingChannel ? result.thinking : "";
-	const bodyText = result.output;
-	const artifact = result.artifact;
-	const canPreview = result.status === "completed" && artifact?.previewAllowed && (artifact.type === "svg" || artifact.type === "html");
-	const isFailure = result.status === "failed" || result.status === "cancelled" || result.status === "interrupted";
-	const tabs: ResultTab[] = task.outputType === "svg" || task.outputType === "html" ? ["process", "preview", "source", "answer", "analysis"] : ["process", "source", "answer", "analysis"];
+	const [drawer, setDrawer] = useState<Drawer>();
+	const [prompt, setPrompt] = useState(uiState.draft);
+	const [pending, setPending] = useState(false);
+	const [messageError, setMessageError] = useState("");
+	const [paused, setPaused] = useState(!uiState.following);
+	const messages = useRef<HTMLDivElement>(null);
+	const followups = result.followups ?? [];
+	const currentFollowup = followups.find((item) => item.status === "queued" || item.status === "running");
+	const liveReply = currentFollowup ?? result;
+	const stage = evaluationProcessStage(liveReply);
+	const generating = liveReply.status === "queued" || liveReply.status === "running";
 	const profileName = result.revealed && result.profile ? t("modelConfig", { model: result.profile.model.name, level: result.profile.thinkingLevel === "default" ? t("defaultThinking") : result.profile.thinkingLevel }) : t("result", { letter: result.anonymousLabel });
 	const scores = result.revealed ? result.rating?.scores ?? {} : draft.scores;
-	const emptyProcess = generating ? result.status === "queued" ? t("queueDetail") : hasThinkingChannel ? t("waitingFirstSegment") : t("waitingBody") : result.error || t(result.status);
-	const answerText = tab === "source" ? artifact?.content || bodyText : tab === "analysis" ? !hasThinkingChannel ? t("thinkingServiceUnavailable") : thinkingText || (generating ? t("thinkingNotReturned") : t("noAnalysis")) : bodyText;
-	const displayText = answerText || (generating ? t("waitingBody") : result.error || t(result.status));
-	const contentRevision = tab === "process" ? `${thinkingText}\u0000${bodyText}\u0000${emptyProcess}` : displayText;
-	const phaseDetail = stage === "thinking" ? t("receivingThinking") : stage === "answering" ? t("streamingBody") : stage === "checking" ? t("checkingDetail") : stage === "waiting" ? t("requestSent") : "";
-	const setTextElement = (element: HTMLElement | null) => { textElement.current = element; };
-	const onScroll = (event: React.UIEvent<HTMLElement>) => {
-		const element = event.currentTarget;
-		const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 32;
-		following.current[tab] = atBottom;
-		readingPositions.current[tab] = element.scrollTop;
-		setFollowPaused(!atBottom);
+	const ratingComplete = task.rubric.every((item) => typeof scores[item.id] === "number");
+	const canSend = FINISHED_STATUSES.has(result.status) && result.output.trim().length > 0 && !currentFollowup && !busy && !pending && followups.length < 20;
+	const contentRevision = `${result.thinking}\u0000${result.output}\u0000${result.status}\u0000${followups.map((item) => `${item.id}:${item.status}:${item.thinking}:${item.output}`).join("\u0000")}`;
+	const followBottom = () => {
+		uiState.following = true;
+		setPaused(false);
+		if (messages.current) messages.current.scrollTop = messages.current.scrollHeight;
 	};
 	useLayoutEffect(() => {
-		const element = textElement.current;
-		if (element) element.scrollTop = following.current[tab] ? element.scrollHeight : readingPositions.current[tab] ?? 0;
-		setFollowPaused(!following.current[tab]);
-	}, [contentRevision, tab]);
-	return <article className="eval-result-card">
-		<div className="eval-result-top"><div className="eval-result-avatar">{result.anonymousLabel}</div><div style={{ minWidth: 0 }}><div className="eval-result-name" title={profileName}>{profileName}</div><div className="eval-result-caption">{result.revealed ? result.profile?.model.sourceName ?? t("unknown") : t("hiddenIdentity")}{result.attempt > 1 ? ` · ${t("attempt", { n: result.attempt })}` : ""}</div></div></div>
-		<div className="eval-result-tabs">{tabs.map((value) => <button key={value} className={tab === value ? "active" : ""} aria-pressed={tab === value} onClick={() => { if (textElement.current) readingPositions.current[tab] = textElement.current.scrollTop; setTab(value); }}>{t(value)}</button>)}</div>
-		{generating && <div className="eval-live-status" role="status" data-generation-phase={stage}><span className="eval-pill">{t(stage === "waiting" ? "running" : stage)}</span>{stage === "waiting" && <span className="eval-waiting-indicator" aria-hidden="true" />}<span>{phaseDetail}</span>{followPaused && tab !== "preview" && <button className="eval-link" onClick={() => { following.current[tab] = true; setFollowPaused(false); if (textElement.current) textElement.current.scrollTop = textElement.current.scrollHeight; }}>{t("followOutput")}</button>}</div>}
-		<div className="eval-artifact">
-			{tab === "preview" ? canPreview && artifact ? <iframe title={`${t("preview")} ${result.anonymousLabel}`} sandbox={artifact.type === "html" ? "allow-scripts allow-forms" : ""} referrerPolicy="no-referrer" srcDoc={isolatedPreview(artifact.content, artifact.type as "svg" | "html")} /> : <div className="eval-artifact-placeholder">{isFailure ? <IconAlert /> : result.status === "completed" ? <IconInfo /> : <IconClock />}<strong>{isFailure || result.status !== "completed" ? t(result.status) : t("noArtifact")}</strong>{result.error && <small>{result.error}</small>}</div>
-				: tab === "process" ? <div ref={setTextElement} className="eval-process-pane eval-stream-scroll" data-live-output={generating ? "true" : undefined} onScroll={onScroll} role="region" aria-label={t("process")}>
-					{!hasThinkingChannel && <p className="eval-process-service-notice">{t("thinkingServiceUnavailable")}</p>}
-					{thinkingText && <section className="eval-process-section eval-process-thinking" data-process-section="thinking"><h4>{t("returnedThinking")}</h4><pre>{thinkingText}</pre></section>}
-					{bodyText && <section className="eval-process-section eval-process-answer" data-process-section="answer"><h4>{t("responseBody")}</h4><pre>{bodyText}</pre></section>}
-					{!thinkingText && !bodyText && <p className="eval-process-empty">{emptyProcess}</p>}
-				</div> : <pre className="eval-stream-scroll" ref={setTextElement} data-live-output={generating ? "true" : undefined} onScroll={onScroll}>{displayText}</pre>}
+		const element = messages.current;
+		if (element) element.scrollTop = uiState.following ? element.scrollHeight : uiState.scrollTop;
+	}, [contentRevision, uiState]);
+	const send = async () => {
+		const text = prompt.trim();
+		if (!canSend || !text) return;
+		setPending(true);
+		setMessageError("");
+		try { await onSend(text); uiState.draft = ""; setPrompt(""); followBottom(); }
+		catch (cause) { setMessageError(cause instanceof Error ? cause.message : String(cause)); }
+		finally { setPending(false); }
+	};
+	return <article className={`eval-result-card eval-chat-window${focused ? " is-focused" : ""}`} data-result-id={result.id} data-conversation-root={group.root.id}>
+		<header className="eval-result-top eval-chat-header"><div className="eval-result-avatar">{result.anonymousLabel}</div><div className="eval-chat-name"><div className="eval-result-name" title={profileName}>{profileName}</div><div className="eval-result-caption">{t("independentConversation")} · {t("sample", { n: result.sample })}{result.id !== group.root.id ? ` · ${t("retryOrigin", { letter: group.root.anonymousLabel })}` : ""}</div></div><span className="eval-spacer" /><span className={`eval-chat-status${generating ? " is-generating" : ""}`} data-generation-phase={stage}>{generating ? <i className="eval-waiting-indicator" aria-hidden="true" /> : liveReply.status === "completed" ? <IconCheck /> : <IconAlert />}{t(stage === "waiting" ? "running" : stage)}</span><button className="eval-chat-focus" aria-label={focused ? t("restoreConversations") : t("focusConversation")} title={focused ? t("restoreConversations") : t("focusConversation")} onClick={onFocus}>{focused ? "↙" : "⤢"}</button></header>
+		{group.attempts.length > 1 && <div className="eval-attempt-bar"><label>{t("attemptHistory")}<select className="eval-field" aria-label={`${t("attemptHistory")} ${group.root.anonymousLabel}`} value={result.id} onChange={(event) => onAttempt(event.target.value)}>{group.attempts.map((item) => <option key={item.id} value={item.id}>{t("result", { letter: item.anonymousLabel })} · {t("attempt", { n: item.attempt })} · {t(item.status)}</option>)}</select></label></div>}
+		<div ref={messages} className="eval-messages eval-stream-scroll" role="region" aria-label={`${t("conversationMessages")} ${result.anonymousLabel}`} data-live-output={generating ? "true" : undefined} onScroll={(event) => { const element = event.currentTarget; uiState.scrollTop = element.scrollTop; uiState.following = element.scrollHeight - element.scrollTop - element.clientHeight <= 32; setPaused(!uiState.following); }} onClick={(event) => { const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]"); if (link) { event.preventDefault(); if (/^https?:\/\//i.test(link.href)) onExternal(link.href); } }}>
+			<div className="eval-chat-message eval-user-message"><div className="eval-user-bubble"><small>{t("benchmarkPrompt")}</small><div>{task.prompt}</div>{task.input && <details className="eval-fixed-input"><summary>{t("fixedInput")}</summary><pre>{task.input}</pre></details>}</div></div>
+			<EvaluationReply result={result} reply={result} t={t} uiState={uiState} benchmark onSource={() => setDrawer({ type: "source", reply: result })} onExpand={onExpand} onRetry={onRetry} busy={busy} />
+			{followups.length > 0 && <div className="eval-followup-divider">{t("followupScope")}</div>}
+			{followups.map((reply) => <div key={reply.id} data-followup-id={reply.id}><div className="eval-chat-message eval-user-message"><div className="eval-user-bubble">{reply.prompt}</div></div><EvaluationReply result={result} reply={reply} t={t} uiState={uiState} onSource={() => setDrawer({ type: "source", reply })} onExpand={onExpand} busy={busy} /></div>)}
+			{paused && <button className="eval-follow-bottom" onClick={followBottom}>{t("followOutput")} ↓</button>}
 		</div>
-		{artifact && result.status === "completed" && <div className="eval-artifact-actions"><span>{canPreview ? t("previewHint") : artifact.type.toUpperCase()}</span><span className="eval-spacer" />{canPreview && <button className="eval-link" onClick={() => onExpand(artifact)}>{t("expand")}</button>}<button className="eval-link" onClick={() => downloadEvaluationArtifact(artifact.content, `${task.id}-${result.anonymousLabel}-${result.sample}.${artifact.type === "code" ? "txt" : artifact.type}`, artifact.type)}>{t("download")}</button></div>}
-		<div className="eval-checks"><div className="eval-checks-title">{t("automatic")}<span className="eval-spacer" /><span className="eval-pill">{t(result.status)}</span></div>{result.checks.length === 0 ? <p className="eval-muted" style={{ fontSize: 10 }}>{t("checksEmpty")}</p> : result.checks.map((check) => <div key={check.id} className={`eval-check-item ${check.status === "failed" ? "fail" : ""}`}>{check.status === "passed" ? <IconCheck /> : check.status === "failed" ? <IconAlert /> : <IconInfo />}<div>{check.label} · {t(check.status === "passed" ? "passed" : check.status === "failed" ? "failed" : "unchecked")}<small>{check.detail}</small></div></div>)}{isFailure && <button className="eval-link" style={{ marginTop: 8 }} disabled={busy} title={t("retryHint")} onClick={onRetry}>{t("retry")}</button>}</div>
-		<div className="eval-manual"><div className="eval-score-heading">{t("manual")}<span>{result.revealed ? result.rating ? t("saved") : t("skipped") : t("scoreScale")}</span></div>{task.rubric.map((item) => <div className="eval-score-row" key={item.id}><span title={item.description}>{item.label}</span>{result.revealed ? <strong>{typeof scores[item.id] === "number" ? scores[item.id] : "—"} / 5</strong> : <div className="eval-rating" role="group" aria-label={`${result.anonymousLabel} ${item.label}`}>{[1, 2, 3, 4, 5].map((score) => <button key={score} className={scores[item.id] === score ? "selected" : ""} aria-pressed={scores[item.id] === score} aria-label={t("score", { n: score })} disabled={result.status !== "completed" || busy} onClick={() => onDraft({ scores: { ...scores, [item.id]: score } })}>{score}</button>)}</div>}</div>)}{result.revealed ? result.rating?.note && <p className="eval-muted" style={{ marginTop: 9, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{result.rating.note}</p> : <textarea className="eval-score-note" aria-label={`${result.anonymousLabel} ${t("notes")}`} placeholder={t("notesPlaceholder")} disabled={result.status !== "completed" || busy} value={draft.note} maxLength={4000} onChange={(event) => onDraft({ note: event.target.value })} />}</div>
-		{result.revealed && <div className="eval-result-metrics"><div><strong>{typeof result.durationMs === "number" ? t("seconds", { n: (result.durationMs / 1000).toFixed(1) }) : t("unknown")}</strong><span>{t("duration")}</span></div><div title={result.usage ? t("rawUsage", { input: result.usage.input, output: result.usage.output }) : t("unknown")}><strong>{result.usage ? result.usage.total.toLocaleString() : t("unknown")}</strong><span>{t("tokens")}</span></div><div><strong>{typeof result.costUsd === "number" ? `US$${result.costUsd.toFixed(5)}` : t("unknown")}</strong><span>{t("fee")}</span></div></div>}
-		{result.revealed && result.actualModel && <details className="eval-model-meta"><summary>{result.actualModel.responseModel && result.actualModel.responseModel !== result.actualModel.modelId ? t("modelMismatch", { model: result.actualModel.responseModel }) : t("actualRequest")}</summary><div><span>{t("actualRequest")}</span><code>{result.actualModel.provider} / {result.actualModel.modelId}</code></div><div><span>{t("responseModel")}</span><code>{result.actualModel.responseModel ?? t("unknown")}</code></div><div><span>{t("forwardedThinking")}</span><code>{result.actualModel.providerThinkingLevel ?? result.actualModel.forwardedThinkingLevel ?? t("providerDefault")}</code></div></details>}
+		<div className="eval-composer"><div className="eval-composer-input"><textarea aria-label={t("followupPlaceholder", { letter: result.anonymousLabel })} placeholder={!FINISHED_STATUSES.has(result.status) ? t("followupWait") : !result.output.trim() ? t("followupNoBody") : followups.length >= 20 ? t("followupLimit") : t("followupPlaceholder", { letter: result.anonymousLabel })} value={prompt} maxLength={10000} disabled={busy || pending || !FINISHED_STATUSES.has(result.status) || !result.output.trim() || followups.length >= 20} onChange={(event) => { uiState.draft = event.target.value; setPrompt(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} /><div className="eval-composer-actions"><span>{t("followupCostHint")}</span><span className="eval-spacer" />{currentFollowup ? <button className="eval-chat-stop" data-action="cancel-followup" disabled={busy || pending} aria-label={t("stopFollowup")} title={t("stopFollowup")} onClick={async () => { setPending(true); setMessageError(""); try { await onCancelFollowup(currentFollowup.id); } catch (cause) { setMessageError(cause instanceof Error ? cause.message : String(cause)); } finally { setPending(false); } }}>■</button> : <button className="eval-send" data-action="send-followup" disabled={!canSend || !prompt.trim()} aria-label={t("sendFollowup", { letter: result.anonymousLabel })} onClick={() => { void send(); }}>↑</button>}</div></div>{messageError && <p className="eval-chat-local-error" role="alert">{messageError}</p>}</div>
+		<footer className="eval-window-footer"><button className="eval-check-link" data-action="checks" onClick={() => setDrawer({ type: "checks" })}>{result.checks.length > 0 ? result.checks.some((item) => item.status === "failed") ? <IconAlert /> : <IconCheck /> : <IconInfo />}{FINISHED_STATUSES.has(result.status) && result.status !== "completed" ? t("failureInfo") : t("automatic")}</button><span className="eval-spacer" /><button className="eval-score-link" data-action="rating" disabled={result.status !== "completed"} onClick={() => setDrawer({ type: "rating" })}>{ratingComplete ? "★ " : "☆ "}{ratingComplete ? result.revealed ? t("saved") : t("scoreDrafted") : t("reviewBenchmark")}</button></footer>
+		{drawer && <div className="eval-chat-drawer" data-drawer={drawer.type}><EvaluationDialog title={drawer.type === "rating" ? `${t("reviewBenchmark")} · ${result.anonymousLabel}` : drawer.type === "checks" ? `${t("automatic")} · ${result.anonymousLabel}` : `${t("source")} · ${result.anonymousLabel}`} onClose={() => setDrawer(undefined)} footer={<button className="eval-button primary" onClick={() => setDrawer(undefined)}>{drawer.type === "rating" && !result.revealed ? t("keepScores") : t("close")}</button>}>
+			{drawer.type === "rating" ? <><p className="eval-drawer-description">{t("ratingScope", { sample: result.sample, attempt: result.attempt })}</p><div className="eval-manual"><div className="eval-score-heading">{t("manual")}<span>{result.revealed ? result.rating ? t("saved") : t("skipped") : t("scoreScale")}</span></div>{task.rubric.map((item) => <div className="eval-score-row" key={item.id}><div><strong>{item.label}</strong><small>{item.description}</small></div>{result.revealed ? <strong>{typeof scores[item.id] === "number" ? scores[item.id] : "—"} / 5</strong> : <div className="eval-rating" role="group" aria-label={`${result.anonymousLabel} ${item.label}`}>{[1, 2, 3, 4, 5].map((score) => <button key={score} className={scores[item.id] === score ? "selected" : ""} aria-pressed={scores[item.id] === score} aria-label={t("score", { n: score })} disabled={busy} onClick={() => onDraft({ scores: { ...scores, [item.id]: score } })}>{score}</button>)}</div>}</div>)}{result.revealed ? result.rating?.note && <p className="eval-drawer-description">{result.rating.note}</p> : <textarea className="eval-score-note" aria-label={`${result.anonymousLabel} ${t("notes")}`} placeholder={t("notesPlaceholder")} disabled={busy} value={draft.note} maxLength={4000} onChange={(event) => onDraft({ note: event.target.value })} />}</div></>
+				: drawer.type === "source" ? <pre className="eval-source-drawer">{drawer.reply.artifact?.content || drawer.reply.output || t("waitingBody")}</pre>
+					: <><p className="eval-drawer-description">{t("checksScope")}</p>{result.error && <p className="eval-chat-local-error">{result.error}</p>}<div className="eval-checks">{result.checks.length === 0 ? <p className="eval-muted">{t("checksEmpty")}</p> : result.checks.map((check) => <div key={check.id} className={`eval-check-item ${check.status === "failed" ? "fail" : ""}`}>{check.status === "passed" ? <IconCheck /> : check.status === "failed" ? <IconAlert /> : <IconInfo />}<div>{check.label} · {t(check.status === "passed" ? "passed" : check.status === "failed" ? "failed" : "unchecked")}<small>{check.detail}</small></div></div>)}</div>{result.revealed && <EvaluationMetrics reply={result} t={t} />}{result.revealed && result.actualModel && <details className="eval-model-meta"><summary>{result.actualModel.responseModel && result.actualModel.responseModel !== result.actualModel.modelId ? t("modelMismatch", { model: result.actualModel.responseModel }) : t("actualRequest")}</summary><div><span>{t("actualRequest")}</span><code>{result.actualModel.provider} / {result.actualModel.modelId}</code></div><div><span>{t("responseModel")}</span><code>{result.actualModel.responseModel ?? t("unknown")}</code></div><div><span>{t("forwardedThinking")}</span><code>{result.actualModel.providerThinkingLevel ?? result.actualModel.forwardedThinkingLevel ?? t("providerDefault")}</code></div></details>}</>}
+		</EvaluationDialog></div>}
 	</article>;
+}
+
+function EvaluationReply({ result, reply, benchmark = false, uiState, busy, t, onSource, onExpand, onRetry }: { result: EvaluationResultView; reply: Reply; benchmark?: boolean; uiState: EvaluationConversationState; busy: boolean; t: EvaluationText; onSource: () => void; onExpand: (artifact: EvaluationArtifact) => void; onRetry?: () => void }): React.JSX.Element {
+	const [, refreshThinking] = useState(0);
+	const generating = reply.status === "queued" || reply.status === "running";
+	const stage = evaluationProcessStage(reply);
+	const thinkingOpen = uiState.thinkingOpen[reply.id] ?? (generating && !!reply.thinking);
+	const artifact = reply.status === "completed" ? reply.artifact : null;
+	const canPreview = !!artifact?.previewAllowed && (artifact.type === "svg" || artifact.type === "html");
+	const failure = reply.status === "failed" || reply.status === "cancelled" || reply.status === "interrupted";
+	const answer = canPreview && artifact ? reply.output.replace(/```(?:svg|xml|html)?\s*([\s\S]*?)```/gi, (block, content: string) => content.trim() === artifact.content.trim() ? "" : block).replace(artifact.content, "").trim() : reply.output;
+	return <div className="eval-chat-message eval-assistant-message" data-message-id={reply.id} data-benchmark-answer={benchmark ? "true" : undefined}>
+		<div className="eval-assistant-label"><span className="eval-tiny-avatar">{result.anonymousLabel}</span><span>{t("result", { letter: result.anonymousLabel })}</span><span className="eval-measure-tag">{benchmark ? t("benchmarkAnswer") : t("followupAnswer")}</span></div>
+		{(reply.thinking || generating) && <details className="eval-thinking" data-message-id={reply.id} open={thinkingOpen}><summary onClick={(event) => { event.preventDefault(); uiState.thinkingOpen[reply.id] = !thinkingOpen; refreshThinking((value) => value + 1); }}>{t("returnedThinking")}<small>{generating && stage === "thinking" ? t("receivingThinkingText") : t("toggleThinking")}</small></summary><div className="eval-thinking-body" data-process-section="thinking">{reply.thinking || (typeof reply.thinking === "string" ? t("thinkingNotReturned") : t("thinkingServiceUnavailable"))}</div></details>}
+		{answer && <div className="eval-chat-answer" data-process-section="answer" dangerouslySetInnerHTML={{ __html: conversationMarkdown(answer) }} />}
+		{generating && <p className="eval-chat-waiting" role="status"><i className="eval-waiting-indicator" aria-hidden="true" />{stage === "thinking" ? t("receivingThinking") : stage === "answering" ? t("streamingBody") : stage === "checking" ? t("checkingDetail") : reply.status === "queued" ? t("queueDetail") : t("waitingFirstSegment")}</p>}
+		{canPreview && artifact && <div className="eval-chat-artifact"><div className="eval-artifact"><iframe title={`${t("preview")} ${result.anonymousLabel}${benchmark ? "" : ` ${t("followupAnswer")}`}`} sandbox={artifact.type === "html" ? "allow-scripts allow-forms" : ""} referrerPolicy="no-referrer" srcDoc={isolatedPreview(artifact.content, artifact.type as "svg" | "html")} /></div><div className="eval-artifact-actions"><strong>{artifact.type.toUpperCase()} · {t("preview")}</strong><span className="eval-spacer" /><button className="eval-link" data-action="source" onClick={onSource}>{t("source")}</button><button className="eval-link" onClick={() => onExpand(artifact)}>{t("expand")}</button><button className="eval-link" onClick={() => downloadEvaluationArtifact(artifact.content, `${result.taskId}-${result.anonymousLabel}-${reply.id}.${artifact.type}`, artifact.type)}>{t("download")}</button></div></div>}
+		{failure && <div className="eval-chat-failure"><strong>{t(reply.status)}</strong><p>{reply.error || t("generationIncomplete")}</p>{onRetry && <button className="eval-button" disabled={busy} title={t("retryHint")} onClick={onRetry}>{t("retry")}</button>}</div>}
+		{!generating && reply.output && <div className="eval-assistant-actions"><button className="eval-link" data-action="copy-answer" onClick={() => { void navigator.clipboard.writeText(reply.output); }}>{t("copyAnswer")}</button><button className="eval-link" data-action="source" onClick={onSource}>{t("source")}</button>{artifact && !canPreview && <button className="eval-link" onClick={() => downloadEvaluationArtifact(artifact.content, `${result.taskId}-${result.anonymousLabel}-${reply.id}.${artifact.type === "code" ? "txt" : artifact.type}`, artifact.type)}>{t("download")}</button>}</div>}
+		{!benchmark && result.revealed && FINISHED_STATUSES.has(reply.status) && <EvaluationMetrics reply={reply} t={t} />}
+	</div>;
+}
+
+function EvaluationMetrics({ reply, t }: { reply: Reply; t: EvaluationText }): React.JSX.Element {
+	return <div className="eval-result-metrics"><div><strong>{typeof reply.durationMs === "number" ? t("seconds", { n: (reply.durationMs / 1000).toFixed(1) }) : t("unknown")}</strong><span>{t("duration")}</span></div><div title={reply.usage ? t("rawUsage", { input: reply.usage.input, output: reply.usage.output }) : t("unknown")}><strong>{reply.usage ? reply.usage.total.toLocaleString() : t("unknown")}</strong><span>{t("tokens")}</span></div><div><strong>{typeof reply.costUsd === "number" ? `US$${reply.costUsd.toFixed(5)}` : t("unknown")}</strong><span>{t("fee")}</span></div></div>;
 }

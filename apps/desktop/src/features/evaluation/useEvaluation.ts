@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EvaluationBootstrap, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { EvaluationClient } from "./evaluation-client.ts";
+import { evaluationHasLiveWork } from "./evaluation-conversation.ts";
 
 export function useEvaluation(client: BridgeClient, active: boolean) {
 	const api = useMemo(() => new EvaluationClient(client), [client]);
@@ -14,6 +15,7 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 	const [connected, setConnected] = useState(true);
 	const [revision, setRevision] = useState(0);
 	const runRequest = useRef(0);
+	const selectedRun = useRef<string>();
 	const polling = useRef(false);
 	const actionPending = useRef(false);
 	const mounted = useRef(true);
@@ -48,7 +50,7 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 				const value = await api.query({ action: "run.get", runId });
 				if (!current || serial !== runRequest.current) return;
 				setRun(value);
-				if (value.status === "running") timer = setTimeout(() => { void poll(); }, 500);
+				if (evaluationHasLiveWork(value)) timer = setTimeout(() => { void poll(); }, 500);
 				else {
 					const runs = await api.query({ action: "run.list" });
 					if (current) setSnapshot((previous) => previous ? { ...previous, runs } : previous);
@@ -66,10 +68,18 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 	}, [active, api, connected, runId, revision, refresh]);
 	const applyRun = useCallback((value: EvaluationRunView) => {
 		++runRequest.current;
+		selectedRun.current = value.id;
 		setRun(value);
 		setRunId(value.id);
 		refresh();
 	}, [refresh]);
+	const applyCurrentRun = useCallback((value: EvaluationRunView) => {
+		if (selectedRun.current !== value.id) return;
+		++runRequest.current;
+		setRun(value);
+		refresh();
+	}, [refresh]);
+	const selectRun = useCallback((id: string) => { selectedRun.current = id; ++runRequest.current; setRunId(id); }, []);
 	const perform = useCallback(async (operation: () => Promise<void>) => {
 		if (actionPending.current) return;
 		actionPending.current = true;
@@ -79,5 +89,5 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 		catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause)); }
 		finally { actionPending.current = false; if (mounted.current) setBusy(false); }
 	}, []);
-	return { api, snapshot, run, runId, loading, busy, error, connected, refresh, perform, applyRun, setError, selectRun: setRunId };
+	return { api, snapshot, run, runId, loading, busy, error, connected, refresh, perform, applyRun, applyCurrentRun, setError, selectRun };
 }
