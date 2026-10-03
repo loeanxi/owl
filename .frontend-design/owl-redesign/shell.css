@@ -185,6 +185,8 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .owl-screen .diff-line {white-space:pre;padding:2px 12px;}
 .owl-screen .diff-line.add {background:var(--accent-soft);color:var(--accent)}
 .owl-screen .diff-line.remove {background:#d668680d;color:#cf8282}
+.owl-screen [data-fd-id="editor-code-sample"] {white-space:normal!important;}
+.owl-screen [data-fd-id="editor-code-sample"]>div {white-space:pre;min-height:24px;}
 .owl-screen .terminal {background:#1d211f;color:#b2c1b6;font-family:Consolas,monospace;font-size:12px;padding:17px;min-height:200px;line-height:1.9;}
 .owl-screen .task-item {padding:12px;border-left:1px solid var(--border);margin-left:9px;font-size:12px;}
 .owl-screen .browser-page {background:#f8faf8;color:#27382e;padding:28px 22px;min-height:435px;}

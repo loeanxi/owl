@@ -138,6 +138,7 @@ import {
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
+import { terminateSessionProcesses } from "./tools/process-store.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
@@ -1378,6 +1379,8 @@ export class AgentSession {
 			this._cacheWarmer.cancel();
 		}
 		cleanupSessionResources(this.sessionId);
+		// unified-exec：会话销毁时清掉仍存活的后台进程，不留孤儿
+		terminateSessionProcesses(this.sessionId);
 	}
 
 	// =========================================================================

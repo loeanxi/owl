@@ -535,5 +535,6 @@
     }
   ],
   "feedbackFlow": true,
-  "directEditAcrossPages": true
+  "directEditAcrossPages": true,
+  "editorSpacingPx": 27
 }

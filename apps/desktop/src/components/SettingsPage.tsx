@@ -1024,6 +1024,137 @@ export function SettingsPage({
 							</>
 						)}
 
+						{/* -------- 侧边卡片 -------- */}
+						{section === "sidebar" && (
+							<>
+								<SectionHeader title="侧边卡片" desc="管理侧边卡片的显示内容与默认行为（侧边工作台的卡片开关与文件预览回退）。" />
+
+								{/* 插件身份行：内置侧边工作台 + 打开配置文件 */}
+								<div className="flex items-center justify-between rounded-xl border border-owl-border bg-owl-sidebar/40 px-3 py-2.5">
+									<div className="flex min-w-0 items-center gap-2">
+										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">内置</span>
+										<span className="text-xs font-semibold text-owl-text">owl-workbench</span>
+										<span className="truncate text-[10px] text-owl-faint">侧边工作台 · 配置存于 settings.json 的 owlSidebar</span>
+									</div>
+									<button type="button" className={`${btn} shrink-0`} disabled={!agentDir} onClick={openSidebarConfigFile}>
+										打开配置文件
+									</button>
+								</div>
+
+								{/* 常规 */}
+								<div className="pt-1 text-xs font-semibold text-owl-muted">常规</div>
+								<SettingRow
+									title="为模型注入侧边栏打开工具"
+									desc="开启后，模型可通过 sidebar_open 工具在侧边栏主动打开工作区内的文件（默认关闭；新会话生效）。"
+									control={
+										<Switch
+											checked={sidebarCfg.injectOpenTool}
+											disabled={busy}
+											onChange={(next) => saveSidebar({ ...sidebarCfg, injectOpenTool: next })}
+										/>
+									}
+								/>
+
+								{/* 侧边栏内容 */}
+								<div className="flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+									侧边栏内容
+									<span className="rounded-full border border-owl-border px-1.5 text-[10px] font-normal text-owl-faint">
+										{QUICK_ACTIONS.filter((action) => isTabKindEnabled(action.kind, sidebarCfg)).length}
+									</span>
+								</div>
+								<div className="grid grid-cols-2 gap-2">
+									{QUICK_ACTIONS.map((action) => {
+										const enabled = isTabKindEnabled(action.kind, sidebarCfg);
+										return (
+											<div
+												key={action.kind}
+												className={`rounded-xl border border-owl-border bg-owl-sidebar/40 p-2.5 transition-opacity ${enabled ? "" : "opacity-55"}`}
+											>
+												<div className="flex items-start justify-between gap-2">
+													<div className="flex min-w-0 items-center gap-2">
+														<span
+															className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-owl-border/60 bg-owl-panel"
+															style={{ color: action.color }}
+														>
+															{action.icon(14)}
+														</span>
+														<div className="min-w-0">
+															<div className="truncate text-xs font-semibold text-owl-text">{action.label}</div>
+															<div className="truncate font-mono text-[10px] text-owl-faint">{action.kind}</div>
+														</div>
+													</div>
+													<Switch checked={enabled} onChange={(next) => toggleSidebarTab(action.kind, next)} />
+												</div>
+											</div>
+										);
+									})}
+									<button
+										type="button"
+										disabled
+										title="第三方卡片注册暂未开放"
+										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
+									>
+										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
+											<span className="text-base leading-none text-owl-faint">+</span> 添加 Tab 插件
+										</span>
+										<span className="text-[10px] text-owl-faint">注册新的侧边栏页面（暂未开放）</span>
+									</button>
+								</div>
+
+								{/* 文件预览 */}
+								<div className="flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+									文件预览
+									<span className="rounded-full border border-owl-border px-1.5 text-[10px] font-normal text-owl-faint">
+										{2 - sidebarCfg.disabledViewers.filter((kind) => kind === "image" || kind === "editor").length}
+									</span>
+								</div>
+								<div className="grid grid-cols-2 gap-2">
+									{(
+										[
+											{ kind: "image", label: "图片", sub: "png · jpg · gif · webp …" },
+											{ kind: "editor", label: "代码", sub: "兜底：任意文件" },
+										] as const
+									).map((viewer) => {
+										const enabled = !sidebarCfg.disabledViewers.includes(viewer.kind);
+										return (
+											<div
+												key={viewer.kind}
+												className={`rounded-xl border border-owl-border bg-owl-sidebar/40 p-2.5 transition-opacity ${enabled ? "" : "opacity-55"}`}
+											>
+												<div className="flex items-start justify-between gap-2">
+													<div className="flex min-w-0 items-center gap-2">
+														<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-owl-border/60 bg-owl-panel font-mono text-xs text-owl-muted">
+															{viewer.kind === "image" ? "🖼" : "#"}
+														</span>
+														<div className="min-w-0">
+															<div className="truncate text-xs font-semibold text-owl-text">{viewer.label}</div>
+															<div className="truncate font-mono text-[10px] text-owl-faint">{viewer.sub}</div>
+														</div>
+													</div>
+													<Switch checked={enabled} onChange={(next) => toggleSidebarViewer(viewer.kind, next)} />
+												</div>
+											</div>
+										);
+									})}
+									<button
+										type="button"
+										disabled
+										title="第三方预览注册暂未开放"
+										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
+									>
+										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
+											<span className="text-base leading-none text-owl-faint">+</span> 添加预览插件
+										</span>
+										<span className="text-[10px] text-owl-faint">注册新的文件类型预览（暂未开放）</span>
+									</button>
+								</div>
+
+								<p className="text-[11px] leading-relaxed text-owl-faint">
+									停用的卡片会从工作台工具行、空态卡片与开始页隐藏，已打开的同类卡片立即关闭；「图片」停用后图片改用代码预览打开，「代码」停用后文件交给系统默认程序。
+								</p>
+							</>
+						)}
+
 						{/* -------- 外观 -------- */}
 						{section === "appearance" && (
 							<>

@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -15,6 +15,12 @@ import {
 } from "../../utils/shell.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
+import {
+	killSessionProcess,
+	registerSessionProcess,
+	waitSessionProcess,
+	type ProcessEntry,
+} from "./process-store.ts";
 
 const BASH_UPDATE_THROTTLE_MS = 100;
 
@@ -25,6 +31,33 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
 /** Output limit of `structuredContent.output`, which programmatic callers such as codemode scripts receive. */
 const STRUCTURED_OUTPUT_MAX_BYTES = 1024 * 1024;
 const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+
+/** unified-exec 默认让渡时限：命令超过 10s 未结束就返回 session_id 转入后台（对标 Codex）。 */
+export const DEFAULT_YIELD_TIME_MS = 10_000;
+const MIN_YIELD_TIME_MS = 1_000;
+const MAX_YIELD_TIME_MS = 600_000;
+
+export function resolveYieldTimeMs(yieldTimeMs: number | undefined): number | undefined {
+	if (yieldTimeMs === undefined) return undefined;
+	if (!Number.isFinite(yieldTimeMs) || yieldTimeMs < MIN_YIELD_TIME_MS) return MIN_YIELD_TIME_MS;
+	return Math.min(yieldTimeMs, MAX_YIELD_TIME_MS);
+}
+
+/**
+ * unified-exec 会话的环境加固：禁掉分页器/彩色输出等交互式噪音，
+ * 防止长会话输出污染模型上下文（对标 Codex 的 NO_COLOR/TERM=dumb/PAGER=cat）。
+ */
+function getSessionEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return {
+		...base,
+		NO_COLOR: "1",
+		CLICOLOR: "0",
+		TERM: "dumb",
+		PAGER: "cat",
+		GIT_PAGER: "cat",
+		GIT_TERMINAL_PROMPT: "0",
+	};
+}
 
 function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	if (timeout === undefined) return undefined;
@@ -41,7 +74,20 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	timeout: Type.Optional(
+		Type.Number({
+			description:
+				"Timeout in seconds. When set, the command blocks until it finishes or is killed at the timeout (classic behavior). Ignored when yield_time_ms is set.",
+		}),
+	),
+	yield_time_ms: Type.Optional(
+		Type.Number({
+			description: `Unified-exec mode: if the command is still running after this many milliseconds, keep it running in the background and return its session_id instead of waiting. Default ${DEFAULT_YIELD_TIME_MS} when timeout is not set. Interact with the session via the process tool (poll/write/kill/list).`,
+		}),
+	),
+	max_output_tokens: Type.Optional(
+		Type.Number({ description: "Approximate max tokens of output returned in unified-exec mode. Default 10000." }),
+	),
 });
 
 export const bashToolSystemPromptContribution = {
@@ -59,8 +105,12 @@ const bashOutputSchema = Type.Object({
 	output: Type.String({ description: "Combined stdout and stderr, possibly truncated" }),
 	truncated: Type.Boolean(),
 	full_output_path: Type.Optional(Type.String({ description: "Full output, when truncated" })),
-	exit_code: Type.Number(),
+	exit_code: Type.Optional(
+		Type.Union([Type.Number(), Type.Null()], { description: "Exit code; absent while the command is still running" }),
+	),
 	wall_time_seconds: Type.Number(),
+	session_id: Type.Optional(Type.Number({ description: "Set when the command is still running in the background" })),
+	status: Type.Optional(Type.Union([Type.Literal("running"), Type.Literal("exited")])),
 });
 
 export type BashToolOutput = Static<typeof bashOutputSchema>;
@@ -93,6 +143,19 @@ export interface BashOperations {
 			env?: NodeJS.ProcessEnv;
 		},
 	) => Promise<{ exitCode: number | null }>;
+	/**
+	 * unified-exec：把命令作为可存活的会话进程启动，返回进程表条目。
+	 * 未实现时（例如远程执行后端），shell 工具自动退回经典 exec 语义。
+	 */
+	spawnSession?: (
+		command: string,
+		cwd: string,
+		options: {
+			sessionId: string;
+			env?: NodeJS.ProcessEnv;
+			onData?: (data: string) => void;
+		},
+	) => ProcessEntry;
 }
 
 /** Shared process execution used by the built-in shell tools. */
@@ -163,6 +226,34 @@ export function createLocalShellOperations(shellName: string, resolveShellConfig
 				if (timeoutHandle) clearTimeout(timeoutHandle);
 				if (signal) signal.removeEventListener("abort", onAbort);
 			}
+		},
+		spawnSession: (command, cwd, { sessionId, env, onData }) => {
+			const shellConfig = resolveShellConfig();
+			if (!existsSync(cwd)) {
+				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
+			}
+			const commandFromStdin = shellConfig.commandTransport === "stdin";
+			const child = spawn(shellConfig.shell, commandFromStdin ? shellConfig.args : [...shellConfig.args, command], {
+				cwd,
+				detached: process.platform !== "win32",
+				env: env ?? getShellEnv(),
+				// stdin 保持打开：会话进程后续可经 process 工具写入
+				stdio: ["pipe", "pipe", "pipe"],
+				windowsHide: true,
+			});
+			if (commandFromStdin) {
+				// stdin 传输型 shell（如 WSL bash -s）靠关闭 stdin 触发执行，之后无法再写
+				child.stdin?.on("error", () => {});
+				child.stdin?.end(command);
+			}
+			return registerSessionProcess({
+				child,
+				sessionId,
+				command,
+				cwd,
+				acceptsStdin: !commandFromStdin,
+				onData,
+			});
 		},
 	};
 }
@@ -254,7 +345,9 @@ export function createShellToolDefinition(
 	return {
 		name: config.name,
 		label: config.label,
-		description: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		description: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. ` +
+			`By default the command runs in unified-exec mode: if it is still running after ${DEFAULT_YIELD_TIME_MS / 1000}s, it keeps running in the background and you get a session_id — use the process tool to poll for output, write stdin ('\\u0003' = Ctrl-C), or kill it. ` +
+			`Pass timeout (seconds) for classic block-until-done semantics with a hard kill at the timeout.`,
 		promptSnippet: config.promptSnippet,
 		promptGuidelines: exposeSessionEnvironment && config.promptGuidelines ? [...config.promptGuidelines] : undefined,
 		parameters: bashSchema,
@@ -262,7 +355,11 @@ export function createShellToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
-			{ command, timeout }: { command: string; timeout?: number },
+			{
+				command,
+				timeout,
+				yield_time_ms,
+			}: { command: string; timeout?: number; yield_time_ms?: number },
 			signal?: AbortSignal,
 			onUpdate?,
 			ctx?: ExtensionContext,
@@ -362,25 +459,100 @@ export function createShellToolDefinition(
 
 			try {
 				let exitCode: number | null;
-				try {
-					const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
-						onData: handleData,
-						signal,
-						timeout,
-						env: spawnContext.env,
-					});
-					exitCode = result.exitCode;
-				} catch (err) {
-					const snapshot = await finishOutput();
-					const { text } = formatOutput(snapshot, "");
-					if (err instanceof Error && err.message === "aborted") {
-						throw new Error(appendStatus(text, "Command aborted"));
+				// unified-exec 模式判定：显式 yield_time_ms 优先（此时 timeout 被忽略）；
+				// 未显式指定且无 timeout 时默认开启（让渡 10s）；给了 timeout 则保持经典阻塞语义。
+				const explicitYield = resolveYieldTimeMs(yield_time_ms);
+				const sessionMode =
+					ops.spawnSession !== undefined && (explicitYield !== undefined || timeout === undefined);
+				const effectiveYield = explicitYield ?? resolveYieldTimeMs(DEFAULT_YIELD_TIME_MS)!;
+				if (sessionMode && ops.spawnSession) {
+					const ownerSessionId = ctx?.sessionManager?.getSessionId() ?? "unknown";
+					// 进程存储回吐的是解码后的文本，转回 Buffer 喂给 OutputAccumulator
+					const onSessionData = (text: string) => handleData(Buffer.from(text, "utf-8"));
+					let entry: ProcessEntry;
+					try {
+						entry = ops.spawnSession(spawnContext.command, spawnContext.cwd, {
+							sessionId: ownerSessionId,
+							env: getSessionEnv(spawnContext.env),
+							onData: onSessionData,
+						});
+					} catch (err) {
+						const snapshot = await finishOutput();
+						const { text } = formatOutput(snapshot, "");
+						throw new Error(appendStatus(text, err instanceof Error ? err.message : String(err)));
 					}
-					if (err instanceof Error && err.message.startsWith("timeout:")) {
-						const timeoutSecs = err.message.split(":")[1];
-						throw new Error(appendStatus(text, `Command timed out after ${timeoutSecs} seconds`));
+					const onAbortSession = () => killSessionProcess(entry);
+					if (signal) {
+						if (signal.aborted) onAbortSession();
+						else signal.addEventListener("abort", onAbortSession, { once: true });
 					}
-					throw err;
+					try {
+						const outcome = await waitSessionProcess(entry, effectiveYield);
+						if (signal?.aborted) {
+							killSessionProcess(entry);
+							throw new Error("aborted");
+						}
+						if (outcome === "running") {
+							entry.listeners.delete(onSessionData);
+							const snapshot = await finishOutput();
+							const { text: outputText, details } = formatOutput(snapshot, "");
+							const fullOutput = await output.readFullOutput(STRUCTURED_OUTPUT_MAX_BYTES);
+							const wallTimeSeconds = Math.round((performance.now() - startedAt) / 100) / 10;
+							return {
+								content: [
+									{
+										type: "text",
+										text: appendStatus(
+											outputText,
+											`[Command is still running — session_id: ${entry.id}. Use the process tool to poll for output, write stdin ('\\u0003' = Ctrl-C), or kill it.]`,
+										),
+									},
+								],
+								details,
+								structuredContent: {
+									output: fullOutput.content,
+									truncated: fullOutput.truncated,
+									...(fullOutput.truncated && snapshot.fullOutputPath
+										? { full_output_path: snapshot.fullOutputPath }
+										: {}),
+									wall_time_seconds: wallTimeSeconds,
+									session_id: entry.id,
+									status: "running" as const,
+								},
+							};
+						}
+						exitCode =
+							entry.exitCode ??
+							(entry.exitSignal
+								? 128 + (osConstants.signals[entry.exitSignal] ?? 0)
+								: entry.killed
+									? 137
+									: 1);
+					} finally {
+						entry.listeners.delete(onSessionData);
+						if (signal) signal.removeEventListener("abort", onAbortSession);
+					}
+				} else {
+					try {
+						const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
+							onData: handleData,
+							signal,
+							timeout,
+							env: spawnContext.env,
+						});
+						exitCode = result.exitCode;
+					} catch (err) {
+						const snapshot = await finishOutput();
+						const { text } = formatOutput(snapshot, "");
+						if (err instanceof Error && err.message === "aborted") {
+							throw new Error(appendStatus(text, "Command aborted"));
+						}
+						if (err instanceof Error && err.message.startsWith("timeout:")) {
+							const timeoutSecs = err.message.split(":")[1];
+							throw new Error(appendStatus(text, `Command timed out after ${timeoutSecs} seconds`));
+						}
+						throw err;
+					}
 				}
 
 				const snapshot = await finishOutput();

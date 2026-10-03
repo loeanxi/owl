@@ -61,6 +61,8 @@ export {
 	type ReadToolInput,
 	type ReadToolOptions,
 } from "./read.ts";
+export { createProcessTool, createProcessToolDefinition, type ProcessToolDetails } from "./process.ts";
+export * from "./process-store.ts";
 export {
 	createTodoTool,
 	createTodoToolDefinition,
@@ -95,13 +97,14 @@ import { createFindTool, createFindToolDefinition, type FindToolOptions } from "
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createPowerShellTool, createPowerShellToolDefinition, type PowerShellToolOptions } from "./powershell.ts";
+import { createProcessTool, createProcessToolDefinition } from "./process.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
 import { createTodoTool, createTodoToolDefinition, type TodoToolOptions } from "./todo.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "powershell" | "edit" | "write" | "grep" | "find" | "ls" | "todo";
+export type ToolName = "read" | "bash" | "powershell" | "edit" | "write" | "grep" | "find" | "ls" | "todo" | "process";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -112,6 +115,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"find",
 	"ls",
 	"todo",
+	"process",
 ]);
 
 export interface ToolsOptions {
@@ -146,6 +150,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createLsToolDefinition(cwd, options?.ls);
 		case "todo":
 			return createTodoToolDefinition(cwd, options?.todo);
+		case "process":
+			return createProcessToolDefinition();
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -171,6 +177,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createLsTool(cwd, options?.ls);
 		case "todo":
 			return createTodoTool(cwd, options?.todo);
+		case "process":
+			return createProcessTool();
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -205,6 +213,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
 		todo: createTodoToolDefinition(cwd, options?.todo),
+		process: createProcessToolDefinition(),
 	};
 }
 
@@ -237,5 +246,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
 		todo: createTodoTool(cwd, options?.todo),
+		process: createProcessTool(),
 	};
 }

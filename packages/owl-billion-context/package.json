@@ -1,0 +1,38 @@
+{
+	"name": "owl-billion-context",
+	"version": "0.1.0-owl.0",
+	"description": "billion-context（acp-kernel）模型驱动的折叠式上下文压缩引擎，封装为 Owl 插件。默认停用，供实验与二次开发。",
+	"license": "MIT",
+	"type": "module",
+	"private": true,
+	"keywords": [
+		"owl-package",
+		"owl",
+		"owl-coding-agent",
+		"extension",
+		"context-compression",
+		"billion-context",
+		"acp-kernel"
+	],
+	"scripts": {
+		"build": "node scripts/build.js",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"typebox": "*",
+		"esbuild": "0.28.2",
+		"typescript": "7.0.2"
+	},
+	"owl": {
+		"extensions": ["./dist/index.js"],
+		"forkedFrom": {
+			"name": "billion-context-pi (kernel: acp-kernel)",
+			"version": "0.1.83 (kernel 0.0.100)",
+			"repository": "git+https://github.com/ranxianglei/billion-context-pi.git",
+			"kernelRepository": "git+https://github.com/ranxianglei/acp-kernel.git",
+			"license": "MIT",
+			"note": "内核 dist 原样 vendor 自 npm acp-kernel@0.0.100；集成层参考 billion-context-pi 源码重写为 Owl 扩展 API。"
+		}
+	}
+}

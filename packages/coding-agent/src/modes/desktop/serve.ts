@@ -1391,7 +1391,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				// 设置页「内置提示词」只读展示：与真实会话同一条组装路径（默认工具集）。
 				const cwd = options.cwd ?? process.cwd();
 				const toolDefs = createAllToolDefinitions(cwd);
-				const selectedTools = ["read", "bash", "edit", "write", "todo"] as const;
+				const selectedTools = ["read", "bash", "process", "edit", "write", "todo"] as const;
 				const sections = buildSystemPromptSections({
 					cwd,
 					selectedTools: [...selectedTools],

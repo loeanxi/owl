@@ -66,10 +66,12 @@ export function isTabKindEnabled(kind: string, cfg: SidebarConfig = current): bo
 }
 
 /**
- * 文件 → viewer kind（带停用回退）：图片预览停用时回退编辑器；解析出的
- * viewer 也停用返回 undefined（调用方交给系统默认程序打开）。
+ * 文件 → viewer kind（带停用回退）：图片预览停用时回退编辑器（代码预览是
+ * 万物兜底）；解析出的 viewer 也被停用（如关掉「代码」）返回 undefined，
+ * 调用方交给系统默认程序打开。
  */
 export function viewerKindForPath(path: string, cfg: SidebarConfig = current): string | undefined {
-	const kind = isImagePath(path) && !cfg.disabledViewers.includes("image") ? "image" : viewerKindFor(path);
+	let kind = isImagePath(path) ? "image" : viewerKindFor(path);
+	if (kind === "image" && cfg.disabledViewers.includes("image")) kind = "editor";
 	return cfg.disabledViewers.includes(kind) ? undefined : kind;
 }
