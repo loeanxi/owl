@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import type { ChatEntry, ToolCard, ToolStatus } from "../hooks/transcript.ts";
+import type { ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";

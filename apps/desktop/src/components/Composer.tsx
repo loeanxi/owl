@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult } from "../bridge/protocol.ts";
 import { Menu } from "./Menu.tsx";
@@ -201,12 +201,21 @@ export function Composer({
 }): React.JSX.Element {
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const submit = (): void => {
 		const text = value.trim();
 		if (!text) return;
 		onSend(text);
 		setValue("");
 	};
+
+	// 单行起步、随内容自动长高（Claude 同款）；上限 192px 与 max-h-48 一致，发送后随 value 清空缩回。
+	useEffect(() => {
+		const el = textareaRef.current;
+		if (!el) return;
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
+	}, [value]);
 
 	const slash = model.indexOf("/");
 	const activeProvider = slash > 0 ? model.slice(0, slash) : undefined;
@@ -374,35 +383,36 @@ export function Composer({
 						<FolderPlusIcon />
 					</button>
 				</div>
-				{/* 输入框本体：Claude 同款纯净单盒，只留输入与发送；吉祥物蹲在右上角沿口 */}
+				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70">
 					<img
 						src="/owl.svg"
 						alt=""
 						aria-hidden="true"
 						draggable={false}
-						className="pointer-events-none absolute -top-4 right-4 z-10 h-8 w-8 select-none drop-shadow-[0_3px_3px_rgba(0,0,0,0.45)]"
+						className="pointer-events-none absolute -top-5 right-3 z-10 h-8 w-8 select-none drop-shadow-[0_3px_3px_rgba(0,0,0,0.45)]"
 					/>
-					<textarea
-						className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-3 text-sm text-owl-text outline-none placeholder:text-owl-faint"
-						placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-						value={value}
-						rows={2}
-						onChange={(event) => setValue(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" && !event.shiftKey) {
-								event.preventDefault();
-								submit();
-							}
-						}}
-					/>
-					<div className="flex items-center justify-end px-2 pb-2">
+					<div className="flex items-end gap-2 px-2 py-2">
+						<textarea
+							ref={textareaRef}
+							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
+							placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+							value={value}
+							rows={1}
+							onChange={(event) => setValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && !event.shiftKey) {
+									event.preventDefault();
+									submit();
+								}
+							}}
+						/>
 						{running ? (
 							<button
 								type="button"
 								aria-label="中止"
 								title="中止"
-								className="flex h-8 w-8 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
+								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
 								onClick={onAbort}
 							>
 								<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
@@ -414,7 +424,7 @@ export function Composer({
 								type="button"
 								aria-label="发送"
 								title="发送"
-								className="flex h-8 w-8 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 								disabled={disabled}
 								onClick={submit}
 							>
