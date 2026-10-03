@@ -10,7 +10,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
-import { t, useT } from "../i18n/index.ts";
+import { useT } from "../i18n/index.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { IconFile, IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
@@ -156,6 +156,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			const onUp = (cancelled: boolean): void => {
 				const target = dropTargetRef.current;
 				if (!cancelled && started && target) store.moveTab(tab.id, target.leafId, target.zone);
+				if (!cancelled && !started) {
+					// Capture can fail during a window transition; the shield's click is not a tab click.
+					justDraggedRef.current = true;
+					store.activate(tab.id);
+				}
 				setDragTab(null);
 				setDropTarget(null);
 				dropTargetRef.current = null;
@@ -259,15 +264,14 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		[api, store, cwd, client, state.tabs, openFile, gitStatus, refreshGit],
 	);
 
-	// -- 拖拽调宽 / 调高（工作台外壳；拖拽期间走 ref，松手时持久化） ----------
-	const sizeRef = useRef(dock === "right" ? width : height);
-	sizeRef.current = dock === "right" ? width : height;
+	// -- 拖拽调宽 / 调高（工作台外壳；每次手势持有独立尺寸，结束时持久化） ----
 	const startResize = (e: React.PointerEvent<HTMLElement>): void => {
 		e.preventDefault();
 		const shell = e.currentTarget.parentElement;
 		if (!shell) return;
 		const rect = shell.getBoundingClientRect();
 		const origin = dock === "right" ? rect.width : rect.height;
+		let currentSize = origin;
 		const startX = e.clientX;
 		const startY = e.clientY;
 		const maxSide =
@@ -276,17 +280,17 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			dock === "right"
 				? (move: PointerEvent): void => {
 						const next = Math.min(Math.max(origin + startX - move.clientX, WIDTH_MIN), maxSide);
-						sizeRef.current = next;
+						currentSize = next;
 						setWidth(next);
 					}
 				: (move: PointerEvent): void => {
 						// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
 						const next = Math.min(Math.max(origin + (startY - move.clientY), HEIGHT_MIN), maxSide);
-						sizeRef.current = next;
+						currentSize = next;
 						setHeight(next);
 					};
 		const onUp = (): void => {
-			localStorage.setItem(dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(sizeRef.current));
+			localStorage.setItem(dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(currentSize));
 		};
 		beginPointerDrag(e, { cursor: dock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
 	};

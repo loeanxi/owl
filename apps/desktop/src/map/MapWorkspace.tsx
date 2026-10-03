@@ -1,7 +1,7 @@
 import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
-import { MapIcon, type MapIconName } from "./Icons.tsx";
 import { mapWorldLayout } from "./geometry.ts";
+import { MapIcon, type MapIconName } from "./Icons.tsx";
 import {
 	addSearchHistory,
 	DEFAULT_SEARCH,
@@ -113,8 +113,8 @@ export function MapWorkspace({
 	const hasDetail = Boolean(detailPlace);
 	const availableMapWidth = Math.max(0, mapViewport.width - (hasDetail ? Math.min(336, mapViewport.width) : 0));
 	const mapLayout = mapWorldLayout(availableMapWidth, mapViewport.height, zoom, selectedPlace ?? { x: 54, y: 50 });
-	const searchCenter = scope.region === "武林" ? { x: 78, y: 26 }
-		: scope.region === "西湖区" ? { x: 37, y: 45 } : { x: 71, y: 48 };
+	const searchCenter =
+		scope.region === "武林" ? { x: 78, y: 26 } : scope.region === "西湖区" ? { x: 37, y: 45 } : { x: 71, y: 48 };
 
 	useEffect(() => {
 		const viewport = mapViewportRef.current;
@@ -917,10 +917,7 @@ export function MapWorkspace({
 							ref={mapViewportRef}
 							aria-label={m("mapLabel")}
 						>
-							<div
-								className="map-art map-world"
-								style={{ inset: "auto", ...mapLayout, transform: "none" }}
-							>
+							<div className="map-art map-world" style={{ inset: "auto", ...mapLayout, transform: "none" }}>
 								<img className="map-art-dark" src="/maps/hangzhou.svg" alt="" draggable={false} />
 								<img className="map-art-light" src="/maps/hangzhou-light.svg" alt="" draggable={false} />
 								{mapRows.map((place, index) => (

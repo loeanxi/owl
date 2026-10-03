@@ -25,25 +25,34 @@ const MARKER_ENTRY_TYPE = "owl-rewind";
 
 export function createOwlRewindExtension(): ExtensionFactory {
 	return (pi) => {
-		if (pi.getSettings().owlRewind?.enabled === false) return;
 		const agentDir = getAgentDir();
-		const maxFileBytes = pi.getSettings().owlRewind?.maxFileBytes;
-		const trackerFor = (sessionId: string): ReturnType<typeof getSessionRewindTracker> =>
-			getSessionRewindTracker(agentDir, sessionId, { maxFileBytes });
+		// owl-memory 同款纪律：getSettings 只能在事件处理器/命令 handler 里读
+		//（工厂执行期 actions 还没接线），所以开关与上限都在这里惰性解析。
+		const settingsOf = (): { enabled: boolean; maxFileBytes: number | undefined } => {
+			const owlRewind = pi.getSettings().owlRewind;
+			return {
+				enabled: owlRewind?.enabled !== false,
+				maxFileBytes: typeof owlRewind?.maxFileBytes === "number" && owlRewind.maxFileBytes > 0 ? owlRewind.maxFileBytes : undefined,
+			};
+		};
+		const trackerFor = (sessionId: string): ReturnType<typeof getSessionRewindTracker> | null => {
+			if (!settingsOf().enabled) return null;
+			return getSessionRewindTracker(agentDir, sessionId, { maxFileBytes: settingsOf().maxFileBytes });
+		};
 
 		pi.on("before_agent_start", (_event, ctx) => {
-			trackerFor(ctx.sessionManager.getSessionId()).stageBoundaryRescan();
+			trackerFor(ctx.sessionManager.getSessionId())?.stageBoundaryRescan();
 		});
 
 		pi.on("agent_start", (_event, ctx) => {
-			trackerFor(ctx.sessionManager.getSessionId()).ensureBoundaryCommitted(ctx.sessionManager);
+			trackerFor(ctx.sessionManager.getSessionId())?.ensureBoundaryCommitted(ctx.sessionManager);
 		});
 
 		pi.on("tool_call", (event, ctx) => {
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const path = (event.input as { path?: unknown } | undefined)?.path;
 			if (typeof path !== "string" || !path.trim()) return;
-			trackerFor(ctx.sessionManager.getSessionId()).stageCapture(
+			trackerFor(ctx.sessionManager.getSessionId())?.stageCapture(
 				event.toolCallId,
 				resolveToCwd(path, ctx.cwd),
 				ctx.sessionManager,
@@ -54,6 +63,7 @@ export function createOwlRewindExtension(): ExtensionFactory {
 			// 只处理 write/edit 的结果；其余工具没有暂存，直接空转
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const tracker = trackerFor(ctx.sessionManager.getSessionId());
+			if (!tracker) return;
 			tracker.commitCapture(event.toolCallId, event.isError === true);
 			tracker.prune();
 		});
@@ -63,7 +73,6 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				"回退到更早的用户消息（/rewind 列出候选；/rewind <序号> 仅回退对话；/rewind <序号> code 连文件一起还原）",
 			handler: async (argsText, ctx) => {
 				const sessionManager = ctx.sessionManager;
-				const tracker = trackerFor(sessionManager.getSessionId());
 				const send = (text: string): void => {
 					void pi.sendMessage(
 						{ customType: MARKER_ENTRY_TYPE, content: text, display: true },
@@ -108,9 +117,10 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				await ctx.waitForIdle();
 				let restoreNote = "";
 				if (modeBoth) {
-					const plan = tracker.planRestore({ entryId: target.entryId, time: target.timestamp }, sessionManager);
-					if (plan.actions.length > 0) {
-						const result = tracker.applyRestore(plan);
+					const rewindTracker = trackerFor(sessionManager.getSessionId());
+					const plan = rewindTracker?.planRestore({ entryId: target.entryId, time: target.timestamp }, sessionManager);
+					if (rewindTracker && plan && plan.actions.length > 0) {
+						const result = rewindTracker.applyRestore(plan);
 						restoreNote = `；文件已还原 ${result.restored} 个、删除 ${result.deleted} 个${
 							result.skipped.length > 0
 								? `（跳过 ${result.skipped.length} 个：${result.skipped.map((s) => s.reason).join("、")}）`
@@ -135,7 +145,7 @@ export function createOwlRewindExtension(): ExtensionFactory {
 					via: "command",
 					time: new Date().toISOString(),
 				});
-				tracker.prune();
+				trackerFor(sessionManager.getSessionId())?.prune();
 				const brief = target.text.split("\n").find((line) => line.trim() !== "") ?? "";
 				send(
 					`已回退到：${brief.slice(0, 60)}${brief.length > 60 ? "…" : ""}${restoreNote}。请重新编辑并发送这条消息。`,

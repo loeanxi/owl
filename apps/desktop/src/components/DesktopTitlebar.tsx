@@ -8,7 +8,7 @@ type MenuKey = "file" | "edit" | "view" | "help";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map" | "news";
+	sidebarView?: "chat" | "map" | "news" | "mail";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
@@ -23,7 +23,9 @@ interface DesktopTitlebarProps {
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
-	const sidebarLabel = props.sidebarView === "news"
+	const sidebarLabel = props.sidebarView === "mail"
+		? props.sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
+		: props.sidebarView === "news"
 		? t("news.navigation")
 		: props.sidebarView === "map"
 		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
@@ -87,7 +89,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					aria-label={sidebarLabel}
 					title={sidebarLabel}
 					aria-expanded={!props.sidebarCollapsed}
-					aria-controls={props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
+					aria-controls={props.sidebarView === "mail" ? "owl-mail-sidebar" : props.sidebarView === "news" ? "owl-news-sidebar" : props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
 					onClick={props.onToggleSidebar}
 				>
 					<IconPanelLeft className="h-4 w-4" />

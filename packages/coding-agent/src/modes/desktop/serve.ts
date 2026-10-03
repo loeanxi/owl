@@ -36,10 +36,23 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
 import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
+import { getWorkspaceDiffApprovalStore, setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
+import {
+	createMailTools,
+	getMailAgentContext,
+	MAIL_AGENT_CONTEXT_ENTRY,
+	mailAgentSystemPrompt,
+	validateMailAgentContext,
+} from "../../core/mail/agent.ts";
+import { MailService, type MailServiceOptions } from "../../core/mail/service.ts";
+import type { MailAgentContext } from "../../core/mail/types.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
+import { ModelRegistry } from "../../core/model-registry.ts";
+import { NewsService, type NewsServiceOptions } from "../../core/news/service.ts";
+import type { NewsRequest } from "../../core/news/types.ts";
 import { loadPromptTemplates } from "../../core/prompt-templates.ts";
 import {
 	cancelAllPendingQuestions,
@@ -60,8 +73,15 @@ import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
+import { handleNewsHttp } from "./news-http.ts";
+import { callNewsModel } from "./news-model.ts";
+import { createNewsTools } from "./news-tools.ts";
 import type {
 	CommandsListResult,
+	DiffApprovalClearResult,
+	DiffApprovalDiffResult,
+	DiffApprovalListResult,
+	DiffApprovalResolveResult,
 	IabFrameMessage,
 	IabOpenResult,
 	IabPageInfo,
@@ -278,6 +298,10 @@ export interface DesktopServerOptions {
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Called for diagnostics; defaults to console.error. */
 	onDiagnostic?: (message: string) => void;
+	/** Local mail dependencies for offline bridge regression tests. */
+	mail?: Partial<Pick<MailServiceOptions, "fetch" | "now" | "seal" | "unseal">>;
+	/** Local dependencies for isolated news integration tests; production uses the Owl model runtime. */
+	news?: Partial<Pick<NewsServiceOptions, "callModel" | "listModels" | "fetch" | "resolveHost" | "resolveModel">>;
 }
 
 export interface DesktopServerHandle {
@@ -383,10 +407,81 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const sidebarWatchers = new Map<string, DirectoryWatchers>();
 	/** 归档过期巡检定时器（close() 时清理）。 */
 	let archiveTimer: ReturnType<typeof setInterval> | undefined;
+	let news: NewsService | undefined;
+	let closingNews = false;
+	let mail: MailService | undefined;
+	let closingMail = false;
+
+	function getMailService(): MailService {
+		if (closingMail) throw new Error("邮箱服务正在关闭");
+		mail ??= new MailService({ agentDir: defaultAgentDir(), ...options.mail });
+		return mail;
+	}
+
+	function getNewsService(): NewsService {
+		if (closingNews) throw new Error("资讯服务正在关闭");
+		if (!news) {
+			news = new NewsService({
+				agentDir: defaultAgentDir(),
+				...options.news,
+				resolveModel: options.news?.resolveModel ?? (async (_capability, configured) => {
+					const services = await getListingServices();
+					await services.modelRuntime.refresh({ allowNetwork: false });
+					const provider = services.settingsManager.getDefaultProvider();
+					const id = services.settingsManager.getDefaultModel();
+					const fallback = provider && id ? { provider, id } : services.modelRuntime.getAvailableSnapshot()[0];
+					const choice = configured ?? fallback;
+					if (!choice) throw new Error("资讯模型未配置，请先在 Owl 模型设置中选择模型。");
+					const model = services.modelRuntime.getModel(choice.provider, choice.id);
+					if (!model) throw new Error(`资讯模型不存在：${choice.provider}/${choice.id}`);
+					const registry = new ModelRegistry(services.modelRuntime);
+					const auth = await registry.getApiKeyAndHeaders(model);
+					if (!auth.ok) throw new Error(auth.error);
+					return { provider: String(model.provider), id: model.id };
+				}),
+				callModel:
+					options.news?.callModel ??
+					(async (request) => {
+						const services = await getListingServices();
+						await services.modelRuntime.refresh({ allowNetwork: false });
+						const provider = services.settingsManager.getDefaultProvider();
+						const id = services.settingsManager.getDefaultModel();
+						return callNewsModel(
+							{
+								registry: new ModelRegistry(services.modelRuntime),
+								defaultModel: provider && id ? { provider, id } : undefined,
+							},
+							request,
+						);
+					}),
+				listModels:
+					options.news?.listModels ??
+					(async () => {
+						const services = await getListingServices();
+						await services.modelRuntime.refresh({ allowNetwork: false });
+						return services.modelRuntime
+							.getAvailableSnapshot()
+							.map((model) => ({ provider: String(model.provider), id: model.id, name: model.name }));
+					}),
+			});
+			news.start();
+		}
+		return news;
+	}
+
+	async function closeNews(): Promise<void> {
+		closingNews = true;
+		await news?.close();
+	}
+
+	function newsRequest(request: NewsRequest): Promise<unknown> {
+		return getNewsService().handle(request);
+	}
 
 	/** 按 id 定位历史会话的 JSONL 文件。 */
 	async function findSessionFile(sessionId: string): Promise<string | undefined> {
-		return (await SessionManager.listAll()).find((row) => row.id === sessionId)?.path;
+		const ordinary = (await SessionManager.listAll()).find((row) => row.id === sessionId)?.path;
+		return ordinary ?? (await SessionManager.listAll(join(defaultAgentDir(), "mail", "agent-sessions"))).find((row) => row.id === sessionId)?.path;
 	}
 
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
@@ -516,6 +611,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	// WebSocket 往返；桥关闭时摘除（之后插件的工具会被每轮 reconcile 摘掉）。
 	setQuestionChannel({ broadcast, hasConnectedClients });
 
+	// 改动审批广播：owl-diff-approval 插件每次落库/处理经 diff-approval 注册表
+	// 推 diffApproval.changed，工作台 ReviewTab 据此刷新待审清单。
+	setDiffApprovalBroadcaster(broadcast);
+
 	function reply(ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }): void {
 		if (ws.readyState === ws.OPEN) {
 			ws.send(JSON.stringify({ type: "response", id, ...result }));
@@ -634,6 +733,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					...(await getMcpTools()),
 					...iab.tools(sessionId),
 					...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
+					...createNewsTools(newsRequest, sessionId, broadcast),
 				],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
@@ -642,10 +742,50 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 	}
 
+	/** Mail sessions reuse model/auth settings while excluding code, browser, MCP and extension capabilities. */
+	function buildMailFactory(agentDir: string, context: MailAgentContext): CreateAgentSessionRuntimeFactory {
+		return async (runtimeOptions) => {
+			const sessionId = runtimeOptions.sessionManager.getSessionId();
+			if (!getMailAgentContext(runtimeOptions.sessionManager)) {
+				runtimeOptions.sessionManager.appendCustomEntry(MAIL_AGENT_CONTEXT_ENTRY, context);
+			}
+			const services = await createAgentSessionServices({
+				cwd: runtimeOptions.cwd,
+				agentDir,
+				resourceLoaderOptions: {
+					noExtensions: true,
+					noSkills: true,
+					noPromptTemplates: true,
+					noThemes: true,
+					noContextFiles: true,
+					systemPrompt: mailAgentSystemPrompt(context),
+					appendSystemPrompt: [],
+				},
+			});
+			const customTools = createMailTools({
+				service: getMailService(),
+				context,
+				onDraft: (draft) => broadcast({ type: "mail.agent.draft", sessionId, draft }),
+			});
+			const session = await createAgentSessionFromServices({
+				services,
+				sessionManager: runtimeOptions.sessionManager,
+				tools: customTools.map((tool) => tool.name),
+				customTools,
+			});
+			if (!session.session.model) {
+				session.session.dispose();
+				throw new Error("请先在 Owl 设置中配置可用模型，然后使用邮箱 Agent");
+			}
+			return { ...session, services, diagnostics: services.diagnostics };
+		};
+	}
+
 	/** 会话快照：恢复/创建/回退时回给前端回放用（消息来自事件流投影，续聊上下文同源）。
 	 *  messageEntryIds 与 messages 按下标对齐，回退按钮靠它知道每条用户消息的会话条目。 */
 	function sessionSnapshot(sessionId: string, sessionManager: SessionManager): SessionSnapshotPayload {
 		const projection = sessionManager.buildSessionProjection();
+		const mailContext = getMailAgentContext(sessionManager);
 		const messages: unknown[] = [];
 		const messageEntryIds: (string | undefined)[] = [];
 		for (const entry of projection.entries) {
@@ -661,6 +801,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			messageEntryIds,
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
+			...(mailContext ? { mailContext } : {}),
 		};
 	}
 
@@ -849,6 +990,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		},
 	): Promise<void> {
 		const { sessionManager } = args;
+		const mailContext = getMailAgentContext(sessionManager);
 		const sessionIdHolder: { current: string } = { current: sessionManager.getSessionId() };
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
 		const approvalModeHolder: { current: ApprovalMode } = { current: args.approvalMode };
@@ -918,15 +1060,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 		// 「向用户提问」由插件 owl-ask-user（settings plugins）经 question-channel 通道提供，
 		// 不再是内联扩展；插件的启停走设置页插件列表。
-		const owlAddenda = await loadOwlAddenda();
+		const owlAddenda = mailContext ? [] : await loadOwlAddenda();
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const runtime = await createAgentSessionRuntime(
-			buildFactory(
-				args.agentDir,
-				{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-				[...builtInExtensions, permissionExtension, owlMemoryExtension],
-				owlAddenda,
-			),
+			mailContext
+				? buildMailFactory(args.agentDir, mailContext)
+				: buildFactory(
+						args.agentDir,
+						{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
+						[...builtInExtensions, permissionExtension, owlMemoryExtension],
+						owlAddenda,
+					),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
 		);
 		const sessionId = runtime.session.sessionManager.getSessionId();
@@ -935,7 +1079,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
 		sessions.set(sessionId, { runtime, unsubscribe, approvalMode: approvalModeHolder });
-		reply(ws, requestId, { ok: true, result: sessionSnapshot(sessionId, sessionManager) });
+		reply(ws, requestId, {
+			ok: true,
+			result: { ...sessionSnapshot(sessionId, sessionManager), ...(mailContext ? { context: mailContext } : {}) },
+		});
 	}
 
 	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
@@ -963,14 +1110,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			return;
 		}
 		// 定位历史文件：listAll 返回的 SessionInfo 带 path 与原 cwd
-		const found = (await SessionManager.listAll()).find((row) => row.id === request.sessionId);
-		if (!found?.path || !existsSync(found.path)) {
+		const sessionPath = await findSessionFile(request.sessionId);
+		if (!sessionPath || !existsSync(sessionPath)) {
 			reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 			return;
 		}
 		try {
 			// open() 自行读会话头恢复 cwd（找不到头时回落 process.cwd，与 TUI 行为一致）
-			const sessionManager = SessionManager.open(found.path);
+			const sessionManager = SessionManager.open(sessionPath);
 			await mountSession(ws, request.id, {
 				sessionManager,
 				agentDir: defaultAgentDir(),
@@ -989,6 +1136,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
 		switch (request.type) {
+			case "mail.request": {
+				reply(ws, request.id, { ok: true, result: await getMailService().handle(request.request) });
+				return;
+			}
+			case "mail.agent.start": {
+				const context = await validateMailAgentContext(getMailService(), request.context);
+				const agentDir = defaultAgentDir();
+				const cwd = request.cwd ?? options.cwd ?? process.cwd();
+				const sessionManager = SessionManager.create(cwd, join(agentDir, "mail", "agent-sessions"));
+				sessionManager.appendCustomEntry(MAIL_AGENT_CONTEXT_ENTRY, context);
+				await mountSession(ws, request.id, { sessionManager, agentDir, approvalMode: "auto" });
+				return;
+			}
+			case "news.request": {
+				reply(ws, request.id, { ok: true, result: await newsRequest(request.request) });
+				return;
+			}
 			case "ping": {
 				reply(ws, request.id, { ok: true, result: "pong" });
 				return;
@@ -1314,6 +1478,61 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						deleted,
 						skipped,
 					};
+					reply(ws, request.id, { ok: true, result });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			// -- 改动审批（owl-diff-approval）------------------------------------------
+			// 按 cwd 定位工作区存储（与 fs.*/git.* 同口径），不依赖会话挂载；
+			// 插件侧捕获也经同一注册表实例写，broadcast 由注册表的 onChanged 触发。
+			case "diffApproval.list": {
+				try {
+					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
+					const files = store.list(request.cwd);
+					reply(ws, request.id, { ok: true, result: { files } satisfies DiffApprovalListResult });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "diffApproval.diff": {
+				try {
+					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
+					const result: DiffApprovalDiffResult = store.diff(request.entryId);
+					reply(ws, request.id, { ok: true, result });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "diffApproval.resolve": {
+				try {
+					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
+					const result: DiffApprovalResolveResult = store.resolve(request.entryIds, request.action);
+					reply(ws, request.id, { ok: true, result });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "diffApproval.clear": {
+				try {
+					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
+					const result: DiffApprovalClearResult = { removed: store.clearResolved() };
 					reply(ws, request.id, { ok: true, result });
 				} catch (error) {
 					reply(ws, request.id, {
@@ -1763,7 +1982,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "imageConfig.get":
 			case "imageConfig.set":
 			case "imageSub.login":
-			case "imageSub.logout": {
+			case "imageSub.logout":
+			case "imageModels.list": {
 				// owl-image 图像生成：设置页「图像生成」卡片的数据面（文件操作 + 动态
 				// import 插件 dist 做订阅登录），详见 ./owl-image-settings.ts 头注释。
 				const agentDir = defaultAgentDir();
@@ -1794,6 +2014,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const login = await imageSettings.subscriptionLogin(pluginSources);
 					if (login.ok) reply(ws, request.id, { ok: true, result: { ok: true, url: login.url } });
 					else reply(ws, request.id, { ok: false, error: login.error });
+				} else if (request.type === "imageModels.list") {
+					const models = await imageSettings.listProviderModels(pluginSources, request.provider);
+					reply(ws, request.id, { ok: true, result: models });
 				} else {
 					imageSettings.subscriptionLogout(agentDir);
 					reply(ws, request.id, { ok: true, result: { ok: true } });
@@ -2151,11 +2374,26 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	const uiRoot = resolveUiRoot();
 	const httpServer = createServer((request, response) => {
-		if (!uiRoot) {
-			response.writeHead(426).end("owl desktop bridge: WebSocket only");
-			return;
-		}
-		serveUi(uiRoot, request.url ?? "/", response, request.method === "HEAD");
+		void handleNewsHttp(request, response, {
+			handle: newsRequest,
+			authorizeIngest: (token) => getNewsService().authorizeIngest(token),
+			shutdown: closeNews,
+		})
+			.then((handled) => {
+				if (handled) return;
+				if (!uiRoot) {
+					response.writeHead(426).end("owl desktop bridge: WebSocket only");
+					return;
+				}
+				serveUi(uiRoot, request.url ?? "/", response, request.method === "HEAD");
+			})
+			.catch((error) => {
+				onDiagnostic(`资讯请求失败：${error instanceof Error ? error.message : String(error)}`);
+				if (!response.headersSent)
+					response
+						.writeHead(500, { "Content-Type": "application/json" })
+						.end(JSON.stringify({ error: "资讯请求失败" }));
+			});
 	});
 	const wss = new WebSocketServer({ server: httpServer });
 	wss.on("connection", (ws) => {
@@ -2200,18 +2438,29 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		httpServer.listen(port, host, resolve);
 	});
 	startArchivePurgeTimer();
+	try {
+		getNewsService();
+	} catch (error) {
+		onDiagnostic(`资讯服务初始化失败：${error instanceof Error ? error.message : String(error)}`);
+	}
 	const unsubscribeViewers = subscribeWorkspaceViewers((viewers) => broadcast({ type: "viewer.changed", viewers }));
+	const address = httpServer.address();
+	const actualPort = address && typeof address === "object" ? address.port : port;
 
 	return {
-		port,
+		port: actualPort,
 		async close() {
 			unsubscribeViewers();
 			if (archiveTimer) clearInterval(archiveTimer);
+			await closeNews();
+			closingMail = true;
 			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在
 			// 每轮 reconcile 时把工具摘掉）
 			cancelAllPendingQuestions();
 			await Promise.all([...sessions.keys()].map(unmountSessionRuntime));
+			await mail?.dispose();
 			setQuestionChannel(undefined);
+			setDiffApprovalBroadcaster(undefined);
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();
 			terminals.killAll();
@@ -2233,6 +2482,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 	const port = portArg > 0 ? Number(process.argv[portArg + 1]) : Number(process.env.OWL_PORT ?? 8787);
 	void startDesktopServer({ port }).then((handle) => {
 		console.log(`owl desktop bridge listening on http://127.0.0.1:${handle.port}`);
+		let stopping = false;
+		const stop = () => {
+			if (stopping) return;
+			stopping = true;
+			void handle.close().then(() => process.exit(0));
+		};
+		process.on("SIGTERM", stop);
+		process.on("SIGINT", stop);
 	});
 }
 

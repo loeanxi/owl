@@ -2,6 +2,7 @@ import type {
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
 	IabServerMessage,
+	MailAgentDraftMessage,
 	NewsOpenMessage,
 	PermissionRequestMessage,
 	QuestionAnswerPayload,
@@ -24,6 +25,27 @@ export type IabMessageHandler = (message: IabServerMessage) => void;
 export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 export type NewsOpenHandler = (message: NewsOpenMessage) => void;
+export type MailDraftHandler = (message: MailAgentDraftMessage) => void;
+
+/** Malformed wire payloads must not interrupt the desktop message stream. */
+function decodeServerMessage(data: unknown): DesktopServerMessage | undefined {
+	let value: unknown;
+	try {
+		value = JSON.parse(String(data));
+	} catch {
+		return undefined;
+	}
+	if (!value || typeof value !== "object") return undefined;
+	const message = value as Record<string, unknown>;
+	if (typeof message.type !== "string") return undefined;
+	if (message.type === "mail.agent.draft") {
+		if (typeof message.sessionId !== "string" || !message.sessionId || !message.draft || typeof message.draft !== "object") return undefined;
+		const draft = message.draft as Record<string, unknown>;
+		if (["accountId", "to", "subject", "body"].some((key) => typeof draft[key] !== "string")) return undefined;
+		if (["id", "threadId", "cc", "bcc", "inReplyTo", "references"].some((key) => draft[key] !== undefined && typeof draft[key] !== "string")) return undefined;
+	}
+	return value as DesktopServerMessage;
+}
 
 type Pending = {
 	resolve: (value: { ok: boolean; result?: unknown; error?: string }) => void;
@@ -47,6 +69,7 @@ export class BridgeClient {
 	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private newsOpenHandlers = new Set<NewsOpenHandler>();
+	private mailDraftHandlers = new Set<MailDraftHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -68,7 +91,12 @@ export class BridgeClient {
 			for (const handler of this.statusHandlers) handler(true);
 		};
 		ws.onmessage = (event) => {
-			const message = JSON.parse(String(event.data)) as DesktopServerMessage;
+			const message = decodeServerMessage(event.data);
+			if (!message) return;
+			if (message.type === "mail.agent.draft") {
+				for (const handler of this.mailDraftHandlers) handler(message);
+				return;
+			}
 			if (message.type === "response") {
 				const pending = this.pending.get(message.id);
 				if (pending) {
@@ -176,6 +204,11 @@ export class BridgeClient {
 		return () => this.newsOpenHandlers.delete(handler);
 	}
 
+	onMailDraft(handler: MailDraftHandler): () => void {
+		this.mailDraftHandlers.add(handler);
+		return () => this.mailDraftHandlers.delete(handler);
+	}
+
 	request<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{
 		ok: boolean;
 		result?: T;
@@ -197,6 +230,12 @@ export class BridgeClient {
 					this.pending.delete(id);
 					reject(new Error("news request timed out"));
 				}, timeout);
+			}
+			if (request.type === "mail.request" || request.type === "mail.agent.start") {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error("邮箱请求超时，请重试"));
+				}, 120_000);
 			}
 			this.pending.set(id, pending);
 			this.ws.send(JSON.stringify({ ...request, id }));

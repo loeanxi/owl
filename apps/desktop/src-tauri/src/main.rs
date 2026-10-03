@@ -9,6 +9,7 @@
 //! - System tray support (show/hide window, restart bridge, exit)
 //! - Cleans up child process tree cleanly on exit
 
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -21,6 +22,17 @@ use tauri::Manager;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+mod toast;
+#[cfg(not(windows))]
+mod toast {
+	/// 非 Windows 占位：桌面壳当前只发 Windows 包，保持命令面完整以便前端统一调用。
+	#[tauri::command]
+	pub fn show_approval_toast() -> Result<(), String> {
+		Err("toast notifications are only supported on Windows".into())
+	}
+}
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -236,6 +248,23 @@ struct BridgeState {
 impl BridgeState {
 	fn kill(&mut self) {
 		if let Some(mut child) = self.child.take() {
+			// Let the news queue save any paid response before terminating the bridge.
+			// A crash still falls back to durable receipt/job recovery on the next start.
+			if let Ok(mut stream) = TcpStream::connect_timeout(
+				&std::net::SocketAddr::from(([127, 0, 0, 1], self.port)),
+				Duration::from_secs(2),
+			) {
+				let _ = stream.set_read_timeout(Some(Duration::from_secs(210)));
+				let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+				let request = format!(
+					"POST /api/news/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+					self.port
+				);
+				if stream.write_all(request.as_bytes()).is_ok() {
+					let mut response = [0_u8; 128];
+					let _ = stream.read(&mut response);
+				}
+			}
 			let _ = child.kill();
 			let _ = child.wait();
 		}
@@ -282,6 +311,7 @@ fn main() {
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
+		.invoke_handler(tauri::generate_handler![toast::show_approval_toast])
 		.setup(move |app| {
 			let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")

@@ -5,10 +5,31 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
+export type * from "../../core/mail/types.ts";
+
+export interface MailClientRequest {
+	type: "mail.request";
+	id: string;
+	request: MailRequest;
+}
+
+export interface MailAgentStartRequest {
+	type: "mail.agent.start";
+	id: string;
+	context: MailAgentContext;
+	cwd?: string;
+}
+
+export interface MailAgentDraftMessage {
+	type: "mail.agent.draft";
+	sessionId: string;
+	draft: MailDraft;
+}
 
 /**
  * 工具审批模式：
@@ -211,6 +232,89 @@ export interface RewindExecuteResult {
 	skipped: Array<{ path: string; reason: string }>;
 }
 
+// -- 改动审批（owl-diff-approval） ----------------------------------------------
+// AI 编辑的逐文件「保留/回滚」：捕获在 owl-diff-approval 插件（settings plugins），
+// 存储 <agentDir>/diff-approval/workspaces/<工作区哈希>.json，桥经 core 注册表
+// 单例读改。全部按 cwd 定位工作区（与 fs.*/git.* 同口径），不依赖会话挂载。
+
+export type DiffApprovalStatus = "pending" | "kept" | "reverted";
+
+/** 待审清单里的一条文件记录。 */
+export interface DiffApprovalFileSummary {
+	id: string;
+	/** 绝对路径。 */
+	path: string;
+	/** 工作区相对显示路径（工作区外回退绝对路径）。 */
+	displayPath: string;
+	status: DiffApprovalStatus;
+	/** AI 编辑前文件是否已存在（false = AI 新建，回滚即删除）。 */
+	originalExisted: boolean;
+	/** 当前磁盘上是否还存在（被外部删掉时 false，回滚可恢复）。 */
+	currentExists: boolean;
+	/** 相对基线的 +/− 行数；过大/二进制/基线缺失时为 null。 */
+	added: number | null;
+	removed: number | null;
+	/** 当前磁盘字节数（文件不在时 0）。 */
+	size: number;
+	baselineAt: string;
+	resolvedAt: string | null;
+}
+
+export interface DiffApprovalListRequest {
+	type: "diffApproval.list";
+	id: string;
+	/** 工作区目录（决定读哪份存储）。 */
+	cwd: string;
+}
+
+export interface DiffApprovalListResult {
+	files: DiffApprovalFileSummary[];
+}
+
+export interface DiffApprovalDiffRequest {
+	type: "diffApproval.diff";
+	id: string;
+	cwd: string;
+	entryId: string;
+}
+
+export interface DiffApprovalDiffResult {
+	/** 基线 vs 当前磁盘的 unified diff（已补 diff --git 头）。 */
+	diff: string;
+	/** 超过输出上限被截断时 true。 */
+	truncated: boolean;
+}
+
+/** action=keep 接受改动（不动盘）；revert 还原基线（新建文件删除）。 */
+export interface DiffApprovalResolveRequest {
+	type: "diffApproval.resolve";
+	id: string;
+	cwd: string;
+	entryIds: string[];
+	action: "keep" | "revert";
+}
+
+export interface DiffApprovalResolveResult {
+	resolved: number;
+	failed: Array<{ path: string; reason: string }>;
+}
+
+export interface DiffApprovalClearRequest {
+	type: "diffApproval.clear";
+	id: string;
+	cwd: string;
+}
+
+export interface DiffApprovalClearResult {
+	removed: number;
+}
+
+/** 服务端推送：某工作区的待审清单变化（捕获/保留/回滚/清除后）。 */
+export interface DiffApprovalChangedMessage {
+	type: "diffApproval.changed";
+	cwd: string;
+}
+
 /** 会话快照（session.create/resume/rewind 共用）：消息 + 对齐的会话条目 id。 */
 export interface SessionSnapshotPayload {
 	sessionId: string;
@@ -220,6 +324,8 @@ export interface SessionSnapshotPayload {
 	messageEntryIds: (string | undefined)[];
 	thinkingLevel?: unknown;
 	header: unknown;
+	/** Persisted mailbox scope; these sessions keep only mailbox tools when resumed. */
+	mailContext?: MailAgentContext;
 }
 
 /** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */
@@ -691,6 +797,20 @@ export interface ImageSubLogoutRequest {
 
 export interface ImageSubLogoutResult {
 	ok: boolean;
+}
+
+export interface ImageModelsListRequest {
+	type: "imageModels.list";
+	id: string;
+	/** owl-image 的 provider id（google/openai/…/google-sub/comfyui）。 */
+	provider: string;
+}
+
+export interface ImageModelsListResult {
+	/** 可选模型 id（google-sub 固定一个；comfyui 是工作流名；拉取失败为空）。 */
+	models: string[];
+	/** 拉取失败原因（模型输入框保持手填，不阻断配置）。 */
+	error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,6 +1310,8 @@ export interface ProviderModelsMessage {
 }
 
 export type DesktopClientRequest =
+	| MailClientRequest
+	| MailAgentStartRequest
 	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
@@ -1207,6 +1329,10 @@ export type DesktopClientRequest =
 	| RewindTargetsRequest
 	| RewindImpactRequest
 	| RewindExecuteRequest
+	| DiffApprovalListRequest
+	| DiffApprovalDiffRequest
+	| DiffApprovalResolveRequest
+	| DiffApprovalClearRequest
 	| SessionStatsRequest
 	| CommandsListRequest
 	| SkillsListRequest
@@ -1240,6 +1366,7 @@ export type DesktopClientRequest =
 	| ImageConfigSetRequest
 	| ImageSubLoginRequest
 	| ImageSubLogoutRequest
+	| ImageModelsListRequest
 	| PingRequest
 	| PermissionResponseRequest
 	| ViewerListRequest
@@ -1363,6 +1490,7 @@ export type ServerResponseMessage = {
 };
 
 export type DesktopServerMessage =
+	| MailAgentDraftMessage
 	| NewsOpenMessage
 	| ServerEventMessage
 	| ServerResponseMessage
@@ -1372,7 +1500,8 @@ export type DesktopServerMessage =
 	| TermExitMessage
 	| IabServerMessage
 	| ViewerChangedMessage
-	| SidebarOpenMessage;
+	| SidebarOpenMessage
+	| DiffApprovalChangedMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

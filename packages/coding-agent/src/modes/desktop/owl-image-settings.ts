@@ -304,3 +304,31 @@ export async function subscriptionLogin(
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
 }
+
+interface OwlImageModelsExports {
+	listProviderModelIds?: (provider: string) => Promise<{ models: string[]; error?: string }>;
+}
+
+/**
+ * 拉取某 provider 的可选模型 id（设置页「拉取模型」）。与登录同一套约定：
+ * 每次带时间戳查询参数强制加载盘上最新插件 dist（插件自己知道各家的
+ * models 接口、key 解析与代理），失败降级为空列表 + 可读错误，不阻断手填。
+ */
+export async function listProviderModels(
+	pluginSources: unknown,
+	provider: string,
+): Promise<{ models: string[]; error?: string }> {
+	const distPath = findOwlImageDist(pluginSources);
+	if (distPath === undefined) {
+		return { models: [], error: "未在 settings.json 的 plugins 里找到已构建的 owl-image 包（本地目录源 + dist/index.js）" };
+	}
+	try {
+		const mod = (await import(`${pathToFileURL(distPath).href}?models=${Date.now()}`)) as OwlImageModelsExports;
+		if (typeof mod.listProviderModelIds !== "function") {
+			return { models: [], error: "owl-image dist 缺少 listProviderModelIds 导出，请重新构建插件（npm run build）" };
+		}
+		return await mod.listProviderModelIds(provider);
+	} catch (error) {
+		return { models: [], error: error instanceof Error ? error.message : String(error) };
+	}
+}

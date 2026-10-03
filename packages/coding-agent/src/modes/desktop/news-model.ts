@@ -1,8 +1,9 @@
 import type { ModelRegistry } from "../../core/model-registry.ts";
+import { NewsOutputError } from "../../core/news/editorial.ts";
 import type { NewsModelCall, NewsModelRef, NewsModelResponse } from "../../core/news/types.ts";
 
 export interface NewsModelAccess {
-	registry: ModelRegistry;
+	registry: Pick<ModelRegistry, "find" | "getAvailable" | "streamSimple">;
 	defaultModel?: NewsModelRef;
 }
 
@@ -27,18 +28,14 @@ export async function callNewsModel(access: NewsModelAccess, request: NewsModelC
 			},
 		)
 		.result();
-	if (response.stopReason !== "stop") {
-		throw new Error(`资讯模型未完成有效回答：${response.stopReason}（${model.provider}/${model.id}）`);
-	}
 	const text = response.content
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
 		.join("\n")
 		.trim();
-	if (!text) throw new Error("资讯模型返回了空文本。");
 	const rates = model.cost;
 	const priceKnown = rates && [rates.input, rates.output, rates.cacheRead, rates.cacheWrite].some((rate) => rate > 0);
-	return {
+	const received: NewsModelResponse = {
 		text,
 		provider: String(model.provider),
 		model: model.id,
@@ -50,4 +47,11 @@ export async function callNewsModel(access: NewsModelAccess, request: NewsModelC
 			cost: priceKnown && Number.isFinite(response.usage.cost.total) ? response.usage.cost.total : null,
 		},
 	};
+	if (response.stopReason === "error" || response.stopReason === "aborted") {
+		throw new Error(`资讯模型调用结果不明：${response.stopReason}（${model.provider}/${model.id}）`);
+	}
+	if (response.stopReason !== "stop" || !text) {
+		throw new NewsOutputError(request.purpose ?? request.capability, `模型未完成有效回答：${response.stopReason}`, received);
+	}
+	return received;
 }

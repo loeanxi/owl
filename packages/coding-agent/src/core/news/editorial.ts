@@ -28,6 +28,7 @@ import type {
 	NewsItem,
 	NewsMaterial,
 	NewsModelCaller,
+	NewsModelResponse,
 	NewsRelation,
 	NewsReport,
 	NewsReportKind,
@@ -101,14 +102,22 @@ const PeriodSchema = Type.Object({
 	sections: Type.Record(Type.String(), Type.String({ maxLength: 500 })),
 });
 const TranslationSchema = Type.Object({ t: Type.Array(Type.String()) });
+const outputOrigins = new WeakMap<object, { purpose: string; response: NewsModelResponse }>();
 
 export class NewsOutputError extends Error {
 	readonly purpose: string;
-	constructor(purpose: string, message: string) {
+	readonly response: NewsModelResponse | undefined;
+	constructor(purpose: string, message: string, response?: NewsModelResponse) {
 		super(`${purpose}: ${message}`);
 		this.name = "NewsOutputError";
 		this.purpose = purpose;
+		this.response = response;
 	}
+}
+
+function rejectOutput(origin: unknown, message: string, fallbackPurpose: string): never {
+	const received = origin && typeof origin === "object" ? outputOrigins.get(origin) : undefined;
+	throw new NewsOutputError(received?.purpose ?? fallbackPurpose, message, received?.response);
 }
 
 /** A failed response is never converted into a synthetic score or publication. */
@@ -137,9 +146,10 @@ async function requestJson<S extends TSchema>(
 	try {
 		parsed = JSON.parse(response.text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1"));
 	} catch {
-		throw new NewsOutputError(purpose, "model returned invalid JSON");
+		throw new NewsOutputError(purpose, "model returned invalid JSON", response);
 	}
-	if (!Check(schema, parsed)) throw new NewsOutputError(purpose, "model output does not match the JSON schema");
+	if (!Check(schema, parsed)) throw new NewsOutputError(purpose, "model output does not match the JSON schema", response);
+	if (parsed && typeof parsed === "object") outputOrigins.set(parsed, { purpose, response });
 	return parsed;
 }
 
@@ -284,22 +294,21 @@ function identityIds(text: string): string[] {
 function guardCopy(
 	copy: { title: string; summary: string },
 	corpus: string,
-	publisherUrl?: string,
-	owner?: string,
+	context: { publisherUrl?: string; owner?: string; origin?: unknown } = {},
 ): void {
 	const allowed = new Set(identityIds(corpus));
-	if (owner) allowed.add(owner);
-	if (publisherUrl) {
-		const host = new URL(publisherUrl).hostname;
+	if (context.owner) allowed.add(context.owner);
+	if (context.publisherUrl) {
+		const host = new URL(context.publisherUrl).hostname;
 		for (const publisher of PUBLISHER_DOMAINS)
 			if (publisher.domains.some((domain) => host === domain || host.endsWith(`.${domain}`)))
 				allowed.add(publisher.entityId);
 	}
 	const unsupported = identityIds(`${copy.title}\n${copy.summary}`).filter((id) => !allowed.has(id));
 	if (unsupported.length)
-		throw new NewsOutputError("writing", `copy introduced an unsupported identity: ${unsupported.join(", ")}`);
+		rejectOutput(context.origin, `copy introduced an unsupported identity: ${unsupported.join(", ")}`, "writing");
 	if (!groundedNewsText(`${copy.title}\n${copy.summary}`, corpus))
-		throw new NewsOutputError("writing", "copy introduced a name or number absent from the source");
+		rejectOutput(context.origin, "copy introduced a name or number absent from the source", "writing");
 }
 
 function summarizeSystem(): string {
@@ -384,7 +393,7 @@ export async function analyzeMaterial(
 			near ? 16_384 : 2048,
 		);
 		const corpus = `${material.title}\n${material.body ?? ""}\n${source.name}`;
-		guardCopy({ title: copy.titleZh, summary: copy.summaryZh }, corpus, material.url, source.owner);
+		guardCopy({ title: copy.titleZh, summary: copy.summaryZh }, corpus, { publisherUrl: material.url, owner: source.owner, origin: copy });
 		const tags = normalizeNewsTags(structure.tags);
 		const entities = [
 			...new Set(
@@ -549,6 +558,7 @@ export async function judgeRelation(
 	stories: NewsStory[],
 	config: NewsConfiguration,
 	call: NewsModelCaller,
+	readingBackground: NewsItem[] = [],
 ): Promise<NewsRelation> {
 	const empty: NewsRelation = {
 		storyId: null,
@@ -594,7 +604,25 @@ export async function judgeRelation(
 	const picked = [...candidates]
 		.sort((a, b) => Number(b.root) - Number(a.root) || b.similarity - a.similarity)
 		.slice(0, 10);
-	if (picked.length === 0) return item.participation === "editorial" ? empty : { ...empty, novel: false };
+	const reading = readingBackground
+		.filter(
+			(report) =>
+				publicItem(report) &&
+				report.selected &&
+				report.id !== item.id &&
+				(report.contentKind === "composite" || !report.storyId) &&
+				Date.parse(report.discoveredAt) > Date.parse(item.discoveredAt) - 14 * DAY_MS,
+		)
+		.map((report) => ({
+			report,
+			similarity: lexicalSimilarity(`${item.title} ${item.summary}`, `${report.title} ${report.summary}`),
+		}))
+		.filter((entry) => entry.similarity >= 0.25)
+		.sort((a, b) => b.similarity - a.similarity)
+		.slice(0, 6)
+		.map((entry) => entry.report);
+	if (picked.length === 0 && (reading.length === 0 || item.participation !== "editorial"))
+		return item.participation === "editorial" ? empty : { ...empty, novel: false };
 	const user = JSON.stringify({
 		query: reportView(item),
 		candidates: picked.map((candidate) => ({
@@ -603,6 +631,7 @@ export async function judgeRelation(
 			selected: candidate.selected ? "已公开精选" : false,
 			representative: reportView(candidate.item),
 		})),
+		readingBackground: reading.map((report) => ({ label: "已公开精选阅读背景", report: reportView(report) })),
 	});
 	if (item.participation !== "editorial") {
 		const result = await requestJson(
@@ -616,7 +645,7 @@ export async function judgeRelation(
 			1000,
 			0,
 		);
-		validateDecisions(result.decisions, picked);
+		validateDecisions(result.decisions, picked, result);
 		const match = result.decisions.find(
 			(decision) =>
 				decision.confidence >= 0.8 &&
@@ -644,8 +673,8 @@ export async function judgeRelation(
 		600 + 160 * picked.length,
 		0,
 	);
-	validateDecisions(result.decisions, picked);
-	let novel = picked.some((candidate) => candidate.selected) ? result.selection.addsValue : true;
+	validateDecisions(result.decisions, picked, result);
+	let novel = picked.some((candidate) => candidate.selected) || reading.length > 0 ? result.selection.addsValue : true;
 	const mentions = result.decisions
 		.filter((decision) => decision.confidence >= 0.8 && decision.relation !== "UNRELATED")
 		.flatMap((decision) => {
@@ -713,14 +742,14 @@ export async function judgeRelation(
 		: { ...empty, novel, reason: result.selection.reason };
 }
 
-function validateDecisions(decisions: Array<{ id: string }>, candidates: RelationCandidate[]): void {
+function validateDecisions(decisions: Array<{ id: string }>, candidates: RelationCandidate[], origin: unknown): void {
 	const ids = new Set(decisions.map((decision) => decision.id));
 	if (
 		decisions.length !== candidates.length ||
 		ids.size !== candidates.length ||
 		candidates.some((candidate) => !ids.has(candidate.key))
 	)
-		throw new NewsOutputError("group", "every candidate requires exactly one decision");
+		rejectOutput(origin, "every candidate requires exactly one decision", "group");
 }
 
 export async function composeStoryDigest(
@@ -746,6 +775,7 @@ export async function composeStoryDigest(
 	guardCopy(
 		{ title: result.title, summary: result.digest },
 		reports.map((report) => `${report.title} ${report.summary} ${report.originalBody ?? ""}`).join("\n"),
+		{ origin: result },
 	);
 	return { title: story.manual ? story.title : collapse(result.title), summary: result.digest.trim() };
 }
@@ -774,11 +804,15 @@ export async function translateNewsBody(
 			0.1,
 		);
 		if (result.t.length !== 1 || !result.t[0]?.trim())
-			throw new NewsOutputError("translate", "translation fragment count differs from input");
-		guardCopy({ title: "", summary: result.t[0] }, fragment);
-		const links = fragment.match(/https?:\/\/[^\s<>"']+/g) ?? [];
-		if (links.some((link) => !result.t[0]!.includes(link)))
-			throw new NewsOutputError("translate", "translation changed a source URL");
+			rejectOutput(result, "translation fragment count differs from input", "translate");
+		guardCopy({ title: "", summary: result.t[0] }, fragment, { origin: result });
+		const links = fragment.match(/https?:\/\/[^\s<>"'，。；？！、（）]+/g) ?? [];
+		const writtenLinks = result.t[0].match(/https?:\/\/[^\s<>"'，。；？！、（）]+/g) ?? [];
+		if (links.some((link) => !result.t[0]!.includes(link)) || writtenLinks.some((link) => !fragment.includes(link)))
+			rejectOutput(result, "translation changed a source URL", "translate");
+		const numericTokens = (text: string) => (text.match(/\d+(?:\.\d+)?(?:%|[kKmMbB])?/g) ?? []).sort().join("|");
+		if (numericTokens(fragment) !== numericTokens(result.t[0]))
+			rejectOutput(result, "translation changed a source number", "translate");
 		translated.push(result.t[0]);
 	}
 	return translated.join("");
@@ -959,18 +993,21 @@ function dailyCandidates(
 				!!item.fact?.evidence.length &&
 				item.sourceTier !== "EXCLUDE_MP",
 		);
-		const inWindow = evidence.filter(
-			(item) => Date.parse(item.timelineAt) >= start && Date.parse(item.timelineAt) < end,
-		);
-		if (
-			!inWindow.length ||
-			evidence.some((item) => item.selected) ||
-			participants(story, start - DAY_MS, end).size < 3 ||
-			Date.parse(story.createdAt) < start - DAY_MS
-		)
-			continue;
-		const official = pickNewsRepresentative(evidence.filter((item) => item.sourceTier === "T1"));
-		if (official && !seenFacts.has(newsFactKey(official)) && !seenItems.has(official.id)) candidates.push(official);
+		for (const [factKey, members] of groupBy(evidence, newsFactKey)) {
+			const inWindow = members.some(
+				(item) => Date.parse(item.timelineAt) >= start && Date.parse(item.timelineAt) < end,
+			);
+			const relevantSignals = story.reports.filter((report) => newsFactKey(report) === factKey);
+			if (
+				!inWindow ||
+				members.some((item) => item.selected) ||
+				participants({ ...story, reports: relevantSignals }, start - DAY_MS, end).size < 3 ||
+				Math.min(...members.map((item) => Date.parse(item.timelineAt))) < start - DAY_MS
+			)
+				continue;
+			const official = pickNewsRepresentative(members.filter((item) => item.sourceTier === "T1"));
+			if (official && !seenFacts.has(factKey) && !seenItems.has(official.id)) candidates.push(official);
+		}
 	}
 	const facts = [...groupBy(candidates, newsFactKey).values()].map((members) => {
 		const representative = pickNewsRepresentative(members)!;
@@ -1103,24 +1140,25 @@ export async function composeNewsReport(
 		const dailyReports = previousReports.filter(
 			(report) => report.kind === "daily" && report.key >= window.firstDate && report.key <= window.lastDate,
 		);
-		const carried = dailyReports.flatMap((report) =>
-			report.sections
+		const carried = dailyReports.flatMap((report) => {
+			const metadata: NewsReport & { leadItemId?: string; highlights?: string[] } = report;
+			return report.sections
 				.flatMap((section) => section.items)
-				.flatMap((item, index) => {
+				.flatMap((item) => {
 					const current = sourceItems.get(item.id);
 					return current
 						? [
 								{
 									item: current,
 									date: report.key,
-									lead: report.lead.startsWith(item.title),
-									highlight: index < 3,
+									lead: metadata.leadItemId === item.id,
+									highlight: metadata.highlights?.includes(item.id) ?? false,
 									sources: stories.find((story) => story.id === current.storyId)?.sourceCount ?? 1,
 								},
 							]
 						: [];
-				}),
-		);
+				});
+		});
 		const ranked = [...groupBy(carried, (entry) => entry.item.storyId ?? newsFactKey(entry.item)).values()]
 			.map((members) => {
 				members.sort(
@@ -1178,7 +1216,10 @@ export async function composeNewsReport(
 				2500,
 				0.3,
 			);
-			const corpus = main.map((item) => `${item.title}\n${item.summary}`).join("\n");
+			const corpus = [
+				`${window.firstDate} ${window.lastDate}`,
+				...main.map((item) => `${item.title}\n${item.summary}`),
+			].join("\n");
 			const overview = fittedNewsText(result.overview, kind === "weekly" ? 250 : 350);
 			if (overview && groundedNewsText(overview, corpus)) lead = overview;
 			intros = Object.fromEntries(
@@ -1198,7 +1239,7 @@ export async function composeNewsReport(
 		return members?.length ? [{ label, summary: intros[label] ?? "", items: members }] : [];
 	});
 	const sources = new Set([...main, ...briefs].map((item) => item.sourceId));
-	return {
+	const report: NewsReport & { leadItemId: string; highlights: string[] } = {
 		id: `${kind}:${key}`,
 		kind,
 		key,
@@ -1206,6 +1247,8 @@ export async function composeNewsReport(
 		periodEnd: new Date(window.end).toISOString(),
 		title: `Owl 资讯${kind === "daily" ? "日报" : kind === "weekly" ? "周报" : "月报"} · ${key}`,
 		lead,
+		leadItemId: main[0]!.id,
+		highlights: main.slice(1, 4).map((item) => item.id),
 		sections,
 		briefs,
 		relatedItems,
@@ -1213,6 +1256,7 @@ export async function composeNewsReport(
 		sourceCount: sources.size,
 		storyCount: main.length,
 	};
+	return report;
 }
 
 function selectionMetrics(cases: NewsEvaluation["cases"]): { accuracy: number; precision: number; recall: number } {

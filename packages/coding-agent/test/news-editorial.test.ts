@@ -183,13 +183,15 @@ function story(reports: NewsItem[], patch: Partial<NewsStory> = {}): NewsStory {
 	};
 }
 
-function daily(key: string, entries: NewsItem[]): NewsReport {
+function daily(key: string, entries: NewsItem[]): NewsReport & { leadItemId: string; highlights: string[] } {
 	return {
 		id: `daily:${key}`,
 		kind: "daily",
 		key,
 		title: key,
 		lead: `${entries[0]?.title ?? ""}\n日报`,
+		leadItemId: entries[0]?.id ?? "",
+		highlights: entries.slice(1, 4).map((entry) => entry.id),
 		periodStart: "",
 		periodEnd: "",
 		createdAt: publishedAt,
@@ -456,6 +458,24 @@ describe("news identities and publication", () => {
 		);
 	});
 
+	it("checks reading novelty against an already-selected roundup without treating it as identity evidence", async () => {
+		const background = item("roundup", { storyId: null, contentKind: "composite", fact: null });
+		const requests: NewsModelCall[] = [];
+		const call: NewsModelCaller = async (request) => {
+			requests.push(request);
+			return response({
+				query: "相同介绍",
+				decisions: [],
+				selection: { addsValue: false, reason: "已精选综合稿覆盖这些能力" },
+			});
+		};
+		const relation = await judgeRelation(item("new"), [], configuration(), call, [background]);
+		expect(relation).toMatchObject({ storyId: null, novel: false });
+		expect(requests).toHaveLength(1);
+		expect(JSON.parse(requests[0]!.user).candidates).toEqual([]);
+		expect(JSON.parse(requests[0]!.user).readingBackground[0].label).toBe("已公开精选阅读背景");
+	});
+
 	it("recalls related text within fourteen days while ignoring withdrawn and composite evidence", () => {
 		const current = item("current");
 		const relevant = story([item("related")]);
@@ -582,14 +602,37 @@ describe("news heat and reports", () => {
 		const official = item("official", { selected: false, sourceTier: "T1" });
 		const reports = [
 			official,
-			item("media-one", { selected: false, storyId: official.storyId }),
-			item("media-two", { selected: false, storyId: official.storyId }),
+			item("media-one", { selected: false, storyId: official.storyId, factId: official.factId }),
+			item("media-two", { selected: false, storyId: official.storyId, factId: official.factId }),
 		];
 		const result = await composeNewsReport("daily", "2026-10-03", reports, [story(reports)], []);
 		expect(result?.sections[0]?.items[0]?.id).toBe("official");
 		expect(
 			await composeNewsReport("daily", "2026-10-03", reports.slice(0, 2), [story(reports.slice(0, 2))], []),
 		).toBeNull();
+	});
+
+	it("can fill an unselected new fact in an old event without republishing its selected root", async () => {
+		const root = item("root", {
+			publishedAt: "2026-09-28T10:00:00Z",
+			timelineAt: "2026-09-28T10:00:00Z",
+			discoveredAt: "2026-09-28T10:00:00Z",
+		});
+		const progress = item("progress", { selected: false, sourceTier: "T1", storyId: root.storyId });
+		const members = [
+			root,
+			progress,
+			item("media1", { selected: false, storyId: root.storyId, factId: progress.factId }),
+			item("media2", { selected: false, storyId: root.storyId, factId: progress.factId }),
+		];
+		const result = await composeNewsReport(
+			"daily",
+			"2026-10-03",
+			members,
+			[story(members, { createdAt: root.publishedAt })],
+			[daily("2026-09-29", [root])],
+		);
+		expect(result?.sections[0]?.items[0]?.id).toBe("progress");
 	});
 
 	it("compiles weekly and monthly entries from dailies, limits events and rejects invented introduction names", async () => {
@@ -640,6 +683,14 @@ describe("news translation, prompts and calibration", () => {
 		await expect(
 			translateNewsBody(item("translate", { originalBody: original }), configuration(), missingLink),
 		).rejects.toThrow("source URL");
+		const changedNumber: NewsModelCaller = async () => response({ t: ["OpenAI 框架包含 2 个步骤。"] });
+		await expect(
+			translateNewsBody(
+				item("translate", { originalBody: "OpenAI framework contains 20 steps." }),
+				configuration(),
+				changedNumber,
+			),
+		).rejects.toThrow("source number");
 	});
 
 	it("composes a grounded event digest and retains a manual title", async () => {

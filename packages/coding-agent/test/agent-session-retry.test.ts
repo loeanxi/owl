@@ -73,11 +73,14 @@ describe("AgentSession retry", () => {
 		maxRetries?: number;
 		maxAgentDelayMs?: number;
 		delayAssistantMessageEndMs?: number;
+		errorMessage?: string;
+		retryableErrorPatterns?: string[];
 	}) {
 		const failCount = options?.failCount ?? 1;
 		const maxRetries = options?.maxRetries ?? 3;
 		const maxAgentDelayMs = options?.maxAgentDelayMs ?? 60000;
 		const delayAssistantMessageEndMs = options?.delayAssistantMessageEndMs ?? 0;
+		const errorMessage = options?.errorMessage ?? "overloaded_error";
 		let callCount = 0;
 
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
@@ -91,7 +94,7 @@ describe("AgentSession retry", () => {
 					if (callCount <= failCount) {
 						const msg = createAssistantMessage("", {
 							stopReason: "error",
-							errorMessage: "overloaded_error",
+							errorMessage,
 						});
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
@@ -110,7 +113,15 @@ describe("AgentSession retry", () => {
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = await createModelRegistry(authStorage, tempDir);
 		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
-		settingsManager.applyOverrides({ retry: { enabled: true, maxRetries, baseDelayMs: 1, maxAgentDelayMs } });
+		settingsManager.applyOverrides({
+			retry: {
+				enabled: true,
+				maxRetries,
+				baseDelayMs: 1,
+				maxAgentDelayMs,
+				...(options?.retryableErrorPatterns ? { retryableErrorPatterns: options.retryableErrorPatterns } : {}),
+			},
+		});
 
 		session = new AgentSession({
 			agent,
@@ -165,6 +176,30 @@ describe("AgentSession retry", () => {
 		expect(events).toContain("start:2");
 		expect(events).toContain("end:success=false");
 		expect(created.session.isRetrying).toBe(false);
+	});
+
+	it("retryableErrorPatterns override built-in non-retryable classification", async () => {
+		// "quota exceeded" 命中内置永久规则（不重试）；用户配置的子串命中后翻转为可重试，
+		// 对应 dsh-auto-continue 的 retryableErrorPatterns 语义。退避与次数预算照常生效。
+		const errorMessage = "gateway flap: quota exceeded (code E-204)";
+		const without = await createSession({ failCount: 1, errorMessage });
+		const withPatterns = await createSession({ failCount: 1, errorMessage, retryableErrorPatterns: ["e-204"] });
+		const plain: string[] = [];
+		const custom: string[] = [];
+		without.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") plain.push(`start:${event.attempt}`);
+		});
+		withPatterns.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") custom.push(`start:${event.attempt}`);
+		});
+
+		await without.session.prompt("Test");
+		await withPatterns.session.prompt("Test");
+
+		expect(plain).toEqual([]);
+		expect(without.getCallCount()).toBe(1);
+		expect(custom).toEqual(["start:1"]);
+		expect(withPatterns.getCallCount()).toBe(2);
 	});
 
 	it("caps agent retry delay", async () => {

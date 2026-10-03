@@ -9,6 +9,7 @@ import {
 	cosineSimilarity,
 	evaluateSelection,
 	judgeRelation,
+	NewsOutputError,
 	recallStoryCandidates,
 	selectedNewsSeats,
 	translateNewsBody,
@@ -35,6 +36,8 @@ import type {
 	NewsModelCall,
 	NewsModelCaller,
 	NewsModelResponse,
+	NewsCapability,
+	NewsModelRef,
 	NewsReport,
 	NewsReportKind,
 	NewsRequest,
@@ -48,6 +51,7 @@ import type {
 export interface NewsServiceOptions extends Pick<NewsFetchOptions, "fetch" | "resolveHost"> {
 	agentDir: string;
 	callModel: NewsModelCaller;
+	resolveModel?: (capability: NewsCapability, configured?: NewsModelRef) => Promise<NewsModelRef>;
 	onChanged?: () => void;
 	listModels?: () =>
 		| { provider: string; id: string; name: string }[]
@@ -87,6 +91,7 @@ function validateSource(source: NewsSourceInput): NewsSourceInput {
 	)
 		throw new Error("信源分级或参与方式不合法");
 	bounded(source.intervalMinutes, 1, 10080, "采集间隔");
+	for (const flag of [source.enabled, source.siteFulltext, source.syndicateFulltext]) if (typeof flag !== "boolean") throw new Error("信源开关和全文许可必须是布尔值");
 	if (source.kind === "rss" && !source.config.feedUrl) throw new Error("RSS 缺少 feedUrl");
 	if (["web_list", "json_list"].includes(source.kind) && !source.config.url) throw new Error("信源缺少 url");
 	if (source.kind === "x_search" && !source.config.query) throw new Error("X 信源缺少 query");
@@ -112,6 +117,7 @@ export class NewsService {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private loop: Promise<void> | null = null;
 	private pending = new Set<Promise<unknown>>();
+	private responseReceipts = new WeakMap<NewsModelResponse, string>();
 	private controller = new AbortController();
 	private started = false;
 	private stopping = false;
@@ -168,7 +174,7 @@ export class NewsService {
 		this.options.onChanged?.();
 	}
 	private kick(): void {
-		if (this.stopping || this.loop) return;
+		if (!this.started || this.stopping || this.loop) return;
 		this.loop = this.tick()
 			.catch((error) => {
 				this.store.audit("worker.error", "worker", { error: this.message(error) });
@@ -203,8 +209,12 @@ export class NewsService {
 				job.error = null;
 			} catch (error) {
 				job.error = this.message(error);
+				if (error instanceof NewsOutputError && error.response) {
+					const receiptId = this.responseReceipts.get(error.response);
+					if (receiptId) this.store.setReceiptState(receiptId, "received", job.error);
+				}
 				const delayed =
-					error instanceof NewsBudgetError || (!(error instanceof NewsUnknownReceiptError) && job.attempts < 3);
+					error instanceof NewsBudgetError || (!(error instanceof NewsUnknownReceiptError) && !(error instanceof NewsOutputError) && job.attempts < 3);
 				job.status = delayed ? "pending" : "failed";
 				job.nextAttemptAt = new Date(
 					Date.now() + (error instanceof NewsBudgetError ? 60000 : 30000 * 2 ** job.attempts),
@@ -254,12 +264,27 @@ export class NewsService {
 			const calendar = new Date(`${key}T00:00:00Z`);
 			const previousMonday = new Date(calendar.getTime() - (((calendar.getUTCDay() + 6) % 7) + 7) * 86400000);
 			const thursday = new Date(previousMonday.getTime() + 3 * 86400000);
-			const year = thursday.getUTCFullYear(); const jan4 = new Date(Date.UTC(year, 0, 4));
+			const year = thursday.getUTCFullYear();
+			const jan4 = new Date(Date.UTC(year, 0, 4));
 			const firstMonday = jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86400000;
 			const weekKey = `${year}-W${String(1 + Math.round((previousMonday.getTime() - firstMonday) / (7 * 86400000))).padStart(2, "0")}`;
-			if (local.getUTCHours() >= 10) this.store.enqueue("report", `weekly:${weekKey}`, { kind: "weekly", key: weekKey }, `report:weekly:${weekKey}:${Math.floor(now / 1800000)}`);
-			const monthKey = new Date(Date.UTC(calendar.getUTCFullYear(), calendar.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
-			if (local.getUTCHours() >= 10) this.store.enqueue("report", `monthly:${monthKey}`, { kind: "monthly", key: monthKey }, `report:monthly:${monthKey}:${Math.floor(now / 1800000)}`);
+			if (local.getUTCHours() >= 10)
+				this.store.enqueue(
+					"report",
+					`weekly:${weekKey}`,
+					{ kind: "weekly", key: weekKey },
+					`report:weekly:${weekKey}:${Math.floor(now / 1800000)}`,
+				);
+			const monthKey = new Date(Date.UTC(calendar.getUTCFullYear(), calendar.getUTCMonth() - 1, 1))
+				.toISOString()
+				.slice(0, 7);
+			if (local.getUTCHours() >= 10)
+				this.store.enqueue(
+					"report",
+					`monthly:${monthKey}`,
+					{ kind: "monthly", key: monthKey },
+					`report:monthly:${monthKey}:${Math.floor(now / 1800000)}`,
+				);
 		}
 		if (this.store.getMeta<string>("retention-day") !== key) {
 			this.store.retain(new Date(now - this.configuration.retentionDays * 86400000).toISOString());
@@ -280,19 +305,22 @@ export class NewsService {
 		identity: unknown,
 		run: () => Promise<unknown>,
 		usage?: (result: unknown) => NewsModelResponse["usage"],
+		onReceipt?: (id: string, response: unknown) => void,
 	): Promise<unknown> {
+		const model = identity && typeof identity === "object" ? (identity as { model?: NewsModelRef }).model : undefined;
 		const begun = this.store.beginReceipt(
 			newsHash([subject, capability, identity]),
 			capability,
 			subject,
-			capability,
+			model ? `${model.provider}/${model.id}` : capability,
 			this.configuration.budget,
 		);
-		if (begun.cached) return begun.receipt.response;
+		if (begun.cached) { onReceipt?.(begun.receipt.id, begun.receipt.response); return begun.receipt.response; }
 		try {
 			const result = await run();
 			// Received bytes are durably committed before any parse, grouping, or publication side effect.
 			this.store.receiveReceipt(begun.receipt.id, result, usage?.(result) ?? null);
+			onReceipt?.(begun.receipt.id, result);
 			return result;
 		} catch (error) {
 			this.store.setReceiptState(
@@ -306,9 +334,16 @@ export class NewsService {
 	}
 	private caller(subject: string): NewsModelCaller {
 		let ordinal = 0;
+		const frozenModels = new Map<NewsCapability, NewsModelRef>();
+		let defaultModel: NewsModelRef | undefined;
 		return async (request: NewsModelCall) => {
 			if (!this.configuration.modelCallsEnabled) throw new Error("资讯模型调用尚未开启");
-			const model = request.model ?? this.configuration.models[request.capability];
+			const configured = request.model ?? this.configuration.models[request.capability];
+			let model = frozenModels.get(request.capability);
+			if (!model) {
+				model = !configured && defaultModel ? defaultModel : this.options.resolveModel ? await this.options.resolveModel(request.capability, configured) : configured;
+				if (model) { frozenModels.set(request.capability, model); if (!configured) defaultModel = model; }
+			}
 			if (!model) throw new Error(`未配置资讯 ${request.capability} 模型`);
 			ordinal++;
 			const signal = request.signal
@@ -327,6 +362,7 @@ export class NewsService {
 				},
 				() => this.options.callModel({ ...request, model, signal }),
 				(result) => (result as NewsModelResponse).usage,
+				(id, result) => { this.responseReceipts.set(result as NewsModelResponse, id); },
 			)) as NewsModelResponse;
 		};
 	}
@@ -335,10 +371,15 @@ export class NewsService {
 			const source = this.store.source(job.subject);
 			if (!source) return;
 			try {
+				let cursor = this.store.getMeta<Record<string, unknown>>(`source-cursor:${source.id}`) ?? {};
 				const items = await collectNewsSource(source, {
 					...this.fetchOptions(),
 					maxItems: this.configuration.maxItemsPerSource,
 					secrets: this.secrets,
+					cursor,
+					onCursor: (value) => {
+						cursor = value;
+					},
 					paid: (purpose, identity, run) => this.paid(`source:${source.id}`, purpose, identity, run),
 				});
 				this.store.transaction(() => {
@@ -358,6 +399,7 @@ export class NewsService {
 						lastError: null,
 					});
 					this.store.completeReceipts(`source:${source.id}`);
+					this.store.setMeta(`source-cursor:${source.id}`, cursor);
 				});
 			} catch (error) {
 				this.store.writeSource({
@@ -438,23 +480,60 @@ export class NewsService {
 			return;
 		}
 		if (job.kind === "group") {
-			const stories = this.store.stories();
+			const stories = this.store
+				.stories()
+				.map((story) => ({ ...story, reports: story.reports.filter((report) => report.id !== item!.id) }));
 			let candidates = recallStoryCandidates(item, stories);
 			if (this.configuration.embedding.enabled)
 				candidates = await this.embeddingCandidates(item, candidates, stories);
 			const lock = this.store.manual(item.id);
 			if (!lock.groupLocked) {
-				const relation = await judgeRelation(item, candidates, this.configuration, call);
+				const material = this.store.material(item.id);
+				const referenceIds = [material?.raw?.replyTo, material?.raw?.quotedId].filter(
+					(value): value is string => typeof value === "string" && !!value,
+				);
+				const native =
+					item.participation === "hot_signal" && referenceIds.length
+						? this.store
+								.items()
+								.find(
+									(other) =>
+										other.id !== item!.id &&
+										other.storyId &&
+										referenceIds.includes(this.store.material(other.id)?.externalId ?? ""),
+								)
+						: undefined;
+				const background = this.store
+					.items()
+					.filter((other) => other.id !== item!.id && other.selected && !other.storyId && this.visible(other));
+				const relation = native
+					? {
+							storyId: native.storyId,
+							factId: native.factId,
+							relation: "same" as const,
+							novel: false,
+							reason: "引用或回复已确认事件",
+							mentions: [],
+						}
+					: await judgeRelation(item, candidates, this.configuration, call, background);
 				const factId = relation.factId || `fact:${item.id}:${item.revision}`;
 				this.store.transaction(() => {
 					const current = this.store.item(item!.id);
 					if (!current || current.revision !== item!.revision || this.store.manual(item!.id).groupLocked) return;
 					let storyId = relation.storyId;
 					if (item!.contentKind !== "single") {
+						const selected =
+							item!.contentKind === "composite" &&
+							item!.selectionCandidate &&
+							relation.novel &&
+							item!.participation === "editorial";
 						this.store.editItem(item!.id, {
 							mentionedStoryIds: relation.mentions ?? [],
-							selected: false,
-							novel: false,
+							selected,
+							novel: relation.novel,
+							selectedReadyAt: selected
+								? item!.selectedReadyAt || new Date().toISOString()
+								: item!.selectedReadyAt,
 							storyId: null,
 							status: "ready",
 							error: null,
@@ -611,7 +690,7 @@ export class NewsService {
 	}
 	private visible(item: NewsItem): boolean {
 		return (
-			item.status === "ready" && item.relevance !== "block" && item.participation === "editorial" && !item.withdrawn
+			item.status === "ready" && item.relevance === "pass" && item.participation === "editorial" && !item.withdrawn
 		);
 	}
 	private publicItem(item: NewsItem): NewsItem {
@@ -644,11 +723,13 @@ export class NewsService {
 				: undefined,
 		};
 	}
-	private list(query: NewsListQuery = {}): NewsListResult {
+	private list(query: NewsListQuery = {}, administration = false, status?: string): NewsListResult {
 		const limit = Math.floor(bounded(query.limit ?? 30, 1, 5000, "条数"));
 		const offset = Math.floor(bounded(query.offset ?? 0, 0, 1000000, "偏移"));
-		let items = this.store.items().filter((item) => this.visible(item));
-		if (query.mode !== "all" && query.mode !== "saved") items = selectedNewsSeats(items.filter((item) => item.selected));
+		let items = this.store.items().filter((item) => administration || this.visible(item));
+		if (status) items = items.filter(item => status === "withdrawn" ? item.withdrawn : item.status === status);
+		if (query.mode !== "all" && query.mode !== "saved")
+			items = selectedNewsSeats(items.filter((item) => item.selected));
 		if (query.mode === "saved") items = items.filter((item) => item.saved);
 		if (query.category && query.category !== "all") items = items.filter((item) => item.category === query.category);
 		if (query.topic) {
@@ -718,6 +799,8 @@ export class NewsService {
 				return this.snapshot();
 			case "list":
 				return this.list(request.query);
+			case "adminItems": return this.list({ mode: "all", ...request.query }, true, request.status);
+			case "adminItem": { const item = this.store.item(request.id); return item ? this.publicItem(item) : null; }
 			case "item": {
 				const item = this.store.item(request.id);
 				return item && this.visible(item) ? this.publicItem(item) : null;
@@ -767,14 +850,15 @@ export class NewsService {
 				return this.store.sources().map((source) => publicNewsSource(source));
 			case "saveSource": {
 				const old = this.store.source(request.source.id);
-				return publicNewsSource(
-					this.store.saveSource(
-						validateSource({
-							...request.source,
-							config: mergeSourceConfig(old?.config ?? {}, request.source.config),
-						}),
-					),
-				);
+				const source = this.store.saveSource(validateSource({ ...request.source, config: mergeSourceConfig(old?.config ?? {}, request.source.config) }));
+				if (old) this.store.transaction(() => {
+					for (const item of this.store.items().filter(item => item.sourceId === source.id)) {
+						this.store.editItem(item.id, { participation: source.participation, participantId: source.publisherGroup || source.owner || source.id,
+							sourceTier: source.tier, sourceName: source.name, fulltextAllowed: source.siteFulltext });
+						if (source.participation !== "editorial") this.store.invalidateReports(item.id);
+					}
+				});
+				return publicNewsSource(source);
 			}
 			case "deleteSource":
 				this.store.deleteSource(request.id);
@@ -803,6 +887,7 @@ export class NewsService {
 					serviceStatus: {},
 				};
 				bounded(config.intervalMinutes, 1, 10080, "采集间隔");
+				for (const flag of [config.collectEnabled, config.modelCallsEnabled, config.allowPrivateNetwork, config.embedding.enabled]) if (typeof flag !== "boolean") throw new Error("资讯开关必须是布尔值");
 				bounded(config.maxItemsPerSource, 1, 100, "信源条数");
 				bounded(config.retentionDays, 1, 3650, "保留天数");
 				for (const value of Object.values(config.budget)) bounded(value, 0, 1000000, "调用额度");
@@ -843,25 +928,31 @@ export class NewsService {
 				return { queued };
 			}
 			case "retry": {
+				let receiptSubject: string | undefined;
 				if (request.receiptId) {
 					const receipt = this.store.receipt(request.receiptId);
 					if (!receipt) throw new Error("回执不存在");
-					if (receipt.status !== "unknown" && receipt.status !== "failed")
-						throw new Error("仅未知或失败回执可手动重试");
+					if (receipt.status !== "unknown" && receipt.status !== "failed" && !(receipt.status === "received" && receipt.error))
+						throw new Error("仅未知、失败或已收到无效输出的回执可手动重试");
+					receiptSubject = receipt.subject;
 					this.store.setReceiptState(receipt.id, "failed", "用户核对后允许重新调用");
 					this.store.audit("receipt.release", receipt.id, {});
 				}
 				let queued = 0;
 				for (const job of this.store.jobs(5000))
 					if (
-						(request.jobId
-							? job.id === request.jobId
-							: request.itemId
-								? job.subject === request.itemId
-								: job.status === "failed") &&
+					(request.jobId
+						? job.id === request.jobId
+						: request.itemId
+							? job.subject === request.itemId
+							: receiptSubject ? receiptSubject === `source:${job.subject}` || receiptSubject.startsWith(`item:${job.subject}:`) || receiptSubject.startsWith(`story:${job.subject}:`) || receiptSubject === `report:${job.subject}` : job.status === "failed") &&
 						job.status !== "running"
 					) {
 						if (job.status === "completed" && !request.itemId) continue;
+						const subject = job.kind === "collect" ? `source:${job.subject}` : job.kind === "digest" ? `story:${job.subject}:${job.data.revision}` : job.kind === "report" ? `report:${job.subject}` : `item:${job.subject}:${job.data.revision}`;
+						for (const receipt of this.store.receipts(5000)) if (receipt.subject === subject && receipt.status === "received" && receipt.error) {
+							this.store.setReceiptState(receipt.id, "failed", "用户允许重试无效模型输出"); this.store.audit("receipt.output-release", receipt.id, {});
+						}
 						job.status = "pending";
 						job.error = null;
 						job.nextAttemptAt = new Date().toISOString();
@@ -897,14 +988,20 @@ export class NewsService {
 			case "withdraw": {
 				const old = this.store.item(request.id);
 				if (!old) return null;
+				this.store.invalidateReports(request.id);
 				return this.publicItem(
 					this.store.editItem(request.id, {
 						withdrawn: request.withdrawn,
 						selected: request.withdrawn ? false : old.selectionCandidate && old.novel,
+						selectedReadyAt: !request.withdrawn && old.withdrawn && old.selectionCandidate && old.novel ? new Date().toISOString() : old.selectedReadyAt,
 					}),
 				);
 			}
 			case "editItem": {
+				if (Object.keys(request.patch).some(key => !["title", "summary", "category", "tags", "selected"].includes(key))) throw new Error("不支持的人工编辑字段");
+				for (const key of ["title", "summary", "category"] as const) if (request.patch[key] !== undefined && typeof request.patch[key] !== "string") throw new Error("标题、摘要和分类必须是文字");
+				if (request.patch.selected !== undefined && typeof request.patch.selected !== "boolean") throw new Error("精选状态必须是布尔值");
+				if (request.patch.tags && (!Array.isArray(request.patch.tags) || request.patch.tags.length > 20 || request.patch.tags.some(tag => typeof tag !== "string" || tag.length > 100))) throw new Error("标签不合法");
 				if (
 					(request.patch.title && request.patch.title.length > 2000) ||
 					(request.patch.summary && request.patch.summary.length > 10000)

@@ -168,6 +168,39 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 	return next;
 }
 
+/** 自动重试横幅状态：由 auto_retry_start / auto_retry_end 事件驱动，独立于转录条目——
+ * 每次重试轮的 agent_end 权威重建会重排条目，横幅状态不能寄存在 entries 里。 */
+export type RetryBannerState =
+	| { phase: "retrying"; attempt: number; maxAttempts: number; delayMs: number; startedAt: number; reason?: string }
+	| { phase: "failed"; attempt: number; reason?: string };
+
+/** 从桥事件流提取自动重试横幅状态；无关事件返回原引用（React 可跳过重渲染）。 */
+export function applyRetryEvent(state: RetryBannerState | null, message: ServerEventMessage): RetryBannerState | null {
+	const event = (message.event ?? {}) as AnyEvent;
+	if (event.type === "auto_retry_start") {
+		return {
+			phase: "retrying",
+			attempt: typeof event.attempt === "number" ? event.attempt : 1,
+			maxAttempts: typeof event.maxAttempts === "number" ? event.maxAttempts : 0,
+			delayMs: typeof event.delayMs === "number" ? event.delayMs : 0,
+			startedAt: Date.now(),
+			reason: formatProviderError(typeof event.errorMessage === "string" ? event.errorMessage : undefined),
+		};
+	}
+	if (event.type === "auto_retry_end") {
+		if (event.success === true) return null;
+		// 用户手动停止触发 _finishCancelledRetry（agent-session.ts 的固定文案）：
+		// 主动取消不算"重试失败"，清掉横幅即可（转录里已有 cancelled 状态）。
+		if (event.finalError === "Retry cancelled") return null;
+		return {
+			phase: "failed",
+			attempt: typeof event.attempt === "number" ? event.attempt : 0,
+			reason: formatProviderError(typeof event.finalError === "string" ? event.finalError : undefined),
+		};
+	}
+	return state;
+}
+
 function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage): ChatEntry[] {
 	const event = message.event as AnyEvent;
 	switch (event.type) {

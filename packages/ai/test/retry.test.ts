@@ -115,6 +115,23 @@ describe("provider retry classification", () => {
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
 	});
+
+	it("extra patterns take precedence over built-in non-retryable rules", () => {
+		// "billing" is built-in non-retryable; a user-configured substring flips it to retryable.
+		const message = fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "billing gateway flap (my-gateway-2024)",
+		});
+		expect(isRetryableAssistantError(message)).toBe(false);
+		expect(isRetryableAssistantError(message, ["MY-Gateway-2024"])).toBe(true);
+	});
+
+	it("extra patterns match plain substrings case-insensitively and ignore blanks", () => {
+		const message = fauxAssistantMessage("", { stopReason: "error", errorMessage: "upstream hiccup code X-77" });
+		expect(isRetryableAssistantError(message, ["", "   ", "x-77"])).toBe(true);
+		expect(isRetryableAssistantError(message, ["no-match"])).toBe(false);
+		expect(isRetryableAssistantError(message)).toBe(false);
+	});
 });
 
 describe("retryDelayMs", () => {

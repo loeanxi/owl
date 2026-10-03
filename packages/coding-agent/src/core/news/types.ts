@@ -152,6 +152,8 @@ export interface NewsReport {
 	createdAt: string;
 	sourceCount: number;
 	storyCount: number;
+	leadItemId?: string;
+	highlights?: string[];
 	relatedItems?: Record<string, NewsItem[]>;
 }
 export interface NewsTopic {
@@ -288,6 +290,8 @@ export interface NewsAssistantResult {
 	usage: NewsUsage;
 }
 export type NewsRequest =
+	| { action: "adminItems"; query?: NewsListQuery; status?: NewsItem["status"] | "withdrawn" }
+	| { action: "adminItem"; id: string }
 	| { action: "snapshot" }
 	| { action: "list"; query?: NewsListQuery }
 	| { action: "item"; id: string }
@@ -322,6 +326,8 @@ export type NewsRequest =
 	| { action: "backup" };
 
 export interface NewsResultByAction {
+	adminItems: NewsListResult;
+	adminItem: NewsItem | null;
 	snapshot: NewsSnapshot;
 	list: NewsListResult;
 	item: NewsItem | null;

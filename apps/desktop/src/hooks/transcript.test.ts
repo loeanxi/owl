@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ServerEventMessage } from "../bridge/protocol.ts";
-import { applyEvent, rebuild, type ChatEntry } from "./transcript.ts";
+import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./transcript.ts";
 
 const user = { role: "user", content: "检查项目" };
 const calls = [
@@ -179,4 +179,32 @@ test("user prompt images survive the authoritative rebuild", () => {
 	const snapshot = [withImage, { role: "assistant", content: [{ type: "text", text: "收到" }] }];
 	const replayed = event(rebuild([withImage]), { type: "agent_end", messages: snapshot });
 	assert.deepEqual((replayed.at(0) as Extract<ChatEntry, { kind: "user" }>).images, [{ data: "aGk=", mimeType: "image/png" }]);
+});
+
+test("auto retry events drive the banner state independent of transcript entries", () => {
+	const wire = (payload: Record<string, unknown>) => ({ type: "event", sessionId: "session", event: payload }) as unknown as ServerEventMessage;
+	// 无关事件不影响横幅状态（返回原引用，React 可跳过重渲染）
+	const idle: RetryBannerState | null = null;
+	assert.equal(applyRetryEvent(idle, wire({ type: "message_end", message: { role: "assistant" } })), idle);
+	// auto_retry_start → 倒计时横幅；供应商错误走 formatProviderError 人话化
+	const retrying = applyRetryEvent(null, wire({
+		type: "auto_retry_start", attempt: 2, maxAttempts: 3, delayMs: 4000,
+		errorMessage: '429: {"code":"1308","message":"已达到 5 小时的使用上限。"}',
+	}));
+	assert.ok(retrying?.phase === "retrying");
+	assert.equal(retrying.attempt, 2);
+	assert.equal(retrying.maxAttempts, 3);
+	assert.equal(retrying.delayMs, 4000);
+	assert.match(retrying.reason ?? "", /额度或限流/);
+	// 成功 → 横幅清除
+	assert.equal(applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: true, attempt: 2 })), null);
+	// 用户手动停止的取消不算失败：横幅清掉
+	assert.equal(applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" })), null);
+	// 重试预算耗尽 → failed 横幅（常驻到用户下次发言）
+	const failed = applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded_error" }));
+	assert.ok(failed?.phase === "failed");
+	assert.equal(failed.attempt, 3);
+	assert.equal(failed.reason, "overloaded_error");
+	// 下一轮 auto_retry_start 重新进入 retrying
+	assert.ok(applyRetryEvent(failed, wire({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded_error" }))?.phase === "retrying");
 });

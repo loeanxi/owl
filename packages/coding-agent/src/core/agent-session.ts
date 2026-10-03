@@ -1131,7 +1131,16 @@ export class AgentSession {
 				// Regular LLM message - persist as SessionMessageEntry
 				entryId = this.sessionManager.appendMessage(event.message);
 			}
-			if (entryId) this._entryIdsByMessage.set(event.message, entryId);
+			if (entryId) {
+				this._entryIdsByMessage.set(event.message, entryId);
+				// owl:用户消息的条目落盘事件——桌面转录靠它给乐观追加的用户行补
+				// entryId（回退按钮定位目标用）。只对 user 发：assistant/toolResult
+				// 的行不需要 id，避免事件流翻倍。
+				if (event.message.role === "user") {
+					const persistedEntry = this.sessionManager.getEntry(entryId);
+					if (persistedEntry) this._emit({ type: "entry_appended", entry: persistedEntry });
+				}
+			}
 			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
 
 			if (event.message.role === "assistant") {
@@ -3674,11 +3683,13 @@ export class AgentSession {
 	/**
 	 * Check if an error is retryable (overloaded, rate limit, server errors).
 	 * Context overflow errors are NOT retryable (handled by compaction instead).
+	 * User-configured `retry.retryableErrorPatterns` take precedence over the
+	 * built-in non-retryable rules.
 	 */
 	private _isRetryableError(message: AssistantMessage): boolean {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0)) return false;
-		return isRetryableAssistantError(message);
+		return isRetryableAssistantError(message, this.settingsManager.getRetryableErrorPatterns());
 	}
 
 	/**

@@ -961,3 +961,9 @@ export function googleSubscriptionStatus(): { loggedIn: boolean; email?: string 
 	const status = sharedSubscriptionManager.loginStatus();
 	return status.state === "logged-in" ? { loggedIn: true, email: status.email } : { loggedIn: false };
 }
+
+/** Bridge-facing: model ids for one provider, for the settings page 「拉取模型」. */
+export async function listProviderModelIds(provider: string): Promise<{ models: string[]; error?: string }> {
+	const { listProviderModelIds: listIds } = await import("./models-list.ts");
+	return listIds(provider);
+}

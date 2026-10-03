@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
-import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
-import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
+import { hasTauri } from "./bridge/native.ts";
+import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, RewindExecuteResult, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
+import { MailPage } from "./features/mail/MailPage.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
@@ -19,6 +22,7 @@ import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
+import { RetryPin } from "./components/RetryPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
@@ -34,6 +38,7 @@ import { BrowserSessionContext } from "./sidebar/registry.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
+import { parseNotificationPrefs, setNotificationPrefs } from "./utils/notification-prefs.ts";
 import "./desktop-shell.css";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
@@ -79,8 +84,9 @@ export default function App(): React.JSX.Element {
 	const [sidebarRev, setSidebarRev] = useState(0);
 	const [newsTarget, setNewsTarget] = useState<{ kind: "item" | "story"; id: string; revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() =>
-		new URLSearchParams(window.location.search).get("view") === "map" ? "map" : "chat",
+		new URLSearchParams(window.location.search).get("view") === "mail" ? "mail" : new URLSearchParams(window.location.search).get("view") === "map" ? "map" : "chat",
 	);
+	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -94,7 +100,9 @@ export default function App(): React.JSX.Element {
 		sidebarToggleRef.current?.focus({ preventScroll: true });
 	};
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
-	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string }>();
+	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
+	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
+	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
 	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
@@ -250,21 +258,14 @@ export default function App(): React.JSX.Element {
 	// 转录、把被回退的目标消息文本回填输入框（replace 语义，替换现有草稿）。
 	const handleRewindClick = (entryId: string): void => {
 		if (!sessionIdRef.current) return;
-		for (let index = entries.length - 1; index >= 0; index--) {
-			const entry = entries[index]!;
-			if (entry.kind !== "user") continue;
-			if (entry.entryId !== entryId) return;
-			setRewindTarget({ entryId, text: entry.text });
-			return;
-		}
+		const clicked = entries.find((entry) => entry.kind === "user" && entry.entryId === entryId);
+		if (clicked?.kind === "user") setRewindTarget({ entryId, text: clicked.text });
 	};
 
-	const handleRewindDone = (result: {
-		editorText?: string;
-		snapshot: { messages: Record<string, unknown>[]; messageEntryIds: (string | undefined)[] };
-	}): void => {
+	const handleRewindDone = (result: RewindExecuteResult): void => {
 		setRewindTarget(undefined);
-		setEntries(rebuild(result.snapshot.messages, result.snapshot.messageEntryIds));
+		const messages = result.snapshot.messages as Record<string, unknown>[];
+		setEntries(rebuild(messages, result.snapshot.messageEntryIds));
 		if (typeof result.editorText === "string") {
 			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
 		}
@@ -306,11 +307,13 @@ export default function App(): React.JSX.Element {
 			// 旁路会话（侧边对话等）的事件由各自 tab 消费，主转录只跟当前会话
 			if (message.sessionId !== sessionIdRef.current) return;
 			setEntries((current) => applyEvent(current, message));
+			setRetryStatus((current) => applyRetryEvent(current, message));
 			if (eventType === "agent_settled") {
 				void refreshStats();
 				void notifyAgentStatus({
 					title: t("app.notifyDoneTitle"),
 					body: t("app.notifyDoneBody"),
+					category: "done",
 					critical: false,
 				});
 			}
@@ -321,7 +324,13 @@ export default function App(): React.JSX.Element {
 				void notifyAgentStatus({
 					title: t("app.notifyConfirmTitle"),
 					body: t("app.notifyConfirmBody", { name: request.toolName ?? t("app.toolFallback") }),
+					category: "permission",
 					critical: true,
+					quickAction: {
+						requestId: request.requestId,
+						approveLabel: t("perm.allow"),
+						denyLabel: t("perm.deny"),
+					},
 				});
 			}
 		});
@@ -330,6 +339,7 @@ export default function App(): React.JSX.Element {
 			void notifyAgentStatus({
 				title: t("app.notifyQuestionTitle"),
 				body: request.questions[0]?.question ?? t("app.notifyQuestionBody"),
+				category: "question",
 				critical: true,
 			});
 		});
@@ -338,6 +348,27 @@ export default function App(): React.JSX.Element {
 			offEvents();
 			offPermission();
 			offQuestion();
+		};
+	}, [client]);
+
+	// 原生 Toast 快捷裁决：Rust 侧按钮点击经 owl-toast-action 事件转发过来，
+	// 直接应答对应审批（requestId 已不在等待队列时内核安全拒绝，无副作用）
+	useEffect(() => {
+		if (!hasTauri()) return;
+		let unlisten: (() => void) | undefined;
+		let disposed = false;
+		void listen<{ kind?: string; requestId?: string; approved?: boolean }>("owl-toast-action", (event) => {
+			const payload = event.payload;
+			if (payload?.kind !== "decision" || typeof payload.requestId !== "string" || typeof payload.approved !== "boolean") return;
+			client.respondPermission(payload.requestId, payload.approved);
+			setPermission((current) => (current?.requestId === payload.requestId ? undefined : current));
+		}).then((off) => {
+			if (disposed) off();
+			else unlisten = off;
+		});
+		return () => {
+			disposed = true;
+			unlisten?.();
 		};
 	}, [client]);
 
@@ -429,6 +460,8 @@ export default function App(): React.JSX.Element {
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
 				// 界面语言随 settings.json 启动加载；设置页切换后经 settings.set 持久化。
 				setUiLanguage(parseUiLanguage(settings?.uiLanguage));
+				// 通知偏好（owlNotifications）：启动时同步进模块级缓存，notifyAgentStatus 据此门控
+				setNotificationPrefs(parseNotificationPrefs(settings?.owlNotifications));
 			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
@@ -481,6 +514,7 @@ export default function App(): React.JSX.Element {
 		sessionIdRef.current = id;
 		setSessionId(id);
 		setEntries([]);
+		setRetryStatus(null);
 		void refreshStats(id);
 		return id;
 	}
@@ -489,6 +523,7 @@ export default function App(): React.JSX.Element {
 		sessionIdRef.current = undefined;
 		setSessionId(undefined);
 		setEntries([]);
+		setRetryStatus(null);
 		setSessionInfo(undefined);
 		void ensureSession();
 	};
@@ -501,6 +536,7 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKSPACE_KEY, path);
 		setSessionId(undefined);
 		setEntries([]);
+		setRetryStatus(null);
 		setSessionInfo(undefined);
 	};
 
@@ -533,6 +569,7 @@ export default function App(): React.JSX.Element {
 		setSessionId(resumedId);
 		sessionIdRef.current = resumedId;
 		setEntries(rebuild(messages, messageEntryIds));
+		setRetryStatus(null);
 		void refreshStats(resumedId);
 	};
 
@@ -734,6 +771,8 @@ export default function App(): React.JSX.Element {
 			...current,
 			{ kind: "user", text: message, ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
 		]);
+		// 用户亲自发言：旧的"重试中/重试失败"横幅已过时（会话由新消息接管）
+		setRetryStatus(null);
 		setPendingPrompts((current) => new Set(current).add(target!));
 		const response = await client.request({
 			type: "session.prompt",
@@ -833,7 +872,7 @@ export default function App(): React.JSX.Element {
 			<ActivityRail
 				view={railView}
 				settingsOpen={showSettings}
-				onSelect={(view) => { setShowSettings(false); setRailView(view); }}
+				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); }}
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
 			<SessionSidebar
@@ -859,11 +898,14 @@ export default function App(): React.JSX.Element {
 				<MapWorkspace active={railView === "map" && !showSettings} sidebarCollapsed={sidebarMinimized} />
 			</div>
 			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
-				<NewsPage client={client} active={railView === "news" && !showSettings} initialTarget={newsTarget} onToChat={(text) => {
+				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={sidebarMinimized} initialTarget={newsTarget} onToChat={(text) => {
 					setRailView("chat"); setShowSettings(false); setConversationViewPersisted("chat");
 					setDraftRequest({ id: ++draftSequence.current, text });
 				}} />
 			</div>
+			{mailMounted && <div style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} />
+			</div>}
 			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
 					<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={sessionTitle}>{sessionTitle}</h1>
@@ -902,6 +944,8 @@ export default function App(): React.JSX.Element {
 						)}
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
+						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
+						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
 						<Composer
 							client={client}
 							connected={connected}

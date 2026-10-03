@@ -2340,4 +2340,287 @@ html[data-owl-theme="light"] .owl-map-workspace .map-world > .map-art-light {
 		transition: none;
 	}
 }
++
+.owl-map-workspace .map-conversation {
+	min-width: 0;
+	margin-bottom: 20px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 11px;
+	overflow: hidden;
+	background: var(--owl-ui-canvas);
+}
+
+.owl-map-workspace .map-conversation-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+	padding: 11px 13px;
+	border-bottom: 1px solid var(--owl-ui-border);
+	background: var(--owl-ui-panel);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.owl-map-workspace .map-conversation-model {
+	min-width: 0;
+	max-width: 62%;
+	color: var(--color-owl-accent);
+	font-size: 11px;
+	font-weight: 400;
+	line-height: 1.65;
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-model-reuse,
+.owl-map-workspace .map-thinking-level {
+	margin-top: 8px;
+	font-size: 10px;
+	line-height: 1.75;
+	color: var(--owl-ui-muted);
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-conversation > .map-model-reuse,
+.owl-map-workspace .map-conversation > .map-thinking-level {
+	margin-inline: 13px;
+}
+
+.owl-map-workspace .map-conversation-messages {
+	min-width: 0;
+	max-height: min(360px, 44dvh);
+	padding: 13px;
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: thin;
+	scrollbar-color: var(--owl-ui-border) transparent;
+}
+
+.owl-map-workspace .map-message {
+	min-width: 0;
+	max-width: 100%;
+	padding: 11px 12px;
+	border-radius: 8px;
+}
+
+.owl-map-workspace .map-message + .map-message {
+	margin-top: 12px;
+}
+
+.owl-map-workspace .map-message-user {
+	border: 1px solid var(--owl-ui-border);
+	background: var(--owl-ui-panel);
+}
+
+.owl-map-workspace .map-message-assistant {
+	padding-inline: 1px;
+	color: var(--owl-ui-text);
+}
+
+.owl-map-workspace .map-message-role {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	margin-bottom: 6px;
+	color: var(--owl-ui-muted);
+	font-size: 10px;
+	line-height: 1.5;
+	font-weight: 500;
+}
+
+.owl-map-workspace .map-message-assistant .map-message-role {
+	color: var(--color-owl-accent);
+}
+
+.owl-map-workspace .map-message-text {
+	min-width: 0;
+	max-width: 100%;
+	color: var(--owl-ui-text);
+	font-size: 12.5px;
+	line-height: 1.8;
+	font-weight: 400;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: normal;
+}
+
+.owl-map-workspace .map-message-thinking {
+	min-width: 0;
+	margin-top: 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 7px;
+	background: var(--owl-ui-panel);
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	line-height: 1.75;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-message-thinking > summary {
+	cursor: pointer;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	user-select: none;
+}
+
+.owl-map-workspace .map-message-thinking > summary:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+	border-radius: 3px;
+}
+
+.owl-map-workspace .map-message-thinking[open] > summary {
+	margin-bottom: 7px;
+}
+
+.owl-map-workspace .map-message-thinking .map-message-text {
+	max-height: 180px;
+	overflow: auto;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	line-height: 1.8;
+}
+
+.owl-map-workspace .map-message-tools {
+	min-width: 0;
+	margin-top: 8px;
+	padding-left: 9px;
+	border-left: 2px solid var(--owl-ui-border);
+	font-size: 11px;
+	line-height: 1.8;
+	color: var(--owl-ui-muted);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-conversation-status {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	padding: 10px 13px;
+	border-top: 1px solid var(--owl-ui-border);
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	line-height: 1.75;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-conversation-status.is-generating {
+	color: var(--color-owl-accent);
+}
+
+.owl-map-workspace .map-conversation-status.is-generating::before {
+	content: "";
+	width: 11px;
+	height: 11px;
+	flex: 0 0 11px;
+	margin-top: 4px;
+	border: 2px solid color-mix(in srgb, var(--color-owl-accent) 25%, transparent);
+	border-top-color: var(--color-owl-accent);
+	border-radius: 50%;
+	animation: owl-map-conversation-spin 900ms linear infinite;
+}
+
+.owl-map-workspace .map-conversation-status.is-stopped::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	flex: 0 0 7px;
+	margin-top: 6px;
+	border-radius: 2px;
+	background: var(--owl-ui-muted);
+	opacity: .65;
+}
+
+.owl-map-workspace .map-conversation-error {
+	margin: 0 13px 13px;
+	padding: 10px 11px;
+	border: 1px solid color-mix(in srgb, #c88168 45%, var(--owl-ui-border));
+	border-radius: 8px;
+	background: color-mix(in srgb, #c88168 7%, var(--owl-ui-panel));
+	color: #dfad96;
+	font-size: 12px;
+	line-height: 1.8;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
+	color: #925442;
+}
+
+.owl-map-workspace .map-composer-model,
+.owl-map-workspace .map-composer-status {
+	display: flex;
+	align-items: flex-start;
+	gap: 5px;
+	min-width: 0;
+	max-width: 100%;
+	margin-top: 8px;
+	color: var(--owl-ui-muted);
+	font-size: 10px;
+	line-height: 1.75;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-composer-model .map-icon,
+.owl-map-workspace .map-composer-status .map-icon {
+	width: 12px;
+	height: 12px;
+	margin-top: 2px;
+}
+
+.owl-map-workspace .map-composer-model > span,
+.owl-map-workspace .map-composer-status > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.owl-map-workspace .map-composer-status.is-generating {
+	color: var(--color-owl-accent);
+}
+
+.owl-map-workspace .map-stop-btn {
+	display: grid;
+	place-items: center;
+	width: 29px;
+	height: 29px;
+	flex: 0 0 29px;
+	padding: 0;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 50%;
+	background: var(--owl-ui-canvas);
+	color: var(--owl-ui-text);
+}
+
+.owl-map-workspace .map-stop-btn:hover {
+	border-color: var(--color-owl-accent);
+	background: var(--owl-ui-hover);
+}
+
+.owl-map-workspace .map-stop-btn .map-icon {
+	width: 14px;
+	height: 14px;
+}
+
+.owl-map-workspace .followup-input .map-stop-btn {
+	width: 26px;
+	height: 26px;
+	flex-basis: 26px;
+}
+
+@keyframes owl-map-conversation-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-map-workspace .map-conversation-status.is-generating::before {
+		animation: none;
+	}
+}
 

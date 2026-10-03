@@ -1,11 +1,31 @@
 import type { Dict } from "./zh.ts";
+import { mailEn } from "../features/mail/mail-copy.ts";
 
 /**
  * 界面字典（English）。类型约束：key 必须与 zh.ts 完全对齐，缺 key 会编译报错。
  * 占位符写法：{name}，与 zh.ts 相同。
  */
 export const en: Dict = {
-"rail.news": "News",
+	"news.retryReceiptHint": "Check the provider's request history first. Retrying an unknown outcome may be billed again.",
+	"news.confirmRetryReceipt": "Checked, retry request",
+	"news.contentManagement": "Content management",
+	"news.contentManagementHint": "Inspect all collected items, failed processing and withdrawals, and apply corrections.",
+	"news.contentStatus": "Content status",
+	"news.allStatuses": "All statuses",
+	"news.diagnoseEdit": "Inspect and edit",
+	"news.reprocess": "Reprocess",
+	"news.processingDetails": "Processing details",
+	"news.contentId": "Item ID",
+	"news.revision": "Content revision",
+	"news.dualScores": "Two independent scores",
+	"news.relevance": "Relevance decision",
+	"news.contentKind": "Content structure",
+	"news.ingestKey": "External ingest key (at least 16 characters)",
+	...mailEn,
+	"news.invalidResponse": "The news service returned no result. Refresh and try again.",
+	"news.otherReports": "Other coverage of this event",
+	"news.invalidUrl": "The original URL must be a valid HTTP or HTTPS link.",
+	"rail.news": "News",
 	"news.titleName": "Owl News",
 	"news.subtitle": "Discover changes and understand their impact",
 	"news.local": "LOCAL",
@@ -188,8 +208,8 @@ export const en: Dict = {
 	"news.retentionDays": "Retention days",
 	"news.understandFloor": "Minimum score for understanding",
 	"news.processingModels": "Processing models",
-	"news.modelsHint": "Use providers configured in Owl. Choose a model for each processing step.",
-	"news.defaultModel": "Default model",
+	"news.modelsHint": "Use providers configured in Owl. Unspecified steps use Owl's default model; each step can be configured separately.",
+	"news.defaultModel": "Use Owl's default model",
 	"news.capability.prefilter": "Prefilter",
 	"news.capability.score": "Scoring",
 	"news.capability.structure": "Structure",
@@ -532,6 +552,26 @@ export const en: Dict = {
 	"settings.appearance.system": "System",
 	"settings.appearance.note": "Content, tools, and actions stay consistent across themes. Green marks primary actions and status.",
 
+	// ---- Settings: notifications & alerts (owlNotifications, native toast quick decisions) ----
+	"settings.navNotifications": "Notifications",
+	"settings.notifications.title": "Notifications & alerts",
+	"settings.notifications.desc": "When the window is in the background, system notifications, a chime, and taskbar flashing bring you back; no interruptions while it is focused.",
+	"settings.notifications.permission": "Approval alerts",
+	"settings.notifications.permissionDesc": "Alert when the agent waits for tool confirmation; the desktop shell attaches quick Allow / Deny buttons to the toast",
+	"settings.notifications.question": "Question alerts",
+	"settings.notifications.questionDesc": "Alert when the agent asks you a question and waits for an answer",
+	"settings.notifications.done": "Completion alerts",
+	"settings.notifications.doneDesc": "Alert when a reply finishes",
+	"settings.notifications.sound": "Alert chime",
+	"settings.notifications.soundDesc": "Play a synthesized chime with each alert",
+	"settings.notifications.volume": "Volume",
+	"settings.notifications.volumeDesc": "Chime volume (0-100); the first sound needs one prior interaction with the page",
+	"settings.notifications.flashTaskbar": "Taskbar flash",
+	"settings.notifications.flashTaskbarDesc": "Flash the taskbar icon while the window is in the background",
+	"settings.notifications.quickActions": "Quick decision on toast",
+	"settings.notifications.quickActionsDesc": "Allow / Deny directly from the approval toast without switching back (desktop shell only)",
+	"settings.notifications.note": "Notifications are aggregated by the OS; quick decisions work only while owl is running.",
+
 	// ---- Settings: archive ----
 	"settings.archive.title": "Archive",
 	"settings.archive.desc": "Manage sessions you have tucked away and set when they get cleaned up.",
@@ -643,6 +683,11 @@ export const en: Dict = {
 	"settings.image.maxBytes": "Per-image limit (MB)",
 	"settings.image.proxy": "Proxy",
 	"settings.image.proxyPlaceholder": "Empty follows HTTP(S)_PROXY; \"off\" forces direct connection",
+	"settings.image.fetchModels": "Fetch models",
+	"settings.image.fetchingModels": "Fetching…",
+	"settings.image.modelsFetched": "{n} models available — click the input to pick one",
+	"settings.image.modelsFailed": "Fetch failed: {error}",
+	"settings.image.modelFixed": "The model is fixed by the channel: {model}",
 	"settings.image.save": "Save",
 	"settings.image.saved": "Saved — image-gen.json updated",
 
@@ -949,6 +994,10 @@ export const en: Dict = {
 	"err.briefNoOutput": "({status}, no text output)",
 	"err.failed": "failed",
 	"err.completed": "completed",
+	"retry.retrying": "Request interrupted; auto-retrying (attempt {attempt}/{max})",
+	"retry.retryingIn": "retrying in {seconds}s",
+	"retry.failed": "Still failing after {attempt} auto-retries",
+	"retry.dismiss": "Dismiss",
 	// ---- App shell ----
 	"app.fileOpenFailed": "Failed to open file",
 	"app.notifyDoneTitle": "Owl task finished",

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
 import { Readability } from "@mozilla/readability";
@@ -111,11 +112,18 @@ export async function fetchNewsText(
 					headers.delete("authorization");
 					headers.delete("cookie");
 				}
-				if (init.body !== undefined && init.body !== null && typeof init.body !== "string") throw new Error("采集正文必须为字符串");
+				if (init.body !== undefined && init.body !== null && typeof init.body !== "string")
+					throw new Error("采集正文必须为字符串");
 				const response = options.fetch
 					? await options.fetch(url.toString(), { ...init, headers, redirect: "manual", signal })
-					: await transportFetch(url.toString(), { method: init.method, headers: Object.fromEntries(headers), body: init.body,
-						redirect: "manual", signal, dispatcher });
+					: await transportFetch(url.toString(), {
+							method: init.method,
+							headers: Object.fromEntries(headers),
+							body: init.body,
+							redirect: "manual",
+							signal,
+							dispatcher,
+						});
 				if (response.status >= 300 && response.status < 400 && response.status !== 304) {
 					await response.body?.cancel();
 					const target = response.headers.get("location");
@@ -189,7 +197,15 @@ export function parseNewsFeed(text: string, base: string, summaryIsBody = false)
 	return entries.flatMap((entry) => {
 		const direct = (names: string[]) =>
 			[...entry.children].find((node) => names.includes(node.localName) || names.includes(node.nodeName));
-		const title = newsPlainText(direct(["title"])?.textContent ?? "");
+		const nodeText = (names: string[]) => {
+			const node = direct(names);
+			const markup = node?.innerHTML ?? "";
+			// Linkedom represents CDATA as a non-text node; retain its payload explicitly.
+			return markup.includes("<![CDATA[")
+				? markup.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+				: (node?.textContent ?? "");
+		};
+		const title = newsPlainText(nodeText(["title"]));
 		const links = [...entry.children].filter((node) => node.localName === "link");
 		const link =
 			links.find((node) => !node.getAttribute("rel") || node.getAttribute("rel") === "alternate") ?? links[0];
@@ -199,8 +215,8 @@ export function parseNewsFeed(text: string, base: string, summaryIsBody = false)
 		);
 		if (!url || !title) return [];
 		const rawBody =
-			direct(["content:encoded", "encoded", "content"])?.textContent ??
-			(summaryIsBody ? direct(["description", "summary"])?.textContent : "");
+			nodeText(["content:encoded", "encoded", "content"]) ||
+			(summaryIsBody ? nodeText(["description", "summary"]) : "");
 		const date = direct(["pubDate", "published", "date", "updated"])?.textContent;
 		const parsed = date ? Date.parse(date) : Number.NaN;
 		return [
@@ -311,7 +327,10 @@ export function extractNewsBody(html: string, url: string): { title: string; bod
 	const base = doc.createElement("base", {});
 	base.setAttribute("href", url);
 	doc.head.prepend(base);
-	const result = new Readability(doc as unknown as ConstructorParameters<typeof Readability>[0], { charThreshold: 80, maxElemsToParse: 50000 }).parse();
+	const result = new Readability(doc as unknown as ConstructorParameters<typeof Readability>[0], {
+		charThreshold: 80,
+		maxElemsToParse: 50000,
+	}).parse();
 	const body = result?.textContent?.trim() || doc.querySelector("article,main")?.textContent?.trim() || "";
 	if (!body) throw new Error("页面没有可提取正文");
 	return {
@@ -322,6 +341,8 @@ export function extractNewsBody(html: string, url: string): { title: string; bod
 }
 
 export interface NewsCollectorOptions extends NewsFetchOptions {
+	cursor?: Record<string, unknown>;
+	onCursor?: (cursor: Record<string, unknown>) => void;
 	secrets?: Record<string, string>;
 	maxItems?: number;
 	paid?: (purpose: string, identity: unknown, run: () => Promise<unknown>) => Promise<unknown>;
@@ -378,7 +399,24 @@ export async function collectNewsSource(
 	};
 	if (source.kind === "external") return [];
 	if (source.kind === "rss") {
-		const result = await get(String(config.feedUrl || ""));
+		const hash = createHash("sha256").update(JSON.stringify(config)).digest("hex");
+		const previous = options.cursor?.configHash === hash ? options.cursor : undefined;
+		if (previous?.etag) headers.set("if-none-match", String(previous.etag));
+		if (previous?.lastModified) headers.set("if-modified-since", String(previous.lastModified));
+		let result = await fetchNewsText(String(config.feedUrl || ""), { headers }, options);
+		if (result.status === 304 && previous?.responseUrl !== result.url) {
+			headers.delete("if-none-match");
+			headers.delete("if-modified-since");
+			result = await fetchNewsText(String(config.feedUrl || ""), { headers }, options);
+		}
+		options.onCursor?.({
+			configHash: hash,
+			responseUrl: result.url,
+			etag: result.headers.etag ?? previous?.etag ?? null,
+			lastModified: result.headers["last-modified"] ?? previous?.lastModified ?? null,
+		});
+		if (result.status === 304 && previous && (previous.etag || previous.lastModified)) return [];
+		if (result.status < 200 || result.status >= 300) throw new NewsHttpRejectedError(result.status);
 		return parseNewsFeed(result.text, result.url, config.summaryIsBody === true).slice(0, maximum);
 	}
 	if (source.kind === "web_list") {
@@ -393,19 +431,53 @@ export async function collectNewsSource(
 	if (source.kind === "x_search") {
 		if (!secrets.SOCIALDATA_API_KEY) throw new Error("请配置 SOCIALDATA_API_KEY");
 		if (!config.query) throw new Error("X 信源缺少搜索 query");
-		const url = `https://api.socialdata.tools/twitter/search?${new URLSearchParams({ query: String(config.query), type: String(config.searchType || "Latest") })}`;
-		const result = (await options.paid(
-			"x-search",
-			{ query: config.query, window: Math.floor(Date.now() / 1800000) },
-			async () => {
-				const response = await get(url, { headers: { authorization: `Bearer ${secrets.SOCIALDATA_API_KEY}` } });
-				return JSON.parse(response.text) as unknown;
-			},
-		)) as { tweets?: Record<string, unknown>[] };
-		return (result.tweets ?? []).slice(0, maximum).flatMap((tweet) => {
+		const cursor = options.cursor ?? {};
+		const carry = Array.isArray(cursor.pending) ? (cursor.pending as NewsMaterial[]) : [];
+		const backlog = Array.isArray(cursor.backlog) ? ([...cursor.backlog] as { query: string; next: string }[]) : [];
+		const tweets: Record<string, unknown>[] = [];
+		let newest = typeof cursor.lastId === "string" ? cursor.lastId : "";
+		const freshQuery = newest ? `${String(config.query)} since_id:${newest}` : String(config.query);
+		let query = freshQuery;
+		let next: string | null = null;
+		let pages = 0;
+		while (pages < 5 && carry.length + tweets.length < maximum) {
+			const url = `https://api.socialdata.tools/twitter/search?${new URLSearchParams({ query, type: String(config.searchType || "Latest"), ...(next ? { cursor: next } : {}) })}`;
+			const result = (await options.paid(
+				"x-search",
+				{ query, next, window: Math.floor(Date.now() / 1800000) },
+				async () => {
+					const response = await get(url, { headers: { authorization: `Bearer ${secrets.SOCIALDATA_API_KEY}` } });
+					return JSON.parse(response.text) as unknown;
+				},
+			)) as { tweets?: Record<string, unknown>[]; next_cursor?: string };
+			pages++;
+			const found = result.tweets ?? [];
+			tweets.push(...found);
+			for (const tweet of found)
+				if (/^\d+$/.test(String(tweet.id_str ?? "")) && (!newest || BigInt(String(tweet.id_str)) > BigInt(newest)))
+					newest = String(tweet.id_str);
+			if (!result.next_cursor || !found.length || (!cursor.lastId && query === freshQuery)) {
+				if (!backlog.length) {
+					next = null;
+					break;
+				}
+				const stretch = backlog.shift()!;
+				query = stretch.query;
+				next = stretch.next;
+			} else next = result.next_cursor;
+		}
+		if (next) backlog.unshift({ query, next });
+		const mapped = tweets.flatMap((tweet) => {
 			if (tweet.retweeted_status) return [];
 			const user = tweet.user as Record<string, unknown> | undefined;
-			const body = String(tweet.full_text ?? tweet.text ?? "");
+			let body = String(tweet.full_text ?? tweet.text ?? "");
+			const quoted = tweet.quoted_status as Record<string, unknown> | undefined;
+			if (quoted) {
+				const quotedUser = quoted.user as Record<string, unknown> | undefined;
+				body += `\n\n【引用 @${String(quotedUser?.screen_name ?? "未知作者")}】\n${String(quoted.full_text ?? quoted.text ?? "")}`;
+			}
+			const entities = tweet.entities as { urls?: { url: string; expanded_url: string }[] } | undefined;
+			for (const entity of entities?.urls ?? []) body = body.replaceAll(entity.url, entity.expanded_url);
 			const id = String(tweet.id_str ?? "");
 			if (!body || !id || !user?.screen_name) return [];
 			return [
@@ -417,9 +489,15 @@ export async function collectNewsSource(
 					author: String(user.screen_name),
 					publishedAt: String(tweet.tweet_created_at ?? ""),
 					language: String(tweet.lang ?? ""),
+					raw: { replyTo: tweet.in_reply_to_status_id_str ?? null, quotedId: quoted?.id_str ?? null },
 				},
 			];
 		});
+		const combined = [
+			...new Map([...carry, ...mapped].map((material) => [material.externalId || material.url, material])).values(),
+		];
+		options.onCursor?.({ lastId: newest, backlog: backlog.slice(0, 5), pending: combined.slice(maximum) });
+		return combined.slice(0, maximum);
 	}
 	if (!secrets.DAJIALA_KEY) throw new Error("请配置 DAJIALA_KEY");
 	const ghid = String(config.ghid || config.wxid || "");

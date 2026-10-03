@@ -48,6 +48,11 @@ export interface RetrySettings {
 	maxRetries?: number; // default: 3
 	baseDelayMs?: number; // default: 2000 (exponential backoff: 2s, 4s, 8s)
 	maxAgentDelayMs?: number; // default: 60000
+	/** Plain-text substrings (case-insensitive, blank entries ignored) treated as
+	 * retryable with precedence over the built-in non-retryable limit rules — for
+	 * gateways whose transient outages word like quota/billing errors. Backoff and
+	 * the maxRetries budget still apply. Default: []. */
+	retryableErrorPatterns?: string[];
 	provider?: ProviderRetrySettings;
 }
 
@@ -1090,6 +1095,14 @@ export class SettingsManager {
 			baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
 			maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,
 		};
+	}
+
+	/** User-configured retryable error substrings (`retry.retryableErrorPatterns`),
+	 * fed into `isRetryableAssistantError` with precedence over built-in rules. */
+	getRetryableErrorPatterns(): string[] {
+		const patterns = this.settings.retry?.retryableErrorPatterns;
+		if (!Array.isArray(patterns)) return [];
+		return patterns.filter((pattern): pattern is string => typeof pattern === "string" && pattern.trim() !== "");
 	}
 
 	getHttpIdleTimeoutMs(): number {

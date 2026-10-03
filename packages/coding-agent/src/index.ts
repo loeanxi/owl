@@ -260,6 +260,19 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
+// 改动审批存储：捕获钩子在插件（owl-diff-approval）、查询/保留/回滚在桌面桥，
+// 经这套注册表共享同一工作区实例（与 question-channel 同一套单例接缝）
+export {
+	type DiffApprovalEntry,
+	type DiffApprovalFileSummary,
+	type DiffApprovalStatus,
+	DIFF_APPROVAL_DEFAULT_MAX_FILE_BYTES,
+} from "./core/diff-approval/store.ts";
+export {
+	getWorkspaceDiffApprovalStore,
+	notifyDiffApprovalChanged,
+	setDiffApprovalBroadcaster,
+} from "./core/diff-approval/registry.ts";
 // 「向用户提问」桥通道：桌面桥注入，插件（owl-ask-user）经此别名共享同一实例
 export {
 	cancelAllPendingQuestions,
@@ -360,6 +373,7 @@ export {
 } from "./core/skills.ts";
 export { createSyntheticSourceInfo } from "./core/source-info.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
+export { resolveToCwd } from "./core/tools/path-utils.ts";
 // Tools
 export {
 	type BashOperations,

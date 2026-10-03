@@ -240,13 +240,29 @@ export async function retryAssistantCall(
  * or transport error, so callers can decide if the last assistant turn should be
  * restarted.
  *
+ * `extraRetryablePatterns` are user-configured plain-text substrings
+ * (case-insensitive; blank entries ignored). A hit marks the error retryable with
+ * precedence over the built-in non-retryable limit rules — a gateway that words
+ * transient outages like billing errors can be whitelisted without opening up
+ * real quota exhaustion. Backoff and retry budget still apply to these hits.
+ *
  * This does not implement retry policy. Callers should first handle context
  * overflow separately, then apply their own retry budget, backoff, and reporting
  * before restarting the assistant turn.
  */
-export function isRetryableAssistantError(message: AssistantMessage): boolean {
+export function isRetryableAssistantError(
+	message: AssistantMessage,
+	extraRetryablePatterns?: readonly string[],
+): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
 	const errorMessage = message.errorMessage;
+	if (extraRetryablePatterns) {
+		const lowered = errorMessage.toLowerCase();
+		for (const pattern of extraRetryablePatterns) {
+			const trimmed = pattern.trim().toLowerCase();
+			if (trimmed !== "" && lowered.includes(trimmed)) return true;
+		}
+	}
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
 }

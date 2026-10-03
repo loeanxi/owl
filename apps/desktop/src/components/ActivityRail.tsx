@@ -3,7 +3,7 @@ import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map" | "news";
+export type RailView = "chat" | "map" | "news" | "mail";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -77,6 +77,20 @@ export function ActivityRail({
 			</button>
 			<button type="button" className={itemClass(false)} title={t("rail.more")} aria-label={t("rail.more")} disabled>
 				<IconMore className="h-[18px] w-[18px]" />
+			</button>
+			<button
+				type="button"
+				className={itemClass(view === "mail" && !settingsOpen)}
+				title={t("rail.mail")}
+				aria-label={t("rail.mail")}
+				aria-current={view === "mail" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("mail")}
+				data-fd-id="btn-mail-entry"
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<rect x="3" y="5" width="18" height="14" rx="2" />
+					<path d="m3 6 9 7 9-7" />
+				</svg>
 			</button>
 
 			{/* 底部：owl 头像位。先复用为设置入口，后续可挂账号/状态菜单。 */}

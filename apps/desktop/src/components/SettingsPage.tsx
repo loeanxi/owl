@@ -19,7 +19,8 @@ import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } 
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconArchive, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -35,7 +36,7 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "archived" | "json" | "about";
 
 /** owl-image 的 provider 清单（顺序即下拉顺序；标签走 settings.image.p.* 字典）。 */
 const OWL_IMAGE_PROVIDERS: readonly OwlImageProvider[] = [
@@ -296,6 +297,9 @@ export function SettingsPage({
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
 	const [userImpression, setUserImpression] = useState("");
+	const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(() => ({ ...DEFAULT_NOTIFICATION_PREFS }));
+	const notifPrefsRef = useRef(notifPrefs);
+	notifPrefsRef.current = notifPrefs;
 	const [builtinSections, setBuiltinSections] = useState<Record<string, string>>({});
 	const [savedMsg, setSavedMsg] = useState("");
 	const [groups, setGroups] = useState<ProviderModelsMessage[]>([]);
@@ -354,6 +358,11 @@ export function SettingsPage({
 	const [imageSaved, setImageSaved] = useState(false);
 	const [imageSubHint, setImageSubHint] = useState("");
 	const [comfyForm, setComfyForm] = useState<{ name: string; json: string; preset: string }>({ name: "", json: "", preset: "" });
+	// 拉取模型：按 provider 缓存候选列表（datalist 供模型输入框选择）；note 是一行结果/错误提示。
+	const [imageModels, setImageModels] = useState<Record<string, string[]>>({});
+	const [imageModelsNote, setImageModelsNote] = useState("");
+	const [fetchingModels, setFetchingModels] = useState(false);
+	const fetchedModelsRef = useRef<Set<string>>(new Set());
 
 	// 插件：新增输入框
 	const [pluginInput, setPluginInput] = useState("");
@@ -472,6 +481,10 @@ export function SettingsPage({
 				if (typeof obj.owlUserImpression === "string") setUserImpression(obj.owlUserImpression);
 				// 设置页打开时同步界面语言（App 启动已拉过一次；JSON 分区手改 settings.json 后以此为准）
 				setUiLanguage(parseUiLanguage(obj.uiLanguage));
+				// 通知偏好同步（App 模块级缓存也一并更新，立即生效）
+				const notif = parseNotificationPrefs(obj.owlNotifications);
+				setNotifPrefs(notif);
+				setNotificationPrefs(notif);
 				if (obj.owlMemory && typeof obj.owlMemory === "object") {
 					const enabled = (obj.owlMemory as { enabled?: unknown }).enabled;
 					setMemory((prev) => ({ ...prev, enabled: enabled !== false }));
@@ -600,6 +613,37 @@ export function SettingsPage({
 		setComfyForm({ name: "", json: "", preset: "" });
 		setError("");
 	}
+
+	/** 拉取某 provider 的可选模型列表（桥 → 插件 dist → 各家 models 接口）。 */
+	async function fetchImageModels(provider: string): Promise<void> {
+		setFetchingModels(true);
+		setImageModelsNote("");
+		try {
+			const response = await client.request<{ models: string[]; error?: string }>({ type: "imageModels.list", provider });
+			if (response.ok && response.result) {
+				setImageModels((prev) => ({ ...prev, [provider]: response.result?.models ?? [] }));
+				const error = response.result.error;
+				if (error) setImageModelsNote(t("settings.image.modelsFailed", { error }));
+				else setImageModelsNote(t("settings.image.modelsFetched", { n: response.result.models.length }));
+			} else {
+				setImageModelsNote(t("settings.image.modelsFailed", { error: response.error ?? t("common.operationFailed") }));
+			}
+		} finally {
+			setFetchingModels(false);
+		}
+	}
+
+	/** 进入分区或切换 provider 时自动拉一次（有 key 才拉；每个 provider 只自动拉一次）。 */
+	useEffect(() => {
+		if (section !== "image") return;
+		const provider = imageCfg.provider ?? "google";
+		if (provider === "google-sub" || provider === "comfyui") return;
+		if (fetchedModelsRef.current.has(provider)) return;
+		if (!imageData?.keyStatus[provider]?.configured) return;
+		fetchedModelsRef.current.add(provider);
+		void fetchImageModels(provider);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [section, imageCfg.provider, imageData]);
 
 	/** 开/关跨会话记忆：写 settings.owlMemory.enabled，新会话生效。 */
 	async function toggleMemory(): Promise<void> {
@@ -1108,6 +1152,13 @@ export function SettingsPage({
 		saveSidebar({ ...sidebarCfg, disabledTabs: [...set] });
 	}
 
+	/** 保存通知偏好：写回 settings.json 的 owlNotifications，并同步模块级缓存立即生效。 */
+	function saveNotifications(next: NotificationPrefs): void {
+		setNotifPrefs(next);
+		setNotificationPrefs(next);
+		void saveSettings({ owlNotifications: next });
+	}
+
 	/** 开/停一个文件预览 viewer。 */
 	function toggleSidebarViewer(kind: string, enabled: boolean): void {
 		const set = new Set(sidebarCfg.disabledViewers);
@@ -1200,6 +1251,7 @@ export function SettingsPage({
 						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => setSection("skills")} />
 						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => setSection("appearance")} />
+						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => setSection("notifications")} />
 						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => setSection("prompts")} />
 					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => setSection("memory")} />
 						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => setSection("image")} />
@@ -2466,6 +2518,74 @@ export function SettingsPage({
 							</>
 						)}
 
+						{/* -------- 通知与提醒 -------- */}
+						{section === "notifications" && (
+							<>
+								<SectionHeader title={t("settings.notifications.title")} desc={t("settings.notifications.desc")} />
+								<SettingRow title={t("settings.notifications.permission")} desc={t("settings.notifications.permissionDesc")}>
+									<Switch
+										checked={notifPrefs.permission}
+										onChange={(next) => saveNotifications({ ...notifPrefs, permission: next })}
+									/>
+								</SettingRow>
+								<SettingRow title={t("settings.notifications.question")} desc={t("settings.notifications.questionDesc")}>
+									<Switch
+										checked={notifPrefs.question}
+										onChange={(next) => saveNotifications({ ...notifPrefs, question: next })}
+									/>
+								</SettingRow>
+								<SettingRow title={t("settings.notifications.done")} desc={t("settings.notifications.doneDesc")}>
+									<Switch
+										checked={notifPrefs.done}
+										onChange={(next) => saveNotifications({ ...notifPrefs, done: next })}
+									/>
+								</SettingRow>
+								<SettingRow title={t("settings.notifications.sound")} desc={t("settings.notifications.soundDesc")}>
+									<Switch
+										checked={notifPrefs.sound}
+										onChange={(next) => saveNotifications({ ...notifPrefs, sound: next })}
+									/>
+								</SettingRow>
+								<SettingRow
+									title={t("settings.notifications.volume")}
+									desc={t("settings.notifications.volumeDesc")}
+									control={<span className="text-xs tabular-nums text-owl-text">{notifPrefs.volume}</span>}
+								>
+									<input
+										type="range"
+										aria-label={t("settings.notifications.volume")}
+										className="w-full accent-owl-accent disabled:opacity-40"
+										min={0}
+										max={100}
+										step={5}
+										value={notifPrefs.volume}
+										disabled={busy || !notifPrefs.sound}
+										onChange={(event) => {
+											const volume = event.currentTarget.valueAsNumber;
+											setNotifPrefs((current) => ({ ...current, volume }));
+										}}
+										// 拖动结束才落盘（onPointerUp / 键盘 / 失焦），避免滑动过程频繁写 settings.json
+										onPointerUp={() => saveNotifications({ ...notifPrefsRef.current })}
+										onKeyUp={() => saveNotifications({ ...notifPrefsRef.current })}
+										onBlur={() => saveNotifications({ ...notifPrefsRef.current })}
+									/>
+								</SettingRow>
+								<SettingRow title={t("settings.notifications.flashTaskbar")} desc={t("settings.notifications.flashTaskbarDesc")}>
+									<Switch
+										checked={notifPrefs.flashTaskbar}
+										onChange={(next) => saveNotifications({ ...notifPrefs, flashTaskbar: next })}
+									/>
+								</SettingRow>
+								<SettingRow title={t("settings.notifications.quickActions")} desc={t("settings.notifications.quickActionsDesc")}>
+									<Switch
+										checked={notifPrefs.quickActions}
+										onChange={(next) => saveNotifications({ ...notifPrefs, quickActions: next })}
+									/>
+								</SettingRow>
+								<div className="owl-settings-notice">{t("settings.notifications.note")}</div>
+							</>
+						)}
+
 						{/* -------- 归档 -------- */}
 						{section === "archived" && (
 							<>
@@ -2837,21 +2957,45 @@ export function SettingsPage({
 										{(() => {
 											const provider = imageCfg.provider ?? "google";
 											const set = (patch: Partial<OwlImageConfigPublic>) => setImageCfg((prev) => ({ ...prev, ...patch }));
-											const field = (labelKey: TextKey, key: keyof OwlImageConfigPublic, placeholder?: string) => (
+											const modelOptions = imageModels[provider] ?? [];
+											// 模型字段：带「拉取模型」按钮 + datalist（拉取后点击输入框即出候选；
+											// datalist 随输入前缀过滤，拉不到也保持手填不阻断）。
+											const field = (labelKey: TextKey, key: keyof OwlImageConfigPublic, placeholder?: string, isModelField = false) => (
 												<label className="block">
-													<span className="text-[11px] text-owl-muted">{t(labelKey)}</span>
+													<span className="flex items-center justify-between">
+														<span className="text-[11px] text-owl-muted">{t(labelKey)}</span>
+														{isModelField && provider !== "google-sub" && provider !== "comfyui" && (
+															<button
+																type="button"
+																className="text-[11px] text-owl-accent hover:underline disabled:opacity-40"
+																disabled={busy || fetchingModels}
+																onClick={() => void fetchImageModels(provider)}
+															>
+																{fetchingModels ? t("settings.image.fetchingModels") : t("settings.image.fetchModels")}
+															</button>
+														)}
+													</span>
 													<input
 														className={`${input} mt-0.5`}
 														value={typeof imageCfg[key] === "string" ? (imageCfg[key] as string) : ""}
 														placeholder={placeholder}
+														list={isModelField && modelOptions.length > 0 ? "owl-image-model-options" : undefined}
 														onChange={(event) => set({ [key]: event.target.value } as Partial<OwlImageConfigPublic>)}
 													/>
+													{isModelField && modelOptions.length > 0 && (
+														<datalist id="owl-image-model-options">
+															{modelOptions.map((model) => (
+																<option key={model} value={model} />
+															))}
+														</datalist>
+													)}
+													{isModelField && imageModelsNote && <span className="mt-0.5 block text-[10px] text-owl-faint">{imageModelsNote}</span>}
 												</label>
 											);
 											if (provider === "google") {
 												return (
 													<>
-														{field("settings.image.model", "googleModel")}
+														{field("settings.image.model", "googleModel", undefined, true)}
 														{field("settings.image.endpoint", "googleEndpoint")}
 													</>
 												);
@@ -2860,7 +3004,7 @@ export function SettingsPage({
 												return (
 													<>
 														{field("settings.image.baseURL", "openaiBaseURL")}
-														{field("settings.image.model", "openaiModel")}
+														{field("settings.image.model", "openaiModel", undefined, true)}
 													</>
 												);
 											}
@@ -2868,7 +3012,7 @@ export function SettingsPage({
 												return (
 													<>
 														{field("settings.image.baseURL", "openaiCompatBaseURL")}
-														{field("settings.image.model", "openaiCompatModel")}
+														{field("settings.image.model", "openaiCompatModel", undefined, true)}
 														<label className="block">
 															<span className="text-[11px] text-owl-muted">{t("settings.image.editFormat")}</span>
 															<select
@@ -2888,7 +3032,7 @@ export function SettingsPage({
 												return (
 													<>
 														{field("settings.image.baseURL", "seedreamBaseURL")}
-														{field("settings.image.model", "seedreamModel")}
+														{field("settings.image.model", "seedreamModel", undefined, true)}
 														<div className="grid grid-cols-3 gap-2">
 															<label className="block">
 																<span className="text-[11px] text-owl-muted">{t("settings.image.outputFormat")}</span>
@@ -2939,7 +3083,7 @@ export function SettingsPage({
 												return (
 													<>
 														{field("settings.image.baseURL", "xaiBaseURL")}
-														{field("settings.image.model", "xaiModel")}
+														{field("settings.image.model", "xaiModel", undefined, true)}
 													</>
 												);
 											}
@@ -2947,7 +3091,7 @@ export function SettingsPage({
 												return (
 													<>
 														{field("settings.image.baseURL", "zhipuBaseURL")}
-														{field("settings.image.model", "zhipuModel")}
+														{field("settings.image.model", "zhipuModel", undefined, true)}
 													</>
 												);
 											}
@@ -3021,7 +3165,11 @@ export function SettingsPage({
 													</>
 												);
 											}
-											return <p className="text-[11px] text-owl-faint">{t("settings.image.subDesc")}</p>;
+											return (
+													<p className="text-[11px] text-owl-faint">
+														{t("settings.image.modelFixed", { model: "gemini-3.1-flash-image" })}
+													</p>
+												);
 										})()}
 									</div>
 								</SettingRow>

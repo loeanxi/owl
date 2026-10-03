@@ -15,3 +15,6 @@ tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["jobapi2", "winbase", "winnt"] }
+# 原生 Toast（审批快捷裁决按钮）：winapi 不含 WinRT，用 windows crate；
+# tauri 本身已依赖 0.62，这里只是补开通知/Xml 相关 feature，不引入新 crate。
+windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications"] }

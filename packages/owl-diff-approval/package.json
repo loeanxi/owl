@@ -1,0 +1,9 @@
+{
+	"name": "owl-diff-approval",
+	"private": true,
+	"type": "module",
+	"description": "owl「改动审批」插件：追踪 AI 的每次 write/edit，汇总为工作区待审清单，桌面工作台逐文件保留/回滚",
+	"owl": {
+		"extensions": ["./index.ts"]
+	}
+}
