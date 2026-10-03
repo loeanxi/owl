@@ -74,12 +74,6 @@ interface GeneratedValue {
 	seed?: number;
 }
 
-/** Ordered per-item outcomes for the generate_images batch tool. */
-interface BatchGeneratedValue {
-	images: Array<GeneratedValue & { prompt: string }>;
-	failures: Array<{ index: number; prompt: string; error: string }>;
-}
-
 /** Per-item generation request fields shared by generate_image and generate_images. */
 interface SingleGenerationArgs {
 	prompt: string;
@@ -148,7 +142,7 @@ export default function (pi: ExtensionAPI) {
 		active: ResolvedProvider,
 		args: SingleGenerationArgs,
 		env: GenerationEnv,
-		config: OwlImageConfig,
+		_config: OwlImageConfig,
 		proxy: string | undefined,
 	): Promise<{ image: GeneratedImage; model: string; output: string; seed?: number }> {
 		if (active.provider === "comfyui") {

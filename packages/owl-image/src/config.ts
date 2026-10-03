@@ -10,8 +10,6 @@ import { join } from "node:path";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
 import {
 	API_KEY_ENV_VARS,
-	ARK_BACKGROUND_MODES,
-	ARK_OUTPUT_FORMATS,
 	type ArkBackgroundMode,
 	type ArkOutputFormat,
 	type ArkOutputOptions,
@@ -136,8 +134,12 @@ let cachedAgentDir: string | undefined;
 export function agentDirOf(): string {
 	if (cachedAgentDir !== undefined) return cachedAgentDir;
 	const explicit = process.env.OWL_CODING_AGENT_DIR || process.env.PI_CODING_AGENT_DIR;
-	if (explicit !== undefined && explicit.trim().length > 0) return (cachedAgentDir = explicit.trim());
-	return (cachedAgentDir = join(homedir(), ".owl", "agent"));
+	if (explicit !== undefined && explicit.trim().length > 0) {
+		cachedAgentDir = explicit.trim();
+		return cachedAgentDir;
+	}
+	cachedAgentDir = join(homedir(), ".owl", "agent");
+	return cachedAgentDir;
 }
 
 /** Absolute path of the plugin config file. */
