@@ -6,9 +6,11 @@ import {
 	estimateToolDeclarations,
 	findContextInsightByCwd,
 	getContextInsight,
+	measuredContextTokens,
 	recordContextEvent,
 	recordContextRequest,
 	recordContextTools,
+	recordContextUsage,
 } from "../../src/core/context-insight.ts";
 
 const cwd0 = "D:\\tmp\\caps";
@@ -171,6 +173,28 @@ describe("context-insight 注册表", () => {
 		expect(state.requests[0].seq).toBe(51);
 		expect(state.requests[399].seq).toBe(450);
 		expect(state.events).toHaveLength(100);
+		dropContextInsight(sessionId);
+	});
+
+	it("message_end 即时回填：填最近一行的空 usage，不覆盖已有值，未知会话静默", () => {
+		const sessionId = "test-session-usage";
+		const cwd = "D:\\tmp\\usage";
+		dropContextInsight(sessionId);
+		// 未知会话：静默无操作
+		recordContextUsage(sessionId, { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 });
+
+		recordContextRequest(sessionId, cwd, { ts: 100, composition: emptyComposition() });
+		recordContextUsage(sessionId, { input: 42, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 49 });
+		let state = getContextInsight(sessionId)!;
+		expect(state.requests[0].usage).toEqual({ input: 42, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 49 });
+
+		// 已有 usage 不覆盖（陈旧响应不会污染新行）
+		recordContextUsage(sessionId, { input: 999, output: 0, cacheRead: 0, cacheWrite: 0 });
+		expect(state.requests[0].usage?.input).toBe(42);
+
+		// 实测口径：totalTokens 优先，否则四项之和
+		expect(measuredContextTokens({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4 })).toBe(10);
+		expect(measuredContextTokens({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 50 })).toBe(50);
 		dropContextInsight(sessionId);
 	});
 });
