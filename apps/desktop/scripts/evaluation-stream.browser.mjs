@@ -132,12 +132,12 @@ try {
   });
   const bodyTwo = `${bodyOne}\n${longBody("第二批新增正文", 40)}`;
   await check("scrolling upward pauses only that card; continuing follows the next output", async () => {
-    await text(0).evaluate((element) => { element.scrollTop = 0; }); await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).waitFor();
+    await text(0).evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); }); await cards().nth(0).locator(".eval-follow-bottom").waitFor();
     publish(bodyTwo); await seeBody("第二批新增正文"); assert.ok((await scrollState(0)).top <= 2); assert.ok((await scrollState(1)).gap <= 2); assert.equal((await snapshot()).status, "running");
     await cards().nth(0).locator(".eval-thinking summary").click();
     assert.ok((await scrollState(0)).top <= 2);
     await screenshot("03-paused-reading.png");
-    await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).click(); assert.ok((await scrollState(0)).gap <= 2);
+    await cards().nth(0).locator(".eval-follow-bottom").click(); assert.ok((await scrollState(0)).gap <= 2);
   });
   const bodyThree = `${bodyTwo}\n${longBody("第三批源码正文", 20)}`;
   await check("explicitly collapsed thinking remains collapsed as the body grows", async () => {

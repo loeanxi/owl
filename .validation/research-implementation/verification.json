@@ -1,0 +1,922 @@
+{
+  "capturedAt": "2026-10-03T23:00:48.220Z",
+  "evidence": {
+    "actualApp": true,
+    "bridge": "offline WebSocket fixture",
+    "paidCalls": 0,
+    "excludedFeatures": [
+      "evaluation"
+    ],
+    "sources": {
+      "apps/desktop/src/features/research/research-results.ts": "21fc13b6051a2cd9a60c8b80984fa797036ac56fd15deb6c3c855a45cad889a6",
+      "apps/desktop/src/features/research/research-entry-copy.ts": "9ac45c96967509a10ef525038c0c4b26406475fe77af1b870641c3a70b80d0d1",
+      "apps/desktop/src/components/ChatStream.tsx": "d9bbf993338e490e67cbf91be10ac49fcbb286ed46c70cfc8f1cafe1d0db0d64",
+      "apps/desktop/src/components/Composer.tsx": "62eda2ea1dae6bbc9d38bd87ec1808c1cc1094eb77b8192e649b56952c6becf0",
+      "apps/desktop/src/features/research/research-copy.ts": "ce95c8223389c93c6a24ea7ac7df37e40cbdc01f77e208073544feb6321b923e",
+      "apps/desktop/src/features/research/research-session.ts": "0e795da46e8642b9c9772866479a07f1896c0bc6227bd638b19acf80d49c528f",
+      "apps/desktop/src/features/research/research.css": "ceae255880da1c8a53a6861ca11c333a1f602c92b7be8bca8e50837cfb08cdc2",
+      "apps/desktop/src/features/research/ResearchPage.tsx": "f8ad1774f0f587efa60ac8eda2528e9e17c1f5914be54db02195d3167320f98e",
+      "apps/desktop/src/App.tsx": "ab88f3b568d88d0bc0cf03a09f2ad789833f4f30a8095f224d34cf4d2966874a"
+    }
+  },
+  "paidCalls": 0,
+  "tests": {
+    "backend": "15/15",
+    "frontendAndTranscript": "24/24",
+    "rootCheck": "passed",
+    "researchStrictTypes": "passed",
+    "fullDesktopTypes": "blocked by concurrent EvaluationResults.tsx:69 JSX syntax"
+  },
+  "ui": [
+    "separate research and ordinary sessions",
+    "mode and controls use the correct wire request",
+    "results and sources",
+    "refresh restores result and pending question",
+    "question response routing",
+    "permission queue retains both sessions",
+    "research IAB routing",
+    "one optional panel",
+    "stop",
+    "history restores research settings"
+  ],
+  "limits": [
+    "Offline model and tools at the server boundary",
+    "Evaluation UI excluded from this build",
+    "External websites and paid model calls were not executed"
+  ],
+  "requests": [
+    {
+      "type": "viewer.list",
+      "id": "req-4"
+    },
+    {
+      "type": "git.status",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-5"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-6"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-7"
+    },
+    {
+      "type": "session.list",
+      "id": "req-8"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-9"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-10"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "snapshot"
+      },
+      "id": "req-11"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-12"
+    },
+    {
+      "type": "models.list",
+      "id": "req-13"
+    },
+    {
+      "type": "session.running",
+      "id": "req-14"
+    },
+    {
+      "type": "settings.get",
+      "id": "req-15"
+    },
+    {
+      "type": "project.create",
+      "path": "D:/owl/Owl-def",
+      "id": "req-16"
+    },
+    {
+      "type": "session.list",
+      "id": "req-17"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-18"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-19"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-20"
+    },
+    {
+      "type": "session.create",
+      "cwd": "D:/owl/Owl-def",
+      "approvalMode": "confirm",
+      "thinkingLevel": "medium",
+      "researchMode": "crawl",
+      "id": "req-21"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-22"
+    },
+    {
+      "type": "session.prompt",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "message": "整理本地验证页面两条样本，保留来源。",
+      "researchMode": "crawl",
+      "id": "req-23"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-24"
+    },
+    {
+      "type": "session.list",
+      "id": "req-25"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-26"
+    },
+    {
+      "type": "session.running",
+      "id": "req-27"
+    },
+    {
+      "type": "session.setApprovalMode",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "approvalMode": "plan",
+      "id": "req-28"
+    },
+    {
+      "type": "session.setThinkingLevel",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "level": "off",
+      "id": "req-29"
+    },
+    {
+      "type": "session.list",
+      "id": "req-30"
+    },
+    {
+      "type": "session.create",
+      "cwd": "D:/owl/Owl-def",
+      "thinkingLevel": "medium",
+      "approvalMode": "confirm",
+      "id": "req-31"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "id": "req-32"
+    },
+    {
+      "type": "session.prompt",
+      "sessionId": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "message": "普通聊天独立验证",
+      "id": "req-33"
+    },
+    {
+      "type": "session.list",
+      "id": "req-34"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-35"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "id": "req-36"
+    },
+    {
+      "type": "session.running",
+      "id": "req-37"
+    },
+    {
+      "type": "session.list",
+      "id": "req-38"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-39"
+    },
+    {
+      "type": "viewer.list",
+      "id": "req-4"
+    },
+    {
+      "type": "git.status",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-5"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-6"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-7"
+    },
+    {
+      "type": "session.list",
+      "id": "req-8"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-9"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-10"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "snapshot"
+      },
+      "id": "req-11"
+    },
+    {
+      "type": "session.resume",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-12"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-13"
+    },
+    {
+      "type": "models.list",
+      "id": "req-14"
+    },
+    {
+      "type": "session.running",
+      "id": "req-15"
+    },
+    {
+      "type": "settings.get",
+      "id": "req-16"
+    },
+    {
+      "type": "project.create",
+      "path": "D:/owl/Owl-def",
+      "id": "req-17"
+    },
+    {
+      "type": "session.list",
+      "id": "req-18"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-19"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-20"
+    },
+    {
+      "type": "session.list",
+      "id": "req-21"
+    },
+    {
+      "type": "session.running",
+      "id": "req-22"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "hot",
+        "limit": 3
+      },
+      "id": "req-23"
+    },
+    {
+      "type": "news.request",
+      "request": {
+        "action": "list",
+        "query": {
+          "mode": "selected",
+          "query": "",
+          "category": "",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "id": "req-24"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-25"
+    },
+    {
+      "type": "question.response",
+      "requestId": "7c96b4d3-2d57-4b7e-af9a-ddcddbb49731",
+      "answers": [
+        {
+          "index": 0,
+          "selectedLabels": [
+            "先看样本"
+          ]
+        }
+      ],
+      "id": "req-26"
+    },
+    {
+      "type": "permission.response",
+      "requestId": "0ae5afe8-6ae1-42de-8f58-515bd47f5812",
+      "approved": false,
+      "id": "req-27"
+    },
+    {
+      "type": "permission.response",
+      "requestId": "0db6897a-7ae9-4337-ba62-a0733116f6c3",
+      "approved": false,
+      "id": "req-28"
+    },
+    {
+      "type": "iab.open",
+      "pageId": "f62425e8-568e-4e66-8392-0fe9ba152ab2",
+      "id": "req-29"
+    },
+    {
+      "type": "iab.attach",
+      "pageId": "f62425e8-568e-4e66-8392-0fe9ba152ab2",
+      "id": "req-30"
+    },
+    {
+      "type": "session.prompt",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "message": "慢速继续整理，用于验证停止。",
+      "researchMode": "crawl",
+      "id": "req-31"
+    },
+    {
+      "type": "session.running",
+      "id": "req-32"
+    },
+    {
+      "type": "session.abort",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-33"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-34"
+    },
+    {
+      "type": "session.running",
+      "id": "req-35"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "id": "req-36"
+    },
+    {
+      "type": "session.resume",
+      "sessionId": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "approvalMode": "confirm",
+      "id": "req-37"
+    },
+    {
+      "type": "session.stats",
+      "sessionId": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "id": "req-38"
+    },
+    {
+      "type": "session.list",
+      "id": "req-39"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-40"
+    },
+    {
+      "type": "session.resume",
+      "sessionId": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "approvalMode": "confirm",
+      "id": "req-41"
+    },
+    {
+      "type": "session.list",
+      "id": "req-42"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-43"
+    },
+    {
+      "type": "commands.list",
+      "cwd": "D:/owl/Owl-def",
+      "id": "req-44"
+    },
+    {
+      "type": "session.list",
+      "id": "req-45"
+    }
+  ],
+  "fixtureSessions": [
+    {
+      "id": "96830df8-da83-4c62-9e87-46b8d0ed533a",
+      "cwd": "D:/owl/Owl-def",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "整理本地验证页面两条样本，保留来源。"
+            }
+          ],
+          "timestamp": 1791067881340
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "我先整理一份样本，并把来源与待确认的内容列出来。"
+            },
+            {
+              "type": "toolCall",
+              "id": "publish-127529cb-0c40-4b5a-9f7a-a5ffe4200135",
+              "name": "research_publish",
+              "arguments": {
+                "mode": "crawl",
+                "status": "sample",
+                "title": "本地网页采集样本",
+                "summary": "已整理 2 条可核对的本地样本；这是隔离 UI 集成验证数据，没有调用大模型。",
+                "columns": [
+                  {
+                    "key": "name",
+                    "label": "名称"
+                  },
+                  {
+                    "key": "type",
+                    "label": "类型"
+                  },
+                  {
+                    "key": "count",
+                    "label": "记录数"
+                  }
+                ],
+                "rows": [
+                  {
+                    "name": "OWL 本地样本 A",
+                    "type": "文档",
+                    "count": 3
+                  },
+                  {
+                    "name": "OWL 本地样本 B",
+                    "type": "目录",
+                    "count": 2
+                  }
+                ],
+                "sources": [
+                  {
+                    "id": "local-source",
+                    "title": "本地验证源页面",
+                    "url": "http://127.0.0.1:19090/test-source",
+                    "note": "验证源，仅用于 UI/RPC 流程测试"
+                  }
+                ],
+                "findings": [
+                  {
+                    "kind": "fact",
+                    "text": "本地源包含 2 条样本数据。",
+                    "sourceIds": [
+                      "local-source"
+                    ]
+                  },
+                  {
+                    "kind": "unverified",
+                    "text": "外部网站、真实模型和专用逆向工具未参与本验证。",
+                    "sourceIds": []
+                  }
+                ]
+              }
+            }
+          ],
+          "api": "offline-fixture",
+          "provider": "local-fixture",
+          "model": "offline",
+          "stopReason": "toolUse",
+          "timestamp": 1791067881591,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        },
+        {
+          "role": "toolResult",
+          "toolCallId": "publish-127529cb-0c40-4b5a-9f7a-a5ffe4200135",
+          "toolName": "research_publish",
+          "content": [
+            {
+              "type": "text",
+              "text": "已发布本地研究样本。"
+            }
+          ],
+          "details": {
+            "researchResult": {
+              "id": "c6b95544-8eca-4a5f-b1a5-abaec2a19df5",
+              "createdAt": "2026-10-03T22:51:21.591Z",
+              "mode": "crawl",
+              "status": "sample",
+              "title": "本地网页采集样本",
+              "summary": "已整理 2 条可核对的本地样本；这是隔离 UI 集成验证数据，没有调用大模型。",
+              "columns": [
+                {
+                  "key": "name",
+                  "label": "名称"
+                },
+                {
+                  "key": "type",
+                  "label": "类型"
+                },
+                {
+                  "key": "count",
+                  "label": "记录数"
+                }
+              ],
+              "rows": [
+                {
+                  "name": "OWL 本地样本 A",
+                  "type": "文档",
+                  "count": 3
+                },
+                {
+                  "name": "OWL 本地样本 B",
+                  "type": "目录",
+                  "count": 2
+                }
+              ],
+              "sources": [
+                {
+                  "id": "local-source",
+                  "title": "本地验证源页面",
+                  "url": "http://127.0.0.1:19090/test-source",
+                  "note": "验证源，仅用于 UI/RPC 流程测试"
+                }
+              ],
+              "findings": [
+                {
+                  "kind": "fact",
+                  "text": "本地源包含 2 条样本数据。",
+                  "sourceIds": [
+                    "local-source"
+                  ]
+                },
+                {
+                  "kind": "unverified",
+                  "text": "外部网站、真实模型和专用逆向工具未参与本验证。",
+                  "sourceIds": []
+                }
+              ]
+            }
+          },
+          "isError": false,
+          "timestamp": 1791067881842
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "样本已经整理好了。可以点结果卡查看数据和来源，也可以继续告诉我需要增加哪些字段。当前为隔离验证，未调用真实大模型。"
+            }
+          ],
+          "api": "offline-fixture",
+          "provider": "local-fixture",
+          "model": "offline",
+          "stopReason": "stop",
+          "timestamp": 1791067882092,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "慢速继续整理，用于验证停止。"
+            }
+          ],
+          "timestamp": 1791067962831
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "我先整理一份样本，并把来源与待确认的内容列出来。"
+            },
+            {
+              "type": "toolCall",
+              "id": "publish-0ef00fec-2855-4a92-94e6-898bdfd77fd5",
+              "name": "research_publish",
+              "arguments": {
+                "mode": "crawl",
+                "status": "sample",
+                "title": "本地网页采集样本",
+                "summary": "已整理 2 条可核对的本地样本；这是隔离 UI 集成验证数据，没有调用大模型。",
+                "columns": [
+                  {
+                    "key": "name",
+                    "label": "名称"
+                  },
+                  {
+                    "key": "type",
+                    "label": "类型"
+                  },
+                  {
+                    "key": "count",
+                    "label": "记录数"
+                  }
+                ],
+                "rows": [
+                  {
+                    "name": "OWL 本地样本 A",
+                    "type": "文档",
+                    "count": 3
+                  },
+                  {
+                    "name": "OWL 本地样本 B",
+                    "type": "目录",
+                    "count": 2
+                  }
+                ],
+                "sources": [
+                  {
+                    "id": "local-source",
+                    "title": "本地验证源页面",
+                    "url": "http://127.0.0.1:19090/test-source",
+                    "note": "验证源，仅用于 UI/RPC 流程测试"
+                  }
+                ],
+                "findings": [
+                  {
+                    "kind": "fact",
+                    "text": "本地源包含 2 条样本数据。",
+                    "sourceIds": [
+                      "local-source"
+                    ]
+                  },
+                  {
+                    "kind": "unverified",
+                    "text": "外部网站、真实模型和专用逆向工具未参与本验证。",
+                    "sourceIds": []
+                  }
+                ]
+              }
+            }
+          ],
+          "api": "offline-fixture",
+          "provider": "local-fixture",
+          "model": "offline",
+          "stopReason": "toolUse",
+          "timestamp": 1791067964632,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "已停止本次验证任务。"
+            }
+          ],
+          "api": "offline-fixture",
+          "provider": "local-fixture",
+          "model": "offline",
+          "stopReason": "aborted",
+          "timestamp": 1791067966432,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "errorMessage": "Operation aborted"
+        }
+      ],
+      "entryIds": [
+        "8596ffcd-c493-4647-90f5-1bcf68732ddc",
+        "6d6fba95-c56d-414b-92b2-6120ff19833c",
+        "75a18d7f-ee44-4824-b174-636ae56d4ce7",
+        "93fb3465-cff2-492f-a80d-aa103451e0df",
+        "2ea1400a-ec66-44fd-858a-652d86a92065",
+        "8f3b485a-e36f-4718-b69f-4f37ca9a79d8",
+        "5315d354-2f4d-483d-b582-4806ed808a3a"
+      ],
+      "created": "2026-10-03T22:51:21.336Z",
+      "modified": "2026-10-03T22:52:46.432Z",
+      "provider": "local-fixture",
+      "model": "offline",
+      "thinkingLevel": "off",
+      "approvalMode": "plan",
+      "researchMode": "crawl",
+      "cancelled": true,
+      "slow": true
+    },
+    {
+      "id": "3b63a07e-bf0a-4872-89cf-720b9d2189a3",
+      "cwd": "D:/owl/Owl-def",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "普通聊天独立验证"
+            }
+          ],
+          "timestamp": 1791067898091
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "这是普通聊天的隔离验证回复；它应留在普通聊天里，与研究会话分开。"
+            }
+          ],
+          "api": "offline-fixture",
+          "provider": "local-fixture",
+          "model": "offline",
+          "stopReason": "stop",
+          "timestamp": 1791067898341,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        }
+      ],
+      "entryIds": [
+        "c3515958-3bd8-42f9-a01d-e2a0d159fa07",
+        "502458e6-b9a3-41a2-ad1e-e1b5f5443057"
+      ],
+      "created": "2026-10-03T22:51:38.085Z",
+      "modified": "2026-10-03T22:51:38.342Z",
+      "provider": "local-fixture",
+      "model": "offline",
+      "thinkingLevel": "medium",
+      "approvalMode": "confirm",
+      "cancelled": false,
+      "slow": false
+    }
+  ],
+  "unsupportedFixtureRequests": [
+    "git.status",
+    "news.request"
+  ]
+}

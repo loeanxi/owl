@@ -1,0 +1,69 @@
+.eval-sidebar .eval-brand {
+	height: 48px;
+	flex-shrink: 0;
+}
+
+.eval-sidebar .eval-module-label {
+	flex-shrink: 0;
+	padding-top: 6px;
+	padding-bottom: 6px;
+}
+
+.eval-sidebar .eval-nav {
+	flex-shrink: 0;
+	gap: 2px;
+	margin-bottom: 10px;
+}
+
+.eval-sidebar .eval-nav button {
+	min-height: 30px;
+	padding-top: 6px;
+	padding-bottom: 6px;
+	line-height: 18px;
+}
+
+.eval-sidebar .eval-subhead {
+	flex-shrink: 0;
+	margin-bottom: 4px;
+}
+
+.eval-sidebar .eval-run-mini {
+	flex-shrink: 0;
+	padding: 6px 8px;
+	margin-bottom: 8px;
+}
+
+.eval-sidebar .eval-run-mini strong {
+	overflow: hidden;
+	font-size: 12px;
+	line-height: 16px;
+	margin-bottom: 2px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.eval-sidebar .eval-run-mini > .eval-muted {
+	display: block;
+	overflow: hidden;
+	font-size: 10px;
+	line-height: 14px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.eval-sidebar .eval-side-tasks {
+	flex: 1;
+	min-height: 0;
+}
+
+.eval-sidebar .eval-task-group {
+	padding-top: 6px;
+	padding-bottom: 3px;
+}
+
+.eval-sidebar .eval-side-task {
+	min-height: 30px;
+	padding-top: 6px;
+	padding-bottom: 6px;
+	line-height: 18px;
+}

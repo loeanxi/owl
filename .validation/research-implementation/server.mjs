@@ -12,10 +12,15 @@ const port = Number(argument >= 0 ? process.argv[argument + 1] : 19089);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Use --port 1024..65535");
 const host = "127.0.0.1";
 const origin = `http://${host}:${port}`;
-const evidence = await buildHarness();
+const evidence = await buildHarness({ isolateEvaluation: process.argv.includes("--isolate-evaluation") });
 const requests = [];
 const emitted = [];
 const sessions = new Map();
+if (process.argv.includes("--restore-fixture")) {
+  const previous = JSON.parse(await readFile(join(output, "../fixture-state.json"), "utf8"));
+  if (previous.fixture !== true || previous.paidCalls !== 0 || !Array.isArray(previous.sessions) || previous.running.length) throw new Error("Only an idle offline fixture can be restored");
+  for (const session of previous.sessions) sessions.set(session.id, session);
+}
 const running = new Set();
 const pages = new Map();
 const pendingQuestions = new Map();
@@ -38,7 +43,7 @@ function event(sessionId, payload) { broadcast({ type: "event", sessionId, event
 function response(ws, request, result, error) { send(ws, { type: "response", id: request.id, ok: !error, ...(error ? { error } : { result }) }); }
 function snapshot(session) {
   return { sessionId: session.id, cwd: session.cwd, messages: session.messages, messageEntryIds: session.entryIds, thinkingLevel: session.thinkingLevel,
-    header: { type: "session", id: session.id, cwd: session.cwd, timestamp: session.created }, ...(session.researchMode ? { researchMode: session.researchMode } : {}) };
+    header: { type: "session", id: session.id, cwd: session.cwd, timestamp: session.created }, ...(session.researchMode ? { researchMode: session.researchMode, approvalMode: session.approvalMode } : {}) };
 }
 function stats(session) {
   return { model: { provider: session.provider, id: session.model, name: model.name }, thinkingLevel: session.thinkingLevel,
@@ -126,9 +131,9 @@ async function request(ws, value) {
     case "project.create": response(ws, value, { path: value.path }); return;
     case "commands.list": response(ws, value, { commands: [] }); return;
     case "session.running": response(ws, value, { running: [...running] }); return;
-    case "session.list": response(ws, value, [...sessions.values()].map((item) => ({ id: item.id, cwd: item.cwd, created: item.created, modified: item.modified,
+    case "session.list": response(ws, value, [...sessions.values()].map((item) => ({ id: item.id, cwd: item.cwd, created: item.created, modified: item.modified, scope: item.researchMode ? "research" : "chat",
       name: item.researchMode ? "研究验证会话" : "普通聊天验证", messageCount: item.messages.length, firstMessage: item.messages.find((message) => message.role === "user")?.content[0]?.text,
-      ...(item.researchMode ? { researchMode: item.researchMode } : {}) }))); return;
+      ...(item.researchMode ? { researchMode: item.researchMode } : {}) })).filter((item) => value.scope === undefined || item.scope === value.scope)); return;
     case "session.archiveConfig": response(ws, value, { retentionDays: 30, sessions: [] }); return;
     case "session.create": {
       if (value.researchMode !== undefined && !modes.has(value.researchMode)) { response(ws, value, undefined, "Invalid research mode"); return; }
@@ -138,7 +143,13 @@ async function request(ws, value) {
         ...(value.researchMode ? { researchMode: value.researchMode } : {}) };
       sessions.set(item.id, item); response(ws, value, snapshot(item)); return;
     }
-    case "session.resume": response(ws, value, snapshot(session)); return;
+    case "session.resume":
+      response(ws, value, snapshot(session));
+      if (session.researchMode) {
+        for (const message of pendingPermissions.values()) if (message.sessionId === session.id) send(ws, message);
+        for (const message of pendingQuestions.values()) if (message.sessionId === session.id) send(ws, message);
+      }
+      return;
     case "session.stats": case "session.compact": response(ws, value, stats(session)); return;
     case "session.setModel": session.provider = value.provider; session.model = value.model; response(ws, value, stats(session)); return;
     case "session.setThinkingLevel": session.thinkingLevel = value.level; response(ws, value, stats(session)); return;
@@ -165,6 +176,7 @@ async function request(ws, value) {
     case "iab.attach": response(ws, value, {}); setTimeout(() => send(ws, { type: "iab.frame", pageId: value.pageId, data: png, width: 1, height: 1 }), 50); return;
     case "iab.close": pages.delete(value.pageId); response(ws, value, {}); return;
     case "iab.detach": case "iab.viewport": case "iab.input": case "iab.nav": response(ws, value, {}); return;
+    case "open.external": response(ws, value, { opened: false, fixture: true }); return;
     default: unsupported.add(value.type); response(ws, value, undefined, `Unsupported validation request: ${value.type}`);
   }
 }

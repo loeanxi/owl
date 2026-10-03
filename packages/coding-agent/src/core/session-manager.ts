@@ -233,6 +233,8 @@ export interface SessionInfo {
 	cwd: string;
 	/** User-defined display name from session_info entries. */
 	name?: string;
+	/** Unique non-empty custom entry types found in the persisted session. */
+	customTypes?: string[];
 	/** Path to the parent session (if this session was forked). */
 	parentSessionPath?: string;
 	created: Date;
@@ -809,6 +811,7 @@ async function buildSessionInfo(
 		let firstMessage = "";
 		const allMessages: string[] = [];
 		let name: string | undefined;
+		const customTypes = new Set<string>();
 		let lastActivityTime: number | undefined;
 
 		const rl = createInterface({
@@ -829,6 +832,9 @@ async function buildSessionInfo(
 			// Extract session name (use latest, including explicit clears)
 			if (entry.type === "session_info") {
 				name = entry.name?.trim() || undefined;
+			}
+			if (entry.type === "custom" && typeof entry.customType === "string" && entry.customType.trim()) {
+				customTypes.add(entry.customType);
 			}
 
 			if (entry.type !== "message") continue;
@@ -869,6 +875,7 @@ async function buildSessionInfo(
 			id: header.id,
 			cwd,
 			name,
+			...(customTypes.size > 0 ? { customTypes: [...customTypes] } : {}),
 			parentSessionPath,
 			created: new Date(header.timestamp),
 			modified,

@@ -225,14 +225,15 @@ export function renderNode(
       )
     }
     case 'grid': {
+      const columns = Math.max(1, Math.trunc(node.cols))
       return (
-        <div key={key} className={css.grid} style={{ gridTemplateColumns: `repeat(${Math.max(1, node.cols)}, minmax(0, 1fr))` }}>
+        <div key={key} className={css.grid} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
           {/* `span` is the bento primitive: a child can occupy several columns,
               so one wide hero card can sit next to two narrow ones. */}
           {node.items.map((c, i) => {
             const child = renderNode(c, i, onAction, depth + 1, answers)
             const span = typeof c === 'object' && c !== null && typeof (c as { span?: unknown }).span === 'number'
-              ? Math.max(1, Math.min(12, (c as { span: number }).span))
+              ? Math.max(1, Math.min(columns, 12, Math.trunc((c as { span: number }).span)))
               : 1
             return span > 1 ? <div key={i} className={css.gridSpan} style={{ gridColumn: `span ${span}` }}>{child}</div> : child
           })}
@@ -415,7 +416,7 @@ export function renderNode(
             <div key={i} className={css.li}>
               {isListItemNode(item)
                 ? renderNode(item, i, onAction, depth + 1, answers)
-                : <><div className={css.liTitle}>{renderInline(typeof item === 'string' ? item : item.title)}</div>{typeof item !== 'string' && item.desc !== undefined && <div className={css.liDesc}>{renderInline(item.desc)}</div>}</>}
+                : <><div className={typeof item === 'string' ? css.liText : css.liTitle}>{renderInline(typeof item === 'string' ? item : item.title)}</div>{typeof item !== 'string' && item.desc !== undefined && <div className={css.liDesc}>{renderInline(item.desc)}</div>}</>}
             </div>
           ))}
           {bound !== undefined && <span className={css.filterHint}>{t('block.filterMatch', { shown: items.length, total: all.length })}</span>}

@@ -2,7 +2,7 @@
  * 外观自定义颜色与主题预设（settings.json 的 owlAppearance 字段）。
  * - preset：整套配色方案。"" = 经典黑（默认，中性黑灰），"owl-green" = 猫头鹰绿
  *   （旧版暖绿灰配色，经 <html data-owl-preset> 切换 index.css / desktop-shell.css 的令牌块）。
- * - accent：强调色，全局一份，深浅主题通用（默认空 = 猫头鹰绿）。
+ * - accent：自定义强调色全局一份，深浅主题通用；空值跟随主题默认松石绿。
  * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随当前预设的默认）。
  * 应用方式：在 <html> 上写内联 CSS 变量覆盖 index.css 的 --color-owl-* 令牌，
  * 组件全部引用变量所以无需改动；清除时移除内联值即回默认。
@@ -35,7 +35,7 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 	},
 };
 
-export const DEFAULT_ACCENT = "#2f9e5a";
+export const DEFAULT_ACCENTS = { dark: "#50a992", light: "#268574" } as const;
 
 export const DEFAULT_OWL_APPEARANCE: Readonly<OwlAppearanceColors> = Object.freeze({
 	preset: "",

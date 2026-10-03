@@ -32,3 +32,5 @@ node .validation/research-implementation/build.mjs
 ```
 
 此 harness 验证 UI 与协议联动，不能证明目标模型、浏览器采集、外部 MCP、真实持久化或付费 API 正常；这些需另外在隔离服务测试覆盖。
+
+共享工作区的测评模块正在修改且不能编译时，可使用 `--isolate-evaluation` 启动或编译。本选项只在验证包内排除 `EvaluationPage`；研究页、主聊天、导航、Workbench 与 BridgeClient 仍来自真实源码。`build-evidence.json` 会记录排除范围。正式源码不受此选项影响，也不能把该验证当作测评模块的验收。

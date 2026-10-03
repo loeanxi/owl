@@ -9,10 +9,10 @@ export interface ChatAppearance {
 }
 
 export const DEFAULT_CHAT_APPEARANCE: Readonly<ChatAppearance> = Object.freeze({
-	fontSize: 16,
-	codeFontSize: 13,
-	lineHeight: 1.7,
-	width: 768,
+	fontSize: 14,
+	codeFontSize: 12,
+	lineHeight: 1.5,
+	width: 720,
 	toolRecords: "compact",
 	motion: true,
 });

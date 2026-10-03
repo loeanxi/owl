@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
@@ -25,7 +25,7 @@ const APPROVAL_MODES: { value: ApprovalMode; labelKey: TextKey; titleKey: TextKe
 	{ value: "auto", labelKey: "composer.mode.auto.label", titleKey: "composer.mode.auto.title" },
 ];
 
-/** 审批模式小图标（16 viewBox 线性风格，与思考/上下文图标同族）。 */
+/** 审批模式小图标：线性风格，标准模式使用原型的盾形勾。 */
 function ModeIcon({ mode, active }: { mode: ApprovalMode; active: boolean }): React.JSX.Element {
 	const tone = active ? "text-owl-accent" : "text-owl-faint";
 	if (mode === "plan") {
@@ -47,9 +47,9 @@ function ModeIcon({ mode, active }: { mode: ApprovalMode; active: boolean }): Re
 	}
 	// 盾形勾：标准（逐次把关）
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
-			<path d="M8 1.8 13.2 3.9v4.3c0 2.9-2.2 5.1-5.2 6-3-.9-5.2-3.1-5.2-6V3.9L8 1.8Z" />
-			<path d="M5.9 8 7.5 9.6l2.6-2.9" />
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<path d="M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6Z" />
+			<path d="m8 12 3 3 5-6" />
 		</svg>
 	);
 }
@@ -90,12 +90,11 @@ function ContextRing({ percent }: { percent: number | null }): React.JSX.Element
 	);
 }
 
-/** 笔记本：本地运行位置（对照 Claude 输入框的 Local chip）。 */
-function LaptopIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.Element {
+/** 终端：本地运行环境。 */
+function LocalEnvironmentIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.Element {
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
-			<rect x="3" y="2.8" width="10" height="7.2" rx="1.2" />
-			<path d="M1.6 13h12.8" />
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<path d="m4 6 5 6-5 6M12 18h8" />
 		</svg>
 	);
 }
@@ -112,9 +111,9 @@ function CloudIcon(): React.JSX.Element {
 /** 文件夹加号：新建/打开项目目录（对照 Claude 输入框的 folder-plus chip）。 */
 function FolderPlusIcon(): React.JSX.Element {
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" className="h-3.5 w-3.5 shrink-0">
-			<path d="M1.8 4c0-.66.54-1.2 1.2-1.2h2.9l1.5 1.7h5.6c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3c-.66 0-1.2-.54-1.2-1.2V4Z" />
-			<path d="M8 7.2v3M6.5 8.7h3" />
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" className="h-3.5 w-3.5 shrink-0">
+			<path d="M3 6h6l2 3h10v11H3Z" />
+			<path d="M12 12v5M9.5 14.5h5" />
 		</svg>
 	);
 }
@@ -122,8 +121,8 @@ function FolderPlusIcon(): React.JSX.Element {
 /** 空心文件夹：项目 chip 与项目菜单项。 */
 function FolderIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.Element {
 	return (
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
-			<path d="M1.8 4c0-.66.54-1.2 1.2-1.2h2.9l1.5 1.7h5.6c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3c-.66 0-1.2-.54-1.2-1.2V4Z" />
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" className={`h-3.5 w-3.5 shrink-0 ${tone}`}>
+			<path d="M3 6h6l2 3h10v11H3Z" />
 		</svg>
 	);
 }
@@ -220,6 +219,7 @@ export function Composer({
 	disabled,
 	running,
 	hideEnvironment = false,
+	environmentAccessory,
 	onSend,
 	onAbort,
 	providers,
@@ -243,6 +243,8 @@ export function Composer({
 	running: boolean;
 	/** Hide secondary environment controls while the active conversation needs attention. */
 	hideEnvironment?: boolean;
+	/** Optional mode control that shares the existing environment row's alignment. */
+	environmentAccessory?: ReactNode;
 	onSend: (text: string, images?: ComposerImage[]) => void;
 	onAbort: () => void;
 	providers: ProviderModelsMessage[];
@@ -345,7 +347,8 @@ export function Composer({
 		const el = textareaRef.current;
 		if (!el) return;
 		el.style.height = "auto";
-		el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
+		// Empty drafts keep the one-row height instead of measuring a wrapped placeholder.
+		if (value) el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
 	}, [value]);
 
 	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
@@ -496,7 +499,7 @@ export function Composer({
 						panelClassName="w-64"
 						trigger={
 							<>
-								<LaptopIcon tone={connected ? "text-owl-accent" : "text-red-400"} />
+								<LocalEnvironmentIcon tone={connected ? "text-owl-accent" : "text-red-400"} />
 								<span>{t("composer.runLocation.local")}</span>
 							</>
 						}
@@ -505,7 +508,7 @@ export function Composer({
 							<div>
 								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.runLocation.title")}</p>
 								<button type="button" className={`${menuItemClass} bg-owl-hover text-owl-text`}>
-									<LaptopIcon tone="text-owl-text" />
+									<LocalEnvironmentIcon tone="text-owl-text" />
 									<span className="flex-1">{t("composer.runLocation.localFull")}</span>
 									{connected ? (
 										<span className="flex items-center gap-1 text-[10px] text-emerald-400">
@@ -590,6 +593,7 @@ export function Composer({
 					>
 						<FolderPlusIcon />
 					</button>
+					{environmentAccessory}
 				</div>}
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div

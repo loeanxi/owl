@@ -54,7 +54,7 @@ const loader = createJiti(import.meta.url, { alias: {
 const report = { success: false, actualApp: true, actualDesktopWebSocket: true, actualEvaluationService: true, manualStageGates: true, fakeModelAndChecks: true, paidCalls: 0, cases: [], errors: [], requests: [], modelCalls: [], screenshots: [], sourceSha256: {} };
 for (const path of ["apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx", "apps/desktop/src/features/evaluation/useEvaluation.ts", "packages/coding-agent/src/core/evaluation/service.ts"])
   if (existsSync(join(repo, path))) report.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, path))).digest("hex");
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260" viewBox="0 0 400 260"><rect width="400" height="260" fill="#d0efff"/><circle cx="110" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><circle cx="280" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><path d="M110 190 160 110 210 190 110 190M210 190 260 100 280 190" fill="none" stroke="#e45555" stroke-width="6"/><ellipse cx="170" cy="90" rx="46" ry="23" fill="white"/><path d="M200 90Q220 24 247 43L300 55 247 67" fill="white" stroke="#263a32"/><circle cx="244" cy="45" r="3" fill="#263a32"/><path d="m248 48 52 7-51 11" fill="#e6ae60"/><animateTransform attributeName="transform" type="translate" values="0 0;2 0;0 0" dur="4s" repeatCount="indefinite"/></svg>';
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260" viewBox="0 0 400 260"><rect width="400" height="260" fill="#d0efff"/><g><circle cx="110" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><circle cx="280" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><path d="M110 190 160 110 210 190 110 190M210 190 260 100 280 190" fill="none" stroke="#e45555" stroke-width="6"/><ellipse cx="170" cy="90" rx="46" ry="23" fill="white"/><path d="M200 90Q220 24 247 43L300 55 247 67" fill="white" stroke="#263a32"/><circle cx="244" cy="45" r="3" fill="#263a32"/><path d="m248 48 52 7-51 11" fill="#e6ae60"/><animateTransform attributeName="transform" type="translate" values="0 0;2 0;0 0" dur="4s" repeatCount="indefinite"/></g></svg>';
 const originalBody = `我会先建立车架和轮子，再让脚蹬围绕曲柄转动。\n\n**首次回答的作品**\n\n\`\`\`svg\n${svg}\n\`\`\``;
 const originalThinking = "先确认轮轴、曲柄和脚的位置关系，再生成 SVG 动画。";
 const pendingOriginals = [];
@@ -177,18 +177,34 @@ try {
     await screenshot("01-independent-waiting.png");
   });
   await check("provider thinking and Markdown reply appear while the original run is unfinished", async () => {
-    for (const pending of pendingOriginals) pending.publish("", originalThinking);
+    const growingThinking = `${longText("第一批模型思考", 70)}\n\n思考最新尾段`;
+    const thinkingTailGeometry = [];
+    for (const pending of pendingOriginals) pending.publish("", growingThinking);
     for (let index = 0; index < 2; index++) {
-      await card(index).locator(".eval-thinking-body").filter({ hasText: originalThinking }).waitFor({ state: "attached" });
+      await card(index).locator(".eval-thinking-body").filter({ hasText: "思考最新尾段" }).waitFor({ state: "attached" });
       await expandThinking(card(index).locator(".eval-thinking").first());
-      await card(index).locator(".eval-thinking-body").filter({ hasText: originalThinking }).waitFor();
+      const thought = card(index).locator(".eval-thinking-body");
+      const geometry = await until(async () => {
+        const value = await thought.evaluate((element) => {
+          const node = element.lastChild; if (!node?.textContent) return null;
+          const range = document.createRange(); range.setStart(node, Math.max(0, node.textContent.length - 8)); range.setEnd(node, node.textContent.length);
+          const tail = range.getBoundingClientRect(); const viewport = element.closest(".eval-messages").getBoundingClientRect();
+          return { top: tail.top, bottom: tail.bottom, viewportTop: viewport.top, viewportBottom: viewport.bottom, height: element.clientHeight, scrollHeight: element.scrollHeight, overflowY: getComputedStyle(element).overflowY };
+        });
+        return value && value.top >= value.viewportTop - 1 && value.bottom <= value.viewportBottom + 1 ? value : null;
+      }, "The latest thinking tail must be inside its conversation viewport");
+      assert.ok(Math.abs(geometry.height - geometry.scrollHeight) <= 2, `Thinking has a second vertical scroll region: ${JSON.stringify(geometry)}`);
+      assert.equal(geometry.overflowY, "visible");
+      thinkingTailGeometry.push(geometry);
     }
+    await screenshot("02a-visible-thinking-tail.png");
     const body = `**正在逐段回答**\n\n${longText("第一批正文", 45)}`;
     for (const pending of pendingOriginals) pending.publish(body, originalThinking);
     for (let index = 0; index < 2; index++) await card(index).locator(".eval-chat-answer strong").filter({ hasText: "正在逐段回答" }).waitFor();
     assert.equal((await snapshot()).status, "running");
     assert.equal(await cards().locator("iframe").count(), 0, "An unfinished response must not claim to have a final artifact");
     await screenshot("02-thinking-and-answer.png");
+    return { thinkingTailGeometry };
   });
   await check("one reader can pause scrolling without affecting the other conversation", async () => {
     await stream(0).evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
@@ -210,7 +226,7 @@ try {
     for (let index = 0; index < 2; index++) {
       assert.equal(await composer(index).isDisabled(), false);
       await card(index).locator('[data-action="checks"]').click();
-      await page.getByRole("dialog").getByText("隔离检查", { exact: true }).waitFor();
+      await page.getByRole("dialog").locator(".eval-check-item").filter({ hasText: "隔离检查" }).waitFor();
       await closeDrawer();
       await card(index).locator('[data-action="rating"]').click();
       const dialog = page.getByRole("dialog");
@@ -222,6 +238,7 @@ try {
     await cards().filter({ hasText: "Offline alpha" }).waitFor();
     initialSnapshot = await snapshot();
     assert.ok(initialSnapshot.results.every((value) => value.revealed && value.usage === null && value.costUsd === null && Object.keys(value.rating.scores).length === 3));
+    for (let index = 0; index < 2; index++) await stream(index).evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event("scroll")); });
     await screenshot("04-final-mini-conversations.png");
     const geometry = await page.frameLocator(".owl-eval .eval-result-card iframe").first().locator("svg").evaluate((element) => { const rect = element.getBoundingClientRect(); return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight }; });
     assert.ok(geometry.x >= -1 && geometry.y >= -1 && geometry.right <= geometry.width + 1 && geometry.bottom <= geometry.height + 1);
@@ -259,6 +276,7 @@ try {
     await card(0).locator(".eval-chat-answer").filter({ hasText: "取消前已经收到的内容。" }).waitFor();
     await card(0).locator('[data-action="cancel-followup"]').click();
     await until(async () => (await snapshot()).results.find((value) => value.id === aId).followups[1].status === "cancelled", "Only current follow-up must cancel");
+    await card(0).locator(".eval-chat-status").filter({ hasText: "已取消" }).waitFor();
     assert.equal(pending.request.signal.aborted, true);
     pending.publish("迟到内容不应出现", "迟到思考");
     const cancelled = (await snapshot()).results.find((value) => value.id === aId).followups[1]; assert.equal(cancelled.output, "取消前已经收到的内容。");
@@ -288,7 +306,7 @@ try {
     await area().getByRole("button", { name: "结果对比", exact: true }).click();
     assert.equal(await composer(0).inputValue(), draft);
     await area().locator(".eval-nav").getByRole("button", { name: /题库/ }).click();
-    await area().locator(".eval-library-card").first().waitFor();
+    await area().locator(".eval-library-row").first().waitFor();
     await area().locator(".eval-nav").getByRole("button", { name: "测评", exact: true }).click();
     assert.equal(await composer(0).inputValue(), draft);
     assert.ok((await scrollState(0)).top <= 2);

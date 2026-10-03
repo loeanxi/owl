@@ -12,7 +12,7 @@
  * 同一份 dist 模块实例，这里就是两边共享的接缝。
  */
 
-import type { DesktopServerMessage, QuestionAnswerPayload } from "../modes/desktop/protocol.ts";
+import type { DesktopServerMessage, QuestionAnswerPayload, QuestionRequestMessage } from "../modes/desktop/protocol.ts";
 
 /** 桥注入的提问通道：向所有已连接的桌面 UI 广播 + 连接探针。 */
 export interface QuestionChannel {
@@ -32,10 +32,24 @@ export type QuestionOutcome = { cancelled: boolean; answers: QuestionAnswerPaylo
 
 let channel: QuestionChannel | undefined;
 const pending = new Map<string, PendingQuestion>();
+const requests = new Map<string, QuestionRequestMessage>();
 
 /** 桥启动时注入通道；close 时传 undefined 摘除。 */
 export function setQuestionChannel(next: QuestionChannel | undefined): void {
-	channel = next;
+	channel = next
+		? {
+				...next,
+				broadcast: (message) => {
+					if (message.type === "question_request") {
+						const entry = pending.get(message.requestId);
+						if (entry?.sessionId === message.sessionId && entry.toolCallId === message.toolCallId) {
+							requests.set(message.requestId, structuredClone(message));
+						}
+					}
+					next.broadcast(message);
+				},
+			}
+		: undefined;
 }
 
 export function getQuestionChannel(): QuestionChannel | undefined {
@@ -44,7 +58,19 @@ export function getQuestionChannel(): QuestionChannel | undefined {
 
 /** 插件在 broadcast 前登记挂起提问，让桥的应答/清理能找到 resolver。 */
 export function registerPendingQuestion(requestId: string, entry: PendingQuestion): void {
+	requests.delete(requestId);
 	pending.set(requestId, entry);
+}
+
+/** Replay the same unresolved questionnaire after a client reconnects; never create a new request. */
+export function getPendingQuestionRequests(sessionId: string): QuestionRequestMessage[] {
+	const messages: QuestionRequestMessage[] = [];
+	for (const [requestId, entry] of pending) {
+		if (entry.sessionId !== sessionId) continue;
+		const message = requests.get(requestId);
+		if (message) messages.push(structuredClone(message));
+	}
+	return messages;
 }
 
 /** 桥收到 question.response 时调用；返回 false 表示请求已不存在（已取消/已清理）。 */
@@ -52,6 +78,7 @@ export function resolveQuestion(requestId: string, outcome: QuestionOutcome): bo
 	const entry = pending.get(requestId);
 	if (!entry) return false;
 	pending.delete(requestId);
+	requests.delete(requestId);
 	entry.resolve(outcome);
 	return true;
 }
@@ -61,6 +88,7 @@ export function cancelPendingQuestionsForSession(sessionId: string): void {
 	for (const [requestId, entry] of pending) {
 		if (entry.sessionId !== sessionId) continue;
 		pending.delete(requestId);
+		requests.delete(requestId);
 		entry.resolve({ cancelled: true, answers: [] });
 	}
 }
@@ -69,4 +97,5 @@ export function cancelPendingQuestionsForSession(sessionId: string): void {
 export function cancelAllPendingQuestions(): void {
 	for (const entry of pending.values()) entry.resolve({ cancelled: true, answers: [] });
 	pending.clear();
+	requests.clear();
 }

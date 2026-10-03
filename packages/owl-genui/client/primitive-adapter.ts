@@ -101,7 +101,7 @@ const CODE_COLLAPSE_LINES = 60;
 const CODE_KEEP_LINES = 40;
 
 /** Code block with an optional language chip and copy action. */
-export function CodeBlock(props: { code: string; lang?: string; copyLabel?: string; copiedLabel?: string }): ReactNode {
+export function CodeBlock(props: { code: string; lang?: string; copyLabel?: string; copiedLabel?: string; wrap?: boolean; copyText?: string }): ReactNode {
 	const lines = useMemo(() => props.code.split("\n"), [props.code]);
 	const clamped = lines.length > CODE_COLLAPSE_LINES;
 	const shown = clamped ? lines.slice(0, CODE_KEEP_LINES) : lines;
@@ -117,12 +117,12 @@ export function CodeBlock(props: { code: string; lang?: string; copyLabel?: stri
 				createElement("span", { className: css.primitiveLabel }, props.lang ?? ""),
 				props.copyLabel !== undefined &&
 					createElement(CopyChip, {
-						getText: () => props.code,
+						getText: () => props.copyText ?? props.code,
 						label: props.copyLabel,
 						doneLabel: props.copiedLabel ?? props.copyLabel,
 					}),
 			),
-		createElement("div", { className: css.codeScroll }, createElement("pre", null, visible.join("\n"))),
+		createElement("div", { className: `${css.codeScroll}${props.wrap ? ` ${css.wrap}` : ""}` }, createElement("pre", null, visible.join("\n"))),
 		clamped &&
 			!expanded &&
 			createElement(

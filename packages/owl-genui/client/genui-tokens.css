@@ -2,13 +2,13 @@
  * owl-genui 令牌表：渲染器 CSS 引用的 DSH 宿主设计令牌（--dsw-alias-*）在 owl
  * 没有供给方，这里映射到 owl 桌面端自己的主题变量（--color-owl-*）。挂在
  * .owl-genui-root 作用域上，变量随 owl 的 html[data-owl-theme] 深浅主题自动翻转；
- * 状态色用固定语义色，深浅底都可读。
+ * 状态文字使用不透明语义色，浅色主题加深以保持可读。
  */
 .owl-genui-root {
 	--dsw-alias-label-primary: var(--color-owl-text, #e8e8e8);
 	--dsw-alias-label-secondary: var(--color-owl-muted, #a3a3a3);
-	--dsw-alias-label-tertiary: var(--color-owl-faint, #8a8a8a);
-	--dsw-alias-label-caption: var(--color-owl-faint, #8a8a8a);
+	--dsw-alias-label-tertiary: var(--color-owl-muted, #a3a3a3);
+	--dsw-alias-label-caption: var(--color-owl-muted, #a3a3a3);
 	--dsw-alias-bg-base: var(--owl-conversation-bg, #171717);
 	--dsw-alias-bg-layer-1: var(--owl-conversation-bg, #171717);
 	--dsw-alias-bg-layer-2: var(--color-owl-bubble, #282828);
@@ -24,6 +24,9 @@
 	--dsw-alias-state-warn-secondary: rgba(217, 160, 60, 0.16);
 	--dsw-alias-state-error-primary: #e5655e;
 	--dsw-alias-state-error-secondary: rgba(229, 101, 94, 0.16);
+	--owl-genui-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+	--owl-genui-button-bg: var(--color-owl-accent, #50a992);
+	--owl-genui-button-text: #102b23;
 	--ds-font-family-code: var(--font-mono, ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace);
 
 	/* 图表分类调色板（CSS 侧柱/扇区填充 + ECharts canvas 经 readToken 解析为
@@ -37,4 +40,13 @@
 	--dsw-static-red-400: #e5655e;
 	--dsw-static-blue-450: #9a7cf0;
 	--dsw-static-neutral-bluish-400: #38b8c8;
+}
+
+html[data-owl-theme="light"] .owl-genui-root {
+	--dsw-alias-state-success-primary: #217347;
+	--dsw-alias-state-warn-primary: #8a5a10;
+	--dsw-alias-state-error-primary: #ba3f38;
+	--owl-genui-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+	--owl-genui-button-bg: color-mix(in srgb, var(--color-owl-accent, #268574) 90%, #000);
+	--owl-genui-button-text: #fff;
 }

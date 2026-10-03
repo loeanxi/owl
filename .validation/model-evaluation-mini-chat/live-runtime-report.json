@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "paidCalls": 0,
+  "actualServer": "http://127.0.0.1:18901",
+  "errors": [],
+  "mutations": [],
+  "visibleConversations": 2
+}

@@ -158,6 +158,8 @@ export interface SessionListRequest {
 	type: "session.list";
 	id: string;
 	sessionDir?: string;
+	/** Limit history to one conversation type. Omit for the complete history inventory. */
+	scope?: "chat" | "research";
 }
 
 /** 查询当前 agent run 活跃的已挂载会话 id：UI 刷新后据此恢复侧边栏的运行状态点。 */
@@ -360,6 +362,8 @@ export interface SessionSnapshotPayload {
 	mailContext?: MailAgentContext;
 	/** Persisted research scope, restored from JSONL rather than inferred from UI state. */
 	researchMode?: ResearchMode;
+	/** Authoritative approval for research conversations, including after a restart. */
+	approvalMode?: ApprovalMode;
 }
 
 /** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */

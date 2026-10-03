@@ -20,10 +20,12 @@
    layer step (layer-2) plus a small 4% overlay of the theme's label colour.
    Light mode uses no tint at all — see the token block below for why. */
 body[data-ds-dark-theme] .block,
-body[data-ds-dark-theme] .panel {
+body[data-ds-dark-theme] .panel,
+html[data-owl-theme="dark"] .block,
+html[data-owl-theme="dark"] .panel {
   --dsl-g-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 4%,
     var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, var(--dsw-alias-markdown-code-block, transparent))));
-  --dsl-g-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.18);
+  --dsl-g-shadow-card: var(--owl-genui-card-shadow, 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.18));
 }
 
 .block,
@@ -47,10 +49,11 @@ body[data-ds-dark-theme] .panel {
   --dsl-g-font-h1: 24px;
   --dsl-g-font-h2: 19px;
   --dsl-g-font-h3: 16px;
-  --dsl-g-font-body: 14.5px;
+  --dsl-g-font-body: var(--owl-chat-font-size, 14.5px);
+  --dsl-g-line-height-body: var(--owl-chat-line-height, 1.7);
   --dsl-g-font-title: 13.5px;
   --dsl-g-font-meta: 12.5px;
-  --dsl-g-font-data: 12px;
+  --dsl-g-font-data: var(--owl-chat-code-font-size, 12px);
 
   --dsl-g-gap-lg: 16px;
   --dsl-g-gap-md: 12px;
@@ -92,7 +95,7 @@ body[data-ds-dark-theme] .panel {
      the outline stays quiet and the layered shadow carries the depth, with the
      first layer at the documented minimum `0 1px 3px rgba(0,0,0,0.10)`. */
   --dsl-g-border-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
-  --dsl-g-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --dsl-g-shadow-card: var(--owl-genui-card-shadow, 0 1px 3px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.06));
 }
 
 .block {
@@ -101,7 +104,13 @@ body[data-ds-dark-theme] .panel {
      around every fence was tried and rejected: a lone stat or text node
      does not need a card wrapper. */
   margin: 8px 0;
+  min-width: 0;
+  max-width: 100%;
+  container-type: inline-size;
+  container-name: owl-genui;
   color: var(--dsw-alias-label-primary);
+  font-size: var(--dsl-g-font-body);
+  line-height: var(--dsl-g-line-height-body);
   /* Numbers line up wherever they appear (stats, tables, progress, legends). */
   font-variant-numeric: tabular-nums;
 }
@@ -135,13 +144,23 @@ body[data-ds-dark-theme] .panel {
    keeps its own layout). */
 .gridSpan { display: flex; flex-direction: column; min-width: 0; }
 .gridSpan > * { flex: 1; }
-/* Narrow conversation column (phone / split pane): a fixed 3-4 column grid
-   would squeeze every cell, so the grid collapses to one column. The inline
-   gridTemplateColumns from the spec needs !important to be overridden. */
-@media (max-width: 560px) {
-  .grid { grid-template-columns: 1fr !important; }
+.col, .row, .grid, .reveal { min-width: 0; max-width: 100%; }
+.row > *, .grid > * { min-width: 0; }
+.row > .field, .row > .fieldGroup { flex: 1 1 0; }
+/* React to the actual reading column, including a split pane in a wide window.
+   Reset explicit spans too, otherwise they recreate implicit grid columns. */
+@container owl-genui (max-width: 560px) {
+  .grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .gridSpan { grid-column: 1 / -1 !important; }
   .row { flex-wrap: wrap; }
-  .row > .card { flex-basis: 100%; }
+  .row > .card, .row > .field, .row > .fieldGroup { flex-basis: 100%; }
+}
+/* Fallback for hosts without container query support. */
+@media (max-width: 560px) {
+  .grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .gridSpan { grid-column: 1 / -1 !important; }
+  .row { flex-wrap: wrap; }
+  .row > .card, .row > .field, .row > .fieldGroup { flex-basis: 100%; }
 }
 .spacer { flex: 1; }
 .divider {
@@ -191,7 +210,7 @@ body[data-ds-dark-theme] .panel {
 
 /* ---------- text ---------- */
 
-.text { color: var(--dsw-alias-label-primary); white-space: pre-line; }
+.text { color: var(--dsw-alias-label-primary); white-space: pre-line; overflow-wrap: anywhere; }
 .text.h1 {
   font-size: var(--dsl-g-font-h1);
   font-weight: 800;
@@ -205,11 +224,9 @@ body[data-ds-dark-theme] .panel {
   letter-spacing: -0.015em;
 }
 .text.h3 { font-size: var(--dsl-g-font-h3); font-weight: 650; line-height: 1.45; }
-/* CJK reads looser than Latin at the same size: 1.7 for body copy, 1.65 for
-   secondary lines, and no letter-spacing on Chinese runs (0.02em inserts
-   visible gaps between Han characters). */
-/* ~65ch keeps a comfortable reading measure when the block is wide. */
-.text.body { font-size: var(--dsl-g-font-body); line-height: 1.7; color: var(--dsw-alias-label-primary); text-wrap: pretty; max-width: 68ch; }
+/* Owl follows the user's reading size, line height and column width; hosts
+   without those tokens keep the existing 14.5px / 1.7 / 68ch defaults. */
+.text.body { font-size: var(--dsl-g-font-body); line-height: var(--dsl-g-line-height-body); color: var(--dsw-alias-label-primary); text-wrap: pretty; max-width: min(100%, var(--owl-chat-width, 68ch)); }
 .text.muted { font-size: var(--dsl-g-font-title); line-height: 1.65; color: var(--dsw-alias-label-secondary); }
 .text.caption { font-size: var(--dsl-g-font-meta); line-height: 1.6; color: var(--dsw-alias-label-secondary); }
 .text.center { text-align: center; }
@@ -230,6 +247,9 @@ body[data-ds-dark-theme] .panel {
   transition: border-color 0.15s, filter 0.15s, background 0.15s, transform 0.1s;
   text-align: center;
   white-space: pre-line;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   /* A button in a `col` must hug its label; only `full: true` stretches.
      (Default flex `align-items: stretch` used to make every stacked button a
      full-width slab.) */
@@ -250,9 +270,9 @@ body[data-ds-dark-theme] .panel {
   pointer-events: none;
 }
 .button.primary {
-  background: var(--dsl-g-accent);
+  background: var(--owl-genui-button-bg, var(--dsl-g-accent));
   border: none;
-  color: #fff;
+  color: var(--owl-genui-button-text, #fff);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 .button.danger {
@@ -263,13 +283,13 @@ body[data-ds-dark-theme] .panel {
 .button.success {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent);
   border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) 30%, transparent);
-  color: var(--dsw-alias-state-success-secondary, #9fe8c5);
+  color: var(--dsw-alias-state-success-primary, #3ecf8e);
 }
 .button.ghost { background: transparent; }
 .button.full { width: 100%; }
 .button.small { padding: 4px 12px; font-size: var(--dsl-g-font-meta); border-radius: var(--dsl-g-radius-control); }
 
-.field { display: flex; flex-direction: column; gap: var(--dsl-g-gap-xs); }
+.field { display: flex; flex-direction: column; gap: var(--dsl-g-gap-xs); min-width: 0; max-width: 100%; }
 .field > span { font-size: var(--dsl-g-font-meta); color: var(--dsw-alias-label-tertiary); }
 
 .input, .select {
@@ -282,16 +302,23 @@ body[data-ds-dark-theme] .panel {
   font-family: inherit;
   outline: none;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  line-height: var(--dsl-g-line-height-body);
 }
 
 .input:focus, .select:focus {
   border-color: var(--dsl-g-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsl-g-accent) var(--dsl-g-tint-strong), transparent);
 }
+.input:focus-visible, .select:focus-visible, .textarea:focus-visible, .switch:focus-visible {
+  outline: 2px solid var(--dsl-g-accent);
+  outline-offset: 2px;
+}
 .input::placeholder { color: var(--dsw-alias-label-caption, #5b6378); }
 
 .checkbox { display: flex; align-items: center; gap: var(--dsl-g-gap-sm); font-size: var(--dsl-g-font-title); color: var(--dsw-alias-label-secondary); cursor: pointer; }
-.checkbox input { accent-color: var(--dsl-g-accent); width: 15px; height: 15px; }
+.checkbox input { accent-color: var(--dsl-g-accent); width: 15px; height: 15px; flex-shrink: 0; }
 .checkbox input:focus-visible {
   outline: 2px solid var(--dsl-g-accent);
   outline-offset: 2px;
@@ -385,6 +412,8 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 .heroTop { display: flex; align-items: baseline; gap: var(--dsl-g-gap-md); flex-wrap: wrap; }
 .heroValue {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: baseline;
   gap: 4px;
   font-family: var(--dsl-g-font-mono);
@@ -435,18 +464,19 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   padding: 1px 10px;
   border-radius: var(--dsl-g-radius-pill);
   width: fit-content;
+  max-width: 100%;
   background: color-mix(in srgb, var(--dsw-alias-label-tertiary) var(--dsl-g-tint), transparent);
   color: var(--dsw-alias-label-secondary);
   border: 1px solid var(--dsl-g-border);
 }
 .badge.success {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) var(--dsl-g-tint), transparent);
-  color: var(--dsw-alias-state-success-secondary, #7fe3b4);
+  color: var(--dsw-alias-state-success-primary, #3ecf8e);
   border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3ecf8e) 30%, transparent);
 }
 .badge.warn {
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) var(--dsl-g-tint), transparent);
-  color: var(--dsw-alias-state-warn-secondary, #f7cf7d);
+  color: var(--dsw-alias-state-warn-primary, #f5b83d);
   border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f5b83d) 30%, transparent);
 }
 .badge.danger {
@@ -488,6 +518,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 }
 .statValue {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 3px;
   font-family: var(--dsl-g-font-mono);
@@ -499,6 +530,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
+.statValue > *, .heroValue > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 /* Unit suffix (%, GB, k, ms): same baseline, half the size, muted — the
    number keeps the weight. This is the real typography win in v5. */
 .statUnit {
@@ -517,7 +549,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   color: var(--dsw-alias-label-secondary);
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
 }
-.statDelta.up { color: var(--dsw-alias-state-success-secondary, #1f9d63); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 12%, transparent); }
+.statDelta.up { color: var(--dsw-alias-state-success-primary, #1f9d63); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 12%, transparent); }
 .statSpark {
   display: block;
   width: calc(100% + 32px);
@@ -579,7 +611,8 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 }
 .li + .li { border-top: 1px solid var(--dsl-g-border); }
 .li:last-child { border-bottom: none; }
-.liTitle { font-size: var(--dsl-g-font-body); color: var(--dsw-alias-label-primary); font-weight: 650; line-height: 1.5; }
+.liText { font-size: var(--dsl-g-font-body); color: var(--dsw-alias-label-primary); font-weight: 400; line-height: var(--dsl-g-line-height-body); }
+.liTitle { font-size: var(--dsl-g-font-body); color: var(--dsw-alias-label-primary); font-weight: 650; line-height: var(--dsl-g-line-height-body); }
 .liDesc { font-size: var(--dsl-g-font-meta); color: var(--dsw-alias-label-secondary); line-height: 1.55; }
 
 .tableWrap {
@@ -627,7 +660,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 /* Signed values read as a delta chip (+12.4% / -3%) without any new spec
    field: the renderer classifies the cell text. */
 .tdDelta { font-weight: 600; }
-.tdDeltaUp { color: var(--dsw-alias-state-success-secondary, #1f9d63); }
+.tdDeltaUp { color: var(--dsw-alias-state-success-primary, #1f9d63); }
 .tdDeltaDown { color: var(--dsw-alias-state-error-primary, #d94848); }
 /* A cell carrying real line breaks opts out of the `nowrap` data voice.
    Prose keeps `pre-line` (newlines paint, spaces collapse as everywhere else);
@@ -656,6 +689,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
    flex controls, target the label span so emphasis and plain text share one
    line-formatting context (rather than becoming separate flex items). */
 .calloutBody,
+.liText,
 .liTitle,
 .liDesc,
 .kvValue,
@@ -691,7 +725,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 .gradeExp,
 .quizQuestion,
 .quizFeedback,
-.quizExplanation { white-space: pre-line; }
+.quizExplanation { white-space: pre-line; overflow-wrap: anywhere; min-width: 0; }
 
 /* sortable header button (v2.9) */
 .thSort {
@@ -856,7 +890,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 }
 
 .tabs { display: flex; flex-direction: column; gap: var(--dsl-g-gap-md); }
-.tabBar { display: flex; gap: 2px; border-bottom: 1px solid var(--dsl-g-border); }
+.tabBar { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--dsl-g-border); }
 .tab {
   background: transparent;
   border: none;
@@ -978,7 +1012,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   border-color: var(--dsl-g-accent);
   color: var(--dsl-g-accent);
 }
-.stepContent { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.stepContent { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; min-width: 0; }
 .stepTitle { font-size: var(--dsl-g-font-body); font-weight: 650; color: var(--dsw-alias-label-primary); line-height: 1.45; }
 .stepDesc { font-size: var(--dsl-g-font-meta); color: var(--dsw-alias-label-secondary); line-height: 1.55; }
 
@@ -1336,10 +1370,10 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 
 /* ---------- radio / switch / textarea ---------- */
 
-.fieldGroup { display: flex; flex-direction: column; gap: var(--dsl-g-gap-sm); }
+.fieldGroup { display: flex; flex-direction: column; gap: var(--dsl-g-gap-sm); min-width: 0; max-width: 100%; }
 .fieldLabel { font-size: var(--dsl-g-font-meta); color: var(--dsw-alias-label-tertiary); }
 .radio { display: flex; align-items: center; gap: var(--dsl-g-gap-sm); font-size: var(--dsl-g-font-title); color: var(--dsw-alias-label-secondary); cursor: pointer; line-height: 1.5; }
-.radio input { accent-color: var(--dsl-g-accent); }
+.radio input { accent-color: var(--dsl-g-accent); flex-shrink: 0; }
 .radio input:focus-visible {
   outline: 2px solid var(--dsl-g-accent);
   outline-offset: 2px;
@@ -1348,7 +1382,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 
 /* ---------- submit（交卷聚合 / 本地判卷） ---------- */
 
-.submitRow { display: flex; align-items: center; gap: var(--dsl-g-gap-md); margin-top: 2px; }
+.submitRow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dsl-g-gap-md); margin-top: 2px; }
 .submit { align-self: flex-start; }
 .submitHint { font-size: var(--dsl-g-font-meta); color: var(--dsw-alias-label-tertiary); }
 
@@ -1358,6 +1392,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
   font-weight: 600;
   color: var(--dsw-alias-state-success-primary, #3ecf8e);
 }
+.button.primary .btnSent { color: inherit; }
 
 /* local grading result panel */
 .gradeWrap { display: flex; flex-direction: column; gap: var(--dsl-g-gap-md); }
@@ -1396,6 +1431,7 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 .switchLabel { font-size: var(--dsl-g-font-title); color: var(--dsw-alias-label-primary); line-height: 1.5; }
 .switch {
   width: 38px; height: 22px; border-radius: var(--dsl-g-radius-pill);
+  flex-shrink: 0;
   border: 1px solid var(--dsl-g-border);
   background: var(--dsw-alias-bg-base, #17171a);
   position: relative;
@@ -1440,6 +1476,8 @@ img.mediaPlayer { aspect-ratio: 16 / 9; object-fit: cover; background: var(--dsl
 
 .textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   background: var(--dsl-g-surface);
   border: 1px solid var(--dsl-g-border-surface);
   border-radius: var(--dsl-g-radius-control);

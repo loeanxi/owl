@@ -171,17 +171,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 .owl-shell-content.is-bottom { flex-direction: column; }
 .owl-shell-conversation { display: flex; min-height: 0; min-width: 0; flex: 1; flex-direction: column; }
 
-.owl-developer-trigger {
-	flex-shrink: 0;
-	padding: 6px 9px;
-	border-radius: 6px;
-	font-size: 11px;
-	color: var(--owl-ui-muted);
-}
-.owl-developer-trigger:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
-.owl-developer-trigger[aria-pressed="true"] { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
-.owl-developer-trigger:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
-
 /* 顶栏「对话/上下文」视图 tab（主区随 tab 切换，见 App.tsx conversationView） */
 .owl-view-tabs {
 	display: flex;
@@ -207,7 +196,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	.owl-shell-header-actions { gap: 1px; }
 	.owl-shell-connection { display: none; }
 	.owl-shell-session-title { flex: 1; }
-	.owl-developer-trigger { padding: 6px; }
 }
 
 @media (max-width: 1050px) {

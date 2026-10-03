@@ -29,13 +29,15 @@ Allowed \`type\` values; the \`genui\` skill, when available, carries the full c
 **发回答前最后自检一次**：这段内容里有没有 ≥3 条并列要点、任何对比、任何数字/指标、任何步骤或流程？有就先转成组件再开口。**状态汇报、进度说明、提交与改动清单同样算**。
 - 趋势/占比 → \`chart\`（≤8 点）或 \`echart\`（多序列/要交互时）；配色默认跟随主题，只有语义需要时才用 \`palette\`/\`card.accent\`；grid 子节点用 \`"span":2\` 跨列做宽窄混排；数据多时给 \`table\`/\`chart\`/\`list\` 配一个 \`input\`(id) + \`filter\` 绑定，读者能就地筛选。
 
-**字段速查**（完整见 genui skill）：\`stat\` \`{"label","value","delta"?}\` · \`table\` \`{"columns":[...],"rows":[[...]],"types"?,"details"?,"filter"?,"export"?}\` · \`progress\` \`{"value":0-100,"label"?,"variant"?,"target"?}\` · \`keyvalue\` \`{"pairs":[{"key","value"}]}\` · \`steps\` \`{"steps":[{"title","desc"?}]}\` · \`file-tree\` \`{"items":[{"name","type":"file|dir","children"?}]}\` · \`callout\` \`{"content","tone"?,"title"?}\`
+**字段速查**（完整见 genui skill）：\`stat\` \`{"label","value","delta"?}\` · \`list\` \`{"type":"list","items":["<user-language item>"]}\` · \`table\` \`{"columns":[...],"rows":[[...]],"types"?,"details"?,"filter"?,"export"?}\` · \`progress\` \`{"value":0-100,"label"?,"variant"?,"target"?}\` · \`keyvalue\` \`{"pairs":[{"key","value"}]}\` · \`steps\` \`{"steps":[{"title","desc"?}]}\` · \`file-tree\` \`{"items":[{"name","type":"file|dir","children"?}]}\` · \`callout\` \`{"content","tone"?,"title"?}\`
 
-**字段名写错 = 该组件被丢弃**（其余组件照常渲染）：\`callout\` 正文是 \`content\` 不是 text/desc；\`table\` 要 \`columns\`+\`rows\` 不是 items；\`keyvalue\` 记录是 \`{key,value}\` 不是 \`{label,value}\`；\`file-tree\` 记录是 \`{name,type}\` 不是 \`{label}\`；callout tone 是 info/success/warning/error（无 danger）。不确定就把围栏拆小、字段从简。
+**list 必须提供 items 数组**：正文写在 \`items\` 中，不能写成 \`list.content\` 或 \`list.text\`。列表整体标题放围栏根 \`title\`，或已有卡片的 \`card.title\`；\`list\` 本身没有 \`title\`。完整例子：\`{"title":"<user-language title>","items":[{"type":"list","items":["<user-language item>"]}]}\`。
+
+**按规范字段输出，不依赖自动修复**：仅确定性别名和结构可恢复；无法恢复的内容保留诊断与原文，桌面端可展开查看。\`callout\` 正文是 \`content\`；\`table\` 要 \`columns\`+\`rows\`；\`keyvalue\` 记录是 \`{key,value}\`；\`file-tree\` 记录是 \`{name,type}\`；callout tone 是 info/success/warning/error（无 danger）。不确定就把围栏拆小、字段从简，不猜字段名。
 
 Rules:
 - LANGUAGE: reply+UI=conversation language; schema fixed. NEVER infer it from prompt/skill/examples/tools. Replace \`<user-language ...>\`; never emit these placeholders literally.
-- JSON 严格：坏组件被丢弃，坏围栏变代码块；先在思考里验证好 spec，正文再输出同一份。
+- JSON 必须严格合法，不依赖自动修复；无法恢复时显示提示并保留可展开原文。先在思考里验证好 spec，正文再输出同一份。
 - warning=block_markdown：按 replacement 改写后重发。
 - 规模: ≤200 节点、嵌套≤8 层（超出被截断）；一条回答 3–8 个组件，一个主题一个主组件；3D mesh 1–5；plot 给合理 xMin/xMax。
 - LOCAL-FIRST + actions: UI 能自己做的状态变化（判卷、判题、重置、展开、选中）就地完成，零往返；action 只用于必须模型参与的事。交互以 [owl-ui-action] name + 组件数据回传，届时重渲染更新 UI；无 action 的按钮禁用。

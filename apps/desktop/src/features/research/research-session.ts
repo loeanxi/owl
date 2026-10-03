@@ -4,6 +4,7 @@ import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerS
 import { normPath, samePath } from "../../utils/paths.ts";
 import { t } from "../../i18n/index.ts";
 import { mergeResearchResults, publishedResults, researchResultsFromEvent } from "./research-results.ts";
+import { researchText } from "./research-copy.ts";
 
 type ResearchImage = { type: "image"; data: string; mimeType: string };
 type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent">;
@@ -55,6 +56,7 @@ export class ResearchSessionController {
 	private restoring = false;
 	private replayEvents: ServerEventMessage[] = [];
 	private runRevision = 0;
+	private settingsRevision = 0;
 	private reconcileTimer?: ReturnType<typeof setTimeout>;
 
 	constructor(client: ResearchBridge, storage: ResearchStorage, cwd: string, defaults: ResearchPreferences) {
@@ -178,9 +180,9 @@ export class ResearchSessionController {
 		try {
 			const response = await this.client.request<SessionSnapshotPayload>({ type: "session.resume", sessionId: saved });
 			if (!this.isCurrent(epoch, saved)) return;
-			if (!response.ok || !response.result) throw new Error(response.error ?? "Could not restore the research conversation.");
+			if (!response.ok || !response.result) throw new Error(response.error ?? researchText("restoreFailed"));
 			const snapshot = response.result;
-			if (!samePath(snapshot.cwd, this.cwd) || !snapshot.researchMode) throw new Error("This saved conversation does not belong to this research workspace.");
+			if (snapshot.sessionId !== saved || !samePath(snapshot.cwd, this.cwd) || !snapshot.researchMode || !Array.isArray(snapshot.messages)) throw new Error(researchText("wrongWorkspace"));
 			let entries = rebuild(snapshot.messages as Record<string, unknown>[], snapshot.messageEntryIds);
 			let results = publishedResults(snapshot.messages);
 			for (const message of eventsAfterSnapshot(snapshot, this.replayEvents)) {
@@ -205,10 +207,11 @@ export class ResearchSessionController {
 	async refreshStats(): Promise<void> {
 		const sessionId = this.state.sessionId;
 		const epoch = this.epoch;
+		const settingsRevision = this.settingsRevision;
 		if (!sessionId || !this.state.connected) return;
 		try {
 			const response = await this.client.request<SessionStatsResult>({ type: "session.stats", sessionId });
-			if (response.ok && response.result && this.isCurrent(epoch, sessionId)) this.applyStats(response.result);
+			if (response.ok && response.result && this.isCurrent(epoch, sessionId) && settingsRevision === this.settingsRevision) this.applyStats(response.result);
 		} catch { /* A reconnect refreshes authoritative state. */ }
 	}
 
@@ -220,6 +223,8 @@ export class ResearchSessionController {
 	async send(text: string, images?: ResearchImage[]): Promise<boolean> {
 		if (!this.state.connected || !this.state.ready || this.state.running || this.state.busy || (!text.trim() && !images?.length)) return false;
 		const epoch = this.epoch;
+		let optimisticEntry: Extract<ChatEntry, { kind: "user" }> | undefined;
+		let submittedRunRevision = this.runRevision;
 		this.update({ busy: true, error: undefined, failedPrompt: undefined });
 		try {
 			let sessionId = this.state.sessionId;
@@ -230,21 +235,26 @@ export class ResearchSessionController {
 					...(slash > 0 ? { provider: this.state.model.slice(0, slash), model: this.state.model.slice(slash + 1) } : {}),
 				});
 				if (!this.isCurrent(epoch)) return false;
-				if (!response.ok || !response.result?.sessionId) throw new Error(response.error ?? "Could not create the research conversation.");
+				if (!response.ok || !response.result?.sessionId) throw new Error(response.error ?? researchText("createFailed"));
 				sessionId = response.result.sessionId;
 				this.update({ sessionId });
 				try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* In-memory binding is sufficient for the current run. */ }
 				void this.refreshStats();
 			}
-			this.update({ entries: [...this.state.entries, { kind: "user", text, ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) }], running: true, retryStatus: null });
+			optimisticEntry = { kind: "user", text, ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) };
+			submittedRunRevision = this.runRevision;
+			this.update({ entries: [...this.state.entries, optimisticEntry], running: true, retryStatus: null });
 			const response = await this.client.request({ type: "session.prompt", sessionId, message: text, researchMode: this.state.mode, ...(images?.length ? { images } : {}) });
 			if (!this.isCurrent(epoch, sessionId)) return false;
-			if (!response.ok) throw new Error(response.error ?? "Could not send the research message.");
+			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
 			clearTimeout(this.reconcileTimer);
 			this.reconcileTimer = setTimeout(() => { void this.reconcileRunning(epoch).catch(() => {}); }, 2000);
 			return true;
 		} catch (error) {
-			if (this.isCurrent(epoch)) this.update({ error: error instanceof Error ? error.message : String(error), running: false, failedPrompt: { text, images } });
+			if (this.isCurrent(epoch)) this.update({
+				error: error instanceof Error ? error.message : String(error), running: false, failedPrompt: { text, images },
+				...(this.runRevision === submittedRunRevision && optimisticEntry ? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) } : {}),
+			});
 			return false;
 		} finally {
 			if (this.isCurrent(epoch)) this.update({ busy: false });
@@ -257,7 +267,7 @@ export class ResearchSessionController {
 		try {
 			const response = await this.client.request({ type: "session.abort", sessionId: this.state.sessionId });
 			if (!this.isCurrent(epoch)) return;
-			if (!response.ok) throw new Error(response.error ?? "Could not stop the research run.");
+			if (!response.ok) throw new Error(response.error ?? researchText("stopFailed"));
 			await this.reconcileRunning(epoch);
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({ error: error instanceof Error ? error.message : String(error) });
@@ -312,11 +322,12 @@ export class ResearchSessionController {
 	private async setting(request: DesktopClientRequestWithoutId, patch: Partial<ResearchPreferences>): Promise<void> {
 		if (!this.state.connected || !this.state.ready || this.state.busy || this.state.running) return;
 		const epoch = this.epoch;
+		this.settingsRevision++;
 		this.update({ busy: true, error: undefined });
 		try {
 			const response = await this.client.request<SessionStatsResult>(request);
 			if (!this.isCurrent(epoch)) return;
-			if (!response.ok) throw new Error(response.error ?? "Could not update the research settings.");
+			if (!response.ok) throw new Error(response.error ?? researchText("settingsFailed"));
 			this.update(patch);
 			if (response.result?.availableThinkingLevels) this.applyStats(response.result);
 			this.persistPreferences();

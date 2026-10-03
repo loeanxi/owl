@@ -340,6 +340,11 @@ export const ZH: Record<keyof typeof EN, string> = {
 	"err.boundary.body": "⚠️ {label}渲染失败（已隔离，不影响其他内容）",
 	"err.fieldValidation": "GenUI 字段验证失败：{errors}",
 	"err.chartValidation": "chart 字段验证失败：{errors}",
+	"err.fallbackTitle": "这部分交互内容暂时无法显示",
+	"err.fallbackHint": "内容格式不完整或不受支持。可以复制原始内容，请助手重新生成。",
+	"err.fallbackDetails": "查看详情与原始内容",
+	"err.fallbackCopy": "复制原始内容",
+	"err.fallbackEmpty": "暂时没有可展示的交互内容。",
 	"err.fenceKeptAsCode": "⚠️ owl-ui {diagnostic} —— 围栏保持为代码块；请修正后重发。",
 	"err.fenceParse": "⚠️ owl-ui fence JSON 解析失败{diagnostic} —— 围栏保持为代码块；请让模型检查并修复 JSON 后重发。",
 };

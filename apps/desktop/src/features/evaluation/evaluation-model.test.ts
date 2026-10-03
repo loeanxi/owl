@@ -10,7 +10,7 @@ const profile: EvaluationProfile = {
 };
 
 function result(id: string, overrides: Partial<EvaluationResultView> = {}): EvaluationResultView {
-	return { id, taskId: "G01", sample: 1, attempt: 1, anonymousLabel: "A", revealed: true, profile, status: "completed", output: "", thinking: "", artifact: null, checks: [{ id: "format", label: "Format", status: "passed", detail: "Valid" }], error: null, durationMs: 1000, costUsd: null, usage: null, rating: null, retryOf: null, ...overrides };
+	return { id, taskId: "G01", sample: 1, attempt: 1, anonymousLabel: "A", revealed: true, profile, status: "completed", output: "", thinking: "", artifact: null, checks: [{ id: "format", label: "Format", status: "passed", detail: "Valid" }], error: null, durationMs: 1000, costUsd: null, usage: null, rating: null, retryOf: null, followups: [], ...overrides };
 }
 
 function run(results: EvaluationResultView[]): EvaluationRunView {

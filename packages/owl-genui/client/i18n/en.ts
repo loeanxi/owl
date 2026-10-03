@@ -351,6 +351,11 @@ export const EN = {
 	"err.boundary.body": "⚠️ {label} failed to render (isolated — the rest of the reply is unaffected)",
 	"err.fieldValidation": "GenUI field validation failed: {errors}",
 	"err.chartValidation": "chart field validation failed: {errors}",
+	"err.fallbackTitle": "This interactive content could not be displayed",
+	"err.fallbackHint": "The content format is incomplete or unsupported. Copy the original content and ask the assistant to regenerate it.",
+	"err.fallbackDetails": "View details and original content",
+	"err.fallbackCopy": "Copy original content",
+	"err.fallbackEmpty": "There is no interactive content to display yet.",
 	"err.fenceKeptAsCode": "⚠️ owl-ui {diagnostic} — the fence stays a code block; fix it and resend.",
 	"err.fenceParse":
 		"⚠️ owl-ui fence JSON failed to parse{diagnostic} — the fence stays a code block; ask the model to fix the JSON and resend.",

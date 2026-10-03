@@ -12,7 +12,7 @@
  */
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import type { ToolCard } from "../hooks/transcript.ts";
-import { GenuiActionContext, GenuiBlock, renderGenuiFence, setLocale, toolStateKey, type GenuiActionHandler, type GenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
+import { ErrorBoundary, GenuiActionContext, GenuiBlock, renderGenuiFence, resolveGenuiSpec, setLocale, toolStateKey, type GenuiActionHandler, type GenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
 import { getUiLanguage } from "../i18n/index.ts";
 import type { BridgeClient } from "../bridge/client.ts";
 
@@ -158,15 +158,25 @@ export function GenuiAnswerCard({ text, identity, settled, renderMarkdown }: {
 	);
 }
 
-/** render_ui 工具卡：details.genuiSpec 直接渲染 GenuiBlock（spec 已过 guard）。 */
+/** Revalidate saved tool output before rendering; it can predate the current schema. */
 export function GenuiToolCardView({ card }: { card: ToolCard }): React.JSX.Element | null {
 	const { sessionId } = useGenuiSession();
 	const spec = card.output?.genuiSpec;
-	if (!isGenuiSpecShape(spec)) return null;
+	const resolved = useMemo(() => {
+		if (!isGenuiSpecShape(spec)) return null;
+		const raw = JSON.stringify(spec);
+		const context = { source: { id: card.id, order: [0, 0, 0] as const } };
+		return { raw, context, spec: resolveGenuiSpec(raw, context) };
+	}, [spec, card.id]);
+	if (resolved === null) return null;
 	const stateKey = sessionId === undefined ? undefined : toolStateKey(sessionId, card.id);
 	return (
 		<div className="owl-genui-root">
-			<GenuiBlock spec={spec} stateKey={stateKey} animateEntrance={false} />
+			{resolved.spec === null ? renderGenuiFence(resolved.raw, card.id, resolved.context) : (
+				<ErrorBoundary key={stateKey ?? card.id}>
+					<GenuiBlock spec={resolved.spec} stateKey={stateKey} animateEntrance={false} />
+				</ErrorBoundary>
+			)}
 		</div>
 	);
 }

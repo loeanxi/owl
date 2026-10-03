@@ -15,7 +15,7 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 	const [connected, setConnected] = useState(true);
 	const [revision, setRevision] = useState(0);
 	const runRequest = useRef(0);
-	const selectedRun = useRef<string>();
+	const selectedRun = useRef<string | undefined>(undefined);
 	const polling = useRef(false);
 	const actionPending = useRef(false);
 	const mounted = useRef(true);

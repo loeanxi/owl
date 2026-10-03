@@ -40,7 +40,7 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 - image: `{"type":"image","src":"/mmx-files/result.png","alt":"<user-language description>"}` — 展示浏览器可访问的 http(s) 或同源相对图片地址；懒加载；不支持 `file:`/`data:` 等本地或主动协议
 - audio: `{"type":"audio","src":"/mmx-files/result.mp3","alt":"<user-language description>","loop":true?}` — 原生控制条；用户主动播放，不自动播放；仅 http(s) 或同源相对地址
 - video: `{"type":"video","src":"/mmx-files/result.mp4","alt":"<user-language description>","poster":"/mmx-files/poster.jpg"?,"loop":true?,"muted":true?,"aspectRatio":"16:9|4:3|1:1|9:16"?}` — 原生播放/音量/全屏控制；不自动播放
-- list: `{"type":"list","items":["..."] 或 [{"title":"...","desc":"..."}] 或嵌套节点(如 {"type":"badge","label":"TS"})}` — 行内可嵌节点（计入节点预算）
+- list: `{"type":"list","items":["<user-language item>",{"title":"<user-language item title>","desc":"<user-language description>"}]}` — `items` 必须是数组；每项可以是字符串、`{title,desc}` 记录或嵌套节点（如 `{"type":"badge","label":"TS"}`，计入节点预算）。正文不能写成 `list.content` 或 `list.text`
 - table: `{"type":"table","columns":["..."],"rows":[["...","..."]],"types":["text|num|delta|bar|badge"]?,"details":[[...]]?,"total":true?}` — 表头点击本地排序（升/降/还原，零往返）；数值感知：千分位（`1,234`）、`k/m/b`、`万/亿`、`%`、货币符号都能按真实数值比较，纯数值列自动右对齐；**带符号单元格自动着色**（`+12.4%` 绿、`-3` 红，无需额外字段）；`types` 可按列指定 `bar`（0-100 内联进度条）、`ring`（0-100 小环）、`spark`（单元格写 `"3,5,4,8"` 画微趋势线）、`badge`（胶囊标签）、`delta`（强制涨跌色）、`num`（强制右对齐）、`index`（行号）、`group`（首列当分组标题：该行只有第一格有内容时渲染成跨列小标题）；`"total":true` 追加合计行（数值列自动求和）；**`"export":true`**：表格上方出现「复制 Markdown / 复制 CSV」两个小按钮（纯本地剪贴板，不发请求）；**`"filter":"输入框id"`**：把表格和某个 input/select 绑定，读者输入即时过滤（`filterColumn` 可限定列）——数据多时**默认就该配一个**；**`"sortField":"下拉id"`** 用下拉的值（列名）排序；**`"details"` 与 rows 同序**，第 i 项是该行展开后的内容（可放任意组件，`null` = 该行不可展开）——首列出现 chevron，点开在整行下方展开明细，适合「主表 + 明细」
 - keyvalue: `{"type":"keyvalue","pairs":[{"key":"...","value":"..."}]}`
 - timeline: `{"type":"timeline","items":[{"title":"...","desc":"...","time":"..."}]}`
@@ -51,6 +51,12 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 - code: `{"type":"code","lang":"ts","code":"..."}`
 - callout: `{"type":"callout","tone":"info|success|warning|error","title":"...","content":"..."}`
 - steps: `{"type":"steps","current":n,"steps":[{"title":"...","desc":"..."}]}`
+
+**列表与标题**：`list` 本身没有 `title` 字段，条目记录中的 `title` 只属于该条目。独立列表的整体标题放在围栏根 `title`；内容原本就需要卡片分组时，使用外层 `card.title`。以下示例是完整合法 JSON，生成时按对话语言替换占位内容：
+
+```json owl-ui
+{"title":"<user-language title>","gap":10,"items":[{"type":"list","items":["<user-language item>",{"title":"<user-language item title>","desc":"<user-language description>"}]}]}
+```
 
 ### 图表
 - chart: `{"type":"chart","kind":"bars|line|donut","data":[{"label":"...","value":n,"color":"#hex?"}],"series":[{"label":"...","data":[...]}]?,"horizontal":true?}` — bars 默认；line 趋势；donut 占比；**series：bars 是分组柱，line 是多序列折线**；**`horizontal:true` 画横向柱**（排行/长标签首选）；**`stacked:true` 把 series 堆叠**（构成/占比随时间）；堆叠段够高时数值直接印在段内，鼠标悬停任意柱/段/点/扇区都会弹出即时 tooltip（堆叠显示该段数值 + 合计）。v3 渲染：宽度自适应、Y 轴 1/2/5 刻度、单序列负值在零线以下真实绘制、line 带面积渐变与抽稀 X 标签、donut 图例显示数值与百分比。**≤8 个点的快速对比用 chart；多序列、需要缩放/交互或数据量大时用 echart**
@@ -209,7 +215,7 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 {"items":[{"type":"chart","kind":"donut","data":[{"label":"A","value":1}],"series":[{"label":"B","data":[{"label":"B","value":2}]}]}]}
 ```
 
-为什么拒：`series` 只对 `bars`/`line` 有效；环形图给了 `series` 属于契约冲突，围栏会**静默降级为代码块**。
+为什么拒：`series` 只对 `bars`/`line` 有效；环形图给了 `series` 属于契约冲突，无法恢复时显示提示，并保留可展开的诊断与原文。
 
 ### 4. 排查诊断（顺序即叙事）
 
@@ -237,8 +243,8 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 
 1. **围栏放哪，组件就出现在哪** —— 文字在前后自然流动，不要用工具、不要解释"这是一个围栏"。**围栏一闭合就立即渲染**（不等整条回答结束），所以可以边写文字边出组件
 2. **组合优先**：复杂界面用 `grid`+`card`+`stat`+`table` 拼，不要追求单一巨型组件
-3. **JSON 必须严格合法，发出前完成 4 步自检**：插件**只**修标点级小错（字符串内半角引号、尾随逗号）；**缺括号/错括号等结构错误一律不修**，直接红横幅退化成代码块——写错就重发，别指望兜底。**最容易犯的错：字符串值里用了半角引号 `"`**——中文引语一律写 `“”` 或 `「」`。发出围栏前自检 4 条：① 括号配对：`{` 与 `}`、`[` 与 `]` 数量相等，**收尾序列逐个核对**（长表格最易在最后几行错位：把 `]]}]}` 写成 `]}]}]}`）② 无尾随逗号 ③ 值内引号用中文引号 ④ 最后一个字符必须是 `}`（**`}` 之后不要再写任何字符**——实测常见错误是习惯性追加 `</p>` 或一句解释，整条围栏就解析不了）。不要在 JSON 字符串里放 markdown；超长表格/列表拆成多个组件分开发，宁短勿长
-3.5. **字段名逐个核对（写错一个 = 整条围栏降级为代码块）**：某个组件的必填字段写错 / 缺失 → 该组件被丢弃 → 整份 spec 判定不可渲染 → 用户只看到一段裸 JSON。高频误写：`callout` 正文是 `content`（不是 text/body）；`table` 要 `columns` + `rows`（不是 data，只给二维 rows 时首行会当表头）；`keyvalue` 要 `pairs:[{key,value}]`（不是 items）；`diff` 是 `diffs`；图片/音视频是 `src`；`code` 是 `code`、`copy` 是 `text`。拿不准就把字段取 minimal 形态（渲染器按别名自动归一），不要凭直觉命名
+3. **JSON 必须严格合法，发出前完成 4 步自检**：不要依赖自动修复。渲染器会尝试确定性的标点修复，并在回复结束后尝试受限结构补全；无法恢复时显示提示，并保留可展开的诊断与原文。模型仍须输出合法 JSON，发现错误就按规范重发。**最容易犯的错：字符串值里用了半角引号 `"`**——中文引语一律写 `“”` 或 `「」`。发出围栏前自检 4 条：① 括号配对：`{` 与 `}`、`[` 与 `]` 数量相等，**收尾序列逐个核对**（长表格最易在最后几行错位：把 `]]}]}` 写成 `]}]}]}`）② 无尾随逗号 ③ 值内引号用中文引号 ④ 最后一个字符必须是 `}`（**`}` 之后不要再写任何字符**——实测常见错误是习惯性追加 `</p>` 或一句解释，整条围栏就解析不了）。不要在 JSON 字符串里放 markdown；超长表格/列表拆成多个组件分开发，宁短勿长
+3.5. **字段名逐个核对，不依赖别名猜测**：只有明确的确定性别名和结构可以恢复；必填字段缺失、类型错误或安全检查失败时仍可能不可渲染。可保留的组件按校验结果渲染，坏内容保留诊断与原文，不保证任意误写都能修复。规范字段：`list` 要 `items` 数组（不是 content/text），列表整体标题属于根 `title` 或外层 `card.title`；`callout` 正文是 `content`；`table` 要 `columns` + `rows`；`keyvalue` 要 `pairs:[{key,value}]`；`diff` 是 `diffs`；图片/音视频是 `src`；`code` 是 `code`、`copy` 是 `text`。拿不准就使用手册中的最小合法形态，不要凭直觉命名
 4. **不要嵌套围栏**：owl-ui 里不要再包 ``` 代码围栏
 5. **深色主题友好**：配色选深底亮色；UI 主题跟随应用
 6. **场景判断**：先查上面的映射表 —— 内容类型命中就上对应组件；只有纯文字问答、一句话能说清时才不用
@@ -258,4 +264,4 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
     ````
 
     同理：需要用户执行的脚本放进 `code` 节点（`lang`: `bash`/`python`）或正文围栏，并保证**从第一行到最后一行一次粘进终端就能跑**。
-11. **先思后发（复杂 UI）**：发出 ```owl-ui 围栏前，若 spec ≥3 个组件或含 `table`（长表格最易括号错位），先在思考里把 JSON 逐字段核对一遍再输出正文；渲染器会自动修复大部分标点/括号错误，但字段名写错的组件会被直接丢弃
+11. **先思后发（复杂 UI）**：发出 ```owl-ui 围栏前，若 spec ≥3 个组件或含 `table`（长表格最易括号错位），先在思考里把 JSON 逐字段核对一遍再输出正文；自动恢复只作受限兜底，不能替代合法 JSON 与规范字段

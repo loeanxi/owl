@@ -10,6 +10,11 @@
 - Added a desktop Gmail workspace with independently authorized accounts, a unified inbox, scoped mailbox Agent conversations, editable reply drafts, and confirmation of the exact message before sending.
 - Added a copy key (`app.message.copy`, default `ctrl+x`) to OAuth sign-in screens in `/login`, `/mcp`, and `/mcp login`, which copies the sign-in URL when the browser cannot be opened or the wrapped link cannot be selected.
 
+### Changed
+
+- Compacted the model evaluation navigation and current-run summary, and removed redundant sidebar help.
+- Replaced task-library illustration cards with a compact list of IDs, task summaries, categories, versions, sources, and detail actions.
+
 ### Fixed
 
 - Fixed the shrinkwrap shipping vulnerable `brace-expansion` 5.0.9 by pinning `brace-expansion` 5.0.12 as a direct dependency (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) ([#10288](https://github.com/earendil-works/pi/issues/10288))

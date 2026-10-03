@@ -26,7 +26,7 @@
 .primitiveLabel {
 	font-size: var(--dsl-g-font-data, 12px);
 	color: var(--dsw-alias-label-secondary, #a3a3a3);
-	font-family: var(--dsl-g-font-body, 14px);
+	font-family: var(--font-sans, system-ui, sans-serif);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -54,15 +54,15 @@
 }
 
 .codeScroll.wrap pre,
-.diffScroll.wrap .diffLine span {
+.diffScroll.wrap .diffLine {
 	white-space: pre-wrap;
-	word-break: break-all;
+	overflow-wrap: anywhere;
 }
 
 .codeScroll pre {
 	margin: 0;
 	padding: 10px 12px;
-	font-size: var(--dsl-g-font-data, 12px);
+	font-size: var(--owl-chat-code-font-size, 12px);
 	line-height: 1.55;
 	color: var(--dsw-alias-label-primary, #e8e8e8);
 	white-space: pre;
@@ -153,3 +153,30 @@
 	font-style: italic;
 	padding-left: 18px;
 }
+
+/* Failed inline UI keeps a short summary; source and diagnostics are opt-in. */
+.fenceFallback {
+	min-width: 0;
+	max-width: 100%;
+	margin: 12px 0;
+	padding: 12px 14px;
+	border: 1px solid var(--dsw-alias-border-l1, #3d3d3d);
+	border-radius: 10px;
+	background: var(--dsw-alias-bg-layer-2, #282828);
+	color: var(--dsw-alias-label-primary, #e8e8e8);
+	font-family: var(--font-sans, system-ui, sans-serif);
+	font-size: var(--owl-chat-font-size, 14px);
+	line-height: var(--owl-chat-line-height, 1.5);
+	overflow-wrap: anywhere;
+}
+.fenceNotice { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.fenceNotice > svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--dsw-alias-state-warn-primary, #d9a03c); }
+.fenceNotice > div { min-width: 0; }
+.fenceNotice strong { font-weight: 600; }
+.fenceNotice p, .fenceEmpty { margin: 4px 0 0; color: var(--dsw-alias-label-secondary, #a3a3a3); font-size: 12px; line-height: 1.6; }
+.fenceDetails { margin-top: 10px; min-width: 0; }
+.fenceDetails > summary { width: fit-content; max-width: 100%; cursor: pointer; color: var(--dsw-alias-label-secondary, #a3a3a3); font-size: 12px; padding: 3px 0; }
+.fenceDetails > summary:hover { color: var(--dsw-alias-label-primary, #e8e8e8); }
+.fenceDetails > summary:focus-visible, .copyBtn:focus-visible, .diffCollapseBtn:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #50a992); outline-offset: 3px; border-radius: 4px; }
+.fenceDetails[open] > summary { margin-bottom: 10px; }
+.fenceDiagnostic { margin: 0 0 12px; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary, #a3a3a3); font: var(--owl-chat-code-font-size, 12px)/1.6 var(--ds-font-family-code, monospace); }

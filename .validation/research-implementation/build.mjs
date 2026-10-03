@@ -11,7 +11,7 @@ export const repo = resolve(directory, "../..");
 export const output = join(directory, "public");
 
 /** Compile the actual desktop entry without its native bridge or a production build. */
-export async function buildHarness() {
+export async function buildHarness({ isolateEvaluation = false } = {}) {
   const source = join(repo, "apps/desktop/src");
   await mkdir(output, { recursive: true });
   const bundle = await build({
@@ -23,6 +23,10 @@ export async function buildHarness() {
     metafile: true,
     plugins: [{ name: "compile-tailwind-separately", setup(builder) {
       builder.onLoad({ filter: /[\\/]src[\\/]index\.css$/ }, () => ({ contents: "", loader: "css" }));
+      if (isolateEvaluation) {
+        builder.onResolve({ filter: /features[\\/]evaluation[\\/]EvaluationPage\.tsx$/ }, () => ({ path: "evaluation-outside-research-validation", namespace: "research-validation" }));
+        builder.onLoad({ filter: /.*/, namespace: "research-validation" }, () => ({ contents: 'export function EvaluationPage() { return <section>模型测评未纳入本次研究模式隔离验证。</section>; }', loader: "tsx", resolveDir: source }));
+      }
     } }],
   });
   const indexCss = await readFile(join(source, "index.css"), "utf8");
@@ -32,7 +36,7 @@ export async function buildHarness() {
   await writeFile(join(output, "app.js"), bundle.outputFiles.filter((file) => file.path.endsWith(".js")).map((file) => file.text).join("\n"));
   await writeFile(join(output, "app.css"), compiler.build(scanner.scan()) + "\n" + importedCss);
   await writeFile(join(output, "index.html"), '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL 研究模式 · 隔离验证</title><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
-  const evidence = { actualApp: true, bridge: "offline WebSocket fixture", paidCalls: 0, sources: {} };
+  const evidence = { actualApp: true, bridge: "offline WebSocket fixture", paidCalls: 0, excludedFeatures: isolateEvaluation ? ["evaluation"] : [], sources: {} };
   for (const file of Object.keys(bundle.metafile.inputs).filter((name) => /App\.tsx|ChatStream\.tsx|Composer\.tsx|features[\\/]research/.test(name))) {
     const path = resolve(file);
     evidence.sources[file] = createHash("sha256").update(await readFile(path)).digest("hex");
@@ -42,6 +46,6 @@ export async function buildHarness() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const evidence = await buildHarness();
+  const evidence = await buildHarness({ isolateEvaluation: process.argv.includes("--isolate-evaluation") });
   console.log(`Actual desktop App compiled; ${Object.keys(evidence.sources).length} relevant source hashes recorded.`);
 }

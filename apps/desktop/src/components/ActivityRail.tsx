@@ -1,6 +1,6 @@
 import { useT } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
-import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
+import { IconChat, IconMore, IconNews } from "./icons.tsx";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
 import "./navigation-design.css";
 
@@ -15,13 +15,11 @@ export function ActivityRail({
 	view,
 	settingsOpen = false,
 	onSelect,
-	onOpenSettings,
 }: {
 	view: RailView;
 	settingsOpen?: boolean;
 	/** 切换主导航视图，保留各视图当前内容。 */
 	onSelect: (view: RailView) => void;
-	onOpenSettings: () => void;
 }): React.JSX.Element {
 	const t = useT();
 	const researchTitle = useResearchEntryText();
@@ -73,16 +71,6 @@ export function ActivityRail({
 				</svg>
 			</button>
 
-			<button
-				type="button"
-				className={itemClass(settingsOpen)}
-				title={t("rail.settings")}
-				aria-label={t("rail.settings")}
-				aria-current={settingsOpen ? "page" : undefined}
-				onClick={onOpenSettings}
-			>
-				<IconSettings className="h-[18px] w-[18px]" />
-			</button>
 			<button type="button" className={itemClass(false)} title={t("rail.more")} aria-label={t("rail.more")} disabled>
 				<IconMore className="h-[18px] w-[18px]" />
 			</button>
@@ -118,16 +106,6 @@ export function ActivityRail({
 				{mediaPlaying && <span className="owl-rail-media-dot" aria-hidden="true" />}
 			</button>
 
-			{/* 底部：owl 头像位。先复用为设置入口，后续可挂账号/状态菜单。 */}
-			<button
-				type="button"
-				className="owl-rail-avatar"
-				title="owl"
-				aria-label={t("rail.owlSettings")}
-				onClick={onOpenSettings}
-			>
-				<img src="/owl.svg" alt="owl" className="h-4.5 w-4.5" draggable={false} />
-			</button>
 		</nav>
 	);
 }

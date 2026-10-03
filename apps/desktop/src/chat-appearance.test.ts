@@ -8,8 +8,8 @@ test("missing and malformed saved preferences use independent defaults", () => {
 	}
 	const parsed = parseChatAppearance({});
 	parsed.fontSize = 22;
-	assert.equal(DEFAULT_CHAT_APPEARANCE.fontSize, 16);
-	assert.equal(parseChatAppearance({}).fontSize, 16);
+	assert.equal(DEFAULT_CHAT_APPEARANCE.fontSize, 14);
+	assert.equal(parseChatAppearance({}).fontSize, 14);
 });
 
 test("invalid fields fall back independently without discarding valid display preferences", () => {
@@ -83,7 +83,7 @@ test("applying preferences changes only chat variables and publishes the complet
 	assert.equal(dataset.owlChatMotion, "on");
 	assert.deepEqual(notifications, [
 		"owl-chat-appearance-change:expanded:off:20px",
-		"owl-chat-appearance-change:compact:on:16px",
+		"owl-chat-appearance-change:compact:on:14px",
 	]);
 });
 

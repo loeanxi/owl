@@ -1,5 +1,5 @@
 import MarkdownIt from "markdown-it";
-import type { EvaluationResultView, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
+import type { EvaluationRating, EvaluationResultView, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 // Model answers are text. Remote images must never make a network request in the app.
@@ -42,4 +42,15 @@ export interface EvaluationConversationState {
 	scrollTop: number;
 	following: boolean;
 	thinkingOpen: Record<string, boolean>;
+}
+
+export interface EvaluationRunUiState {
+	conversations: Map<string, EvaluationConversationState>;
+	ratings: Record<string, EvaluationRating>;
+	selectedAttempts: Record<string, string>;
+	attemptCounts: Map<string, number>;
+}
+
+export function createEvaluationRunUiState(): EvaluationRunUiState {
+	return { conversations: new Map(), ratings: {}, selectedAttempts: {}, attemptCounts: new Map() };
 }

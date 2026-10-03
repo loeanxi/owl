@@ -5,9 +5,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { AgentSession } from "../src/core/agent-session.ts";
+import { getQuestionChannel, registerPendingQuestion } from "../src/core/question-channel.ts";
 import { getResearchMode, RESEARCH_PUBLISH_TOOL } from "../src/core/research/agent.ts";
 import type {
 	DesktopClientRequestWithoutId,
+	QuestionRequestMessage,
 	ServerResponseMessage,
 	SessionSnapshotPayload,
 } from "../src/modes/desktop/protocol.ts";
@@ -113,10 +115,64 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 		await request(socket, { type: "session.prompt", sessionId: ordinary.result.sessionId, message: "ordinary" });
 		expect(observed[0].mode).toBeUndefined();
 		expect(observed[0].tools).not.toContain(RESEARCH_PUBLISH_TOOL);
-		const research = await request<SessionSnapshotPayload>(socket, { type: "session.create", researchMode: "auto" });
-		expect(research).toMatchObject({ ok: true, result: { researchMode: "auto" } });
+		const research = await request<SessionSnapshotPayload>(socket, {
+			type: "session.create",
+			researchMode: "auto",
+			approvalMode: "confirm",
+		});
+		expect(research).toMatchObject({ ok: true, result: { researchMode: "auto", approvalMode: "confirm" } });
 		if (!research.result?.sessionId) throw new Error(JSON.stringify(research));
 		const id = research.result.sessionId;
+		const questionId = randomUUID();
+		const question: QuestionRequestMessage = {
+			type: "question_request",
+			requestId: questionId,
+			sessionId: id,
+			toolCallId: "scope-question",
+			questions: [
+				{
+					header: "范围",
+					question: "先看样本？",
+					multiSelect: false,
+					options: [{ label: "样本", description: "少量记录" }],
+				},
+			],
+		};
+		const resolveQuestion = vi.fn();
+		registerPendingQuestion(questionId, { sessionId: id, toolCallId: question.toolCallId, resolve: resolveQuestion });
+		const receiveQuestion = () =>
+			new Promise<QuestionRequestMessage>((done, reject) => {
+				const timer = setTimeout(() => {
+					socket.off("message", receive);
+					reject(new Error("Question replay timed out"));
+				}, 5000);
+				const receive = (raw: unknown) => {
+					const value = JSON.parse(String(raw)) as QuestionRequestMessage;
+					if (value.type !== "question_request" || value.requestId !== questionId) return;
+					clearTimeout(timer);
+					socket.off("message", receive);
+					done(value);
+				};
+				socket.on("message", receive);
+			});
+		const originalQuestion = receiveQuestion();
+		getQuestionChannel()?.broadcast(question);
+		expect(await originalQuestion).toEqual(question);
+		const replayedQuestion = receiveQuestion();
+		await request(socket, { type: "session.resume", sessionId: id });
+		expect(await replayedQuestion).toEqual(question);
+		await request(socket, { type: "question.response", requestId: questionId, answers: [], cancelled: true });
+		expect(resolveQuestion).toHaveBeenCalledWith({ answers: [], cancelled: true });
+		await request(socket, { type: "session.setApprovalMode", sessionId: id, approvalMode: "plan" });
+		expect(
+			await request(socket, {
+				type: "session.resume",
+				sessionId: id,
+				approvalMode: "auto",
+				provider: "unknown",
+				model: "ordinary-chat",
+			}),
+		).toMatchObject({ ok: true, result: { approvalMode: "plan" } });
 		expect(
 			await request(socket, {
 				type: "session.prompt",
@@ -139,13 +195,47 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 		});
 		expect(invalidPrompt.ok).toBe(false);
 		expect(prompt).toHaveBeenCalledTimes(2);
+		const allHistory = await request<Array<{ id: string; scope: string }>>(socket, { type: "session.list" });
+		expect(allHistory.result).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: ordinary.result.sessionId, scope: "chat" }),
+				expect.objectContaining({ id, scope: "research" }),
+			]),
+		);
+		const researchHistory = await request<Array<{ id: string; scope: string }>>(socket, {
+			type: "session.list",
+			scope: "research",
+		});
+		expect(researchHistory.result?.map((row) => row.id)).toEqual([id]);
+		const ordinaryHistory = await request<Array<{ id: string; scope: string }>>(socket, {
+			type: "session.list",
+			scope: "chat",
+		});
+		expect(ordinaryHistory.result?.map((row) => row.id)).toEqual([ordinary.result.sessionId]);
+		expect(await request(socket, { type: "session.list", scope: "other" as "chat" })).toMatchObject({
+			ok: false,
+			error: "无效的会话目录类型",
+		});
 		socket.close();
 		await bridge.close();
 		bridge = await start();
 		const reopened = await connect(bridge);
-		expect(await request(reopened, { type: "session.resume", sessionId: id })).toMatchObject({
+		const restartedResearchHistory = await request<Array<{ id: string; scope: string }>>(reopened, {
+			type: "session.list",
+			scope: "research",
+		});
+		expect(restartedResearchHistory.result?.map((row) => row.id)).toEqual([id]);
+		expect(
+			await request(reopened, {
+				type: "session.resume",
+				sessionId: id,
+				approvalMode: "auto",
+				provider: "unknown",
+				model: "ordinary-chat",
+			}),
+		).toMatchObject({
 			ok: true,
-			result: { researchMode: "crawl", messages: [{ role: "user", content: "整理一页资料" }] },
+			result: { researchMode: "crawl", approvalMode: "plan", messages: [{ role: "user", content: "整理一页资料" }] },
 		});
 		expect(
 			await request(reopened, {

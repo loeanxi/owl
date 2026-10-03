@@ -15,7 +15,7 @@ import type {
 	OwlImageProvider,
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
-import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, PRESET_DEFAULT_COLORS, type OwlAppearanceColors, type OwlPresetId } from "../owl-appearance.ts";
+import { applyOwlAppearance, DEFAULT_ACCENTS, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, PRESET_DEFAULT_COLORS, type OwlAppearanceColors, type OwlPresetId } from "../owl-appearance.ts";
 import { DEFAULT_OWL_WALLPAPER, parseOwlWallpaper, type OwlWallpaperSettings, type WallpaperContentRating } from "../wallpaper.ts";
 import { entryDirPrefix, parseUserPropDefs, weColorToHex, weEvalCondition, weHexToColor, type WallpaperPropDef } from "../we-props.ts";
 import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
@@ -43,9 +43,9 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-/** 强调色预置色板（默认绿居首；自定义走原生拾色器）。 */
+/** 强调色预置色板（跟随主题的默认松石绿居首；自定义走原生拾色器）。 */
 const ACCENT_PRESETS = [
-	{ value: DEFAULT_ACCENT, labelKey: "settings.appearance.accentDefault" },
+	{ value: "", labelKey: "settings.appearance.accentDefault" },
 	{ value: "#3b82f6", labelKey: "settings.appearance.accentBlue" },
 	{ value: "#06b6d4", labelKey: "settings.appearance.accentCyan" },
 	{ value: "#8b5cf6", labelKey: "settings.appearance.accentViolet" },
@@ -2876,7 +2876,8 @@ export function SettingsPage({
 									<SettingRow title={t("settings.appearance.accent")} desc={t("settings.appearance.accentDesc")}>
 										<div className="owl-settings-swatches" role="radiogroup" aria-label={t("settings.appearance.accent")}>
 											{ACCENT_PRESETS.map((preset) => {
-												const active = owlAppearance.accent === "" ? preset.value === DEFAULT_ACCENT : owlAppearance.accent === preset.value;
+												const active = owlAppearance.accent === preset.value;
+												const displayColor = preset.value || DEFAULT_ACCENTS[resolvedTheme];
 												return (
 													<button
 														key={preset.value}
@@ -2885,7 +2886,7 @@ export function SettingsPage({
 														aria-checked={active}
 														title={t(preset.labelKey)}
 														className={`owl-settings-swatch ${active ? "is-active" : ""}`}
-														style={{ "--swatch": preset.value } as React.CSSProperties}
+														style={{ "--swatch": displayColor } as React.CSSProperties}
 														disabled={busy || !owlAppearanceLoaded}
 														onClick={() => saveAppearanceColors({ ...owlAppearance, accent: preset.value })}
 													/>
@@ -2899,11 +2900,11 @@ export function SettingsPage({
 													type="color"
 													aria-label={t("settings.appearance.accentCustom")}
 													disabled={busy || !owlAppearanceLoaded}
-													value={owlAppearance.accent || DEFAULT_ACCENT}
+													value={owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}
 													onChange={(event) => saveAppearanceColors({ ...owlAppearance, accent: event.currentTarget.value })}
 												/>
 											</label>
-											<span className="owl-settings-accent-hex">{owlAppearance.accent || DEFAULT_ACCENT}</span>
+											<span className="owl-settings-accent-hex">{owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}</span>
 										</div>
 									</SettingRow>
 									<SettingRow

@@ -5,10 +5,10 @@
  * ChatStream 的 AnswerCard 直接把 ```owl-ui 围栏段交到这里，单通道即可。
  * 与 dsh 版的差异：
  *  - panel:true（会话面板）未移植——按普通内联块渲染；
- *  - 修复失败时不再依赖宿主 CodeBlock，用 owl 本地原语展示原始 JSON 并附诊断；
+ *  - 修复失败时显示紧凑提示，诊断与可复制的原始 JSON 按需展开；
  *  - artifact 导出（ExportableGenuiBlock）未移植，直接渲染 GenuiBlock。
  */
-import { type Key, type ReactNode } from "react";
+import { type Key, type ReactNode, useMemo } from "react";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { t, useT } from "./i18n/index.ts";
 import { fenceStateKey } from "./interaction-store.ts";
@@ -18,6 +18,7 @@ import type { GenuiSpec } from "./spec.ts";
 import { describeJsonFailure } from "./shared/fence-repair.ts";
 import { resolveFence, resolveFenceSpec, type FenceResolution } from "./shared/fence-resolve.ts";
 import { GenuiBlock } from "./GenuiBlock.tsx";
+import css from "./owl-primitives.module.css";
 
 /** Settled fence source identity (data shape, host-independent). */
 export interface GenuiFenceSource {
@@ -34,18 +35,6 @@ export interface GenuiFenceContext {
 	/** Present only for settled/interrupted renders with a stable identity. */
 	readonly source?: GenuiFenceSource;
 }
-
-const FENCE_ERROR_STYLE: React.CSSProperties = {
-	margin: "0 0 6px",
-	padding: "6px 10px",
-	borderRadius: 6,
-	background: "rgba(239, 68, 68, 0.14)",
-	border: "1px solid rgba(239, 68, 68, 0.4)",
-	color: "#f87171",
-	fontSize: 12,
-	lineHeight: 1.55,
-	whiteSpace: "pre-wrap",
-};
 
 /** Format chart-specific process errors without maintaining a second validator. */
 function formatChartProcessErrors(errors: string[]): string | null {
@@ -65,8 +54,8 @@ function processSemanticFailure(resolution: FenceResolution): string | null {
 }
 
 /**
- * Explain why a ```owl-ui body cannot render, as the one-line message the
- * renderer shows. Returns null when there is nothing to report (the body is
+ * Explain why a ```owl-ui body cannot render, for the expandable diagnostic.
+ * Returns null when there is nothing to report (the body is
  * renderable, or it is an empty/streaming half).
  */
 export function describeFenceFailure(raw: string, options: { settled?: boolean } = {}): string | null {
@@ -93,21 +82,33 @@ export function FenceDiagnostic({ raw, settled = false }: { raw: string; settled
 	const message = describeFenceFailure(raw, { settled });
 	if (message === null) return null;
 	return (
-		<div style={FENCE_ERROR_STYLE} role="alert">
-			{message}
+		<div className={css.fenceNotice} role="status">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 3v1" strokeLinecap="round" /></svg>
+			<div><strong>{t("err.fallbackTitle")}</strong><p>{t("err.fallbackHint")}</p></div>
 		</div>
 	);
 }
 
-/** Fallback for a ```owl-ui fence whose body has no finished component yet:
- * the raw JSON as a code block, plus a diagnostic once the message settled. */
+/** Keep failed content inspectable without making raw JSON the main answer. */
 function FenceFallback({ raw, fenceKey }: { raw: string; fenceKey: Key }) {
 	useT();
+	const message = describeFenceFailure(raw, { settled: true });
+	const displaySource = useMemo(() => {
+		try {
+			return JSON.stringify(JSON.parse(raw), null, 2);
+		} catch {
+			return raw;
+		}
+	}, [raw]);
 	return (
-		<div>
-			<FenceDiagnostic raw={raw} settled />
-			<CodeBlock key={fenceKey} {...codeBlockLabels()} code={`${raw}\n`} lang="owl-ui" />
-		</div>
+		<section className={css.fenceFallback} data-genui-fallback>
+			{message === null ? <p className={css.fenceEmpty}>{t("err.fallbackEmpty")}</p> : <FenceDiagnostic raw={raw} settled />}
+			{raw.trim() !== "" && <details className={css.fenceDetails}>
+				<summary>{t("err.fallbackDetails")}</summary>
+				{message !== null && <p className={css.fenceDiagnostic}>{message}</p>}
+				<CodeBlock key={fenceKey} {...codeBlockLabels()} copyLabel={t("err.fallbackCopy")} code={displaySource} copyText={raw} wrap lang="owl-ui" />
+			</details>}
+		</section>
 	);
 }
 
@@ -136,9 +137,8 @@ function renderInlineFence(key: Key, context: GenuiFenceContext | undefined, spe
 	return (
 		// Keep the document slot mounted across streaming→settled; GenuiBlock
 		// owns durable-state changes, while a session change resets the tree.
-		// Repaired specs render SILENTLY: once the UI renders, no amber note
-		// tells the user something was wrong — only an unrecoverable body keeps
-		// the red diagnostic.
+		// Recovered content renders normally; only unrecoverable content gets
+		// the compact fallback with inspectable diagnostics and original source.
 		<ErrorBoundary key={JSON.stringify([sessionId, key])} label={t("err.boundary.fence")}>
 			<GenuiBlock spec={spec} animateEntrance={context?.source === undefined} stateKey={stateKey} />
 		</ErrorBoundary>
@@ -149,7 +149,7 @@ function renderInlineFence(key: Key, context: GenuiFenceContext | undefined, spe
  * The resolved fence render for owl: a spec renders the inline GenuiBlock
  * tree (`panel:true` fences render inline too — the session panel dock is a
  * dsh feature not ported to owl MVP), an unrepairable body renders the
- * fallback code block + diagnostic.
+ * compact recovery notice with expandable source and diagnostic.
  */
 export function renderGenuiFence(raw: string, key: Key, context?: GenuiFenceContext): ReactNode {
 	const spec = resolveGenuiSpec(raw, context);

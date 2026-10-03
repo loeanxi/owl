@@ -1,0 +1,31 @@
+{
+  "mode": "before",
+  "errors": [],
+  "mutations": [],
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 860,
+      "sidebarWidth": 224,
+      "cardHeight": 61,
+      "cardTop": 279,
+      "firstTaskTop": 376,
+      "footerCount": 1,
+      "titleEllipsis": "clip",
+      "taskOverflow": "auto"
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "sidebarWidth": 194,
+      "cardHeight": 61,
+      "cardTop": 279,
+      "firstTaskTop": 376,
+      "footerCount": 1,
+      "titleEllipsis": "clip",
+      "taskOverflow": "auto"
+    }
+  ],
+  "paidCalls": 0,
+  "success": true
+}

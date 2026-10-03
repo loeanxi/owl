@@ -225,7 +225,7 @@ try {
     const bootstrap = await rpc({ action: "bootstrap" });
     assert.equal(bootstrap.tasks.length, 24); assert.equal(bootstrap.models.length, 2);
     await area().locator(".eval-nav").getByRole("button", { name: /题库/ }).click();
-    assert.equal(await area().locator(".eval-library-card").count(), 24);
+    assert.equal(await area().locator(".eval-library-row").count(), 24);
     await screenshot("01-library.png");
   });
   let firstRunId;
@@ -346,7 +346,7 @@ try {
     for (let number = 1; number <= 3; number++) await dialog.getByRole("textbox", { name: `评价项 ${number}`, exact: true }).fill(`Criterion ${number}`);
     await screenshot("06-custom-editor.png");
     await dialog.getByRole("button", { name: "保存题目", exact: true }).click();
-    await area().locator(".eval-library-card").filter({ hasText: "Browser custom task" }).waitFor();
+    await area().locator(".eval-library-row").filter({ hasText: "Browser custom task" }).waitFor();
     const bootstrap = await rpc({ action: "bootstrap" });
     assert.equal(bootstrap.tasks.length, 25); assert.ok(bootstrap.tasks.find((task) => task.title === "Browser custom task" && !task.builtin));
   });

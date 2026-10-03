@@ -168,6 +168,30 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
 		Array.isArray(children)
 			? children.map((child, index) => normalizeNodeValue(child, `${childPath}[${index}]`))
 			: children;
+	let recoveredListContent = false;
+	const listContentField = "content" in out ? "content" : "text";
+	const listContent = out[listContentField];
+	if (
+		type === "list" &&
+		!("items" in out) &&
+		typeof listContent === "string" &&
+		listContent.trim() !== "" &&
+		(out.title === undefined || typeof out.title === "string")
+	) {
+		// A prose list is one authored item. Keep its text verbatim rather than
+		// guessing list boundaries or inventing entries from a heading alone.
+		out.items = [listContent];
+		delete out[listContentField];
+		recoveredListContent = true;
+		warnings.push({
+			kind: "alias",
+			path: `${path}.${listContentField}`,
+			message: `${path}.${listContentField} normalized/adopted as 'items'`,
+			type,
+			field: listContentField,
+			canonical: "items",
+		});
+	}
 
 	if (type === "file-tree" && out.items !== undefined) {
 		out.items = defaultFileTreeDirectories(out.items);
@@ -222,6 +246,27 @@ function normalizeNode(value: unknown, path: string, warnings: GenuiDiagnostic[]
 			if (!("desc" in normalizedHolder) && typeof description === "string") normalizedHolder.desc = description;
 			return normalizedHolder;
 		});
+		if (recoveredListContent && typeof out.title === "string") {
+			// A list has no title field. Preserve the authored group heading in
+			// the standard titled container, with the list as its only child.
+			const { title, span, panel, append, ...list } = out;
+			warnings.push({
+				kind: "alias",
+				path: `${path}.title`,
+				message: `${path}.title preserved in a containing card`,
+				type,
+				field: "title",
+				canonical: "card.title",
+			});
+			return {
+				type: "card",
+				title,
+				items: [list],
+				...(span !== undefined ? { span } : {}),
+				...(panel !== undefined ? { panel } : {}),
+				...(append !== undefined ? { append } : {}),
+			};
+		}
 	} else if (type === "keyvalue" && Array.isArray(out.pairs)) {
 		// Pair-as-array (`[[key, value], …]` or `[[key], …]`) is what a model
 		// writes when it treats keyvalue as a 2-column list. Canonicalize before

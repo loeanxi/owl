@@ -133,7 +133,8 @@ test("reconnect reloads transcript after missed events without creating or resta
 		await controller.attach(); await controller.send("旧问题");
 		controller.setConnected(false); controller.setConnected(true); await controller.attach();
 		assert.equal(resumeCount, 1);
-		assert.equal(controller.getSnapshot().entries[1]?.kind === "assistant" && controller.getSnapshot().entries[1].text, "断线期间已完成");
+		const answer = controller.getSnapshot().entries[1];
+		assert.equal(answer?.kind === "assistant" && answer.text, "断线期间已完成");
 		assert.equal(controller.getSnapshot().running, false);
 		assert.equal(bridge.requests.filter((request) => request.type === "session.create").length, 1);
 		assert.equal(bridge.requests.filter((request) => request.type === "session.prompt").length, 1);
@@ -183,18 +184,74 @@ test("restore does not duplicate completed messages but retains incomplete strea
 	} finally { controller.dispose(); }
 });
 
+test("a rejected prompt retains attachments for retry without leaving a false user turn", async () => {
+	let rejectPrompt = true;
+	const { controller, bridge } = fresh((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.prompt" ? { ok: !rejectPrompt, ...(rejectPrompt ? { error: "prompt rejected" } : {}) } : { ok: true, result: stats });
+	try {
+		await controller.attach();
+		const images = [{ type: "image" as const, data: "attached", mimeType: "image/png" }];
+		assert.equal(await controller.send("图片资料", images), false);
+		assert.equal(controller.getSnapshot().entries.length, 0);
+		assert.deepEqual(controller.getSnapshot().failedPrompt?.images, images);
+		rejectPrompt = false;
+		const failed = controller.getSnapshot().failedPrompt;
+		assert.ok(failed);
+		assert.equal(await controller.send(failed.text, failed.images), true);
+		assert.equal(controller.getSnapshot().entries.length, 1);
+		assert.deepEqual(bridge.requests.findLast((request) => request.type === "session.prompt")?.type === "session.prompt" && bridge.requests.findLast((request) => request.type === "session.prompt")?.images, images);
+	} finally { controller.dispose(); }
+});
+
+test("late stats cannot undo an acknowledged model switch", async () => {
+	let delayStats = false;
+	let releaseStats: ((response: Response) => void) | undefined;
+	const { controller, bridge } = fresh((request) => {
+		if (request.type === "session.create") return { ok: true, result: { sessionId: "research-1" } };
+		if (request.type === "session.stats") return delayStats ? new Promise<Response>((resolve) => { releaseStats = resolve; }) : { ok: true, result: stats };
+		if (request.type === "session.setModel") return { ok: true, result: { ...stats, model: { provider: "new", id: "model" } } };
+		return { ok: true };
+	});
+	try {
+		await controller.attach(); await controller.send("资料");
+		delayStats = true;
+		bridge.emit("research-1", { type: "agent_settled" });
+		await controller.setModel("new/model");
+		assert.ok(releaseStats);
+		releaseStats({ ok: true, result: stats });
+		await Promise.resolve(); await Promise.resolve();
+		assert.equal(controller.getSnapshot().model, "new/model");
+	} finally { controller.dispose(); }
+});
+
+test("a plain chat snapshot is rejected without overwriting the research binding", async () => {
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "main-chat", cwd: "D:/owl", messages: [], messageEntryIds: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "main-chat");
+		await controller.attach();
+		assert.equal(controller.getSnapshot().ready, false);
+		assert.ok(controller.getSnapshot().error);
+		assert.equal(store.getItem(researchSessionKey("D:/owl")), "main-chat");
+	} finally { controller.dispose(); }
+});
+
 test("publish validation refuses fake prose, dangling evidence and malformed cells; CSV and links stay safe", () => {
 	assert.equal(researchResultOf({ text: "I found three rows" }), undefined);
 	assert.equal(researchResultOf({ ...published, findings: [{ kind: "fact", text: "claim", sourceIds: ["unknown"] }] }), undefined);
 	assert.equal(researchResultOf({ ...published, rows: [{ name: { nested: true } }] }), undefined);
+	assert.equal(researchResultOf({ ...published, rows: [{ name: "valid", extra: "unexpected" }] }), undefined);
+	assert.equal(researchResultOf({ ...published, rows: [{}] }), undefined);
+	assert.equal(researchResultOf({ ...published, columns: [{ key: "__proto__", label: "invalid" }], rows: [JSON.parse('{"__proto__":"value"}')] }), undefined);
+	assert.equal(researchResultOf({ ...published, findings: [{ kind: "fact", text: "claim", sourceIds: [] }] }), undefined);
+	assert.equal(researchResultOf({ ...published, sources: [{ id: "source-1", title: "unsafe", url: "javascript:alert(1)" }] }), undefined);
 	assert.equal(publishedResults([{ role: "toolResult", toolName: "other", details: { researchResult: published } }]).length, 0);
 	assert.equal(publishedResults([{ role: "toolResult", toolName: "research_publish", isError: true, details: { researchResult: published } }]).length, 0);
 	assert.equal(safeSourceUrl("javascript:alert(1)"), undefined);
 	assert.equal(safeSourceUrl("file:///D:/private.txt"), undefined);
 	assert.equal(safeSourceUrl("https://user:secret@example.org"), undefined);
 	assert.equal(safeSourceUrl("https://example.org"), "https://example.org/");
-	const csv = researchCsv({ ...published, columns: [{ key: "name", label: "=header" }], rows: [{ name: " \t=WEBSERVICE(\"url\")" }, { name: "record,\"quoted\"" }] });
+	const csv = researchCsv({ ...published, columns: [{ key: "name", label: "=header" }], rows: [{ name: " \t=WEBSERVICE(\"url\")" }, { name: "record,\"quoted\"" }, { name: -42 }] });
 	assert.ok(csv.includes('"\'=header"'));
 	assert.ok(csv.includes('"\' \t=WEBSERVICE(""url"")"'));
 	assert.ok(csv.includes('"record,""quoted"""'));
+	assert.ok(csv.endsWith('"-42"'));
 });

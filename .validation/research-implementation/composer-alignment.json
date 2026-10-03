@@ -1,0 +1,152 @@
+{
+  "capturedAt": "2026-10-03T23:12:49.444Z",
+  "original": {
+    "controls": {
+      "height": 35.99431610107422,
+      "maxWidth": "none",
+      "padding": "8px 4px 0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 784.5596313476562
+    },
+    "environment": {
+      "height": 35.99431610107422,
+      "maxWidth": "none",
+      "padding": "0px 4px 8px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 698.76416015625
+    },
+    "inner": {
+      "height": 121.7897720336914,
+      "maxWidth": "768px",
+      "padding": "0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 698.76416015625
+    },
+    "input": {
+      "height": 49.8011360168457,
+      "maxWidth": "none",
+      "padding": "0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 734.7584838867188
+    },
+    "mode": null,
+    "rootFont": "16px",
+    "surface": {
+      "height": 145.78125,
+      "maxWidth": "none",
+      "padding": "8px 16px 16px",
+      "width": 792.20166015625,
+      "x": 278.89202880859375,
+      "y": 690.7670288085938
+    }
+  },
+  "research": {
+    "controls": {
+      "height": 35.99431610107422,
+      "maxWidth": "none",
+      "padding": "8px 4px 0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 784.5596313476562
+    },
+    "environment": {
+      "height": 35.99431610107422,
+      "maxWidth": "none",
+      "padding": "0px 4px 8px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 698.76416015625
+    },
+    "inner": {
+      "height": 121.7897720336914,
+      "maxWidth": "768px",
+      "padding": "0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 698.76416015625
+    },
+    "input": {
+      "height": 49.8011360168457,
+      "maxWidth": "none",
+      "padding": "0px",
+      "width": 760.2130126953125,
+      "x": 294.8863525390625,
+      "y": 734.7584838867188
+    },
+    "mode": null,
+    "rootFont": "16px",
+    "surface": {
+      "height": 145.78125,
+      "maxWidth": "none",
+      "padding": "8px 16px 16px",
+      "width": 792.20166015625,
+      "x": 278.89202880859375,
+      "y": 690.7670288085938
+    }
+  },
+  "narrow": {
+    "controls": {
+      "height": 67.98294830322266,
+      "maxWidth": "none",
+      "padding": "8px 4px 0px",
+      "width": 380.2130432128906,
+      "x": 294.8863525390625,
+      "y": 752.5709838867188
+    },
+    "environment": {
+      "height": 35.99431610107422,
+      "maxWidth": "none",
+      "padding": "0px 4px 8px",
+      "width": 380.2130432128906,
+      "x": 294.8863525390625,
+      "y": 666.7755737304688
+    },
+    "inner": {
+      "height": 153.7783966064453,
+      "maxWidth": "768px",
+      "padding": "0px",
+      "width": 380.2130432128906,
+      "x": 294.8863525390625,
+      "y": 666.7755737304688
+    },
+    "input": {
+      "height": 49.8011360168457,
+      "maxWidth": "none",
+      "padding": "0px",
+      "width": 380.2130432128906,
+      "x": 294.8863525390625,
+      "y": 702.7698364257812
+    },
+    "mode": null,
+    "rootFont": "16px",
+    "surface": {
+      "height": 177.76988220214844,
+      "maxWidth": "none",
+      "padding": "8px 16px 16px",
+      "width": 412.2016906738281,
+      "x": 278.89202880859375,
+      "y": 658.7783813476562
+    }
+  },
+  "delta": {
+    "width": 0,
+    "height": 0,
+    "left": 0,
+    "controlsY": 0
+  },
+  "checks": [
+    "same composer component",
+    "research direction inside the environment row",
+    "multiline grows and clearing restores single row",
+    "narrow environment row does not overflow",
+    "mode menu opens",
+    "npm run check passed",
+    "desktop tsc passed",
+    "layout detector returned no findings"
+  ],
+  "modelCalls": 0
+}

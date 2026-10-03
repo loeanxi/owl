@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import { KNOWN_PROJECTS_KEY, loadKnownProjects, normPath, projectLabel, samePath } from "../utils/paths.ts";
+import { normPath, projectLabel, samePath } from "../utils/paths.ts";
+import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import {
@@ -15,9 +16,7 @@ import {
 	IconPin,
 	IconPlus,
 	IconSearch,
-	IconSettings,
 	IconTrash,
-	IconUnarchive,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 import "./navigation-design.css";
@@ -33,6 +32,7 @@ type SessionRow = {
 	firstMessage?: string;
 	/** 归档时间（ISO）。存在 = 已归档；由桥端 archive.json 下发。 */
 	archivedAt?: string;
+	scope?: SessionScope;
 	[key: string]: unknown;
 };
 
@@ -41,8 +41,6 @@ const PINNED_KEY = "owl.pinnedSessions";
 const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
-const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
-const RECENT_SORT_KEY = "owl.sidebar.recentSort";
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
 /** 项目行操作菜单的 id 前缀（openMenu 状态，按项目路径区分）。 */
@@ -106,9 +104,9 @@ function relativeTime(iso: string): string {
 	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
-function loadPinned(): string[] {
+function loadPinned(key: string = PINNED_KEY): string[] {
 	try {
-		const raw = localStorage.getItem(PINNED_KEY);
+		const raw = localStorage.getItem(key);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
 	} catch {
@@ -116,9 +114,9 @@ function loadPinned(): string[] {
 	}
 }
 
-function loadPinnedProjects(): string[] {
+function loadPinnedProjects(key: string = PINNED_PROJECTS_KEY): string[] {
 	try {
-		const raw = localStorage.getItem(PINNED_PROJECTS_KEY);
+		const raw = localStorage.getItem(key);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
 	} catch {
@@ -126,9 +124,9 @@ function loadPinnedProjects(): string[] {
 	}
 }
 
-function loadCollapsed(): Set<string> {
+function loadCollapsed(key: string = COLLAPSED_KEY): Set<string> {
 	try {
-		const raw = localStorage.getItem(COLLAPSED_KEY);
+		const raw = localStorage.getItem(key);
 		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
 		return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
 	} catch {
@@ -239,6 +237,7 @@ function MenuDivider(): React.JSX.Element {
 
 export function SessionSidebar({
 	client,
+	sessionScope,
 	connected,
 	activeId,
 	activeProject,
@@ -249,11 +248,13 @@ export function SessionSidebar({
 	minimized,
 	onToggleMinimized,
 	onNewChat,
+	onNewChatInProject,
 	onSelectProject,
 	onOpenSession,
-	onOpenSettings,
 }: {
 	client: BridgeClient;
+	/** Ordinary chat and research own independent history and sidebar preferences. */
+	sessionScope: SessionScope;
 	/** 桥连接状态：挂载时 WS 往往尚未 open，未连接的请求会被直接拒绝。 */
 	connected: boolean;
 	activeId: string | undefined;
@@ -271,36 +272,45 @@ export function SessionSidebar({
 	minimized: boolean;
 	onToggleMinimized: () => void;
 	onNewChat: () => void;
+	onNewChatInProject: (path: string) => void;
 	onSelectProject: (path: string) => void;
 	/** 点击历史会话：恢复回放并续聊。 */
 	onOpenSession: (sessionId: string) => void;
-	onOpenSettings?: () => void;
 }): React.JSX.Element {
 	const t = useT();
-	const [sessions, setSessions] = useState<SessionRow[]>([]);
+	const researchText = getUiLanguage() === "en" ? { title: "Research chats", search: "Search research chats or projects", newChat: "New research chat", recent: "Recent research" } : { title: "研究会话", search: "搜索研究会话或项目", newChat: "新研究会话", recent: "最近研究" };
+	const keys = sidebarStorageKeys(sessionScope);
+	const [allSessions, setAllSessions] = useState<SessionRow[]>([]);
+	const sessions = useMemo(() => allSessions.filter((row) => matchesSessionScope(row, sessionScope)), [allSessions, sessionScope]);
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
-	const [pinned, setPinned] = useState<string[]>(loadPinned);
-	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
-	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+	const [pinned, setPinned] = useState<string[]>(() => loadPinned(keys.pinned));
+	const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => loadPinnedProjects(keys.pinnedProjects));
+	const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(keys.collapsed));
 	const [query, setQuery] = useState("");
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
-		loadChoice(PINNED_SORT_KEY, ["recent", "manual"] as const, "manual"),
+		loadChoice(keys.pinnedSort, ["recent", "manual"] as const, "manual"),
 	);
 	const [recentSort, setRecentSort] = useState<ListSort>(() =>
-		loadChoice(RECENT_SORT_KEY, ["recent", "name"] as const, "recent"),
+		loadChoice(keys.recentSort, ["recent", "name"] as const, "recent"),
 	);
 	/** 待确认删除的会话（非 null 时显示确认弹窗）。 */
 	const [confirmDelete, setConfirmDelete] = useState<SessionRow | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [deleteError, setDeleteError] = useState("");
 	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。 */
-	const [knownProjects, setKnownProjects] = useState<string[]>(loadKnownProjects);
+	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, keys.projects));
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const mounted = useRef(true);
+	const refreshVersion = useRef(0);
+	useEffect(() => {
+		mounted.current = true;
+		return () => { mounted.current = false; refreshVersion.current++; };
+	}, []);
 
 	// 菜单打开时：点击菜单外或按 Esc 关闭
 	useEffect(() => {
@@ -329,7 +339,7 @@ export function SessionSidebar({
 			if (current.some((p) => samePath(p, activeProject))) return current;
 			const next = [...current, activeProject];
 			try {
-				localStorage.setItem(KNOWN_PROJECTS_KEY, JSON.stringify(next));
+				localStorage.setItem(keys.projects, JSON.stringify(next));
 			} catch {
 				// localStorage 不可用时项目列表退化为「有会话的项目 + 当前项目」
 			}
@@ -338,9 +348,17 @@ export function SessionSidebar({
 	}, [activeProject]);
 
 	const refresh = async (): Promise<void> => {
+		const version = ++refreshVersion.current;
 		try {
 			const response = await client.request<SessionRow[]>({ type: "session.list" });
-			if (response.ok) setSessions(response.result ?? []);
+			if (!response.ok || !mounted.current || version !== refreshVersion.current) return;
+			const rows = response.result ?? [];
+			initializeResearchSidebar(localStorage, rows);
+			if (sessionScope === "research") {
+				setPinned(loadPinned(keys.pinned));
+				setPinnedProjects(loadPinnedProjects(keys.pinnedProjects));
+			}
+			setAllSessions(rows);
 		} catch {
 			// 桥断开/重连瞬间的失败静默跳过：connected 或 refreshKey 变化会重试
 		}
@@ -354,21 +372,21 @@ export function SessionSidebar({
 	// 必须等 session.list 真正返回过至少一条（或确认没有任何会话）后才允许清理。
 	// （归档记录由桥端 archive.json 管理，不在这里清理。）
 	useEffect(() => {
-		if (sessions.length === 0) return;
-		const alive = new Set(sessions.map((row) => row.id).filter(Boolean));
+		if (allSessions.length === 0) return;
+		const alive = new Set(allSessions.map((row) => row.id).filter(Boolean));
 		const valid = pinned.filter((id) => alive.has(id));
 		if (valid.length !== pinned.length) {
 			setPinned(valid);
-			localStorage.setItem(PINNED_KEY, JSON.stringify(valid));
+			localStorage.setItem(keys.pinned, JSON.stringify(valid));
 		}
-	}, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const toggleSection = (id: string): void => {
 		setCollapsed((current) => {
 			const next = new Set(current);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
-			localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+			localStorage.setItem(keys.collapsed, JSON.stringify([...next]));
 			return next;
 		});
 	};
@@ -399,13 +417,13 @@ export function SessionSidebar({
 
 	// rail 回到聊天视图：把会话列表滚回顶部。
 	useEffect(() => {
-		if (focus === "chat") scrollRef.current?.scrollTo({ top: 0 });
+		if (focus === "chat" || focus === "research") scrollRef.current?.scrollTo({ top: 0 });
 	}, [focus]);
 
 	const togglePin = (id: string): void => {
 		setPinned((current) => {
 			const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
-			localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+			localStorage.setItem(keys.pinned, JSON.stringify(next));
 			return next;
 		});
 	};
@@ -416,37 +434,23 @@ export function SessionSidebar({
 			const next = current.some((p) => samePath(p, path))
 				? current.filter((p) => !samePath(p, path))
 				: [...current, path];
-			localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(next));
+			localStorage.setItem(keys.pinnedProjects, JSON.stringify(next));
 			return next;
 		});
 	};
 
 	const isProjectPinned = (path: string): boolean => pinnedProjects.some((p) => samePath(p, path));
 
-	/** 归档/取消归档：写服务端 archive.json，成功后重拉列表（archivedAt 随 session.list 下发）。 */
-	const toggleArchive = async (row: SessionRow): Promise<void> => {
+	/** 归档会话：成功后从侧栏移除，恢复和删除由设置页统一管理。 */
+	const archiveSession = async (row: SessionRow): Promise<void> => {
 		const id = row.id;
 		if (!id) return;
 		try {
-			const unarchiving = Boolean(row.archivedAt);
 			const response = await client.request({
-				type: unarchiving ? "session.unarchive" : "session.archive",
+				type: "session.archive",
 				sessionId: id,
 			});
 			if (!response.ok) return;
-			if (unarchiving) {
-				// 恢复后行会回到原位置（置顶/项目分组/最近）：
-				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
-				if (row.cwd) {
-					setOpenProjects((current) => new Set(current ?? []).add(`project:${normPath(row.cwd as string)}`));
-				}
-				setCollapsed((current) => {
-					const next = new Set(current);
-					next.delete("recent");
-					localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
-					return next;
-				});
-			}
 			void refresh();
 		} catch {
 			// 桥未连接等瞬时失败：列表不动，用户重试即可
@@ -476,7 +480,7 @@ export function SessionSidebar({
 			}
 			setPinned((current) => {
 				const next = current.filter((v) => v !== id);
-				localStorage.setItem(PINNED_KEY, JSON.stringify(next));
+				localStorage.setItem(keys.pinned, JSON.stringify(next));
 				return next;
 			});
 			setConfirmDelete(null);
@@ -491,7 +495,7 @@ export function SessionSidebar({
 
 	const search = query.trim().toLowerCase();
 
-	/** 已归档的会话只出现在「归档」分组，其余分组一律隐藏。 */
+	/** 已归档的会话在设置页管理，侧栏所有分组一律隐藏。 */
 	const isArchivedRow = (row: SessionRow): boolean => typeof row.archivedAt === "string" && row.archivedAt !== "";
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
@@ -560,23 +564,20 @@ export function SessionSidebar({
 		return rows.slice(0, RECENT_LIMIT);
 	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const archivedSessions = useMemo(() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest), [sessions]);
-
 	/** 行内操作保留键盘入口，样式统一在侧边栏内控制。 */
 	const rowBtn = "owl-sidebar-action";
 
 	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
-	const sessionRowTip = (row: SessionRow, archivedRow: boolean): string => {
-		const time =
-			archivedRow && row.archivedAt ? t("sidebar.archivedAtRelative", { time: relativeTime(row.archivedAt) }) : relativeTime(sessionTime(row));
+	const sessionRowTip = (row: SessionRow): string => {
+		const time = relativeTime(sessionTime(row));
 		return `${sessionTitle(row)}\n${time}${row.cwd ? ` · ${row.cwd}` : ""}`;
 	};
 
 	/**
 	 * 会话行（单行紧凑式）：聊天图标 + 标题，运行中的会话显示绿色状态，
-	 * 悬停露出置顶/归档/删除按钮；归档行常显「恢复」按钮。
+	 * 悬停露出置顶/归档/删除按钮。
 	 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, archivedRow = false): React.JSX.Element => {
+	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean): React.JSX.Element => {
 		const id = row.id;
 		const isPinned = id !== undefined && pinned.includes(id);
 		const isRunning = id !== undefined && runningSessions.has(id);
@@ -584,13 +585,13 @@ export function SessionSidebar({
 			<div
 				key={id ?? index}
 				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
-					pinnedRow || archivedRow ? "owl-sidebar-row--has-marker" : ""
+					pinnedRow ? "owl-sidebar-row--has-marker" : ""
 				}`}
 			>
 				<button
 					type="button"
 					className="owl-sidebar-row-main"
-					title={sessionRowTip(row, archivedRow)}
+					title={sessionRowTip(row)}
 					aria-current={id === activeId ? "page" : undefined}
 					onClick={() => id && onOpenSession(id)}
 				>
@@ -604,40 +605,26 @@ export function SessionSidebar({
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
 				{id && (
-					<div className="owl-sidebar-row-actions" data-persistent={pinnedRow || archivedRow}>
-						{!archivedRow && (
-							<button
-								type="button"
-								className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent order-last" : ""}`}
-								title={isPinned ? t("sidebar.unpin") : t("sidebar.pin")}
-								aria-label={isPinned ? t("sidebar.unpinSession") : t("sidebar.pinSession")}
-								aria-pressed={isPinned}
-								onClick={() => togglePin(id)}
-							>
-								<IconPin className="h-3.5 w-3.5" filled={isPinned} />
-							</button>
-						)}
-						{archivedRow ? (
-							<button
-								type="button"
-								className={`${rowBtn} owl-sidebar-action--persistent order-last`}
-								title={t("sidebar.unarchiveTitle")}
-								aria-label={t("sidebar.unarchiveAria")}
-								onClick={() => void toggleArchive(row)}
-							>
-								<IconUnarchive className="h-3.5 w-3.5" />
-							</button>
-						) : (
-							<button
-								type="button"
-								className={rowBtn}
-								title={t("sidebar.archive")}
-								aria-label={t("sidebar.archiveSessionAria")}
-								onClick={() => void toggleArchive(row)}
-							>
-								<IconArchive className="h-3.5 w-3.5" />
-							</button>
-						)}
+					<div className="owl-sidebar-row-actions" data-persistent={pinnedRow}>
+						<button
+							type="button"
+							className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent order-last" : ""}`}
+							title={isPinned ? t("sidebar.unpin") : t("sidebar.pin")}
+							aria-label={isPinned ? t("sidebar.unpinSession") : t("sidebar.pinSession")}
+							aria-pressed={isPinned}
+							onClick={() => togglePin(id)}
+						>
+							<IconPin className="h-3.5 w-3.5" filled={isPinned} />
+						</button>
+						<button
+							type="button"
+							className={rowBtn}
+							title={t("sidebar.archive")}
+							aria-label={t("sidebar.archiveSessionAria")}
+							onClick={() => void archiveSession(row)}
+						>
+							<IconArchive className="h-3.5 w-3.5" />
+						</button>
 						<button
 							type="button"
 							className={`${rowBtn} owl-sidebar-action--danger`}
@@ -671,8 +658,7 @@ export function SessionSidebar({
 		const expanded = search !== "" || projectGroupOpen(path, "pinned");
 		const rows = projectSessionRows(path);
 		const startChat = (): void => {
-			if (isCurrent) onNewChat();
-			else onSelectProject(path);
+			onNewChatInProject(path);
 			setOpenMenu(null);
 		};
 		return (
@@ -893,19 +879,18 @@ export function SessionSidebar({
 		visibleProjects.length === 0 &&
 		pinnedProjectRows.length === 0 &&
 		recentSessions.length === 0 &&
-		archivedSessions.filter(sessionMatches).length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
 
 	/** 分组头部快捷按钮的统一样式。 */
 	const actionBtn = "owl-sidebar-action";
 	const switchPinnedSort = (value: PinnedSort): void => {
 		setPinnedSort(value);
-		saveChoice(PINNED_SORT_KEY, value);
+		saveChoice(keys.pinnedSort, value);
 		setOpenMenu(null);
 	};
 	const switchRecentSort = (value: ListSort): void => {
 		setRecentSort(value);
-		saveChoice(RECENT_SORT_KEY, value);
+		saveChoice(keys.recentSort, value);
 		setOpenMenu(null);
 	};
 	const openNewProject = (): void => {
@@ -924,7 +909,7 @@ export function SessionSidebar({
 					aria-expanded={!minimized}
 					onClick={onToggleMinimized}
 				>
-					<span>owl</span>
+					<span>{sessionScope === "research" ? researchText.title : "owl"}</span>
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>
@@ -947,8 +932,8 @@ export function SessionSidebar({
 				<input
 					type="text"
 					className="owl-sidebar-search-input"
-					placeholder={t("sidebar.searchPlaceholder")}
-					aria-label={t("sidebar.searchPlaceholder")}
+					placeholder={sessionScope === "research" ? researchText.search : t("sidebar.searchPlaceholder")}
+					aria-label={sessionScope === "research" ? researchText.search : t("sidebar.searchPlaceholder")}
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
 					onKeyDown={(event) => {
@@ -963,9 +948,9 @@ export function SessionSidebar({
 			</div>
 
 			<div className="owl-sidebar-shortcuts">
-				<button type="button" className="owl-sidebar-new-chat" aria-label={t("sidebar.newChat")} onClick={onNewChat}>
+				<button type="button" className="owl-sidebar-new-chat" aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")} onClick={onNewChat}>
 					<IconPlus className="h-4 w-4 shrink-0" />
-					<span>{t("sidebar.newChat")}</span>
+					<span>{sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}</span>
 				</button>
 			</div>
 
@@ -1051,7 +1036,7 @@ export function SessionSidebar({
 
 				<Section
 					id="recent"
-					label={t("sidebar.sectionRecent")}
+					label={sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent")}
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
 					showMenu={openMenu === "recent"}
@@ -1090,26 +1075,7 @@ export function SessionSidebar({
 					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 				</Section>
 
-				{archivedSessions.length > 0 && (
-					<Section id="archived" label={t("sidebar.sectionArchive")} open={isOpen("archived")} onToggle={() => toggleSection("archived")}>
-						{archivedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false, true))}
-					</Section>
-				)}
-
 				{noMatch && <p className="owl-sidebar-empty">{t("sidebar.emptyResults")}</p>}
-			</div>
-
-			<div className="owl-sidebar-footer">
-				<span className="owl-sidebar-workspace-avatar" aria-hidden="true">L</span>
-				<div className="owl-sidebar-workspace-copy">
-					<span className="owl-sidebar-workspace-title">{t("sidebar.footerTitle")}</span>
-					<span className="owl-sidebar-workspace-caption">{t("sidebar.footerCaption")}</span>
-				</div>
-				{onOpenSettings && (
-					<button type="button" className="owl-sidebar-icon-button" title={t("sidebar.openSettings")} aria-label={t("sidebar.openSettings")} onClick={onOpenSettings}>
-						<IconSettings className="h-4 w-4" />
-					</button>
-				)}
 			</div>
 
 			{showNewProject && (

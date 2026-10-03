@@ -7,7 +7,7 @@
   "paidCalls": 0,
   "cases": [
     {
-      "name": "waiting stage uses the process tab and still hides model identity",
+      "name": "waiting stage uses separate conversation streams and still hides model identity",
       "success": true
     },
     {
@@ -23,7 +23,7 @@
       "success": true
     },
     {
-      "name": "explicit source tab is not overridden by later streamed paragraphs",
+      "name": "explicitly collapsed thinking remains collapsed as the body grows",
       "success": true
     },
     {
@@ -47,7 +47,7 @@
         "action": "bootstrap"
       },
       "id": "req-28",
-      "sentAt": 1791055854179
+      "sentAt": 1791068629101
     },
     {
       "type": "evaluation.request",
@@ -55,7 +55,7 @@
         "action": "bootstrap"
       },
       "id": "req-29",
-      "sentAt": 1791055854179
+      "sentAt": 1791068629101
     },
     {
       "type": "evaluation.request",
@@ -82,7 +82,7 @@
         "samples": 1
       },
       "id": "req-30",
-      "sentAt": 1791055854364
+      "sentAt": 1791068629265
     },
     {
       "type": "evaluation.request",
@@ -90,130 +90,121 @@
         "action": "bootstrap"
       },
       "id": "req-31",
-      "sentAt": 1791055854381
+      "sentAt": 1791068629295
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-32",
-      "sentAt": 1791055854381
+      "sentAt": 1791068629295
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-33",
-      "sentAt": 1791055854883
+      "sentAt": 1791068629798
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-34",
-      "sentAt": 1791055855385
+      "sentAt": 1791068630301
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-35",
-      "sentAt": 1791055855887
+      "sentAt": 1791068630804
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-36",
-      "sentAt": 1791055856401
+      "sentAt": 1791068631307
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-37",
-      "sentAt": 1791055856894
-    },
-    {
-      "type": "evaluation.request",
-      "request": {
-        "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
-      },
-      "id": "req-38",
-      "sentAt": 1791055857397
+      "sentAt": 1791068631810
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "bootstrap"
       },
-      "id": "req-39",
-      "sentAt": 1791055857554
+      "id": "req-38",
+      "sentAt": 1791068632393
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
+      },
+      "id": "req-39",
+      "sentAt": 1791068632393
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
       "id": "req-40",
-      "sentAt": 1791055857554
-    },
-    {
-      "type": "evaluation.request",
-      "request": {
-        "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
-      },
-      "id": "req-41",
-      "sentAt": 1791055858059
+      "sentAt": 1791068632897
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.cancel",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
-      "id": "req-42",
-      "sentAt": 1791055858427
+      "id": "req-41",
+      "sentAt": 1791068633261
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "bootstrap"
       },
-      "id": "req-43",
-      "sentAt": 1791055858440
+      "id": "req-42",
+      "sentAt": 1791068633275
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+        "runId": "1077b7fb-e50b-4117-965d-8e666160bf3f"
       },
-      "id": "req-44",
-      "sentAt": 1791055858440
+      "id": "req-43",
+      "sentAt": 1791068633275
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.list"
       },
-      "id": "req-45",
-      "sentAt": 1791055858443
+      "id": "req-44",
+      "sentAt": 1791068633279
     }
   ],
   "snapshots": [
@@ -221,7 +212,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "waiting",
           "outputChars": 0,
@@ -239,13 +230,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "waiting",
           "outputChars": 0,
@@ -263,6 +255,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -274,7 +267,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "thinking",
           "outputChars": 0,
@@ -292,13 +285,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "thinking",
           "outputChars": 0,
@@ -316,6 +310,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -327,7 +322,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "answering",
           "outputChars": 2273,
@@ -345,13 +340,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "answering",
           "outputChars": 2273,
@@ -369,6 +365,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -380,7 +377,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "answering",
           "outputChars": 3674,
@@ -398,13 +395,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "answering",
           "outputChars": 3674,
@@ -422,6 +420,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -433,7 +432,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "answering",
           "outputChars": 4375,
@@ -451,13 +450,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "answering",
           "outputChars": 4375,
@@ -475,6 +475,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -486,7 +487,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "answering",
           "outputChars": 4726,
@@ -504,13 +505,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "answering",
           "outputChars": 4726,
@@ -528,6 +530,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -539,7 +542,7 @@
       "status": "running",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "running",
           "phase": "checking",
           "outputChars": 4726,
@@ -557,13 +560,14 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "running",
           "phase": "checking",
           "outputChars": 4726,
@@ -581,6 +585,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "generationPhase",
             "anonymousLabel",
             "revealed"
@@ -592,7 +597,7 @@
       "status": "cancelled",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "cancelled",
           "outputChars": 4726,
           "thinkingChars": 3676,
@@ -609,12 +614,13 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "cancelled",
           "outputChars": 4726,
           "thinkingChars": 3676,
@@ -631,6 +637,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "anonymousLabel",
             "revealed"
           ]
@@ -641,7 +648,7 @@
       "status": "cancelled",
       "results": [
         {
-          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "id": "55e47a59-aa15-465b-bfcc-3a589247a4af",
           "status": "cancelled",
           "outputChars": 4726,
           "thinkingChars": 3676,
@@ -658,12 +665,13 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "id": "6fed0051-6fe7-405a-8204-5d1505042f7a",
           "status": "cancelled",
           "outputChars": 4726,
           "thinkingChars": 3676,
@@ -680,6 +688,7 @@
             "error",
             "rating",
             "thinking",
+            "followups",
             "anonymousLabel",
             "revealed"
           ]
@@ -696,12 +705,12 @@
     "04-cancelled-retained.png"
   ],
   "sourceSha256": {
-    "apps/desktop/src/App.tsx": "4dbe64c9c94e11a8088babd150bbad615191779c0b890455e56a994b47636e1b",
-    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "5861850d77aacd70a5a4fe019bbf0070797c3d8c853b0d98402e1e0b02ae452a",
-    "apps/desktop/src/features/evaluation/useEvaluation.ts": "eef6177c776d530405dd469cedae0c325ad6c6d8b7b53a7df4d0e34f7acfacae",
-    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "da8f89f718718aa1e8d6598aaf5e37fb9875efa968e08c79535ee54c5e670b60",
-    "packages/coding-agent/src/core/evaluation/service.ts": "6849a99102345cce2bb82a773b7084981ff61b34bba05054990be81d869b162e"
+    "apps/desktop/src/App.tsx": "ab88f3b568d88d0bc0cf03a09f2ad789833f4f30a8095f224d34cf4d2966874a",
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "eed16f066144fd6fa00c9ccc44e72f46a42f25d1caeabe5cbd3f1f81233d68f6",
+    "apps/desktop/src/features/evaluation/useEvaluation.ts": "18b9c25bd2dcc9d2203582270766baeca266573edc3480eddcdac1a8752dcc0c",
+    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "ce11809a0fb51872ae23ba329737e8bd9821278df71e9b071e8d05ba07243bcf",
+    "packages/coding-agent/src/core/evaluation/service.ts": "87d3029d9bf978b2f3318819e4f4aa1a692f73d5e010d33b115f71798ab957bb"
   },
   "origin": "http://127.0.0.1:5189/",
-  "bridgePort": 51441
+  "bridgePort": 60668
 }

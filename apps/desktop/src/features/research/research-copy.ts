@@ -8,6 +8,7 @@ const zh = {
 	restoring: "正在恢复研究对话…", disconnected: "本地服务已断开，连接恢复后会继续同步。", retry: "重新连接对话", retrySend: "重试发送", errorTitle: "暂时无法继续", sources: "来源", data: "数据", findings: "发现", fact: "有据发现", inference: "推测", unverified: "待核实",
 	sample: "样本", partial: "部分结果", complete: "已整理", records: "{n} 条记录", sourceCount: "{n} 个来源", view: "查看内容", continue: "继续处理", explain: "解释一下", continueDraft: "请继续处理「{title}」的后续内容，沿用已核对的字段和范围，保留来源。", explainDraft: "请用大白话解释「{title}」的发现和依据，区分已确认的信息、推测和待核实内容。",
 	exportCsv: "导出 CSV", exportJson: "导出 JSON", noRows: "这个结果以文字发现为主。", noSources: "尚未提供可复核来源。", showSources: "查看来源与依据", backToData: "返回数据", openSource: "打开来源", sourceNote: "来源说明", publishedAt: "整理于 {time}", nextHint: "想调整字段或继续研究，直接在对话里说。", sending: "正在提交…", sourceFailed: "无法打开来源。",
+	restoreFailed: "无法恢复研究对话。", wrongWorkspace: "保存的对话不属于当前研究工作区。", createFailed: "无法创建研究对话。", sendFailed: "研究消息发送失败。", stopFailed: "无法停止当前研究任务。", settingsFailed: "研究设置修改失败。",
 } as const;
 
 const en: { [K in keyof typeof zh]: string } = {
@@ -18,10 +19,12 @@ const en: { [K in keyof typeof zh]: string } = {
 	restoring: "Restoring your research conversation…", disconnected: "The local service is disconnected. Synchronization resumes when it reconnects.", retry: "Reconnect conversation", retrySend: "Retry sending", errorTitle: "Unable to continue yet", sources: "Sources", data: "Data", findings: "Findings", fact: "Evidence-backed", inference: "Inference", unverified: "Unverified",
 	sample: "Sample", partial: "Partial results", complete: "Organized", records: "{n} records", sourceCount: "{n} sources", view: "View content", continue: "Continue", explain: "Explain this", continueDraft: "Please continue processing the remaining work for “{title}”, keeping the verified fields and scope, with sources.", explainDraft: "Please explain the findings and evidence for “{title}” in plain language, separating confirmed information, inference and unverified content.",
 	exportCsv: "Export CSV", exportJson: "Export JSON", noRows: "This result primarily contains written findings.", noSources: "No verifiable sources have been provided yet.", showSources: "View sources and evidence", backToData: "Back to data", openSource: "Open source", sourceNote: "Source note", publishedAt: "Organized {time}", nextHint: "Ask in chat to change fields or continue the research.", sending: "Submitting…", sourceFailed: "Could not open the source.",
+	restoreFailed: "Could not restore the research conversation.", wrongWorkspace: "This saved conversation does not belong to this research workspace.", createFailed: "Could not create the research conversation.", sendFailed: "Could not send the research message.", stopFailed: "Could not stop the research run.", settingsFailed: "Could not update the research settings.",
 };
 
 export type ResearchText = (key: keyof typeof zh, vars?: Record<string, string | number>) => string;
+export const researchText: ResearchText = (key, vars) => (getUiLanguage() === "en" ? en[key] : zh[key]).replace(/\{(\w+)\}/g, (raw, name: string) => vars && name in vars ? String(vars[name]) : raw);
 export function useResearchText(): ResearchText {
 	useT();
-	return (key, vars) => (getUiLanguage() === "en" ? en[key] : zh[key]).replace(/\{(\w+)\}/g, (raw, name: string) => vars && name in vars ? String(vars[name]) : raw);
+	return researchText;
 }

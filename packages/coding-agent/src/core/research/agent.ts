@@ -45,11 +45,21 @@ export function updateResearchMode(sessionManager: SessionManager, value: unknow
 }
 
 /** Research approval belongs to the conversation and survives bridge restarts. */
-export function getResearchApprovalMode(sessionManager: Pick<SessionManager, "getEntries">): "confirm" | "plan" | "auto" {
-	const entry = sessionManager.getEntries().findLast((item) => item.type === "custom" && item.customType === RESEARCH_APPROVAL_ENTRY);
+export function getResearchApprovalMode(
+	sessionManager: Pick<SessionManager, "getEntries">,
+): "confirm" | "plan" | "auto" {
+	const entry = sessionManager
+		.getEntries()
+		.findLast((item) => item.type === "custom" && item.customType === RESEARCH_APPROVAL_ENTRY);
 	if (entry?.type !== "custom") return "confirm";
 	const data = entry.data;
-	if (data && typeof data === "object" && "mode" in data && (data.mode === "confirm" || data.mode === "plan" || data.mode === "auto")) return data.mode;
+	if (
+		data &&
+		typeof data === "object" &&
+		"mode" in data &&
+		(data.mode === "confirm" || data.mode === "plan" || data.mode === "auto")
+	)
+		return data.mode;
 	throw new Error("研究会话记录中的审批模式无效");
 }
 

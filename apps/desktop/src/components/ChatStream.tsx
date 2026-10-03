@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
-import { StartPage } from "./StartPage.tsx";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
-import { ResponseActivity, type ChatActivity } from "./ResponseActivity.tsx";
-
-export type { ChatActivity } from "./ResponseActivity.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -380,6 +376,7 @@ function buildRows(
 		}
 	}
 	let turn = 0;
+	let assistantStarted = false;
 	let pendingTools: ToolCard[] = [];
 	const flushTools = (): void => {
 		if (pendingTools.length === 0) return;
@@ -395,6 +392,7 @@ function buildRows(
 	entries.forEach((entry, index) => {
 		if (entry.kind === "user") {
 			flushTools();
+			assistantStarted = false;
 			const artifacts = historicalArtifacts?.get(index);
 			if (artifacts && onOpenFile) {
 				const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
@@ -419,6 +417,13 @@ function buildRows(
 			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
 			...entry.tools.map((tool) => ({ kind: "tool" as const, toolId: tool.id })),
 		];
+		if (!assistantStarted && (entry.tools.length > 0 || entry.error || segments.some((segment) => segment.kind !== "tool" && segment.text.trim()))) {
+			assistantStarted = true;
+			rows.push({
+				key: "assistant-" + index,
+				content: <div className="owl-assistant-heading" data-fd-id="assistant-heading"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-assistant-mark" draggable={false} /><span>Owl</span></div>,
+			});
+		}
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
 			if (card.name === "todo") {
@@ -549,6 +554,20 @@ function QuestionNavigator({ questions, active, onJump, onClose }: {
 	);
 }
 
+export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
+
+function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
+	if (activity === "idle") return null;
+	let executing = false;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index]!;
+		if (entry.kind === "user") break;
+		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
+	}
+	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
+	return <div className="owl-response-activity" data-state={activity} role="status"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" /><span>{label}</span></div>;
+}
+
 /**
  * 最新截图 Dock（ZCode 同款）：贴在聊天底部的小缩略图，免翻时间轴直接看
  * agent 刚截的图。点缩略图弹出完整大图（浮层），✕ 关闭后同一张不再出现，
@@ -594,9 +613,6 @@ function ScreenshotDock({
 
 export function ChatStream({
 	entries,
-	onQuickAction,
-	onPromptExample,
-	onOpenDeveloper,
 	artifacts,
 	cwd,
 	onOpenFile,
@@ -626,6 +642,7 @@ export function ChatStream({
 	onOpenReview?: (focusPath: string) => void;
 }): React.JSX.Element {
 	const t = useT();
+	const emptyHeadingId = useId();
 	const container = useRef<HTMLElement>(null);
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
@@ -786,7 +803,7 @@ export function ChatStream({
 					onOpenFile(path);
 				}}>
 					<div className="owl-chat-column">
-						{entries.length === 0 && (onQuickAction && onPromptExample && onOpenDeveloper ? <StartPage onAction={onQuickAction} onPrompt={onPromptExample} onOpenDeveloper={onOpenDeveloper} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">{t("chat.emptyGreeting")}</p></div>)}
+						{entries.length === 0 && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1></section>}
 						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : "owl-chat-row"}>{row.content}</div>)}
 						<ResponseActivity entries={entries} activity={activity} />
 						{artifacts}

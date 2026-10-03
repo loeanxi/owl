@@ -4,9 +4,11 @@ import { describeToolInput } from "../hooks/summarize.ts";
 
 export function PermissionDialog({
 	request,
+	contextLabel,
 	onDecide,
 }: {
 	request: PermissionRequest;
+	contextLabel?: string;
 	onDecide: (approved: boolean) => void;
 }): React.JSX.Element {
 	const t = useT();
@@ -14,6 +16,7 @@ export function PermissionDialog({
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<div className="w-[560px] rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
 				<h2 className="text-sm font-semibold text-amber-400">{t("perm.title")}</h2>
+				{contextLabel && <p className="mt-1 text-xs text-owl-muted">{contextLabel}</p>}
 				<p className="mt-1 text-sm">
 					{t("perm.wantsToRun")} <span className="font-mono text-owl-accent">{request.toolName}</span>
 				</p>

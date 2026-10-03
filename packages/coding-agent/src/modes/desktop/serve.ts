@@ -59,13 +59,16 @@ import { loadPromptTemplates } from "../../core/prompt-templates.ts";
 import {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
+	getPendingQuestionRequests,
 	resolveQuestion,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
 import {
 	createResearchExtension,
+	getResearchApprovalMode,
 	getResearchMode,
 	normalizeResearchMode,
+	RESEARCH_APPROVAL_ENTRY,
 	RESEARCH_MODE_ENTRY,
 	RESEARCH_PUBLISH_TOOL,
 	updateResearchMode,
@@ -99,6 +102,7 @@ import type {
 	IabOpenResult,
 	IabPageInfo,
 	IabStateResult,
+	PermissionRequestMessage,
 	RewindExecuteResult,
 	RewindImpactFile,
 	RewindImpactResult,
@@ -437,7 +441,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		onDiagnostic,
 	});
 	/** requestId → resolver for tool calls awaiting a user decision */
-	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
+	const pendingPermissions = new Map<
+		string,
+		{ sessionId: string; message: PermissionRequestMessage; resolve: (approved: boolean) => void }
+	>();
 	/** Shared services for non-session queries (models.list); built lazily. */
 	let listServices: AgentSessionServices | undefined;
 	/** MCP connections established at startup. */
@@ -891,8 +898,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 			...(mailContext ? { mailContext } : {}),
-			...(researchMode ? { researchMode } : {}),
+			...(researchMode ? { researchMode, approvalMode: getResearchApprovalMode(sessionManager) } : {}),
 		};
+	}
+
+	function replayResearchRequests(ws: WebSocket, sessionId: string, sessionManager: SessionManager): void {
+		if (!getResearchMode(sessionManager) || ws.readyState !== ws.OPEN) return;
+		for (const pending of pendingPermissions.values()) {
+			if (pending.sessionId === sessionId) ws.send(JSON.stringify(pending.message));
+		}
+		for (const request of getPendingQuestionRequests(sessionId)) ws.send(JSON.stringify(request));
 	}
 
 	/** 回退目标合法性：必须是当前分支上的用户消息条目。 */
@@ -1107,18 +1122,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					// auto（以及 plan 下的只读工具）：不询问直接放行
 					if (mode !== "confirm") return {};
 					const requestId = randomUUID();
+					const message: PermissionRequestMessage = {
+						type: "permission_request",
+						requestId,
+						sessionId: sessionIdHolder.current,
+						toolName: event.toolName,
+						input: event.input,
+					};
 					const approved = await new Promise<boolean>((resolve) => {
 						pendingPermissions.set(requestId, {
 							sessionId: sessionIdHolder.current,
+							message,
 							resolve,
 						});
-						broadcast({
-							type: "permission_request",
-							requestId,
-							sessionId: sessionIdHolder.current,
-							toolName: event.toolName,
-							input: event.input,
-						});
+						broadcast(message);
 					});
 					return approved ? {} : { block: true, reason: "Denied by user" };
 				});
@@ -1181,19 +1198,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			ok: true,
 			result: { ...sessionSnapshot(sessionId, sessionManager), ...(mailContext ? { context: mailContext } : {}) },
 		});
+		replayResearchRequests(ws, sessionId, sessionManager);
 	}
 
 	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
 		const researchMode = request.researchMode === undefined ? undefined : normalizeResearchMode(request.researchMode);
 		const sessionManager = SessionManager.create(request.cwd ?? options.cwd ?? process.cwd());
-		if (researchMode) sessionManager.appendCustomEntry(RESEARCH_MODE_ENTRY, { mode: researchMode });
+		if (researchMode) {
+			sessionManager.appendCustomEntry(RESEARCH_MODE_ENTRY, { mode: researchMode });
+			const mode = request.approvalMode ?? "confirm";
+			if (mode !== "confirm" && mode !== "plan" && mode !== "auto") throw new Error("无效的审批模式");
+			sessionManager.appendCustomEntry(RESEARCH_APPROVAL_ENTRY, { mode });
+		}
 		await mountSession(ws, request.id, {
 			sessionManager,
 			agentDir: request.agentDir ?? defaultAgentDir(),
 			provider: request.provider,
 			model: request.model,
 			thinkingLevel: request.thinkingLevel,
-			approvalMode: request.approvalMode ?? "auto",
+			approvalMode: request.approvalMode ?? (researchMode ? "confirm" : "auto"),
 		});
 	}
 
@@ -1201,12 +1224,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		// 幂等：已挂载的会话直接回快照（重复点击安全）；顺带同步请求里带的审批模式
 		const existing = sessions.get(request.sessionId);
 		if (existing) {
-			if (request.approvalMode) existing.approvalMode.current = request.approvalMode;
 			const sessionManager = existing.runtime.session.sessionManager;
+			// Selecting research history must not apply the ordinary chat's preferences.
+			if (request.approvalMode && !getResearchMode(sessionManager))
+				existing.approvalMode.current = request.approvalMode;
 			reply(ws, request.id, {
 				ok: true,
 				result: sessionSnapshot(request.sessionId, sessionManager),
 			});
+			replayResearchRequests(ws, request.sessionId, sessionManager);
 			return;
 		}
 		// 定位历史文件：listAll 返回的 SessionInfo 带 path 与原 cwd
@@ -1218,13 +1244,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		try {
 			// open() 自行读会话头恢复 cwd（找不到头时回落 process.cwd，与 TUI 行为一致）
 			const sessionManager = SessionManager.open(sessionPath);
+			const researchMode = getResearchMode(sessionManager);
 			await mountSession(ws, request.id, {
 				sessionManager,
 				agentDir: defaultAgentDir(),
-				provider: request.provider,
-				model: request.model,
-				thinkingLevel: request.thinkingLevel,
-				approvalMode: request.approvalMode ?? "auto",
+				provider: researchMode ? undefined : request.provider,
+				model: researchMode ? undefined : request.model,
+				thinkingLevel: researchMode ? undefined : request.thinkingLevel,
+				approvalMode: researchMode ? getResearchApprovalMode(sessionManager) : (request.approvalMode ?? "auto"),
 			});
 		} catch (error) {
 			reply(ws, request.id, {
@@ -1466,6 +1493,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				session.approvalMode.current = request.approvalMode;
+				if (getResearchMode(session.runtime.session.sessionManager)) {
+					session.runtime.session.sessionManager.appendCustomEntry(RESEARCH_APPROVAL_ENTRY, {
+						mode: request.approvalMode,
+					});
+				}
 				reply(ws, request.id, { ok: true, result: { approvalMode: request.approvalMode } });
 				return;
 			}
@@ -1809,15 +1841,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "session.list": {
+				if (request.scope !== undefined && request.scope !== "chat" && request.scope !== "research") {
+					throw new Error("无效的会话目录类型");
+				}
 				const found = await SessionManager.listAll(request.sessionDir);
 				// 附带归档标记：sidebar 据此把会话放进「归档」分组
 				const meta = readArchiveMeta(defaultAgentDir());
 				reply(ws, request.id, {
 					ok: true,
-					result: found.map((row) => {
-						const archived = meta.sessions?.[row.id];
-						return archived ? { ...row, archivedAt: archived.archivedAt } : row;
-					}),
+					result: found
+						.map((row) => {
+							const scope = row.customTypes?.includes(RESEARCH_MODE_ENTRY) ? "research" : "chat";
+							const archived = meta.sessions?.[row.id];
+							return { ...row, scope, ...(archived ? { archivedAt: archived.archivedAt } : {}) };
+						})
+						.filter((row) => request.scope === undefined || row.scope === request.scope),
 				});
 				return;
 			}
