@@ -2130,6 +2130,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "winapi",
 ]
 
 [[package]]

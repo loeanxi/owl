@@ -27,6 +27,16 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const DEFAULT_PORT: u16 = 18901;
 
+/// serve.js does heavy top-level module loading before it starts listening;
+/// a cold start measured ~13s, so allow a generous window.
+const BRIDGE_START_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Bridge output lands here (previously discarded, which made startup
+/// failures like EADDRINUSE impossible to diagnose).
+fn bridge_log_path() -> PathBuf {
+	std::env::temp_dir().join("owl-bridge.log")
+}
+
 /// Locate the `serve.js` desktop bridge script.
 fn resolve_serve_script() -> PathBuf {
 	// 1. OWL_SERVE_SCRIPT override
@@ -140,16 +150,69 @@ fn find_available_port(preferred: u16) -> u16 {
 	preferred
 }
 
+fn bridge_log_stdio() -> (Stdio, Stdio) {
+	let Ok(file) = std::fs::OpenOptions::new()
+		.create(true)
+		.write(true)
+		.truncate(true)
+		.open(bridge_log_path())
+	else {
+		return (Stdio::null(), Stdio::null());
+	};
+	match file.try_clone() {
+		Ok(clone) => (Stdio::from(file), Stdio::from(clone)),
+		Err(_) => (Stdio::null(), Stdio::null()),
+	}
+}
+
+/// Tie the child's lifetime to this process via a Windows job object with
+/// KILL_ON_JOB_CLOSE: when owl-desktop exits (even on panic), the kernel
+/// terminates the bridge, so no orphaned node is left holding the port.
+#[cfg(windows)]
+fn tie_child_to_self(child: &Child) {
+	use std::os::windows::io::AsRawHandle;
+
+	use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject};
+	use winapi::um::winnt::{
+		JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+		JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+	};
+
+	unsafe {
+		let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+		if job.is_null() {
+			return;
+		}
+		let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+		limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+		let ok = SetInformationJobObject(
+			job,
+			JobObjectExtendedLimitInformation,
+			&limits as *const _ as *mut winapi::ctypes::c_void,
+			std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+		);
+		if ok != 0 {
+			// The job handle is intentionally never closed; KILL_ON_JOB_CLOSE
+			// fires when this process exits and the kernel reaps our handles.
+			let _ = AssignProcessToJobObject(job, child.as_raw_handle() as winapi::um::winnt::HANDLE);
+		}
+	}
+}
+
 fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> Child {
+	let (stdout, stderr) = bridge_log_stdio();
 	let mut cmd = Command::new("node");
 	cmd.args([script.to_string_lossy().as_ref(), "--port", &port.to_string()])
 		.env("OWL_CODING_AGENT_DIR", agent_dir.to_string_lossy().as_ref())
 		.stdin(Stdio::null())
-		.stdout(Stdio::null())
-		.stderr(Stdio::null());
+		.stdout(stdout)
+		.stderr(stderr);
 	#[cfg(windows)]
 	cmd.creation_flags(CREATE_NO_WINDOW);
-	cmd.spawn().expect("failed to spawn owl bridge (is node on PATH?)")
+	let child = cmd.spawn().expect("failed to spawn owl bridge (is node on PATH?)");
+	#[cfg(windows)]
+	tie_child_to_self(&child);
+	child
 }
 
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
@@ -181,7 +244,7 @@ impl BridgeState {
 	fn restart(&mut self) -> Result<(), String> {
 		self.kill();
 		let child = spawn_bridge(&self.script, &self.agent_dir, self.port);
-		if !wait_for_port(self.port, Duration::from_secs(8)) {
+		if !wait_for_port(self.port, BRIDGE_START_TIMEOUT) {
 			return Err(format!("Bridge failed to restart on port {}", self.port));
 		}
 		self.child = Some(child);
@@ -195,8 +258,16 @@ fn main() {
 	let agent_dir = resolve_agent_dir();
 
 	let child = spawn_bridge(&script, &agent_dir, port);
-	if !wait_for_port(port, Duration::from_secs(10)) {
-		panic!("owl bridge did not start on port {port}");
+	eprintln!(
+		"[owl] bridge spawning on port {port} (script: {}, log: {})",
+		script.display(),
+		bridge_log_path().display()
+	);
+	if !wait_for_port(port, BRIDGE_START_TIMEOUT) {
+		panic!(
+			"owl bridge did not start on port {port} within 60s; see {}",
+			bridge_log_path().display()
+		);
 	}
 
 	let bridge = Arc::new(Mutex::new(BridgeState {
