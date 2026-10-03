@@ -246,17 +246,15 @@ html[data-owl-wallpaper="on"] .owl-main-frame {
 	backdrop-filter: blur(16px);
 }
 html[data-owl-wallpaper="on"] .owl-main-frame .owl-chat-header {
-	background: color-mix(in srgb, var(--owl-ui-canvas) var(--owl-wp-panel-mix, 82%), transparent);
-}
-html[data-owl-wallpaper="on"] .owl-shell-conversation,
-html[data-owl-wallpaper="on"] .owl-chat-surface {
-	background: color-mix(in srgb, var(--owl-conversation-bg) var(--owl-wp-panel-mix, 82%), transparent);
+	background: color-mix(in srgb, var(--owl-ui-canvas) var(--owl-wp-panel-mix, 36%), transparent);
 }
 html[data-owl-wallpaper="on"] .owl-sidebar {
-	background: color-mix(in srgb, var(--color-owl-sidebar-bg) var(--owl-wp-panel-mix, 82%), transparent);
+	background: color-mix(in srgb, var(--color-owl-sidebar-bg) var(--owl-wp-panel-mix, 36%), transparent);
+	backdrop-filter: blur(18px);
 }
 html[data-owl-wallpaper="on"] .owl-activity-rail {
-	background: color-mix(in srgb, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)) var(--owl-wp-panel-mix, 82%), transparent);
+	background: color-mix(in srgb, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)) var(--owl-wp-panel-mix, 36%), transparent);
+	backdrop-filter: blur(18px);
 }
 /* 设置页也透出壁纸：调滑杆时实时看到效果（面板本体 z:40 盖在壁纸上）。 */
 html[data-owl-wallpaper="on"] .owl-settings-page {
@@ -264,15 +262,14 @@ html[data-owl-wallpaper="on"] .owl-settings-page {
 	backdrop-filter: blur(16px);
 }
 
-/* 开启壁纸：内容卡片/设置导航列也透出壁纸（比主面板更透一档 --owl-wp-card-mix，
-   由 wallpaper.ts 按「面板不透明度 − 18、下限 40%」写入；聊天气泡等小块保持实色保可读）。 */
+/* 开启壁纸：内容卡片/设置导航列也透出壁纸（--owl-wp-card-mix，wallpaper.ts 写入）。 */
 html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-nav {
-	background: color-mix(in srgb, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)) var(--owl-wp-card-mix, 56%), transparent);
+	background: color-mix(in srgb, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)) var(--owl-wp-card-mix, 16%), transparent);
 }
 html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-group,
 html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-mode-thumb,
 html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-preset-card {
-	background: color-mix(in srgb, var(--settings-panel, var(--color-owl-panel)) var(--owl-wp-card-mix, 56%), transparent);
+	background: color-mix(in srgb, var(--settings-panel, var(--color-owl-panel)) var(--owl-wp-card-mix, 16%), transparent);
 	backdrop-filter: blur(10px);
 }
 html[data-owl-wallpaper="on"] .owl-sidebar .owl-sidebar-section,
@@ -298,18 +295,11 @@ html[data-owl-wallpaper="on"] .owl-user-bubble {
 	background: color-mix(in srgb, var(--color-owl-bubble) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(10px);
 }
-/* 正文/标题直压壁纸：深色文字阴影描边保对比（浅色主题换亮色描边） */
+/* 正文/标题直压壁纸：深色文字阴影描边保对比（玻璃模式锁定浅色文字，统一黑描边） */
 html[data-owl-wallpaper="on"] .owl-answer,
 html[data-owl-wallpaper="on"] .owl-answer h1, html[data-owl-wallpaper="on"] .owl-answer h2,
 html[data-owl-wallpaper="on"] .owl-answer h3, html[data-owl-wallpaper="on"] .owl-answer h4 {
 	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45);
-}
-html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer,
-html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h1,
-html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h2,
-html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h3,
-html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h4 {
-	text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.5);
 }
 html[data-owl-wallpaper="on"] .owl-answer code,
 html[data-owl-wallpaper="on"] .owl-answer pre {
@@ -318,4 +308,41 @@ html[data-owl-wallpaper="on"] .owl-answer pre {
 html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-2xl {
 	background: color-mix(in srgb, var(--color-owl-panel) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(14px);
+}
+
+/* ---------------------------------------------------------------- 玻璃模式 ----
+ * 开启动态壁纸即进入毛玻璃模式：锁定统一玻璃配色，不再跟随深色/浅色主题与主题预设
+ * （本块在 index.css / 本文件各主题块之后加载，同特异性下后者胜出）。强调色
+ * （--color-owl-accent，用户可自定义）不在此覆盖。关闭壁纸即整体恢复用户主题。 */
+html[data-owl-wallpaper="on"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #1c1c1c;
+	--color-owl-bg: #202020;
+	--color-owl-sidebar: #1b1b1b;
+	--color-owl-rail: #171717;
+	--color-owl-panel: #2a2a2a;
+	--color-owl-bubble: #303030;
+	--color-owl-hover: #353535;
+	--color-owl-border: #454545;
+	--color-owl-sidebar-bg: #1d1d1d;
+	--color-owl-sidebar-surface: #272727;
+	--color-owl-sidebar-hover: #2b2b2b;
+	--color-owl-sidebar-selected: #343434;
+	--color-owl-sidebar-border: #333333;
+	--color-owl-sidebar-text: #ececec;
+	--color-owl-sidebar-muted: #a8a8a8;
+	--color-owl-sidebar-faint: #8d8d8d;
+	--color-owl-text: #ececec;
+	--color-owl-muted: #a8a8a8;
+	--color-owl-faint: #909090;
+}
+html[data-owl-wallpaper="on"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #202020);
+	--owl-ui-panel: #2a2a2a;
+	--owl-ui-sidebar: #181818;
+	--owl-ui-border: #414141;
+	--owl-ui-text: var(--owl-ui-text-override, #ececec);
+	--owl-ui-muted: #a0a0a0;
+	--owl-ui-hover: #2e2e2e;
+	--owl-ui-menu-hover: #3a3a3a;
 }

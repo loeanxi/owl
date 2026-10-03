@@ -2,8 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Model } from "../../../ai/src/index.ts";
+import { fauxAssistantMessage } from "../../../ai/src/providers/faux.ts";
+import { AssistantMessageEventStream } from "../../../ai/src/utils/event-stream.ts";
 import { NewsService } from "../../src/core/news/service.ts";
 import type { NewsModelCall, NewsModelResponse } from "../../src/core/news/types.ts";
+import { callNewsModel } from "../../src/modes/desktop/news-model.ts";
 
 const services: NewsService[] = [];
 const directories: string[] = [];
@@ -128,6 +132,15 @@ describe("manual news model connection test", () => {
 		expect(service.store.receipts()).toHaveLength(0);
 	});
 
+	it("counts a successful connection test against the same model call budget", async () => {
+		const { service, callModel } = fixture();
+		await service.handle({ action: "configure", patch: { budget: { perMinute: 1, perHour: 1, perDay: 1 } } });
+		await service.handle({ action: "test_model" });
+		await expect(service.handle({ action: "test_model" })).rejects.toThrow("调用次数已达到上限");
+		expect(callModel).toHaveBeenCalledOnce();
+		expect(service.store.receipts()).toHaveLength(1);
+	});
+
 	it("records unknown failed calls once and returns safe authentication guidance with the receipt ID", async () => {
 		const sensitive = "Bearer pretend-secret-must-not-be-returned";
 		const callModel = vi.fn(async (_request: NewsModelCall): Promise<NewsModelResponse> => {
@@ -148,5 +161,36 @@ describe("manual news model connection test", () => {
 		expect(receipts[0]?.status).toBe("unknown");
 		expect(message).toContain(receipts[0]!.id);
 		expect(receipts[0]?.error).not.toContain(sensitive);
+	});
+
+	it.each([
+		["401 Unauthorized", "认证"],
+		["404 model not found", "模型或服务地址不存在"],
+		["429 quota exceeded", "额度不足"],
+		["request timed out", "超时"],
+	])("preserves safe provider diagnostics through the adapter and receipt: %s", async (upstream, expected) => {
+		const model: Model<"openai-completions"> = {
+			id: "default",
+			name: "Fixture",
+			provider: "fixture",
+			api: "openai-completions",
+			baseUrl: "http://localhost:0",
+			input: ["text"],
+			reasoning: false,
+			contextWindow: 8192,
+			maxTokens: 1024,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		};
+		const sensitive = "Bearer pretend-secret-must-not-be-returned";
+		const streamSimple = vi.fn(() => {
+			const stream = new AssistantMessageEventStream();
+			stream.end(fauxAssistantMessage("", { stopReason: "error", errorMessage: `${upstream} ${sensitive}` }));
+			return stream;
+		});
+		const registry = { find: () => model, getAvailable: () => [model], streamSimple };
+		const { service } = fixture(vi.fn((request: NewsModelCall) => callNewsModel({ registry }, request)));
+		await expect(service.handle({ action: "test_model" })).rejects.toThrow(expected);
+		expect(streamSimple).toHaveBeenCalledOnce();
+		expect(service.store.receipts()[0]?.error).not.toContain(sensitive);
 	});
 });

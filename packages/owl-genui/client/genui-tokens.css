@@ -25,4 +25,16 @@
 	--dsw-alias-state-error-primary: #e5655e;
 	--dsw-alias-state-error-secondary: rgba(229, 101, 94, 0.16);
 	--ds-font-family-code: var(--font-mono, ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace);
+
+	/* 图表分类调色板（CSS 侧柱/扇区填充 + ECharts canvas 经 readToken 解析为
+	 * 字面量）。deepseek-* 命名沿用 dsh 令牌位；未定义时 var() 失效会导致
+	 * 柱形透明不可见。8 色在深浅底都可辨。 */
+	--dsw-static-deepseek-400: #4f8ef7;
+	--dsw-static-deepseek-450: #3f6fe0;
+	--dsw-static-deepseek-300: #6fa8e8;
+	--dsw-static-green-400: #3fb96f;
+	--dsw-static-amber-400: #d9a03c;
+	--dsw-static-red-400: #e5655e;
+	--dsw-static-blue-450: #9a7cf0;
+	--dsw-static-neutral-bluish-400: #38b8c8;
 }
