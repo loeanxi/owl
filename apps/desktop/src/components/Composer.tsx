@@ -167,6 +167,50 @@ const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], TextKey> = {
 	extension: "composer.slashKind.extension",
 };
 
+/** 随消息发送的图片附件（base64；与后端 ImageContent 同形）。 */
+export type ComposerImage = { type: "image"; data: string; mimeType: string };
+
+/** 单张附图上限：10MB（base64 后约 13MB，远小于桥 WebSocket 上限；服务端会按模型输入限制再压缩）。 */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** 一条消息最多附图数。 */
+const MAX_PROMPT_IMAGES = 8;
+
+/** 剪贴板/拖入的文件按扩展名兜底识别图片（Windows 资源管理器复制的文件 type 可能为空）。 */
+const IMAGE_EXT_MIME: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	bmp: "image/bmp",
+};
+
+function imageMimeOf(file: File): string | undefined {
+	if (file.type.startsWith("image/")) return file.type;
+	return IMAGE_EXT_MIME[file.name.split(".").pop()?.toLowerCase() ?? ""];
+}
+
+/** 把图片文件读成 base64；非图片或读取失败返回 undefined。 */
+function readImageFile(file: File): Promise<{ data: string; mimeType: string } | undefined> {
+	return new Promise((resolve) => {
+		const reader = new FileReader();
+		reader.onload = () => {
+			const result = typeof reader.result === "string" ? reader.result : "";
+			const comma = result.indexOf(",");
+			const mimeType = imageMimeOf(file);
+			if (comma < 0 || !mimeType) {
+				resolve(undefined);
+				return;
+			}
+			resolve({ data: result.slice(comma + 1), mimeType });
+		};
+		reader.onerror = () => resolve(undefined);
+		reader.readAsDataURL(file);
+	});
+}
+
+let imageSeq = 0;
+
 export function Composer({
 	client,
 	connected,
@@ -193,7 +237,7 @@ export function Composer({
 	connected: boolean;
 	disabled: boolean;
 	running: boolean;
-	onSend: (text: string) => void;
+	onSend: (text: string, images?: ComposerImage[]) => void;
 	onAbort: () => void;
 	providers: ProviderModelsMessage[];
 	model: string;
@@ -217,6 +261,12 @@ export function Composer({
 	const t = useT();
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
+	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
+	const [pendingImages, setPendingImages] = useState<ComposerImage[]>([]);
+	const [pasteHint, setPasteHint] = useState<string | undefined>(undefined);
+	const [dragOver, setDragOver] = useState(false);
+	const hintTimerRef = useRef<number | undefined>(undefined);
+	useEffect(() => () => window.clearTimeout(hintTimerRef.current), []);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const inputBoxRef = useRef<HTMLDivElement>(null);
 	const slashMenuRef = useRef<HTMLDivElement>(null);
@@ -233,9 +283,50 @@ export function Composer({
 	const submit = (): void => {
 		if (disabled) return;
 		const text = value.trim();
-		if (!text) return;
-		onSend(text);
+		if (!text && pendingImages.length === 0) return;
+		onSend(text, pendingImages.length > 0 ? pendingImages : undefined);
 		setValue("");
+		setPendingImages([]);
+	};
+
+	// 附图提示自动消退（超限/超大时给一句人话反馈，不打断输入）。
+	const showHint = (text: string): void => {
+		setPasteHint(text);
+		window.clearTimeout(hintTimerRef.current);
+		hintTimerRef.current = window.setTimeout(() => setPasteHint(undefined), 4000);
+	};
+
+	// 粘贴/拖入的图片文件读成 base64 挂进待发送区；超量截断、超大跳过。
+	const addImageFiles = (files: File[]): void => {
+		const candidates = files.filter((file) => imageMimeOf(file) !== undefined);
+		if (candidates.length === 0) return;
+		const room = Math.max(0, MAX_PROMPT_IMAGES - pendingImages.length);
+		if (candidates.length > room) showHint(t("composer.imageLimitReached", { max: MAX_PROMPT_IMAGES }));
+		const picked = candidates.slice(0, room);
+		const accepted = picked.filter((file) => file.size <= MAX_IMAGE_BYTES);
+		if (accepted.length < picked.length) showHint(t("composer.imageTooLarge", { limit: Math.round(MAX_IMAGE_BYTES / 1024 / 1024) }));
+		if (accepted.length === 0) return;
+		void Promise.all(accepted.map((file) => readImageFile(file))).then((images) => {
+			const next = images.flatMap((image) =>
+				image ? { id: `img-${++imageSeq}`, type: "image" as const, data: image.data, mimeType: image.mimeType } : [],
+			);
+			if (next.length > 0) setPendingImages((current) => [...current, ...next].slice(0, MAX_PROMPT_IMAGES));
+		});
+	};
+
+	const onClipboardPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+		const files: File[] = [];
+		for (const item of Array.from(event.clipboardData.items)) {
+			if (item.kind !== "file") continue;
+			const file = item.getAsFile();
+			if (file) files.push(file);
+		}
+		// 有图片文件时拦下默认行为（否则粘贴图片会把路径/乱码文本塞进输入框）；
+		// 纯文本粘贴不受影响。
+		if (files.length > 0) {
+			event.preventDefault();
+			addImageFiles(files);
+		}
 	};
 
 	// 单行起步、随内容自动长高（Claude 同款）；上限 192px 与 max-h-48 一致，发送后随 value 清空缩回。
@@ -463,7 +554,26 @@ export function Composer({
 					</button>
 				</div>
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
-				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" ref={inputBoxRef}>
+				<div
+					className={"relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
+					ref={inputBoxRef}
+					onDragOver={(event) => {
+						if (!event.dataTransfer.types.includes("Files")) return;
+						event.preventDefault();
+						setDragOver(true);
+					}}
+					onDragLeave={(event) => {
+						// 移到盒子内部子元素上也会触发 dragleave，relatedTarget 还在盒内就不收
+						if (inputBoxRef.current?.contains(event.relatedTarget as Node)) return;
+						setDragOver(false);
+					}}
+					onDrop={(event) => {
+						if (!event.dataTransfer.types.includes("Files")) return;
+						event.preventDefault();
+						setDragOver(false);
+						addImageFiles(Array.from(event.dataTransfer.files));
+					}}
+				>
 					{slashExec !== null && (
 						<div
 							ref={slashMenuRef}

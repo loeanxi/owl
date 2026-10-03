@@ -297,6 +297,47 @@ function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolRes
 	);
 }
 
+/** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡。 */
+function UserRowView({ entry }: { entry: Extract<ChatEntry, { kind: "user" }> }): React.JSX.Element {
+	const [zoomed, setZoomed] = useState(false);
+	const images = entry.images ?? [];
+	return (
+		<div className="owl-user-row">
+			<div className="owl-user-bubble">
+				{images.length > 0 && (
+					<div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+						{images.map((image, index) => (
+							<img
+								key={index}
+								src={`data:${image.mimeType};base64,${image.data}`}
+								alt={`附图 ${index + 1}`}
+								className="max-h-44 max-w-56 cursor-zoom-in rounded-lg border border-owl-border object-contain"
+								onClick={() => setZoomed(true)}
+							/>
+						))}
+					</div>
+				)}
+				{entry.text}
+			</div>
+			{zoomed && images.length > 0 && (
+				<div
+					className="fixed inset-0 z-50 flex flex-wrap items-center justify-center gap-3 overflow-auto bg-black/80 p-6"
+					onClick={() => setZoomed(false)}
+				>
+					{images.map((image, index) => (
+						<img
+							key={index}
+							src={`data:${image.mimeType};base64,${image.data}`}
+							alt={`附图 ${index + 1}`}
+							className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl"
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /** Keep prose and tool groups in the order emitted by the assistant. */
 function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] {
 	const rows: TimelineRow[] = [];
@@ -320,7 +361,7 @@ function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] 
 			rows.push({
 				key: "q" + turn,
 				questionIndex: turn,
-				content: <div className="owl-user-row"><div className="owl-user-bubble">{entry.text}</div></div>,
+				content: <UserRowView entry={entry} />,
 			});
 			return;
 		}

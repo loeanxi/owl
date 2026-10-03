@@ -11,8 +11,10 @@ export interface ProcessOptions {
 
 /** Resolve binaries from the isolated installation, never from the DSH Host. */
 export function processEnvironment(options: ProcessOptions): NodeJS.ProcessEnv {
-	const env = { ...process.env };
-	delete env.NODE_OPTIONS;
+	const env: NodeJS.ProcessEnv = {};
+	for (const key of ["HOME", "USERPROFILE", "LANG", "LC_ALL", "PATH", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES"]) {
+		if (process.env[key] !== undefined) env[key] = process.env[key];
+	}
 	env.NODE_PATH = [join(options.assetRoot, "node_modules"), dirname(options.assetRoot)].join(delimiter);
 	env.DO_NOT_TRACK = "1";
 	if (options.license !== undefined) env.UNIVER_LICENSE = options.license;
@@ -21,7 +23,7 @@ export function processEnvironment(options: ProcessOptions): NodeJS.ProcessEnv {
 }
 
 export async function stopProcess(child: ChildProcess): Promise<void> {
-	if (child.exitCode !== null || child.signalCode !== null) return;
+	if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
 	const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
 	child.kill("SIGTERM");
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -45,6 +47,7 @@ export class OfficeProcesses {
 			env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
 		});
 		this.children.add(child);
+		child.on("error", () => undefined);
 		child.once("close", () => this.children.delete(child));
 		return child;
 	}

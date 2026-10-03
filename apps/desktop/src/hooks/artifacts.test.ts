@@ -97,3 +97,25 @@ test("outside, ambiguous, invalid and URL paths never reach the workspace file A
 	assert.equal(workspaceArtifactPath("report%ZZ.md", "D:/owl", { encoded: true }), undefined);
 	assert.equal(workspaceArtifactPath("report.md", ""), undefined);
 });
+
+test("plugin artifacts survive persisted results and remain scoped to the workspace", () => {
+	const entries = rebuild([
+		{ role: "user", content: "导出办公文件" },
+		{ role: "assistant", content: [{ type: "toolCall", id: "office", name: "univer_export", arguments: { output: "result.xlsx" } }] },
+		{ role: "toolResult", toolCallId: "office", content: [{ type: "text", text: "exported" }], details: { artifacts: [
+			{ path: "D:/owl/result.xlsx", action: "written" },
+			{ path: "../outside.xlsx", action: "written" },
+			{ path: "https://example.com/fake.xlsx", action: "written" },
+			{ path: "bad.xlsx", action: "invalid" },
+			null,
+		] } },
+	]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl").map(({ path, kind, action }) => ({ path, kind, action })), [
+		{ path: "result.xlsx", kind: "sheet", action: "written" },
+	]);
+	const failed = rebuild([
+		{ role: "assistant", content: [{ type: "toolCall", id: "failed", name: "univer_export", arguments: {} }] },
+		{ role: "toolResult", toolCallId: "failed", isError: true, details: { artifacts: [{ path: "failed.xlsx", action: "written" }] } },
+	]);
+	assert.deepEqual(collectArtifacts(failed, "D:/owl"), []);
+});

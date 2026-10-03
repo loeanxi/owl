@@ -164,11 +164,21 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 	for (const entry of entries.slice(start)) {
 		if (entry.kind !== "assistant") continue;
 		for (const tool of entry.tools) {
-			const artifact = artifactOf(tool, cwd);
-			if (!artifact || (!options.includeCode && artifact.kind === "code")) continue;
-			const key = windows ? artifact.path.toLowerCase() : artifact.path;
-			artifacts.delete(key);
-			artifacts.set(key, artifact);
+			if (tool.status !== "ok") continue;
+			const produced: FileArtifact[] = [];
+			for (const output of tool.output?.artifacts ?? []) {
+				const path = workspaceArtifactPath(output.path, cwd);
+				if (!path) continue;
+				produced.push({ path, title: path.split("/").at(-1)!, kind: artifactKindForPath(path), action: output.action, toolId: tool.id });
+			}
+			const ordinary = artifactOf(tool, cwd);
+			if (ordinary) produced.push(ordinary);
+			for (const artifact of produced) {
+				if (!options.includeCode && artifact.kind === "code") continue;
+				const key = windows ? artifact.path.toLowerCase() : artifact.path;
+				artifacts.delete(key);
+				artifacts.set(key, artifact);
+			}
 		}
 	}
 	return [...artifacts.values()].reverse();

@@ -28,6 +28,7 @@ import {
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { getAgentDir, getGlobalSkillsDir } from "../../config.ts";
+import { isEnabledByOverrides } from "../../core/package-manager.ts";
 import { loadSkillsFromDir, type SkillFrontmatter, validateDescription, validateName } from "../../core/skills.ts";
 import { parseFrontmatter } from "../../utils/frontmatter.ts";
 import type {
@@ -87,24 +88,60 @@ function scanTab(tab: SkillCenterTab, root: string): SkillCenterEntry[] {
 			tab,
 			disabled: skill.disableModelInvocation,
 			isSymlink: isPathSymlink(skill.filePath, root),
+			projectEnabled: true,
 		});
 	}
 	return entries;
 }
 
-/** 列出三个 tab 的全部技能（单 tab 失败不影响其他 tab）。 */
-export function listSkills(cwd: string, projectTrusted: boolean, agentDir?: string): SkillsListResult {
+/**
+ * 列出三个 tab 的全部技能（单 tab 失败不影响其他 tab）。
+ * `skillOverrides` 是该项目 settings.json 的 skills 覆盖模式：有配置时逐条
+ * 计算 projectEnabled（与 core 的 isEnabledByOverrides 同一实现），UI 的
+ * 「勾选本项目需要的技能」直接以此渲染。
+ */
+export function listSkills(
+	cwd: string,
+	projectTrusted: boolean,
+	agentDir?: string,
+	skillOverrides?: string[],
+): SkillsListResult {
 	const roots = resolveSkillRoots(cwd, agentDir);
 	const skills: SkillCenterEntry[] = [];
 	for (const tab of ["personal", "global", "project"] as const) {
 		if (tab === "project" && !projectTrusted) continue;
 		try {
-			skills.push(...scanTab(tab, roots[tab]));
+			const entries = scanTab(tab, roots[tab]);
+			if (skillOverrides) {
+				const baseDir = dirname(roots[tab]);
+				for (const entry of entries) {
+					entry.projectEnabled = isEnabledByOverrides(entry.path, skillOverrides, baseDir);
+				}
+			}
+			skills.push(...entries);
 		} catch {
 			// 单个根读不了（权限等）就跳过，不让整个面板挂掉
 		}
 	}
-	return { roots, skills, projectTrusted };
+	return { roots, skills, projectTrusted, projectSkillPatterns: skillOverrides ?? [] };
+}
+
+/** 项目 skills 模式的三种形态：未配置（全部可用）/ 纯名字勾选 / 含手写 glob 的自定义模式。 */
+export type ProjectSelection =
+	| { kind: "default" }
+	| { kind: "names"; names: string[] }
+	| { kind: "custom"; patterns: string[] };
+
+export function parseProjectSelection(patterns: string[]): ProjectSelection {
+	if (!patterns || patterns.length === 0) return { kind: "default" };
+	const plain = patterns.every((p) => !p.startsWith("+") && !p.startsWith("-") && !p.startsWith("!"));
+	return plain ? { kind: "names", names: [...patterns] } : { kind: "custom", patterns: [...patterns] };
+}
+
+/** 勾选结果 → settings.skills 模式：空勾选 = 全部禁用（!**）；否则纯名字列表。 */
+export function selectionToPatterns(selectedNames: string[]): string[] {
+	if (selectedNames.length === 0) return ["!**"];
+	return [...selectedNames];
 }
 
 /** 写操作共用的身份校验：重新扫描并要求同名且路径精确一致。 */
@@ -243,6 +280,7 @@ export function createSkill(
 		tab: input.tab,
 		disabled: false,
 		isSymlink: false,
+		projectEnabled: true,
 	};
 }
 

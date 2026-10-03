@@ -825,16 +825,16 @@ export default function App(): React.JSX.Element {
 						/>
 					</div>
 					<BrowserSessionContext.Provider value={sessionId}>
-					<Workbench
-						client={client}
-						cwd={workspaceDir}
-						store={workbenchStore}
-						open={workbenchOpen}
-						onSetOpen={setWorkbenchOpenPersisted}
-						dock={workbenchDock}
-						onSetDock={setDockPersisted}
-						developerLayout={developerLayout}
-					/>
+						<Workbench
+							client={client}
+							cwd={workspaceDir}
+							store={workbenchStore}
+							open={workbenchOpen}
+							onSetOpen={setWorkbenchOpenPersisted}
+							dock={workbenchDock}
+							onSetDock={setDockPersisted}
+							developerLayout={developerLayout}
+						/>
 					</BrowserSessionContext.Provider>
 				</div>
 			{showSettings && (

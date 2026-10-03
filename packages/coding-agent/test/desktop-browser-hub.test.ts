@@ -7,6 +7,7 @@ const browser = vi.hoisted(() => {
 	let viewport = { width: 1280, height: 860 };
 	const page = {
 		on: vi.fn(),
+		off: vi.fn(),
 		url: () => "about:blank",
 		title: async () => "",
 		setViewportSize: async (size: { width: number; height: number }) => {
@@ -32,11 +33,18 @@ const browser = vi.hoisted(() => {
 	return {
 		pointer,
 		events,
-		launch: async () => ({ contexts: () => [context], on: vi.fn(), close: async () => {} }),
+		launch: async () => ({
+			contexts: () => [context],
+			newContext: async () => context,
+			on: vi.fn(),
+			close: async () => {},
+		}),
 	};
 });
 
-vi.mock("playwright-core", () => ({ default: { chromium: { launch: browser.launch } } }));
+vi.mock("playwright-core", () => ({
+	default: { chromium: { launch: browser.launch }, selectors: { register: async () => {} } },
+}));
 
 describe("desktop browser pointer input", () => {
 	let hub: BrowserHub;

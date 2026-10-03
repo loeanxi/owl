@@ -119,8 +119,24 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 
 	it("detects rejected or shortened input through readback", async () => {
 		await expect(interaction.fill({ selector: "#short" }, "long value")).rejects.toThrow("读回校验失败");
-		await page.evaluate(`document.querySelector('#text').addEventListener('input',event=>{event.target.value='reset'})`);
+		await page.evaluate(
+			`document.querySelector('#text').addEventListener('input',event=>{event.target.value='reset'})`,
+		);
 		await expect(interaction.fill({ selector: "#text" }, "expected")).rejects.toThrow("读回校验失败");
+	});
+
+	it("waits for a controlled field to settle instead of accepting a transient value", async () => {
+		await page.evaluate(`document.querySelector('#text').addEventListener('input',event=>{
+			const expected=event.target.value;
+			event.target.value='pending';
+			setTimeout(()=>{event.target.value=expected},180);
+		})`);
+		expect(await interaction.fill({ selector: "#text" }, "settled")).toEqual({
+			verified: true,
+			characters: 7,
+			redacted: false,
+		});
+		expect(await page.locator("#text").inputValue()).toBe("settled");
 	});
 
 	it("rejects missing, stale, ambiguous and invalid targets", async () => {
@@ -181,7 +197,9 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 
 	it("scrolls the target container and brings a deep element into view", async () => {
 		await interaction.scroll({ selector: "#scroller" }, { deltaY: 300 });
-		await expect.poll(() => page.evaluate<number>(`document.querySelector('#scroller').scrollTop`)).toBeGreaterThan(0);
+		await expect
+			.poll(() => page.evaluate<number>(`document.querySelector('#scroller').scrollTop`))
+			.toBeGreaterThan(0);
 		expect(await page.evaluate(`window.scrollY`)).toBe(0);
 		await interaction.scrollIntoView({ selector: "#deep" });
 		expect(await page.evaluate<number>(`document.querySelector('#scroller').scrollTop`)).toBeGreaterThan(600);

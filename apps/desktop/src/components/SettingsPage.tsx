@@ -320,6 +320,7 @@ export function SettingsPage({
 		roots: { personal: "", global: "", project: "" },
 		skills: [],
 		projectTrusted: false,
+		projectSkillPatterns: [],
 	});
 	const [skillsTab, setSkillsTab] = useState<SkillCenterTab>("personal");
 	const [skillsQuery, setSkillsQuery] = useState("");
@@ -329,6 +330,11 @@ export function SettingsPage({
 	const [skDesc, setSkDesc] = useState("");
 	const [skBody, setSkBody] = useState("");
 	const [confirmDelSkill, setConfirmDelSkill] = useState<SkillCenterEntry | null>(null);
+	// 项目 tab：查看哪个项目 + 勾选本项目需要的技能
+	const [skillProjects, setSkillProjects] = useState<string[]>([]);
+	const [skillProject, setSkillProject] = useState("");
+	const [skillAddProject, setSkillAddProject] = useState("");
+	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
 
 	useEffect(() => {
 		const off = client.onSessionEvent((msg) => {
@@ -484,13 +490,14 @@ export function SettingsPage({
 
 	// ---- 技能中心：三级浏览 + CRUD（skills.* 路由；写操作后桥端热刷新挂载会话）----
 
-	/** 拉取技能列表（个人/全局/项目三个根一起返回；cwd 决定项目根）。 */
-	async function loadSkillsList(): Promise<void> {
+	/** 拉取技能列表（个人/全局/项目三个根一起返回；cwd 决定项目根与 projectEnabled 的计算对象）。 */
+	async function loadSkillsList(cwdOverride?: string): Promise<void> {
+		const cwd = cwdOverride ?? skillProject ?? workspaceDir;
 		setSkillsLoading(true);
 		try {
 			const response = await client.request<SkillsListResult>({
 				type: "skills.list",
-				...(workspaceDir ? { cwd: workspaceDir } : {}),
+				...(cwd ? { cwd } : {}),
 			});
 			if (response.ok && response.result) setSkillsData(response.result);
 			else setError(response.error ?? t("settings.skills.listFailed"));
@@ -501,7 +508,24 @@ export function SettingsPage({
 
 	/** 打开技能面板时拉一次；工作区切换后项目根会变，也要重拉。 */
 	useEffect(() => {
-		if (section === "skills") void loadSkillsList();
+		if (section === "skills") {
+			void loadSkillsList();
+			// 候选项目 = 手动添加过（localStorage）+ 历史会话的 cwd
+			void (async () => {
+				let stored: string[] = [];
+				try {
+					const raw = JSON.parse(localStorage.getItem("owl-skill-projects") ?? "[]") as unknown;
+					if (Array.isArray(raw)) stored = raw.filter((p): p is string => typeof p === "string");
+				} catch {
+					stored = [];
+				}
+				const response = await client.request<SessionListRow[]>({ type: "session.list" });
+				const fromSessions = (response.ok && Array.isArray(response.result) ? response.result : [])
+					.map((row) => row.cwd ?? "")
+					.filter((cwd) => cwd && cwd.toLowerCase() !== workspaceDir.toLowerCase());
+				setSkillProjects([...new Set([...stored, ...fromSessions])]);
+			})();
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [section, client, workspaceDir]);
 
@@ -520,6 +544,79 @@ export function SettingsPage({
 			});
 			if (response.ok) await loadSkillsList();
 			else setError(response.error ?? t("common.operationFailed"));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 切换查看的项目（项目 tab 的列表、根目录与勾选都以该项目为准）。 */
+	function switchSkillProject(cwd: string): void {
+		setSkillProject(cwd);
+		setSkillPickerOpen(false);
+		setSkillForm(null);
+		void loadSkillsList(cwd || undefined);
+	}
+
+	/** 手动添加项目到候选列表（localStorage 持久化），并立即切换过去。 */
+	function addSkillProject(): void {
+		const trimmed = skillAddProject.trim();
+		if (!trimmed) return;
+		const next = [...new Set([trimmed, ...skillProjects])];
+		setSkillProjects(next);
+		setSkillAddProject("");
+		try {
+			localStorage.setItem("owl-skill-projects", JSON.stringify(next));
+		} catch {
+			// localStorage 不可用就只在本会话内生效
+		}
+		switchSkillProject(trimmed);
+	}
+
+	/** 项目 tab 的勾选范围：三个 tab 的全部技能按名字去重（同名个人优先，与 core 一致）。 */
+	function projectSkillChoices(): SkillCenterEntry[] {
+		const seen = new Set<string>();
+		const choices: SkillCenterEntry[] = [];
+		for (const entry of skillsData.skills) {
+			if (seen.has(entry.name)) continue;
+			seen.add(entry.name);
+			choices.push(entry);
+		}
+		return choices;
+	}
+
+	/** 勾选/取消一个技能：把当前生效集合 ± 该名字整体写回项目 settings.json。 */
+	async function toggleProjectSkill(name: string, enabled: boolean): Promise<void> {
+		const cwd = skillProject || workspaceDir;
+		if (!cwd) return;
+		setBusy(true);
+		setError("");
+		try {
+			const selected = new Set(skillsData.skills.filter((s) => s.projectEnabled).map((s) => s.name));
+			if (enabled) selected.add(name);
+			else selected.delete(name);
+			const response = await client.request({
+				type: "skills.setProjectSelection",
+				cwd,
+				mode: "set",
+				names: [...selected],
+			});
+			if (response.ok) await loadSkillsList(cwd);
+			else setError(response.error ?? t("settings.skills.saveSelectionFailed"));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 清空项目覆盖模式，恢复默认（全部技能可用）。 */
+	async function resetProjectSkillSelection(): Promise<void> {
+		const cwd = skillProject || workspaceDir;
+		if (!cwd) return;
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({ type: "skills.setProjectSelection", cwd, mode: "clear", names: [] });
+			if (response.ok) await loadSkillsList(cwd);
+			else setError(response.error ?? t("settings.skills.saveSelectionFailed"));
 		} finally {
 			setBusy(false);
 		}
@@ -1451,6 +1548,106 @@ export function SettingsPage({
 											{t("settings.skills.projectLocked")}
 										</div>
 									)}
+
+									{/* 项目 tab：选择要管理的项目 + 勾选本项目需要的技能 */}
+									{skillsTab === "project" && !projectLocked && (() => {
+										const choices = projectSkillChoices();
+										const enabledCount = choices.filter((s) => s.projectEnabled).length;
+										const customPatterns = skillsData.projectSkillPatterns.some(
+											(p) => p.startsWith("+") || p.startsWith("-") || p.startsWith("!"),
+										);
+										const tabBadge = { personal: t("settings.skills.tabPersonal"), global: t("settings.skills.tabGlobal"), project: t("settings.skills.tabProject") } as const;
+										return (
+											<>
+												<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">{t("settings.skills.projectTabDesc")}</div>
+
+												{/* 项目选择 + 添加项目 */}
+												<div className="mb-2 flex items-center gap-2">
+													<span className="shrink-0 text-[11px] text-owl-muted">{t("settings.skills.projectPickerLabel")}</span>
+													<select
+														className={`${smallInput} min-w-0 flex-1`}
+														value={skillProject}
+														onChange={(event) => switchSkillProject(event.target.value)}
+													>
+														<option value="">{t("settings.skills.projectCurrentWorkspace")}{workspaceDir ? `（${workspaceDir}）` : ""}</option>
+														{skillProjects.map((project) => (
+															<option key={project} value={project}>
+																{project}
+															</option>
+														))}
+													</select>
+												</div>
+												<div className="mb-3 flex items-center gap-2">
+													<input
+														className={`${smallInput} min-w-0 flex-1`}
+														value={skillAddProject}
+														onChange={(event) => setSkillAddProject(event.target.value)}
+														placeholder={t("settings.skills.addProjectPlaceholder")}
+														onKeyDown={(event) => {
+															if (event.key === "Enter") addSkillProject();
+														}}
+													/>
+													<button type="button" className={`${btn} shrink-0`} disabled={busy || !skillAddProject.trim()} onClick={addSkillProject}>
+														{t("settings.skills.addProjectBtn")}
+													</button>
+												</div>
+
+												{/* 勾选本项目需要的技能 */}
+												<div className="relative mb-3">
+													<button
+														type="button"
+														className={`${btn} w-full justify-between`}
+														onClick={() => setSkillPickerOpen((open) => !open)}
+													>
+														<span>{t("settings.skills.pickerBtn", { enabled: enabledCount, total: choices.length })}</span>
+														<span aria-hidden="true">{skillPickerOpen ? "▲" : "▼"}</span>
+													</button>
+													{skillPickerOpen && (
+														<div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-owl-border bg-owl-panel shadow-lg">
+															{customPatterns && (
+																<div className="border-b border-owl-border/60 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
+																	{t("settings.skills.pickerCustomNotice")}
+																</div>
+															)}
+															{choices.length === 0 && (
+																<div className="px-3 py-3 text-center text-xs text-owl-faint">{t("settings.skills.emptyDir")}</div>
+															)}
+															{choices.map((entry) => (
+																<label
+																	key={`${entry.tab}:${entry.name}`}
+																	className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-owl-border/20"
+																>
+																	<input
+																		type="checkbox"
+																		checked={entry.projectEnabled}
+																		disabled={busy}
+																		onChange={(event) => void toggleProjectSkill(entry.name, event.target.checked)}
+																	/>
+																	<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
+																	<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">
+																		{tabBadge[entry.tab]}
+																	</span>
+																</label>
+															))}
+															<div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-owl-border/60 bg-owl-panel px-3 py-2">
+																<button
+																	type="button"
+																	className="owl-settings-link"
+																	disabled={busy || skillsData.projectSkillPatterns.length === 0}
+																	onClick={() => void resetProjectSkillSelection()}
+																>
+																	{t("settings.skills.pickerReset")}
+																</button>
+																<button type="button" className="owl-settings-link" onClick={() => setSkillPickerOpen(false)}>
+																	{t("settings.skills.pickerClose")}
+																</button>
+															</div>
+														</div>
+													)}
+												</div>
+											</>
+										);
+									})()}
 
 									{/* 搜索 + 新建 */}
 									<div className="mb-3 flex items-center gap-2">

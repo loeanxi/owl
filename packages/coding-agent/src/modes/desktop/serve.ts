@@ -35,9 +35,9 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
+import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
-import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { loadPromptTemplates } from "../../core/prompt-templates.ts";
@@ -88,6 +88,7 @@ import {
 	listSkills,
 	readSkill,
 	SkillCenterError,
+	selectionToPatterns,
 	setSkillEnabled,
 	updateSkill,
 } from "./skills-center.ts";
@@ -360,7 +361,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 			}
 		},
-		onPagesChanged: (pages: IabPageInfo[], origin, originSessionId) => broadcast({ type: "iab.pages", pages, origin, originSessionId }),
+		onPagesChanged: (pages: IabPageInfo[], origin, originSessionId) =>
+			broadcast({ type: "iab.pages", pages, origin, originSessionId }),
 		onFileChooser: (pageId: string, multiple: boolean) => broadcast({ type: "iab.filechooser", pageId, multiple }),
 		onDiagnostic,
 	});
@@ -516,16 +518,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return options.agentDir ? join(dirname(options.agentDir), "skills") : getGlobalSkillsDir();
 	}
 
-	/** 项目是否已信任（技能中心项目 tab 的读写门槛；读不出设置就当未信任）。 */
-	async function isProjectTrustedFor(cwd: string): Promise<boolean> {
+	/** cwd 的项目设置管理器（读不出就返回 null，调用方按未信任/默认处理）。 */
+	async function getSettingsManagerFor(cwd: string): Promise<SettingsManager | null> {
 		try {
 			const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
 				m.SettingsManager.create(cwd, defaultAgentDir()),
 			);
-			return settingsManager.isProjectTrusted();
+			return settingsManager;
 		} catch {
-			return false;
+			return null;
 		}
+	}
+
+	/** 项目是否已信任（技能中心项目 tab 的读写门槛；读不出设置就当未信任）。 */
+	async function isProjectTrustedFor(cwd: string): Promise<boolean> {
+		return (await getSettingsManagerFor(cwd))?.isProjectTrusted() ?? false;
 	}
 
 	/**
@@ -775,7 +782,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		},
 	): Promise<void> {
 		const { sessionManager } = args;
-		const sessionIdHolder: { current: string } = { current: "" };
+		const sessionIdHolder: { current: string } = { current: sessionManager.getSessionId() };
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
 		const approvalModeHolder: { current: ApprovalMode } = { current: args.approvalMode };
 		const permissionExtension: InlineExtension = {
@@ -1135,10 +1142,37 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "skills.list": {
 				const cwd = request.cwd ?? options.cwd ?? process.cwd();
+				const projectSettings = await getSettingsManagerFor(cwd);
 				reply(ws, request.id, {
 					ok: true,
-					result: listSkills(cwd, await isProjectTrustedFor(cwd), options.agentDir),
+					result: listSkills(
+						cwd,
+						projectSettings?.isProjectTrusted() ?? false,
+						options.agentDir,
+						projectSettings?.getProjectSettings().skills ?? [],
+					),
 				});
+				return;
+			}
+			case "skills.setProjectSelection": {
+				// 勾选本项目需要的技能 → 项目 settings.json 的 skills 覆盖模式
+				const settingsManager = await getSettingsManagerFor(request.cwd);
+				if (!settingsManager?.isProjectTrusted()) {
+					reply(ws, request.id, { ok: false, error: "项目尚未信任，无法修改项目技能选择" });
+					return;
+				}
+				try {
+					settingsManager.setProjectSkillPaths(
+						request.mode === "clear" ? [] : selectionToPatterns(request.names),
+					);
+					reloadMountedSkillSessions(request.cwd);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `保存项目技能选择失败：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
 				return;
 			}
 			case "skills.read":
@@ -1577,7 +1611,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				pending.add(controller);
 				try {
 					const result = await openWorkspaceViewer(request.viewerId, {
-						cwd: request.cwd, path: request.path, signal: controller.signal,
+						cwd: request.cwd,
+						path: request.path,
+						signal: controller.signal,
 					});
 					reply(ws, request.id, { ok: true, result });
 				} finally {

@@ -5,7 +5,7 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
-import type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
+import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
@@ -196,6 +196,8 @@ export interface SkillCenterEntry {
 	disabled: boolean;
 	/** SKILL.md 是符号链接：可列表/启停，禁止编辑与删除。 */
 	isSymlink: boolean;
+	/** 对 skills.list 传入的项目是否启用（按项目 settings.skills 覆盖模式计算；未配置恒 true）。 */
+	projectEnabled: boolean;
 }
 
 /** 三个 tab 的根目录（绝对路径，UI 展示用）。 */
@@ -208,7 +210,7 @@ export interface SkillCenterRoots {
 export interface SkillsListRequest {
 	type: "skills.list";
 	id: string;
-	/** 项目目录；缺省用桥的默认 cwd（决定项目 tab 的根）。 */
+	/** 项目目录；缺省用桥的默认 cwd（决定项目 tab 的根与 projectEnabled 的计算对象）。 */
 	cwd?: string;
 }
 
@@ -217,6 +219,8 @@ export interface SkillsListResult {
 	skills: SkillCenterEntry[];
 	/** 当前项目是否已信任（未信任时项目 tab 只读并提示）。 */
 	projectTrusted: boolean;
+	/** 该项目 settings.json 的 skills 覆盖模式原样带回（UI 判断勾选形态用）。 */
+	projectSkillPatterns: string[];
 }
 
 export interface SkillsReadRequest {
@@ -279,6 +283,21 @@ export interface SkillsDeleteRequest {
 	path: string;
 	tab: SkillCenterTab;
 	cwd?: string;
+}
+
+/**
+ * 勾选本项目需要的技能：写项目 settings.json 的 skills 覆盖模式。
+ * - mode "set"：names = 勾中的技能名（普通名字模式，未勾的在项目内禁用）；
+ *   空数组 = 全部禁用（写成 !**）。
+ * - mode "clear"：清空覆盖，恢复默认（全部可用）。
+ * 写操作需项目已信任；落盘后桥端热刷新挂载会话。
+ */
+export interface SkillsSetProjectSelectionRequest {
+	type: "skills.setProjectSelection";
+	id: string;
+	cwd: string;
+	mode: "set" | "clear";
+	names: string[];
 }
 
 /** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
@@ -957,10 +976,11 @@ export type DesktopClientRequest =
 	| SkillsListRequest
 	| SkillsReadRequest
 	| SkillsSetEnabledRequest
-	| SkillsCreateRequest
-	| SkillsUpdateRequest
-	| SkillsDeleteRequest
-	| SessionListRequest
+		| SkillsCreateRequest
+		| SkillsUpdateRequest
+		| SkillsDeleteRequest
+		| SkillsSetProjectSelectionRequest
+		| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

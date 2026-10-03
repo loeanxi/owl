@@ -1,0 +1,34 @@
+{
+	"name": "owl-image",
+	"version": "0.1.0",
+	"description": "Multi-provider image generation for the Owl coding agent — Google Gemini, OpenAI (compatible relays), Seedream, DashScope, xAI, Zhipu, local ComfyUI, and a Google (Antigravity) subscription channel. Core capability ported from shanliuling/dsh-image-gen (Apache-2.0).",
+	"license": "Apache-2.0",
+	"author": "Owl contributors (upstream: shanliuling <dsh-image-gen>)",
+	"type": "module",
+	"private": true,
+	"files": ["dist", "*.ts"],
+	"keywords": ["owl-package", "owl", "owl-coding-agent", "extension", "image-generation", "gemini", "comfyui", "antigravity"],
+	"scripts": {
+		"build": "node scripts/build.js",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"undici": "^8.11.2"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@owl/owl-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"@earendil-works/pi-ai": "*",
+		"@types/node": "^24.0.0",
+		"esbuild": "^0.28.1",
+		"typebox": "1.3.27",
+		"typescript": "^7.0.2"
+	},
+	"owl": {
+		"extensions": ["./dist/index.js"]
+	}
+}

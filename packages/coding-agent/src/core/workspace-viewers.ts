@@ -43,10 +43,17 @@ export function subscribeWorkspaceViewers(listener: (viewers: WorkspaceViewerInf
 
 /** Register a plugin-owned viewer. An old disposer cannot unregister its replacement. */
 export function registerWorkspaceViewer(definition: WorkspaceViewerDefinition): () => void {
-	if (!/^[a-z][a-z0-9._-]*$/.test(definition.id) || !definition.title.trim() || typeof definition.open !== "function") {
+	if (
+		!/^[a-z][a-z0-9._-]*$/.test(definition.id) ||
+		!definition.title.trim() ||
+		typeof definition.open !== "function"
+	) {
 		throw new Error("Invalid workspace viewer definition");
 	}
-	if (definition.extensions.length === 0 || definition.extensions.some((extension) => !/^[a-z0-9][a-z0-9_-]*$/i.test(extension))) {
+	if (
+		definition.extensions.length === 0 ||
+		definition.extensions.some((extension) => !/^[a-z0-9][a-z0-9_-]*$/i.test(extension))
+	) {
 		throw new Error("Workspace viewers require plain file extensions without dots");
 	}
 	const registered: WorkspaceViewerDefinition = Object.freeze({
@@ -63,13 +70,21 @@ export function registerWorkspaceViewer(definition: WorkspaceViewerDefinition): 
 }
 
 /** Resolve and fence the file before handing it to any plugin. */
-export async function openWorkspaceViewer(id: string, request: WorkspaceViewerOpenRequest): Promise<WorkspaceViewerOpenResult> {
+export async function openWorkspaceViewer(
+	id: string,
+	request: WorkspaceViewerOpenRequest,
+): Promise<WorkspaceViewerOpenResult> {
 	const viewer = viewers.get(id);
 	if (!viewer) throw new Error(`Workspace viewer is unavailable: ${id}`);
 	request.signal?.throwIfAborted();
-	if (!isAbsolute(request.cwd) || !request.path || /[\x00-\x1f\x7f]/.test(request.path) ||
-		isAbsolute(request.path) || /^[a-z]:/i.test(request.path) ||
-		request.path.split(/[\\/]/).some((segment) => !segment || segment === "." || segment === "..")) {
+	if (
+		!isAbsolute(request.cwd) ||
+		!request.path ||
+		/[\x00-\x1f\x7f]/.test(request.path) ||
+		isAbsolute(request.path) ||
+		/^[a-z]:/i.test(request.path) ||
+		request.path.split(/[\\/]/).some((segment) => !segment || segment === "." || segment === "..")
+	) {
 		throw new Error("Viewer paths must be relative files inside the workspace");
 	}
 	if (!viewer.extensions.includes(extname(request.path).slice(1).toLowerCase())) {

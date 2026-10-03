@@ -106,14 +106,24 @@ export class BrowserInteraction {
 	async fill(target: BrowserTarget, text: string, options: { append?: boolean } = {}): Promise<BrowserFillResult> {
 		return this.act(target, "输入", async (locator) => {
 			const state = await locator.evaluate(
-				(el: BrowserElement): ControlState => ({
-					kind: el.tagName === "INPUT" ? "input" : el.tagName === "TEXTAREA" ? "textarea" : el.isContentEditable ? "contenteditable" : "other",
-					inputType: el.tagName === "INPUT" ? el.type ?? "text" : "",
-					disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
-					readOnly: !!el.readOnly || el.getAttribute("aria-readonly") === "true",
-					value: el.isContentEditable ? el.innerText : String(el.value ?? ""),
-					password: el.tagName === "INPUT" && el.type === "password",
-				}),
+				(element): ControlState => {
+					const el = element as unknown as BrowserElement;
+					return {
+						kind:
+							el.tagName === "INPUT"
+								? "input"
+								: el.tagName === "TEXTAREA"
+									? "textarea"
+									: el.isContentEditable
+										? "contenteditable"
+										: "other",
+						inputType: el.tagName === "INPUT" ? (el.type ?? "text") : "",
+						disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
+						readOnly: !!el.readOnly || el.getAttribute("aria-readonly") === "true",
+						value: el.isContentEditable ? el.innerText : String(el.value ?? ""),
+						password: el.tagName === "INPUT" && el.type === "password",
+					};
+				},
 				undefined,
 				{ timeout: this.timeoutMs },
 			);
@@ -137,7 +147,15 @@ export class BrowserInteraction {
 				await locator.fill(text, { timeout: this.timeoutMs });
 			}
 			const actual = await this.verify(
-				() => locator.evaluate((el: BrowserElement) => el.isContentEditable ? el.innerText : String(el.value ?? ""), undefined, { timeout: this.timeoutMs }),
+				() =>
+					locator.evaluate(
+						(element) => {
+							const el = element as unknown as BrowserElement;
+							return el.isContentEditable ? el.innerText : String(el.value ?? "");
+						},
+						undefined,
+						{ timeout: this.timeoutMs },
+					),
 				(value) => value.replace(/\r\n/g, "\n") === expected.replace(/\r\n/g, "\n"),
 				"输入后的读回校验失败；页面可能限制长度、格式化内容或拒绝了输入，请重新观察字段。",
 			);
@@ -148,12 +166,18 @@ export class BrowserInteraction {
 	async selectOptions(target: BrowserTarget, values: string[]): Promise<BrowserSelectResult> {
 		return this.act(target, "选择选项", async (locator) => {
 			const state = await locator.evaluate(
-				(el: BrowserElement) => ({
-					isSelect: el.tagName === "SELECT",
-					disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
-					multiple: !!el.multiple,
-					options: Array.from(el.options ?? []).map(option => ({ value: option.value, disabled: option.disabled || !!option.closest("optgroup[disabled]") })),
-				}),
+				(element) => {
+					const el = element as unknown as BrowserElement;
+					return {
+						isSelect: el.tagName === "SELECT",
+						disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
+						multiple: !!el.multiple,
+						options: Array.from(el.options ?? []).map((option) => ({
+							value: option.value,
+							disabled: option.disabled || !!option.closest("optgroup[disabled]"),
+						})),
+					};
+				},
 				undefined,
 				{ timeout: this.timeoutMs },
 			);
@@ -171,7 +195,15 @@ export class BrowserInteraction {
 				{ timeout: this.timeoutMs },
 			);
 			const actual = await this.verify(
-				() => locator.evaluate((el: BrowserElement) => Array.from(el.selectedOptions ?? []).map(option => option.value), undefined, { timeout: this.timeoutMs }),
+				() =>
+					locator.evaluate(
+						(element) => {
+							const el = element as unknown as BrowserElement;
+							return Array.from(el.selectedOptions ?? []).map((option) => option.value);
+						},
+						undefined,
+						{ timeout: this.timeoutMs },
+					),
 				(value) => JSON.stringify([...value].sort()) === JSON.stringify([...uniqueValues].sort()),
 				"选中值读回校验失败；页面可能重置了选择，请重新观察下拉框。",
 			);
@@ -192,9 +224,14 @@ export class BrowserInteraction {
 				throw new InteractionError("目标已禁用，不能聚焦。");
 			await locator.focus({ timeout: this.timeoutMs });
 			if (
-				!(await locator.evaluate((el: BrowserElement) => el === el.ownerDocument.activeElement, undefined, {
-					timeout: this.timeoutMs,
-				}))
+				!(await locator.evaluate(
+					(element) => {
+						const el = element as unknown as BrowserElement;
+						return el === el.ownerDocument.activeElement;
+					},
+					undefined,
+					{ timeout: this.timeoutMs },
+				))
 			) {
 				throw new InteractionError("目标未获得焦点；该元素可能不支持聚焦。");
 			}
@@ -205,9 +242,14 @@ export class BrowserInteraction {
 		await this.act(target, "取消焦点", async (locator) => {
 			await locator.blur({ timeout: this.timeoutMs });
 			if (
-				await locator.evaluate((el: BrowserElement) => el === el.ownerDocument.activeElement, undefined, {
-					timeout: this.timeoutMs,
-				})
+				await locator.evaluate(
+					(element) => {
+						const el = element as unknown as BrowserElement;
+						return el === el.ownerDocument.activeElement;
+					},
+					undefined,
+					{ timeout: this.timeoutMs },
+				)
 			) {
 				throw new InteractionError("页面阻止了焦点离开，请重新观察当前焦点。");
 			}

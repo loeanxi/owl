@@ -8,6 +8,7 @@ const MAX_HEADER_CHARS = 16 * 1024;
 const REDACTED = "[REDACTED]";
 
 export interface BrowserNetworkListOptions {
+	/** Only requests first issued after this sequence; this is not a lifecycle-update cursor. */
 	since?: number;
 	limit?: number;
 	/** Case-insensitive substring match against the redacted URL. */
@@ -75,6 +76,14 @@ function secretKey(key: string): boolean {
 /** Redact labelled credentials in plain text as well as strings embedded in JSON. */
 function safeText(text: string, depth = 0): string {
 	return text
+		.replace(/<(input|meta)\b[^>]*>/gi, (tag) => {
+			const fields = [...tag.matchAll(/\b(?:name|id|type)\s*=\s*["']([^"']*)["']/gi)];
+			if (!fields.some((field) => secretKey(field[1]))) return tag;
+			return tag.replace(/(\b(?:value|content)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/gi, `$1"${REDACTED}"`);
+		})
+		.replace(/<([a-z][a-z0-9:_-]*)\b[^>]*>([^<]*)<\/\1\s*>/gi, (match, key: string) =>
+			secretKey(key) ? `<${key}>${REDACTED}</${key}>` : match,
+		)
 		.replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, (value) => safeUrl(value, depth + 1))
 		.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9+/_=.-]+/gi, `$1 ${REDACTED}`)
 		.replace(
@@ -323,7 +332,11 @@ export class BrowserNetworkJournal {
 			else {
 				const buffer = entry.request.postDataBuffer();
 				requestBody = buffer
-					? (preflight ?? formatBody(buffer, bodyType(entry.requestHeaders).type, maxBodyChars))
+					? buffer.length > MAX_BODY_BYTES
+						? bodyResult("too_large", buffer.length, "source_body_byte_limit")
+						: preflight
+							? { ...preflight, sourceBytes: buffer.length }
+							: formatBody(buffer, bodyType(entry.requestHeaders).type, maxBodyChars)
 					: bodyResult("none", 0);
 			}
 		}

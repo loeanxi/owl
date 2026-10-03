@@ -1,3 +1,4 @@
+import { useT } from "../i18n/index.ts";
 import { IconChat, IconMore, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
@@ -20,15 +21,16 @@ export function ActivityRail({
 	onSelect: (view: RailView) => void;
 	onOpenSettings: () => void;
 }): React.JSX.Element {
+	const t = useT();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 
 	return (
-		<nav className="owl-activity-rail" data-tauri-drag-region="deep" aria-label="主导航">
+		<nav className="owl-activity-rail" data-tauri-drag-region="deep" aria-label={t("rail.aria")}>
 			<button
 				type="button"
 				className="owl-rail-brand"
-				title="OWL · 会话"
-				aria-label="OWL 会话"
+				title={t("rail.owlSessionsTitle")}
+				aria-label={t("rail.owlSessions")}
 				onClick={() => onSelect("chat")}
 			>
 				<img src="/owl.svg" alt="" className="h-6 w-6" draggable={false} />
@@ -37,8 +39,8 @@ export function ActivityRail({
 			<button
 				type="button"
 				className={itemClass(view === "chat" && !settingsOpen)}
-				title="聊天"
-				aria-label="聊天"
+				title={t("rail.chat")}
+				aria-label={t("rail.chat")}
 				aria-current={view === "chat" && !settingsOpen ? "page" : undefined}
 				onClick={() => onSelect("chat")}
 			>
@@ -48,14 +50,14 @@ export function ActivityRail({
 			<button
 				type="button"
 				className={itemClass(settingsOpen)}
-				title="设置"
-				aria-label="设置"
+				title={t("rail.settings")}
+				aria-label={t("rail.settings")}
 				aria-current={settingsOpen ? "page" : undefined}
 				onClick={onOpenSettings}
 			>
 				<IconSettings className="h-[18px] w-[18px]" />
 			</button>
-			<button type="button" className={itemClass(false)} title="更多" aria-label="更多" disabled>
+			<button type="button" className={itemClass(false)} title={t("rail.more")} aria-label={t("rail.more")} disabled>
 				<IconMore className="h-[18px] w-[18px]" />
 			</button>
 
@@ -64,7 +66,7 @@ export function ActivityRail({
 				type="button"
 				className="owl-rail-avatar"
 				title="owl"
-				aria-label="Owl 设置"
+				aria-label={t("rail.owlSettings")}
 				onClick={onOpenSettings}
 			>
 				<img src="/owl.svg" alt="owl" className="h-4.5 w-4.5" draggable={false} />

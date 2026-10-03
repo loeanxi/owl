@@ -313,6 +313,22 @@ describe("desktop browser network journal", () => {
 		).toHaveLength(32768);
 	});
 
+	it("redacts known secret fields in HTML controls, XML tags, and plain text", async () => {
+		const { request } = fakeRequest();
+		const source =
+			'<input name="password" value="html-secret"><meta name="csrf-token" content="meta-secret"><api-key>xml-secret</api-key> context=token=plain-secret';
+		page.emit("request", request);
+		page.emit(
+			"response",
+			fakeResponse(request, { headers: { "content-type": "text/html" }, body: Buffer.from(source) }).response,
+		);
+		page.emit("requestfinished", request);
+		const detail = await journal.detail("1", { includeResponseBody: true });
+		expect(detail.responseBody.state).toBe("available");
+		for (const secret of ["html-secret", "meta-secret", "xml-secret", "plain-secret"])
+			expect(detail.responseBody.text).not.toContain(secret);
+	});
+
 	it("bounds metadata and removes all listeners and retained references on disposal", async () => {
 		const request = fakeRequest({
 			url: `https://example.test/${"x".repeat(3000)}`,

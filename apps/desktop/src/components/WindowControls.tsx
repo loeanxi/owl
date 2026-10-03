@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useT } from "../i18n/index.ts";
 
 /** 浏览器 dev 下没有 Tauri 注入的 IPC，此时不渲染窗口按钮。 */
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -8,6 +9,7 @@ const buttonClass = "owl-chrome-button";
 
 /** 无边框窗口的自绘控制按钮：最小化 / 最大化还原 / 关闭。 */
 export function WindowControls(): React.JSX.Element | null {
+	const t = useT();
 	const [maximized, setMaximized] = useState(false);
 
 	useEffect(() => {
@@ -39,8 +41,8 @@ export function WindowControls(): React.JSX.Element | null {
 		<div className="ml-1.5 flex items-center gap-0.5" data-tauri-drag-region="false">
 			<button
 				type="button"
-				aria-label="最小化"
-				title="最小化"
+				aria-label={t("window.minimize")}
+				title={t("window.minimize")}
 				className={buttonClass}
 				onClick={() => void current.minimize()}
 			>
@@ -50,8 +52,8 @@ export function WindowControls(): React.JSX.Element | null {
 			</button>
 			<button
 				type="button"
-				aria-label={maximized ? "还原" : "最大化"}
-				title={maximized ? "还原" : "最大化"}
+				aria-label={maximized ? t("window.restore") : t("window.maximize")}
+				title={maximized ? t("window.restore") : t("window.maximize")}
 				className={buttonClass}
 				onClick={() => void current.toggleMaximize()}
 			>
@@ -68,8 +70,8 @@ export function WindowControls(): React.JSX.Element | null {
 			</button>
 			<button
 				type="button"
-				aria-label="关闭"
-				title="关闭"
+				aria-label={t("window.close")}
+				title={t("window.close")}
 				className="owl-chrome-button owl-window-close"
 				onClick={() => void current.close()}
 			>

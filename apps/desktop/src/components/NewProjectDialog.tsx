@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProjectCreateResult } from "../bridge/protocol.ts";
 import { hasTauri, pickFolder } from "../bridge/native.ts";
+import { t, useT } from "../i18n/index.ts";
 
 /**
  * 新建/打开项目对话框：输入或浏览目录，project.create（mkdir -p，幂等）后回调切换。
@@ -17,6 +18,7 @@ export function NewProjectDialog({
 	/** project.create 成功后的规范化绝对路径，调用方负责切换项目。 */
 	onCreated: (path: string) => void;
 }): React.JSX.Element {
+	const t = useT();
 	const [path, setPath] = useState("");
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState("");
@@ -31,7 +33,7 @@ export function NewProjectDialog({
 		try {
 			const response = await client.request<ProjectCreateResult>({ type: "project.create", path: target });
 			if (!response.ok || !response.result) {
-				setError(response.error ?? "创建失败");
+				setError(response.error ?? t("newproject.createFailed"));
 				return;
 			}
 			onCreated(response.result.path);
@@ -47,7 +49,7 @@ export function NewProjectDialog({
 		setBrowsing(true);
 		setError("");
 		try {
-			const selected = await pickFolder("选择项目目录");
+			const selected = await pickFolder(t("newproject.pickFolderTitle"));
 			if (selected) setPath(selected);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
@@ -59,8 +61,8 @@ export function NewProjectDialog({
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
 			<div className="w-96 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
-				<h2 className="mb-1 text-sm font-semibold text-owl-text">新建项目</h2>
-				<p className="mb-3 text-xs text-owl-muted">选择或输入项目目录（不存在会自动创建）：</p>
+				<h2 className="mb-1 text-sm font-semibold text-owl-text">{t("newproject.title")}</h2>
+				<p className="mb-3 text-xs text-owl-muted">{t("newproject.desc")}</p>
 				<div className="flex gap-2">
 					<input
 						type="text"
@@ -79,11 +81,11 @@ export function NewProjectDialog({
 						<button
 							type="button"
 							className="shrink-0 rounded-lg border border-owl-border px-3 py-2 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text disabled:opacity-50"
-							title="打开系统资源管理器选择文件夹"
+							title={t("newproject.browseTitle")}
 							onClick={() => void browse()}
 							disabled={browsing || creating}
 						>
-							{browsing ? "打开中…" : "浏览…"}
+							{browsing ? t("newproject.browsing") : t("newproject.browse")}
 						</button>
 					)}
 				</div>
@@ -95,7 +97,7 @@ export function NewProjectDialog({
 						onClick={onClose}
 						disabled={creating}
 					>
-						取消
+						{t("common.cancel")}
 					</button>
 					<button
 						type="button"
@@ -103,7 +105,7 @@ export function NewProjectDialog({
 						onClick={() => void submit()}
 						disabled={creating || !path.trim()}
 					>
-						{creating ? "创建中…" : "创建并切换"}
+						{creating ? t("newproject.creating") : t("newproject.createAndSwitch")}
 					</button>
 				</div>
 			</div>

@@ -7,6 +7,10 @@ const READ_ONLY_TOOLS = new Set([
 	"browser_snapshot",
 	"browser_screenshot",
 	"browser_wait",
+	"univer_status",
+	"univer_inspect",
+	"univer_api",
+	"univer_lint",
 ]);
 
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {

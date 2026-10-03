@@ -11,12 +11,15 @@ export type AssistantSegment =
 
 /** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
 export type ToolResultImage = { data: string; mimeType: string };
+export type ToolResultArtifact = { path: string; action: "written" | "edited" | "opened" };
 
 /** 工具输出：已从 content 解码成纯文本，不再是 JSON 字符串。 */
 export type ToolOutput = {
 	text: string;
 	totalLines: number;
 	images?: ToolResultImage[];
+	/** Plugin-produced files, taken from the successful tool result rather than assistant prose. */
+	artifacts?: ToolResultArtifact[];
 	/** bash 等超限截断时，服务端把全文写入的临时文件路径（details.fullOutputPath）。 */
 	fullPath?: string;
 };
@@ -40,7 +43,7 @@ export type ToolCard = {
 };
 
 export type ChatEntry =
-	| { kind: "user"; text: string }
+	| { kind: "user"; text: string; images?: ToolResultImage[] }
 	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string; segments?: AssistantSegment[] }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
 	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
@@ -297,7 +300,8 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 	const entries: ChatEntry[] = [];
 	for (const message of messages) {
 		if (message.role === "user") {
-			entries.push({ kind: "user", text: textOf(message.content) });
+			const images = contentImagesOf(message.content);
+			entries.push({ kind: "user", text: textOf(message.content), ...(images.length > 0 ? { images } : {}) });
 		} else if (message.role === "assistant") {
 			const tools: ToolCard[] = (message.content ?? [])
 				.filter((part: AnyEvent) => part.type === "toolCall")
@@ -369,10 +373,19 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 		.filter((part: AnyEvent) => part.type === "image" && part.data)
 		.map((part: AnyEvent) => ({ data: part.data, mimeType: part.mimeType ?? "image/png" }));
 	const details = (message.details ?? {}) as AnyEvent;
+	const artifacts: ToolResultArtifact[] = [];
+	if (Array.isArray(details.artifacts)) {
+		for (const item of details.artifacts) {
+			if (item && typeof item.path === "string" && ["written", "edited", "opened"].includes(item.action)) {
+				artifacts.push({ path: item.path, action: item.action });
+			}
+		}
+	}
 	return {
 		text,
 		totalLines: text === "" ? 0 : text.split("\n").length,
 		...(images.length > 0 ? { images } : {}),
+		...(artifacts.length > 0 ? { artifacts } : {}),
 		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
 	};
 }
@@ -384,6 +397,14 @@ function textOf(content: unknown): string {
 		.filter((part) => part.type === "text")
 		.map((part) => part.text ?? "")
 		.join("\n");
+}
+
+/** 消息 content 里的图片块（用户随 prompt 附图、会话恢复后重建转录都要带出来）。 */
+function contentImagesOf(content: unknown): ToolResultImage[] {
+	if (!Array.isArray(content)) return [];
+	return content
+		.filter((part: AnyEvent) => part.type === "image" && typeof part.data === "string" && part.data !== "")
+		.map((part: AnyEvent) => ({ data: part.data, mimeType: typeof part.mimeType === "string" && part.mimeType !== "" ? part.mimeType : "image/png" }));
 }
 
 function firstTextLine(text: string): string {

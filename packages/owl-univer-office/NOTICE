@@ -1,0 +1,38 @@
+Owl Univer Office adapter
+
+The adapter integrates standalone application artifacts from:
+  dsh-univer-office
+  Copyright DreamNum Co., Ltd.
+  Author: DreamNum Co., Ltd. <developer@univer.ai>
+  Source: https://github.com/dream-num/dsh-univer-office
+  Reviewed npm snapshot: dsh-univer-office@0.3.6
+  Upstream gitHead: c2caaefb43dc464f1477463c754f17a6be956193
+  Registry: https://registry.npmjs.org/dsh-univer-office/0.3.6
+  Snapshot integrity:
+    sha512-IaLbxGvKdPHS6hdb/K/Bl+j3C2WoEDN/LIKzAVi6n2VCwi6mPZhkmu1W4egvEo9kXJ+YIEikuvfc5B0ZzF9hEA==
+
+The upstream adapter/application repository declares Apache License 2.0.
+Its Apache-2.0 license is preserved in LICENSE. This Owl adapter replaces
+DSH-specific host integration with Owl extension integration; it does not
+copy or distribute the DSH core as an Owl plugin dependency.
+
+The separately distributed Univer Pro (@univerjs-pro/*), AI SDK
+(@univer-cli/*), native bindings, asset libraries and other third-party
+packages retain their own applicable terms. The Apache-2.0 declaration of
+this adapter or the upstream application is not a representation that
+all of those dependencies have an Apache-2.0 license or that an upstream
+development license grants perpetual production or redistribution rights.
+
+Runtime dependencies are hydrated into a separate user cache, preserving
+the npm package contents and their included notices. Verify the SDK
+embedding, deployment and redistribution scope with the license provider
+before redistributing this integration or deploying it beyond evaluation.
+
+Additional exact-version runtime SDK packages:
+  @univer-cli/api-reference@1.0.2
+  @univer-cli/unit-screenshot@1.0.2
+  @univer-cli/unit-pdf-printer@1.0.2
+  @univer-cli/unit-layout-lint@1.0.2
+  @univer-cli/svg-facade@1.0.2
+  @univer-cli/resource-library@1.0.2
+  @univer-cli/univer-render-runtime@1.0.2

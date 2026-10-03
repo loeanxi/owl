@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { useT } from "../i18n/index.ts";
 import { IconPanelLeft } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 
@@ -20,6 +21,7 @@ interface DesktopTitlebarProps {
 
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
+	const t = useT();
 	const [menu, setMenu] = useState<MenuKey | undefined>();
 	const [copyError, setCopyError] = useState("");
 	const root = useRef<HTMLElement>(null);
@@ -42,31 +44,31 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 
 	const actions: Record<MenuKey, { label: string; action: () => void; disabled?: boolean }[]> = {
 		file: [
-			{ label: "新会话", action: props.onNewChat, disabled: !props.connected },
-			{ label: "打开项目…", action: props.onOpenProject, disabled: !props.connected },
+			{ label: t("titlebar.newChat"), action: props.onNewChat, disabled: !props.connected },
+			{ label: t("titlebar.openProject"), action: props.onOpenProject, disabled: !props.connected },
 		],
 		edit: [
 			{
-				label: "复制选中内容",
+				label: t("titlebar.copySelection"),
 				disabled: !window.getSelection()?.toString(),
 				action: () => {
 					const selected = window.getSelection()?.toString();
 					if (selected) {
 						void navigator.clipboard.writeText(selected).catch(() => {
-							setCopyError("复制失败，请使用系统复制操作。");
+							setCopyError(t("titlebar.copyFailed"));
 						});
 					}
 				},
 			},
-			{ label: "设置…", action: props.onOpenSettings },
+			{ label: t("titlebar.settings"), action: props.onOpenSettings },
 		],
 		view: [
-			{ label: "打开开发工作台", action: props.onOpenDeveloper },
-			{ label: props.sidebarCollapsed ? "显示会话列表" : "隐藏会话列表", action: props.onToggleSidebar },
-			{ label: "右侧工作台", action: props.onDockRight },
-			{ label: "底部工作台", action: props.onDockBottom },
+			{ label: t("titlebar.openDeveloperWorkbench"), action: props.onOpenDeveloper },
+			{ label: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions"), action: props.onToggleSidebar },
+			{ label: t("titlebar.dockRight"), action: props.onDockRight },
+			{ label: t("titlebar.dockBottom"), action: props.onDockBottom },
 		],
-		help: [{ label: "关于 OWL", action: props.onOpenAbout }],
+		help: [{ label: t("titlebar.aboutOwl"), action: props.onOpenAbout }],
 	};
 
 	return (
@@ -76,15 +78,15 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					ref={props.sidebarToggleRef}
 					type="button"
 					className="owl-chrome-button owl-desktop-sidebar-toggle"
-					aria-label={props.sidebarCollapsed ? "显示会话列表" : "隐藏会话列表"}
-					title={props.sidebarCollapsed ? "显示会话列表" : "隐藏会话列表"}
+					aria-label={props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions")}
+					title={props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions")}
 					aria-expanded={!props.sidebarCollapsed}
 					aria-controls="owl-session-sidebar"
 					onClick={props.onToggleSidebar}
 				>
 					<IconPanelLeft className="h-4 w-4" />
 				</button>
-				{([['file', '文件'], ['edit', '编辑'], ['view', '视图'], ['help', '帮助']] as const).map(([key, label]) => (
+				{([['file', 'titlebar.menuFile'], ['edit', 'titlebar.menuEdit'], ['view', 'titlebar.menuView'], ['help', 'titlebar.menuHelp']] as const).map(([key, labelKey]) => (
 					<div className="owl-desktop-menu" key={key}>
 						<button
 							type="button"
@@ -97,10 +99,10 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 								setMenu((current) => current === key ? undefined : key);
 							}}
 						>
-							{label}
+							{t(labelKey)}
 						</button>
 						{menu === key && (
-							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={label}>
+							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={t(labelKey)}>
 								{actions[key].map((item) => (
 									<button
 										key={item.label}

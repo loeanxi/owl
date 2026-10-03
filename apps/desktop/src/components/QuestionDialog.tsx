@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { QuestionAnswerPayload, QuestionRequest } from "../bridge/protocol.ts";
+import { useT } from "../i18n/index.ts";
 import { renderMarkdown } from "./ChatStream.tsx";
 
 /**
@@ -30,6 +31,7 @@ export function QuestionDialog({
 	request: QuestionRequest;
 	onAnswer: (answers: QuestionAnswerPayload[], cancelled: boolean) => void;
 }): React.JSX.Element {
+	const t = useT();
 	const total = request.questions.length;
 	const [states, setStates] = useState<QuestionUiState[]>(() => request.questions.map(initialState));
 	const [current, setCurrent] = useState(0);
@@ -136,7 +138,7 @@ export function QuestionDialog({
 				{/* 进度：第 x / N 题 + 圆点（绿=已答，描边=当前） */}
 				<div className="flex items-center gap-2 border-b border-owl-border px-4 py-2.5">
 					<span className="text-sm font-semibold text-owl-accent">
-						第 {qi + 1} / {total} 题
+						{t("question.progress", { i: qi + 1, n: total })}
 					</span>
 					<div className="flex flex-1 items-center gap-1.5">
 						{request.questions.map((q, i) => (
@@ -158,7 +160,7 @@ export function QuestionDialog({
 							/>
 						))}
 					</div>
-					<span className="text-[11px] text-owl-muted">已答 {answeredCount}/{total}</span>
+					<span className="text-[11px] text-owl-muted">{t("question.answeredCount", { n: answeredCount, total })}</span>
 				</div>
 				<div className="flex-1 overflow-y-auto px-4 py-3">
 					<div className="flex items-center gap-2">
@@ -166,9 +168,9 @@ export function QuestionDialog({
 							{question.header}
 						</span>
 						<p className="text-sm font-medium">{question.question}</p>
-						{question.multiSelect && <span className="text-[11px] text-owl-muted">（可多选）</span>}
+						{question.multiSelect && <span className="text-[11px] text-owl-muted">{t("question.multiSelectHint")}</span>}
 					</div>
-					{unanswered && <p className="mt-1 text-xs text-red-400">先答这道题：选一个选项，或在「其他」里输入</p>}
+					{unanswered && <p className="mt-1 text-xs text-red-400">{t("question.missingWarning")}</p>}
 					<div className="mt-2 space-y-1.5">
 						{question.options.map((option) => {
 							const picked = state.picked.has(option.label);
@@ -228,11 +230,11 @@ export function QuestionDialog({
 								input?.focus();
 							}}
 						>
-							<span className="shrink-0 text-sm text-owl-muted">其他</span>
+							<span className="shrink-0 text-sm text-owl-muted">{t("question.other")}</span>
 							<input
 								value={state.custom}
 								onChange={(event) => setCustom(qi, event.target.value, question.multiSelect)}
-								placeholder="自由输入…"
+								placeholder={t("question.customPlaceholder")}
 								className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-owl-muted/60"
 							/>
 						</div>
@@ -241,7 +243,7 @@ export function QuestionDialog({
 							<textarea
 								value={state.note}
 								onChange={(event) => patch(qi, { note: event.target.value })}
-								placeholder="给这道题补充说明（随答案一起回给 agent）…"
+								placeholder={t("question.notePlaceholder")}
 								rows={2}
 								className="w-full resize-y rounded-lg border border-owl-border bg-owl-sidebar px-2.5 py-1.5 text-xs outline-none placeholder:text-owl-muted/60 focus:border-owl-accent"
 							/>
@@ -274,7 +276,7 @@ export function QuestionDialog({
 									setMissing(new Set());
 								}}
 							>
-								上一题
+								{t("question.prev")}
 							</button>
 						)}
 						<button
@@ -282,7 +284,7 @@ export function QuestionDialog({
 							className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover"
 							onClick={advance}
 						>
-							{qi < total - 1 ? "下一题" : "提交回答"}
+							{qi < total - 1 ? t("question.next") : t("question.submit")}
 						</button>
 					</div>
 				</div>

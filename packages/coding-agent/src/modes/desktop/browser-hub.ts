@@ -12,11 +12,11 @@ import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContext, CDPSession, FileChooser, Page } from "playwright-core";
 import pw from "playwright-core";
 import { Type } from "typebox";
-import type { ToolDefinition } from "../../core/extensions/index.ts";
-import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
+import { defineTool, type ToolDefinition } from "../../core/extensions/index.ts";
 import { BrowserInteraction, initializeBrowserInteraction } from "./browser-interaction.ts";
 import { BrowserNetworkJournal } from "./browser-network.ts";
 import { BrowserOperationQueue } from "./browser-queue.ts";
+import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
 
 /** 新页面默认视口（ZCode IAB 同款默认档）。 */
 const DEFAULT_VIEWPORT = { width: 1280, height: 860 };
@@ -69,6 +69,7 @@ export class BrowserHub {
 	private pages = new Map<string, PageEntry>();
 	private readonly activePages = new Map<string, string>();
 	private readonly contexts = new Map<string, BrowserContext>();
+	private uiContext: BrowserContext | undefined;
 	private readonly operations = new BrowserOperationQueue();
 
 	constructor(callbacks: BrowserHubCallbacks) {
@@ -79,23 +80,26 @@ export class BrowserHub {
 
 	private ensureBrowser(): Promise<Browser> {
 		if (this.browser) return Promise.resolve(this.browser);
-		this.launchPromise ??= this.launchBrowser().then((browser) => {
-			this.browser = browser;
-			browser.on("disconnected", () => {
-				// 浏览器进程意外退出（崩溃/被杀）：清账，下次使用时重新拉起
-				this.browser = null;
+		this.launchPromise ??= this.launchBrowser()
+			.then((browser) => {
+				this.browser = browser;
+				browser.on("disconnected", () => {
+					// 浏览器进程意外退出（崩溃/被杀）：清账，下次使用时重新拉起
+					this.browser = null;
+					this.launchPromise = null;
+					for (const entry of this.pages.values()) entry.network.dispose();
+					this.pages.clear();
+					this.activePages.clear();
+					this.contexts.clear();
+					this.uiContext = undefined;
+					this.emitPages();
+				});
+				return browser;
+			})
+			.catch((error: unknown) => {
 				this.launchPromise = null;
-				for (const entry of this.pages.values()) entry.network.dispose();
-				this.pages.clear();
-				this.activePages.clear();
-				this.contexts.clear();
-				this.emitPages();
+				throw error;
 			});
-			return browser;
-		}).catch((error: unknown) => {
-			this.launchPromise = null;
-			throw error;
-		});
 		return this.launchPromise;
 	}
 
@@ -138,6 +142,7 @@ export class BrowserHub {
 		this.pages.clear();
 		this.activePages.clear();
 		this.contexts.clear();
+		this.uiContext = undefined;
 		await this.browser?.close().catch(() => {});
 		this.browser = null;
 		this.launchPromise = null;
@@ -148,10 +153,11 @@ export class BrowserHub {
 	private async newPage(url?: string, sessionId?: string): Promise<PageEntry> {
 		await initializeBrowserInteraction();
 		const browser = await this.ensureBrowser();
-		let context = sessionId ? this.contexts.get(sessionId) : undefined;
+		let context = sessionId ? this.contexts.get(sessionId) : this.uiContext;
 		if (!context) {
-			context = sessionId ? await browser.newContext() : browser.contexts()[0] ?? (await browser.newContext());
+			context = await browser.newContext();
 			if (sessionId) this.contexts.set(sessionId, context);
+			else this.uiContext = context;
 		}
 		const page = await context.newPage();
 		await page.setViewportSize(DEFAULT_VIEWPORT).catch(() => {});
@@ -225,10 +231,12 @@ export class BrowserHub {
 	}
 
 	listPages(sessionId?: string): IabPageInfo[] {
-		return [...this.pages.values()].filter(({ info }) => sessionId === undefined || info.sessionId === sessionId).map(({ info }) => ({
-			...info,
-			active: info.sessionId !== undefined && this.activePages.get(info.sessionId) === info.pageId,
-		}));
+		return [...this.pages.values()]
+			.filter(({ info }) => sessionId === undefined || info.sessionId === sessionId)
+			.map(({ info }) => ({
+				...info,
+				active: info.sessionId !== undefined && this.activePages.get(info.sessionId) === info.pageId,
+			}));
 	}
 
 	private claimPage(entry: PageEntry, sessionId: string): void {
@@ -268,7 +276,9 @@ export class BrowserHub {
 				return this.listPages().find((info) => info.pageId === found.info.pageId)!;
 			}
 			if (options.url) {
-				const existing = [...this.pages.values()].find(({ info }) => info.url === options.url && info.sessionId === options.sessionId);
+				const existing = [...this.pages.values()].find(
+					({ info }) => info.url === options.url && info.sessionId === options.sessionId,
+				);
 				if (existing) {
 					if (options.sessionId) this.claimPage(existing, options.sessionId);
 					this.emitPages();
@@ -285,8 +295,7 @@ export class BrowserHub {
 	async nav(pageId: string, action: "back" | "forward" | "reload"): Promise<void> {
 		await this.withPage(pageId, async (entry) => {
 			if (action === "back") await entry.page.goBack({ waitUntil: "load", timeout: 15_000 });
-			else if (action === "forward")
-				await entry.page.goForward({ waitUntil: "load", timeout: 15_000 });
+			else if (action === "forward") await entry.page.goForward({ waitUntil: "load", timeout: 15_000 });
 			else await entry.page.reload({ waitUntil: "load", timeout: 20_000 });
 			await this.refreshPageMeta(entry);
 		});
@@ -332,13 +341,13 @@ export class BrowserHub {
 	/** 应答等待中的文件选择框（agent 工具与 iab.fileResponse 共用）。 */
 	async fileResponse(pageId: string, paths: string[]): Promise<void> {
 		await this.withPage(pageId, async (entry) => {
-		const pending = entry.pendingChooser;
-		if (!pending) throw new Error("页面当前没有等待中的文件选择框");
-		const clean = paths.map((path) => path.trim()).filter((path) => path !== "");
-		if (clean.length === 0) throw new Error("paths 为空");
-		if (!pending.multiple && clean.length > 1) throw new Error("该选择框只允许单选，paths 只能提供一个文件");
-		await pending.chooser.setFiles(clean);
-		entry.pendingChooser = null;
+			const pending = entry.pendingChooser;
+			if (!pending) throw new Error("页面当前没有等待中的文件选择框");
+			const clean = paths.map((path) => path.trim()).filter((path) => path !== "");
+			if (clean.length === 0) throw new Error("paths 为空");
+			if (!pending.multiple && clean.length > 1) throw new Error("该选择框只允许单选，paths 只能提供一个文件");
+			await pending.chooser.setFiles(clean);
+			entry.pendingChooser = null;
 		});
 	}
 
@@ -406,349 +415,401 @@ export class BrowserHub {
 	 *  收尾时无条件广播一次页面清单——snapshot/screenshot 这类不改变页面
 	 *  清单的操作也要让 UI 知道「agent 在动浏览器」（停靠位切右列等联动）。 */
 	private withAgent<T>(sessionId: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-		return this.operations.run(`session:${sessionId}`, async () => {
-			try {
-				return await operation();
-			} finally {
-				this.emitPages("agent", sessionId);
-			}
-		}, signal);
+		return this.operations.run(
+			`session:${sessionId}`,
+			async () => {
+				try {
+					return await operation();
+				} finally {
+					this.emitPages("agent", sessionId);
+				}
+			},
+			signal,
+		);
 	}
 
 	tools(sessionId: string): ToolDefinition[] {
 		if (!sessionId.trim()) throw new Error("浏览器工具必须绑定聊天");
-		const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
-
-		const navigateParams = Type.Object({
-			url: Type.String({ description: "要打开的 URL，例如 http://127.0.0.1:18970/" }),
+		const pageFields = {
+			pageId: Type.Optional(Type.String({ description: "当前聊天拥有的目标页；省略使用本聊天活动页" })),
+		};
+		const targetFields = {
+			ref: Type.Optional(Type.Number({ description: "browser_snapshot 返回的 ref；与 selector 二选一" })),
+			selector: Type.Optional(Type.String({ description: "唯一 CSS 选择器；与 ref 二选一" })),
+		};
+		const text = (value: string) => ({
+			content: [{ type: "text" as const, text: value }],
+			details: { sessionId, pageId: this.activePages.get(sessionId) },
 		});
-		const navigate: ToolDefinition<typeof navigateParams> = {
-			name: "browser_navigate",
-			label: "浏览器：打开网页",
-			description:
-				"在内嵌浏览器里打开一个 URL（用户能在桌面端浏览器面板实时看到）。" +
-				"URL 缺协议时自动补 https://。打开后用 browser_snapshot 观察页面再操作。",
-			promptSnippet: "browser_navigate: 在内嵌浏览器打开 URL（用户可见）",
-			parameters: navigateParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
-					let url = params.url.trim();
-					if (!url) return text("缺少 url 参数。");
-					if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-					await entry.page.goto(url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
-					await this.refreshPageMeta(entry);
+		const json = (value: object) => ({
+			content: [
+				{
+					type: "text" as const,
+					text: JSON.stringify({ sessionId, pageId: this.activePages.get(sessionId), ...value }, null, 2),
+				},
+			],
+			details: { sessionId, pageId: this.activePages.get(sessionId), ...value },
+		});
+		const bind = (tool: ToolDefinition): ToolDefinition => ({
+			...tool,
+			execute: (id, params, signal, onUpdate, context) =>
+				this.withAgent(sessionId, () => tool.execute(id, params, signal, onUpdate, context), signal),
+		});
+		const tools: ToolDefinition[] = [
+			defineTool({
+				name: "browser_navigate",
+				label: "浏览器：打开网页",
+				description: "在当前聊天的内嵌浏览器打开 URL。导航失败会返回错误；随后用 browser_snapshot 确认页面。",
+				promptSnippet: "browser_navigate: 在本聊天浏览器打开 URL",
+				parameters: Type.Object({ ...pageFields, url: Type.String({ description: "要打开的 URL" }) }),
+				execute: async (_id, params) => {
+					const url = normalizeAgentUrl(params.url);
+					const entry = await this.agentPage(sessionId, params.pageId);
+					try {
+						await entry.page.goto(url, { waitUntil: "load", timeout: 20_000 });
+					} finally {
+						await this.refreshPageMeta(entry);
+					}
 					return text(
 						`已打开 ${entry.info.url}（标题：${entry.info.title || "(无)"}）。用 browser_snapshot 观察页面。`,
 					);
-				}),
-		};
-
-		const snapshot: ToolDefinition = {
-			name: "browser_snapshot",
-			label: "浏览器：读取页面快照",
-			description:
-				"读取内嵌浏览器当前页面的可交互元素快照（AI/ARIA 风格，带 ref 编号）。" +
-				"这是浏览器操作的观察依据：点击/输入前先拍快照，动作后重新拍快照确认效果。",
-			promptSnippet: "browser_snapshot: 读取内嵌浏览器的页面快照（浏览器操作的观察依据）",
-			promptGuidelines: [
-				"操作内嵌浏览器时遵循 观察 → 动作 → 再观察 的循环：browser_snapshot 拿到元素 ref，",
-				"browser_click / browser_type 按 ref 操作，然后用新的 browser_snapshot 确认效果；",
-				"视觉核对（布局/样式/截图）才用 browser_screenshot。",
-			],
-			parameters: Type.Object({}),
-			execute: async () =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
-					const result = (await entry.page.evaluate(SNAPSHOT_SCRIPT)) as {
+				},
+			}),
+			defineTool({
+				name: "browser_snapshot",
+				label: "浏览器：读取页面快照",
+				description: "读取本聊天页面的元素、状态和 ref。ref 跨导航不复用，元素失效时必须重新观察。",
+				promptSnippet: "browser_snapshot: 读取页面元素及状态",
+				promptGuidelines: [
+					"浏览器操作遵循观察→动作→再观察：先 browser_snapshot，再按 ref 或唯一 selector 操作，然后确认结果。",
+					"浏览器工具仅能操作本聊天拥有的页面。页面 ref 失效时重新观察；不要把其他聊天的 pageId 当作当前页面。",
+				],
+				parameters: Type.Object(pageFields),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					const result = (await entry.page.evaluate(
+						SNAPSHOT_SCRIPT.replaceAll("__OWL_REF_SEED__", String(entry.nextRefSeed)),
+					)) as {
 						url: string;
 						title: string;
 						lines: string[];
+						nextRef: number;
 					};
-					const chooserHint = entry.pendingChooser
-						? `\n\n⚠️ 页面正在等待文件选择（允许多选：${entry.pendingChooser.multiple ? "是" : "否"}）。用 browser_set_file_chooser 提供本机绝对路径完成选择。`
+					entry.nextRefSeed = Math.max(entry.nextRefSeed, result.nextRef);
+					const chooser = entry.pendingChooser
+						? "\n页面等待文件选择；用 browser_set_file_chooser 提供本机路径。"
 						: "";
 					const truncated =
-						result.lines.length >= SNAPSHOT_LIMIT
-							? `\n(已达 ${SNAPSHOT_LIMIT} 条上限，已截断——用更精确的 URL 或先操作缩小范围)`
-							: "";
+						result.lines.length >= SNAPSHOT_LIMIT ? `\n(已达 ${SNAPSHOT_LIMIT} 条上限，请缩小页面范围)` : "";
 					return text(
-						`页面：${result.title}\nURL：${result.url}\n\n${result.lines.join("\n")}${chooserHint}${truncated}`,
+						`页面：${result.title}\nURL：${result.url}\n\n${result.lines.join("\n")}${chooser}${truncated}`,
 					);
+				},
+			}),
+			defineTool({
+				name: "browser_click",
+				label: "浏览器：点击元素",
+				description: "按 fresh ref 或唯一 selector 点击。检查可见、稳定、未遮挡、未禁用；支持鼠标按钮和双击。",
+				promptSnippet: "browser_click: 点击可交互元素",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])),
+					clickCount: Type.Optional(Type.Number({ minimum: 1, maximum: 2 })),
 				}),
-		};
-
-		const clickParams = Type.Object({
-			ref: Type.Number({ description: "browser_snapshot 返回的 ref 编号" }),
-		});
-		const click: ToolDefinition<typeof clickParams> = {
-			name: "browser_click",
-			label: "浏览器：点击元素",
-			description:
-				"点击快照里某个 ref 对应的元素（按元素中心派发真实鼠标事件）。点击后用 browser_snapshot 确认效果。",
-			promptSnippet: "browser_click: 按快照 ref 点击内嵌浏览器里的元素",
-			parameters: clickParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
-					const point = await resolveRef(entry, params.ref);
-					if (!point) return text(`ref=${params.ref} 已失效（页面可能刷新过），请重新 browser_snapshot。`);
-					await entry.page.mouse.move(point.x, point.y);
-					await entry.page.mouse.click(point.x, point.y);
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					await entry.interaction.click(params, { button: params.button, clickCount: params.clickCount });
 					await sleep(ACTION_SETTLE_MS);
-					return text(
-						`已点击 ref=${params.ref}${point.name ? `（${point.name}）` : ""}。用 browser_snapshot 观察结果。`,
-					);
+					return text("已点击。用 browser_snapshot 确认页面变化。");
+				},
+			}),
+			defineTool({
+				name: "browser_type",
+				label: "浏览器：输入文本",
+				description: "向可编辑控件输入并读回校验。clear=true 替换；默认追加。结果不返回实际输入文本。",
+				promptSnippet: "browser_type: 追加或替换文本并校验",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					text: Type.String(),
+					clear: Type.Optional(Type.Boolean()),
 				}),
-		};
-
-		const typeParams = Type.Object({
-			ref: Type.Number({ description: "browser_snapshot 返回的 ref 编号" }),
-			text: Type.String({ description: "要输入的文本" }),
-			clear: Type.Optional(Type.Boolean({ description: "输入前清空已有内容（默认 false）" })),
-		});
-		const type: ToolDefinition<typeof typeParams> = {
-			name: "browser_type",
-			label: "浏览器：输入文本",
-			description: "先点击聚焦快照里的 ref 元素，再输入文本。clear=true 时先清空已有内容（输入框适用）。",
-			promptSnippet: "browser_type: 向内嵌浏览器的输入元素输入文本",
-			parameters: typeParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
-					const point = await resolveRef(entry, params.ref);
-					if (!point) return text(`ref=${params.ref} 已失效，请重新 browser_snapshot。`);
-					await entry.page.mouse.click(point.x, point.y);
-					if (params.clear === true) {
-						await entry.page.keyboard.down("Control");
-						await entry.page.keyboard.press("a");
-						await entry.page.keyboard.up("Control");
-						await entry.page.keyboard.press("Delete");
-					}
-					await entry.page.keyboard.type(params.text, { delay: 10 });
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					return json(await entry.interaction.fill(params, params.text, { append: params.clear !== true }));
+				},
+			}),
+			defineTool({
+				name: "browser_fill",
+				label: "浏览器：填写控件",
+				description: "替换 input、textarea 或 contenteditable 内容并校验；拒绝禁用、只读控件。填写表单优先使用。",
+				promptSnippet: "browser_fill: 填写表单并读回校验",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					text: Type.String(),
+					append: Type.Optional(Type.Boolean()),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					return json(await entry.interaction.fill(params, params.text, { append: params.append }));
+				},
+			}),
+			defineTool({
+				name: "browser_select",
+				label: "浏览器：选择下拉选项",
+				description: "按 option 的 value 选择原生 select 并核对选中值。自定义下拉先观察后点击。",
+				promptSnippet: "browser_select: 选择原生下拉并校验",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					values: Type.Array(Type.String(), { minItems: 1 }),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					return json(await entry.interaction.selectOptions(params, params.values));
+				},
+			}),
+			defineTool({
+				name: "browser_hover",
+				label: "浏览器：悬停",
+				description: "在可见元素上悬停，触发菜单或提示；随后重新观察。",
+				promptSnippet: "browser_hover: 悬停元素",
+				parameters: Type.Object({ ...pageFields, ...targetFields }),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					await entry.interaction.hover(params);
 					await sleep(ACTION_SETTLE_MS);
-					return text(`已输入到 ref=${params.ref}。用 browser_snapshot 确认。`);
+					return text("已悬停。用 browser_snapshot 观察菜单或提示。");
+				},
+			}),
+			defineTool({
+				name: "browser_focus",
+				label: "浏览器：调整焦点",
+				description: "聚焦或离开指定控件，触发真实 focus/blur 事件。",
+				promptSnippet: "browser_focus: 聚焦或离开控件",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					action: Type.Union([Type.Literal("focus"), Type.Literal("blur")]),
 				}),
-		};
-
-		const pressKeyParams = Type.Object({
-			key: Type.String({ description: "按键名，如 Enter / Escape / ArrowDown / Control+a" }),
-		});
-		const pressKey: ToolDefinition<typeof pressKeyParams> = {
-			name: "browser_press_key",
-			label: "浏览器：按键",
-			description: "向内嵌浏览器当前焦点发送按键（如 Enter、Escape、ArrowDown；组合键用 +，如 Control+a）。",
-			promptSnippet: "browser_press_key: 向内嵌浏览器发送按键",
-			parameters: pressKeyParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					if (params.action === "focus") await entry.interaction.focus(params);
+					else await entry.interaction.blur(params);
+					return text(params.action === "focus" ? "已聚焦控件。" : "已离开控件。");
+				},
+			}),
+			defineTool({
+				name: "browser_press_key",
+				label: "浏览器：按键",
+				description: "向本聊天页面当前焦点发送按键；可先指定 ref 或 selector 聚焦目标。",
+				promptSnippet: "browser_press_key: 发送按键",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					key: Type.String({ description: "Enter、Escape 或 Control+a 等组合键" }),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					if (params.ref !== undefined || params.selector !== undefined) await entry.interaction.focus(params);
 					await entry.page.keyboard.press(params.key);
 					await sleep(ACTION_SETTLE_MS);
-					return text(`已按下 ${params.key}。`);
+					return text("已发送按键。用 browser_snapshot 确认结果。");
+				},
+			}),
+			defineTool({
+				name: "browser_scroll",
+				label: "浏览器：滚动页面或区域",
+				description:
+					"可按 ref/selector 滚动指定区域；intoView=true 将目标带入视口。也支持旧的 direction/amount 整页滚动。",
+				promptSnippet: "browser_scroll: 滚动指定区域或页面",
+				parameters: Type.Object({
+					...pageFields,
+					...targetFields,
+					direction: Type.Optional(Type.Union([Type.Literal("up"), Type.Literal("down")])),
+					amount: Type.Optional(Type.Number({ minimum: 1, maximum: 10000 })),
+					deltaX: Type.Optional(Type.Number()),
+					deltaY: Type.Optional(Type.Number()),
+					intoView: Type.Optional(Type.Boolean()),
 				}),
-		};
-
-		const scrollParams = Type.Object({
-			direction: Type.Union([Type.Literal("up"), Type.Literal("down")], { description: "滚动方向" }),
-			amount: Type.Optional(Type.Number({ description: "滚动像素数（默认 600）" })),
-		});
-		const scroll: ToolDefinition<typeof scrollParams> = {
-			name: "browser_scroll",
-			label: "浏览器：滚动页面",
-			description: "在当前页面以视口中心为锚滚动。direction=up/down，amount 为像素（默认 600）。",
-			promptSnippet: "browser_scroll: 滚动内嵌浏览器页面",
-			parameters: scrollParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
-					const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
-					await entry.page.mouse.move(viewport.width / 2, viewport.height / 2);
-					await entry.page.mouse.wheel(
-						0,
-						params.direction === "up" ? -(params.amount ?? 600) : (params.amount ?? 600),
-					);
-					return text("已滚动。");
-				}),
-		};
-
-		const screenshot: ToolDefinition = {
-			name: "browser_screenshot",
-			label: "浏览器：截图",
-			description:
-				"对内嵌浏览器当前页面截图并作为图片返回（视觉核对布局/样式时用；日常观察优先 browser_snapshot）。",
-			promptSnippet: "browser_screenshot: 截取内嵌浏览器当前页面（返回图片）",
-			parameters: Type.Object({}),
-			execute: async () =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					const target = params.ref !== undefined || params.selector !== undefined;
+					if (params.intoView) {
+						if (!target) throw new Error("intoView 需要 ref 或 selector");
+						await entry.interaction.scrollIntoView(params);
+					} else {
+						if (!params.direction && params.deltaX === undefined && params.deltaY === undefined)
+							throw new Error("请指定 direction 或滚动 delta");
+						const deltaX = params.deltaX ?? 0;
+						const deltaY =
+							params.deltaY ?? (params.direction === "up" ? -(params.amount ?? 600) : (params.amount ?? 600));
+						if (
+							!Number.isFinite(deltaX) ||
+							!Number.isFinite(deltaY) ||
+							Math.abs(deltaX) > 10000 ||
+							Math.abs(deltaY) > 10000
+						)
+							throw new Error("单次滚动范围必须在 -10000 到 10000");
+						if (target) await entry.interaction.scroll(params, { deltaX, deltaY });
+						else {
+							const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
+							await entry.page.mouse.move(viewport.width / 2, viewport.height / 2);
+							await entry.page.mouse.wheel(deltaX, deltaY);
+						}
+					}
+					return text("已滚动。用 browser_snapshot 确认实际位置。");
+				},
+			}),
+			defineTool({
+				name: "browser_screenshot",
+				label: "浏览器：截图",
+				description: "截取本聊天页面的视口并返回图片；日常操作优先 browser_snapshot。",
+				promptSnippet: "browser_screenshot: 截取页面",
+				parameters: Type.Object(pageFields),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
 					const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
 					return {
 						content: [
 							{ type: "text" as const, text: `当前页面截图：${entry.info.url}` },
 							{ type: "image" as const, data: buffer.toString("base64"), mimeType: "image/png" },
 						],
-						details: undefined,
+						details: { sessionId, pageId: entry.info.pageId },
 					};
+				},
+			}),
+			defineTool({
+				name: "browser_wait",
+				label: "浏览器：等待",
+				description: "等待异步内容，上限5000ms；优先通过快照确认状态，避免盲目重复动作。",
+				promptSnippet: "browser_wait: 短暂等待页面",
+				parameters: Type.Object({ ms: Type.Number({ minimum: 1, maximum: 5000 }) }),
+				execute: async (_id, params, signal) => {
+					await sleep(Math.min(Math.max(Math.round(params.ms), 1), 5000));
+					signal?.throwIfAborted();
+					return text("等待结束。用 browser_snapshot 观察。");
+				},
+			}),
+			defineTool({
+				name: "browser_console",
+				label: "浏览器：控制台消息",
+				description: "读取本聊天页面的console和未捕获报错；action=clear清空证据。",
+				promptSnippet: "browser_console: 查看页面JS报错",
+				parameters: Type.Object({
+					...pageFields,
+					action: Type.Optional(Type.Union([Type.Literal("list"), Type.Literal("clear")])),
 				}),
-		};
-
-		const waitParams = Type.Object({
-			ms: Type.Number({ description: "等待毫秒数（1-5000）" }),
-		});
-		const wait: ToolDefinition<typeof waitParams> = {
-			name: "browser_wait",
-			label: "浏览器：等待",
-			description:
-				"等待页面异步内容（SPA 切换、接口返回）出现后再拍快照，上限 5000ms。" +
-				"优先用 browser_snapshot 观察具体状态判断，不要盲目等待。",
-			promptSnippet: "browser_wait: 等待内嵌浏览器页面内容出现（≤5s）",
-			parameters: waitParams,
-			execute: async (_id, params) => {
-				const ms = Math.min(Math.max(Math.round(params.ms), 1), 5000);
-				await sleep(ms);
-				return text(`已等待 ${ms}ms。用 browser_snapshot 观察。`);
-			},
-		};
-
-		const consoleParams = Type.Object({
-			action: Type.Optional(
-				Type.Union([Type.Literal("list"), Type.Literal("clear")], {
-					description: "list=读取最近消息（默认），clear=清空",
-				}),
-			),
-		});
-		const consoleTool: ToolDefinition<typeof consoleParams> = {
-			name: "browser_console",
-			label: "浏览器：控制台消息",
-			description: "读取/清空内嵌浏览器当前页面的 console 输出与未捕获报错（排查页面 JS 报错用）。",
-			promptSnippet: "browser_console: 读取内嵌浏览器的 console 输出与报错",
-			parameters: consoleParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
 					if (params.action === "clear") {
 						entry.console.length = 0;
 						return text("已清空。");
 					}
-					if (entry.console.length === 0) return text("（本页暂无 console 输出）");
-					return text(entry.console.slice(-50).join("\n"));
-				}),
-		};
-
-		const fileChooserParams = Type.Object({
-			paths: Type.Array(Type.String({ description: "本机文件的绝对路径" }), {
-				description: "要提交的文件路径（页面允许多选时可传多个）",
+					return text(entry.console.length ? entry.console.slice(-50).join("\n") : "（本页暂无console输出）");
+				},
 			}),
-		});
-		const setFileChooser: ToolDefinition<typeof fileChooserParams> = {
-			name: "browser_set_file_chooser",
-			label: "浏览器：应答文件选择框",
-			description:
-				"当页面弹出文件选择框（browser_snapshot 会给出提示）时，提供本机文件绝对路径完成选择。" +
-				"页面没有在等待文件时调用会报错。",
-			promptSnippet: "browser_set_file_chooser: 页面弹出文件选择框时提供本机文件路径",
-			parameters: fileChooserParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const entry = await this.agentPage();
+			defineTool({
+				name: "browser_network",
+				label: "浏览器：网络诊断",
+				description:
+					"只读查询请求、状态、耗时和失败。list 默认不读正文；detail 按requestId读取，正文需显式开启，已知秘密字段遮蔽且有大小上限。since 是新请求序号分页，旧请求的状态变化用detail或重新list查询。",
+				promptSnippet: "browser_network: 查看接口请求与响应证据",
+				parameters: Type.Object({
+					...pageFields,
+					action: Type.Optional(Type.Union([Type.Literal("list"), Type.Literal("detail")])),
+					requestId: Type.Optional(Type.String()),
+					since: Type.Optional(Type.Number({ minimum: 0 })),
+					limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
+					url: Type.Optional(Type.String()),
+					status: Type.Optional(Type.Number({ minimum: 100, maximum: 599 })),
+					failed: Type.Optional(Type.Boolean()),
+					includeRequestBody: Type.Optional(Type.Boolean()),
+					includeResponseBody: Type.Optional(Type.Boolean()),
+					maxBodyChars: Type.Optional(Type.Number({ minimum: 1, maximum: 32768 })),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					if (params.action === "detail") {
+						if (!params.requestId) throw new Error("detail需要requestId；先list查找");
+						return json(await entry.network.detail(params.requestId, params));
+					}
+					return json(entry.network.list(params));
+				},
+			}),
+			defineTool({
+				name: "browser_set_file_chooser",
+				label: "浏览器：应答文件选择框",
+				description: "页面等待选择文件时提供本机绝对路径；多选需页面允许。",
+				promptSnippet: "browser_set_file_chooser: 应答文件选择",
+				parameters: Type.Object({ ...pageFields, paths: Type.Array(Type.String(), { minItems: 1 }) }),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
 					const pending = entry.pendingChooser;
-					if (!pending) return text("页面当前没有等待中的文件选择框。");
-					if (!pending.multiple && params.paths.length > 1) {
-						return text("该选择框只允许单选，paths 只能提供一个文件。");
-					}
-					await pending.chooser.setFiles(params.paths);
+					if (!pending) throw new Error("页面当前没有等待中的文件选择框");
+					const paths = params.paths.map((path) => path.trim()).filter(Boolean);
+					if (!paths.length || (!pending.multiple && paths.length > 1))
+						throw new Error("文件路径为空或页面只允许单选");
+					await pending.chooser.setFiles(paths);
 					entry.pendingChooser = null;
-					await sleep(ACTION_SETTLE_MS);
-					return text(`已提交 ${params.paths.length} 个文件。用 browser_snapshot 确认页面反应。`);
+					return text(`已提交 ${paths.length} 个文件。用browser_snapshot确认。`);
+				},
+			}),
+			defineTool({
+				name: "browser_tabs",
+				label: "浏览器：管理标签页",
+				description:
+					"只列出本聊天拥有的页。new新开、select切换、close关闭；明确pageId可认领未归属的手动页，拒绝其他聊天的页。",
+				promptSnippet: "browser_tabs: 管理本聊天标签页",
+				parameters: Type.Object({
+					action: Type.Union([
+						Type.Literal("list"),
+						Type.Literal("new"),
+						Type.Literal("select"),
+						Type.Literal("close"),
+					]),
+					pageId: Type.Optional(Type.String({ description: "select/close目标页id，支持唯一前缀" })),
+					url: Type.Optional(Type.String()),
 				}),
-		};
-
-		const tabsParams = Type.Object({
-			action: Type.Union(
-				[Type.Literal("list"), Type.Literal("new"), Type.Literal("select"), Type.Literal("close")],
-				{ description: "list=列出全部；new=新开；select=切换 agent 作用页；close=关闭" },
-			),
-			pageId: Type.Optional(Type.String({ description: "select/close 的目标页面 id（list 里拿，支持前缀匹配）" })),
-			url: Type.Optional(Type.String({ description: "new 时可选的起始 URL" })),
-		});
-		const tabs: ToolDefinition<typeof tabsParams> = {
-			name: "browser_tabs",
-			label: "浏览器：管理标签页",
-			description:
-				"管理内嵌浏览器的页面（标签页）。action=list 列出全部；new 新开（可带 url）；" +
-				"select 切换 agent 操作目标；close 关闭指定页。后续 browser_* 工具都作用于 select 的页面。",
-			promptSnippet: "browser_tabs: 管理内嵌浏览器的标签页（列出/新开/切换/关闭）",
-			parameters: tabsParams,
-			execute: async (_id, params) =>
-				this.withAgent(async () => {
-					const action = params.action;
-					if (action === "list") {
-						const pages = this.listPages();
-						if (pages.length === 0) return text("（当前没有打开的页面）");
-						return text(
-							`${pages
-								.map(
-									(page) =>
-										`${page.active ? "* " : "  "}${page.pageId.slice(0, 8)}  ${page.title || "(无标题)"}  ${page.url}`,
-								)
-								.join("\n")}\n（* = agent 当前作用页）`,
-						);
+				execute: async (_id, params) => {
+					if (params.action === "list") return json({ pages: this.listPages(sessionId) });
+					if (params.action === "new") {
+						const entry = await this.newPage(params.url ? normalizeAgentUrl(params.url) : undefined, sessionId);
+						this.claimPage(entry, sessionId);
+						return json({ page: this.listPages(sessionId).find((info) => info.pageId === entry.info.pageId) });
 					}
-					if (action === "new") {
-						const entry = await this.newPage(params.url ? normalizeAgentUrl(params.url) : undefined);
-						this.activePageId = entry.info.pageId;
-						this.emitPages();
-						return text(`已新开页面 ${entry.info.pageId.slice(0, 8)}：${entry.info.url || "(空白页)"}`);
-					}
-					const wantedId = params.pageId;
-					const entry = wantedId
-						? (this.pages.get(wantedId) ??
-							[...this.pages.values()].find((candidate) => candidate.info.pageId.startsWith(wantedId)))
-						: undefined;
-					if (!entry) return text("页面不存在，用 action=list 查看。");
-					if (action === "select") {
-						this.activePageId = entry.info.pageId;
+					if (!params.pageId) throw new Error("select/close需要pageId；先list查找");
+					const matches = [...this.pages.values()].filter((entry) => entry.info.pageId.startsWith(params.pageId!));
+					if (matches.length !== 1) throw new Error("pageId不存在或前缀不唯一");
+					const entry = await this.agentPage(sessionId, matches[0].info.pageId);
+					if (params.action === "select") {
 						await this.refreshPageMeta(entry);
-						return text(`已切换到 ${entry.info.title || entry.info.url}。`);
+						return json({ page: this.listPages(sessionId).find((info) => info.pageId === entry.info.pageId) });
 					}
-					await this.closePage(entry.info.pageId);
-					return text("已关闭。");
-				}),
-		};
-
-		return [navigate, snapshot, click, type, pressKey, scroll, screenshot, wait, consoleTool, setFileChooser, tabs];
+					await entry.page.close();
+					return text("已关闭页面。");
+				},
+			}),
+		];
+		return tools.map(bind);
 	}
 }
 
 function normalizeAgentUrl(raw: string): string {
 	const url = raw.trim();
-	return /^https?:\/\//i.test(url) ? url : `https://${url}`;
-}
-
-/** ref → 可点击坐标（滚动到视口内取中心）。元素丢失返回 null（快照过期）。 */
-async function resolveRef(entry: { page: Page }, ref: number): Promise<{ x: number; y: number; name?: string } | null> {
-	const target = (await entry.page.evaluate(
-		`(() => {
-			const el = window.__owlRefs?.map.get(${ref});
-			if (!el || !el.isConnected) return null;
-			el.scrollIntoView({ block: "center", inline: "center" });
-			const rect = el.getBoundingClientRect();
-			const name = (el.getAttribute("aria-label") || el.textContent || el.value || el.placeholder || "")
-				.trim().replace(/\\s+/g, " ").slice(0, 40);
-			return {
-				x: Math.round(rect.x + Math.min(Math.max(rect.width / 2, 2), rect.width - 2)),
-				y: Math.round(rect.y + Math.min(Math.max(rect.height / 2, 2), rect.height - 2)),
-				name,
-			};
-		})()`,
-	)) as { x: number; y: number; name?: string } | null;
-	return target;
+	if (!url) throw new Error("缺少 URL");
+	const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+	const parsed = new URL(normalized);
+	if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Agent 导航仅支持 HTTP/HTTPS");
+	return normalized;
 }
 
 const SNAPSHOT_SCRIPT = `
 	(() => {
 		const refs = ${REF_SETUP};
+		for (const [ref, element] of refs.map) if (!element.isConnected) refs.map.delete(ref);
 		const roleOf = (el) => {
 			const explicit = el.getAttribute("role");
 			if (explicit) return explicit;
@@ -792,20 +853,23 @@ const SNAPSHOT_SCRIPT = `
 				refs.map.set(ref, el);
 			}
 			const role = roleOf(el);
+			const password = el instanceof HTMLInputElement && el.type === "password";
 			const rawName = (el.getAttribute("aria-label") || el.getAttribute("placeholder")
-				|| (el instanceof HTMLElement ? el.value : "") || el.textContent || "")
+				|| (!password && el instanceof HTMLElement ? el.value : "") || el.textContent || "")
 				.trim().replace(/\\s+/g, " ").slice(0, 80);
 			// 纯文本容器（p/li/td/th/heading）没字就不占行
 			if (!rawName && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName)) continue;
 			let extra = "";
 			if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-				if (el.value) extra = \` 值="\${String(el.value).slice(0, 60)}"\`;
+				if (el.value) extra = password ? " [已填写]" : \` 值="\${String(el.value).slice(0, 60)}"\`;
 				if (el instanceof HTMLInputElement && ["checkbox", "radio"].includes(el.type)) {
 					extra += el.checked ? " [已选]" : " [未选]";
 				}
 			}
+			if (el.matches(":disabled") || el.getAttribute("aria-disabled") === "true") extra += " [已禁用]";
+			if (el.hasAttribute("readonly") || el.getAttribute("aria-readonly") === "true") extra += " [只读]";
 			lines.push(\`[ref=\${ref}] \${role}\${rawName ? \` "\${rawName}"\` : ""}\${extra}\`);
 		}
-		return { url: location.href, title: document.title, lines };
+		return { url: location.href, title: document.title, lines, nextRef: refs.next };
 	})()
 `;
