@@ -1111,7 +1111,7 @@ export function SettingsPage({
 						{/* -------- 插件 -------- */}
 						{section === "plugins" && (
 							<>
-								<SectionHeader title="插件" desc="settings.json 的 plugins 列表 —— 功能统一走插件；修改后新会话生效。" />
+								<SectionHeader title="插件" desc="为 Owl 添加工具与技能，按需启用你的工作能力。更改会在新会话中生效。" />
 								{(packages.length > 0 || extensions.length > 0) && (
 									<div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2">
 										<div className="text-[11px] leading-relaxed text-owl-muted">
@@ -1163,7 +1163,7 @@ export function SettingsPage({
 										</button>
 									</div>
 								</SettingRow>
-								<div className="space-y-1">
+								<div className="owl-settings-plugin-list">
 									{plugins.length === 0 && (
 										<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
 											还没有安装任何插件
@@ -1176,7 +1176,7 @@ export function SettingsPage({
 										return (
 											<div
 												key={`${label}-${index}`}
-												className={`flex items-center justify-between rounded-lg border border-owl-border bg-owl-sidebar/40 px-2.5 py-1.5 ${disabled ? "opacity-55" : ""}`}
+												className={`owl-settings-plugin-row ${disabled ? "opacity-55" : ""}`}
 											>
 												<div className="flex min-w-0 items-center gap-2">
 													<span className={`shrink-0 rounded border px-1.5 py-px text-[10px] ${pluginBadgeClass(type)}`}>
@@ -1227,7 +1227,7 @@ export function SettingsPage({
 								<SectionHeader title="侧边卡片" desc="管理侧边卡片的显示内容与默认行为（侧边工作台的卡片开关与文件预览回退）。" />
 
 								{/* 插件身份行：内置侧边工作台 + 打开配置文件 */}
-								<div className="flex items-center justify-between rounded-xl border border-owl-border bg-owl-sidebar/40 px-3 py-2.5">
+								<div className="owl-settings-card flex items-center justify-between gap-4">
 									<div className="flex min-w-0 items-center gap-2">
 										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">内置</span>
 										<span className="text-xs font-semibold text-owl-text">owl-workbench</span>
@@ -1259,13 +1259,13 @@ export function SettingsPage({
 										{QUICK_ACTIONS.filter((action) => isTabKindEnabled(action.kind, sidebarCfg)).length}
 									</span>
 								</div>
-								<div className="grid grid-cols-2 gap-2">
+								<div className="grid grid-cols-2 gap-3">
 									{QUICK_ACTIONS.map((action) => {
 										const enabled = isTabKindEnabled(action.kind, sidebarCfg);
 										return (
 											<div
 												key={action.kind}
-												className={`rounded-xl border border-owl-border bg-owl-sidebar/40 p-2.5 transition-opacity ${enabled ? "" : "opacity-55"}`}
+												className={`owl-settings-card transition-opacity ${enabled ? "" : "opacity-55"}`}
 											>
 												<div className="flex items-start justify-between gap-2">
 													<div className="flex min-w-0 items-center gap-2">
@@ -1305,7 +1305,7 @@ export function SettingsPage({
 										{2 - sidebarCfg.disabledViewers.filter((kind) => kind === "image" || kind === "editor").length}
 									</span>
 								</div>
-								<div className="grid grid-cols-2 gap-2">
+								<div className="grid grid-cols-2 gap-3">
 									{(
 										[
 											{ kind: "image", label: "图片", sub: "png · jpg · gif · webp …" },
@@ -1316,7 +1316,7 @@ export function SettingsPage({
 										return (
 											<div
 												key={viewer.kind}
-												className={`rounded-xl border border-owl-border bg-owl-sidebar/40 p-2.5 transition-opacity ${enabled ? "" : "opacity-55"}`}
+												className={`owl-settings-card transition-opacity ${enabled ? "" : "opacity-55"}`}
 											>
 												<div className="flex items-start justify-between gap-2">
 													<div className="flex min-w-0 items-center gap-2">
@@ -1355,27 +1355,39 @@ export function SettingsPage({
 						{/* -------- 外观 -------- */}
 						{section === "appearance" && (
 							<>
-								<SectionHeader title="外观" desc="界面与主题配色。" />
+								<SectionHeader title="外观" desc="选择适合工作环境的主题，让界面保持舒适。" />
 								<SettingRow
-									title="主题"
-									desc="写入 settings.json 的 theme 字段，桌面界面即时生效；「跟随系统」依据操作系统的深浅色偏好自动切换。"
+									title="界面主题"
+									desc="主题更改立即生效。跟随系统会随操作系统的深浅色设置自动切换。"
 								>
-									<select
-										className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
-										value={theme}
-										disabled={busy}
-										onChange={(event) => {
-											const next = event.target.value;
-											void saveSettings({ theme: next }).then((ok) => {
-												if (ok && isThemePreference(next)) setThemePreference(next);
-											});
-										}}
-									>
-										<option value="dark">深色（dark）</option>
-										<option value="light">浅色（light）</option>
-										<option value="system">跟随系统（system）</option>
-									</select>
+									<div className="owl-settings-theme-grid" role="group" aria-label="界面主题">
+										{([
+											{ value: "light", label: "浅色" },
+											{ value: "dark", label: "深色" },
+											{ value: "system", label: "跟随系统" },
+										] as const).map((option) => (
+											<button
+												key={option.value}
+												type="button"
+												className={`owl-settings-theme-card ${theme === option.value ? "is-active" : ""}`}
+												aria-pressed={theme === option.value}
+												disabled={busy}
+												onClick={() => {
+													void saveSettings({ theme: option.value }).then((ok) => {
+														if (ok && isThemePreference(option.value)) setThemePreference(option.value);
+													});
+												}}
+											>
+												<div className={`owl-settings-theme-preview is-${option.value}`} aria-hidden="true">
+													<div className="owl-settings-theme-preview-sidebar"><i /><i /><i /></div>
+													<div className="owl-settings-theme-preview-main"><i /><i /><b /></div>
+												</div>
+												<div className="owl-settings-theme-label"><span>{option.label}</span>{theme === option.value && <span className="owl-settings-theme-check" aria-hidden="true">✓</span>}</div>
+											</button>
+										))}
+									</div>
 								</SettingRow>
+								<div className="owl-settings-notice">内容、工具与操作在不同主题下保持一致。绿色用于主要行动和状态。</div>
 							</>
 						)}
 
@@ -1384,7 +1396,7 @@ export function SettingsPage({
 							<>
 								<SectionHeader
 									title="归档"
-									desc="侧边栏「归档」分组的会话在这里管理。超过保留期的归档会话会被自动删除（每小时巡检一次，应用启动时也会巡检）。"
+										desc="管理暂时收起的会话，并设置自动清理时间。"
 								/>
 								<SettingRow
 									title="自动清理保留期"

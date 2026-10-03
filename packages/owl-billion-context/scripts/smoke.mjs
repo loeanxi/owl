@@ -55,6 +55,16 @@ console.log("context render:", joined.split("\n").slice(0, 3).join(" / "));
 const compactResult = handlers["session_before_compact"][0]({ type: "session_before_compact" }, ctx);
 if (!compactResult || compactResult.cancel !== true) throw new Error("session_before_compact did not cancel");
 
+// ---- 原生能力保障 1：手动 /compact 永远放行 ----
+const manualResult = handlers["session_before_compact"][0]({ type: "session_before_compact", reason: "manual" }, ctx);
+if (manualResult !== undefined) throw new Error("manual /compact must NOT be cancelled");
+console.log("native guard: manual /compact passes through");
+
+// ---- 原生能力保障 2：自动接管在健康会话上生效 ----
+const autoResult = handlers["session_before_compact"][0]({ type: "session_before_compact", reason: "threshold" }, ctx);
+if (!autoResult || autoResult.cancel !== true) throw new Error("healthy session: auto compaction should be cancelled (plugin takes over)");
+console.log("native guard: auto compaction taken over while healthy");
+
 // ---- compress 工具路径：消息太小应被内核最小区间门拒绝 ----
 // 内核把门禁拒绝作为 receipt 里的 errors 返回（0 blocks），只有参数解析失败才 throw。
 const compress = tools.find((t) => t.name === "compress");
@@ -142,5 +152,57 @@ const hasContent = decompText.includes("SEVEN REPORTS") || (decompOut.details?.f
 if (!isFileMode && !decompText.includes("SEVEN REPORTS")) throw new Error("decompress returned neither file pointer nor content");
 console.log("decompress:", isFileMode ? `file mode → ${decompOut.details.file}` : "inline mode");
 void hasContent;
+
+// ---- 原生能力保障 3：原生 compaction 条目在插件视图里不被吞掉 ----
+const compactedEntries = [
+	{
+		type: "compaction",
+		id: "c1",
+		timestamp: new Date().toISOString(),
+		summary: "NATIVE COMPACT SUMMARY MARKER — user asked for a demo app; it was built and tested.",
+		firstKeptEntryId: "u1",
+		tokensBefore: 123456,
+	},
+	{ type: "message", id: "u1", message: { role: "user", content: "continue from the summary", timestamp: 9 } },
+];
+const compactedCtx = {
+	...ctx,
+	sessionManager: {
+		...ctx.sessionManager,
+		getSessionId: () => "smoke-session-native",
+		getEntries: () => compactedEntries,
+		buildContextEntries: () => compactedEntries,
+	},
+};
+const nativeView = await contextHandler({ type: "context", messages: [] }, compactedCtx);
+const nativeText = nativeView.messages.map((msg) => (typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content))).join("\n");
+if (!nativeText.includes("NATIVE COMPACT SUMMARY MARKER")) throw new Error("native compaction summary was swallowed by the plugin's rebuild");
+console.log("native guard: native compaction summary survives plugin rebuild");
+
+// ---- 原生能力保障 4：插件故障 → 故障开放 + 原生兜底重新生效 ----
+const brokenCtx = {
+	...ctx,
+	sessionManager: {
+		...ctx.sessionManager,
+		getSessionId: () => "smoke-session-broken",
+		getEntries: () => {
+			throw new Error("simulated session read failure");
+		},
+		buildContextEntries: () => {
+			throw new Error("simulated session read failure");
+		},
+	},
+};
+const brokenView = await contextHandler({ type: "context", messages: [{ role: "user", content: "orig", timestamp: 1 }] }, brokenCtx);
+if (brokenView !== undefined) throw new Error("degraded transform should return undefined (fail-open to original messages)");
+const afterBroken = handlers["session_before_compact"][0]({ type: "session_before_compact", reason: "threshold" }, brokenCtx);
+if (afterBroken !== undefined) throw new Error("degraded session must let native auto compaction through");
+console.log("native guard: broken transform → fail-open, native compaction back in charge");
+
+// ---- 原生能力保障 5：原生 compaction 跑完后插件复位重新接管 ----
+handlers["session_compact"][0]({ type: "session_compact" }, brokenCtx);
+const afterReset = handlers["session_before_compact"][0]({ type: "session_before_compact", reason: "threshold" }, brokenCtx);
+if (!afterReset || afterReset.cancel !== true) throw new Error("after native compact, plugin should resume takeover");
+console.log("native guard: plugin resumes takeover after native compaction ran");
 
 console.log("SMOKE OK");

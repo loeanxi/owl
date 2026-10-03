@@ -122,6 +122,46 @@ describe("memory payload parsing", () => {
 	});
 });
 
+describe("owl-memory built-in extension", () => {
+	it("registers remember tool, /memory command, and activates in a real session", async () => {
+		const { DefaultResourceLoader } = await import("../../src/core/resource-loader.ts");
+		const { createAgentSession } = await import("../../src/core/sdk.ts");
+		const { SessionManager } = await import("../../src/core/session-manager.ts");
+		const { SettingsManager } = await import("../../src/core/settings-manager.ts");
+		const { builtInExtensions } = await import("../../src/extensions/index.ts");
+		const { getModel } = await import("@earendil-works/pi-ai/compat");
+
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		const sessionManager = SessionManager.create(cwd, join(agentDir, "sessions"), { id: "owl-memory-ext-test" });
+		const resourceLoader = new DefaultResourceLoader({
+			cwd,
+			agentDir,
+			settingsManager,
+			extensionFactories: [...builtInExtensions],
+		});
+		await resourceLoader.reload();
+		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			model,
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+		});
+		try {
+			expect(session.getActiveToolNames()).toContain("remember");
+			// getCommands 是扩展绑定内部入口，测试直接探扩展运行器的注册表
+			const runnerCommands = (
+				session as unknown as { _extensionRunner: { getRegisteredCommands(): { name: string }[] } }
+			)._extensionRunner.getRegisteredCommands();
+			expect(runnerCommands.some((command) => command.name === "memory")).toBe(true);
+		} finally {
+			session.dispose();
+		}
+	});
+});
+
 describe("extraction pipeline", () => {
 	it("extracts from unextracted sessions, marks them, and skips on the next run", async () => {
 		writeSessionFile("old1.jsonl", [

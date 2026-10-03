@@ -16,10 +16,19 @@
 
 | 钩子 | 行为 |
 |---|---|
-| `context` | 条目→内核 `processTurn`→折叠视图 + nudge 注入 + 孤儿 toolResult 兜底 + 宿主 system 消息回带 |
+| `context` | 条目→内核 `processTurn`→折叠视图 + nudge 注入 + 孤儿 toolResult 兜底 |
 | `before_agent_start` | 追加压缩哲学系统提示（KEEP/DROP 规则、四工具说明、多 tier 蒸馏） |
-| `session_before_compact` | 返回 `{cancel:true}`——接管 owl 原生阈值 compaction，两套机制不并行 |
+| `session_before_compact` | **有条件**接管（见下节） |
 | 工具注册 | `compress` / `decompress` / `search_context` / `acp_status` |
+
+## 原生能力保障（重要）
+
+对 owl 原生 compaction 的接管是**有条件、可退出的**，四条保障：
+
+1. **停用 = 零改动**。默认即停用。loader 在扩展 import **之前**就丢弃 `disabled: true` 的条目（`package-manager.ts` 的 disabled 过滤），本插件的任何钩子都不存在，原生 compaction 行为与未安装时逐字节一致。
+2. **手动 `/compact` 永远放行**。即使插件启用中，你显式敲的 `/compact` 照常走原生路径（插件不会吞掉用户的显式请求）；投影层会把原生 compaction 条目原样带进模型视图（与 owl 自身投影同形），两套机制共存。
+3. **插件故障 → 自动让路**。`context` 改写整体故障开放：任何异常都记日志、本轮按原上下文发送、并把该会话标记为降级——降级期间原生阈值/溢出 compaction 兜底重新生效。原生 compaction 跑完后（`session_compact`）插件复位、重新接管；故障是持续性的会立刻再次降级（每次都留日志）。
+4. **压缩救不了时让位**。内核上报 terminalEscape（压缩与紧急截断都无法把上下文压下来，内核 #300 信号）时，该会话放行原生 compaction 救场，救场完成后插件复位。
 
 ## 与上游 billion-context-pi 的差异
 
@@ -42,7 +51,7 @@
 ]
 ```
 
-改动后新会话生效。**启用后 owl 原生 compaction 不再运行**（被本插件取消）；停用即完全还原，历史数据无残留（sidecar 文件可随手删）。
+改动后新会话生效。启用期间的接管边界见上节"原生能力保障"；停用即完全还原，历史数据无残留（sidecar 文件可随手删）。
 
 ## 实验注意事项
 

@@ -20,20 +20,28 @@ export function ActivityRail({
 	onSelect: (view: RailView) => void;
 	onOpenSettings: () => void;
 }): React.JSX.Element {
-	const itemClass = (active: boolean): string =>
-		`owl-rail-button${active ? " is-active" : ""}`;
+	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 
 	return (
-		<nav
-			className="owl-activity-rail"
-			data-tauri-drag-region="deep"
-			aria-label="主导航"
-		>
-			<button type="button" className="owl-rail-brand" title="OWL · 会话" aria-label="OWL 会话" onClick={() => onSelect("chat")}>
+		<nav className="owl-activity-rail" data-tauri-drag-region="deep" aria-label="主导航">
+			<button
+				type="button"
+				className="owl-rail-brand"
+				title="OWL · 会话"
+				aria-label="OWL 会话"
+				onClick={() => onSelect("chat")}
+			>
 				<img src="/owl.svg" alt="" className="h-6 w-6" draggable={false} />
 			</button>
 
-			<button type="button" className={itemClass(view === "chat" && !settingsOpen)} title="聊天" aria-label="聊天" aria-current={view === "chat" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("chat")}>
+			<button
+				type="button"
+				className={itemClass(view === "chat" && !settingsOpen)}
+				title="聊天"
+				aria-label="聊天"
+				aria-current={view === "chat" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("chat")}
+			>
 				<IconChat className="h-[18px] w-[18px]" />
 			</button>
 

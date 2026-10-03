@@ -23,14 +23,24 @@ export function StartPage({ onAction }: { onAction: (kind: string) => void }): R
 		<section className="owl-start-page" aria-labelledby="owl-start-heading">
 			<img src="/owl.svg" alt="" className="owl-start-mark" draggable={false} />
 			<p className="owl-start-eyebrow">YOUR LOCAL CODING COMPANION</p>
-			<h1 id="owl-start-heading" className="owl-start-heading">让想法，在这里落地。</h1>
+			<h1 id="owl-start-heading" className="owl-start-heading">
+				让想法，在这里落地。
+			</h1>
 			<p className="owl-start-description">从一个问题、一段代码，或一个待完成的任务开始。</p>
 
 			{primaryActions.length > 0 && (
 				<div className="owl-start-primary-actions" aria-label="项目快捷入口">
 					{primaryActions.map((action) => (
-						<button key={action.kind} type="button" className="owl-start-card" title={action.hint ? `${action.title} · ${action.hint}` : action.title} onClick={() => onAction(action.kind)}>
-							<span className="owl-start-card-icon">{action.kind === "files" ? <IconFolder className="h-[22px] w-[22px]" /> : action.icon(22)}</span>
+						<button
+							key={action.kind}
+							type="button"
+							className="owl-start-card"
+							title={action.hint ? `${action.title} · ${action.hint}` : action.title}
+							onClick={() => onAction(action.kind)}
+						>
+							<span className="owl-start-card-icon">
+								{action.kind === "files" ? <IconFolder className="h-[22px] w-[22px]" /> : action.icon(22)}
+							</span>
 							<span className="owl-start-card-title">{action.title}</span>
 							<span className="owl-start-card-description">{action.description}</span>
 						</button>
@@ -41,7 +51,13 @@ export function StartPage({ onAction }: { onAction: (kind: string) => void }): R
 			{secondaryActions.length > 0 && (
 				<div className="owl-start-secondary-actions" aria-label="更多工作台入口">
 					{secondaryActions.map((action) => (
-						<button key={action.kind} type="button" className="owl-start-secondary-action" title={action.hint ? `${action.label} · ${action.hint}` : action.label} onClick={() => onAction(action.kind)}>
+						<button
+							key={action.kind}
+							type="button"
+							className="owl-start-secondary-action"
+							title={action.hint ? `${action.label} · ${action.hint}` : action.label}
+							onClick={() => onAction(action.kind)}
+						>
 							<span className="owl-start-secondary-icon">{action.icon(15)}</span>
 							<span>{action.kind === "terminal" ? "终端" : action.kind === "sidechat" ? "侧边对话" : action.label}</span>
 						</button>
