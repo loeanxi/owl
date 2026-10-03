@@ -486,6 +486,8 @@ export function MapWorkspace({
 	}
 	function centerOn(point: MapCoordinate, name: string): void {
 		const coordinate = { lat: point.lat, lng: point.lng };
+		// An earlier place selection must not pan the renderer back while a new area's results load.
+		setSelectedId(undefined);
 		centerRef.current = coordinate;
 		setCenter(coordinate);
 		setLocationName(name);
