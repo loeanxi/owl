@@ -9,7 +9,7 @@ import { IconLoader } from "../icons.tsx";
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
 
-export function ImageTab({ api, cwd, tab }: TabComponentProps): React.JSX.Element {
+export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JSX.Element {
 	const path = tab.path ?? "";
 	const [src, setSrc] = useState<string | undefined>(undefined);
 	const [error, setError] = useState<string | undefined>(undefined);
@@ -18,23 +18,37 @@ export function ImageTab({ api, cwd, tab }: TabComponentProps): React.JSX.Elemen
 	useEffect(() => {
 		let url: string | undefined;
 		let cancelled = false;
-		setError(undefined);
-		void api
-			.fsReadBin(cwd, path)
-			.then((result) => {
-				if (cancelled) return;
-				url = `data:${result.mediaType};base64,${result.base64}`;
-				setSrc(url);
-			})
-			.catch((err: unknown) => {
-				if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-			});
+		let initialized = false;
+		let readVersion = 0;
+		const load = (): void => {
+			if (cancelled || initialized) return;
+			const version = ++readVersion;
+			setError(undefined);
+			void api
+				.fsReadBin(cwd, path)
+				.then((result) => {
+					if (cancelled || version !== readVersion) return;
+					url = `data:${result.mediaType};base64,${result.base64}`;
+					setSrc(url);
+					initialized = true;
+				})
+				.catch((err: unknown) => {
+					if (!cancelled && version === readVersion) setError(err instanceof Error ? err.message : String(err));
+				});
+		};
+		const offStatus = client.onStatus((connected) => {
+			if (connected) load();
+			else readVersion += 1;
+		});
+		load();
 		return () => {
 			cancelled = true;
+			readVersion += 1;
+			offStatus();
 			// data URL 无需 revoke；保留结构以便换成 blob URL
 			void url;
 		};
-	}, [api, cwd, path]);
+	}, [api, client, cwd, path]);
 
 	const step = ZOOM_STEPS.indexOf(zoom);
 

@@ -58,7 +58,15 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
 
 Place the skill in your user or project skills directory. Directories containing `SKILL.md` are discovered recursively.
 
-Pi also supports the Agent Skills locations `~/.agents/skills/` and `.agents/skills/`. Project `.agents/skills/` directories are discovered from the working directory through its ancestors, stopping at the repository root when one exists.
+Pi (owl) keeps all skill directories under `.owl`:
+
+| Scope | Directory | Notes |
+|---|---|---|
+| Personal | `~/.owl/agent/skills/` | Your own skills on this machine |
+| Global | `~/.owl/skills/` | Shared by every project; personal skills win name collisions |
+| Project | `<workspace>/.owl/skills/` | Loaded only after the project is trusted |
+
+The desktop app's 技能中心 (Settings → 技能) browses these three scopes and can create, edit, enable/disable, and delete skills; deletions move the skill into `<root>/.trash/`. Disabling a skill writes `disable-model-invocation: true` into its frontmatter — the model stops auto-loading it, while `/skill:name` keeps working.
 
 Pi accepts some standalone Markdown skills, but a directory containing `SKILL.md` is the portable form and should be preferred. See [Settings](settings.md#resources) and [Pi Packages](packages.md) for additional locations.
 

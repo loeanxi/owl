@@ -114,7 +114,7 @@ function languageFor(path: string): LanguageSupport | undefined {
 	}
 }
 
-export function EditorTab({ api, store, cwd, tab }: TabComponentProps): React.JSX.Element {
+export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): React.JSX.Element {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
 	const saveRef = useRef<(() => void) | null>(null);
@@ -130,6 +130,8 @@ export function EditorTab({ api, store, cwd, tab }: TabComponentProps): React.JS
 		const host = hostRef.current;
 		if (host === null) return;
 		let cancelled = false;
+		let initialized = false;
+		let readVersion = 0;
 
 		const save = (): void => {
 			const view = viewRef.current;
@@ -164,33 +166,48 @@ export function EditorTab({ api, store, cwd, tab }: TabComponentProps): React.JS
 		const view = new EditorView({ state: EditorState.create({ doc: "", extensions }), parent: host });
 		viewRef.current = view;
 
-		setLoading(true);
-		setError(undefined);
 		setStale(false);
-		void api
-			.fsRead(cwd, path)
-			.then((result) => {
-				if (cancelled) return;
-				setTruncated(result.truncated);
-				view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: result.content } });
-				store.setDirty(tab.id, false);
-			})
-			.catch((err: unknown) => {
-				if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-			})
-			.finally(() => {
+		const load = (): void => {
+			if (cancelled || initialized || store.getState().dirty[tab.id] === true) return;
+			const version = ++readVersion;
+			setLoading(true);
+			setError(undefined);
+			void api
+				.fsRead(cwd, path)
+				.then((result) => {
+					if (cancelled || version !== readVersion || store.getState().dirty[tab.id] === true) return;
+					setTruncated(result.truncated);
+					view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: result.content } });
+					store.setDirty(tab.id, false);
+					initialized = true;
+				})
+				.catch((err: unknown) => {
+					if (!cancelled && version === readVersion) setError(err instanceof Error ? err.message : String(err));
+				})
+				.finally(() => {
+					if (!cancelled && version === readVersion) setLoading(false);
+				});
+		};
+		const offStatus = client.onStatus((connected) => {
+			if (connected) load();
+			else {
+				readVersion += 1;
 				if (!cancelled) setLoading(false);
-			});
+			}
+		});
+		load();
 
 		return () => {
 			cancelled = true;
+			readVersion += 1;
+			offStatus();
 			saveRef.current = null;
 			view.destroy();
 			viewRef.current = null;
 		};
 		// 语言与文档都随 path 走；Workbench 按 tab.id key 挂载，切文件即重建
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [cwd, path, api, store, tab.id]);
+	}, [cwd, path, api, client, store, tab.id]);
 
 	// 从磁盘重新加载（refresh 按钮与"磁盘已更改"横幅共用）。
 	const refresh = (): void => {

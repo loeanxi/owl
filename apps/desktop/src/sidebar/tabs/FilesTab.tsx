@@ -90,12 +90,13 @@ function gitDecoration(path: string, git: TabComponentProps["gitStatus"]): { col
 	return undefined;
 }
 
-export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponentProps): React.JSX.Element {
+export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: TabComponentProps): React.JSX.Element {
 	const state = useSidebarState(store);
 	const expanded = useMemo(() => new Set<string>(state.expanded), [state.expanded]);
 	// 列表缓存 + 版本号：缓存变更用 version 触发重渲染（Map 本身引用稳定）。
 	const cacheRef = useRef(new Map<string, FsListing>());
 	const [version, setVersion] = useState(0);
+	const [connectionVersion, setConnectionVersion] = useState(0);
 	const bump = useCallback(() => setVersion((v) => v + 1), []);
 	const [loading, setLoading] = useState<Set<string>>(new Set());
 	const [error, setError] = useState<string | undefined>(undefined);
@@ -137,6 +138,16 @@ export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponen
 		[api, cwd, markLoading, bump],
 	);
 
+	useEffect(() => {
+		return client.onStatus((connected) => {
+			if (!connected) return;
+			cacheRef.current.clear();
+			setLoading(new Set());
+			setError(undefined);
+			setConnectionVersion((current) => current + 1);
+		});
+	}, [client]);
+
 	// 首次 + 展开目录变化：确保已展开层的列表在缓存里。
 	useEffect(() => {
 		const dirs = ["", ...state.expanded];
@@ -153,7 +164,7 @@ export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponen
 		};
 		// loading 不进依赖：只作为跳过条件读取当次值
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [state.expanded, reload]);
+	}, [state.expanded, reload, connectionVersion]);
 
 	// fs_changed：被改的目录若在缓存中则重列（未展开/未缓存的层等展开时再取）。
 	useEffect(() => {
@@ -167,7 +178,7 @@ export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponen
 	// 展开目录集同步给宿主 watch（根目录常驻）。
 	useEffect(() => {
 		void api.watchSet(cwd, ["", ...state.expanded]).catch(() => {});
-	}, [api, cwd, state.expanded]);
+	}, [api, cwd, state.expanded, connectionVersion]);
 
 	// 搜索（300ms 防抖；清空即回树）。
 	useEffect(() => {
@@ -190,7 +201,7 @@ export function FilesTab({ api, store, cwd, onOpenFile, gitStatus }: TabComponen
 				});
 		}, 300);
 		return () => clearTimeout(timer);
-	}, [api, cwd, query]);
+	}, [api, cwd, query, connectionVersion]);
 
 	const onRowClick = (entry: FsEntry): void => {
 		if (entry.isDir) {

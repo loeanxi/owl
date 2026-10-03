@@ -4,7 +4,7 @@ const cwd='D:/owl/owl-re-v1/owl-mono';const models=[{id:'demo',name:'界面验�
 const sample={theme:'dark',lastChangelogVersion:'0.0.3',shellPath:'C:\\Program Files\\PowerShell\\7\\pwsh.exe',plugins:[{source:'npm:sample-tools',enabled:true}],owlCustomPrompt:'使用中文，先说明结论。',owlUserImpression:'开发者，关注界面层级与工作效率。',owlMemory:{enabled:true},owlSidebar:{},owlChatAppearance:{fontSize:16,codeFontSize:13,lineHeight:1.7,width:768,toolRecords:'compact',motion:true}};
 const now=new Date().toISOString();
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:'C:/Users/李现/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'});const errors=[],requests=[],report=[];let scenario='home';let settings={...sample};
-const context=await browser.newContext({viewport:{width:1280,height:800},permissions:['notifications']});await context.addInitScript(()=>{localStorage.setItem('owl.workspaceDir','D:/owl/owl-re-v1/owl-mono');localStorage.removeItem('owl.workbench.open');localStorage.removeItem('owl.sidebar.minimized');});
+const context=await browser.newContext({viewport:{width:1280,height:800},locale:'zh-CN',permissions:['notifications']});await context.addInitScript(()=>{localStorage.setItem('owl.workspaceDir','D:/owl/owl-re-v1/owl-mono');localStorage.removeItem('owl.workbench.open');localStorage.removeItem('owl.sidebar.minimized');});
 await context.routeWebSocket('**/ws',ws=>{ws.onMessage(raw=>{const msg=JSON.parse(String(raw));requests.push(msg.type);let result={};switch(msg.type){
 case 'models.list':result=models;break;
 case 'settings.get':result={agentDir:'D:/owl/ui-review-fixture',settings};break;

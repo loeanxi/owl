@@ -291,6 +291,8 @@
     "watch.set",
     "term.create",
     "term.kill",
+    "fs.read",
+    "fs.readBin",
     "session.resume",
     "session.stats"
   ],

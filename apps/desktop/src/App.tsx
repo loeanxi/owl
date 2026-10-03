@@ -17,6 +17,7 @@ import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
+import { parseUiLanguage, setUiLanguage } from "./i18n/index.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
@@ -358,6 +359,8 @@ export default function App(): React.JSX.Element {
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
+				// 界面语言随 settings.json 启动加载；设置页切换后经 settings.set 持久化。
+				setUiLanguage(parseUiLanguage(settings?.uiLanguage));
 			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。

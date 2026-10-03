@@ -11,6 +11,7 @@ import type {
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
+import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
@@ -18,25 +19,25 @@ import { IconArchive, IconCode, IconCompose, IconInfo, IconLightbulb, IconList, 
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
-	{ value: "openai-completions", label: "OpenAI 兼容（openai-completions）" },
-	{ value: "anthropic-messages", label: "Anthropic 兼容（anthropic-messages）" },
-	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
-];
+	{ value: "openai-completions", labelKey: "settings.models.apiOpenaiCompat" },
+	{ value: "anthropic-messages", labelKey: "settings.models.apiAnthropicCompat" },
+	{ value: "openai-responses", labelKey: "settings.models.apiOpenaiResponses" },
+] as const;
 
 const CHAT_READING_FIELDS = [
-	{ key: "fontSize", title: "正文字号", desc: "调整回答正文的文字大小。", min: 14, max: 22, step: 1, unit: "px" },
-	{ key: "codeFontSize", title: "代码字号", desc: "调整命令、代码和工具输出的文字大小。", min: 11, max: 18, step: 1, unit: "px" },
-	{ key: "lineHeight", title: "正文行距", desc: "增大行距，让长段落更容易阅读。", min: 1.5, max: 2, step: 0.05, unit: "倍" },
-	{ key: "width", title: "阅读宽度", desc: "调整宽屏下回答的最大宽度，小窗口会自动收窄。", min: 640, max: 960, step: 1, unit: "px" },
+	{ key: "fontSize", titleKey: "settings.general.fieldFontSize", descKey: "settings.general.fieldFontSizeDesc", min: 14, max: 22, step: 1, unit: "px" },
+	{ key: "codeFontSize", titleKey: "settings.general.fieldCodeFontSize", descKey: "settings.general.fieldCodeFontSizeDesc", min: 11, max: 18, step: 1, unit: "px" },
+	{ key: "lineHeight", titleKey: "settings.general.fieldLineHeight", descKey: "settings.general.fieldLineHeightDesc", min: 1.5, max: 2, step: 0.05, unitKey: "settings.general.unitLines" },
+	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
 type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "appearance" | "archived" | "json" | "about";
 
-/** 技能中心的 tab 元数据：与 skills.list 的三级根一一对应。 */
-const SKILL_TABS: { tab: SkillCenterTab; label: string; desc: string }[] = [
-	{ tab: "personal", label: "个人", desc: "~/.owl/agent/skills · 本机 owl 专属" },
-	{ tab: "global", label: "全局", desc: "~/.owl/skills · 跨项目共享" },
-	{ tab: "project", label: "项目", desc: "<工作区>/.owl/skills · 仅当前项目" },
+/** 技能中心的 tab 元数据：与 skills.list 的三级根一一对应（label/desc 为字典 key，渲染时解析）。 */
+const SKILL_TABS: { tab: SkillCenterTab; labelKey: TextKey; descKey: TextKey }[] = [
+	{ tab: "personal", labelKey: "settings.skills.tabPersonal", descKey: "settings.skills.tabPersonalDesc" },
+	{ tab: "global", labelKey: "settings.skills.tabGlobal", descKey: "settings.skills.tabGlobalDesc" },
+	{ tab: "project", labelKey: "settings.skills.tabProject", descKey: "settings.skills.tabProjectDesc" },
 ];
 
 /** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
@@ -52,7 +53,7 @@ type PluginEntry =
 			themes?: string[];
 	  };
 
-type PluginType = "npm" | "git" | "本地文件" | "本地目录";
+type PluginType = "npm" | "git" | "local-file" | "local-dir";
 
 type ArchiveEntry = { sessionId: string; archivedAt: string };
 
@@ -61,15 +62,15 @@ type ArchiveConfigResult = { retentionDays: number; sessions: ArchiveEntry[] };
 type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string };
 
 /** 内置提示词分区的展示名（顺序即渲染顺序）。 */
-const BUILTIN_SECTION_TITLES: Record<string, string> = {
-	preamble: "人设与沟通规则（preamble）",
-	tools: "可用工具清单（tools）",
-	rules: "行为规则（rules）",
-	docs: "pi 文档指引（docs）",
-	addendum: "附加指令（addendum）",
-	project_context: "项目指令（project_context）",
-	skills: "可用技能（skills）",
-	cwd: "工作目录（cwd）",
+const BUILTIN_SECTION_TITLES: Record<string, TextKey> = {
+	preamble: "settings.prompts.secPreamble",
+	tools: "settings.prompts.secTools",
+	rules: "settings.prompts.secRules",
+	docs: "settings.prompts.secDocs",
+	addendum: "settings.prompts.secAddendum",
+	project_context: "settings.prompts.secProjectContext",
+	skills: "settings.prompts.secSkills",
+	cwd: "settings.prompts.secCwd",
 };
 
 /** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。 */
@@ -78,7 +79,7 @@ function sessionDisplayName(row: SessionListRow): string {
 	if (named) return named;
 	const first = row.firstMessage?.trim().replace(/\s+/g, " ");
 	if (first) return first.length > 48 ? `${first.slice(0, 48)}…` : first;
-	return row.id ? `会话 ${row.id.slice(0, 8)}` : "未命名会话";
+	return row.id ? t("settings.sessionFallback", { id: row.id.slice(0, 8) }) : t("settings.sessionUnnamed");
 }
 
 /** 距自动删除还剩几天（保留期 - 已归档天数）。 */
@@ -91,7 +92,7 @@ function daysLeft(archivedAt: string, retentionDays: number): number {
 function formatDateTime(iso: string): string {
 	const t = new Date(iso);
 	return Number.isFinite(t.getTime())
-		? t.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+		? t.toLocaleString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
 		: iso;
 }
 
@@ -109,8 +110,15 @@ function pluginSourceLabel(entry: PluginEntry): string {
 function pluginType(source: string): PluginType {
 	if (source.startsWith("npm:")) return "npm";
 	if (/^(git|ssh|https?):/i.test(source) || source.endsWith(".git") || /^git@/i.test(source)) return "git";
-	if (/\.(ts|js|mjs|cjs|tsx|jsx)$/i.test(source)) return "本地文件";
-	return "本地目录";
+	if (/\.(ts|js|mjs|cjs|tsx|jsx)$/i.test(source)) return "local-file";
+	return "local-dir";
+}
+
+/** 插件类型的展示名（npm/git 本身就是通用写法，原样展示）。 */
+function pluginTypeLabel(type: PluginType): string {
+	if (type === "local-file") return t("settings.plugins.typeLocalFile");
+	if (type === "local-dir") return t("settings.plugins.typeLocalDir");
+	return type;
 }
 
 function pluginBadgeClass(type: PluginType): string {
@@ -119,7 +127,7 @@ function pluginBadgeClass(type: PluginType): string {
 			return "border-sky-400/30 text-sky-400";
 		case "git":
 			return "border-violet-400/30 text-violet-400";
-		case "本地文件":
+		case "local-file":
 			return "border-emerald-400/30 text-emerald-400";
 		default:
 			return "border-amber-400/30 text-amber-400";
@@ -245,6 +253,7 @@ export function SettingsPage({
 	onSessionsChanged?: () => void;
 	initialTab?: "general" | "about";
 }): React.JSX.Element {
+	const t = useT();
 	const [section, setSection] = useState<SettingsSection>(initialTab);
 	const [agentDir, setAgentDir] = useState("");
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
@@ -333,8 +342,8 @@ export function SettingsPage({
 				setAskAnswer("");
 			} else if (ev?.type === "auth_notify" && ev.detail) {
 				const d = ev.detail;
-				if (d.type === "device_code") setQuickHint(`验证页面已在浏览器打开 — 输入设备码：${d.userCode}`);
-				else if (d.type === "auth_url") setQuickHint("已打开浏览器，请在浏览器完成授权…");
+				if (d.type === "device_code") setQuickHint(t("settings.models.deviceCodeHint", { code: d.userCode ?? "" }));
+				else if (d.type === "auth_url") setQuickHint(t("settings.models.browserOpened"));
 				else if (d.message) setQuickHint(d.message);
 			}
 		});
@@ -360,7 +369,7 @@ export function SettingsPage({
 	function respondPrompt(answer: string) {
 		setLoginAsk(null);
 		setAskAnswer("");
-		setQuickHint("已提交，等待登录流程继续…");
+		setQuickHint(t("settings.models.submitted"));
 		void client.request({ type: "auth.prompt.respond", answer });
 	}
 
@@ -371,12 +380,12 @@ export function SettingsPage({
 	 */
 	function finishAuthLogin(response: { ok: boolean; error?: string }, providerId: string, title: string): void {
 		if (!response.ok) {
-			if (!/取消/.test(response.error ?? "")) setError(response.error ?? "操作失败");
+			if (!/取消/.test(response.error ?? "")) setError(response.error ?? t("common.operationFailed"));
 			return;
 		}
-		setQuickHint(`${title} ✓ 该厂商的模型已可用`);
+		setQuickHint(t("settings.models.loginSucceeded", { title }));
 		const name = catalog.find((p) => p.id === providerId)?.name ?? providerId;
-		setAuthSuccess({ title, message: `${name} 的模型已可用，新会话即可选用。` });
+		setAuthSuccess({ title, message: t("settings.models.loginSuccessMessage", { name }) });
 		void client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
 	}
 
@@ -386,7 +395,7 @@ export function SettingsPage({
 			setError("");
 			return true;
 		}
-		if (!/取消/.test(response.error ?? "")) setError(response.error ?? "操作失败");
+		if (!/取消/.test(response.error ?? "")) setError(response.error ?? t("common.operationFailed"));
 		return false;
 	}
 
@@ -407,6 +416,8 @@ export function SettingsPage({
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
 				if (typeof obj.owlUserImpression === "string") setUserImpression(obj.owlUserImpression);
+				// 设置页打开时同步界面语言（App 启动已拉过一次；JSON 分区手改 settings.json 后以此为准）
+				setUiLanguage(parseUiLanguage(obj.uiLanguage));
 				if (obj.owlMemory && typeof obj.owlMemory === "object") {
 					const enabled = (obj.owlMemory as { enabled?: unknown }).enabled;
 					setMemory((prev) => ({ ...prev, enabled: enabled !== false }));
@@ -449,7 +460,7 @@ export function SettingsPage({
 			if (response.ok) {
 				setMemory((prev) => ({ ...prev, entries: prev.entries.filter((entry) => entry.id !== entryId) }));
 			} else {
-				setError(response.error ?? "删除失败");
+				setError(response.error ?? t("common.deleteFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -464,7 +475,7 @@ export function SettingsPage({
 		try {
 			const response = await client.request<{ ok: boolean }>({ type: "memory.clear" });
 			if (response.ok) setMemory((prev) => ({ ...prev, entries: [] }));
-			else setError(response.error ?? "清空失败");
+			else setError(response.error ?? t("common.clearFailed"));
 		} finally {
 			setBusy(false);
 			setConfirmClearMemory(false);
@@ -482,7 +493,7 @@ export function SettingsPage({
 				...(workspaceDir ? { cwd: workspaceDir } : {}),
 			});
 			if (response.ok && response.result) setSkillsData(response.result);
-			else setError(response.error ?? "技能列表加载失败");
+			else setError(response.error ?? t("settings.skills.listFailed"));
 		} finally {
 			setSkillsLoading(false);
 		}
@@ -508,7 +519,7 @@ export function SettingsPage({
 				...(workspaceDir ? { cwd: workspaceDir } : {}),
 			});
 			if (response.ok) await loadSkillsList();
-			else setError(response.error ?? "操作失败");
+			else setError(response.error ?? t("common.operationFailed"));
 		} finally {
 			setBusy(false);
 		}
@@ -531,7 +542,7 @@ export function SettingsPage({
 				setSkDesc(response.result.description);
 				setSkBody(response.result.body);
 			} else {
-				setError(response.error ?? "读取技能失败");
+				setError(response.error ?? t("settings.skills.readFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -570,7 +581,7 @@ export function SettingsPage({
 				setSkBody("");
 				await loadSkillsList();
 			} else {
-				setError(response.error ?? "保存失败");
+				setError(response.error ?? t("common.saveFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -590,7 +601,7 @@ export function SettingsPage({
 				...(workspaceDir ? { cwd: workspaceDir } : {}),
 			});
 			if (response.ok) await loadSkillsList();
-			else setError(response.error ?? "删除失败");
+			else setError(response.error ?? t("common.deleteFailed"));
 		} finally {
 			setBusy(false);
 			setConfirmDelSkill(null);
@@ -620,7 +631,7 @@ export function SettingsPage({
 	async function saveRetention(): Promise<void> {
 		const days = Number(retentionInput);
 		if (!Number.isInteger(days) || days < 1) {
-			setError("保留天数必须是正整数");
+			setError(t("settings.archive.retentionInvalid"));
 			return;
 		}
 		setBusy(true);
@@ -635,7 +646,7 @@ export function SettingsPage({
 				setRetentionInput(String(response.result.retentionDays));
 				flashSaved();
 			} else {
-				setError(response.error ?? "保存失败");
+				setError(response.error ?? t("common.saveFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -652,7 +663,7 @@ export function SettingsPage({
 				onSessionsChanged?.();
 				await loadArchive();
 			} else {
-				setError(response.error ?? "恢复失败");
+				setError(response.error ?? t("common.restoreFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -670,7 +681,7 @@ export function SettingsPage({
 				onSessionsChanged?.();
 				await loadArchive();
 			} else {
-				setError(response.error ?? "删除失败");
+				setError(response.error ?? t("common.deleteFailed"));
 			}
 		} finally {
 			setBusy(false);
@@ -678,7 +689,7 @@ export function SettingsPage({
 	}
 
 	function flashSaved() {
-		setSavedMsg("已保存 ✓");
+		setSavedMsg(t("common.saved"));
 		if (savedTimer.current) clearTimeout(savedTimer.current);
 		savedTimer.current = setTimeout(() => setSavedMsg(""), 2000);
 	}
@@ -705,7 +716,7 @@ export function SettingsPage({
 				flashSaved();
 				return true;
 			}
-			setError(response.error ?? "保存失败");
+			setError(response.error ?? t("common.saveFailed"));
 			return false;
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
@@ -810,30 +821,30 @@ export function SettingsPage({
 				{/* ============ 头部 ============ */}
 				<div className="owl-settings-topbar">
 					<button ref={backRef} type="button" className="owl-settings-back" onClick={onClose}>
-						<span aria-hidden="true">←</span> 返回工作区
+						<span aria-hidden="true">←</span> {t("settings.backToWorkspace")}
 					</button>
 					<span className="owl-settings-topbar-divider" />
 					<IconSettings />
-					<h1 id="owl-settings-title">设置</h1>
-					<span className="owl-settings-topbar-hint">你的 Owl，按你的方式工作</span>
+					<h1 id="owl-settings-title">{t("settings.title")}</h1>
+					<span className="owl-settings-topbar-hint">{t("settings.tagline")}</span>
 				</div>
 
 				<div className="owl-settings-layout">
 					{/* ============ 左侧分类导航 ============ */}
-					<nav className="owl-settings-nav" aria-label="设置分类">
-						<div className="owl-settings-nav-label">工作环境</div>
-						<NavItem icon={<IconSettings />} label="常规" active={section === "general"} onClick={() => setSection("general")} />
-						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
-						<NavItem icon={<IconPlug />} label="插件" active={section === "plugins"} onClick={() => setSection("plugins")} />
-						<NavItem icon={<IconList />} label="技能" active={section === "skills"} onClick={() => setSection("skills")} />
-						<NavItem icon={<IconPanelRight size={14} />} label="侧边卡片" active={section === "sidebar"} onClick={() => setSection("sidebar")} />
-						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
-						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
-					<NavItem icon={<IconLightbulb />} label="跨会话记忆" active={section === "memory"} onClick={() => setSection("memory")} />
-						<div className="owl-settings-nav-label">数据与应用</div>
-						<NavItem icon={<IconArchive />} label="归档" active={section === "archived"} onClick={() => setSection("archived")} />
+					<nav className="owl-settings-nav" aria-label={t("settings.navAria")}>
+						<div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>
+						<NavItem icon={<IconSettings />} label={t("settings.navGeneral")} active={section === "general"} onClick={() => setSection("general")} />
+						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => setSection("models")} />
+						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => setSection("plugins")} />
+						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => setSection("skills")} />
+						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => setSection("sidebar")} />
+						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => setSection("appearance")} />
+						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => setSection("prompts")} />
+					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => setSection("memory")} />
+						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
+						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
-						<NavItem icon={<IconInfo />} label="关于" active={section === "about"} onClick={() => setSection("about")} />
+						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => setSection("about")} />
 					</nav>
 
 					{/* ============ 右侧内容区 ============ */}
@@ -843,11 +854,11 @@ export function SettingsPage({
 						{/* -------- 常规 -------- */}
 						{section === "general" && (
 							<>
-								<SectionHeader title="常规" desc="设置默认工作环境，开始下一次工作时更顺手。" />
-								<SettingRow title="默认工作目录" desc="新建会话会从这个目录开始。">
+								<SectionHeader title={t("settings.general.title")} desc={t("settings.general.desc")} />
+								<SettingRow title={t("settings.general.workspaceDir")} desc={t("settings.general.workspaceDirDesc}")}>
 									<input className={input} value={workspaceDir} onChange={(event) => onWorkspaceDir(event.target.value)} />
 								</SettingRow>
-								<SettingRow title="Owl 数据目录" desc="模型配置、设置与会话历史保存在这里。此位置由启动配置指定。">
+								<SettingRow title={t("settings.general.agentDir")} desc={t("settings.general.agentDirDesc")}>
 									<input
 										className="w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-xs text-owl-faint outline-none"
 										value={agentDir}
@@ -855,20 +866,37 @@ export function SettingsPage({
 									/>
 								</SettingRow>
 								<SettingRow
-									title="Shell 路径"
-									desc="执行命令使用的 shell 可执行文件；修改后新会话生效。"
+									title={t("settings.general.shellPath")}
+									desc={t("settings.general.shellPathDesc")}
 									control={
 										<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveSettings({ shellPath })}>
-											保存
+											{t("common.save")}
 										</button>
 									}
 								>
-									<input className={smallInput} value={shellPath} onChange={(event) => setShellPath(event.target.value)} placeholder="如 D:\\developTool\\git\\Git\\bin\\bash.exe" />
+									<input className={smallInput} value={shellPath} onChange={(event) => setShellPath(event.target.value)} placeholder={t("settings.general.shellPathPlaceholder")} />
+								</SettingRow>
+								<SettingRow title={t("settings.general.uiLanguage")} desc={t("settings.general.uiLanguageDesc")}>
+									<select
+										aria-label={t("settings.general.uiLanguage")}
+										className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+										value={getUiLanguage()}
+										disabled={busy}
+										onChange={(event) => {
+											const next = parseUiLanguage(event.target.value);
+											// 先切语言（全界面即时生效），再落盘 settings.json
+											setUiLanguage(next);
+											void saveSettings({ uiLanguage: next });
+										}}
+									>
+										<option value="zh">{t("settings.general.uiLanguageZh")}</option>
+										<option value="en">{t("settings.general.uiLanguageEn")}</option>
+									</select>
 								</SettingRow>
 								<div className="flex items-center justify-between gap-3 pt-3">
 									<div>
-										<h3 className="text-sm font-semibold text-owl-text">聊天阅读</h3>
-										<p className="mt-1 text-[11px] text-owl-faint">调整后点击保存，立即应用到聊天内容。</p>
+										<h3 className="text-sm font-semibold text-owl-text">{t("settings.general.readingTitle")}</h3>
+										<p className="mt-1 text-[11px] text-owl-faint">{t("settings.general.readingDesc")}</p>
 									</div>
 									<button
 										type="button"
@@ -876,19 +904,19 @@ export function SettingsPage({
 										disabled={busy || !chatAppearanceLoaded}
 										onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
 									>
-										恢复默认
+										{t("settings.general.resetDefaults")}
 									</button>
 								</div>
 								{CHAT_READING_FIELDS.map((field) => (
 									<SettingRow
 										key={field.key}
-										title={field.title}
-										desc={field.desc}
-										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {field.unit}</span>}
+										title={t(field.titleKey)}
+										desc={t(field.descKey)}
+										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {field.unitKey ? t(field.unitKey) : field.unit}</span>}
 									>
 										<input
 											type="range"
-											aria-label={field.title}
+											aria-label={t(field.titleKey)}
 											className="w-full accent-owl-accent disabled:opacity-40"
 											min={field.min}
 											max={field.max}
@@ -903,11 +931,11 @@ export function SettingsPage({
 									</SettingRow>
 								))}
 								<SettingRow
-									title="工具记录"
-									desc="选择简洁摘要或展开的执行记录，随时可以点击查看详情。"
+									title={t("settings.general.toolRecords")}
+									desc={t("settings.general.toolRecordsDesc")}
 									control={
 										<select
-											aria-label="工具记录"
+											aria-label={t("settings.general.toolRecords")}
 											className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 											value={chatAppearance.toolRecords}
 											disabled={busy || !chatAppearanceLoaded}
@@ -916,17 +944,17 @@ export function SettingsPage({
 												toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
 											}))}
 										>
-											<option value="compact">简洁摘要</option>
-											<option value="expanded">展开记录</option>
+											<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
+											<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
 										</select>
 									}
 								/>
 								<SettingRow
-									title="动态效果"
-									desc="任务进行时，在最新回复下方显示轻微动态提示。"
+									title={t("settings.general.motion")}
+									desc={t("settings.general.motionDesc")}
 									control={
 										<Switch
-											title="动态效果"
+											title={t("settings.general.motion")}
 											checked={chatAppearance.motion}
 											disabled={busy || !chatAppearanceLoaded}
 											onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
@@ -940,7 +968,7 @@ export function SettingsPage({
 										disabled={busy || !chatAppearanceLoaded}
 										onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
 									>
-										保存阅读设置
+										{t("settings.general.saveReading")}
 									</button>
 								</div>
 							</>
@@ -950,14 +978,14 @@ export function SettingsPage({
 						{section === "models" && (
 							<>
 								<SectionHeader
-									title="模型与供应商"
-										desc="连接你的模型服务，并管理可用于新会话的模型。"
+									title={t("settings.models.title")}
+										desc={t("settings.models.desc")}
 								/>
 
 								{/* 快捷接入：像 /login 一样选厂商 */}
 								<div className="owl-settings-card">
-									<div className="owl-settings-row-title">使用账号快速连接</div>
-									<p className="owl-settings-row-description">选择服务后，使用浏览器授权或 API Key 接入。</p>
+									<div className="owl-settings-row-title">{t("settings.models.quickConnectTitle")}</div>
+									<p className="owl-settings-row-description">{t("settings.models.quickConnectDesc")}</p>
 									<select
 										className="mt-2 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-sm text-owl-text outline-none focus:border-owl-accent"
 										value={quickProvider}
@@ -967,10 +995,10 @@ export function SettingsPage({
 											setQuickHint("");
 										}}
 									>
-										<option value="">选择厂商…</option>
+										<option value="">{t("settings.models.pickProvider")}</option>
 										{catalog.map((p) => (
 											<option key={p.id} value={p.id}>
-												{p.name} ({p.id}){p.oauth ? " · 可浏览器登录" : ""}
+												{p.name} ({p.id}){p.oauth ? t("settings.models.oauthHintSuffix") : ""}
 											</option>
 										))}
 									</select>
@@ -983,23 +1011,23 @@ export function SettingsPage({
 													className="flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 													value={quickKey}
 													onChange={(e) => setQuickKey(e.target.value)}
-													placeholder="粘贴 API Key…"
+													placeholder={t("settings.models.apiKeyPlaceholder")}
 												/>
 												<button
 													type="button"
 													className={btnAccent}
 													disabled={busy || !quickKey.trim()}
 													onClick={() => {
-														setQuickHint("正在保存 Key…");
+														setQuickHint(t("settings.models.savingKey"));
 														void client
 															.request({ type: "auth.login", provider: quickProvider, authType: "api_key", apiKey: quickKey.trim() })
 															.then((response) => {
 																if (response.ok) setQuickKey("");
-																finishAuthLogin(response, quickProvider, "API Key 已保存");
+																finishAuthLogin(response, quickProvider, t("settings.models.apiKeySavedTitle"));
 															});
 													}}
 												>
-													保存 API Key
+													{t("settings.models.saveApiKey")}
 												</button>
 											</div>
 											{catalog.find((p) => p.id === quickProvider)?.oauth && (
@@ -1009,13 +1037,13 @@ export function SettingsPage({
 														className={btn}
 														disabled={busy}
 														onClick={() => {
-															setQuickHint("正在启动登录流程… 浏览器即将打开；如流程需要输入，会显示在下方");
+															setQuickHint(t("settings.models.oauthStarting"));
 															void client
 																.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
-																.then((response) => finishAuthLogin(response, quickProvider, "登录成功"));
+																.then((response) => finishAuthLogin(response, quickProvider, t("settings.models.oauthLoginSuccessTitle")));
 														}}
 													>
-														浏览器登录（OAuth）
+														{t("settings.models.oauthLogin")}
 													</button>
 													<label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-owl-muted">
 														<input
@@ -1023,14 +1051,14 @@ export function SettingsPage({
 															checked={enterpriseLogin}
 															onChange={(e) => setEnterpriseLogin(e.target.checked)}
 														/>
-														GitHub 企业版（登录时先问企业域名）
+														{t("settings.models.enterpriseCheckbox")}
 													</label>
 												</div>
 											)}
 											{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
 											{loginAsk && (
 												<div className="owl-settings-notice is-warning">
-													<div className="text-[11px] text-amber-200">{loginAsk.message ?? "登录流程需要输入"}</div>
+													<div className="text-[11px] text-amber-200">{loginAsk.message ?? t("settings.models.loginNeedsInput")}</div>
 													{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
 														<div className="mt-1.5 flex gap-2">
 															<input
@@ -1045,7 +1073,7 @@ export function SettingsPage({
 																}}
 															/>
 															<button type="button" className={btnAccent} onClick={() => respondPrompt(askAnswer.trim())}>
-																提交
+																{t("common.submit")}
 															</button>
 														</div>
 													)}
@@ -1064,10 +1092,10 @@ export function SettingsPage({
 															className="text-[11px] text-owl-faint transition-colors hover:text-red-400"
 															onClick={() => {
 																setLoginAsk(null);
-																void client.request({ type: "auth.cancel" }).then(() => setQuickHint("登录已取消"));
+																void client.request({ type: "auth.cancel" }).then(() => setQuickHint(t("settings.models.loginCanceled")));
 															}}
 														>
-															取消登录
+															{t("settings.models.cancelLogin")}
 														</button>
 													</div>
 												</div>
@@ -1077,7 +1105,7 @@ export function SettingsPage({
 								</div>
 
 								<div className="flex items-center justify-between">
-									<div className="text-xs font-semibold text-owl-muted">{groups.length} 个供应商 · {modelCount} 个模型</div>
+									<div className="text-xs font-semibold text-owl-muted">{t("settings.models.providerModelCount", { providers: groups.length, models: modelCount })}</div>
 									<button
 										type="button"
 										className={btn}
@@ -1087,44 +1115,46 @@ export function SettingsPage({
 											setModelFormFor(null);
 										}}
 									>
-										{showProviderForm ? "收起" : "+ 添加供应商"}
+										{showProviderForm ? t("common.collapse") : t("settings.models.addProvider")}
 									</button>
 								</div>
 
 								{showProviderForm && (
 									<div className="owl-settings-form space-y-4">
-										<h3 className="owl-settings-row-title">添加自定义连接</h3>
+										<h3 className="owl-settings-row-title">{t("settings.models.addCustom")}</h3>
 										<div className="grid grid-cols-2 gap-4">
 											<label className="block text-[11px] text-owl-muted">
-												供应商 ID *（字母数字开头，可含 . _ -）
-												<input className={input} value={pKey} onChange={(e) => setPKey(e.target.value)} placeholder="如 zai" />
+												{t("settings.models.providerIdLabel")}
+												<input className={input} value={pKey} onChange={(e) => setPKey(e.target.value)} placeholder={t("settings.models.providerIdPlaceholder")} />
 											</label>
 											<label className="block text-[11px] text-owl-muted">
-												显示名
-												<input className={input} value={pName} onChange={(e) => setPName(e.target.value)} placeholder="如 Z.AI 智谱" />
+												{t("settings.models.displayName")}
+												<input className={input} value={pName} onChange={(e) => setPName(e.target.value)} placeholder={t("settings.models.displayNamePlaceholder")} />
 											</label>
 											<label className="block text-[11px] text-owl-muted">
-												Base URL *
+												{t("settings.models.baseUrlLabel")}
 												<input className={input} value={pUrl} onChange={(e) => setPUrl(e.target.value)} placeholder="https://..." />
 											</label>
 											<label className="block text-[11px] text-owl-muted">
-												API 协议 *
+												{t("settings.models.apiLabel")}
 												<select className={input} value={pApi} onChange={(e) => setPApi(e.target.value)}>
 													{API_OPTIONS.map((o) => (
 														<option key={o.value} value={o.value}>
-															{o.label}
+															{t(o.labelKey)}
 														</option>
 													))}
 												</select>
 											</label>
 										</div>
 										<label className="block text-[11px] text-owl-muted">
-											API Key（也可以填 <code>$环境变量名</code> 引用）
+											{t("settings.models.apiKeyEnvLabelPre")}
+											<code>{t("settings.models.apiKeyEnvLabelCode")}</code>
+											{t("settings.models.apiKeyEnvLabelPost")}
 											<input type="password" autoComplete="off" className={input} value={pApiKey} onChange={(e) => setPApiKey(e.target.value)} placeholder="sk-..." />
 										</label>
 										<div className="flex justify-end gap-2">
 											<button type="button" className={btn} onClick={resetProviderForm}>
-												清空
+												{t("settings.models.clearForm")}
 											</button>
 											<button
 												type="button"
