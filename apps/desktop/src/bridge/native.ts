@@ -19,3 +19,60 @@ export async function pickFolder(title: string): Promise<string | null> {
 	const selected = await open({ directory: true, multiple: false, title });
 	return typeof selected === "string" ? selected : null;
 }
+
+/** 设置整个 webview 的缩放（1 = 100%）；浏览器模式无意义，返回 false。 */
+export async function setWebviewZoom(zoom: number): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+		await getCurrentWebview().setZoom(zoom);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function isWindowFullscreen(): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		const { getCurrentWindow } = await import("@tauri-apps/api/window");
+		return await getCurrentWindow().isFullscreen();
+	} catch {
+		return false;
+	}
+}
+
+export async function setWindowFullscreen(fullscreen: boolean): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		const { getCurrentWindow } = await import("@tauri-apps/api/window");
+		await getCurrentWindow().setFullscreen(fullscreen);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** 关闭主窗口；Rust 侧把关闭拦截为隐藏到托盘，后台会话继续跑。 */
+export async function closeMainWindow(): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		const { getCurrentWindow } = await import("@tauri-apps/api/window");
+		await getCurrentWindow().close();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** 退出整个应用（Rust RunEvent::Exit 里会顺带杀掉桥子进程）。 */
+export async function quitDesktopApp(): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		const { invoke } = await import("@tauri-apps/api/core");
+		await invoke("quit_app");
+		return true;
+	} catch {
+		return false;
+	}
+}

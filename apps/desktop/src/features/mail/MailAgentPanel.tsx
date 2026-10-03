@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { MailAccount, MailDraft } from "../../../../../packages/coding-agent/src/core/mail/types.ts";
 import { ChatStream } from "../../components/ChatStream.tsx";
 import { useT } from "../../i18n/index.ts";
+import { mailErrorText } from "./mail-errors.ts";
 import { mailThreadKey, sameMailDraft } from "./mail-model.ts";
 import type { MailSource, useMailAgent } from "./useMailAgent.ts";
 
@@ -173,91 +174,110 @@ export function MailAgentPanel({
 				)}
 				{active?.error && (
 					<p role="alert" className="owl-mail-error">
-						{active.error}
+						{mailErrorText(active.error)}
 					</p>
 				)}
 			</div>
 			{draft && (
-				<section className="owl-mail-draft" aria-label={t("mail.draft")} key={`${active.id}-${draft.threadId ?? ""}`}>
-					<button type="button" className="owl-mail-draft-heading" aria-expanded={draftExpanded} onClick={() => setDraftExpanded((value) => !value)}>
-						<span aria-hidden="true">{draftExpanded ? "⌄" : "›"}</span>{t("mail.draft")} <span>{senderEmail}</span>
+				<section
+					className="owl-mail-draft"
+					aria-label={t("mail.draft")}
+					key={`${active.id}-${draft.threadId ?? ""}`}
+				>
+					<button
+						type="button"
+						className="owl-mail-draft-heading"
+						aria-expanded={draftExpanded}
+						onClick={() => setDraftExpanded((value) => !value)}
+					>
+						<span aria-hidden="true">{draftExpanded ? "⌄" : "›"}</span>
+						{t("mail.draft")} <span>{senderEmail}</span>
 					</button>
-					{draftExpanded && <div className="owl-mail-draft-content"><div className="owl-mail-draft-scroll">
-						<div className="owl-mail-draft-from">
-							<span>{t("mail.from")}</span>
-							<strong>{senderEmail}</strong>
-							<p>{t("mail.draftSenderFixed")}</p>
+					{draftExpanded && (
+						<div className="owl-mail-draft-content">
+							<div className="owl-mail-draft-scroll">
+								<div className="owl-mail-draft-from">
+									<span>{t("mail.from")}</span>
+									<strong>{senderEmail}</strong>
+									<p>{t("mail.draftSenderFixed")}</p>
+								</div>
+								{(["to", "cc", "bcc", "subject"] as const).map((field) => (
+									<label key={field} className="owl-mail-draft-field">
+										<span>{t(`mail.${field}`)}</span>
+										<input
+											type="text"
+											value={draft[field] ?? ""}
+											disabled={draftLocked}
+											onChange={(event) => agent.editDraft(field, event.target.value)}
+										/>
+									</label>
+								))}
+								<label className="owl-mail-body-label">
+									<span className="sr-only">{t("mail.body")}</span>
+									<textarea
+										className="owl-mail-draft-body"
+										value={draft.body}
+										disabled={draftLocked}
+										onChange={(event) => agent.editDraft("body", event.target.value)}
+									/>
+								</label>
+								{active.pendingDraft && (
+									<div className="owl-mail-draft-notice">
+										<p>{t("mail.newDraft")}</p>
+										<button
+											type="button"
+											className="owl-mail-link-button"
+											disabled={draftLocked}
+											onClick={agent.adoptDraft}
+										>
+											{t("mail.adoptDraft")}
+										</button>
+									</div>
+								)}
+								{alreadySent && <p className="owl-mail-draft-notice">{t("mail.draftAlreadySent")}</p>}
+								{sender?.status !== "connected" ? (
+									<p className="owl-mail-draft-notice">{t("mail.draftRetained")}</p>
+								) : !sender.capabilities.compose || !sender.capabilities.send ? (
+									<div className="owl-mail-draft-notice">
+										<p>{t("mail.permissionHint", { email: senderEmail })}</p>
+										<button
+											type="button"
+											className="owl-mail-link-button"
+											onClick={() => onAuthorize(sender)}
+											disabled={draftLocked || !connected}
+										>
+											{t("mail.enableSend")}
+										</button>
+									</div>
+								) : null}
+							</div>
+							<div className="owl-mail-draft-actions">
+								<button
+									type="button"
+									className="owl-mail-button"
+									onClick={() => onSave(draft)}
+									disabled={draftLocked || alreadySent || !connected || !sender}
+								>
+									{t(draftBusy === "save" ? "mail.saving" : "mail.saveDraft")}
+								</button>
+								<button
+									type="button"
+									className="owl-mail-button is-primary"
+									onClick={() => onPreview(draft)}
+									disabled={
+										draftLocked ||
+										alreadySent ||
+										!connected ||
+										!sender ||
+										!draft.to.trim() ||
+										!draft.body.trim()
+									}
+								>
+									{t(draftBusy === "preview" ? "mail.preparing" : "mail.previewSend")}
+								</button>
+							</div>
 						</div>
-						{(["to", "cc", "bcc", "subject"] as const).map((field) => (
-							<label key={field} className="owl-mail-draft-field">
-								<span>{t(`mail.${field}`)}</span>
-								<input
-									type="text"
-									value={draft[field] ?? ""}
-									disabled={draftLocked}
-									onChange={(event) => agent.editDraft(field, event.target.value)}
-								/>
-							</label>
-						))}
-						<label className="owl-mail-body-label">
-							<span className="sr-only">{t("mail.body")}</span>
-							<textarea
-								className="owl-mail-draft-body"
-								value={draft.body}
-								disabled={draftLocked}
-								onChange={(event) => agent.editDraft("body", event.target.value)}
-							/>
-						</label>
-						{active.pendingDraft && (
-							<div className="owl-mail-draft-notice">
-								<p>{t("mail.newDraft")}</p>
-								<button
-									type="button"
-									className="owl-mail-link-button"
-									disabled={draftLocked}
-									onClick={agent.adoptDraft}
-								>
-									{t("mail.adoptDraft")}
-								</button>
-							</div>
-						)}
-						{alreadySent && <p className="owl-mail-draft-notice">{t("mail.draftAlreadySent")}</p>}
-						{sender?.status !== "connected" ? (
-							<p className="owl-mail-draft-notice">{t("mail.draftRetained")}</p>
-						) : !sender.capabilities.compose || !sender.capabilities.send ? (
-							<div className="owl-mail-draft-notice">
-								<p>{t("mail.permissionHint", { email: senderEmail })}</p>
-								<button
-									type="button"
-									className="owl-mail-link-button"
-									onClick={() => onAuthorize(sender)}
-									disabled={draftLocked || !connected}
-								>
-									{t("mail.enableSend")}
-								</button>
-							</div>
-						) : null}
-					</div>
-					<div className="owl-mail-draft-actions">
-						<button
-							type="button"
-							className="owl-mail-button"
-							onClick={() => onSave(draft)}
-							disabled={draftLocked || alreadySent || !connected || !sender}
-						>
-							{t(draftBusy === "save" ? "mail.saving" : "mail.saveDraft")}
-						</button>
-						<button
-							type="button"
-							className="owl-mail-button is-primary"
-							onClick={() => onPreview(draft)}
-							disabled={
-								draftLocked || alreadySent || !connected || !sender || !draft.to.trim() || !draft.body.trim()
-							}
-						>
-							{t(draftBusy === "preview" ? "mail.preparing" : "mail.previewSend")}
-						</button>
-					</div></div>}
+					)}
 				</section>
 			)}
 			<form

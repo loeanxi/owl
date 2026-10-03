@@ -5,19 +5,59 @@ import { WindowControls } from "./WindowControls.tsx";
 
 type MenuKey = "file" | "edit" | "view" | "help";
 
+interface MenuEntry {
+	label: string;
+	/** 右侧对齐的快捷键提示（如 "Ctrl+Shift+S"）。 */
+	hint?: string;
+	disabled?: boolean;
+	action: () => void;
+}
+
+type MenuRow = MenuEntry | "separator";
+
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
 	sidebarView?: "chat" | "map" | "news" | "mail";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
+	workbenchOpen: boolean;
+	workbenchDock: "right" | "bottom";
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
 	onOpenProject: () => void;
+	onCloseWindow: () => void;
+	onQuit: () => void;
 	onOpenSettings: () => void;
-	onOpenAbout: () => void;
-	onDockRight: () => void;
-	onDockBottom: () => void;
 	onOpenDeveloper: () => void;
+	onToggleBottomPanel: () => void;
+	onToggleRightPanel: () => void;
+	onOpenTerminal: () => void;
+	onOpenBrowserTab: () => void;
+	onOpenTasks: () => void;
+	onToggleChatContext: () => void;
+	onPrevSession: () => void;
+	onNextSession: () => void;
+	onHistoryBack: () => void;
+	onHistoryForward: () => void;
+	onFind: () => void;
+	onZoomIn: () => void;
+	onZoomOut: () => void;
+	onZoomReset: () => void;
+	onToggleFullscreen: () => void;
+	onOpenGuide: () => void;
+	onShowShortcuts: () => void;
+	onOpenAbout: () => void;
+}
+
+/** 可编辑目标（含内层命中后的向上回溯）；CodeMirror 与内嵌浏览器自理键位，不归菜单管。 */
+const EDITABLE_SELECTOR = "input, textarea, [contenteditable='true'], [contenteditable=''], [contenteditable='plaintext-only']";
+
+function captureEditableTarget(): HTMLElement | null {
+	const active = document.activeElement;
+	if (!active) return null;
+	if (active.closest(".cm-editor") || active.closest("[data-iab-capture]")) return null;
+	const editable = active.closest(EDITABLE_SELECTOR);
+	return editable instanceof HTMLElement ? editable : null;
 }
 
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
@@ -31,8 +71,11 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
 		: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");
 	const [menu, setMenu] = useState<MenuKey | undefined>();
-	const [copyError, setCopyError] = useState("");
+	const [menuError, setMenuError] = useState("");
 	const root = useRef<HTMLElement>(null);
+	// 打开菜单那一刻焦点会移到触发按钮上；先把正在输入的可编辑元素记下来，
+	// 编辑菜单项执行前把焦点还给它（execCommand 只作用于焦点元素）。
+	const capturedEditableRef = useRef<HTMLElement | null>(null);
 
 	useEffect(() => {
 		if (!menu) return;
@@ -50,33 +93,100 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		};
 	}, [menu]);
 
-	const actions: Record<MenuKey, { label: string; action: () => void; disabled?: boolean }[]> = {
+	const bottomOpen = props.workbenchOpen && props.workbenchDock === "bottom";
+	const rightOpen = props.workbenchOpen && props.workbenchDock === "right";
+	const editTarget = capturedEditableRef.current;
+	const selectionText = window.getSelection()?.toString() ?? "";
+
+	const runEditCommand = (command: string): void => {
+		const el = capturedEditableRef.current;
+		if (!el) return;
+		el.focus({ preventScroll: true });
+		if (!document.execCommand(command)) setMenuError(t("titlebar.editUnsupported"));
+	};
+
+	const runCopy = (): void => {
+		const selected = selectionText;
+		if (selected) {
+			void navigator.clipboard.writeText(selected).catch(() => setMenuError(t("titlebar.copyFailed")));
+			return;
+		}
+		const el = capturedEditableRef.current;
+		if (!el) return;
+		el.focus({ preventScroll: true });
+		if (!document.execCommand("copy")) setMenuError(t("titlebar.copyFailed"));
+	};
+
+	const runPaste = (): void => {
+		const el = capturedEditableRef.current;
+		if (!el) return;
+		el.focus({ preventScroll: true });
+		void navigator.clipboard
+			.readText()
+			.then((text) => {
+				if (!text) return;
+				if (!document.execCommand("insertText", false, text)) setMenuError(t("titlebar.pasteFailed"));
+			})
+			.catch(() => setMenuError(t("titlebar.pasteFailed")));
+	};
+
+	const runSelectAll = (): void => {
+		const el = capturedEditableRef.current;
+		if (!el) return;
+		el.focus({ preventScroll: true });
+		if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select();
+		else if (!document.execCommand("selectAll")) setMenuError(t("titlebar.editUnsupported"));
+	};
+
+	const actions: Record<MenuKey, MenuRow[]> = {
 		file: [
-			{ label: t("titlebar.newChat"), action: props.onNewChat, disabled: !props.connected },
-			{ label: t("titlebar.openProject"), action: props.onOpenProject, disabled: !props.connected },
+			{ label: t("titlebar.newChat"), hint: "Ctrl+N", disabled: !props.connected, action: props.onNewChat },
+			{ label: t("titlebar.openProject"), hint: "Ctrl+O", disabled: !props.connected, action: props.onOpenProject },
+			"separator",
+			{ label: t("titlebar.closeWindow"), hint: "Ctrl+W", action: props.onCloseWindow },
+			{ label: t("titlebar.quitOwl"), hint: "Ctrl+Q", action: props.onQuit },
 		],
 		edit: [
-			{
-				label: t("titlebar.copySelection"),
-				disabled: !window.getSelection()?.toString(),
-				action: () => {
-					const selected = window.getSelection()?.toString();
-					if (selected) {
-						void navigator.clipboard.writeText(selected).catch(() => {
-							setCopyError(t("titlebar.copyFailed"));
-						});
-					}
-				},
-			},
-			{ label: t("titlebar.settings"), action: props.onOpenSettings },
+			{ label: t("edit.undo"), hint: "Ctrl+Z", disabled: !editTarget, action: () => runEditCommand("undo") },
+			{ label: t("edit.redo"), hint: "Ctrl+Y", disabled: !editTarget, action: () => runEditCommand("redo") },
+			"separator",
+			{ label: t("edit.cut"), hint: "Ctrl+X", disabled: !editTarget, action: () => runEditCommand("cut") },
+			{ label: t("edit.copy"), hint: "Ctrl+C", disabled: !editTarget && !selectionText, action: runCopy },
+			{ label: t("edit.paste"), hint: "Ctrl+V", disabled: !editTarget, action: runPaste },
+			{ label: t("edit.delete"), hint: "Delete", disabled: !editTarget, action: () => runEditCommand("delete") },
+			"separator",
+			{ label: t("edit.selectAll"), hint: "Ctrl+A", disabled: !editTarget, action: runSelectAll },
+			{ label: t("titlebar.settings"), hint: "Ctrl+,", action: props.onOpenSettings },
 		],
 		view: [
+			{ label: sidebarLabel, hint: "Ctrl+Shift+S", action: props.onToggleSidebar },
+			{ label: bottomOpen ? t("view.hideBottomPanel") : t("view.showBottomPanel"), hint: "Ctrl+J", action: props.onToggleBottomPanel },
+			{ label: rightOpen ? t("view.hideRightPanel") : t("view.showRightPanel"), hint: "Ctrl+Shift+E", action: props.onToggleRightPanel },
 			{ label: t("titlebar.openDeveloperWorkbench"), action: props.onOpenDeveloper },
-			{ label: sidebarLabel, action: props.onToggleSidebar },
-			{ label: t("titlebar.dockRight"), action: props.onDockRight },
-			{ label: t("titlebar.dockBottom"), action: props.onDockBottom },
+			"separator",
+			{ label: t("wb.newTerminal"), hint: "Ctrl+`", action: props.onOpenTerminal },
+			{ label: t("app.browserTab"), hint: "Ctrl+T", action: props.onOpenBrowserTab },
+			{ label: t("view.toggleChatContext"), hint: "Alt+Ctrl+B", action: props.onToggleChatContext },
+			"separator",
+			{ label: t("view.find"), hint: "Ctrl+F", action: props.onFind },
+			{ label: t("view.prevSession"), hint: "Ctrl+Shift+[", disabled: !props.connected, action: props.onPrevSession },
+			{ label: t("view.nextSession"), hint: "Ctrl+Shift+]", disabled: !props.connected, action: props.onNextSession },
+			{ label: t("view.back"), hint: "Ctrl+[", action: props.onHistoryBack },
+			{ label: t("view.forward"), hint: "Ctrl+]", action: props.onHistoryForward },
+			"separator",
+			{ label: t("view.zoomIn"), hint: "Ctrl+Shift+=", action: props.onZoomIn },
+			{ label: t("view.zoomOut"), hint: "Ctrl+-", action: props.onZoomOut },
+			{ label: t("view.zoomReset"), hint: "Ctrl+0", action: props.onZoomReset },
+			"separator",
+			{ label: t("view.toggleFullscreen"), hint: "F11", action: props.onToggleFullscreen },
 		],
-		help: [{ label: t("titlebar.aboutOwl"), action: props.onOpenAbout }],
+		help: [
+			{ label: t("help.guide"), action: props.onOpenGuide },
+			{ label: t("help.shortcuts"), hint: "Ctrl+/", action: props.onShowShortcuts },
+			{ label: t("help.taskManager"), action: props.onOpenTasks },
+			"separator",
+			{ label: t("titlebar.aboutOwl"), action: props.onOpenAbout },
+		],
 	};
 
 	return (
@@ -102,8 +212,12 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 							aria-haspopup="menu"
 							aria-expanded={menu === key}
 							aria-controls={`owl-desktop-menu-${key}`}
+							onPointerDown={() => {
+								// pointerdown 先于按钮抢焦点，此时 activeElement 还是用户正在输入的元素
+								capturedEditableRef.current = captureEditableTarget();
+							}}
 							onClick={() => {
-								setCopyError("");
+								setMenuError("");
 								setMenu((current) => current === key ? undefined : key);
 							}}
 						>
@@ -111,19 +225,24 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 						</button>
 						{menu === key && (
 							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={t(labelKey)}>
-								{actions[key].map((item) => (
-									<button
-										key={item.label}
-										type="button"
-										role="menuitem"
-										disabled={item.disabled}
-										onClick={() => {
-											setMenu(undefined);
-											item.action();
-										}}
-									>
-										{item.label}
-									</button>
+								{actions[key].map((row, index) => (
+									row === "separator" ? (
+										<div className="owl-desktop-menu-separator" key={`sep-${index}`} role="separator" />
+									) : (
+										<button
+											key={row.label}
+											type="button"
+											role="menuitem"
+											disabled={row.disabled}
+											onClick={() => {
+												setMenu(undefined);
+												row.action();
+											}}
+										>
+											<span className="owl-desktop-menu-label">{row.label}</span>
+											{row.hint && <span className="owl-desktop-menu-hint">{row.hint}</span>}
+										</button>
+									)
 								))}
 							</div>
 						)}
@@ -131,7 +250,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 				))}
 			</div>
 			<span className="owl-desktop-app-name" data-tauri-drag-region="deep">OWL</span>
-			{copyError && <span className="owl-desktop-copy-error" role="status">{copyError}</span>}
+			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
 				<WindowControls />
 			</div>

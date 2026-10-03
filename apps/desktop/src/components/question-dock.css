@@ -1,0 +1,25 @@
+.owl-composer-dock {
+	position: relative;
+	min-width: 0;
+	flex: 0 0 auto;
+}
+
+.owl-question-anchor {
+	position: absolute;
+	z-index: 30;
+	right: 0;
+	bottom: 100%;
+	left: 0;
+	padding: 0 16px 10px;
+	pointer-events: none;
+}
+
+.owl-question-anchor__column {
+	width: 100%;
+	max-width: 48rem;
+	margin-inline: auto;
+}
+
+.owl-shell-content.is-bottom.has-pending-question > .owl-workbench-shell {
+	max-height: max(0px, calc(100% - var(--owl-question-chat-min-height, 0px)));
+}

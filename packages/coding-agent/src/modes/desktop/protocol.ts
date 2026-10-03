@@ -5,6 +5,8 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { MapResultsMessage } from "../../core/maps/types.ts";
+export type { MapResultsMessage } from "../../core/maps/types.ts";
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
@@ -681,6 +683,90 @@ export interface MemoryClearRequest {
 
 export interface MemoryClearResult {
 	ok: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// owl 使用统计（usage.get）—— 设置页「使用统计」卡片同源数据。
+//
+// 扫描 <agentDir>/Owl-history 下全部会话 JSONL，聚合其中的 usage 记录
+// （assistant 消息、usage 条目、工具摘要/压缩）。纯文件操作，不挂载会话，
+// 因此正在进行的会话写入落盘后下一次请求即可看到（前端 5s 轮询 = 实时）。
+// ---------------------------------------------------------------------------
+
+/** 一组用量合计（token 数 + 费用 + 带用量记录的请求次数）。 */
+export interface UsageStatsTotals {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	/** 推理 token（output 的子集，部分供应商不上报）。 */
+	reasoning: number;
+	totalTokens: number;
+	cost: number;
+	requests: number;
+}
+
+/** 单日用量（date 为本机时区的 YYYY-MM-DD）。 */
+export interface UsageStatsDay {
+	date: string;
+	totalTokens: number;
+	cost: number;
+	requests: number;
+}
+
+/** 单模型用量（key 为 provider/model，与会话记录里的口径一致）。 */
+export interface UsageStatsModel {
+	key: string;
+	totalTokens: number;
+	cost: number;
+	requests: number;
+}
+
+/** 单项目用量（cwd 为会话所属工作区）。 */
+export interface UsageStatsProject {
+	cwd: string;
+	totalTokens: number;
+	cost: number;
+	requests: number;
+	sessions: number;
+}
+
+/** 单会话用量（按 Token 排序后截断，见 UsageStatsResult.topSessions）。 */
+export interface UsageStatsSession {
+	sessionId: string;
+	cwd: string;
+	name?: string;
+	firstMessage?: string;
+	/** 会话开始时间（session 头的 ISO 时间）。 */
+	startedAt: string;
+	/** 最近一次写入时间（文件 mtime）。 */
+	lastActiveAt: string;
+	totalTokens: number;
+	cost: number;
+	requests: number;
+}
+
+export interface UsageGetRequest {
+	type: "usage.get";
+	id: string;
+}
+
+export interface UsageGetResult {
+	totals: UsageStatsTotals;
+	/** 本机时区的「今天」。 */
+	today: { totalTokens: number; cost: number; requests: number };
+	/** 升序的最近 30 天（无记录的日期也占位，方便直接画柱状图）。 */
+	byDay: UsageStatsDay[];
+	/** 按累计费用降序，费用相同按 Token 降序。 */
+	byModel: UsageStatsModel[];
+	/** 按 Token 降序。 */
+	byProject: UsageStatsProject[];
+	/** 按 Token 降序的前 12 个会话。 */
+	topSessions: UsageStatsSession[];
+	sessionCount: number;
+	firstRecordedAt?: string;
+	/** 本次统计的生成时间（ISO），前端据此显示「更新于」。 */
+	generatedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1365,6 +1451,7 @@ export type DesktopClientRequest =
 	| MemoryListRequest
 	| MemoryDeleteRequest
 	| MemoryClearRequest
+	| UsageGetRequest
 	| ImageConfigGetRequest
 	| ImageConfigSetRequest
 	| ImageSubLoginRequest
@@ -1493,6 +1580,7 @@ export type ServerResponseMessage = {
 };
 
 export type DesktopServerMessage =
+	| MapResultsMessage
 	| MailAgentDraftMessage
 	| NewsOpenMessage
 	| ServerEventMessage

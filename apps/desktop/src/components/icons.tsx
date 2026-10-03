@@ -314,3 +314,12 @@ export function IconBell({ className }: { className?: string }): React.JSX.Eleme
 		</Svg>
 	);
 }
+
+/** 设置页：使用统计（Token 用量脉搏线） */
+export function IconActivity({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M3 12h4l2.5-7 5 14 2.5-7h4" />
+		</Svg>
+	);
+}

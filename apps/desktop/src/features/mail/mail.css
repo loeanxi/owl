@@ -1589,28 +1589,84 @@
 	font-size: 10px !important;
 }
 @media (max-height: 760px) {
-	.owl-mail-agent-heading { height: 42px; flex-basis: 42px; }
-	.owl-mail-agent-context { max-height: 140px; }
-	.owl-mail-agent:has(.owl-mail-draft) .owl-mail-agent-context { max-height: 64px; margin-top: 8px; }
-	.owl-mail-agent-content { min-height: 64px; flex-basis: 64px; }
-	.owl-mail-agent-composer { padding-top: 8px; padding-bottom: 6px; }
-	.owl-mail-agent-composer > textarea { height: 38px; min-height: 38px; padding: 8px; }
-	.owl-mail-composer-actions { padding-top: 5px; }
-	.owl-mail-draft { margin-top: 8px; margin-bottom: 8px; }
+	.owl-mail-agent-heading {
+		height: 42px;
+		flex-basis: 42px;
+	}
+	.owl-mail-agent-context {
+		max-height: 140px;
+	}
+	.owl-mail-agent:has(.owl-mail-draft) .owl-mail-agent-context {
+		max-height: 64px;
+		margin-top: 8px;
+	}
+	.owl-mail-agent-content {
+		min-height: 64px;
+		flex-basis: 64px;
+	}
+	.owl-mail-agent-composer {
+		padding-top: 8px;
+		padding-bottom: 6px;
+	}
+	.owl-mail-agent-composer > textarea {
+		height: 38px;
+		min-height: 38px;
+		padding: 8px;
+	}
+	.owl-mail-composer-actions {
+		padding-top: 5px;
+	}
+	.owl-mail-draft {
+		margin-top: 8px;
+		margin-bottom: 8px;
+	}
 }
 @media (max-height: 620px) {
-	.owl-mail-agent-heading { height: 32px; flex-basis: 32px; }
-	.owl-mail-agent:has(.owl-mail-draft) .owl-mail-agent-context { max-height: 34px; margin-top: 4px; padding-top: 5px; padding-bottom: 5px; }
-	.owl-mail-agent-content { min-height: 40px; flex-basis: 40px; }
-	.owl-mail-conversation-picker { padding-top: 4px; }
-	.owl-mail-conversation-picker > span { display: none; }
-	.owl-mail-agent-composer > textarea { height: 34px; min-height: 34px; }
-	.owl-mail-composer-actions > span { display: none; }
-	.owl-mail-composer-actions { justify-content: flex-end; }
-	.owl-mail-draft-heading { padding-top: 6px; padding-bottom: 6px; }
-	.owl-mail-draft-actions { padding: 6px; }
-	.owl-mail-draft-actions > .owl-mail-button { padding-top: 4px; padding-bottom: 4px; }
-	.owl-mail-draft { margin-top: 6px; margin-bottom: 6px; }
+	.owl-mail-agent-heading {
+		height: 32px;
+		flex-basis: 32px;
+	}
+	.owl-mail-agent:has(.owl-mail-draft) .owl-mail-agent-context {
+		max-height: 34px;
+		margin-top: 4px;
+		padding-top: 5px;
+		padding-bottom: 5px;
+	}
+	.owl-mail-agent-content {
+		min-height: 40px;
+		flex-basis: 40px;
+	}
+	.owl-mail-conversation-picker {
+		padding-top: 4px;
+	}
+	.owl-mail-conversation-picker > span {
+		display: none;
+	}
+	.owl-mail-agent-composer > textarea {
+		height: 34px;
+		min-height: 34px;
+	}
+	.owl-mail-composer-actions > span {
+		display: none;
+	}
+	.owl-mail-composer-actions {
+		justify-content: flex-end;
+	}
+	.owl-mail-draft-heading {
+		padding-top: 6px;
+		padding-bottom: 6px;
+	}
+	.owl-mail-draft-actions {
+		padding: 6px;
+	}
+	.owl-mail-draft-actions > .owl-mail-button {
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+	.owl-mail-draft {
+		margin-top: 6px;
+		margin-bottom: 6px;
+	}
 }
 @container (max-width: 560px) {
 	.owl-mail-list {

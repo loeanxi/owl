@@ -1354,6 +1354,26 @@ export class NewsService {
 			}),
 			maxTokens: 4096,
 		});
+		const contextChanged = items.some((snapshot) => {
+			const current = this.store.item(snapshot.id);
+			if (!current || !this.visible(current) || current.revision !== snapshot.revision) return true;
+			const projected = this.publicItem(current);
+			const sentBody = (snapshot.body || snapshot.originalBody)?.slice(0, 20000) || null;
+			const currentBody = (projected.body || projected.originalBody)?.slice(0, 20000) || null;
+			return (
+				projected.title !== snapshot.title ||
+				projected.summary !== snapshot.summary ||
+				projected.url !== snapshot.url ||
+				currentBody !== sentBody
+			);
+		});
+		if (contextChanged) {
+			const receipt = this.responseReceipts.get(result);
+			if (receipt)
+				this.store.setReceiptState(receipt.id, "received", "讨论资料已变化，旧回答未公开", receipt.attempt);
+			this.store.audit("assistant.context-changed", subject, { itemIds: items.map((item) => item.id) });
+			throw new Error("所选资讯已更新、撤回或收回全文许可，请重新选择讨论范围。");
+		}
 		this.store.completeReceipts(subject);
 		return { answer: result.text, citations, usage: result.usage };
 	}

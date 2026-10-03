@@ -2,6 +2,22 @@
  * Re-exports the kernel wire protocol so the UI and bridge share one definition.
  */
 export type {
+	MapCategory,
+	MapCoordinate,
+	MapBounds,
+	MapDataSource,
+	RealMapPoint,
+	RealPlace,
+	MapSourceStatus,
+	MapResult,
+	GeocodeRequest,
+	NearbyRequest,
+	ReverseRequest,
+	MapViewUpdate,
+	MapResultsMessage,
+} from "../../../../packages/coding-agent/src/core/maps/types.ts";
+
+export type {
 	MailClientRequest,
 	MailAgentStartRequest,
 	MailAgentDraftMessage,
@@ -79,6 +95,13 @@ export type {
 	OwlMemoryItem,
 	MemoryDeleteRequest,
 	MemoryClearRequest,
+	UsageGetRequest,
+	UsageGetResult,
+	UsageStatsTotals,
+	UsageStatsDay,
+	UsageStatsModel,
+	UsageStatsProject,
+	UsageStatsSession,
 	OwlImageProvider,
 	OwlImageConfigPublic,
 	ImageConfigGetRequest,

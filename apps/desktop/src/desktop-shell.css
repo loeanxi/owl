@@ -55,7 +55,7 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	position: absolute;
 	top: calc(100% + 5px);
 	left: 0;
-	min-width: 210px;
+	min-width: 230px;
 	padding: 5px;
 	border: 1px solid var(--owl-ui-border);
 	border-radius: 8px;
@@ -63,7 +63,10 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
 }
 .owl-desktop-menu-panel button {
-	display: block;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
 	width: 100%;
 	padding: 8px 11px;
 	border-radius: 5px;
@@ -71,6 +74,14 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	font-size: 12px;
 	text-align: left;
 }
+.owl-desktop-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-desktop-menu-hint {
+	flex: none;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	letter-spacing: 0.03em;
+}
+.owl-desktop-menu-separator { height: 1px; margin: 5px 8px; background: var(--owl-ui-border); }
 .owl-desktop-menu-panel button:hover:not(:disabled) { background: var(--owl-ui-hover); }
 .owl-desktop-menu-panel button:disabled { opacity: 0.4; cursor: default; }
 .owl-desktop-menu-row button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }

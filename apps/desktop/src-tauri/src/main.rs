@@ -37,6 +37,13 @@ mod toast {
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// 前端「退出 Owl」入口（帮助/文件菜单的 Ctrl+Q）：
+/// RunEvent::Exit 钩子会顺带走 bridge.kill()，桥子进程不残留。
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+	app.exit(0);
+}
+
 const DEFAULT_PORT: u16 = 18901;
 
 /// serve.js does heavy top-level module loading before it starts listening;
@@ -311,7 +318,7 @@ fn main() {
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
-		.invoke_handler(tauri::generate_handler![toast::show_approval_toast])
+		.invoke_handler(tauri::generate_handler![toast::show_approval_toast, quit_app])
 		.setup(move |app| {
 			let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")

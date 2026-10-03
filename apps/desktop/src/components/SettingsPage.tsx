@@ -10,16 +10,18 @@ import type {
 	SkillsListResult,
 	SkillsReadResult,
 	SystemPromptPreviewResult,
+	UsageGetResult,
 	OwlImageConfigPublic,
 	OwlImageProvider,
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
-import { isThemePreference, setThemePreference } from "../theme.ts";
+import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, THEME_DEFAULT_COLORS, type OwlAppearanceColors } from "../owl-appearance.ts";
+import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
 import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconActivity, IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import "./settings-redesign.css";
@@ -37,7 +39,19 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "archived" | "json" | "about";
+/** 强调色预置色板（默认绿居首；自定义走原生拾色器）。 */
+const ACCENT_PRESETS = [
+	{ value: DEFAULT_ACCENT, labelKey: "settings.appearance.accentDefault" },
+	{ value: "#3b82f6", labelKey: "settings.appearance.accentBlue" },
+	{ value: "#06b6d4", labelKey: "settings.appearance.accentCyan" },
+	{ value: "#8b5cf6", labelKey: "settings.appearance.accentViolet" },
+	{ value: "#ec4899", labelKey: "settings.appearance.accentPink" },
+	{ value: "#ef4444", labelKey: "settings.appearance.accentRed" },
+	{ value: "#f97316", labelKey: "settings.appearance.accentOrange" },
+	{ value: "#eab308", labelKey: "settings.appearance.accentAmber" },
+] as const;
+
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
 
 /** owl-image 的 provider 清单（顺序即下拉顺序；标签走 settings.image.p.* 字典）。 */
 const OWL_IMAGE_PROVIDERS: readonly OwlImageProvider[] = [
@@ -128,6 +142,31 @@ function formatDateTime(iso: string): string {
 	const t = new Date(iso);
 	return Number.isFinite(t.getTime())
 		? t.toLocaleString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+		: iso;
+}
+
+/** Token 数的紧凑显示：<1K 原样，之后 1.2K / 3.4M / 1.2G（统计卡与图表共用）。 */
+function formatTokens(n: number): string {
+	if (!Number.isFinite(n) || n <= 0) return "0";
+	if (n < 1000) return String(Math.round(n));
+	if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
+	if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
+	return `${(n / 1_000_000_000).toFixed(1)}G`;
+}
+
+/** 费用显示：无记录（0）显示 —，小额保留 4 位避免看到 $0.00。 */
+function formatCost(n: number): string {
+	if (!Number.isFinite(n) || n <= 0) return "—";
+	if (n < 0.01) return `$${n.toFixed(4)}`;
+	if (n < 1000) return `$${n.toFixed(2)}`;
+	return `$${Math.round(n).toLocaleString("en-US")}`;
+}
+
+/** 「更新于 HH:MM:SS」用（实时刷新的时间戳要能看到秒级跳动）。 */
+function formatClock(iso: string): string {
+	const d = new Date(iso);
+	return Number.isFinite(d.getTime())
+		? d.toLocaleTimeString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
 		: iso;
 }
 
@@ -271,6 +310,71 @@ function Switch({
 	);
 }
 
+/**
+ * 颜色字段：圆形拾色器 + hex 输入 + 「默认」清除。
+ * value 为空串 = 跟随主题默认（此时展示 fallback 色并隐藏清除按钮）。
+ * hex 手输在不完整时不提交，合法即提交；失焦回显最后一次提交值。
+ */
+function ColorField({
+	value,
+	fallback,
+	disabled,
+	ariaLabel,
+	resetLabel,
+	onChange,
+}: {
+	value: string;
+	fallback: string;
+	disabled?: boolean;
+	ariaLabel: string;
+	resetLabel: string;
+	onChange: (hex: string) => void;
+}): React.JSX.Element {
+	const [text, setText] = useState(value);
+	const [editing, setEditing] = useState(false);
+	useEffect(() => {
+		if (!editing) setText(value || fallback);
+	}, [value, fallback, editing]);
+	const commit = (raw: string) => {
+		setText(raw);
+		const hex = normalizeHexColor(raw);
+		if (hex) onChange(hex);
+	};
+	return (
+		<div className="owl-settings-colorfield">
+			<input
+				type="color"
+				aria-label={ariaLabel}
+				disabled={disabled}
+				value={value || fallback}
+				onChange={(event) => {
+					const hex = event.currentTarget.value;
+					setText(hex);
+					onChange(hex);
+				}}
+			/>
+			<input
+				className="owl-settings-colorfield-hex"
+				aria-label={ariaLabel}
+				disabled={disabled}
+				spellCheck={false}
+				value={text}
+				onFocus={() => setEditing(true)}
+				onBlur={() => {
+					setEditing(false);
+					setText(value || fallback);
+				}}
+				onChange={(event) => commit(event.currentTarget.value)}
+			/>
+			{value && (
+				<button type="button" className="owl-settings-colorfield-reset" disabled={disabled} onClick={() => onChange("")}>
+					{resetLabel}
+				</button>
+			)}
+		</div>
+	);
+}
+
 /** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
 	client,
@@ -294,6 +398,11 @@ export function SettingsPage({
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
 	const [chatAppearance, setChatAppearance] = useState<ChatAppearance>(() => ({ ...DEFAULT_CHAT_APPEARANCE }));
 	const [chatAppearanceLoaded, setChatAppearanceLoaded] = useState(false);
+	// 外观自定义颜色（owlAppearance）：accent 全局、背景/前景按深浅档分开
+	const [owlAppearance, setOwlAppearance] = useState<OwlAppearanceColors>(() => parseOwlAppearance(DEFAULT_OWL_APPEARANCE));
+	const [owlAppearanceLoaded, setOwlAppearanceLoaded] = useState(false);
+	// 当前实际生效的深浅档（system 已解析）：决定背景/前景两行正在编辑哪一套颜色
+	const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">(() => getResolvedTheme());
 	const [raw, setRaw] = useState("");
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
@@ -349,6 +458,15 @@ export function SettingsPage({
 	const [memory, setMemory] = useState<MemoryListResult>({ enabled: true, entries: [] });
 	const [confirmDelMemoryId, setConfirmDelMemoryId] = useState<string | null>(null);
 	const [confirmClearMemory, setConfirmClearMemory] = useState(false);
+
+	// 使用统计：聚合全量用量（usage.get），分区可见时 5s 轮询 + 对话事件即时刷新
+	const [usageData, setUsageData] = useState<UsageGetResult | null>(null);
+	const [usageLoading, setUsageLoading] = useState(false);
+	const [usageAuto, setUsageAuto] = useState(true);
+	const usageAutoRef = useRef(true);
+	usageAutoRef.current = usageAuto;
+	const usageInFlight = useRef(false);
+	const usageRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// 图像生成（owl-image）：配置/密钥状态/订阅状态（imageConfig.* / imageSub.*）。
 	// keyStatus 只拿存在性；imageKeys/imageKeyClear 是「待保存」的输入缓冲。
@@ -430,6 +548,13 @@ export function SettingsPage({
 
 	useEffect(() => setSection(initialTab), [initialTab]);
 
+	// 主题解析档变化（手动切档 / system 跟随操作系统）：背景与前景两行切换编辑目标。
+	useEffect(() => {
+		const onThemeChange = () => setResolvedTheme(getResolvedTheme());
+		window.addEventListener("owl-theme-change", onThemeChange);
+		return () => window.removeEventListener("owl-theme-change", onThemeChange);
+	}, []);
+
 	function respondPrompt(answer: string) {
 		setLoginAsk(null);
 		setAskAnswer("");
@@ -470,12 +595,14 @@ export function SettingsPage({
 				client.request<ProviderModelsMessage[]>({ type: "models.list" }),
 				client.request<{ id: string; name: string; oauth: boolean; apiKey: boolean }[]>({ type: "auth.providers" }),
 			]);
-			if (settings.ok && settings.result) {
-				const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
-				setAgentDir(settings.result.agentDir);
-				setSettingsObj(obj);
-				setChatAppearance(parseChatAppearance(obj.desktopChatAppearance));
-				setChatAppearanceLoaded(true);
+				if (settings.ok && settings.result) {
+					const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
+					setAgentDir(settings.result.agentDir);
+					setSettingsObj(obj);
+					setChatAppearance(parseChatAppearance(obj.desktopChatAppearance));
+					setChatAppearanceLoaded(true);
+					setOwlAppearance(parseOwlAppearance(obj.owlAppearance));
+					setOwlAppearanceLoaded(true);
 				setRaw(JSON.stringify(obj, null, 2));
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
@@ -1169,6 +1296,13 @@ export function SettingsPage({
 		void saveSettings({ owlNotifications: next });
 	}
 
+	/** 保存外观自定义颜色：先本地应用即时预览，再落盘 settings.json 的 owlAppearance（桥端深合并，空串=恢复默认）。 */
+	function saveAppearanceColors(next: OwlAppearanceColors): void {
+		setOwlAppearance(next);
+		applyOwlAppearance(next);
+		void saveSettings({ owlAppearance: next });
+	}
+
 	/** 开/停一个文件预览 viewer。 */
 	function toggleSidebarViewer(kind: string, enabled: boolean): void {
 		const set = new Set(sidebarCfg.disabledViewers);
@@ -1313,88 +1447,11 @@ export function SettingsPage({
 											void saveSettings({ uiLanguage: next });
 										}}
 									>
-										<option value="zh">{t("settings.general.uiLanguageZh")}</option>
-										<option value="en">{t("settings.general.uiLanguageEn")}</option>
-									</select>
+									<option value="zh">{t("settings.general.uiLanguageZh")}</option>
+									<option value="en">{t("settings.general.uiLanguageEn")}</option>
+								</select>
 								</SettingRow>
-								<div className="flex items-center justify-between gap-3 pt-3">
-									<div>
-										<h3 className="text-sm font-semibold text-owl-text">{t("settings.general.readingTitle")}</h3>
-										<p className="mt-1 text-[11px] text-owl-faint">{t("settings.general.readingDesc")}</p>
-									</div>
-									<button
-										type="button"
-										className={btn}
-										disabled={busy || !chatAppearanceLoaded}
-										onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
-									>
-										{t("settings.general.resetDefaults")}
-									</button>
-								</div>
-								{CHAT_READING_FIELDS.map((field) => (
-									<SettingRow
-										key={field.key}
-										title={t(field.titleKey)}
-										desc={t(field.descKey)}
-										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
-									>
-										<input
-											type="range"
-											aria-label={t(field.titleKey)}
-											className="w-full accent-owl-accent disabled:opacity-40"
-											min={field.min}
-											max={field.max}
-											step={field.step}
-											value={chatAppearance[field.key]}
-											disabled={busy || !chatAppearanceLoaded}
-											onChange={(event) => {
-												const value = event.currentTarget.valueAsNumber;
-												setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
-											}}
-										/>
-									</SettingRow>
-								))}
-								<SettingRow
-									title={t("settings.general.toolRecords")}
-									desc={t("settings.general.toolRecordsDesc")}
-									control={
-										<select
-											aria-label={t("settings.general.toolRecords")}
-											className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
-											value={chatAppearance.toolRecords}
-											disabled={busy || !chatAppearanceLoaded}
-											onChange={(event) => setChatAppearance((current) => ({
-												...current,
-												toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
-											}))}
-										>
-											<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
-											<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
-										</select>
-									}
-								/>
-								<SettingRow
-									title={t("settings.general.motion")}
-									desc={t("settings.general.motionDesc")}
-									control={
-										<Switch
-											title={t("settings.general.motion")}
-											checked={chatAppearance.motion}
-											disabled={busy || !chatAppearanceLoaded}
-											onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
-										/>
-									}
-								/>
-								<div className="flex justify-end">
-									<button
-										type="button"
-										className={btnAccent}
-										disabled={busy || !chatAppearanceLoaded}
-										onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
-									>
-										{t("settings.general.saveReading")}
-									</button>
-								</div>
+								{/* 聊天阅读偏好已迁至「外观」分区（对齐 ChatGPT/Claude 桌面端的布局）。 */}
 							</>
 						)}
 
@@ -2493,38 +2550,176 @@ export function SettingsPage({
 						{section === "appearance" && (
 							<>
 								<SectionHeader title={t("settings.appearance.title")} desc={t("settings.appearance.desc")} />
-								<SettingRow
-									title={t("settings.appearance.theme")}
-									desc={t("settings.appearance.themeDesc")}
-								>
-									<div className="owl-settings-theme-grid" role="group" aria-label={t("settings.appearance.theme")}>
-										{([
-											{ value: "light", label: t("settings.appearance.light") },
-											{ value: "dark", label: t("settings.appearance.dark") },
-											{ value: "system", label: t("settings.appearance.system") },
-										] as const).map((option) => (
-											<button
-												key={option.value}
-												type="button"
-												className={`owl-settings-theme-card ${theme === option.value ? "is-active" : ""}`}
-												aria-pressed={theme === option.value}
-												disabled={busy}
-												onClick={() => {
-													void saveSettings({ theme: option.value }).then((ok) => {
-														if (ok && isThemePreference(option.value)) setThemePreference(option.value);
-													});
-												}}
+
+								{/* 视觉风格：模式 / 强调色 / 背景 / 前景（模仿 ChatGPT 桌面端外观设置）。 */}
+								<h3 className="owl-settings-group-title">{t("settings.appearance.visualStyle")}</h3>
+								<div className="owl-settings-group">
+									<SettingRow title={t("settings.appearance.mode")} desc={t("settings.appearance.themeDesc")}>
+										<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.mode")}>
+											{([
+												{ value: "light", label: t("settings.appearance.light") },
+												{ value: "dark", label: t("settings.appearance.dark") },
+												{ value: "system", label: t("settings.appearance.system") },
+											] as const).map((option) => (
+												<button
+													key={option.value}
+													type="button"
+													role="radio"
+													aria-checked={theme === option.value}
+													className={`owl-settings-mode-thumb ${theme === option.value ? "is-active" : ""}`}
+													disabled={busy}
+													onClick={() => {
+														void saveSettings({ theme: option.value }).then((ok) => {
+															if (ok && isThemePreference(option.value)) setThemePreference(option.value);
+														});
+													}}
+												>
+													<span className={`owl-settings-mode-preview is-${option.value}`} aria-hidden="true">
+														<i className="is-accent" /><i /><i className="is-input" />
+													</span>
+													<span className="owl-settings-mode-label">{option.label}</span>
+												</button>
+											))}
+										</div>
+									</SettingRow>
+									<SettingRow title={t("settings.appearance.accent")} desc={t("settings.appearance.accentDesc")}>
+										<div className="owl-settings-swatches" role="radiogroup" aria-label={t("settings.appearance.accent")}>
+											{ACCENT_PRESETS.map((preset) => {
+												const active = owlAppearance.accent === "" ? preset.value === DEFAULT_ACCENT : owlAppearance.accent === preset.value;
+												return (
+													<button
+														key={preset.value}
+														type="button"
+														role="radio"
+														aria-checked={active}
+														title={t(preset.labelKey)}
+														className={`owl-settings-swatch ${active ? "is-active" : ""}`}
+														style={{ "--swatch": preset.value } as React.CSSProperties}
+														disabled={busy || !owlAppearanceLoaded}
+														onClick={() => saveAppearanceColors({ ...owlAppearance, accent: preset.value })}
+													/>
+												);
+											})}
+											<label
+												title={t("settings.appearance.accentCustom")}
+												className={`owl-settings-swatch is-custom ${owlAppearance.accent !== "" && !ACCENT_PRESETS.some((preset) => preset.value === owlAppearance.accent) ? "is-active" : ""}`}
 											>
-												<div className={`owl-settings-theme-preview is-${option.value}`} aria-hidden="true">
-													<div className="owl-settings-theme-preview-sidebar"><i /><i /><i /></div>
-													<div className="owl-settings-theme-preview-main"><i /><i /><b /></div>
-												</div>
-												<div className="owl-settings-theme-label"><span>{option.label}</span>{theme === option.value && <span className="owl-settings-theme-check" aria-hidden="true">✓</span>}</div>
-											</button>
-										))}
-									</div>
-								</SettingRow>
+												<input
+													type="color"
+													aria-label={t("settings.appearance.accentCustom")}
+													disabled={busy || !owlAppearanceLoaded}
+													value={owlAppearance.accent || DEFAULT_ACCENT}
+													onChange={(event) => saveAppearanceColors({ ...owlAppearance, accent: event.currentTarget.value })}
+												/>
+											</label>
+											<span className="owl-settings-accent-hex">{owlAppearance.accent || DEFAULT_ACCENT}</span>
+										</div>
+									</SettingRow>
+									<SettingRow
+										title={t("settings.appearance.background")}
+										desc={t("settings.appearance.backgroundDesc", { mode: resolvedTheme === "dark" ? t("settings.appearance.dark") : t("settings.appearance.light") })}
+									>
+										<ColorField
+											value={owlAppearance[resolvedTheme].background}
+											fallback={THEME_DEFAULT_COLORS[resolvedTheme].background}
+											disabled={busy || !owlAppearanceLoaded}
+											ariaLabel={t("settings.appearance.background")}
+											resetLabel={t("settings.appearance.colorDefault")}
+											onChange={(hex) => saveAppearanceColors({ ...owlAppearance, [resolvedTheme]: { ...owlAppearance[resolvedTheme], background: hex } })}
+										/>
+									</SettingRow>
+									<SettingRow
+										title={t("settings.appearance.foreground")}
+										desc={t("settings.appearance.foregroundDesc", { mode: resolvedTheme === "dark" ? t("settings.appearance.dark") : t("settings.appearance.light") })}
+									>
+										<ColorField
+											value={owlAppearance[resolvedTheme].foreground}
+											fallback={THEME_DEFAULT_COLORS[resolvedTheme].foreground}
+											disabled={busy || !owlAppearanceLoaded}
+											ariaLabel={t("settings.appearance.foreground")}
+											resetLabel={t("settings.appearance.colorDefault")}
+											onChange={(hex) => saveAppearanceColors({ ...owlAppearance, [resolvedTheme]: { ...owlAppearance[resolvedTheme], foreground: hex } })}
+										/>
+									</SettingRow>
+								</div>
 								<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
+
+								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
+								<h3 className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>
+								<div className="owl-settings-group">
+									{CHAT_READING_FIELDS.map((field) => (
+										<SettingRow
+											key={field.key}
+											title={t(field.titleKey)}
+											desc={t(field.descKey)}
+											control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
+										>
+											<input
+												type="range"
+												aria-label={t(field.titleKey)}
+												className="w-full accent-owl-accent disabled:opacity-40"
+												min={field.min}
+												max={field.max}
+												step={field.step}
+												value={chatAppearance[field.key]}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(event) => {
+													const value = event.currentTarget.valueAsNumber;
+													setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
+												}}
+											/>
+										</SettingRow>
+									))}
+									<SettingRow
+										title={t("settings.general.toolRecords")}
+										desc={t("settings.general.toolRecordsDesc")}
+										control={
+											<select
+												aria-label={t("settings.general.toolRecords")}
+												className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+												value={chatAppearance.toolRecords}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(event) => setChatAppearance((current) => ({
+													...current,
+													toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
+												}))}
+											>
+												<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
+												<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
+											</select>
+										}
+									/>
+									<SettingRow
+										title={t("settings.general.motion")}
+										desc={t("settings.general.motionDesc")}
+										control={
+											<Switch
+												title={t("settings.general.motion")}
+												checked={chatAppearance.motion}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
+											/>
+										}
+									/>
+									<div className="owl-settings-group-actions">
+										<button
+											type="button"
+											className={btn}
+											disabled={busy || !chatAppearanceLoaded}
+											onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
+										>
+											{t("settings.general.resetDefaults")}
+										</button>
+										<button
+											type="button"
+											className={btnAccent}
+											disabled={busy || !chatAppearanceLoaded}
+											onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
+										>
+											{t("settings.general.saveReading")}
+										</button>
+									</div>
+								</div>
 							</>
 						)}
 

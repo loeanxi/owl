@@ -6,7 +6,7 @@ fn main() {
 	// 由 capabilities/default.json 以裸标识符引用（无前缀即 app ACL 命名空间）。
 	tauri_build::try_build(
 		tauri_build::Attributes::new()
-			.app_manifest(tauri_build::AppManifest::new().commands(&["show_approval_toast"])),
+			.app_manifest(tauri_build::AppManifest::new().commands(&["show_approval_toast", "quit_app"])),
 	)
 	.expect("failed to run tauri-build");
 }

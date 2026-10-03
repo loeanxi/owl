@@ -529,3 +529,97 @@ describe("news live publication filtering", () => {
 		expect(paid).toHaveBeenCalledTimes(2);
 	});
 });
+
+describe("news assistant publication race", () => {
+	it.each(["withdraw", "isolate", "revision", "fulltext"] as const)(
+		"refuses an old answer after %s while preserving the one paid response",
+		async (change) => {
+			let respond: (() => void) | undefined;
+			const calls = vi.fn<NewsModelCaller>(
+				async () =>
+					new Promise((resolve) => {
+						respond = () => resolve({ ...modelResponse("assistant"), text: "旧回答引用完整正文" });
+					}),
+			);
+			const service = new NewsService({ agentDir: temporary(), callModel: calls });
+			try {
+				const origin = service.store.saveSource(source);
+				const item = service.store.ingest(origin, {
+					title: "发布新模型",
+					url: "https://example.com/assistant",
+					body: "完整正文",
+				}).item;
+				service.store.commitAnalysis(item.id, 1, analysis);
+				service.store.editItem(item.id, { selected: true, novel: true });
+				await service.handle({
+					action: "configure",
+					patch: { modelCallsEnabled: true, models: { assistant: { provider: "fake", id: "fake" } } },
+				});
+				const answering = service.handle({
+					action: "assistant",
+					request: { question: "解释这篇资讯", itemIds: [item.id] },
+				});
+				const rejected = expect(answering).rejects.toThrow("重新选择讨论范围");
+				await vi.waitFor(() => expect(respond).toBeTypeOf("function"));
+				if (change === "withdraw") await service.handle({ action: "withdraw", id: item.id, withdrawn: true });
+				if (change === "isolate")
+					await service.handle({ action: "saveSource", source: { ...source, participation: "isolated" } });
+				if (change === "revision")
+					await service.handle({
+						action: "ingest",
+						sourceId: source.id,
+						items: [{ title: "发布新模型", url: item.url, body: "正文已更新" }],
+					});
+				if (change === "fulltext")
+					await service.handle({ action: "saveSource", source: { ...source, siteFulltext: false } });
+				respond!();
+				await rejected;
+				expect(calls).toHaveBeenCalledTimes(1);
+				const receipt = (await service.handle({ action: "receipts" }))[0]!;
+				expect(receipt.status).toBe("received");
+				expect(receipt.usage?.input).toBe(10);
+				expect(receipt.error).toContain("旧回答未公开");
+				expect(service.store.receipt(receipt.id)?.response).toMatchObject({ text: "旧回答引用完整正文" });
+			} finally {
+				respond?.();
+				await service.close();
+			}
+		},
+	);
+	it("keeps a valid answer when only read/bookmark state changes", async () => {
+		let respond: (() => void) | undefined;
+		const service = new NewsService({
+			agentDir: temporary(),
+			callModel: async () =>
+				new Promise((resolve) => {
+					respond = () => resolve({ ...modelResponse("assistant"), text: "有效回答" });
+				}),
+		});
+		try {
+			const origin = service.store.saveSource(source);
+			const item = service.store.ingest(origin, {
+				title: "发布新模型",
+				url: "https://example.com/assistant",
+				body: "完整正文",
+			}).item;
+			service.store.commitAnalysis(item.id, 1, analysis);
+			await service.handle({
+				action: "configure",
+				patch: { modelCallsEnabled: true, models: { assistant: { provider: "fake", id: "fake" } } },
+			});
+			const answering = service.handle({
+				action: "assistant",
+				request: { question: "解释这篇资讯", itemIds: [item.id] },
+			});
+			await vi.waitFor(() => expect(respond).toBeTypeOf("function"));
+			await service.handle({ action: "bookmark", id: item.id, saved: true });
+			await service.handle({ action: "read", id: item.id, read: true });
+			respond!();
+			expect((await answering).answer).toBe("有效回答");
+			expect((await service.handle({ action: "receipts" }))[0]?.status).toBe("completed");
+		} finally {
+			respond?.();
+			await service.close();
+		}
+	});
+});

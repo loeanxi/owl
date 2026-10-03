@@ -9,7 +9,7 @@ import "./question-card.css";
  * 问题不整卷铺开，而是一题一张小卡、贴在输入框上方逐题弹出：答完当前题
  * 「下一题」，最后一张「提交回答」；可「上一题」回改。完整保真度：带描述
  * 的选项、单选/多选、「其他」自由文本、每题备注、选项 markdown 预览。
- * App 用 key={request.requestId} 挂载，每次新提问都拿到全新的空白状态。
+ * QuestionDock 按 requestId 挂载，切换会话保留草稿，新提问使用空白状态。
  */
 
 /** 一题的本地作答状态。picked 在单选下最多 1 项；custom 非空即代表选了「其他」。 */
@@ -194,10 +194,24 @@ export function QuestionDialog({
 						return (
 							<div key={option.label}>
 								<div
+									role={question.multiSelect ? "checkbox" : "radio"}
+									aria-label={option.label}
+									aria-checked={picked}
+									tabIndex={0}
 									className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
 										picked ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
 									}`}
-									onClick={() => pick(qi, option.label, question.multiSelect)}
+									onClick={(event) => {
+										event.currentTarget.focus({ preventScroll: true });
+										pick(qi, option.label, question.multiSelect);
+									}}
+									onKeyDown={(event) => {
+										if (event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing || event.repeat) return;
+										if (event.key !== " " && event.key !== "Enter") return;
+										event.preventDefault();
+										event.stopPropagation();
+										pick(qi, option.label, question.multiSelect);
+									}}
 								>
 									<span
 										className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border text-[10px] text-white ${

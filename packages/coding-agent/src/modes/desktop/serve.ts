@@ -2034,6 +2034,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "usage.get": {
+				// owl 使用统计：设置页「使用统计」卡片的数据面。纯文件聚合（见 ./usage-stats.ts），
+				// 不挂载会话；进行中的会话落盘即计入，前端短轮询即为实时。
+				const usageStats = await import("./usage-stats.ts");
+				reply(ws, request.id, { ok: true, result: await usageStats.collectUsageStats() });
+				return;
+			}
 			case "imageConfig.get":
 			case "imageConfig.set":
 			case "imageSub.login":

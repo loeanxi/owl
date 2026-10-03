@@ -1,687 +1,254 @@
 import { type JSX, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ApprovalMode } from "../bridge/protocol.ts";
+import type { ApprovalMode, MapCategory, MapCoordinate, MapResult, MapSourceStatus, RealPlace } from "../bridge/protocol.ts";
 import { MapConversation, type MapConversationContext } from "./conversation.ts";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
-import { mapWorldLayout } from "./geometry.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
-import {
-	addSearchHistory,
-	DEFAULT_SEARCH,
-	DEMO_PLACES,
-	getFavoriteResults,
-	getSearchResults,
-	keepVisibleSelection,
-	MAP_REGIONS,
-	MAX_COMPARE_PLACES,
-	type MapRegion,
-	type MapSavedState,
-	type Place,
-	type PlaceArt,
-	type PlaceFilter,
-	type PlaceId,
-	type PlaceType,
-	parseMapQuery,
-	readMapSavedState,
-	type SearchScope,
-	toggleCompare,
-	toggleFavorite,
-	writeMapSavedState,
-} from "./model.ts";
+import { addLiveHistory, DEFAULT_MAP_CENTER, MAX_LIVE_COMPARISON, nearbyCategoryFromMessage, parseCoordinates, readLiveSavedState, RealMapClient, safeExternalUrl, straightLineDistance, toggleLiveCompare, toggleLiveFavorite, writeLiveSavedState, type LiveSavedState, type LiveSearchRecord } from "./live-model.ts";
+import { RealMapCanvas, type RealMapLabels } from "./RealMapCanvas.tsx";
 import "./map-workspace.css";
 
 type MapView = "home" | "results" | "saved";
+const categories: readonly MapCategory[] = ["all", "cafe", "restaurant", "park", "museum"];
+const categoryLabels: Record<RealPlace["category"] | "all", MapCopyKey> = { all: "categoryAll", cafe: "categoryCafe", restaurant: "categoryRestaurant", park: "categoryPark", museum: "categoryMuseum", other: "categoryOther" };
+const categoryIcons: Record<RealPlace["category"] | "all", MapIconName> = { all: "compass", cafe: "coffee", restaurant: "coffee", park: "tree", museum: "museum", other: "pin" };
 
-const artPaths: Record<PlaceArt, string> = {
-	cafe1: "/maps/cafe-window.svg",
-	cafe2: "/maps/cafe-bar.svg",
-	cafe3: "/maps/cafe-lake.svg",
-	museum: "/maps/museum.svg",
-	park: "/maps/park.svg",
-};
-const categoryCopy: Record<PlaceType, MapCopyKey> = {
-	cafe: "categoryCafe",
-	park: "categoryPark",
-	museum: "categoryMuseum",
-};
-const categoryIcons: Record<PlaceType, MapIconName> = { cafe: "coffee", park: "tree", museum: "museum" };
-const categoryQueries: Record<PlaceType, MapCopyKey> = { cafe: "queryCafe", park: "queryPark", museum: "queryMuseum" };
-const categoryHeadings: Record<PlaceType, MapCopyKey> = {
-	cafe: "resultsCafe",
-	park: "resultsPark",
-	museum: "resultsMuseum",
-};
-const filters: readonly PlaceFilter[] = ["quiet", "plug", "budget", "lake"];
-
-export function MapWorkspace({
-	sidebarCollapsed = false,
-	active = true,
-	client,
-	connected,
-	cwd,
-	model,
-	modelName,
-	thinkingLevel,
-	approvalMode,
-}: {
-	sidebarCollapsed?: boolean;
-	active?: boolean;
-	client: BridgeClient;
-	connected: boolean;
-	cwd: string;
-	model: string;
-	modelName?: string;
-	thinkingLevel: string;
-	approvalMode: ApprovalMode;
+export function MapWorkspace({ sidebarCollapsed = false, active = true, client, connected, cwd, model, modelName, thinkingLevel, approvalMode }: {
+	sidebarCollapsed?: boolean; active?: boolean; client: BridgeClient; connected: boolean; cwd: string; model: string; modelName?: string; thinkingLevel: string; approvalMode: ApprovalMode;
 }): JSX.Element {
 	const copy = useMapCopy();
 	const m = copy.text;
 	const modelSeparator = model.indexOf("/");
 	const provider = modelSeparator > 0 ? model.slice(0, modelSeparator) : undefined;
 	const modelId = modelSeparator > 0 ? model.slice(modelSeparator + 1) : model;
-	const conversation = useMemo(
-		() =>
-			new MapConversation(
-				client,
-				{ cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode },
-				connected,
-			),
-		[client],
-	);
+	const conversation = useMemo(() => new MapConversation(client, { cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode }, connected), [client]);
 	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
-	const [stopped, setStopped] = useState(false);
-	const [aborting, setAborting] = useState(false);
-	const [conversationError, setConversationError] = useState<string>();
-	const unavailable = !connected ? m("chatDisconnected") : undefined;
-	const sendDisabled = !active || Boolean(unavailable) || conversationState.busy;
-	const displayedModel = modelName || modelId || m("defaultModel");
-	const conversationScrollRef = useRef<HTMLDivElement>(null);
-	const conversationPinned = useRef(true);
-	const sendEpoch = useRef(0);
-	useEffect(() => {
-		sendEpoch.current++;
-	}, [conversation, cwd]);
-	useEffect(() => {
-		conversation.setConfig({ cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode });
-	}, [conversation, cwd, provider, modelId, thinkingLevel, approvalMode]);
-	useEffect(() => {
-		conversation.setConnected(connected);
-	}, [conversation, connected]);
-	useEffect(() => {
-		if (active && conversationPinned.current && conversationScrollRef.current)
-			conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight;
-	}, [active, conversationState.entries, conversationState.busy]);
+	const maps = useMemo(() => new RealMapClient(), []);
+	const [savedState, setSavedState] = useState<LiveSavedState>(() => { try { return readLiveSavedState(window.localStorage); } catch { return { favorites: [], history: [] }; } });
+	const [center, setCenter] = useState<MapCoordinate>(() => savedState.lastCenter ?? DEFAULT_MAP_CENTER);
+	const [locationName, setLocationName] = useState(() => savedState.lastLocationName ?? "");
+	const [category, setCategory] = useState<MapCategory>("all");
+	const [radius, setRadius] = useState(2000);
+	const [places, setPlaces] = useState<RealPlace[]>([]);
+	const [sources, setSources] = useState<MapSourceStatus[]>([]);
 	const [view, setView] = useState<MapView>("home");
-	const [scope, setScope] = useState<SearchScope>(DEFAULT_SEARCH);
-	const [savedState, setSavedState] = useState<MapSavedState>(() => {
-		try {
-			return readMapSavedState(window.localStorage);
-		} catch {
-			return { favorites: [], history: [] };
-		}
-	});
-	const [comparisonIds, setComparisonIds] = useState<PlaceId[]>([]);
-	const [selectedId, setSelectedId] = useState<PlaceId>();
-	const [detailId, setDetailId] = useState<PlaceId>();
+	const [resultKind, setResultKind] = useState<"search" | "nearby">("search");
+	const [resultQuery, setResultQuery] = useState("");
+	const [sort, setSort] = useState<"distance" | "name">("distance");
+	const [mapLoading, setMapLoading] = useState(false);
+	const [mapError, setMapError] = useState<string>();
+	const [centerChanged, setCenterChanged] = useState(false);
+	const [selectedId, setSelectedId] = useState<string>();
+	const [detailId, setDetailId] = useState<string>();
+	const [comparisonPlaces, setComparisonPlaces] = useState<RealPlace[]>([]);
 	const [comparisonOpen, setComparisonOpen] = useState(false);
 	const [locationOpen, setLocationOpen] = useState(false);
+	const [locationInput, setLocationInput] = useState("");
+	const [locationCandidates, setLocationCandidates] = useState<RealPlace[]>([]);
 	const [homeInput, setHomeInput] = useState("");
 	const [sideInput, setSideInput] = useState("");
 	const [followInput, setFollowInput] = useState("");
-	const [followContext, setFollowContext] = useState<PlaceId>();
-	const [zoom, setZoom] = useState(1);
+	const [followContext, setFollowContext] = useState<RealPlace>();
+	const [stopped, setStopped] = useState(false);
+	const [aborting, setAborting] = useState(false);
+	const [preparingMessage, setPreparingMessage] = useState(false);
+	const [conversationError, setConversationError] = useState<string>();
 	const [toast, setToast] = useState("");
 	const workspaceRef = useRef<HTMLDivElement>(null);
-	const mapViewportRef = useRef<HTMLElement>(null);
-	const [mapViewport, setMapViewport] = useState({ width: 0, height: 0 });
 	const panelScrollRef = useRef<HTMLDivElement>(null);
 	const followInputRef = useRef<HTMLInputElement>(null);
 	const locationRef = useRef<HTMLDivElement>(null);
 	const locationTriggerRef = useRef<HTMLButtonElement>(null);
+	const locationInputRef = useRef<HTMLInputElement>(null);
 	const detailCloseRef = useRef<HTMLButtonElement>(null);
 	const comparisonRef = useRef<HTMLElement>(null);
 	const comparisonCloseRef = useRef<HTMLButtonElement>(null);
 	const newExploreRef = useRef<HTMLButtonElement>(null);
 	const detailReturnRef = useRef<HTMLElement | null>(null);
 	const comparisonReturnRef = useRef<HTMLElement | null>(null);
-	const cardRefs = useRef(new Map<PlaceId, HTMLElement>());
+	const cardRefs = useRef(new Map<string, HTMLElement>());
+	const conversationScrollRef = useRef<HTMLDivElement>(null);
+	const conversationPinned = useRef(true);
 	const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const storageInitialized = useRef(false);
-
-	const rows = view === "saved" ? getFavoriteResults(savedState.favorites, scope.region) : getSearchResults(scope);
-	if (view === "saved" && scope.sort === "price") rows.sort((a, b) => a.price - b.price);
-	const homeRows = DEMO_PLACES.filter(
-		(p) => (scope.region === "all" || p.area === scope.region) && ["liubai", "museum", "park"].includes(p.id),
-	);
-	const mapRows = view === "home" ? homeRows : rows;
-	const selectedPlace = mapRows.find((p) => p.id === selectedId);
-	const detailPlace = mapRows.find((p) => p.id === detailId);
-	const comparisonPlaces = DEMO_PLACES.filter((p) => comparisonIds.includes(p.id));
-	const regionLabel = scope.region === "all" ? m("hangzhou") : `${m("hangzhou")} · ${copy.region(scope.region)}`;
-	const contextPlace = DEMO_PLACES.find((p) => p.id === followContext);
+	const queryAbort = useRef<AbortController | undefined>(undefined);
+	const queryEpoch = useRef(0);
+	const sendEpoch = useRef(0);
+	const sendPending = useRef(false);
+	const centerRef = useRef(center);
+	centerRef.current = center;
+	const busy = conversationState.busy || preparingMessage;
+	const unavailable = !connected ? m("chatDisconnected") : undefined;
+	const sendDisabled = !active || Boolean(unavailable) || busy;
+	const displayedModel = modelName || modelId || m("defaultModel");
+	const rows = [...(view === "saved" ? savedState.favorites : places)].sort((a, b) => sort === "name" ? a.name.localeCompare(b.name, copy.language) : straightLineDistance(center, a) - straightLineDistance(center, b));
+	const selectedPlace = rows.find((place) => place.id === selectedId);
+	const detailPlace = rows.find((place) => place.id === detailId);
 	const hasDetail = Boolean(detailPlace);
-	const availableMapWidth = Math.max(0, mapViewport.width - (hasDetail ? Math.min(336, mapViewport.width) : 0));
-	const mapLayout = mapWorldLayout(availableMapWidth, mapViewport.height, zoom, selectedPlace ?? { x: 54, y: 50 });
-	const searchCenter =
-		scope.region === "武林" ? { x: 78, y: 26 } : scope.region === "西湖区" ? { x: 37, y: 45 } : { x: 71, y: 48 };
+	const centerLabel = locationName || m("mapCenter");
+	const partialResults = sources.some((source) => source.status === "error") && rows.length > 0;
+	const labels: RealMapLabels = { mapLabel: m("mapLabel"), zoomIn: m("zoomIn"), zoomOut: m("zoomOut"), resetMap: m("resetMap"), locate: m("locate"), locating: m("locating"), searchHere: m("searchHere"), searching: m("searching"), tilesLoading: m("tilesLoading"), tilesError: m("tilesError"), retry: m("retry"), locationDenied: m("locationDenied"), locationUnavailable: m("locationUnavailable"), locationTimeout: m("locationTimeout"), locationInsecure: m("locationInsecure"), searchCenter: m("searchCenter") };
 
+	useEffect(() => { sendEpoch.current++; sendPending.current = false; setPreparingMessage(false); }, [conversation, cwd]);
+	useEffect(() => { conversation.setConfig({ cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode }); }, [conversation, cwd, provider, modelId, thinkingLevel, approvalMode]);
+	useEffect(() => { conversation.setConnected(connected); }, [conversation, connected]);
+	useEffect(() => { if (active && conversationPinned.current && conversationScrollRef.current) conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight; }, [active, conversationState.entries, conversationState.busy]);
+	useEffect(() => () => { clearTimeout(toastTimer.current); queryAbort.current?.abort(); queryEpoch.current++; sendEpoch.current++; }, []);
 	useEffect(() => {
-		const viewport = mapViewportRef.current;
-		if (!active || !viewport) return;
-		const observer = new ResizeObserver(([entry]) => {
-			if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-				setMapViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
-			}
-		});
-		observer.observe(viewport);
-		return () => observer.disconnect();
-	}, [active]);
-
-	function showToast(message: string): void {
-		setToast(message);
-		clearTimeout(toastTimer.current);
-		toastTimer.current = setTimeout(() => setToast(""), 4000);
-	}
-
-	useEffect(() => () => clearTimeout(toastTimer.current), []);
-	useEffect(() => {
-		if (!storageInitialized.current) {
-			storageInitialized.current = true;
-			return;
-		}
-		try {
-			if (!writeMapSavedState(window.localStorage, savedState)) showToast(m("storageUnavailable"));
-		} catch {
-			showToast(m("storageUnavailable"));
-		}
+		if (!storageInitialized.current) { storageInitialized.current = true; return; }
+		try { if (!writeLiveSavedState(window.localStorage, savedState)) showToast(m("storageUnavailable")); } catch { showToast(m("storageUnavailable")); }
 	}, [savedState]);
-
-	useEffect(() => {
-		if (!active) return;
-		if (comparisonOpen) comparisonCloseRef.current?.focus();
-		else if (detailId) detailCloseRef.current?.focus();
-	}, [active, comparisonOpen, detailId]);
-
-	function restoreFocus(target: HTMLElement | null): void {
-		requestAnimationFrame(() => {
-			if (!active) return;
-			if (target?.isConnected && target.getClientRects().length > 0) target.focus();
-			else newExploreRef.current?.focus();
-		});
-	}
-
-	function closeDetail(): void {
-		setDetailId(undefined);
-		restoreFocus(detailReturnRef.current);
-	}
-
-	function closeComparison(): void {
-		setComparisonOpen(false);
-		restoreFocus(comparisonReturnRef.current);
-	}
-
+	useEffect(() => { if (!active) return; if (comparisonOpen) comparisonCloseRef.current?.focus(); else if (detailId) detailCloseRef.current?.focus(); else if (locationOpen) locationInputRef.current?.focus(); }, [active, comparisonOpen, detailId, locationOpen]);
 	useEffect(() => {
 		if (!active) return;
 		function handleKey(event: KeyboardEvent): void {
 			if (event.key === "Escape") {
-				if (comparisonOpen) {
-					event.preventDefault();
-					closeComparison();
-				} else if (detailId) {
-					event.preventDefault();
-					closeDetail();
-				} else if (locationOpen) {
-					event.preventDefault();
-					setLocationOpen(false);
-					locationTriggerRef.current?.focus();
-				}
+				if (comparisonOpen) { event.preventDefault(); closeComparison(); }
+				else if (detailId) { event.preventDefault(); closeDetail(); }
+				else if (locationOpen) { event.preventDefault(); setLocationOpen(false); locationTriggerRef.current?.focus(); }
 			} else if (event.key === "Tab" && comparisonOpen && comparisonRef.current) {
-				const candidates = comparisonRef.current.querySelectorAll<HTMLElement>(
-					"button:not(:disabled), input, select, textarea, a[href], [tabindex='0']",
-				);
-				const focusable = Array.from(candidates).filter((el) => el.getClientRects().length > 0);
-				const first = focusable[0];
-				const last = focusable[focusable.length - 1];
-				if (
-					event.shiftKey &&
-					(document.activeElement === first || !comparisonRef.current.contains(document.activeElement))
-				) {
-					event.preventDefault();
-					last?.focus();
-				} else if (
-					!event.shiftKey &&
-					(document.activeElement === last || !comparisonRef.current.contains(document.activeElement))
-				) {
-					event.preventDefault();
-					first?.focus();
-				}
+				const elements = Array.from(comparisonRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input, select, textarea, a[href], [tabindex='0']")).filter((el) => el.getClientRects().length > 0);
+				const first = elements[0], last = elements[elements.length - 1];
+				if (event.shiftKey && (document.activeElement === first || !comparisonRef.current.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+				else if (!event.shiftKey && (document.activeElement === last || !comparisonRef.current.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
 			}
 		}
 		function handlePointer(event: PointerEvent): void {
-			if (
-				comparisonOpen &&
-				event.target instanceof Node &&
-				workspaceRef.current?.contains(event.target) &&
-				!comparisonRef.current?.contains(event.target)
-			)
-				closeComparison();
-			if (locationOpen && event.target instanceof Node && !locationRef.current?.contains(event.target))
-				setLocationOpen(false);
+			if (!(event.target instanceof Node)) return;
+			if (comparisonOpen && workspaceRef.current?.contains(event.target) && !comparisonRef.current?.contains(event.target)) closeComparison();
+			if (locationOpen && !locationRef.current?.contains(event.target)) setLocationOpen(false);
 		}
-		document.addEventListener("keydown", handleKey);
-		document.addEventListener("pointerdown", handlePointer);
-		return () => {
-			document.removeEventListener("keydown", handleKey);
-			document.removeEventListener("pointerdown", handlePointer);
-		};
+		document.addEventListener("keydown", handleKey); document.addEventListener("pointerdown", handlePointer);
+		return () => { document.removeEventListener("keydown", handleKey); document.removeEventListener("pointerdown", handlePointer); };
 	}, [active, comparisonOpen, detailId, locationOpen]);
 
-	function updateScope(next: SearchScope, nextView: MapView = "results"): void {
-		setScope(next);
-		setView(nextView);
-		setDetailId(undefined);
-		setLocationOpen(false);
-		setFollowContext(undefined);
-		const nextRows =
-			nextView === "saved" ? getFavoriteResults(savedState.favorites, next.region) : getSearchResults(next);
-		setSelectedId(keepVisibleSelection(nextRows, selectedId));
-		requestAnimationFrame(() => {
-			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
-		});
+	function showToast(message: string): void { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(""), 4000); }
+	function restoreFocus(target: HTMLElement | null): void { requestAnimationFrame(() => { if (!active) return; if (target?.isConnected && target.getClientRects().length) target.focus(); else newExploreRef.current?.focus(); }); }
+	function closeDetail(): void { setDetailId(undefined); restoreFocus(detailReturnRef.current); }
+	function closeComparison(): void { setComparisonOpen(false); restoreFocus(comparisonReturnRef.current); }
+	function pointLabel(point: MapCoordinate): string { return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`; }
+	function placeName(place: RealPlace): string { return place.name || m("unknownName"); }
+	function distance(place: RealPlace): string { const value = straightLineDistance(center, place); return value < 1000 ? m("distanceMeters", { n: Math.round(value) }) : m("distanceKm", { n: Number((value / 1000).toFixed(1)) }); }
+	function fetched(place: RealPlace): string { const date = new Date(place.source.fetchedAt); return Number.isNaN(date.getTime()) ? m("notProvided") : new Intl.DateTimeFormat(copy.language === "en" ? "en" : "zh-CN", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "short" }).format(date); }
+	function centerOn(point: MapCoordinate, name: string): void {
+		centerRef.current = point; setCenter(point); setLocationName(name); setCenterChanged(false); setDetailId(undefined);
+		setSavedState((current) => ({ ...current, lastCenter: point, lastLocationName: name }));
 	}
-
-	async function submitQuery(text: string, follow = false): Promise<void> {
-		const query = text.trim();
-		if (!query) {
-			showToast(m("emptyQuery"));
-			return;
-		}
-		if (unavailable || conversation.getState().busy) return;
-		const epoch = ++sendEpoch.current;
-		const next = parseMapQuery(query, follow ? scope : { ...DEFAULT_SEARCH, region: scope.region });
-		const updateMap = !next.unsupported && !(follow && contextPlace);
-		const contextScope = updateMap ? next : scope;
-		const candidates = updateMap ? getSearchResults(next) : mapRows;
-		const context: MapConversationContext = {
-			region: contextScope.region,
-			filters: [...contextScope.filters],
-			selectedPlaceId: contextPlace?.id ?? selectedPlace?.id,
-			candidates: candidates.map((place) => place.id),
-		};
-		if (updateMap) updateScope(next);
-		else if (view === "home") setView("results");
-		setDetailId(undefined);
-		setLocationOpen(false);
-		setConversationError(undefined);
-		setStopped(false);
-		conversationPinned.current = true;
-		requestAnimationFrame(() => {
-			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
-			followInputRef.current?.focus();
-		});
+	function beginQuery(): { epoch: number; signal: AbortSignal } {
+		queryAbort.current?.abort(); const controller = new AbortController(); queryAbort.current = controller; const epoch = ++queryEpoch.current;
+		setMapLoading(true); setMapError(undefined); setDetailId(undefined); setSelectedId(undefined); setFollowContext(undefined);
+		return { epoch, signal: controller.signal };
+	}
+	function applyResult(result: MapResult<RealPlace>, query: string, kind: "search" | "nearby"): void {
+		setPlaces(result.data); setSources(result.sources); setResultKind(kind); setResultQuery(query); setView("results"); setCenterChanged(false);
+		if (!result.data.length && result.sources.some((source) => source.status === "error")) setMapError(result.sources.find((source) => source.status === "error")?.error || m("mapUnavailable"));
+		requestAnimationFrame(() => { if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0; });
+	}
+	function recordSearch(query: string, point: MapCoordinate, name: string, kind: "search" | "nearby", selectedCategory = category, selectedRadius = radius): void {
+		const entry: LiveSearchRecord = { id: crypto.randomUUID(), query, center: point, locationName: name, category: selectedCategory, radiusMeters: selectedRadius, kind, createdAt: new Date().toISOString() };
+		setSavedState((current) => ({ ...current, history: addLiveHistory(current.history, entry), lastCenter: point, lastLocationName: name }));
+	}
+	async function searchPlaces(raw: string, inLocationPanel = false): Promise<void> {
+		const query = raw.trim(); if (!query) return;
+		const point = parseCoordinates(query);
+		if (point) { await selectCoordinate(point); setLocationOpen(false); setSideInput(""); return; }
+		if (/^[+-]?\d+(?:\.\d+)?\s*[,，;]\s*[+-]?\d/.test(query)) { setMapError(m("coordinateInvalid")); return; }
+		const request = beginQuery();
 		try {
-			const sent = await conversation.send(text, context);
-			if (epoch !== sendEpoch.current) return;
-			if (!sent) {
-				setFollowInput(text);
-				return;
-			}
-			setSavedState((current) => ({ ...current, history: addSearchHistory(current.history, query) }));
-			setHomeInput((current) => (current === text ? "" : current));
-			setFollowInput((current) => (current === text ? "" : current));
-			setSideInput((current) => (current === text ? "" : current));
-		} catch (error) {
-			if (epoch !== sendEpoch.current) return;
-			setConversationError(error instanceof Error ? error.message : m("chatError"));
-			setFollowInput(text);
-		}
+			const result = await maps.search(query, copy.language, request.signal); if (request.epoch !== queryEpoch.current) return;
+			applyResult(result, query, "search"); setLocationCandidates(result.data);
+			const first = result.data[0];
+			if (first && !inLocationPanel) { centerOn(first, placeName(first)); setSelectedId(first.id); }
+			recordSearch(query, first ?? centerRef.current, first ? placeName(first) : centerLabel, "search");
+			if (!inLocationPanel) { setLocationOpen(false); setSideInput(""); }
+		} catch (error) { if (request.epoch === queryEpoch.current && !request.signal.aborted) setMapError(error instanceof Error ? error.message : m("mapUnavailable")); }
+		finally { if (request.epoch === queryEpoch.current) setMapLoading(false); }
 	}
-
+	async function nearbyPlaces(point = centerRef.current, selectedCategory = category, selectedRadius = radius): Promise<MapResult<RealPlace> | undefined> {
+		const request = beginQuery(); setCategory(selectedCategory); setRadius(selectedRadius); centerRef.current = point; setCenter(point);
+		try {
+			const result = await maps.nearby(point, selectedCategory, selectedRadius, request.signal); if (request.epoch !== queryEpoch.current) return undefined;
+			applyResult(result, "", "nearby"); recordSearch(m(categoryLabels[selectedCategory]), point, locationName || pointLabel(point), "nearby", selectedCategory, selectedRadius); return result;
+		} catch (error) { if (request.epoch === queryEpoch.current && !request.signal.aborted) setMapError(error instanceof Error ? error.message : m("mapUnavailable")); return undefined; }
+		finally { if (request.epoch === queryEpoch.current) setMapLoading(false); }
+	}
+	async function selectCoordinate(point: MapCoordinate, searchNearby = false): Promise<void> {
+		centerOn(point, pointLabel(point)); setLocationCandidates([]); const request = beginQuery(); setView("results");
+		const manual: RealPlace = { id: `user:${point.lat},${point.lng}`, ...point, name: pointLabel(point), address: null, category: "other", distanceMeters: 0, openingHours: null, phone: null, website: null, wheelchair: null, internetAccess: null, rating: null, price: null, quiet: null, plug: null, tags: {}, source: { provider: "user", url: `https://www.openstreetmap.org/?mlat=${point.lat}&mlon=${point.lng}#map=16/${point.lat}/${point.lng}`, fetchedAt: new Date().toISOString() } };
+		setPlaces([manual]); setSelectedId(manual.id); setResultKind("search"); setResultQuery(pointLabel(point)); setSources([]);
+		try {
+			const result = await maps.reverse(point, copy.language, request.signal); if (request.epoch !== queryEpoch.current) return;
+			setSources(result.sources); const match = result.data[0];
+			if (match && Math.abs(centerRef.current.lat - point.lat) < 0.000001 && Math.abs(centerRef.current.lng - point.lng) < 0.000001) { setLocationName(placeName(match)); setPlaces([manual, ...result.data.filter((place) => place.id !== manual.id)]); setSavedState((current) => ({ ...current, lastLocationName: placeName(match) })); }
+			recordSearch(pointLabel(point), point, match ? placeName(match) : pointLabel(point), "search");
+		} catch (error) { if (request.epoch === queryEpoch.current && !request.signal.aborted) setMapError(error instanceof Error ? error.message : m("mapUnavailable")); }
+		finally { if (request.epoch === queryEpoch.current) { setMapLoading(false); if (searchNearby) void nearbyPlaces(point); } }
+	}
+	function chooseLocation(place: RealPlace): void { centerOn(place, placeName(place)); setSelectedId(place.id); setLocationOpen(false); setLocationInput(""); locationTriggerRef.current?.focus(); }
+	function movedCenter(point: MapCoordinate): void { if (Math.abs(point.lat - centerRef.current.lat) < 0.000001 && Math.abs(point.lng - centerRef.current.lng) < 0.000001) return; centerRef.current = point; setCenter(point); setLocationName(pointLabel(point)); setCenterChanged(true); }
+	function replaySearch(entry: LiveSearchRecord): void { centerOn(entry.center, entry.locationName); setCategory(entry.category); setRadius(entry.radiusMeters); if (entry.kind === "nearby") void nearbyPlaces(entry.center, entry.category, entry.radiusMeters); else void searchPlaces(entry.query); }
+	async function submitQuery(text: string): Promise<void> {
+		if (!text.trim()) { showToast(m("emptyQuery")); return; } if (unavailable || conversation.getState().busy || sendPending.current) return;
+		const epoch = ++sendEpoch.current; sendPending.current = true; setStopped(false); setConversationError(undefined); setView("results"); setDetailId(undefined); setLocationOpen(false); conversationPinned.current = true;
+		let visiblePlaces = rows;
+		const requestedCategory = followContext ? undefined : nearbyCategoryFromMessage(text);
+		try {
+			if (requestedCategory) { setPreparingMessage(true); const result = await nearbyPlaces(centerRef.current, requestedCategory); if (epoch !== sendEpoch.current) return; visiblePlaces = result?.data ?? []; }
+			const context: MapConversationContext = { center: { ...centerRef.current }, locationName: centerLabel, radiusMeters: radius, category: requestedCategory ?? category, selectedPlace: followContext ?? selectedPlace, visiblePlaces, comparisonPlaces };
+			requestAnimationFrame(() => { if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0; followInputRef.current?.focus(); });
+			const sent = await conversation.send(text, context); if (epoch !== sendEpoch.current) return;
+			if (!sent) { setFollowInput(text); return; }
+			setHomeInput((current) => current === text ? "" : current); setFollowInput((current) => current === text ? "" : current);
+		} catch (error) { if (epoch === sendEpoch.current) { setConversationError(error instanceof Error ? error.message : m("chatError")); setFollowInput(text); } }
+		finally { if (epoch === sendEpoch.current) { sendPending.current = false; setPreparingMessage(false); } }
+	}
 	async function stopReply(): Promise<void> {
-		if (aborting) return;
-		setAborting(true);
-		try {
-			if (await conversation.abort()) setStopped(true);
-		} catch (error) {
-			setConversationError(error instanceof Error ? error.message : m("chatError"));
-		} finally {
-			setAborting(false);
-		}
+		if (aborting) return; setAborting(true);
+		try { if (preparingMessage && !conversationState.busy) { sendEpoch.current++; sendPending.current = false; queryEpoch.current++; queryAbort.current?.abort(); setPreparingMessage(false); setMapLoading(false); setStopped(true); } else if (await conversation.abort()) setStopped(true); }
+		catch (error) { setConversationError(error instanceof Error ? error.message : m("chatError")); }
+		finally { setAborting(false); }
 	}
-
-	function chooseCategory(category: PlaceType): void {
-		const query = m(categoryQueries[category]);
-		const next = parseMapQuery(query, { ...DEFAULT_SEARCH, region: scope.region, category });
-		updateScope(next);
-		setSavedState((current) => ({ ...current, history: addSearchHistory(current.history, query) }));
-	}
-
 	function newExploration(): void {
-		if (conversation.getState().busy) return;
-		sendEpoch.current++;
-		conversation.newThread();
-		setStopped(false);
-		setConversationError(undefined);
-		setView("home");
-		setScope({ ...DEFAULT_SEARCH, region: scope.region });
-		setSelectedId(undefined);
-		setDetailId(undefined);
-		setComparisonOpen(false);
-		setLocationOpen(false);
-		setHomeInput("");
-		setFollowInput("");
-		setFollowContext(undefined);
-		setZoom(1);
-		requestAnimationFrame(() => {
-			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
-		});
+		if (conversation.getState().busy || sendPending.current) return; sendEpoch.current++; queryEpoch.current++; queryAbort.current?.abort(); conversation.newThread();
+		setStopped(false); setConversationError(undefined); setView("home"); setPlaces([]); setSources([]); setSelectedId(undefined); setDetailId(undefined); setComparisonOpen(false); setLocationOpen(false); setMapError(undefined); setMapLoading(false); setHomeInput(""); setFollowInput(""); setFollowContext(undefined); setCenterChanged(false);
 	}
-
-	function showSaved(): void {
-		updateScope({ ...DEFAULT_SEARCH, region: scope.region }, "saved");
-		setComparisonOpen(false);
+	function savePlace(place: RealPlace): void {
+		const removing = savedState.favorites.some((entry) => entry.id === place.id); setSavedState((current) => ({ ...current, favorites: toggleLiveFavorite(current.favorites, place) }));
+		if (view === "saved" && removing) { if (detailId === place.id) closeDetail(); if (selectedId === place.id) setSelectedId(undefined); if (followContext?.id === place.id) setFollowContext(undefined); }
+		showToast(m(removing ? "toastUnfavorite" : "toastFavorite", { name: placeName(place) }));
 	}
-
-	function changeRegion(region: MapRegion): void {
-		const next = { ...scope, region };
-		updateScope(next, view);
+	function comparePlace(place: RealPlace): void { const result = toggleLiveCompare(comparisonPlaces, place); if (result.full) { showToast(m("compareFull")); return; } setComparisonPlaces(result.places); if (result.places.length < 2) setComparisonOpen(false); }
+	function selectPin(id: string): void { setSelectedId(id); setDetailId(undefined); requestAnimationFrame(() => { const panel = panelScrollRef.current, card = cardRefs.current.get(id); if (panel && card) panel.scrollTo({ top: Math.max(0, card.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop - 10), behavior: "smooth" }); }); }
+	function openDetail(place: RealPlace, target: HTMLElement): void { detailReturnRef.current = target; setSelectedId(place.id); setDetailId(place.id); setLocationOpen(false); }
+	function askPlace(place: RealPlace): void { setSelectedId(place.id); setDetailId(undefined); setFollowContext(place); setFollowInput(m("placePrompt")); setView("results"); requestAnimationFrame(() => followInputRef.current?.focus()); }
+	function providedFields(place: RealPlace): { key: MapCopyKey; value: string }[] { return ([ ["openingHours", place.openingHours], ["phone", place.phone], ["wheelchair", place.wheelchair], ["internetAccess", place.internetAccess], ["cuisine", place.tags.cuisine] ] as const).filter((entry): entry is readonly ["openingHours" | "phone" | "wheelchair" | "internetAccess" | "cuisine", string] => Boolean(entry[1])).map(([key, value]) => ({ key, value })); }
+	function sourceLinks(place: RealPlace): JSX.Element { const source = safeExternalUrl(place.source.url), website = safeExternalUrl(place.website); return <div className="live-source-links">{source && <a href={source} target="_blank" rel="noopener noreferrer">{m("sourceLink")}</a>}{website && <a href={website} target="_blank" rel="noopener noreferrer">{m("openWebsite")}</a>}</div>; }
+	function renderPlaceCard(place: RealPlace, index: number): JSX.Element {
+		const favorite = savedState.favorites.some((entry) => entry.id === place.id), compared = comparisonPlaces.some((entry) => entry.id === place.id);
+		return <article key={place.id} className={`place-card live-place-card${selectedId === place.id ? " selected" : ""}`} data-place={place.id} ref={(node) => { if (node) cardRefs.current.set(place.id, node); else cardRefs.current.delete(place.id); }}>
+			<button type="button" className="place-open" aria-label={m("viewDetail", { name: placeName(place) })} onClick={(event) => openDetail(place, event.currentTarget)}><div className="place-text"><div className="place-heading"><span className="number-disc">{index + 1}</span><strong>{placeName(place)}</strong></div><span className="place-category">{m(categoryLabels[place.category])} · {distance(place)}</span><p className="live-place-address">{place.address || pointLabel(place)}</p><div className="place-tags">{providedFields(place).slice(0, 2).map((field) => <span className="place-tag" key={field.key}>{m(field.key)}: {field.value}</span>)}</div></div></button>
+			<button type="button" className={`bookmark${favorite ? " saved" : ""}`} aria-label={m(favorite ? "unfavoritePlace" : "favoritePlace", { name: placeName(place) })} aria-pressed={favorite} onClick={() => savePlace(place)}><MapIcon name="bookmark" /></button>
+			<div className="live-card-source">{m(place.source.provider === "user" ? "sourceUser" : "sourceMap")}{sourceLinks(place)}</div><div className="card-actions"><button type="button" className={compared ? "in-compare" : ""} aria-pressed={compared} onClick={() => comparePlace(place)}><MapIcon name="compare" />{m(compared ? "inCompare" : "addCompare")}</button><button type="button" onClick={() => askPlace(place)}><MapIcon name="chat" />{m("askPlace")}</button></div>
+		</article>;
 	}
-
-	function changeFilter(filter: PlaceFilter, addOnly = false): void {
-		const nextFilters = new Set(scope.filters);
-		if (nextFilters.has(filter) && !addOnly) nextFilters.delete(filter);
-		else nextFilters.add(filter);
-		updateScope(
-			{
-				...scope,
-				category: view === "saved" ? (selectedPlace?.type ?? scope.category) : scope.category,
-				filters: nextFilters,
-				placeId: undefined,
-			},
-			"results",
-		);
-	}
-
-	function savePlace(id: PlaceId): void {
-		const removing = savedState.favorites.includes(id);
-		const favorites = toggleFavorite(savedState.favorites, id);
-		setSavedState((current) => ({ ...current, favorites }));
-		if (view === "saved" && removing) {
-			const remaining = getFavoriteResults(favorites, scope.region);
-			if (detailId === id) {
-				setDetailId(undefined);
-				restoreFocus(detailReturnRef.current);
-			}
-			if (selectedId === id) setSelectedId(undefined);
-			if (followContext === id) {
-				setFollowContext(undefined);
-			}
-			if (!remaining.length) setSelectedId(undefined);
-		}
-		showToast(m(removing ? "toastUnfavorite" : "toastFavorite", { name: copy.place(id).name }));
-	}
-
-	function comparePlace(id: PlaceId): void {
-		const next = toggleCompare(comparisonIds, id);
-		if (next.status === "full") {
-			showToast(m("compareFull"));
-			return;
-		}
-		setComparisonIds(next.ids);
-		if (next.ids.length < 2) setComparisonOpen(false);
-	}
-
-	function selectPin(place: Place): void {
-		if (view === "home")
-			updateScope({
-				...DEFAULT_SEARCH,
-				category: place.type,
-				region: scope.region,
-				query: m(categoryQueries[place.type]),
-			});
-		setSelectedId(place.id);
-		setDetailId(undefined);
-		requestAnimationFrame(() => {
-			const panel = panelScrollRef.current;
-			const card = cardRefs.current.get(place.id);
-			if (panel && card) {
-				const top = card.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop;
-				panel.scrollTo({ top: Math.max(0, top - 10), behavior: "smooth" });
-			}
-		});
-	}
-
-	function openDetail(place: Place, target: HTMLElement): void {
-		detailReturnRef.current = target;
-		setSelectedId(place.id);
-		setDetailId(place.id);
-		setLocationOpen(false);
-	}
-
-	function askPlace(place: Place): void {
-		setSelectedId(place.id);
-		setDetailId(undefined);
-		setFollowContext(place.id);
-		setFollowInput(m("placePrompt"));
-		requestAnimationFrame(() => followInputRef.current?.focus());
-	}
-
-	function price(place: Place): string {
-		return place.price ? m("referencePrice", { n: place.price }) : m("free");
-	}
-
-	function art(place: Place): JSX.Element {
-		return <img src={artPaths[place.art]} alt="" draggable={false} />;
-	}
-
 	function locationControl(): JSX.Element {
-		return (
-			<div className="location-control" ref={locationRef}>
-				<button
-					type="button"
-					className="location-pill"
-					ref={locationTriggerRef}
-					aria-label={m("location")}
-					aria-expanded={locationOpen}
-					aria-controls="owl-map-location-menu"
-					onClick={() => setLocationOpen(!locationOpen)}
-				>
-					<MapIcon name="pin" />
-					<span>{regionLabel}</span>
-					<span className="chev" aria-hidden="true">
-						⌄
-					</span>
-				</button>
-				{locationOpen && (
-					<div className="location-menu" id="owl-map-location-menu">
-						<strong>{m("location")}</strong>
-						{MAP_REGIONS.map((region) => (
-							<button
-								key={region}
-								type="button"
-								aria-pressed={scope.region === region}
-								onClick={() => {
-									changeRegion(region);
-									locationTriggerRef.current?.focus();
-								}}
-							>
-								{scope.region === region ? "✓ " : ""}
-								{copy.region(region)}
-							</button>
-						))}
-						<small>{m("locationNote")}</small>
-					</div>
-				)}
-			</div>
-		);
+		return <div className="location-control" ref={locationRef}><button type="button" className="location-pill" ref={locationTriggerRef} aria-label={m("location")} aria-expanded={locationOpen} aria-controls="owl-map-location-menu" onClick={() => setLocationOpen(!locationOpen)}><MapIcon name="pin" /><span>{centerLabel}</span><span className="chev" aria-hidden="true">⌄</span></button>
+			{locationOpen && <div className="location-menu live-location-menu" id="owl-map-location-menu"><div className="live-location-head"><strong>{m("location")}</strong><button type="button" aria-label={m("closeLocation")} onClick={() => { setLocationOpen(false); locationTriggerRef.current?.focus(); }}><MapIcon name="close" /></button></div><form className="live-place-search" onSubmit={(event) => { event.preventDefault(); void searchPlaces(locationInput, true); }}><input ref={locationInputRef} aria-label={m("locationSearch")} placeholder={m("locationPlaceholder")} value={locationInput} onChange={(event) => setLocationInput(event.target.value)} /><button type="submit" disabled={mapLoading || !locationInput.trim()}>{m("locationSubmit")}</button></form><small>{m("locationNote")}</small><small>{m("coordinatesHint")}</small>{mapLoading && <output className="live-map-status">{m("searching")}</output>}{mapError && <p className="map-conversation-error" role="alert">{mapError}</p>}<div className="live-location-results" aria-label={m("locationCandidates")}>{locationCandidates.map((place) => <button key={place.id} type="button" onClick={() => chooseLocation(place)}><strong>{placeName(place)}</strong><small>{place.address || pointLabel(place)}</small></button>)}</div></div>}
+		</div>;
 	}
-
-	function renderPlaceCard(place: Place, index: number): JSX.Element {
-		const content = copy.place(place.id);
-		const favorite = savedState.favorites.includes(place.id);
-		const compared = comparisonIds.includes(place.id);
-		return (
-			<article
-				key={place.id}
-				className={`place-card${selectedId === place.id ? " selected" : ""}`}
-				data-place={place.id}
-				ref={(node) => {
-					if (node) cardRefs.current.set(place.id, node);
-					else cardRefs.current.delete(place.id);
-				}}
-			>
-				<button
-					type="button"
-					className="place-open"
-					aria-label={m("viewDetail", { name: content.name })}
-					onClick={(event) => openDetail(place, event.currentTarget)}
-				>
-					<div className="place-photo">
-						{art(place)}
-						{index === 0 && (
-							<span className="photo-badge">
-								<MapIcon name="sparkle" />
-								{m("priority")}
-							</span>
-						)}
-					</div>
-					<div className="place-text">
-						<div className="place-heading">
-							<span className="number-disc">{index + 1}</span>
-							<strong>{content.name}</strong>
-							<span className="price">{price(place)}</span>
-						</div>
-						<span className="place-category">
-							{m(categoryCopy[place.type])} · {m("area", { region: copy.region(place.area) })}
-						</span>
-						<div className="place-tags">
-							{content.tags.map((tag) => (
-								<span className="place-tag" key={tag}>
-									{tag}
-								</span>
-							))}
-						</div>
-					</div>
-				</button>
-				<button
-					type="button"
-					className={`bookmark${favorite ? " saved" : ""}`}
-					aria-label={m(favorite ? "unfavoritePlace" : "favoritePlace", { name: content.name })}
-					aria-pressed={favorite}
-					onClick={() => savePlace(place.id)}
-				>
-					<MapIcon name="bookmark" />
-				</button>
-				<p className="place-reason">
-					<strong>{m("sampleReason")}</strong>
-					{content.reason}
-				</p>
-				<div className="card-actions">
-					<button
-						type="button"
-						className={compared ? "in-compare" : ""}
-						aria-pressed={compared}
-						onClick={() => comparePlace(place.id)}
-					>
-						<MapIcon name="compare" />
-						{m(compared ? "inCompare" : "addCompare")}
-					</button>
-					<button type="button" onClick={() => askPlace(place)}>
-						<MapIcon name="chat" />
-						{m("askPlace")}
-					</button>
-				</div>
-			</article>
-		);
+	function nearbyControls(): JSX.Element {
+		return <section className="live-nearby-controls" aria-label={m("nearby")}><div className="filter-row">{categories.map((value) => <button key={value} type="button" className={`filter-chip${category === value ? " active" : ""}`} aria-pressed={category === value} onClick={() => void nearbyPlaces(centerRef.current, value)}><MapIcon name={categoryIcons[value]} />{m(categoryLabels[value])}</button>)}</div><div className="live-nearby-radius"><label>{m("radius")}<select aria-label={m("radius")} value={radius} onChange={(event) => setRadius(Number(event.target.value))}>{[500, 1000, 2000, 5000].map((value) => <option key={value} value={value}>{value < 1000 ? m("radiusMeters", { n: value }) : m("radiusKm", { n: value / 1000 })}</option>)}</select></label><button type="button" disabled={mapLoading} onClick={() => void nearbyPlaces()}>{m("nearbySubmit")}</button></div></section>;
 	}
-
 	function followupPanel(): JSX.Element {
-		return (
-			<section className="followup-box">
-				<div className="followup-context">
-					<MapIcon name="pin" />
-					<span>
-						{contextPlace
-							? m("discussing", { name: copy.place(contextPlace.id).name })
-							: m("followContext", { region: regionLabel })}
-					</span>
-					{contextPlace && (
-						<button
-							type="button"
-							aria-label={m("cancel")}
-							onClick={() => {
-								setFollowContext(undefined);
-								setFollowInput("");
-							}}
-						>
-							<MapIcon name="close" />
-						</button>
-					)}
-				</div>
-				<div className="followup-chips">
-					{(
-						[
-							["quiet", "followQuiet"],
-							["budget", "followBudget"],
-							["lake", "followLake"],
-						] as const
-					).map(([filter, label]) => (
-						<button key={filter} type="button" onClick={() => changeFilter(filter, true)}>
-							{m(label)}
-						</button>
-					))}
-				</div>
-				<form
-					className="followup-input"
-					onSubmit={(event) => {
-						event.preventDefault();
-						void submitQuery(followInput, true);
-					}}
-				>
-					<input
-						ref={followInputRef}
-						aria-label={m("followLabel")}
-						placeholder={m("followPlaceholder")}
-						value={followInput}
-						onChange={(event) => setFollowInput(event.target.value)}
-					/>
-					{conversationState.busy ? (
-						<button
-							className="map-stop-btn"
-							type="button"
-							disabled={aborting}
-							aria-label={m("chatStop")}
-							onClick={() => void stopReply()}
-						>
-							<MapIcon name="close" />
-						</button>
-					) : (
-						<button
-							className="send-btn"
-							type="submit"
-							aria-label={m("sendFollowup")}
-							disabled={sendDisabled || !followInput.trim()}
-						>
-							<MapIcon name="arrow" />
-						</button>
-					)}
-				</form>
-				{composerStatus()}
-				<div className="followup-footer">
-					<span>{m("chatFooter")}</span>
-					<span>{m("enterSend")}</span>
-				</div>
-			</section>
-		);
+		return <section className="followup-box"><div className="followup-context"><MapIcon name="pin" /><span>{followContext ? m("discussing", { name: placeName(followContext) }) : m("followContext", { name: centerLabel })}</span>{followContext && <button type="button" aria-label={m("cancel")} onClick={() => { setFollowContext(undefined); setFollowInput(""); }}><MapIcon name="close" /></button>}</div><form className="followup-input" onSubmit={(event) => { event.preventDefault(); void submitQuery(followInput); }}><input ref={followInputRef} aria-label={m("followLabel")} placeholder={m("followPlaceholder")} value={followInput} onChange={(event) => setFollowInput(event.target.value)} />{busy ? <button type="button" className="map-stop-btn" disabled={aborting} aria-label={m("chatStop")} onClick={() => void stopReply()}><MapIcon name="close" /></button> : <button type="submit" className="send-btn" disabled={sendDisabled || !followInput.trim()} aria-label={m("sendFollowup")}><MapIcon name="arrow" /></button>}</form>{composerStatus()}<div className="followup-footer"><span>{m("chatFooter")}</span><span>{m("enterSend")}</span></div></section>;
 	}
-
 	function composerStatus(): JSX.Element {
 		return (
 			<div className="map-composer-model">
 				<span>{modelName || modelId ? `${m("currentModel")} · ${displayedModel}` : displayedModel}</span>
 				<span className="map-thinking-level">{m("currentThinking", { level: thinkingLevel })}</span>
 				{unavailable && <p className="map-composer-status">{unavailable}</p>}
-				{conversationState.busy && (
+				{busy && (
 					<p className="map-composer-status" aria-live="polite">
 						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
 					</p>
@@ -705,7 +272,7 @@ export function MapWorkspace({
 					ref={conversationScrollRef}
 					role="log"
 					aria-live="polite"
-					aria-busy={conversationState.busy}
+					aria-busy={busy}
 					onScroll={(event) => {
 						const el = event.currentTarget;
 						conversationPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
@@ -764,12 +331,12 @@ export function MapWorkspace({
 						<p className="map-conversation-empty">{m("conversationEmpty")}</p>
 					)}
 				</div>
-				{conversationState.busy && (
+				{busy && (
 					<output className="map-conversation-status is-generating">
 						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
 					</output>
 				)}
-				{stopped && !conversationState.busy && (
+				{stopped && !busy && (
 					<output className="map-conversation-status is-stopped">{m("chatStopped")}</output>
 				)}
 				{(conversationState.error || conversationError) && (
@@ -783,682 +350,18 @@ export function MapWorkspace({
 		);
 	}
 
-	const topics: readonly {
-		category: PlaceType;
-		title: MapCopyKey;
-		description: MapCopyKey;
-		art: PlaceArt;
-		inspiration: MapCopyKey;
-		caption: MapCopyKey;
-	}[] = [
-		{
-			category: "cafe",
-			title: "cafeTitle",
-			description: "cafeDescription",
-			art: "cafe1",
-			inspiration: "inspirationCafe",
-			caption: "inspirationCafeSub",
-		},
-		{
-			category: "park",
-			title: "parkTitle",
-			description: "parkDescription",
-			art: "park",
-			inspiration: "inspirationPark",
-			caption: "inspirationParkSub",
-		},
-		{
-			category: "museum",
-			title: "museumTitle",
-			description: "museumDescription",
-			art: "museum",
-			inspiration: "inspirationMuseum",
-			caption: "inspirationMuseumSub",
-		},
-	];
-
-	function comparisonAdvice(): string {
-		const options = comparisonPlaces.filter((place) => place.plug && place.price <= 50);
-		return options.length
-			? m("compareAdvice", {
-					names: options.map((place) => copy.place(place.id).name).join(copy.language === "en" ? ", " : "、"),
-				})
-			: m("compareAdviceGeneral");
-	}
-	const comparisonDimensions: readonly { label: MapCopyKey; value: (place: Place) => ReactNode }[] = [
-		{ label: "referenceBudget", value: price },
-		{ label: "environment", value: (place) => copy.place(place.id).environment },
-		{ label: "sockets", value: (place) => m(place.plug ? "plugDemo" : "plugUnknown") },
-		{ label: "position", value: (place) => copy.place(place.id).address },
-		{ label: "hours", value: (place) => copy.place(place.id).hours },
-		{
-			label: "suitableFor",
-			value: (place) =>
-				m(
-					place.plug
-						? "suitableWork"
-						: place.type === "cafe"
-							? "suitableCafe"
-							: place.type === "park"
-								? "suitablePark"
-								: "suitableMuseum",
-				),
-		},
-	];
-
-	return (
-		<div className={`owl-map-workspace${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`} ref={workspaceRef}>
-			<aside className="map-sidebar" id="owl-map-sidebar" aria-label={m("map")} inert={comparisonOpen}>
-				<div className="sidebar-brand">
-					<strong>owl</strong>
-					<span className="local">{m("local")}</span>
-				</div>
-				<form
-					className="sidebar-search"
-					onSubmit={(event) => {
-						event.preventDefault();
-						void submitQuery(sideInput);
-					}}
-				>
-					<MapIcon name="search" />
-					<input
-						aria-label={m("sideSearch")}
-						placeholder={m("sideSearch")}
-						value={sideInput}
-						title={unavailable}
-						onChange={(event) => setSideInput(event.target.value)}
-					/>
-				</form>
-				<button type="button" className="side-new" disabled={conversationState.busy} onClick={newExploration}>
-					<MapIcon name="plus" />
-					{m("newExplore")}
-				</button>
-				<button
-					type="button"
-					className={`side-item${view !== "saved" ? " active" : ""}`}
-					aria-current={view !== "saved" ? "page" : undefined}
-					disabled={conversationState.busy}
-					onClick={newExploration}
-				>
-					<MapIcon name="compass" />
-					{m("explore")}
-				</button>
-				<button
-					type="button"
-					className={`side-item${view === "saved" ? " active" : ""}`}
-					aria-current={view === "saved" ? "page" : undefined}
-					onClick={showSaved}
-				>
-					<MapIcon name="bookmark" />
-					{m("favorites")}
-					<span className="count">{savedState.favorites.length || ""}</span>
-				</button>
-				<div className="map-sidebar-scroll">
-					<p className="side-section-label">
-						{m("recent")}
-						<button
-							type="button"
-							aria-label={m("clearHistory")}
-							disabled={!savedState.history.length}
-							onClick={() => setSavedState((current) => ({ ...current, history: [] }))}
-						>
-							<MapIcon name="close" />
-						</button>
-					</p>
-					{savedState.history.length ? (
-						savedState.history.slice(0, 6).map((query) => (
-							<button
-								key={query}
-								type="button"
-								className="recent-entry"
-								disabled={sendDisabled}
-								onClick={() => void submitQuery(query)}
-							>
-								<MapIcon name="clock" />
-								<span>
-									{query}
-									<small>{m("hangzhou")}</small>
-								</span>
-							</button>
-						))
-					) : (
-						<p className="map-demo-label">{m("historyEmpty")}</p>
-					)}
-				</div>
-				<div className="side-tip">
-					<MapIcon name="sparkle" />
-					{m("sideTip")}
-				</div>
-				<div className="side-account">
-					<span className="circle" aria-hidden="true">
-						L
-					</span>
-					<div>
-						<strong>{m("localSpace")}</strong>
-						<small>{m("localSaved")}</small>
-					</div>
-				</div>
-			</aside>
-			<main className="owl-map-frame">
-				<div className="map-workspace-body" style={{ display: "contents" }} inert={comparisonOpen}>
-					<header className="map-header">
-						<h1>
-							<MapIcon name="map" />
-							{m("map")}
-						</h1>
-						<span className="header-divider" aria-hidden="true" />
-						<span className="subtitle">{m("subtitle")}</span>
-						<span className="demo-note">{m("demoBadge")}</span>
-						<div className="spacer" />
-						<button
-							type="button"
-							className="header-action"
-							ref={newExploreRef}
-							disabled={conversationState.busy}
-							onClick={newExploration}
-						>
-							<MapIcon name="plus" />
-							{m("newExplore")}
-						</button>
-						<button type="button" className="header-action" onClick={showSaved}>
-							<MapIcon name="bookmark" />
-							{m("favorites")}
-							{savedState.favorites.length ? ` · ${savedState.favorites.length}` : ""}
-						</button>
-					</header>
-					<div className={`map-content${hasDetail ? " has-detail" : ""}`}>
-						<section
-							className="explore-panel"
-							aria-label={
-								view === "home"
-									? m("explore")
-									: m(view === "saved" ? "favorites" : categoryHeadings[scope.category])
-							}
-						>
-							<div className="panel-scroll" ref={panelScrollRef}>
-								{view !== "home" && conversationPanel()}
-								{locationControl()}
-								{view === "home" ? (
-									<>
-										<p className="intro-eyebrow">{m("eyebrow")}</p>
-										<h2 className="home-heading" style={{ whiteSpace: "pre-line" }}>
-											{m("homeTitle")}
-										</h2>
-										<p className="home-description" style={{ whiteSpace: "pre-line" }}>
-											{m("homeDescription")}
-										</p>
-										<form
-											className="home-query"
-											onSubmit={(event) => {
-												event.preventDefault();
-												void submitQuery(homeInput);
-											}}
-										>
-											<textarea
-												aria-label={m("queryLabel")}
-												placeholder={m("homePlaceholder")}
-												value={homeInput}
-												onChange={(event) => setHomeInput(event.target.value)}
-											/>
-											<div className="query-bottom">
-												<MapIcon name="sparkle" />
-												{m("idea")}
-												<button
-													className="send-btn"
-													type="submit"
-													aria-label={m("start")}
-													disabled={sendDisabled || !homeInput.trim()}
-												>
-													<MapIcon name="arrow" />
-												</button>
-											</div>
-										</form>
-										{composerStatus()}
-										<p className="example-label">{m("exampleLabel")}</p>
-										{topics.map((topic) => (
-											<button
-												key={topic.category}
-												type="button"
-												className="discovery-option"
-												onClick={() => chooseCategory(topic.category)}
-											>
-												<span className="tile-icon">
-													<MapIcon name={categoryIcons[topic.category]} />
-												</span>
-												<span>
-													<strong>{m(topic.title)}</strong>
-													<small>{m(topic.description)}</small>
-												</span>
-												<span className="arrow">
-													<MapIcon name="chevron" />
-												</span>
-											</button>
-										))}
-										<p className="home-foot">
-											<MapIcon name="info" />
-											{m("offlineNote")}
-										</p>
-									</>
-								) : (
-									<>
-										<h2 className="results-title">
-											{m(view === "saved" ? "resultsSaved" : categoryHeadings[scope.category])}
-										</h2>
-										<p className="ai-summary">
-											{view === "saved"
-												? m("savedSummary")
-												: scope.unsupported
-													? m("unsupportedSummary")
-													: m("resultsSummary", { region: regionLabel, n: rows.length })}
-											{scope.filters.size > 0 && view !== "saved" && (
-												<>
-													<br />
-													{m("filterSummary")}
-												</>
-											)}
-										</p>
-										{view !== "saved" && scope.query && (
-											<p className="search-query-label">{m("currentQuery", { query: scope.query })}</p>
-										)}
-										{view !== "saved" && (
-											<div className="filter-row">
-												{filters.map((filter) => (
-													<button
-														key={filter}
-														type="button"
-														className={`filter-chip${scope.filters.has(filter) ? " active" : ""}`}
-														aria-pressed={scope.filters.has(filter)}
-														onClick={() => changeFilter(filter)}
-													>
-														{scope.filters.has(filter) && <MapIcon name="check" />}
-														{m(filter)}
-													</button>
-												))}
-											</div>
-										)}
-										<div className="result-meta">
-											<span aria-live="polite">
-												{m(view === "saved" ? "savedCount" : "resultsCount", { n: rows.length })}
-											</span>
-											<select
-												aria-label={m("sort")}
-												value={scope.sort}
-												onChange={(event) =>
-													setScope((current) => ({
-														...current,
-														sort: event.target.value === "price" ? "price" : "recommended",
-													}))
-												}
-											>
-												<option value="recommended">{m("recommended")}</option>
-												<option value="price">{m("priceSort")}</option>
-											</select>
-										</div>
-										<div className="place-list">
-											{rows.length ? (
-												rows.map(renderPlaceCard)
-											) : (
-												<div className="empty-results">
-													<MapIcon name={view === "saved" ? "bookmark" : "search"} />
-													<strong>{m(view === "saved" ? "emptySavedTitle" : "emptyTitle")}</strong>
-													<p>
-														{m(
-															view === "saved"
-																? "emptySavedDescription"
-																: scope.unsupported
-																	? "emptyUnsupported"
-																	: "emptyDescription",
-														)}
-													</p>
-													<button
-														type="button"
-														onClick={() =>
-															view === "saved" || scope.unsupported
-																? chooseCategory("cafe")
-																: updateScope({ ...scope, filters: new Set() })
-														}
-													>
-														{m(view === "saved" || scope.unsupported ? "discoverCafe" : "clearFilters")}
-													</button>
-												</div>
-											)}
-										</div>
-									</>
-								)}
-							</div>
-							{view !== "home" && followupPanel()}
-						</section>
-						<section
-							className={`map-stage map-surface${hasDetail ? " has-detail" : ""}`}
-							ref={mapViewportRef}
-							aria-label={m("mapLabel")}
-						>
-							<div className="map-art map-world" style={{ inset: "auto", ...mapLayout, transform: "none" }}>
-								<img className="map-art-dark" src="/maps/hangzhou.svg" alt="" draggable={false} />
-								<img className="map-art-light" src="/maps/hangzhou-light.svg" alt="" draggable={false} />
-								{mapRows.map((place, index) => (
-									<button
-										key={place.id}
-										type="button"
-										className={`map-pin${selectedId === place.id ? " selected" : ""}`}
-										style={{ left: `${place.x}%`, top: `${place.y}%` }}
-										aria-label={m("markerSelect", { name: copy.place(place.id).name })}
-										aria-pressed={selectedId === place.id}
-										onClick={() => selectPin(place)}
-									>
-										<span className="pin-body">
-											<span className="pin-num">
-												{view === "home" ? <MapIcon name={categoryIcons[place.type]} /> : index + 1}
-											</span>
-											<span className="pin-label">{copy.place(place.id).name}</span>
-										</span>
-									</button>
-								))}
-								<div
-									className="map-dot"
-									style={{ left: `${searchCenter.x}%`, top: `${searchCenter.y}%` }}
-									title={m("searchCenter")}
-									aria-hidden="true"
-								/>
-							</div>
-							<div className="map-shade" />
-							<div className="map-topline">
-								<div className="map-scope">
-									<MapIcon name="pin" />
-									{regionLabel}
-									<span className="muted">
-										{view === "home"
-											? m("mapHomeScope")
-											: m(view === "saved" ? "mapSavedScope" : "mapScope", { n: mapRows.length })}
-									</span>
-								</div>
-								<div className="map-pill">
-									<MapIcon name="compass" />
-									{m("mapExplore")}
-								</div>
-							</div>
-							<div className="map-tools">
-								<div className="tool-group">
-									<button
-										type="button"
-										aria-label={m("zoomIn")}
-										disabled={zoom >= 1.45}
-										onClick={() => setZoom((current) => Math.min(1.45, Number((current + 0.1).toFixed(2))))}
-									>
-										+
-									</button>
-									<button
-										type="button"
-										aria-label={m("zoomOut")}
-										disabled={zoom <= 0.85}
-										onClick={() => setZoom((current) => Math.max(0.85, Number((current - 0.1).toFixed(2))))}
-									>
-										−
-									</button>
-								</div>
-								<div className="tool-group">
-									<button type="button" aria-label={m("resetMap")} onClick={() => setZoom(1)}>
-										<MapIcon name="target" />
-									</button>
-								</div>
-							</div>
-							<div className="map-footer">
-								<span className="map-scale">{m("scale")}</span>
-								<span className="map-demo">{m("mapDemo")}</span>
-							</div>
-							{view === "home" ? (
-								<div className="map-inspiration">
-									<div className="inspiration-top">
-										<strong>{m("inspirationTitle")}</strong>
-										<span>{m("inspirationDescription")}</span>
-									</div>
-									<div className="inspiration-cards">
-										{topics.map((topic) => (
-											<button
-												key={topic.category}
-												type="button"
-												className="inspiration-card"
-												onClick={() => chooseCategory(topic.category)}
-											>
-												<img src={artPaths[topic.art]} alt="" draggable={false} />
-												<span className="caption">
-													{m(topic.inspiration)}
-													<small>{m(topic.caption)}</small>
-												</span>
-											</button>
-										))}
-									</div>
-								</div>
-							) : (
-								selectedPlace &&
-								!hasDetail && (
-									<div className="map-floating-place">
-										<div className="floating-art">{art(selectedPlace)}</div>
-										<div>
-											<strong>{copy.place(selectedPlace.id).name}</strong>
-											<small>{copy.place(selectedPlace.id).tags.slice(0, 2).join(" · ")}</small>
-										</div>
-										<button
-											type="button"
-											className="open-floating"
-											aria-label={m("viewDetail", { name: copy.place(selectedPlace.id).name })}
-											onClick={(event) => openDetail(selectedPlace, event.currentTarget)}
-										>
-											{m("detail")}
-											<MapIcon name="chevron" />
-										</button>
-									</div>
-								)
-							)}
-							{comparisonIds.length > 0 && !hasDetail && (
-								<div className="compare-tray">
-									<MapIcon name="compare" />
-									<small>{m("comparePlaces")}</small>
-									{comparisonIds.map((id, index) => (
-										<button
-											key={id}
-											type="button"
-											className="compare-slot"
-											aria-label={m("removeComparePlace", { name: copy.place(id).name })}
-											title={copy.place(id).name}
-											onClick={() => comparePlace(id)}
-										>
-											{index + 1}
-										</button>
-									))}
-									<small>
-										{comparisonIds.length} / {MAX_COMPARE_PLACES}
-									</small>
-									<button
-										type="button"
-										className="compare-btn"
-										disabled={comparisonIds.length < 2}
-										title={comparisonIds.length < 2 ? m("compareNeedTwo") : undefined}
-										onClick={(event) => {
-											comparisonReturnRef.current = event.currentTarget;
-											setComparisonOpen(true);
-										}}
-									>
-										{m("startCompare")}
-									</button>
-								</div>
-							)}
-							{detailPlace && (
-								<aside
-									className="detail-drawer map-drawer"
-									aria-label={m("detailLabel", { name: copy.place(detailPlace.id).name })}
-								>
-									<div className="detail-scroll">
-										<div className="detail-art">
-											{art(detailPlace)}
-											<button
-												type="button"
-												className="detail-close"
-												ref={detailCloseRef}
-												aria-label={m("closeDetail")}
-												onClick={closeDetail}
-											>
-												<MapIcon name="close" />
-											</button>
-										</div>
-										<div className="detail-content">
-											<p className="detail-eyebrow">{m("detailEyebrow")}</p>
-											<h2 className="detail-title">{copy.place(detailPlace.id).name}</h2>
-											<p className="detail-sub">
-												{m(categoryCopy[detailPlace.type])} · {copy.region(detailPlace.area)} ·{" "}
-												{price(detailPlace)}
-											</p>
-											<div className="place-tags">
-												{copy.place(detailPlace.id).tags.map((tag) => (
-													<span key={tag} className="place-tag">
-														{tag}
-													</span>
-												))}
-											</div>
-											<div className="detail-why">
-												<strong>
-													<MapIcon name="sparkle" />
-													{m("why")}
-												</strong>
-												<p>{copy.place(detailPlace.id).why}</p>
-											</div>
-											<div className="detail-section">
-												<h3>{m("understand")}</h3>
-												<div className="detail-info">
-													<MapIcon name="pin" />
-													<span>
-														<b>{copy.place(detailPlace.id).address}</b>
-														{m("positionDemo")}
-													</span>
-												</div>
-												<div className="detail-info">
-													<MapIcon name="wallet" />
-													<span>
-														<b>{copy.place(detailPlace.id).budget}</b>
-														{m("budgetDemo")}
-													</span>
-												</div>
-												<div className="detail-info">
-													<MapIcon name={detailPlace.plug ? "plug" : "tree"} />
-													<span>
-														<b>{copy.place(detailPlace.id).seat}</b>
-														{m(detailPlace.plug ? "plugDemo" : "plugUnknown")}
-													</span>
-												</div>
-												<div className="detail-info">
-													<MapIcon name="clock" />
-													<span>
-														<b>
-															{m("hours")} · {copy.place(detailPlace.id).hours}
-														</b>
-														{m("hoursDemo")}
-													</span>
-												</div>
-											</div>
-											<button type="button" className="detail-ask" onClick={() => askPlace(detailPlace)}>
-												<MapIcon name="chat" />
-												{m("detailAsk")}
-												<span className="spacer" />
-												<MapIcon name="chevron" />
-											</button>
-											<p className="detail-note">{m("detailNote")}</p>
-										</div>
-									</div>
-									<div className="detail-actions">
-										<button
-											type="button"
-											aria-pressed={savedState.favorites.includes(detailPlace.id)}
-											onClick={() => savePlace(detailPlace.id)}
-										>
-											<MapIcon name="bookmark" />
-											{m(savedState.favorites.includes(detailPlace.id) ? "saved" : "save")}
-										</button>
-										<button
-											type="button"
-											className="primary"
-											aria-pressed={comparisonIds.includes(detailPlace.id)}
-											onClick={() => comparePlace(detailPlace.id)}
-										>
-											<MapIcon name="compare" />
-											{m(comparisonIds.includes(detailPlace.id) ? "removeCompare" : "addCompare")}
-										</button>
-									</div>
-								</aside>
-							)}
-						</section>
-					</div>
-				</div>
-				{comparisonOpen && (
-					<div className="compare-overlay">
-						<section
-							ref={comparisonRef}
-							className="compare-dialog"
-							role="dialog"
-							aria-modal="true"
-							aria-labelledby="owl-map-comparison-title"
-						>
-							<div className="dialog-head">
-								<h2 id="owl-map-comparison-title">{m("compareTitle")}</h2>
-								<button
-									type="button"
-									ref={comparisonCloseRef}
-									aria-label={m("closeCompare")}
-									onClick={closeComparison}
-								>
-									<MapIcon name="close" />
-								</button>
-							</div>
-							<div className="comparison-scroll">
-								<table className="compare-table">
-									<thead>
-										<tr>
-											<th scope="col">{m("compareDimension")}</th>
-											{comparisonPlaces.map((place) => (
-												<th scope="col" key={place.id}>
-													<div className="mini-art">{art(place)}</div>
-													{copy.place(place.id).name}
-												</th>
-											))}
-										</tr>
-									</thead>
-									<tbody>
-										{comparisonDimensions.map((dimension) => (
-											<tr key={dimension.label}>
-												<th scope="row">{m(dimension.label)}</th>
-												{comparisonPlaces.map((place) => (
-													<td key={place.id}>{dimension.value(place)}</td>
-												))}
-											</tr>
-										))}
-									</tbody>
-								</table>
-								<p className="compare-advice">
-									<b>{m("compareAdviceTitle")}</b>
-									<br />
-									{comparisonAdvice()}
-								</p>
-								<p className="detail-note">{m("detailNote")}</p>
-							</div>
-							<div className="dialog-footer">
-								<button type="button" onClick={closeComparison}>
-									{m("continueBrowse")}
-								</button>
-								<button
-									type="button"
-									className="primary"
-									onClick={() => {
-										closeComparison();
-										showToast(comparisonAdvice());
-									}}
-								>
-									{m("chooseDemo")}
-								</button>
-							</div>
-						</section>
-					</div>
-				)}
-			</main>
-			{toast && active && <output className="owl-product-toast">{toast}</output>}
-		</div>
-	);
+	const comparisonDimensions: readonly { label: MapCopyKey; value: (place: RealPlace) => ReactNode }[] = [ { label: "straightDistance", value: distance }, { label: "categoryOther", value: (place) => m(categoryLabels[place.category]) }, { label: "address", value: (place) => place.address || m("notProvided") }, { label: "openingHours", value: (place) => place.openingHours || m("notProvided") }, { label: "wheelchair", value: (place) => place.wheelchair || m("notProvided") }, { label: "internetAccess", value: (place) => place.internetAccess || m("notProvided") }, { label: "source", value: sourceLinks } ];
+	return <div className={`owl-map-workspace${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`} ref={workspaceRef}>
+		<aside className="map-sidebar" id="owl-map-sidebar" aria-label={m("map")} inert={comparisonOpen}><div className="sidebar-brand"><strong>owl</strong><span className="local">{m("local")}</span></div><form className="sidebar-search" onSubmit={(event) => { event.preventDefault(); void searchPlaces(sideInput); }}><MapIcon name="search" /><input aria-label={m("sideSearch")} placeholder={m("sideSearch")} value={sideInput} onChange={(event) => setSideInput(event.target.value)} /></form><button type="button" className="side-new" disabled={busy} onClick={newExploration}><MapIcon name="plus" />{m("newExplore")}</button><button type="button" className={`side-item${view !== "saved" ? " active" : ""}`} disabled={busy} aria-current={view !== "saved" ? "page" : undefined} onClick={newExploration}><MapIcon name="compass" />{m("explore")}</button><button type="button" className={`side-item${view === "saved" ? " active" : ""}`} aria-current={view === "saved" ? "page" : undefined} onClick={() => { setView("saved"); setDetailId(undefined); setSelectedId(undefined); setFollowContext(undefined); }}><MapIcon name="bookmark" />{m("favorites")}<span className="count">{savedState.favorites.length || ""}</span></button><div className="map-sidebar-scroll"><p className="side-section-label">{m("recent")}<button type="button" aria-label={m("clearHistory")} disabled={!savedState.history.length} onClick={() => setSavedState((current) => ({ ...current, history: [] }))}><MapIcon name="close" /></button></p>{savedState.history.length ? savedState.history.slice(0, 8).map((entry) => <button key={entry.id} type="button" className="recent-entry" onClick={() => replaySearch(entry)}><MapIcon name="clock" /><span>{entry.query || entry.locationName}<small>{entry.locationName} · {m(categoryLabels[entry.category])}</small></span></button>) : <p className="live-history-empty">{m("historyEmpty")}</p>}</div><div className="side-tip"><MapIcon name="sparkle" />{m("sideTip")}</div><div className="side-account"><span className="circle" aria-hidden="true">L</span><div><strong>{m("localSpace")}</strong><small>{m("localSaved")}</small></div></div></aside>
+		<main className="owl-map-frame"><div className="map-workspace-body" style={{ display: "contents" }} inert={comparisonOpen}><header className="map-header"><h1><MapIcon name="map" />{m("map")}</h1><span className="header-divider" aria-hidden="true" /><span className="subtitle">{m("subtitle")}</span><span className="demo-note">{m("mapBadge")}</span><div className="spacer" /><button type="button" className="header-action" ref={newExploreRef} disabled={busy} onClick={newExploration}><MapIcon name="plus" />{m("newExplore")}</button><button type="button" className="header-action" onClick={() => { setView("saved"); setDetailId(undefined); setSelectedId(undefined); setFollowContext(undefined); }}><MapIcon name="bookmark" />{m("favorites")}{savedState.favorites.length ? ` · ${savedState.favorites.length}` : ""}</button></header>
+			<div className={`map-content${hasDetail ? " has-detail" : ""}`}><section className="explore-panel" aria-label={m(view === "saved" ? "favorites" : "explore")}><div className="panel-scroll" ref={panelScrollRef}>{view !== "home" && conversationPanel()}{locationControl()}
+				{view === "home" ? <><h2 className="home-heading" style={{ whiteSpace: "pre-line" }}>{m("homeTitle")}</h2><p className="home-description" style={{ whiteSpace: "pre-line" }}>{m("homeDescription")}</p><button type="button" className="live-choose-location" onClick={() => setLocationOpen(true)}><MapIcon name="search" />{m("location")}</button><form className="home-query" onSubmit={(event) => { event.preventDefault(); void submitQuery(homeInput); }}><textarea aria-label={m("queryLabel")} placeholder={m("homePlaceholder")} value={homeInput} onChange={(event) => setHomeInput(event.target.value)} /><div className="query-bottom"><MapIcon name="sparkle" />{m("idea")}<button type="submit" className="send-btn" aria-label={m("start")} disabled={sendDisabled || !homeInput.trim()}><MapIcon name="arrow" /></button></div></form>{composerStatus()}<p className="example-label">{m("exampleLabel")}</p>{nearbyControls()}<p className="home-foot"><MapIcon name="info" />{m("sourceNote")}</p></> : <><h2 className="results-title">{m(view === "saved" ? "savedTitle" : resultKind === "nearby" ? "nearbyTitle" : "searchTitle")}</h2><p className="ai-summary">{m("selectedCenter", { name: centerLabel })}</p>{resultQuery && view !== "saved" && <p className="search-query-label">{m("searchQuery", { query: resultQuery })}</p>}{view !== "saved" && nearbyControls()}{centerChanged && <p className="live-map-notice">{m("centerChanged")}</p>}{mapLoading && <output className="live-map-status">{m("searching")}</output>}{mapError && <div className="map-conversation-error" role="alert"><p>{mapError}</p><button type="button" onClick={() => resultKind === "nearby" ? void nearbyPlaces() : void searchPlaces(resultQuery || locationInput)}>{m("retry")}</button></div>}{partialResults && <p className="live-map-notice">{m("partialResults")}</p>}<div className="result-meta"><span aria-live="polite">{m(view === "saved" ? "savedCount" : "resultsCount", { n: rows.length })}</span><select aria-label={m("sort")} value={sort} onChange={(event) => setSort(event.target.value === "name" ? "name" : "distance")}><option value="distance">{m("distanceSort")}</option><option value="name">{m("nameSort")}</option></select></div><div className="place-list">{rows.length ? rows.map(renderPlaceCard) : !mapLoading && <div className="empty-results"><MapIcon name={view === "saved" ? "bookmark" : "search"} /><strong>{m(view === "saved" ? "noSaved" : "noResults")}</strong><p>{m(view === "saved" ? "noSavedHint" : "noResultsHint")}</p><button type="button" onClick={() => setLocationOpen(true)}>{m("location")}</button></div>}</div></>}
+			</div>{view !== "home" && followupPanel()}</section><section className={`map-stage live-map-stage${hasDetail ? " has-detail" : ""}`} aria-label={m("mapLabel")}><RealMapCanvas active={active} center={center} places={rows} selectedId={selectedId} detailOpen={hasDetail} loading={mapLoading} labels={labels} onPlaceSelect={selectPin} onCenterChange={movedCenter} onPointSelect={(point) => void selectCoordinate(point)} onSearchHere={(point) => void nearbyPlaces(point)} onLocation={(point) => void selectCoordinate(point, true)} onError={(message) => setMapError(message)} />
+				{selectedPlace && !hasDetail && <div className="map-floating-place live-floating-place"><MapIcon name={categoryIcons[selectedPlace.category]} /><div><strong>{placeName(selectedPlace)}</strong><small>{m(categoryLabels[selectedPlace.category])} · {distance(selectedPlace)}</small></div><button type="button" className="open-floating" aria-label={m("viewDetail", { name: placeName(selectedPlace) })} onClick={(event) => openDetail(selectedPlace, event.currentTarget)}>{m("detail")}<MapIcon name="chevron" /></button></div>}
+				{comparisonPlaces.length > 0 && !hasDetail && <div className="compare-tray"><MapIcon name="compare" /><small>{m("comparePlaces")}</small>{comparisonPlaces.map((place, index) => <button key={place.id} type="button" className="compare-slot" title={placeName(place)} aria-label={m("removeComparePlace", { name: placeName(place) })} onClick={() => comparePlace(place)}>{index + 1}</button>)}<small>{comparisonPlaces.length} / {MAX_LIVE_COMPARISON}</small><button type="button" className="compare-btn" disabled={comparisonPlaces.length < 2} title={comparisonPlaces.length < 2 ? m("compareNeedTwo") : undefined} onClick={(event) => { comparisonReturnRef.current = event.currentTarget; setComparisonOpen(true); }}>{m("startCompare")}</button></div>}
+				{detailPlace && <aside className="detail-drawer map-drawer" aria-label={m("detailLabel", { name: placeName(detailPlace) })}><div className="detail-scroll"><div className="live-detail-hero"><MapIcon name={categoryIcons[detailPlace.category]} /><button type="button" className="detail-close" ref={detailCloseRef} aria-label={m("closeDetail")} onClick={closeDetail}><MapIcon name="close" /></button></div><div className="detail-content"><h2 className="detail-title">{placeName(detailPlace)}</h2><p className="detail-sub">{m(categoryLabels[detailPlace.category])} · {distance(detailPlace)}</p><div className="detail-section"><h3>{m("information")}</h3><div className="detail-info"><MapIcon name="pin" /><span><b>{detailPlace.address || m("notProvided")}</b>{pointLabel(detailPlace)}</span></div>{providedFields(detailPlace).map((field) => <div className="detail-info" key={field.key}><MapIcon name={field.key === "phone" ? "info" : field.key === "openingHours" ? "clock" : "check"} /><span><b>{m(field.key)}</b>{field.value}</span></div>)}{!providedFields(detailPlace).length && <p className="detail-note">{m("noExtraInformation")}</p>}</div><div className="detail-section"><h3>{m("sourceDetails")}</h3><p className="detail-note">{m(detailPlace.source.provider === "user" ? "sourceUser" : "sourceMap")} · {m("fetched")}: {fetched(detailPlace)}</p>{sourceLinks(detailPlace)}<p className="detail-note">{m("sourceNote")}</p></div><button type="button" className="detail-ask" onClick={() => askPlace(detailPlace)}><MapIcon name="chat" />{m("detailAsk")}<span className="spacer" /><MapIcon name="chevron" /></button></div></div><div className="detail-actions"><button type="button" aria-pressed={savedState.favorites.some((place) => place.id === detailPlace.id)} onClick={() => savePlace(detailPlace)}><MapIcon name="bookmark" />{m(savedState.favorites.some((place) => place.id === detailPlace.id) ? "saved" : "save")}</button><button type="button" className="primary" aria-pressed={comparisonPlaces.some((place) => place.id === detailPlace.id)} onClick={() => comparePlace(detailPlace)}><MapIcon name="compare" />{m(comparisonPlaces.some((place) => place.id === detailPlace.id) ? "removeCompare" : "addCompare")}</button></div></aside>}
+			</section></div></div>
+			{comparisonOpen && <div className="compare-overlay"><section ref={comparisonRef} className="compare-dialog" role="dialog" aria-modal="true" aria-labelledby="owl-map-comparison-title"><div className="dialog-head"><h2 id="owl-map-comparison-title">{m("compareTitle")}</h2><button type="button" ref={comparisonCloseRef} aria-label={m("closeCompare")} onClick={closeComparison}><MapIcon name="close" /></button></div><div className="comparison-scroll"><table className="compare-table"><thead><tr><th scope="col">{m("compareDimension")}</th>{comparisonPlaces.map((place) => <th scope="col" key={place.id}>{placeName(place)}</th>)}</tr></thead><tbody>{comparisonDimensions.map((dimension) => <tr key={dimension.label}><th scope="row">{m(dimension.label)}</th>{comparisonPlaces.map((place) => <td key={place.id}>{dimension.value(place)}</td>)}</tr>)}</tbody></table><p className="detail-note">{m("compareNote")}</p></div><div className="dialog-footer"><button type="button" onClick={closeComparison}>{m("continueBrowse")}</button><button type="button" className="primary" disabled={sendDisabled} onClick={() => { closeComparison(); void submitQuery(m("comparePrompt")); }}>{m("compareDiscuss")}</button></div></section></div>}
+		</main>{toast && active && <output className="owl-product-toast">{toast}</output>}
+	</div>;
 }

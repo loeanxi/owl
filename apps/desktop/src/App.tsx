@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
-import { hasTauri } from "./bridge/native.ts";
+import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
 import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
@@ -15,16 +15,19 @@ import { Composer, type ComposerImage } from "./components/Composer.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
-import { QuestionDialog } from "./components/QuestionDialog.tsx";
+import { QuestionDock } from "./components/QuestionDock.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { IconList } from "./components/icons.tsx";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
+import { ShortcutsDialog, type HelpSection } from "./components/ShortcutsDialog.tsx";
+import { FindBar } from "./components/FindBar.tsx";
 import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { RetryPin } from "./components/RetryPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
+import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
@@ -59,6 +62,9 @@ const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
+const ZOOM_KEY = "owl.ui.zoom";
+/** 缩放挡位（对照浏览器 Ctrl+- / Ctrl+Shift+= / Ctrl+0），实际大小 = 1。 */
+const ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -118,8 +124,9 @@ export default function App(): React.JSX.Element {
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
 	const [questionNavOpen, setQuestionNavOpen] = useState(false);
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
-	/** agent 提问队列：ask_user_question 的 question_request 按到达顺序排队弹出 */
+	/** agent 提问队列：按到达顺序在所属会话的输入框上方显示。 */
 	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
+	const activeQuestion = questions.find((question) => question.sessionId === sessionId);
 	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
 	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
@@ -168,6 +175,38 @@ export default function App(): React.JSX.Element {
 		setWorkbenchDock(dock);
 		localStorage.setItem(WORKBENCH_DOCK_KEY, dock);
 	};
+
+	// 「帮助」弹窗（使用指南 / 键盘快捷键）与页面内查找条（Ctrl+F）
+	const [helpSection, setHelpSection] = useState<HelpSection>();
+	const [findOpen, setFindOpen] = useState(false);
+	// 视图：全屏（F11）与 webview 缩放。缩放持久化到 localStorage，启动时经 effect 恢复。
+	const [fullscreen, setFullscreen] = useState(false);
+	const [zoom, setZoom] = useState(() => {
+		const stored = Number(localStorage.getItem(ZOOM_KEY));
+		return Number.isFinite(stored) && stored > 0 ? stored : 1;
+	});
+	const fullscreenRef = useRef(fullscreen);
+	fullscreenRef.current = fullscreen;
+
+	/** 缩放挡位步进；越界停在端点，未知当前值时按最近的下一挡推算。 */
+	const zoomStep = (direction: 1 | -1): void => {
+		setZoom((current) => {
+			let index = ZOOM_STEPS.findIndex((step) => Math.abs(step - current) < 0.01);
+			if (index === -1) index = ZOOM_STEPS.findIndex((step) => step > current) - 1;
+			return ZOOM_STEPS[Math.min(Math.max(index + direction, 0), ZOOM_STEPS.length - 1)];
+		});
+	};
+
+	// 缩放持久化并即时生效；浏览器模式 setWebviewZoom 是 no-op。
+	useEffect(() => {
+		localStorage.setItem(ZOOM_KEY, String(zoom));
+		void setWebviewZoom(zoom);
+	}, [zoom]);
+
+	// 启动时对齐一次全屏状态（例如上次以全屏退出后重启）。
+	useEffect(() => {
+		void isWindowFullscreen().then(setFullscreen);
+	}, []);
 
 	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
@@ -399,19 +438,53 @@ export default function App(): React.JSX.Element {
 		setSessionFeed({ running, entries });
 	}, [running, entries]);
 
-		// Ctrl + ` 新建终端、Ctrl + T 新建浏览器 tab（与开始页卡片上的提示一致；
-		// DSH 同款语义：终端落在当前停靠位，面板没开时顺手展开。
-		// 焦点在内嵌浏览器里时不抢：那些组合键属于页面本身）
+		// 全局快捷键（对照 Codex 桌面端菜单，全部动作的键盘入口收在这一个 handler）：
+		// 动作集经 shortcutsRef 每次渲染刷新，免 stale closure；
+		// 焦点在内嵌浏览器（data-iab-capture）里时不抢键：那些组合键属于页面本身。
+		// 终端 Ctrl+` / 浏览器 Ctrl+T 沿用 DSH 语义：落在当前停靠位，面板没开就顺手展开。
 		useEffect(() => {
 			const onKey = (event: KeyboardEvent): void => {
-				if (!event.ctrlKey || event.altKey || event.shiftKey) return;
 				if ((event.target as HTMLElement | null)?.closest?.("[data-iab-capture]")) return;
-				if (event.key === "`" || event.code === "Backquote") {
+				const actions = shortcutsRef.current;
+				// Alt+Ctrl+B：对话 / 上下文 tab 切换
+				if (event.ctrlKey && event.altKey && (event.key === "b" || event.key === "B")) {
 					event.preventDefault();
-					openInPanel("terminal");
-				} else if (event.ctrlKey && (event.key === "t" || event.key === "T")) {
-					event.preventDefault();
-					openInPanel("browser");
+					actions.toggleChatContext();
+					return;
+				}
+				const mod = event.ctrlKey && !event.altKey;
+				if (mod && event.shiftKey) {
+					switch (event.key) {
+						case "S": case "s": event.preventDefault(); actions.toggleSidebar(); return;
+						case "E": case "e": event.preventDefault(); actions.toggleRightPanel(); return;
+						case "[": event.preventDefault(); actions.prevSession(); return;
+						case "]": event.preventDefault(); actions.nextSession(); return;
+					}
+				}
+				if (!mod) {
+					if (event.key === "F11") {
+						event.preventDefault();
+						actions.toggleFullscreen();
+					}
+					return;
+				}
+				switch (event.key) {
+					case "n": case "N": event.preventDefault(); actions.newChat(); return;
+					case "o": case "O": event.preventDefault(); actions.openProject(); return;
+					case "w": case "W": event.preventDefault(); actions.closeWindow(); return;
+					case "q": case "Q": event.preventDefault(); actions.quit(); return;
+					case ",": event.preventDefault(); actions.openSettings(); return;
+					case "/": event.preventDefault(); actions.showShortcuts(); return;
+					case "f": case "F": event.preventDefault(); actions.find(); return;
+					case "j": case "J": event.preventDefault(); actions.toggleBottomPanel(); return;
+					case "`": case "~": event.preventDefault(); actions.openTerminal(); return;
+					case "t": case "T": event.preventDefault(); actions.openBrowserTab(); return;
+					case "[": event.preventDefault(); actions.historyBack(); return;
+					case "]": event.preventDefault(); actions.historyForward(); return;
+					case "-": case "_": event.preventDefault(); actions.zoomOut(); return;
+					case "=": case "+": event.preventDefault(); actions.zoomIn(); return;
+					case "0": event.preventDefault(); actions.zoomReset(); return;
+					default: return;
 				}
 			};
 			window.addEventListener("keydown", onKey);
@@ -471,6 +544,7 @@ export default function App(): React.JSX.Element {
 			})
 			.catch(() => {});
 		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用；
+		// 外观自定义颜色（owlAppearance：强调色 + 深浅各自的背景/前景）同源加载；
 		// 侧边卡片配置（owlSidebar）同源拉取，供工作台/快捷入口即时生效。
 		void client
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
@@ -478,6 +552,7 @@ export default function App(): React.JSX.Element {
 				if (!response.ok) return;
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
+				applyOwlAppearance(parseOwlAppearance(settings?.owlAppearance));
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
 				// 界面语言随 settings.json 启动加载；设置页切换后经 settings.set 持久化。
@@ -593,6 +668,27 @@ export default function App(): React.JSX.Element {
 		setEntries(rebuild(messages, messageEntryIds));
 		setRetryStatus(null);
 		void refreshStats(resumedId);
+	};
+
+	// 上一个/下一个会话（Ctrl+Shift+[ / ]）：当前项目内按最近活跃排序循环切换。
+	// 与侧边栏同源（session.list），排除归档行；桥瞬断时静默放弃。
+	const cycleSession = async (direction: 1 | -1): Promise<void> => {
+		try {
+			const response = await client.request<SessionRowLite[]>({ type: "session.list" });
+			if (!response.ok || !response.result) return;
+			const rows = response.result
+				.filter((row) => row.id && typeof row.archivedAt !== "string" && samePath(row.cwd, workspaceRef.current))
+				.sort((a, b) => rowTime(b).localeCompare(rowTime(a)));
+			if (rows.length === 0) return;
+			const index = rows.findIndex((row) => row.id === sessionIdRef.current);
+			const next = rows[(index + direction + rows.length) % rows.length];
+			if (!next || next.id === sessionIdRef.current) return;
+			setShowSettings(false);
+			setRailView("chat");
+			await openSession(String(next.id));
+		} catch {
+			// 桥离线：菜单项通常已禁用，快捷键静默放弃
+		}
 	};
 
 	// 启动自动续聊：连接后自动恢复当前项目最近一个有消息的会话（Claude Desktop 同款行为）。
@@ -854,6 +950,74 @@ export default function App(): React.JSX.Element {
 	const headerButtonClass = (active: boolean): string =>
 		`owl-chrome-button${active ? " is-active" : ""}`;
 
+	// 菜单与全局快捷键共用的动作集：每次渲染重建并同步进 shortcutsRef，
+	// keydown 侧零依赖免 stale closure；语义与旧内联 props 保持一致
+	// （面板/新会话先回到对话主区，设置页打开时先收起）。
+	const shortcuts = {
+		newChat: (): void => {
+			setShowSettings(false);
+			setRailView("chat");
+			newChat();
+		},
+		openProject: (): void => {
+			setRailView("chat");
+			setShowProjectDialog(true);
+		},
+		closeWindow: (): void => { void closeMainWindow(); },
+		quit: (): void => { void quitDesktopApp(); },
+		openSettings: (): void => {
+			setSettingsInitialTab("general");
+			setShowSettings(true);
+		},
+		openAbout: (): void => {
+			setSettingsInitialTab("about");
+			setShowSettings(true);
+		},
+		showShortcuts: (): void => setHelpSection("shortcuts"),
+		openGuide: (): void => setHelpSection("guide"),
+		toggleSidebar: (): void => {
+			if (showSettings) {
+				setShowSettings(false);
+				if (sidebarMinimized) toggleSessionSidebar();
+			}
+			else toggleSessionSidebar();
+		},
+		toggleBottomPanel: (): void => {
+			setShowSettings(false);
+			setRailView("chat");
+			togglePanelAt("bottom");
+		},
+		toggleRightPanel: (): void => {
+			setShowSettings(false);
+			setRailView("chat");
+			togglePanelAt("right");
+		},
+		openTerminal: (): void => openInPanel("terminal"),
+		openBrowserTab: (): void => openInPanel("browser"),
+		openTasks: (): void => openInPanel("tasks"),
+		openDeveloper,
+		toggleChatContext: (): void => {
+			setShowSettings(false);
+			setRailView("chat");
+			setConversationViewPersisted(conversationView === "chat" ? "context" : "chat");
+		},
+		prevSession: (): void => { void cycleSession(-1); },
+		nextSession: (): void => { void cycleSession(1); },
+		historyBack: (): void => history.back(),
+		historyForward: (): void => history.forward(),
+		find: (): void => setFindOpen(true),
+		zoomIn: (): void => zoomStep(1),
+		zoomOut: (): void => zoomStep(-1),
+		zoomReset: (): void => setZoom(1),
+		toggleFullscreen: (): void => {
+			const next = !fullscreenRef.current;
+			setFullscreen(next);
+			void setWindowFullscreen(next);
+		},
+	};
+	const shortcutsRef = useRef(shortcuts);
+	shortcutsRef.current = shortcuts;
+
 	return (
 		<div className="owl-desktop-shell font-sans text-owl-text">
 			<DesktopTitlebar
@@ -861,38 +1025,33 @@ export default function App(): React.JSX.Element {
 				sidebarCollapsed={sidebarMinimized || showSettings}
 				sidebarView={railView}
 				sidebarToggleRef={sidebarToggleRef}
-				onToggleSidebar={() => {
-					if (showSettings) {
-						setShowSettings(false);
-						if (sidebarMinimized) toggleSessionSidebar();
-					}
-					else toggleSessionSidebar();
-				}}
-				onNewChat={() => {
-					setShowSettings(false);
-					setRailView("chat");
-					newChat();
-				}}
-				onOpenProject={() => { setRailView("chat"); setShowProjectDialog(true); }}
-				onOpenSettings={() => {
-					setSettingsInitialTab("general");
-					setShowSettings(true);
-				}}
-				onOpenAbout={() => {
-					setSettingsInitialTab("about");
-					setShowSettings(true);
-				}}
-				onDockRight={() => {
-					setShowSettings(false);
-					setRailView("chat");
-					togglePanelAt("right");
-				}}
-				onDockBottom={() => {
-					setShowSettings(false);
-					setRailView("chat");
-					togglePanelAt("bottom");
-				}}
-				onOpenDeveloper={openDeveloper}
+				workbenchOpen={workbenchOpen}
+				workbenchDock={workbenchDock}
+				onToggleSidebar={shortcuts.toggleSidebar}
+				onNewChat={shortcuts.newChat}
+				onOpenProject={shortcuts.openProject}
+				onCloseWindow={shortcuts.closeWindow}
+				onQuit={shortcuts.quit}
+				onOpenSettings={shortcuts.openSettings}
+				onOpenAbout={shortcuts.openAbout}
+				onOpenDeveloper={shortcuts.openDeveloper}
+				onToggleBottomPanel={shortcuts.toggleBottomPanel}
+				onToggleRightPanel={shortcuts.toggleRightPanel}
+				onOpenTerminal={shortcuts.openTerminal}
+				onOpenBrowserTab={shortcuts.openBrowserTab}
+				onOpenTasks={shortcuts.openTasks}
+				onToggleChatContext={shortcuts.toggleChatContext}
+				onPrevSession={shortcuts.prevSession}
+				onNextSession={shortcuts.nextSession}
+				onHistoryBack={shortcuts.historyBack}
+				onHistoryForward={shortcuts.historyForward}
+				onFind={shortcuts.find}
+				onZoomIn={shortcuts.zoomIn}
+				onZoomOut={shortcuts.zoomOut}
+				onZoomReset={shortcuts.zoomReset}
+				onToggleFullscreen={shortcuts.toggleFullscreen}
+				onOpenGuide={shortcuts.openGuide}
+				onShowShortcuts={shortcuts.showShortcuts}
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
@@ -968,7 +1127,7 @@ export default function App(): React.JSX.Element {
 					</div>
 				</header>
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
-				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "")}>
+				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "") + (activeQuestion ? " has-pending-question" : "")}>
 					<div className="owl-shell-conversation">
 						{conversationView === "context" ? (
 							<ContextView client={client} cwd={workspaceDir} />
@@ -982,27 +1141,36 @@ export default function App(): React.JSX.Element {
 						<TodoPin entries={entries} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
 						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
-						<Composer
-							client={client}
-							connected={connected}
-							disabled={running || submitting || !connected}
-							running={running}
-							onSend={(text, images) => void sendPrompt(text, images)}
-							onAbort={() => void abort()}
-							providers={providers}
-							model={modelValue}
-							onModel={handleModelChange}
-							thinkingLevel={thinkingLevel}
-							onThinkingLevel={handleThinkingChange}
-							approvalMode={approvalMode}
-							onApprovalMode={handleApprovalModeChange}
-							sessionInfo={sessionInfo}
-							workspaceDir={workspaceDir}
-							projects={projects}
-							onSwitchProject={switchProject}
-							commands={slashCommands}
-							draftRequest={draftRequest}
-						/>
+						<QuestionDock
+							requests={questions}
+							activeRequest={activeQuestion}
+							onAnswer={(requestId, answers, cancelled) => {
+								client.respondQuestion(requestId, answers, cancelled);
+								setQuestions((current) => current.filter((question) => question.requestId !== requestId));
+							}}
+						>
+							<Composer
+								client={client}
+								connected={connected}
+								disabled={running || submitting || !connected}
+								running={running}
+								onSend={(text, images) => void sendPrompt(text, images)}
+								onAbort={() => void abort()}
+								providers={providers}
+								model={modelValue}
+								onModel={handleModelChange}
+								thinkingLevel={thinkingLevel}
+								onThinkingLevel={handleThinkingChange}
+								approvalMode={approvalMode}
+								onApprovalMode={handleApprovalModeChange}
+								sessionInfo={sessionInfo}
+								workspaceDir={workspaceDir}
+								projects={projects}
+								onSwitchProject={switchProject}
+								commands={slashCommands}
+								draftRequest={draftRequest}
+							/>
+						</QuestionDock>
 					</div>
 					<BrowserSessionContext.Provider value={sessionId}>
 						<Workbench
@@ -1048,16 +1216,6 @@ export default function App(): React.JSX.Element {
 					}}
 				/>
 			)}
-			{questions[0] && (
-				<QuestionDialog
-					key={questions[0].requestId}
-					request={questions[0]}
-					onAnswer={(answers, cancelled) => {
-						client.respondQuestion(questions[0].requestId, answers, cancelled);
-						setQuestions((current) => current.slice(1));
-					}}
-				/>
-			)}
 			{rewindTarget && sessionId && (
 				<RewindDialog
 					key={rewindTarget.entryId}
@@ -1068,6 +1226,8 @@ export default function App(): React.JSX.Element {
 					onClose={() => setRewindTarget(undefined)}
 				/>
 			)}
+			{findOpen && <FindBar onClose={() => setFindOpen(false)} />}
+			{helpSection && <ShortcutsDialog section={helpSection} onClose={() => setHelpSection(undefined)} />}
 		</div>
 	);
 }

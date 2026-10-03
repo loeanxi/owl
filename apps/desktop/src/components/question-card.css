@@ -87,7 +87,9 @@
 	white-space: nowrap;
 }
 
-.owl-question-card button:focus-visible {
+.owl-question-card button:focus-visible,
+.owl-question-card [role="radio"]:focus-visible,
+.owl-question-card [role="checkbox"]:focus-visible {
 	outline: 2px solid var(--color-owl-accent);
 	outline-offset: 2px;
 }

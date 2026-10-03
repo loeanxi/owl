@@ -21,6 +21,7 @@ import { MailAccountsDialog } from "./MailAccountsDialog.tsx";
 import { MailAgentPanel } from "./MailAgentPanel.tsx";
 import { MailConnectionDialog } from "./MailConnectionDialog.tsx";
 import { MailDialog } from "./MailDialog.tsx";
+import { mailErrorText } from "./mail-errors.ts";
 import { mailThreadKey, mergeMailPage, readableAccounts, summaryRef, threadContext } from "./mail-model.ts";
 import { useMailAgent } from "./useMailAgent.ts";
 import type { MailScopeDetails, MailSource } from "./useMailAgent.ts";
@@ -156,8 +157,7 @@ export function MailPage({
 				if (!result.ok) throw new Error(result.error ?? t("mail.error"));
 				return result.result as T;
 			} catch (failure) {
-				if (failure instanceof Error && /^(bridge not connected|bridge disconnected)$/i.test(failure.message)) throw new Error(t("mail.offline"));
-				throw failure;
+				throw new Error(mailErrorText(failure));
 			}
 		},
 		[client, t],
@@ -847,7 +847,7 @@ export function MailPage({
 				</div>
 				{error && (
 					<div role="alert" className="owl-mail-top-error">
-						<span>{error}</span>
+						<span>{mailErrorText(error)}</span>
 						<button
 							type="button"
 							className="owl-mail-icon-button"
@@ -1314,7 +1314,7 @@ export function MailPage({
 					permission={connection.permission}
 					pending={auth}
 					busy={authBusy}
-					error={authError}
+					error={authError ? mailErrorText(authError) : undefined}
 					onClose={closeConnection}
 					onFile={(file) => void importClient(file)}
 					onStart={() => void startAuth()}

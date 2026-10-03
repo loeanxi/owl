@@ -17,6 +17,13 @@ function resolved(): "dark" | "light" {
 
 function apply(): void {
 	document.documentElement.dataset.owlTheme = resolved();
+	// 广播解析档（可能因 system 跟随操作系统而变）：外观自定义颜色监听后重放内联变量。
+	window.dispatchEvent(new Event("owl-theme-change"));
+}
+
+/** 当前实际生效的深浅档（system 已解析）；外观自定义颜色按它决定落在哪个档。 */
+export function getResolvedTheme(): "dark" | "light" {
+	return resolved();
 }
 
 /** 应用一档主题偏好；重复调用会覆盖上一档（设置页即时切档、启动时初始化共用）。 */
