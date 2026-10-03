@@ -1,0 +1,110 @@
+.owl-question-card {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	max-height: min(30rem, var(--owl-question-available-height, 52vh));
+	flex-direction: column;
+	overflow: hidden;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 14px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+	pointer-events: auto;
+	container-type: inline-size;
+	container-name: owl-question;
+}
+
+.owl-question-card__progress {
+	display: flex;
+	min-width: 0;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--color-owl-border);
+}
+
+.owl-question-card__progress > span {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.owl-question-card__body {
+	min-height: 0;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 12px 14px;
+	overflow-wrap: anywhere;
+}
+
+.owl-question-card__heading {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 7px;
+	line-height: 1.5;
+}
+
+.owl-question-card__badge {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+.owl-question-card__preview {
+	min-width: 0;
+	max-width: 100%;
+}
+
+.owl-question-card__preview img {
+	max-width: 100%;
+}
+
+.owl-question-card__footer {
+	display: flex;
+	min-width: 0;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid var(--color-owl-border);
+	background: var(--color-owl-panel);
+}
+
+.owl-question-card__actions {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+}
+
+.owl-question-card__footer button {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.owl-question-card button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 2px;
+}
+
+@container owl-question (max-width: 340px) {
+	.owl-question-card__count {
+		display: none;
+	}
+
+	.owl-question-card__footer,
+	.owl-question-card__actions {
+		gap: 6px;
+	}
+
+	.owl-question-card__footer button {
+		padding-right: 10px;
+		padding-left: 10px;
+		font-size: 12px;
+	}
+}

@@ -64,6 +64,13 @@ export interface OwlImageConfig {
 	openaiCompatEditFormat?: "multipart" | "jsonImageUrlArray" | "formReferenceImages";
 	/** Extra JSON fields merged into the JSON edit body last. Ignored in multipart mode. */
 	openaiCompatEditExtra?: Record<string, unknown>;
+	/**
+	 * Model id for the google-sub (Antigravity) channel. Google retires/renames
+	 * these internal image models without notice; the default follows upstream
+	 * (gemini-3.1-flash-image) and this field is the escape hatch to try another
+	 * id without waiting for a plugin release.
+	 */
+	googleSubModel?: string;
 	seedreamBaseURL?: string;
 	seedreamModel?: string;
 	/** Ark `output_format`; `png` is lossless and keeps an alpha channel. */

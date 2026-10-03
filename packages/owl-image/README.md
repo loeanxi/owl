@@ -97,6 +97,10 @@
 - `apiKeys` 优先级高于环境变量;写进 JSON 是明文,注意该目录权限。
 - `attachImageToResult: false` 可让生成的图不回传给模型(纯落盘),省 token;桌面端仍从保存路径预览。
 - `proxy: "off"` 强制直连;空串跟随环境变量。
+- `googleSubModel`(逃生舱):Google 订阅通道的模型 id,默认 `gemini-3.1-flash-image`。
+  Google 会不定期退役/改名这些内部图像模型;若订阅生图报 429/模型不存在,可在此
+  填其他 id 试验(改完即生效,无需重启)。注意该通道对代理出口 IP 也很挑剔——IDE
+  里的 chat 配额余量与内部生图接口是两套体系,429 时先换代理节点再试。
 
 ## 构建
 

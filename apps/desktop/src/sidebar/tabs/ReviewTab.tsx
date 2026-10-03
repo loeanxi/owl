@@ -11,6 +11,7 @@ import { t, useT } from "../../i18n/index.ts";
 import type { DiffApprovalFileSummary } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { samePath } from "../api.ts";
+import { consumeReviewFocus, REVIEW_FOCUS_EVENT } from "../review-focus.ts";
 import { DiffView } from "../DiffView.tsx";
 import { IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
 
@@ -52,6 +53,22 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 		});
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [cwd, client]);
+
+	// 对话流改动卡「工作台审查」的跳转：清单到位后选中并展开聚焦的文件
+	const applyFocus = (): void => {
+		if (files === undefined) return; // 清单未就绪：留在总线上，[files] effect 兜底消费
+		const focus = consumeReviewFocus();
+		if (focus === undefined) return;
+		const target = files.find((item) => item.displayPath.toLowerCase() === focus.toLowerCase());
+		if (target !== undefined) openDiff(target.id);
+	};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(applyFocus, [files]);
+	useEffect(() => {
+		window.addEventListener(REVIEW_FOCUS_EVENT, applyFocus);
+		return () => window.removeEventListener(REVIEW_FOCUS_EVENT, applyFocus);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [files]);
 
 	const act = async (action: () => Promise<unknown>): Promise<void> => {
 		setBusy(true);

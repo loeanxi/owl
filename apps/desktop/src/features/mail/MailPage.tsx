@@ -151,9 +151,14 @@ export function MailPage({
 
 	const request = useCallback(
 		async <T,>(payload: MailRequest): Promise<T> => {
-			const result = await client.request<T>({ type: "mail.request", request: payload });
-			if (!result.ok) throw new Error(result.error ?? t("mail.error"));
-			return result.result as T;
+			try {
+				const result = await client.request<T>({ type: "mail.request", request: payload });
+				if (!result.ok) throw new Error(result.error ?? t("mail.error"));
+				return result.result as T;
+			} catch (failure) {
+				if (failure instanceof Error && /^(bridge not connected|bridge disconnected)$/i.test(failure.message)) throw new Error(t("mail.offline"));
+				throw failure;
+			}
 		},
 		[client, t],
 	);

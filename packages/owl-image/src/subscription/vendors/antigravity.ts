@@ -334,7 +334,11 @@ export function antigravityImageBody(options: {
  * overridable per call: Google retires/renames these internal image models
  * without notice, so config  is the escape hatch instead of
  * waiting for a plugin release. */
-export function antigravityEnvelope(projectId: string, request: Record<string, unknown>, model?: string): Record<string, unknown> {
+export function antigravityEnvelope(
+	projectId: string,
+	request: Record<string, unknown>,
+	model?: string,
+): Record<string, unknown> {
 	return {
 		project: projectId,
 		model: model !== undefined && model.trim().length > 0 ? model.trim() : ANTIGRAVITY_IMAGE_MODEL,
@@ -360,6 +364,8 @@ export async function antigravityGenerateImage(options: {
 	blob: SubscriptionBlob;
 	projectId: string;
 	prompt: string;
+	/** Override the channel model id (config `googleSubModel` escape hatch). */
+	model?: string;
 	aspectRatio?: string;
 	hd?: boolean;
 	referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>;
@@ -416,12 +422,15 @@ export async function antigravityGenerateImage(options: {
 			lastError = error instanceof Error ? error.message : String(error);
 		}
 	}
-	// 常见失败的翻译:429/RESOURCE_EXHAUSTED 是 Google 侧的生图配额耗尽(通常是
-	// 每日限额,三个端点共用同一配额池,换端点无用),给出可操作指引而非裸 JSON。
+	// 常见失败的翻译:429/RESOURCE_EXHAUSTED 是 Google 侧生图配额/风控拒绝——注意
+	// 它与 Antigravity IDE 里看到的 chat 配额是两套体系(IDE 余量充足也可能被拒),
+	// 三个端点共用同一配额池,换端点无用;上游维护者确认该内部接口对出口节点 IP
+	// 非常挑剔,社区共享项目 id 的池子也可能被社区流量打爆。给出可操作指引而非裸 JSON。
 	if (/\b429\b|RESOURCE_EXHAUSTED/i.test(lastError)) {
 		throw new Error(
-			"Google 订阅 (Antigravity) 生图配额已用尽(429 RESOURCE_EXHAUSTED,通常是每日限额,按太平洋时间零点重置)。" +
-			"可等配额重置后重试;或在 设置 > 图像生成 里把默认 provider 临时切换为 Google Gemini(API key)/ OpenAI 兼容中转 / 本地 ComfyUI。",
+			"Google 订阅 (Antigravity) 生图请求被 429 RESOURCE_EXHAUSTED 拒绝(与 IDE 里的 chat 配额余量无关)。" +
+				"上游确认该接口对代理出口 IP 很挑剔:先换一个代理节点重试,再考虑等配额重置(太平洋时间零点);" +
+				"也可在 image-gen.json 配 googleSubModel 换模型 id,或临时切换其他 provider(Google Gemini API key / OpenAI 兼容中转 / 本地 ComfyUI)。",
 		);
 	}
 	if (/\b403\b|license/i.test(lastError)) {

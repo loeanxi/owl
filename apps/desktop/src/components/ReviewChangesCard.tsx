@@ -7,7 +7,7 @@
  * TurnArtifacts 是对话流的按轮包装：write/edit 产物走改动卡，其余（打开的
  * 文档等）保留原「成果文件」卡；没拿到桥客户端时整体回退旧卡。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { DiffApprovalFileSummary } from "../bridge/protocol.ts";
 import { createSidebarApi, samePath } from "../sidebar/api.ts";
@@ -15,7 +15,7 @@ import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { t, useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
-import { IconChevron, IconLoader, IconPencil, IconUndo } from "./icons.tsx";
+import { IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
 
 export interface ReviewChangesCardProps {
 	/** 本轮 write/edit 产物（工作区相对 POSIX 路径）。 */
@@ -39,11 +39,23 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 	const [diffText, setDiffText] = useState<ReadonlyMap<string, string>>(new Map());
 	const [diffLoading, setDiffLoading] = useState<ReadonlySet<string>>(new Set());
 	const [busy, setBusy] = useState(false);
+	// 展开集合的 ref 镜像：推送回调里免 stale closure
+	const expandedRef = useRef<ReadonlySet<string>>(new Set());
+	expandedRef.current = expanded;
 
 	const refresh = (): void => {
 		void api
 			.diffApprovalList(cwd)
-			.then(setList)
+			.then((next) => {
+				setList(next);
+				// 已展开的 diff 随推送刷新（外部改动/二次编辑后的活口径）
+				for (const id of expandedRef.current) {
+					void api
+						.diffApprovalDiff(cwd, id)
+						.then((result) => setDiffText((prev) => new Map(prev).set(id, result.diff)))
+						.catch(() => undefined);
+				}
+			})
 			.catch(() => setList(undefined));
 	};
 
@@ -93,6 +105,9 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 
 	const revert = (entryId: string): void => {
 		setBusy(true);
+		const next = new Set(expanded);
+		next.delete(entryId);
+		setExpanded(next);
 		void api
 			.diffApprovalResolve(cwd, [entryId], "revert")
 			.catch(() => undefined)
@@ -121,8 +136,7 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 						className="flex items-center gap-0.5 rounded px-1 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
 						onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}
 					>
-						{t("chat.reviewInWorkbench")}
-						<IconChevron size={11} className="rotate-180" />
+						{t("chat.reviewInWorkbench")} →
 					</button>
 				)}
 			</header>

@@ -8,6 +8,7 @@ import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTermin
 import { StartPage } from "./StartPage.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
+import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
@@ -360,9 +361,17 @@ function UserRowView({
 }
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (entryId: string) => void, cwd?: string, onOpenFile?: (path: string) => void): TimelineRow[] {
+function buildRows(
+	entries: ChatEntry[],
+	expandedTools: boolean,
+	onRewind: ((entryId: string) => void) | undefined,
+	cwd: string | undefined,
+	onOpenFile: ((path: string) => void) | undefined,
+	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null,
+): TimelineRow[] {
 	const rows: TimelineRow[] = [];
-	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd) : undefined;
+	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
+	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
 	let turn = 0;
 	let pendingTools: ToolCard[] = [];
 	const flushTools = (): void => {
@@ -381,7 +390,8 @@ function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (ent
 			flushTools();
 			const artifacts = historicalArtifacts?.get(index);
 			if (artifacts && onOpenFile) {
-				rows.push({ key: "artifacts-" + index, content: <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} /> });
+				const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
+				if (node) rows.push({ key: "artifacts-" + index, content: node });
 			}
 			turn += 1;
 			rows.push({
@@ -592,6 +602,8 @@ export function ChatStream({
 	navigationOpen = false,
 	onNavigationClose,
 	onRewind,
+	client,
+	onOpenReview,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -606,6 +618,10 @@ export function ChatStream({
 	onOpenFile?: (path: string) => void;
 	/** 用户消息 ↶ 回退（owl-rewind）：传了才渲染按钮，未带 entryId 的行不渲染。 */
 	onRewind?: (entryId: string) => void;
+	/** 桥客户端：历史轮的改动卡（diffApproval.*）需要；缺省回退旧「成果文件」卡。 */
+	client?: BridgeClient;
+	/** 历史轮改动卡的「工作台审查」跳转（带聚焦路径）。 */
+	onOpenReview?: (focusPath: string) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const container = useRef<HTMLElement>(null);
@@ -641,7 +657,16 @@ export function ChatStream({
 		window.addEventListener("owl-chat-appearance-change", update);
 		return () => window.removeEventListener("owl-chat-appearance-change", update);
 	}, []);
-	const rows = useMemo(() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile), [entries, expandedTools, onRewind, cwd, onOpenFile]);
+	const turnCard = useMemo(() => {
+		if (cwd === undefined || client === undefined || onOpenReview === undefined) return undefined;
+		return (turnArtifacts: FileArtifact[]): React.JSX.Element | null => (
+			<TurnArtifacts artifacts={turnArtifacts} cwd={cwd} client={client} onOpenFile={onOpenFile ?? (() => undefined)} onOpenReview={onOpenReview} />
+		);
+	}, [cwd, client, onOpenFile, onOpenReview]);
+	const rows = useMemo(
+		() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile, turnCard),
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard],
+	);
 
 	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
 	const latestShot = useMemo(() => {

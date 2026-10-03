@@ -142,7 +142,7 @@ export default function (pi: ExtensionAPI) {
 		active: ResolvedProvider,
 		args: SingleGenerationArgs,
 		env: GenerationEnv,
-		_config: OwlImageConfig,
+		config: OwlImageConfig,
 		proxy: string | undefined,
 	): Promise<{ image: GeneratedImage; model: string; output: string; seed?: number }> {
 		if (active.provider === "comfyui") {
@@ -168,6 +168,7 @@ export default function (pi: ExtensionAPI) {
 			const result = await withSubscriptionTimeout(
 				manager.generate({
 					prompt: args.prompt,
+					...(config.googleSubModel !== undefined && config.googleSubModel.trim().length > 0 ? { model: config.googleSubModel.trim() } : {}),
 					...params,
 					signal: env.signal,
 					proxy,
@@ -616,6 +617,7 @@ export default function (pi: ExtensionAPI) {
 				const result = await withSubscriptionTimeout(
 					manager.generate({
 						prompt: params.prompt,
+						...(config.googleSubModel !== undefined && config.googleSubModel.trim().length > 0 ? { model: config.googleSubModel.trim() } : {}),
 						...subParams,
 						referenceImages: references,
 						signal,

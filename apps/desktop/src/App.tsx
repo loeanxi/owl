@@ -12,7 +12,7 @@ import { MailPage } from "./features/mail/MailPage.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
-import { Artifacts } from "./components/Artifacts.tsx";
+import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
@@ -38,6 +38,7 @@ import { isIabPageBound, boundTabIdFor, encodeIabPath, agentPageForSession } fro
 import { BrowserSessionContext } from "./sidebar/registry.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
+import { focusReviewEntry } from "./sidebar/review-focus.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
 import { parseNotificationPrefs, setNotificationPrefs } from "./utils/notification-prefs.ts";
 import "./desktop-shell.css";
@@ -171,7 +172,7 @@ export default function App(): React.JSX.Element {
 	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
 	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
-	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "turn" }), [entries, workspaceDir]);
+	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "turn", includeCode: true }), [entries, workspaceDir]);
 	const [fileOpenError, setFileOpenError] = useState<string>();
 	useEffect(() => setFileOpenError(undefined), [sessionId, workspaceDir]);
 	const openTaskFile = (path: string): void => {
@@ -213,6 +214,12 @@ export default function App(): React.JSX.Element {
 		setWorkbenchOpenPersisted(true);
 	};
 
+	/** 对话流改动卡「工作台审查」跳转：先记下要选中的文件，再打开改动审批卡片。 */
+	const openWorkbenchReview = (focusPath?: string): void => {
+		if (focusPath !== undefined && focusPath !== "") focusReviewEntry(focusPath);
+		requestOpenKind("review");
+	};
+
 	const openDeveloper = (): void => {
 		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
 		setRailView("chat");
@@ -234,7 +241,7 @@ export default function App(): React.JSX.Element {
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
 	useEffect(() => client.onNewsOpen((message) => {
-		if (sessionIdRef.current && message.sessionId !== sessionIdRef.current) return;
+			if (message.sessionId !== sessionIdRef.current) return;
 		setShowSettings(false);
 		setRailView("news");
 		setNewsTarget({ kind: message.kind, id: message.id, revision: Date.now() });
@@ -286,6 +293,8 @@ export default function App(): React.JSX.Element {
 	};
 
 	useEffect(() => {
+		// A replaced bridge client must report its own connection before mailbox queries resume.
+		setConnected(false);
 		client.connect();
 		const offStatus = client.onStatus((up) => {
 			setConnected(up);
@@ -965,7 +974,7 @@ export default function App(): React.JSX.Element {
 							<ContextView client={client} cwd={workspaceDir} />
 						) : (
 							<>
-								<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} onRewind={handleRewindClick} />
+								<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} onRewind={handleRewindClick} />
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 						)}

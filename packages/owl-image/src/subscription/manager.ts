@@ -140,6 +140,8 @@ export class SubscriptionManager {
 	/** Generate one image through the logged-in account; b64 reply decoded host-side. */
 	async generate(options: {
 		prompt: string;
+		/** Override the channel model id (config `googleSubModel` escape hatch). */
+		model?: string;
 		size?: string;
 		quality?: string;
 		referenceImages?: ReadonlyArray<SubscriptionReferenceImage>;
@@ -161,6 +163,7 @@ export class SubscriptionManager {
 			blob: session,
 			projectId,
 			prompt: text,
+			...(options.model !== undefined && options.model.trim().length > 0 ? { model: options.model.trim() } : {}),
 			...(aspectRatio !== undefined ? { aspectRatio } : {}),
 			hd: options.quality === "hd" || options.quality === "high",
 			...(references.length > 0 ? { referenceImages: references } : {}),

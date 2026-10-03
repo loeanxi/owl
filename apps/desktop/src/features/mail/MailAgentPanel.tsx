@@ -34,6 +34,7 @@ export function MailAgentPanel({
 }): React.JSX.Element {
 	const t = useT();
 	const [prompt, setPrompt] = useState("");
+	const [draftExpanded, setDraftExpanded] = useState(true);
 	const formId = useId();
 	const active = agent.active;
 	const draft = active?.draft;
@@ -177,11 +178,11 @@ export function MailAgentPanel({
 				)}
 			</div>
 			{draft && (
-				<details open className="owl-mail-draft" key={`${active.id}-${draft.threadId ?? ""}`}>
-					<summary>
-						{t("mail.draft")} <span>{senderEmail}</span>
-					</summary>
-					<div className="owl-mail-draft-scroll">
+				<section className="owl-mail-draft" aria-label={t("mail.draft")} key={`${active.id}-${draft.threadId ?? ""}`}>
+					<button type="button" className="owl-mail-draft-heading" aria-expanded={draftExpanded} onClick={() => setDraftExpanded((value) => !value)}>
+						<span aria-hidden="true">{draftExpanded ? "⌄" : "›"}</span>{t("mail.draft")} <span>{senderEmail}</span>
+					</button>
+					{draftExpanded && <div className="owl-mail-draft-content"><div className="owl-mail-draft-scroll">
 						<div className="owl-mail-draft-from">
 							<span>{t("mail.from")}</span>
 							<strong>{senderEmail}</strong>
@@ -256,8 +257,8 @@ export function MailAgentPanel({
 						>
 							{t(draftBusy === "preview" ? "mail.preparing" : "mail.previewSend")}
 						</button>
-					</div>
-				</details>
+					</div></div>}
+				</section>
 			)}
 			<form
 				className="owl-mail-agent-composer"
