@@ -221,6 +221,32 @@ export interface SkillsListResult {
 	projectTrusted: boolean;
 	/** 该项目 settings.json 的 skills 覆盖模式原样带回（UI 判断勾选形态用）。 */
 	projectSkillPatterns: string[];
+	/** 项目内单独添加的技能（owlSkillExtras）。 */
+	projectExtras: string[];
+	/** 全局技能分组（owlSkillGroups）。 */
+	skillGroups: SkillGroupInfo[];
+}
+
+/** 技能分组（owlSkillGroups 的线上形态）：关联项目后组内技能对该项目生效。 */
+export interface SkillGroupInfo {
+	name: string;
+	skills: string[];
+	projects: string[];
+}
+
+export interface SkillsGroupsSaveRequest {
+	type: "skills.groups.save";
+	id: string;
+	/** 全量替换 owlSkillGroups（UI 在本地编辑组列表后整体保存）。 */
+	groups: SkillGroupInfo[];
+}
+
+export interface SkillsProjectExtrasRequest {
+	type: "skills.project.addExtras" | "skills.project.removeExtras";
+	id: string;
+	cwd: string;
+	/** 单独添加 / 移除的技能名。 */
+	names: string[];
 }
 
 export interface SkillsReadRequest {
@@ -1087,11 +1113,13 @@ export type DesktopClientRequest =
 	| SkillsListRequest
 	| SkillsReadRequest
 	| SkillsSetEnabledRequest
-	| SkillsCreateRequest
-	| SkillsUpdateRequest
-	| SkillsDeleteRequest
-	| SkillsSetProjectSelectionRequest
-	| SessionListRequest
+		| SkillsCreateRequest
+		| SkillsUpdateRequest
+		| SkillsDeleteRequest
+		| SkillsSetProjectSelectionRequest
+		| SkillsGroupsSaveRequest
+		| SkillsProjectExtrasRequest
+		| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

@@ -362,6 +362,8 @@ export function SettingsPage({
 		skills: [],
 		projectTrusted: false,
 		projectSkillPatterns: [],
+		projectExtras: [],
+		skillGroups: [],
 	});
 	const [skillsTab, setSkillsTab] = useState<SkillCenterTab>("personal");
 	const [skillsQuery, setSkillsQuery] = useState("");
@@ -2414,6 +2416,354 @@ export function SettingsPage({
 										</div>
 									)}
 								</SettingRow>
+							</>
+						)}
+
+						{/* -------- 图像生成（owl-image） -------- */}
+						{section === "image" && (
+							<>
+								<SectionHeader title={t("settings.image.title")} desc={t("settings.image.desc")} />
+								{imageData && !imageData.pluginInstalled && <div className="owl-settings-notice">{t("settings.image.pluginMissing")}</div>}
+
+								<SettingRow title={t("settings.image.provider")} desc={t("settings.image.providerDesc")}>
+									<select
+										className={input}
+										value={imageCfg.provider ?? "google"}
+										onChange={(event) => setImageCfg((prev) => ({ ...prev, provider: event.target.value as OwlImageProvider }))}
+									>
+										{OWL_IMAGE_PROVIDERS.map((provider) => (
+											<option key={provider} value={provider}>
+												{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}
+											</option>
+										))}
+									</select>
+								</SettingRow>
+
+								<SettingRow
+									title={t("settings.image.subTitle")}
+									desc={t("settings.image.subDesc")}
+									control={
+										<div className="flex items-center gap-1.5">
+											<span className={`rounded-full border px-2 py-0.5 text-[11px] ${imageData?.subscription.loggedIn ? "border-owl-accent/60 text-owl-accent" : "text-owl-faint"}`}>
+												{imageData?.subscription.loggedIn
+													? t("settings.image.subLoggedIn", { email: imageData.subscription.email ?? "" })
+													: t("settings.image.subLoggedOut")}
+											</span>
+											{imageData?.subscription.loggedIn ? (
+												<button type="button" className={btn} disabled={busy} onClick={() => void imageSubLogout()}>
+													{t("settings.image.subLogout")}
+												</button>
+											) : (
+												<button type="button" className={btnAccent} disabled={busy} onClick={() => void imageSubLogin()}>
+													{t("settings.image.subLogin")}
+												</button>
+											)}
+											<button type="button" className={btn} disabled={busy} onClick={() => void loadImageConfig()}>
+												{t("settings.image.subRefresh")}
+											</button>
+										</div>
+									}
+								>
+									{imageSubHint && <pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed text-owl-muted">{imageSubHint}</pre>}
+								</SettingRow>
+
+								<SettingRow title={t("settings.image.keysTitle")} desc={t("settings.image.keysDesc")}>
+									<div className="space-y-1.5">
+										{OWL_IMAGE_BYOK.map((provider) => {
+											const status = imageData?.keyStatus[provider];
+											const badge = status?.configured
+												? status.source === "env"
+													? t("settings.image.keyFromEnv")
+													: t("settings.image.keyFromConfig")
+												: t("settings.image.keyNotSet");
+											return (
+												<div key={provider} className="flex items-center gap-2">
+													<span className="w-36 shrink-0 text-xs text-owl-text">{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}</span>
+													<span className={`w-36 shrink-0 text-[11px] ${status?.configured ? "text-owl-accent" : "text-owl-faint"}`}>{badge}</span>
+													<input
+														className={`${input} mt-0 flex-1`}
+														type="password"
+														autoComplete="off"
+														placeholder="••••••••"
+														value={imageKeys[provider] ?? ""}
+														onChange={(event) => setImageKeys((prev) => ({ ...prev, [provider]: event.target.value }))}
+													/>
+													<label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-owl-muted">
+														<input
+															type="checkbox"
+															checked={imageKeyClear[provider] === true}
+															onChange={(event) => setImageKeyClear((prev) => ({ ...prev, [provider]: event.target.checked }))}
+														/>
+														{t("settings.image.keyClear")}
+													</label>
+												</div>
+											);
+										})}
+									</div>
+								</SettingRow>
+
+								<SettingRow title={t("settings.image.modelsTitle")} desc={t("settings.image.modelsDesc")}>
+									<div className="grid grid-cols-1 gap-2">
+										{(() => {
+											const provider = imageCfg.provider ?? "google";
+											const set = (patch: Partial<OwlImageConfigPublic>) => setImageCfg((prev) => ({ ...prev, ...patch }));
+											const field = (labelKey: TextKey, key: keyof OwlImageConfigPublic, placeholder?: string) => (
+												<label className="block">
+													<span className="text-[11px] text-owl-muted">{t(labelKey)}</span>
+													<input
+														className={`${input} mt-0.5`}
+														value={typeof imageCfg[key] === "string" ? (imageCfg[key] as string) : ""}
+														placeholder={placeholder}
+														onChange={(event) => set({ [key]: event.target.value } as Partial<OwlImageConfigPublic>)}
+													/>
+												</label>
+											);
+											if (provider === "google") {
+												return (
+													<>
+														{field("settings.image.model", "googleModel")}
+														{field("settings.image.endpoint", "googleEndpoint")}
+													</>
+												);
+											}
+											if (provider === "openai") {
+												return (
+													<>
+														{field("settings.image.baseURL", "openaiBaseURL")}
+														{field("settings.image.model", "openaiModel")}
+													</>
+												);
+											}
+											if (provider === "openai-compat") {
+												return (
+													<>
+														{field("settings.image.baseURL", "openaiCompatBaseURL")}
+														{field("settings.image.model", "openaiCompatModel")}
+														<label className="block">
+															<span className="text-[11px] text-owl-muted">{t("settings.image.editFormat")}</span>
+															<select
+																className={`${input} mt-0.5`}
+																value={imageCfg.openaiCompatEditFormat ?? "multipart"}
+																onChange={(event) => set({ openaiCompatEditFormat: event.target.value as "multipart" | "jsonImageUrlArray" | "formReferenceImages" })}
+															>
+																<option value="multipart">multipart</option>
+																<option value="jsonImageUrlArray">jsonImageUrlArray</option>
+																<option value="formReferenceImages">formReferenceImages</option>
+															</select>
+														</label>
+													</>
+												);
+											}
+											if (provider === "seedream") {
+												return (
+													<>
+														{field("settings.image.baseURL", "seedreamBaseURL")}
+														{field("settings.image.model", "seedreamModel")}
+														<div className="grid grid-cols-3 gap-2">
+															<label className="block">
+																<span className="text-[11px] text-owl-muted">{t("settings.image.outputFormat")}</span>
+																<select
+																	className={`${input} mt-0.5`}
+																	value={imageCfg.seedreamOutputFormat ?? "jpeg"}
+																	onChange={(event) => set({ seedreamOutputFormat: event.target.value as "png" | "jpeg" })}
+																>
+																	<option value="jpeg">jpeg</option>
+																	<option value="png">png</option>
+																</select>
+															</label>
+															<label className="block">
+																<span className="text-[11px] text-owl-muted">{t("settings.image.watermark")}</span>
+																<select
+																	className={`${input} mt-0.5`}
+																	value={imageCfg.seedreamWatermark === false ? "off" : "on"}
+																	onChange={(event) => set({ seedreamWatermark: event.target.value !== "off" })}
+																>
+																	<option value="on">on</option>
+																	<option value="off">off</option>
+																</select>
+															</label>
+															<label className="block">
+																<span className="text-[11px] text-owl-muted">{t("settings.image.background")}</span>
+																<select
+																	className={`${input} mt-0.5`}
+																	value={imageCfg.seedreamBackground ?? "opaque"}
+																	onChange={(event) => set({ seedreamBackground: event.target.value as "opaque" | "transparent" })}
+																>
+																	<option value="opaque">opaque</option>
+																	<option value="transparent">transparent</option>
+																</select>
+															</label>
+														</div>
+													</>
+												);
+											}
+											if (provider === "dashscope") {
+												return (
+													<>
+														{field("settings.image.endpoint", "dashscopeEndpoint")}
+														{field("settings.image.model", "dashscopeModel")}
+													</>
+												);
+											}
+											if (provider === "xai") {
+												return (
+													<>
+														{field("settings.image.baseURL", "xaiBaseURL")}
+														{field("settings.image.model", "xaiModel")}
+													</>
+												);
+											}
+											if (provider === "zhipu") {
+												return (
+													<>
+														{field("settings.image.baseURL", "zhipuBaseURL")}
+														{field("settings.image.model", "zhipuModel")}
+													</>
+												);
+											}
+											if (provider === "comfyui") {
+												const workflows = imageCfg.comfyuiWorkflows ?? [];
+												return (
+													<>
+														{field("settings.image.baseURL", "comfyuiBaseURL", "http://127.0.0.1:8188")}
+														<label className="block">
+															<span className="text-[11px] text-owl-muted">{t("settings.image.timeout")}</span>
+															<input
+																className={`${input} mt-0.5`}
+																type="number"
+																min={1}
+																max={3600}
+																value={imageCfg.comfyuiTimeoutMs ? Math.round(imageCfg.comfyuiTimeoutMs / 1000) : 300}
+																onChange={(event) => set({ comfyuiTimeoutMs: Math.max(1, Math.min(3600, Number(event.target.value) || 300)) * 1000 })}
+															/>
+														</label>
+														<div className="space-y-1.5">
+															<span className="text-[11px] text-owl-muted">{t("settings.image.comfyTitle")}</span>
+															{workflows.length === 0 && <p className="text-[11px] text-owl-faint">{t("settings.image.comfyDesc")}</p>}
+															{workflows.map((workflow) => (
+																<div key={workflow.name} className="flex items-center gap-1.5 rounded-lg bg-owl-sidebar/60 px-2.5 py-1.5">
+																	<span className="min-w-0 flex-1 truncate text-xs text-owl-text">{workflow.name}</span>
+																	{imageCfg.comfyuiActiveWorkflow === workflow.name ? (
+																		<span className="shrink-0 text-[11px] text-owl-accent">✓</span>
+																	) : (
+																		<button
+																			type="button"
+																			className={`${btn} shrink-0`}
+																			disabled={busy}
+																			onClick={() => set({ comfyuiActiveWorkflow: workflow.name })}
+																		>
+																			{t("settings.image.comfySetActive")}
+																		</button>
+																	)}
+																	<button
+																		type="button"
+																		className={`${btn} shrink-0 hover:border-red-500/60 hover:text-red-300`}
+																		disabled={busy}
+																		onClick={() => {
+																			const rest = workflows.filter((w) => w.name !== workflow.name);
+																			set({
+																				comfyuiWorkflows: rest,
+																				...(imageCfg.comfyuiActiveWorkflow === workflow.name ? { comfyuiActiveWorkflow: rest[0]?.name ?? "" } : {}),
+																			});
+																		}}
+																	>
+																		{t("settings.image.comfyDelete")}
+																	</button>
+																</div>
+															))}
+															<div className="space-y-1 rounded-lg border border-owl-border p-2">
+																<input className={`${input} mt-0`} placeholder={t("settings.image.comfyNamePlaceholder")} value={comfyForm.name} onChange={(event) => setComfyForm((prev) => ({ ...prev, name: event.target.value }))} />
+																<input className={`${input} mt-0`} placeholder={t("settings.image.comfyPreset")} value={comfyForm.preset} onChange={(event) => setComfyForm((prev) => ({ ...prev, preset: event.target.value }))} />
+																<textarea
+																	className={`${input} mt-0 h-24 resize-y`}
+																	placeholder={t("settings.image.comfyJsonPlaceholder")}
+																	value={comfyForm.json}
+																	spellCheck={false}
+																	onChange={(event) => setComfyForm((prev) => ({ ...prev, json: event.target.value }))}
+																/>
+																<div className="flex justify-end">
+																	<button type="button" className={btn} disabled={busy} onClick={addComfyWorkflow}>
+																		{t("settings.image.comfyAdd")}
+																	</button>
+																</div>
+															</div>
+														</div>
+													</>
+												);
+											}
+											return <p className="text-[11px] text-owl-faint">{t("settings.image.subDesc")}</p>;
+										})()}
+									</div>
+								</SettingRow>
+
+								<SettingRow title={t("settings.image.generalTitle")}>
+									<div className="space-y-2">
+										<label className="flex items-center gap-2 text-xs text-owl-text">
+											<input
+												type="checkbox"
+												checked={imageCfg.saveToWorkspace !== false}
+												onChange={(event) => setImageCfg((prev) => ({ ...prev, saveToWorkspace: event.target.checked }))}
+											/>
+											<span>
+												{t("settings.image.saveWs")}
+												<span className="ml-1 text-[11px] text-owl-faint">{t("settings.image.saveWsDesc")}</span>
+											</span>
+										</label>
+										{imageCfg.saveToWorkspace !== false && (
+											<label className="block">
+												<span className="text-[11px] text-owl-muted">{t("settings.image.folder")}</span>
+												<input
+													className={`${input} mt-0.5`}
+													value={imageCfg.workspaceFolder ?? "owl-image"}
+													onChange={(event) => setImageCfg((prev) => ({ ...prev, workspaceFolder: event.target.value }))}
+												/>
+											</label>
+										)}
+										<label className="flex items-center gap-2 text-xs text-owl-text">
+											<input
+												type="checkbox"
+												checked={imageCfg.attachImageToResult !== false}
+												onChange={(event) => setImageCfg((prev) => ({ ...prev, attachImageToResult: event.target.checked }))}
+											/>
+											<span>
+												{t("settings.image.attach")}
+												<span className="ml-1 text-[11px] text-owl-faint">{t("settings.image.attachDesc")}</span>
+											</span>
+										</label>
+										<div className="grid grid-cols-2 gap-2">
+											<label className="block">
+												<span className="text-[11px] text-owl-muted">{t("settings.image.maxBytes")}</span>
+												<input
+													className={`${input} mt-0.5`}
+													type="number"
+													min={1}
+													max={64}
+													value={Math.round((imageCfg.maxImageBytes ?? 10 * 1024 * 1024) / (1024 * 1024))}
+													onChange={(event) => setImageCfg((prev) => ({ ...prev, maxImageBytes: Math.max(1, Math.min(64, Number(event.target.value) || 10)) * 1024 * 1024 }))}
+												/>
+											</label>
+											<label className="block">
+												<span className="text-[11px] text-owl-muted">{t("settings.image.proxy")}</span>
+												<input
+													className={`${input} mt-0.5`}
+													placeholder={t("settings.image.proxyPlaceholder")}
+													value={imageCfg.proxy ?? ""}
+													onChange={(event) => setImageCfg((prev) => ({ ...prev, proxy: event.target.value }))}
+												/>
+											</label>
+										</div>
+									</div>
+								</SettingRow>
+
+								<div className="flex items-center justify-end gap-2">
+									{imageSaved && <span className="text-[11px] text-owl-accent">{t("settings.image.saved")}</span>}
+									{imageData && (
+										<span className="mr-auto text-[10px] text-owl-faint">{imageData.configPath}</span>
+									)}
+									<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveImageConfig()}>
+										{t("settings.image.save")}
+									</button>
+								</div>
 							</>
 						)}
 

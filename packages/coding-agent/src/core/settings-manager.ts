@@ -232,10 +232,22 @@ export interface Settings {
 	owlCustomPrompt?: string;
 	/** Owl 桌面端：助手对用户的长期印象。随会话注入系统提示词，可由模型的 update_user_impression 工具或设置页维护。 */
 	owlUserImpression?: string;
+	/** Owl 技能中心：技能分组（全局定义）。组关联项目后，组内技能对该项目生效。 */
+	owlSkillGroups?: OwlSkillGroup[];
+	/** Owl 技能中心：项目内单独添加的技能（项目 settings.json，与关联组取并集）。 */
+	owlSkillExtras?: string[];
 	/** Owl 跨会话记忆：自动抽取历史会话中的稳定事实并注入系统提示词。条目在设置页与 /memory 可见可删。 */
 	owlMemory?: OwlMemorySettings;
 	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
 	owlSidebar?: OwlSidebarSettings;
+}
+
+/** Owl 技能分组：命名的技能集合 + 关联的项目目录列表。 */
+export interface OwlSkillGroup {
+	name: string;
+	skills: string[];
+	/** 关联的项目绝对路径；组内技能对这些项目生效。 */
+	projects: string[];
 }
 
 export interface OwlMemorySettings {
@@ -1324,6 +1336,23 @@ export class SettingsManager {
 		this.updateProjectSettings("skills", (settings) => {
 			settings.skills = paths;
 		});
+	}
+
+	/** 项目内单独添加的技能（技能中心「+ 单独添加」，与关联组取并集）。 */
+	setProjectOwlSkillExtras(extras: string[]): void {
+		this.updateProjectSettings("owlSkillExtras", (settings) => {
+			settings.owlSkillExtras = extras;
+		});
+	}
+
+	getOwlSkillGroups(): OwlSkillGroup[] {
+		return this.globalSettings.owlSkillGroups ?? [];
+	}
+
+	setOwlSkillGroups(groups: OwlSkillGroup[]): void {
+		this.globalSettings.owlSkillGroups = groups;
+		this.markModified("owlSkillGroups");
+		this.save();
 	}
 
 	getPromptTemplatePaths(): string[] {

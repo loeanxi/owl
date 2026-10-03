@@ -534,6 +534,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 	}
 
+	let globalSettingsManagerPromise: Promise<SettingsManager | null> | undefined;
+
 	/** 项目是否已信任（技能中心项目 tab 的读写门槛；读不出设置就当未信任）。 */
 	async function isProjectTrustedFor(cwd: string): Promise<boolean> {
 		return (await getSettingsManagerFor(cwd))?.isProjectTrusted() ?? false;
@@ -543,11 +545,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	 * 技能中心的写操作落盘后，让该 cwd 已挂载会话的资源加载器重扫，
 	 * 下一条消息即用新目录（无挂载会话时静默跳过 —— 新会话自然生效）。
 	 */
-	async function reloadMountedSkillSessions(cwd: string): Promise<void> {
-		const resolved = resolve(cwd).toLowerCase();
+	async function reloadMountedSkillSessions(cwd?: string): Promise<void> {
+		const resolved = cwd === undefined ? null : resolve(cwd).toLowerCase();
 		await Promise.all(
 			[...sessions.values()].map(async ({ runtime }) => {
-				if (resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) return;
+				if (resolved !== null && resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) return;
 				try {
 					await runtime.session.reload();
 				} catch (error) {
@@ -555,6 +557,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 			}),
 		);
+	}
+
+	/** 全局设置管理器（技能分组存全局；懒创建，进程内复用）。 */
+	function getGlobalSettingsManager(): Promise<SettingsManager | null> {
+		globalSettingsManagerPromise ??= getSettingsManagerFor(options.cwd ?? process.cwd());
+		return globalSettingsManagerPromise;
 	}
 
 	async function getListingServices(): Promise<AgentSessionServices> {
@@ -1151,19 +1159,60 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "skills.list": {
 				const cwd = request.cwd ?? options.cwd ?? process.cwd();
 				const projectSettings = await getSettingsManagerFor(cwd);
+				const globalSettings = await getGlobalSettingsManager();
 				reply(ws, request.id, {
 					ok: true,
-					result: listSkills(
-						cwd,
-						projectSettings?.isProjectTrusted() ?? false,
-						options.agentDir,
-						projectSettings?.getProjectSettings().skills ?? [],
-					),
+					result: listSkills(cwd, projectSettings?.isProjectTrusted() ?? false, options.agentDir, {
+						skillOverrides: projectSettings?.getProjectSettings().skills ?? [],
+						groups: globalSettings?.getOwlSkillGroups() ?? [],
+						extras: projectSettings?.getProjectSettings().owlSkillExtras ?? [],
+					}),
 				});
 				return;
 			}
+			case "skills.groups.save": {
+				// 全量替换 owlSkillGroups（分组 tab 的编辑弹窗整体保存）
+				try {
+					const settingsManager = await getGlobalSettingsManager();
+					if (!settingsManager) throw new Error("设置管理器不可用");
+					settingsManager.setOwlSkillGroups(request.groups);
+					await reloadMountedSkillSessions();
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `保存技能分组失败：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
+			case "skills.project.addExtras":
+			case "skills.project.removeExtras": {
+				// 项目内单独添加 / 移除技能（owlSkillExtras，与关联组取并集）
+				const settingsManager = await getSettingsManagerFor(request.cwd);
+				if (!settingsManager?.isProjectTrusted()) {
+					reply(ws, request.id, { ok: false, error: "项目尚未信任，无法修改项目技能" });
+					return;
+				}
+				try {
+					const current = new Set(settingsManager.getProjectSettings().owlSkillExtras ?? []);
+					for (const name of request.names) {
+						if (request.type === "skills.project.addExtras") current.add(name);
+						else current.delete(name);
+					}
+					settingsManager.setProjectOwlSkillExtras([...current]);
+					await reloadMountedSkillSessions(request.cwd);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `保存项目技能失败：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
 			case "skills.setProjectSelection": {
-				// 勾选本项目需要的技能（opt-out）→ 项目 settings.json 的 skills 覆盖模式
+				// 生效清单里的行级勾选（opt-out）→ 项目 settings.json 的 skills 覆盖模式
 				const settingsManager = await getSettingsManagerFor(request.cwd);
 				if (!settingsManager?.isProjectTrusted()) {
 					reply(ws, request.id, { ok: false, error: "项目尚未信任，无法修改项目技能选择" });

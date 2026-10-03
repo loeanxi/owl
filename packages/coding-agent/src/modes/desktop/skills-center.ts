@@ -95,35 +95,68 @@ function scanTab(tab: SkillCenterTab, root: string): SkillCenterEntry[] {
 }
 
 /**
+ * 项目的生效技能集 = 关联组的技能 ∪ 项目单独添加（owlSkillExtras）。
+ * 组是活集合：组内以后新增的成员自动对已关联项目生效。
+ */
+export function computeEffectiveSkills(
+	cwd: string,
+	groups: { name?: string; skills: string[]; projects: string[] }[],
+	extras: string[],
+): Set<string> {
+	const effective = new Set<string>();
+	for (const group of groups) {
+		if (!group.projects.some((p) => resolve(p) === resolve(cwd))) continue;
+		for (const name of group.skills) effective.add(name);
+	}
+	for (const name of extras) effective.add(name);
+	return effective;
+}
+
+/**
  * 列出三个 tab 的全部技能（单 tab 失败不影响其他 tab）。
- * `skillOverrides` 是该项目 settings.json 的 skills 覆盖模式：有配置时逐条
- * 计算 projectEnabled（与 core 的 isEnabledByOverrides 同一实现），UI 的
- * 「勾选本项目需要的技能」直接以此渲染。
+ *
+ * projectEnabled 的语义（v2 模型）：生效集 = 关联组技能 ∪ 单独添加；
+ * 生效集内再按项目 settings.skills 的 `!名字` 模式做行级排除。
+ * 生效集之外的个人/全局技能照常列出（个人/全局 tab 管理），只是对本项目不生效。
  */
 export function listSkills(
 	cwd: string,
 	projectTrusted: boolean,
 	agentDir?: string,
-	skillOverrides?: string[],
+	options?: {
+		/** 项目 settings.json 的 skills 覆盖模式（行级排除）。 */
+		skillOverrides?: string[];
+		/** 全局技能分组（owlSkillGroups）。 */
+		groups?: { name: string; skills: string[]; projects: string[] }[];
+		/** 项目单独添加的技能（owlSkillExtras）。 */
+		extras?: string[];
+	},
 ): SkillsListResult {
 	const roots = resolveSkillRoots(cwd, agentDir);
+	const overrides = options?.skillOverrides ?? [];
+	const effective = computeEffectiveSkills(cwd, options?.groups ?? [], options?.extras ?? []);
 	const skills: SkillCenterEntry[] = [];
 	for (const tab of ["personal", "global", "project"] as const) {
 		if (tab === "project" && !projectTrusted) continue;
 		try {
 			const entries = scanTab(tab, roots[tab]);
-			if (skillOverrides) {
-				const baseDir = dirname(roots[tab]);
-				for (const entry of entries) {
-					entry.projectEnabled = isEnabledByOverrides(entry.path, skillOverrides, baseDir);
-				}
+			const baseDir = dirname(roots[tab]);
+			for (const entry of entries) {
+				entry.projectEnabled = effective.has(entry.name) && isEnabledByOverrides(entry.path, overrides, baseDir);
 			}
 			skills.push(...entries);
 		} catch {
 			// 单个根读不了（权限等）就跳过，不让整个面板挂掉
 		}
 	}
-	return { roots, skills, projectTrusted, projectSkillPatterns: skillOverrides ?? [] };
+	return {
+		roots,
+		skills,
+		projectTrusted,
+		projectSkillPatterns: overrides,
+		projectExtras: options?.extras ?? [],
+		skillGroups: options?.groups ?? [],
+	};
 }
 
 /** 项目 skills 模式的三种形态：未配置（全部可用）/ 纯 `!名字` 禁用列表 / 含手写 glob 的自定义模式。 */

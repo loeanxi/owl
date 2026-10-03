@@ -24,6 +24,28 @@
 | `/image-logout` | 退出 Google 订阅账号 |
 | `/image-status` | 查看各 provider 配置状态 |
 
+桌面端还有**设置页**:设置 →「图像生成」分区,可视化编辑全部配置(见下)。
+
+## 桌面设置页
+
+设置页「图像生成」分区与 `image-gen.json` 同源(桥端直接读写该文件,插件每次工具
+调用现读,保存即时生效、无需重启):
+
+- **默认 provider** 下拉(9 家)
+- **Google 订阅**:登录状态徽章 + 登录/退出/刷新。登录走桥协议 `imageSub.login`,
+  桥动态 import 插件 dist 暴露的 `beginGoogleSubscriptionLogin`(与 `/image-login`
+  同一实现),起回环服务器并自动开浏览器
+- **API Keys**:7 家 BYOK 逐行密码框;状态徽章区分「配置文件/环境变量」来源;留空
+  保持不变,勾选「清除」删配置行。**密钥明文永不下发 UI**,协议里只有存在性
+- **模型与端点**:按当前 provider 显示对应字段(google/openai/compat/seedream/
+  dashscope/xai/zhipu 各自的 baseURL+model;compat 另有 edits 请求形态;seedream
+  另有输出格式/水印/背景)
+- **ComfyUI 工作流**:列表(设默认/删除)+ 添加表单(名称/前置提示词/JSON 粘贴框),
+  客户端与服务端双重校验 JSON 与 `{{prompt}}` 占位符
+- **输出**:落盘开关与子目录、图片是否回传给模型(省 token)、单图上限(MB)、代理
+
+写入走白名单:未知字段原样保留(向前兼容),字符串裁剪、数字夹紧、枚举校验。
+
 ## Provider
 
 | provider | 凭据 | 说明 |
@@ -83,7 +105,9 @@ npm run typecheck
 
 ```bash
 cd /d/owl/owl-re-v1
-node smoke/owl-image-check.mjs   # 9 项:真实加载链路 + 工具注册 + 灵感检索 + 错误路径,全程不碰网络
+node smoke/owl-image-check.mjs          # 9 项:真实加载链路 + 工具注册 + 灵感检索 + 错误路径,不碰网络
+node smoke/owl-image-settings-check.mjs # 17 项:桥端设置数据面(白名单写入/密钥合并/插件发现/订阅状态)
+node smoke/owl-image-bridge-check.mjs   # 13 项:真实 serve + WS 端到端(4 条新路由;登录用假插件包验证,不开浏览器)
 ```
 
 ## 与上游(dsh-image-gen)的差异
