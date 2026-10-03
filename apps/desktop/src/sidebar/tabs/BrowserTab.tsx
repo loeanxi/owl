@@ -195,9 +195,10 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	// （attach 时首帧可能丢）就重发一次 attach，让桥重新抓全量帧。
 	useEffect(() => {
 		if (!page) return;
-		bindIabPage(page.pageId);
+		bindIabPage(page.pageId, tab.id);
 		void client.request({ type: "iab.attach", pageId: page.pageId }).catch(() => {});
 		const boundPageId = page.pageId;
+		const boundTabId = tab.id;
 		const retryTimer = setTimeout(() => {
 			if (!frameRef.current) {
 				void client.request({ type: "iab.attach", pageId: boundPageId }).catch(() => {});
@@ -205,7 +206,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		}, 3_000);
 		return () => {
 			clearTimeout(retryTimer);
-			unbindIabPage(boundPageId);
+			unbindIabPage(boundPageId, boundTabId);
 			void client.request({ type: "iab.detach", pageId: boundPageId }).catch(() => {});
 		};
 	}, [page?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps

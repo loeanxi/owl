@@ -1,20 +1,26 @@
 /**
  * 当前已绑定到 IAB 页面的工作台浏览器 tab 登记（模块级单例：桌面端只有一个
- * 工作台实例）。App 据此判断「agent 打开的页面是否已有面板在看」——没有才
- * 自动开新 tab，避免同一个页面被重复弹面板。
+ * 工作台实例）。App 据此判断「agent 打开的页面是否已有面板在看」：没有才开
+ * 新 tab；有则激活那个 tab（store.activate），避免同一个页面被重复弹面板。
  */
-const boundPages = new Set<string>();
+const boundPages = new Map<string, string>(); // pageId → 工作台 tab id
 
-export function bindIabPage(pageId: string): void {
-	boundPages.add(pageId);
+export function bindIabPage(pageId: string, tabId: string): void {
+	boundPages.set(pageId, tabId);
 }
 
-export function unbindIabPage(pageId: string): void {
-	boundPages.delete(pageId);
+export function unbindIabPage(pageId: string, tabId: string): void {
+	// 多个 tab 可能先后绑过同一页：只清掉仍是自己登记的那条
+	if (boundPages.get(pageId) === tabId) boundPages.delete(pageId);
 }
 
 export function isIabPageBound(pageId: string): boolean {
 	return boundPages.has(pageId);
+}
+
+/** 找到绑定某页面的工作台 tab id（App 据此激活已存在的面板）。 */
+export function boundTabIdFor(pageId: string): string | undefined {
+	return boundPages.get(pageId);
 }
 
 /**

@@ -17,7 +17,7 @@ import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
-import { isIabPageBound, encodeIabPath } from "./sidebar/iab-bound.ts";
+import { isIabPageBound, boundTabIdFor, encodeIabPath } from "./sidebar/iab-bound.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -238,11 +238,10 @@ export default function App(): React.JSX.Element {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
 				const target = message.pages.find((page) => page.active) ?? message.pages[0];
 				if (!target) return;
-				// 没有面板在看这个页面才开新 tab；已有面板也把底栏切到右列，
-				// 否则 agent 的操作被压在 167px 的条里根本看不清
-				if (!isIabPageBound(target.pageId)) {
-					workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
-				}
+				// 已有面板在看：直接激活那个 tab；没有才开新 tab
+				const boundTabId = isIabPageBound(target.pageId) ? boundTabIdFor(target.pageId) : undefined;
+				if (boundTabId) workbenchStore.activate(boundTabId);
+				else workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
 				if (dockRef.current !== "right") setDockPersisted("right");
 				setWorkbenchOpenPersisted(true);
 			});

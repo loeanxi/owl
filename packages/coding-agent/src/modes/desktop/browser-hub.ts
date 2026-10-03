@@ -349,13 +349,16 @@ export class BrowserHub {
 		return entry;
 	}
 
-	/** 工具执行包裹：期间产生的事件标 origin=agent（UI 据此自动开面板）。 */
+	/** 工具执行包裹：期间产生的事件标 origin=agent（UI 据此自动开面板）。
+	 *  收尾时无条件广播一次页面清单——snapshot/screenshot 这类不改变页面
+	 *  清单的操作也要让 UI 知道「agent 在动浏览器」（停靠位切右列等联动）。 */
 	private async withAgent<T>(operation: () => Promise<T>): Promise<T> {
 		this.origin = "agent";
 		try {
 			return await operation();
 		} finally {
 			this.origin = "ui";
+			this.emitPages();
 		}
 	}
 
