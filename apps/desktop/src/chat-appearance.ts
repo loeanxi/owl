@@ -48,4 +48,5 @@ export function applyChatAppearance(value: ChatAppearance): void {
 	root.style.setProperty("--owl-chat-width", `${value.width}px`);
 	root.dataset.owlToolRecords = value.toolRecords;
 	root.dataset.owlChatMotion = value.motion ? "on" : "off";
+	window.dispatchEvent(new Event("owl-chat-appearance-change"));
 }

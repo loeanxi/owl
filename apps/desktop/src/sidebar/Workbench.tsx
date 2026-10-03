@@ -18,6 +18,7 @@ import { useTabRegistry, type TabComponentProps } from "./registry.ts";
 import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
 import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
 import { fileUrlOf } from "./api.ts";
+import "./workbench-design.css";
 
 const WIDTH_KEY = "owl.workbench.width";
 const HEIGHT_KEY = "owl.workbench.height";
@@ -38,6 +39,7 @@ export interface WorkbenchProps {
 
 const HEIGHT_MIN = 140;
 const WIDTH_MIN = 280;
+const DESIGNED_TAB_KINDS = new Set(["files", "changes", "editor", "terminal", "browser", "tasks", "impression", "image"]);
 
 interface DragState {
 	id: string;
@@ -64,6 +66,8 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
+	const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
+	const activeDefinition = activeTab === undefined ? undefined : registry.byKind.get(activeTab.kind);
 	// 侧边卡片配置（设置页「侧边卡片」）：工具行/空态卡片的可见性与文件预览回退
 	const cfg = useSidebarConfig();
 	const [gitStatus, setGitStatus] = useState<GitStatusResult | undefined>(undefined);
@@ -295,11 +299,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 					else leafRefs.current.delete(leaf.id);
 				}}
 				style={style}
-				className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"
+				className="owl-workbench-leaf relative flex min-h-0 min-w-0 flex-col overflow-hidden"
 			>
 				{/* leaf 的 tab 条 */}
 				{leaf.tabs.length > 0 && (
-					<div className="flex shrink-0 select-none items-stretch overflow-x-auto border-b border-owl-border/40 bg-owl-rail/60">
+					<div className="owl-workbench-tabs flex shrink-0 select-none items-stretch overflow-x-auto" aria-label="已打开的工作台标签">
 						{leaf.tabs.map((tab) => {
 							const def = registry.byKind.get(tab.kind);
 							const isActive = tab.id === leaf.activeTab;
@@ -308,7 +312,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 									key={tab.id}
 									role="button"
 									tabIndex={0}
-									title={tab.path}
+									title={tab.path ?? tab.title}
+									aria-label={tab.title}
+									aria-pressed={isActive}
 									onMouseDown={(e) => beginTabDrag(tab, e)}
 									onClick={() => {
 										if (!justDraggedRef.current) store.activate(tab.id);
@@ -317,25 +323,28 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 										if (e.button === 1) store.closeTab(tab.id);
 									}}
 									onKeyDown={(e) => {
-										if (e.key === "Enter") store.activate(tab.id);
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											store.activate(tab.id);
+										}
 									}}
-									className={`group flex max-w-44 shrink-0 cursor-pointer items-center gap-1.5 border-r border-owl-border/30 px-2.5 py-1.5 text-xs ${
-										isActive ? "bg-owl-sidebar text-owl-text" : "text-owl-muted hover:text-owl-text"
-									}`}
+									className={`owl-workbench-tab group ${isActive ? "is-active" : ""}`}
 								>
-									{def?.icon(12)}
+									{def?.icon(14)}
 									<span className="min-w-0 truncate">{tab.title}</span>
 									{state.dirty[tab.id] === true && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="未保存" />}
 									<button
 										type="button"
-										className="ml-0.5 shrink-0 rounded p-0.5 text-owl-faint opacity-0 group-hover:opacity-100 hover:bg-owl-hover hover:text-owl-text"
+										className="owl-workbench-tab-close"
+										title={`关闭 ${tab.title}`}
+										aria-label={`关闭 ${tab.title}`}
 										onMouseDown={(e) => e.stopPropagation()}
 										onClick={(e) => {
 											e.stopPropagation();
 											store.closeTab(tab.id);
 										}}
 									>
-										<IconX size={10} />
+										<IconX size={12} />
 									</button>
 								</div>
 							);
@@ -347,12 +356,16 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 				<div className="relative min-h-0 flex-1 overflow-hidden">
 					{leaf.tabs.length === 0 ? (
 						/* 空 leaf：DSH paneEmptyCards 同款卡片（放进当前 leaf） */
-						<div className="grid h-full content-start gap-2.5 overflow-y-auto p-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+						<div className="owl-workbench-empty grid h-full content-start gap-2.5 overflow-y-auto [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+							<div className="owl-workbench-empty-heading">
+								<strong>打开你的工作工具</strong>
+								<p>文件、代码和执行结果，在同一个工作台查看。</p>
+								</div>
 							{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => (
 								<button
 									key={action.kind}
 									type="button"
-									className="flex min-h-12 items-center gap-3 rounded-xl border border-owl-border/60 bg-owl-panel px-3.5 text-left text-xs text-owl-text transition-colors hover:bg-owl-hover"
+									className="owl-workbench-empty-card flex min-h-12 items-center gap-3 px-3.5 text-left"
 									onClick={() => {
 										store.activateLeaf(leaf.id);
 										openQuickAction(store, action.kind);
@@ -372,7 +385,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 							const Component = def.component;
 							const isActive = tab.id === leaf.activeTab;
 							return (
-								<div key={tab.id} className={`h-full ${isActive ? "" : "hidden"}`}>
+								<div
+									key={tab.id}
+									data-tab-kind={tab.kind}
+									className={`owl-workbench-pane ${DESIGNED_TAB_KINDS.has(tab.kind) ? "owl-workbench-designed-pane" : ""} h-full ${isActive ? "" : "hidden"}`}
+								>
 									<Suspense
 										fallback={
 											<div className="flex h-full items-center justify-center">
@@ -397,13 +414,15 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	};
 
 	const dockButtonClass = (active: boolean): string =>
-		`rounded-md p-1.5 transition-colors ${active ? "bg-owl-hover text-owl-text" : "text-owl-faint hover:bg-owl-hover hover:text-owl-text"}`;
+		`owl-workbench-icon-button ${active ? "is-active" : ""}`;
 
 	return (
 		<aside
-			className={`${open ? "" : "hidden"} relative flex flex-col ${
+			className={`owl-workbench-shell ${open ? "" : "hidden"} relative flex flex-col ${
 				dock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
-			} border-owl-border/60 bg-owl-sidebar`}
+			}`}
+			aria-label="工作台"
+			data-dock={dock}
 			style={dock === "right" ? { width } : { height }}
 		>
 			{/* 拖拽条：右停靠在左缘调宽，底停靠在顶缘调高 */}
@@ -414,33 +433,39 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			)}
 
 			{/* 工具行：快捷单例（彩色图标）+ 停靠切换 + 关闭 */}
-			<div className="flex shrink-0 select-none items-center gap-1 border-b border-owl-border/60 px-2 py-1.5" data-tauri-drag-region="deep">
+			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
+				<div className="owl-workbench-heading" title={activeTab?.title ?? "工作台"}>
+					{activeDefinition?.icon(14) ?? <IconPanelRight size={14} />}
+					<span>{activeTab?.title ?? "工作台"}</span>
+				</div>
+				<div className="owl-workbench-shortcuts" aria-label="工作台工具">
 				{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {
-					const active = state.activeId === action.kind;
+					const active = activeTab?.kind === action.kind;
 					return (
 						<button
 							key={action.kind}
 							type="button"
 							title={action.label}
-							className={`flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs transition-colors ${
-								active ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:bg-owl-hover hover:text-owl-text"
-							}`}
+							aria-label={action.label}
+							className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
 							onClick={() => openQuickAction(store, action.kind)}
 						>
-							<span style={{ color: action.color }}>{action.icon(14)}</span>
+							{action.icon(15)}
 						</button>
 					);
 				})}
-				<div className="flex-1" data-tauri-drag-region="deep" />
+				</div>
+				<div className="owl-workbench-dock-actions">
 				<button type="button" title="停靠到右列" aria-label="停靠到右列" className={dockButtonClass(dock === "right")} onClick={() => onSetDock("right")}>
 					<IconPanelRight size={14} />
 				</button>
 				<button type="button" title="停靠到底部" aria-label="停靠到底部" className={dockButtonClass(dock === "bottom")} onClick={() => onSetDock("bottom")}>
 					<IconPanelBottom size={14} />
 				</button>
-				<button type="button" title="关闭工作台" className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={() => onSetOpen(false)}>
+				<button type="button" title="关闭工作台" aria-label="关闭工作台" className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
 					<IconX size={14} />
 				</button>
+				</div>
 			</div>
 
 			{/* 内容：split tree（空 leaf 显示入口卡片） */}
@@ -457,7 +482,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			)}
 
 			{/* 状态条：git 分支 + 桥状态占位 */}
-			<div className="flex shrink-0 items-center gap-2 border-t border-owl-border/40 px-2.5 py-1 text-[10px] text-owl-faint">
+			<div className="owl-workbench-status">
 				{gitStatus === undefined ? (
 					<IconLoader size={10} className="animate-spin" />
 				) : gitStatus.repo ? (

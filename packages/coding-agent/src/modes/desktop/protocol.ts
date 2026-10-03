@@ -271,6 +271,50 @@ export interface PingRequest {
 }
 
 // ---------------------------------------------------------------------------
+// owl 跨会话记忆（owl-memory）—— 设置页「跨会话记忆」卡片同源数据
+// ---------------------------------------------------------------------------
+
+/** 单条跨会话记忆（<agentDir>/memories/entries.json 的投影）。 */
+export interface OwlMemoryItem {
+	id: string;
+	content: string;
+	/** 记录来源项目 cwd（模型 remember 工具手工保存的条目可能没有）。 */
+	sourceCwd?: string;
+	/** ISO 时间。 */
+	createdAt: string;
+}
+
+export interface MemoryListRequest {
+	type: "memory.list";
+	id: string;
+}
+
+export interface MemoryListResult {
+	/** 是否启用（settings.owlMemory.enabled，默认 true）。 */
+	enabled: boolean;
+	entries: OwlMemoryItem[];
+}
+
+export interface MemoryDeleteRequest {
+	type: "memory.delete";
+	id: string;
+	entryId: string;
+}
+
+export interface MemoryDeleteResult {
+	ok: boolean;
+}
+
+export interface MemoryClearRequest {
+	type: "memory.clear";
+	id: string;
+}
+
+export interface MemoryClearResult {
+	ok: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // 侧边栏工作台（owl workbench）— fs / git / watch / open.external
 //
 // 路径约定：所有 path/dir 都是 workspace 相对路径（POSIX 分隔符，客户端从
@@ -768,6 +812,9 @@ export type DesktopClientRequest =
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| SystemPromptPreviewRequest
+	| MemoryListRequest
+	| MemoryDeleteRequest
+	| MemoryClearRequest
 	| PingRequest
 	| PermissionResponseRequest
 	| FsTreeRequest

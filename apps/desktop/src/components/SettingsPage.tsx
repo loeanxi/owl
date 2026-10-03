@@ -7,6 +7,7 @@ import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarC
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
 import { IconArchive, IconCode, IconCompose, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
+import "./settings-redesign.css";
 
 const API_OPTIONS = [
 	{ value: "openai-completions", label: "OpenAI 兼容（openai-completions）" },
@@ -134,9 +135,8 @@ function NavItem({
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
-				active ? "bg-owl-hover font-medium text-owl-text" : "text-owl-muted hover:bg-owl-hover/50 hover:text-owl-text"
-			}`}
+			aria-current={active ? "page" : undefined}
+			className={`owl-settings-nav-item ${active ? "is-active" : ""}`}
 		>
 			{icon}
 			{label}
@@ -147,9 +147,9 @@ function NavItem({
 /** 设置分区标题 + 描述（对齐 Claude/ChatGPT 设置页的版式） */
 function SectionHeader({ title, desc }: { title: string; desc?: string }): React.JSX.Element {
 	return (
-		<div className="mb-4">
-			<h2 className="text-sm font-semibold text-owl-text">{title}</h2>
-			{desc && <p className="mt-1 text-[11px] leading-relaxed text-owl-faint">{desc}</p>}
+		<div className="owl-settings-heading">
+			<h2>{title}</h2>
+			{desc && <p>{desc}</p>}
 		</div>
 	);
 }
@@ -167,15 +167,15 @@ function SettingRow({
 	children?: React.ReactNode;
 }): React.JSX.Element {
 	return (
-		<div className="rounded-xl border border-owl-border bg-owl-sidebar/40 px-3 py-2.5">
-			<div className="flex items-center justify-between gap-4">
+		<div className="owl-settings-row">
+			<div className="owl-settings-row-heading">
 				<div className="min-w-0">
-					<div className="text-xs font-semibold text-owl-text">{title}</div>
-					{desc && <div className="mt-0.5 text-[11px] leading-relaxed text-owl-faint">{desc}</div>}
+					<div className="owl-settings-row-title">{title}</div>
+					{desc && <div className="owl-settings-row-description">{desc}</div>}
 				</div>
-				{control && <div className="shrink-0">{control}</div>}
+				{control && <div className="owl-settings-row-control">{control}</div>}
 			</div>
-			{children && <div className="mt-2">{children}</div>}
+			{children && <div className="owl-settings-row-body">{children}</div>}
 		</div>
 	);
 }
@@ -213,7 +213,7 @@ function Switch({
 	);
 }
 
-/** 设置弹窗：左侧分类导航 + 右侧内容区（常规 / 模型 / 扩展 / 外观 / JSON / 关于）。 */
+/** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
 	client,
 	workspaceDir,
@@ -243,9 +243,12 @@ export function SettingsPage({
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pageRef = useRef<HTMLDivElement>(null);
+	const backRef = useRef<HTMLButtonElement>(null);
 
 	// 添加供应商表单
 	const [showProviderForm, setShowProviderForm] = useState(false);
+	const [confirmProviderId, setConfirmProviderId] = useState<string | null>(null);
 	const [pKey, setPKey] = useState("");
 	const [pName, setPName] = useState("");
 	const [pUrl, setPUrl] = useState("");
@@ -304,6 +307,14 @@ export function SettingsPage({
 	useEffect(() => {
 		return () => {
 			if (savedTimer.current) clearTimeout(savedTimer.current);
+		};
+	}, []);
+
+	useEffect(() => {
+		const previous = document.activeElement;
+		backRef.current?.focus();
+		return () => {
+			if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
 		};
 	}, []);
 
@@ -539,45 +550,73 @@ export function SettingsPage({
 	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "未知";
 	const modelCount = groups.reduce((n, g) => n + g.models.length, 0);
 
-	const input =
-		"mt-1 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-sm text-owl-text outline-none transition-colors focus:border-owl-accent";
-	const smallInput =
-		"mt-1 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent";
-	const btn =
-		"rounded-lg border border-owl-border px-2.5 py-1 text-xs text-owl-muted transition-colors hover:border-owl-faint hover:text-owl-text disabled:opacity-40";
-	const btnAccent =
-		"rounded-lg bg-owl-accent px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:opacity-40";
+	const input = "owl-settings-input mt-1 w-full font-mono";
+	const smallInput = input;
+	const btn = "owl-settings-button";
+	const btnAccent = "owl-settings-button is-primary";
+	const confirmProvider = groups.find((group) => group.id === confirmProviderId);
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-			<div className="flex h-[80vh] w-[920px] flex-col overflow-hidden rounded-xl border border-owl-border bg-owl-panel shadow-2xl shadow-black/40">
+		<div
+			ref={pageRef}
+			className="owl-settings-page"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="owl-settings-title"
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					if (authSuccess) setAuthSuccess(null);
+					else if (confirmProviderId) setConfirmProviderId(null);
+					else onClose();
+				}
+				if (event.key !== "Tab") return;
+				const scope = pageRef.current?.querySelector<HTMLElement>(".owl-settings-modal") ?? pageRef.current;
+				const items = scope?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]');
+				if (!items?.length) return;
+				const first = items[0];
+				const last = items[items.length - 1];
+				if (event.shiftKey && (document.activeElement === first || !scope?.contains(document.activeElement))) {
+					event.preventDefault();
+					last.focus();
+				} else if (!event.shiftKey && (document.activeElement === last || !scope?.contains(document.activeElement))) {
+					event.preventDefault();
+					first.focus();
+				}
+			}}
+		>
+			<div className="owl-settings-frame">
 				{/* ============ 头部 ============ */}
-				<div className="flex items-center justify-between border-b border-owl-border px-4 py-3">
-					<h2 className="text-sm font-semibold">设置</h2>
-					<button type="button" className="text-owl-faint transition-colors hover:text-owl-text" onClick={onClose}>
-						✕
+				<div className="owl-settings-topbar">
+					<button ref={backRef} type="button" className="owl-settings-back" onClick={onClose}>
+						<span aria-hidden="true">←</span> 返回工作区
 					</button>
+					<span className="owl-settings-topbar-divider" />
+					<IconSettings />
+					<h1 id="owl-settings-title">设置</h1>
+					<span className="owl-settings-topbar-hint">你的 Owl，按你的方式工作</span>
 				</div>
 
-				<div className="flex min-h-0 flex-1">
+				<div className="owl-settings-layout">
 					{/* ============ 左侧分类导航 ============ */}
-					<nav className="w-44 shrink-0 overflow-y-auto border-r border-owl-border bg-owl-sidebar/40 p-2">
-						<div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold tracking-wider text-owl-faint">个人</div>
+					<nav className="owl-settings-nav" aria-label="设置分类">
+						<div className="owl-settings-nav-label">工作环境</div>
 						<NavItem icon={<IconSettings />} label="常规" active={section === "general"} onClick={() => setSection("general")} />
 						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label="插件" active={section === "plugins"} onClick={() => setSection("plugins")} />
 						<NavItem icon={<IconPanelRight size={14} />} label="侧边卡片" active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
-						<div className="px-2.5 pb-1 pt-3 text-[10px] font-semibold tracking-wider text-owl-faint">高级</div>
+						<div className="owl-settings-nav-label">数据与应用</div>
 						<NavItem icon={<IconArchive />} label="归档" active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
 						<NavItem icon={<IconInfo />} label="关于" active={section === "about"} onClick={() => setSection("about")} />
 					</nav>
 
 					{/* ============ 右侧内容区 ============ */}
-					<div className="min-w-0 flex-1 space-y-3 overflow-y-auto p-5">
-						{error && <div className="rounded border border-red-800 bg-red-950/60 px-2 py-1 text-xs text-red-300">{error}</div>}
+					<div className="owl-settings-content" key={section}>
+						{error && <div className="owl-settings-notice is-error" role="alert">{error}</div>}
 
 						{/* -------- 常规 -------- */}
 						{section === "general" && (
@@ -1499,15 +1538,11 @@ export function SettingsPage({
 				</div>
 
 				{/* ============ 底部 ============ */}
-				<div className="flex items-center justify-between border-t border-owl-border px-4 py-3">
-					<span className="text-xs text-owl-muted">{savedMsg}</span>
-					<button
-						type="button"
-						className="rounded-lg border border-owl-border px-3 py-1.5 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-						onClick={onClose}
-					>
-						关闭
-					</button>
+				<div className="owl-settings-footer">
+					<span className={savedMsg ? "owl-settings-save-status is-saved" : "owl-settings-save-status"} role="status" aria-live="polite">
+						{busy ? "正在保存…" : savedMsg || "设置保存在本机，部分更改将用于新会话。"}
+					</span>
+					<button type="button" className={btn} onClick={onClose}>完成</button>
 				</div>
 			</div>
 

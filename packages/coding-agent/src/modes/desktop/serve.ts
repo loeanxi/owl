@@ -1378,6 +1378,36 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				});
 				return;
 			}
+			case "memory.list":
+			case "memory.delete":
+			case "memory.clear": {
+				// owl 跨会话记忆：设置页「跨会话记忆」卡片的数据面，与 owl-memory 扩展同源
+				const agentDir = defaultAgentDir();
+				const memory = await import("../../core/memory/store.ts");
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+					m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+				);
+				if (request.type === "memory.list") {
+					reply(ws, request.id, {
+						ok: true,
+						result: {
+							enabled: settingsManager.getOwlMemoryEnabled(),
+							entries: memory.readMemoryEntries(agentDir).map((entry) => ({
+								id: entry.id,
+								content: entry.content,
+								...(entry.sourceCwd ? { sourceCwd: entry.sourceCwd } : {}),
+								createdAt: entry.createdAt,
+							})),
+						},
+					});
+				} else if (request.type === "memory.delete") {
+					reply(ws, request.id, { ok: true, result: { ok: memory.deleteMemoryEntry(agentDir, request.entryId) } });
+				} else {
+					memory.clearMemoryEntries(agentDir);
+					reply(ws, request.id, { ok: true, result: { ok: true } });
+				}
+				return;
+			}
 			case "settings.set": {
 				const agentDir = defaultAgentDir();
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>

@@ -95,8 +95,9 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
  * 单个工具调用行：一行人话摘要（状态图标 + 摘要 + 展开箭头），展开看参数细节与
  * 输出（默认末 10 行，可看全文）；失败自动展开标红。
  */
-function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
-	const [open, setOpen] = useState(card.status === "error");
+function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: boolean }): React.JSX.Element {
+	const [open, setOpen] = useState(expanded || card.status === "error");
+	useEffect(() => setOpen(expanded || card.status === "error"), [expanded, card.status === "error"]);
 	const [fullOutput, setFullOutput] = useState(false);
 	const [zoomed, setZoomed] = useState(false);
 	// 失败时弹开（含流式中 running→error 的转变）；用户随后手动收起不再打扰
@@ -184,8 +185,9 @@ function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
 }
 
 /** 连续工具调用的合组（名称可不同）：失败自动展开，展开后每行再各自展开。 */
-function ToolGroupView({ label, cards }: { label: string; cards: ToolCard[] }): React.JSX.Element {
-	const [open, setOpen] = useState(() => cards.some((card) => card.status === "error"));
+function ToolGroupView({ label, cards, expanded = false }: { label: string; cards: ToolCard[]; expanded?: boolean }): React.JSX.Element {
+	const [open, setOpen] = useState(() => expanded || cards.some((card) => card.status === "error"));
+	useEffect(() => setOpen(expanded), [expanded]);
 	const errorCount = cards.filter((card) => card.status === "error").length;
 	const running = cards.some((card) => card.status === "running");
 	useEffect(() => {
@@ -218,7 +220,7 @@ function ToolGroupView({ label, cards }: { label: string; cards: ToolCard[] }): 
 			{open && (
 				<div className="owl-tool-group-body">
 					{cards.map((card) => (
-						<ToolRowView key={card.id} card={card} />
+						<ToolRowView key={card.id} card={card} expanded={expanded} />
 					))}
 				</div>
 			)}
@@ -294,254 +296,116 @@ function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolRes
 	);
 }
 
-/** 工具节点配色：运行中脉冲 / 失败红 / 其余绿。 */
-function toolTone(status: ToolStatus): "running" | "ok" | "error" {
-	return status === "running" ? "running" : status === "error" ? "error" : "ok";
-}
-
-function toolNode(card: ToolCard): React.JSX.Element {
-	return (
-		<StepNode tone={toolTone(card.status)} title={`工具调用：${card.name}`}>
-			<IconTerminal className="h-3 w-3" />
-		</StepNode>
-	);
-}
-
-function toolRow(key: string, card: ToolCard): TimelineRow {
-	return {
-		key,
-		node: toolNode(card),
-		content: card.name === "todo" ? <TodoCardView card={card} /> : <ToolRowView card={card} />,
-	};
-}
-
-/** 一轮提问聚合出的内容（同一轮可能有多条 assistant 消息：工具调用把它们隔开）。 */
-type TurnAcc = { thinking: string[]; tools: ToolCard[]; texts: string[]; error?: string };
-
-/**
- * 独立呈现、不进合组的工具：todo 有专属清单卡，ask_user 是等用户输入的轮次边界，
- * 都值得常驻可见；其余连续工具（名称可不同）收进一个可折叠组。
- */
-const STANDALONE_TOOLS = new Set(["todo", "ask_user_question"]);
-
-/** 把一轮的聚合内容排成时间轴行：思考一条 → 连续工具收成一组 → 回答正文 → 报错。 */
-function turnRows(acc: TurnAcc, turn: number): TimelineRow[] {
-	const rows: TimelineRow[] = [];
-	const thinking = acc.thinking.join("\n\n").trim();
-	if (thinking) {
-		rows.push({
-			key: `t${turn}-thinking`,
-			node: (
-				<StepNode tone="muted" title="思考过程">
-					<IconLightbulb className="h-3 w-3" />
-				</StepNode>
-			),
-			content: <ThinkingRow thinking={thinking} />,
-		});
-	}
-	let index = 0;
-	let groupIndex = 0;
-	while (index < acc.tools.length) {
-		const tool = acc.tools[index]!;
-		if (STANDALONE_TOOLS.has(tool.name)) {
-			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
-			index += 1;
-			continue;
-		}
-		let end = index + 1;
-		while (end < acc.tools.length && !STANDALONE_TOOLS.has(acc.tools[end]!.name)) end += 1;
-		const group = acc.tools.slice(index, end);
-		if (group.length === 1) {
-			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
-		} else {
-			const tone = group.some((card) => card.status === "running")
-				? "running"
-				: group.some((card) => card.status === "error")
-					? "error"
-					: "ok";
-			rows.push({
-				key: `t${turn}-group-${groupIndex}`,
-				node: (
-					<StepNode tone={tone} title={`工具调用 × ${group.length}`}>
-						<IconTerminal className="h-3 w-3" />
-					</StepNode>
-				),
-				content: <ToolGroupView label={toolRunLabel(group.map((card) => card.name), group.length)} cards={group} />,
-			});
-		}
-		groupIndex += 1;
-		index = end;
-	}
-	if (acc.texts.length > 0) {
-		rows.push({
-			key: `t${turn}-text`,
-			node: (
-				<StepNode tone="answer" title="回答">
-					<IconChat className="h-3 w-3" />
-				</StepNode>
-			),
-			content: <AnswerCard text={acc.texts.join("\n\n")} />,
-		});
-	}
-	if (acc.error) {
-		rows.push({
-			key: `t${turn}-error`,
-			node: (
-				<StepNode tone="error" title="出错了">
-					<IconAlert className="h-3 w-3" />
-				</StepNode>
-			),
-			content: <div className="break-words text-xs text-red-400">{acc.error}</div>,
-		});
-	}
-	return rows;
-}
-
-/** 把扁平转录拆成时间轴行：按提问分轮，每轮内 思考/工具组/回答 各自成节点。 */
-function buildRows(entries: ChatEntry[]): TimelineRow[] {
+/** Keep prose and tool groups in the order emitted by the assistant. */
+function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	let turn = 0;
-	let acc: TurnAcc = { thinking: [], tools: [], texts: [] };
-	const flush = (): void => {
-		rows.push(...turnRows(acc, turn));
-		acc = { thinking: [], tools: [], texts: [] };
+	let pendingTools: ToolCard[] = [];
+	const flushTools = (): void => {
+		if (pendingTools.length === 0) return;
+		const cards = pendingTools;
+		pendingTools = [];
+		rows.push({
+			key: "tools-" + cards[0]!.id,
+			content: cards.length === 1
+				? <ToolRowView card={cards[0]!} expanded={expandedTools} />
+				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
+		});
 	};
 	entries.forEach((entry, index) => {
 		if (entry.kind === "user") {
-			flush();
+			flushTools();
 			turn += 1;
-			const firstLine = entry.text.split("\n").find((part) => part.trim() !== "") ?? "";
 			rows.push({
-				key: `q${turn}`,
+				key: "q" + turn,
 				questionIndex: turn,
-				node: <QuestionNode index={turn} title={firstLine} />,
-				// 提问气泡右对齐，但收在内容列以内（列本身封顶 max-w-3xl），不再贴窗口右缘
-				content: (
-					<div className="flex justify-end">
-						<div className="max-w-[85%] rounded-2xl bg-owl-bubble px-4 py-2.5 text-sm break-words whitespace-pre-wrap">
-							{entry.text}
-						</div>
-					</div>
-				),
+				content: <div className="owl-user-row"><div className="owl-user-bubble">{entry.text}</div></div>,
 			});
 			return;
 		}
-		if (entry.kind === "assistant") {
-			if (entry.thinking.trim()) acc.thinking.push(entry.thinking);
-			acc.tools.push(...entry.tools);
-			if (entry.text) acc.texts.push(entry.text);
-			if (entry.error) acc.error = entry.error;
+		if (entry.kind === "toolResult") {
+			flushTools();
+			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
 			return;
 		}
-		// 孤立工具结果（防御）：收尾当前轮后单独成行
-		flush();
-		rows.push({ key: `r${index}`, node: (
-			<StepNode tone={entry.ok ? "ok" : "error"} title={entry.ok ? "调用结果" : "调用失败"}>
-				{entry.ok ? <IconCheck className="h-3 w-3" /> : <IconAlert className="h-3 w-3" />}
-			</StepNode>
-		), content: <OrphanResultRow entry={entry} /> });
+		const seenTools = new Set<string>();
+		const segments: AssistantSegment[] = entry.segments ?? [
+			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
+			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
+			...entry.tools.map((tool) => ({ kind: "tool" as const, toolId: tool.id })),
+		];
+		const appendTool = (card: ToolCard): void => {
+			seenTools.add(card.id);
+			if (card.name === "todo") {
+				flushTools();
+				rows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
+			} else if (card.name === "ask_user_question") {
+				flushTools();
+				rows.push({ key: "question-tool-" + card.id, content: <ToolRowView card={card} expanded={expandedTools} /> });
+			} else pendingTools.push(card);
+		};
+		segments.forEach((segment, segmentIndex) => {
+			if (segment.kind === "tool") {
+				const card = entry.tools.find((tool) => tool.id === segment.toolId);
+				if (card && !seenTools.has(card.id)) appendTool(card);
+				return;
+			}
+			if (!segment.text.trim()) return;
+			flushTools();
+			rows.push({
+				key: "message-" + index + "-" + segmentIndex,
+				content: segment.kind === "thinking"
+					? <ThinkingRow thinking={segment.text} />
+					: <AnswerCard text={segment.text} />,
+			});
+		});
+		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
+		if (entry.error) {
+			flushTools();
+			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
+		}
 	});
-	flush();
+	flushTools();
 	return rows;
 }
 
-/** 提问导航的一项：提问序号 + 提问首行 + 本轮回答首行（预览）。 */
-type QuestionMark = { n: number; text: string; preview: string };
+type QuestionMark = { n: number; text: string };
 
-function firstLineOf(text: string): string {
-	return text.split("\n").find((part) => part.trim() !== "") ?? "";
-}
-
-/** 从转录提取全部提问及其回答预览，供提问导航浮层使用。 */
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
-	const questions: QuestionMark[] = [];
-	let current: QuestionMark | undefined;
-	for (const entry of entries) {
-		if (entry.kind === "user") {
-			current = { n: questions.length + 1, text: firstLineOf(entry.text), preview: "" };
-			questions.push(current);
-		} else if (current && !current.preview && entry.kind === "assistant" && entry.text) {
-			current.preview = firstLineOf(entry.text);
-		}
-	}
-	return questions;
+	return entries.filter((entry) => entry.kind === "user").map((entry, index) => ({
+		n: index + 1,
+		text: entry.text.split("\n").find((line) => line.trim() !== "") ?? "提问 " + (index + 1),
+	}));
 }
 
-/**
- * 提问导航浮层：贴聊天区左缘的悬浮卡，列出本会话全部提问（带回答首行预览）。
- * 点击项平滑滚动到对应提问；当前视口所在提问高亮；可收起成一个小按钮，偏好持久化。
- */
-function QuestionNavigator({
-	questions,
-	active,
-	onJump,
-}: {
+function QuestionNavigator({ questions, active, onJump, onClose }: {
 	questions: QuestionMark[];
 	active: number;
 	onJump: (n: number) => void;
-}): React.JSX.Element | null {
-	const [open, setOpen] = useState(() => localStorage.getItem(QNAV_KEY) !== "0");
-	const toggle = (): void => {
-		setOpen((value) => {
-			localStorage.setItem(QNAV_KEY, value ? "0" : "1");
-			return !value;
-		});
-	};
-	if (questions.length === 0) return null;
-	if (!open) {
-		return (
-			<button
-				type="button"
-				title={`提问导航（${questions.length} 个提问）`}
-				aria-label="提问导航"
-				aria-expanded={false}
-				onClick={toggle}
-				className="owl-chrome-button owl-question-nav-toggle absolute left-2 top-1/2 z-20 -translate-y-1/2"
-			>
-				<IconList className="h-3.5 w-3.5" />
-			</button>
-		);
-	}
+	onClose: () => void;
+}): React.JSX.Element {
 	return (
-		<div className="owl-question-nav absolute left-2 top-1/2 z-20 flex max-h-[72vh] w-60 -translate-y-1/2 flex-col overflow-hidden rounded-xl border" role="navigation" aria-label="提问列表">
-			<header className="flex shrink-0 items-center justify-between border-b border-owl-sidebar-border py-1.5 pl-3 pr-1.5">
-				<span className="text-xs font-medium text-owl-sidebar-muted">提问导航 · {questions.length}</span>
-				<button
-					type="button"
-					title="收起提问导航"
-					aria-label="收起提问导航"
-					aria-expanded
-					onClick={toggle}
-					className="owl-chrome-button"
-				>
-					<IconChevron className="h-3.5 w-3.5 rotate-180" />
-				</button>
-			</header>
-			<div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-				{questions.map((question) => (
-					<button
-						key={question.n}
-						type="button"
-						onClick={() => onJump(question.n)}
-						aria-current={question.n === active ? "location" : undefined}
-						className={`owl-question-nav-item flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${question.n === active ? "is-active" : ""}`}
-					>
-						<span
-							className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-owl-sidebar-hover text-[10px] font-semibold text-owl-sidebar-muted"
-						>
-							{question.n}
-						</span>
-						<span className="min-w-0 flex-1">
-							<span className="block truncate text-xs text-owl-sidebar-text">{question.text}</span>
-							{question.preview && (
-								<span className="block truncate text-[11px] leading-4 text-owl-sidebar-faint">{question.preview}</span>
-							)}
-						</span>
-					</button>
-				))}
-			</div>
-		</div>
+		<aside id="owl-chat-directory" className="owl-chat-directory" aria-label="对话目录">
+			<header><span>对话目录 · {questions.length}</span><button type="button" className="owl-chrome-button" aria-label="收起对话目录" onClick={onClose}><IconChevron className="h-4 w-4" /></button></header>
+			<nav>
+				{questions.map((question) => <button key={question.n} type="button" aria-current={active === question.n ? "location" : undefined} onClick={() => onJump(question.n)}><span>{question.n}</span><span title={question.text}>{question.text}</span></button>)}
+			</nav>
+		</aside>
 	);
+}
+
+export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
+
+function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
+	if (activity === "idle") return null;
+	let executing = false;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index]!;
+		if (entry.kind === "user") break;
+		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
+	}
+	const label = activity === "waiting" ? "等待你的确认或回答" : activity === "disconnected" ? "连接已断开，正在恢复状态" : executing ? "正在执行工具" : "正在生成回答";
+	return <div className="owl-response-activity" data-state={activity} role="status"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" /><span>{label}</span></div>;
 }
 
 /**
@@ -590,8 +454,14 @@ function ScreenshotDock({
 export function ChatStream({
 	entries,
 	onQuickAction,
+	activity = "idle",
+	navigationOpen = false,
+	onNavigationClose,
 }: {
 	entries: ChatEntry[];
+	activity?: ChatActivity;
+	navigationOpen?: boolean;
+	onNavigationClose?: () => void;
 	/** 空会话开始页的菜单卡回调（打开工作台对应面板）。 */
 	onQuickAction?: (kind: string) => void;
 }): React.JSX.Element {
@@ -600,6 +470,7 @@ export function ChatStream({
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
 	const stick = useRef(true);
 	const prevEntries = useRef<ChatEntry[]>([]);
+	const [showLatest, setShowLatest] = useState(false);
 
 	const onWheel = (event: React.WheelEvent<HTMLElement>): void => {
 		// 向上滚（deltaY<0）是明确的用户意图，先于滚动发生：直接停跟随。
@@ -618,7 +489,14 @@ export function ChatStream({
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [entries]);
 
-	const rows = useMemo(() => buildRows(entries), [entries]);
+	const [expandedTools, setExpandedTools] = useState(() => document.documentElement.dataset.owlToolRecords === "expanded");
+	useEffect(() => {
+		const update = (): void => setExpandedTools(document.documentElement.dataset.owlToolRecords === "expanded");
+		update();
+		window.addEventListener("owl-chat-appearance-change", update);
+		return () => window.removeEventListener("owl-chat-appearance-change", update);
+	}, []);
+	const rows = useMemo(() => buildRows(entries, expandedTools), [entries, expandedTools]);
 
 	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
 	const latestShot = useMemo(() => {
@@ -672,7 +550,9 @@ export function ChatStream({
 		// 导航跳转是明确的翻历史意图：关掉贴底跟随，避免流式输出把视图拽回去
 		stick.current = false;
 		const top = node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
-		el.scrollTo({ top, behavior: "smooth" });
+		el.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+		setShowLatest(true);
+		if ((el.parentElement?.clientWidth ?? 1000) < 700) onNavigationClose?.();
 	};
 
 	// 会话切换/恢复后立即校准高亮，不等首次滚动
@@ -684,41 +564,25 @@ export function ChatStream({
 		const el = container.current;
 		if (!el) return;
 		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
-		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+		setShowLatest(!stick.current);
 		updateActiveQuestion();
 	};
 
 	return (
-		<div className="relative min-h-0 flex-1">
-			<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="h-full overflow-y-auto px-3 py-5 sm:px-6">
-				{/* 统一内容列：宽窗封顶居中、窄窗满宽，提问与回答同列 */}
-				<div className="mx-auto w-full max-w-3xl">
-					{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : (
-						<div className="mt-[22vh] flex flex-col items-center">
-							<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
-							<p className="mt-5 font-serif text-2xl text-owl-text">✳ 有什么可以帮你的？</p>
-							<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
-						</div>
-					))}
-					{rows.map((row, i) => {
-						const isLast = i === rows.length - 1;
-						return (
-							<div key={row.key} data-qidx={row.questionIndex} className="flex gap-2 sm:gap-3">
-								{/* 节点轨：节点 + 纵向连线，行间无空隙保证链路连续 */}
-								<div className="flex w-6 shrink-0 flex-col items-center">
-									{row.node}
-									{!isLast && <div className="w-px flex-1 bg-owl-border/50" aria-hidden="true" />}
-								</div>
-								<div className={`min-w-0 flex-1 ${isLast ? "" : "pb-4"}`}>{row.content}</div>
-							</div>
-						);
-					})}
-				</div>
-			</main>
-			<QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} />
-			{showShotDock && latestShot && (
-				<ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />
-			)}
+		<div className="owl-chat-surface">
+			<div className="owl-chat-layout">
+				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label="对话消息">
+					<div className="owl-chat-column">
+						{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">有什么可以帮你的？</p></div>)}
+						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : "owl-chat-row"}>{row.content}</div>)}
+						<ResponseActivity entries={entries} activity={activity} />
+					</div>
+				</main>
+				{navigationOpen && questions.length > 0 && <QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} onClose={() => onNavigationClose?.()} />}
+			</div>
+			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>回到最新 <span aria-hidden="true">↓</span></button>}
+			{showShotDock && latestShot && <ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />}
 		</div>
 	);
 }
