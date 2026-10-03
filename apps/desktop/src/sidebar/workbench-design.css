@@ -454,6 +454,6 @@ html[data-owl-theme="light"] .owl-workbench-designed-pane :is(.text-red-300, .te
 	color: #bc4449;
 }
 
-html[data-owl-theme="light"] .owl-workbench-designed-pane .text-emerald-300 {
+html[data-owl-theme="light"] .owl-workbench-designed-pane :is(.text-emerald-300, [class~="text-emerald-300/80"]) {
 	color: #2f9e5a;
 }

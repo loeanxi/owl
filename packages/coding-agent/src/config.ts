@@ -573,6 +573,15 @@ export function getCustomThemesDir(): string {
 	return join(getAgentDir(), "themes");
 }
 
+/**
+ * Get path to the user's global skills directory (e.g., ~/.owl/skills/).
+ * Sibling of the agent dir: cross-project skills shared by every session,
+ * distinct from the personal ~/.owl/agent/skills directory.
+ */
+export function getGlobalSkillsDir(): string {
+	return join(getAgentDir(), "..", "skills");
+}
+
 /** Get path to models.json */
 export function getModelsPath(): string {
 	return join(getAgentDir(), "models.json");

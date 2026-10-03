@@ -17,8 +17,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
-import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -40,20 +40,21 @@ import type { InlineExtension, ToolDefinition } from "../../core/extensions/inde
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
-import { SessionManager } from "../../core/session-manager.ts";
-import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadPromptTemplates } from "../../core/prompt-templates.ts";
-import { loadSkills } from "../../core/skills.ts";
-import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
 	resolveQuestion,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
+import { SessionManager } from "../../core/session-manager.ts";
+import type { SettingsManager } from "../../core/settings-manager.ts";
+import { loadSkills } from "../../core/skills.ts";
+import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
+import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import type {
 	CommandsListResult,
@@ -547,7 +548,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				agentDir,
 				resourceLoaderOptions: {
 					extensionFactories,
-					...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
+					...desktopAgentPromptOptions(appendSystemPrompt),
 				},
 			});
 			let model: ReturnType<typeof services.modelRuntime.getModel>;
@@ -1424,6 +1425,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const selectedTools = ["read", "bash", "process", "edit", "write", "todo"] as const;
 				const sections = buildSystemPromptSections({
 					cwd,
+					appendSystemPrompt: DESKTOP_AGENT_INSTRUCTIONS,
 					selectedTools: [...selectedTools],
 					toolSnippets: Object.fromEntries(
 						selectedTools.map((name) => [name, toolDefs[name].promptSnippet ?? ""]),

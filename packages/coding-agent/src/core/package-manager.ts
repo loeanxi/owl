@@ -367,11 +367,8 @@ function collectFiles(
 	return files;
 }
 
-type SkillDiscoveryMode = "pi" | "agents";
-
 function collectSkillEntries(
 	dir: string,
-	mode: SkillDiscoveryMode,
 	ignoreMatcher?: IgnoreMatcher,
 	rootDir?: string,
 ): string[] {

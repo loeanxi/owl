@@ -1,0 +1,5 @@
+{
+  "exitCode": 1,
+  "isolated": true,
+  "reason": "npm run check writes with Biome; isolate to preserve concurrent workspace changes."
+}
