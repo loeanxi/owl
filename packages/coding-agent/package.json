@@ -49,6 +49,7 @@
 		"prepublishOnly": "npm run clean && npm run build && npm run shrinkwrap"
 	},
 	"dependencies": {
+		"@mozilla/readability": "0.6.0",
 		"@earendil-works/pi-agent-core": "^1.0.0",
 		"@earendil-works/pi-ai": "^1.0.0",
 		"@earendil-works/pi-codemode": "^1.0.0",
@@ -63,6 +64,7 @@
 		"hosted-git-info": "9.0.3",
 		"ignore": "7.0.8",
 		"jiti": "2.7.0",
+		"linkedom": "0.16.11",
 		"minimatch": "10.2.6",
 		"node-pty": "1.1.0",
 		"playwright-core": "1.63.0",

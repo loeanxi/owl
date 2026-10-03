@@ -21,6 +21,7 @@ import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
 import { fileUrlOf } from "./api.ts";
 import { attachPluginViewers } from "./plugin-viewers.ts";
 import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
+import { startPointerDrag, type PointerDragHandlers } from "./pointer-drag.ts";
 import "./workbench-design.css";
 
 const WIDTH_KEY = "owl.workbench.width";
@@ -98,6 +99,23 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const leafRefs = useRef(new Map<string, HTMLElement>());
 	// 拖完的 click 抑制：mouseup 后 click 才派发，setTimeout(0) 复位来得及
 	const justDraggedRef = useRef(false);
+	const activeDrag = useRef<(() => void) | undefined>(undefined);
+	const beginPointerDrag = useCallback((event: React.PointerEvent<HTMLElement>, handlers: PointerDragHandlers): void => {
+		if (event.button !== 0 || !event.isPrimary) return;
+		activeDrag.current?.();
+		event.preventDefault();
+		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
+			...handlers,
+			onFinish: (cancelled) => {
+				activeDrag.current = undefined;
+				handlers.onFinish(cancelled);
+			},
+		});
+	}, []);
+	useEffect(() => () => {
+		activeDrag.current?.();
+		activeDrag.current = undefined;
+	}, [cwd, store, open, dock]);
 
 	const hitTest = useCallback((x: number, y: number): void => {
 		let hit: DropTarget | null = null;
@@ -118,28 +136,26 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	}, []);
 
 	const beginTabDrag = useCallback(
-		(tab: SidebarTab, e: React.MouseEvent): void => {
+		(tab: SidebarTab, e: React.PointerEvent<HTMLElement>): void => {
 			if (e.button !== 0) return;
 			e.preventDefault();
 			const startX = e.clientX;
 			const startY = e.clientY;
 			let started = false;
-			const onMove = (m: MouseEvent): void => {
+			const onMove = (m: PointerEvent): void => {
 				if (!started) {
 					if (Math.abs(m.clientX - startX) + Math.abs(m.clientY - startY) < 5) return;
 					started = true;
 					justDraggedRef.current = true;
 				}
-				// 同步更新：mousemove 本身与浏览器帧对齐（原生节流），
+				// 同步更新：pointermove 本身与浏览器帧对齐（原生节流），
 				// 不排 rAF——后台/节流窗口里 rAF 会停摆，拖拽会整个卡死。
 				setDragTab({ id: tab.id, title: tab.title, x: m.clientX, y: m.clientY });
 				hitTest(m.clientX, m.clientY);
 			};
-			const onUp = (): void => {
-				window.removeEventListener("mousemove", onMove);
-				window.removeEventListener("mouseup", onUp);
+			const onUp = (cancelled: boolean): void => {
 				const target = dropTargetRef.current;
-				if (started && target) store.moveTab(tab.id, target.leafId, target.zone);
+				if (!cancelled && started && target) store.moveTab(tab.id, target.leafId, target.zone);
 				setDragTab(null);
 				setDropTarget(null);
 				dropTargetRef.current = null;
@@ -147,33 +163,29 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 					justDraggedRef.current = false;
 				}, 0);
 			};
-			window.addEventListener("mousemove", onMove);
-			window.addEventListener("mouseup", onUp);
+			beginPointerDrag(e, { cursor: "grabbing", onMove, onFinish: onUp });
 		},
-		[hitTest, store],
+		[beginPointerDrag, hitTest, store],
 	);
 
 	// -- 分隔条拖拽：比例写 ref 态（不落盘），松手 persist --------------------
 	const startDividerDrag = useCallback(
-		(node: Extract<SplitNode, { kind: "split" }>, e: React.MouseEvent): void => {
+		(node: Extract<SplitNode, { kind: "split" }>, e: React.PointerEvent<HTMLElement>): void => {
 			e.preventDefault();
 			const parent = (e.currentTarget as HTMLElement).parentElement;
 			if (!parent) return;
 			const rect = parent.getBoundingClientRect();
-			const onMove = (m: MouseEvent): void => {
+			const onMove = (m: PointerEvent): void => {
 				const ratio =
 					node.dir === "row" ? (m.clientX - rect.left) / rect.width : (m.clientY - rect.top) / rect.height;
 				store.setRatio(node.id, ratio, { persist: false });
 			};
 			const onUp = (): void => {
-				window.removeEventListener("mousemove", onMove);
-				window.removeEventListener("mouseup", onUp);
 				store.persist();
 			};
-			window.addEventListener("mousemove", onMove);
-			window.addEventListener("mouseup", onUp);
+			beginPointerDrag(e, { cursor: node.dir === "row" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
 		},
-		[store],
+		[beginPointerDrag, store],
 	);
 
 	// -- Git 状态快照：项目切换 / fs_changed（防抖）/ 主动刷新 ----------------
@@ -250,33 +262,33 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	// -- 拖拽调宽 / 调高（工作台外壳；拖拽期间走 ref，松手时持久化） ----------
 	const sizeRef = useRef(dock === "right" ? width : height);
 	sizeRef.current = dock === "right" ? width : height;
-	const startResize = (e: React.MouseEvent): void => {
+	const startResize = (e: React.PointerEvent<HTMLElement>): void => {
 		e.preventDefault();
-		const origin = sizeRef.current;
+		const shell = e.currentTarget.parentElement;
+		if (!shell) return;
+		const rect = shell.getBoundingClientRect();
+		const origin = dock === "right" ? rect.width : rect.height;
 		const startX = e.clientX;
 		const startY = e.clientY;
 		const maxSide =
 			dock === "right" ? Math.max(window.innerWidth * 0.6, 420) : Math.max(window.innerHeight * 0.7, 320);
 		const onMove =
 			dock === "right"
-				? (move: MouseEvent): void => {
-						const next = Math.min(Math.max(window.innerWidth - move.clientX, WIDTH_MIN), maxSide);
+				? (move: PointerEvent): void => {
+						const next = Math.min(Math.max(origin + startX - move.clientX, WIDTH_MIN), maxSide);
 						sizeRef.current = next;
 						setWidth(next);
 					}
-				: (move: MouseEvent): void => {
+				: (move: PointerEvent): void => {
 						// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
 						const next = Math.min(Math.max(origin + (startY - move.clientY), HEIGHT_MIN), maxSide);
 						sizeRef.current = next;
 						setHeight(next);
 					};
 		const onUp = (): void => {
-			window.removeEventListener("mousemove", onMove);
-			window.removeEventListener("mouseup", onUp);
 			localStorage.setItem(dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(sizeRef.current));
 		};
-		window.addEventListener("mousemove", onMove);
-		window.addEventListener("mouseup", onUp);
+		beginPointerDrag(e, { cursor: dock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
 	};
 
 	// -- split tree 渲染 -------------------------------------------------------
@@ -288,8 +300,10 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 					{/* 分隔条：7px 命中区 + 居中 1px 细线（DSH divider 同款） */}
 					<div
 						role="separator"
+						data-tauri-drag-region="false"
+						style={{ touchAction: "none" }}
 						className={`group relative z-10 shrink-0 ${node.dir === "row" ? "-mx-1 w-2 cursor-col-resize" : "-my-1 h-2 cursor-row-resize"}`}
-						onMouseDown={(e) => startDividerDrag(node, e)}
+						onPointerDown={(e) => startDividerDrag(node, e)}
 					>
 						<div
 							className={`absolute bg-owl-border/50 transition-colors group-hover:bg-owl-accent/60 ${
@@ -327,7 +341,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 									title={tab.path ?? tab.title}
 									aria-label={tab.title}
 									aria-pressed={isActive}
-									onMouseDown={(e) => beginTabDrag(tab, e)}
+									data-tauri-drag-region="false"
+									style={{ touchAction: "none" }}
+									onPointerDown={(e) => beginTabDrag(tab, e)}
 									onClick={() => {
 										if (!justDraggedRef.current) store.activate(tab.id);
 									}}
@@ -351,6 +367,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 										title={t("wb.closeTab", { name: tab.title })}
 										aria-label={t("wb.closeTab", { name: tab.title })}
 										onMouseDown={(e) => e.stopPropagation()}
+										onPointerDown={(e) => e.stopPropagation()}
 										onKeyDown={(e) => e.stopPropagation()}
 										onClick={(e) => {
 											e.stopPropagation();
@@ -440,9 +457,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		>
 			{/* 拖拽条：右停靠在左缘调宽，底停靠在顶缘调高 */}
 			{dock === "right" ? (
-				<div className="absolute top-0 left-0 z-20 h-full w-1 cursor-col-resize transition-colors hover:bg-owl-accent/40" onMouseDown={startResize} />
+				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="vertical" data-workbench-size-handle="right" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 left-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
 			) : (
-				<div className="absolute top-0 right-0 left-0 z-20 h-1 cursor-row-resize transition-colors hover:bg-owl-accent/40" onMouseDown={startResize} />
+				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="horizontal" data-workbench-size-handle="bottom" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 right-0 left-0 z-20 h-2 cursor-row-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
 			)}
 
 			{/* 工作台标题、工具入口与固定停靠操作 */}

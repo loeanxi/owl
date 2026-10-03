@@ -2,6 +2,8 @@
  * Re-exports the kernel wire protocol so the UI and bridge share one definition.
  */
 export type {
+	NewsClientRequest,
+	NewsOpenMessage,
 	ApprovalMode,
 	DesktopClientRequest,
 	DesktopClientRequestWithoutId,
@@ -60,6 +62,15 @@ export type {
 	SettingsSetRequest,
 	SystemPromptPreviewRequest,
 	SystemPromptPreviewResult,
+	RewindTarget,
+	RewindTargetsRequest,
+	RewindTargetsResult,
+	RewindImpactRequest,
+	RewindImpactFile,
+	RewindImpactResult,
+	RewindExecuteRequest,
+	RewindExecuteResult,
+	SessionSnapshotPayload,
 	MemoryListRequest,
 	MemoryListResult,
 	OwlMemoryItem,
@@ -109,6 +120,7 @@ export type {
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 // 上下文洞察的 wire 类型本体在 core/context-insight（内核 protocol 也只是转引）
 export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";
+export type * from "../../../../packages/coding-agent/src/core/news/types.ts";
 
 import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 

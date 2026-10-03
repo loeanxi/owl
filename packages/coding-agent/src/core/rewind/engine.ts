@@ -349,7 +349,7 @@ export class SessionRewindTracker {
 				unlinkSync(item.path);
 				return undefined;
 			}
-			const content = item.hash !== null ? this.store.readContentByHash(item.hash) : null;
+			const content = typeof item.hash === "string" ? this.store.readContentByHash(item.hash) : null;
 			if (content === null) return "backup content missing";
 			const temp = join(dirname(item.path), `.owl-rewind-${randomTail()}`);
 			writeFileSync(temp, content);

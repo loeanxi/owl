@@ -11,6 +11,11 @@ const READ_ONLY_TOOLS = new Set([
 	"univer_inspect",
 	"univer_api",
 	"univer_lint",
+	"news_search",
+	"news_read",
+	"news_hot",
+	"news_report",
+	"news_open",
 ]);
 
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {

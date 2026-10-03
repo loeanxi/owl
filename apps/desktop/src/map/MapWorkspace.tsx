@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { useMapCopy, type MapCopyKey } from "./copy.ts";
+import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
+import { type MapCopyKey, useMapCopy } from "./copy.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
 import {
 	addSearchHistory,
@@ -11,11 +11,6 @@ import {
 	MAP_REGIONS,
 	MAX_COMPARE_PLACES,
 	MAX_QUERY_LENGTH,
-	parseMapQuery,
-	readMapSavedState,
-	toggleCompare,
-	toggleFavorite,
-	writeMapSavedState,
 	type MapRegion,
 	type MapSavedState,
 	type Place,
@@ -23,7 +18,12 @@ import {
 	type PlaceFilter,
 	type PlaceId,
 	type PlaceType,
+	parseMapQuery,
+	readMapSavedState,
 	type SearchScope,
+	toggleCompare,
+	toggleFavorite,
+	writeMapSavedState,
 } from "./model.ts";
 import "./map-workspace.css";
 
@@ -190,6 +190,13 @@ export function MapWorkspace({
 			}
 		}
 		function handlePointer(event: PointerEvent): void {
+			if (
+				comparisonOpen &&
+				event.target instanceof Node &&
+				workspaceRef.current?.contains(event.target) &&
+				!comparisonRef.current?.contains(event.target)
+			)
+				closeComparison();
 			if (locationOpen && event.target instanceof Node && !locationRef.current?.contains(event.target))
 				setLocationOpen(false);
 		}
@@ -237,7 +244,7 @@ export function MapWorkspace({
 
 	function chooseCategory(category: PlaceType): void {
 		const query = m(categoryQueries[category]);
-		const next = { ...DEFAULT_SEARCH, region: scope.region, category, query };
+		const next = parseMapQuery(query, { ...DEFAULT_SEARCH, region: scope.region, category });
 		updateScope(next);
 		setSavedState((current) => ({ ...current, history: addSearchHistory(current.history, query) }));
 	}
@@ -505,7 +512,7 @@ export function MapWorkspace({
 					)}
 				</div>
 				{answer && answerPlace && (
-					<div className="followup-answer" role="status">
+					<section className="followup-answer" aria-live="polite" aria-label={m("followAnswerTitle")}>
 						<strong>{m("followAnswerTitle")}</strong>
 						<button type="button" aria-label={m("closeAnswer")} onClick={() => setFollowAnswerId(undefined)}>
 							<MapIcon name="close" />
@@ -518,7 +525,7 @@ export function MapWorkspace({
 								hours: answer.hours,
 							})}
 						</p>
-					</div>
+					</section>
 				)}
 				<div className="followup-chips">
 					{(
@@ -1149,12 +1156,7 @@ export function MapWorkspace({
 					</div>
 				</div>
 				{comparisonOpen && (
-					<div
-						className="compare-overlay"
-						onClick={(event) => {
-							if (event.currentTarget === event.target) closeComparison();
-						}}
-					>
+					<div className="compare-overlay">
 						<section
 							ref={comparisonRef}
 							className="compare-dialog"
@@ -1223,11 +1225,7 @@ export function MapWorkspace({
 					</div>
 				)}
 			</main>
-			{toast && active && (
-				<div className="owl-product-toast" role="status">
-					{toast}
-				</div>
-			)}
+			{toast && active && <output className="owl-product-toast">{toast}</output>}
 		</div>
 	);
 }

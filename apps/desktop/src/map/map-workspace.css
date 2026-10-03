@@ -1128,7 +1128,7 @@ html[data-owl-theme="light"] .owl-map-workspace {
 }
 
 .owl-map-workspace .map-dot:after {
-	content: "湖滨搜索中心";
+	content: attr(title);
 	font-size: 9px;
 	color: var(--map-label);
 	position: absolute;
@@ -2340,5 +2340,4 @@ html[data-owl-theme="light"] .owl-map-workspace .map-world > .map-art-light {
 		transition: none;
 	}
 }
-
 

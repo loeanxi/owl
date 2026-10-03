@@ -15,16 +15,17 @@ import { createHash, randomUUID } from "node:crypto";
 import {
 	appendFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
+	readdirSync,
+	realpathSync,
 	renameSync,
 	rmSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join, realpathSync } from "node:path";
+import { dirname, join } from "node:path";
 
 /** 单条备份记录（index.jsonl 的一行）。 */
 export interface RewindRecord {
@@ -55,7 +56,16 @@ export interface RestoreJournal {
 	v: 1;
 	targetId: string;
 	startedAt: string;
-	actions: Array<{ path: string; action: "restore" | "delete"; done: boolean; error?: string }>;
+	actions: Array<{
+		path: string;
+		action: "restore" | "delete";
+		done: boolean;
+		error?: string;
+		/** restore：目标内容 blob 的 sha256（跨重启续做时据此读内容） */
+		hash?: string | null;
+		/** 捕获时父目录的 realpath（穿透写入防护） */
+		dirRealPath?: string;
+	}>;
 }
 
 export interface StagedCapture {
@@ -287,16 +297,28 @@ export function captureFileState(absolutePath: string, maxFileBytes: number): St
 		}
 	})();
 	try {
-		const stats = statSync(absolutePath);
+		// lstat：符号链接按链接本体判断，绝不读穿（还原时同样拒绝穿透写入）
+		const stats = lstatSync(absolutePath, { throwIfNoEntry: false });
+		if (!stats) {
+			return { path: absolutePath, dirRealPath, existed: false, hash: null, size: 0, content: null };
+		}
 		// 符号链接 / 多硬链接文件不追踪：还原会穿透链接误伤另一份文件
-		if (stats.isSymbolicLink?.() || stats.nlink > 1) {
-			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, skipped: "link" };
+		if (stats.isSymbolicLink() || stats.nlink > 1) {
+			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, content: null, skipped: "link" };
 		}
 		if (!stats.isFile()) {
-			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, skipped: "not-file" };
+			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, content: null, skipped: "not-file" };
 		}
 		if (stats.size > maxFileBytes) {
-			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: stats.size, skipped: "too-large" };
+			return {
+				path: absolutePath,
+				dirRealPath,
+				existed: true,
+				hash: null,
+				size: stats.size,
+				content: null,
+				skipped: "too-large",
+			};
 		}
 		const content = readFileSync(absolutePath);
 		return {

@@ -128,7 +128,8 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				// navigateTree 把 leaf 移到目标消息的 parent；追加一条 custom 条目把新
 				// 分支钉住（否则重启后 leaf 会回落到文件末尾，回退悄悄失效），
 				// 同时充当审计标记。custom 条目不进模型上下文、桌面转录不渲染。
-				sessionManager.appendCustomEntry(MARKER_ENTRY_TYPE, {
+				// 命令 ctx 的 sessionManager 是只读视图，落条目走 pi.appendEntry。
+				pi.appendEntry(MARKER_ENTRY_TYPE, {
 					target: target.entryId,
 					mode: modeBoth ? "both" : "conversation",
 					via: "command",

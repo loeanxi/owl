@@ -5,6 +5,7 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { NewsRequest } from "../../core/news/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
@@ -513,6 +514,19 @@ export interface SystemPromptPreviewResult {
 
 export interface PingRequest {
 	type: "ping";
+	id: string;
+}
+
+export interface NewsClientRequest {
+	type: "news.request";
+	id: string;
+	request: NewsRequest;
+}
+
+export interface NewsOpenMessage {
+	type: "news.open";
+	sessionId: string;
+	kind: "item" | "story";
 	id: string;
 }
 
@@ -1176,6 +1190,7 @@ export interface ProviderModelsMessage {
 }
 
 export type DesktopClientRequest =
+	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
 	| ContextGetRequest
@@ -1348,6 +1363,7 @@ export type ServerResponseMessage = {
 };
 
 export type DesktopServerMessage =
+	| NewsOpenMessage
 	| ServerEventMessage
 	| ServerResponseMessage
 	| PermissionRequestMessage

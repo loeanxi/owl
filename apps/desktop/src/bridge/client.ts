@@ -2,6 +2,7 @@ import type {
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
 	IabServerMessage,
+	NewsOpenMessage,
 	PermissionRequestMessage,
 	QuestionAnswerPayload,
 	QuestionRequestMessage,
@@ -22,8 +23,13 @@ export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
 export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
+export type NewsOpenHandler = (message: NewsOpenMessage) => void;
 
-type Pending = { resolve: (value: any) => void };
+type Pending = {
+	resolve: (value: { ok: boolean; result?: unknown; error?: string }) => void;
+	reject: (error: Error) => void;
+	timer?: ReturnType<typeof setTimeout>;
+};
 
 /**
  * Typed WebSocket client for the owl desktop bridge.
@@ -40,6 +46,7 @@ export class BridgeClient {
 	private iabHandlers = new Set<IabMessageHandler>();
 	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
+	private newsOpenHandlers = new Set<NewsOpenHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -66,8 +73,13 @@ export class BridgeClient {
 				const pending = this.pending.get(message.id);
 				if (pending) {
 					this.pending.delete(message.id);
+					if (pending.timer) clearTimeout(pending.timer);
 					pending.resolve(message);
 				}
+				return;
+			}
+			if (message.type === "news.open") {
+				for (const handler of this.newsOpenHandlers) handler(message);
 				return;
 			}
 			if (message.type === "event") {
@@ -99,6 +111,11 @@ export class BridgeClient {
 			}
 		};
 		ws.onclose = () => {
+			for (const pending of this.pending.values()) {
+				if (pending.timer) clearTimeout(pending.timer);
+				pending.reject(new Error("bridge disconnected"));
+			}
+			this.pending.clear();
 			for (const handler of this.statusHandlers) handler(false);
 			if (!this.closedByUser) {
 				setTimeout(() => this.connect(), 1500);
@@ -154,6 +171,11 @@ export class BridgeClient {
 		return () => this.viewerChangedHandlers.delete(handler);
 	}
 
+	onNewsOpen(handler: NewsOpenHandler): () => void {
+		this.newsOpenHandlers.add(handler);
+		return () => this.newsOpenHandlers.delete(handler);
+	}
+
 	request<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{
 		ok: boolean;
 		result?: T;
@@ -165,7 +187,18 @@ export class BridgeClient {
 				reject(new Error("bridge not connected"));
 				return;
 			}
-			this.pending.set(id, { resolve });
+			const pending: Pending = {
+				resolve: (value) => resolve({ ...value, result: value.result as T }),
+				reject,
+			};
+			if (request.type === "news.request") {
+				const timeout = request.request.action === "evaluate" ? 30 * 60_000 : 5 * 60_000;
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error("news request timed out"));
+				}, timeout);
+			}
+			this.pending.set(id, pending);
 			this.ws.send(JSON.stringify({ ...request, id }));
 		});
 	}

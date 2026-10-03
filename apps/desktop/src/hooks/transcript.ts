@@ -44,7 +44,7 @@ export type ToolCard = {
 };
 
 export type ChatEntry =
-	| { kind: "user"; text: string; images?: ToolResultImage[] }
+	| { kind: "user"; text: string; images?: ToolResultImage[]; /** 所属会话日志条目 id（会话回退按钮用；乐观追加的行等 entry_appended 事件补上） */ entryId?: string }
 	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string; segments?: AssistantSegment[] }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
 	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
@@ -178,6 +178,19 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			runBoundaries.set(next, boundary);
 			return next;
 		}
+		case "entry_appended": {
+			// 会话日志条目落盘事件：给乐观追加、还没有 entryId 的用户消息行补上条目 id
+			// （owl-rewind 的回退按钮靠它定位目标）。其余条目类型与转录无关。
+			const entry = (event as { entry?: { type?: string; message?: { role?: string } } }).entry;
+			if (entry?.type !== "message" || entry.message?.role !== "user") return entries;
+			for (let index = entries.length - 1; index >= 0; index--) {
+				const candidate = entries[index]!;
+				if (candidate.kind !== "user") break;
+				if (candidate.entryId) break; // 已有 id 的更早用户消息：本轮的乐观行还没到
+				return [...entries.slice(0, index), { ...candidate, entryId: (entry as { id?: string }).id }, ...entries.slice(index + 1)];
+			}
+			return entries;
+		}
 		case "message_start": {
 			// system/user 消息由 sendPrompt 或 rebuild 负责入列，这里只给 assistant 建流式气泡，
 			// 否则每轮会多出带空"思考过程"的空气泡。
@@ -296,13 +309,22 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 	}
 }
 
-/** Rebuild the transcript from a full AgentMessage[] snapshot. */
-export function rebuild(messages: AnyEvent[]): ChatEntry[] {
+/** Rebuild the transcript from a full AgentMessage[] snapshot.
+ *  entryIds（可选）与 messages 按下标对齐：会话快照带条目 id 时，用户消息行
+ *  就能带上 entryId（回退按钮用）。 */
+export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | undefined>): ChatEntry[] {
 	const entries: ChatEntry[] = [];
-	for (const message of messages) {
+	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+		const message = messages[messageIndex]!;
+		const entryId = entryIds?.[messageIndex];
 		if (message.role === "user") {
 			const images = contentImagesOf(message.content);
-			entries.push({ kind: "user", text: textOf(message.content), ...(images.length > 0 ? { images } : {}) });
+			entries.push({
+				kind: "user",
+				text: textOf(message.content),
+				...(typeof entryId === "string" ? { entryId } : {}),
+				...(images.length > 0 ? { images } : {}),
+			});
 		} else if (message.role === "assistant") {
 			const tools: ToolCard[] = (message.content ?? [])
 				.filter((part: AnyEvent) => part.type === "toolCall")
