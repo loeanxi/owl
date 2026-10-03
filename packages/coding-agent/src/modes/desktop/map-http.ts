@@ -67,7 +67,7 @@ export async function handleMapHttp(
 				await options.service.geocode({ query, limit, language, ...(hasCenter ? { center: point(url) } : {}) }),
 			);
 		} else if (url.pathname === "/api/maps/nearby") {
-			const radiusMeters = numberParameter(url, "radius", 100, 10000, 2000);
+			const radiusMeters = numberParameter(url, "radius", 100, 5000, 2000);
 			send(
 				response,
 				await options.service.nearby({ center: point(url), category: category(url), radiusMeters, limit }),

@@ -38,6 +38,7 @@ export function QuestionDialog({
 	const [states, setStates] = useState<QuestionUiState[]>(() => request.questions.map(initialState));
 	const [current, setCurrent] = useState(0);
 	const [missing, setMissing] = useState<Set<number>>(new Set());
+	const [collapsed, setCollapsed] = useState(false);
 
 	const isAnswered = (s: QuestionUiState) => s.picked.size > 0 || s.custom.trim() !== "";
 
@@ -127,6 +128,7 @@ export function QuestionDialog({
 	return (
 		<section
 			className="owl-question-card"
+			data-collapsed={collapsed}
 			aria-labelledby={questionId}
 			onKeyDown={(event) => {
 				// 快捷键只作用于提问卡，工作台和输入框保留各自的键盘行为。
@@ -138,16 +140,17 @@ export function QuestionDialog({
 				} else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 					event.preventDefault();
 					event.stopPropagation();
-					advance();
+					if (!collapsed) advance();
 				}
 			}}
 		>
 			{/* 进度：第 x / N 题 + 圆点（绿=已答，描边=当前） */}
 			<div className="owl-question-card__progress">
-				<span className="text-sm font-semibold text-owl-accent">
+				<span className="owl-question-card__step font-semibold text-owl-accent">
 					{t("question.progress", { i: qi + 1, n: total })}
 				</span>
-				<div className="flex min-w-0 flex-1 items-center gap-1.5">
+				{collapsed && <span className="owl-question-card__summary" title={question.question}>{question.question}</span>}
+				<div hidden={collapsed} className="flex min-w-0 flex-1 items-center gap-1.5">
 					{request.questions.map((q, i) => (
 						<button
 							key={i}
@@ -169,11 +172,21 @@ export function QuestionDialog({
 						/>
 					))}
 				</div>
-				<span className="owl-question-card__count text-[11px] text-owl-muted">
+				<span hidden={collapsed} className="owl-question-card__count text-[11px] text-owl-muted">
 					{t("question.answeredCount", { n: answeredCount, total })}
 				</span>
+				<button
+					type="button"
+					className="owl-question-card__collapse"
+					aria-label={t(collapsed ? "common.expand" : "common.collapse")}
+					aria-expanded={!collapsed}
+					aria-controls={`${questionId}-body`}
+					onClick={() => setCollapsed((value) => !value)}
+				>
+					{t(collapsed ? "common.expand" : "common.collapse")}
+				</button>
 			</div>
-			<div className="owl-question-card__body">
+			<div id={`${questionId}-body`} hidden={collapsed} className="owl-question-card__body">
 				<div className="owl-question-card__heading">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
 						{question.header && (
@@ -186,19 +199,19 @@ export function QuestionDialog({
 					<p id={questionId} className="text-sm font-medium">{question.question}</p>
 				</div>
 				{unanswered && <p className="mt-1 text-xs text-red-400">{t("question.missingWarning")}</p>}
-				<div className="mt-2 space-y-1.5">
+				<div className="owl-question-card__options">
 					{question.options.map((option) => {
 						const picked = state.picked.has(option.label);
 						const previewVisible =
 							state.previewOpen.has(option.label) || (!question.multiSelect && picked && option.preview !== undefined);
 						return (
-							<div key={option.label}>
+							<div key={option.label} className="owl-question-card__option">
 								<div
 									role={question.multiSelect ? "checkbox" : "radio"}
 									aria-label={option.label}
 									aria-checked={picked}
 									tabIndex={0}
-									className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+									className={`owl-question-card__choice flex cursor-pointer items-start gap-2 rounded-lg border transition-colors ${
 										picked ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
 									}`}
 									onClick={(event) => {
@@ -221,9 +234,9 @@ export function QuestionDialog({
 										{picked ? (question.multiSelect ? "✓" : "●") : ""}
 									</span>
 									<span className="min-w-0 flex-1">
-										<span className="block text-sm">{option.label}</span>
+										<span className="owl-question-card__option-label block">{option.label}</span>
 										{option.description && (
-											<span className="mt-0.5 block text-xs text-owl-muted">{option.description}</span>
+											<span className="owl-question-card__description block text-owl-muted">{option.description}</span>
 										)}
 									</span>
 									{option.preview && (
@@ -249,9 +262,11 @@ export function QuestionDialog({
 							</div>
 						);
 					})}
+				</div>
+				<div className="owl-question-card__extras">
 					{/* 「其他」自由文本行：单选下输入即顶掉已选选项；多选下是额外一项 */}
 					<div
-						className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+						className={`owl-question-card__custom flex cursor-pointer items-center gap-2 rounded-lg border transition-colors ${
 							state.custom.trim() !== "" ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
 						}`}
 						onClick={(event) => {
@@ -287,7 +302,7 @@ export function QuestionDialog({
 					)}
 				</div>
 			</div>
-			<div className="owl-question-card__footer">
+			<div hidden={collapsed} className="owl-question-card__footer">
 				<button
 					type="button"
 					className="rounded-lg border border-owl-border px-3 py-1.5 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"

@@ -20,17 +20,27 @@ export function QuestionDock({
 		const dock = dockRef.current;
 		const conversation = dock?.parentElement;
 		const content = conversation?.parentElement;
-		if (!dock || !conversation || !content || !activeRequest) return;
+		const composer = dock?.querySelector<HTMLElement>(".owl-composer-surface");
+		if (!dock || !conversation || !content || !composer || !activeRequest) return;
+		const fixedSiblings = Array.from(conversation.children).filter((child) =>
+			child !== dock && getComputedStyle(child).flexGrow === "0",
+		);
 		const measure = (): void => {
-			// A tall bottom workbench must leave room to read and answer the card.
-			content.style.setProperty("--owl-question-chat-min-height", `${Math.ceil(dock.getBoundingClientRect().height) + 250}px`);
-			const available = Math.max(0, dock.getBoundingClientRect().top - conversation.getBoundingClientRect().top - 10);
+			// Budget from the full content area, independently of the card's own height.
+			const contentHeight = content.getBoundingClientRect().height;
+			const historyHeight = Math.min(160, contentHeight * 0.2);
+			const fixedHeight = fixedSiblings.reduce((height, sibling) => height + sibling.getBoundingClientRect().height, 0);
+			const available = Math.max(0, contentHeight - composer.getBoundingClientRect().height - fixedHeight - historyHeight);
 			dock.style.setProperty("--owl-question-available-height", `${Math.floor(available)}px`);
+			const minHeight = dock.getBoundingClientRect().height + fixedHeight + historyHeight;
+			content.style.setProperty("--owl-question-chat-min-height", `${Math.ceil(minHeight)}px`);
 		};
 		measure();
 		const observer = new ResizeObserver(measure);
-		observer.observe(conversation);
+		observer.observe(content);
+		observer.observe(composer);
 		observer.observe(dock);
+		for (const sibling of fixedSiblings) observer.observe(sibling);
 		return () => {
 			observer.disconnect();
 			dock.style.removeProperty("--owl-question-available-height");
@@ -41,7 +51,7 @@ export function QuestionDock({
 	return (
 		<div ref={dockRef} className="owl-composer-dock">
 			{requests.length > 0 && (
-				<div className="owl-question-anchor">
+				<div className="owl-question-anchor" hidden={!activeRequest}>
 					{/* Keep drafts mounted while another session or queued request is active. */}
 					{requests.map((request) => (
 						<div key={request.requestId} className="owl-question-anchor__column" hidden={request.requestId !== activeRequest?.requestId}>

@@ -5,13 +5,13 @@
 }
 
 .owl-question-anchor {
-	position: absolute;
-	z-index: 30;
-	right: 0;
-	bottom: 100%;
-	left: 0;
-	padding: 0 16px 10px;
+	padding: 0 16px 6px;
 	pointer-events: none;
+}
+
+.owl-question-anchor[hidden],
+.owl-question-anchor__column[hidden] {
+	display: none;
 }
 
 .owl-question-anchor__column {

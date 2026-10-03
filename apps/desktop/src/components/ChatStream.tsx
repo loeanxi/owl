@@ -749,6 +749,22 @@ export function ChatStream({
 		updateActiveQuestion();
 	};
 
+	useEffect(() => {
+		const el = container.current;
+		if (!el) return;
+		const observer = new ResizeObserver(() => {
+			if (el.clientHeight === 0 || el.clientWidth === 0) return;
+			// 提问卡展开或收起会改变聊天视口：贴底时跟随，翻历史或导航时保留位置。
+			const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+			if (stick.current && navigationTarget.current === null && Math.abs(el.scrollTop - bottom) > 1) {
+				el.scrollTop = bottom;
+			}
+			onScrollWithTracking();
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
+
 	return (
 		<div className="owl-chat-surface" data-activity={activity}>
 			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />}

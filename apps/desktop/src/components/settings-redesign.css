@@ -564,13 +564,14 @@
 	background: #f8faf8;
 }
 
+/* 深色缩略图用令牌驱动：跟随当前主题预设的配色，不用写死。 */
 .owl-settings-page .owl-settings-mode-preview.is-dark {
-	border-color: #3f463f;
-	background: #202321;
+	border-color: var(--color-owl-border);
+	background: var(--color-owl-bg);
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-system {
-	background: linear-gradient(125deg, #f8faf8 50%, #202321 50%);
+	background: linear-gradient(125deg, #f8faf8 50%, var(--color-owl-bg) 50%);
 }
 
 .owl-settings-page .owl-settings-mode-preview i {
@@ -583,11 +584,15 @@
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-dark i {
-	background: #465047;
+	background: var(--color-owl-border);
+}
+
+.owl-settings-page .owl-settings-mode-preview.is-dark i.is-input {
+	background: var(--color-owl-panel);
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-system i {
-	background: rgb(128 134 128 / 0.75);
+	background: rgb(128 128 128 / 0.75);
 }
 
 .owl-settings-page .owl-settings-mode-preview i.is-accent {
@@ -615,6 +620,103 @@
 .owl-settings-page .owl-settings-mode-thumb.is-active .owl-settings-mode-label {
 	color: var(--color-owl-accent);
 	font-weight: 600;
+}
+
+/* 主题预设：整套配色的预览卡（示意色由 JSX 内联 --pv-* 提供，强调色条跟随当前强调色）。 */
+.owl-settings-page .owl-settings-preset-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.owl-settings-page .owl-settings-preset-card {
+	padding: 12px;
+	border: 1px solid var(--settings-border);
+	border-radius: 10px;
+	background: var(--settings-panel);
+	text-align: left;
+}
+
+.owl-settings-page .owl-settings-preset-card.is-active {
+	border-color: var(--color-owl-accent);
+	box-shadow: 0 0 0 2px var(--settings-accent-soft);
+}
+
+.owl-settings-page .owl-settings-preset-card:disabled {
+	opacity: 0.6;
+}
+
+.owl-settings-page .owl-settings-preset-preview {
+	--pv-bg: #1e1e1e;
+	--pv-rail: #151515;
+	--pv-line: #3d3d3d;
+	--pv-panel: #262626;
+	display: flex;
+	height: 104px;
+	overflow: hidden;
+	border: 1px solid var(--pv-line);
+	border-radius: 7px;
+	background: var(--pv-bg);
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-rail {
+	display: flex;
+	width: 26%;
+	flex: 0 0 26%;
+	flex-direction: column;
+	gap: 7px;
+	padding: 12px 9px;
+	background: var(--pv-rail);
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-rail i,
+.owl-settings-page .owl-settings-preset-preview .pv-main i {
+	display: block;
+	height: 4px;
+	border-radius: 2px;
+	background: var(--pv-line);
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-rail i.is-accent {
+	width: 60%;
+	background: var(--color-owl-accent);
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-main {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	flex-direction: column;
+	gap: 8px;
+	padding: 14px 12px;
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-main i:first-child {
+	width: 55%;
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-main i:nth-child(2) {
+	width: 85%;
+}
+
+.owl-settings-page .owl-settings-preset-preview .pv-main b {
+	height: 22px;
+	margin-top: auto;
+	border: 1px solid var(--pv-line);
+	border-radius: 5px;
+	background: var(--pv-panel);
+}
+
+.owl-settings-page .owl-settings-preset-label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-top: 11px;
+	font-size: 13px;
+}
+
+.owl-settings-page .owl-settings-preset-check {
+	color: var(--color-owl-accent);
 }
 
 /* 强调色：预置色板圆形色块 + 自定义拾色 + 当前 hex。 */
@@ -1191,7 +1293,8 @@
 		padding: 24px 20px;
 	}
 
-	.owl-settings-page .owl-settings-content .grid-cols-2 {
+	.owl-settings-page .owl-settings-content .grid-cols-2,
+	.owl-settings-page .owl-settings-preset-grid {
 		grid-template-columns: 1fr;
 	}
 

@@ -27,24 +27,25 @@ const cwd = join(output, "fake-workspace").replace(/\\/g, "/");
 const sockets = new Set();
 const result = { success: false, productionMinify: true, actualApp: true, fakeWebSocket: true,
   cases: [], errors: [], requests: [], browserPath, sourceSha256: {}, fixtureFallbacks: [] };
-for (const path of ["App.tsx", "components/QuestionDialog.tsx", "components/QuestionDock.tsx", "components/question-card.css", "components/question-dock.css", "components/Composer.tsx", "sidebar/Workbench.tsx", "bridge/client.ts"])
+for (const path of ["App.tsx", "components/QuestionDialog.tsx", "components/QuestionDock.tsx", "components/question-card.css", "components/question-dock.css", "components/ChatStream.tsx", "components/Composer.tsx", "sidebar/Workbench.tsx", "bridge/client.ts"])
   result.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, "apps/desktop/src", path))).digest("hex");
 const built = await build({ entryPoints: [join(scriptDir, "fixtures/question-card.mjs")], outfile: join(output, "app.js"),
   bundle: true, platform: "browser", format: "esm", jsx: "automatic", minify: true,
   define: { "process.env.NODE_ENV": '"production"' }, metafile: true,
   loader: { ".svg": "dataurl", ".png": "dataurl", ".woff2": "dataurl" },
   plugins: [{ name: "baseline-source-snapshots", setup(build) {
-    if (baselineOnly) build.onLoad({ filter: /(?:App|QuestionDialog)\.tsx$/ }, async (args) => {
-      const file = args.path.endsWith("QuestionDialog.tsx") ? "QuestionDialog.before.tsx" : "App.before.tsx";
+    if (baselineOnly) build.onLoad({ filter: /(?:App|QuestionDialog|QuestionDock)\.tsx$|question-(?:card|dock)\.css$/ }, async (args) => {
+      const filename = args.path.replace(/\\/g, "/").split("/").at(-1);
+      const file = filename.replace(/\.(tsx|css)$/, ".before.$1");
       const contents = await readFile(join(output, file), "utf8");
       result.baselineSnapshots ??= {};
       result.baselineSnapshots[file] = createHash("sha256").update(contents).digest("hex");
-      return { contents, loader: "tsx", resolveDir: dirname(args.path) };
+      return { contents, loader: args.path.endsWith(".css") ? "css" : "tsx", resolveDir: dirname(args.path) };
     });
   }}],
 });
-result.actualInputs = Object.keys(built.metafile.inputs).filter((path) => /(?:App|QuestionDialog|Composer|Workbench|client)\.tsx?$/.test(path));
-for (const file of ["App.tsx", "QuestionDialog.tsx", "Composer.tsx", "Workbench.tsx", "client.ts"])
+result.actualInputs = Object.keys(built.metafile.inputs).filter((path) => /(?:App|QuestionDock|QuestionDialog|ChatStream|Composer|Workbench|client)\.tsx?$/.test(path));
+for (const file of ["App.tsx", "QuestionDock.tsx", "QuestionDialog.tsx", "ChatStream.tsx", "Composer.tsx", "Workbench.tsx", "client.ts"])
   assert.ok(result.actualInputs.some((path) => path.endsWith(file)), `Actual ${file} absent`);
 const cssSource = join(repo, "apps/desktop/src/index.css");
 const compiler = await compile(await readFile(cssSource, "utf8"), { base: dirname(cssSource), onDependency: () => {} });
@@ -67,6 +68,10 @@ const ws = new WebSocketServer({ server, path: "/ws" });
 const row = { id: "fixture-session", name: "费用测试审阅", cwd, messageCount: 2, modified: "2026-10-03T11:00:00.000Z" };
 const otherRow = { ...row, id: "other-session", name: "后台问题会话" };
 const stats = { model: { provider: "faux", id: "test-model", name: "Faux test model" }, thinkingLevel: "medium", availableThinkingLevels: ["medium"], supportsThinking: true, contextUsage: { tokens: 100, contextWindow: 200000, percent: .05 } };
+const transcript = [
+  { role: "user", content: "请生成并审阅费用表" },
+  { role: "assistant", content: [{ type: "text", text: "已生成 [费用测试.univer](费用测试.univer)，草稿等待审阅。\n\n" + Array.from({ length: 60 }, (_, i) => `- 检查 ${i + 1}：表头、数量、单价、金额与公式结果一致。`).join("\n") + "\n\n近期末尾提示：请确认需要保留的内容。" }], stopReason: "stop" },
+];
 ws.on("connection", (socket) => {
   sockets.add(socket);
   socket.on("close", () => sockets.delete(socket));
@@ -83,7 +88,7 @@ ws.on("connection", (socket) => {
     if (request.type === "settings.get") value = { agentDir: "fixture-only", settings: { theme: "dark", uiLanguage: "zh-CN", owlNotifications: { enabled: false } } };
     if (request.type === "commands.list") value = { commands: [] };
     if (request.type === "session.stats") value = stats;
-    if (request.type === "session.resume") value = { sessionId: request.sessionId, cwd, messages: [{ role: "user", content: "请生成并审阅费用表" }, { role: "assistant", content: [{ type: "text", text: "已生成 [费用测试.univer](费用测试.univer)，草稿等待审阅。" }], stopReason: "stop" }], messageEntryIds: ["entry-0", "entry-1"] };
+    if (request.type === "session.resume") value = { sessionId: request.sessionId, cwd, messages: transcript, messageEntryIds: ["entry-0", "entry-1"] };
     socket.send(JSON.stringify({ type: "response", id: request.id, ok: request.type !== "news.request", result: value, error: request.type === "news.request" ? "News disabled in isolated fixture" : undefined }));
   });
 });
@@ -112,6 +117,17 @@ await page.addInitScript(({ cwd }) => {
 function send(message) { for (const socket of sockets) socket.send(JSON.stringify(message)); }
 const officeQuestion = { header: "Office 审阅", question: "确认 Office 修改 费用测试.univer 草稿，是否合入当前版本？", multiSelect: false,
   options: [{ label: "确认合入", description: "将已审阅的草稿合入当前版本。" }, { label: "暂不处理", description: "保留草稿，继续查看或修改。" }] };
+const compactQuestions = [
+  { header: "问题领域", question: "你想问的问题属于哪个领域？", multiSelect: true, options: [
+    { label: "代码语法", description: "Java/TS/Vue 等语法、框架用法疑问", preview: "### 语法示例\n保留选择、备注和预览状态。" },
+    { label: "业务概念", description: "MES/QMS/WMS 等工业软件业务流程" },
+    { label: "报错排查", description: "接口报错、环境问题、日志排查" },
+    { label: "技术选型", description: "架构选型、工具对比、技术方案" },
+  ] },
+  { header: "具体问题", question: "需要哪一种帮助？", multiSelect: false, options: [
+    { label: "解释", description: "说明问题和原因" }, { label: "修复", description: "完成具体修改" },
+  ] },
+];
 const q = (requestId, questions = [officeQuestion], sessionId = "fixture-session") => ({ type: "question_request", requestId, sessionId, toolCallId: `tool-${requestId}`, questions });
 const card = () => page.locator('.owl-question-card:visible, div.bg-owl-panel:visible').filter({ hasText: /第 \d+ \/ \d+ 题/ }).last();
 const answerRequests = () => result.requests.filter((request) => request.type === "question.response");
@@ -131,26 +147,40 @@ async function geometry() {
     const composer = document.querySelector(".owl-composer-surface");
     const composerColumn = composer.querySelector(".max-w-3xl");
     const workbench = document.querySelector(".owl-workbench-shell");
+    const chat = document.querySelector(".owl-chat-scroll");
+    const options = [...element.querySelectorAll('[role="radio"], [role="checkbox"]')].map(rect);
     const ancestors = []; for (let parent = element; parent; parent = parent.parentElement) ancestors.push({ position: getComputedStyle(parent).position, bg: getComputedStyle(parent).backgroundColor, rect: rect(parent), className: parent.className });
-    return { card: rect(element), lane: rect(lane), composer: rect(composer), composerColumn: composerColumn ? rect(composerColumn) : null, workbench: rect(workbench), ancestors, dock: workbench.dataset.dock, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
+    return { card: rect(element), lane: rect(lane), composer: rect(composer), composerColumn: composerColumn ? rect(composerColumn) : null, workbench: workbench ? rect(workbench) : null, chat: rect(chat), options, ancestors, dock: workbench?.dataset.dock, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
   });
 }
 function assertAnchor(g) {
   assert.ok(g.card.x >= g.lane.x - 1 && g.card.right <= g.lane.right + 1, `Card [${g.card.x},${g.card.right}] exceeds chat lane [${g.lane.x},${g.lane.right}]`);
   assert.ok(Math.abs(g.card.bottom - g.composer.y) <= 20, `Card bottom ${g.card.bottom} should sit immediately above Composer ${g.composer.y}`);
   assert.ok(g.card.y >= g.lane.y - 1, `Card top ${g.card.y} clips chat lane ${g.lane.y}`);
+  assert.ok(g.chat.bottom <= g.card.y + 1, `Card overlays chat viewport: chat bottom ${g.chat.bottom}, card top ${g.card.y}`);
   if (g.composerColumn) assert.ok(Math.abs(g.card.x - g.composerColumn.x) <= 1 && Math.abs(g.card.right - g.composerColumn.right) <= 1, "Card horizontal bounds differ from Composer inner column");
   if (g.dock === "right") assert.ok(g.card.right <= g.workbench.x + 1, "Card overlays right Office pane");
-  else assert.ok(g.card.bottom < g.workbench.y, "Card overlays bottom workbench");
+  else if (g.workbench) assert.ok(g.card.bottom < g.workbench.y, "Card overlays bottom workbench");
   assert.equal(g.ancestors.some((a) => a.position === "fixed" && a.rect.width >= g.viewport - 2), false, "Fullscreen layer remains");
 }
 async function cancel() { await card().getByRole("button", { name: "取消", exact: true }).click(); await pause(); }
 async function submit() { await card().getByRole("button", { name: "提交回答", exact: true }).click(); await pause(); }
+const chatScroll = () => page.locator(".owl-chat-scroll");
+async function scrollState() {
+  return await chatScroll().evaluate((element) => ({ top: element.scrollTop, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight, gap: element.scrollHeight - element.clientHeight - element.scrollTop }));
+}
+async function assertChatAtLatest() {
+  await page.waitForFunction(() => {
+    const element = document.querySelector(".owl-chat-scroll");
+    return element.scrollHeight - element.clientHeight - element.scrollTop <= 2;
+  });
+}
 try {
   await page.goto(origin);
   await page.getByRole("textbox", { name: "任务输入", exact: true }).waitFor();
   await page.getByRole("link", { name: "费用测试.univer", exact: true }).first().click();
   await page.waitForSelector(".owl-plugin-viewer iframe");
+  await page.locator(".owl-chat-scroll").evaluate((element) => element.scrollTop = element.scrollHeight);
   await emitQuestion("baseline-anchor");
   await caseRun("office-question-is-anchored-above-composer-inside-chat-lane-without-dimmer", async () => {
     const g = await geometry();
@@ -159,8 +189,138 @@ try {
     assertAnchor(g);
     return g;
   });
+  await cancel();
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.locator('.owl-workbench-dock-actions button').nth(2).click(); await pause();
+  await emitQuestion("compact-questionnaire", compactQuestions);
+  const compactGeometry = await geometry();
+  result.compactGeometry = compactGeometry;
+  await page.screenshot({ path: join(output, "05-compact-four-options-dark.png") });
+  await caseRun("four-options-two-questions-card-height-is-at-most-280px", async () => {
+    assert.ok(compactGeometry.card.height <= 280, `Four-option card is ${compactGeometry.card.height}px tall`);
+    return compactGeometry;
+  });
+  await caseRun("compact-question-occupies-space-and-does-not-overlay-chat-viewport", async () => {
+    assertAnchor(compactGeometry);
+    assert.ok(compactGeometry.chat.height >= 280, `Insufficient readable chat viewport: ${compactGeometry.chat.height}px`);
+    return compactGeometry;
+  });
+  await caseRun("four-options-use-two-columns-at-wide-card-width", async () => {
+    assert.ok(compactGeometry.card.width >= 560);
+    assert.equal(compactGeometry.options.length, 4);
+    assert.ok(Math.abs(compactGeometry.options[0].y - compactGeometry.options[1].y) <= 1, "First two options should share a row");
+    assert.ok(compactGeometry.options[1].x > compactGeometry.options[0].x + compactGeometry.options[0].width, "Second option should occupy a separate column");
+    assert.ok(compactGeometry.options[2].y > compactGeometry.options[0].y, "Third option should occupy the second row");
+    return { options: compactGeometry.options };
+  });
   if (!baselineOnly) {
+    await caseRun("folding-and-expanding-question-preserves-latest-message-scroll", async () => {
+      await chatScroll().evaluate((element) => element.scrollTop = element.scrollHeight); await pause();
+      const before = await scrollState(); assert.ok(before.scrollHeight > before.clientHeight);
+      await card().getByRole("button", { name: "收起", exact: true }).click(); await pause();
+      const collapsed = await scrollState(); await assertChatAtLatest();
+      assert.ok(collapsed.clientHeight > before.clientHeight + 100, "Collapse should return real space to chat messages");
+      assert.ok((await geometry()).card.height <= 40, "Collapsed question should occupy a compact single line");
+      await page.screenshot({ path: join(output, "09-compact-collapsed.png") });
+      await card().getByRole("button", { name: "展开", exact: true }).click(); await pause();
+      await assertChatAtLatest();
+      const expanded = await scrollState();
+      assert.ok(Math.abs(expanded.clientHeight - before.clientHeight) <= 1);
+      assertAnchor(await geometry());
+      return { before, collapsed, expanded };
+    });
+    await caseRun("folding-and-expanding-question-preserves-historical-scroll-position", async () => {
+      await chatScroll().evaluate((element) => element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 3)); await pause();
+      const before = await scrollState(); assert.ok(before.gap > 200);
+      await card().getByRole("button", { name: "收起", exact: true }).click(); await pause();
+      const collapsed = await scrollState();
+      assert.ok(Math.abs(collapsed.top - before.top) <= 1, "Collapsing jumped away from the chosen historical message");
+      await card().getByRole("button", { name: "展开", exact: true }).click(); await pause();
+      const expanded = await scrollState();
+      assert.ok(Math.abs(expanded.top - before.top) <= 1, "Expanding jumped away from the chosen historical message");
+      return { before, collapsed, expanded };
+    });
+    await caseRun("folded-question-hides-controls-keeps-draft-and-native-enter-restores-it", async () => {
+      await card().getByRole("checkbox", { name: "代码语法", exact: false }).click();
+      await card().getByPlaceholder("自由输入…", { exact: true }).fill("补充问题");
+      await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
+      await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).fill("保留备注");
+      await card().getByRole("button", { name: "下一题", exact: true }).click();
+      await card().getByRole("radio", { name: "解释", exact: false }).click();
+      await card().getByRole("button", { name: "收起", exact: true }).click(); await pause();
+      const count = answerRequests().length;
+      assert.equal(await card().locator(".owl-question-card__body").isVisible(), false);
+      assert.equal(await card().locator(".owl-question-card__footer").isVisible(), false);
+      const expand = card().getByRole("button", { name: "展开", exact: true });
+      assert.equal(await expand.getAttribute("aria-expanded"), "false");
+      await expand.focus(); await expand.press("Control+Enter"); await expand.press("Meta+Enter"); await pause();
+      assert.equal(answerRequests().length, count, "Collapsed shortcuts must not submit or advance");
+      assert.equal(await card().getAttribute("data-collapsed"), "true");
+      await expand.focus(); await page.keyboard.press("Tab");
+      assert.equal(await card().evaluate((element) => [...element.querySelectorAll('.owl-question-card__body *, .owl-question-card__footer *')].includes(document.activeElement)), false, "Tab entered hidden question controls");
+      await expand.focus(); await expand.press("Enter"); await pause();
+      await card().getByText("需要哪一种帮助？", { exact: true }).waitFor();
+      assert.equal(await card().getByRole("radio", { name: "解释", exact: false }).getAttribute("aria-checked"), "true");
+      await card().getByRole("button", { name: "上一题", exact: true }).click();
+      assert.equal(await card().getByRole("checkbox", { name: "代码语法", exact: false }).getAttribute("aria-checked"), "true");
+      assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).inputValue(), "补充问题");
+      assert.equal(await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).inputValue(), "保留备注");
+      await card().getByRole("heading", { name: "语法示例", exact: true }).waitFor();
+      await cancel(); await emitQuestion("compact-questionnaire-restored", compactQuestions);
+      return { answersSentDuringCollapse: answerRequests().length - count - 1 };
+    });
+    await caseRun("four-options-use-one-column-in-narrow-chat-lane", async () => {
+      await page.setViewportSize({ width: 760, height: 760 }); await pause();
+      const g = await geometry(); assertAnchor(g);
+      assert.ok(g.card.width < 560);
+      assert.equal(g.options.length, 4);
+      for (let i = 1; i < g.options.length; i++) {
+        assert.ok(Math.abs(g.options[i].x - g.options[0].x) <= 1, "Narrow options should share one column");
+        assert.ok(g.options[i].y > g.options[i - 1].y, "Narrow options should form separate rows");
+      }
+      await page.screenshot({ path: join(output, "06-compact-four-options-narrow.png") });
+      return g;
+    });
+    await page.setViewportSize({ width: 1280, height: 860 }); await pause();
+    await caseRun("compact-question-light-theme-preserves-chat-and-form-alignment", async () => {
+      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "light")); await pause();
+      const g = await geometry(); assertAnchor(g);
+      assert.ok(g.card.height <= 280);
+      await page.screenshot({ path: join(output, "07-compact-four-options-light.png") });
+      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "dark"));
+      return g;
+    });
     await cancel();
+    const longDescription = "这是需要完整查看的选项说明。".repeat(90) + "完整说明末尾：保持全部描述。";
+    await emitQuestion("long-description", [{ ...compactQuestions[0], options: compactQuestions[0].options.map((option, i) => i === 3 ? { ...option, description: longDescription } : option) }]);
+    await caseRun("long-option-description-is-complete-and-scrollable-with-footer-visible", async () => {
+      const description = card().getByText(longDescription, { exact: true });
+      const details = await description.evaluate((element) => {
+        const card = element.closest(".owl-question-card");
+        const body = card.querySelector(".owl-question-card__body");
+        const range = document.createRange();
+        const text = element.firstChild;
+        range.setStart(text, text.textContent.length - 12); range.setEnd(text, text.textContent.length);
+        const before = range.getBoundingClientRect();
+        const bodyRect = body.getBoundingClientRect();
+        body.scrollTop += before.bottom - bodyRect.bottom + 8;
+        const tail = range.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        const footer = card.querySelector(".owl-question-card__footer").getBoundingClientRect();
+        return { description: { top: rect.top, bottom: rect.bottom }, body: { top: bodyRect.top, bottom: bodyRect.bottom, clientHeight: body.clientHeight, scrollHeight: body.scrollHeight }, tail: { top: tail.top, bottom: tail.bottom }, footer: { top: footer.top, bottom: footer.bottom }, cardBottom: card.getBoundingClientRect().bottom };
+      });
+      assert.ok(details.body.scrollHeight > details.body.clientHeight, "Long description should produce a scrollable question body");
+      assert.ok(details.tail.top >= details.body.top && details.tail.bottom <= details.body.bottom, "Description tail cannot be read by scrolling");
+      assert.ok(details.description.bottom >= details.tail.bottom - 1, "Description is truncated inside its own option");
+      assert.ok(details.footer.bottom <= details.cardBottom + 1, "Footer is clipped");
+      assertAnchor(await geometry());
+      await page.screenshot({ path: join(output, "08-complete-long-description.png") });
+      return details;
+    });
+    await cancel();
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.getByRole("link", { name: "费用测试.univer", exact: true }).first().click(); await pause();
+    await emitQuestion("baseline-anchor"); await cancel();
     await caseRun("single-office-question-cancels-with-accurate-wire-id", async () => {
       const answer = answerRequests().at(-1);
       assert.equal(answer.requestId, "baseline-anchor");

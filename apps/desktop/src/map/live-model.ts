@@ -266,7 +266,7 @@ export class RealMapClient {
 		this.fetcher = fetcher;
 	}
 	search(query: string, language: "zh" | "en", signal?: AbortSignal): Promise<MapResult<RealPlace>> {
-		return this.request("search", { q: query, language, limit: "12" }, signal);
+		return this.request("search", { q: query, lang: language, limit: "12" }, signal);
 	}
 	nearby(
 		center: MapCoordinate,
@@ -276,12 +276,12 @@ export class RealMapClient {
 	): Promise<MapResult<RealPlace>> {
 		return this.request(
 			"nearby",
-			{ lat: String(center.lat), lng: String(center.lng), category, radius: String(radiusMeters), limit: "60" },
+			{ lat: String(center.lat), lng: String(center.lng), category, radius: String(radiusMeters), limit: "20" },
 			signal,
 		);
 	}
 	reverse(point: MapCoordinate, language: "zh" | "en", signal?: AbortSignal): Promise<MapResult<RealPlace>> {
-		return this.request("reverse", { lat: String(point.lat), lng: String(point.lng), language }, signal);
+		return this.request("reverse", { lat: String(point.lat), lng: String(point.lng), lang: language }, signal);
 	}
 	private async request(
 		path: string,

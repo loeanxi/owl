@@ -143,6 +143,7 @@ export function MapWorkspace({
 	const storageInitialized = useRef(false);
 	const queryAbort = useRef<AbortController | undefined>(undefined);
 	const queryEpoch = useRef(0);
+	const lastLookup = useRef<{ action: "search" | "nearby" | "reverse"; query?: string; point?: MapCoordinate; category?: MapCategory; radius?: number; locationPanel?: boolean; searchNearby?: boolean } | undefined>(undefined);
 	const sendEpoch = useRef(0);
 	const sendPending = useRef(false);
 	const pendingMessage = useRef("");
@@ -162,7 +163,7 @@ export function MapWorkspace({
 	const detailPlace = rows.find((place) => place.id === detailId);
 	const hasDetail = Boolean(detailPlace);
 	const centerLabel = locationName || m("mapCenter");
-	const partialResults = sources.some((source) => source.status === "error") && rows.length > 0;
+	const partialResults = sources.some((source) => source.status === "error") && sources.some((source) => source.status === "ok") && rows.length > 0;
 	const labels: RealMapLabels = {
 		mapLabel: m("mapLabel"),
 		zoomIn: m("zoomIn"),
@@ -391,7 +392,6 @@ export function MapWorkspace({
 		setMapError(undefined);
 		setSources([]);
 		setDetailId(undefined);
-		setSelectedId(undefined);
 		setFollowContext(undefined);
 		return { epoch, signal: controller.signal };
 	}
@@ -400,18 +400,23 @@ export function MapWorkspace({
 		query: string,
 		kind: "search" | "nearby",
 		origin?: MapCoordinate,
-	): void {
-		setPlaces(result.data);
+	): boolean {
 		setSources(result.sources);
+		if (!result.sources.some((source) => source.status === "ok")) {
+			setMapError(result.sources.find((source) => source.status === "error")?.error || m("mapUnavailable"));
+			return false;
+		}
+		setMapError(undefined);
+		setPlaces(result.data);
+		setSelectedId(undefined);
 		setResultKind(kind);
 		setResultQuery(query);
 		setView("results");
 		setCenterChanged(origin ? straightLineDistance(origin, centerRef.current) > 1 : false);
-		if (!result.data.length && result.sources.some((source) => source.status === "error"))
-			setMapError(result.sources.find((source) => source.status === "error")?.error || m("mapUnavailable"));
 		requestAnimationFrame(() => {
 			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
 		});
+		return true;
 	}
 	function recordSearch(
 		query: string,
@@ -443,20 +448,22 @@ export function MapWorkspace({
 		if (!query) return;
 		const point = parseCoordinates(query);
 		if (point) {
-			await selectCoordinate(point);
-			setLocationOpen(false);
-			setSideInput("");
+			if (await selectCoordinate(point)) {
+				setLocationOpen(false);
+				setSideInput("");
+			}
 			return;
 		}
 		if (/^[+-]?\d+(?:\.\d+)?\s*[,，;]\s*[+-]?\d/.test(query)) {
 			setMapError(m("coordinateInvalid"));
 			return;
 		}
+		lastLookup.current = { action: "search", query, locationPanel: inLocationPanel };
 		const request = beginQuery();
 		try {
 			const result = await maps.search(query, copy.language, request.signal);
 			if (request.epoch !== queryEpoch.current) return;
-			applyResult(result, query, "search");
+			if (!applyResult(result, query, "search")) return;
 			setLocationCandidates(result.data);
 			const first = result.data[0];
 			if (first && !inLocationPanel) {
@@ -480,15 +487,17 @@ export function MapWorkspace({
 		selectedCategory = category,
 		selectedRadius = radius,
 	): Promise<MapResult<RealPlace> | undefined> {
+		lastLookup.current = { action: "nearby", point: { ...point }, category: selectedCategory, radius: selectedRadius };
 		const request = beginQuery();
 		setCategory(selectedCategory);
 		setRadius(selectedRadius);
-		centerRef.current = point;
-		setCenter(point);
 		try {
 			const result = await maps.nearby(point, selectedCategory, selectedRadius, request.signal);
 			if (request.epoch !== queryEpoch.current) return undefined;
-			applyResult(result, "", "nearby", point);
+			if (!applyResult(result, "", "nearby", point)) return undefined;
+			centerRef.current = { lat: point.lat, lng: point.lng };
+			setCenter(centerRef.current);
+			setCenterChanged(false);
 			recordSearch(
 				m(categoryLabels[selectedCategory]),
 				point,
@@ -506,9 +515,8 @@ export function MapWorkspace({
 			if (request.epoch === queryEpoch.current) setMapLoading(false);
 		}
 	}
-	async function selectCoordinate(point: MapCoordinate, searchNearby = false): Promise<void> {
-		centerOn(point, pointLabel(point));
-		setLocationCandidates([]);
+	async function selectCoordinate(point: MapCoordinate, searchNearby = false): Promise<boolean> {
+		lastLookup.current = { action: "reverse", point: { ...point }, searchNearby };
 		const request = beginQuery();
 		setView("results");
 		const manual: RealPlace = {
@@ -534,35 +542,33 @@ export function MapWorkspace({
 				fetchedAt: new Date().toISOString(),
 			},
 		};
-		setPlaces([manual]);
-		setSelectedId(manual.id);
-		setResultKind("search");
-		setResultQuery(pointLabel(point));
-		setSources([]);
 		try {
 			const result = await maps.reverse(point, copy.language, request.signal);
-			if (request.epoch !== queryEpoch.current) return;
-			setSources(result.sources);
+			if (request.epoch !== queryEpoch.current) return false;
+			if (!applyResult({ data: [manual, ...result.data.filter((place) => place.id !== manual.id)], sources: result.sources }, pointLabel(point), "search")) return false;
 			const match = result.data[0];
-			if (
-				match &&
-				Math.abs(centerRef.current.lat - point.lat) < 0.000001 &&
-				Math.abs(centerRef.current.lng - point.lng) < 0.000001
-			) {
-				setLocationName(placeName(match));
-				setPlaces([manual, ...result.data.filter((place) => place.id !== manual.id)]);
-				setSavedState((current) => ({ ...current, lastLocationName: placeName(match) }));
-			}
+			centerOn(point, match ? placeName(match) : pointLabel(point));
+			setLocationCandidates([]);
+			setSelectedId(manual.id);
 			recordSearch(pointLabel(point), point, match ? placeName(match) : pointLabel(point), "search");
+			return true;
 		} catch (error) {
 			if (request.epoch === queryEpoch.current && !request.signal.aborted)
 				setMapError(error instanceof Error ? error.message : m("mapUnavailable"));
+			return false;
 		} finally {
 			if (request.epoch === queryEpoch.current) {
 				setMapLoading(false);
 				if (searchNearby) void nearbyPlaces(point);
 			}
 		}
+	}
+	function retryLookup(): void {
+		const request = lastLookup.current;
+		if (!request) return;
+		if (request.action === "search") void searchPlaces(request.query ?? "", request.locationPanel);
+		else if (request.action === "nearby") void nearbyPlaces(request.point ?? centerRef.current, request.category ?? category, request.radius ?? radius);
+		else if (request.point) void selectCoordinate(request.point, request.searchNearby);
 	}
 	function chooseLocation(place: RealPlace): void {
 		centerOn(place, placeName(place));

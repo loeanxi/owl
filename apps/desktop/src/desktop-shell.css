@@ -115,7 +115,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	letter-spacing: 0.03em;
 }
 .owl-desktop-menu-separator { height: 1px; margin: 5px 8px; background: var(--owl-ui-border); }
-.owl-desktop-menu-panel button:hover:not(:disabled) { background: var(--owl-ui-hover); }
 .owl-desktop-menu-panel button:disabled { opacity: 0.4; cursor: default; }
 .owl-desktop-menu-row button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-desktop-app-name {
