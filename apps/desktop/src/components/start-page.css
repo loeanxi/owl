@@ -1,0 +1,156 @@
+/* Welcome surface only: typography and tokens do not reach messages or the composer. */
+.owl-start-page {
+	display: flex;
+	min-height: clamp(280px, calc(100dvh - 340px), 440px);
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 12px 4px;
+	color: var(--owl-ui-text, var(--color-owl-text));
+	text-align: center;
+}
+
+.owl-start-page .owl-start-mark {
+	width: 46px;
+	height: 46px;
+	margin-bottom: 16px;
+}
+
+.owl-start-page .owl-start-eyebrow {
+	margin-bottom: 8px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	line-height: 1.4;
+}
+
+.owl-start-page .owl-start-heading {
+	font-family: var(--font-serif);
+	font-size: clamp(24px, 2.3vw, 30px);
+	font-weight: 400;
+	letter-spacing: -0.8px;
+	line-height: 1.4;
+}
+
+.owl-start-page .owl-start-description {
+	margin-top: 9px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.owl-start-page .owl-start-primary-actions {
+	display: grid;
+	width: 100%;
+	max-width: 606px;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+	margin-top: 26px;
+	text-align: left;
+}
+
+.owl-start-page .owl-start-card {
+	display: flex;
+	min-height: 114px;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 9px;
+	padding: 16px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	border-radius: 10px;
+	background: var(--owl-ui-panel, var(--color-owl-panel));
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	text-align: left;
+	transition: background-color 120ms, border-color 120ms;
+}
+
+.owl-start-page .owl-start-card:hover {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 55%, var(--owl-ui-border, var(--color-owl-sidebar-border)));
+	background: color-mix(in srgb, var(--color-owl-accent) 7%, var(--owl-ui-panel, var(--color-owl-panel)));
+}
+
+.owl-start-page .owl-start-card-icon {
+	display: inline-flex;
+	margin-bottom: 2px;
+}
+
+.owl-start-page .owl-start-card-title {
+	color: var(--owl-ui-text, var(--color-owl-text));
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.5;
+}
+
+.owl-start-page .owl-start-card-description {
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.owl-start-page .owl-start-secondary-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 4px 8px;
+	margin-top: 14px;
+}
+
+.owl-start-page .owl-start-secondary-action {
+	display: inline-flex;
+	min-height: 30px;
+	align-items: center;
+	gap: 7px;
+	padding: 6px 9px;
+	border-radius: 7px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 11px;
+	line-height: 1.5;
+	transition: background-color 120ms, color 120ms;
+}
+
+.owl-start-page .owl-start-secondary-action:hover {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+	color: var(--owl-ui-text, var(--color-owl-text));
+}
+
+.owl-start-page .owl-start-secondary-icon {
+	display: inline-flex;
+}
+
+.owl-start-page button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}
+
+@media (max-height: 720px) {
+	.owl-start-page {
+		min-height: 0;
+		padding: 4px 0;
+	}
+
+	.owl-start-page .owl-start-mark {
+		width: 38px;
+		height: 38px;
+		margin-bottom: 12px;
+	}
+
+	.owl-start-page .owl-start-primary-actions {
+		margin-top: 20px;
+	}
+
+	.owl-start-page .owl-start-card {
+		min-height: 104px;
+		gap: 7px;
+		padding: 12px;
+	}
+}
+
+@media (max-width: 880px) {
+	.owl-start-page .owl-start-card {
+		padding: 12px;
+	}
+
+	.owl-start-page .owl-start-primary-actions {
+		gap: 8px;
+	}
+}

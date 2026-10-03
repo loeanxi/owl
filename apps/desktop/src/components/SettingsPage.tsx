@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
+import type { MemoryListResult, ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconArchive, IconCode, IconCompose, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
+import { IconArchive, IconCode, IconCompose, IconInfo, IconLightbulb, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -22,7 +22,7 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", title: "阅读宽度", desc: "调整宽屏下回答的最大宽度，小窗口会自动收窄。", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-type SettingsSection = "general" | "models" | "plugins" | "sidebar" | "prompts" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "sidebar" | "prompts" | "memory" | "appearance" | "archived" | "json" | "about";
 
 /** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
 type PluginEntry =
@@ -220,6 +220,7 @@ export function SettingsPage({
 	onWorkspaceDir,
 	onClose,
 	onSessionsChanged,
+	initialTab = "general",
 }: {
 	client: BridgeClient;
 	workspaceDir: string;
@@ -227,8 +228,9 @@ export function SettingsPage({
 	onClose: () => void;
 	/** 会话列表发生变化（恢复/删除归档会话）：让侧边栏同步重拉，避免两边状态对不上。 */
 	onSessionsChanged?: () => void;
+	initialTab?: "general" | "about";
 }): React.JSX.Element {
-	const [section, setSection] = useState<SettingsSection>("general");
+	const [section, setSection] = useState<SettingsSection>(initialTab);
 	const [agentDir, setAgentDir] = useState("");
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
 	const [chatAppearance, setChatAppearance] = useState<ChatAppearance>(() => ({ ...DEFAULT_CHAT_APPEARANCE }));
@@ -280,6 +282,11 @@ export function SettingsPage({
 	const [retentionInput, setRetentionInput] = useState("15");
 	const [sessionTitles, setSessionTitles] = useState<Record<string, SessionListRow>>({});
 	const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+
+	// 跨会话记忆：条目列表 + 开关（memory.list / memory.delete / memory.clear）
+	const [memory, setMemory] = useState<MemoryListResult>({ enabled: true, entries: [] });
+	const [confirmDelMemoryId, setConfirmDelMemoryId] = useState<string | null>(null);
+	const [confirmClearMemory, setConfirmClearMemory] = useState(false);
 
 	// 插件：新增输入框
 	const [pluginInput, setPluginInput] = useState("");
@@ -368,6 +375,10 @@ export function SettingsPage({
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
 				if (typeof obj.owlUserImpression === "string") setUserImpression(obj.owlUserImpression);
+				if (obj.owlMemory && typeof obj.owlMemory === "object") {
+					const enabled = (obj.owlMemory as { enabled?: unknown }).enabled;
+					setMemory((prev) => ({ ...prev, enabled: enabled !== false }));
+				}
 			}
 			if (models.ok && Array.isArray(models.result)) setGroups(models.result as ProviderModelsMessage[]);
 			if (providers.ok && Array.isArray(providers.result)) setCatalog(providers.result);
@@ -375,7 +386,58 @@ export function SettingsPage({
 			if (preview.ok && preview.result?.sections) setBuiltinSections(preview.result.sections);
 		})();
 		void loadArchive();
+		void loadMemory();
 	}, [client]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	/** 拉取跨会话记忆（条目 + 开关）。 */
+	async function loadMemory(): Promise<void> {
+		const response = await client.request<MemoryListResult>({ type: "memory.list" });
+		if (response.ok && response.result) setMemory(response.result);
+	}
+
+	/** 开/关跨会话记忆：写 settings.owlMemory.enabled，新会话生效。 */
+	async function toggleMemory(): Promise<void> {
+		const enabled = !memory.enabled;
+		setBusy(true);
+		setError("");
+		try {
+			const ok = await saveSettings({ owlMemory: { enabled } });
+			if (ok) setMemory((prev) => ({ ...prev, enabled }));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 删除单条记忆（设置页与 /memory 操作同一份 entries.json）。 */
+	async function deleteMemoryEntry(entryId: string): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request<{ ok: boolean }>({ type: "memory.delete", entryId });
+			if (response.ok) {
+				setMemory((prev) => ({ ...prev, entries: prev.entries.filter((entry) => entry.id !== entryId) }));
+			} else {
+				setError(response.error ?? "删除失败");
+			}
+		} finally {
+			setBusy(false);
+			setConfirmDelMemoryId(null);
+		}
+	}
+
+	/** 清空全部记忆。 */
+	async function clearAllMemory(): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request<{ ok: boolean }>({ type: "memory.clear" });
+			if (response.ok) setMemory((prev) => ({ ...prev, entries: [] }));
+			else setError(response.error ?? "清空失败");
+		} finally {
+			setBusy(false);
+			setConfirmClearMemory(false);
+		}
+	}
 
 	/** 拉取归档配置 + 会话列表（只为了拿标题）。 */
 	async function loadArchive(): Promise<void> {
@@ -608,6 +670,7 @@ export function SettingsPage({
 						<NavItem icon={<IconPanelRight size={14} />} label="侧边卡片" active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
+					<NavItem icon={<IconLightbulb />} label="跨会话记忆" active={section === "memory"} onClick={() => setSection("memory")} />
 						<div className="owl-settings-nav-label">数据与应用</div>
 						<NavItem icon={<IconArchive />} label="归档" active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
@@ -621,11 +684,11 @@ export function SettingsPage({
 						{/* -------- 常规 -------- */}
 						{section === "general" && (
 							<>
-								<SectionHeader title="常规" desc="工作目录与运行环境的基础设置。" />
-								<SettingRow title="工作目录（新会话的 cwd）" desc="新建会话时使用的默认目录。">
+								<SectionHeader title="常规" desc="设置默认工作环境，开始下一次工作时更顺手。" />
+								<SettingRow title="默认工作目录" desc="新建会话会从这个目录开始。">
 									<input className={input} value={workspaceDir} onChange={(event) => onWorkspaceDir(event.target.value)} />
 								</SettingRow>
-								<SettingRow title="agent 目录（隔离的数据目录）" desc="存放 models.json、settings.json、会话历史等数据。">
+								<SettingRow title="Owl 数据目录" desc="模型配置、设置与会话历史保存在这里。此位置由启动配置指定。">
 									<input
 										className="w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-xs text-owl-faint outline-none"
 										value={agentDir}
@@ -729,12 +792,13 @@ export function SettingsPage({
 							<>
 								<SectionHeader
 									title="模型与供应商"
-									desc="模型只来自你在这里添加的声明（保存到 agent 目录的 models.json），不内置任何目录。新会话立即生效。"
+										desc="连接你的模型服务，并管理可用于新会话的模型。"
 								/>
 
 								{/* 快捷接入：像 /login 一样选厂商 */}
-								<div className="rounded-xl border border-owl-border bg-owl-sidebar/60 p-3">
-									<div className="text-xs font-semibold text-owl-text">快捷接入（选厂商 → 浏览器登录或贴 API Key）</div>
+								<div className="owl-settings-card">
+									<div className="owl-settings-row-title">使用账号快速连接</div>
+									<p className="owl-settings-row-description">选择服务后，使用浏览器授权或 API Key 接入。</p>
 									<select
 										className="mt-2 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-sm text-owl-text outline-none focus:border-owl-accent"
 										value={quickProvider}
@@ -852,7 +916,7 @@ export function SettingsPage({
 								</div>
 
 								<div className="flex items-center justify-between">
-									<div className="text-xs font-semibold text-owl-muted">已添加的供应商（{groups.length}）</div>
+									<div className="text-xs font-semibold text-owl-muted">{groups.length} 个供应商 · {modelCount} 个模型</div>
 									<button
 										type="button"
 										className={btn}
@@ -867,8 +931,9 @@ export function SettingsPage({
 								</div>
 
 								{showProviderForm && (
-									<div className="space-y-2 rounded-xl border border-owl-border bg-owl-sidebar/60 p-3">
-										<div className="grid grid-cols-2 gap-2">
+									<div className="owl-settings-form space-y-4">
+										<h3 className="owl-settings-row-title">添加自定义连接</h3>
+										<div className="grid grid-cols-2 gap-4">
 											<label className="block text-[11px] text-owl-muted">
 												供应商 ID *（字母数字开头，可含 . _ -）
 												<input className={input} value={pKey} onChange={(e) => setPKey(e.target.value)} placeholder="如 zai" />
@@ -933,46 +998,43 @@ export function SettingsPage({
 										</div>
 									)}
 									{groups.map((group) => (
-										<div key={group.id} className="rounded-xl border border-owl-border bg-owl-sidebar/40 p-3">
-											<div className="flex items-center justify-between">
-												<div className="text-xs font-semibold text-owl-text">
-													{group.name ?? group.id} <span className="font-normal text-owl-faint">({group.id})</span>
+										<div key={group.id} className="owl-settings-provider">
+											<div className="owl-settings-provider-header">
+												<div className="owl-settings-provider-identity">
+													<span className="owl-settings-provider-mark" aria-hidden="true">{(group.name ?? group.id).slice(0, 1).toUpperCase()}</span>
+													<div className="min-w-0">
+														<div className="owl-settings-provider-name">{group.name ?? group.id}</div>
+														<div className="owl-settings-provider-subtitle">{group.id} · {group.models.length} 个模型</div>
+													</div>
 												</div>
 												<button
 													type="button"
-													className="text-[11px] text-red-400 hover:text-red-300 disabled:opacity-40"
+													className="owl-settings-link is-danger"
 													disabled={busy}
-													onClick={() => {
-														if (!window.confirm(`删除供应商 ${group.id} 及其全部模型？`)) return;
-														void run({ type: "models.removeProvider", providerKey: group.id });
-													}}
+													onClick={() => setConfirmProviderId(group.id)}
 												>
 													删除供应商
 												</button>
 											</div>
-											<div className="mt-2 space-y-1">
-												{group.models.map((model) => (
-													<div key={model.id} className="flex items-center justify-between rounded-lg bg-owl-panel px-2 py-1">
-														<span className="font-mono text-xs text-owl-text">
-															{model.id}
-															{model.contextWindow ? <span className="text-owl-faint"> · {Math.round(model.contextWindow / 1000)}k</span> : null}
-														</span>
-														<button
-															type="button"
-															className="text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
-															disabled={busy}
-															onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}
-														>
-															删除
-														</button>
-													</div>
-												))}
-												{group.models.length === 0 && <div className="text-[11px] text-owl-faint">该供应商还没有模型</div>}
-											</div>
+											{group.models.length > 0 ? (
+												<table className="owl-settings-model-table">
+													<thead><tr><th scope="col">模型</th><th scope="col">上下文</th><th scope="col">能力</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
+													<tbody>
+														{group.models.map((model) => (
+															<tr key={model.id}>
+																<td><div>{model.name || model.id}</div><div className="owl-settings-model-id">{model.id}</div></td>
+																<td className="whitespace-nowrap">{model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : "—"}</td>
+																<td className="whitespace-nowrap text-owl-muted">{model.reasoning ? "推理" : "通用"}</td>
+																<td><button type="button" className="owl-settings-link is-danger" disabled={busy} aria-label={`删除模型 ${model.name || model.id}`} onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}>删除</button></td>
+															</tr>
+														))}
+													</tbody>
+												</table>
+											) : <div className="owl-settings-notice mt-4">还没有模型。添加模型后可在新会话中选择。</div>}
 
 											{modelFormFor === group.id ? (
-												<div className="mt-2 space-y-2 rounded-lg border border-owl-border p-2">
-													<div className="grid grid-cols-2 gap-2">
+												<div className="owl-settings-form mt-4 space-y-4">
+													<div className="grid grid-cols-2 gap-4">
 														<label className="block text-[11px] text-owl-muted">
 															模型 ID *
 															<input className={smallInput} value={mId} onChange={(e) => setMId(e.target.value)} placeholder="如 glm-5.3-flash" />
@@ -1030,7 +1092,7 @@ export function SettingsPage({
 											) : (
 												<button
 													type="button"
-													className={`mt-2 ${btn}`}
+															className={`mt-4 ${btn}`}
 													disabled={busy}
 													onClick={() => {
 														setModelFormFor(group.id);
@@ -1481,6 +1543,112 @@ export function SettingsPage({
 											</details>
 										))}
 									</div>
+								</SettingRow>
+							</>
+						)}
+
+						{/* -------- 跨会话记忆 -------- */}
+						{section === "memory" && (
+							<>
+								<SectionHeader
+									title="跨会话记忆"
+									desc="Owl 自动从历史会话里提取值得长期记住的稳定信息（项目约定、你的偏好、环境特点），并注入之后每一次会话。这里列出全部记忆——跨会话的到底是哪些，一目了然。"
+								/>
+								<SettingRow
+									title="启用跨会话记忆"
+									desc="关闭后不再自动抽取历史会话，已有记忆也不再注入提示词（条目保留，随时可重新打开）。"
+									control={
+										<button
+											type="button"
+											className={`${btn} ${memory.enabled ? "border-owl-accent/60 text-owl-accent" : ""}`}
+											disabled={busy}
+											onClick={() => void toggleMemory()}
+										>
+											{memory.enabled ? "已启用" : "已关闭"}
+										</button>
+									}
+								/>
+								<SettingRow
+									title={`记忆列表（${memory.entries.length} 条）`}
+									desc="每条都注入系统提示词。删除单条立即生效；也可以在 TUI 里用 /memory 查看。"
+									control={
+										memory.entries.length > 0 ? (
+											confirmClearMemory ? (
+												<div className="flex gap-1.5">
+													<button
+														type="button"
+														className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-40"
+														disabled={busy}
+														onClick={() => void clearAllMemory()}
+													>
+														确认清空
+													</button>
+													<button type="button" className={btn} onClick={() => setConfirmClearMemory(false)}>
+														取消
+													</button>
+												</div>
+											) : (
+												<button
+													type="button"
+													className={`${btn} hover:border-red-500/60 hover:text-red-300`}
+													disabled={busy}
+													onClick={() => setConfirmClearMemory(true)}
+												>
+													清空全部
+												</button>
+											)
+										) : undefined
+									}
+								>
+									{memory.entries.length === 0 ? (
+										<p className="text-[11px] text-owl-faint">
+											还没有记忆。正常使用几轮之后，Owl 会把值得长期记住的信息自动记到这里；模型也会用 remember 工具主动保存。
+										</p>
+									) : (
+										<div className="space-y-1.5">
+											{memory.entries.map((entry, index) => (
+												<div
+													key={entry.id}
+													className="flex items-start gap-2 rounded-lg bg-owl-sidebar/60 px-2.5 py-2"
+												>
+													<div className="min-w-0 flex-1">
+														<div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-owl-text">
+															{entry.content}
+														</div>
+														<div className="mt-1 text-[10px] text-owl-faint">
+															#{index + 1} · 记录于 {formatDateTime(entry.createdAt)}
+															{entry.sourceCwd ? ` · 来自 ${entry.sourceCwd}` : ""}
+														</div>
+													</div>
+													{confirmDelMemoryId === entry.id ? (
+														<div className="flex shrink-0 gap-1.5">
+															<button
+																type="button"
+																className="rounded-lg bg-red-500 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-40"
+																disabled={busy}
+																onClick={() => void deleteMemoryEntry(entry.id)}
+															>
+																确认删除
+															</button>
+															<button type="button" className={btn} onClick={() => setConfirmDelMemoryId(null)}>
+																取消
+															</button>
+														</div>
+													) : (
+														<button
+															type="button"
+															className={`${btn} shrink-0 hover:border-red-500/60 hover:text-red-300`}
+															disabled={busy}
+															onClick={() => setConfirmDelMemoryId(entry.id)}
+															title="删除这条记忆"
+														>
+															<IconTrash className="h-3.5 w-3.5" />
+														</button>
+													)}
+												</div>
+											))}
+										</div>
+									)}
 								</SettingRow>
 							</>
 						)}

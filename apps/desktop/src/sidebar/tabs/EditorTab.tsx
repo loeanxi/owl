@@ -25,15 +25,15 @@ import { tags as t } from "@lezer/highlight";
 import type { TabComponentProps } from "../registry.ts";
 import { IconLoader, IconRefresh, IconSave } from "../icons.tsx";
 
-/** owl 深色 CodeMirror 主题（对齐 index.css 的 owl-* tokens）。 */
+/** CodeMirror follows scoped workbench tokens without rebuilding the editor on theme changes. */
 const owlTheme = EditorView.theme(
 	{
-		"&": { color: "#e9e7e0", backgroundColor: "transparent", height: "100%", fontSize: "12.5px" },
+		"&": { color: "var(--workbench-text, #e9e7e0)", backgroundColor: "transparent", height: "100%", fontSize: "13px" },
 		".cm-scroller": { fontFamily: "Consolas, 'JetBrains Mono', 'Cascadia Code', monospace", lineHeight: "1.55" },
 		".cm-content": { caretColor: "#2f9e5a", paddingBottom: "40px" },
-		".cm-gutters": { backgroundColor: "transparent", color: "#6b675e", border: "none" },
+		".cm-gutters": { backgroundColor: "transparent", color: "var(--workbench-muted, #8a867c)", border: "none" },
 		".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.035)" },
-		".cm-activeLineGutter": { backgroundColor: "transparent", color: "#a6a399" },
+		".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--workbench-text, #a6a399)" },
 		"&.cm-focused": { outline: "none" },
 		".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "rgba(47,158,90,0.28)" },
 		".cm-cursor": { borderLeftColor: "#2f9e5a" },
@@ -42,19 +42,19 @@ const owlTheme = EditorView.theme(
 );
 
 const owlHighlight = HighlightStyle.define([
-	{ tag: t.keyword, color: "#c792ea" },
-	{ tag: [t.string, t.special(t.string)], color: "#a5d6a7" },
-	{ tag: [t.number, t.bool, t.null], color: "#f78c6c" },
-	{ tag: [t.comment, t.lineComment, t.blockComment], color: "#7a766b", fontStyle: "italic" },
-	{ tag: [t.function(t.variableName), t.function(t.propertyName)], color: "#82aaff" },
-	{ tag: [t.typeName, t.className], color: "#ffcb6b" },
-	{ tag: [t.variableName, t.propertyName], color: "#e9e7e0" },
-	{ tag: [t.operator, t.punctuation, t.separator], color: "#a6a399" },
+	{ tag: t.keyword, color: "var(--owl-code-keyword, #c792ea)" },
+	{ tag: [t.string, t.special(t.string)], color: "var(--owl-code-string, #a5d6a7)" },
+	{ tag: [t.number, t.bool, t.null], color: "var(--owl-code-number, #f78c6c)" },
+	{ tag: [t.comment, t.lineComment, t.blockComment], color: "var(--owl-code-comment, #7a766b)", fontStyle: "italic" },
+	{ tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--owl-code-function, #82aaff)" },
+	{ tag: [t.typeName, t.className], color: "var(--owl-code-type, #ffcb6b)" },
+	{ tag: [t.variableName, t.propertyName], color: "var(--workbench-text, #e9e7e0)" },
+	{ tag: [t.operator, t.punctuation, t.separator], color: "var(--workbench-muted, #a6a399)" },
 	{ tag: t.heading, color: "#2f9e5a", fontWeight: "bold" },
-	{ tag: t.link, color: "#82aaff" },
+	{ tag: t.link, color: "var(--owl-code-function, #82aaff)" },
 	{ tag: t.emphasis, fontStyle: "italic" },
 	{ tag: t.strong, fontWeight: "bold" },
-	{ tag: t.invalid, color: "#ff5370" },
+	{ tag: t.invalid, color: "var(--owl-code-invalid, #ff5370)" },
 ]);
 
 /** 扩展名 → CodeMirror 语言包（未命中返回 undefined，纯文本渲染）。 */

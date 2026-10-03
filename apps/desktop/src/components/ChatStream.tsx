@@ -570,7 +570,7 @@ export function ChatStream({
 	};
 
 	return (
-		<div className="owl-chat-surface">
+		<div className="owl-chat-surface" data-activity={activity}>
 			<div className="owl-chat-layout">
 				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label="对话消息">
 					<div className="owl-chat-column">

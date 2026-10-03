@@ -14,10 +14,12 @@ import {
 	IconPin,
 	IconPlus,
 	IconSearch,
+	IconSettings,
 	IconTrash,
 	IconUnarchive,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
+import "./navigation-design.css";
 
 type SessionRow = {
 	id?: string;
@@ -248,6 +250,7 @@ export function SessionSidebar({
 	onNewChat,
 	onSelectProject,
 	onOpenSession,
+	onOpenSettings,
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：挂载时 WS 往往尚未 open，未连接的请求会被直接拒绝。 */
@@ -270,6 +273,7 @@ export function SessionSidebar({
 	onSelectProject: (path: string) => void;
 	/** 点击历史会话：恢复回放并续聊。 */
 	onOpenSession: (sessionId: string) => void;
+	onOpenSettings?: () => void;
 }): React.JSX.Element {
 	const [sessions, setSessions] = useState<SessionRow[]>([]);
 	const [showNewProject, setShowNewProject] = useState(false);
@@ -277,7 +281,6 @@ export function SessionSidebar({
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
 	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
-	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -919,24 +922,11 @@ export function SessionSidebar({
 					aria-expanded={!minimized}
 					onClick={onToggleMinimized}
 				>
-					<img src="/owl.svg" alt="" className="h-5 w-5" draggable={false} />
 					<span>owl</span>
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
+				<span className="owl-sidebar-local-badge" title="本地工作空间">LOCAL</span>
 				<div className="owl-sidebar-header-actions">
-					<button
-						type="button"
-						className={`owl-sidebar-icon-button ${searchOpen ? "is-active" : ""}`}
-						title="搜索会话与项目"
-						aria-label="搜索会话与项目"
-						aria-expanded={searchOpen}
-						onClick={() => {
-							setSearchOpen((open) => !open);
-							if (searchOpen) setQuery("");
-						}}
-					>
-						<IconSearch className="h-4 w-4" />
-					</button>
 					<button
 						type="button"
 						className="owl-sidebar-icon-button"
@@ -950,29 +940,29 @@ export function SessionSidebar({
 				</div>
 			</div>
 
-			{searchOpen && (
-				<div className="owl-sidebar-search">
-					<input
-						type="text"
-						className="owl-sidebar-search-input"
-						placeholder="搜索会话或项目…"
-						aria-label="搜索会话或项目"
-						value={query}
-						autoFocus
-						onChange={(event) => setQuery(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								setQuery("");
-								setSearchOpen(false);
-							}
-						}}
-					/>
-				</div>
-			)}
+			<div className="owl-sidebar-search">
+				<IconSearch className="h-3.5 w-3.5 shrink-0" />
+				<input
+					type="text"
+					className="owl-sidebar-search-input"
+					placeholder="搜索会话或项目"
+					aria-label="搜索会话或项目"
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") setQuery("");
+					}}
+				/>
+				{query && (
+					<button type="button" className="owl-sidebar-search-clear" aria-label="清除搜索" onClick={() => setQuery("")}>
+						<span aria-hidden="true">×</span>
+					</button>
+				)}
+			</div>
 
 			<div className="owl-sidebar-shortcuts">
 				<button type="button" className="owl-sidebar-new-chat" aria-label="新会话" onClick={onNewChat}>
-					<IconCompose className="h-4 w-4 shrink-0" />
+					<IconPlus className="h-4 w-4 shrink-0" />
 					<span>新会话</span>
 				</button>
 			</div>
@@ -1059,7 +1049,7 @@ export function SessionSidebar({
 
 				<Section
 					id="recent"
-					label="最近"
+					label="最近会话"
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
 					showMenu={openMenu === "recent"}
@@ -1105,6 +1095,19 @@ export function SessionSidebar({
 				)}
 
 				{noMatch && <p className="owl-sidebar-empty">无匹配结果</p>}
+			</div>
+
+			<div className="owl-sidebar-footer">
+				<span className="owl-sidebar-workspace-avatar" aria-hidden="true">L</span>
+				<div className="owl-sidebar-workspace-copy">
+					<span className="owl-sidebar-workspace-title">本地工作空间</span>
+					<span className="owl-sidebar-workspace-caption">会话保存在本机</span>
+				</div>
+				{onOpenSettings && (
+					<button type="button" className="owl-sidebar-icon-button" title="打开设置" aria-label="打开设置" onClick={onOpenSettings}>
+						<IconSettings className="h-4 w-4" />
+					</button>
+				)}
 			</div>
 
 			{showNewProject && (

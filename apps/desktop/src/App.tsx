@@ -3,16 +3,17 @@ import { BridgeClient } from "./bridge/client.ts";
 import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
-import { ChatStream } from "./components/ChatStream.tsx";
+import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { Composer } from "./components/Composer.tsx";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
-import { IconCompose, IconPanelLeft } from "./components/icons.tsx";
+import { IconCompose, IconList, IconPanelLeft } from "./components/icons.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
+import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
@@ -74,10 +75,14 @@ export default function App(): React.JSX.Element {
 		sidebarToggleRef.current?.focus({ preventScroll: true });
 	};
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
-	const [running, setRunning] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
+	const submitInFlight = useRef(false);
+	const [pendingPrompts, setPendingPrompts] = useState<ReadonlySet<string>>(() => new Set<string>());
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
+	const [questionNavOpen, setQuestionNavOpen] = useState(false);
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
 	/** agent 提问队列：ask_user_question 的 question_request 按到达顺序排队弹出 */
 	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
@@ -149,12 +154,17 @@ export default function App(): React.JSX.Element {
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
+	useEffect(() => setQuestionNavOpen(false), [sessionId, workspaceDir]);
 
 	useEffect(() => {
 		client.connect();
 		const offStatus = client.onStatus((up) => {
 			setConnected(up);
 			if (up) setEverConnected(true);
+			else {
+				submitInFlight.current = false;
+				setSubmitting(false);
+			}
 		});
 		const offEvents = client.onSessionEvent((message: ServerEventMessage) => {
 			// 全会话运行状态跟踪：agent_start / agent_settled 成对出现（abort、出错也走 settled），
@@ -170,11 +180,18 @@ export default function App(): React.JSX.Element {
 					return next;
 				});
 			}
+			if (eventType === "agent_start" || eventType === "agent_settled") {
+				setPendingPrompts((current) => {
+					if (!current.has(message.sessionId)) return current;
+					const next = new Set(current);
+					next.delete(message.sessionId);
+					return next;
+				});
+			}
 			// 旁路会话（侧边对话等）的事件由各自 tab 消费，主转录只跟当前会话
 			if (message.sessionId !== sessionIdRef.current) return;
 			setEntries((current) => applyEvent(current, message));
 			if (eventType === "agent_settled") {
-				setRunning(false);
 				void refreshStats();
 				void notifyAgentStatus({
 					title: "Owl 任务完成",
@@ -287,16 +304,22 @@ export default function App(): React.JSX.Element {
 		// 连接后拉一次运行中的会话：UI 刷新或桥重连后恢复侧边栏的运行状态点。
 		void client
 			.request<SessionRunningResult>({ type: "session.running" })
-			.then((response) => response.ok && setRunningSessions(new Set(response.result?.running ?? [])))
+			.then((response) => {
+				if (!response.ok) return;
+				setRunningSessions(new Set(response.result?.running ?? []));
+				setPendingPrompts(new Set());
+			})
 			.catch(() => {});
 		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用；
 		// 侧边卡片配置（owlSidebar）同源拉取，供工作台/快捷入口即时生效。
 		void client
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
 			.then((response) => {
+				if (!response.ok) return;
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
+				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
 			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
@@ -330,7 +353,7 @@ export default function App(): React.JSX.Element {
 	}
 
 	async function ensureSession(): Promise<string | undefined> {
-		if (sessionId) return sessionId;
+		if (sessionIdRef.current) return sessionIdRef.current;
 		const response = await client.request<{ sessionId: string }>({
 			type: "session.create",
 			cwd: workspaceRef.current,
@@ -346,6 +369,7 @@ export default function App(): React.JSX.Element {
 			return undefined;
 		}
 		const id = response.result.sessionId;
+		sessionIdRef.current = id;
 		setSessionId(id);
 		setEntries([]);
 		void refreshStats(id);
@@ -353,6 +377,7 @@ export default function App(): React.JSX.Element {
 	}
 
 	const newChat = (): void => {
+		sessionIdRef.current = undefined;
 		setSessionId(undefined);
 		setEntries([]);
 		setSessionInfo(undefined);
@@ -362,6 +387,7 @@ export default function App(): React.JSX.Element {
 	// 切换项目 = 换工作目录并从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在当前项目下创建会话。
 	const switchProject = (path: string): void => {
+		sessionIdRef.current = undefined;
 		setWorkspaceDir(path);
 		localStorage.setItem(WORKSPACE_KEY, path);
 		setSessionId(undefined);
@@ -395,6 +421,7 @@ export default function App(): React.JSX.Element {
 		setWorkspaceDir(cwd);
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
+		sessionIdRef.current = resumedId;
 		setEntries(rebuild(messages));
 		void refreshStats(resumedId);
 	};
@@ -577,6 +604,11 @@ export default function App(): React.JSX.Element {
 	};
 
 	const sendPrompt = async (message: string): Promise<void> => {
+		if (!connected || running || submitInFlight.current || !message.trim()) return;
+		submitInFlight.current = true;
+		setSubmitting(true);
+		let target: string | undefined;
+		try {
 		// "/命令 参数" 形态先过内置命令表：只拦 kind=builtin 且当前清单里确实是内置的
 		// 名字（扩展命令若与内置同名，桥端清单里它是 extension，让位给扩展）。
 		const match = /^\/([a-zA-Z0-9:_-]+)(?:\s+([\s\S]*))?$/.exec(message.trim());
@@ -585,11 +617,25 @@ export default function App(): React.JSX.Element {
 			const entry = slashCommands.find((candidate) => candidate.name === name);
 			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return;
 		}
-		const target = await ensureSession();
+		target = await ensureSession();
 		if (!target) return;
 		setEntries((current) => [...current, { kind: "user", text: message }]);
-		setRunning(true);
-		await client.request({ type: "session.prompt", sessionId: target, message });
+		setPendingPrompts((current) => new Set(current).add(target!));
+		const response = await client.request({ type: "session.prompt", sessionId: target, message });
+		if (!response.ok) throw new Error(response.error ?? "消息发送失败");
+		} catch (error) {
+			if (target) setPendingPrompts((current) => {
+				const next = new Set(current);
+				next.delete(target!);
+				return next;
+			});
+			if (!target || target === sessionIdRef.current) setEntries((current) => [...current, {
+				kind: "toolResult", toolName: "发送失败", ok: false, brief: error instanceof Error ? error.message : String(error),
+			}]);
+		} finally {
+			submitInFlight.current = false;
+			setSubmitting(false);
+		}
 	};
 
 	const abort = async (): Promise<void> => {
@@ -604,6 +650,9 @@ export default function App(): React.JSX.Element {
 		return line.length > 42 ? `${line.slice(0, 42)}…` : line || "新对话";
 	}, [entries]);
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
+	const questionCount = entries.filter((entry) => entry.kind === "user").length;
+	const waitingForUser = permission?.sessionId === sessionId || questions.some((question) => question.sessionId === sessionId);
+	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
 
 	const headerButtonClass = (active: boolean): string =>
 		`owl-chrome-button${active ? " is-active" : ""}`;
@@ -689,6 +738,7 @@ export default function App(): React.JSX.Element {
 						<span className="truncate">{projectBasename}</span>
 					</span>
 					<div className="min-w-4 flex-1" data-tauri-drag-region="deep" />
+					{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>对话目录 · {questionCount}</span></button>}
 					{/* 右侧功能簇：底部工作台 / 右列工作台 / 窗口控制 */}
 					<button
 						type="button"
@@ -715,13 +765,13 @@ export default function App(): React.JSX.Element {
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
 				<div className={`flex min-h-0 flex-1 ${workbenchDock === "right" ? "flex-row" : "flex-col"}`}>
 					<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-						<ChatStream entries={entries} onQuickAction={requestOpenKind} />
+						<ChatStream key={sessionId ?? workspaceDir} entries={entries} onQuickAction={requestOpenKind} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
 						<Composer
 							client={client}
 							connected={connected}
-							disabled={running || !connected}
+							disabled={running || submitting || !connected}
 							running={running}
 							onSend={(text) => void sendPrompt(text)}
 							onAbort={() => void abort()}

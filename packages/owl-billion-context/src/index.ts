@@ -192,112 +192,65 @@ function formatK2(n: number): string {
 export default function (pi: ExtensionAPI): void {
 	const runtime = createRuntime();
 
+	// ---------------------------------------------------------------------------
+	// 原生能力保障：接管是**有条件的**，任何异常路径都让路给 owl 原生 compaction。
+	//
+	// - 手动 /compact（reason === "manual"）：永远放行——用户的显式请求必须生效，
+	//   投影层已能消化原生 compaction 条目（见 messages.ts 的 nativeSummaryText）。
+	// - 本会话 context 改写抛过错（degraded）：放行，原生阈值/溢出兜底重新生效。
+	// - 内核报告 terminalEscape（压缩与截断都救不了，#300 信号）：放行，让原生
+	//   compaction 救场。
+	// - 原生 compaction 实际跑完（session_compact）：清除降级/终局标记，插件复位
+	//   重新接管；若故障是持续性的会立刻再次降级（每次都记日志）。
+	// - 插件整体停用时本模块不会被加载，任何钩子都不存在，原生行为零改动。
+	// ---------------------------------------------------------------------------
+	const degraded = new Set<string>();
+	const terminalEscapeSeen = new Set<string>();
+
 	// 压缩哲学 + 工具说明进系统提示（before_agent_start 支持整轮替换）。
-	pi.on("before_agent_start", (event, ctx) => {
-		// 哲学文本每次会话启动按内核默认刷新（上游支持用户覆盖，这里未移植）。
+	pi.on("before_agent_start", (event) => {
+		// 哲学文本按内核默认刷新（上游支持用户覆盖，这里未移植）。
 		runtime.setPrompts(resolvePrompts({}, { acknowledgeRisk: true }));
 		const acp = buildAcpSystemPrompt(runtime.prompts());
 		return { systemPrompt: `${event.systemPrompt}\n\n${acp}` };
-		void ctx;
 	});
 
-	// owl 原生阈值 compaction 与折叠压缩互斥：接管压缩后取消原生路径，
-	// 防止两套机制轮番改写上下文。
-	pi.on("session_before_compact", () => ({ cancel: true }));
+	pi.on("session_before_compact", (event, ctx) => {
+		if (event.reason === "manual") return undefined;
+		const sid = ctx.sessionManager.getSessionId();
+		if (degraded.has(sid) || terminalEscapeSeen.has(sid)) return undefined;
+		return { cancel: true };
+	});
 
-	// 会话切换/关闭：丢弃该会话的进程内状态槽与 nudge 记账。
+	// 原生 compaction 实际发生（手动放行或降级兜底）：复位标记，插件重新接管。
+	pi.on("session_compact", (_event, ctx) => {
+		const sid = ctx.sessionManager.getSessionId();
+		degraded.delete(sid);
+		terminalEscapeSeen.delete(sid);
+	});
+
+	// 会话切换/关闭：丢弃该会话的进程内状态槽与记账。
 	pi.on("session_shutdown", (_event, ctx) => {
 		const sid = ctx.sessionManager.getSessionId();
 		const file = ctx.sessionManager.getSessionFile() ?? undefined;
 		runtime.store.drop(file, sid);
+		degraded.delete(sid);
+		terminalEscapeSeen.delete(sid);
 	});
 
-	// 每轮 LLM 调用前的上下文改写（主路径）。
+	// 每轮 LLM 调用前的上下文改写（主路径）。整体故障开放：抛错 → 标记降级 +
+	// 返回 undefined（宿主按原消息发送，原生 compaction 兜底重新生效），
+	// 绝不阻塞会话。
 	pi.on("context", async (event, ctx) => {
 		const sid = ctx.sessionManager.getSessionId();
-		const { state, coreMessages, entries } = await runtime.stateFor(ctx);
-		const config = runtime.configFor(ctx);
-		const systemPromptText = getSystemPromptText(ctx);
-		const systemPromptTokens = systemPromptText ? Math.ceil(systemPromptText.length / 4) : 0;
-		const imageTokens = collectImageTokens(entries, modelSupportsImages(ctx.model));
-
-		// 占用计量：发送视图估算，下限锚定 provider 上报的真实 prompt 大小
-		// （有 anchor 时）。上游的校准/发散监测未移植，见 README。
-		const coveredIds = collectCoveredMessageIds(state);
-		const sentTokens = estimateTokens(coreMessages, coveredIds, imageTokens) + systemPromptTokens;
-		const hostTokens = ctx.getContextUsage?.()?.tokens ?? 0;
-		let tokenCount = Math.max(sentTokens, hostTokens > 0 ? hostTokens : 0);
-		// 有活跃块时用真实发送视图重测（上游 issue #289：原始视图会把每轮
-		// 被剪掉的消息永远计入，把占用钉死在紧急区）。
-		if (state.blocks.some((b) => b.active && b.effectiveMessageIds.length > 0)) {
-			const { sentViewTokenCount } = await import("./tokens.js");
-			const view = sentViewTokenCount(runtime.core, coreMessages, state, config, tokenCount, imageTokens, systemPromptTokens);
-			if (view.drifted) tokenCount = Math.max(view.viewTokens, hostTokens > 0 ? hostTokens : 0);
+		try {
+			return await transformContext(pi, runtime, { degraded, terminalEscapeSeen }, event, ctx);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[owl-billion-context] context transform FAILED for session ${sid} — 本轮按原上下文发送，原生 compaction 兜底重新生效: ${message}`);
+			degraded.add(sid);
+			return undefined;
 		}
-
-		const turn = runtime.core.processTurn({ messages: coreMessages, state, config, tokenCount });
-		await runtime.save(turn.state, ctx);
-
-		const originalById = collectOriginals(entries);
-		let rebuilt = coreOutToAgentMessages(turn.messages, originalById);
-
-		// compress round 的 thinking 丢弃（默认开；DeepSeek 等严格回显上游自动关）。
-		const reasoningCfg: Required<CompressReasoningConfig> = applyStrictReasoningGate(
-			resolveReasoningDrop(undefined),
-			(ctx.model as { provider?: string } | undefined)?.provider,
-			(ctx.model as { baseUrl?: string } | undefined)?.baseUrl,
-		);
-		rebuilt = dropCompressReasoning(rebuilt, reasoningCfg);
-		void countThinkingChars;
-
-		// 回带宿主 system 消息（toolsLoaded 等字段只在 event.messages 上）。
-		rebuilt = carryHostSystemMessages(rebuilt, event.messages) ?? rebuilt;
-
-		// 孤儿 toolResult 兜底（折叠吞掉配对 call 时防上游 400）。
-		if (turn.state.blocks.length > 0) {
-			const sanitized = sanitizeToolPairing(rebuilt);
-			if (sanitized.droppedResults.length > 0) {
-				rebuilt = sanitized.messages;
-				console.warn(`[owl-billion-context] dropped ${sanitized.droppedResults.length} orphaned tool result(s): ${sanitized.droppedResults.join(", ")}`);
-			}
-		}
-
-		// nudge 注入：context 通道每轮重建，不会永久占用上下文。
-		if (turn.nudge?.shouldInject) {
-			const emergency = turn.nudge.breakdown?.emergencyOverride === 1;
-			turn.nudge.compressibleRanges = viableRanges(turn.nudge.compressibleRanges);
-			const turnKey = runtime.turnKeyOf(ctx);
-			const adaptiveGrowth =
-				!config.modelContextLimit || config.modelContextLimit <= 0
-					? config.nudge.growthFloor
-					: Math.min(config.nudge.growthCap, Math.max(config.nudge.growthFloor, Math.round(config.modelContextLimit * config.nudge.growthRatio)));
-			const reInjectFloor = Math.max(config.nudge.minGrowthFloor, config.nudge.minGrowthRatio * adaptiveGrowth);
-			let shownAt = runtime.nudgeShownTokensFor(sid, turnKey);
-			if (shownAt !== undefined && tokenCount < shownAt - adaptiveGrowth) {
-				// 压缩成功后基线坍缩：增速锚点从新基线重开，而不是旧峰值。
-				shownAt = tokenCount;
-				runtime.markNudgeShown(sid, turnKey, tokenCount);
-			}
-			const retryCapped = runtime.compressRetryCappedFor(sid, turnKey);
-			const reInjectReady = shownAt === undefined || tokenCount - shownAt >= reInjectFloor;
-			const alreadyShown = retryCapped || (!emergency && runtime.nudgeShownFor(sid, turnKey) && !reInjectReady);
-			if (!alreadyShown) {
-				const text = nudgeMessageText(turn.nudge, turn.state.blocks.filter((b) => b.active), runtime.prompts());
-				rebuilt.push({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as (typeof rebuilt)[number]);
-				if (!emergency) runtime.markNudgeShown(sid, turnKey, tokenCount);
-				// 展示型持久记录（type:"custom" 条目不进模型上下文）。
-				try {
-					pi.appendEntry(ACP_NUDGE_CUSTOM_TYPE, {
-						text: `[ACP nudge]${emergency ? " EMERGENCY" : ""} ${Math.round(turn.nudge.contextUsage * 100)}% · T${turn.nudge.tier ?? 1}` as AcpNudgeRecord["text"],
-					} satisfies { text: string });
-				} catch {
-					// 尽力而为
-				}
-			}
-		}
-
-		// 有块时始终返回改写后的数组（每条消息都要打引用标签，没有"无变化"捷径）。
-		return { messages: rebuilt };
 	});
 
 	// 四个上下文管理工具。
@@ -305,4 +258,114 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerTool(makeDecompressTool(runtime));
 	pi.registerTool(makeSearchTool(runtime));
 	pi.registerTool(makeStatusTool(runtime));
+}
+
+// ---------------------------------------------------------------------------
+// context 改写主体（整体 try/catch 的保护对象）
+// ---------------------------------------------------------------------------
+
+type Flags = { degraded: Set<string>; terminalEscapeSeen: Set<string> };
+
+async function transformContext(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	flags: Flags,
+	event: { type: "context"; messages: unknown[] },
+	ctx: ExtensionContext,
+): Promise<{ messages: ReturnType<typeof coreOutToAgentMessages> } | undefined> {
+	const sid = ctx.sessionManager.getSessionId();
+	const { state, coreMessages, entries } = await runtime.stateFor(ctx);
+	const config = runtime.configFor(ctx);
+	const systemPromptText = getSystemPromptText(ctx);
+	const systemPromptTokens = systemPromptText ? Math.ceil(systemPromptText.length / 4) : 0;
+	const imageTokens = collectImageTokens(entries, modelSupportsImages(ctx.model));
+
+	// 占用计量：发送视图估算，下限锚定 provider 上报的真实 prompt 大小
+	// （有 anchor 时）。上游的校准/发散监测未移植，见 README。
+	const coveredIds = collectCoveredMessageIds(state);
+	const sentTokens = estimateTokens(coreMessages, coveredIds, imageTokens) + systemPromptTokens;
+	const hostTokens = ctx.getContextUsage?.()?.tokens ?? 0;
+	let tokenCount = Math.max(sentTokens, hostTokens > 0 ? hostTokens : 0);
+	// 有活跃块时用真实发送视图重测（上游 issue #289：原始视图会把每轮
+	// 被剪掉的消息永远计入，把占用钉死在紧急区）。
+	if (state.blocks.some((b) => b.active && b.effectiveMessageIds.length > 0)) {
+		const { sentViewTokenCount } = await import("./tokens.js");
+		const view = sentViewTokenCount(runtime.core, coreMessages, state, config, tokenCount, imageTokens, systemPromptTokens);
+		if (view.drifted) tokenCount = Math.max(view.viewTokens, hostTokens > 0 ? hostTokens : 0);
+	}
+
+	const turn = runtime.core.processTurn({ messages: coreMessages, state, config, tokenCount });
+	await runtime.save(turn.state, ctx);
+
+	// 内核终局信号（#300）：压缩与截断都救不了 → 本会话放行原生 compaction。
+	if (turn.terminalEscape) {
+		if (!flags.terminalEscapeSeen.has(sid)) {
+			flags.terminalEscapeSeen.add(sid);
+			console.warn(`[owl-billion-context] terminal escape (stuck ${turn.terminalEscape.stuckEvents} turns at ${Math.round(turn.terminalEscape.usage * 100)}%) — native compaction will take over for this session`);
+		}
+	} else {
+		flags.terminalEscapeSeen.delete(sid);
+	}
+
+	const originalById = collectOriginals(entries);
+	let rebuilt = coreOutToAgentMessages(turn.messages, originalById);
+
+	// compress round 的 thinking 丢弃（默认开；DeepSeek 等严格回显上游自动关）。
+	const reasoningCfg: Required<CompressReasoningConfig> = applyStrictReasoningGate(
+		resolveReasoningDrop(undefined),
+		(ctx.model as { provider?: string } | undefined)?.provider,
+		(ctx.model as { baseUrl?: string } | undefined)?.baseUrl,
+	);
+	rebuilt = dropCompressReasoning(rebuilt, reasoningCfg);
+	void countThinkingChars;
+
+	// 宿主 system 消息回带（防御式：owl 的 context 事件已滤掉 system、由
+	// runner 的 restoreSystemMessages 回填，此处对无 system 的输入是 no-op）。
+	rebuilt = carryHostSystemMessages(rebuilt, event.messages as never[]) ?? rebuilt;
+
+	// 孤儿 toolResult 兜底（折叠吞掉配对 call 时防上游 400）。
+	if (turn.state.blocks.length > 0) {
+		const sanitized = sanitizeToolPairing(rebuilt);
+		if (sanitized.droppedResults.length > 0) {
+			rebuilt = sanitized.messages;
+			console.warn(`[owl-billion-context] dropped ${sanitized.droppedResults.length} orphaned tool result(s): ${sanitized.droppedResults.join(", ")}`);
+		}
+	}
+
+	// nudge 注入：context 通道每轮重建，不会永久占用上下文。
+	if (turn.nudge?.shouldInject) {
+		const emergency = turn.nudge.breakdown?.emergencyOverride === 1;
+		turn.nudge.compressibleRanges = viableRanges(turn.nudge.compressibleRanges);
+		const turnKey = runtime.turnKeyOf(ctx);
+		const adaptiveGrowth =
+			!config.modelContextLimit || config.modelContextLimit <= 0
+				? config.nudge.growthFloor
+				: Math.min(config.nudge.growthCap, Math.max(config.nudge.growthFloor, Math.round(config.modelContextLimit * config.nudge.growthRatio)));
+		const reInjectFloor = Math.max(config.nudge.minGrowthFloor, config.nudge.minGrowthRatio * adaptiveGrowth);
+		let shownAt = runtime.nudgeShownTokensFor(sid, turnKey);
+		if (shownAt !== undefined && tokenCount < shownAt - adaptiveGrowth) {
+			// 压缩成功后基线坍缩：增速锚点从新基线重开，而不是旧峰值。
+			shownAt = tokenCount;
+			runtime.markNudgeShown(sid, turnKey, tokenCount);
+		}
+		const retryCapped = runtime.compressRetryCappedFor(sid, turnKey);
+		const reInjectReady = shownAt === undefined || tokenCount - shownAt >= reInjectFloor;
+		const alreadyShown = retryCapped || (!emergency && runtime.nudgeShownFor(sid, turnKey) && !reInjectReady);
+		if (!alreadyShown) {
+			const text = nudgeMessageText(turn.nudge, turn.state.blocks.filter((b) => b.active), runtime.prompts());
+			rebuilt.push({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as (typeof rebuilt)[number]);
+			if (!emergency) runtime.markNudgeShown(sid, turnKey, tokenCount);
+			// 展示型持久记录（type:"custom" 条目不进模型上下文）。
+			try {
+				pi.appendEntry(ACP_NUDGE_CUSTOM_TYPE, {
+					text: `[ACP nudge]${emergency ? " EMERGENCY" : ""} ${Math.round(turn.nudge.contextUsage * 100)}% · T${turn.nudge.tier ?? 1}` as AcpNudgeRecord["text"],
+				} satisfies { text: string });
+			} catch {
+				// 尽力而为
+			}
+		}
+	}
+
+	// 有块时始终返回改写后的数组（每条消息都要打引用标签，没有"无变化"捷径）。
+	return { messages: rebuilt };
 }

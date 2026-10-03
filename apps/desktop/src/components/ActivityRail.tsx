@@ -1,4 +1,5 @@
-import { IconHome, IconMore, IconSettings } from "./icons.tsx";
+import { IconChat, IconMore, IconSettings } from "./icons.tsx";
+import "./navigation-design.css";
 
 /** rail 当前高亮项。目前只有聊天视图；后续新功能再加枚举。 */
 export type RailView = "chat";
@@ -9,10 +10,12 @@ export type RailView = "chat";
  */
 export function ActivityRail({
 	view,
+	settingsOpen = false,
 	onSelect,
 	onOpenSettings,
 }: {
 	view: RailView;
+	settingsOpen?: boolean;
 	/** 点击 rail 图标：回到聊天视图。 */
 	onSelect: (view: RailView) => void;
 	onOpenSettings: () => void;
@@ -26,17 +29,20 @@ export function ActivityRail({
 			data-tauri-drag-region="deep"
 			aria-label="主导航"
 		>
-			<button type="button" className={itemClass(view === "chat")} title="聊天" aria-label="聊天" aria-current={view === "chat" ? "page" : undefined} onClick={() => onSelect("chat")}>
-				<IconHome className="h-[18px] w-[18px]" />
+			<button type="button" className="owl-rail-brand" title="OWL · 会话" aria-label="OWL 会话" onClick={() => onSelect("chat")}>
+				<img src="/owl.svg" alt="" className="h-6 w-6" draggable={false} />
 			</button>
 
-			<div className="owl-rail-divider" />
+			<button type="button" className={itemClass(view === "chat" && !settingsOpen)} title="聊天" aria-label="聊天" aria-current={view === "chat" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("chat")}>
+				<IconChat className="h-[18px] w-[18px]" />
+			</button>
 
 			<button
 				type="button"
-				className={itemClass(false)}
+				className={itemClass(settingsOpen)}
 				title="设置"
 				aria-label="设置"
+				aria-current={settingsOpen ? "page" : undefined}
 				onClick={onOpenSettings}
 			>
 				<IconSettings className="h-[18px] w-[18px]" />

@@ -1,0 +1,136 @@
+/* UI chrome has its own palette. Shared chat/composer variables stay unchanged. */
+.owl-desktop-shell {
+	--owl-ui-canvas: #202321;
+	--owl-ui-panel: #282d29;
+	--owl-ui-sidebar: #191d1a;
+	--owl-ui-border: #343c35;
+	--owl-ui-text: #e9e7e0;
+	--owl-ui-muted: #969f97;
+	--owl-ui-hover: #282e29;
+	--owl-ui-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background: var(--owl-ui-sidebar);
+}
+
+html[data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: #fafbf9;
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f1f3ef;
+	--owl-ui-border: #e0e5df;
+	--owl-ui-text: #3d3a32;
+	--owl-ui-muted: #66726a;
+	--owl-ui-hover: #e9eeea;
+}
+
+.owl-desktop-titlebar {
+	display: flex;
+	position: relative;
+	height: 36px;
+	flex: 0 0 36px;
+	align-items: center;
+	padding-left: 9px;
+	color: var(--owl-ui-muted);
+	user-select: none;
+	z-index: 40;
+}
+
+.owl-desktop-menu-row { display: flex; align-items: center; gap: 1px; }
+.owl-desktop-sidebar-toggle { width: 32px; height: 28px; margin-right: 4px; }
+.owl-desktop-menu { position: relative; }
+.owl-desktop-menu-trigger {
+	padding: 4px 10px;
+	border-radius: 5px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--owl-ui-muted);
+}
+.owl-desktop-menu-trigger:hover,
+.owl-desktop-menu-trigger.is-open { color: var(--owl-ui-text); background: var(--owl-ui-hover); }
+.owl-desktop-menu-panel {
+	position: absolute;
+	top: calc(100% + 5px);
+	left: 0;
+	min-width: 210px;
+	padding: 5px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 8px;
+	background: var(--owl-ui-panel);
+	box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+}
+.owl-desktop-menu-panel button {
+	display: block;
+	width: 100%;
+	padding: 8px 11px;
+	border-radius: 5px;
+	color: var(--owl-ui-text);
+	font-size: 12px;
+	text-align: left;
+}
+.owl-desktop-menu-panel button:hover:not(:disabled) { background: var(--owl-ui-hover); }
+.owl-desktop-menu-panel button:disabled { opacity: 0.4; cursor: default; }
+.owl-desktop-menu-row button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-desktop-app-name {
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 10px;
+	letter-spacing: 0.14em;
+	opacity: 0.75;
+	pointer-events: none;
+}
+.owl-desktop-copy-error { margin-left: 20px; font-size: 11px; color: var(--color-owl-muted); }
+.owl-desktop-window-controls { display: flex; height: 100%; margin-left: auto; }
+.owl-desktop-window-controls > div { height: 100%; margin-left: 0; gap: 0; }
+.owl-desktop-window-controls .owl-chrome-button { width: 45px; height: 100%; border-radius: 0; }
+
+.owl-desktop-body { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
+.owl-main-frame {
+	display: flex;
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
+	margin: 0 8px 8px 0;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 13px;
+	overflow: hidden;
+	/* Conversation region retains the original theme surface. */
+	background: var(--color-owl-bg);
+}
+.owl-main-frame .owl-chat-header {
+	height: 60px;
+	flex: 0 0 60px;
+	gap: 11px;
+	padding-right: 20px;
+	padding-left: 20px;
+	border-bottom: 1px solid color-mix(in srgb, var(--owl-ui-border) 65%, transparent);
+	background: var(--owl-ui-canvas);
+}
+.owl-shell-session-title { min-width: 0; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-shell-project { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: 12px; color: var(--owl-ui-muted); }
+.owl-shell-project-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-shell-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 3px; margin-left: auto; }
+.owl-shell-connection { display: flex; align-items: center; gap: 6px; margin-right: 8px; font-size: 11px; color: var(--owl-ui-muted); }
+.owl-shell-connection.is-offline { color: #d48080; }
+.owl-shell-connection-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-owl-accent); }
+.owl-shell-connection.is-offline .owl-shell-connection-dot { background: currentColor; }
+.owl-shell-header-actions .owl-chrome-button { width: 32px; height: 32px; color: var(--owl-ui-muted); }
+.owl-shell-header-actions .owl-chrome-button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
+.owl-shell-header-actions .owl-chrome-button.is-active { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
+.owl-shell-header-actions .owl-chrome-button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-shell-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.owl-shell-content.is-bottom { flex-direction: column; }
+.owl-shell-conversation { display: flex; min-height: 0; min-width: 0; flex: 1; flex-direction: column; }
+
+@media (max-width: 1050px) {
+	.owl-main-frame .owl-chat-header { gap: 8px; padding-right: 16px; padding-left: 16px; }
+	.owl-shell-project { display: none; }
+	.owl-shell-session-title { max-width: 50%; }
+	.owl-shell-connection { max-width: 160px; }
+}

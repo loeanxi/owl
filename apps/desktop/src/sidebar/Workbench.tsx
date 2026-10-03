@@ -339,6 +339,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 										title={`关闭 ${tab.title}`}
 										aria-label={`关闭 ${tab.title}`}
 										onMouseDown={(e) => e.stopPropagation()}
+										onKeyDown={(e) => e.stopPropagation()}
 										onClick={(e) => {
 											e.stopPropagation();
 											store.closeTab(tab.id);
@@ -360,7 +361,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 							<div className="owl-workbench-empty-heading">
 								<strong>打开你的工作工具</strong>
 								<p>文件、代码和执行结果，在同一个工作台查看。</p>
-								</div>
+							</div>
 							{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => (
 								<button
 									key={action.kind}
@@ -413,8 +414,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		);
 	};
 
-	const dockButtonClass = (active: boolean): string =>
-		`owl-workbench-icon-button ${active ? "is-active" : ""}`;
+	const dockButtonClass = (active: boolean): string => `owl-workbench-icon-button ${active ? "is-active" : ""}`;
 
 	return (
 		<aside
@@ -432,39 +432,39 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 				<div className="absolute top-0 right-0 left-0 z-20 h-1 cursor-row-resize transition-colors hover:bg-owl-accent/40" onMouseDown={startResize} />
 			)}
 
-			{/* 工具行：快捷单例（彩色图标）+ 停靠切换 + 关闭 */}
+			{/* 工作台标题、工具入口与固定停靠操作 */}
 			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
 				<div className="owl-workbench-heading" title={activeTab?.title ?? "工作台"}>
 					{activeDefinition?.icon(14) ?? <IconPanelRight size={14} />}
 					<span>{activeTab?.title ?? "工作台"}</span>
 				</div>
 				<div className="owl-workbench-shortcuts" aria-label="工作台工具">
-				{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {
-					const active = activeTab?.kind === action.kind;
-					return (
-						<button
-							key={action.kind}
-							type="button"
-							title={action.label}
-							aria-label={action.label}
-							className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
-							onClick={() => openQuickAction(store, action.kind)}
-						>
-							{action.icon(15)}
-						</button>
-					);
-				})}
+					{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {
+						const active = activeTab?.kind === action.kind;
+						return (
+							<button
+								key={action.kind}
+								type="button"
+								title={action.label}
+								aria-label={action.label}
+								className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
+								onClick={() => openQuickAction(store, action.kind)}
+							>
+								{action.icon(15)}
+							</button>
+						);
+					})}
 				</div>
 				<div className="owl-workbench-dock-actions">
-				<button type="button" title="停靠到右列" aria-label="停靠到右列" className={dockButtonClass(dock === "right")} onClick={() => onSetDock("right")}>
-					<IconPanelRight size={14} />
-				</button>
-				<button type="button" title="停靠到底部" aria-label="停靠到底部" className={dockButtonClass(dock === "bottom")} onClick={() => onSetDock("bottom")}>
-					<IconPanelBottom size={14} />
-				</button>
-				<button type="button" title="关闭工作台" aria-label="关闭工作台" className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
-					<IconX size={14} />
-				</button>
+					<button type="button" title="停靠到右列" aria-label="停靠到右列" className={dockButtonClass(dock === "right")} onClick={() => onSetDock("right")}>
+						<IconPanelRight size={14} />
+					</button>
+					<button type="button" title="停靠到底部" aria-label="停靠到底部" className={dockButtonClass(dock === "bottom")} onClick={() => onSetDock("bottom")}>
+						<IconPanelBottom size={14} />
+					</button>
+					<button type="button" title="关闭工作台" aria-label="关闭工作台" className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
+						<IconX size={14} />
+					</button>
 				</div>
 			</div>
 

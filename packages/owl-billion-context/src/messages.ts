@@ -45,9 +45,30 @@ export function isCustomMessageEntry(entry: SessionEntry): entry is SessionEntry
 	return extractText(entry.content).length > 0;
 }
 
+/** owl 原生摘要条目（compaction / branch_summary）的统一投影文本。 */
+function nativeSummaryText(entry: { type: "compaction"; summary: string } | { type: "branch_summary"; summary: string }): string {
+	return entry.type === "compaction"
+		? `The conversation history before this point was compacted into the following summary:\n<summary>\n${entry.summary}\n</summary>`
+		: `The following is a summary of a branch that this conversation came back from:\n<summary>\n${entry.summary}\n</summary>`;
+}
+
 export function entriesToCoreMessages(entries: SessionEntry[]): CoreMessage[] {
 	const out: CoreMessage[] = [];
 	for (const entry of entries) {
+		if (entry.type === "compaction" || entry.type === "branch_summary") {
+			// owl 原生 compaction / 分支摘要条目（插件放行的手动 /compact、或插件
+			// 降级后原生兜底接管产生）：与 owl 自身投影同形，转成 user 文本进视图，
+			// 保证原生摘要不会因本插件的重建而凭空消失。compaction 条目的
+			// systemMessage 提示词回放由宿主 runner 的 restoreSystemMessages 负责。
+			if (!entry.summary) continue;
+			out.push({
+				id: entry.id,
+				role: "user",
+				contentType: "text",
+				text: nativeSummaryText(entry),
+			});
+			continue;
+		}
 		if (entry.type !== "message") {
 			// custom_message 按 owl 原生语义参与 LLM 上下文 —— 投影为 user 消息。
 			if (isCustomMessageEntry(entry)) {
@@ -434,7 +455,8 @@ function safeStringify(value: unknown): string {
 }
 
 /** 折叠渲染的 originals 表：条目 id → 原始 AgentMessage。
- *  custom_message 按 owl convertToLlm 的投影还原为 user 消息。 */
+ *  custom_message / 原生 compaction / branch_summary 均按 owl convertToLlm
+ *  的投影还原为 user 消息，保证重建时原样回填。 */
 export function collectOriginals(entries: SessionEntry[]): Map<string, AgentMessage> {
 	const map = new Map<string, AgentMessage>();
 	for (const entry of entries) {
@@ -444,6 +466,13 @@ export function collectOriginals(entries: SessionEntry[]): Map<string, AgentMess
 			const content =
 				typeof entry.content === "string" ? [{ type: "text" as const, text: entry.content }] : entry.content;
 			map.set(entry.id, { role: "user", content } as AgentMessage);
+		} else if (entry.type === "compaction" || entry.type === "branch_summary") {
+			if (!entry.summary) continue;
+			map.set(entry.id, {
+				role: "user",
+				content: [{ type: "text", text: nativeSummaryText(entry) }],
+				timestamp: new Date(entry.timestamp).getTime(),
+			} as AgentMessage);
 		}
 	}
 	return map;

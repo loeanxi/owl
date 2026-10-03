@@ -1,39 +1,53 @@
-/**
- * 开始页 —— 空会话时聊天列的欢迎屏，排版照搬 DSH 的"开始"页：居中 logo +
- * 纵向排列的大圆角菜单卡（彩色图标在左、快捷键提示在右）。可用项直接打开
- * 工作台对应面板；终端 / 浏览器是占位卡（owl 暂无该宿主能力），置灰展示
- * 未来绑定，与 DSH paneCard 的 disabled 态一致。
- */
-import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { isTabKindEnabled, useSidebarConfig } from "../sidebar/config.ts";
+import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
+import { IconFolder } from "./icons.tsx";
+import "./start-page.css";
 
+const PRIMARY_ACTION_COPY: Record<string, { title: string; description: string }> = {
+	files: { title: "浏览项目文件", description: "熟悉项目与代码" },
+	changes: { title: "查看文件变动", description: "审阅每一处修改" },
+	browser: { title: "打开浏览器", description: "查看页面与效果" },
+};
+
+/** 空会话欢迎页。所有入口沿用工作台配置与打开逻辑，设置停用的面板即时隐藏。 */
 export function StartPage({ onAction }: { onAction: (kind: string) => void }): React.JSX.Element {
-	// 侧边卡片设置停用的卡片不在开始页出现（订阅配置，设置页改动即时生效）
 	const cfg = useSidebarConfig();
 	const actions = QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg));
-	return (
-		<div className="mt-[12vh] flex flex-col items-center px-6">
-			<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
-			<p className="mt-5 font-serif text-2xl text-owl-text">✳ 有什么可以帮你的？</p>
-			<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
+	const primaryActions = actions.flatMap((action) => {
+		const copy = PRIMARY_ACTION_COPY[action.kind];
+		return copy ? [{ ...action, ...copy }] : [];
+	});
+	const secondaryActions = actions.filter((action) => !PRIMARY_ACTION_COPY[action.kind]);
 
-			<div className="mt-8 flex w-full max-w-xl flex-col gap-2.5">
-				{actions.map((action) => (
-					<button
-						key={action.kind}
-						type="button"
-						title={action.label}
-						className="flex min-h-13 items-center gap-3.5 rounded-2xl border border-owl-border/70 bg-owl-panel px-5 py-3.5 text-left text-sm text-owl-text transition-colors hover:bg-owl-hover"
-						onClick={() => onAction(action.kind)}
-					>
-						<span className="shrink-0" style={{ color: action.color }}>
-							{action.icon(18)}
-						</span>
-						<span className="flex-1">{action.label}</span>
-						{action.hint && <span className="shrink-0 text-xs text-owl-faint">{action.hint}</span>}
-					</button>
-				))}
-			</div>
-		</div>
+	return (
+		<section className="owl-start-page" aria-labelledby="owl-start-heading">
+			<img src="/owl.svg" alt="" className="owl-start-mark" draggable={false} />
+			<p className="owl-start-eyebrow">YOUR LOCAL CODING COMPANION</p>
+			<h1 id="owl-start-heading" className="owl-start-heading">让想法，在这里落地。</h1>
+			<p className="owl-start-description">从一个问题、一段代码，或一个待完成的任务开始。</p>
+
+			{primaryActions.length > 0 && (
+				<div className="owl-start-primary-actions" aria-label="项目快捷入口">
+					{primaryActions.map((action) => (
+						<button key={action.kind} type="button" className="owl-start-card" title={action.hint ? `${action.title} · ${action.hint}` : action.title} onClick={() => onAction(action.kind)}>
+							<span className="owl-start-card-icon">{action.kind === "files" ? <IconFolder className="h-[22px] w-[22px]" /> : action.icon(22)}</span>
+							<span className="owl-start-card-title">{action.title}</span>
+							<span className="owl-start-card-description">{action.description}</span>
+						</button>
+					))}
+				</div>
+			)}
+
+			{secondaryActions.length > 0 && (
+				<div className="owl-start-secondary-actions" aria-label="更多工作台入口">
+					{secondaryActions.map((action) => (
+						<button key={action.kind} type="button" className="owl-start-secondary-action" title={action.hint ? `${action.label} · ${action.hint}` : action.label} onClick={() => onAction(action.kind)}>
+							<span className="owl-start-secondary-icon">{action.icon(15)}</span>
+							<span>{action.kind === "terminal" ? "终端" : action.kind === "sidechat" ? "侧边对话" : action.label}</span>
+						</button>
+					))}
+				</div>
+			)}
+		</section>
 	);
 }
