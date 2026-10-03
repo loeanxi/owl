@@ -384,6 +384,11 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 				width: 390,
 				height: 844,
 			});
+			const beforeFillFrames = frames.filter((frame) => frame.pageId === page.pageId).length;
+			await invoke("chat-a", "browser_fill", { selector: "#name", text: "responsive-stream" });
+			await expect
+				.poll(() => frames.filter((frame) => frame.pageId === page.pageId).length, { timeout: 3000 })
+				.toBeGreaterThan(beforeFillFrames);
 			await hub.setViewport(page.pageId, 844, 390);
 			expect((await report("chat-a")).width).toBe(844);
 			expect(hub.listPages("chat-a")[0].viewport).toEqual({ width: 844, height: 390 });

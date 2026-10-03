@@ -5,6 +5,7 @@
  * 只重渲染本组件），不经过 Workbench 的 props 链。
  */
 import { useEffect, useMemo, useRef } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import { useSessionFeed } from "../feed.ts";
 import { IconLayers } from "../quick.tsx";
 import { IconLoader } from "../icons.tsx";
@@ -54,6 +55,7 @@ function useTimeline(): { items: TimelineItem[]; rounds: number; toolCalls: numb
 }
 
 export function TasksTab(): React.JSX.Element {
+	const t = useT();
 	const feed = useSessionFeed();
 	const { items, rounds, toolCalls } = useTimeline();
 	const scroller = useRef<HTMLDivElement>(null);
@@ -70,17 +72,17 @@ export function TasksTab(): React.JSX.Element {
 			{/* 状态头：当前会话的运行面概览 */}
 			<div className="flex shrink-0 items-center gap-2 border-b border-owl-border/40 px-3 py-2 text-xs">
 				<IconLayers size={13} className="text-[#d29922]" />
-				<span className="font-medium text-owl-text">任务管理</span>
+				<span className="font-medium text-owl-text">{t("wb.tasks")}</span>
 				{feed.running ? (
 					<span className="flex items-center gap-1.5 text-owl-accent">
 						<IconLoader size={11} className="animate-spin" />
-						运行中
+						{t("chat.runningAria")}
 					</span>
 				) : (
-					<span className="text-owl-faint">空闲</span>
+					<span className="text-owl-faint">{t("tasks.idle")}</span>
 				)}
 				<span className="ml-auto text-owl-faint">
-					{rounds} 轮 · {toolCalls} 次工具调用
+					{t("tasks.stats", { rounds, tools: toolCalls })}
 				</span>
 			</div>
 
@@ -99,9 +101,9 @@ export function TasksTab(): React.JSX.Element {
 					<div className="flex h-full flex-col items-center justify-center gap-2 text-center">
 						<IconLayers size={22} className="text-owl-faint opacity-60" />
 						<p className="text-xs text-owl-faint">
-							当前会话还没有运行记录。
+							{t("tasks.empty")}
 							<br />
-							发消息后，这里的工具调用时间线会实时滚动。
+							{t("tasks.emptyHint")}
 						</p>
 					</div>
 				) : (
@@ -110,7 +112,7 @@ export function TasksTab(): React.JSX.Element {
 							if (item.type === "round") {
 								return (
 									<li key={`r-${index}`} className="flex items-center gap-2 pt-2 pb-0.5 first:pt-0">
-										<span className="rounded bg-owl-hover px-1.5 py-0.5 text-[10px] text-owl-muted">第 {item.index} 轮</span>
+										<span className="rounded bg-owl-hover px-1.5 py-0.5 text-[10px] text-owl-muted">{t("tasks.round", { n: item.index })}</span>
 										<span className="min-w-0 truncate text-xs text-owl-muted">{item.prompt}</span>
 									</li>
 								);
@@ -131,7 +133,7 @@ export function TasksTab(): React.JSX.Element {
 											<span className={`min-w-0 flex-1 truncate ${item.row.status === "error" ? "text-red-400" : "text-owl-muted"}`}>
 												<InlineSummary text={item.row.summary} />
 											</span>
-											{item.row.status === "running" && <span className="shrink-0 text-owl-accent">运行中…</span>}
+											{item.row.status === "running" && <span className="shrink-0 text-owl-accent">{t("chat.groupRunning")}</span>}
 										</div>
 									</li>
 								);

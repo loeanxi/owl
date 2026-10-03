@@ -6,6 +6,7 @@
  * 被改的层）；Git 状态着色来自 Workbench 下发的 gitStatus 快照。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import type { FsEntry, FsListing, FsSearchHit } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { useSidebarState } from "../store.ts";
@@ -91,6 +92,7 @@ function gitDecoration(path: string, git: TabComponentProps["gitStatus"]): { col
 }
 
 export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const state = useSidebarState(store);
 	const expanded = useMemo(() => new Set<string>(state.expanded), [state.expanded]);
 	// 列表缓存 + 版本号：缓存变更用 version 触发重渲染（Map 本身引用稳定）。
@@ -266,26 +268,26 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const menuItems = (entry: FsEntry): { label: string; icon: React.ReactNode; action: () => void; danger?: boolean }[] => {
 		const items: { label: string; icon: React.ReactNode; action: () => void; danger?: boolean }[] = [
 			{
-				label: entry.isDir ? "展开/收起" : "打开",
+				label: entry.isDir ? t("files.ctxExpand") : t("api.opOpen"),
 				icon: <IconFile size={14} />,
 				action: () => onRowClick(entry),
 			},
 		];
 		if (!entry.isDir) {
 			items.push({
-				label: "用 VS Code 打开",
+				label: t("files.ctxVscode"),
 				icon: <IconExternal size={14} />,
 				action: () => void api.openExternal("url", `vscode://file/${absoluteOf(entry.path)}`).catch(() => {}),
 			});
 		}
 		items.push(
 			{
-				label: "在资源管理器中显示",
+				label: t("files.ctxReveal"),
 				icon: <IconExternal size={14} />,
 				action: () => void api.openExternal("reveal", entry.path, cwd).catch(() => {}),
 			},
 			{
-				label: "新建文件夹",
+				label: t("api.opMkdir"),
 				icon: <IconFolderPlus size={14} />,
 				action: () => {
 					const parent = entry.isDir ? entry.path : entry.path.split("/").slice(0, -1).join("/");
@@ -294,22 +296,22 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				},
 			},
 			{
-				label: "重命名",
+				label: t("api.opRename"),
 				icon: <IconPencil size={14} />,
 				action: () => setRenaming({ path: entry.path, name: entry.name }),
 			},
 			{
-				label: "复制相对路径",
+				label: t("files.ctxCopyRel"),
 				icon: <IconCopy size={14} />,
 				action: () => void navigator.clipboard.writeText(entry.path).catch(() => {}),
 			},
 			{
-				label: "复制完整路径",
+				label: t("files.ctxCopyFull"),
 				icon: <IconCopy size={14} />,
 				action: () => void navigator.clipboard.writeText(absoluteOf(entry.path)).catch(() => {}),
 			},
 			{
-				label: "删除",
+				label: t("common.delete"),
 				icon: <IconTrash size={14} />,
 				danger: true,
 				action: () => setConfirming(entry),
@@ -336,7 +338,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 					<input
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
-						placeholder="搜索文件名…"
+						placeholder={t("files.searchPlaceholder")}
 						spellCheck={false}
 						className="w-full rounded-md border border-owl-border/50 bg-owl-panel py-1 pr-6 pl-7 text-xs text-owl-text placeholder:text-owl-faint focus:border-owl-accent/60 focus:outline-none"
 					/>
@@ -352,7 +354,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				</div>
 				<button
 					type="button"
-					title="新建文件夹"
+					title={t("api.opMkdir")}
 					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 					onClick={() => setCreating({ parent: "", name: "" })}
 				>
@@ -360,7 +362,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				</button>
 				<button
 					type="button"
-					title="刷新"
+					title={t("common.refresh")}
 					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 					onClick={() => {
 						cacheRef.current.clear();
@@ -375,7 +377,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
 					{error}
 					<button type="button" className="ml-2 underline" onClick={() => setError(undefined)}>
-						关闭
+						{t("window.close")}
 					</button>
 				</div>
 			)}
@@ -384,13 +386,13 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 			<div className="min-h-0 flex-1 overflow-y-auto py-1" onClick={() => setMenu(undefined)}>
 				{searching && hits === undefined && (
 					<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
-						<IconLoader size={13} className="animate-spin" /> 搜索中…
+						<IconLoader size={13} className="animate-spin" /> {t("files.searching")}
 					</div>
 				)}
 				{hits !== undefined && (
 					<div className="px-1">
 						<div className="px-2 py-1 text-[11px] text-owl-faint">
-							{hits.length === 0 ? "没有匹配的文件" : `${hits.length} 个匹配`}
+							{hits.length === 0 ? t("files.noMatch") : t("files.matchCount", { n: hits.length })}
 						</div>
 						{hits.map((hit) => (
 							<button
@@ -415,7 +417,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				{hits === undefined && !searching && (
 					<>
 						{rows.length === 0 && !loading.has("") && (
-							<div className="px-3 py-6 text-center text-xs text-owl-faint">目录为空</div>
+							<div className="px-3 py-6 text-center text-xs text-owl-faint">{t("files.emptyDir")}</div>
 						)}
 						{rows.map(({ entry, depth }) => {
 							const isOpen = expanded.has(entry.path);
@@ -473,7 +475,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 													if (e.key === "Escape") setCreating(undefined);
 												}}
 												onBlur={() => void doCreate()}
-												placeholder="新文件夹名"
+												placeholder={t("files.newFolderName")}
 												className="mx-2 my-0.5 w-[calc(100%-1rem)] rounded border border-owl-accent/60 bg-owl-panel px-1.5 py-0.5 text-xs text-owl-text focus:outline-none"
 											/>
 										</div>
@@ -491,13 +493,13 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 									if (e.key === "Escape") setCreating(undefined);
 								}}
 								onBlur={() => void doCreate()}
-								placeholder="新文件夹名"
+								placeholder={t("files.newFolderName")}
 								className="mx-2 my-1 w-[calc(100%-1rem)] rounded border border-owl-accent/60 bg-owl-panel px-1.5 py-0.5 text-xs text-owl-text focus:outline-none"
 							/>
 						)}
 						{loading.has("") && rows.length === 0 && (
 							<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
-								<IconLoader size={13} className="animate-spin" /> 加载中…
+								<IconLoader size={13} className="animate-spin" /> {t("settings.skills.loading")}
 							</div>
 						)}
 					</>
@@ -536,16 +538,16 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 			{confirming !== undefined && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirming(undefined)}>
 					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-						<div className="text-sm font-medium text-owl-text">删除「{confirming.name}」？</div>
+						<div className="text-sm font-medium text-owl-text">{t("files.deleteConfirm", { name: confirming.name })}</div>
 						<div className="mt-1.5 text-xs text-owl-muted">
-							{confirming.isDir ? "目录将被递归删除" : "文件将被永久删除"}，此操作不可恢复。
+							{confirming.isDir ? t("files.deleteDirWarn") : t("files.deleteFileWarn")}
 						</div>
 						<div className="mt-4 flex justify-end gap-2">
 							<button type="button" className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-text hover:bg-owl-hover" onClick={() => setConfirming(undefined)}>
-								取消
+								{t("common.cancel")}
 							</button>
 							<button type="button" className="rounded-lg bg-red-500/90 px-3 py-1.5 text-xs text-white hover:bg-red-500" onClick={() => void doDelete()}>
-								删除
+								{t("common.delete")}
 							</button>
 						</div>
 					</div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import { renderMarkdown } from "../../components/ChatStream.tsx";
 import { workspaceArtifactPath } from "../../hooks/artifacts.ts";
 import { fileUrlOf } from "../api.ts";
@@ -8,6 +9,7 @@ import "./document.css";
 
 /** Text documents have a readable preview; their existing editor remains available. */
 export function DocumentTab({ api, cwd, tab, store, onOpenFile }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const path = tab.path ?? "";
 	const config = useSidebarConfig();
 	const [content, setContent] = useState<string>();
@@ -23,7 +25,7 @@ export function DocumentTab({ api, cwd, tab, store, onOpenFile }: TabComponentPr
 		void api.fsRead(cwd, path).then((file) => {
 			if (cancelled) return;
 			if (file.kind !== "text") {
-				setError("此文件需要使用系统应用打开。");
+				setError(t("doc.openWithSystemNeeded"));
 				return;
 			}
 			setContent(file.content);
@@ -39,19 +41,19 @@ export function DocumentTab({ api, cwd, tab, store, onOpenFile }: TabComponentPr
 		<div className="owl-document">
 			<div className="owl-document-toolbar">
 				<span title={path}>{path}</span>
-				<button type="button" onClick={() => setRevision((current) => current + 1)}>刷新</button>
+				<button type="button" onClick={() => setRevision((current) => current + 1)}>{t("common.refresh")}</button>
 				<button type="button" disabled={config.disabledViewers.includes("editor")} onClick={() => {
 					if (!config.disabledViewers.includes("editor")) store.openFileTab("editor", path, path.split("/").pop() ?? path);
-				}}>编辑文件</button>
+				}}>{t("doc.edit")}</button>
 				<button type="button" onClick={() => {
 					void api.openExternal("url", fileUrlOf(cwd, path)).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)));
-				}}>系统打开</button>
+				}}>{t("doc.openWithSystem")}</button>
 			</div>
 			{error && <p className="owl-document-error" role="alert">{error}</p>}
-			{truncated && <p className="owl-document-loading" role="status">文件较大，当前显示部分内容。可使用系统应用查看全文。</p>}
-			{content === undefined && !error && <p className="owl-document-loading" role="status">正在读取文件…</p>}
+			{truncated && <p className="owl-document-loading" role="status">{t("doc.truncated")}</p>}
+			{content === undefined && !error && <p className="owl-document-loading" role="status">{t("doc.loading")}</p>}
 			{content !== undefined && (html
-				? <iframe title={`预览 ${path}`} className="owl-document-html" srcDoc={content} sandbox="allow-scripts" referrerPolicy="no-referrer" />
+				? <iframe title={t("doc.previewTitle", { path })} className="owl-document-html" srcDoc={content} sandbox="allow-scripts" referrerPolicy="no-referrer" />
 				: markdown
 					? <article className="owl-document-markdown owl-answer" onClick={(event) => {
 						if (!(event.target instanceof Element)) return;

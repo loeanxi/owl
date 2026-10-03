@@ -13,6 +13,7 @@
  * 尺寸（视口切换才变）、舞台尺寸、文件选择横幅。
  */
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { t, useT, type TextKey } from "../../i18n/index.ts";
 import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
 import { BrowserSessionContext, type TabComponentProps } from "../registry.ts";
 import { useSidebarState } from "../store.ts";
@@ -29,10 +30,10 @@ const QUICK_URLS = [
 ];
 
 /** 设备的 CSS 视口尺寸；预设只调整布局尺寸，不改变 UA 或触控模式。 */
-const VIEWPORT_PRESETS = [
+const VIEWPORT_PRESETS: { label: string; labelKey?: TextKey; width: number; height: number }[] = [
 	{ label: "4K", width: 3840, height: 2160 },
 	{ label: "Laptop L", width: 1440, height: 900 },
-	{ label: "笔记本电脑", width: 1280, height: 860 },
+	{ label: "笔记本电脑", labelKey: "browser.presetLaptop", width: 1280, height: 860 },
 	{ label: "Surface Pro 7", width: 912, height: 1368 },
 	{ label: "iPad Air", width: 820, height: 1180 },
 	{ label: "iPad Mini", width: 768, height: 1024 },
@@ -91,6 +92,7 @@ interface StageGeometry {
 }
 
 export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const sessionId = useContext(BrowserSessionContext);
 	const sidebarState = useSidebarState(store);
 	const sessionIdRef = useRef(sessionId);
@@ -426,14 +428,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			.request({ type: "iab.viewport", pageId: current.pageId, ...next })
 			.then((response) => {
 				if (pageRef.current?.pageId !== current.pageId) return;
-				if (!response.ok) throw new Error(response.error ?? "无法调整页面尺寸");
+				if (!response.ok) throw new Error(response.error ?? t("browser.resizeFailed"));
 				setViewportPreset(preset);
 			})
 			.catch((error: unknown) => {
 				if (pageRef.current?.pageId !== current.pageId) return;
 				const viewport = pageRef.current.viewport;
 				setViewportDraft({ width: String(viewport.width), height: String(viewport.height) });
-				setViewportError(error instanceof Error ? error.message : "无法调整页面尺寸");
+				setViewportError(error instanceof Error ? error.message : t("browser.resizeFailed"));
 			})
 			.finally(() => setViewportPending(false));
 	};
@@ -537,7 +539,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		<div className="owl-browser flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
 			{/* 导航工具条；响应式控制单独一行，侧栏收窄时自然换行。 */}
 			<div className="flex shrink-0 select-none flex-wrap items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
-				<button type="button" title="后退" className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
+				<button type="button" title={t("browser.back")} className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
 					<svg
 						viewBox="0 0 16 16"
 						fill="none"
@@ -549,7 +551,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="M10 3 5 8l5 5" />
 					</svg>
 				</button>
-				<button type="button" title="前进" className={toolbarButton} disabled={!page} onClick={() => runNav("forward")}>
+				<button type="button" title={t("browser.forward")} className={toolbarButton} disabled={!page} onClick={() => runNav("forward")}>
 					<svg
 						viewBox="0 0 16 16"
 						fill="none"
@@ -561,13 +563,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="m6 3 5 5-5 5" />
 					</svg>
 				</button>
-				<button type="button" title="刷新" className={toolbarButton} disabled={!page} onClick={() => runNav("reload")}>
+				<button type="button" title={t("common.refresh")} className={toolbarButton} disabled={!page} onClick={() => runNav("reload")}>
 					<IconRefresh size={11} />
 				</button>
 				<button
 					type="button"
-					title="响应式预览"
-					aria-label="响应式预览"
+					title={t("browser.responsiveToggle")}
+					aria-label={t("browser.responsiveToggle")}
 					aria-pressed={responsive}
 					className={`owl-browser-responsive-toggle ${toolbarButton}`}
 					disabled={!page}
@@ -581,12 +583,12 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="M4 13h5M6.5 10v3" />
 						<rect x="10" y="6" width="4.5" height="7.5" rx=".8" fill="var(--color-owl-panel)" />
 					</svg>
-					<span>响应式</span>
+					<span>{t("browser.responsive")}</span>
 				</button>
 				<input
-					aria-label="浏览器地址"
+					aria-label={t("browser.urlAria")}
 					value={draft}
-					placeholder="输入 URL，回车打开（agent 也能看到这个页面）"
+					placeholder={t("browser.urlPlaceholder")}
 					spellCheck={false}
 					onChange={(e) => setDraft(e.target.value)}
 					onKeyDown={(e) => {
@@ -598,7 +600,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					}}
 					className="h-6.5 min-w-0 flex-1 rounded-md border border-owl-border/50 bg-owl-panel px-2.5 text-xs text-owl-text outline-none placeholder:text-owl-faint focus:border-owl-accent/60"
 				/>
-				<button type="button" title="在独立窗口打开" className={toolbarButton} disabled={!page?.url} onClick={popout}>
+				<button type="button" title={t("browser.popout")} className={toolbarButton} disabled={!page?.url} onClick={popout}>
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
 						<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
 						<rect x="8" y="7.5" width="5" height="4" rx="0.5" fill="currentColor" stroke="none" />
@@ -606,7 +608,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				</button>
 				<button
 					type="button"
-					title={currentBookmarked ? "取消收藏" : "收藏此页"}
+					title={currentBookmarked ? t("browser.unbookmark") : t("browser.bookmark")}
 					className={`${toolbarButton} ${currentBookmarked ? "text-owl-accent hover:text-owl-accent" : ""}`}
 					disabled={!page?.url}
 					onClick={toggleBookmark}
@@ -623,7 +625,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				</button>
 				<button
 					type="button"
-					title="在系统浏览器打开"
+					title={t("browser.openExternal")}
 					className={toolbarButton}
 					disabled={!page?.url}
 					onClick={openExternal}
@@ -633,11 +635,11 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			</div>
 
 			{page && responsive && (
-				<div className="owl-browser-responsive-toolbar" aria-label="响应式工具栏" aria-busy={viewportPending}>
+				<div className="owl-browser-responsive-toolbar" aria-label={t("browser.responsiveToolbar")} aria-busy={viewportPending}>
 					<label className="owl-browser-device">
-						<span>尺寸:</span>
+						<span>{t("browser.size")}</span>
 						<select
-							aria-label="预览设备"
+							aria-label={t("browser.device")}
 							value={viewportPreset}
 							disabled={viewportPending}
 							onChange={(event) => {
@@ -647,10 +649,10 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 								else setViewportPreset("responsive");
 							}}
 						>
-							<option value="responsive">响应式</option>
+							<option value="responsive">{t("browser.responsive")}</option>
 							{VIEWPORT_PRESETS.map((preset) => (
 								<option key={preset.label} value={preset.label}>
-									{preset.label}
+									{preset.labelKey ? t(preset.labelKey) : preset.label}
 								</option>
 							))}
 						</select>
@@ -661,8 +663,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 								{index === 1 && <span aria-hidden="true">×</span>}
 								<input
 									type="number"
-									aria-label={dimension === "width" ? "视口宽度" : "视口高度"}
-									title={dimension === "width" ? "宽度（320–3840 CSS px）" : "高度（320–2160 CSS px）"}
+									aria-label={dimension === "width" ? t("browser.viewportWidth") : t("browser.viewportHeight")}
+									title={dimension === "width" ? t("browser.widthHint") : t("browser.heightHint")}
 									min={320}
 									max={dimension === "width" ? 3840 : 2160}
 									step={1}
@@ -683,8 +685,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					<button
 						type="button"
 						className={toolbarButton}
-						aria-label="旋转视口"
-						title={page.viewport.width > 2160 ? "当前宽度超出可用高度（2160px）" : "旋转视口"}
+						aria-label={t("browser.rotate")}
+						title={page.viewport.width > 2160 ? t("browser.rotateBlocked") : t("browser.rotate")}
 						disabled={viewportPending || page.viewport.width > 2160}
 						onClick={() => applyViewport(page.viewport.height, page.viewport.width, viewportPreset)}
 					>
@@ -701,13 +703,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						</svg>
 					</button>
 					<select
-						aria-label="预览缩放"
-						title="仅缩放预览画面"
+						aria-label={t("browser.zoom")}
+						title={t("browser.zoomTitle")}
 						className="owl-browser-zoom"
 						value={String(zoom)}
 						onChange={(event) => setZoom(event.target.value === "auto" ? "auto" : Number(event.target.value))}
 					>
-						<option value="auto">适应{scale ? ` ${Math.round(scale * 100)}%` : ""}</option>
+						<option value="auto">{t("browser.fit")}{scale ? ` ${Math.round(scale * 100)}%` : ""}</option>
 						{ZOOM_LEVELS.map((level) => (
 							<option key={level} value={String(level)}>
 								{Math.round(level * 100)}%
@@ -716,8 +718,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					</select>
 					<button
 						type="button"
-						aria-label="关闭响应式预览"
-						title="关闭响应式工具栏"
+						aria-label={t("browser.closeResponsive")}
+						title={t("browser.closeResponsiveToolbar")}
 						className={`${toolbarButton} owl-browser-responsive-close`}
 						onClick={() => {
 							setResponsive(false);
@@ -746,10 +748,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			{/* 内容：起始页 或 screencast 舞台 */}
 			{!page ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-					<p className="text-sm text-owl-muted">内嵌浏览器</p>
+					<p className="text-sm text-owl-muted">{t("browser.embeddedTitle")}</p>
 					<p className="max-w-sm text-xs leading-relaxed text-owl-faint">
-						桥进程托管的独立浏览器：不受 X-Frame-Options 限制，随便开什么站； Agent 的 browser_*
-						工具驱动的是同一个页面，它的每一步操作你都看得到。
+						{t("browser.embeddedDesc")}
 					</p>
 					<div className="mt-1 flex flex-wrap justify-center gap-2">
 						{QUICK_URLS.map((candidate) => (
@@ -765,7 +766,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					</div>
 					{bookmarks.length > 0 && (
 						<div className="mt-3 w-full max-w-sm">
-							<p className="mb-1.5 text-[11px] font-medium text-owl-faint">收藏</p>
+							<p className="mb-1.5 text-[11px] font-medium text-owl-faint">{t("browser.bookmarks")}</p>
 							<div className="space-y-1">
 								{bookmarks.map((bookmark) => (
 									<div
@@ -782,7 +783,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 										</button>
 										<button
 											type="button"
-											title="删除收藏"
+											title={t("browser.deleteBookmark")}
 											className="shrink-0 text-owl-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
 											onClick={() => removeBookmark(bookmark.url)}
 										>
@@ -842,13 +843,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						</div>
 					) : (
 						<div className="flex h-full items-center justify-center">
-							<span className="animate-pulse text-xs text-owl-faint">正在连接页面…</span>
+							<span className="animate-pulse text-xs text-owl-faint">{t("browser.connecting")}</span>
 						</div>
 					)}
 					{fileChooser && (
 						<div className="absolute inset-x-2 top-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-owl-accent/50 bg-owl-panel/95 px-3 py-2 shadow-lg">
 							<span className="shrink-0 text-xs text-owl-text">
-								页面请求选择文件（允许多选：{fileChooser.multiple ? "是" : "否"}）
+								{t("browser.fileChooser", { yes: fileChooser.multiple ? t("browser.yes") : t("browser.no") })}
 							</span>
 							<input
 								value={filePathDraft}
@@ -859,7 +860,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 										submitFileChooser();
 									}
 								}}
-								placeholder="本机文件绝对路径，多个用 | 分隔"
+								placeholder={t("browser.filePathPlaceholder")}
 								spellCheck={false}
 								className="h-6 min-w-32 flex-1 rounded border border-owl-border/50 bg-owl-bg px-2 font-mono text-[11px] text-owl-text outline-none focus:border-owl-accent/60"
 							/>
@@ -868,14 +869,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 								onClick={submitFileChooser}
 								className="shrink-0 rounded bg-owl-accent px-2 py-1 text-[11px] text-white transition-opacity hover:opacity-90"
 							>
-								提交
+								{t("common.submit")}
 							</button>
 							<button
 								type="button"
 								onClick={() => setFileChooser(undefined)}
 								className="shrink-0 text-xs text-owl-faint transition-colors hover:text-owl-text"
 							>
-								忽略
+								{t("browser.ignore")}
 							</button>
 						</div>
 					)}

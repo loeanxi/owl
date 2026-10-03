@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import { isWorkspaceViewerUrl } from "../../../../../packages/coding-agent/src/core/workspace-viewer-url.ts";
 import type { WorkspaceViewerOpenResult } from "../../bridge/protocol.ts";
 import { getTabDefinition, type TabComponentProps } from "../registry.ts";
@@ -6,6 +7,7 @@ import "./plugin-viewer.css";
 
 /** The plugin's isolated local app owns its document editor and binary resources. */
 export function PluginViewerTab({ client, cwd, tab }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const viewerId = getTabDefinition(tab.kind)?.workspaceViewerId;
 	const path = tab.path ?? "";
 	const [viewer, setViewer] = useState<WorkspaceViewerOpenResult>();
@@ -22,12 +24,12 @@ export function PluginViewerTab({ client, cwd, tab }: TabComponentProps): React.
 		let cancelled = false;
 		setViewer(undefined);
 		setError(undefined);
-		if (!viewerId || !path) { setError("文件预览插件不可用。"); return; }
+		if (!viewerId || !path) { setError(t("pviewer.unavailable")); return; }
 		void client.request<WorkspaceViewerOpenResult>({ type: "viewer.open", viewerId, cwd, path }).then((response) => {
 			if (cancelled) return;
-			if (!response.ok || !response.result) throw new Error(response.error ?? "文件打开失败。");
+			if (!response.ok || !response.result) throw new Error(response.error ?? t("pviewer.openFailed"));
 			if (!isWorkspaceViewerUrl(response.result.url) || new URL(response.result.url).origin === window.location.origin) {
-				throw new Error("预览插件没有提供独立的本地文件预览地址。");
+				throw new Error(t("pviewer.noLocalUrl"));
 			}
 			setViewer(response.result);
 		}).catch((failure: unknown) => {
@@ -39,10 +41,10 @@ export function PluginViewerTab({ client, cwd, tab }: TabComponentProps): React.
 		<div className="owl-plugin-viewer">
 			<div className="owl-plugin-viewer-toolbar">
 				<span title={path}>{viewer?.title ?? tab.title}</span>
-				<button type="button" onClick={() => setRevision((value) => value + 1)}>刷新</button>
+				<button type="button" onClick={() => setRevision((value) => value + 1)}>{t("common.refresh")}</button>
 			</div>
 			{error && <p role="alert" className="owl-plugin-viewer-message">{error}</p>}
-			{!viewer && !error && <p role="status" className="owl-plugin-viewer-message">正在打开文件…</p>}
+			{!viewer && !error && <p role="status" className="owl-plugin-viewer-message">{t("pviewer.opening")}</p>}
 			{viewer && <iframe title={viewer.title ?? tab.title} src={viewer.url} sandbox="allow-scripts allow-same-origin allow-downloads" referrerPolicy="no-referrer" />}
 		</div>
 	);

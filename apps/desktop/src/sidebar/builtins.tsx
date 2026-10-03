@@ -11,7 +11,6 @@ import { t } from "../i18n/index.ts";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
-import { ContextTab } from "./tabs/ContextTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
@@ -71,12 +70,6 @@ const DEFINITIONS: TabDefinition[] = [
 		get title() { return t("wb.tasks"); },
 		icon: quickIcon("tasks"),
 		component: TasksTab,
-	},
-	{
-		kind: "context",
-		get title() { return t("composer.context"); },
-		icon: quickIcon("context"),
-		component: ContextTab,
 	},
 	{
 		kind: "impression",

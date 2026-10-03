@@ -9,6 +9,7 @@
  * 与会话无关）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "../../hooks/transcript.ts";
@@ -22,6 +23,7 @@ function sideChatKey(cwd: string): string {
 }
 
 export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string }): React.JSX.Element {
+	const t = useT();
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -134,12 +136,12 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 			{/* 头：标识 + 新线程 */}
 			<div className="flex shrink-0 select-none items-center gap-2 border-b border-owl-border/40 px-3 py-2 text-xs">
 				<IconChatDiscussion size={13} className="text-[#549bf5]" />
-				<span className="font-medium text-owl-text">侧边对话</span>
+				<span className="font-medium text-owl-text">{t("sidechat.title")}</span>
 				<span className="rounded-full border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">beta</span>
-				<span className="ml-auto text-owl-faint">独立小线程 · 不进主对话</span>
+				<span className="ml-auto text-owl-faint">{t("sidechat.caption")}</span>
 				<button
 					type="button"
-					title="开一条新线程"
+					title={t("sidechat.newThreadTitle")}
 					className="rounded p-1 text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
 					onClick={newThread}
 				>
@@ -161,9 +163,9 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 			>
 				{entries.length === 0 && (
 					<p className="mt-6 text-center text-xs leading-relaxed text-owl-faint">
-						顺手问一句、贴段代码、让它先想想——
+						{t("sidechat.hook1")}
 						<br />
-						这里的小线程不会出现在主对话里。
+						{t("sidechat.hook2")}
 					</p>
 				)}
 				{entries.map((entry, index) => {
@@ -211,7 +213,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 				{running && lastAssistant === undefined && (
 					<div className="flex items-center gap-1.5 text-[10px] text-owl-faint">
 						<IconLoader size={9} className="animate-spin text-owl-accent" />
-						思考中…
+						{t("sidechat.thinking")}
 					</div>
 				)}
 			</div>
@@ -220,7 +222,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 			<div className="flex shrink-0 items-end gap-2 border-t border-owl-border/40 px-2.5 py-2">
 				<textarea
 					className="max-h-24 min-h-[34px] flex-1 resize-none rounded-lg border border-owl-border/50 bg-owl-panel px-2.5 py-1.5 text-xs text-owl-text outline-none placeholder:text-owl-faint focus:border-owl-accent/60"
-					placeholder={attached ? "问点小的…（Enter 发送）" : "正在恢复线程…"}
+					placeholder={attached ? t("sidechat.placeholderAttached") : t("sidechat.placeholderRestoring")}
 					disabled={!attached}
 					rows={1}
 					value={draft}
@@ -235,8 +237,8 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 				{running ? (
 					<button
 						type="button"
-						title="中止"
-						aria-label="中止"
+						title={t("composer.abort")}
+						aria-label={t("composer.abort")}
 						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
 						onClick={() => {
 							if (sessionIdRef.current) void client.request({ type: "session.abort", sessionId: sessionIdRef.current });
@@ -247,8 +249,8 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 				) : (
 					<button
 						type="button"
-						title="发送"
-						aria-label="发送"
+						title={t("composer.send")}
+						aria-label={t("composer.send")}
 						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 						disabled={!draft.trim() || !attached}
 						onClick={() => void send()}

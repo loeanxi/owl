@@ -4,10 +4,12 @@
  * 保存后新会话生效；模型侧通过 update_user_impression 工具维护同一份档案。
  */
 import { useEffect, useRef, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { IconLoader, IconPencil, IconSave } from "../icons.tsx";
 
 export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const [impression, setImpression] = useState("");
 	const [loaded, setLoaded] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -35,7 +37,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 				const response = await client.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" });
 				if (cancelled || version !== requestVersion) return;
 				if (!response.ok || !response.result) {
-					setError(response.error ?? "读取用户印象失败");
+					setError(response.error ?? t("imp.readFailed"));
 					return;
 				}
 				const obj = (response.result.settings ?? {}) as Record<string, unknown>;
@@ -56,7 +58,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 			else {
 				requestVersion += 1;
 				setLoading(false);
-				setError("连接已断开，恢复后将自动重新读取");
+				setError(t("imp.disconnected"));
 			}
 		});
 		void load();
@@ -80,11 +82,11 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 					const obj = response.result as Record<string, unknown>;
 					if (typeof obj.owlUserImpression === "string") setImpression(obj.owlUserImpression);
 				}
-				setSavedMsg("已保存 ✓ 新会话生效");
+				setSavedMsg(t("imp.saved"));
 				if (savedTimer.current) clearTimeout(savedTimer.current);
 				savedTimer.current = setTimeout(() => setSavedMsg(""), 2000);
 			} else {
-				setError(response.error ?? "保存失败");
+				setError(response.error ?? t("common.saveFailed"));
 			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
@@ -96,7 +98,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex items-center justify-between border-b border-owl-border/60 px-3 py-2">
-				<span className="text-[11px] text-owl-faint">Owl Si 会把它对你的了解记在这里，并随身带进每次对话</span>
+				<span className="text-[11px] text-owl-faint">{t("imp.caption")}</span>
 				<div className="flex items-center gap-2">
 					{savedMsg && <span className="text-[11px] text-emerald-500">{savedMsg}</span>}
 					{error && <span className="max-w-[160px] truncate text-[11px] text-red-400" title={error}>{error}</span>}
@@ -107,7 +109,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 						onClick={() => void save()}
 					>
 						{busy ? <IconLoader size={12} /> : <IconSave size={12} />}
-						保存
+						{t("common.save")}
 					</button>
 				</div>
 			</div>
@@ -117,7 +119,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 						{loading ? (
 							<IconLoader size={18} className="animate-spin" />
 						) : (
-							<p className="px-4 text-center text-xs leading-relaxed">尚未读取用户印象，连接恢复后会自动重试。</p>
+							<p className="px-4 text-center text-xs leading-relaxed">{t("imp.notLoaded")}</p>
 						)}
 					</div>
 				) : (
@@ -126,7 +128,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 						value={impression}
 						onChange={(event) => setImpression(event.target.value)}
 						placeholder={
-							"还是空的。\n\n平时聊天里提到的工作习惯、技术偏好、项目背景…… Owl Si 觉得值得长期记住时，会自动整理到这里；你也可以直接写几条让它记住的事。"
+							t("imp.emptyPlaceholder")
 						}
 						spellCheck={false}
 					/>
@@ -134,7 +136,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 			</div>
 			<div className="flex items-center gap-1.5 border-t border-owl-border/60 px-3 py-1.5 text-[10px] text-owl-faint">
 				<IconPencil size={11} />
-				直接编辑也行；对话中 Owl Si 更新后，重新打开这个栏目就能看到。
+				{t("imp.editHint")}
 			</div>
 		</div>
 	);

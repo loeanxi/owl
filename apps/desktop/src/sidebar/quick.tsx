@@ -101,14 +101,6 @@ export const IconUserStar = (p: IconProps): ReactNode =>
 		</>,
 	);
 
-/** 脉冲（上下文洞察：请求构成的实时波形）。 */
-export const IconPulse = (p: IconProps): ReactNode =>
-	stroked(
-		p.size,
-		p.className,
-		<path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
-	);
-
 export interface QuickAction {
 	/** 工作台 tab kind。 */
 	kind: string;
@@ -134,7 +126,6 @@ export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "changes", get label() { return t("dev.changes"); }, color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
 	{ kind: "browser", get label() { return t("app.browserTab"); }, color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
 	{ kind: "tasks", get label() { return t("wb.tasks"); }, color: "#d29922", icon: (s) => <IconLayers size={s} /> },
-	{ kind: "context", get label() { return t("composer.context"); }, color: "#41c463", icon: (s) => <IconPulse size={s} /> },
 	{ kind: "impression", get label() { return t("wb.impression"); }, color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
 	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
 ];

@@ -142,18 +142,37 @@ describe("desktop extension shutdown lifecycle", () => {
 		const created = await request({ type: "session.create", cwd, provider: "faux", model: "fixture" });
 		expect(created.ok, JSON.stringify(created)).toBe(true);
 		const sessionId = (created.result as { sessionId: string }).sessionId;
-		const changed = await request({ type: "skills.create", cwd, tab: "global", name: "shutdown-fixture", description: "A local lifecycle fixture.", body: "Read only fixture." });
+		const changed = await request({
+			type: "skills.create",
+			cwd,
+			tab: "global",
+			name: "shutdown-fixture",
+			description: "A local lifecycle fixture.",
+			body: "Read only fixture.",
+		});
 		expect(changed.ok, JSON.stringify(changed)).toBe(true);
 		let lines: { reason: string; sessionId: string }[] = [];
 		for (let attempt = 0; attempt < 100; attempt++) {
-			try { lines = (await readFile(join(cwd, "shutdown.log"), "utf8")).trim().split("\n").map((line) => JSON.parse(line)); }
-			catch { /* The asynchronous reload has not reached shutdown yet. */ }
+			try {
+				lines = (await readFile(join(cwd, "shutdown.log"), "utf8"))
+					.trim()
+					.split("\n")
+					.map((line) => JSON.parse(line));
+			} catch {
+				/* The asynchronous reload has not reached shutdown yet. */
+			}
 			if (lines.some((entry) => entry.reason === "reload")) break;
 			await new Promise((resolve) => setTimeout(resolve, 20));
 		}
 		expect(lines).toEqual([{ reason: "reload", sessionId }]);
 		await bridge.close();
-		lines = (await readFile(join(cwd, "shutdown.log"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-		expect(lines).toEqual([{ reason: "reload", sessionId }, { reason: "quit", sessionId }]);
+		lines = (await readFile(join(cwd, "shutdown.log"), "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(lines).toEqual([
+			{ reason: "reload", sessionId },
+			{ reason: "quit", sessionId },
+		]);
 	}, 30_000);
 });

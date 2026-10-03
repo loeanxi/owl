@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { link, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, extname, join } from "node:path";
@@ -28,6 +29,13 @@ interface ApiReference {
 	show(queries: string[]): unknown;
 }
 
+interface ImportJob {
+	promise: Promise<string>;
+	controller: AbortController;
+	users: number;
+	settled: boolean;
+}
+
 export class OfficeRuntime {
 	private readonly options: OfficeRuntimeOptions;
 	private readonly processes: OfficeProcesses;
@@ -38,6 +46,8 @@ export class OfficeRuntime {
 	private gatewayChild: ChildProcess | undefined;
 	private viewer: OfficeViewerProxy | undefined;
 	private readonly fileLocks = new Map<string, Promise<unknown>>();
+	private readonly importedCopies = new Map<string, { hash: string; file: string; identity: string }>();
+	private readonly importsInFlight = new Map<string, ImportJob>();
 	private disposed = false;
 
 	constructor(options: OfficeRuntimeOptions) {
@@ -48,6 +58,11 @@ export class OfficeRuntime {
 	/** Trusted rendering adapters only; never include the private Gateway URL in tool results. */
 	get gatewayOrigin(): string | undefined {
 		return this.gateway;
+	}
+
+	/** Trusted lifecycle diagnostics; only the process created by this runtime is returned. */
+	get gatewayProcessId(): number | undefined {
+		return this.gatewayChild?.pid;
 	}
 
 	async getLicense(): Promise<string> {
@@ -307,7 +322,20 @@ export class OfficeRuntime {
 				this.request(`${prefix}/units`, signal),
 				this.worktrees(file, signal),
 			]);
-			result = { trunk: { units: trunk.units }, worktrees };
+			const discovered = await Promise.all(
+				worktrees.map(async (tree) => {
+					if (tree.status !== "draft" && tree.status !== "ready") return tree;
+					const id = requiredString(tree.worktreeId, "worktreeId");
+					const units = await this.request(`${prefix}/worktrees/${encodeURIComponent(id)}/units`, signal);
+					if (!Array.isArray(units.units))
+						throw new OfficeRuntimeError(
+							"GATEWAY_INVALID_RESPONSE",
+							"Office Gateway returned invalid draft Units.",
+						);
+					return { ...tree, units: units.units };
+				}),
+			);
+			result = { trunk: { units: trunk.units }, worktrees: discovered };
 		} else if (operation === "worktree") {
 			const action = requiredString(args.action, "action");
 			if (action === "create")
@@ -474,22 +502,21 @@ export class OfficeRuntime {
 	}
 
 	async open(input: { cwd: string; path: string; signal?: AbortSignal }): Promise<{ url: string; title?: string }> {
-		const signal = AbortSignal.any([this.lifetime.signal, ...(input.signal ? [input.signal] : [])]);
+		const signal = AbortSignal.any([
+			this.lifetime.signal,
+			AbortSignal.timeout(180_000),
+			...(input.signal ? [input.signal] : []),
+		]);
 		signal.throwIfAborted();
+		const root = await realpath(input.cwd);
 		let file = await authorizePath(input.cwd, input.path, "existing");
 		if (extname(file).toLowerCase() !== ".univer") {
 			if (![".xlsx", ".docx", ".pptx"].includes(extname(file).toLowerCase()))
 				throw new OfficeRuntimeError("VIEWER_FORMAT_UNSUPPORTED", "Office viewer supports univer/xlsx/docx/pptx.");
-			const source = file;
-			const root = await realpath(input.cwd);
-			file = await authorizePath(root, join(".owl", "office", `import-${randomUUID()}.univer`), "new");
-			await this.call("new", { file }, root, signal);
-			const tree = await this.call("worktree", { file, action: "create", name: "Imported original" }, root, signal);
-			const worktreeId = requiredString(tree.worktreeId, "worktreeId");
-			await this.call("import", { file, worktreeId, source, name: basename(source, extname(source)) }, root, signal);
-			// This imports the file the user just opened into a new container; it never publishes an AI draft.
-			await this.call("worktree", { file, worktreeId, action: "ready" }, root, signal);
-			await this.call("worktree", { file, worktreeId, action: "merge", userConfirmed: true }, root, signal);
+			file = await this.importedCopy(root, file, signal);
+		}
+		if ((await realpath(input.cwd)) !== root || (await authorizePath(root, file, "existing")) !== file) {
+			throw new OfficeRuntimeError("WORKSPACE_DENIED", "Office workspace or container identity changed.");
 		}
 		await this.ensureGateway();
 		if (!this.viewer) {
@@ -507,7 +534,89 @@ export class OfficeRuntime {
 			});
 		}
 		signal.throwIfAborted();
-		return { url: await this.viewer.open(file, await realpath(input.cwd)), title: basename(input.path) };
+		return { url: await this.viewer.open(file, root), title: basename(input.path) };
+	}
+
+	private async importedCopy(cwd: string, source: string, signal: AbortSignal): Promise<string> {
+		const hash = await sourceHash(source, signal);
+		const key = `${cwd}\0${source}`;
+		const cached = this.importedCopies.get(key);
+		if (cached?.hash === hash) {
+			try {
+				const canonical = await authorizePath(cwd, cached.file, "existing");
+				if (canonical === cached.file && (await fileIdentity(canonical)) === cached.identity) return canonical;
+			} catch (error) {
+				if (!isRecord(error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) throw error;
+			}
+			this.importedCopies.delete(key);
+		}
+		signal.throwIfAborted();
+		const fingerprint = `${key}\0${hash}`;
+		let job = this.importsInFlight.get(fingerprint);
+		if (!job) {
+			const controller = new AbortController();
+			const importSignal = AbortSignal.any([controller.signal, this.lifetime.signal, AbortSignal.timeout(180_000)]);
+			job = { controller, users: 0, settled: false, promise: Promise.resolve("") };
+			const owned = job;
+			job.promise = Promise.resolve()
+				.then(async () => {
+					const file = await authorizePath(cwd, join(".owl", "office", `import-${randomUUID()}.univer`), "new");
+					await this.call("new", { file }, cwd, importSignal);
+					const tree = await this.call(
+						"worktree",
+						{ file, action: "create", name: "Imported original" },
+						cwd,
+						importSignal,
+					);
+					const worktreeId = requiredString(tree.worktreeId, "worktreeId");
+					await this.call(
+						"import",
+						{ file, worktreeId, source, name: basename(source, extname(source)) },
+						cwd,
+						importSignal,
+					);
+					// Only the user's newly imported baseline is published; existing AI drafts are untouched.
+					await this.call("worktree", { file, worktreeId, action: "ready" }, cwd, importSignal);
+					await this.call(
+						"worktree",
+						{ file, worktreeId, action: "merge", userConfirmed: true },
+						cwd,
+						importSignal,
+					);
+					if ((await sourceHash(source, importSignal)) !== hash)
+						throw new OfficeRuntimeError(
+							"SOURCE_CHANGED",
+							"The Office source changed during import. Open it again.",
+						);
+					if ((await authorizePath(cwd, file, "existing")) !== file)
+						throw new OfficeRuntimeError("WORKSPACE_DENIED", "Office import container identity changed.");
+					const identity = await fileIdentity(file);
+					importSignal.throwIfAborted();
+					this.importedCopies.set(key, { hash, file, identity });
+					return file;
+				})
+				.finally(() => {
+					owned.settled = true;
+					if (this.importsInFlight.get(fingerprint) === owned) this.importsInFlight.delete(fingerprint);
+				});
+			this.importsInFlight.set(fingerprint, job);
+		}
+		job.users += 1;
+		const shared = job;
+		try {
+			return await new Promise<string>((resolve, reject) => {
+				const aborted = () => reject(signal.reason);
+				signal.addEventListener("abort", aborted, { once: true });
+				shared.promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
+				if (signal.aborted) aborted();
+			});
+		} finally {
+			shared.users -= 1;
+			if (shared.users === 0 && !shared.settled) {
+				shared.controller.abort(new OfficeRuntimeError("IMPORT_CANCELLED", "Office import was cancelled."));
+				await shared.promise.catch(() => undefined);
+			}
+		}
 	}
 
 	async dispose(): Promise<void> {
@@ -516,10 +625,43 @@ export class OfficeRuntime {
 		this.lifetime.abort(new OfficeRuntimeError("RUNTIME_DISPOSED", "Office runtime is closed."));
 		await this.viewer?.dispose();
 		await this.processes.dispose();
+		await Promise.allSettled([...this.importsInFlight.values()].map((job) => job.promise));
+		this.importsInFlight.clear();
+		this.importedCopies.clear();
 		await this.startup?.catch(() => undefined);
 		this.gateway = undefined;
 		this.gatewayChild = undefined;
 	}
+}
+
+async function sourceHash(file: string, signal: AbortSignal): Promise<string> {
+	signal.throwIfAborted();
+	const hash = createHash("sha256");
+	const stream = createReadStream(file, { highWaterMark: 1024 * 1024, signal });
+	return await new Promise<string>((resolve, reject) => {
+		let failure: Error | undefined;
+		let result: string | undefined;
+		stream.on("data", (chunk: string | Buffer) => {
+			hash.update(chunk);
+		});
+		stream.once("error", (error: Error) => {
+			failure = error;
+		});
+		stream.once("end", () => {
+			result = hash.digest("hex");
+		});
+		stream.once("close", () => {
+			if (failure) reject(failure);
+			else if (result !== undefined) resolve(result);
+			else
+				reject(new OfficeRuntimeError("SOURCE_READ_FAILED", "Office source closed before its hash was complete."));
+		});
+	});
+}
+
+async function fileIdentity(file: string): Promise<string> {
+	const info = await stat(file);
+	return `${info.dev}:${info.ino}`;
 }
 
 function inspectionQuery(type: unknown, args: Record<string, unknown>): Record<string, unknown> {

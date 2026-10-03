@@ -7,6 +7,7 @@
  * "本轮 AI 改动"视角（会话事件折叠）依赖 owl 会话事件索引，后续接入。
  */
 import { useEffect, useMemo, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import type { GitStatusEntry } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { annotateCharDiff, parseUnifiedDiff, type DiffFile } from "../diff.ts";
@@ -38,7 +39,7 @@ function DiffView({ text }: { text: string }): React.JSX.Element {
 		return parsed;
 	}, [text]);
 	if (files.length === 0) {
-		return <div className="px-3 py-2 text-xs text-owl-faint">没有差异</div>;
+		return <div className="px-3 py-2 text-xs text-owl-faint">{t("changes.noDiff")}</div>;
 	}
 	return (
 		<div className="font-mono text-[11.5px] leading-[1.5]">
@@ -46,9 +47,9 @@ function DiffView({ text }: { text: string }): React.JSX.Element {
 				<div key={`${file.path}-${file.isNew ? "n" : ""}${file.isDeleted ? "d" : ""}`} className="mb-3">
 					<div className="sticky top-0 z-10 flex items-center gap-2 border-y border-owl-border/40 bg-owl-panel/95 px-3 py-1 backdrop-blur">
 						<span className="truncate text-[11px] text-owl-text" title={file.oldPath !== undefined ? `${file.oldPath} → ${file.path}` : file.path}>
-							{file.isNew && <span className="mr-1.5 rounded bg-emerald-500/20 px-1 text-emerald-300">新增</span>}
-							{file.isDeleted && <span className="mr-1.5 rounded bg-red-500/20 px-1 text-red-300">删除</span>}
-							{file.isRename && <span className="mr-1.5 rounded bg-sky-500/20 px-1 text-sky-300">重命名</span>}
+							{file.isNew && <span className="mr-1.5 rounded bg-emerald-500/20 px-1 text-emerald-300">{t("changes.new")}</span>}
+							{file.isDeleted && <span className="mr-1.5 rounded bg-red-500/20 px-1 text-red-300">{t("changes.deleted")}</span>}
+							{file.isRename && <span className="mr-1.5 rounded bg-sky-500/20 px-1 text-sky-300">{t("changes.renamed")}</span>}
 							{file.path}
 						</span>
 					</div>
@@ -94,6 +95,7 @@ function DiffView({ text }: { text: string }): React.JSX.Element {
 }
 
 export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
 	const [diffLoading, setDiffLoading] = useState(false);
@@ -159,8 +161,8 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 		return (
 			<div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
 				<IconGitBranch size={22} className="text-owl-faint" />
-				<div className="text-xs text-owl-muted">此目录不是 Git 仓库</div>
-				<div className="text-[11px] text-owl-faint">在项目根目录执行 git init 后，这里会显示文件变动</div>
+				<div className="text-xs text-owl-muted">{t("changes.notGit")}</div>
+				<div className="text-[11px] text-owl-faint">{t("changes.notGitHint")}</div>
 			</div>
 		);
 	}
@@ -173,13 +175,13 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 				</span>
 				{stagedView ? (
 					rows.length > 0 && (
-						<button type="button" className="hover:text-owl-text" title="全部取消暂存" onClick={() => void act(() => api.gitUnstage(cwd, rows.map((row) => row.path)))}>
+						<button type="button" className="hover:text-owl-text" title={t("changes.unstageAll")} onClick={() => void act(() => api.gitUnstage(cwd, rows.map((row) => row.path)))}>
 							<IconUndo size={12} />
 						</button>
 					)
 				) : (
 					rows.length > 0 && (
-						<button type="button" className="hover:text-owl-text" title="全部暂存" onClick={() => void act(() => api.gitStage(cwd, rows.map((row) => row.path)))}>
+						<button type="button" className="hover:text-owl-text" title={t("changes.stageAll")} onClick={() => void act(() => api.gitStage(cwd, rows.map((row) => row.path)))}>
 							+
 						</button>
 					)
@@ -202,7 +204,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 							{stagedView ? (
 								<button
 									type="button"
-									title="取消暂存"
+									title={t("api.opGitUnstage")}
 									className="rounded p-0.5 text-owl-muted hover:text-owl-text"
 									onClick={(e) => {
 										e.stopPropagation();
@@ -214,7 +216,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 							) : (
 								<button
 									type="button"
-									title="暂存"
+									title={t("api.opGitStage")}
 									className="rounded p-0.5 text-owl-muted hover:text-owl-text"
 									onClick={(e) => {
 										e.stopPropagation();
@@ -227,7 +229,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 							{!stagedView && (
 								<button
 									type="button"
-									title="丢弃修改"
+									title={t("changes.discard")}
 									className="rounded p-0.5 text-owl-muted hover:text-red-300"
 									onClick={(e) => {
 										e.stopPropagation();
@@ -256,7 +258,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 						</>
 					)}
 				</span>
-				<button type="button" title="刷新" className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={onGitRefresh}>
+				<button type="button" title={t("common.refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={onGitRefresh}>
 					<IconRefresh size={14} />
 				</button>
 			</div>
@@ -264,21 +266,21 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 				<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
 					{error}
 					<button type="button" className="ml-2 underline" onClick={() => setError(undefined)}>
-						关闭
+						{t("window.close")}
 					</button>
 				</div>
 			)}
 			<div className="min-h-0 flex-1 overflow-y-auto py-1">
 				{gitStatus === undefined && (
 					<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
-						<IconLoader size={13} className="animate-spin" /> 读取 Git 状态…
+						<IconLoader size={13} className="animate-spin" /> {t("changes.readingStatus")}
 					</div>
 				)}
-				{staged.length > 0 && group("已暂存", staged, true)}
-				{worktree.length > 0 && group("更改", worktree, false)}
-				{untracked.length > 0 && group("未跟踪", untracked, false)}
+				{staged.length > 0 && group(t("changes.stagedGroup"), staged, true)}
+				{worktree.length > 0 && group(t("changes.changesGroup"), worktree, false)}
+				{untracked.length > 0 && group(t("changes.untrackedGroup"), untracked, false)}
 				{gitStatus !== undefined && entries.length === 0 && (
-					<div className="px-3 py-6 text-center text-xs text-owl-faint">工作区干净，没有未提交的改动</div>
+					<div className="px-3 py-6 text-center text-xs text-owl-faint">{t("changes.cleanTree")}</div>
 				)}
 			</div>
 
@@ -289,14 +291,14 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 						<IconPencil size={11} className="shrink-0 text-owl-faint" />
 						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted" title={selected.path}>
 							{selected.path}
-							{selected.staged && <span className="ml-1.5 text-emerald-300/80">已暂存</span>}
+							{selected.staged && <span className="ml-1.5 text-emerald-300/80">{t("changes.stagedBadge")}</span>}
 						</span>
-						<button type="button" title={expandedDiff ? "收起" : "展开"} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
+						<button type="button" title={expandedDiff ? t("common.collapse") : t("common.expand")} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
 							{expandedDiff ? "▾" : "▴"}
 						</button>
 						<button
 							type="button"
-							title="关闭"
+							title={t("window.close")}
 							className="rounded p-1 text-owl-muted hover:text-owl-text"
 							onClick={() => {
 								setSelected(undefined);
@@ -309,7 +311,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 					<div className="min-h-0 flex-1 overflow-auto">
 						{diffLoading && (
 							<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
-								<IconLoader size={13} className="animate-spin" /> 读取 diff…
+								<IconLoader size={13} className="animate-spin" /> {t("changes.readingDiff")}
 							</div>
 						)}
 						{diffError !== undefined && <div className="px-3 py-2 text-xs text-red-300">{diffError}</div>}
@@ -331,7 +333,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 							}
 						}}
 						rows={2}
-						placeholder={`提交信息（Ctrl+Enter 提交 ${staged.length} 个文件）`}
+						placeholder={t("changes.commitPlaceholder", { n: staged.length })}
 						className="w-full resize-none rounded-lg border border-owl-border/50 bg-owl-panel px-2.5 py-1.5 text-xs text-owl-text placeholder:text-owl-faint focus:border-owl-accent/60 focus:outline-none"
 					/>
 					<button
@@ -340,7 +342,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 						className="mt-1.5 w-full rounded-lg bg-owl-accent py-1.5 text-xs font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 						onClick={() => void commit()}
 					>
-						{busy ? "提交中…" : `提交 ${staged.length} 个已暂存文件`}
+						{busy ? t("changes.committing") : t("changes.commitN", { n: staged.length })}
 					</button>
 				</div>
 			)}

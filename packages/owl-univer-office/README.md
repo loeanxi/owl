@@ -42,7 +42,7 @@ node packages/owl-univer-office/scripts/install-runtime.mjs --target 'D:\owl\owl
 
 ## 接入 Owl
 
-本地插件由 Owl 的插件管理器加载，扩展入口为 `src/index.ts`，专项指导从 `skills` 目录加载。运行时缓存安装与插件启用是两个步骤：先执行安装器，再把本包绝对路径追加到当前 `<agentDir>/settings.json` 的 `plugins` 数组。保留已有配置和其他插件，例如：
+本地插件由 Owl 的插件管理器加载，扩展入口为 `src/index.ts`，专项指导从 `skills` 目录加载。先读 `univer-office`，再按任务读取 `univer-sheet`、`univer-doc` 或 `univer-slide`。运行时缓存安装与插件启用是两个步骤：先执行安装器，再把本包绝对路径追加到当前 `<agentDir>/settings.json` 的 `plugins` 数组。保留已有配置和其他插件，例如：
 
 ```json
 {
@@ -80,9 +80,11 @@ node packages/owl-univer-office/scripts/install-runtime.mjs --target 'D:\owl\owl
 | `univer_print_pdf` | 打印受支持内容为 PDF |
 | `univer_lint` | 检查 Slide 越界、溢出和文本重叠 |
 | `univer_compile_svg` | 测量并编译 SVG 到指定 Slide 页面 |
-| `univer_resources` | 查找和读取资源库 |
+| `univer_resources` | 列出资源目录、查找 handle、读取 SVG，或导出到工作区的新目录 |
 
 上游 `0.3.6` 的限制仍适用：Slide master、layout 和 speaker notes 不在当前编辑范围；Board 的 mind map、table、ink、高级编辑和文件导出未实现。工作树中的内容创作、人工审阅和最终导出应分别验证。合入或丢弃必须有用户明确请求。
+
+桌面中的 merge/discard 通过 Owl 的问题弹窗请求明确批准，即使工具处于自动执行模式也会等待用户选择。用户也可以在 Office Viewer 的审阅按钮中确认合入或丢弃；取消操作保留原有状态。
 
 ## 许可证与来源
 
@@ -94,10 +96,22 @@ node packages/owl-univer-office/scripts/install-runtime.mjs --target 'D:\owl\owl
 
 官方说明：[Univer OSS/Pro 边界](https://github.com/dream-num/univer#-open-source-and-pro)、[许可证配置](https://docs.univer.ai/server/license)、[固定发布元数据](https://registry.npmjs.org/dsh-univer-office/0.3.6)、[上游开发证书来源](https://github.com/dream-num/dsh-univer-office/blob/c2caaefb43dc464f1477463c754f17a6be956193/src/viewer-support/render-preset/license.ts)。
 
-## 安装器验证
+## 本轮验证
+
+已完成独立缓存的真实安装，并通过以下定向验证：
+
+- 真实 Gateway/Worker 创建 `.univer`、隔离草稿和 Sheet，编辑并读取内容；未合入时主线保持原有内容。
+- 草稿 ready、明确批准后合入、导出 XLSX，并重新导入进行基本往返检查；已有输出文件不会覆盖。
+- 14 个工具注册、参数边界和工具结果处理；桌面 Office 工作区 Viewer 桥接和审阅批准流程。
+- 实际渲染运行时生成 PNG/PDF、分页 Slide 图片、布局检查和带真实文本测量的 SVG 编译；路径与本地资源边界检查。
+- 实际 SDK/manifest 的资源目录与搜索；模拟 HTTPS 响应下的 SVG 读取、缓存、导出与取消传播，导出目录和文件禁止覆盖。
+
+资源测试的下载响应是模拟数据；没有借此证明外部资源服务的在线可用性。渲染测试使用受控样例，初始 Office 文件的复杂公式、图表、分页、字体、宏或跨软件版式兼容性尚未全面验收。应针对用户的实际文件再验证。
+
+安装器定向测试命令：
 
 ```powershell
 node --test packages/owl-univer-office/test/install-runtime.test.mjs
 ```
 
-测试使用临时目录和模拟 npm 结果，验证路径隔离、固定 snapshot、无生命周期脚本、缓存复用、失败重试和产物校验。它不替代真实 Gateway/Worker/Viewer 的运行验收，也不证明 Office 导入导出的版式保真度。
+安装器测试使用临时目录和模拟 npm 结果，验证路径隔离、固定 snapshot、无生命周期脚本、缓存复用、失败重试和产物校验。真实运行验证分别位于 `test/runtime.integration.test.ts`、`test/render.test.ts` 和 `test/resources.test.ts`；需要已安装隔离运行时的测试通过环境变量显式指定产物位置。

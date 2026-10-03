@@ -94,7 +94,7 @@ describe("unified-exec via bash tool", () => {
 			} as never,
 		);
 		expect(result.isError).toBeFalsy();
-		expect(result.structuredContent?.exit_code).toBe(0);
+		expect(result.structuredContent).toMatchObject({ exit_code: 0 });
 		terminateSessionProcesses(sessionId);
 	});
 

@@ -4,6 +4,7 @@
  * 语言包按需 import（Vite 静态打包，CodeMirror 各包 ~200KB gzip 内）。
  */
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n/index.ts";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
 import { css } from "@codemirror/lang-css";
@@ -115,6 +116,7 @@ function languageFor(path: string): LanguageSupport | undefined {
 }
 
 export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
 	const saveRef = useRef<(() => void) | null>(null);
@@ -239,14 +241,14 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-faint" title={path}>
 					{path}
-					{stale && <span className="ml-2 text-amber-300">磁盘上已更改</span>}
+					{stale && <span className="ml-2 text-amber-300">{t("editor.stale")}</span>}
 				</span>
-				{savedAt !== undefined && !stale && <span className="text-[11px] text-emerald-300/80">已保存</span>}
+				{savedAt !== undefined && !stale && <span className="text-[11px] text-emerald-300/80">{t("editor.saved")}</span>}
 				{loading && <IconLoader size={13} className="animate-spin text-owl-faint" />}
-				<button type="button" title="从磁盘重新加载" className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={refresh}>
+				<button type="button" title={t("editor.reloadTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={refresh}>
 					<IconRefresh size={14} />
 				</button>
-				<button type="button" title="保存（Ctrl+S）" className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={() => saveRef.current?.()}>
+				<button type="button" title={t("editor.saveTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={() => saveRef.current?.()}>
 					<IconSave size={14} />
 				</button>
 			</div>
@@ -259,12 +261,12 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 					className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-left text-xs text-amber-200 hover:bg-amber-500/15"
 					onClick={refresh}
 				>
-					文件在编辑器外被修改——点击重新加载磁盘版本（重新加载会丢弃未保存的修改）
+					{t("editor.staleBanner")}
 				</button>
 			)}
 			{truncated && (
 				<div className="border-b border-owl-border/40 bg-owl-panel px-3 py-1.5 text-xs text-amber-300">
-					文件超过 1MB，只显示前 1MB；更大文件建议右键用 VS Code 打开
+					{t("editor.tooLarge")}
 				</div>
 			)}
 			<div ref={hostRef} className="min-h-0 flex-1 overflow-hidden px-2" />

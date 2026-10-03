@@ -7,6 +7,7 @@
  * 会话。容器尺寸变化经 ResizeObserver → fit addon → term.resize 同步行列。
  */
 import { useEffect, useRef, useState } from "react";
+import { t, useT } from "../../i18n/index.ts";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -24,6 +25,7 @@ const XTERM_THEME = {
 type Status = "connecting" | "ready" | "exited" | "error";
 
 export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Element {
+	const t = useT();
 	const host = useRef<HTMLDivElement>(null);
 	const [status, setStatus] = useState<Status>("connecting");
 	const [error, setError] = useState("");
@@ -69,7 +71,7 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 			}
 			alive = false;
 			setStatus("exited");
-			term.write(`\r\n\x1b[2m[进程已退出${message.exitCode ? `，代码 ${message.exitCode}` : ""} —— 点右上角重新启动]\x1b[0m\r\n`);
+			term.write(`\r\n\x1b[2m${message.exitCode ? t("term.exitedCode", { code: message.exitCode }) : t("term.exited")}\x1b[0m\r\n`);
 		});
 
 		void (async () => {
@@ -89,7 +91,7 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 				}
 				if (!response.ok || !response.result) {
 					setStatus("error");
-					setError(response.error ?? "未知错误");
+					setError(response.error ?? t("app.unknownError"));
 					return;
 				}
 				termId = response.result.termId;
@@ -136,18 +138,18 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 		status === "ready" ? (
 			<span className="text-owl-faint">{shellLabel}</span>
 		) : status === "connecting" ? (
-			<span className="text-owl-faint">正在启动 shell…</span>
+			<span className="text-owl-faint">{t("term.starting")}</span>
 		) : status === "exited" ? (
 			<button
 				type="button"
 				className="rounded border border-owl-border px-1.5 py-0.5 text-[10px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
 				onClick={() => setNonce((n) => n + 1)}
 			>
-				重新启动
+				{t("term.restart")}
 			</button>
 		) : (
 			<span className="truncate text-red-400" title={error}>
-				启动失败：{error}
+				{t("term.startFailed", { error })}
 			</span>
 		);
 

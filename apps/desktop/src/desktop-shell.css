@@ -139,6 +139,27 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 .owl-developer-trigger[aria-pressed="true"] { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
 .owl-developer-trigger:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 
+/* 顶栏「对话/上下文」视图 tab（主区随 tab 切换，见 App.tsx conversationView） */
+.owl-view-tabs {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 8px;
+}
+.owl-view-tabs button {
+	padding: 4px 10px;
+	border-radius: 6px;
+	font-size: 11px;
+	color: var(--owl-ui-muted);
+	white-space: nowrap;
+}
+.owl-view-tabs button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
+.owl-view-tabs button[aria-selected="true"] { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
+.owl-view-tabs button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+
 @media (max-width: 700px) {
 	.owl-shell-header-actions { gap: 1px; }
 	.owl-shell-connection { display: none; }

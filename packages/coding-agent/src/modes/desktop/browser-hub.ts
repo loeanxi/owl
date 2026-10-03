@@ -237,6 +237,16 @@ export class BrowserHub {
 		const cdp = entry.cdp;
 		const revision = entry.frameRevision;
 		const viewport = { ...entry.info.viewport };
+		// Playwright's CSS viewport alone can leave CDP's screencast screen at
+		// its initial size. Match the capture screen to the page before streaming.
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: viewport.width,
+			height: viewport.height,
+			screenWidth: viewport.width,
+			screenHeight: viewport.height,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
 		cdp.on("Page.screencastFrame", (params: { data: string; sessionId: number }) => {
 			void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
 			if (revision !== entry.frameRevision || !this.pages.has(entry.info.pageId)) return;

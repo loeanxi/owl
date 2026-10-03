@@ -4,6 +4,7 @@ import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModel
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
+import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
 import { Artifacts } from "./components/Artifacts.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
@@ -47,6 +48,7 @@ function isApprovalMode(value: string | null): value is ApprovalMode {
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
+const CONVERSATION_VIEW_KEY = "owl.conversation.view";
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -127,6 +129,14 @@ export default function App(): React.JSX.Element {
 	const [developerLayout, setDeveloperLayout] = useState(
 		() => localStorage.getItem(WORKBENCH_LAYOUT_KEY) === "developer",
 	);
+	// 主区视图（顶栏 tab 切换）：对话 / 上下文（owl-context 插件供数）
+	const [conversationView, setConversationView] = useState<"chat" | "context">(() =>
+		localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
+	);
+	const setConversationViewPersisted = (view: "chat" | "context"): void => {
+		setConversationView(view);
+		localStorage.setItem(CONVERSATION_VIEW_KEY, view);
+	};
 	const setDeveloperLayoutPersisted = (developer: boolean): void => {
 		setDeveloperLayout(developer);
 		localStorage.setItem(WORKBENCH_LAYOUT_KEY, developer ? "developer" : "tools");
@@ -791,6 +801,11 @@ export default function App(): React.JSX.Element {
 					<span className="owl-shell-project" title={workspaceDir}>
 						<IconFolder size={12} /><span className="owl-shell-project-label">{projectBasename}</span>
 					</span>
+					{/* 会话视图 tab：对话 / 上下文（owl-context 插件供数，主区随 tab 切换） */}
+					<div className="owl-view-tabs" role="tablist" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false">
+						<button type="button" role="tab" aria-selected={conversationView === "chat"} title={t("app.viewChat")} onClick={() => setConversationViewPersisted("chat")}>{t("app.viewChat")}</button>
+						<button type="button" role="tab" aria-selected={conversationView === "context"} title={t("composer.context")} onClick={() => setConversationViewPersisted("context")}>{t("composer.context")}</button>
+					</div>
 					<div className="owl-shell-header-actions" data-tauri-drag-region="false">
 						<span className={"owl-shell-connection" + (connected ? "" : " is-offline")} role="status" title={connected ? t("composer.connected") : t("app.connectionOffline")}>
 							<span className="owl-shell-connection-dot" />
@@ -808,8 +823,14 @@ export default function App(): React.JSX.Element {
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
 				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "")}>
 					<div className="owl-shell-conversation">
-						<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
-						{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
+						{conversationView === "context" ? (
+							<ContextView client={client} cwd={workspaceDir} />
+						) : (
+							<>
+								<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
+								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
+							</>
+						)}
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
 						<Composer

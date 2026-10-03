@@ -82,11 +82,22 @@ export class OfficeViewerProxy {
 	async open(file: string, cwd: string): Promise<string> {
 		if (this.disposed) throw new OfficeRuntimeError("RUNTIME_DISPOSED", "Office viewer is closed.");
 		const origin = await this.ensureServer();
+		file = await realpath(file);
+		cwd = await realpath(cwd);
 		await this.options.validate(file, cwd);
 		this.prune();
-		const sessionId = randomBytes(24).toString("base64url");
-		const cookie = `owl_office_${randomBytes(8).toString("hex")}`;
-		this.sessions.set(sessionId, { file, cwd, cookie, expires: Date.now() + 8 * 60 * 60 * 1_000 });
+		const existing = [...this.sessions].find(([, session]) => session.file === file && session.cwd === cwd);
+		const sessionId = existing?.[0] ?? randomBytes(24).toString("base64url");
+		if (existing) existing[1].expires = Date.now() + 8 * 60 * 60 * 1_000;
+		else {
+			if (this.sessions.size >= 32)
+				throw new OfficeRuntimeError(
+					"VIEWER_SESSION_LIMIT",
+					"Close and restart the Office runtime before opening more files.",
+				);
+			const cookie = `owl_office_${randomBytes(8).toString("hex")}`;
+			this.sessions.set(sessionId, { file, cwd, cookie, expires: Date.now() + 8 * 60 * 60 * 1_000 });
+		}
 		const token = randomBytes(32).toString("base64url");
 		this.tokens.set(token, { session: sessionId, expires: Date.now() + 60_000 });
 		return `${origin}/open/${token}`;
@@ -111,11 +122,6 @@ export class OfficeViewerProxy {
 	private prune(): void {
 		for (const [key, value] of this.sessions) if (value.expires <= Date.now()) this.sessions.delete(key);
 		for (const [key, value] of this.tokens) if (value.expires <= Date.now()) this.tokens.delete(key);
-		if (this.sessions.size >= 32)
-			throw new OfficeRuntimeError(
-				"VIEWER_SESSION_LIMIT",
-				"Close and restart the Office runtime before opening more files.",
-			);
 	}
 
 	private requestTrusted(req: IncomingMessage, mutation: boolean): boolean {
