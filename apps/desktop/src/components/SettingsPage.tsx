@@ -2884,12 +2884,17 @@ export function SettingsPage({
 								<SectionHeader title={t("settings.image.title")} desc={t("settings.image.desc")} />
 								{imageData && !imageData.pluginInstalled && <div className="owl-settings-notice">{t("settings.image.pluginMissing")}</div>}
 
-								<SettingRow title={t("settings.image.provider")} desc={t("settings.image.providerDesc")}>
-									<select
-										className={input}
-										value={imageCfg.provider ?? "google"}
-										onChange={(event) => setImageCfg((prev) => ({ ...prev, provider: event.target.value as OwlImageProvider }))}
-									>
+									<SettingRow title={t("settings.image.provider")} desc={t("settings.image.providerDesc")}>
+										<select
+											className={input}
+											value={imageCfg.provider ?? "google"}
+											onChange={(event) => {
+												// 切 provider 清掉上一家的拉取提示/候选状态:那是另一个 provider 的报错,
+												// 留着会让人误以为新选的通道在要 key（订阅通道本就不需要 key）。
+												setImageModelsNote("");
+												setImageCfg((prev) => ({ ...prev, provider: event.target.value as OwlImageProvider }));
+											}}
+										>
 										{OWL_IMAGE_PROVIDERS.map((provider) => (
 											<option key={provider} value={provider}>
 												{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}
@@ -3175,10 +3180,17 @@ export function SettingsPage({
 												);
 											}
 											return (
-													<p className="text-[11px] text-owl-faint">
+												<div className="space-y-1">
+													<p className="text-[11px] text-owl-text">
 														{t("settings.image.modelFixed", { model: "gemini-3.1-flash-image" })}
 													</p>
-												);
+													<p className={`text-[11px] ${imageData?.subscription.loggedIn === true ? "text-owl-accent" : "text-owl-faint"}`}>
+														{imageData?.subscription.loggedIn === true
+															? t("settings.image.subLoggedIn", { email: imageData.subscription.email ?? "" })
+															: t("settings.image.subLoggedOut")}
+													</p>
+												</div>
+											);
 										})()}
 									</div>
 								</SettingRow>

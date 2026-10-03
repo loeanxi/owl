@@ -52,9 +52,9 @@ const oldFinal = {
 	stopReason: "stop",
 };
 const initial = [oldUser, oldAssistant, oldTool, oldFinal];
-let snapshot = [...initial];
+const snapshot = [...initial];
 let running = false;
-let sockets = new Set();
+const sockets = new Set();
 let promptCount = 0;
 const result = {
 	success: false,
@@ -73,6 +73,7 @@ for (const path of [
 	"components/Artifacts.tsx",
 	"hooks/artifacts.ts",
 	"hooks/transcript.ts",
+	"bridge/client.ts",
 ])
 	result.sourceSha256[path] = createHash("sha256")
 		.update(await readFile(join(repo, "apps/desktop/src", path)))
@@ -238,9 +239,13 @@ result.origin = origin;
 const browser = await pw.chromium.launch({ executablePath: browserPath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 page.on("pageerror", (error) => result.errors.push(error.message));
-await page.route("**/*", (route) =>
-	new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort(),
-);
+const allowedOrigins = new Set([origin, `http://127.0.0.1:${office.address().port}`]);
+await page.route("**/*", (route) => {
+	const requestedOrigin = new URL(route.request().url()).origin;
+	if (allowedOrigins.has(requestedOrigin)) return route.continue();
+	result.errors.push(`Unexpected request outside the fixture: ${requestedOrigin}`);
+	return route.abort();
+});
 await page.addInitScript(
 	({ cwd }) => {
 		localStorage.setItem("owl.workspaceDir", cwd);

@@ -208,3 +208,36 @@ test("auto retry events drive the banner state independent of transcript entries
 	// 下一轮 auto_retry_start 重新进入 retrying
 	assert.ok(applyRetryEvent(failed, wire({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded_error" }))?.phase === "retrying");
 });
+
+test("agent_end 权威重建保留用户消息行的 entryId（会话回退按钮依赖）", () => {
+	// 乐观追加的用户行经 entry_appended 补上条目 id
+	let entries: ChatEntry[] = [{ kind: "user", text: "你好", entryId: "e-user-1" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "你好！" }] } });
+	// agent_end 的 run 快照从本轮 user 消息起：重建曾把带 id 的用户行替换成无 id 副本
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "你好" },
+			{ role: "assistant", content: [{ type: "text", text: "你好！" }] },
+		],
+	});
+	const userRow = entries.find((entry) => entry.kind === "user");
+	assert.equal(userRow?.kind === "user" ? userRow.entryId : undefined, "e-user-1");
+
+	// 第二轮：乐观行 + entry_appended 补 id，agent_end 后两条用户行都保留各自 id
+	entries = [...entries, { kind: "user", text: "第二条", entryId: undefined } as ChatEntry];
+	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-user-2", message: { role: "user" } } });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "第二条" },
+			{ role: "assistant", content: [{ type: "text", text: "回答" }] },
+		],
+	});
+	const userRows = entries.filter((entry) => entry.kind === "user");
+	assert.deepEqual(
+		userRows.map((entry) => (entry.kind === "user" ? entry.entryId : undefined)),
+		["e-user-1", "e-user-2"],
+	);
+});
