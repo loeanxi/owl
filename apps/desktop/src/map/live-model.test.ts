@@ -3,10 +3,13 @@ import { test } from "node:test";
 import type { RealPlace } from "../bridge/protocol.ts";
 import {
 	addLiveHistory,
+	type ConfiguredMapLocation,
+	DEFAULT_CONFIGURED_LOCATION,
 	LIVE_MAP_STORAGE_KEY,
 	type LiveSearchRecord,
 	mapDirectionsUrl,
 	nearbyCategoryFromMessage,
+	normalizeConfiguredLocation,
 	normalizeRealPlace,
 	parseCoordinates,
 	parseLiveSavedState,
@@ -40,6 +43,8 @@ const place: RealPlace = {
 	source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T12:00:00Z" },
 };
 
+const seededEmpty = { favorites: [], history: [], configuredLocation: DEFAULT_CONFIGURED_LOCATION };
+
 test("coordinate input accepts latitude, longitude and rejects invalid ranges or silent swapping", () => {
 	assert.deepEqual(parseCoordinates("48.8566, 2.3522"), { lat: 48.8566, lng: 2.3522 });
 	assert.deepEqual(parseCoordinates("-33.86，151.2"), { lat: -33.86, lng: 151.2 });
@@ -61,7 +66,7 @@ test("live storage never reads or accepts old demo favorites and keeps complete 
 	const storage = new Map<string, string>([
 		["owl.map.demo.v1", JSON.stringify({ version: 1, favorites: ["liubai"], history: ["cafe"] })],
 	]);
-	assert.deepEqual(readLiveSavedState({ getItem: (key) => storage.get(key) ?? null }), { favorites: [], history: [] });
+	assert.deepEqual(readLiveSavedState({ getItem: (key) => storage.get(key) ?? null }), seededEmpty);
 	assert.equal(
 		writeLiveSavedState(
 			{
@@ -76,12 +81,12 @@ test("live storage never reads or accepts old demo favorites and keeps complete 
 	const restored = parseLiveSavedState(storage.get(LIVE_MAP_STORAGE_KEY) ?? null);
 	assert.deepEqual(restored.favorites[0], place);
 	assert.equal(restored.lastLocationName, "Paris");
-	assert.deepEqual(parseLiveSavedState("{broken"), { favorites: [], history: [] });
+	assert.deepEqual(parseLiveSavedState("{broken"), seededEmpty);
 	assert.deepEqual(
 		parseLiveSavedState(
 			JSON.stringify({ version: 1, favorites: ["liubai", { ...place, lat: 300 }], history: ["old query"] }),
 		),
-		{ favorites: [], history: [] },
+		seededEmpty,
 	);
 });
 
@@ -204,4 +209,153 @@ test("browser fetch keeps its global receiver and uses the server's language and
 	assert.equal(urls[0].searchParams.get("lang"), "en");
 	assert.ok(Number(urls[1].searchParams.get("limit")) <= 30);
 	assert.equal(urls[2].searchParams.get("lang"), "en");
+});
+
+test("missing or older live state seeds only the user-confirmed district and ignores legacy view centers", () => {
+	assert.deepEqual(parseLiveSavedState(null), seededEmpty);
+	assert.deepEqual(parseLiveSavedState("null"), seededEmpty);
+	assert.deepEqual(parseLiveSavedState(JSON.stringify({ version: 9 })), seededEmpty);
+	const restored = parseLiveSavedState(
+		JSON.stringify({
+			version: 1,
+			favorites: [place],
+			history: [],
+			lastCenter: { lat: 30.2741, lng: 120.1551 },
+			lastLocationName: "杭州",
+		}),
+	);
+	assert.deepEqual(restored.configuredLocation, DEFAULT_CONFIGURED_LOCATION);
+	assert.equal(restored.configuredLocation?.name, "南京市雨花台区");
+	assert.equal(restored.configuredLocation?.precision, "area");
+	assert.equal(restored.configuredLocation?.source, "user");
+	assert.deepEqual(restored.lastCenter, { lat: 30.2741, lng: 120.1551 });
+	assert.deepEqual(restored.favorites, [place]);
+});
+
+test("configured user locations survive writes and reloads without being replaced by a browsing center", () => {
+	let raw: string | undefined;
+	const configured: ConfiguredMapLocation = {
+		lat: 48.8566,
+		lng: 2.3522,
+		name: "Test configured point",
+		source: "user",
+		precision: "point",
+		updatedAt: "2026-10-04T02:00:00.000Z",
+	};
+	assert.equal(
+		writeLiveSavedState(
+			{
+				setItem: (_key, value) => {
+					raw = value;
+				},
+			},
+			{ favorites: [place], history: [], configuredLocation: configured, lastCenter: DEFAULT_CONFIGURED_LOCATION },
+		),
+		true,
+	);
+	const restored = readLiveSavedState({ getItem: () => raw ?? null });
+	assert.deepEqual(restored.configuredLocation, configured);
+	assert.deepEqual(restored.favorites, [place]);
+	assert.equal(restored.lastCenter?.lat, DEFAULT_CONFIGURED_LOCATION.lat);
+});
+
+test("the first save persists the seeded district configuration even when prior state had no setting", () => {
+	let raw: string | undefined;
+	assert.equal(
+		writeLiveSavedState(
+			{
+				setItem: (_key, value) => {
+					raw = value;
+				},
+			},
+			{ favorites: [], history: [] },
+		),
+		true,
+	);
+	assert.deepEqual(parseLiveSavedState(raw ?? null).configuredLocation, DEFAULT_CONFIGURED_LOCATION);
+});
+
+test("damaged configurations and GPS or network provenance return the confirmed district seed", () => {
+	const malformed = [
+		null,
+		[],
+		{ ...DEFAULT_CONFIGURED_LOCATION, source: "gps" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, source: "device" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, source: "network" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, lat: 91 },
+		{ ...DEFAULT_CONFIGURED_LOCATION, lng: 181 },
+		{ ...DEFAULT_CONFIGURED_LOCATION, lat: "31.99" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, name: "   " },
+		{ ...DEFAULT_CONFIGURED_LOCATION, name: "x".repeat(501) },
+		{ ...DEFAULT_CONFIGURED_LOCATION, name: "City\nDistrict" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, precision: "gps" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, updatedAt: "not a date" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, updatedAt: "2026-02-30T02:00:00.000Z" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, updatedAt: "2026-10-04T24:00:00.000Z" },
+		{ ...DEFAULT_CONFIGURED_LOCATION, updatedAt: "2026-10-04" },
+	];
+	for (const configuredLocation of malformed) {
+		assert.equal(normalizeConfiguredLocation(configuredLocation), undefined);
+		const restored = parseLiveSavedState(
+			JSON.stringify({ version: 1, favorites: [place], history: [], configuredLocation }),
+		);
+		assert.deepEqual(restored.configuredLocation, DEFAULT_CONFIGURED_LOCATION);
+		assert.deepEqual(restored.favorites, [place]);
+	}
+	assert.equal(normalizeConfiguredLocation({ ...DEFAULT_CONFIGURED_LOCATION, lat: Number.NaN }), undefined);
+	assert.equal(
+		normalizeConfiguredLocation({ ...DEFAULT_CONFIGURED_LOCATION, lng: Number.POSITIVE_INFINITY }),
+		undefined,
+	);
+});
+
+test("configuration names and explicit ISO offsets normalize without inventing a device source", () => {
+	const configured = normalizeConfiguredLocation({
+		...DEFAULT_CONFIGURED_LOCATION,
+		name: "  南京市雨花台区  ",
+		updatedAt: "2026-10-04T02:50:00+08:00",
+	});
+	assert.deepEqual(configured, DEFAULT_CONFIGURED_LOCATION);
+	assert.equal(
+		normalizeConfiguredLocation({ ...DEFAULT_CONFIGURED_LOCATION, updatedAt: "2026-02-30T02:50:00+08:00" }),
+		undefined,
+	);
+});
+
+test("untrusted configuration writes are rejected before touching persistent storage", () => {
+	let writes = 0;
+	const storage = {
+		setItem: () => {
+			writes++;
+		},
+	};
+	const badConfigured = { ...DEFAULT_CONFIGURED_LOCATION, source: "gps" } as unknown as ConfiguredMapLocation;
+	assert.equal(writeLiveSavedState(storage, { favorites: [], history: [], configuredLocation: badConfigured }), false);
+	assert.equal(writes, 0);
+	const badCoordinates = { ...DEFAULT_CONFIGURED_LOCATION, lat: Number.NaN };
+	assert.equal(writeLiveSavedState(storage, { favorites: [], history: [], configuredLocation: badCoordinates }), false);
+	assert.equal(writes, 0);
+});
+
+test("storage failures return an isolated district seed and callers cannot mutate the default", () => {
+	const restored = readLiveSavedState({
+		getItem: () => {
+			throw new Error("Storage unavailable");
+		},
+	});
+	assert.deepEqual(restored, seededEmpty);
+	assert.notEqual(restored.configuredLocation, DEFAULT_CONFIGURED_LOCATION);
+	if (restored.configuredLocation) restored.configuredLocation.name = "A changed local copy";
+	assert.equal(parseLiveSavedState(null).configuredLocation?.name, "南京市雨花台区");
+	assert.equal(
+		writeLiveSavedState(
+			{
+				setItem: () => {
+					throw new Error("Quota");
+				},
+			},
+			restored,
+		),
+		false,
+	);
 });

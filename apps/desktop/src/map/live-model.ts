@@ -2,6 +2,15 @@ import type { MapCategory, MapCoordinate, MapResult, MapSourceStatus, RealPlace 
 
 export const LIVE_MAP_STORAGE_KEY = "owl.map.live.v1";
 export const DEFAULT_MAP_CENTER: MapCoordinate = { lat: 30.2741, lng: 120.1551 };
+/** User-confirmed district reference point, not a device fix or a street address. */
+export const DEFAULT_CONFIGURED_LOCATION: ConfiguredMapLocation = Object.freeze({
+	lat: 31.9931143,
+	lng: 118.7739579,
+	name: "南京市雨花台区",
+	source: "user",
+	precision: "area",
+	updatedAt: "2026-10-03T18:50:00.000Z",
+});
 export const MAX_LIVE_COMPARISON = 3;
 const MAX_FAVORITES = 200;
 const MAX_HISTORY = 20;
@@ -17,11 +26,19 @@ export interface LiveSearchRecord {
 	createdAt: string;
 }
 
+export interface ConfiguredMapLocation extends MapCoordinate {
+	name: string;
+	source: "user";
+	precision: "area" | "point";
+	updatedAt: string;
+}
+
 export interface LiveSavedState {
 	favorites: RealPlace[];
 	history: LiveSearchRecord[];
 	lastCenter?: MapCoordinate;
 	lastLocationName?: string;
+	configuredLocation?: ConfiguredMapLocation;
 }
 
 export function isCoordinate(value: unknown): value is MapCoordinate {
@@ -43,6 +60,49 @@ export function parseCoordinates(input: string): MapCoordinate | undefined {
 	if (!match) return undefined;
 	const point = { lat: Number(match[1]), lng: Number(match[2]) };
 	return isCoordinate(point) ? point : undefined;
+}
+
+/** Only explicitly configured user locations belong in this persistent setting. */
+export function normalizeConfiguredLocation(value: unknown): ConfiguredMapLocation | undefined {
+	if (!isCoordinate(value)) return undefined;
+	const record = value as unknown as Record<string, unknown>;
+	if (
+		typeof record.name !== "string" ||
+		!record.name.trim() ||
+		record.name.length > 500 ||
+		/[\u0000-\u001f\u007f]/.test(record.name) ||
+		record.source !== "user" ||
+		(record.precision !== "area" && record.precision !== "point") ||
+		typeof record.updatedAt !== "string"
+	)
+		return undefined;
+	const date = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.exec(
+		record.updatedAt,
+	);
+	if (!date) return undefined;
+	const timestamp = Date.parse(record.updatedAt);
+	if (!Number.isFinite(timestamp)) return undefined;
+	const zone = date[7];
+	const offsetMinutes =
+		zone === "Z" ? 0 : (zone[0] === "+" ? 1 : -1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+	const wallTime = new Date(timestamp + offsetMinutes * 60000);
+	if (
+		wallTime.getUTCFullYear() !== Number(date[1]) ||
+		wallTime.getUTCMonth() + 1 !== Number(date[2]) ||
+		wallTime.getUTCDate() !== Number(date[3]) ||
+		wallTime.getUTCHours() !== Number(date[4]) ||
+		wallTime.getUTCMinutes() !== Number(date[5]) ||
+		wallTime.getUTCSeconds() !== Number(date[6])
+	)
+		return undefined;
+	return {
+		lat: value.lat,
+		lng: value.lng,
+		name: record.name.trim(),
+		source: "user",
+		precision: record.precision,
+		updatedAt: new Date(timestamp).toISOString(),
+	};
 }
 
 export function safeExternalUrl(value: string | null | undefined): string | undefined {
@@ -108,9 +168,7 @@ export function normalizeRealPlace(value: unknown): RealPlace | undefined {
 		address: optionalText(record.address),
 		category,
 		distanceMeters:
-			typeof record.distanceMeters === "number" &&
-			Number.isFinite(record.distanceMeters) &&
-			record.distanceMeters >= 0
+			typeof record.distanceMeters === "number" && Number.isFinite(record.distanceMeters) && record.distanceMeters >= 0
 				? record.distanceMeters
 				: null,
 		openingHours: optionalText(record.openingHours),
@@ -133,7 +191,11 @@ export function normalizeRealPlace(value: unknown): RealPlace | undefined {
 }
 
 export function parseLiveSavedState(raw: string | null): LiveSavedState {
-	const empty: LiveSavedState = { favorites: [], history: [] };
+	const empty: LiveSavedState = {
+		favorites: [],
+		history: [],
+		configuredLocation: { ...DEFAULT_CONFIGURED_LOCATION },
+	};
 	if (!raw) return empty;
 	try {
 		const value: unknown = JSON.parse(raw);
@@ -175,6 +237,7 @@ export function parseLiveSavedState(raw: string | null): LiveSavedState {
 		return {
 			favorites: [...new Map(favorites.map((place) => [place.id, place])).values()].slice(0, MAX_FAVORITES),
 			history: history.slice(0, MAX_HISTORY),
+			configuredLocation: normalizeConfiguredLocation(record.configuredLocation) ?? { ...DEFAULT_CONFIGURED_LOCATION },
 			...(isCoordinate(record.lastCenter)
 				? { lastCenter: { lat: record.lastCenter.lat, lng: record.lastCenter.lng } }
 				: {}),
@@ -189,17 +252,23 @@ export function readLiveSavedState(storage: Pick<Storage, "getItem">): LiveSaved
 	try {
 		return parseLiveSavedState(storage.getItem(LIVE_MAP_STORAGE_KEY));
 	} catch {
-		return { favorites: [], history: [] };
+		return parseLiveSavedState(null);
 	}
 }
 
 export function writeLiveSavedState(storage: Pick<Storage, "setItem">, state: LiveSavedState): boolean {
 	try {
+		const configuredLocation =
+			state.configuredLocation === undefined
+				? { ...DEFAULT_CONFIGURED_LOCATION }
+				: normalizeConfiguredLocation(state.configuredLocation);
+		if (!configuredLocation) return false;
 		storage.setItem(
 			LIVE_MAP_STORAGE_KEY,
 			JSON.stringify({
 				version: 1,
 				...state,
+				configuredLocation,
 				favorites: state.favorites.slice(0, MAX_FAVORITES),
 				history: state.history.slice(0, MAX_HISTORY),
 			}),

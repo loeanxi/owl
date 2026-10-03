@@ -220,6 +220,7 @@ try {
     firstRunId = await newRun("Browser one-call fixture");
     assert.equal(latestStart().request.samples, 1); assert.equal(latestStart().request.taskIds.length * latestStart().request.profiles.length, 1);
     assert.equal((await rpc({ action: "run.get", runId: firstRunId })).results.length, 1);
+    await area().locator(".eval-result-card").first().getByRole("button", { name: "作品预览", exact: true }).click();
     const geometry = await page.frameLocator(".owl-eval .eval-artifact iframe").first().locator("svg").evaluate((element) => {
       const rectangle = element.getBoundingClientRect();
       return { x: rectangle.x, y: rectangle.y, right: rectangle.right, bottom: rectangle.bottom, width: rectangle.width, height: rectangle.height, viewportWidth: innerWidth, viewportHeight: innerHeight };

@@ -79,6 +79,16 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
       readToken(c.replace('var(', '').replace(')', ''), SERIES_FALLBACK[i % SERIES_FALLBACK.length]!, el))
   const data = node.data ?? []
   const series = node.series
+  // Series entries for the line/area/bigline/bar presets: `series` wins, but
+  // `data` JOINS as the first entry when both are present — models split
+  // multi-series across the two fields (data = 基线序列, series = 对比序列),
+  // and dropping `data` would silently lose half the answer. The unnamed
+  // data entry opts its preset out of the legend (same as the series-less
+  // branch) unless it carries a real label.
+  const entries = series !== undefined && series.length > 0
+    ? (data.length > 0 ? [{ label: '', data }, ...series] : series)
+    : [{ label: '', data }]
+  const showLegend = entries.every(entry => entry.label !== '')
 
   // Shared tooltip base: renderMode 'richText' prevents ECharts from writing
   // tooltip content via innerHTML — labels/formatters are model output and
@@ -149,7 +159,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
         tooltip: tt({ trigger: 'axis' }),
         xAxis: { type: 'category', data: data.map(d => d.label), axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary } },
         yAxis: { type: 'value', axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary }, splitLine: { lineStyle: { color: t.border, opacity: 0.5 } } },
-        series: (series ?? [{ label: '', data }]).map((s, i) => ({
+        series: entries.map((s, i) => ({
           name: s.label,
           type: 'line',
           smooth: true,
@@ -157,7 +167,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
           data: s.data.map(d => d.value),
           ...optItemStyleColor(s.color, i, series),
         })),
-        legend: series !== undefined ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
+        legend: showLegend ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
       }
     }
     case 'line': {
@@ -166,7 +176,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
         tooltip: tt({ trigger: 'axis' }),
         xAxis: { type: 'category', data: data.map(d => d.label), axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary } },
         yAxis: { type: 'value', axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary }, splitLine: { lineStyle: { color: t.border, opacity: 0.5 } } },
-        series: (series ?? [{ label: '', data }]).map((s, i) => ({
+        series: entries.map((s, i) => ({
           name: s.label,
           type: 'line',
           smooth: true,
@@ -175,7 +185,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
           data: s.data.map(d => d.value),
           ...optItemStyleColor(s.color, i, series),
         })),
-        legend: series !== undefined ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
+        legend: showLegend ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
       }
     }
     case 'radar': {
@@ -345,7 +355,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
         ],
         xAxis: { type: 'category', boundaryGap: false, data: data.map(d => d.label), axisLabel: { color: t.labelTertiary }, axisLine: { lineStyle: { color: t.border } } },
         yAxis: { type: 'value', axisLabel: { color: t.labelTertiary }, splitLine: { lineStyle: { color: t.border, opacity: 0.5 } } },
-        series: (series ?? [{ label: '', data }]).map((s2, i) => ({
+        series: entries.map((s2, i) => ({
           name: s2.label,
           type: 'line',
           smooth: true,
@@ -354,7 +364,7 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
           data: s2.data.map(d => d.value),
           ...optItemStyleColor(s2.color, i, series),
         })),
-        legend: series !== undefined ? { bottom: 26, textStyle: { color: t.labelTertiary } } : undefined,
+        legend: showLegend ? { bottom: 26, textStyle: { color: t.labelTertiary } } : undefined,
       }
     }
     default: {
@@ -364,14 +374,14 @@ function presetOption(node: GenuiEChart, el?: HTMLElement | null): Record<string
         tooltip: tt({ trigger: 'axis', axisPointer: { type: 'shadow' } }),
         xAxis: { type: 'category', data: data.map(d => d.label), axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary } },
         yAxis: { type: 'value', axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.labelTertiary }, splitLine: { lineStyle: { color: t.border, opacity: 0.5 } } },
-        series: (series ?? [{ label: '', data }]).map(s => ({
+        series: entries.map(s => ({
           name: s.label,
           type: 'bar',
           barMaxWidth: 40,
           itemStyle: { borderRadius: [4, 4, 2, 2], ...(s.color !== undefined ? { color: s.color } : {}) },
           data: s.data.map(d => d.value),
         })),
-        legend: series !== undefined ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
+        legend: showLegend ? { bottom: 0, textStyle: { color: t.labelTertiary } } : undefined,
       }
     }
   }

@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { EvaluationInvocationResult, EvaluationInvoker } from "../src/core/evaluation/model.ts";
+import type {
+	EvaluationInvocation,
+	EvaluationInvocationResult,
+	EvaluationInvoker,
+} from "../src/core/evaluation/model.ts";
 import { EvaluationService, type EvaluationServiceOptions } from "../src/core/evaluation/service.ts";
 import { EvaluationStore } from "../src/core/evaluation/store.ts";
 import type {
@@ -120,6 +124,71 @@ async function settle(service: EvaluationService, runId: string): Promise<Evalua
 }
 
 describe("durable model evaluation", () => {
+	it("publishes successive partial answers before completion while masking thinking and retaining the last body on cancellation", async () => {
+		const pending = new Map<string, EvaluationInvocation>();
+		let markReady: (() => void) | undefined;
+		const ready = new Promise<void>((done) => {
+			markReady = done;
+		});
+		const { service, directory } = await setup(async (request) => {
+			pending.set(request.profile.modelId, request);
+			request.onPartial("", "fixture private first reasoning");
+			if (pending.size === 2) markReady?.();
+			return new Promise<EvaluationInvocationResult>(() => {});
+		});
+		const started = await start(service);
+		await ready;
+		const waiting = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
+		expect(
+			waiting.results.every(
+				(result) => result.status === "running" && result.output === "" && result.artifact === null,
+			),
+		).toBe(true);
+		for (const request of pending.values())
+			request.onPartial("first body paragraph", "fixture private first reasoning");
+		const first = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
+		expect(
+			first.results.every((result) => result.status === "running" && result.output === "first body paragraph"),
+		).toBe(true);
+		for (const request of pending.values())
+			request.onPartial("first body paragraph\n\nsecond body paragraph", "fixture private later reasoning");
+		const growing = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
+		expect(growing.results.every((result) => result.output === "first body paragraph\n\nsecond body paragraph")).toBe(
+			true,
+		);
+		expect(first.results.every((result) => result.output === "first body paragraph")).toBe(true);
+		for (const result of growing.results)
+			for (const field of ["thinking", "profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"])
+				expect(result).not.toHaveProperty(field);
+		await service.handle({ action: "run.cancel", runId: started.id });
+		const cancelled = await settle(service, started.id);
+		for (const request of pending.values()) {
+			expect(request.signal.aborted).toBe(true);
+			request.onPartial("late ignored body", "late ignored reasoning");
+		}
+		expect(
+			cancelled.results.every(
+				(result) =>
+					result.status === "cancelled" && result.output === "first body paragraph\n\nsecond body paragraph",
+			),
+		).toBe(true);
+		const afterLate = (await service.handle({ action: "run.get", runId: started.id })) as EvaluationRunView;
+		expect(afterLate.results.map((result) => result.output)).toEqual(
+			cancelled.results.map((result) => result.output),
+		);
+		const persisted = JSON.parse(
+			await readFile(join(directory, "model-evaluations", "runs", `${started.id}.json`), "utf8"),
+		) as { results: { output: string; thinking: string; status: string }[] };
+		expect(
+			persisted.results.every(
+				(result) =>
+					result.status === "cancelled" &&
+					result.output === "first body paragraph\n\nsecond body paragraph" &&
+					result.thinking === "fixture private later reasoning",
+			),
+		).toBe(true);
+	});
+
 	it("responds before generation, limits concurrency, persists snapshots, and masks identities until scoring", async () => {
 		let active = 0;
 		let peak = 0;
