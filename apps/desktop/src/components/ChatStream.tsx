@@ -6,6 +6,7 @@ import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
+import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
@@ -282,16 +283,6 @@ function TodoCardView({ card }: { card: ToolCard }): React.JSX.Element {
 	);
 }
 
-function AnswerCard({ text }: { text: string }): React.JSX.Element {
-	return (
-		<div
-			className="owl-answer"
-			// markdown-it with html:false escapes raw HTML; tool content is data, not markup
-			dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
-		/>
-	);
-}
-
 /** 孤立结果行（找不到所属工具卡的防御兜底，如会话恢复失败）。 */
 function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolResult" }> }): React.JSX.Element {
 	return (
@@ -370,10 +361,21 @@ function buildRows(
 	cwd: string | undefined,
 	onOpenFile: ((path: string) => void) | undefined,
 	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null,
+	streaming = false,
 ): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
+	// owl-genui：流式中的回答（最后一条 assistant）不带持久化身份，settled 后才有
+	let lastAssistantIndex = -1;
+	if (streaming) {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			if (entries[i]!.kind === "assistant") {
+				lastAssistantIndex = i;
+				break;
+			}
+		}
+	}
 	let turn = 0;
 	let pendingTools: ToolCard[] = [];
 	const flushTools = (): void => {
@@ -422,6 +424,10 @@ function buildRows(
 			} else if (card.name === "ask_user_question") {
 				flushTools();
 				rows.push({ key: "question-tool-" + card.id, content: <ToolRowView card={card} expanded={expandedTools} /> });
+			} else if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
+				// owl-genui：render_ui 完成后渲染为工具行交互卡片（运行中先走普通工具行）
+				flushTools();
+				rows.push({ key: "genui-" + card.id, content: <GenuiToolCardView card={card} /> });
 			} else pendingTools.push(card);
 		};
 		segments.forEach((segment, segmentIndex) => {
@@ -436,7 +442,12 @@ function buildRows(
 				key: "message-" + index + "-" + segmentIndex,
 				content: segment.kind === "thinking"
 					? <ThinkingRow thinking={segment.text} />
-					: <AnswerCard text={segment.text} />,
+					: <GenuiAnswerCard
+							text={segment.text}
+							identity={`msg${index}-seg${segmentIndex}`}
+							settled={index !== lastAssistantIndex}
+							renderMarkdown={renderMarkdown}
+						/>,
 			});
 		});
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
@@ -666,8 +677,8 @@ export function ChatStream({
 		);
 	}, [cwd, client, onOpenFile, onOpenReview]);
 	const rows = useMemo(
-		() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile, turnCard),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard],
+		() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity === "working"),
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity],
 	);
 
 	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----

@@ -18,9 +18,11 @@ export interface DiffBlockLabels {
 	codeLabel: string;
 	wrapLabel: string;
 	unwrapLabel: string;
-	collapse: string;
+	/** Accessible label for the collapse toggle. */
+	collapseAria: string;
 	/** Accessible label for expanding a collapsed diff tail. */
-	collapseAria: (hidden: number) => string;
+	expandAria: (hidden: number) => string;
+	collapse: string;
 	/** Visible label for expanding a collapsed diff tail. */
 	expand: (hidden: number) => string;
 	/** Localized file-count summary in the diff footer. */
@@ -223,7 +225,7 @@ export function DiffBlock(props: { diffs: GenuiDiffFile[]; labels: DiffBlockLabe
 				{
 					type: "button",
 					className: css.diffCollapseBtn,
-					"aria-label": labels.collapseAria(totalLines - DIFF_KEEP_LINES),
+					"aria-label": labels.expandAria(totalLines - DIFF_KEEP_LINES),
 					onClick: () => setExpanded(true),
 				},
 				labels.expand(totalLines - DIFF_KEEP_LINES),

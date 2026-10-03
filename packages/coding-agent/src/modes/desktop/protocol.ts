@@ -81,6 +81,17 @@ export interface SessionAbortRequest {
 	sessionId: string;
 }
 
+/** owl-genui：聊天流内交互组件的动作回传（组件 action → 会话消息 → 模型重发围栏）。 */
+export interface OwlUiActionRequest {
+	type: "owl-ui.action";
+	id: string;
+	sessionId: string;
+	/** 组件声明的 action 名。 */
+	action: string;
+	/** 组件收集的动作数据（button/radio/slider/submit…的 payload）。 */
+	payload: Record<string, unknown>;
+}
+
 /** 删除历史会话：卸载运行时（若已挂载）并删掉 Owl-history 里的 JSONL 文件。 */
 export interface SessionDeleteRequest {
 	type: "session.delete";
@@ -1426,6 +1437,7 @@ export type DesktopClientRequest =
 	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
+	| OwlUiActionRequest
 	| ContextGetRequest
 	| SessionAbortRequest
 	| SessionDeleteRequest

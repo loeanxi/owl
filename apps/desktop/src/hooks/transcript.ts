@@ -23,6 +23,8 @@ export type ToolOutput = {
 	artifacts?: ToolResultArtifact[];
 	/** bash 等超限截断时，服务端把全文写入的临时文件路径（details.fullOutputPath）。 */
 	fullPath?: string;
+	/** owl-genui：render_ui 工具修复后的 GenUI spec（details.genuiSpec），ChatStream 渲染为交互卡片。 */
+	genuiSpec?: unknown;
 };
 
 export type ToolCard = {
@@ -462,6 +464,7 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 		...(images.length > 0 ? { images } : {}),
 		...(artifacts.length > 0 ? { artifacts } : {}),
 		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
+		...(details.genuiSpec !== undefined ? { genuiSpec: details.genuiSpec } : {}),
 	};
 }
 

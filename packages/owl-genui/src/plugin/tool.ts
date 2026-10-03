@@ -75,11 +75,6 @@ export function specOf(args: unknown): unknown {
 	return undefined;
 }
 
-/** 把模型可读的校验字段包进稳定的 GenUI 协议信封。 */
-function validationProtocol(lines: string[]): string {
-	return ["[owl-ui-validation]", ...lines, "reply_language=conversation"].join("\n");
-}
-
 /** 把 process 诊断格式化为稳定的模型可读 warning 字段。 */
 function formatProcessWarnings(processed: GenuiProcessResult): string[] {
 	return processed.warnings.map((warning) => {

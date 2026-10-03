@@ -517,7 +517,7 @@ function ChartTip({ tip }: { tip: TipState | null }) {
 
 /** Measured plot width. Charts draw in CSS pixels: 1 SVG unit = 1px, so axis
  *  text keeps its designed size at every container width. */
-function useMeasuredWidth(): [RefObject<HTMLDivElement>, number] {
+function useMeasuredWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(560)
   useLayoutEffect(() => {

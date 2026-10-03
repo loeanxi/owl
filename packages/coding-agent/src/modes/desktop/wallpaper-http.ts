@@ -15,7 +15,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, type Stats, statSync } from "node:fs";
+import { createReadStream, type Dirent, existsSync, readFileSync, type Stats, statSync } from "node:fs";
 import { access, readdir, readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -341,7 +341,7 @@ const SCAN_CHUNK = 24;
 
 /** 列出 root 下每个含 project.json 的子目录；异步分块探测，不阻塞桥事件循环。 */
 async function scanWallpaperDirs(root: string): Promise<string[]> {
-	let dirents;
+	let dirents: Dirent[];
 	try {
 		dirents = await readdir(root, { withFileTypes: true });
 	} catch {

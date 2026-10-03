@@ -99,11 +99,11 @@ try {
 	assert.equal(escape.status, 403);
 	console.log("3. web inject + sandbox OK");
 
-	// 4. 未知 token 404；非壁纸路径不接管（返回 false 由后续链处理不了 → 404 JSON）
+	// 4. 未知 token 404（/api/other 等非壁纸路径 handler 返回 false 交还外层链，无法经 HTTP 断言）
 	const missing = await get("/wallpaper/media/deadbeef");
 	assert.equal(missing.status, 404);
-	const outside = await get("/api/other");
-	assert.equal(outside.status, 404);
+	const staleFiles = await get("/wallpaper/files/deadbeef/index.html");
+	assert.equal(staleFiles.status, 404);
 	console.log("4. token isolation OK");
 
 	// 5. refresh=1 强制重扫后 token 全部换新（旧 token 失效）

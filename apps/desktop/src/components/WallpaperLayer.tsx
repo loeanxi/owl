@@ -94,20 +94,20 @@ function isOccluded(policy: PausePolicy): boolean {
 	return false;
 }
 
-/** 遮挡订阅：变化立即回调 + 3s 低频复核兜底（事件不可靠：原生模态抢焦点后 focus 不回送）。 */
+/**
+ * 遮挡订阅：变化立即回调 + 3s 低频复核兜底（事件不可靠：原生模态抢焦点后 focus 不回送）。
+ * 每次复核都无条件回调 —— 调用方（pause/play、setPaused）必须幂等，上游
+ * applyVideoPlayback 同语义：意图重申而非仅在状态翻转时执行，视频晚于订阅
+ * 挂载、play() 被加载打断等场景都靠这一点自愈。
+ */
 function useOcclusion(policy: PausePolicy, onOcclusion: (occluded: boolean) => void): void {
 	const policyRef = useRef(policy);
 	policyRef.current = policy;
 	const callbackRef = useRef(onOcclusion);
 	callbackRef.current = onOcclusion;
 	useEffect(() => {
-		let last: boolean | null = null;
 		const apply = (): void => {
-			const occluded = isOccluded(policyRef.current);
-			if (occluded !== last) {
-				last = occluded;
-				callbackRef.current(occluded);
-			}
+			callbackRef.current(isOccluded(policyRef.current));
 		};
 		document.addEventListener("visibilitychange", apply);
 		window.addEventListener("focus", apply);

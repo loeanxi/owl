@@ -661,6 +661,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	// 推 diffApproval.changed，工作台 ReviewTab 据此刷新待审清单。
 	setDiffApprovalBroadcaster(broadcast);
 
+	/** owl-genui：把组件动作格式化成回传给模型的消息（协议见 owl-genui SKILL.md）。 */
+	function formatOwlUiActionMessage(action: string, payload: Record<string, unknown>): string {
+		return `[owl-ui-action] ${action}。用户刚刚在界面中触发了动作 "${action}"，请根据组件数据执行相应操作，并用 owl-ui 输出更新后的界面。 组件数据: ${JSON.stringify(payload)}`;
+	}
+
 	function reply(ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }): void {
 		if (ws.readyState === ws.OPEN) {
 			ws.send(JSON.stringify({ type: "response", id, ...result }));
@@ -1268,6 +1273,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					await session.runtime.session.prompt(request.message, {
 						...(request.images ? { images: request.images as ImageContent[] } : {}),
 					});
+				} catch (error) {
+					onDiagnostic(error instanceof Error ? error.message : String(error));
+				}
+				return;
+			}
+			case "owl-ui.action": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				reply(ws, request.id, { ok: true });
+				try {
+					await session.runtime.session.prompt(formatOwlUiActionMessage(request.action, request.payload));
 				} catch (error) {
 					onDiagnostic(error instanceof Error ? error.message : String(error));
 				}

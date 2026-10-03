@@ -15,8 +15,8 @@ import { fenceStateKey } from "./interaction-store.ts";
 import { CodeBlock } from "./primitive-adapter.ts";
 import { codeBlockLabels } from "./primitive-labels.ts";
 import type { GenuiSpec } from "./spec.ts";
-import { describeJsonFailure } from "../shared/fence-repair.ts";
-import { resolveFence, resolveFenceSpec, type FenceResolution } from "../shared/fence-resolve.ts";
+import { describeJsonFailure } from "./shared/fence-repair.ts";
+import { resolveFence, resolveFenceSpec, type FenceResolution } from "./shared/fence-resolve.ts";
 import { GenuiBlock } from "./GenuiBlock.tsx";
 
 /** Settled fence source identity (data shape, host-independent). */

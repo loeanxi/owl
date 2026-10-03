@@ -3,9 +3,9 @@
  * @module owl-genui/shared/fence-resolve
  */
 
-import { type GenuiProcessResult, partialRepairGenuiSpec, processGenuiSpec } from "../client/guard.ts";
-import { parsePartialGenuiSpec } from "../client/parse-partial.ts";
-import type { GenuiSpec } from "../client/spec.ts";
+import { type GenuiProcessResult, partialRepairGenuiSpec, processGenuiSpec } from "../guard.ts";
+import { parsePartialGenuiSpec } from "../parse-partial.ts";
+import type { GenuiSpec } from "../spec.ts";
 import { completeFenceJson, repairFenceJson } from "./fence-repair.ts";
 
 /** 控制是否允许采用结构化 JSON 修复的选项。 */
