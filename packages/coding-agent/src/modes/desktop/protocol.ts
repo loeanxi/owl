@@ -169,6 +169,113 @@ export interface CommandsListResult {
 	commands: SlashCommandEntry[];
 }
 
+// ---------------------------------------------------------------------------
+// 技能中心（skills.*）：设置页技能面板的三级浏览与 CRUD。
+// 目录统一为 .owl：个人 = ~/.owl/agent/skills，全局 = ~/.owl/skills，
+// 项目 = <cwd>/.owl/skills。写操作由桥端 skills-center 模块执行。
+// ---------------------------------------------------------------------------
+
+/** 技能中心的来源分级（一个 tab 一个根目录）。 */
+export type SkillCenterTab = "personal" | "global" | "project";
+
+/** 技能列表的一行：元数据 only，正文走 skills.read。 */
+export interface SkillCenterEntry {
+	name: string;
+	description: string;
+	/** SKILL.md 绝对路径（写操作的身份凭据，需与最新扫描一致）。 */
+	path: string;
+	/** 技能目录（单文件技能 = 所在目录）。 */
+	dir: string;
+	tab: SkillCenterTab;
+	/** true = disable-model-invocation，模型不自动调用（/skill: 手动仍可用）。 */
+	disabled: boolean;
+	/** SKILL.md 是符号链接：可列表/启停，禁止编辑与删除。 */
+	isSymlink: boolean;
+}
+
+/** 三个 tab 的根目录（绝对路径，UI 展示用）。 */
+export interface SkillCenterRoots {
+	personal: string;
+	global: string;
+	project: string;
+}
+
+export interface SkillsListRequest {
+	type: "skills.list";
+	id: string;
+	/** 项目目录；缺省用桥的默认 cwd（决定项目 tab 的根）。 */
+	cwd?: string;
+}
+
+export interface SkillsListResult {
+	roots: SkillCenterRoots;
+	skills: SkillCenterEntry[];
+	/** 当前项目是否已信任（未信任时项目 tab 只读并提示）。 */
+	projectTrusted: boolean;
+}
+
+export interface SkillsReadRequest {
+	type: "skills.read";
+	id: string;
+	name: string;
+	/** 必须与最新扫描解析到的路径完全一致（防过期同名回退）。 */
+	path: string;
+	tab: SkillCenterTab;
+	cwd?: string;
+}
+
+export interface SkillsReadResult {
+	name: string;
+	description: string;
+	/** frontmatter 之后的正文。 */
+	body: string;
+	disabled: boolean;
+	isSymlink: boolean;
+}
+
+export interface SkillsSetEnabledRequest {
+	type: "skills.setEnabled";
+	id: string;
+	name: string;
+	path: string;
+	tab: SkillCenterTab;
+	/** true = 启用模型调用；false = 写入 disable-model-invocation: true。 */
+	enabled: boolean;
+	cwd?: string;
+}
+
+export interface SkillsCreateRequest {
+	type: "skills.create";
+	id: string;
+	/** 新技能写入哪个根：个人 / 全局 / 项目（项目根需已信任）。 */
+	tab: SkillCenterTab;
+	/** 技能名（目录名 + frontmatter name），按 Agent Skills 规范校验。 */
+	name: string;
+	description: string;
+	body: string;
+	cwd?: string;
+}
+
+export interface SkillsUpdateRequest {
+	type: "skills.update";
+	id: string;
+	name: string;
+	path: string;
+	tab: SkillCenterTab;
+	description: string;
+	body: string;
+	cwd?: string;
+}
+
+export interface SkillsDeleteRequest {
+	type: "skills.delete";
+	id: string;
+	name: string;
+	path: string;
+	tab: SkillCenterTab;
+	cwd?: string;
+}
+
 /** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
 export interface SessionStatsRequest {
 	type: "session.stats";
@@ -796,8 +903,14 @@ export type DesktopClientRequest =
 	| SessionSetApprovalModeRequest
 	| SessionCompactRequest
 	| SessionStatsRequest
-	| CommandsListRequest
-	| SessionListRequest
+		| CommandsListRequest
+		| SkillsListRequest
+		| SkillsReadRequest
+		| SkillsSetEnabledRequest
+		| SkillsCreateRequest
+		| SkillsUpdateRequest
+		| SkillsDeleteRequest
+		| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

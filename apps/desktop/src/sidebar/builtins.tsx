@@ -12,6 +12,7 @@ import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
+import { DocumentTab } from "./tabs/DocumentTab.tsx";
 import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { SideChatTab } from "./tabs/SideChatTab.tsx";
@@ -31,6 +32,13 @@ function quickIcon(kind: string): TabDefinition["icon"] {
 }
 
 const DEFINITIONS: TabDefinition[] = [
+	{
+		kind: "document",
+		title: "文件预览",
+		icon: (size) => <IconFile size={size ?? 14} />,
+		component: DocumentTab,
+		exts: ["md", "markdown", "html", "htm", "txt", "csv", "tsv"],
+	},
 	{
 		kind: "files",
 		title: "文件",

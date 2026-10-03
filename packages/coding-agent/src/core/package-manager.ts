@@ -37,7 +37,7 @@ import type { Readable } from "node:stream";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
 import { gt, maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
-import { CONFIG_DIR_NAME } from "../config.ts";
+import { CONFIG_DIR_NAME, getGlobalSkillsDir } from "../config.ts";
 import { isExtensionFile } from "./extensions/loader.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
@@ -424,10 +424,7 @@ function collectSkillEntries(
 
 			const relPath = toPosixPath(relative(root, fullPath));
 			const shouldIncludeMarkdownFile =
-				isFile &&
-				entry.name.endsWith(".md") &&
-				!ig.ignores(relPath) &&
-				((mode === "pi" && dir === root) || (mode === "agents" && dir !== root));
+				isFile && entry.name.endsWith(".md") && !ig.ignores(relPath) && dir === root;
 			if (shouldIncludeMarkdownFile) {
 				entries.push(fullPath);
 				continue;
@@ -436,7 +433,7 @@ function collectSkillEntries(
 			if (!isDir) continue;
 			if (ig.ignores(`${relPath}/`)) continue;
 
-			entries.push(...collectSkillEntries(fullPath, mode, ig, root));
+			entries.push(...collectSkillEntries(fullPath, ig, root));
 		}
 	} catch {
 		// Ignore errors
@@ -445,43 +442,8 @@ function collectSkillEntries(
 	return entries;
 }
 
-function collectAutoSkillEntries(dir: string, mode: SkillDiscoveryMode): string[] {
-	return collectSkillEntries(dir, mode);
-}
-
-function findGitRepoRoot(startDir: string): string | null {
-	let dir = resolve(startDir);
-	while (true) {
-		if (existsSync(join(dir, ".git"))) {
-			return dir;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) {
-			return null;
-		}
-		dir = parent;
-	}
-}
-
-function collectAncestorAgentsSkillDirs(startDir: string): string[] {
-	const skillDirs: string[] = [];
-	const resolvedStartDir = resolve(startDir);
-	const gitRepoRoot = findGitRepoRoot(resolvedStartDir);
-
-	let dir = resolvedStartDir;
-	while (true) {
-		skillDirs.push(join(dir, ".agents", "skills"));
-		if (gitRepoRoot && dir === gitRepoRoot) {
-			break;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) {
-			break;
-		}
-		dir = parent;
-	}
-
-	return skillDirs;
+function collectAutoSkillEntries(dir: string): string[] {
+	return collectSkillEntries(dir);
 }
 
 function collectAutoPromptEntries(dir: string): string[] {
@@ -648,7 +610,7 @@ function collectAutoExtensionEntries(dir: string): string[] {
  */
 function collectResourceFiles(dir: string, resourceType: ResourceType): string[] {
 	if (resourceType === "skills") {
-		return collectSkillEntries(dir, "pi");
+		return collectSkillEntries(dir);
 	}
 	if (resourceType === "extensions") {
 		return collectAutoExtensionEntries(dir);
@@ -2501,11 +2463,7 @@ export class DefaultPackageManager implements PackageManager {
 			prompts: join(projectBaseDir, "prompts"),
 			themes: join(projectBaseDir, "themes"),
 		};
-		const userAgentsSkillsDir = join(getHomeDir(), ".agents", "skills");
 		const projectTrusted = this.settingsManager.isProjectTrusted();
-		const projectAgentsSkillDirs = projectTrusted
-			? collectAncestorAgentsSkillDirs(this.cwd).filter((dir) => resolve(dir) !== resolve(userAgentsSkillsDir))
-			: [];
 
 		const addResources = (
 			resourceType: ResourceType,
@@ -2534,26 +2492,10 @@ export class DefaultPackageManager implements PackageManager {
 			// Project skills from .owl/
 			addResources(
 				"skills",
-				collectAutoSkillEntries(projectDirs.skills, "pi"),
+				collectAutoSkillEntries(projectDirs.skills),
 				projectMetadata,
 				projectOverrides.skills,
 				projectBaseDir,
-			);
-		}
-
-		// Project skills from .agents/ (each with its own baseDir)
-		for (const agentsSkillsDir of projectAgentsSkillDirs) {
-			const agentsBaseDir = dirname(agentsSkillsDir); // the .agents directory
-			const agentsMetadata: PathMetadata = {
-				...projectMetadata,
-				baseDir: agentsBaseDir,
-			};
-			addResources(
-				"skills",
-				collectAutoSkillEntries(agentsSkillsDir, "agents"),
-				agentsMetadata,
-				projectOverrides.skills,
-				agentsBaseDir,
 			);
 		}
 
@@ -2583,27 +2525,28 @@ export class DefaultPackageManager implements PackageManager {
 			globalBaseDir,
 		);
 
-		// User skills from ~/.owl/agent/
+		// User skills from ~/.owl/agent/ (personal; wins name collisions against the global dir below)
 		addResources(
 			"skills",
-			collectAutoSkillEntries(userDirs.skills, "pi"),
+			collectAutoSkillEntries(userDirs.skills),
 			userMetadata,
 			userOverrides.skills,
 			globalBaseDir,
 		);
 
-		// User skills from ~/.agents/ (with its own baseDir)
-		const userAgentsBaseDir = dirname(userAgentsSkillsDir);
-		const userAgentsMetadata: PathMetadata = {
+		// User global skills from ~/.owl/skills/ (cross-project, shared by every session)
+		const userGlobalSkillsDir = getGlobalSkillsDir();
+		const userGlobalBaseDir = dirname(userGlobalSkillsDir);
+		const userGlobalMetadata: PathMetadata = {
 			...userMetadata,
-			baseDir: userAgentsBaseDir,
+			baseDir: userGlobalBaseDir,
 		};
 		addResources(
 			"skills",
-			collectAutoSkillEntries(userAgentsSkillsDir, "agents"),
-			userAgentsMetadata,
+			collectAutoSkillEntries(userGlobalSkillsDir),
+			userGlobalMetadata,
 			userOverrides.skills,
-			userAgentsBaseDir,
+			userGlobalBaseDir,
 		);
 
 		addResources(

@@ -185,6 +185,7 @@ export function Composer({
 	projects,
 	onSwitchProject,
 	commands,
+	draftRequest,
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
@@ -209,6 +210,8 @@ export function Composer({
 	onSwitchProject: (path: string) => void;
 	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
 	commands: SlashCommandEntry[];
+	/** Start-page examples fill a draft without submitting or replacing existing text. */
+	draftRequest?: { id: number; text: string };
 }): React.JSX.Element {
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
@@ -219,7 +222,14 @@ export function Composer({
 	// Esc 关闭后要等输入变化才重开，避免关不掉。
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	const [slashIndex, setSlashIndex] = useState(0);
+	useEffect(() => {
+		if (!draftRequest) return;
+		setValue((current) => current.trim() ? `${current}\n\n${draftRequest.text}` : draftRequest.text);
+		setSlashDismissed(true);
+		textareaRef.current?.focus();
+	}, [draftRequest]);
 	const submit = (): void => {
+		if (disabled) return;
 		const text = value.trim();
 		if (!text) return;
 		onSend(text);
@@ -484,7 +494,8 @@ export function Composer({
 						<textarea
 							ref={textareaRef}
 							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
-							placeholder="输入消息…（/ 唤起命令，Enter 发送，Shift+Enter 换行）"
+							aria-label="任务输入"
+							placeholder="描述问题或想完成的任务…（/ 唤起命令）"
 							value={value}
 							rows={1}
 							onChange={(event) => {

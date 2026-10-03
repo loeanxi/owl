@@ -5,6 +5,8 @@ import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { Composer } from "./components/Composer.tsx";
+import { Artifacts } from "./components/Artifacts.tsx";
+import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
@@ -19,6 +21,7 @@ import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
+import { openDeveloperWorkbench } from "./sidebar/developer.ts";
 import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarConfig, viewerKindForPath } from "./sidebar/config.ts";
 import { fileUrlOf } from "./sidebar/api.ts";
 import { isIabPageBound, boundTabIdFor, encodeIabPath } from "./sidebar/iab-bound.ts";
@@ -41,6 +44,7 @@ function isApprovalMode(value: string | null): value is ApprovalMode {
 }
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
+const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
@@ -79,6 +83,8 @@ export default function App(): React.JSX.Element {
 		sidebarToggleRef.current?.focus({ preventScroll: true });
 	};
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
+	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string }>();
+	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
 	const [pendingPrompts, setPendingPrompts] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -115,6 +121,13 @@ export default function App(): React.JSX.Element {
 	const [workbenchDock, setWorkbenchDock] = useState<WorkbenchDock>(() =>
 		localStorage.getItem(WORKBENCH_DOCK_KEY) === "right" ? "right" : "bottom",
 	);
+	const [developerLayout, setDeveloperLayout] = useState(
+		() => localStorage.getItem(WORKBENCH_LAYOUT_KEY) === "developer",
+	);
+	const setDeveloperLayoutPersisted = (developer: boolean): void => {
+		setDeveloperLayout(developer);
+		localStorage.setItem(WORKBENCH_LAYOUT_KEY, developer ? "developer" : "tools");
+	};
 	const setWorkbenchOpenPersisted = (open: boolean): void => {
 		setWorkbenchOpen(open);
 		localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "1" : "0");
@@ -127,6 +140,24 @@ export default function App(): React.JSX.Element {
 	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
 	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "session" }), [entries, workspaceDir]);
+	const [fileOpenError, setFileOpenError] = useState<string>();
+	useEffect(() => setFileOpenError(undefined), [sessionId, workspaceDir]);
+	const openTaskFile = (path: string): void => {
+		const relative = workspaceArtifactPath(path, workspaceRef.current);
+		if (!relative) return;
+		setFileOpenError(undefined);
+		const kind = viewerKindForPath(relative, getSidebarConfig());
+		if (kind === undefined) {
+			void client.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, relative) })
+				.then((result) => { if (!result.ok) setFileOpenError(result.error ?? "文件打开失败"); })
+				.catch((error: unknown) => setFileOpenError(error instanceof Error ? error.message : String(error)));
+			return;
+		}
+		workbenchStore.openFileTab(kind, relative, relative.split("/").pop() ?? relative);
+		setDeveloperLayoutPersisted(false);
+		setWorkbenchOpenPersisted(true);
+	};
 
 	// 面板开合/停靠的 ref 镜像：快捷键与卡片回调里免 stale closure。
 	const dockRef = useRef(workbenchDock);
@@ -148,6 +179,14 @@ export default function App(): React.JSX.Element {
 	const requestOpenKind = (kind: string): void => {
 		openQuickAction(workbenchStore, kind);
 		setWorkbenchOpenPersisted(true);
+	};
+
+	const openDeveloper = (): void => {
+		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
+		setDeveloperLayoutPersisted(true);
+		setDockPersisted("right");
+		setWorkbenchOpenPersisted(true);
+		setShowSettings(false);
 	};
 
 	/** 快捷键开终端 / 浏览器 tab：面板没开就先展开（不切停靠位）。 */
@@ -201,7 +240,7 @@ export default function App(): React.JSX.Element {
 				void refreshStats();
 				void notifyAgentStatus({
 					title: "Owl 任务完成",
-					body: "Agent 已完成当前回答与代码修改",
+					body: "当前任务已完成，可以查看回答与成果",
 					critical: false,
 				});
 			}
@@ -702,6 +741,7 @@ export default function App(): React.JSX.Element {
 				}}
 				onDockRight={() => togglePanelAt("right")}
 				onDockBottom={() => togglePanelAt("bottom")}
+				onOpenDeveloper={openDeveloper}
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
@@ -741,6 +781,10 @@ export default function App(): React.JSX.Element {
 							{connected ? "本地" : everConnected ? "连接已断开，正在重连…" : "正在连接…"}
 						</span>
 						{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>对话目录 · {questionCount}</span></button>}
+						<button type="button" className="owl-developer-trigger" aria-pressed={workbenchOpen && developerLayout} title="在当前对话旁查看文件、终端和代码改动" onClick={() => {
+							if (workbenchOpen && developerLayout) setWorkbenchOpenPersisted(false);
+							else openDeveloper();
+						}}>开发工作台</button>
 						<button type="button" title="底部工作台" aria-label="底部工作台" aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
 						<button type="button" title="右列工作台" aria-label="右列工作台" aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
 					</div>
@@ -748,7 +792,8 @@ export default function App(): React.JSX.Element {
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
 				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "")}>
 					<div className="owl-shell-conversation">
-						<ChatStream key={sessionId ?? workspaceDir} entries={entries} onQuickAction={requestOpenKind} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
+						<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
+						{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
 						<Composer
@@ -770,6 +815,7 @@ export default function App(): React.JSX.Element {
 							projects={projects}
 							onSwitchProject={switchProject}
 							commands={slashCommands}
+							draftRequest={draftRequest}
 						/>
 					</div>
 					<Workbench
@@ -780,6 +826,7 @@ export default function App(): React.JSX.Element {
 						onSetOpen={setWorkbenchOpenPersisted}
 						dock={workbenchDock}
 						onSetDock={setDockPersisted}
+						developerLayout={developerLayout}
 					/>
 				</div>
 			{showSettings && (

@@ -64,7 +64,7 @@
 	transition: background-color 120ms, border-color 120ms;
 }
 
-.owl-start-page .owl-start-card:hover {
+.owl-start-page .owl-start-card:hover:not(:disabled) {
 	border-color: color-mix(in srgb, var(--color-owl-accent) 55%, var(--owl-ui-border, var(--color-owl-sidebar-border)));
 	background: color-mix(in srgb, var(--color-owl-accent) 7%, var(--owl-ui-panel, var(--color-owl-panel)));
 }
@@ -141,8 +141,14 @@
 	transition: background-color 120ms;
 }
 
-.owl-start-page .owl-start-developer-action:hover {
+.owl-start-page .owl-start-developer-action:hover:not(:disabled) {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-start-page .owl-start-card:disabled,
+.owl-start-page .owl-start-developer-action:disabled {
+	cursor: default;
+	opacity: 0.5;
 }
 
 .owl-start-page .owl-start-developer-description {

@@ -5,6 +5,7 @@ import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
+import { workspaceArtifactPath } from "../hooks/artifacts.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -454,6 +455,11 @@ function ScreenshotDock({
 export function ChatStream({
 	entries,
 	onQuickAction,
+	onPromptExample,
+	onOpenDeveloper,
+	artifacts,
+	cwd,
+	onOpenFile,
 	activity = "idle",
 	navigationOpen = false,
 	onNavigationClose,
@@ -464,6 +470,11 @@ export function ChatStream({
 	onNavigationClose?: () => void;
 	/** 空会话开始页的菜单卡回调（打开工作台对应面板）。 */
 	onQuickAction?: (kind: string) => void;
+	onPromptExample?: (text: string) => void;
+	onOpenDeveloper?: () => void;
+	artifacts?: React.ReactNode;
+	cwd?: string;
+	onOpenFile?: (path: string) => void;
 }): React.JSX.Element {
 	const container = useRef<HTMLElement>(null);
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
@@ -572,11 +583,21 @@ export function ChatStream({
 	return (
 		<div className="owl-chat-surface" data-activity={activity}>
 			<div className="owl-chat-layout">
-				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label="对话消息">
+				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label="对话消息" onClick={(event) => {
+					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
+					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
+					const href = anchor?.getAttribute("href");
+					if (!href || href.startsWith("#")) return;
+					const path = workspaceArtifactPath(href.split("#")[0].replace(/:\d+$/, ""), cwd, { encoded: true });
+					if (!path) return;
+					event.preventDefault();
+					onOpenFile(path);
+				}}>
 					<div className="owl-chat-column">
-						{entries.length === 0 && (onQuickAction ? <StartPage onAction={onQuickAction} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">有什么可以帮你的？</p></div>)}
+						{entries.length === 0 && (onQuickAction && onPromptExample && onOpenDeveloper ? <StartPage onAction={onQuickAction} onPrompt={onPromptExample} onOpenDeveloper={onOpenDeveloper} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">有什么可以帮你的？</p></div>)}
 						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : "owl-chat-row"}>{row.content}</div>)}
 						<ResponseActivity entries={entries} activity={activity} />
+						{artifacts}
 					</div>
 				</main>
 				{navigationOpen && questions.length > 0 && <QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} onClose={() => onNavigationClose?.()} />}

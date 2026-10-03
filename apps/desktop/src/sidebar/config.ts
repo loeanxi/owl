@@ -71,7 +71,10 @@ export function isTabKindEnabled(kind: string, cfg: SidebarConfig = current): bo
  * 调用方交给系统默认程序打开。
  */
 export function viewerKindForPath(path: string, cfg: SidebarConfig = current): string | undefined {
+	// Binary documents belong in the system's document app, never the text editor.
+	if (/\.(?:pdf|docx?|xlsx?|xlsm|pptx?|pptm|odt|ods|odp|rtf|zip|7z)$/i.test(path)) return undefined;
 	let kind = isImagePath(path) ? "image" : viewerKindFor(path);
+	if (kind === "document" && cfg.disabledViewers.includes("editor")) return undefined;
 	if (kind === "image" && cfg.disabledViewers.includes("image")) kind = "editor";
 	return cfg.disabledViewers.includes(kind) ? undefined : kind;
 }

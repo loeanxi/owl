@@ -15,6 +15,7 @@ interface DesktopTitlebarProps {
 	onOpenAbout: () => void;
 	onDockRight: () => void;
 	onDockBottom: () => void;
+	onOpenDeveloper: () => void;
 }
 
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
@@ -60,6 +61,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: "设置…", action: props.onOpenSettings },
 		],
 		view: [
+			{ label: "打开开发工作台", action: props.onOpenDeveloper },
 			{ label: props.sidebarCollapsed ? "显示会话列表" : "隐藏会话列表", action: props.onToggleSidebar },
 			{ label: "右侧工作台", action: props.onDockRight },
 			{ label: "底部工作台", action: props.onDockBottom },

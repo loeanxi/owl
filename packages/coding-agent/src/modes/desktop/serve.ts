@@ -17,14 +17,13 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
-import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
-import { expandTildePath, getAgentDir } from "../../config.ts";
+import { expandTildePath, getAgentDir, getGlobalSkillsDir } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
 	type AgentSessionRuntime,
@@ -65,7 +64,6 @@ import type {
 	SlashCommandEntry,
 } from "./protocol.ts";
 import {
-	invalidateDirectoryCache,
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
 	readWorkspaceFile,
@@ -508,6 +506,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return options.agentDir ?? getAgentDir();
 	}
 
+	function defaultGlobalSkillsDir(): string {
+		return options.agentDir ? join(dirname(options.agentDir), "skills") : getGlobalSkillsDir();
+	}
+
 	async function getListingServices(): Promise<AgentSessionServices> {
 		if (!listServices) {
 			listServices = await createAgentSessionServices({
@@ -649,19 +651,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					...(template.argumentHint ? { argumentHint: template.argumentHint } : {}),
 				});
 			}
-			// fork 的额外技能目录（package-manager 的发现规则）：用户级 ~/.agents/skills
-			// 永远加载；项目级 .agents/skills 需项目已信任。兜底扫描尽量对齐，挂载会话后
-			// 以会话的资源加载器为准。
-			const skillPaths: string[] = [];
-			const userAgentsSkills = join(process.env.HOME || homedir(), ".agents", "skills");
-			if (existsSync(userAgentsSkills)) skillPaths.push(userAgentsSkills);
+			// fork 的技能目录（package-manager 的发现规则）：用户级 ~/.owl/agent/skills
+			// 与全局 ~/.owl/skills 永远加载；项目级 .owl/skills 需项目已信任。兜底扫描尽量
+			// 对齐，挂载会话后以会话的资源加载器为准。
+			const skillPaths: string[] = [join(agentDir, "skills"), defaultGlobalSkillsDir()];
 			try {
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
 					m.SettingsManager.create(resolvedCwd, agentDir),
 				);
 				if (settingsManager.isProjectTrusted()) {
-					const projectAgentsSkills = join(resolvedCwd, ".agents", "skills");
-					if (existsSync(projectAgentsSkills)) skillPaths.push(projectAgentsSkills);
+					skillPaths.push(join(resolvedCwd, ".owl", "skills"));
 				}
 			} catch {
 				// 设置读不出来就当未信任：只带用户级目录

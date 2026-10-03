@@ -636,3 +636,16 @@ html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="
 @media (prefers-reduced-motion: reduce) {
 	.owl-response-mark, .owl-tool-spinner, .owl-chat-surface .animate-pulse { animation: none !important; }
 }
+
+@media (max-width: 600px) {
+	html .owl-settings-page .owl-settings-layout { display: flex; flex-direction: column; min-width: 0; }
+	html .owl-settings-page .owl-settings-nav { display: flex; flex: 0 0 auto; gap: 5px; width: auto; max-height: none; overflow-x: auto; overflow-y: hidden; padding: 8px; border-right: 0; border-bottom: 1px solid var(--color-owl-border); }
+	html .owl-settings-page .owl-settings-nav-label { display: none; }
+	html .owl-settings-page .owl-settings-nav button { flex: 0 0 auto; width: auto; white-space: nowrap; }
+	html .owl-settings-page .owl-settings-content { min-width: 0; padding: 16px; }
+	html .owl-settings-page .owl-settings-row { min-width: 0; }
+	html .owl-settings-page .owl-settings-content select { max-width: 100%; }
+}
+@media (max-width: 480px) {
+	html .owl-settings-page .owl-settings-row-heading { flex-direction: column; align-items: flex-start; gap: 8px; }
+}

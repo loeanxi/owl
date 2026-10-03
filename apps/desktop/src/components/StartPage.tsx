@@ -33,8 +33,8 @@ const TASK_EXAMPLES = [
 	},
 	{
 		id: "coding",
-		title: "修改与验证",
-		description: "理解项目，再完成代码任务",
+		title: "编程与开发",
+		description: "理解项目，提出改进方案",
 		prompt: "先查看当前项目的说明和结构，解释主要模块与启动方式，再指出一个可以改进的地方。先讨论方案，不修改代码。",
 		icon: IconCode,
 	},
@@ -42,8 +42,8 @@ const TASK_EXAMPLES = [
 
 interface StartPageProps {
 	onAction: (kind: string) => void;
-	onPrompt: (text: string) => void;
-	onOpenDeveloper: () => void;
+	onPrompt?: (text: string) => void;
+	onOpenDeveloper?: () => void;
 }
 
 /** 统一会话欢迎页：示例填入草稿，工具面板按需打开，停用的面板即时隐藏。 */
@@ -52,7 +52,9 @@ export function StartPage({ onAction, onPrompt, onOpenDeveloper }: StartPageProp
 	const actions = QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg));
 	const generalActions = actions.filter((action) => GENERAL_ACTION_COPY[action.kind]);
 	const secondaryActions = actions.filter((action) => !GENERAL_ACTION_COPY[action.kind]);
-	const hasDeveloperTools = actions.some((action) => action.kind === "files" || action.kind === "terminal" || action.kind === "changes");
+	const hasDeveloperTools = actions.some(
+		(action) => action.kind === "files" || action.kind === "terminal" || action.kind === "changes",
+	);
 
 	return (
 		<section className="owl-start-page" aria-labelledby="owl-start-heading">
@@ -70,7 +72,8 @@ export function StartPage({ onAction, onPrompt, onOpenDeveloper }: StartPageProp
 						type="button"
 						className="owl-start-card"
 						title={example.prompt}
-						onClick={() => onPrompt(example.prompt)}
+						disabled={!onPrompt}
+						onClick={() => onPrompt?.(example.prompt)}
 					>
 						<span className="owl-start-card-icon">
 							<example.icon className="h-[20px] w-[20px]" />
@@ -80,7 +83,7 @@ export function StartPage({ onAction, onPrompt, onOpenDeveloper }: StartPageProp
 					</button>
 				))}
 			</div>
-			<p className="owl-start-example-hint">选择一个示例，编辑后发送。</p>
+			{onPrompt && <p className="owl-start-example-hint">选择一个示例，编辑后发送。</p>}
 
 			{generalActions.length > 0 && (
 				<div className="owl-start-secondary-actions" aria-label="工具快捷入口">
@@ -89,7 +92,9 @@ export function StartPage({ onAction, onPrompt, onOpenDeveloper }: StartPageProp
 							key={action.kind}
 							type="button"
 							className="owl-start-secondary-action"
-							title={action.hint ? `${GENERAL_ACTION_COPY[action.kind]} · ${action.hint}` : GENERAL_ACTION_COPY[action.kind]}
+							title={
+								action.hint ? `${GENERAL_ACTION_COPY[action.kind]} · ${action.hint}` : GENERAL_ACTION_COPY[action.kind]
+							}
 							onClick={() => onAction(action.kind)}
 						>
 							<span className="owl-start-secondary-icon">{action.icon(15)}</span>
@@ -100,7 +105,7 @@ export function StartPage({ onAction, onPrompt, onOpenDeveloper }: StartPageProp
 			)}
 
 			{hasDeveloperTools && (
-				<button type="button" className="owl-start-developer-action" onClick={onOpenDeveloper}>
+				<button type="button" className="owl-start-developer-action" disabled={!onOpenDeveloper} onClick={onOpenDeveloper}>
 					<IconCode className="h-4 w-4" />
 					<span>打开开发工作台</span>
 					<span className="owl-start-developer-description">项目、终端与代码差异</span>

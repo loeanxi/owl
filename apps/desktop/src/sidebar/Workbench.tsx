@@ -35,11 +35,13 @@ export interface WorkbenchProps {
 	onSetOpen: (open: boolean) => void;
 	dock: WorkbenchDock;
 	onSetDock: (dock: WorkbenchDock) => void;
+	/** Presentation preference only; the conversation and tool permissions stay in App. */
+	developerLayout?: boolean;
 }
 
 const HEIGHT_MIN = 140;
 const WIDTH_MIN = 280;
-const DESIGNED_TAB_KINDS = new Set(["files", "changes", "editor", "terminal", "browser", "tasks", "impression", "image"]);
+const DESIGNED_TAB_KINDS = new Set(["files", "changes", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
 
 interface DragState {
 	id: string;
@@ -62,7 +64,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock, developerLayout = false }: WorkbenchProps): React.JSX.Element {
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
@@ -421,7 +423,8 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			className={`owl-workbench-shell ${open ? "" : "hidden"} relative flex flex-col ${
 				dock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
 			}`}
-			aria-label="工作台"
+			aria-label={developerLayout ? "开发工作台" : "工作台"}
+			data-layout={developerLayout ? "developer" : "tools"}
 			data-dock={dock}
 			style={dock === "right" ? { width } : { height }}
 		>
@@ -436,7 +439,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
 				<div className="owl-workbench-heading" title={activeTab?.title ?? "工作台"}>
 					{activeDefinition?.icon(14) ?? <IconPanelRight size={14} />}
-					<span>{activeTab?.title ?? "工作台"}</span>
+					<span>{developerLayout ? "开发工作台" : activeTab?.title ?? "工作台"}</span>
 				</div>
 				<div className="owl-workbench-shortcuts" aria-label="工作台工具">
 					{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {

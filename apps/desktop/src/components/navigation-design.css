@@ -1,20 +1,20 @@
 /* Navigation stays on its own palette; messages and the composer retain their tokens. */
-.owl-sidebar,
-.owl-activity-rail {
+.owl-desktop-shell .owl-sidebar,
+.owl-desktop-shell .owl-activity-rail {
 	--owl-navigation-selection: color-mix(in srgb, var(--color-owl-accent) 13%, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)));
 	border-right: 0;
 	background: var(--owl-ui-sidebar, var(--color-owl-sidebar-bg));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-activity-rail {
+.owl-desktop-shell .owl-activity-rail {
 	width: 52px;
 	flex-basis: 52px;
 	gap: 10px;
 	padding: 13px 0 14px;
 }
 
-.owl-activity-rail .owl-rail-brand {
+.owl-desktop-shell .owl-activity-rail .owl-rail-brand {
 	display: grid;
 	width: 34px;
 	height: 34px;
@@ -24,7 +24,7 @@
 	border-radius: 8px;
 }
 
-.owl-activity-rail .owl-rail-button {
+.owl-desktop-shell .owl-activity-rail .owl-rail-button {
 	position: relative;
 	width: 32px;
 	height: 32px;
@@ -32,18 +32,18 @@
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-activity-rail .owl-rail-button:hover:not(:disabled),
-.owl-activity-rail .owl-rail-brand:hover {
+.owl-desktop-shell .owl-activity-rail .owl-rail-button:hover:not(:disabled),
+.owl-desktop-shell .owl-activity-rail .owl-rail-brand:hover {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-activity-rail .owl-rail-button.is-active {
+.owl-desktop-shell .owl-activity-rail .owl-rail-button.is-active {
 	background: var(--owl-navigation-selection);
 	color: var(--color-owl-accent);
 }
 
-.owl-activity-rail .owl-rail-button.is-active::before {
+.owl-desktop-shell .owl-activity-rail .owl-rail-button.is-active::before {
 	position: absolute;
 	top: 9px;
 	left: -9px;
@@ -54,14 +54,14 @@
 	content: "";
 }
 
-.owl-activity-rail .owl-rail-avatar {
+.owl-desktop-shell .owl-activity-rail .owl-rail-avatar {
 	width: 28px;
 	height: 28px;
 	border-color: var(--owl-ui-border, var(--color-owl-sidebar-border));
 	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
 }
 
-.owl-sidebar {
+.owl-desktop-shell .owl-sidebar {
 	width: 226px;
 	flex-basis: 226px;
 	padding-right: 16px;
@@ -69,20 +69,20 @@
 	font-size: 12px;
 }
 
-.owl-sidebar .owl-sidebar-header {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-header {
 	height: 60px;
 	flex-basis: 60px;
 	gap: 8px;
 	padding: 0;
 }
 
-.owl-sidebar .owl-sidebar-brand {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-brand {
 	font-size: 21px;
 	font-weight: 650;
 	letter-spacing: -0.8px;
 }
 
-.owl-sidebar .owl-sidebar-local-badge {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-local-badge {
 	padding: 2px 5px;
 	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
 	border-radius: 4px;
@@ -93,22 +93,22 @@
 	line-height: 1.4;
 }
 
-.owl-sidebar .owl-sidebar-header-actions {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-header-actions {
 	margin-left: 0;
 }
 
-.owl-sidebar .owl-sidebar-icon-button {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-icon-button {
 	width: 26px;
 	height: 28px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-sidebar .owl-sidebar-icon-button:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-icon-button:hover {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-sidebar-search {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search {
 	min-height: 34px;
 	flex: 0 0 auto;
 	gap: 7px;
@@ -120,22 +120,22 @@
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-sidebar .owl-sidebar-search:focus-within {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search:focus-within {
 	border-color: var(--color-owl-accent);
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-owl-accent) 10%, transparent);
 }
 
-.owl-sidebar .owl-sidebar-search-input {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-input {
 	background: transparent;
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 	font-size: 12px;
 }
 
-.owl-sidebar .owl-sidebar-search-input::placeholder {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-input::placeholder {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-faint));
 }
 
-.owl-sidebar .owl-sidebar-search-clear {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-clear {
 	display: grid;
 	width: 18px;
 	height: 18px;
@@ -147,16 +147,16 @@
 	line-height: 1;
 }
 
-.owl-sidebar .owl-sidebar-search-clear:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-clear:hover {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-sidebar-shortcuts {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-shortcuts {
 	flex: 0 0 auto;
 	padding: 0 0 20px;
 }
 
-.owl-sidebar .owl-sidebar-new-chat {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat {
 	height: 34px;
 	gap: 8px;
 	padding: 0 10px;
@@ -168,109 +168,109 @@
 	font-weight: 500;
 }
 
-.owl-sidebar .owl-sidebar-new-chat:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat:hover {
 	border-color: color-mix(in srgb, var(--color-owl-accent) 35%, var(--owl-ui-border, var(--color-owl-sidebar-border)));
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-sidebar-list {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-list {
 	padding: 0 0 16px;
 	overscroll-behavior: contain;
 	scrollbar-color: var(--owl-ui-border, var(--color-owl-sidebar-border)) transparent;
 }
 
-.owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
 	margin-top: 18px;
 }
 
-.owl-sidebar .owl-sidebar-section-header {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-header {
 	height: 30px;
 	padding: 0 7px;
 }
 
-.owl-sidebar .owl-sidebar-section-toggle {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-toggle {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-sidebar .owl-sidebar-section-label {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-label {
 	font-size: 10px;
 	font-weight: 600;
 	letter-spacing: 0.04em;
 }
 
-.owl-sidebar .owl-sidebar-section-actions .owl-sidebar-action {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-actions .owl-sidebar-action {
 	opacity: 1;
 	pointer-events: auto;
 }
 
-.owl-sidebar .owl-sidebar-row {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row {
 	height: 33px;
 	gap: 4px;
 	padding: 0 7px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-sidebar .owl-sidebar-row:hover,
-.owl-sidebar .owl-sidebar-row:focus-within {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row:hover,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row:focus-within {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-sidebar-row.is-active {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active {
 	background: var(--owl-navigation-selection);
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-sidebar-project-row.is-current {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row.is-current {
 	background: transparent;
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-sidebar-project-row.is-current:hover,
-.owl-sidebar .owl-sidebar-project-row.is-current:focus-within {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row.is-current:hover,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row.is-current:focus-within {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-sidebar-row-main {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row-main {
 	gap: 8px;
 }
 
-.owl-sidebar .owl-sidebar-row-actions {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row-actions {
 	top: 4px;
 	right: 4px;
 }
 
-.owl-sidebar .owl-sidebar-row:hover .owl-sidebar-row-actions,
-.owl-sidebar .owl-sidebar-row:focus-within .owl-sidebar-row-actions,
-.owl-sidebar .owl-sidebar-row.is-open .owl-sidebar-row-actions {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row:hover .owl-sidebar-row-actions,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row:focus-within .owl-sidebar-row-actions,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-open .owl-sidebar-row-actions {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-sidebar-row.is-active:hover .owl-sidebar-row-actions,
-.owl-sidebar .owl-sidebar-row.is-active:focus-within .owl-sidebar-row-actions {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active:hover .owl-sidebar-row-actions,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active:focus-within .owl-sidebar-row-actions {
 	background: var(--owl-navigation-selection);
 }
 
-.owl-sidebar .owl-sidebar-action {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-action {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-faint));
 }
 
-.owl-sidebar .owl-sidebar-action:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-action:hover {
 	background: var(--owl-navigation-selection);
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-sidebar-action--danger:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-action--danger:hover {
 	color: #f87171;
 }
 
-.owl-sidebar .owl-sidebar-project-sessions {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions {
 	position: relative;
 	margin: 3px 0 8px 16px;
 	padding-left: 7px;
 }
 
-.owl-sidebar .owl-sidebar-project-sessions::before {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions::before {
 	position: absolute;
 	top: 3px;
 	bottom: 3px;
@@ -280,31 +280,31 @@
 	content: "";
 }
 
-.owl-sidebar .owl-sidebar-session-icon {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
-.owl-sidebar .owl-sidebar-session-icon.is-running {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon.is-running {
 	color: var(--color-owl-accent);
 }
 
-.owl-sidebar .owl-sidebar-add-project {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-add-project {
 	padding: 0 7px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 	font-size: 12px;
 }
 
-.owl-sidebar .owl-sidebar-add-project:hover {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-add-project:hover {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-sidebar-empty {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-empty {
 	padding: 7px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-faint));
 	font-size: 11px;
 }
 
-.owl-sidebar .owl-sidebar-footer {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-footer {
 	display: flex;
 	min-height: 70px;
 	flex: 0 0 auto;
@@ -314,7 +314,7 @@
 	border-top: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
 }
 
-.owl-sidebar .owl-sidebar-workspace-avatar {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-workspace-avatar {
 	display: grid;
 	width: 27px;
 	height: 27px;
@@ -327,7 +327,7 @@
 	font-size: 10px;
 }
 
-.owl-sidebar .owl-sidebar-workspace-copy {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-workspace-copy {
 	display: flex;
 	min-width: 0;
 	flex: 1;
@@ -335,19 +335,19 @@
 	gap: 2px;
 }
 
-.owl-sidebar .owl-sidebar-workspace-title {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-workspace-title {
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 	font-size: 12px;
 	font-weight: 500;
 }
 
-.owl-sidebar .owl-sidebar-workspace-caption {
+.owl-desktop-shell .owl-sidebar .owl-sidebar-workspace-caption {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-faint));
 	font-size: 10px;
 	white-space: nowrap;
 }
 
-.owl-sidebar button:focus-visible,
-.owl-activity-rail button:focus-visible {
+.owl-desktop-shell .owl-sidebar button:focus-visible,
+.owl-desktop-shell .owl-activity-rail button:focus-visible {
 	outline-color: var(--color-owl-accent);
 }
