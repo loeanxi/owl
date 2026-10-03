@@ -1186,6 +1186,7 @@ export const en: Dict = {
 	"review.created": "New",
 	"review.missing": "File missing on disk",
 	"review.loading": "Reading pending changes…",
+	"review.resizeHint": "Drag to resize — double-click to reset",
 	"review.disconnected": "Bridge not connected — waiting to reconnect…",
 	"review.loadFailed": "Failed to load pending changes",
 	"review.keptBadge": "Kept",
