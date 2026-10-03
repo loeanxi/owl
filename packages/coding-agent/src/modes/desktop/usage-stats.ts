@@ -56,6 +56,18 @@ function addUsage(target: UsageStatsTotals, usage: Record<string, unknown>): voi
 	target.requests += 1;
 }
 
+/**
+ * 过滤全零 usage（token 与费用全为 0）。smoke 测试的 mock 模型、部分 provider 的空响应
+ * 都会落这种记录；不滤掉就会在「按模型分布」里出现 0 用量的幽灵行，与用户配置的模型列表
+ * 对不上。口径与 core/usage-totals.ts 的 getUsageCostBreakdown（cost > 0 || tokens > 0）一致。
+ */
+function usageHasInfo(usage: Record<string, unknown>): boolean {
+	const positive = (key: string) => typeof usage[key] === "number" && (usage[key] as number) > 0;
+	if (positive("input") || positive("output") || positive("cacheRead") || positive("cacheWrite")) return true;
+	const cost = usage.cost && typeof usage.cost === "object" ? (usage.cost as { total?: unknown }).total : 0;
+	return typeof cost === "number" && cost > 0;
+}
+
 interface SessionScan {
 	sessionId: string;
 	cwd: string;
@@ -209,7 +221,7 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 			) {
 				found = { usage: entry.usage, modelKey: "Tools/summaries" };
 			}
-			if (!found) continue;
+			if (!found || !usageHasInfo(found.usage)) continue;
 
 			recordUsage(scan, found.modelKey, found.usage, entry.timestamp ?? lastTimestamp);
 		}

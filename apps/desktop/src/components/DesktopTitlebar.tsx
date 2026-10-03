@@ -12,6 +12,8 @@ interface MenuEntry {
 	/** 右侧对齐的快捷键提示（如 "Ctrl+Shift+S"）。 */
 	hint?: string;
 	disabled?: boolean;
+	/** 开关型条目的当前状态：定义了就渲染勾选列（true = 开启中，✓ + 强调色）。 */
+	active?: boolean;
 	action: () => void;
 }
 
@@ -24,6 +26,7 @@ interface DesktopTitlebarProps {
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	workbenchOpen: boolean;
 	workbenchDock: "right" | "bottom";
+	fullscreen: boolean;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
 	onOpenProject: () => void;
@@ -142,6 +145,27 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		else if (!document.execCommand("selectAll")) setMenuError(t("titlebar.editUnsupported"));
 	};
 
+	// 菜单内 ↑/↓/Home/End 的选中导航：焦点在可用项之间循环（Enter 原生触发点击）。
+	const moveMenuFocus = (panel: HTMLElement, step: number | "first" | "last"): void => {
+		const items = Array.from(panel.querySelectorAll<HTMLButtonElement>('button[role="menuitem"], button[role="menuitemcheckbox"]'))
+			.filter((item) => !item.disabled);
+		if (items.length === 0) return;
+		const current = items.indexOf(document.activeElement as HTMLButtonElement);
+		const next = step === "first" ? 0
+			: step === "last" ? items.length - 1
+			: current === -1 ? (step > 0 ? 0 : items.length - 1)
+			: (current + step + items.length) % items.length;
+		items[next]?.focus();
+	};
+
+	const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+		const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
+		if (step === undefined) return;
+		event.preventDefault();
+		event.stopPropagation();
+		moveMenuFocus(event.currentTarget, step);
+	};
+
 	const actions: Record<MenuKey, MenuRow[]> = {
 		file: [
 			{ label: t("titlebar.newChat"), hint: "Ctrl+N", disabled: !props.connected, action: props.onNewChat },
@@ -163,9 +187,9 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("titlebar.settings"), hint: "Ctrl+,", action: props.onOpenSettings },
 		],
 		view: [
-			{ label: sidebarLabel, hint: "Ctrl+Shift+S", action: props.onToggleSidebar },
-			{ label: bottomOpen ? t("view.hideBottomPanel") : t("view.showBottomPanel"), hint: "Ctrl+J", action: props.onToggleBottomPanel },
-			{ label: rightOpen ? t("view.hideRightPanel") : t("view.showRightPanel"), hint: "Ctrl+Shift+E", action: props.onToggleRightPanel },
+			{ label: sidebarLabel, hint: "Ctrl+Shift+S", active: !props.sidebarCollapsed, action: props.onToggleSidebar },
+			{ label: bottomOpen ? t("view.hideBottomPanel") : t("view.showBottomPanel"), hint: "Ctrl+J", active: bottomOpen, action: props.onToggleBottomPanel },
+			{ label: rightOpen ? t("view.hideRightPanel") : t("view.showRightPanel"), hint: "Ctrl+Shift+E", active: rightOpen, action: props.onToggleRightPanel },
 			{ label: t("titlebar.openDeveloperWorkbench"), action: props.onOpenDeveloper },
 			"separator",
 			{ label: t("wb.newTerminal"), hint: "Ctrl+`", action: props.onOpenTerminal },
@@ -182,7 +206,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("view.zoomOut"), hint: "Ctrl+-", action: props.onZoomOut },
 			{ label: t("view.zoomReset"), hint: "Ctrl+0", action: props.onZoomReset },
 			"separator",
-			{ label: t("view.toggleFullscreen"), hint: "F11", action: props.onToggleFullscreen },
+			{ label: t("view.toggleFullscreen"), hint: "F11", active: props.fullscreen, action: props.onToggleFullscreen },
 		],
 		help: [
 			{ label: t("help.guide"), action: props.onOpenGuide },
@@ -220,6 +244,19 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 								// pointerdown 先于按钮抢焦点，此时 activeElement 还是用户正在输入的元素
 								capturedEditableRef.current = captureEditableTarget();
 							}}
+							onKeyDown={(event) => {
+								// 键盘用户：↓ 直接展开并选中第一项（鼠标用户保持原样，不抢焦点）
+								if (event.key === "ArrowDown" && menu !== key) {
+									event.preventDefault();
+									capturedEditableRef.current = captureEditableTarget();
+									setMenuError("");
+									setMenu(key);
+									requestAnimationFrame(() => {
+										const panel = document.getElementById(`owl-desktop-menu-${key}`);
+										if (panel) moveMenuFocus(panel, "first");
+									});
+								}
+							}}
 							onClick={() => {
 								setMenuError("");
 								setMenu((current) => current === key ? undefined : key);
@@ -228,7 +265,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 							{t(labelKey)}
 						</button>
 						{menu === key && (
-							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={t(labelKey)}>
+							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={t(labelKey)} onKeyDown={onMenuKeyDown}>
 								{actions[key].map((row, index) => (
 									row === "separator" ? (
 										<div className="owl-desktop-menu-separator" key={`sep-${index}`} role="separator" />
@@ -236,14 +273,21 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 										<button
 											key={row.label}
 											type="button"
-											role="menuitem"
+											role={row.active !== undefined ? "menuitemcheckbox" : "menuitem"}
+											aria-checked={row.active !== undefined ? Boolean(row.active) : undefined}
+											className={row.active ? "is-active" : undefined}
 											disabled={row.disabled}
 											onClick={() => {
 												setMenu(undefined);
 												row.action();
 											}}
 										>
-											<span className="owl-desktop-menu-label">{row.label}</span>
+											<span className="owl-desktop-menu-left">
+												{row.active !== undefined && (
+													<span className="owl-desktop-menu-check" aria-hidden="true">{row.active ? "✓" : ""}</span>
+												)}
+												<span className="owl-desktop-menu-label">{row.label}</span>
+											</span>
 											{row.hint && <span className="owl-desktop-menu-hint">{row.hint}</span>}
 										</button>
 									)

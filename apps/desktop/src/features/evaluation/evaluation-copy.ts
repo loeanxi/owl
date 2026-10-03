@@ -30,7 +30,7 @@ const zh = {
 	summaryDesc: "按题型比较；样本数量、未检查和未评分分别显示。", summaryHidden: "先完成或跳过匿名评分，才能查看该组模型指标。",
 	model: "模型配置", sampleCount: "结果数", scoredCount: "已评分", uncheckedCount: "未检查", failures: "失败", noSummary: "这一题型没有已揭晓结果。",
 	partialCost: "{n} 个结果费用未知", partialTime: "{n} 个结果耗时未知", duplicateProfile: "已经选择此模型与档位", edit: "编辑", clear: "清空选择", score: "{n} 分",
-	ready: "已完成，待评价", allReviewed: "已评价", scope: "{tasks} 题 · {profiles} 个配置 · {samples} 次", rawUsage: "输入 {input} / 输出 {output}", selectLimit: "每次最多选择 30 道题与 12 个模型配置。",
+	ready: "已完成，待评价", allReviewed: "已评价", scope: "{tasks} 题 · {profiles} 个配置 · {samples} 次", rawUsage: "输入 {input} / 输出 {output}", selectLimit: "每次最多选择 30 道题与 12 个模型配置。", actualRequest: "实际请求模型", responseModel: "供应商返回模型", forwardedThinking: "已转发思考参数", providerDefault: "供应商默认", modelMismatch: "返回模型：{model}",
 } as const;
 
 const en: { [K in keyof typeof zh]: string } = {
@@ -63,7 +63,7 @@ const en: { [K in keyof typeof zh]: string } = {
 	summaryDesc: "Compare by category, with sample counts, unchecked results and unscored results shown separately.", summaryHidden: "Review or skip anonymous scoring to view model metrics for this group.",
 	model: "Model configuration", sampleCount: "Results", scoredCount: "Scored", uncheckedCount: "Unchecked", failures: "Failures", noSummary: "No revealed results in this category.",
 	partialCost: "{n} results have unknown cost", partialTime: "{n} results have unknown duration", duplicateProfile: "This model and thinking level is already selected", edit: "Edit", clear: "Clear selection", score: "{n} points",
-	ready: "Completed, awaiting review", allReviewed: "Reviewed", scope: "{tasks} tasks · {profiles} configurations · {samples} samples", rawUsage: "Input {input} / output {output}", selectLimit: "Select up to 30 tasks and 12 model configurations per evaluation.",
+	ready: "Completed, awaiting review", allReviewed: "Reviewed", scope: "{tasks} tasks · {profiles} configurations · {samples} samples", rawUsage: "Input {input} / output {output}", selectLimit: "Select up to 30 tasks and 12 model configurations per evaluation.", actualRequest: "Requested model", responseModel: "Provider response model", forwardedThinking: "Forwarded thinking parameter", providerDefault: "Provider default", modelMismatch: "Response model: {model}",
 };
 
 export type EvaluationText = (key: keyof typeof zh, vars?: Record<string, string | number>) => string;

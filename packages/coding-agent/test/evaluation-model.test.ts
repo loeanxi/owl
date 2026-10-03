@@ -123,7 +123,13 @@ describe("direct evaluation model adapter", () => {
 		expect(partial).toHaveBeenCalledWith("answer", "reasoning");
 		expect(actual.usage).toEqual({ input: 12, output: 30, cacheRead: 2, cacheWrite: 1, total: 45 });
 		expect(actual.costUsd).toBe(0.0001162);
-		expect(actual.actualModel).toEqual({ provider: model.provider, modelId: model.id, responseModel: null, forwardedThinkingLevel: "high", providerThinkingLevel: null });
+		expect(actual.actualModel).toEqual({
+			provider: model.provider,
+			modelId: model.id,
+			responseModel: null,
+			forwardedThinkingLevel: "high",
+			providerThinkingLevel: null,
+		});
 		expect(fixtures.create).toHaveBeenCalledWith(expect.objectContaining({ allowModelNetwork: false }));
 	});
 
@@ -174,6 +180,21 @@ describe("direct evaluation model adapter", () => {
 		expect(await access.listModels()).toHaveLength(1);
 		fixtures.getModel.mockReturnValue({ ...model, api: "pi-virtual" });
 		const available = await access.listModels();
-		await expect(access.invoke({ task, profile: { id: "virtual", provider: model.provider, modelId: model.id, model: available[0], thinkingLevel: "default", timeoutMs: 1000, maxTokens: 500 }, signal: new AbortController().signal, onPartial: () => {} })).rejects.toThrow("实体模型");
+		await expect(
+			access.invoke({
+				task,
+				profile: {
+					id: "virtual",
+					provider: model.provider,
+					modelId: model.id,
+					model: available[0],
+					thinkingLevel: "default",
+					timeoutMs: 1000,
+					maxTokens: 500,
+				},
+				signal: new AbortController().signal,
+				onPartial: () => {},
+			}),
+		).rejects.toThrow("实体模型");
 	});
 });

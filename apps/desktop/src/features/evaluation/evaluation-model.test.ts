@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { DOMParser } from "linkedom";
 import type { EvaluationProfile, EvaluationResultView, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
-import { evaluationStatistics, groupResults, profileKey, selectProfile } from "./evaluation-model.ts";
+import { evaluationStatistics, groupResults, isolatedPreview, profileKey, selectProfile } from "./evaluation-model.ts";
 
 const profile: EvaluationProfile = {
 	id: "profile-a", provider: "fixture", modelId: "model", thinkingLevel: "default", maxTokens: 8192, timeoutMs: 1000,
@@ -58,4 +59,28 @@ test("zero price remains a known metric and configurations distinguish provider 
 	assert.equal(selected.length, 2);
 	assert.equal(selectProfile(selected, high, true).length, 2);
 	assert.deepEqual(selectProfile(selected, high, false), [profile]);
+});
+
+test("HTML preview preserves form submit handlers while removing outbound actions and enforcing restrictive CSP", () => {
+	const parserDescriptor = Object.getOwnPropertyDescriptor(globalThis, "DOMParser");
+	Object.defineProperty(globalThis, "DOMParser", { value: DOMParser, configurable: true });
+	try {
+		const preview = isolatedPreview('<html><head><meta http-equiv="refresh" content="0;url=https://outside.test"><base href="https://outside.test"></head><body><form id="repair-form" action="https://outside.test" target="_top"><input id="device"><button id="submit">Submit</button></form><a id="outside" href="https://outside.test">Outside</a><script>document.getElementById("repair-form").addEventListener("submit",event=>event.preventDefault())</script></body></html>', "html");
+		const document = new DOMParser().parseFromString(preview, "text/html");
+		assert.equal(document.querySelector("#repair-form")?.tagName, "FORM");
+		assert.equal(document.querySelector("#repair-form")?.hasAttribute("action"), false);
+		assert.equal(document.querySelector("#repair-form")?.hasAttribute("target"), false);
+		assert.ok(document.querySelector("#device"));
+		assert.ok(document.querySelector("#submit"));
+		assert.match(document.querySelector("script")?.textContent ?? "", /addEventListener\("submit"/);
+		assert.equal(document.querySelector("#outside")?.hasAttribute("href"), false);
+		assert.match(preview, /form-action 'none'/);
+		assert.match(preview, /connect-src 'none'/);
+		assert.match(preview, /script-src 'unsafe-inline'/);
+		assert.doesNotMatch(preview, /http-equiv="refresh"/);
+		assert.match(isolatedPreview('<html><body><svg xmlns="http://www.w3.org/2000/svg"><circle r="2"/></svg></body></html>', "svg"), /script-src 'none'/);
+	} finally {
+		if (parserDescriptor) Object.defineProperty(globalThis, "DOMParser", parserDescriptor);
+		else Reflect.deleteProperty(globalThis, "DOMParser");
+	}
 });

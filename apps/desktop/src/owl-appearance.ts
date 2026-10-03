@@ -1,7 +1,9 @@
 /**
- * 外观自定义颜色（settings.json 的 owlAppearance 字段）。
+ * 外观自定义颜色与主题预设（settings.json 的 owlAppearance 字段）。
+ * - preset：整套配色方案。"" = 经典黑（默认，中性黑灰），"owl-green" = 猫头鹰绿
+ *   （旧版暖绿灰配色，经 <html data-owl-preset> 切换 index.css / desktop-shell.css 的令牌块）。
  * - accent：强调色，全局一份，深浅主题通用（默认空 = 猫头鹰绿）。
- * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随主题默认）。
+ * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随当前预设的默认）。
  * 应用方式：在 <html> 上写内联 CSS 变量覆盖 index.css 的 --color-owl-* 令牌，
  * 组件全部引用变量所以无需改动；清除时移除内联值即回默认。
  * 主题解析档变化（含 system 跟随操作系统）时 theme.ts 会先更新 <html> 的
@@ -9,21 +11,34 @@
  * 刻意不静态导入 theme.ts：解析档直接读 dataset，让解析器可在 node 测试里单测。
  */
 
+/** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
+export const OWL_PRESET_IDS = ["", "owl-green"] as const;
+
+export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
+
 export interface OwlAppearanceColors {
+	preset: OwlPresetId;
 	accent: string;
 	dark: { background: string; foreground: string };
 	light: { background: string; foreground: string };
 }
 
-/** index.css 的默认令牌值（仅用于 UI 展示与 <input type="color"> 的兜底值，改 CSS 时同步）。 */
-export const THEME_DEFAULT_COLORS = {
-	dark: { background: "#262624", foreground: "#e9e7e0" },
-	light: { background: "#faf9f5", foreground: "#3d3a32" },
-} as const;
+/** 各预设深浅档的默认底色/文字色（与 index.css 令牌保持同步，仅供 UI 展示与拾色器兜底）。 */
+export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: string; foreground: string }; light: { background: string; foreground: string } }> = {
+	"": {
+		dark: { background: "#1e1e1e", foreground: "#e8e8e8" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"owl-green": {
+		dark: { background: "#262624", foreground: "#e9e7e0" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+};
 
 export const DEFAULT_ACCENT = "#2f9e5a";
 
 export const DEFAULT_OWL_APPEARANCE: Readonly<OwlAppearanceColors> = Object.freeze({
+	preset: "",
 	accent: "",
 	dark: Object.freeze({ background: "", foreground: "" }),
 	light: Object.freeze({ background: "", foreground: "" }),
@@ -45,12 +60,17 @@ function asRecord(value: unknown): Record<string, unknown> {
 		: {};
 }
 
+function parsePreset(value: unknown): OwlPresetId {
+	return (OWL_PRESET_IDS as readonly string[]).includes(value as string) ? value as OwlPresetId : "";
+}
+
 /** 逐字段回退：坏值只影响自己那一项，不拖垮其它已保存的颜色。 */
 export function parseOwlAppearance(raw: unknown): OwlAppearanceColors {
 	const value = asRecord(raw);
 	const dark = asRecord(value.dark);
 	const light = asRecord(value.light);
 	return {
+		preset: parsePreset(value.preset),
 		accent: normalizeHexColor(value.accent),
 		dark: { background: normalizeHexColor(dark.background), foreground: normalizeHexColor(dark.foreground) },
 		light: { background: normalizeHexColor(light.background), foreground: normalizeHexColor(light.foreground) },
@@ -80,6 +100,9 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 	]) {
 		root.style.removeProperty(name);
 	}
+	// 主题预设走 <html> 属性：index.css / desktop-shell.css 据此整块切换配色令牌。
+	if (colors.preset) root.dataset.owlPreset = colors.preset;
+	else delete root.dataset.owlPreset;
 	if (colors.accent) {
 		root.style.setProperty("--color-owl-accent", colors.accent);
 		root.style.setProperty("--color-owl-accent-hover", `color-mix(in srgb, ${colors.accent} 84%, #000)`);
@@ -98,7 +121,7 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 	}
 }
 
-/** 应用一整套自定义颜色：先存模块级副本（供主题切档时重放），再立即落变量。 */
+/** 应用一整套外观设置：先存模块级副本（供主题切档时重放），再立即落变量与预设属性。 */
 export function applyOwlAppearance(colors: OwlAppearanceColors): void {
 	current = parseOwlAppearance(colors);
 	applyToDocument(current);

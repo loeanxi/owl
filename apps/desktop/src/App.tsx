@@ -1029,6 +1029,7 @@ export default function App(): React.JSX.Element {
 				sidebarToggleRef={sidebarToggleRef}
 				workbenchOpen={workbenchOpen}
 				workbenchDock={workbenchDock}
+				fullscreen={fullscreen}
 				onToggleSidebar={shortcuts.toggleSidebar}
 				onNewChat={shortcuts.newChat}
 				onOpenProject={shortcuts.openProject}

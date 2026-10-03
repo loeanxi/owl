@@ -1,13 +1,15 @@
 /* UI chrome has its own palette. Shared chat/composer variables stay unchanged. */
 /* canvas/text 两项留 override 口：外观设置的自定义背景/前景经 <html> 内联变量穿透到这里。 */
 .owl-desktop-shell {
-	--owl-ui-canvas: var(--owl-ui-canvas-override, #202321);
-	--owl-ui-panel: #282d29;
-	--owl-ui-sidebar: #191d1a;
-	--owl-ui-border: #343c35;
-	--owl-ui-text: var(--owl-ui-text-override, #e9e7e0);
-	--owl-ui-muted: #969f97;
-	--owl-ui-hover: #282e29;
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1c1c1c);
+	--owl-ui-panel: #252525;
+	--owl-ui-sidebar: #161616;
+	--owl-ui-border: #343434;
+	--owl-ui-text: var(--owl-ui-text-override, #e8e8e8);
+	--owl-ui-muted: #9b9b9b;
+	--owl-ui-hover: #2a2a2a;
+	/* 全局 hover 与面板底色几乎同色，菜单条目单独用对比更强的一档（悬停/键盘选中共用） */
+	--owl-ui-menu-hover: #353535;
 	--owl-ui-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
 	display: flex;
 	flex-direction: column;
@@ -18,6 +20,19 @@
 	background: var(--owl-ui-sidebar);
 }
 
+/* 猫头鹰绿预设（owlAppearance.preset = "owl-green"）：旧版暖绿灰外壳配色。
+   与浅色块同优先级，必须放在它前面，浅色 + 绿预设时浅色获胜。 */
+html[data-owl-preset="owl-green"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #202321);
+	--owl-ui-panel: #282d29;
+	--owl-ui-sidebar: #191d1a;
+	--owl-ui-border: #343c35;
+	--owl-ui-text: var(--owl-ui-text-override, #e9e7e0);
+	--owl-ui-muted: #969f97;
+	--owl-ui-hover: #282e29;
+	--owl-ui-menu-hover: #3a423b;
+}
+
 html[data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafbf9);
 	--owl-ui-panel: #ffffff;
@@ -26,6 +41,7 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-text: var(--owl-ui-text-override, #3d3a32);
 	--owl-ui-muted: #66726a;
 	--owl-ui-hover: #e9eeea;
+	--owl-ui-menu-hover: #dbe3dc;
 }
 
 .owl-desktop-titlebar {
@@ -75,6 +91,22 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	font-size: 12px;
 	text-align: left;
 }
+/* 悬停与键盘选中（↑/↓ 移动的焦点）共用同一种可见高亮 */
+.owl-desktop-menu-panel button:hover:not(:disabled),
+.owl-desktop-menu-panel button:focus:not(:disabled),
+.owl-desktop-menu-panel button:focus-visible:not(:disabled) {
+	background: var(--owl-ui-menu-hover);
+	outline: none;
+}
+.owl-desktop-menu-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.owl-desktop-menu-check {
+	flex: none;
+	width: 14px;
+	color: var(--color-owl-accent);
+	font-size: 11px;
+	line-height: 1;
+}
+.owl-desktop-menu-panel button.is-active .owl-desktop-menu-label { color: var(--color-owl-accent); }
 .owl-desktop-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owl-desktop-menu-hint {
 	flex: none;

@@ -71,7 +71,11 @@ afterEach(async () => {
 	}
 });
 
-async function setup(invoke: EvaluationInvoker = async () => structuredClone(reply), timeoutMs = 1000, check?: EvaluationServiceOptions["check"]) {
+async function setup(
+	invoke: EvaluationInvoker = async () => structuredClone(reply),
+	timeoutMs = 1000,
+	check?: EvaluationServiceOptions["check"],
+) {
 	const directory = await mkdtemp(join(tmpdir(), "owl-evaluation-test-"));
 	directories.push(directory);
 	const service = new EvaluationService({
@@ -80,10 +84,12 @@ async function setup(invoke: EvaluationInvoker = async () => structuredClone(rep
 		listModels: async () => structuredClone(models),
 		invoke,
 		timeoutMs,
-		check: check ?? (async (tested, text) => ({
-			artifact: { type: tested.outputType, content: text, previewAllowed: true },
-			checks: [{ id: "format", label: "格式", status: "passed", detail: "fixture checked" }],
-		})),
+		check:
+			check ??
+			(async (tested, text) => ({
+				artifact: { type: tested.outputType, content: text, previewAllowed: true },
+				checks: [{ id: "format", label: "格式", status: "passed", detail: "fixture checked" }],
+			})),
 	});
 	services.push(service);
 	return { directory, service };
@@ -125,8 +131,16 @@ describe("durable model evaluation", () => {
 			request.onPartial("part", "hidden reasoning");
 			await new Promise((done) => setTimeout(done, 20));
 			active--;
-			return { ...structuredClone(reply), costUsd: request.profile.model.pricing ? reply.costUsd : null,
-				actualModel: { provider: request.profile.provider, modelId: request.profile.modelId, responseModel: `${request.profile.modelId}-actual`, forwardedThinkingLevel: null, providerThinkingLevel: null },
+			return {
+				...structuredClone(reply),
+				costUsd: request.profile.model.pricing ? reply.costUsd : null,
+				actualModel: {
+					provider: request.profile.provider,
+					modelId: request.profile.modelId,
+					responseModel: `${request.profile.modelId}-actual`,
+					forwardedThinkingLevel: null,
+					providerThinkingLevel: null,
+				},
 			};
 		});
 		const begun = await start(service, 3);
@@ -330,12 +344,26 @@ describe("durable model evaluation", () => {
 	});
 
 	it("measures model generation independently of checker execution", async () => {
-		const { service } = await setup(async () => reply, 1000, async () => {
-			await new Promise((done) => setTimeout(done, 60));
-			return { artifact: null, checks: [] };
-		});
+		const { service } = await setup(
+			async () => reply,
+			1000,
+			async () => {
+				await new Promise((done) => setTimeout(done, 60));
+				return { artifact: null, checks: [] };
+			},
+		);
 		const finished = await settle(service, (await start(service)).id);
-		const revealed = await service.handle({ action: "run.reveal", runId: finished.id, taskId: task.id, sample: 1, mode: "skip" }) as EvaluationRunView;
-		expect(revealed.results.every((result) => result.durationMs !== null && result.durationMs !== undefined && result.durationMs < 50)).toBe(true);
+		const revealed = (await service.handle({
+			action: "run.reveal",
+			runId: finished.id,
+			taskId: task.id,
+			sample: 1,
+			mode: "skip",
+		})) as EvaluationRunView;
+		expect(
+			revealed.results.every(
+				(result) => result.durationMs !== null && result.durationMs !== undefined && result.durationMs < 50,
+			),
+		).toBe(true);
 	});
 });

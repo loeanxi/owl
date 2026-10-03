@@ -15,7 +15,7 @@ import type {
 	OwlImageProvider,
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
-import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, THEME_DEFAULT_COLORS, type OwlAppearanceColors } from "../owl-appearance.ts";
+import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, PRESET_DEFAULT_COLORS, type OwlAppearanceColors, type OwlPresetId } from "../owl-appearance.ts";
 import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
 import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
@@ -50,6 +50,17 @@ const ACCENT_PRESETS = [
 	{ value: "#f97316", labelKey: "settings.appearance.accentOrange" },
 	{ value: "#eab308", labelKey: "settings.appearance.accentAmber" },
 ] as const;
+
+/** 主题预设（整套深色配色）。preview 是预览小卡用的示意色，与 index.css 各预设令牌保持一致。 */
+const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: { bg: string; rail: string; line: string; panel: string } }[] = [
+	{ id: "", labelKey: "settings.appearance.presetGraphite", preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" } },
+	{ id: "owl-green", labelKey: "settings.appearance.presetOwlGreen", preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" } },
+];
+
+/** 当前预设下某深浅档的默认底色/文字色（预设无自定义时的拾色器兜底与 hex 展示）。 */
+function presetDefaultColors(preset: OwlPresetId, mode: "dark" | "light") {
+	return PRESET_DEFAULT_COLORS[preset][mode];
+}
 
 type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
 
@@ -2664,7 +2675,7 @@ export function SettingsPage({
 									>
 										<ColorField
 											value={owlAppearance[resolvedTheme].background}
-											fallback={THEME_DEFAULT_COLORS[resolvedTheme].background}
+											fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).background}
 											disabled={busy || !owlAppearanceLoaded}
 											ariaLabel={t("settings.appearance.background")}
 											resetLabel={t("settings.appearance.colorDefault")}
@@ -2677,7 +2688,7 @@ export function SettingsPage({
 									>
 										<ColorField
 											value={owlAppearance[resolvedTheme].foreground}
-											fallback={THEME_DEFAULT_COLORS[resolvedTheme].foreground}
+											fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).foreground}
 											disabled={busy || !owlAppearanceLoaded}
 											ariaLabel={t("settings.appearance.foreground")}
 											resetLabel={t("settings.appearance.colorDefault")}
@@ -2686,6 +2697,52 @@ export function SettingsPage({
 									</SettingRow>
 								</div>
 								<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
+
+								{/* 主题预设：整套深色配色；切换时清掉自定义背景/前景，让预设完整生效。 */}
+								<h3 className="owl-settings-group-title">{t("settings.appearance.themePresets")}</h3>
+								<div className="owl-settings-group">
+									<SettingRow title={t("settings.appearance.themePresets")} desc={t("settings.appearance.themePresetsDesc")}>
+										<div className="owl-settings-preset-grid" role="radiogroup" aria-label={t("settings.appearance.themePresets")}>
+											{OWL_THEME_PRESETS.map((preset) => {
+												const active = owlAppearance.preset === preset.id;
+												return (
+													<button
+														key={preset.id || "default"}
+														type="button"
+														role="radio"
+														aria-checked={active}
+														className={`owl-settings-preset-card ${active ? "is-active" : ""}`}
+														disabled={busy || !owlAppearanceLoaded}
+														onClick={() => saveAppearanceColors({
+															...owlAppearance,
+															preset: preset.id,
+															dark: { background: "", foreground: "" },
+															light: { background: "", foreground: "" },
+														})}
+													>
+														<span
+															className="owl-settings-preset-preview"
+															aria-hidden="true"
+															style={{
+																"--pv-bg": preset.preview.bg,
+																"--pv-rail": preset.preview.rail,
+																"--pv-line": preset.preview.line,
+																"--pv-panel": preset.preview.panel,
+															} as React.CSSProperties}
+														>
+															<span className="pv-rail"><i className="is-accent" /><i /><i /></span>
+															<span className="pv-main"><i /><i /><b /></span>
+														</span>
+														<span className="owl-settings-preset-label">
+															<span>{t(preset.labelKey)}</span>
+															{active && <span className="owl-settings-preset-check" aria-hidden="true">✓</span>}
+														</span>
+													</button>
+												);
+											})}
+										</div>
+									</SettingRow>
+								</div>
 
 								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
 								<h3 className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>

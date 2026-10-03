@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 /*
- * Claude Desktop 深色风格的 design tokens。
+ * Claude Desktop 风格的 design tokens。
  * 命名统一走 owl-* 前缀，Tailwind v4 会为每个 --color-* 生成对应工具类
  * （bg-owl-bg / text-owl-muted / border-owl-border …）。
  */
 @theme {
-	/* 表面：主背景 → 侧栏 → 图标栏最深 → 面板/输入卡 → 悬停 */
-	--color-owl-bg: #262624;
-	--color-owl-sidebar: #1f1e1d;
-	--color-owl-rail: #1a1918;
-	--color-owl-panel: #2f2e2b;
-	--color-owl-bubble: #30302e;
-	--color-owl-hover: #35342f;
-	--color-owl-border: #45443e;
+	/* 表面：主背景 → 侧栏 → 图标栏最深 → 面板/输入卡 → 悬停（默认经典黑，中性灰阶） */
+	--color-owl-bg: #1e1e1e;
+	--color-owl-sidebar: #191919;
+	--color-owl-rail: #151515;
+	--color-owl-panel: #262626;
+	--color-owl-bubble: #282828;
+	--color-owl-hover: #2e2e2e;
+	--color-owl-border: #3d3d3d;
 
 	/* 导航单独使用中性灰，保持项目与会话层级清晰。 */
 	--color-owl-sidebar-bg: #1c1c1c;
@@ -25,12 +25,12 @@
 	--color-owl-sidebar-muted: #a0a0a0;
 	--color-owl-sidebar-faint: #858585;
 
-	/* 文字：奶油白正文 → 次级 → 弱化 */
-	--color-owl-text: #e9e7e0;
-	--color-owl-muted: #a6a399;
-	--color-owl-faint: #8a867c;
+	/* 文字：正文 → 次级 → 弱化 */
+	--color-owl-text: #e8e8e8;
+	--color-owl-muted: #a3a3a3;
+	--color-owl-faint: #8a8a8a;
 
-	/* 主色：owl 图标绿（owl.svg 羽辐的 #2f9e5a） */
+	/* 主色：owl 图标绿（owl.svg 羽辐的 #2f9e5a），可在设置页强调色里更换 */
 	--color-owl-accent: #2f9e5a;
 	--color-owl-accent-hover: #28864d;
 
@@ -45,9 +45,28 @@
 }
 
 html {
-	--owl-conversation-bg: #1b1b1b;
+	--owl-conversation-bg: #171717;
 	color-scheme: dark;
 	background-color: var(--color-owl-bg);
+}
+
+/*
+ * 猫头鹰绿预设（settings.json owlAppearance.preset = "owl-green"）：
+ * 旧版默认的暖绿灰深色配色，整块从默认降级为可选预设。
+ * 必须放在浅色覆盖之前——浅色块同优先级但更靠后，浅色 + 绿预设时浅色获胜。
+ */
+html[data-owl-preset="owl-green"] {
+	--owl-conversation-bg: #1b1b1b;
+	--color-owl-bg: #262624;
+	--color-owl-sidebar: #1f1e1d;
+	--color-owl-rail: #1a1918;
+	--color-owl-panel: #2f2e2b;
+	--color-owl-bubble: #30302e;
+	--color-owl-hover: #35342f;
+	--color-owl-border: #45443e;
+	--color-owl-text: #e9e7e0;
+	--color-owl-muted: #a6a399;
+	--color-owl-faint: #8a867c;
 }
 
 /*
