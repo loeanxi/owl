@@ -381,7 +381,7 @@ export function Composer({
 						alt=""
 						aria-hidden="true"
 						draggable={false}
-						className="pointer-events-none absolute -top-5 right-3 z-10 h-8 w-8 select-none"
+						className="pointer-events-none absolute -top-4 right-4 z-10 h-8 w-8 select-none drop-shadow-[0_3px_3px_rgba(0,0,0,0.45)]"
 					/>
 					<textarea
 						className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-3 text-sm text-owl-text outline-none placeholder:text-owl-faint"
