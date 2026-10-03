@@ -63,7 +63,7 @@ export const DEFAULT_OWL_WALLPAPER: Readonly<OwlWallpaperSettings> = Object.free
 	playbackRate: 1,
 	dim: 25,
 	blur: 0,
-	panelOpacity: 74,
+	panelOpacity: 48,
 	fit: "cover",
 	pauseOnHidden: true,
 	pauseOnBlur: false,
@@ -143,15 +143,16 @@ export function applyOwlWallpaper(settings: OwlWallpaperSettings): void {
 	const root = document.documentElement;
 	root.style.removeProperty("--owl-wp-panel-mix");
 	root.style.removeProperty("--owl-wp-card-mix");
+	root.style.removeProperty("--owl-wp-read-mix");
 	if (current.enabled) {
 		root.dataset.owlWallpaper = "on";
-		// 面板半透明：color-mix(in srgb, var(--color-owl-bg) <mix>, transparent)。
-		// var() 携带百分比在样式解析前替换，浏览器兼容性比 calc() 混算更稳。
+		// 半透明三档（var() 携带百分比在样式解析前替换，比 calc() 混算兼容性更稳）：
+		// panel = 外壳框架（主面板/侧栏/顶栏）；card = 次级卡片/对话区底，比框架更透一档；
+		// read = 阅读玻璃（聊天气泡/输入卡/回复底），保证文字可读的最高一档。
 		const panel = Math.round(current.panelOpacity);
 		root.style.setProperty("--owl-wp-panel-mix", `${panel}%`);
-		// 卡片/次级面板比主面板更透一档，让壁纸在内容卡上也能透出来（有下限保可读）。
-		const card = Math.max(40, panel - 18);
-		root.style.setProperty("--owl-wp-card-mix", `${card}%`);
+		root.style.setProperty("--owl-wp-card-mix", `${Math.max(28, panel - 18)}%`);
+		root.style.setProperty("--owl-wp-read-mix", `${Math.min(82, Math.max(46, panel + 14))}%`);
 	} else {
 		delete root.dataset.owlWallpaper;
 	}

@@ -323,6 +323,7 @@ export const EN = {
 	"block.svgSource": "Source",
 	"block.svgError": "SVG could not be displayed — showing the source instead",
 	"block.mermaidError": "Invalid diagram syntax — showing the source instead",
+	"block.mermaidEngine": "Diagram engine failed to load — check the console for details",
 	"block.mermaidLoading": "Rendering…",
 	"block.scene3dLoading": "Loading 3D scene…",
 	"block.scene3dError": "3D rendering failed",

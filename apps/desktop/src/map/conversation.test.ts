@@ -421,8 +421,17 @@ test("authorized device coordinates reach the selected model separately from an 
 	const prompt = mapPrompt("我附近有什么？", { ...context, deviceLocation: location });
 	assert.ok(prompt.includes(JSON.stringify(location)));
 	assert.ok(prompt.includes("without asking them to repeat their location"));
-	assert.ok(prompt.includes("search center may differ from deviceLocation"));
+	assert.ok(prompt.includes("search center may differ from userLocation or deviceLocation"));
 	assert.ok(!mapPrompt("我在哪？", context).includes('"deviceLocation":'));
+});
+
+test("manually confirmed current areas reach the model without becoming GPS measurements or map browsing state", () => {
+	const userLocation = { source: "user" as const, name: "南京市雨花台区", lat: 31.9931143, lng: 118.7739579, precision: "area" as const, updatedAt: "2026-10-03T18:50:00.000Z" };
+	const prompt = mapPrompt("我附近有什么？", { ...context, userLocation });
+	assert.ok(prompt.includes(JSON.stringify(userLocation)));
+	assert.ok(prompt.includes("only the user's location settings can update it"));
+	assert.ok(prompt.includes("not the user's exact street position"));
+	assert.ok(prompt.includes("Do not claim the manual setting is a GPS fix"));
 });
 
 test("a run that settles before the prompt acknowledgement cannot resurrect the busy indicator", async (t) => {

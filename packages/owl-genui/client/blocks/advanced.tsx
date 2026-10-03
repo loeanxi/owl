@@ -279,7 +279,7 @@ export const CopyNode = memo(function CopyNode({ node }: { node: GenuiCopy }) {
 type MermaidRenderState =
   | { status: 'loading' }
   | { status: 'ready'; html: string }
-  | { status: 'error' }
+  | { status: 'error'; mermaidUnavailable?: boolean }
 
 /** Mermaid: lazily loaded diagram renderer. */
 export const MermaidNode = memo(function MermaidNode({ node }: { node: GenuiMermaid }) {
@@ -294,13 +294,16 @@ export const MermaidNode = memo(function MermaidNode({ node }: { node: GenuiMerm
         const m = await import('../mermaid-lazy.ts')
         const svg = await m.renderMermaid(code)
         if (alive) setState({ status: 'ready', html: svg })
-      } catch {
-        if (alive) setState({ status: 'error' })
+      } catch (error) {
+        // 引擎加载失败和源码语法错误都走这里；不再静默吞掉——控制台保留真实
+        // 原因，兜底文案按类别区分（引擎加载失败不误导用户去改语法）。
+        console.error('[owl-genui] mermaid render failed:', error)
+        if (alive) setState({ status: 'error', mermaidUnavailable: !(error instanceof Error) || error.message.includes('Failed to load') || error.message.includes('fetch') || error.message.includes('importing') })
       }
     })()
     return () => { alive = false }
   }, [code])
-  if (state.status === 'error') return <div className={css.mermaidFallback}><pre>{code}</pre><div className={css.mermaidErr}>{t('block.mermaidError')}</div></div>
+  if (state.status === 'error') return <div className={css.mermaidFallback}><pre>{code}</pre><div className={css.mermaidErr}>{t(state.mermaidUnavailable === true ? 'block.mermaidEngine' : 'block.mermaidError')}</div></div>
   if (state.status === 'loading') return <div className={css.mermaidFallback}><pre>{code}</pre><div className={css.mermaidHint}>{t('block.mermaidLoading')}</div></div>
   return <div className={css.mermaid} dangerouslySetInnerHTML={{ __html: state.html }} data-genui-mermaid />
 })

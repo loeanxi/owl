@@ -638,7 +638,7 @@ export const zh = {
 	"settings.appearance.wallpaperBlur": "壁纸模糊",
 	"settings.appearance.wallpaperBlurDesc": "对壁纸做高斯模糊，毛玻璃观感，进一步降低对内容的干扰。",
 	"settings.appearance.wallpaperPanel": "界面不透明度",
-	"settings.appearance.wallpaperPanelDesc": "侧栏与对话面板的实色程度；越低壁纸透出越多，100% 等同普通外观。",
+	"settings.appearance.wallpaperPanelDesc": "框架面板的实色程度；对话内容始终浮在毛玻璃上保证可读。越低壁纸越清晰，默认 48%。",
 	"settings.appearance.wallpaperFit": "画面填充",
 	"settings.appearance.wallpaperFitDesc": "裁剪填满窗口，或完整显示留黑边。",
 	"settings.appearance.wallpaperFitCover": "裁剪填满",

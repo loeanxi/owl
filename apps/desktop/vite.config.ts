@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+	// TEMP debug entry (owl-genui 引擎调试页)；问题排查完可移除
+	build: { rollupOptions: { input: { main: "index.html", debug: "debug-genui.html" } } },
 	plugins: [react(), tailwindcss()],
 	server: {
 		port: 5188,

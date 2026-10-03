@@ -20,6 +20,8 @@ node ../../node_modules/vitest/dist/cli.js --run test/evaluation-service.test.ts
 # From the repository root
 node --test apps/desktop/src/features/evaluation/evaluation-model.test.ts apps/desktop/src/features/evaluation/evaluation-preview.test.ts
 node apps/desktop/scripts/evaluation.browser.mjs
+node apps/desktop/scripts/evaluation-stream.browser.mjs
 ```
 
 The browser integration script uses the real App, bridge and service with fake model/check adapters and temporary local data. It does not consume configured model credits or restart existing services. Its screenshots and report are saved in `.validation/model-evaluation`.
+The streaming script advances two fake producers manually while generation remains unfinished, then verifies live text, independent scroll following, tab selection, page navigation and retained output after cancellation. Its report and screenshots are saved in `.validation/model-evaluation-stream`.

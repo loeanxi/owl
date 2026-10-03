@@ -21,6 +21,7 @@ export type MapIconName =
 	| "target"
 	| "plug"
 	| "wallet"
+	| "settings"
 	| "info";
 
 const paths: Record<MapIconName, ReactNode> = {
@@ -80,6 +81,12 @@ const paths: Record<MapIconName, ReactNode> = {
 	),
 	plug: <path d="M7 3v5M17 3v5M5 8h14v4a7 7 0 0 1-14 0zM12 19v3" />,
 	wallet: <path d="M20 7H4a2 2 0 0 1 0-4h14v4M3 5v14a2 2 0 0 0 2 2h15V7M20 11h-6v6h6" />,
+	settings: (
+		<>
+			<path d="m9 3-.5 2-2 1-2-.5-2 3 1.5 1.5v2L2.5 14l2 3 2-.5 2 1 .5 2.5h4l.5-2.5 2-1 2 .5 2-3-1.5-2v-2L20 8.5l-2-3-2 .5-2-1-.5-2z" />
+			<circle cx="11.5" cy="11.5" r="3" />
+		</>
+	),
 	info: (
 		<>
 			<circle cx="12" cy="12" r="9" />

@@ -639,7 +639,7 @@ export const en: Dict = {
 	"settings.appearance.wallpaperBlur": "Wallpaper blur",
 	"settings.appearance.wallpaperBlurDesc": "Gaussian-blurs the wallpaper for a frosted look that interferes less with content.",
 	"settings.appearance.wallpaperPanel": "Panel opacity",
-	"settings.appearance.wallpaperPanelDesc": "How solid the sidebar and chat panels are; lower shows more wallpaper, 100% equals the normal look.",
+	"settings.appearance.wallpaperPanelDesc": "How solid the frame panels are; chat content always floats on frosted glass for readability. Lower shows more wallpaper, default 48%.",
 	"settings.appearance.wallpaperFit": "Scaling",
 	"settings.appearance.wallpaperFitDesc": "Crop to fill the window, or fit entirely with letterboxing.",
 	"settings.appearance.wallpaperFitCover": "Crop to fill",

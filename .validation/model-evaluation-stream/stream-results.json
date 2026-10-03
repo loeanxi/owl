@@ -1,0 +1,507 @@
+{
+  "success": true,
+  "actualApp": true,
+  "actualDesktopWebSocket": true,
+  "actualEvaluationService": true,
+  "manualStageGates": true,
+  "paidCalls": 0,
+  "cases": [
+    {
+      "name": "thinking-only stage stays running and shows waiting hint without revealing identity",
+      "success": true
+    },
+    {
+      "name": "two cards receive growing body while their real service run is unfinished",
+      "success": true
+    },
+    {
+      "name": "scrolling upward pauses only that card; continuing follows the next output",
+      "success": true
+    },
+    {
+      "name": "explicit source tab is not overridden by later streamed paragraphs",
+      "success": true
+    },
+    {
+      "name": "chat navigation preserves background stream and catches up on return",
+      "success": true
+    },
+    {
+      "name": "cancelling retains every received body paragraph and ignores late producer callbacks",
+      "success": true
+    }
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28",
+      "sentAt": 1791054226597
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-29",
+      "sentAt": 1791054226597
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.start",
+        "name": "Streaming isolated fixture",
+        "taskIds": [
+          "G08"
+        ],
+        "profiles": [
+          {
+            "id": "[\"offline-stream\",\"one\",\"default\"]",
+            "provider": "offline-stream",
+            "modelId": "one",
+            "thinkingLevel": "default"
+          },
+          {
+            "id": "[\"offline-stream\",\"two\",\"default\"]",
+            "provider": "offline-stream",
+            "modelId": "two",
+            "thinkingLevel": "default"
+          }
+        ],
+        "samples": 1
+      },
+      "id": "req-30",
+      "sentAt": 1791054226755
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-31",
+      "sentAt": 1791054226771
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-32",
+      "sentAt": 1791054226771
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-33",
+      "sentAt": 1791054227273
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-34",
+      "sentAt": 1791054227776
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-35",
+      "sentAt": 1791054228278
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-36",
+      "sentAt": 1791054228810
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-37",
+      "sentAt": 1791054228810
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.cancel",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-38",
+      "sentAt": 1791054228850
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-39",
+      "sentAt": 1791054228863
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+      },
+      "id": "req-40",
+      "sentAt": 1791054228863
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-41",
+      "sentAt": 1791054228867
+    }
+  ],
+  "snapshots": [
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "running",
+          "outputChars": 0,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "running",
+          "outputChars": 0,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "running",
+          "outputChars": 2273,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "running",
+          "outputChars": 2273,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "running",
+          "outputChars": 3674,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "running",
+          "outputChars": 3674,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "running",
+          "outputChars": 4375,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "running",
+          "outputChars": 4375,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "running",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "running",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "cancelled",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "cancelled",
+      "results": [
+        {
+          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "01-waiting.png",
+    "02-growing-body.png",
+    "03-paused-reading.png",
+    "04-cancelled-retained.png"
+  ],
+  "sourceSha256": {
+    "apps/desktop/src/App.tsx": "0ddd3b8042ef58d236eef245b07879493a82b9c9d5104a4fd407f3c7a6d0c189",
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "481a68e621a69e3f4bea3f2557b1f3f27063916640012c7e4682066f1745b12a",
+    "apps/desktop/src/features/evaluation/useEvaluation.ts": "eef6177c776d530405dd469cedae0c325ad6c6d8b7b53a7df4d0e34f7acfacae",
+    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "1b4b8e1bab2bd431388dcd82075dd6210e85bd33ff4acf6272ca0e6f696bdba2",
+    "packages/coding-agent/src/core/evaluation/service.ts": "b486a72491b4dff5eff631c5a9ec140abcfe059a7d8ecab521c818d175772ce8"
+  },
+  "origin": "http://127.0.0.1:5189/",
+  "bridgePort": 62154
+}

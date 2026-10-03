@@ -19,13 +19,15 @@ import { type DeviceLocation, DeviceLocator } from "./device-location.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
 import {
 	addLiveHistory,
-	DEFAULT_MAP_CENTER,
+	type ConfiguredMapLocation,
+	DEFAULT_CONFIGURED_LOCATION,
 	type LiveSavedState,
 	type LiveSearchRecord,
 	MAX_LIVE_COMPARISON,
 	mapDirectionsUrl,
 	nearbyCategoryFromMessage,
 	normalizeRealPlace,
+	normalizeConfiguredLocation,
 	parseCoordinates,
 	RealMapClient,
 	readLiveSavedState,
@@ -117,14 +119,12 @@ export function MapWorkspace({
 		try {
 			return readLiveSavedState(window.localStorage);
 		} catch {
-			return { favorites: [], history: [] };
+			return { favorites: [], history: [], configuredLocation: { ...DEFAULT_CONFIGURED_LOCATION } };
 		}
 	});
-	const [center, setCenter] = useState<MapCoordinate>(() => savedState.lastCenter ?? DEFAULT_MAP_CENTER);
-	const [locationName, setLocationName] = useState(() => {
-		const name = savedState.lastLocationName;
-		return name === "我的位置" || name === "My location" ? "" : (name ?? "");
-	});
+	const configuredLocation = savedState.configuredLocation ?? DEFAULT_CONFIGURED_LOCATION;
+	const [center, setCenter] = useState<MapCoordinate>(() => ({ lat: configuredLocation.lat, lng: configuredLocation.lng }));
+	const [locationName, setLocationName] = useState(() => configuredLocation.name);
 	const [category, setCategory] = useState<MapCategory>("all");
 	const [radius, setRadius] = useState(2000);
 	const [places, setPlaces] = useState<RealPlace[]>([]);
@@ -144,6 +144,18 @@ export function MapWorkspace({
 	const [locationOpen, setLocationOpen] = useState(false);
 	const [locationInput, setLocationInput] = useState("");
 	const [locationCandidates, setLocationCandidates] = useState<RealPlace[]>([]);
+	const [positionSettingsOpen, setPositionSettingsOpen] = useState(false);
+	const [settingsInput, setSettingsInput] = useState("");
+	const [settingsDraft, setSettingsDraft] = useState<ConfiguredMapLocation>();
+	const [settingsCandidates, setSettingsCandidates] = useState<RealPlace[]>([]);
+	const [settingsBusy, setSettingsBusy] = useState(false);
+	const [settingsError, setSettingsError] = useState<string>();
+	const positionSettingsRef = useRef<HTMLDialogElement>(null);
+	const positionSettingsButtonRef = useRef<HTMLButtonElement>(null);
+	const positionSettingsInputRef = useRef<HTMLInputElement>(null);
+	const settingsAbort = useRef<AbortController | undefined>(undefined);
+	const settingsEpoch = useRef(0);
+	const initialPositionApplied = useRef(false);
 	const [homeInput, setHomeInput] = useState("");
 	const [sideInput, setSideInput] = useState("");
 	const [followInput, setFollowInput] = useState("");
@@ -235,13 +247,33 @@ export function MapWorkspace({
 			deviceLocator.cancel();
 			return;
 		}
-		// Scheduling after mount avoids duplicate native prompts during React StrictMode setup.
-		const frame = requestAnimationFrame(() => locateDevice(true));
+		const frame = requestAnimationFrame(() => {
+			if (initialPositionApplied.current) return;
+			initialPositionApplied.current = true;
+			deviceLocator.cancel(true);
+			centerOn(configuredLocation, configuredLocation.name);
+			void nearbyPlaces(configuredLocation, category, radius, configuredLocation.name);
+		});
 		return () => {
 			cancelAnimationFrame(frame);
 			deviceLocator.cancel();
 		};
 	}, [active, deviceLocator]);
+	useEffect(() => {
+		const dialog = positionSettingsRef.current;
+		if (!active && positionSettingsOpen) {
+			closePositionSettings();
+			return;
+		}
+		if (!dialog || !positionSettingsOpen || !active) return;
+		dialog.showModal();
+		positionSettingsInputRef.current?.focus();
+		return () => {
+			settingsEpoch.current++;
+			settingsAbort.current?.abort();
+			dialog.close();
+		};
+	}, [active, positionSettingsOpen]);
 
 	useEffect(() => {
 		sendEpoch.current++;
@@ -462,6 +494,74 @@ export function MapWorkspace({
 		void deviceLocator.request(automatic).then((location) => {
 			if (location && activeRef.current) applyDeviceLocationRef.current(location);
 		});
+	}
+	function openPositionSettings(): void {
+		deviceLocator.cancel(true);
+		setComparisonOpen(false);
+		setDetailId(undefined);
+		setLocationOpen(false);
+		setSettingsInput(configuredLocation.name);
+		setSettingsDraft({ ...configuredLocation });
+		setSettingsCandidates([]);
+		setSettingsError(undefined);
+		setSettingsBusy(false);
+		setPositionSettingsOpen(true);
+	}
+	function closePositionSettings(): void {
+		settingsEpoch.current++;
+		settingsAbort.current?.abort();
+		setSettingsBusy(false);
+		setPositionSettingsOpen(false);
+		positionSettingsButtonRef.current?.focus();
+	}
+	async function searchConfiguredLocation(): Promise<void> {
+		const query = settingsInput.trim();
+		if (!query) return;
+		settingsAbort.current?.abort();
+		const controller = new AbortController();
+		settingsAbort.current = controller;
+		const epoch = ++settingsEpoch.current;
+		setSettingsError(undefined);
+		setSettingsCandidates([]);
+		setSettingsDraft(undefined);
+		const point = parseCoordinates(query);
+		if (point) {
+			setSettingsDraft({ ...point, name: query, source: "user", precision: "point", updatedAt: new Date().toISOString() });
+			return;
+		}
+		if (/^[+-]?\d+(?:\.\d+)?\s*[,，;]\s*[+-]?\d/.test(query)) {
+			setSettingsError(m("coordinateInvalid"));
+			return;
+		}
+		setSettingsBusy(true);
+		try {
+			const result = await maps.search(query, copy.language, controller.signal);
+			if (epoch !== settingsEpoch.current) return;
+			if (!result.sources.some((source) => source.status === "ok"))
+				throw new Error(result.sources.find((source) => source.error)?.error || m("mapUnavailable"));
+			setSettingsCandidates(result.data);
+			if (!result.data.length) setSettingsError(m("noResultsHint"));
+		} catch (error) {
+			if (epoch === settingsEpoch.current && !controller.signal.aborted)
+				setSettingsError(error instanceof Error ? error.message : m("mapUnavailable"));
+		} finally {
+			if (epoch === settingsEpoch.current) setSettingsBusy(false);
+		}
+	}
+	function saveConfiguredLocation(): void {
+		const next = normalizeConfiguredLocation({ ...settingsDraft, updatedAt: new Date().toISOString() });
+		if (!next || settingsBusy) return;
+		const nextSaved = { ...savedState, configuredLocation: next, lastCenter: { lat: next.lat, lng: next.lng }, lastLocationName: next.name };
+		if (!writeLiveSavedState(window.localStorage, nextSaved)) {
+			setSettingsError(m("storageUnavailable"));
+			return;
+		}
+		deviceLocator.cancel(true);
+		setSavedState(nextSaved);
+		centerOn(next, next.name);
+		closePositionSettings();
+		showToast(m("positionSaved"));
+		void nearbyPlaces(next, category, radius, next.name);
 	}
 	function beginQuery(): { epoch: number; signal: AbortSignal } {
 		queryAbort.current?.abort();
@@ -724,20 +824,17 @@ export function MapWorkspace({
 					await deviceLocator.request();
 					if (epoch !== sendEpoch.current) return;
 				}
-				const deviceLocation = deviceLocator.getState().location;
-				const nearDevice = Boolean(
-					deviceLocation && /我(?:的)?(?:附近|周围|身边)|离我|near me|around me/i.test(text),
-				);
-				if (nearDevice && deviceLocation) {
+				const nearUser = /我(?:的)?(?:附近|周围|身边)|离我|near me|around me/i.test(text);
+				if (nearUser) {
 					deviceLocator.cancel(true);
-					centerOn(deviceLocation, m("myLocation"));
-					contextLocationName = m("myLocation");
+					centerOn(configuredLocation, configuredLocation.name);
+					contextLocationName = configuredLocation.name;
 				}
 				const result = await nearbyPlaces(
-					nearDevice && deviceLocation ? deviceLocation : centerRef.current,
+					nearUser ? configuredLocation : centerRef.current,
 					requestedCategory,
 					radius,
-					nearDevice ? m("myLocation") : undefined,
+					nearUser ? configuredLocation.name : undefined,
 				);
 				if (epoch !== sendEpoch.current) return;
 				visiblePlaces = result?.data ?? [];
@@ -746,6 +843,7 @@ export function MapWorkspace({
 				center: { ...centerRef.current },
 				locationName: contextLocationName,
 				deviceLocation: deviceLocator.getState().location,
+				userLocation: configuredLocation,
 				radiusMeters: radius,
 				category: requestedCategory ?? category,
 				selectedPlace: followContext ?? (requestedCategory ? undefined : selectedPlace),
@@ -981,6 +1079,20 @@ export function MapWorkspace({
 	function locationControl(): JSX.Element {
 		return (
 			<div className="location-control" ref={locationRef}>
+				<div className="map-current-location">
+					<span><MapIcon name="pin" />{configuredLocation.name}</span>
+					<button
+						type="button"
+						className="map-location-config-button"
+						ref={positionSettingsButtonRef}
+						aria-label={m("positionSettings")}
+						title={m("positionSettings")}
+						onClick={openPositionSettings}
+					>
+						<MapIcon name="settings" />
+					</button>
+				</div>
+				<p className="map-device-location-status">{m(configuredLocation.precision === "area" ? "positionAreaNote" : "positionPointNote")}</p>
 				<button
 					type="button"
 					className="location-pill"
@@ -991,7 +1103,7 @@ export function MapWorkspace({
 					onClick={() => setLocationOpen(!locationOpen)}
 				>
 					<MapIcon name="pin" />
-					<span>{centerLabel}</span>
+					<span>{m("browseCenter", { name: centerLabel })}</span>
 					<span className="chev" aria-hidden="true">
 						⌄
 					</span>
@@ -1286,6 +1398,66 @@ export function MapWorkspace({
 	];
 	return (
 		<div className={`owl-map-workspace${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`} ref={workspaceRef}>
+			{positionSettingsOpen && (
+				<dialog
+					className="map-position-settings"
+					ref={positionSettingsRef}
+					aria-labelledby="owl-position-settings-title"
+					onCancel={(event) => {
+						event.preventDefault();
+						closePositionSettings();
+					}}
+				>
+					<header>
+						<h2 id="owl-position-settings-title">{m("positionSettingsTitle")}</h2>
+						<button type="button" aria-label={m("closePositionSettings")} onClick={closePositionSettings}><MapIcon name="close" /></button>
+					</header>
+					<p>{m("positionSettingsDescription")}</p>
+					<form onSubmit={(event) => { event.preventDefault(); void searchConfiguredLocation(); }}>
+						<input
+							ref={positionSettingsInputRef}
+							aria-label={m("positionSearch")}
+							placeholder={m("locationPlaceholder")}
+							value={settingsInput}
+							onChange={(event) => {
+								settingsEpoch.current++;
+								settingsAbort.current?.abort();
+								setSettingsInput(event.target.value);
+								setSettingsDraft(undefined);
+								setSettingsCandidates([]);
+								setSettingsError(undefined);
+								setSettingsBusy(false);
+							}}
+						/>
+						<button type="submit" disabled={settingsBusy || !settingsInput.trim()}>{m("locationSubmit")}</button>
+					</form>
+					<small>{m("coordinatesHint")}</small>
+					{settingsBusy && <output aria-live="polite">{m("searching")}</output>}
+					{settingsError && <p className="map-conversation-error" role="alert">{settingsError}</p>}
+					<div className="map-position-candidates">
+						{settingsCandidates.map((place) => (
+							<button
+								key={place.id}
+								type="button"
+								aria-pressed={settingsDraft?.lat === place.lat && settingsDraft?.lng === place.lng}
+								onClick={() => setSettingsDraft({
+									lat: place.lat, lng: place.lng, name: place.name, source: "user",
+									precision: place.tags.admin_level || place.tags.place ? "area" : "point",
+									updatedAt: new Date().toISOString(),
+								})}
+							>
+								<strong>{placeName(place)}</strong>
+								<small>{place.address || pointLabel(place)}</small>
+							</button>
+						))}
+					</div>
+					{settingsDraft && <p className="map-position-selection"><MapIcon name="check" />{settingsDraft.name}<small>{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}</small></p>}
+					<footer>
+						<button type="button" onClick={closePositionSettings}>{m("cancel")}</button>
+						<button type="button" className="primary" disabled={!settingsDraft || settingsBusy} onClick={saveConfiguredLocation}>{m("savePosition")}</button>
+					</footer>
+				</dialog>
+			)}
 			<aside className="map-sidebar" id="owl-map-sidebar" aria-label={m("map")} inert={comparisonOpen}>
 				<div className="sidebar-brand">
 					<strong>owl</strong>
