@@ -256,6 +256,34 @@ try {
     await composer().getByRole("button", { name: "test-model", exact: false }).waitFor();
   });
   if (!baselineOnly) {
+    await caseRun("optional-fields-toggle-without-selecting-an-answer-or-removing-other-controls", async () => {
+      const responseCount = answerRequests().length;
+      const other = card().getByRole("button", { name: "其他", exact: true });
+      const note = card().getByRole("button", { name: "＋ 添加备注", exact: true });
+      assert.equal(await other.getAttribute("aria-expanded"), "false");
+      await other.click();
+      assert.equal(await other.getAttribute("aria-expanded"), "true");
+      assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).inputValue(), "");
+      await other.click();
+      assert.equal(await card().getByPlaceholder("自由输入…", { exact: true }).isVisible(), false);
+      await note.click();
+      assert.equal(await note.getAttribute("aria-expanded"), "true");
+      await note.click();
+      assert.equal(await card().getByPlaceholder("给这道题补充说明（随答案一起回给 agent）…", { exact: true }).isVisible(), false);
+      assert.equal(await card().getByRole("radio", { checked: true }).count(), 0);
+      assert.equal(answerRequests().length, responseCount);
+      assert.equal(await card().getByRole("button", { name: "提交回答", exact: true }).isVisible(), true);
+    });
+    await caseRun("connection-loss-shows-run-location-and-reconnect-hides-environment-with-question-draft-intact", async () => {
+      const responseCount = answerRequests().length;
+      await card().getByRole("radio", { name: "检查测试覆盖", exact: true }).click();
+      for (const socket of sockets) socket.close(1000, "isolated regression reconnect");
+      await environment().waitFor({ state: "visible" });
+      assert.equal(await composer().getByRole("textbox", { name: "任务输入", exact: true }).isVisible(), true);
+      await environment().waitFor({ state: "hidden", timeout: 5000 });
+      assert.equal(await card().getByRole("radio", { name: "检查测试覆盖", exact: true }).getAttribute("aria-checked"), "true");
+      assert.equal(answerRequests().length, responseCount);
+    });
     await caseRun("optional-other-and-note-buttons-expand-preserve-inputs-and-submit-exact-answer", async () => {
       const input = await customInput(); await input.fill("  先做排版  ");
       await card().getByRole("button", { name: "＋ 添加备注", exact: true }).click();
@@ -273,7 +301,7 @@ try {
     });
     await emitQuestion("polished-layout", [polishedQuestion]);
     await caseRun("polished-single-question-light-theme-and-narrow-layout-keep-descriptions-readable", async () => {
-      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "light")); await pause();
+      await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "light")); await page.waitForTimeout(250);
       assertAnchor(await geometry());
       await page.screenshot({ path: join(output, "12-polished-four-options-light.png") });
       await page.setViewportSize({ width: 760, height: 760 }); await pause();
@@ -286,6 +314,7 @@ try {
       await card().getByText(polishedQuestion.options[3].description, { exact: true }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(output, "13-polished-four-options-narrow-light.png") });
       await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "dark"));
+      await page.waitForTimeout(250);
       await page.screenshot({ path: join(output, "14-polished-four-options-narrow-dark.png") });
       return g;
     });
@@ -602,6 +631,7 @@ try {
     await caseRun("background-question-does-not-cover-current-session-and-is-preserved-after-current-answer", async () => {
       send(q("background-request", [{ ...officeQuestion, question: "后台会话：是否保留草稿？" }], "other-session")); await pause();
       assert.equal(await card().count(), 0);
+      assert.equal(await environment().isVisible(), true, "Background questions must not hide the current conversation's environment");
       await emitQuestion("current-ahead-of-background");
       await card().getByText(officeQuestion.question, { exact: true }).waitFor();
       await card().getByText("确认合入", { exact: true }).click(); await submit();
@@ -610,10 +640,18 @@ try {
       assert.equal(answerRequests().some((a) => a.requestId === "background-request"), false);
       await page.getByRole("button", { name: "后台问题会话", exact: false }).first().click(); await pause();
       await card().getByText("后台会话：是否保留草稿？", { exact: true }).waitFor();
+      assert.equal(await environment().count(), 0, "Selecting the question's session must hide its environment");
       await cancel();
       assert.equal(answerRequests().at(-1).requestId, "background-request");
       assert.equal(answerRequests().at(-1).cancelled, true);
+      assert.equal(await environment().isVisible(), true, "Cancelling must restore this session's environment");
       await page.getByRole("button", { name: "费用测试审阅", exact: false }).first().click(); await pause();
+    });
+    await caseRun("background-running-session-does-not-hide-current-environment", async () => {
+      send({ type: "event", sessionId: "other-session", event: { type: "agent_start" } }); await pause();
+      assert.equal(await environment().isVisible(), true);
+      assert.equal(await composer().getByRole("button", { name: "发送", exact: true }).isVisible(), true);
+      send({ type: "event", sessionId: "other-session", event: { type: "agent_settled" } }); await pause();
     });
     await emitQuestion("preserved-draft", questionnaire);
     await caseRun("partial-answer-current-step-note-and-preview-survive-session-switch", async () => {

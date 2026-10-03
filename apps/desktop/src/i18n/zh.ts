@@ -1185,6 +1185,8 @@ export const zh = {
 	"review.created": "新建",
 	"review.missing": "文件已不在磁盘上",
 	"review.loading": "正在读取待审改动…",
+	"review.disconnected": "桥未连接，等待重连…",
+	"review.loadFailed": "读取待审改动失败",
 	"review.keptBadge": "已保留",
 	"review.revertedBadge": "已回滚",
 	"review.diffTruncated": "diff 过大，已截断显示（保留/回滚不受影响）",
@@ -1211,6 +1213,7 @@ export const zh = {
 	"wb.notGitRepo": "非 Git 仓库",
 	// ---- 工作台各 Tab ----
 	"common.refresh": "刷新",
+	"common.retry": "重试",
 	"term.exited": "[进程已退出 —— 点右上角重新启动]",
 	"term.exitedCode": "[进程已退出，代码 {code} —— 点右上角重新启动]",
 	"term.starting": "正在启动 shell…",

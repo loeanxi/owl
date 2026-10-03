@@ -27,6 +27,8 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const t = useT();
 	const [files, setFiles] = useState<DiffApprovalFileSummary[] | undefined>(undefined);
 	const [error, setError] = useState<string | undefined>(undefined);
+	const [loading, setLoading] = useState(true);
+	const [connected, setConnected] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [selected, setSelected] = useState<string | undefined>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
@@ -36,21 +38,38 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const [expandedDiff, setExpandedDiff] = useState(false);
 
 	const refresh = (): void => {
+		setLoading(true);
 		void api
 			.diffApprovalList(cwd)
 			.then((list) => {
 				setFiles(list);
 				setError(undefined);
+				setConnected(true);
 			})
-			.catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+			.catch((err: unknown) => {
+				const message = err instanceof Error ? err.message : String(err);
+				setError(message);
+				// 桥没连上：立刻给出未连接态（区别于无限转圈），重连后由 onStatus 自动重试
+				if (/bridge (not connected|disconnected)/i.test(message)) setConnected(false);
+			})
+			.finally(() => setLoading(false));
 	};
 
 	useEffect(() => {
 		refresh();
+		// 桥重连成功：自动补一次清单（未连接期间用户不用手动刷新）
+		const offStatus = client.onStatus((up) => {
+			setConnected(up);
+			if (up) refresh();
+		});
 		// 插件落库/处理后的推送：只认当前工作区的广播
-		return client.onDiffApprovalChanged((message) => {
+		const offChanged = client.onDiffApprovalChanged((message) => {
 			if (samePath(message.cwd, cwd)) refresh();
 		});
+		return () => {
+			offStatus();
+			offChanged();
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [cwd, client]);
 
@@ -238,9 +257,22 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 				</div>
 			)}
 			<div className="min-h-0 flex-1 overflow-y-auto py-1">
-				{files === undefined && (
+				{files === undefined && loading && (
 					<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
 						<IconLoader size={13} className="animate-spin" /> {t("review.loading")}
+					</div>
+				)}
+				{files === undefined && !loading && (
+					<div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+						<IconPencil size={22} className={connected ? "text-owl-faint" : "text-red-300/70"} />
+						<div className="text-xs text-owl-muted">{connected ? t("review.loadFailed") : t("review.disconnected")}</div>
+						<button
+							type="button"
+							className="flex items-center gap-1 rounded-md border border-owl-border px-2 py-1 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+							onClick={refresh}
+						>
+							<IconRefresh size={12} /> {t("common.retry")}
+						</button>
 					</div>
 				)}
 				{files !== undefined && pending.length === 0 && resolved.length === 0 && (

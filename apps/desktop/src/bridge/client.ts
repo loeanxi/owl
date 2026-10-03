@@ -268,6 +268,14 @@ export class BridgeClient {
 					reject(new Error("Model evaluation request timed out"));
 				}, 60_000);
 			}
+			// 改动审批都是快查询/快操作：不设超时的话，桥假死（已连不回包）会让
+			// 审查面板永远停在「读取中」
+			if (request.type.startsWith("diffApproval.")) {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error("Review request timed out"));
+				}, 15_000);
+			}
 			this.pending.set(id, pending);
 			this.ws.send(JSON.stringify({ ...request, id }));
 		});

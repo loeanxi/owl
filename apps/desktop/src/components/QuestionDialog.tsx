@@ -149,9 +149,16 @@ export function QuestionDialog({
 		>
 			{/* 单题只显示计数；多题用短进度点导航，避免整条强调色压过问题。 */}
 			<div className="owl-question-card__progress">
+				{!collapsed && question.header && (
+					<>
+						<span className="owl-question-card__topic" title={question.header}>{question.header}</span>
+						<span aria-hidden="true" className="owl-question-card__separator">·</span>
+					</>
+				)}
 				<span className="owl-question-card__step">
 					{t("question.progress", { i: qi + 1, n: total })}
 				</span>
+				{!collapsed && question.multiSelect && <span className="owl-question-card__multi-hint">{t("question.multiSelectHint")}</span>}
 				{collapsed && <span className="owl-question-card__summary" title={question.question}>{question.question}</span>}
 				<div hidden={collapsed || total < 2} className="owl-question-card__steps">
 					{request.questions.map((q, i) => (
@@ -186,12 +193,6 @@ export function QuestionDialog({
 			</div>
 			<div id={`${questionId}-body`} hidden={collapsed} className="owl-question-card__body">
 				<div className="owl-question-card__heading">
-					{(question.header || question.multiSelect) && (
-						<div className="owl-question-card__caption">
-							{question.header && <span>{question.header}</span>}
-							{question.multiSelect && <span>{t("question.multiSelectHint")}</span>}
-						</div>
-					)}
 					<p id={questionId} className="owl-question-card__question">{question.question}</p>
 				</div>
 				{unanswered && <p className="mt-1 text-xs text-red-400">{t("question.missingWarning")}</p>}

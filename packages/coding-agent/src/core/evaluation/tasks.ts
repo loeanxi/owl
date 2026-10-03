@@ -172,6 +172,10 @@ export const BUILTIN_EVALUATION_TASKS: EvaluationTask[] = [
 			{ label: "Owl 改编 · 参考 VGBench 方法", url: "https://github.com/vgbench/VGBench" },
 		),
 		outputType: "json",
+		checks: [
+			{ id: "format", label: "JSON格式有效", kind: "format" },
+			rules("relations", "可见对象、遮挡与变换标准答案"),
+		],
 		rubric: [
 			{ id: "relation", label: "关系判断", description: "最终颜色、可见数量与位置是否正确。" },
 			{ id: "transform", label: "变换理解", description: "是否理解 defs/use、平移与遮挡。" },

@@ -1186,6 +1186,8 @@ export const en: Dict = {
 	"review.created": "New",
 	"review.missing": "File missing on disk",
 	"review.loading": "Reading pending changes…",
+	"review.disconnected": "Bridge not connected — waiting to reconnect…",
+	"review.loadFailed": "Failed to load pending changes",
 	"review.keptBadge": "Kept",
 	"review.revertedBadge": "Reverted",
 	"review.diffTruncated": "Diff too large, truncated for display (keep/revert are unaffected)",
@@ -1212,6 +1214,7 @@ export const en: Dict = {
 	"wb.notGitRepo": "Not a Git repository",
 	// ---- Workbench tabs ----
 	"common.refresh": "Refresh",
+	"common.retry": "Retry",
 	"term.exited": "[Process exited — click restart at the top right]",
 	"term.exitedCode": "[Process exited with code {code} — click restart at the top right]",
 	"term.starting": "Starting shell…",

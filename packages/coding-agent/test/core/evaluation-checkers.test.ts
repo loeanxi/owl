@@ -123,6 +123,11 @@ describe("SVG syntax, source policy and fixed semantics", () => {
 		expect(isEvaluationSvgWellFormed(nested)).toBe(true);
 		expect(checkEvaluationSvgRequirement(task("G05"), artifact(nested))?.status).toBe("failed");
 	});
+	it("checks actual chart values and rejects a wrong bar height", () => {
+		const source='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400">'+[40,80,60,100].map((value,index)=>`<rect id="bar-${"ABCD"[index]}" x="${100+index*100}" y="${320-value*2}" width="50" height="${value*2}"/><text>${value}</text>`).join('')+'</svg>';
+		expect(checkEvaluationSvgRequirement(task("G04"), artifact(source))?.status).toBe("passed");
+		expect(checkEvaluationSvgRequirement(task("G04"), artifact(source.replace('height="80"','height="81"')))?.status).toBe("failed");
+	});
 	it("requires only the declared local edit while retaining other attributes", () => {
 		const edited = EVALUATION_BICYCLE_SVG.replace('id="front-wheel" cx="190"', 'id="front-wheel" cx="202"').replace(
 			'id="front-wheel" cx="202" cy="110" r="30" fill="none" stroke="#394c40"',
