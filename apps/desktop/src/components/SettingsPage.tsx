@@ -778,7 +778,7 @@ export function SettingsPage({
 	const extensions = Array.isArray(settingsObj.extensions) ? (settingsObj.extensions as string[]) : [];
 	const sidebarCfg = parseSidebarSettings(settingsObj.owlSidebar);
 	const theme = typeof settingsObj.theme === "string" ? settingsObj.theme : "dark";
-	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "未知";
+	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "";
 	const modelCount = groups.reduce((n, g) => n + g.models.length, 0);
 
 	const input = "owl-settings-input mt-1 w-full font-mono";
@@ -855,7 +855,7 @@ export function SettingsPage({
 						{section === "general" && (
 							<>
 								<SectionHeader title={t("settings.general.title")} desc={t("settings.general.desc")} />
-								<SettingRow title={t("settings.general.workspaceDir")} desc={t("settings.general.workspaceDirDesc}")}>
+								<SettingRow title={t("settings.general.workspaceDir")} desc={t("settings.general.workspaceDirDesc")}>
 									<input className={input} value={workspaceDir} onChange={(event) => onWorkspaceDir(event.target.value)} />
 								</SettingRow>
 								<SettingRow title={t("settings.general.agentDir")} desc={t("settings.general.agentDirDesc")}>
@@ -912,7 +912,7 @@ export function SettingsPage({
 										key={field.key}
 										title={t(field.titleKey)}
 										desc={t(field.descKey)}
-										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {field.unitKey ? t(field.unitKey) : field.unit}</span>}
+										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
 									>
 										<input
 											type="range"
@@ -1176,7 +1176,7 @@ export function SettingsPage({
 													});
 												}}
 											>
-												保存供应商
+												{t("settings.models.saveProvider")}
 											</button>
 										</div>
 									</div>
@@ -1185,7 +1185,7 @@ export function SettingsPage({
 								<div className="space-y-2">
 									{groups.length === 0 && (
 										<div className="rounded-xl border border-dashed border-owl-border px-3 py-4 text-center text-xs text-owl-faint">
-											还没有任何模型 — 点右上角「+ 添加供应商」开始
+											{t("settings.models.empty")}
 										</div>
 									)}
 									{groups.map((group) => (
@@ -1195,7 +1195,7 @@ export function SettingsPage({
 													<span className="owl-settings-provider-mark" aria-hidden="true">{(group.name ?? group.id).slice(0, 1).toUpperCase()}</span>
 													<div className="min-w-0">
 														<div className="owl-settings-provider-name">{group.name ?? group.id}</div>
-														<div className="owl-settings-provider-subtitle">{group.id} · {group.models.length} 个模型</div>
+														<div className="owl-settings-provider-subtitle">{group.id} · {t("settings.models.modelCountSuffix", { n: group.models.length })}</div>
 													</div>
 												</div>
 												<button
@@ -1204,52 +1204,52 @@ export function SettingsPage({
 													disabled={busy}
 													onClick={() => setConfirmProviderId(group.id)}
 												>
-													删除供应商
+													{t("settings.models.deleteProviderLink")}
 												</button>
 											</div>
 											{group.models.length > 0 ? (
 												<table className="owl-settings-model-table">
-													<thead><tr><th scope="col">模型</th><th scope="col">上下文</th><th scope="col">能力</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
+													<thead><tr><th scope="col">{t("settings.models.colModel")}</th><th scope="col">{t("settings.models.colContext")}</th><th scope="col">{t("settings.models.colCapabilities")}</th><th scope="col"><span className="sr-only">{t("settings.models.colActions")}</span></th></tr></thead>
 													<tbody>
 														{group.models.map((model) => (
 															<tr key={model.id}>
 																<td><div>{model.name || model.id}</div><div className="owl-settings-model-id">{model.id}</div></td>
 																<td className="whitespace-nowrap">{model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : "—"}</td>
-																<td className="whitespace-nowrap text-owl-muted">{model.reasoning ? "推理" : "通用"}</td>
-																<td><button type="button" className="owl-settings-link is-danger" disabled={busy} aria-label={`删除模型 ${model.name || model.id}`} onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}>删除</button></td>
+																<td className="whitespace-nowrap text-owl-muted">{model.reasoning ? t("settings.models.reasoning") : t("settings.models.general")}</td>
+																<td><button type="button" className="owl-settings-link is-danger" disabled={busy} aria-label={t("settings.models.deleteModelAria", { name: model.name || model.id })} onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}>{t("common.delete")}</button></td>
 															</tr>
 														))}
 													</tbody>
 												</table>
-											) : <div className="owl-settings-notice mt-4">还没有模型。添加模型后可在新会话中选择。</div>}
+											) : <div className="owl-settings-notice mt-4">{t("settings.models.noModels")}</div>}
 
 											{modelFormFor === group.id ? (
 												<div className="owl-settings-form mt-4 space-y-4">
 													<div className="grid grid-cols-2 gap-4">
 														<label className="block text-[11px] text-owl-muted">
-															模型 ID *
-															<input className={smallInput} value={mId} onChange={(e) => setMId(e.target.value)} placeholder="如 glm-5.3-flash" />
+															{t("settings.models.modelIdLabel")}
+															<input className={smallInput} value={mId} onChange={(e) => setMId(e.target.value)} placeholder={t("settings.models.modelIdPlaceholder")} />
 														</label>
 														<label className="block text-[11px] text-owl-muted">
-															显示名
+															{t("settings.models.displayName")}
 															<input className={smallInput} value={mName} onChange={(e) => setMName(e.target.value)} />
 														</label>
 														<label className="block text-[11px] text-owl-muted">
-															上下文窗口（tokens）
+															{t("settings.models.contextWindowLabel")}
 															<input className={smallInput} value={mCtx} onChange={(e) => setMCtx(e.target.value)} placeholder="128000" />
 														</label>
 														<label className="block text-[11px] text-owl-muted">
-															最大输出（tokens）
+															{t("settings.models.maxOutputLabel")}
 															<input className={smallInput} value={mMax} onChange={(e) => setMMax(e.target.value)} placeholder="8192" />
 														</label>
 													</div>
 													<label className="flex items-center gap-1.5 text-[11px] text-owl-muted">
 														<input type="checkbox" checked={mReasoning} onChange={(e) => setMReasoning(e.target.checked)} />
-														推理模型
+														{t("settings.models.reasoningModel")}
 													</label>
 													<div className="flex justify-end gap-2">
 														<button type="button" className={btn} onClick={() => setModelFormFor(null)}>
-															取消
+															{t("common.cancel")}
 														</button>
 														<button
 															type="button"
@@ -1276,7 +1276,7 @@ export function SettingsPage({
 																});
 															}}
 														>
-															保存模型
+															{t("settings.models.saveModel")}
 														</button>
 													</div>
 												</div>
@@ -1290,7 +1290,7 @@ export function SettingsPage({
 														setShowProviderForm(false);
 													}}
 												>
-													+ 添加模型
+													{t("settings.models.addModel")}
 												</button>
 											)}
 										</div>
@@ -1302,12 +1302,11 @@ export function SettingsPage({
 						{/* -------- 插件 -------- */}
 						{section === "plugins" && (
 							<>
-								<SectionHeader title="插件" desc="为 Owl 添加工具与技能，按需启用你的工作能力。更改会在新会话中生效。" />
+								<SectionHeader title={t("settings.plugins.title")} desc={t("settings.plugins.desc")} />
 								{(packages.length > 0 || extensions.length > 0) && (
 									<div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2">
 										<div className="text-[11px] leading-relaxed text-owl-muted">
-											检测到旧版扩展配置：packages（{packages.length}）/ extensions（{extensions.length}），
-											仍在兼容加载；迁移后统一由插件管理。
+											{t("settings.plugins.legacyNotice", { p: packages.length, e: extensions.length })}
 										</div>
 										<button
 											type="button"
@@ -1321,17 +1320,17 @@ export function SettingsPage({
 												})
 											}
 										>
-											迁移到插件
+											{t("settings.plugins.migrate")}
 										</button>
 									</div>
 								)}
-								<SettingRow title={`插件（${plugins.length}）`} desc="支持 npm:包名、git URL、本地目录或 .ts/.js 单文件；停用的插件新会话不再加载。">
+								<SettingRow title={t("settings.plugins.rowTitle", { n: plugins.length })} desc={t("settings.plugins.rowDesc")}>
 									<div className="flex gap-2">
 										<input
 											className={`${smallInput} min-w-0 flex-1`}
 											value={pluginInput}
 											onChange={(event) => setPluginInput(event.target.value)}
-											placeholder="npm:some-package 或 git URL 或本地路径"
+											placeholder={t("settings.plugins.inputPlaceholder")}
 											onKeyDown={(event) => {
 												if (event.key === "Enter" && pluginInput.trim()) {
 													void saveSettings({ plugins: [...plugins, pluginInput.trim()] }).then((ok) => {
@@ -1350,14 +1349,14 @@ export function SettingsPage({
 												});
 											}}
 										>
-											添加
+											{t("common.add")}
 										</button>
 									</div>
 								</SettingRow>
 								<div className="owl-settings-plugin-list">
 									{plugins.length === 0 && (
 										<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-											还没有安装任何插件
+											{t("settings.plugins.empty")}
 										</div>
 									)}
 									{plugins.map((entry, index) => {
@@ -1371,13 +1370,13 @@ export function SettingsPage({
 											>
 												<div className="flex min-w-0 items-center gap-2">
 													<span className={`shrink-0 rounded border px-1.5 py-px text-[10px] ${pluginBadgeClass(type)}`}>
-														{type}
+														{pluginTypeLabel(type)}
 													</span>
 													<div className="min-w-0">
 														<span className="block truncate font-mono text-xs text-owl-text">{label}</span>
 														{typeof entry === "object" && entry.extensions && entry.extensions.length > 0 && (
 															<span className="mt-0.5 block text-[10px] text-owl-faint">
-																扩展入口：{entry.extensions.join(", ")}
+																{t("settings.plugins.extEntries", { list: entry.extensions.join(", ") })}
 															</span>
 														)}
 													</div>
@@ -1387,14 +1386,14 @@ export function SettingsPage({
 														type="button"
 														className={`text-[11px] transition-colors disabled:opacity-40 ${disabled ? "text-owl-faint hover:text-owl-text" : "text-emerald-400 hover:text-emerald-300"}`}
 														disabled={busy}
-														title={disabled ? "启用该插件（新会话加载）" : "停用该插件（新会话不加载）"}
+														title={disabled ? t("settings.plugins.enableTitle") : t("settings.plugins.disableTitle")}
 														onClick={() => {
 															const next = [...plugins];
 															next[index] = togglePluginEntry(entry);
 															void saveSettings({ plugins: next });
 														}}
 													>
-														{disabled ? "○ 已停用" : "● 启用中"}
+														{disabled ? t("settings.plugins.disabledLabel") : t("settings.plugins.enabledLabel")}
 													</button>
 													<button
 														type="button"
@@ -1402,7 +1401,7 @@ export function SettingsPage({
 														disabled={busy}
 														onClick={() => void saveSettings({ plugins: plugins.filter((_, i) => i !== index) })}
 													>
-														删除
+														{t("common.delete")}
 													</button>
 												</div>
 											</div>
@@ -1424,11 +1423,11 @@ export function SettingsPage({
 							const projectLocked = skillsTab === "project" && !skillsData.projectTrusted;
 							return (
 								<>
-									<SectionHeader title="技能" desc="按来源管理 SKILL.md 技能：启用/禁用模型自动调用、创建、编辑与删除（移入回收站）。修改立即热刷新当前会话。" />
+									<SectionHeader title={t("settings.skills.title")} desc={t("settings.skills.desc")} />
 
 									{/* 三级 tab：个人 / 全局 / 项目 */}
 									<div className="mb-1 flex items-center gap-2">
-										{SKILL_TABS.map(({ tab, label }) => (
+										{SKILL_TABS.map(({ tab, labelKey }) => (
 											<button
 												key={tab}
 												type="button"
@@ -1438,7 +1437,7 @@ export function SettingsPage({
 													setSkillForm(null);
 												}}
 											>
-												{label}
+												{t(labelKey)}
 												<span className="ml-1.5 text-[10px] opacity-70">
 													{skillsData.skills.filter((s) => s.tab === tab).length}
 												</span>
@@ -1449,7 +1448,7 @@ export function SettingsPage({
 
 									{projectLocked && (
 										<div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
-											项目尚未信任：先在「常规」里信任该项目，才能浏览和写入项目技能。
+											{t("settings.skills.projectLocked")}
 										</div>
 									)}
 
@@ -1459,7 +1458,7 @@ export function SettingsPage({
 											className={`${smallInput} min-w-0 flex-1`}
 											value={skillsQuery}
 											onChange={(event) => setSkillsQuery(event.target.value)}
-											placeholder="按名称或描述过滤（名称命中排前，Esc 清空）"
+											placeholder={t("settings.skills.searchPlaceholder")}
 											onKeyDown={(event) => {
 												if (event.key === "Escape") setSkillsQuery("");
 											}}
@@ -1475,7 +1474,7 @@ export function SettingsPage({
 												setSkillForm({ mode: "create" });
 											}}
 										>
-											+ 新建技能
+											{t("settings.skills.create")}
 										</button>
 									</div>
 
@@ -1484,41 +1483,41 @@ export function SettingsPage({
 										<div className="owl-settings-card mb-3 space-y-3">
 											{skillForm.mode === "create" ? (
 												<label className="block text-[11px] text-owl-muted">
-													技能名 *（小写字母、数字、连字符）
+													{t("settings.skills.nameLabel")}
 													<input
 														className={`${smallInput} mt-1`}
 														value={skName}
 														onChange={(event) => setSkName(event.target.value)}
-														placeholder="如 loean7-my-skill"
+														placeholder={t("settings.skills.namePlaceholder")}
 													/>
 												</label>
 											) : (
 												<div className="text-[11px] text-owl-muted">
-													编辑 <span className="font-mono text-owl-text">{skillForm.entry.name}</span>
+													{t("settings.skills.editingPrefix")} <span className="font-mono text-owl-text">{skillForm.entry.name}</span>
 													<span className="ml-2 font-mono text-[10px] text-owl-faint">{skillForm.entry.path}</span>
 												</div>
 											)}
 											<label className="block text-[11px] text-owl-muted">
-												描述 *（模型按它决定何时使用）
+												{t("settings.skills.descLabel")}
 												<input
 													className={`${smallInput} mt-1`}
 													value={skDesc}
 													onChange={(event) => setSkDesc(event.target.value)}
-													placeholder="一句话说明这个技能做什么、什么时候用"
+													placeholder={t("settings.skills.descPlaceholder")}
 												/>
 											</label>
 											<label className="block text-[11px] text-owl-muted">
-												正文（frontmatter 之后的 markdown 指令）
+												{t("settings.skills.bodyLabel")}
 												<textarea
 													className={`${smallInput} mt-1 min-h-[180px] font-mono text-[11px]`}
 													value={skBody}
 													onChange={(event) => setSkBody(event.target.value)}
-													placeholder="# 步骤…"
+													placeholder={t("settings.skills.bodyPlaceholder")}
 												/>
 											</label>
 											<div className="flex justify-end gap-2">
 												<button type="button" className={btn} onClick={() => setSkillForm(null)}>
-													取消
+													{t("common.cancel")}
 												</button>
 												<button
 													type="button"
@@ -1526,7 +1525,7 @@ export function SettingsPage({
 													disabled={busy || (skillForm.mode === "create" ? !skName.trim() : false) || !skDesc.trim()}
 													onClick={() => void saveSkillForm()}
 												>
-													{skillForm.mode === "create" ? "创建技能" : "保存修改"}
+													{skillForm.mode === "create" ? t("settings.skills.createBtn") : t("settings.skills.saveBtn")}
 												</button>
 											</div>
 										</div>
@@ -1536,20 +1535,20 @@ export function SettingsPage({
 									<div className="owl-settings-plugin-list">
 										{skillsLoading && visibleSkills.length === 0 && (
 											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-												加载中…
+												{t("settings.skills.loading")}
 											</div>
 										)}
 										{!skillsLoading && visibleSkills.length === 0 && (
 											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-												{query ? "没有匹配的技能" : "这个目录还没有技能"}
+												{query ? t("settings.skills.noMatch") : t("settings.skills.emptyDir")}
 											</div>
 										)}
 										{visibleSkills.map((entry) => (
 											<div key={`${entry.tab}:${entry.path}`} className={`owl-settings-plugin-row ${entry.disabled ? "opacity-55" : ""}`}>
 												<div className="flex min-w-0 items-center gap-2">
 													{entry.isSymlink && (
-														<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-400" title="符号链接技能：可启停，不可编辑/删除">
-															链接
+														<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-400" title={t("settings.skills.symlinkTitle")}>
+															{t("settings.skills.symlinkBadge")}
 														</span>
 													)}
 													<div className="min-w-0">
@@ -1561,31 +1560,31 @@ export function SettingsPage({
 												</div>
 												<div className="ml-2 flex shrink-0 items-center gap-2.5">
 													<span className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-emerald-400"}`}>
-														{entry.disabled ? "仅手动 /skill:" : "模型可用"}
+														{entry.disabled ? t("settings.skills.manualOnly") : t("settings.skills.modelAvailable")}
 													</span>
 													<Switch
 														checked={!entry.disabled}
 														disabled={busy}
-														title={entry.disabled ? "启用模型自动调用" : "禁用模型自动调用（/skill: 手动仍可用）"}
+														title={entry.disabled ? t("settings.skills.enableAutoTitle") : t("settings.skills.disableAutoTitle")}
 														onChange={(next) => void toggleSkill(entry, next)}
 													/>
 													<button
 														type="button"
 														className="owl-settings-link disabled:opacity-40"
 														disabled={busy || entry.isSymlink}
-														title={entry.isSymlink ? "链接技能不可编辑" : "编辑描述与正文"}
+														title={entry.isSymlink ? t("settings.skills.symlinkEditTitle") : t("settings.skills.editTitle")}
 														onClick={() => void openSkillEditor(entry)}
 													>
-														编辑
+														{t("common.edit")}
 													</button>
 													<button
 														type="button"
 														className="owl-settings-link is-danger disabled:opacity-40"
 														disabled={busy || entry.isSymlink}
-														title={entry.isSymlink ? "链接技能不可删除" : "移入 .trash 回收站（可恢复）"}
+														title={entry.isSymlink ? t("settings.skills.symlinkDeleteTitle") : t("settings.skills.deleteRowTitle")}
 														onClick={() => setConfirmDelSkill(entry)}
 													>
-														删除
+														{t("common.delete")}
 													</button>
 												</div>
 											</div>
@@ -1596,17 +1595,18 @@ export function SettingsPage({
 									{confirmDelSkill && (
 										<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
 											<div className="owl-settings-card w-[min(420px,90vw)] space-y-3">
-												<div className="text-xs font-semibold text-owl-text">删除技能「{confirmDelSkill.name}」？</div>
+												<div className="text-xs font-semibold text-owl-text">{t("settings.skills.deleteConfirmTitle", { name: confirmDelSkill.name })}</div>
 												<div className="text-[11px] leading-relaxed text-owl-muted">
-													文件将移入 <span className="font-mono">{skillsData.roots[confirmDelSkill.tab]}/.trash</span>
-													，可在文件管理器中手工恢复。
+													{t("settings.skills.deleteConfirmPre")}
+													<span className="font-mono">{skillsData.roots[confirmDelSkill.tab]}/.trash</span>
+													{t("settings.skills.deleteConfirmPost")}
 												</div>
 												<div className="flex justify-end gap-2">
 													<button type="button" className={btn} onClick={() => setConfirmDelSkill(null)}>
-														取消
+														{t("common.cancel")}
 													</button>
 													<button type="button" className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`} disabled={busy} onClick={() => void deleteSkillEntry(confirmDelSkill)}>
-														删除
+														{t("common.delete")}
 													</button>
 												</div>
 											</div>
@@ -1619,25 +1619,25 @@ export function SettingsPage({
 						{/* -------- 侧边卡片 -------- */}
 						{section === "sidebar" && (
 							<>
-								<SectionHeader title="侧边卡片" desc="管理侧边卡片的显示内容与默认行为（侧边工作台的卡片开关与文件预览回退）。" />
+								<SectionHeader title={t("settings.sidecards.title")} desc={t("settings.sidecards.desc")} />
 
 								{/* 插件身份行：内置侧边工作台 + 打开配置文件 */}
 								<div className="owl-settings-card flex items-center justify-between gap-4">
 									<div className="flex min-w-0 items-center gap-2">
-										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">内置</span>
+										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">{t("settings.sidecards.builtinBadge")}</span>
 										<span className="text-xs font-semibold text-owl-text">owl-workbench</span>
-										<span className="truncate text-[10px] text-owl-faint">侧边工作台 · 配置存于 settings.json 的 owlSidebar</span>
+										<span className="truncate text-[10px] text-owl-faint">{t("settings.sidecards.builtinSubtitle")}</span>
 									</div>
 									<button type="button" className={`${btn} shrink-0`} disabled={!agentDir} onClick={openSidebarConfigFile}>
-										打开配置文件
+										{t("settings.sidecards.openConfig")}
 									</button>
 								</div>
 
 								{/* 常规 */}
-								<div className="pt-1 text-xs font-semibold text-owl-muted">常规</div>
+								<div className="pt-1 text-xs font-semibold text-owl-muted">{t("settings.sidecards.general")}</div>
 								<SettingRow
-									title="为模型注入侧边栏打开工具"
-									desc="开启后，模型可通过 sidebar_open 工具在侧边栏主动打开工作区内的文件（默认关闭；新会话生效）。"
+									title={t("settings.sidecards.injectOpenTool")}
+									desc={t("settings.sidecards.injectOpenToolDesc")}
 									control={
 										<Switch
 											checked={sidebarCfg.injectOpenTool}
@@ -1649,7 +1649,7 @@ export function SettingsPage({
 
 								{/* 侧边栏内容 */}
 								<div className="flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
-									侧边栏内容
+									{t("settings.sidecards.sidebarContent")}
 									<span className="rounded-full border border-owl-border px-1.5 text-[10px] font-normal text-owl-faint">
 										{QUICK_ACTIONS.filter((action) => isTabKindEnabled(action.kind, sidebarCfg)).length}
 									</span>
@@ -1683,19 +1683,19 @@ export function SettingsPage({
 									<button
 										type="button"
 										disabled
-										title="第三方卡片注册暂未开放"
+										title={t("settings.sidecards.addTabPluginTitle")}
 										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
 									>
 										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
-											<span className="text-base leading-none text-owl-faint">+</span> 添加 Tab 插件
+											<span className="text-base leading-none text-owl-faint">+</span> {t("settings.sidecards.addTabPlugin")}
 										</span>
-										<span className="text-[10px] text-owl-faint">注册新的侧边栏页面（暂未开放）</span>
+										<span className="text-[10px] text-owl-faint">{t("settings.sidecards.addTabPluginSub")}</span>
 									</button>
 								</div>
 
 								{/* 文件预览 */}
 								<div className="flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
-									文件预览
+									{t("settings.sidecards.filePreview")}
 									<span className="rounded-full border border-owl-border px-1.5 text-[10px] font-normal text-owl-faint">
 										{2 - sidebarCfg.disabledViewers.filter((kind) => kind === "image" || kind === "editor").length}
 									</span>
@@ -1703,8 +1703,8 @@ export function SettingsPage({
 								<div className="grid grid-cols-2 gap-3">
 									{(
 										[
-											{ kind: "image", label: "图片", sub: "png · jpg · gif · webp …" },
-											{ kind: "editor", label: "代码", sub: "兜底：任意文件" },
+											{ kind: "image", label: t("settings.sidecards.viewerImage"), sub: t("settings.sidecards.viewerImageSub") },
+											{ kind: "editor", label: t("settings.sidecards.viewerCode"), sub: t("settings.sidecards.viewerCodeSub") },
 										] as const
 									).map((viewer) => {
 										const enabled = !sidebarCfg.disabledViewers.includes(viewer.kind);
@@ -1731,18 +1731,18 @@ export function SettingsPage({
 									<button
 										type="button"
 										disabled
-										title="第三方预览注册暂未开放"
+										title={t("settings.sidecards.addPreviewPluginTitle")}
 										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
 									>
 										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
-											<span className="text-base leading-none text-owl-faint">+</span> 添加预览插件
+											<span className="text-base leading-none text-owl-faint">+</span> {t("settings.sidecards.addPreviewPlugin")}
 										</span>
-										<span className="text-[10px] text-owl-faint">注册新的文件类型预览（暂未开放）</span>
+										<span className="text-[10px] text-owl-faint">{t("settings.sidecards.addPreviewPluginSub")}</span>
 									</button>
 								</div>
 
 								<p className="text-[11px] leading-relaxed text-owl-faint">
-									停用的卡片会从工作台工具行、空态卡片与开始页隐藏，已打开的同类卡片立即关闭；「图片」停用后图片改用代码预览打开，「代码」停用后文件交给系统默认程序。
+									{t("settings.sidecards.footnote")}
 								</p>
 							</>
 						)}
@@ -1750,16 +1750,16 @@ export function SettingsPage({
 						{/* -------- 外观 -------- */}
 						{section === "appearance" && (
 							<>
-								<SectionHeader title="外观" desc="选择适合工作环境的主题，让界面保持舒适。" />
+								<SectionHeader title={t("settings.appearance.title")} desc={t("settings.appearance.desc")} />
 								<SettingRow
-									title="界面主题"
-									desc="主题更改立即生效。跟随系统会随操作系统的深浅色设置自动切换。"
+									title={t("settings.appearance.theme")}
+									desc={t("settings.appearance.themeDesc")}
 								>
-									<div className="owl-settings-theme-grid" role="group" aria-label="界面主题">
+									<div className="owl-settings-theme-grid" role="group" aria-label={t("settings.appearance.theme")}>
 										{([
-											{ value: "light", label: "浅色" },
-											{ value: "dark", label: "深色" },
-											{ value: "system", label: "跟随系统" },
+											{ value: "light", label: t("settings.appearance.light") },
+											{ value: "dark", label: t("settings.appearance.dark") },
+											{ value: "system", label: t("settings.appearance.system") },
 										] as const).map((option) => (
 											<button
 												key={option.value}
@@ -1782,7 +1782,7 @@ export function SettingsPage({
 										))}
 									</div>
 								</SettingRow>
-								<div className="owl-settings-notice">内容、工具与操作在不同主题下保持一致。绿色用于主要行动和状态。</div>
+								<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
 							</>
 						)}
 
@@ -1790,12 +1790,12 @@ export function SettingsPage({
 						{section === "archived" && (
 							<>
 								<SectionHeader
-									title="归档"
-										desc="管理暂时收起的会话，并设置自动清理时间。"
+									title={t("settings.archive.title")}
+										desc={t("settings.archive.desc")}
 								/>
 								<SettingRow
-									title="自动清理保留期"
-									desc={`归档超过 ${archiveCfg.retentionDays} 天的会话将被自动删除，文件不可恢复。`}
+									title={t("settings.archive.retention")}
+									desc={t("settings.archive.retentionDesc", { n: archiveCfg.retentionDays })}
 									control={
 										<div className="flex items-center gap-1.5">
 											<input
@@ -1807,20 +1807,20 @@ export function SettingsPage({
 													if (event.key === "Enter") void saveRetention();
 												}}
 											/>
-											<span className="text-[11px] text-owl-faint">天</span>
+											<span className="text-[11px] text-owl-faint">{t("settings.archive.days")}</span>
 											<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveRetention()}>
-												保存
+												{t("common.save")}
 											</button>
 										</div>
 									}
 								/>
-								<div className="owl-settings-notice is-warning">每小时以及应用启动时自动清理。删除后的会话无法恢复。</div>
-								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="恢复的会话会回到原项目。">
+								<div className="owl-settings-notice is-warning">{t("settings.archive.notice")}</div>
+								<SettingRow title={t("settings.archive.listTitle", { n: archiveCfg.sessions.length })} desc={t("settings.archive.listDesc")}>
 									{archiveCfg.sessions.length === 0 ? (
-										<p className="text-[11px] text-owl-faint">暂无归档会话。</p>
+										<p className="text-[11px] text-owl-faint">{t("settings.archive.none")}</p>
 									) : (
 										<div className="owl-settings-archive-list">
-											<div className="owl-settings-archive-header"><span>会话与来源</span><span>保留状态与操作</span></div>
+											<div className="owl-settings-archive-header"><span>{t("settings.archive.colSession")}</span><span>{t("settings.archive.colStatus")}</span></div>
 											{[...archiveCfg.sessions]
 												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
 												.map((entry) => {
@@ -1838,48 +1838,48 @@ export function SettingsPage({
 																	{title}
 																</div>
 																<div className="mt-0.5 text-[10px] text-owl-faint">
-																	归档于 {formatDateTime(entry.archivedAt)}
-																	{origin ? ` · 来自 ${origin}` : ""}
+																	{t("settings.archive.archivedAt", { time: formatDateTime(entry.archivedAt) })}
+																	{origin ? t("settings.archive.fromProject", { origin }) : ""}
 																</div>
 															</div>
 															<div className="text-right">
 																<div className={`mb-2 text-xs ${left <= 2 ? "owl-settings-archive-warning" : "text-owl-muted"}`}>
-																	{left > 0 ? `${left} 天后自动删除` : "待自动清理"}
+																	{left > 0 ? t("settings.archive.deleteIn", { n: left }) : t("settings.archive.pendingCleanup")}
 																</div>
 																<div className="owl-settings-archive-actions">
-															<button
-																type="button"
-																className={btn}
-																disabled={busy}
-																onClick={() => void restoreArchived(entry.sessionId)}
-															>
-																恢复
-															</button>
-															{confirmDelId === entry.sessionId ? (
-																<>
 																	<button
 																		type="button"
-																		className={`${btn} is-danger`}
+																		className={btn}
 																		disabled={busy}
-																		onClick={() => void deleteArchived(entry.sessionId)}
+																		onClick={() => void restoreArchived(entry.sessionId)}
 																	>
-																		永久删除
+																		{t("common.restore")}
 																	</button>
-																	<button type="button" className={btn} onClick={() => setConfirmDelId(null)}>
-																		取消
-																	</button>
-																</>
-															) : (
-																<button
-																	type="button"
-																	className={`${btn} is-danger`}
-																	onClick={() => setConfirmDelId(entry.sessionId)}
-																>
-																	删除
-																</button>
-															)}
+																	{confirmDelId === entry.sessionId ? (
+																		<>
+																			<button
+																				type="button"
+																				className={`${btn} is-danger`}
+																				disabled={busy}
+																				onClick={() => void deleteArchived(entry.sessionId)}
+																			>
+																				{t("common.deleteForever")}
+																			</button>
+																			<button type="button" className={btn} onClick={() => setConfirmDelId(null)}>
+																				{t("common.cancel")}
+																			</button>
+																		</>
+																	) : (
+																		<button
+																			type="button"
+																			className={`${btn} is-danger`}
+																			onClick={() => setConfirmDelId(entry.sessionId)}
+																		>
+																			{t("common.delete")}
+																		</button>
+																	)}
 																</div>
-																{confirmDelId === entry.sessionId && <p className="owl-settings-archive-warning mt-2">确认后会话内容无法恢复。</p>}
+																{confirmDelId === entry.sessionId && <p className="owl-settings-archive-warning mt-2">{t("settings.archive.deleteWarn")}</p>}
 															</div>
 														</div>
 													);
@@ -1894,12 +1894,12 @@ export function SettingsPage({
 						{section === "prompts" && (
 							<>
 								<SectionHeader
-									title="提示词"
-									desc="自定义提示词与用户印象都追加在内置提示词之后，保存后新会话生效（进行中的会话不受影响）。"
+									title={t("settings.prompts.title")}
+									desc={t("settings.prompts.desc")}
 								/>
 								<SettingRow
-									title="自定义提示词"
-									desc="写给 Owl Si 的长期指令（人设、口径、偏好等），对所有新会话生效；留空则只用内置提示词。"
+									title={t("settings.prompts.customTitle")}
+									desc={t("settings.prompts.customDesc")}
 									control={
 										<button
 											type="button"
@@ -1907,7 +1907,7 @@ export function SettingsPage({
 											disabled={busy}
 											onClick={() => void saveSettings({ owlCustomPrompt: customPrompt })}
 										>
-											保存
+											{t("common.save")}
 										</button>
 									}
 								>
@@ -1915,13 +1915,13 @@ export function SettingsPage({
 										className="h-40 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 										value={customPrompt}
 										onChange={(event) => setCustomPrompt(event.target.value)}
-										placeholder={"例如：\n- 回复里少用表情符号\n- 我主攻 TypeScript，解释时默认我懂 TS\n- 提交信息用中文"}
+										placeholder={t("settings.prompts.customPlaceholder")}
 										spellCheck={false}
 									/>
 								</SettingRow>
 								<SettingRow
-									title="用户印象（Owl Si 对你的记忆）"
-									desc="Owl Si 在聊天中了解到值得记住的信息时会自动更新这份档案，也会随会话注入提示词；这里可以直接查看和修改。"
+									title={t("settings.prompts.impressionTitle")}
+									desc={t("settings.prompts.impressionDesc")}
 									control={
 										<button
 											type="button"
@@ -1929,7 +1929,7 @@ export function SettingsPage({
 											disabled={busy}
 											onClick={() => void saveSettings({ owlUserImpression: userImpression })}
 										>
-											保存
+											{t("common.save")}
 										</button>
 									}
 								>
@@ -1937,21 +1937,21 @@ export function SettingsPage({
 										className="h-40 w-full rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 										value={userImpression}
 										onChange={(event) => setUserImpression(event.target.value)}
-										placeholder="还是空的。聊几句之后 Owl Si 会把了解到的偏好记在这里。"
+										placeholder={t("settings.prompts.impressionPlaceholder")}
 									/>
 								</SettingRow>
 								<SettingRow
-									title="内置提示词（只读）"
-									desc="Owl Si 出厂自带的提示词分区，与真实会话同一条组装路径（按默认工具集）；上面的自定义内容会追加在这些之后。"
+									title={t("settings.prompts.builtinTitle")}
+									desc={t("settings.prompts.builtinDesc")}
 								>
 									<div className="space-y-1.5">
 										{Object.keys(builtinSections).length === 0 && (
-											<p className="text-[11px] text-owl-faint">尚未加载（需要连接桥后重进设置页）。</p>
+											<p className="text-[11px] text-owl-faint">{t("settings.prompts.builtinNotLoaded")}</p>
 										)}
 										{Object.entries(builtinSections).map(([name, content]) => (
 											<details key={name} className="rounded-lg border border-owl-border bg-owl-sidebar/40">
 												<summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs text-owl-text transition-colors hover:text-owl-accent">
-													{BUILTIN_SECTION_TITLES[name] ?? name}
+													{BUILTIN_SECTION_TITLES[name] ? t(BUILTIN_SECTION_TITLES[name]) : name}
 												</summary>
 												<pre className="max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-owl-border/60 px-2.5 pb-2 pt-1.5 font-mono text-[11px] leading-relaxed text-owl-muted">
 													{content}
@@ -1967,12 +1967,12 @@ export function SettingsPage({
 						{section === "memory" && (
 							<>
 								<SectionHeader
-									title="跨会话记忆"
-									desc="Owl 自动从历史会话里提取值得长期记住的稳定信息（项目约定、你的偏好、环境特点），并注入之后每一次会话。这里列出全部记忆——跨会话的到底是哪些，一目了然。"
+									title={t("settings.memory.title")}
+									desc={t("settings.memory.desc")}
 								/>
 								<SettingRow
-									title="启用跨会话记忆"
-									desc="关闭后不再自动抽取历史会话，已有记忆也不再注入提示词（条目保留，随时可重新打开）。"
+									title={t("settings.memory.enableTitle")}
+									desc={t("settings.memory.enableDesc")}
 									control={
 										<button
 											type="button"
@@ -1980,13 +1980,13 @@ export function SettingsPage({
 											disabled={busy}
 											onClick={() => void toggleMemory()}
 										>
-											{memory.enabled ? "已启用" : "已关闭"}
+											{memory.enabled ? t("settings.memory.on") : t("settings.memory.off")}
 										</button>
 									}
 								/>
 								<SettingRow
-									title={`记忆列表（${memory.entries.length} 条）`}
-									desc="每条都注入系统提示词。删除单条立即生效；也可以在 TUI 里用 /memory 查看。"
+									title={t("settings.memory.listTitle", { n: memory.entries.length })}
+									desc={t("settings.memory.listDesc")}
 									control={
 										memory.entries.length > 0 ? (
 											confirmClearMemory ? (
@@ -1997,10 +1997,10 @@ export function SettingsPage({
 														disabled={busy}
 														onClick={() => void clearAllMemory()}
 													>
-														确认清空
+														{t("common.confirmClear")}
 													</button>
 													<button type="button" className={btn} onClick={() => setConfirmClearMemory(false)}>
-														取消
+														{t("common.cancel")}
 													</button>
 												</div>
 											) : (
@@ -2010,7 +2010,7 @@ export function SettingsPage({
 													disabled={busy}
 													onClick={() => setConfirmClearMemory(true)}
 												>
-													清空全部
+													{t("settings.memory.clearAll")}
 												</button>
 											)
 										) : undefined
@@ -2018,7 +2018,7 @@ export function SettingsPage({
 								>
 									{memory.entries.length === 0 ? (
 										<p className="text-[11px] text-owl-faint">
-											还没有记忆。正常使用几轮之后，Owl 会把值得长期记住的信息自动记到这里；模型也会用 remember 工具主动保存。
+											{t("settings.memory.empty")}
 										</p>
 									) : (
 										<div className="space-y-1.5">
@@ -2032,8 +2032,8 @@ export function SettingsPage({
 															{entry.content}
 														</div>
 														<div className="mt-1 text-[10px] text-owl-faint">
-															#{index + 1} · 记录于 {formatDateTime(entry.createdAt)}
-															{entry.sourceCwd ? ` · 来自 ${entry.sourceCwd}` : ""}
+															#{index + 1} · {t("settings.memory.recordedAt", { time: formatDateTime(entry.createdAt) })}
+															{entry.sourceCwd ? t("settings.memory.fromSource", { src: entry.sourceCwd }) : ""}
 														</div>
 													</div>
 													{confirmDelMemoryId === entry.id ? (
@@ -2044,10 +2044,10 @@ export function SettingsPage({
 																disabled={busy}
 																onClick={() => void deleteMemoryEntry(entry.id)}
 															>
-																确认删除
+																{t("common.confirmDelete")}
 															</button>
 															<button type="button" className={btn} onClick={() => setConfirmDelMemoryId(null)}>
-																取消
+																{t("common.cancel")}
 															</button>
 														</div>
 													) : (
@@ -2056,7 +2056,7 @@ export function SettingsPage({
 															className={`${btn} shrink-0 hover:border-red-500/60 hover:text-red-300`}
 															disabled={busy}
 															onClick={() => setConfirmDelMemoryId(entry.id)}
-															title="删除这条记忆"
+															title={t("settings.memory.deleteTitle")}
 														>
 															<IconTrash className="h-3.5 w-3.5" />
 														</button>
@@ -2072,11 +2072,11 @@ export function SettingsPage({
 						{/* -------- settings.json（高级） -------- */}
 						{section === "json" && (
 							<>
-								<SectionHeader title="高级配置" desc="直接编辑 settings.json，适合需要精细配置的用户。" />
-								<div className="owl-settings-notice">其他设置页面的保存结果会同步到这里。确认 JSON 格式正确后保存，配置按字段合并。</div>
+								<SectionHeader title={t("settings.json.title")} desc={t("settings.json.desc")} />
+								<div className="owl-settings-notice">{t("settings.json.notice")}</div>
 								<textarea
 									className="owl-settings-json-editor"
-									aria-label="settings.json 配置内容"
+									aria-label={t("settings.json.editorAria")}
 									value={raw}
 									onChange={(event) => setRaw(event.target.value)}
 									spellCheck={false}
@@ -2097,7 +2097,7 @@ export function SettingsPage({
 											})();
 										}}
 									>
-										保存 settings.json
+										{t("settings.json.save")}
 									</button>
 								</div>
 							</>
@@ -2106,20 +2106,20 @@ export function SettingsPage({
 						{/* -------- 关于 -------- */}
 						{section === "about" && (
 							<>
-								<SectionHeader title="关于 Owl" desc="你的桌面 AI 工作伙伴。" />
+								<SectionHeader title={t("settings.about.title")} desc={t("settings.about.desc")} />
 								<div className="owl-settings-about-brand">
 									<img src="/owl.svg" alt="" draggable={false} />
-									<div><h3>Owl</h3><p className="owl-settings-row-description">桌面版 · {version === "未知" ? "版本信息暂无" : `v${version}`}</p></div>
+									<div><h3>Owl</h3><p className="owl-settings-row-description">{t("settings.about.desktop")} · {version ? `v${version}` : t("settings.about.versionUnknown")}</p></div>
 								</div>
-								<SettingRow title="运行基础" desc="基于 pi coding agent 的桌面应用。">
-									<span className="text-xs text-owl-muted">本机工作区与模型服务协作</span>
+								<SettingRow title={t("settings.about.basis")} desc={t("settings.about.basisDesc")}>
+									<span className="text-xs text-owl-muted">{t("settings.about.basisValue")}</span>
 								</SettingRow>
-								<SettingRow title="Owl 数据目录" desc="保存设置、模型配置与会话历史。">
+								<SettingRow title={t("settings.about.dataDir")} desc={t("settings.about.dataDirDesc")}>
 									<span className="break-all font-mono text-xs text-owl-muted">{agentDir || "—"}</span>
 								</SettingRow>
-								<SettingRow title="已配置模型" desc="来自你的供应商配置。">
+								<SettingRow title={t("settings.about.configuredModels")} desc={t("settings.about.configuredModelsDesc")}>
 									<span className="text-xs text-owl-muted">
-										{groups.length} 个供应商 · {modelCount} 个模型
+										{t("settings.models.providerModelCount", { providers: groups.length, models: modelCount })}
 									</span>
 								</SettingRow>
 							</>
@@ -2130,24 +2130,24 @@ export function SettingsPage({
 				{/* ============ 底部 ============ */}
 				<div className="owl-settings-footer">
 					<span className={savedMsg ? "owl-settings-save-status is-saved" : "owl-settings-save-status"} role="status" aria-live="polite">
-						{busy ? "正在处理…" : savedMsg || "设置保存在本机，部分更改将用于新会话。"}
+						{busy ? t("common.processing") : savedMsg || t("settings.footer.status")}
 					</span>
-					<button type="button" className={btn} onClick={onClose}>完成</button>
+					<button type="button" className={btn} onClick={onClose}>{t("common.done")}</button>
 				</div>
 			</div>
 
 			{confirmProvider && (
 				<div className="owl-settings-modal-shade" onClick={() => setConfirmProviderId(null)}>
 					<div className="owl-settings-modal" role="alertdialog" aria-modal="true" aria-labelledby="owl-provider-delete-title" aria-describedby="owl-provider-delete-description" onClick={(event) => event.stopPropagation()}>
-						<h3 id="owl-provider-delete-title">删除供应商</h3>
-						<p id="owl-provider-delete-description">删除“{confirmProvider.name ?? confirmProvider.id}”也会移除该供应商下的 {confirmProvider.models.length} 个模型配置。</p>
-						<p>你可以之后重新添加供应商和模型。</p>
+						<h3 id="owl-provider-delete-title">{t("settings.providerDelete.title")}</h3>
+						<p id="owl-provider-delete-description">{t("settings.providerDelete.desc", { name: confirmProvider.name ?? confirmProvider.id, n: confirmProvider.models.length })}</p>
+						<p>{t("settings.providerDelete.reAdd")}</p>
 						<div className="mt-6 flex justify-end gap-2">
-							<button type="button" className={btn} autoFocus onClick={() => setConfirmProviderId(null)}>取消</button>
+							<button type="button" className={btn} autoFocus onClick={() => setConfirmProviderId(null)}>{t("common.cancel")}</button>
 							<button type="button" className={`${btn} is-danger`} disabled={busy} onClick={() => {
 								setConfirmProviderId(null);
 								void run({ type: "models.removeProvider", providerKey: confirmProvider.id });
-							}}>删除供应商</button>
+							}}>{t("settings.providerDelete.confirm")}</button>
 						</div>
 					</div>
 				</div>
@@ -2167,7 +2167,7 @@ export function SettingsPage({
 						<div className="mt-3 text-sm font-semibold text-owl-text">{authSuccess.title}</div>
 						<div className="mt-1 text-xs leading-relaxed text-owl-muted">{authSuccess.message}</div>
 						<button type="button" className={`${btnAccent} mt-4 w-full py-1.5`} onClick={() => setAuthSuccess(null)}>
-							知道了
+							{t("settings.auth.known")}
 						</button>
 					</div>
 				</div>

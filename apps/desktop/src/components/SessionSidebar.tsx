@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import { KNOWN_PROJECTS_KEY, loadKnownProjects, normPath, projectLabel, samePath } from "../utils/paths.ts";
+import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import {
 	IconArchive,
@@ -82,7 +83,7 @@ function sessionTitle(row: SessionRow): string {
 		const flat = flatText(first);
 		return flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
 	}
-	return row.id ? `会话 ${row.id.slice(0, 8)}` : "未命名会话";
+	return row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
 }
 
 function flatText(text: string): string {
@@ -97,12 +98,12 @@ function relativeTime(iso: string): string {
 	const minute = 60_000;
 	const hour = 3_600_000;
 	const day = 86_400_000;
-	if (diff < minute) return "刚刚";
-	if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-	if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-	if (diff < 2 * day) return "昨天";
-	if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
-	return new Date(time).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+	if (diff < minute) return t("sidebar.relativeNow");
+	if (diff < hour) return t("sidebar.relativeMinutes", { n: Math.floor(diff / minute) });
+	if (diff < day) return t("sidebar.relativeHours", { n: Math.floor(diff / hour) });
+	if (diff < 2 * day) return t("sidebar.yesterday");
+	if (diff < 7 * day) return t("sidebar.relativeDays", { n: Math.floor(diff / day) });
+	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
 function loadPinned(): string[] {
@@ -164,7 +165,7 @@ function Section({
 					type="button"
 					className="owl-sidebar-section-toggle"
 					onClick={onToggle}
-					aria-label={`${open ? "收起" : "展开"}${label}`}
+					aria-label={t("sidebar.sectionToggleAria", { action: open ? t("common.collapse") : t("common.expand"), label })}
 					aria-expanded={open}
 				>
 					<span className="owl-sidebar-section-label">{label}</span>
@@ -209,7 +210,7 @@ function MenuRow({
 		<button
 			type="button"
 			disabled={disabled}
-			title={disabled ? "该功能开发中" : undefined}
+			title={disabled ? t("sidebar.menuDisabledTitle") : undefined}
 			className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs transition-colors ${
 				disabled
 					? "cursor-default text-owl-sidebar-faint/50"
@@ -275,6 +276,7 @@ export function SessionSidebar({
 	onOpenSession: (sessionId: string) => void;
 	onOpenSettings?: () => void;
 }): React.JSX.Element {
+	const t = useT();
 	const [sessions, setSessions] = useState<SessionRow[]>([]);
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
@@ -469,7 +471,7 @@ export function SessionSidebar({
 		try {
 			const response = await client.request({ type: "session.delete", sessionId: id });
 			if (!response.ok) {
-				setDeleteError(response.error ?? "删除失败");
+				setDeleteError(response.error ?? t("common.deleteFailed"));
 				return;
 			}
 			setPinned((current) => {
@@ -566,7 +568,7 @@ export function SessionSidebar({
 	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
 	const sessionRowTip = (row: SessionRow, archivedRow: boolean): string => {
 		const time =
-			archivedRow && row.archivedAt ? `归档于 ${relativeTime(row.archivedAt)}` : relativeTime(sessionTime(row));
+			archivedRow && row.archivedAt ? t("sidebar.archivedAtRelative", { time: relativeTime(row.archivedAt) }) : relativeTime(sessionTime(row));
 		return `${sessionTitle(row)}\n${time}${row.cwd ? ` · ${row.cwd}` : ""}`;
 	};
 
@@ -594,12 +596,12 @@ export function SessionSidebar({
 				>
 					<span
 						className={`owl-sidebar-session-icon ${isRunning ? "is-running animate-pulse text-emerald-500" : ""}`}
-						title={isRunning ? "Agent 运行中" : undefined}
+						title={isRunning ? t("sidebar.runningTip") : undefined}
 					>
 						<IconChat className="h-3.5 w-3.5" />
 					</span>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
-					{isRunning && <span className="sr-only">，Agent 运行中</span>}
+					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
 				{id && (
 					<div className="owl-sidebar-row-actions" data-persistent={pinnedRow || archivedRow}>
@@ -607,8 +609,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent order-last" : ""}`}
-								title={isPinned ? "取消置顶" : "置顶"}
-								aria-label={isPinned ? "取消置顶会话" : "置顶会话"}
+								title={isPinned ? t("sidebar.unpin") : t("sidebar.pin")}
+								aria-label={isPinned ? t("sidebar.unpinSession") : t("sidebar.pinSession")}
 								aria-pressed={isPinned}
 								onClick={() => togglePin(id)}
 							>
@@ -619,8 +621,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={`${rowBtn} owl-sidebar-action--persistent order-last`}
-								title="恢复到原位置"
-								aria-label="恢复会话到原位置"
+								title={t("sidebar.unarchiveTitle")}
+								aria-label={t("sidebar.unarchiveAria")}
 								onClick={() => void toggleArchive(row)}
 							>
 								<IconUnarchive className="h-3.5 w-3.5" />
@@ -629,8 +631,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={rowBtn}
-								title="归档"
-								aria-label="归档会话"
+								title={t("sidebar.archive")}
+								aria-label={t("sidebar.archiveSessionAria")}
 								onClick={() => void toggleArchive(row)}
 							>
 								<IconArchive className="h-3.5 w-3.5" />
@@ -639,8 +641,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className={`${rowBtn} owl-sidebar-action--danger`}
-							title="删除会话"
-							aria-label="删除会话"
+							title={t("sidebar.deleteSessionTitle")}
+							aria-label={t("sidebar.deleteSessionTitle")}
 							onClick={() => {
 								setConfirmDelete(row);
 								setDeleteError("");
@@ -684,8 +686,8 @@ export function SessionSidebar({
 						type="button"
 						className="owl-sidebar-project-toggle"
 						aria-expanded={expanded}
-						aria-label={`${expanded ? "收起" : "展开"}${projectLabel(path)}的会话列表`}
-						title={expanded ? "收起会话列表" : "展开会话列表"}
+						aria-label={t("sidebar.projectToggleAria", { project: projectLabel(path) })}
+						title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")}
 						onClick={() => toggleProjectGroup(path, "pinned")}
 					>
 						<IconChevron
@@ -696,7 +698,7 @@ export function SessionSidebar({
 						type="button"
 						className="owl-sidebar-row-main"
 						title={path}
-						aria-label={isCurrent ? `${projectLabel(path)}，当前项目` : `切换到项目 ${projectLabel(path)}`}
+						aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: projectLabel(path) }) : t("sidebar.switchToProjectAria", { project: projectLabel(path) })}
 						onClick={() => (isCurrent ? toggleProjectGroup(path, "pinned") : onSelectProject(path))}
 					>
 						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
@@ -706,8 +708,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className="owl-sidebar-action owl-sidebar-action--persistent order-last"
-							title="取消置顶"
-							aria-label="取消置顶项目"
+							title={t("sidebar.unpin")}
+							aria-label={t("sidebar.unpinProject")}
 							aria-pressed
 							onClick={() => toggleProjectPin(path)}
 						>
@@ -716,8 +718,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className="owl-sidebar-action"
-							title={isCurrent ? "在本项目新建会话" : "切换到此项目并新建会话"}
-							aria-label={`在项目 ${projectLabel(path)} 新建会话`}
+							title={isCurrent ? t("sidebar.newChatInProject") : t("sidebar.switchAndNewChat")}
+							aria-label={t("sidebar.newChatInProjectAria", { project: projectLabel(path) })}
 							onClick={startChat}
 						>
 							<IconPlus className="h-3.5 w-3.5" />
@@ -725,8 +727,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className="owl-sidebar-action"
-							title="项目操作"
-							aria-label={`${projectLabel(path)} 项目操作`}
+							title={t("sidebar.projectActions")}
+							aria-label={t("sidebar.projectActionsAria", { project: projectLabel(path) })}
 							aria-expanded={openMenu === menuId}
 							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
 						>
@@ -740,7 +742,7 @@ export function SessionSidebar({
 						>
 							{isCurrent ? (
 								<MenuRow
-									label="新建会话"
+									label={t("sidebar.newChatMenu")}
 									onClick={() => {
 										setOpenMenu(null);
 										onNewChat();
@@ -748,7 +750,7 @@ export function SessionSidebar({
 								/>
 							) : (
 								<MenuRow
-									label="切换到此项目"
+									label={t("sidebar.switchToProject")}
 									onClick={() => {
 										setOpenMenu(null);
 										onSelectProject(path);
@@ -756,7 +758,7 @@ export function SessionSidebar({
 								/>
 							)}
 							<MenuRow
-								label="在资源管理器中打开"
+								label={t("sidebar.revealInExplorer")}
 								onClick={() => {
 									setOpenMenu(null);
 									void revealProject(path);
@@ -768,7 +770,7 @@ export function SessionSidebar({
 				{expanded && (
 					<div className="owl-sidebar-project-sessions">
 						{rows.map((row, index) => sessionRow(row, index, false))}
-						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
+						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 					</div>
 				)}
 			</div>
@@ -793,8 +795,8 @@ export function SessionSidebar({
 						type="button"
 						className="owl-sidebar-project-toggle"
 						aria-expanded={expanded}
-						aria-label={`${expanded ? "收起" : "展开"}${projectLabel(path)}的会话列表`}
-						title={expanded ? "收起会话列表" : "展开会话列表"}
+						aria-label={t("sidebar.projectToggleAria", { project: projectLabel(path) })}
+						title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")}
 						onClick={() => toggleProjectGroup(path, "project")}
 					>
 						<IconChevron
@@ -805,7 +807,7 @@ export function SessionSidebar({
 						type="button"
 						className="owl-sidebar-row-main"
 						title={path}
-						aria-label={isCurrent ? `${projectLabel(path)}，当前项目` : `切换到项目 ${projectLabel(path)}`}
+						aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: projectLabel(path) }) : t("sidebar.switchToProjectAria", { project: projectLabel(path) })}
 						onClick={() => (isCurrent ? toggleProjectGroup(path, "project") : onSelectProject(path))}
 					>
 						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
@@ -815,8 +817,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className={`owl-sidebar-action ${projectPinned ? "owl-sidebar-action--persistent order-last" : ""}`}
-							title={projectPinned ? "取消置顶" : "置顶项目"}
-							aria-label={projectPinned ? "取消置顶项目" : "置顶项目"}
+							title={projectPinned ? t("sidebar.unpin") : t("sidebar.pinProject")}
+							aria-label={projectPinned ? t("sidebar.unpinProject") : t("sidebar.pinProject")}
 							aria-pressed={projectPinned}
 							onClick={() => toggleProjectPin(path)}
 						>
@@ -826,8 +828,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className="owl-sidebar-action"
-								title="在本项目新建会话"
-								aria-label={`在项目 ${projectLabel(path)} 新建会话`}
+								title={t("sidebar.newChatInProject")}
+								aria-label={t("sidebar.newChatInProjectAria", { project: projectLabel(path) })}
 								onClick={onNewChat}
 							>
 								<IconPlus className="h-3.5 w-3.5" />
@@ -836,8 +838,8 @@ export function SessionSidebar({
 						<button
 							type="button"
 							className="owl-sidebar-action"
-							title="项目操作"
-							aria-label={`${projectLabel(path)} 项目操作`}
+							title={t("sidebar.projectActions")}
+							aria-label={t("sidebar.projectActionsAria", { project: projectLabel(path) })}
 							aria-expanded={openMenu === menuId}
 							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
 						>
@@ -851,7 +853,7 @@ export function SessionSidebar({
 						>
 							{isCurrent ? (
 								<MenuRow
-									label="新建会话"
+									label={t("sidebar.newChatMenu")}
 									onClick={() => {
 										setOpenMenu(null);
 										onNewChat();
@@ -859,7 +861,7 @@ export function SessionSidebar({
 								/>
 							) : (
 								<MenuRow
-									label="切换到此项目"
+									label={t("sidebar.switchToProject")}
 									onClick={() => {
 										setOpenMenu(null);
 										onSelectProject(path);
@@ -867,7 +869,7 @@ export function SessionSidebar({
 								/>
 							)}
 							<MenuRow
-								label="在资源管理器中打开"
+								label={t("sidebar.revealInExplorer")}
 								onClick={() => {
 									setOpenMenu(null);
 									void revealProject(path);
@@ -879,7 +881,7 @@ export function SessionSidebar({
 				{expanded && (
 					<div className="owl-sidebar-project-sessions">
 						{rows.map((row, index) => sessionRow(row, index, false))}
-						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
+						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 					</div>
 				)}
 			</div>
@@ -912,26 +914,26 @@ export function SessionSidebar({
 	};
 
 	return (
-		<aside id="owl-session-sidebar" className="owl-sidebar" aria-label="会话侧边栏" hidden={minimized}>
+		<aside id="owl-session-sidebar" className="owl-sidebar" aria-label={t("sidebar.aria")} hidden={minimized}>
 			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button
 					type="button"
 					className="owl-sidebar-brand"
-					title="收起侧边栏"
-					aria-label="收起侧边栏"
+					title={t("sidebar.collapseSidebar")}
+					aria-label={t("sidebar.collapseSidebar")}
 					aria-expanded={!minimized}
 					onClick={onToggleMinimized}
 				>
 					<span>owl</span>
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
-				<span className="owl-sidebar-local-badge" title="本地工作空间">LOCAL</span>
+				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>
 				<div className="owl-sidebar-header-actions">
 					<button
 						type="button"
 						className="owl-sidebar-icon-button"
-						title="收起侧边栏"
-						aria-label="收起侧边栏"
+						title={t("sidebar.collapseSidebar")}
+						aria-label={t("sidebar.collapseSidebar")}
 						aria-expanded
 						onClick={onToggleMinimized}
 					>
@@ -945,8 +947,8 @@ export function SessionSidebar({
 				<input
 					type="text"
 					className="owl-sidebar-search-input"
-					placeholder="搜索会话或项目"
-					aria-label="搜索会话或项目"
+					placeholder={t("sidebar.searchPlaceholder")}
+					aria-label={t("sidebar.searchPlaceholder")}
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
 					onKeyDown={(event) => {
@@ -954,16 +956,16 @@ export function SessionSidebar({
 					}}
 				/>
 				{query && (
-					<button type="button" className="owl-sidebar-search-clear" aria-label="清除搜索" onClick={() => setQuery("")}>
+					<button type="button" className="owl-sidebar-search-clear" aria-label={t("sidebar.clearSearch")} onClick={() => setQuery("")}>
 						<span aria-hidden="true">×</span>
 					</button>
 				)}
 			</div>
 
 			<div className="owl-sidebar-shortcuts">
-				<button type="button" className="owl-sidebar-new-chat" aria-label="新会话" onClick={onNewChat}>
+				<button type="button" className="owl-sidebar-new-chat" aria-label={t("sidebar.newChat")} onClick={onNewChat}>
 					<IconPlus className="h-4 w-4 shrink-0" />
-					<span>新会话</span>
+					<span>{t("sidebar.newChat")}</span>
 				</button>
 			</div>
 
@@ -971,7 +973,7 @@ export function SessionSidebar({
 				{(pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && (
 					<Section
 						id="pinned"
-						label="置顶"
+						label={t("sidebar.sectionPinned")}
 						open={isOpen("pinned")}
 						onToggle={() => toggleSection("pinned")}
 						showMenu={openMenu === "pinned"}
@@ -979,8 +981,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={actionBtn}
-								title="置顶选项"
-								aria-label="置顶选项"
+								title={t("sidebar.pinnedOptions")}
+								aria-label={t("sidebar.pinnedOptions")}
 								aria-expanded={openMenu === "pinned"}
 								onClick={() => setOpenMenu(openMenu === "pinned" ? null : "pinned")}
 							>
@@ -990,14 +992,14 @@ export function SessionSidebar({
 						menu={
 							<>
 								<MenuRow
-									label="最近更新"
+									label={t("sidebar.sortByUpdated")}
 									checked={pinnedSort === "recent"}
 									onClick={() => switchPinnedSort("recent")}
 								/>
 								<MenuRow
-									label="手动排序"
+									label={t("sidebar.sortManual")}
 									checked={pinnedSort === "manual"}
-									hint="按置顶先后"
+									hint={t("sidebar.sortManualHint")}
 									onClick={() => switchPinnedSort("manual")}
 								/>
 							</>
@@ -1010,7 +1012,7 @@ export function SessionSidebar({
 
 				<Section
 					id="projects"
-					label="项目"
+					label={t("sidebar.sectionProjects")}
 					open={isOpen("projects")}
 					onToggle={() => toggleSection("projects")}
 					showMenu={openMenu === "projects"}
@@ -1019,8 +1021,8 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={actionBtn}
-								title="项目选项"
-								aria-label="项目选项"
+								title={t("sidebar.projectOptions")}
+								aria-label={t("sidebar.projectOptions")}
 								aria-expanded={openMenu === "projects"}
 								onClick={() => setOpenMenu(openMenu === "projects" ? null : "projects")}
 							>
@@ -1029,27 +1031,27 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={actionBtn}
-								title="新建项目"
-								aria-label="新建项目"
+								title={t("sidebar.newProject")}
+								aria-label={t("sidebar.newProject")}
 								onClick={openNewProject}
 							>
 								<IconPlus className="h-3.5 w-3.5" />
 							</button>
 						</>
 					}
-					menu={<MenuRow label="新建项目" onClick={openNewProject} />}
+					menu={<MenuRow label={t("sidebar.newProject")} onClick={openNewProject} />}
 				>
 					{/* 项目列表：当前项目置顶，其余按最近活动排序；点击项目名切换，chevron 展开会话 */}
 					{visibleProjects.map((path) => projectRow(path))}
-					<button type="button" className="owl-sidebar-add-project" aria-label="新建项目" onClick={openNewProject}>
+					<button type="button" className="owl-sidebar-add-project" aria-label={t("sidebar.newProject")} onClick={openNewProject}>
 						<IconPlus className="h-3.5 w-3.5 shrink-0" />
-						新建项目
+						{t("sidebar.newProject")}
 					</button>
 				</Section>
 
 				<Section
 					id="recent"
-					label="最近会话"
+					label={t("sidebar.sectionRecent")}
 					open={isOpen("recent")}
 					onToggle={() => toggleSection("recent")}
 					showMenu={openMenu === "recent"}
@@ -1058,53 +1060,53 @@ export function SessionSidebar({
 							<button
 								type="button"
 								className={actionBtn}
-								title="最近选项"
-								aria-label="最近选项"
+								title={t("sidebar.recentOptions")}
+								aria-label={t("sidebar.recentOptions")}
 								aria-expanded={openMenu === "recent"}
 								onClick={() => setOpenMenu(openMenu === "recent" ? null : "recent")}
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
-							<button type="button" className={actionBtn} title="新建聊天" aria-label="新建聊天" onClick={onNewChat}>
+							<button type="button" className={actionBtn} title={t("sidebar.newChatBtn")} aria-label={t("sidebar.newChatBtn")} onClick={onNewChat}>
 								<IconCompose className="h-3.5 w-3.5" />
 							</button>
 						</>
 					}
 					menu={
 						<>
-							<MenuRow label="整理侧边栏" disabled hint="开发中" />
+							<MenuRow label={t("sidebar.organizeSidebar")} disabled hint={t("sidebar.organizeHint")} />
 							<MenuDivider />
-							<MenuLabel>排序方式</MenuLabel>
+							<MenuLabel>{t("sidebar.sortLabel")}</MenuLabel>
 							<MenuRow
-								label="按最近更新"
+								label={t("sidebar.sortRecent")}
 								checked={recentSort === "recent"}
 								onClick={() => switchRecentSort("recent")}
 							/>
-							<MenuRow label="按名称" checked={recentSort === "name"} onClick={() => switchRecentSort("name")} />
+							<MenuRow label={t("sidebar.sortName")} checked={recentSort === "name"} onClick={() => switchRecentSort("name")} />
 						</>
 					}
 				>
 					{recentSessions.map((row, index) => sessionRow(row, index, false))}
-					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
+					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 				</Section>
 
 				{archivedSessions.length > 0 && (
-					<Section id="archived" label="归档" open={isOpen("archived")} onToggle={() => toggleSection("archived")}>
+					<Section id="archived" label={t("sidebar.sectionArchive")} open={isOpen("archived")} onToggle={() => toggleSection("archived")}>
 						{archivedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false, true))}
 					</Section>
 				)}
 
-				{noMatch && <p className="owl-sidebar-empty">无匹配结果</p>}
+				{noMatch && <p className="owl-sidebar-empty">{t("sidebar.emptyResults")}</p>}
 			</div>
 
 			<div className="owl-sidebar-footer">
 				<span className="owl-sidebar-workspace-avatar" aria-hidden="true">L</span>
 				<div className="owl-sidebar-workspace-copy">
-					<span className="owl-sidebar-workspace-title">本地工作空间</span>
-					<span className="owl-sidebar-workspace-caption">会话保存在本机</span>
+					<span className="owl-sidebar-workspace-title">{t("sidebar.footerTitle")}</span>
+					<span className="owl-sidebar-workspace-caption">{t("sidebar.footerCaption")}</span>
 				</div>
 				{onOpenSettings && (
-					<button type="button" className="owl-sidebar-icon-button" title="打开设置" aria-label="打开设置" onClick={onOpenSettings}>
+					<button type="button" className="owl-sidebar-icon-button" title={t("sidebar.openSettings")} aria-label={t("sidebar.openSettings")} onClick={onOpenSettings}>
 						<IconSettings className="h-4 w-4" />
 					</button>
 				)}
@@ -1124,9 +1126,9 @@ export function SessionSidebar({
 			{confirmDelete && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
 					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
-						<h2 className="mb-1 text-sm font-semibold text-owl-text">删除会话</h2>
+						<h2 className="mb-1 text-sm font-semibold text-owl-text">{t("sidebar.deleteSessionTitle")}</h2>
 						<p className="mb-3 break-all text-xs text-owl-muted">
-							「{sessionTitle(confirmDelete)}」的聊天记录将被永久删除，此操作不可恢复。
+							{t("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) })}
 						</p>
 						{deleteError && <p className="mt-2 text-xs text-red-400">{deleteError}</p>}
 						<div className="mt-4 flex justify-end gap-2">
@@ -1136,7 +1138,7 @@ export function SessionSidebar({
 								onClick={() => setConfirmDelete(null)}
 								disabled={deleting}
 							>
-								取消
+								{t("common.cancel")}
 							</button>
 							<button
 								type="button"
@@ -1144,7 +1146,7 @@ export function SessionSidebar({
 								onClick={() => void deleteSession(confirmDelete)}
 								disabled={deleting}
 							>
-								{deleting ? "删除中…" : "删除"}
+								{deleting ? t("sidebar.deleting") : t("common.delete")}
 							</button>
 						</div>
 					</div>

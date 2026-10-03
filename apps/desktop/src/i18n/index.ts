@@ -6,7 +6,7 @@ import { en } from "./en.ts";
 export type UiLanguage = "zh" | "en";
 
 /** 字典形状以 zh.ts 为准；en.ts 必须补齐同一批 key（类型上强制）。 */
-export type Dict = typeof zh;
+export type Dict = { [K in keyof typeof zh]: string };
 export type TextKey = keyof Dict;
 
 const DICTS: Record<UiLanguage, Dict> = { zh, en };

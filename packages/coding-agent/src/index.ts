@@ -240,6 +240,24 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
+// 「上下文洞察」注册表：插件（owl-context）写入、桌面桥 context.get 读取，
+// 与 question-channel 同一套单例接缝
+export {
+	classifyRequestMessages,
+	type ContextComposition,
+	type ContextEventRow,
+	type ContextInsightState,
+	type ContextRequestRow,
+	type ContextToolRef,
+	type ContextUsageInfo,
+	dropContextInsight,
+	estimateToolDeclarations,
+	findContextInsightByCwd,
+	getContextInsight,
+	recordContextEvent,
+	recordContextRequest,
+	recordContextTools,
+} from "./core/context-insight.ts";
 // 「向用户提问」桥通道：桌面桥注入，插件（owl-ask-user）经此别名共享同一实例
 export {
 	cancelAllPendingQuestions,

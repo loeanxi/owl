@@ -413,6 +413,7 @@ export const en: Dict = {
 	"composer.runLocationLocalDisconnected": "Run location: local (disconnected)",
 	"composer.remoteSessions": "Remote sessions",
 	"composer.inDevelopment": "In development",
+	"composer.featureInDevelopment": "Under development",
 	"composer.projectChipTitle": "Project: {dir} (click to switch)",
 	"composer.projectPanelLabel": "Projects (working directories)",
 	"composer.noProjects": "No projects yet",

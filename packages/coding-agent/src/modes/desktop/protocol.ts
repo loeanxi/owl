@@ -4,6 +4,8 @@
  * server-side leaks into the browser bundle.
  */
 
+import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+
 /**
  * 工具审批模式：
  * - "confirm"（标准）：每次工具调用都经 permission_request 送 UI 确认；
@@ -296,6 +298,22 @@ export interface SessionStatsResult {
 		tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 		cost: number;
 	};
+}
+
+/** 查询上下文洞察（owl-context 插件经 core/context-insight 注册表供数）。 */
+export interface ContextGetRequest {
+	type: "context.get";
+	id: string;
+	/** 项目目录；不带 sessionId 时按 cwd 取最近活跃的会话。 */
+	cwd: string;
+	sessionId?: string;
+}
+
+export interface ContextGetResult {
+	sessionId?: string;
+	requests: ContextRequestRow[];
+	events: ContextEventRow[];
+	tools: ContextToolRef[];
 }
 
 export interface ProjectCreateRequest {
@@ -892,6 +910,7 @@ export interface ProviderModelsMessage {
 export type DesktopClientRequest =
 	| SessionCreateRequest
 	| SessionPromptRequest
+	| ContextGetRequest
 	| SessionAbortRequest
 	| SessionDeleteRequest
 	| SessionArchiveRequest

@@ -1,0 +1,9 @@
+{
+	"name": "owl-context",
+	"private": true,
+	"type": "module",
+	"description": "owl 上下文洞察插件：采集每次 LLM 请求的上下文构成（系统/注入/用户/回复/工具结果/工具 schema）与压缩事件，桌面端「上下文」卡片呈现。设计思路参考 bowenliang123/dsh-context (Apache-2.0)",
+	"owl": {
+		"extensions": ["./index.ts"]
+	}
+}

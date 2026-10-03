@@ -1,27 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
+import { t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { projectLabel, samePath } from "../utils/paths.ts";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-const THINKING_LABELS: Record<string, string> = {
-	off: "关闭",
-	minimal: "最低",
-	low: "低",
-	medium: "中",
-	high: "高",
-	xhigh: "超高",
-	max: "最高",
+const THINKING_LABELS: Record<string, TextKey> = {
+	off: "composer.thinking.off",
+	minimal: "composer.thinking.minimal",
+	low: "composer.thinking.low",
+	medium: "composer.thinking.medium",
+	high: "composer.thinking.high",
+	xhigh: "composer.thinking.xhigh",
+	max: "composer.thinking.max",
 };
 
 /** 审批模式三档：标准（逐次确认）/ 计划（只读工具做调研）/ 自动（全自动）。 */
-const APPROVAL_MODES: { value: ApprovalMode; label: string; title: string }[] = [
-	{ value: "confirm", label: "标准模式", title: "标准：每次工具调用前人工确认" },
-	{ value: "plan", label: "计划模式", title: "计划：只允许只读工具（read / ls / find / grep）调研并产出计划" },
-	{ value: "auto", label: "自动模式", title: "自动：全自动执行，工具调用不再确认" },
+const APPROVAL_MODES: { value: ApprovalMode; labelKey: TextKey; titleKey: TextKey }[] = [
+	{ value: "confirm", labelKey: "composer.mode.confirm.label", titleKey: "composer.mode.confirm.title" },
+	{ value: "plan", labelKey: "composer.mode.plan.label", titleKey: "composer.mode.plan.title" },
+	{ value: "auto", labelKey: "composer.mode.auto.label", titleKey: "composer.mode.auto.title" },
 ];
 
 /** 审批模式小图标（16 viewBox 线性风格，与思考/上下文图标同族）。 */
@@ -159,11 +160,11 @@ const ghostPillClass =
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
 
 /** 斜杠命令菜单里的来源标签。 */
-const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], string> = {
-	builtin: "命令",
-	skill: "技能",
-	prompt: "模板",
-	extension: "扩展",
+const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], TextKey> = {
+	builtin: "composer.slashKind.builtin",
+	skill: "composer.slashKind.skill",
+	prompt: "composer.slashKind.prompt",
+	extension: "composer.slashKind.extension",
 };
 
 export function Composer({
@@ -213,6 +214,7 @@ export function Composer({
 	/** Start-page examples fill a draft without submitting or replacing existing text. */
 	draftRequest?: { id: number; text: string };
 }): React.JSX.Element {
+	const t = useT();
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -298,7 +300,7 @@ export function Composer({
 	const activeName =
 		providers
 			.find((provider) => provider.id === activeProvider)
-			?.models.find((entry) => entry.id === activeModelId)?.name ?? (activeModelId || "默认模型");
+			?.models.find((entry) => entry.id === activeModelId)?.name ?? (activeModelId || t("composer.defaultModel"));
 	const percent = sessionInfo?.contextUsage?.percent ?? null;
 	const contextTokens = sessionInfo?.contextUsage?.tokens ?? null;
 	const contextWindow = sessionInfo?.contextUsage?.contextWindow;
@@ -317,7 +319,7 @@ export function Composer({
 
 	const modelMenu = (close: () => void): React.JSX.Element => (
 		<div className="max-h-72 w-72 overflow-y-auto">
-			{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">无可用模型（先配置凭据）</p>}
+			{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noModels")}</p>}
 			{providers.map((provider) => (
 				<div key={provider.id}>
 					<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">
@@ -342,7 +344,7 @@ export function Composer({
 										<span className="ml-1.5 text-owl-faint">{Math.round(entry.contextWindow / 1000)}k</span>
 									) : null}
 								</span>
-								{entry.reasoning ? <span className="text-[10px] text-owl-accent/80">思考</span> : null}
+								{entry.reasoning ? <span className="text-[10px] text-owl-accent/80">{t("composer.reasoningBadge")}</span> : null}
 								{active && <span className="text-owl-accent">✓</span>}
 							</button>
 						);
@@ -359,44 +361,44 @@ export function Composer({
 				<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
 					<Menu
 						triggerClassName={envChipClass}
-						triggerTitle={connected ? "运行位置：本地（已连接）" : "运行位置：本地（连接断开）"}
+						triggerTitle={connected ? t("composer.runLocationLocalConnected") : t("composer.runLocationLocalDisconnected")}
 						panelClassName="w-64"
 						trigger={
 							<>
 								<LaptopIcon tone={connected ? "text-owl-accent" : "text-red-400"} />
-								<span>本地</span>
+								<span>{t("composer.runLocation.local")}</span>
 							</>
 						}
 					>
 						{() => (
 							<div>
-								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">运行位置</p>
+								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.runLocation.title")}</p>
 								<button type="button" className={`${menuItemClass} bg-owl-hover text-owl-text`}>
 									<LaptopIcon tone="text-owl-text" />
-									<span className="flex-1">本地（此电脑）</span>
+									<span className="flex-1">{t("composer.runLocation.localFull")}</span>
 									{connected ? (
 										<span className="flex items-center gap-1 text-[10px] text-emerald-400">
 											<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-											已连接
+											{t("composer.connected")}
 										</span>
 									) : (
 										<span className="flex items-center gap-1 text-[10px] text-red-400">
 											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
-											重连中
+											{t("composer.reconnecting")}
 										</span>
 									)}
 								</button>
-								<button type="button" className={`${menuItemClass} cursor-default text-owl-faint/60`} title="该功能开发中" disabled>
+								<button type="button" className={`${menuItemClass} cursor-default text-owl-faint/60`} title={t("composer.featureInDevelopment")} disabled>
 									<CloudIcon />
-									<span className="flex-1">远程会话</span>
-									<span className="text-[10px] text-owl-faint/70">开发中</span>
+									<span className="flex-1">{t("composer.remoteSessions")}</span>
+									<span className="text-[10px] text-owl-faint/70">{t("composer.inDevelopment")}</span>
 								</button>
 							</div>
 						)}
 					</Menu>
 					<Menu
 						triggerClassName={envChipClass}
-						triggerTitle={`项目：${workspaceDir}（点击切换）`}
+						triggerTitle={t("composer.projectChipTitle", { dir: workspaceDir })}
 						panelClassName="w-64"
 						trigger={
 							<>
@@ -408,7 +410,7 @@ export function Composer({
 					>
 						{(close) => (
 							<div>
-								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">项目（工作目录）</p>
+								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.projectPanelLabel")}</p>
 								<div className="max-h-56 overflow-y-auto">
 									{sortedProjects.map((path) => {
 										const active = samePath(path, workspaceDir);
@@ -430,7 +432,7 @@ export function Composer({
 										);
 									})}
 									{sortedProjects.length === 0 && (
-										<p className="px-3 py-2 text-xs text-owl-faint">尚无项目</p>
+										<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noProjects")}</p>
 									)}
 								</div>
 								<div className="my-1 border-t border-owl-border/70" />
@@ -443,7 +445,7 @@ export function Composer({
 									}}
 								>
 									<FolderPlusIcon />
-									<span className="flex-1">新建项目…</span>
+									<span className="flex-1">{t("composer.newProjectMenu")}</span>
 								</button>
 							</div>
 						)}
@@ -451,8 +453,8 @@ export function Composer({
 					<button
 						type="button"
 						className={envIconButtonClass}
-						title="新建项目（选择或输入目录，不存在会自动创建）"
-						aria-label="新建项目"
+						title={t("composer.newProjectTitle")}
+						aria-label={t("composer.newProjectAria")}
 						onClick={() => setShowNewProject(true)}
 					>
 						<FolderPlusIcon />
@@ -482,11 +484,11 @@ export function Composer({
 											<span className="shrink-0 font-mono text-[10px] text-owl-faint">{entry.argumentHint}</span>
 										)}
 										<span className="flex-1 truncate text-left">{entry.description}</span>
-										<span className="shrink-0 text-[10px] text-owl-faint">{SLASH_KIND_LABELS[entry.kind]}</span>
+										<span className="shrink-0 text-[10px] text-owl-faint">{t(SLASH_KIND_LABELS[entry.kind])}</span>
 									</button>
 								))
 							) : (
-								<p className="px-3 py-2 text-xs text-owl-faint">无匹配命令</p>
+								<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noMatchingCommands")}</p>
 							)}
 						</div>
 					)}
@@ -494,8 +496,8 @@ export function Composer({
 						<textarea
 							ref={textareaRef}
 							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
-							aria-label="任务输入"
-							placeholder="描述问题或想完成的任务…（/ 唤起命令）"
+							aria-label={t("composer.inputAria")}
+							placeholder={t("composer.inputPlaceholder")}
 							value={value}
 							rows={1}
 							onChange={(event) => {
@@ -538,8 +540,8 @@ export function Composer({
 						{running ? (
 							<button
 								type="button"
-								aria-label="中止"
-								title="中止"
+								aria-label={t("composer.abort")}
+								title={t("composer.abort")}
 								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
 								onClick={onAbort}
 							>

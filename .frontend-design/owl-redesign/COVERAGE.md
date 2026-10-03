@@ -1,5 +1,13 @@
 # OWL 全界面设计原型覆盖说明
 
+## 已批准的源码实施
+
+用户已批准第二轮设计，并明确保留模型回答、工具过程、对话输入与任务进度区域。实施范围为 DesktopTitlebar/外部主框架、ActivityRail/SessionSidebar、StartPage、Workbench 与 SettingsPage。新增 UI 调色变量使用 `--owl-ui-*`，不改原有聊天主题变量；工作台局部主题不覆盖侧边对话内容。既有 ChatStream、Composer、TodoPin 和转录逻辑由并行工作继续维护，本轮保留调用与功能。
+
+实际设置页保留并行新增的技能与跨会话记忆分类，当前为 11 项；开始页也保留并行新增的任务示例和开发工作台入口。初始目录、图片、编辑器、用户印象与 Git 读取补充连接后重试；编辑器和用户印象已加载后不会由自动重连覆盖草稿。
+
+开发预览为 `http://127.0.0.1:18970/`。界面验收通过真实 React 页面与隔离的 WebSocket 测试响应完成，结果及截图位于 `implementation-ui-review.json` 和 `implementation-ui/`。前端类型检查使用 `tsc --project apps/desktop/tsconfig.json --noEmit`。全仓 `npm run check` 在隔离副本执行，避免其 Biome 自动修复修改其他会话文件；其失败输出在 `implementation-root-check.log`。
+
 评审日期：2026-10-03。此轮交付是基于当前桌面项目的界面原型，等待用户确认后才实施源码改动。
 
 第二轮根据用户提供的 DeepSeek、Codex、Claude 界面截图调整桌面框架。应用菜单与窗口按钮集中在独立的 36px 顶栏；会话标题和工作区动作位于下方 60px 标题行。导航与主体使用连续侧栏背景和圆角主面板，首页取消固定顶部空白，输入框固定贴底，较小窗口可单独滚动会话列表。纯效果查看模式按真实窗口宽高排版；双主题评审仍保留 1280×800 设计画布。

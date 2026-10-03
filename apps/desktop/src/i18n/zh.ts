@@ -411,6 +411,7 @@ export const zh = {
 	"composer.runLocationLocalDisconnected": "运行位置：本地（连接断开）",
 	"composer.remoteSessions": "远程会话",
 	"composer.inDevelopment": "开发中",
+	"composer.featureInDevelopment": "该功能开发中",
 	"composer.projectChipTitle": "项目：{dir}（点击切换）",
 	"composer.projectPanelLabel": "项目（工作目录）",
 	"composer.noProjects": "尚无项目",
@@ -436,4 +437,4 @@ export const zh = {
 	"composer.thinkingChip": "思考·{level}",
 } as const;
 
-export type Dict = typeof zh;
+export type Dict = { [K in keyof typeof zh]: string };

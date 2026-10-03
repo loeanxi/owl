@@ -37,6 +37,7 @@ import {
 } from "../../core/agent-session-services.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
+import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { loadPromptTemplates } from "../../core/prompt-templates.ts";
@@ -1096,6 +1097,22 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				return;
+			}
+			// 「上下文洞察」由插件 owl-context 经 context-insight 注册表供数：
+			// 按 sessionId 或（缺省）按 cwd 取最近活跃会话；无数据也照常回空
+			case "context.get": {
+				const sessionId = request.sessionId ?? findContextInsightByCwd(request.cwd)?.sessionId;
+				const state = sessionId ? getContextInsight(sessionId) : undefined;
+				reply(ws, request.id, {
+					ok: true,
+					result: {
+						sessionId,
+						requests: state ? [...state.requests] : [],
+						events: state ? [...state.events] : [],
+						tools: state ? [...state.tools] : [],
+					},
+				});
 				return;
 			}
 			case "session.compact": {
