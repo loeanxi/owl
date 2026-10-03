@@ -21,6 +21,7 @@ import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
 import { IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
+import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -2554,6 +2555,41 @@ export function SettingsPage({
 										checked={notifPrefs.sound}
 										onChange={(next) => saveNotifications({ ...notifPrefs, sound: next })}
 									/>
+								</SettingRow>
+								<SettingRow
+									title={t("settings.notifications.soundKind")}
+									desc={t("settings.notifications.soundKindDesc")}
+								>
+									<div className="flex items-center justify-end gap-2">
+										<button
+											type="button"
+											className={btn}
+											disabled={busy}
+											title={t("settings.notifications.previewTitle")}
+											onClick={() => playChime(notifPrefs.soundKind, Math.max(notifPrefs.volume, 40), false)}
+										>
+											{t("settings.notifications.preview")}
+										</button>
+										<select
+											aria-label={t("settings.notifications.soundKind")}
+											className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+											value={notifPrefs.soundKind}
+											disabled={busy || !notifPrefs.sound}
+											onChange={(event) => {
+												const next = event.target.value;
+												if (!NOTIFICATION_SOUNDS.includes(next as NotificationSound)) return;
+												saveNotifications({ ...notifPrefs, soundKind: next as NotificationSound });
+												// 选完即试听，省一次找按钮（音量过低的兜底到 40，保证听得见）
+												playChime(next as NotificationSound, Math.max(notifPrefs.volume, 40), false);
+											}}
+										>
+											{NOTIFICATION_SOUNDS.map((value) => (
+												<option key={value} value={value}>
+													{t(`settings.notifications.soundName.${value}` as Parameters<typeof t>[0])}
+												</option>
+											))}
+										</select>
+									</div>
 								</SettingRow>
 								<SettingRow
 									title={t("settings.notifications.volume")}

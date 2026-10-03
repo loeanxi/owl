@@ -54,7 +54,7 @@ export async function notifyAgentStatus(options: NotifyOptions): Promise<void> {
 
 	// 1. 提示音
 	if (prefs.sound) {
-		playChime(options.critical ? "critical" : "info", prefs.volume);
+		playChime(prefs.soundKind, prefs.volume, options.critical === true);
 	}
 
 	// 2. 闪烁 Windows 任务栏

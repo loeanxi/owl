@@ -4,6 +4,8 @@
  * 这样纯浏览器模式（无 Tauri）也走同一份开关。
  */
 
+import { isNotificationSound, type NotificationSound } from "./sound.ts";
+
 export interface NotificationPrefs {
 	/** 工具执行等审批请求的提醒（桌面端附带「同意 / 拒绝」快捷按钮） */
 	permission: boolean;
@@ -13,6 +15,8 @@ export interface NotificationPrefs {
 	done: boolean;
 	/** 提示音 */
 	sound: boolean;
+	/** 提示音样式（auto = 按类别自动选音） */
+	soundKind: NotificationSound;
 	/** 提示音音量（0-100） */
 	volume: number;
 	/** 后台时任务栏闪烁 */
@@ -26,6 +30,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
 	question: true,
 	done: true,
 	sound: true,
+	soundKind: "auto",
 	volume: 60,
 	flashTaskbar: true,
 	quickActions: true,
@@ -44,6 +49,7 @@ export function parseNotificationPrefs(raw: unknown): NotificationPrefs {
 		question: bool("question", true),
 		done: bool("done", true),
 		sound: bool("sound", true),
+		soundKind: isNotificationSound(source.soundKind) ? source.soundKind : DEFAULT_NOTIFICATION_PREFS.soundKind,
 		volume,
 		flashTaskbar: bool("flashTaskbar", true),
 		quickActions: bool("quickActions", true),

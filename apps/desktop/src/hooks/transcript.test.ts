@@ -225,8 +225,9 @@ test("agent_end 权威重建保留用户消息行的 entryId（会话回退按�
 	const userRow = entries.find((entry) => entry.kind === "user");
 	assert.equal(userRow?.kind === "user" ? userRow.entryId : undefined, "e-user-1");
 
-	// 第二轮：乐观行 + entry_appended 补 id，agent_end 后两条用户行都保留各自 id
+	// 第二轮：乐观行 + agent_start 边界 + entry_appended 补 id，agent_end 后两条用户行都保留各自 id
 	entries = [...entries, { kind: "user", text: "第二条", entryId: undefined } as ChatEntry];
+	entries = event(entries, { type: "agent_start" });
 	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-user-2", message: { role: "user" } } });
 	entries = event(entries, {
 		type: "agent_end",

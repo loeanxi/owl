@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import type {
@@ -58,8 +58,10 @@ export class NewsStore {
 	private db: DatabaseSync;
 	constructor(path: string) {
 		this.path = path;
-		mkdirSync(dirname(path), { recursive: true });
+		mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+		chmodSync(dirname(path), 0o700);
 		this.db = new DatabaseSync(path, { timeout: 5000 });
+		chmodSync(path, 0o600);
 		this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
 			CREATE TABLE IF NOT EXISTS news_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 			CREATE TABLE IF NOT EXISTS news_sources(id TEXT PRIMARY KEY,data TEXT NOT NULL);
@@ -583,6 +585,8 @@ export class NewsStore {
 				(item.status === "ready" || item.status === "blocked")
 			) {
 				this.db.prepare("DELETE FROM news_items WHERE id=?").run(item.id);
+				this.db.prepare("DELETE FROM news_revisions WHERE item_id=?").run(item.id);
+				this.db.prepare("DELETE FROM news_vectors WHERE item_id=?").run(item.id);
 				removed++;
 			}
 		return removed;

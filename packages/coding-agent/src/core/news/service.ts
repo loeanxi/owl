@@ -70,12 +70,17 @@ function mergeSourceConfig(old: Record<string, unknown>, incoming: Record<string
 	for (const [key, value] of Object.entries(incoming)) {
 		if (value === "[configured]") continue;
 		if (typeof value === "string" && /\[configured\]|%5Bconfigured%5D/i.test(value) && typeof old[key] === "string") {
-			const nextUrl = new URL(value); const oldUrl = new URL(old[key] as string);
-			if (nextUrl.origin !== oldUrl.origin || nextUrl.pathname !== oldUrl.pathname) throw new Error("更改含凭据的信源地址时需要重新配置凭据");
-			for (const name of [...nextUrl.searchParams.keys()]) if (nextUrl.searchParams.get(name) === "[configured]") {
-				const previous = oldUrl.searchParams.get(name); if (previous !== null) nextUrl.searchParams.set(name, previous);
-			}
-			result[key] = nextUrl.toString(); continue;
+			const nextUrl = new URL(value);
+			const oldUrl = new URL(old[key] as string);
+			if (nextUrl.origin !== oldUrl.origin || nextUrl.pathname !== oldUrl.pathname)
+				throw new Error("更改含凭据的信源地址时需要重新配置凭据");
+			for (const name of [...nextUrl.searchParams.keys()])
+				if (nextUrl.searchParams.get(name) === "[configured]") {
+					const previous = oldUrl.searchParams.get(name);
+					if (previous !== null) nextUrl.searchParams.set(name, previous);
+				}
+			result[key] = nextUrl.toString();
+			continue;
 		}
 		result[key] =
 			value && typeof value === "object" && !Array.isArray(value)

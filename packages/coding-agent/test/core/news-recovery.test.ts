@@ -227,6 +227,114 @@ describe("news known/unknown payment recovery", () => {
 });
 
 describe("news live publication filtering", () => {
+	it("reuses paid evaluation results even when gold labels change and saves separate evaluation records", async () => {
+		const calls = vi.fn<NewsModelCaller>(async (request) => modelResponse(request.capability));
+		const service = new NewsService({
+			agentDir: temporary(),
+			callModel: calls,
+			resolveModel: async () => ({ provider: "fake", id: "fake" }),
+		});
+		try {
+			await service.handle({ action: "configure", patch: { modelCallsEnabled: true } });
+			const sample = {
+				id: "a",
+				material: { title: "发布新模型", url: "https://example.com/a", body: "发布新模型" },
+				tier: "T1" as const,
+				gold: "select" as const,
+			};
+			const first = await service.handle({ action: "evaluate", samples: [sample] });
+			const second = await service.handle({ action: "evaluate", samples: [{ ...sample, gold: "reject" }] });
+			expect(calls).toHaveBeenCalledTimes(3);
+			expect(first.accuracy).toBe(1);
+			expect(second.accuracy).toBe(0);
+			expect((await service.handle({ action: "evaluations" })).length).toBe(2);
+		} finally {
+			await service.close();
+		}
+	});
+	it("preserves redacted source credential fields through a public edit round-trip", async () => {
+		const service = new NewsService({
+			agentDir: temporary(),
+			callModel: async (request) => modelResponse(request.capability),
+		});
+		try {
+			const saved = await service.handle({
+				action: "saveSource",
+				source: {
+					...source,
+					kind: "rss",
+					config: {
+						feedUrl: "https://example.com/feed?token=private-value",
+						headers: { authorization: "private-header" },
+					},
+				},
+			});
+			expect(JSON.stringify(saved)).not.toContain("private-value");
+			expect(JSON.stringify(saved)).not.toContain("private-header");
+			await service.handle({ action: "saveSource", source: { ...saved, name: "新名称" } });
+			expect(service.store.source(source.id)?.config.feedUrl).toBe("https://example.com/feed?token=private-value");
+			expect((service.store.source(source.id)?.config.headers as Record<string, string>).authorization).toBe(
+				"private-header",
+			);
+		} finally {
+			await service.close();
+		}
+	});
+	it("uses RSS validators and keeps overflow X results and backlog across bounded collection runs", async () => {
+		let cursor: Record<string, unknown> = {};
+		const rss = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				new Response(
+					"<rss><channel><item><title>发布</title><link>https://example.com/a</link></item></channel></rss>",
+					{ headers: { etag: "v1" } },
+				),
+			)
+			.mockResolvedValueOnce(new Response(null, { status: 304 }));
+		const rssSource = { ...source, kind: "rss" as const, config: { feedUrl: "https://example.com/feed" } };
+		await collectNewsSource(rssSource, {
+			fetch: rss,
+			resolveHost: async () => ["8.8.8.8"],
+			cursor,
+			onCursor: (value) => {
+				cursor = value;
+			},
+		});
+		expect(await collectNewsSource(rssSource, { fetch: rss, resolveHost: async () => ["8.8.8.8"], cursor })).toEqual(
+			[],
+		);
+		expect(new Headers(rss.mock.calls[1]![1]?.headers).get("if-none-match")).toBe("v1");
+		const tweet = (id: string) => ({ id_str: id, full_text: `发布 ${id}`, user: { screen_name: "model" } });
+		const x = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ tweets: [tweet("5"), tweet("4"), tweet("3")], next_cursor: "older" })),
+			)
+			.mockResolvedValueOnce(new Response(JSON.stringify({ tweets: [tweet("6")] })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ tweets: [] })))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ tweets: [tweet("2")] })));
+		cursor = { lastId: "1" };
+		const collected: string[] = [];
+		for (let run = 0; run < 3; run++) {
+			const rows = await collectNewsSource(
+				{ ...source, kind: "x_search", config: { query: "from:model" } },
+				{
+					fetch: x,
+					resolveHost: async () => ["8.8.8.8"],
+					cursor,
+					onCursor: (value) => {
+						cursor = value;
+					},
+					maxItems: 2,
+					secrets: { SOCIALDATA_API_KEY: "fake-only" },
+					paid: async (_purpose, _identity, transport) => transport(),
+				},
+			);
+			collected.push(...rows.map((item) => item.externalId!));
+		}
+		expect(collected).toEqual(["5", "4", "3", "6", "2"]);
+		expect(cursor.lastId).toBe("6");
+	});
 	it("keeps snapshots while removing withdrawn cached leads, orphan related groups and stale story digests", async () => {
 		const service = new NewsService({
 			agentDir: temporary(),

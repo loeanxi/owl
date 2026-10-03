@@ -152,7 +152,12 @@ export async function fetchNewsText(
 					const next = new URL(target, url);
 					if (init.method && init.method !== "GET" && init.method !== "HEAD")
 						throw new Error("不允许带请求正文的采集请求重定向");
-					if ((headers.has("authorization") || headers.has("cookie")) && next.origin !== initialOrigin)
+					if (
+						(headers.has("authorization") ||
+							headers.has("cookie") ||
+							[...url.searchParams.keys()].some((key) => /key|token|secret|auth|password/i.test(key))) &&
+						next.origin !== initialOrigin
+					)
 						throw new Error("不允许认证采集请求跨域重定向");
 					url = next;
 					continue;
@@ -387,7 +392,8 @@ export function publicNewsSource<T extends NewsSourceInput>(source: T): T {
 					/^(accept|content-type|user-agent)$/i.test(name) ? entry : entry ? "[configured]" : "",
 				]),
 			);
-		if (/^key$|credential|api.?key|token|secret|password|authorization|cookie/i.test(key)) return value ? "[configured]" : "";
+		if (/^key$|credential|api.?key|token|secret|password|authorization|cookie/i.test(key))
+			return value ? "[configured]" : "";
 		if ((key === "url" || key === "feedUrl") && typeof value === "string") {
 			try {
 				const url = new URL(value);
@@ -460,7 +466,8 @@ export async function collectNewsSource(
 	if (source.kind === "x_search") {
 		if (!secrets.SOCIALDATA_API_KEY) throw new Error("请配置 SOCIALDATA_API_KEY");
 		if (!config.query) throw new Error("X 信源缺少搜索 query");
-		const cursor = options.cursor?.query && options.cursor.query !== String(config.query) ? {} : options.cursor ?? {};
+		const cursor =
+			options.cursor?.query && options.cursor.query !== String(config.query) ? {} : (options.cursor ?? {});
 		const carry = Array.isArray(cursor.pending) ? (cursor.pending as NewsMaterial[]) : [];
 		const backlog = Array.isArray(cursor.backlog) ? ([...cursor.backlog] as { query: string; next: string }[]) : [];
 		const tweets: Record<string, unknown>[] = [];
@@ -525,7 +532,12 @@ export async function collectNewsSource(
 		const combined = [
 			...new Map([...carry, ...mapped].map((material) => [material.externalId || material.url, material])).values(),
 		];
-		options.onCursor?.({ query: String(config.query), lastId: newest, backlog: backlog.slice(0, 5), pending: combined.slice(maximum) });
+		options.onCursor?.({
+			query: String(config.query),
+			lastId: newest,
+			backlog: backlog.slice(0, 5),
+			pending: combined.slice(maximum),
+		});
 		return combined.slice(0, maximum);
 	}
 	if (!secrets.DAJIALA_KEY) throw new Error("请配置 DAJIALA_KEY");
