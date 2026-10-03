@@ -45,6 +45,7 @@
 }
 
 html {
+	--owl-conversation-bg: #1b1b1b;
 	color-scheme: dark;
 	background-color: var(--color-owl-bg);
 }
@@ -55,6 +56,7 @@ html {
  * 暖纸色调，与深色的 Claude 风格同族；主色图标绿两套通用。
  */
 html[data-owl-theme="light"] {
+	--owl-conversation-bg: var(--color-owl-bg);
 	color-scheme: light;
 	--color-owl-bg: #faf9f5;
 	--color-owl-sidebar: #f1efe8;
@@ -530,7 +532,10 @@ html[data-owl-theme="light"] {
 	background: var(--color-owl-sidebar-selected);
 }
 
-/* Chat reading and execution records. These preferences never style the composer. */
+/* One canvas for messages, tasks and the composer; reading styles remain scoped to content. */
+.owl-shell-conversation { background: var(--owl-conversation-bg); }
+.owl-composer-surface { background: transparent; }
+
 .owl-chat-surface {
 	--owl-reading-text: #e4e4e4;
 	--owl-reading-muted: #999;
@@ -544,7 +549,7 @@ html[data-owl-theme="light"] {
 	min-width: 0;
 	container-type: inline-size;
 	container-name: owl-chat;
-	background: #1b1b1b;
+	background: var(--owl-conversation-bg);
 }
 
 html[data-owl-theme="light"] .owl-chat-surface {
@@ -554,7 +559,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 	--owl-reading-panel: #f1efe9;
 	--owl-reading-code: #8c4f3a;
 	--owl-reading-link: #286b98;
-	background: var(--color-owl-bg);
+	background: var(--owl-conversation-bg);
 }
 
 .owl-chat-layout { display: flex; height: 100%; min-width: 0; }

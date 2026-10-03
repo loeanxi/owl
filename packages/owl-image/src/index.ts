@@ -33,7 +33,7 @@ import { editSeedreamImage } from "./seedream.ts";
 import { generateDashScopeImage, editDashScopeImage } from "./dashscope.ts";
 import { xaiToolParameters } from "./xai-params.ts";
 import { generateComfyUIImage, editComfyUIImage } from "./comfyui.ts";
-import { mergeComfyUIPrompt, SUBSCRIPTION_TIMEOUT_MS, PROVIDER_DISPLAY_NAMES, IMAGE_PROVIDERS, type ImageProvider } from "./shared.ts";
+import { mergeComfyUIPrompt, SUBSCRIPTION_TIMEOUT_MS, type ImageProvider } from "./shared.ts";
 import { resolveReferenceImages, type OwlSessionLike } from "./reference-image.ts";
 import { imageDigest, saveImageToWorkspace } from "./workspace-save.ts";
 import { SubscriptionManager, type SubscriptionReferenceImage } from "./subscription/manager.ts";
@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
 		proxy: string | undefined,
 	): Promise<{ image: GeneratedImage; model: string; output: string; seed?: number }> {
 		if (active.provider === "comfyui") {
-			const workflow = selectComfyUIWorkflowShim(active, args.workflow);
+			const workflow = selectComfyUIWorkflow(active, args.workflow);
 			const generated = await generateComfyUIImage({
 				baseURL: active.baseURL,
 				workflowJson: workflow.json,
@@ -164,9 +164,9 @@ export default function (pi: ExtensionAPI) {
 			return { image: generated, model: active.model, output: `${aspectRatio}, ${imageSize}` };
 		}
 		if (active.provider === "dashscope") {
-			const size = args.size ?? config.dashscopeModel !== undefined ? args.size : args.size;
-			const generated = await generateDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: args.prompt, size: size ?? active.imageSize, maxBytes: env.maxBytes, signal: env.signal, proxy });
-			return { image: generated, model: active.model, output: size ?? active.imageSize };
+			const size = args.size ?? active.imageSize;
+			const generated = await generateDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: args.prompt, size, maxBytes: env.maxBytes, signal: env.signal, proxy });
+			return { image: generated, model: active.model, output: size };
 		}
 		if (active.provider === "xai") {
 			const extraBody = xaiToolParameters({ ...(args.aspect_ratio !== undefined ? { aspectRatio: args.aspect_ratio } : {}), ...(args.image_size !== undefined ? { imageSize: args.image_size } : {}), ...(args.size !== undefined ? { size: args.size } : {}) });
@@ -434,7 +434,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				const sourceImage = sourceImages[0];
 				if (sourceImage === undefined) throw new Error("edit_image requires a reference image");
-				const workflow = selectComfyUIWorkflowShim(active, params.workflow);
+				const workflow = selectComfyUIWorkflow(active, params.workflow);
 				const result = await editComfyUIImage({
 					baseURL: active.baseURL,
 					workflowJson: workflow.json,
@@ -469,7 +469,7 @@ export default function (pi: ExtensionAPI) {
 					generated = { image: result, model: active.model, output: `${aspectRatio}, ${imageSize}` };
 				} else if (active.provider === "openai" || active.provider === "openai-compat" || active.provider === "xai" || active.provider === "zhipu") {
 					const xaiExtraBody = active.provider === "xai"
-						? xaiToolParameters({ ...(params.aspect_ratio !== undefined ? { aspect_ratio: params.aspect_ratio } : {}), ...(params.image_size !== undefined ? { imageSize: params.image_size } : {}), ...(params.size !== undefined ? { size: params.size } : {}) })
+						? xaiToolParameters({ ...(params.aspect_ratio !== undefined ? { aspectRatio: params.aspect_ratio } : {}), ...(params.image_size !== undefined ? { imageSize: params.image_size } : {}), ...(params.size !== undefined ? { size: params.size } : {}) })
 						: undefined;
 					const size = params.size ?? active.imageSize;
 					const result = await editOpenAICompatibleImage({
@@ -653,19 +653,7 @@ async function withSubscriptionTimeout<T>(promise: Promise<T>, signal: AbortSign
 
 /** Sniff generated subscription bytes into a typed image. */
 function sniffImage(data: Uint8Array, provider: string): GeneratedImage {
-	const mediaType = imageMediaTypeOf("image/png") === undefined ? undefined : detectSubscriptionMediaType(data);
+	const mediaType = detectImageMediaType(data);
 	if (mediaType === undefined) throw new Error(`${provider} image payload has an unrecognized format`);
 	return { data, mediaType };
 }
-
-function detectSubscriptionMediaType(data: Uint8Array): ImageMediaType | undefined {
-	if (data[0] === 0x89 && data[1] === 0x50) return "image/png";
-	if (data[0] === 0xff && data[1] === 0xd8) return "image/jpeg";
-	const ascii = String.fromCharCode(...data.subarray(0, 4));
-	if (ascii === "GIF8") return "image/gif";
-	if (ascii === "RIFF" && String.fromCharCode(...data.subarray(8, 12)) === "WEBP") return "image/webp";
-	return undefined;
-}
-
-// Re-exported for the smoke check.
-export { IMAGE_PROVIDERS, PROVIDER_DISPLAY_NAMES };

@@ -12,10 +12,10 @@
  * Codex CLI's and grok-cli's are.
  */
 import { randomUUID } from "node:crypto";
-import { doFetch } from "../config.ts";
+import { doFetch } from "../../config.ts";
 import { buildAuthorizeUrl, formTokenRequest, type Pkce } from "../oauth.ts";
 import type { SubscriptionBlob } from "../blob.ts";
-import { DEFAULT_GOOGLE_SUB_MODEL } from "../../shared.ts";
+import { DEFAULT_GOOGLE_SUB_MODEL } from "../../../shared.ts";
 
 const AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN = "https://oauth2.googleapis.com/token";

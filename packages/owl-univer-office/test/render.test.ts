@@ -171,6 +171,25 @@ test(
 			assert.equal((await readFile(join(cwd, "sample.pdf"))).subarray(0, 5).toString(), "%PDF-");
 			assert.ok(Number(pdf.pageCount) > 0);
 			const slideArgs = { file: "sample.univer", unitId: "sample-slide" };
+			const missingImageRuntime = {
+				getLicense: () => actual.getLicense(),
+				async call() {
+					return {
+						...slide,
+						unitData: { ...slide.unitData, imageAssets: [{ source: "missing-image", imageSourceType: "UUID" }] },
+					};
+				},
+			} as unknown as OfficeRuntime;
+			await assert.rejects(
+				renderOfficeOperation(
+					missingImageRuntime,
+					"screenshot",
+					{ ...slideArgs, output: "missing-asset.png" },
+					cwd,
+					options,
+				),
+				/active Gateway/,
+			);
 			const images = await renderOfficeOperation(
 				runtime,
 				"screenshot",
@@ -184,7 +203,7 @@ test(
 			assert.equal(lint.unitType, "slide");
 			await writeFile(
 				join(cwd, "page.svg"),
-				'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect x="0" y="0" width="640" height="360" fill="#ffffff"/><text x="40" y="80" font-size="32">Owl 测试</text></svg>',
+				'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect x="0" y="0" width="640" height="360" fill="#ffffff"/><text x="40" y="80" font-size="32">Owl 测试</text><image href="sample.png" x="40" y="100" width="200" height="80" /></svg>',
 			);
 			const compiled = await renderOfficeOperation(
 				runtime,
@@ -197,6 +216,7 @@ test(
 			assert.equal(executions.length, 1);
 			assert.equal(executions[0].worktreeId, "draft");
 			assert.ok(typeof executions[0].code === "string" && executions[0].code.length > 100);
+			assert.ok(String(executions[0].code).includes("data:image/png;base64,"));
 		} finally {
 			await actual.dispose();
 			await rm(cwd, { recursive: true, force: true });

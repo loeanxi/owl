@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";

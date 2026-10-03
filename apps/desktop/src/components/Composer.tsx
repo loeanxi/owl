@@ -451,7 +451,7 @@ export function Composer({
 	);
 
 	return (
-		<div className="bg-owl-bg px-4 pt-2 pb-4">
+		<div className="owl-composer-surface px-4 pt-2 pb-4">
 			<div className="mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
 				<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">

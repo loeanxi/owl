@@ -1,5 +1,10 @@
+import { readFile, stat } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionUIContext } from "@owl/owl-coding-agent";
 import { type TSchema, Type } from "typebox";
+import { authorizePath } from "./runtime-paths.ts";
+
+type OfficeJson = null | boolean | number | string | readonly OfficeJson[] | { readonly [key: string]: OfficeJson };
+type OfficeContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
 export interface OfficeToolRuntime {
 	call(
@@ -46,9 +51,10 @@ export async function executeOfficeOperation(
 	params: Record<string, unknown>,
 	ctx: OfficeContext,
 	signal?: AbortSignal,
+	includeImages = false,
 ): Promise<{
-	content: { type: "text"; text: string }[];
-	structuredContent: Record<string, unknown>;
+	content: OfficeContent[];
+	structuredContent: OfficeJson;
 	details: OfficeToolDetails;
 }> {
 	signal?.throwIfAborted();
@@ -74,12 +80,32 @@ export async function executeOfficeOperation(
 	) {
 		artifacts.push({ path: params.file, action: "edited" });
 	}
-	if (["export", "print_pdf", "screenshot"].includes(operation) && typeof params.output === "string") {
+	if (
+		["export", "print_pdf", "screenshot"].includes(operation) &&
+		!Array.isArray(result.outputs) &&
+		typeof params.output === "string"
+	) {
 		artifacts.push({ path: params.output, action: "written" });
 	}
+	for (const path of Array.isArray(result.outputs) ? result.outputs : []) {
+		if (typeof path === "string") artifacts.push({ path, action: "written" });
+	}
+	const structuredContent = JSON.parse(JSON.stringify(result)) as OfficeJson;
+	const content: OfficeContent[] = [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }];
+	if (includeImages && operation === "screenshot" && Array.isArray(result.images)) {
+		for (const image of result.images.slice(0, 30)) {
+			if (!image || typeof image !== "object" || !("path" in image) || typeof image.path !== "string") continue;
+			const path = await authorizePath(ctx.cwd, image.path, "existing");
+			if ((await stat(path)).size > 8 * 1024 * 1024) continue;
+			const bytes = await readFile(path, { signal });
+			if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+				throw new Error("Office screenshot returned an invalid PNG file.");
+			content.push({ type: "image", data: bytes.toString("base64"), mimeType: "image/png" });
+		}
+	}
 	return {
-		content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-		structuredContent: result,
+		content,
+		structuredContent,
 		details: { operation, result, ...(artifacts.length > 0 ? { artifacts } : {}) },
 	};
 }
@@ -108,7 +134,14 @@ export function registerOfficeTools(pi: Pick<ExtensionAPI, "registerTool">, runt
 				"先用 univer_api 查同版本 Facade API；execute 中显式 return 才能取得读回值。",
 			],
 			execute: (_id, params, signal, _update, ctx) =>
-				executeOfficeOperation(runtime, operation, params as Record<string, unknown>, ctx, signal),
+				executeOfficeOperation(
+					runtime,
+					operation,
+					params as Record<string, unknown>,
+					ctx,
+					signal,
+					ctx.model?.input.includes("image") ?? false,
+				),
 		});
 	}
 	register("new", "创建 Office 文件", "创建空 .univer 容器，不覆盖已有文件。", { file });

@@ -75,6 +75,7 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 		const receipts: Receipt[] = [];
 		let barrierResponses: ServerResponse[] = [];
 		let barrierPaired = false;
+		let slowNavigations = 0;
 		const responseTimers = new Set<ReturnType<typeof setTimeout>>();
 		const frames: Array<{ pageId: string; width: number; height: number }> = [];
 
@@ -125,6 +126,7 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 					return;
 				}
 				if (url.pathname === "/slow-form") {
+					slowNavigations++;
 					const timer = setTimeout(() => {
 						responseTimers.delete(timer);
 						response.writeHead(200, { "content-type": "text/html" }).end(HTML);
@@ -145,6 +147,7 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 			frames.length = 0;
 			barrierResponses = [];
 			barrierPaired = false;
+			slowNavigations = 0;
 			hub = new BrowserHub({
 				onFrame: (pageId, _data, width, height) => frames.push({ pageId, width, height }),
 				onPagesChanged: () => {},
@@ -243,6 +246,21 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 				invoke("chat-a", "browser_fill", { pageId: page.pageId, selector: "#name", text: "ordered" }),
 			]);
 			expect((await report("chat-a", page.pageId)).name).toBe("ordered");
+		}, 30_000);
+
+		it("finishes a pending UI navigation before claiming and filling its page", async () => {
+			const manual = await hub.open({ url: `${baseUrl}/form` });
+			const navigation = hub.open({ pageId: manual.pageId, url: `${baseUrl}/slow-form` });
+			await expect.poll(() => slowNavigations).toBe(1);
+			await Promise.all([
+				navigation,
+				invoke("chat-a", "browser_fill", {
+					pageId: manual.pageId,
+					selector: "#name",
+					text: "claimed-after-navigation",
+				}),
+			]);
+			expect((await report("chat-a", manual.pageId)).name).toBe("claimed-after-navigation");
 		}, 30_000);
 
 		it("lets different chats navigate concurrently", async () => {

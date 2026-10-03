@@ -291,7 +291,8 @@ export class BrowserHub {
 	async disposeSession(sessionId: string): Promise<void> {
 		await this.operations.run(`session:${sessionId}`, async () => {
 			for (const entry of [...this.pages.values()]) {
-				if (entry.info.sessionId === sessionId) await this.withPage(entry.info.pageId, (current) => current.page.close());
+				if (entry.info.sessionId === sessionId)
+					await this.withPage(entry.info.pageId, (current) => current.page.close());
 			}
 			this.activePages.delete(sessionId);
 			this.contexts.delete(sessionId);
@@ -306,12 +307,15 @@ export class BrowserHub {
 	async open(options: { pageId?: string; url?: string; sessionId?: string }): Promise<IabPageInfo> {
 		const owner = options.sessionId ?? (options.pageId ? this.pages.get(options.pageId)?.info.sessionId : undefined);
 		return this.operations.run(owner ? `session:${owner}` : "ui:open", async () => {
+			if (this.disposed) throw new Error("浏览器服务已关闭");
 			if (options.pageId) {
 				const found = this.pages.get(options.pageId);
 				if (!found) throw new Error(`页面不存在或已关闭: ${options.pageId}`);
 				if (options.sessionId) await this.claimPage(found, options.sessionId);
 				if (options.url && options.url !== found.info.url) {
-					await found.page.goto(options.url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
+					await this.withPage(found.info.pageId, async (current) => {
+						await current.page.goto(options.url!, { waitUntil: "load", timeout: 20_000 });
+					});
 				}
 				await this.refreshPageMeta(found);
 				this.emitPages();
@@ -495,7 +499,31 @@ export class BrowserHub {
 		const bind = (tool: ToolDefinition): ToolDefinition => ({
 			...tool,
 			execute: (id, params, signal, onUpdate, context) =>
-				this.withAgent(sessionId, () => tool.execute(id, params, signal, onUpdate, context), signal),
+				this.withAgent(
+					sessionId,
+					async () => {
+						if (tool.name === "browser_tabs" || tool.name === "browser_wait") {
+							return tool.execute(id, params, signal, onUpdate, context);
+						}
+						const pageId =
+							typeof params === "object" &&
+							params !== null &&
+							"pageId" in params &&
+							typeof params.pageId === "string"
+								? params.pageId
+								: undefined;
+						const entry = await this.agentPage(sessionId, pageId);
+						return this.operations.run(
+							`page:${entry.info.pageId}`,
+							() => {
+								this.requirePage(entry.info.pageId);
+								return tool.execute(id, params, signal, onUpdate, context);
+							},
+							signal,
+						);
+					},
+					signal,
+				),
 		});
 		const tools: ToolDefinition[] = [
 			defineTool({
@@ -819,7 +847,7 @@ export class BrowserHub {
 					if (params.action === "list") return json({ pages: this.listPages(sessionId) });
 					if (params.action === "new") {
 						const entry = await this.newPage(params.url ? normalizeAgentUrl(params.url) : undefined, sessionId);
-						this.claimPage(entry, sessionId);
+						await this.claimPage(entry, sessionId);
 						return json({ page: this.listPages(sessionId).find((info) => info.pageId === entry.info.pageId) });
 					}
 					if (!params.pageId) throw new Error("select/close需要pageId；先list查找");
@@ -830,7 +858,7 @@ export class BrowserHub {
 						await this.refreshPageMeta(entry);
 						return json({ page: this.listPages(sessionId).find((info) => info.pageId === entry.info.pageId) });
 					}
-					await entry.page.close();
+					await this.withPage(entry.info.pageId, (current) => current.page.close());
 					return text("已关闭页面。");
 				},
 			}),
