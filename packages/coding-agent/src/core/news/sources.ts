@@ -375,6 +375,7 @@ export function extractNewsBody(html: string, url: string): { title: string; bod
 }
 
 export interface NewsCollectorOptions extends NewsFetchOptions {
+	window?: number;
 	cursor?: Record<string, unknown>;
 	onCursor?: (cursor: Record<string, unknown>) => void;
 	secrets?: Record<string, string>;
@@ -480,7 +481,7 @@ export async function collectNewsSource(
 			const url = `https://api.socialdata.tools/twitter/search?${new URLSearchParams({ query, type: String(config.searchType || "Latest"), ...(next ? { cursor: next } : {}) })}`;
 			const result = (await options.paid(
 				"x-search",
-				{ query, next, window: Math.floor(Date.now() / 1800000) },
+				{ query, next, window: Math.floor((options.window ?? Date.now()) / 1800000) },
 				async () => {
 					const response = await get(url, { headers: { authorization: `Bearer ${secrets.SOCIALDATA_API_KEY}` } });
 					return decodePaidNewsJson(response);
@@ -543,16 +544,20 @@ export async function collectNewsSource(
 	if (!secrets.DAJIALA_KEY) throw new Error("请配置 DAJIALA_KEY");
 	const ghid = String(config.ghid || config.wxid || "");
 	if (!ghid) throw new Error("公众号信源缺少 ghid/wxid");
-	const history = (await options.paid("mp-history", { ghid, window: Math.floor(Date.now() / 600000) }, async () => {
-		const response = await get("https://www.dajiala.com/fbmain/monitor/v3/post_history", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ ghid, key: secrets.DAJIALA_KEY, verifycode: "" }),
-		});
-		const json = decodePaidNewsJson(response) as Record<string, unknown>;
-		if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
-		return json;
-	})) as { data?: Record<string, unknown>[] };
+	const history = (await options.paid(
+		"mp-history",
+		{ ghid, window: Math.floor((options.window ?? Date.now()) / 600000) },
+		async () => {
+			const response = await get("https://www.dajiala.com/fbmain/monitor/v3/post_history", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ ghid, key: secrets.DAJIALA_KEY, verifycode: "" }),
+			});
+			const json = decodePaidNewsJson(response) as Record<string, unknown>;
+			if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
+			return json;
+		},
+	)) as { data?: Record<string, unknown>[] };
 	const result: NewsMaterial[] = [];
 	for (const post of (history.data ?? []).slice(0, maximum)) {
 		const url = safeArticleUrl(String(post.url || ""), "https://mp.weixin.qq.com");

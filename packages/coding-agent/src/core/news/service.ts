@@ -447,6 +447,7 @@ export class NewsService {
 				let cursor = this.store.getMeta<Record<string, unknown>>(`source-cursor:${source.id}`) ?? {};
 				const items = await collectNewsSource(source, {
 					...this.fetchOptions(),
+					window: Date.parse(job.createdAt),
 					maxItems: this.configuration.maxItemsPerSource,
 					secrets: this.secrets,
 					cursor,

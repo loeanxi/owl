@@ -225,18 +225,35 @@ describe("news known/unknown payment recovery", () => {
 		}
 	});
 	it("cancels a running transport and stops new work when its lease is lost", async () => {
-		vi.useFakeTimers(); let signal: AbortSignal | undefined;
-		const calls = vi.fn<NewsModelCaller>(async request => new Promise((_resolve, reject) => {
-			signal = request.signal; signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-		}));
-		const service = new NewsService({ agentDir: temporary(), callModel: calls, resolveModel: async () => ({ provider: "fake", id: "fake" }) });
+		vi.useFakeTimers();
+		let signal: AbortSignal | undefined;
+		const calls = vi.fn<NewsModelCaller>(
+			async (request) =>
+				new Promise((_resolve, reject) => {
+					signal = request.signal;
+					signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+				}),
+		);
+		const service = new NewsService({
+			agentDir: temporary(),
+			callModel: calls,
+			resolveModel: async () => ({ provider: "fake", id: "fake" }),
+		});
 		const other = new NewsStore(service.store.path);
 		try {
-			await configureAndIngest(service); service.start(); await vi.advanceTimersByTimeAsync(1);
+			await configureAndIngest(service);
+			service.start();
+			await vi.advanceTimersByTimeAsync(1);
 			other.setMeta("worker-lease", { owner: "replacement", until: Date.now() + 600000 });
-			await vi.advanceTimersByTimeAsync(10000); expect(signal?.aborted).toBe(true); expect(calls).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(10000);
+			expect(signal?.aborted).toBe(true);
+			expect(calls).toHaveBeenCalledTimes(1);
 			expect((await service.handle({ action: "receipts" }))[0]?.status).toBe("unknown");
-		} finally { await service.close(); other.close(); vi.useRealTimers(); }
+		} finally {
+			await service.close();
+			other.close();
+			vi.useRealTimers();
+		}
 	});
 });
 
