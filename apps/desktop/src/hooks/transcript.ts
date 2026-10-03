@@ -168,6 +168,24 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 	return next;
 }
 
+/**
+ * 为 agent_end 权威重建构造 entryIds 对齐数组：本轮 run 的用户消息对应原转录
+ * 末尾的那几条用户行（普通轮 1 条；steering 多条也按序尾部对齐），把它们的
+ * entryId 带回重建结果——否则回答一结束 ↶ 回退按钮就消失。
+ */
+function alignUserEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (string | undefined)[] | undefined {
+	const previousIds = previous
+		.filter((entry) => entry.kind === "user" && entry.entryId)
+		.map((entry) => (entry as { entryId: string }).entryId);
+	const userCount = messages.filter((message) => message.role === "user").length;
+	if (userCount === 0) return undefined;
+	const start = previousIds.length - userCount;
+	if (start < 0) return undefined; // 原转录里没有足够的带 id 用户行（老桥/异常流），不硬凑
+	const tail = previousIds.slice(start);
+	let index = 0;
+	return messages.map((message) => (message.role === "user" ? tail[index++] : undefined));
+}
+
 /** 自动重试横幅状态：由 auto_retry_start / auto_retry_end 事件驱动，独立于转录条目——
  * 每次重试轮的 agent_end 权威重建会重排条目，横幅状态不能寄存在 entries 里。 */
 export type RetryBannerState =
