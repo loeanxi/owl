@@ -136,6 +136,39 @@ export interface SessionSetApprovalModeRequest {
 	approvalMode: ApprovalMode;
 }
 
+/** 会话进行中手动压缩上下文（对应 AgentSession.compact，事件照常走事件流）。 */
+export interface SessionCompactRequest {
+	type: "session.compact";
+	id: string;
+	sessionId: string;
+}
+
+/** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */
+export interface SlashCommandEntry {
+	/** 触发名（不含前导斜杠）：内置命令名 / 模板名 / 扩展命令名 / skill:<name>。 */
+	name: string;
+	description?: string;
+	/** 来源分类：内置（UI 本地执行）/ skill / 提示词模板 / 扩展命令。 */
+	kind: "builtin" | "skill" | "prompt" | "extension";
+	/** 参数提示（如 <provider/model>），仅展示用。 */
+	argumentHint?: string;
+}
+
+/**
+ * 列出当前项目可用的斜杠命令：桌面内置命令 +（已挂载会话的）扩展命令、
+ * 提示词模板与技能。未挂载会话时按 cwd 轻量扫描技能与模板（缺扩展命令）。
+ */
+export interface CommandsListRequest {
+	type: "commands.list";
+	id: string;
+	/** 项目目录；缺省用桥的默认 cwd。 */
+	cwd?: string;
+}
+
+export interface CommandsListResult {
+	commands: SlashCommandEntry[];
+}
+
 /** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
 export interface SessionStatsRequest {
 	type: "session.stats";
@@ -706,7 +739,9 @@ export type DesktopClientRequest =
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest
 	| SessionSetApprovalModeRequest
+	| SessionCompactRequest
 	| SessionStatsRequest
+	| CommandsListRequest
 	| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest

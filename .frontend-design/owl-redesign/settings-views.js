@@ -3,7 +3,11 @@
   'use strict';
   const esc = value => String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
   const text = (id, value, tagName = 'span', cls = '') => `<${tagName} class="${cls}" data-fd-id="${id}" data-fd-editable="text">${esc(value)}</${tagName}>`;
-  const b = (label, action, cls = '', id = action) => button(label, action, cls).replace('<button', `<button data-fd-id="settings-btn-${id}"`);
+  const b = (label, action, cls = '', id = action) => {
+    const markup = button(label, action, cls);
+    const anchor = `data-fd-id="settings-btn-${id}"`;
+    return /data-fd-id=/.test(markup) ? markup.replace(/data-fd-id="[^"]*"/, anchor) : markup.replace('<button', `<button ${anchor}`);
+  };
   const i = (id, value = '', placeholder = '', type = 'text') => `<input class="input" type="${type}" value="${esc(value)}" placeholder="${esc(placeholder)}" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}">`;
   const s = (id, options, selected = '') => `<select class="select" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}">${options.map(option => { const pair = typeof option === 'string' ? [option, option] : option; return `<option value="${esc(pair[0])}" ${pair[0] === selected ? 'selected' : ''}>${esc(pair[1])}</option>`; }).join('')}</select>`;
   const ta = (id, value = '', placeholder = '', height = 136, cls = '') => `<textarea class="textarea ${cls}" style="min-height:${height}px;resize:vertical" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
@@ -12,8 +16,8 @@
   const pill = (label, tone = '') => `<span class="tag ${tone}">${esc(label)}</span>`;
   const effect = (id, message, note = '') => `<div class="notice" data-fd-id="settings-notice-${id}" style="display:flex;align-items:flex-start;gap:10px">${icon('check', 17)}<div>${text(`settings-effect-${id}`, message, 'div')}${note ? text(`settings-effect-help-${id}`, note, 'div', 'muted small') : ''}</div></div>`;
   const block = (id, title, body, desc = '') => `<section class="settings-section" data-fd-id="settings-section-${id}"><div style="margin-bottom:14px">${text(`settings-section-title-${id}`, title, 'h3', 'subheading')}${desc ? text(`settings-section-description-${id}`, desc, 'p', 'muted small') : ''}</div>${body}</section>`;
-  const footer = (id, note = '有更改时，保存后生效。') => `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:20px;border-top:1px solid var(--color-owl-border)" data-fd-id="settings-footer-${id}">${text(`settings-save-description-${id}`, note, 'span', 'muted small')}${b('保存更改', 'save', 'primary', `save-${id}`)}</div>`;
-  const sourceHint = () => `<p class="muted small" data-fd-id="settings-synthetic-data">原型中使用示例配置；所有操作仅演示界面。</p>`;
+  const footer = () => '';
+  const sourceHint = () => '';
 
   const providers = [
     {id:'team-gateway', name:'团队网关', letter:'T', protocol:'OpenAI 兼容', count:3, models:[['owl-code-pro','Owl Code Pro','128k','8k','推理'],['owl-chat','Owl Chat','64k','8k','通用'],['owl-vision','Owl Vision','128k','16k','视觉']]},
@@ -41,7 +45,7 @@
   window.OWL_SETTINGS = {
     general: {
       title:'常规', description:'设置默认工作环境，开始下一次工作时更顺手。',
-      html: () => `<div class="form-stack">${block('workspace','工作环境',`<div class="form-stack">${f('workspace','默认工作目录','新建会话会从这个目录开始。',i('workspace','D:\\work\\owl-demo','输入项目目录'))}${f('shell','命令行程序','执行命令使用的程序路径；保存后用于新会话。',i('shell','C:\\Program Files\\Git\\bin\\bash.exe','输入 Shell 可执行文件路径'))}</div>`)}${block('data-location','数据存放位置',`<div class="card" style="padding:18px">${r('agent-directory','Owl 数据目录','模型配置、设置与会话历史保存在这里。',pill('只读'))}<div class="code" style="margin-top:12px;padding:12px;overflow-wrap:anywhere" data-fd-id="settings-data-path">D:\\work\\owl-demo\\data</div></div>`)}${effect('general','工作环境设置用于新会话','当前会话继续使用创建时的工作目录与命令行程序。')}${footer('general')}${sourceHint()}</div>`
+      html: () => `<div class="form-stack">${block('workspace','工作环境',`<div class="form-stack">${f('workspace','默认工作目录','新建会话会从这个目录开始。',i('workspace','D:\\owl\\owl-re-v1\\owl-mono','输入项目目录'))}${f('shell','命令行程序','执行命令使用的程序路径；保存后用于新会话。',i('shell','C:\\Program Files\\Git\\bin\\bash.exe','输入 Shell 可执行文件路径'))}</div>`)}${block('data-location','数据存放位置',`<div class="card" style="padding:18px">${r('agent-directory','Owl 数据目录','模型配置、设置与会话历史保存在这里。',pill('只读'))}<div class="code" style="margin-top:12px;padding:12px;overflow-wrap:anywhere" data-fd-id="settings-data-path">D:\\owl\\demo-data</div></div>`)}${effect('general','工作环境设置用于新会话','当前会话继续使用创建时的工作目录与命令行程序。')}${footer('general')}${sourceHint()}</div>`
     },
     providers: {
       title:'模型与供应商', description:'连接你的模型服务，并管理可用于会话的模型。',
@@ -52,7 +56,7 @@
       html: () => `<div class="form-stack">${block('plugin-add','添加插件',`<div style="display:flex;gap:10px;align-items:center">${i('plugin-source','','npm:包名、Git 地址或本地路径')}${b('添加','add-plugin','primary')}</div><p class="muted small" style="margin-top:9px">支持 npm 包、Git 仓库、本地目录以及 .ts / .js 文件。</p>`)}${block('plugin-list','已添加的插件',`<div class="card" style="padding:0 18px">${[
         ['project-tools','项目工具','npm:owl-demo-project-tools','npm',true,'工具入口：project.ts'],
         ['review-assistant','代码检查','https://example.invalid/owl/review.git','Git',true,''],
-        ['local-note','本地笔记','D:\\work\\owl-demo\\plugins\\notes.ts','本地文件',false,'']
+        ['local-note','本地笔记','D:\\owl\\owl-re-v1\\owl-mono\\plugins\\notes.ts','本地文件',false,'']
       ].map(plugin=>`<div class="row" data-fd-id="settings-plugin-${plugin[0]}"><div style="min-width:0;flex:1"><div style="display:flex;gap:9px;align-items:center">${text(`settings-plugin-name-${plugin[0]}`,plugin[1],'span','subheading')}${pill(plugin[3])}</div><div class="muted small" style="margin-top:5px;font-family:monospace;overflow-wrap:anywhere">${plugin[2]}</div>${plugin[5]?`<div class="muted small" style="margin-top:3px">${plugin[5]}</div>`:''}</div><div style="display:flex;align-items:center;gap:12px">${b(plugin[4]?'已启用':'已停用','toggle-plugin','ghost',`toggle-${plugin[0]}`)}${b('删除','delete-plugin','ghost',`delete-${plugin[0]}`)}</div></div>`).join('')}</div>`)}<div class="notice warning" data-fd-id="settings-plugin-migration" style="display:flex;gap:14px;align-items:center"><div style="flex:1">${text('settings-migration-title','发现 2 项旧版扩展配置','div')}${text('settings-migration-help','迁移后可在这里统一管理。已有配置仍会正常加载。','div','small muted')}</div>${b('迁移到插件','migrate-plugins','ghost')}</div>${effect('plugins','插件更改会在新会话中生效')}${sourceHint()}</div>`
     },
     appearance: {
@@ -81,7 +85,7 @@
     },
     about: {
       title:'关于 Owl', description:'你的桌面 AI 工作伙伴。',
-      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0 <span class="small">（示例）</span></div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\work\\owl-demo\\data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
+      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0 <span class="small">（示例）</span></div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
     }
   };
 

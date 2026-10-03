@@ -31,6 +31,25 @@ const VIEWPORT_PRESETS = [
 
 const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
 
+// -- 收藏（书签）：localStorage 全局持久化，跨工作区/跨会话共享 -------------
+
+type Bookmark = { url: string; title: string };
+const BOOKMARKS_KEY = "owl.iab.bookmarks";
+const BOOKMARKS_LIMIT = 50;
+
+function readBookmarks(): Bookmark[] {
+	try {
+		const parsed = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) ?? "[]") as Bookmark[];
+		return Array.isArray(parsed) ? parsed.filter((bookmark) => bookmark && typeof bookmark.url === "string") : [];
+	} catch {
+		return [];
+	}
+}
+
+function writeBookmarks(list: Bookmark[]): void {
+	localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(list.slice(0, BOOKMARKS_LIMIT)));
+}
+
 /** 归一化输入：补协议、localhost 容错，空串返回空。 */
 function normalizeUrl(raw: string): string {
 	const text = raw.trim();
@@ -346,6 +365,33 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			.catch(() => {});
 	};
 
+	// -- 收藏与独立窗口 --------------------------------------------------------
+
+	const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => readBookmarks());
+	const currentBookmarked = page?.url ? bookmarks.some((bookmark) => bookmark.url === page.url) : false;
+	const toggleBookmark = (): void => {
+		if (!page?.url) return;
+		const list = readBookmarks();
+		const index = list.findIndex((bookmark) => bookmark.url === page.url);
+		if (index >= 0) list.splice(index, 1);
+		else list.unshift({ url: page.url, title: page.title || page.url });
+		writeBookmarks(list);
+		setBookmarks(list);
+	};
+	const removeBookmark = (url: string): void => {
+		const list = readBookmarks().filter((bookmark) => bookmark.url !== url);
+		writeBookmarks(list);
+		setBookmarks(list);
+	};
+
+	// 独立窗口打开：桌面壳里弹新窗口，普通浏览器里是新标签页；被壳拦截时退回系统浏览器
+	const popout = (): void => {
+		const url = pageRef.current?.url;
+		if (!url) return;
+		const win = window.open(url, "_blank", "noopener");
+		if (!win) void api.openExternal("url", url).catch(() => {});
+	};
+
 	// 键盘：画布聚焦时全部转发给页面（含 Ctrl+T 等组合键——那是页面的快捷键，
 	// 不是工作台的；App 的全局快捷键靠 data-iab-capture 让路）
 	const onKeyDown = (event: React.KeyboardEvent): void => {
@@ -430,6 +476,35 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						))}
 					</select>
 				)}
+				<button
+					type="button"
+					title="在独立窗口打开"
+					className={toolbarButton}
+					disabled={!page?.url}
+					onClick={popout}
+				>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+						<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+						<rect x="8" y="7.5" width="5" height="4" rx="0.5" fill="currentColor" stroke="none" />
+					</svg>
+				</button>
+				<button
+					type="button"
+					title={currentBookmarked ? "取消收藏" : "收藏此页"}
+					className={`${toolbarButton} ${currentBookmarked ? "text-owl-accent hover:text-owl-accent" : ""}`}
+					disabled={!page?.url}
+					onClick={toggleBookmark}
+				>
+					<svg
+						viewBox="0 0 16 16"
+						fill={currentBookmarked ? "currentColor" : "none"}
+						stroke="currentColor"
+						strokeWidth="1.3"
+						className="h-3 w-3"
+					>
+						<path d="M4 2.5h8a.8.8 0 0 1 .8.8v10.2L8 10.2 3.2 13.5V3.3a.8.8 0 0 1 .8-.8z" />
+					</svg>
+				</button>
 				<button type="button" title="在系统浏览器打开" className={toolbarButton} disabled={!page?.url} onClick={openExternal}>
 					<IconExternal size={11} />
 				</button>
@@ -455,6 +530,36 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 							</button>
 						))}
 					</div>
+					{bookmarks.length > 0 && (
+						<div className="mt-3 w-full max-w-sm">
+							<p className="mb-1.5 text-[11px] font-medium text-owl-faint">收藏</p>
+							<div className="space-y-1">
+								{bookmarks.map((bookmark) => (
+									<div
+										key={bookmark.url}
+										className="group flex items-center gap-1 rounded-lg border border-owl-border/60 bg-owl-panel px-2.5 py-1.5"
+									>
+										<button
+											type="button"
+											title={bookmark.url}
+											className="min-w-0 flex-1 cursor-pointer truncate text-left text-xs text-owl-muted transition-colors hover:text-owl-text"
+											onClick={() => navigate(bookmark.url)}
+										>
+											{bookmark.title || bookmark.url}
+										</button>
+										<button
+											type="button"
+											title="删除收藏"
+											className="shrink-0 text-owl-faint opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+											onClick={() => removeBookmark(bookmark.url)}
+										>
+											✕
+										</button>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
 				</div>
 			) : (
 				<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black/40">

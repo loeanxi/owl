@@ -41,6 +41,8 @@ import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
+import { loadPromptTemplates } from "../../core/prompt-templates.ts";
+import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import {
 	cancelAllPendingQuestions,
@@ -52,7 +54,14 @@ import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { BrowserHub } from "./browser-hub.ts";
-import type { IabFrameMessage, IabOpenResult, IabPageInfo, IabStateResult } from "./protocol.ts";
+import type {
+	CommandsListResult,
+	IabFrameMessage,
+	IabOpenResult,
+	IabPageInfo,
+	IabStateResult,
+	SlashCommandEntry,
+} from "./protocol.ts";
 import {
 	invalidateDirectoryCache,
 	listWorkspaceDirectory,
@@ -557,6 +566,73 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 	}
 
+	/** 桌面端内置斜杠命令：都在 UI / 桥本地执行，session.prompt 不认识它们（不能当文本发）。 */
+	const DESKTOP_BUILTIN_COMMANDS: SlashCommandEntry[] = [
+		{ name: "new", description: "新建会话", kind: "builtin" },
+		{ name: "compact", description: "手动压缩上下文", kind: "builtin" },
+		{ name: "model", description: "切换模型", kind: "builtin", argumentHint: "<provider/model>" },
+		{ name: "thinking", description: "调整思考强度", kind: "builtin", argumentHint: "<level>" },
+		{ name: "settings", description: "打开设置页", kind: "builtin" },
+	];
+
+	/**
+	 * 斜杠命令清单：内置命令 + 命令面（扩展命令 / 提示词模板 / 技能）。
+	 * 优先复用该 cwd 已挂载会话的资源加载器与扩展运行器（含插件提供的资源）；
+	 * 没有挂载会话时按 cwd 轻量扫描默认位置（全局 + 项目级，缺扩展命令）。
+	 * session.prompt 的展开顺序是扩展命令 → /skill: → 模板，清单按同一优先级
+	 * 去重，保证菜单里选中的名字与发送后的实际行为一致。
+	 */
+	async function listSlashCommands(cwd?: string): Promise<CommandsListResult> {
+		const resolvedCwd = cwd ?? options.cwd ?? process.cwd();
+		const agentDir = defaultAgentDir();
+		const commands: SlashCommandEntry[] = [...DESKTOP_BUILTIN_COMMANDS];
+		const seen = new Set(commands.map((entry) => entry.name));
+		const add = (entry: SlashCommandEntry): void => {
+			if (seen.has(entry.name)) return;
+			seen.add(entry.name);
+			commands.push(entry);
+		};
+		const sameCwd = (a: string, b: string): boolean => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+		let mounted: AgentSession | undefined;
+		for (const { runtime } of sessions.values()) {
+			if (sameCwd(runtime.session.sessionManager.getCwd(), resolvedCwd)) {
+				mounted = runtime.session;
+				break;
+			}
+		}
+		if (mounted) {
+			for (const command of mounted.extensionRunner.getRegisteredCommands()) {
+				add({ name: command.invocationName, description: command.description, kind: "extension" });
+			}
+			for (const template of mounted.promptTemplates) {
+				add({
+					name: template.name,
+					description: template.description,
+					kind: "prompt",
+					...(template.argumentHint ? { argumentHint: template.argumentHint } : {}),
+				});
+			}
+			for (const skill of mounted.resourceLoader.getSkills().skills) {
+				add({ name: `skill:${skill.name}`, description: skill.description, kind: "skill" });
+			}
+		} else {
+			const templates = loadPromptTemplates({ cwd: resolvedCwd, agentDir, promptPaths: [], includeDefaults: true });
+			for (const template of templates.templates) {
+				add({
+					name: template.name,
+					description: template.description,
+					kind: "prompt",
+					...(template.argumentHint ? { argumentHint: template.argumentHint } : {}),
+				});
+			}
+			const skills = loadSkills({ cwd: resolvedCwd, agentDir, skillPaths: [], includeDefaults: true });
+			for (const skill of skills.skills) {
+				add({ name: `skill:${skill.name}`, description: skill.description, kind: "skill" });
+			}
+		}
+		return { commands };
+	}
+
 	/** 会话运行时状态（UI 输入栏的模型/思考/上下文展示与切换依据）。 */
 	function sessionStateSnapshot(session: AgentSession): SessionStatsResult {
 		const model = session.model;
@@ -951,6 +1027,27 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				return;
+			}
+			case "session.compact": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				try {
+					await session.runtime.session.compact();
+					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "commands.list": {
+				reply(ws, request.id, { ok: true, result: await listSlashCommands(request.cwd) });
 				return;
 			}
 			case "session.resume": {

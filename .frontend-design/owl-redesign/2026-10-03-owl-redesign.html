@@ -1,0 +1,2454 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL · 完整界面重设计 / 第 1 轮</title><style>    overflow: hidden;
+  }
+
+  /* ============================================================
+     App shell
+     ============================================================ */
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  header.app-header {
+    background: #ffffff;
+    border-bottom: 1px solid #d8e2ee;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    z-index: 50;
+  }
+  header.app-header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header.app-header .subtitle { color: #5a6b80; font-size: 11px; margin-top: 2px; }
+  header.app-header .actions { display: flex; gap: 8px; align-items: center; }
+
+  button.btn {
+    font: inherit; cursor: pointer;
+    border-radius: 8px; border: 1px solid #d8e2ee;
+    background: #ffffff; color: #0f1f33;
+    padding: 7px 13px; font-size: 13px;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  button.btn:hover { background: #f1f6fc; }
+  button.btn.primary { background: #2563eb; border-color: #2563eb; color: #ffffff; font-weight: 500; }
+  button.btn.primary:hover { background: #1d54d4; border-color: #1d54d4; }
+  button.btn.toggled { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+
+  .main-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    overflow: hidden;
+    transition: grid-template-columns 220ms ease;
+  }
+  .main-layout.controls-collapsed { grid-template-columns: 56px 1fr; }
+  .main-layout.controls-collapsed aside.controls { padding: 12px 6px; overflow: hidden; }
+  .main-layout.controls-collapsed .controls-body { display: none; }
+  .main-layout.controls-collapsed .toggle-btn .toggle-label { display: none; }
+  .main-layout.controls-collapsed .controls-toggle-row { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+  /* ============================================================
+     Left controls rail
+     ============================================================ */
+  aside.controls {
+    background: #ffffff;
+    border-right: 1px solid #d8e2ee;
+    overflow-y: auto;
+    padding: 16px 12px 80px;
+  }
+  .controls-toggle-row {
+    display: flex; justify-content: center;
+    padding: 0 0 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #eef2f7;
+  }
+  button.toggle-btn {
+    font: inherit; cursor: pointer;
+    border-radius: 999px; border: 1px solid #d8e2ee;
+    background: #f7fbff; color: #2563eb;
+    padding: 6px 12px; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background 120ms ease, border-color 120ms ease;
+    white-space: nowrap;
+  }
+  button.toggle-btn:hover { background: #eef6ff; border-color: #b9c6d8; }
+  button.toggle-btn .toggle-icon { font-size: 13px; line-height: 1; }
+
+  aside.controls .section-head {
+    margin: 14px 4px 8px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5a6b80;
+    font-weight: 600;
+    border-top: 1px solid #eef2f7;
+    padding-top: 14px;
+  }
+  aside.controls .section-head:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+
+  .control-row { padding: 6px 4px 8px; }
+  .control-row .lbl {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px; gap: 8px;
+  }
+  .control-row .var-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; font-weight: 600; color: #0f1f33;
+  }
+  .control-row .var-intent { font-size: 11px; color: #5a6b80; }
+
+  .help-banner {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 8px 10px; font-size: 11px; color: #78350f; margin-bottom: 12px; line-height: 1.45;
+  }
+
+  /* ============================================================
+     Decision controls
+     ============================================================ */
+  .dropdown { position: relative; }
+  .dd-trigger {
+    width: 100%;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+    cursor: pointer; font: inherit; color: #0f1f33; font-size: 12px;
+    text-align: left;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .dd-trigger:hover { border-color: #b9c6d8; }
+  .dd-trigger.open { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+  .dd-trigger .left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+  .dd-trigger .opt-id {
+    background: #eef6ff; color: #2563eb; font-weight: 600;
+    border-radius: 4px; padding: 1px 6px; font-size: 10px;
+    flex-shrink: 0;
+  }
+  .dd-trigger .opt-summary {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dd-trigger .caret { color: #5a6b80; font-size: 10px; flex-shrink: 0; }
+
+  .sw-pair { display: inline-flex; gap: 2px; flex-shrink: 0; }
+  .sw {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+  }
+  .sw.lg { width: 28px; height: 22px; border-radius: 4px; }
+
+  .dd-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: #ffffff;
+    border: 1px solid #d8e2ee;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+    z-index: 40;
+    padding: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+    display: none;
+  }
+  .dd-panel.open { display: block; }
+  .dd-panel.wide { width: 360px; right: auto; }
+
+  .dd-option {
+    width: 100%;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border: none; background: transparent; cursor: pointer;
+    border-radius: 6px;
+    font: inherit; text-align: left; color: #0f1f33;
+  }
+  .dd-option:hover, .dd-option.active { background: #eef6ff; }
+  .dd-option.selected { background: #eef6ff; box-shadow: inset 2px 0 0 #2563eb; }
+  .dd-option .opt-id {
+    background: #f1f5f9; color: #475569; font-weight: 600;
+    border-radius: 4px; padding: 1px 6px; font-size: 10px;
+    flex-shrink: 0;
+  }
+  .dd-option.selected .opt-id { background: #2563eb; color: #ffffff; }
+  .dd-option .opt-text { flex: 1; min-width: 0; }
+  .dd-option .opt-value {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #0f1f33;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dd-option .opt-note { font-size: 10px; color: #5a6b80; margin-top: 2px; }
+  .dd-option .visual { flex-shrink: 0; display: flex; align-items: center; }
+
+  .slider-control {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+  }
+  .slider-control input[type="range"] {
+    flex: 1; height: 4px;
+    -webkit-appearance: none; appearance: none;
+    background: linear-gradient(to right, #2563eb 0%, #2563eb var(--fill, 50%), #e2e8f0 var(--fill, 50%), #e2e8f0 100%);
+    border-radius: 2px; outline: none; cursor: pointer;
+    margin: 0;
+  }
+  .slider-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #2563eb;
+    cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  }
+  .slider-control input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #2563eb;
+    cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  }
+  .slider-control .value-chip {
+    min-width: 48px; text-align: right;
+    font-family: ui-monospace, monospace; font-size: 11px; font-weight: 600;
+    color: #2563eb;
+  }
+  .slider-control .range-meta {
+    font-family: ui-monospace, monospace; font-size: 9px; color: #94a3b8;
+    flex-shrink: 0;
+  }
+
+  .segmented {
+    display: inline-flex; padding: 2px;
+    background: #f1f5f9; border-radius: 8px; border: 1px solid #d8e2ee;
+    width: 100%;
+  }
+  .segmented button {
+    flex: 1; font: inherit; cursor: pointer;
+    border: none; background: transparent;
+    padding: 5px 8px; font-size: 11px; color: #5a6b80;
+    border-radius: 6px; transition: background 120ms ease, color 120ms ease;
+    white-space: nowrap;
+  }
+  .segmented button:hover { color: #0f1f33; }
+  .segmented button.active {
+    background: #ffffff; color: #2563eb; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+
+  .toggle-control {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+    cursor: pointer;
+  }
+  .toggle-switch {
+    width: 32px; height: 18px; border-radius: 999px;
+    background: #cbd5e1; position: relative;
+    transition: background 120ms ease;
+    flex-shrink: 0;
+  }
+  .toggle-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #ffffff;
+    transition: transform 120ms ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  }
+  .toggle-control.on .toggle-switch { background: #2563eb; }
+  .toggle-control.on .toggle-switch::after { transform: translateX(14px); }
+  .toggle-control .toggle-state {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #5a6b80;
+    margin-right: 8px;
+  }
+  .toggle-control.on .toggle-state { color: #2563eb; font-weight: 600; }
+
+  /* ============================================================
+     Preview pair
+     ============================================================ */
+  .preview-pair {
+    overflow-y: auto;
+    background: #d8e2ee;
+    position: relative;
+  }
+  .preview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    min-height: 100%;
+    transition: grid-template-columns 220ms ease;
+  }
+  .preview-grid.light-expanded { grid-template-columns: 1fr 36px; }
+  .preview-grid.dark-expanded  { grid-template-columns: 36px 1fr; }
+  .preview-grid.light-expanded .preview.theme-dark > *:not(.pane-toggle-btn),
+  .preview-grid.dark-expanded  .preview.theme-light > *:not(.pane-toggle-btn) {
+    display: none;
+  }
+  .preview-grid.light-expanded .preview.theme-dark,
+  .preview-grid.dark-expanded  .preview.theme-light {
+    padding: 0;
+    overflow: hidden;
+  }
+  /* Hide the expand button on the pane that is currently fully expanded —
+     the collapsed strip's button alone is enough to restore the split view. */
+  .preview-grid.light-expanded .preview.theme-light .pane-toggle-btn { display: none; }
+  .preview-grid.dark-expanded  .preview.theme-dark  .pane-toggle-btn { display: none; }
+  .preview {
+    background: var(--surface-page);
+    color: var(--text-primary);
+    padding: 20px;
+    position: relative;
+  }
+  /* Pane expand/collapse toggle button (top corner of each theme pane) */
+  .pane-toggle-btn {
+    position: absolute;
+    top: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .pane-toggle-btn:hover { border-color: var(--accent-primary); }
+  .preview.theme-light .pane-toggle-btn { right: 12px; }
+  .preview.theme-dark  .pane-toggle-btn { left: 12px; }
+  .preview .label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .preview h2.theme-title {
+  /* Direct edits */
+  [data-fd-editable] {
+    border-radius: 4px;
+    transition: outline-color 120ms ease, background-color 120ms ease;
+  }
+  body:not(.comment-mode) [data-fd-editable]:hover {
+    outline: 1px dashed var(--accent-primary);
+    outline-offset: 2px;
+  }
+  [data-fd-editable][contenteditable]:focus {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  }
+
+  /* ============================================================
+     Comment system
+     ============================================================ */
+  .markers-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 60;
+  }
+  body:not(.markers-visible):not(.comment-mode) .markers-layer { display: none; }
+  .comment-marker {
+    position: absolute;
+    pointer-events: auto;
+    min-width: 18px; height: 18px;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #ffffff;
+    font-size: 10px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.4);
+    cursor: pointer;
+    padding: 0 5px;
+    border: 2px solid #ffffff;
+  }
+
+  .picker-overlay {
+    position: fixed;
+    pointer-events: none;
+    border: 2px dashed #2563eb;
+    background-color: rgba(37, 99, 235, 0.12);
+    z-index: 80;
+    display: none;
+    transition: top 60ms ease, left 60ms ease, width 60ms ease, height 60ms ease;
+  }
+  .picker-overlay.visible { display: block; }
+  .picker-overlay .picker-add {
+    position: absolute;
+    top: -11px; right: -11px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+    pointer-events: none;
+  }
+
+  .picker-hint {
+    position: fixed;
+    pointer-events: none;
+    background: #0f1f33;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    z-index: 90;
+    display: none;
+    max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .picker-hint.visible { display: block; }
+  .picker-hint.warning::before { content: "⚠ "; color: #fbbf24; }
+
+  .comment-popover {
+    position: fixed;
+    z-index: 100;
+    background: #ffffff;
+    border: 1px solid #d8e2ee;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    width: 360px;
+    padding: 12px;
+    display: none;
+  }
+  .comment-popover.open { display: block; }
+  .comment-popover .pop-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .comment-popover .pop-target {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #2563eb;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 220px;
+  }
+  .comment-popover .pop-warning {
+    background: #fffbeb; color: #78350f; border: 1px solid #fde68a;
+    padding: 4px 8px; border-radius: 6px; font-size: 10px;
+    margin-bottom: 8px;
+  }
+  .comment-popover .nav-links { display: flex; gap: 10px; flex-shrink: 0; }
+  .comment-popover .nav-link {
+    background: transparent; border: none; cursor: pointer;
+    color: #2563eb; font-size: 11px; font-weight: 500;
+    padding: 0;
+  }
+  .comment-popover .nav-link:hover:not(:disabled) { text-decoration: underline; }
+  .comment-popover .nav-link:disabled { color: #cbd5e1; cursor: not-allowed; }
+  .comment-popover textarea {
+    width: 100%; min-height: 80px;
+    border: 1px solid #d8e2ee; border-radius: 8px;
+    padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+    resize: vertical;
+    font-family: var(--font-stack);
+  }
+  .comment-popover textarea:focus { border-color: #2563eb; }
+  .comment-popover .scope-row {
+    margin: 10px 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .comment-popover .scope-label {
+    font-size: 11px; color: #5a6b80; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .comment-popover .scope-options {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  }
+  .comment-popover .scope-opt {
+    padding: 6px 8px;
+    border: 1px solid #d8e2ee; border-radius: 6px;
+    font-size: 11px; cursor: pointer; background: #ffffff;
+    text-align: left;
+  }
+  .comment-popover .scope-opt.selected {
+    border-color: #2563eb; background: #eef6ff; color: #2563eb; font-weight: 600;
+  }
+  .comment-popover .pop-foot {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding-top: 8px; border-top: 1px solid #eef2f7;
+  }
+  .comment-popover .pop-foot .left-actions { display: flex; gap: 8px; }
+  .comment-popover .pop-foot .right-actions { display: flex; gap: 8px; }
+  .comment-popover .pop-foot button {
+    font: inherit; cursor: pointer;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px;
+  }
+  .comment-popover .btn-cancel { background: transparent; border: 1px solid #d8e2ee; color: #0f1f33; }
+  .comment-popover .btn-save { background: #2563eb; border: 1px solid #2563eb; color: #ffffff; font-weight: 500; }
+  .comment-popover .btn-delete { background: transparent; border: 1px solid #fecaca; color: #dc2626; }
+
+  .comment-list-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 320px;
+    background: #ffffff;
+    border-left: 1px solid #d8e2ee;
+    box-shadow: -4px 0 16px rgba(15, 23, 42, 0.1);
+    z-index: 70;
+    transform: translateX(100%);
+    transition: transform 220ms ease;
+    display: flex; flex-direction: column;
+  }
+  .comment-list-panel.open { transform: translateX(0); }
+  .comment-list-panel .clp-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid #d8e2ee;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .comment-list-panel .clp-title { margin: 0; font-size: 14px; font-weight: 600; }
+  .comment-list-panel .clp-count { color: #5a6b80; font-size: 11px; margin-left: 6px; }
+  .comment-list-panel .clp-body {
+    flex: 1; overflow-y: auto;
+    padding: 12px;
+  }
+  .comment-list-panel .empty-state {
+    text-align: center; padding: 32px 20px;
+    color: #5a6b80; font-size: 12px;
+  }
+  .comment-list-panel .clp-item {
+    background: #f7fbff;
+    border: 1px solid #d8e2ee;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .comment-list-panel .clp-item:hover { border-color: #2563eb; background: #eef6ff; }
+  .comment-list-panel .clp-item-head {
+    display: flex; justify-content: flex-start; align-items: center;
+    gap: 6px; margin-bottom: 4px;
+  }
+  .comment-list-panel .clp-num {
+    background: #f59e0b; color: #ffffff; font-weight: 700;
+    border-radius: 999px; padding: 0 6px; font-size: 10px;
+  }
+  .comment-list-panel .clp-scope {
+    background: #f1f5f9; color: #475569; font-size: 9px;
+    border-radius: 4px; padding: 1px 5px; font-weight: 600; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .comment-list-panel .clp-target {
+    font-family: ui-monospace, monospace; font-size: 10px;
+    color: #2563eb; margin-bottom: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .comment-list-panel .clp-text {
+    font-size: 12px; color: #0f1f33; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .comment-list-panel .clp-actions { display: flex; gap: 4px; margin-left: auto; }
+  .comment-list-panel .clp-actions button {
+    background: transparent;
+    border: 1px solid #d8e2ee;
+    color: #5a6b80;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .comment-list-panel .clp-actions button:hover { background: #f1f6fc; color: #0f1f33; }
+  .comment-list-panel .clp-actions .clp-delete:hover { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+  .comment-list-panel .clp-edit-form { display: none; margin-top: 8px; }
+  .comment-list-panel .clp-item.editing .clp-edit-form { display: block; }
+  .comment-list-panel .clp-item.editing .clp-text { display: none; }
+  .comment-list-panel .clp-item.editing .clp-actions { display: none; }
+  .comment-list-panel .clp-edit-form textarea {
+    width: 100%; min-height: 60px;
+    border: 1px solid #d8e2ee; border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit; font-size: 12px;
+    outline: none; resize: vertical;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .comment-list-panel .clp-edit-form textarea:focus { border-color: #2563eb; }
+  .comment-list-panel .clp-edit-actions {
+    display: flex; justify-content: flex-end; gap: 6px;
+    margin-top: 6px;
+  }
+  .comment-list-panel .clp-edit-actions button {
+    width: 28px; height: 28px;
+    border: none; border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .comment-list-panel .clp-edit-actions .clp-edit-cancel { background: #dc2626; color: #ffffff; }
+  .comment-list-panel .clp-edit-actions .clp-edit-cancel:hover { background: #b91c1c; }
+  .comment-list-panel .clp-edit-actions .clp-edit-save { background: #2563eb; color: #ffffff; }
+  .comment-list-panel .clp-edit-actions .clp-edit-save:hover { background: #1d54d4; }
+
+  /* ============================================================
+     Toast & export modal
+     ============================================================ */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #0f1f33; color: #ffffff;
+    padding: 10px 16px; border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+    font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease; z-index: 200;
+  }
+  .toast.visible { opacity: 1; }
+
+  .export-modal {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: none; align-items: center; justify-content: center;
+    z-index: 250; padding: 24px;
+  }
+  .export-modal.open { display: flex; }
+  .export-modal .panel {
+    background: #ffffff; border-radius: 12px;
+    width: min(720px, 100%); max-height: 80vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .export-modal .panel-head {
+    padding: 14px 18px; border-bottom: 1px solid #d8e2ee;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .export-modal .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .export-modal .panel-body {
+    padding: 14px 18px; overflow: auto; background: #f7fbff;
+  }
+  .export-modal pre {
+    margin: 0; background: #0f1f33; color: #e6edf7;
+    padding: 14px; border-radius: 8px;
+    font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .export-modal .panel-foot {
+    padding: 10px 18px; border-top: 1px solid #d8e2ee;
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+/* OWL review surface. Product tokens retain their real source names. */
+body { background:#e7e9e7; color:#262b28; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+header.app-header { padding:13px 22px; border-color:#d9dedb; }
+header.app-header h1 {font-size:17px; letter-spacing:-.3px}
+header.app-header .subtitle {font-size:12px;color:#738077;margin-top:3px}
+.app-header .actions {gap:6px}
+.app-header .btn {border-color:#dce2dd;background:white;color:#48564d;border-radius:7px;font-size:12px}
+.app-header .btn.primary,.app-header .btn.toggled {background:#2f9e5a;border-color:#2f9e5a;color:white}
+.main-layout {grid-template-columns:244px minmax(0,1fr)}
+aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
+.controls-body {padding:12px}
+.help-banner {border:0;border-radius:8px;background:#eef4ef;color:#617366;padding:10px;line-height:1.6;font-size:11px}
+.section-head {font-size:11px;color:#6b786f;letter-spacing:.04em}
+.var-name {font-size:10px;color:#77867b}
+.var-intent {font-size:12px;color:#2c3930}
+.control-row {padding:7px 0;border-color:#e6ebe7}
+.dd-trigger,.dd-panel {border-color:#dce2dd;border-radius:7px}
+.slider-control input {accent-color:#2f9e5a}
+.toggle-btn {font-size:11px;color:#65736a}
+.preview-pair {background:#e7e9e7;overflow:auto}
+.preview-grid {gap:18px;padding:18px;align-items:start;min-height:100%;}
+.preview {padding:0;border-radius:12px;overflow:hidden;min-width:0;background:#edf0ed;color:#66766b;box-shadow:0 4px 18px #10281c0b;border:1px solid #d1d9d3}
+.preview.theme-dark {background:#1d201e;color:#9da89f;border-color:#313c34}
+.preview.theme-light {--color-owl-bg:#faf9f5;--color-owl-sidebar-bg:#f3f3f3;--color-owl-sidebar-surface:#fff;--color-owl-sidebar-hover:#e9e9e9;--color-owl-sidebar-selected:#dfdfdf;--color-owl-sidebar-border:#dedede;--color-owl-sidebar-text:#292929;--color-owl-sidebar-muted:#626262;--color-owl-sidebar-faint:#737373;--color-owl-panel:#fff;--color-owl-bubble:#f4f2ec;--color-owl-hover:#e8e5da;--color-owl-border:#d9d5c7;--color-owl-text:#3d3a32;--color-owl-muted:#6e6a5e;--color-owl-faint:#9a9585;--color-owl-accent:#2f9e5a;--color-owl-accent-hover:#28864d;--font-sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;--font-serif:Georgia,"Microsoft YaHei","PingFang SC",serif;}
+.preview.theme-dark {--color-owl-bg:#262624;--color-owl-sidebar-bg:#1c1c1c;--color-owl-sidebar-surface:#252525;--color-owl-sidebar-hover:#282828;--color-owl-sidebar-selected:#303030;--color-owl-sidebar-border:#303030;--color-owl-sidebar-text:#e5e5e5;--color-owl-sidebar-muted:#a0a0a0;--color-owl-sidebar-faint:#858585;--color-owl-panel:#2f2e2b;--color-owl-bubble:#30302e;--color-owl-hover:#35342f;--color-owl-border:#45443e;--color-owl-text:#e9e7e0;--color-owl-muted:#a6a399;--color-owl-faint:#8a867c;--color-owl-accent:#2f9e5a;--color-owl-accent-hover:#28864d;--font-sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;--font-serif:Georgia,"Microsoft YaHei","PingFang SC",serif;}
+.preview-grid.light-expanded,.preview-grid.dark-expanded {gap:10px}
+.preview-grid.light-expanded .preview.theme-dark,.preview-grid.dark-expanded .preview.theme-light {height:100%;min-height:650px;background:#dfe5df}
+.pane-toggle-btn {top:6px;width:23px;height:23px;border:0;background:transparent;color:inherit}
+.theme-cap {height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;font-size:11px;font-weight:500;letter-spacing:.03em;}
+.theme-cap .cap-dot {width:6px;height:6px;border-radius:50%;background:#2f9e5a}
+.preview.theme-dark .theme-cap {padding-left:40px}
+.canvas-frame {width:100%;overflow:hidden;position:relative}
+.review-tabs {display:flex;align-items:center;gap:5px;padding:10px 12px 2px;flex-wrap:wrap;}
+.review-tabs button {font:inherit;font-size:11px;padding:5px 10px;border:1px solid transparent;border-radius:6px;color:#6c7a70;background:transparent;cursor:pointer}
+.review-tabs button.active {background:white;border-color:#d7e0d9;color:#2f6541}
+.catalog {display:flex;flex-direction:column;gap:2px;margin:10px 0 18px}
+.catalog button {border:0;background:transparent;border-radius:7px;text-align:left;padding:7px 9px;font:inherit;font-size:12px;color:#59685e;display:flex;gap:8px;align-items:center;cursor:pointer}
+.catalog button:hover {background:#eef2ee}
+.catalog button.active {background:#e5f1e8;color:#237b43;font-weight:600}
+.catalog .nav-count {margin-left:auto;font-size:10px;opacity:.6}
+.catalog-heading {font-size:10px;margin:12px 9px 4px;color:#91a095;letter-spacing:.04em}
+.owl-screen {width:1280px;height:800px;position:relative;display:flex;overflow:hidden;background:var(--color-owl-bg);color:var(--color-owl-text);font-family:var(--font-sans);font-size:14px;line-height:1.55;--accent:var(--color-owl-accent);--accent-soft:color-mix(in srgb,var(--accent) 10%,transparent);--border:var(--color-owl-sidebar-border);--surface:var(--color-owl-panel);}
+.owl-screen * {box-sizing:border-box}
+.owl-screen button,.owl-screen input,.owl-screen select,.owl-screen textarea {font:inherit;color:inherit}
+.owl-screen button {cursor:pointer}
+.owl-screen svg {vertical-align:middle;flex-shrink:0}
+.owl-screen h1,.owl-screen h2,.owl-screen h3,.owl-screen p {margin:0}
+.owl-screen h1 {font-size:25px;font-weight:620;letter-spacing:-.7px;line-height:1.4}
+.owl-screen h2 {font-size:19px;font-weight:600;letter-spacing:-.3px}
+.owl-screen h3 {font-size:15px;font-weight:600}
+.owl-screen .muted {color:var(--color-owl-muted)}
+.owl-screen .small {font-size:12px;line-height:1.5}
+.owl-screen .tiny {font-size:11px;color:var(--color-owl-faint)}
+.owl-screen .green {color:var(--color-owl-accent)}
+.owl-screen .btn {display:inline-flex;justify-content:center;align-items:center;gap:7px;min-height:34px;padding:6px 13px;font-size:12px;line-height:1.4;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--color-owl-text);white-space:nowrap;box-shadow:none;font-weight:500}
+.owl-screen .btn:hover {background:var(--color-owl-hover);border-color:var(--color-owl-muted)}
+.owl-screen .btn.primary {color:#fff;background:var(--accent);border-color:var(--accent)}
+.owl-screen .btn.primary:hover {background:var(--color-owl-accent-hover)}
+.owl-screen .btn.ghost {border-color:transparent;background:transparent;color:var(--color-owl-muted)}
+.owl-screen .btn.ghost:hover {background:var(--color-owl-sidebar-hover)}
+.owl-screen .btn.danger {color:#d86e6e;border-color:#d86e6e40;background:#d86e6e08}
+.owl-screen .icon-btn {display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:7px;background:transparent;border:0;color:var(--color-owl-muted);padding:0;}
+.owl-screen .icon-btn:hover {background:var(--color-owl-sidebar-hover);color:var(--color-owl-text)}
+.owl-screen .input,.owl-screen .select,.owl-screen .textarea {background:var(--color-owl-panel);border:1px solid var(--border);border-radius:7px;padding:10px 12px;min-height:39px;outline:none;width:100%;font-size:13px;}
+.owl-screen .input:focus,.owl-screen .textarea:focus,.owl-screen .select:focus {border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.owl-screen .textarea {resize:vertical;line-height:1.8;min-height:120px}
+.owl-screen .input::placeholder,.owl-screen .textarea::placeholder {color:var(--color-owl-faint)}
+.owl-screen .tag {display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:var(--color-owl-muted);white-space:nowrap;background:var(--color-owl-sidebar-surface)}
+.owl-screen .tag.green {color:var(--accent);border-color:color-mix(in srgb,var(--accent) 22%,transparent);background:var(--accent-soft)}
+.owl-screen .tag.warning {color:#bd944b;background:#bd944b12;border-color:#bd944b36}
+.owl-screen .key {font-family:Consolas,monospace;font-size:10px;border:1px solid var(--border);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 var(--border);color:var(--color-owl-faint);}
+.owl-screen .card {background:var(--color-owl-panel);border:1px solid var(--border);border-radius:10px;padding:18px;}
+.owl-screen .divider {height:1px;background:var(--border);margin:18px 0}
+.owl-screen .notice {border-radius:8px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 15%,transparent);padding:12px 14px;color:var(--color-owl-muted);font-size:12px;line-height:1.7}
+.owl-screen .notice.warning {background:#b98b3b0c;border-color:#b98b3b40;color:#aa8956}
+.owl-screen .field {display:flex;flex-direction:column;gap:7px;margin-bottom:18px;}
+.owl-screen .field label,.owl-screen .field-label {font-size:13px;font-weight:560}
+.owl-screen .field .description,.owl-screen .field-desc {font-size:12px;color:var(--color-owl-muted)}
+.owl-screen .row {display:flex;align-items:center;justify-content:space-between;gap:24px;padding:17px 0;border-bottom:1px solid var(--border)}
+.owl-screen .row:last-child {border-bottom:0}
+.owl-screen .row-title {font-size:13px;font-weight:550;}
+.owl-screen .row-description {font-size:12px;color:var(--color-owl-muted);margin-top:3px;}
+.owl-screen .form-stack {display:flex;flex-direction:column;gap:16px}
+.owl-screen .settings-grid {display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.owl-screen .table {width:100%;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.owl-screen .table-row {display:flex;align-items:center;gap:15px;padding:13px 16px;border-bottom:1px solid var(--border);font-size:12px}
+.owl-screen .code {font-family:Consolas,"Microsoft YaHei",monospace;font-size:12px;white-space:pre-wrap;line-height:1.9;color:var(--color-owl-muted)}
+.owl-screen .subheading {font-size:14px;font-weight:600;margin-bottom:10px}
+.owl-screen .empty-state {text-align:center;padding:36px 20px;color:var(--color-owl-muted)}
+.owl-screen .switch {width:35px;height:20px;border:0;border-radius:20px;background:var(--color-owl-sidebar-selected);position:relative;flex-shrink:0;}
+.owl-screen .switch[aria-checked="true"] {background:var(--accent)}
+.owl-screen .switch:after {content:"";width:14px;height:14px;background:white;position:absolute;left:3px;top:3px;border-radius:50%;box-shadow:0 1px 2px #0002}
+.owl-screen .switch[aria-checked="true"]:after {left:18px}
+.owl-screen .rail {background:var(--color-owl-sidebar-bg);border-right:1px solid var(--border);width:52px;flex:0 0 52px;display:flex;flex-direction:column;align-items:center;padding:18px 0 15px;gap:12px;}
+.owl-screen .rail .icon-btn.active {background:var(--accent-soft);color:var(--accent);position:relative}
+.owl-screen .rail .icon-btn.active:before {content:"";position:absolute;left:-10px;top:9px;width:2px;height:15px;background:var(--accent);border-radius:2px}
+.owl-screen .brand-mark {width:25px;height:25px;display:flex;align-items:center;justify-content:center;}
+.owl-screen .brand-mark svg {width:100%;height:100%}
+.owl-screen .sidebar {width:226px;flex:0 0 226px;background:var(--color-owl-sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:0 13px;color:var(--color-owl-sidebar-text);font-size:12px;}
+.owl-screen .sidebar.hide {display:none}
+.owl-screen .sidebar-brand {height:66px;display:flex;align-items:center;gap:9px;font-size:21px;letter-spacing:-1px;font-weight:650;}
+.owl-screen .sidebar-brand small {font-size:10px;font-weight:450;margin-left:auto;border:1px solid var(--border);border-radius:5px;padding:1px 6px;letter-spacing:0;color:var(--color-owl-sidebar-faint)}
+.owl-screen .sidebar-search {display:flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:7px;padding:7px 9px;color:var(--color-owl-sidebar-faint);margin-bottom:12px;}
+.owl-screen .sidebar-search input {width:100%;border:0;background:transparent;outline:none;font-size:12px;}
+.owl-screen .new-chat {justify-content:flex-start;width:100%;font-size:12px;background:var(--color-owl-sidebar-surface);margin-bottom:24px;}
+.owl-screen .nav-section {font-size:10px;color:var(--color-owl-sidebar-faint);font-weight:600;letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;padding:8px 8px;}
+.owl-screen .nav-row {width:100%;display:flex;align-items:center;gap:9px;min-height:34px;border:0;background:transparent;color:var(--color-owl-sidebar-muted);font-size:12px;border-radius:7px;padding:8px;text-align:left;}
+.owl-screen .nav-row:hover {background:var(--color-owl-sidebar-hover)}
+.owl-screen .nav-row.active {background:var(--accent-soft);color:var(--color-owl-sidebar-text)}
+.owl-screen .nav-row .dot {height:5px;width:5px;background:var(--accent);border-radius:50%;margin-left:auto;}
+.owl-screen .nav-row .clip {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.owl-screen .nested {padding-left:21px;margin:3px 0 15px;position:relative;}
+.owl-screen .nested:before {content:"";position:absolute;left:16px;top:4px;bottom:4px;width:1px;background:var(--border)}
+.owl-screen .sidebar-foot {margin-top:auto;border-top:1px solid var(--border);padding:17px 7px;display:flex;align-items:center;gap:10px;}
+.owl-screen .avatar {width:29px;height:29px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:50%;background:var(--color-owl-sidebar-surface);font-size:11px;}
+.owl-screen .main {min-width:0;flex:1;display:flex;flex-direction:column;}
+.owl-screen .chrome {height:58px;display:flex;align-items:center;gap:12px;padding:0 19px;border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0;}
+.owl-screen .chrome .title {font-weight:600;font-size:13px;}
+.owl-screen .chrome .chrome-actions {display:flex;gap:4px;margin-left:auto;align-items:center;}
+.owl-screen .connection-dot {width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block;}
+.owl-screen .body-split {flex:1;min-height:0;display:flex;}
+.owl-screen .body-split.bottom {flex-direction:column}
+.owl-screen .conversation {flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;}
+.owl-screen .chat-scroll {flex:1;overflow:auto;padding:30px 36px 15px;}
+.owl-screen .chat-content {max-width:730px;margin:0 auto;}
+.owl-screen .hero {display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:96px;}
+.owl-screen .hero .brand-mark {width:53px;height:53px;margin-bottom:23px;}
+.owl-screen .hero h1 {font-family:var(--font-serif);font-weight:500;font-size:32px;letter-spacing:-1px;}
+.owl-screen .hero p {font-size:13px;color:var(--color-owl-muted);margin-top:12px;}
+.owl-screen .quick-links {display:grid;grid-template-columns:repeat(3,1fr);gap:11px;max-width:620px;width:100%;margin-top:33px;text-align:left;}
+.owl-screen .quick-link {background:var(--color-owl-panel);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:13px;color:var(--color-owl-muted);font-size:12px;}
+.owl-screen .quick-link:hover {border-color:color-mix(in srgb,var(--accent) 60%,var(--border));background:var(--accent-soft)}
+.owl-screen .quick-link span {color:var(--color-owl-text);font-weight:540;}
+.owl-screen .quick-secondary {display:flex;gap:14px;align-items:center;margin-top:20px;justify-content:center;}
+.owl-screen .quick-secondary button {font-size:11px;}
+.owl-screen .composer-zone {padding:16px 28px 24px;max-width:790px;width:100%;margin:0 auto;}
+.owl-screen .composer {border:1px solid var(--border);border-radius:13px;background:var(--color-owl-panel);box-shadow:0 3px 14px #00000004;padding:15px 16px 11px;}
+.owl-screen .composer:focus-within {border-color:color-mix(in srgb,var(--accent) 55%,var(--border));}
+.owl-screen .composer textarea {resize:none;border:0;background:transparent;width:100%;outline:0;font-size:14px;min-height:46px;line-height:1.7;padding:0;}
+.owl-screen .composer-top {display:flex;gap:5px;align-items:center;margin-bottom:10px;color:var(--color-owl-muted);font-size:11px;}
+.owl-screen .composer-footer {display:flex;gap:5px;align-items:center;border-top:1px solid var(--border);padding-top:10px;margin-top:8px;}
+.owl-screen .composer-footer .btn {min-height:27px;font-size:11px;padding:4px 8px}
+.owl-screen .send {width:31px;height:31px;background:var(--accent);border:0;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-left:auto}
+.owl-screen .composer-hint {font-size:10px;text-align:center;color:var(--color-owl-faint);margin-top:9px;}
+.owl-screen .chat-message {font-size:14px;line-height:1.9;margin-bottom:26px;}
+.owl-screen .user-message {margin-left:50px;background:var(--color-owl-bubble);padding:14px 18px;border-radius:12px;max-width:600px;margin-bottom:28px;}
+.owl-screen .assistant-heading {display:flex;gap:10px;align-items:center;font-weight:600;margin-bottom:16px;font-size:12px;}
+.owl-screen .assistant-heading .brand-mark {width:23px;height:23px}
+.owl-screen .assistant-copy {font-family:var(--font-serif);font-size:14px;line-height:1.9;}
+.owl-screen .assistant-copy p {margin-bottom:14px;}
+.owl-screen .assistant-copy ol {margin:10px 0;padding-left:20px;}
+.owl-screen .tool-group {border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin:17px 0;font-family:var(--font-sans);}
+.owl-screen .tool-summary {display:flex;gap:9px;align-items:center;justify-content:space-between;font-size:12px;font-weight:500;}
+.owl-screen .tool-line {padding:8px 0;display:flex;align-items:center;gap:9px;color:var(--color-owl-muted);font-size:12px;}
+.owl-screen .chat-meta {display:flex;align-items:center;gap:14px;font-size:10px;color:var(--color-owl-faint);margin-top:18px;}
+.owl-screen .todo-pin {display:flex;align-items:center;gap:9px;padding:10px 15px;margin-bottom:9px;border:1px solid var(--border);border-radius:8px;background:var(--color-owl-sidebar-surface);font-size:11px;}
+.owl-screen .todo-pin .progress {width:55px;height:3px;background:var(--border);border-radius:4px;margin-left:auto;}
+.owl-screen .todo-pin .progress:after {content:"";display:block;width:67%;height:100%;background:var(--accent);}
+.owl-screen .workbench {width:428px;min-width:330px;background:var(--color-owl-panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;}
+.owl-screen .body-split.bottom .workbench {width:100%;height:295px;border-left:0;border-top:1px solid var(--border);flex-shrink:0;}
+.owl-screen .workbench-bar {height:42px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:7px;flex-shrink:0;background:var(--color-owl-sidebar-surface);font-size:11px;}
+.owl-screen .workbench-tools {display:flex;gap:1px;align-items:center;overflow:auto;flex:1;}
+.owl-screen .workbench-tools .icon-btn {width:30px;height:28px;}
+.owl-screen .workbench-tools .icon-btn.active {background:var(--accent-soft);color:var(--accent)}
+.owl-screen .workbench-body {overflow:auto;flex:1;min-height:0;position:relative;}
+.owl-screen .pane-body {padding:16px;}
+.owl-screen .pane-toolbar {display:flex;align-items:center;gap:8px;padding:13px 14px;border-bottom:1px solid var(--border);font-size:12px;}
+.owl-screen .pane-toolbar .btn {min-height:28px;padding:4px 8px;font-size:11px;}
+.owl-screen .file-row {display:flex;align-items:center;gap:9px;font-size:12px;min-height:31px;padding:5px 10px;border-radius:6px;}
+.owl-screen .file-row.active {background:var(--accent-soft);color:var(--accent);}
+.owl-screen .diff {font-family:Consolas,monospace;font-size:11px;line-height:1.9;overflow:auto;}
+.owl-screen .diff-line {white-space:pre;padding:2px 12px;}
+.owl-screen .diff-line.add {background:var(--accent-soft);color:var(--accent)}
+.owl-screen .diff-line.remove {background:#d668680d;color:#cf8282}
+.owl-screen .terminal {background:#1d211f;color:#b2c1b6;font-family:Consolas,monospace;font-size:12px;padding:17px;min-height:200px;line-height:1.9;}
+.owl-screen .task-item {padding:12px;border-left:1px solid var(--border);margin-left:9px;font-size:12px;}
+.owl-screen .browser-page {background:#f8faf8;color:#27382e;padding:28px 22px;min-height:435px;}
+.owl-screen .settings-frame {flex:1;display:flex;flex-direction:column;background:var(--color-owl-bg);}
+.owl-screen .settings-top {height:65px;padding:0 26px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.owl-screen .settings-top h2 {font-size:17px;}
+.owl-screen .settings-layout {display:flex;flex:1;min-height:0;}
+.owl-screen .settings-nav {width:210px;flex:0 0 210px;padding:24px 16px;border-right:1px solid var(--border);background:var(--color-owl-sidebar-bg);}
+.owl-screen .settings-nav .nav-row {font-size:13px;padding:11px 13px;margin-bottom:4px;min-height:41px;gap:12px;}
+.owl-screen .settings-heading {padding:30px 42px 23px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;}
+.owl-screen .settings-heading p {margin-top:7px;color:var(--color-owl-muted);font-size:13px;}
+.owl-screen .settings-area {flex:1;min-width:0;display:flex;flex-direction:column;}
+.owl-screen .settings-content {padding:0 42px 26px;overflow:auto;flex:1;}
+.owl-screen .settings-section {margin-bottom:23px;}
+.owl-screen .section-heading {margin-bottom:16px;}
+.owl-screen .section-heading p {font-size:12px;color:var(--color-owl-muted);margin-top:5px;}
+.owl-screen .settings-footer {height:66px;border-top:1px solid var(--border);display:flex;align-items:center;padding:0 42px;gap:10px;background:var(--color-owl-bg);flex-shrink:0;}
+.owl-screen .settings-footer .hint {font-size:12px;color:var(--color-owl-muted);margin-right:auto;}
+.owl-screen .provider-card {border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:13px;background:var(--color-owl-panel);}
+.owl-screen .swatches {display:flex;gap:14px;}
+.owl-screen .modal-shade {position:absolute;inset:0;background:#09190f5e;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:20;}
+.owl-screen .product-modal {width:548px;max-height:715px;overflow:auto;background:var(--color-owl-bg);border:1px solid var(--border);border-radius:15px;box-shadow:0 22px 70px #00120835;}
+.owl-screen .modal-heading {display:flex;align-items:center;padding:22px 25px 18px;justify-content:space-between;border-bottom:1px solid var(--border);}
+.owl-screen .modal-content {padding:24px 25px;}
+.owl-screen .menu-list {display:flex;flex-direction:column;gap:4px;}
+.owl-screen .menu-item {padding:12px;border:1px solid transparent;border-radius:8px;display:flex;align-items:center;gap:11px;background:transparent;text-align:left;}
+.owl-screen .menu-item:hover,.owl-screen .menu-item.active {border-color:color-mix(in srgb,var(--accent) 30%,var(--border));background:var(--accent-soft);}
+.owl-screen .dialog-gallery {padding:30px 35px;overflow:auto;flex:1;}
+.owl-screen .dialog-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:25px;}
+.owl-screen .dialog-tile {border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:22px;text-align:left;color:inherit;min-height:125px;display:flex;flex-direction:column;gap:11px;}
+.owl-screen .dialog-tile:hover {border-color:var(--accent);background:var(--accent-soft);}
+.owl-screen .dialog-tile .muted {font-size:12px;}
+.owl-screen .state-strip {margin:15px 0;display:flex;gap:9px;flex-wrap:wrap;}
+.owl-screen details summary {cursor:pointer;list-style:none;}
+.owl-screen details summary::-webkit-details-marker {display:none;}
+.owl-screen [data-fd-editable]:hover {outline-color:color-mix(in srgb,var(--accent) 25%,transparent)}
+.screen-note {padding:10px 14px;color:inherit;font-size:10px;border-top:1px solid #65736b20;line-height:1.6;}
+.presentation .app-header,.presentation .controls,.presentation .review-tabs,.presentation .theme-cap,.presentation .pane-toggle-btn,.presentation .screen-note {display:none!important;}
+.presentation .app {display:block;height:100vh}
+.presentation .main-layout {display:block;height:100vh}
+.presentation .preview-pair,.presentation .preview-grid {padding:0;gap:0;background:transparent;height:100vh;min-height:0;}
+.presentation .preview-grid {display:block}
+.presentation .preview {border:0;border-radius:0;box-shadow:none;height:100vh;}
+.presentation .preview.hidden-theme {display:none!important;}
+.presentation .canvas-frame {height:100vh!important;}
+@media (max-width:1100px) {.main-layout{grid-template-columns:210px minmax(0,1fr)}.app-header .subtitle{max-width:440px}.preview-grid{gap:10px;padding:12px}.app-header .actions{flex-wrap:wrap;justify-content:end}}
+</style></head><body>
+<div class="app"><header class="app-header"><div><h1>OWL <span style="color:#a1aaa2;font-weight:400;margin:0 7px">/</span> 完整界面重设计 <span style="font-size:10px;color:#2f9e5a;border:1px solid #2f9e5a30;border-radius:4px;padding:2px 6px;margin-left:9px;vertical-align:middle">第 1 轮 · 待确认</span></h1><div class="subtitle">保留 OWL 绿 · 专业石墨灰 · 2026.10.03　所有操作均为原型演示，确认后再实施。</div></div><div class="actions"><button class="btn" id="comment-mode-btn"><span id="comment-mode-label">标注意见</span></button><button class="btn" id="markers-btn"><span id="markers-label">显示标记</span></button><button class="btn" id="comment-list-btn">意见 <span id="comment-count">(0)</span></button><button class="btn" id="reset-btn">重置意见</button><button class="btn primary" id="export-btn">导出给 Codex</button></div></header>
+<div class="main-layout"><aside class="controls" id="controls-rail"><div class="controls-toggle-row"><button class="toggle-btn" id="toggle-controls-btn" aria-pressed="false"><span id="toggle-controls-icon">◀</span><span id="toggle-controls-label">收起</span></button></div><div id="screen-catalog" class="catalog" style="padding:0 12px;max-height:46vh;overflow:auto"></div><div class="controls-body" id="controls-body"><div class="help-banner">在上方切换页面。点击右侧主题箭头可放大。文字可直接编辑；开启“标注意见”可点选任意元素，最后导出意见。</div></div></aside>
+<section class="preview-pair" id="preview-pair"><div class="review-tabs"><span style="font-size:11px;color:#8a978d;margin-right:5px">查看方式</span><button data-review-theme="split" class="active">浅色 / 深色对照</button><button data-review-theme="light-expanded">浅色放大</button><button data-review-theme="dark-expanded">深色放大</button><span style="margin-left:auto;font-size:10px;color:#8a978d;padding-right:8px">设计画布 1280 × 800</span></div><div class="preview-grid"><div class="preview theme-light" id="preview-light" data-theme="light"><button class="pane-toggle-btn" data-pane="light" aria-label="放大浅色效果" title="放大浅色效果">▶</button><div class="theme-cap"><span class="cap-dot"></span> LIGHT / 浅色</div><div class="canvas-frame" data-owl-mount></div><div class="screen-note">保留现有页面能力，重新整理层级与视觉。点击导航、按钮或输入框体验。</div></div><div class="preview theme-dark" id="preview-dark" data-theme="dark"><button class="pane-toggle-btn" data-pane="dark" aria-label="放大深色效果" title="放大深色效果">◀</button><div class="theme-cap"><span class="cap-dot"></span> DARK / 深色</div><div class="canvas-frame" data-owl-mount></div><div class="screen-note">与浅色使用相同的结构、内容与操作；绿色仅承担主要行动与状态。</div></div></div></section></div></div>
+<!-- Markers layer -->
+<div class="markers-layer" id="markers-layer"></div>
+
+<!-- Picker overlay -->
+<div class="picker-overlay" id="picker-overlay"><span class="picker-add">+</span></div>
+
+<!-- Selector hint -->
+<div class="picker-hint" id="picker-hint"></div>
+
+<!-- Comment popover -->
+<div class="comment-popover" id="comment-popover">
+  <div class="pop-head">
+    <span class="pop-target" id="pop-target"></span>
+    <div class="nav-links">
+      <button class="nav-link" id="parent-link">↑ 父级</button>
+      <button class="nav-link" id="child-link">↓ 子级</button>
+    </div>
+  </div>
+  <div class="pop-warning" id="pop-warning" style="display:none;">No data-fd-id anchor — selector is best-effort.</div>
+  <textarea id="pop-textarea" placeholder="这里希望如何调整？"></textarea>
+  <div class="scope-row">
+    <span class="scope-label">范围</span>
+    <div class="scope-options" id="pop-scope-options"></div>
+  </div>
+  <div class="pop-foot">
+    <div class="left-actions">
+      <button class="btn-delete" id="pop-delete" style="display:none;">删除</button>
+    </div>
+    <div class="right-actions">
+      <button class="btn-cancel" id="pop-cancel">取消</button>
+      <button class="btn-save" id="pop-save">保存意见</button>
+    </div>
+  </div>
+</div>
+
+<!-- Comment list panel -->
+<aside class="comment-list-panel" id="comment-list-panel">
+  <div class="clp-head">
+    <h3 class="clp-title">设计意见 <span class="clp-count" id="clp-count">(0)</span></h3>
+    <button class="btn" id="clp-close">×</button>
+  </div>
+  <div class="clp-body" id="clp-body">
+    <div class="empty-state">点击顶部“标注意见”，然后点击原型中的元素，即可添加修改建议。</div>
+  </div>
+</aside>
+
+<!-- Toast & export modal -->
+<div class="toast" id="toast"></div>
+<div class="export-modal" id="export-modal">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>导出设计意见</h2>
+      <button class="btn" id="modal-close">关闭</button>
+    </div>
+    <div class="panel-body">
+      <pre id="export-pre"></pre>
+    </div>
+    <div class="panel-foot">
+      <button class="btn" id="copy-again">复制</button>
+    </div>
+  </div>
+</div>
+<script>const PREVIEW_META = {source:'.frontend-design/owl-redesign/2026-10-03-owl-redesign.html',topic:'owl-complete-redesign',targetFile:'apps/desktop/src/index.css'};
+const recordedEdits = new Map();
+const TOKENS = {
+  owlIdentity:[{key:'--color-owl-accent',intent:'OWL 绿色 · 主要操作与状态',kind:'color',options:[{id:'原色',light:'#2f9e5a',dark:'#2f9e5a',note:'保留现有品牌色 (default)'},{id:'沉稳',light:'#287a46',dark:'#49b970',note:'浅色更稳，深色稍亮'}]}],
+  owlCanvas:[{key:'--color-owl-bg',intent:'主画布 · 暖纸或中性灰',kind:'color',defaultId:'石墨',options:[{id:'石墨',light:'#fafbf9',dark:'#202321',note:'本轮设计 · 减少暖灰杂色 (default)'},{id:'现有',light:'#faf9f5',dark:'#262624',note:'项目当前配色'},{id:'纸感',light:'#f8f7f2',dark:'#242623',note:'更温暖的阅读体验'}]},{key:'--color-owl-panel',intent:'输入框、工作台与表单表面',kind:'color',options:[{id:'清晰',light:'#ffffff',dark:'#282d29',note:'层次清楚 (default)'},{id:'柔和',light:'#f7f9f6',dark:'#252a26',note:'减少表面反差'}]}],
+  owlNavigation:[{key:'--color-owl-sidebar-bg',intent:'会话列表与设置导航背景',kind:'color',options:[{id:'克制',light:'#f1f3ef',dark:'#191d1a',note:'本轮设计 (default)'},{id:'现有',light:'#f3f3f3',dark:'#1c1c1c',note:'现有中性导航'}]},{key:'--color-owl-sidebar-border',intent:'导航与面板分隔线',kind:'color',options:[{id:'细线',light:'#e0e5df',dark:'#343c35',note:'柔和的层级分隔 (default)'},{id:'清楚',light:'#d2dad1',dark:'#485248',note:'较强对比'}]}],
+  owlReading:[{key:'--font-serif',intent:'AI 回复 · 保留衬线或统一无衬线',kind:'dropdown',options:[{id:'现有',value:'Georgia, "Microsoft YaHei", "PingFang SC", serif',note:'现有回答字体 (default)'},{id:'统一',value:'"Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif',note:'与工具、设置统一'}]}]
+};
+const SECTION_ORDER = [['品牌识别','owlIdentity'],['工作画布','owlCanvas'],['导航层次','owlNavigation'],['阅读体验','owlReading']];
+const decisions = {};
+
+function defaultId(group) {
+  if (group.kind === 'segmented' || group.kind === 'dropdown' || group.kind === 'color') {
+    if (group.defaultId) return group.defaultId;
+    if (!group.options) return null;
+    const planDefault = group.options.find(o => /default/i.test(o.note || ''));
+    return (planDefault || group.options[0]).id;
+  }
+  return null;
+}
+function initDecisions() {
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      if (group.kind === 'slider') decisions[group.key] = group.defaultValue;
+      else if (group.kind === 'toggle') decisions[group.key] = !!group.defaultValue;
+      else decisions[group.key] = defaultId(group);
+    }
+  }
+}
+initDecisions();
+
+function findOption(group, id) {
+  return (group.options || []).find(o => o.id === id);
+}
+
+const lightEl = () => document.getElementById('preview-light');
+const darkEl  = () => document.getElementById('preview-dark');
+
+function applyVariableToPreview(group, value) {
+  if (group.kind === 'color') {
+    lightEl().style.setProperty(group.key, value.light);
+    darkEl().style.setProperty(group.key, value.dark);
+  } else if (group.kind === 'slider') {
+    const cssVal = value + (group.unit || '');
+    lightEl().style.setProperty(group.key, cssVal);
+    darkEl().style.setProperty(group.key, cssVal);
+  } else if (group.kind === 'segmented' || group.kind === 'dropdown') {
+    lightEl().style.setProperty(group.key, value.value);
+    darkEl().style.setProperty(group.key, value.value);
+  } else if (group.kind === 'toggle') {
+    lightEl().style.setProperty(group.key, value ? '1' : '0');
+    darkEl().style.setProperty(group.key, value ? '1' : '0');
+  }
+}
+
+function getCurrentValueForApply(group) {
+  const v = decisions[group.key];
+  if (group.kind === 'color' || group.kind === 'segmented' || group.kind === 'dropdown') {
+    return findOption(group, v);
+  }
+  return v;
+}
+
+function applyAllDecisions() {
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      applyVariableToPreview(group, getCurrentValueForApply(group));
+    }
+  }
+}
+
+function visualForOption(group, opt, size) {
+  if (group.kind === 'color') {
+    const sw = size === 'lg' ? 'lg' : '';
+    return `<span class="sw-pair"><span class="sw ${sw}" style="background:${opt.light}"></span><span class="sw ${sw}" style="background:${opt.dark}; border-color: rgba(255,255,255,0.15)"></span></span>`;
+  }
+  return '';
+}
+function summaryText(group, opt) {
+  if (group.kind === 'color') return `${opt.light} / ${opt.dark}`;
+  return opt.value || opt.id;
+}
+
+let activeDropdown = null;
+function closeActiveDropdown() {
+  if (!activeDropdown) return;
+  activeDropdown.panel.classList.remove('open');
+  activeDropdown.trigger.classList.remove('open');
+  applyVariableToPreview(activeDropdown.group, getCurrentValueForApply(activeDropdown.group));
+  activeDropdown = null;
+}
+
+function renderControls() {
+  const rail = document.getElementById('controls-body');
+  const helpBanner = rail.querySelector('.help-banner');
+  rail.innerHTML = '';
+  if (helpBanner) rail.appendChild(helpBanner);
+
+  for (const [secTitle, secKey] of SECTION_ORDER) {
+    const head = document.createElement('div');
+    head.className = 'section-head';
+    head.textContent = secTitle;
+    rail.appendChild(head);
+
+    for (const group of TOKENS[secKey]) {
+      const row = document.createElement('div');
+      row.className = 'control-row';
+      row.dataset.varKey = group.key;
+      row.innerHTML = `
+        <div class="lbl">
+          <span class="var-name">${group.key}</span>
+          <span class="var-intent">${group.intent}</span>
+        </div>
+      `;
+      if (group.kind === 'color' || group.kind === 'dropdown') renderDropdown(row, group);
+      else if (group.kind === 'slider') renderSlider(row, group);
+      else if (group.kind === 'segmented') renderSegmented(row, group);
+      else if (group.kind === 'toggle') renderToggle(row, group);
+      rail.appendChild(row);
+    }
+  }
+}
+
+function renderDropdown(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'dropdown';
+  wrap.innerHTML = `
+    <button type="button" class="dd-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+    <div class="dd-panel" role="listbox"></div>
+  `;
+  row.appendChild(wrap);
+  const trigger = wrap.querySelector('.dd-trigger');
+  const panel = wrap.querySelector('.dd-panel');
+
+  const refreshTrigger = () => {
+    const opt = findOption(group, decisions[group.key]);
+    trigger.innerHTML = `
+      <span class="left">
+        <span class="opt-id">${opt.id}</span>
+        <span class="visual">${visualForOption(group, opt, '')}</span>
+        <span class="opt-summary">${summaryText(group, opt)}</span>
+      </span>
+      <span class="caret">▾</span>
+    `;
+  };
+  refreshTrigger();
+
+  panel.innerHTML = '';
+  for (const opt of group.options) {
+    const optBtn = document.createElement('button');
+    optBtn.type = 'button';
+    optBtn.className = 'dd-option';
+    optBtn.dataset.optId = opt.id;
+    optBtn.innerHTML = `
+      <span class="opt-id">${opt.id}</span>
+      <span class="visual">${visualForOption(group, opt, 'lg')}</span>
+      <span class="opt-text">
+        <div class="opt-value">${group.kind === 'color' ? `${opt.light} / ${opt.dark}` : opt.value || opt.id}</div>
+        <div class="opt-note">${opt.note || ''}</div>
+      </span>
+    `;
+    if (decisions[group.key] === opt.id) optBtn.classList.add('selected');
+    optBtn.addEventListener('mouseenter', () => applyVariableToPreview(group, opt));
+    optBtn.addEventListener('mouseleave', () => applyVariableToPreview(group, getCurrentValueForApply(group)));
+    optBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      decisions[group.key] = opt.id;
+      applyVariableToPreview(group, opt);
+      panel.querySelectorAll('.dd-option').forEach(s => s.classList.remove('selected'));
+      optBtn.classList.add('selected');
+      refreshTrigger();
+      panel.classList.remove('open');
+      trigger.classList.remove('open');
+      activeDropdown = null;
+    });
+    panel.appendChild(optBtn);
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = panel.classList.contains('open');
+    closeActiveDropdown();
+    if (!isOpen) {
+      panel.classList.add('open');
+      trigger.classList.add('open');
+      activeDropdown = { panel, trigger, group };
+    }
+  });
+}
+
+function renderSlider(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-control';
+  const fillPct = (decisions[group.key] - group.min) / (group.max - group.min) * 100;
+  wrap.innerHTML = `
+    <span class="range-meta">${group.min}</span>
+    <input type="range" min="${group.min}" max="${group.max}" step="${group.step}" value="${decisions[group.key]}" style="--fill: ${fillPct}%">
+    <span class="range-meta">${group.max}</span>
+    <span class="value-chip">${decisions[group.key]}${group.unit || ''}</span>
+  `;
+  row.appendChild(wrap);
+  const slider = wrap.querySelector('input[type="range"]');
+  const chip = wrap.querySelector('.value-chip');
+  slider.addEventListener('input', () => {
+    const v = Number(slider.value);
+    decisions[group.key] = v;
+    applyVariableToPreview(group, v);
+    chip.textContent = v + (group.unit || '');
+    const pct = (v - group.min) / (group.max - group.min) * 100;
+    slider.style.setProperty('--fill', pct + '%');
+  });
+}
+
+function renderSegmented(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'segmented';
+  for (const opt of group.options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.optId = opt.id;
+    btn.textContent = opt.id;
+    if (decisions[group.key] === opt.id) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      decisions[group.key] = opt.id;
+      applyVariableToPreview(group, opt);
+      wrap.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+    wrap.appendChild(btn);
+  }
+  row.appendChild(wrap);
+}
+
+function renderToggle(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'toggle-control' + (decisions[group.key] ? ' on' : '');
+  wrap.innerHTML = `
+    <span class="toggle-state">${decisions[group.key] ? 'on' : 'off'}</span>
+    <span class="toggle-switch"></span>
+  `;
+  row.appendChild(wrap);
+  wrap.addEventListener('click', () => {
+    decisions[group.key] = !decisions[group.key];
+    wrap.classList.toggle('on', decisions[group.key]);
+    wrap.querySelector('.toggle-state').textContent = decisions[group.key] ? 'on' : 'off';
+    applyVariableToPreview(group, decisions[group.key]);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (activeDropdown && !activeDropdown.panel.contains(e.target) && !activeDropdown.trigger.contains(e.target)) {
+    closeActiveDropdown();
+  }
+});
+
+/* ============================================================
+   COMMENT SYSTEM
+   ============================================================ */
+const SCOPE_OPTIONS = [
+  { id: 'this',          label: '仅此元素' },
+  { id: 'all-matching',  label: '同类组件' },
+  { id: 'all-like-this', label: '同组元素' },
+  { id: 'global',        label: '全局' }
+];
+
+const directEditInitialValues = new Map();
+
+function editableKey(el) {
+  return el.dataset.fdId || elementToPathPart(el);
+}
+
+function getEditableValue(el) {
+  if (el.matches('input, textarea, select')) {
+    return el.value;
+  }
+  return el.textContent.trim();
+}
+
+function setEditableValue(el, value) {
+  if (el.matches('input, textarea, select')) {
+    el.value = value;
+    return;
+  }
+  el.textContent = value;
+}
+
+function directEditSelector(key) {
+  return `[data-fd-id="${key}"]`;
+}
+
+function syncEditableMirrors(sourceEl) {
+  const key = editableKey(sourceEl);
+  const value = getEditableValue(sourceEl);
+  document.querySelectorAll(`${directEditSelector(key)}[data-fd-editable]`).forEach(el => {
+    if (el !== sourceEl) setEditableValue(el, value);
+  });
+}
+
+function initDirectEdits() {
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (!directEditInitialValues.has(key)) {
+      directEditInitialValues.set(key, getEditableValue(el));
+    }
+    if (el.dataset.fdEditable === 'text') {
+      el.setAttribute('contenteditable', 'plaintext-only');
+      el.setAttribute('spellcheck', 'false');
+      el.setAttribute('tabindex', '0');
+    }
+    const sync = () => syncEditableMirrors(el);
+    el.addEventListener('input', sync);
+    el.addEventListener('change', sync);
+  });
+}
+
+function collectDirectEdits() {
+  const edits = [];
+  const seen = new Set();
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const initial = directEditInitialValues.get(key);
+    const value = getEditableValue(el);
+    if (initial !== undefined && value !== initial) {
+      edits.push({
+        selector: directEditSelector(key),
+        label: key,
+        kind: el.dataset.fdEditable || 'text',
+        value,
+        initial
+      });
+    }
+  });
+  for(const [key,edit] of recordedEdits){ if(!seen.has(key))edits.push(edit); }
+  return edits;
+}
+
+function resetDirectEdits() {
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (directEditInitialValues.has(key)) {
+      setEditableValue(el, directEditInitialValues.get(key));
+    }
+  });
+}
+
+const comments = [];
+let nextCommentId = 1;
+let commentMode = false;
+let markersVisible = false;
+let popoverEditingId = null;
+let popoverTargetEl = null;
+let popoverTargetSelector = null;
+
+const markersLayer = document.getElementById('markers-layer');
+const previewPair = document.getElementById('preview-pair');
+
+function setCommentMode(on) {
+  commentMode = on;
+  document.body.classList.toggle('comment-mode', on);
+  document.getElementById('comment-mode-btn').classList.toggle('toggled', on);
+  document.getElementById('comment-mode-label').textContent = on ? '退出标注' : '标注意见';
+  if (!on) { hidePickerOverlay(); hidePickerHint(); }
+}
+
+function setMarkersVisible(on) {
+  markersVisible = on;
+  document.body.classList.toggle('markers-visible', on);
+  document.getElementById('markers-btn').classList.toggle('toggled', on);
+  document.getElementById('markers-label').textContent = on ? '隐藏标记' : '显示标记';
+}
+
+function resolveSelectorForElement(el) {
+  let cursor = el;
+  let subPath = [];
+  let anchorEl = null;
+  while (cursor && cursor !== document.body) {
+    if (cursor.dataset && cursor.dataset.fdId) { anchorEl = cursor; break; }
+    subPath.unshift(elementToPathPart(cursor));
+    cursor = cursor.parentElement;
+  }
+  if (!anchorEl) {
+    return {
+      selector: elementToPathPart(el),
+      anchorFdId: null, subSelector: null,
+      label: '(no anchor)', hasWarning: true
+    };
+  }
+  const anchorId = anchorEl.dataset.fdId;
+  if (subPath.length === 0) {
+    return {
+      selector: `[data-fd-id="${anchorId}"]`,
+      anchorFdId: anchorId, subSelector: null,
+      label: anchorId, hasWarning: false
+    };
+  }
+  const sub = subPath.join(' > ');
+  return {
+    selector: `[data-fd-id="${anchorId}"] > ${sub}`,
+    anchorFdId: anchorId, subSelector: sub,
+    label: `${anchorId} > ${sub}`, hasWarning: false
+  };
+}
+function elementToPathPart(el) {
+  const tag = el.tagName.toLowerCase();
+  const cls = (el.className && typeof el.className === 'string')
+    ? el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('comment-')).slice(0, 2).join('.')
+    : '';
+  return cls ? `${tag}.${cls}` : tag;
+}
+
+function findMirrorElement(el) {
+  const lightRoot = document.getElementById('preview-light');
+  const darkRoot = document.getElementById('preview-dark');
+  const inLight = lightRoot.contains(el);
+  const inDark = darkRoot.contains(el);
+  if (!inLight && !inDark) return null;
+  const sourceRoot = inLight ? lightRoot : darkRoot;
+  const mirrorRoot = inLight ? darkRoot : lightRoot;
+  const path = [];
+  let cursor = el;
+  while (cursor && cursor !== sourceRoot) {
+    const parent = cursor.parentElement;
+    if (!parent) return null;
+    path.unshift(Array.from(parent.children).indexOf(cursor));
+    cursor = parent;
+  }
+  let mirror = mirrorRoot;
+  for (const idx of path) {
+    if (!mirror.children[idx]) return null;
+    mirror = mirror.children[idx];
+  }
+  return mirror;
+}
+
+function tagElementForComment(el, commentId) {
+  const tag = `c${commentId}`;
+  el.setAttribute('data-fd-comment-target', tag);
+  const mirror = findMirrorElement(el);
+  if (mirror) mirror.setAttribute('data-fd-comment-target', tag);
+  return tag;
+}
+function untagComment(commentId) {
+  const tag = `c${commentId}`;
+  document.querySelectorAll(`[data-fd-comment-target="${tag}"]`).forEach(el => {
+    el.removeAttribute('data-fd-comment-target');
+  });
+}
+function untagAllComments() {
+  document.querySelectorAll('[data-fd-comment-target]').forEach(el => {
+    el.removeAttribute('data-fd-comment-target');
+  });
+}
+
+const pickerOverlay = document.getElementById('picker-overlay');
+const pickerHint = document.getElementById('picker-hint');
+
+function showPickerOverlay(el) {
+  const rect = el.getBoundingClientRect();
+  pickerOverlay.style.top = rect.top + 'px';
+  pickerOverlay.style.left = rect.left + 'px';
+  pickerOverlay.style.width = rect.width + 'px';
+  pickerOverlay.style.height = rect.height + 'px';
+  pickerOverlay.classList.add('visible');
+}
+function hidePickerOverlay() { pickerOverlay.classList.remove('visible'); }
+function showPickerHint(text, x, y, warning) {
+  pickerHint.textContent = text;
+  pickerHint.classList.toggle('warning', !!warning);
+  pickerHint.classList.add('visible');
+  pickerHint.style.left = (x + 14) + 'px';
+  pickerHint.style.top  = (y + 18) + 'px';
+}
+function hidePickerHint() { pickerHint.classList.remove('visible'); }
+
+previewPair.addEventListener('mousemove', (e) => {
+  if (!commentMode) return;
+  const t = e.target;
+  if (!t || t === pickerOverlay || pickerOverlay.contains(t)) return;
+  if (t.closest('.comment-list-panel') || t.closest('.comment-popover') || t.closest('.markers-layer')) return;
+  const previewEl = t.closest('.preview');
+  if (!previewEl) return;
+  showPickerOverlay(t);
+  const resolved = resolveSelectorForElement(t);
+  showPickerHint(resolved.label, e.clientX, e.clientY, resolved.hasWarning);
+});
+
+previewPair.addEventListener('mouseleave', () => {
+  if (commentMode) { hidePickerOverlay(); hidePickerHint(); }
+});
+
+previewPair.addEventListener('click', (e) => {
+  if (!commentMode) return;
+  const t = e.target;
+  if (!t || t.closest('.comment-list-panel') || t.closest('.comment-popover')) return;
+  const previewEl = t.closest('.preview');
+  if (!previewEl) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const existingTag = t.getAttribute('data-fd-comment-target');
+  if (existingTag) {
+    const existing = comments.find(c => c.targetAttr === existingTag);
+    if (existing) { openCommentPopover(t, existing.id); return; }
+  }
+  openCommentPopover(t);
+}, true);
+
+const popover = document.getElementById('comment-popover');
+const popTarget = document.getElementById('pop-target');
+const popWarning = document.getElementById('pop-warning');
+const popTextarea = document.getElementById('pop-textarea');
+const popScopeOptions = document.getElementById('pop-scope-options');
+const popDelete = document.getElementById('pop-delete');
+const parentLink = document.getElementById('parent-link');
+const childLink = document.getElementById('child-link');
+
+function renderScopeOptions(activeId) {
+  popScopeOptions.innerHTML = '';
+  for (const opt of SCOPE_OPTIONS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'scope-opt' + (opt.id === activeId ? ' selected' : '');
+    btn.dataset.scope = opt.id;
+    btn.innerHTML = `<div>${opt.label}</div>`;
+    btn.addEventListener('click', () => {
+      popScopeOptions.querySelectorAll('.scope-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+    popScopeOptions.appendChild(btn);
+  }
+}
+function getSelectedScope() {
+  const sel = popScopeOptions.querySelector('.scope-opt.selected');
+  return sel ? sel.dataset.scope : 'this';
+}
+function updateNavLinks() {
+  if (!popoverTargetEl) {
+    parentLink.disabled = true; childLink.disabled = true; return;
+  }
+  const parent = popoverTargetEl.parentElement;
+  parentLink.disabled = !parent || !parent.closest('.preview') || parent.classList.contains('preview');
+  const firstChild = popoverTargetEl.firstElementChild;
+  childLink.disabled = !firstChild;
+}
+
+function openCommentPopover(targetEl, existingId = null) {
+  popoverTargetEl = targetEl;
+  let resolved, comment, defaultScope = 'this', defaultText = '';
+  if (existingId !== null) {
+    comment = comments.find(c => c.id === existingId);
+    if (!comment) return;
+    popoverEditingId = existingId;
+    if (comment.scope === 'global') {
+      resolved = { selector: '(global)', anchorFdId: null, subSelector: null, label: '(global)', hasWarning: false };
+    } else {
+      resolved = {
+        selector: comment.fallbackSelector,
+        anchorFdId: comment.anchorFdId,
+        subSelector: comment.subSelector,
+        label: comment.label,
+        hasWarning: comment.hasWarning
+      };
+    }
+    defaultScope = comment.scope;
+    defaultText = comment.text;
+    popDelete.style.display = 'inline-block';
+  } else {
+    popoverEditingId = null;
+    resolved = resolveSelectorForElement(targetEl);
+    popDelete.style.display = 'none';
+  }
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  popTextarea.value = defaultText;
+  renderScopeOptions(defaultScope);
+  updateNavLinks();
+
+  const r = targetEl.getBoundingClientRect();
+  let left = Math.min(r.left, window.innerWidth - 380);
+  left = Math.max(12, left);
+  let top = r.bottom + 8;
+  if (top + 360 > window.innerHeight) top = Math.max(12, r.top - 360);
+  popover.style.left = left + 'px';
+  popover.style.top = top + 'px';
+  popover.classList.add('open');
+  popTextarea.focus();
+}
+function closeCommentPopover() {
+  popover.classList.remove('open');
+  popoverEditingId = null;
+  popoverTargetEl = null;
+  popoverTargetSelector = null;
+}
+
+parentLink.addEventListener('click', () => {
+  if (!popoverTargetEl) return;
+  const parent = popoverTargetEl.parentElement;
+  if (!parent || !parent.closest('.preview') || parent.classList.contains('preview')) return;
+  popoverTargetEl = parent;
+  const resolved = resolveSelectorForElement(parent);
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  updateNavLinks();
+});
+childLink.addEventListener('click', () => {
+  if (!popoverTargetEl) return;
+  const firstChild = popoverTargetEl.firstElementChild;
+  if (!firstChild) return;
+  popoverTargetEl = firstChild;
+  const resolved = resolveSelectorForElement(firstChild);
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  updateNavLinks();
+});
+
+document.getElementById('pop-cancel').addEventListener('click', closeCommentPopover);
+document.getElementById('pop-save').addEventListener('click', () => {
+  const text = popTextarea.value.trim();
+  if (!text) { showToast('请填写意见'); return; }
+  const scope = getSelectedScope();
+  const resolved = popoverTargetSelector;
+  if (popoverEditingId !== null) {
+    const c = comments.find(x => x.id === popoverEditingId);
+    if (c) {
+      untagComment(c.id);
+      if (scope !== 'global' && popoverTargetEl) {
+        const tag = tagElementForComment(popoverTargetEl, c.id);
+        c.targetAttr = tag;
+        c.anchorFdId = resolved.anchorFdId;
+        c.subSelector = resolved.subSelector;
+        c.fallbackSelector = resolved.selector;
+        c.label = resolved.label;
+        c.hasWarning = resolved.hasWarning;
+      } else {
+        c.targetAttr = null;
+        c.anchorFdId = null; c.subSelector = null; c.fallbackSelector = null;
+        c.label = '(global)'; c.hasWarning = false;
+      }
+      c.scope = scope;
+      c.text = text;
+    }
+  } else {
+    const id = nextCommentId++;
+    let targetAttr = null;
+    if (scope !== 'global' && popoverTargetEl) {
+      targetAttr = tagElementForComment(popoverTargetEl, id);
+    }
+    comments.push({
+      id, targetAttr,
+      anchorFdId: scope === 'global' ? null : resolved.anchorFdId,
+      subSelector: scope === 'global' ? null : resolved.subSelector,
+      fallbackSelector: scope === 'global' ? null : resolved.selector,
+      label: scope === 'global' ? '(global)' : resolved.label,
+      hasWarning: scope === 'global' ? false : resolved.hasWarning,
+      scope, text
+    });
+  }
+  closeCommentPopover();
+  refreshMarkersAndList();
+});
+popDelete.addEventListener('click', () => {
+  if (popoverEditingId === null) return;
+  deleteCommentById(popoverEditingId);
+  closeCommentPopover();
+});
+
+function deleteCommentById(id) {
+  const i = comments.findIndex(c => c.id === id);
+  if (i < 0) return;
+  untagComment(id);
+  comments.splice(i, 1);
+  refreshMarkersAndList();
+}
+
+function renderMarkers() {
+  markersLayer.innerHTML = '';
+  comments.forEach((c, idx) => {
+    if (c.scope === 'global') return;
+    if (!c.targetAttr) return;
+    const num = idx + 1;
+    const els = document.querySelectorAll(`[data-fd-comment-target="${c.targetAttr}"]`);
+    els.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      const marker = document.createElement('span');
+      marker.className = 'comment-marker';
+      marker.textContent = num;
+      marker.title = `Comment ${num}`;
+      marker.style.left = (rect.right - 9) + 'px';
+      marker.style.top  = (rect.top - 9) + 'px';
+      marker.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        openCommentPopover(el, c.id);
+      });
+      markersLayer.appendChild(marker);
+    });
+  });
+}
+
+function refreshCommentList() {
+  const body = document.getElementById('clp-body');
+  document.getElementById('clp-count').textContent = `(${comments.length})`;
+  document.getElementById('comment-count').textContent = `(${comments.length})`;
+  if (comments.length === 0) {
+    body.innerHTML = `<div class="empty-state">暂无意见。 Click <strong>标注意见</strong> in the header, then click any element in the preview to annotate.</div>`;
+    return;
+  }
+  body.innerHTML = '';
+  comments.forEach((c, idx) => {
+    const item = document.createElement('div');
+    item.className = 'clp-item';
+    item.dataset.commentId = c.id;
+    const target = c.scope === 'global'
+      ? '(global)'
+      : (c.subSelector ? `[data-fd-id="${c.anchorFdId}"] > ${c.subSelector}` : (c.anchorFdId ? `[data-fd-id="${c.anchorFdId}"]` : c.fallbackSelector));
+    item.innerHTML = `
+      <div class="clp-item-head">
+        <span class="clp-num">${idx + 1}</span>
+        <span class="clp-scope">${c.scope}</span>
+        <div class="clp-actions">
+          <button class="clp-edit" title="Edit">✎</button>
+          <button class="clp-delete" title="Delete">✕</button>
+        </div>
+      </div>
+      <div class="clp-target">${target}</div>
+      <div class="clp-text">${escapeHtml(c.text)}</div>
+      <div class="clp-edit-form">
+        <textarea>${escapeHtml(c.text)}</textarea>
+        <div class="clp-edit-actions">
+          <button class="clp-edit-cancel" title="Cancel">✕</button>
+          <button class="clp-edit-save" title="Save">✓</button>
+        </div>
+      </div>
+    `;
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.clp-actions') || e.target.closest('.clp-edit-form')) return;
+      if (item.classList.contains('editing')) return;
+      if (c.scope === 'global') {
+        openCommentPopover(document.getElementById('preview-light'), c.id);
+        return;
+      }
+      const el = c.targetAttr
+        ? document.querySelector(`[data-fd-comment-target="${c.targetAttr}"]`)
+        : (c.anchorFdId ? document.querySelector(`[data-fd-id="${c.anchorFdId}"]`) : null);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => openCommentPopover(el, c.id), 250);
+      }
+    });
+    item.querySelector('.clp-edit').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      item.classList.add('editing');
+      const ta = item.querySelector('.clp-edit-form textarea');
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
+    item.querySelector('.clp-delete').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      deleteCommentById(c.id);
+    });
+    item.querySelector('.clp-edit-save').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const newText = item.querySelector('.clp-edit-form textarea').value.trim();
+      if (!newText) { showToast('请填写意见'); return; }
+      c.text = newText;
+      refreshCommentList();
+    });
+    item.querySelector('.clp-edit-cancel').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      item.querySelector('.clp-edit-form textarea').value = c.text;
+      item.classList.remove('editing');
+    });
+    body.appendChild(item);
+  });
+}
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function refreshMarkersAndList() { renderMarkers(); refreshCommentList(); }
+
+previewPair.addEventListener('scroll', renderMarkers);
+window.addEventListener('resize', renderMarkers);
+
+document.getElementById('comment-mode-btn').addEventListener('click', () => setCommentMode(!commentMode));
+document.getElementById('markers-btn').addEventListener('click', () => setMarkersVisible(!markersVisible));
+document.getElementById('comment-list-btn').addEventListener('click', () => {
+  document.getElementById('comment-list-panel').classList.toggle('open');
+});
+document.getElementById('clp-close').addEventListener('click', () => {
+  document.getElementById('comment-list-panel').classList.remove('open');
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (popover.classList.contains('open')) { closeCommentPopover(); return; }
+    if (commentMode) { setCommentMode(false); return; }
+    closeActiveDropdown();
+  }
+});
+
+/* ============================================================
+   EXPORT
+   ============================================================ */
+function buildExportMarkdown() {
+  const lines = [];
+  const ts = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});
+  lines.push('## Frontend design round-trip');
+  lines.push('Source: ' + PREVIEW_META.source);
+  lines.push('Captured at: ' + ts + ' (local)');
+  lines.push('Skill: frontend-design');
+  lines.push('Topic: ' + PREVIEW_META.topic);
+  lines.push('');
+
+  const changedDecisions = collectChangedDecisions();
+  const directEdits = collectDirectEdits();
+  const hasDecisions = changedDecisions.size > 0;
+  const hasDirectEdits = directEdits.length > 0;
+  const hasComments = comments.length > 0;
+
+  if (!hasDecisions && !hasDirectEdits && !hasComments) return null;
+
+  if (hasDecisions) {
+    lines.push('### Decisions');
+    lines.push('');
+    for (const [secTitle, secKey] of SECTION_ORDER) {
+      const groupsInSec = TOKENS[secKey].filter(g => changedDecisions.has(g.key));
+      if (groupsInSec.length === 0) continue;
+      lines.push('#### ' + secTitle);
+      for (const group of groupsInSec) appendDecisionLines(lines, group);
+      lines.push('');
+    }
+  }
+
+  if (hasDirectEdits) {
+    lines.push('### Direct edits');
+    lines.push('');
+    directEdits.forEach((edit, idx) => {
+      lines.push('#### Edit ' + (idx + 1));
+      lines.push('- Element: `' + edit.selector + '` (' + edit.label + ')');
+      lines.push('- Kind: ' + edit.kind);
+      const valueLines = edit.value.split('\n');
+      lines.push('- Value: ' + valueLines[0]);
+      for (let i = 1; i < valueLines.length; i++) lines.push('  ' + valueLines[i]);
+      lines.push('');
+    });
+  }
+
+  if (hasComments) {
+    lines.push('### Element comments');
+    lines.push('');
+    comments.forEach((c, idx) => {
+      lines.push('#### Comment ' + (idx + 1));
+      let elementLine;
+      if (c.scope === 'global') {
+        elementLine = '- Element: (global)';
+      } else if (c.anchorFdId) {
+        const sel = c.subSelector
+          ? `\`[data-fd-id="${c.anchorFdId}"] > ${c.subSelector}\` (descendant of ${c.anchorFdId})`
+          : `\`[data-fd-id="${c.anchorFdId}"]\` (${c.anchorFdId})`;
+        elementLine = `- Element: ${sel}`;
+      } else {
+        elementLine = `- Element: \`${c.fallbackSelector}\` (warning: no data-fd-id anchor — selector is best-effort)`;
+      }
+      lines.push(elementLine);
+      lines.push('- Scope: ' + c.scope);
+      const noteLines = c.text.split('\n');
+      lines.push('- Note: ' + noteLines[0]);
+      for (let i = 1; i < noteLines.length; i++) lines.push('  ' + noteLines[i]);
+      lines.push('');
+    });
+  }
+
+  lines.push('### Apply');
+  lines.push('');
+  lines.push('先继续迭代原型。只有用户明确批准实施后，才修改应用源码；映射见同目录 COVERAGE.md。');
+  lines.push('');
+  let step = 1;
+  if (hasDecisions) {
+    lines.push(step + '. **Token decisions** — write into `' + PREVIEW_META.targetFile + '` using the existing `@theme` and `html[data-owl-theme="light"]` blocks. Components must consume the CSS variables; do not hardcode values per component.');
+    lines.push('');
+    step += 1;
+  }
+  if (hasDirectEdits) {
+    lines.push(step + '. **Direct edits** — locate each edited element via its `data-fd-id` in the corresponding source. Apply value changes to components, props, fixtures, or locale keys as appropriate. Do not bypass i18n for user-facing copy when the project has i18n.');
+    lines.push('');
+    step += 1;
+  }
+  if (hasComments) {
+    lines.push(step + '. **Element comments** — locate each commented element via its `data-fd-id` in the corresponding source. Apply the change as instructed by the Note text. Honor the Scope:');
+    lines.push('   - `this` → modify only this specific instance');
+    lines.push('   - `all-matching` → modify the component-level CSS / source so all matching elements get the change');
+    lines.push('   - `all-like-this` → modify the shared component such that all elements sharing the data-fd-id family pick up the change');
+    lines.push('   - `global` → modify the global token / theme file');
+    lines.push('');
+    step += 1;
+  }
+  lines.push(step + '. **Verify** — follow AGENTS.md, inspect the frontend in both themes and run the authorized checks. Do not run a build without user authorization.');
+  return lines.join('\n');
+}
+
+function collectChangedDecisions() {
+  const changed = new Set();
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      const cur = decisions[group.key];
+      if (group.kind === 'slider') {
+        if (cur !== group.defaultValue) changed.add(group.key);
+      } else if (group.kind === 'toggle') {
+        if (!!cur !== !!group.defaultValue) changed.add(group.key);
+      } else {
+        if (cur !== defaultId(group)) changed.add(group.key);
+      }
+    }
+  }
+  return changed;
+}
+
+function appendDecisionLines(lines, group) {
+  if (group.kind === 'color') {
+    const opt = findOption(group, decisions[group.key]);
+    lines.push(`- \`${group.key}\` (light) → \`${opt.light}\``);
+    lines.push(`- \`${group.key}\` (dark)  → \`${opt.dark}\``);
+    const rejected = group.options.filter(o => o.id !== opt.id)
+      .map(o => `${o.id}(L:${o.light}/D:${o.dark})`).join(', ');
+    if (rejected) lines.push(`  - rejected: ${rejected}`);
+  } else if (group.kind === 'slider') {
+    lines.push(`- \`${group.key}\` → \`${decisions[group.key]}${group.unit || ''}\` (slider, range ${group.min}-${group.max}, step ${group.step})`);
+  } else if (group.kind === 'segmented' || group.kind === 'dropdown') {
+    const opt = findOption(group, decisions[group.key]);
+    const label = group.options.map(o => o.id === opt.id ? `[${o.id}]` : o.id).join(' | ');
+    lines.push(`- \`${group.key}\` → \`${opt.value || opt.id}\` (segmented: ${label})`);
+    const rejected = group.options.filter(o => o.id !== opt.id).map(o => `${o.id}(${o.value || o.id})`).join(', ');
+    if (rejected) lines.push(`  - rejected: ${rejected}`);
+  } else if (group.kind === 'toggle') {
+    lines.push(`- \`${group.key}\` → \`${decisions[group.key]}\` (toggle)`);
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 2200);
+}
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('意见已复制，可粘贴回聊天');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('意见已复制');
+  }
+}
+
+document.getElementById('export-btn').addEventListener('click', async () => {
+  const md = buildExportMarkdown();
+  if (md === null) {
+    showToast('先调整样式、编辑文案或添加意见，再导出。');
+    return;
+  }
+  document.getElementById('export-pre').textContent = md;
+  document.getElementById('export-modal').classList.add('open');
+  await copyToClipboard(md);
+});
+document.getElementById('modal-close').addEventListener('click', () => {
+  document.getElementById('export-modal').classList.remove('open');
+});
+document.getElementById('copy-again').addEventListener('click', async () => {
+  await copyToClipboard(document.getElementById('export-pre').textContent);
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  initDecisions();
+  resetDirectEdits();
+  recordedEdits.clear(); editedValues.clear();
+  untagAllComments();
+  comments.length = 0;
+  nextCommentId = 1;
+  closeCommentPopover();
+  setCommentMode(false);
+  setMarkersVisible(false);
+  document.getElementById('comment-list-panel').classList.remove('open');
+  renderControls();
+  applyAllDecisions();
+  refreshMarkersAndList();
+  showToast('已重置设计意见');
+});
+
+document.getElementById('toggle-controls-btn').addEventListener('click', () => {
+  const layout = document.querySelector('.main-layout');
+  const collapsed = layout.classList.toggle('controls-collapsed');
+  const btn = document.getElementById('toggle-controls-btn');
+  btn.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+  btn.title = collapsed ? '展开设计控制' : '收起设计控制';
+  document.getElementById('toggle-controls-icon').textContent = collapsed ? '▶' : '◀';
+  document.getElementById('toggle-controls-label').textContent = collapsed ? '展开' : '收起';
+  if (collapsed && activeDropdown) closeActiveDropdown();
+});
+
+/* Pane expand/collapse — split / light-expanded / dark-expanded.
+   Knob changes still apply to BOTH themes regardless of which pane is visible,
+   because applyVariableToPreview() always writes to both lightEl() and darkEl(). */
+const previewGrid = document.querySelector('.preview-grid');
+function getPaneState() {
+  if (previewGrid.classList.contains('light-expanded')) return 'light-expanded';
+  if (previewGrid.classList.contains('dark-expanded')) return 'dark-expanded';
+  return 'split';
+}
+function setPaneState(next) {
+  previewGrid.classList.remove('light-expanded', 'dark-expanded');
+  if (next === 'light-expanded') previewGrid.classList.add('light-expanded');
+  if (next === 'dark-expanded') previewGrid.classList.add('dark-expanded');
+  setTimeout(renderMarkers, 240);
+}
+document.querySelectorAll('.pane-toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pane = btn.dataset.pane;
+    const cur = getPaneState();
+    if (pane === 'light') setPaneState(cur === 'split' ? 'light-expanded' : 'split');
+    else                  setPaneState(cur === 'split' ? 'dark-expanded'  : 'split');
+  });
+});
+
+renderControls();
+applyAllDecisions();
+initDirectEdits();
+refreshCommentList();
+</script>
+<script>/* Prototype-only OWL workspace views. Synthetic data; no bridge or filesystem calls. */
+(() => {
+  const glyph = (name, size = 16) => {
+    const paths = {
+      folder: '<path d="M3 7V5h6l2 2h10v13H3Z"/>',
+      file: '<path d="M5 3h9l5 5v13H5Z"/><path d="M14 3v6h5"/>',
+      search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+      refresh: '<path d="M20 7a9 9 0 1 0 1 9M20 3v5h-5"/>',
+      branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10M18 8v3c0 4-12 1-12 6"/>',
+      chevron: '<path d="m9 5 7 7-7 7"/>',
+      chevronDown: '<path d="m5 9 7 7 7-7"/>',
+      save: '<path d="M4 3h14l3 3v15H3V3Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/>',
+      external: '<path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7"/>',
+      left: '<path d="m15 5-7 7 7 7"/>',
+      right: '<path d="m9 5 7 7-7 7"/>',
+      check: '<path d="m4 12 5 5L20 6"/>',
+      clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/>',
+      terminal: '<path d="m4 5 7 7-7 7M13 19h7"/>',
+      image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="2"/><path d="m3 17 5-5 4 4 4-6 5 8"/>',
+      send: '<path d="M12 21V3M5 10l7-7 7 7"/>',
+      stop: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
+      minus: '<path d="M5 12h14"/>',
+    };
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle" aria-hidden="true">${paths[name] || paths.file}</svg>`;
+  };
+  const b = (label, action, id, cls = '', iconName = '') => `<button type="button" class="btn ${cls}" data-action="${action}" data-fd-id="${id}">${iconName ? glyph(iconName) : ''}<span data-fd-editable="text">${label}</span></button>`;
+  const ib = (label, action, id, iconName) => `<button type="button" class="btn ghost" title="${label}" aria-label="${label}" data-action="${action}" data-fd-id="${id}" style="padding:7px">${glyph(iconName)}</button>`;
+  const text = (value, id, cls = '') => `<span class="${cls}" data-fd-id="${id}" data-fd-editable="text">${value}</span>`;
+  const edit = (value, placeholder, id) => `<input class="input" value="${value}" placeholder="${placeholder}" data-fd-id="${id}" data-fd-editable="value">`;
+  const badge = (value, tone = '', id = '') => `<span class="tag ${tone}" ${id ? `data-fd-id="${id}"` : ''}>${value}</span>`;
+  const toolbar = (html, id) => `<div class="pane-toolbar" data-fd-id="${id}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${html}</div>`;
+  const label = (t, desc = '', id = '') => `<div style="padding:16px 0 12px" ${id ? `data-fd-id="${id}"` : ''}><strong data-fd-editable="text">${t}</strong>${desc ? `<div class="muted small" style="margin-top:5px" data-fd-editable="text">${desc}</div>` : ''}</div>`;
+
+  const fileRow = (name, path, depth = 0, type = 'file', status = '', selected = false) => `<button type="button" class="file-row" data-action="${type === 'folder' ? 'file-folder' : path.endsWith('.svg') ? 'pane-image' : 'pane-editor'}" data-fd-id="file-row-${name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}" data-path="${path}" style="width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px 8px ${12 + depth * 18}px;text-align:left;border:0;${selected ? 'background:rgba(47,158,90,.13);color:inherit;border-radius:7px;' : 'background:transparent;color:inherit;'}">${type === 'folder' ? glyph('chevronDown', 12) : '<span style="width:12px"></span>'}<span style="color:${type === 'folder' ? '#d3a35e' : path.endsWith('.tsx') || path.endsWith('.ts') ? '#79a9df' : 'inherit'}">${glyph(type)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-fd-editable="text">${name}</span>${status ? `<span class="small" style="color:${status === 'M' ? '#c8a15c' : '#2f9e5a'};font-weight:600">${status}</span>` : ''}</button>`;
+
+  window.OWL_PANES = {
+    files: {
+      title: '文件',
+      html: () => `<div class="pane-body" data-fd-id="pane-files">
+        ${toolbar(`<div style="flex:1;min-width:150px;position:relative">${edit('', '搜索文件名…', 'files-search')}</div>${ib('新建文件夹', 'file-new', 'files-new-folder', 'plus')}${ib('刷新文件', 'files-refresh', 'files-refresh', 'refresh')}`, 'files-toolbar')}
+        <div class="small muted" style="display:flex;justify-content:space-between;align-items:center;margin:15px 0 7px" data-fd-id="files-project-heading"><span data-fd-editable="text">OWL-MONO</span>${ib('文件操作', 'file-context', 'files-context-menu', 'more')}</div>
+        <div class="file-tree" data-fd-id="files-tree">
+          ${fileRow('apps', 'apps', 0, 'folder')}
+          ${fileRow('desktop', 'apps/desktop', 1, 'folder')}
+          ${fileRow('src', 'apps/desktop/src', 2, 'folder')}
+          ${fileRow('App.tsx', 'apps/desktop/src/App.tsx', 3, 'file', 'M', true)}
+          ${fileRow('index.css', 'apps/desktop/src/index.css', 3, 'file', 'M')}
+          ${fileRow('components', 'apps/desktop/src/components', 3, 'folder')}
+          ${fileRow('Composer.tsx', 'apps/desktop/src/components/Composer.tsx', 4)}
+          ${fileRow('StartPage.tsx', 'apps/desktop/src/components/StartPage.tsx', 4)}
+          ${fileRow('sidebar', 'apps/desktop/src/sidebar', 3, 'folder')}
+          ${fileRow('Workbench.tsx', 'apps/desktop/src/sidebar/Workbench.tsx', 4, 'file', 'M')}
+          ${fileRow('assets', 'apps/desktop/src/assets', 3, 'folder')}
+          ${fileRow('owl-preview.svg', 'apps/desktop/src/assets/owl-preview.svg', 4, 'file', 'U')}
+          ${fileRow('packages', 'packages', 0, 'folder')}
+          ${fileRow('README.md', 'README.md')}
+          ${fileRow('package.json', 'package.json')}
+        </div>
+        <div class="divider" style="margin:14px 0"></div><div class="small muted" style="display:flex;align-items:center;gap:6px" data-fd-id="files-footer">${glyph('branch', 13)} main <span style="margin-left:auto">4 个变更</span></div>
+        <div class="small muted" style="margin-top:12px" data-fd-id="files-actions-hint" data-fd-editable="text">点击文件打开预览，右键可管理文件。</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px" data-fd-id="files-context-sample">${b('重命名', 'file-rename', 'file-rename', 'ghost')}${b('复制路径', 'file-copy-path', 'file-copy-path', 'ghost')}${b('在外部打开', 'file-external', 'file-external', 'ghost', 'external')}${b('删除', 'file-delete', 'file-delete', 'ghost danger')}</div>
+      </div>`,
+    },
+    changes: {
+      title: '文件变动',
+      html: () => `<div class="pane-body" data-fd-id="pane-changes">
+        ${toolbar(`<span style="display:flex;gap:7px;align-items:center;flex:1">${glyph('branch')} ${text('main', 'changes-branch')} <span class="small muted">origin/main</span></span>${ib('刷新变更', 'changes-refresh', 'changes-refresh', 'refresh')}`, 'changes-toolbar')}
+        <div class="small muted" style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 7px" data-fd-id="changes-staged-heading"><span>已暂存 ${badge('1')}</span>${b('取消暂存', 'unstage', 'changes-unstage-all', 'ghost')}</div>
+        <div class="file-row" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;background:rgba(47,158,90,.1)" data-fd-id="changes-staged-row"><span style="color:#2f9e5a;font-weight:600">M</span><span style="flex:1;font-size:12px" data-fd-editable="text">apps/desktop/src/index.css</span>${ib('取消暂存此文件', 'unstage', 'changes-unstage-css', 'minus')}</div>
+        <div class="small muted" style="display:flex;justify-content:space-between;align-items:center;margin:15px 0 7px" data-fd-id="changes-working-heading"><span>更改 ${badge('2')}</span>${b('全部暂存', 'stage', 'changes-stage-all', 'ghost')}</div>
+        <div class="file-row" style="display:flex;align-items:center;gap:9px;padding:8px 10px" data-fd-id="changes-working-row"><span style="color:#c8a15c;font-weight:600">M</span><button class="btn ghost" data-action="change-diff" style="flex:1;justify-content:flex-start;padding:0;font-size:12px" data-fd-id="changes-app-file">apps/desktop/src/App.tsx</button>${ib('暂存此文件', 'stage', 'changes-stage-app', 'plus')}${ib('丢弃此文件修改', 'discard', 'changes-discard-app', 'refresh')}</div>
+        <div class="file-row" style="display:flex;align-items:center;gap:9px;padding:8px 10px" data-fd-id="changes-workbench-row"><span style="color:#c8a15c;font-weight:600">M</span><span class="small" style="flex:1" data-fd-editable="text">sidebar/Workbench.tsx</span>${ib('暂存此文件', 'stage', 'changes-stage-workbench', 'plus')}</div>
+        <div class="small muted" style="margin:15px 0 7px" data-fd-id="changes-untracked-heading">未跟踪 ${badge('1')}</div>
+        <div class="file-row" style="display:flex;align-items:center;gap:9px;padding:8px 10px" data-fd-id="changes-untracked-row"><span style="color:#2f9e5a;font-weight:600">U</span><span class="small" style="flex:1" data-fd-editable="text">assets/owl-preview.svg</span>${ib('暂存此文件', 'stage', 'changes-stage-image', 'plus')}</div>
+        <div class="card" style="margin-top:17px;padding:0;overflow:hidden" data-fd-id="changes-diff-preview">
+          <div style="display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid rgba(127,127,127,.17)"><strong class="small">App.tsx</strong>${badge('+3 / −1', 'green')}<span style="flex:1"></span>${ib('展开差异', 'diff-expand', 'changes-expand-diff', 'external')}</div>
+          <div class="diff" style="font-size:12px;line-height:1.8;padding:9px 0;font-family:Consolas,monospace" data-fd-id="changes-diff-code">
+            <div class="diff-line muted" style="padding:0 11px">38  38  const workspace = useWorkspace();</div>
+            <div class="diff-line remove" style="padding:0 11px">39      − &lt;Workbench width={380} /&gt;</div>
+            <div class="diff-line add" style="padding:0 11px">    39  + &lt;Workbench</div>
+            <div class="diff-line add" style="padding:0 11px">    40  +   dock={workspace.dock}</div>
+            <div class="diff-line add" style="padding:0 11px">    41  + /&gt;</div>
+            <div class="diff-line muted" style="padding:0 11px">40  42  &lt;/main&gt;</div>
+          </div>
+        </div>
+        <div style="margin-top:18px" data-fd-id="changes-commit-area"><label class="small" style="display:block;margin-bottom:7px" data-fd-id="changes-commit-label" data-fd-editable="text">提交信息</label><textarea class="textarea" rows="2" data-fd-id="changes-commit-message" data-fd-editable="value" placeholder="概括这次改动">feat(desktop): improve workspace layout</textarea><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:9px"><span class="muted small" data-fd-id="changes-commit-key">Ctrl + Enter</span>${b('提交 1 个已暂存文件', 'commit', 'changes-commit', 'primary', 'check')}</div></div>
+      </div>`,
+    },
+    editor: {
+      title: '编辑器',
+      html: () => `<div class="pane-body" data-fd-id="pane-editor">
+        ${toolbar(`<span class="small muted" style="flex:1;min-width:150px" data-fd-id="editor-path">apps / desktop / src / <strong>App.tsx</strong></span>${badge('未保存', '', 'editor-dirty')}${ib('重新加载', 'editor-reload', 'editor-reload', 'refresh')}${b('保存', 'save', 'editor-save', 'primary', 'save')}`, 'editor-toolbar')}
+        <div class="notice" style="display:flex;align-items:flex-start;gap:12px;margin:14px 0;padding:12px;border:1px solid rgba(201,158,82,.3);background:rgba(201,158,82,.08)" data-fd-id="editor-external-change"><div style="flex:1"><strong class="small" data-fd-editable="text">文件在外部被修改</strong><p class="small muted" style="margin:4px 0 0" data-fd-editable="text">重新加载磁盘版本会替换当前未保存的内容。</p></div>${b('重新加载', 'editor-reload', 'editor-stale-reload', 'ghost')}</div>
+        <div class="code" style="overflow:auto;min-height:365px;padding:17px 13px;line-height:1.95;font-size:12px;font-family:Consolas,monospace;background:rgba(127,127,127,.035);border-radius:9px" data-fd-id="editor-code-sample">
+          <div><span class="muted" style="display:inline-block;width:26px">1</span><span style="color:#af8cc9">import</span> { useState } <span style="color:#af8cc9">from</span> <span style="color:#85b790">"react"</span>;</div>
+          <div><span class="muted" style="display:inline-block;width:26px">2</span><span style="color:#af8cc9">import</span> { Workbench } <span style="color:#af8cc9">from</span> <span style="color:#85b790">"./sidebar/Workbench"</span>;</div>
+          <div><span class="muted" style="display:inline-block;width:26px">3</span></div>
+          <div><span class="muted" style="display:inline-block;width:26px">4</span><span style="color:#af8cc9">export function</span> <span style="color:#79a9df">App</span>() {</div>
+          <div><span class="muted" style="display:inline-block;width:26px">5</span>&nbsp; <span style="color:#af8cc9">const</span> [dock, setDock] = <span style="color:#79a9df">useState</span>(<span style="color:#85b790">"right"</span>);</div>
+          <div><span class="muted" style="display:inline-block;width:26px">6</span>&nbsp; <span style="color:#af8cc9">const</span> [open, setOpen] = <span style="color:#79a9df">useState</span>(<span style="color:#d3a35e">true</span>);</div>
+          <div><span class="muted" style="display:inline-block;width:26px">7</span></div>
+          <div><span class="muted" style="display:inline-block;width:26px">8</span>&nbsp; <span style="color:#af8cc9">return</span> (</div>
+          <div><span class="muted" style="display:inline-block;width:26px">9</span>&nbsp;&nbsp;&nbsp; &lt;<span style="color:#d3a35e">main</span> className=<span style="color:#85b790">"owl-workspace"</span>&gt;</div>
+          <div><span class="muted" style="display:inline-block;width:26px">10</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &lt;<span style="color:#d3a35e">ChatStream</span> entries={entries} /&gt;</div>
+          <div style="background:rgba(47,158,90,.08);border-radius:3px"><span class="muted" style="display:inline-block;width:26px">11</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &lt;<span style="color:#d3a35e">Workbench</span></div>
+          <div><span class="muted" style="display:inline-block;width:26px">12</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; dock={dock}</div>
+          <div><span class="muted" style="display:inline-block;width:26px">13</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; open={open}</div>
+          <div><span class="muted" style="display:inline-block;width:26px">14</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; onSetDock={setDock}</div>
+          <div><span class="muted" style="display:inline-block;width:26px">15</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; onSetOpen={setOpen}</div>
+          <div><span class="muted" style="display:inline-block;width:26px">16</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; /&gt;</div>
+          <div><span class="muted" style="display:inline-block;width:26px">17</span>&nbsp;&nbsp;&nbsp; &lt;/<span style="color:#d3a35e">main</span>&gt;</div>
+          <div><span class="muted" style="display:inline-block;width:26px">18</span>&nbsp; );</div>
+          <div><span class="muted" style="display:inline-block;width:26px">19</span>}</div>
+        </div>
+        <div class="small muted" style="display:flex;justify-content:space-between;margin-top:11px" data-fd-id="editor-status"><span>TypeScript React · UTF-8</span><span>第 11 行，第 7 列</span></div>
+        <div class="small muted" style="margin-top:15px" data-fd-id="editor-large-file-note" data-fd-editable="text">大于 1 MB 的文件将显示前 1 MB，可在 VS Code 中查看全文。</div>
+        <div style="margin-top:8px">${b('在 VS Code 打开', 'file-external', 'editor-open-external', 'ghost', 'external')}</div>
+      </div>`,
+    },
+    terminal: {
+      title: '终端',
+      html: () => `<div class="pane-body" data-fd-id="pane-terminal">
+        ${toolbar(`<span style="flex:1;display:flex;align-items:center;gap:8px">${glyph('terminal')} ${text('PowerShell', 'terminal-shell')} ${badge('运行中', 'green', 'terminal-status')}</span>${ib('新建终端', 'terminal-new', 'terminal-new', 'plus')}`, 'terminal-toolbar')}
+        <div class="small muted" style="margin:12px 0" data-fd-id="terminal-directory">D:\\owl\\owl-re-v1\\owl-mono</div>
+        <div class="terminal" style="border-radius:10px;background:#161616;color:#dfdfdc;padding:18px 16px;font-family:Consolas,'Cascadia Mono',monospace;font-size:12px;line-height:1.9;min-height:325px;overflow:auto" data-fd-id="terminal-output">
+          <div class="terminal-line" style="color:#8c948d">PowerShell 7.5.2</div><div class="terminal-line" style="margin-top:13px"><span style="color:#75b78a">PS D:\\owl\\owl-re-v1\\owl-mono&gt;</span> npm run check</div><div class="terminal-line" style="margin-top:12px;color:#b5b5af">&gt; owl-monorepo@ check</div><div class="terminal-line" style="color:#b5b5af">&gt; biome check . &amp;&amp; tsc --noEmit</div><div class="terminal-line" style="margin-top:13px;color:#75b78a">Checked 812 files in 2.4s.</div><div class="terminal-line" style="color:#b5b5af">No fixes applied.</div><div class="terminal-line" style="margin-top:13px;color:#75b78a">PS D:\\owl\\owl-re-v1\\owl-mono&gt; <span style="display:inline-block;width:7px;height:15px;background:#75b78a;vertical-align:-3px"></span></div>
+        </div>
+        <div class="small muted" style="margin-top:12px" data-fd-id="terminal-note" data-fd-editable="text">命令在当前项目目录运行。每个终端使用独立的会话。</div>
+        <div class="card" style="margin-top:18px;padding:13px;display:flex;justify-content:space-between;align-items:center;gap:12px" data-fd-id="terminal-exited-example"><div><strong class="small">进程已退出</strong><div class="muted small" style="margin-top:4px">退出代码 0</div></div>${b('重新启动', 'terminal-restart', 'terminal-restart', 'ghost', 'refresh')}</div>
+      </div>`,
+    },
+    browser: {
+      title: '浏览器',
+      html: () => `<div class="pane-body" data-fd-id="pane-browser">
+        ${toolbar(`${ib('后退', 'browser-back', 'browser-back', 'left')}${ib('前进', 'browser-forward', 'browser-forward', 'right')}${ib('刷新页面', 'browser-refresh', 'browser-refresh', 'refresh')}<div style="flex:1;min-width:135px">${edit('http://localhost:5188', '输入网址，回车打开', 'browser-url')}</div>${ib('在系统浏览器打开', 'browser-external', 'browser-external', 'external')}`, 'browser-toolbar')}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0" data-fd-id="browser-viewport-toolbar"><span class="muted small">视口</span><select class="select" style="width:auto;font-size:12px" data-fd-id="browser-viewport" data-fd-editable="value"><option>1280 × 860</option><option>1920 × 1080</option><option>768 × 1024</option><option>390 × 844</option></select>${badge('已连接', 'green', 'browser-connected')}<span class="muted small" style="margin-left:auto" data-fd-id="browser-shared-page" data-fd-editable="text">与你的助手同步</span></div>
+        <div class="browser-page" style="background:#fafaf7;color:#252725;min-height:310px;border-radius:9px;overflow:hidden;border:1px solid rgba(127,127,127,.24)" data-fd-id="browser-preview-canvas">
+          <div style="padding:15px 19px;border-bottom:1px solid #e4e5de;display:flex;align-items:center;gap:8px;font-size:12px"><span style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:#2f9e5a;color:#fff;font-weight:700">O</span><strong>OWL</strong><span style="margin-left:auto;color:#787b72">文档 &nbsp; 更新 &nbsp; GitHub</span></div>
+          <div style="padding:35px 28px 24px"><div style="font-size:10px;letter-spacing:2px;color:#2f9e5a;font-weight:700">YOUR LOCAL AI WORKSPACE</div><h2 style="font-size:25px;letter-spacing:-.7px;line-height:1.4;margin:12px 0 10px;max-width:300px">把想法，<br>推进到可运行的代码。</h2><p style="font-size:12px;line-height:1.8;color:#777b70;max-width:330px;margin:0">在同一个工作区中讨论、编写代码、检查改动，并预览你的项目。</p><div style="display:inline-block;background:#2f9e5a;color:#fff;padding:9px 13px;font-size:11px;border-radius:6px;margin-top:17px">打开你的第一个项目 →</div></div>
+          <div style="display:flex;gap:18px;padding:0 28px 23px;font-size:10px;color:#71776a"><span>本地优先</span><span>完整工作台</span><span>开放模型</span></div>
+        </div>
+        <div class="small muted" style="display:flex;justify-content:space-between;margin-top:9px" data-fd-id="browser-scale"><span>1280 × 860</span><span>适应窗口 · 32%</span></div>
+        <div class="notice" style="margin-top:17px;padding:13px;border:1px solid rgba(47,158,90,.28);background:rgba(47,158,90,.06)" data-fd-id="browser-file-picker"><strong class="small" data-fd-editable="text">网页请求选择文件</strong><div class="small muted" style="margin:5px 0 9px" data-fd-id="browser-file-picker-help" data-fd-editable="text">可选择多个文件，用 | 分隔本机文件的完整路径。</div>${edit('D:\\owl\\preview\\screen.png', '本机文件完整路径', 'browser-file-path')}<div style="display:flex;gap:7px;justify-content:flex-end;margin-top:9px">${b('忽略', 'browser-file-dismiss', 'browser-file-dismiss', 'ghost')}${b('提交文件', 'browser-file-submit', 'browser-file-submit', 'primary')}</div></div>
+        <div style="margin-top:12px">${b('查看浏览器起始页', 'browser-start', 'browser-start', 'ghost')}</div>
+      </div>`,
+    },
+    tasks: {
+      title: '任务管理',
+      html: () => `<div class="pane-body" data-fd-id="pane-tasks">
+        ${toolbar(`<strong data-fd-id="task-view-title" data-fd-editable="text">执行记录</strong><span style="flex:1"></span>${badge('运行中', 'green', 'tasks-running')}`, 'tasks-toolbar')}
+        <div style="display:flex;gap:9px;margin:17px 0" data-fd-id="tasks-summary"><div class="card" style="flex:1;padding:13px"><div class="small muted">对话轮次</div><strong style="display:block;font-size:24px;margin-top:6px">3</strong></div><div class="card" style="flex:1;padding:13px"><div class="small muted">工具调用</div><strong style="display:block;font-size:24px;margin-top:6px">12</strong></div><div class="card" style="flex:1;padding:13px"><div class="small muted">当前状态</div><strong style="display:block;font-size:13px;margin-top:13px;color:#2f9e5a">执行中</strong></div></div>
+        <div class="muted small" style="margin-bottom:17px" data-fd-id="tasks-explanation" data-fd-editable="text">查看当前会话的操作与结果，及时了解助手的进展。</div>
+        <div class="task-list" data-fd-id="tasks-timeline">
+          <div style="display:flex;gap:9px;align-items:center;margin:10px 0 12px" data-fd-id="task-round-3">${badge('第 3 轮')}<span class="small" data-fd-editable="text">调整工作台布局，让文件和终端更好找</span></div>
+          <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-read-app"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('check', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">读取 App.tsx 和 Workbench.tsx</strong><span class="small muted">已完成</span></div><div class="muted small" style="margin:7px 0 0 23px">2 个文件 · 已获取页面结构</div></div>
+          <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-read-styles"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('check', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">检查样式与主题变量</strong><span class="small muted">已完成</span></div><div class="muted small" style="margin:7px 0 0 23px">index.css · 颜色、字号、间距</div></div>
+          <div class="task-item card" style="padding:13px;margin-bottom:8px;border-color:rgba(47,158,90,.4);background:rgba(47,158,90,.05)" data-fd-id="task-check-running"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('clock', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">运行代码检查</strong>${badge('运行中', 'green')}</div><div class="muted small" style="margin:7px 0 0 23px">npm run check</div><div style="margin:9px 0 0 23px">${b('查看输出', 'task-expand', 'tasks-view-output', 'ghost')}</div></div>
+          <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-failed-example"><div style="display:flex;gap:9px;align-items:center"><span style="color:#cd7b71">×</span><strong class="small" style="flex:1" data-fd-editable="text">读取不存在的配置文件</strong><span class="small" style="color:#cd7b71">失败</span></div><div class="muted small" style="margin:7px 0 0 23px">ENOENT · 已改为读取项目默认配置</div></div>
+          <div class="divider" style="margin:18px 0"></div><div style="display:flex;gap:9px;align-items:center;margin:10px 0 12px" data-fd-id="task-round-2">${badge('第 2 轮')}<span class="small muted" data-fd-editable="text">先了解当前项目的页面构成</span></div><div class="small muted" style="padding-left:5px;line-height:1.8" data-fd-id="task-round-2-summary">已读取 9 个工作台面板，完成页面清单。</div>
+        </div>
+      </div>`,
+    },
+    impression: {
+      title: '用户印象',
+      html: () => `<div class="pane-body" data-fd-id="pane-impression">
+        ${toolbar(`<strong data-fd-id="impression-title" data-fd-editable="text">长期记忆</strong><span style="flex:1"></span>${b('保存', 'save', 'impression-save', 'primary', 'save')}`, 'impression-toolbar')}
+        ${label('更了解你的工作方式', 'Owl 会记录值得长期记住的偏好。你也可以直接修改。', 'impression-introduction')}
+        <textarea class="textarea" style="min-height:345px;line-height:1.85;padding:15px;resize:vertical" data-fd-id="impression-content" data-fd-editable="value" spellcheck="false">## 工作环境
+主要使用 Windows 和 PowerShell，日常开发 Java 与 TypeScript 项目。
+
+## 沟通偏好
+先说结论，再说明原因。涉及页面改动时，先看原型并确认方向。
+
+## 开发习惯
+定位问题后再修复；保留与当前任务无关的改动；完成后提供验证结果。
+
+## 当前项目
+OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。</textarea>
+        <div class="small muted" style="display:flex;align-items:center;gap:8px;margin-top:13px" data-fd-id="impression-effect">${glyph('clock', 13)}<span data-fd-editable="text">保存后的内容将在新会话中生效。</span></div>
+        <div class="notice" style="margin-top:19px;padding:13px;line-height:1.7" data-fd-id="impression-tip"><strong class="small" data-fd-editable="text">把偏好留在这里</strong><p class="small muted" style="margin:5px 0 0" data-fd-editable="text">适合保存工作习惯、技术偏好和长期背景。具体任务的临时要求，可以直接写在对话里。</p></div>
+      </div>`,
+    },
+    sidechat: {
+      title: '侧边对话',
+      html: () => `<div class="pane-body" data-fd-id="pane-sidechat" style="display:flex;flex-direction:column;min-height:100%">
+        ${toolbar(`<strong data-fd-id="sidechat-title" data-fd-editable="text">侧边对话</strong>${badge('Beta')}<span style="flex:1"></span>${b('新对话', 'sidechat-new', 'sidechat-new', 'ghost', 'plus')}`, 'sidechat-toolbar')}
+        <div class="small muted" style="padding:12px 0;border-bottom:1px solid rgba(127,127,127,.18)" data-fd-id="sidechat-introduction" data-fd-editable="text">顺手讨论一个小问题，与主对话分别保存。</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:22px;padding:22px 0;min-height:290px" data-fd-id="sidechat-transcript"><div class="chat-message" style="align-self:flex-end;max-width:88%;padding:12px 14px;background:rgba(127,127,127,.12);border-radius:13px 13px 4px 13px;line-height:1.7;font-size:13px" data-fd-id="sidechat-user" data-fd-editable="text">这里的 Workbench 为什么要保留挂载？</div><div class="chat-message" style="font-size:13px;line-height:1.85" data-fd-id="sidechat-assistant"><div class="small muted" style="display:flex;gap:6px;align-items:center;margin-bottom:11px">${glyph('check', 12)} 已读取 Workbench.tsx</div><p style="margin:0 0 10px" data-fd-editable="text">因为每个标签里可能有正在进行的工作，例如未保存的编辑内容和运行中的终端。</p><p style="margin:0" data-fd-editable="text">切换标签时只隐藏面板，就能保留这些状态。回到原标签时，你可以接着刚才的位置继续。</p><div class="code" style="font-size:12px;padding:12px;margin-top:13px;border-radius:7px;background:rgba(127,127,127,.07);font-family:Consolas,monospace">className={isActive ? "" : "hidden"}</div></div></div>
+        <div data-fd-id="sidechat-composer" style="margin-top:auto;border-top:1px solid rgba(127,127,127,.18);padding-top:14px"><textarea class="textarea" rows="2" data-fd-id="sidechat-draft" data-fd-editable="value" placeholder="问一个小问题…"></textarea><div style="display:flex;align-items:center;gap:10px;margin-top:9px"><span class="muted small" style="flex:1" data-fd-id="sidechat-shortcut">Enter 发送 · Shift + Enter 换行</span>${ib('停止回复', 'sidechat-stop', 'sidechat-stop', 'stop')}${b('发送', 'sidechat-send', 'sidechat-send', 'primary', 'send')}</div></div>
+      </div>`,
+    },
+    image: {
+      title: '图片',
+      html: () => `<div class="pane-body" data-fd-id="pane-image">
+        ${toolbar(`<span class="small muted" style="flex:1;min-width:180px" data-fd-id="image-path">assets / <strong>owl-preview.svg</strong></span>${badge('SVG')}`, 'image-toolbar')}
+        <div style="display:flex;align-items:center;justify-content:center;min-height:380px;margin:16px 0;border-radius:10px;background:repeating-conic-gradient(rgba(127,127,127,.10) 0% 25%,rgba(127,127,127,.025) 0% 50%) 50% / 16px 16px;overflow:hidden;padding:22px" data-fd-id="image-preview-canvas">
+          <svg viewBox="0 0 360 300" role="img" aria-label="示例 OWL 品牌插图" style="max-width:100%;max-height:320px;display:block" data-fd-id="image-preview-illustration"><rect x="16" y="13" width="328" height="274" rx="24" fill="#e9f0e7"/><circle cx="264" cy="80" r="29" fill="#d0dfcc"/><path d="M16 219C88 170 117 225 181 205S277 145 344 195V263a24 24 0 0 1-24 24H40a24 24 0 0 1-24-24Z" fill="#c1d5bc"/><path d="M104 115 111 70l44 23h50l44-23 7 45v69c0 42-32 68-76 68s-76-26-76-68Z" fill="#2f9e5a"/><path d="M113 132c0-25 29-36 48-19l19 18 19-18c19-17 48-6 48 19v29c0 23-17 39-39 39-14 0-24-5-28-15-4 10-14 15-28 15-22 0-39-16-39-39Z" fill="#edf2e6"/><circle cx="149" cy="150" r="14" fill="#313b30"/><circle cx="211" cy="150" r="14" fill="#313b30"/><circle cx="153" cy="146" r="4" fill="#fff"/><circle cx="215" cy="146" r="4" fill="#fff"/><path d="m171 166 9 13 9-13Z" fill="#d3a35e"/><path d="M150 225h60M160 235h40" stroke="#79b489" stroke-width="5" stroke-linecap="round"/><text x="42" y="53" fill="#3d503a" font-family="Segoe UI, sans-serif" font-size="12" letter-spacing="3">OWL WORKSPACE</text></svg>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px" data-fd-id="image-zoom-controls">${ib('缩小', 'image-zoom-out', 'image-zoom-out', 'minus')}<span class="small" style="min-width:45px;text-align:center" data-fd-id="image-zoom-value">100%</span>${ib('放大', 'image-zoom', 'image-zoom-in', 'plus')}${b('适应窗口', 'image-fit', 'image-fit', 'ghost')}</div>
+        <div class="small muted" style="text-align:center;margin-top:17px" data-fd-id="image-footer" data-fd-editable="text">360 × 300 · 透明背景</div>
+      </div>`,
+    },
+  };
+})();
+
+/* Owl UI review prototype. Synthetic data only. No bridge requests or app writes. */
+(function () {
+  'use strict';
+  const esc = value => String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+  const text = (id, value, tagName = 'span', cls = '') => `<${tagName} class="${cls}" data-fd-id="${id}" data-fd-editable="text">${esc(value)}</${tagName}>`;
+  const b = (label, action, cls = '', id = action) => {
+    const markup = button(label, action, cls);
+    const anchor = `data-fd-id="settings-btn-${id}"`;
+    return /data-fd-id=/.test(markup) ? markup.replace(/data-fd-id="[^"]*"/, anchor) : markup.replace('<button', `<button ${anchor}`);
+  };
+  const i = (id, value = '', placeholder = '', type = 'text') => `<input class="input" type="${type}" value="${esc(value)}" placeholder="${esc(placeholder)}" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}">`;
+  const s = (id, options, selected = '') => `<select class="select" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}">${options.map(option => { const pair = typeof option === 'string' ? [option, option] : option; return `<option value="${esc(pair[0])}" ${pair[0] === selected ? 'selected' : ''}>${esc(pair[1])}</option>`; }).join('')}</select>`;
+  const ta = (id, value = '', placeholder = '', height = 136, cls = '') => `<textarea class="textarea ${cls}" style="min-height:${height}px;resize:vertical" data-fd-id="settings-field-${id}" data-fd-editable="value" aria-label="${esc(id)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
+  const f = (id, title, desc, control) => `<label class="field" data-fd-id="settings-field-group-${id}">${text(`settings-label-${id}`, title, 'span', 'subheading')}${control}${desc ? text(`settings-help-${id}`, desc, 'span', 'muted small') : ''}</label>`;
+  const r = (id, title, desc, control) => `<div class="row" data-fd-id="settings-row-${id}"><div style="min-width:0">${text(`settings-row-title-${id}`, title, 'div', 'subheading')}${desc ? text(`settings-row-description-${id}`, desc, 'div', 'muted small') : ''}</div><div style="flex-shrink:0">${control}</div></div>`;
+  const pill = (label, tone = '') => `<span class="tag ${tone}">${esc(label)}</span>`;
+  const effect = (id, message, note = '') => `<div class="notice" data-fd-id="settings-notice-${id}" style="display:flex;align-items:flex-start;gap:10px">${icon('check', 17)}<div>${text(`settings-effect-${id}`, message, 'div')}${note ? text(`settings-effect-help-${id}`, note, 'div', 'muted small') : ''}</div></div>`;
+  const block = (id, title, body, desc = '') => `<section class="settings-section" data-fd-id="settings-section-${id}"><div style="margin-bottom:14px">${text(`settings-section-title-${id}`, title, 'h3', 'subheading')}${desc ? text(`settings-section-description-${id}`, desc, 'p', 'muted small') : ''}</div>${body}</section>`;
+  const footer = () => '';
+  const sourceHint = () => '';
+
+  const providers = [
+    {id:'team-gateway', name:'团队网关', letter:'T', protocol:'OpenAI 兼容', count:3, models:[['owl-code-pro','Owl Code Pro','128k','8k','推理'],['owl-chat','Owl Chat','64k','8k','通用'],['owl-vision','Owl Vision','128k','16k','视觉']]},
+    {id:'personal', name:'个人连接', letter:'P', protocol:'Anthropic 兼容', count:2, models:[['owl-reason','Owl Reason','200k','16k','推理'],['owl-fast','Owl Fast','64k','8k','快速']]},
+    {id:'development', name:'开发环境', letter:'D', protocol:'OpenAI Responses', count:0, models:[]}
+  ];
+
+  const providerCard = (provider, expanded = false) => `<section class="provider-card" data-fd-id="settings-provider-${provider.id}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--color-owl-hover);font-weight:600">${provider.letter}</div><div>${text(`settings-provider-name-${provider.id}`, provider.name, 'div', 'subheading')}<div class="muted small" style="margin-top:3px">${provider.protocol} <span style="padding:0 6px">·</span> ${provider.count} 个模型</div></div></div><div style="display:flex;gap:8px">${b('添加模型', 'model-add', 'ghost', `model-add-${provider.id}`)}${b(icon('more',18),'provider-menu','ghost',`provider-menu-${provider.id}`)}</div></div>
+    ${expanded ? `<div class="divider" style="margin:18px 0"></div><div class="table"><div class="table-row muted small" style="display:grid;grid-template-columns:minmax(0,1fr) 80px 70px 52px;gap:12px;padding:0 0 10px"><span>模型</span><span>上下文</span><span>最大输出</span><span></span></div>${provider.models.map(model => `<div class="table-row" data-fd-id="settings-model-${model[0]}" style="display:grid;grid-template-columns:minmax(0,1fr) 80px 70px 52px;gap:12px;align-items:center"><div>${text(`settings-model-name-${model[0]}`,model[1],'div')}<div class="muted small" style="margin-top:3px;font-family:monospace">${model[0]} ${pill(model[4])}</div></div><span class="small">${model[2]}</span><span class="small">${model[3]}</span>${b('删除','model-delete','ghost',`delete-${model[0]}`)}</div>`).join('')}</div>` : ''}
+    ${provider.count === 0 ? `<div class="notice" style="margin-top:16px"><span class="muted small">还没有模型。添加模型后可在新会话中选择。</span></div>` : ''}
+  </section>`;
+
+  const builtinNames = [
+    ['preamble','人设与沟通规则','用清晰、直接的语言沟通，根据任务复杂度调整回复。'],
+    ['tools','工具清单','描述当前会话可使用的工具及其职责。'],
+    ['rules','行为规则','工作流程、执行边界与验证要求。'],
+    ['docs','文档指引','帮助 Owl 查找项目与产品文档。'],
+    ['addendum','附加指令','当前环境提供的补充要求。'],
+    ['project_context','项目指令','项目目录中的团队开发约定。'],
+    ['skills','可用技能','当前环境中可使用的技能说明。'],
+    ['cwd','工作目录','当前会话使用的工作目录。']
+  ];
+
+  window.OWL_SETTINGS = {
+    general: {
+      title:'常规', description:'设置默认工作环境，开始下一次工作时更顺手。',
+      html: () => `<div class="form-stack">${block('workspace','工作环境',`<div class="form-stack">${f('workspace','默认工作目录','新建会话会从这个目录开始。',i('workspace','D:\\owl\\owl-re-v1\\owl-mono','输入项目目录'))}${f('shell','命令行程序','执行命令使用的程序路径；保存后用于新会话。',i('shell','C:\\Program Files\\Git\\bin\\bash.exe','输入 Shell 可执行文件路径'))}</div>`)}${block('data-location','数据存放位置',`<div class="card" style="padding:18px">${r('agent-directory','Owl 数据目录','模型配置、设置与会话历史保存在这里。',pill('只读'))}<div class="code" style="margin-top:12px;padding:12px;overflow-wrap:anywhere" data-fd-id="settings-data-path">D:\\owl\\demo-data</div></div>`)}${effect('general','工作环境设置用于新会话','当前会话继续使用创建时的工作目录与命令行程序。')}${footer('general')}${sourceHint()}</div>`
+    },
+    providers: {
+      title:'模型与供应商', description:'连接你的模型服务，并管理可用于会话的模型。',
+      html: () => `<div class="form-stack"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px" data-fd-id="settings-provider-toolbar"><div>${text('settings-provider-count','3 个供应商 · 5 个模型','div','subheading')}${text('settings-provider-toolbar-help','支持浏览器授权、API Key 与自定义地址。','div','muted small')}</div>${b(`${icon('plus',16)} 添加供应商`,'provider-add','primary')}</div><div class="notice" style="display:flex;gap:10px;align-items:center" data-fd-id="settings-connect-shortcut">${icon('shield',18)}<div style="flex:1">${text('settings-connect-title','使用账号快速连接','div')}${text('settings-connect-help','选择服务后，在浏览器完成授权。','div','muted small')}</div>${b('浏览器登录','oauth','ghost')}</div>${providers.map((provider,index)=>providerCard(provider,index===0)).join('')}${effect('providers','连接完成后，新会话即可选择模型')}${sourceHint()}</div>`
+    },
+    plugins: {
+      title:'插件', description:'为 Owl 添加工具与技能，按需启用你的工作能力。',
+      html: () => `<div class="form-stack">${block('plugin-add','添加插件',`<div style="display:flex;gap:10px;align-items:center">${i('plugin-source','','npm:包名、Git 地址或本地路径')}${b('添加','add-plugin','primary')}</div><p class="muted small" style="margin-top:9px">支持 npm 包、Git 仓库、本地目录以及 .ts / .js 文件。</p>`)}${block('plugin-list','已添加的插件',`<div class="card" style="padding:0 18px">${[
+        ['project-tools','项目工具','npm:owl-demo-project-tools','npm',true,'工具入口：project.ts'],
+        ['review-assistant','代码检查','https://example.invalid/owl/review.git','Git',true,''],
+        ['local-note','本地笔记','D:\\owl\\owl-re-v1\\owl-mono\\plugins\\notes.ts','本地文件',false,'']
+      ].map(plugin=>`<div class="row" data-fd-id="settings-plugin-${plugin[0]}"><div style="min-width:0;flex:1"><div style="display:flex;gap:9px;align-items:center">${text(`settings-plugin-name-${plugin[0]}`,plugin[1],'span','subheading')}${pill(plugin[3])}</div><div class="muted small" style="margin-top:5px;font-family:monospace;overflow-wrap:anywhere">${plugin[2]}</div>${plugin[5]?`<div class="muted small" style="margin-top:3px">${plugin[5]}</div>`:''}</div><div style="display:flex;align-items:center;gap:12px">${b(plugin[4]?'已启用':'已停用','toggle-plugin','ghost',`toggle-${plugin[0]}`)}${b('删除','delete-plugin','ghost',`delete-${plugin[0]}`)}</div></div>`).join('')}</div>`)}<div class="notice warning" data-fd-id="settings-plugin-migration" style="display:flex;gap:14px;align-items:center"><div style="flex:1">${text('settings-migration-title','发现 2 项旧版扩展配置','div')}${text('settings-migration-help','迁移后可在这里统一管理。已有配置仍会正常加载。','div','small muted')}</div>${b('迁移到插件','migrate-plugins','ghost')}</div>${effect('plugins','插件更改会在新会话中生效')}${sourceHint()}</div>`
+    },
+    appearance: {
+      title:'外观', description:'选择适合工作环境的主题，让界面保持舒适。',
+      html: () => `<div class="form-stack">${block('theme','界面主题',`<div class="swatches" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">${[
+        ['light','浅色','#faf9f5','#f1efe8','#ffffff','#d9d5c7'],
+        ['dark','深色','#262624','#1f1e1d','#2f2e2b','#45443e'],
+        ['system','跟随系统','#faf9f5','#f1efe8','#2f2e2b','#d9d5c7']
+      ].map(theme=>`<button class="card" type="button" data-action="theme-${theme[0]}" data-fd-id="settings-theme-${theme[0]}" style="text-align:left;padding:12px;${theme[0]==='dark'?'outline:2px solid #2f9e5a;outline-offset:2px;':''}"><div style="height:118px;display:flex;overflow:hidden;border-radius:8px;border:1px solid ${theme[5]};background:${theme[2]}"><div style="width:29%;background:${theme[3]};padding:14px 7px"><div style="height:5px;border-radius:2px;background:${theme[5]};margin-bottom:12px"></div><div style="height:4px;width:75%;background:${theme[5]};margin-bottom:7px"></div><div style="height:4px;width:75%;background:${theme[5]}"></div></div><div style="flex:1;background:${theme[0]==='system'?'linear-gradient(125deg,#faf9f5 50%,#262624 50%)':theme[2]};padding:22px 9px 12px"><div style="height:4px;width:62%;margin:0 auto 11px;background:${theme[5]}"></div><div style="height:4px;width:85%;margin:0 auto 24px;background:${theme[5]}"></div><div style="height:20px;border:1px solid ${theme[5]};border-radius:5px;background:${theme[4]}"></div></div></div><div style="display:flex;align-items:center;justify-content:space-between;padding-top:14px">${text(`settings-theme-label-${theme[0]}`,theme[1])}${theme[0]==='dark'?icon('check',16):''}</div></button>`).join('')}</div>`)}${effect('appearance','主题更改立即生效','跟随系统会随操作系统的深浅色设置自动切换。')}<div class="card" style="padding:18px" data-fd-id="settings-appearance-preview"><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">${icon('leaf',20)}${text('settings-theme-preview-title','熟悉的 Owl，清晰的工作界面','div','subheading')}</div>${text('settings-theme-preview-body','内容、工具与操作在不同主题下保持一致。正文易读，次要信息安静，绿色留给主要行动。','p','muted')}</div></div>`
+    },
+    prompts: {
+      title:'提示词', description:'告诉 Owl 怎样与你协作，也可以查看和编辑它对你的了解。',
+      html: () => `<div class="form-stack">${effect('prompts','保存后用于新会话','长期指令和用户印象追加在内置规则之后。')}${block('custom-instructions','长期指令',`${ta('custom-instructions','回复使用中文，先说明结论。\n解释代码时给出具体示例。\n完成改动后简要说明验证结果。','写下你的沟通偏好与工作约定。',145)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">留空时使用 Owl 默认规则。</span>${b('保存长期指令','save','primary','save-custom-instructions')}</div>`)}${block('user-impression','我的档案',`${ta('user-impression','这是用于预览的示例档案。\n偏好：使用中文交流，关注修改原因与验证结果。','Owl 会在聊天中记录值得记住的偏好，你也可以直接编辑。',110)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">Owl 在聊天中也会更新这份档案。</span>${b('保存档案','save','primary','save-user-impression')}</div>`)}${block('builtin-prompts','内置规则',`<div class="card" style="padding:0 16px">${builtinNames.map(item=>`<details data-fd-id="settings-builtin-${item[0]}" style="border-bottom:1px solid var(--color-owl-border);padding:12px 0"><summary style="cursor:pointer;font-size:13px">${text(`settings-builtin-title-${item[0]}`,item[1])} <span class="muted small" style="float:right">只读</span></summary><p class="muted small" style="padding:10px 0 0;line-height:1.7">${item[2]}<br>此处为结构示意，实际内容由当前会话环境组装。</p></details>`).join('')}</div>`,'查看构成当前系统提示词的规则分区。')}</div>`
+    },
+    archive: {
+      title:'归档', description:'管理暂时收起的会话，并设置自动清理时间。',
+      html: () => `<div class="form-stack">${block('retention','自动清理',`<div class="card" style="padding:18px">${r('retention','归档保留时间','超过保留时间的会话会被永久删除。',`<div style="display:flex;align-items:center;gap:8px"><div style="width:70px">${i('retention-days','15','','number')}</div><span class="small muted">天</span>${b('保存','save','primary','save-retention')}</div>`)}<div class="notice warning" style="margin-top:14px;display:flex;align-items:flex-start;gap:10px">${icon('clock',16)}<span class="small">每小时以及应用启动时自动清理。删除后的会话无法恢复。</span></div></div>`)}${block('archive-list','已归档会话',`<div class="card" style="padding:0 18px"><div class="row muted small"><span>会话与来源</span><span>保留状态</span></div>${[
+        ['layout','整理页面布局','owl-demo','10 月 1 日 14:20','13 天后删除',false],
+        ['api','梳理接口字段','sample-project','9 月 25 日 10:35','7 天后删除',false],
+        ['old','早期探索记录','owl-demo','9 月 19 日 09:10','1 天后删除',true]
+      ].map(entry=>`<div class="row" data-fd-id="settings-archive-${entry[0]}" style="gap:16px"><div style="flex:1;min-width:0">${text(`settings-archive-name-${entry[0]}`,entry[1],'div','subheading')}<div class="muted small" style="margin-top:5px">${entry[2]} <span style="padding:0 4px">·</span> 归档于 ${entry[3]}</div></div><div style="text-align:right"><span class="tag ${entry[5]?'warning':''}">${entry[4]}</span><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">${b('恢复','restore','ghost',`restore-${entry[0]}`)}${b('删除','delete-archive','ghost',`delete-archive-${entry[0]}`)}</div></div></div>`).join('')}</div>`,'恢复的会话会回到原项目。')}${sourceHint()}</div>`
+    },
+    json: {
+      title:'高级配置', description:'直接编辑 settings.json，适合需要精细配置的用户。',
+      html: () => `<div class="form-stack"><div class="notice" style="display:flex;gap:10px;align-items:flex-start" data-fd-id="settings-json-notice">${icon('code',18)}<div>${text('settings-json-description','其他设置页面的保存结果会同步到这里。','div')}${text('settings-json-help','确认格式正确后保存；配置按字段合并。','div','muted small')}</div></div><div class="card" style="padding:0;overflow:hidden" data-fd-id="settings-json-editor"><div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--color-owl-border)"><span class="code small">settings.json</span>${pill('JSON')}</div>${ta('raw-json',JSON.stringify({theme:'dark',shellPath:'C:\\Program Files\\Git\\bin\\bash.exe',plugins:['npm:owl-demo-project-tools'],owlCustomPrompt:'回复使用中文，先说明结论。',owlUserImpression:'示例档案'},null,2),'',330,'code')}<div class="muted small" style="padding:9px 16px;border-top:1px solid var(--color-owl-border)">UTF-8 <span style="padding:0 8px">·</span> 2 空格缩进</div></div>${footer('json','保存前会检查 JSON 格式。')}${sourceHint()}</div>`
+    },
+    about: {
+      title:'关于 Owl', description:'你的桌面 AI 工作伙伴。',
+      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0 <span class="small">（示例）</span></div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
+    }
+  };
+
+  window.OWL_SETTINGS_DIALOGS = {
+    providerAdd: {
+      title:'添加供应商', description:'选择接入方式，连接你的模型服务。',
+      html: () => `<div class="form-stack"><div class="settings-grid"><button class="card" type="button" data-action="oauth" data-fd-id="settings-connect-oauth" style="padding:16px;text-align:left">${icon('browser',22)}<div class="subheading" style="margin-top:10px">浏览器授权</div><p class="muted small" style="margin-top:5px">使用服务账号登录</p></button><div class="card" data-fd-id="settings-connect-custom" style="padding:16px;outline:1px solid #2f9e5a">${icon('code',22)}<div class="subheading" style="margin-top:10px">自定义连接</div><p class="muted small" style="margin-top:5px">配置地址、协议与 API Key</p></div></div><div class="settings-grid">${f('provider-id','供应商 ID *','字母或数字开头，可含 . _ -。',i('provider-id','','例如 team-gateway'))}${f('provider-name','显示名称','便于在列表中识别。',i('provider-name','','例如 团队网关'))}</div>${f('provider-url','服务地址 *','填写供应商的 Base URL。',i('provider-url','','https://api.example.invalid/v1'))}${f('provider-protocol','API 协议 *','选择服务提供的接口协议。',s('provider-protocol',[['openai-completions','OpenAI 兼容'],['anthropic-messages','Anthropic 兼容'],['openai-responses','OpenAI Responses']],'openai-completions'))}${f('provider-key','API Key','也可以填写 $环境变量名。',i('provider-key','','粘贴 API Key 或环境变量引用','password'))}<div style="display:flex;justify-content:space-between;gap:10px"><div>${b('清空','clear-provider','ghost')}</div><div style="display:flex;gap:8px">${b('取消','close-modal','ghost')}${b('保存供应商','provider-save','primary')}</div></div></div>`
+    },
+    modelAdd: {
+      title:'添加模型', description:'将服务支持的模型加入会话选择列表。',
+      html: () => `<div class="form-stack"><div class="notice">供应商：团队网关 <span class="muted small">team-gateway</span></div><div class="settings-grid">${f('model-id','模型 ID *','与供应商提供的模型标识一致。',i('model-id','','例如 owl-code-pro'))}${f('model-name','显示名称','留空时使用模型 ID。',i('model-name','','例如 Owl Code Pro'))}${f('model-context','上下文窗口','单位为 tokens，可留空。',i('model-context','','128000','number'))}${f('model-output','最大输出','单位为 tokens，可留空。',i('model-output','','8192','number'))}</div><label class="row" data-fd-id="settings-model-reasoning"><div><span class="subheading">推理模型</span><p class="muted small">启用该模型的推理能力标记。</p></div><input type="checkbox" data-fd-id="settings-field-model-reasoning" data-fd-editable="value" aria-label="推理模型"></label><div style="display:flex;justify-content:flex-end;gap:8px">${b('取消','close-modal','ghost')}${b('保存模型','model-save','primary')}</div></div>`
+    },
+    oauth: {
+      title:'连接模型服务', description:'通过账号授权或 API Key 接入。',
+      html: () => `<div class="form-stack">${f('quick-provider','选择服务','原型展示的是示例厂商。',s('quick-provider',[['demo-browser','示例服务 · 支持浏览器授权'],['demo-api','示例服务 · API Key']],'demo-browser'))}<div class="card" style="padding:18px"><div style="display:flex;align-items:center;gap:10px">${icon('browser',20)}<span class="subheading">浏览器授权</span></div><p class="muted small" style="margin:8px 0 14px">授权完成后，回到 Owl 继续。</p>${b('打开浏览器继续','oauth-start','primary')}<label style="display:flex;align-items:center;gap:9px;margin-top:14px" data-fd-id="settings-enterprise-login"><input type="checkbox" data-fd-id="settings-field-enterprise" data-fd-editable="value"><span class="small">使用 GitHub 企业版</span></label></div><div class="card" style="padding:18px">${f('quick-api-key','API Key','粘贴服务提供的密钥。',i('quick-api-key','','输入 API Key','password'))}<div style="display:flex;justify-content:flex-end;margin-top:12px">${b('保存 API Key','api-key-save','primary')}</div></div><div class="notice warning" data-fd-id="settings-auth-prompt"><div class="subheading">登录流程需要输入</div><p class="muted small" style="margin:5px 0 10px">设备验证码 / 企业域名 / 手动授权码在此处提交。</p><div style="display:flex;gap:8px">${i('auth-answer','','输入授权流程提供的信息')}${b('提交','auth-answer','primary')}</div><div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span class="small muted">示例设备码：OWL-DEMO</span>${b('取消登录','auth-cancel','ghost')}</div></div></div>`
+    },
+    authSuccess: {
+      title:'连接完成', description:'你的模型服务已准备好。',
+      html: () => `<div style="text-align:center;padding:18px 6px" data-fd-id="settings-auth-success"><div style="margin:0 auto 18px;width:52px;height:52px;display:grid;place-items:center;border-radius:50%;background:rgba(47,158,90,.12);color:#2f9e5a">${icon('check',26)}</div>${text('settings-auth-success-title','模型服务已连接','h3','subheading')}${text('settings-auth-success-body','新建会话后，即可在模型列表中选择使用。','p','muted')}<div style="margin-top:22px">${b('完成','close-modal','primary')}</div></div>`
+    },
+    providerDelete: {
+      title:'删除供应商', description:'请确认要移除的配置。',
+      html: () => `<div class="form-stack"><div class="notice warning" data-fd-id="settings-provider-delete-confirm">删除“团队网关”也会移除该供应商下的 3 个模型声明。</div><p class="muted small">你可以之后重新添加供应商和模型。</p><div style="display:flex;justify-content:flex-end;gap:8px">${b('取消','close-modal','ghost')}${b('删除供应商','provider-delete-confirm','danger')}</div></div>`
+    },
+    archiveDelete: {
+      title:'永久删除会话', description:'此操作会删除会话文件。',
+      html: () => `<div class="form-stack"><div class="card" style="padding:18px" data-fd-id="settings-archive-delete-target"><div class="subheading">整理页面布局</div><p class="muted small" style="margin-top:6px">来自 owl-demo · 归档于 10 月 1 日</p></div><div class="notice warning">会话内容将永久删除，无法恢复。</div><div style="display:flex;justify-content:flex-end;gap:8px">${b('取消','close-modal','ghost')}${b('永久删除','archive-delete-confirm','danger')}</div></div>`
+    }
+  };
+})();
+
+/* OWL review prototype. This file contains demo UI only and never connects to the application bridge. */
+(function () {
+  const footer = (label, action, danger = false, hint = '') => `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)"><span class="small muted">${hint}</span><div style="display:flex;gap:8px">${button('取消','close-modal','ghost')}${button(label,action,danger?'danger':'primary')}</div></div>`;
+  const menuItem = (id, glyph, title, action, description = '', value = '', selected = false, danger = false) => `<button type="button" class="menu-item" data-fd-id="${id}" data-action="${action}"${value ? ` data-value="${value}"` : ''} style="display:flex;align-items:center;gap:12px;width:100%;padding:13px 14px;text-align:left;${selected ? 'background:var(--accent-soft);' : ''}${danger ? 'color:#d14d4d;' : ''}">${icon(glyph,18)}<span style="flex:1;min-width:0"><span data-fd-editable="text" style="display:block;font-weight:550">${title}</span>${description ? `<span class="small muted" data-fd-editable="text" style="display:block;margin-top:4px;line-height:1.5">${description}</span>` : ''}</span>${selected ? `<span style="color:var(--accent,#2f9e5a)">${icon('check',16)}</span>` : ''}</button>`;
+  const modelItem = (id, title, context, reasoning, selected = false) => `<button type="button" class="menu-item" data-fd-id="dialog-model-${id}" data-action="choose-model" data-value="${id}" style="display:flex;align-items:center;gap:12px;width:100%;padding:13px 14px;text-align:left;${selected ? 'background:var(--accent-soft);' : ''}"><span style="width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--border);border-radius:9px">${icon('cpu',17)}</span><span style="flex:1"><strong data-fd-editable="text" style="font-size:13px;font-weight:550">${title}</strong><span class="small muted" style="display:block;margin-top:4px">${context} tokens 上下文${reasoning ? ' · 支持思考' : ''}</span></span>${selected ? `<span style="color:var(--accent,#2f9e5a)">${icon('check',18)}</span>` : ''}</button>`;
+  const option = (id, title, description, selected = false, multi = false, preview = '') => `<div data-fd-id="${id}" style="border:1px solid ${selected ? 'var(--accent,#2f9e5a)' : 'var(--border)'};border-radius:11px;background:${selected ? 'var(--accent-soft)' : 'transparent'}"><label style="display:flex;align-items:flex-start;gap:11px;padding:14px;cursor:pointer"><input name="${multi ? id : 'owl-design-choice'}" type="${multi ? 'checkbox' : 'radio'}" ${selected ? 'checked' : ''} style="margin:3px 0 0;accent-color:#2f9e5a"><span style="flex:1"><strong data-fd-editable="text" style="font-size:13px;font-weight:550">${title}</strong><span class="small muted" data-fd-editable="text" style="display:block;line-height:1.6;margin-top:4px">${description}</span></span>${selected ? tag('已选择','green') : ''}</label>${preview ? `<details style="padding:0 14px 12px 39px"><summary class="small muted" style="cursor:pointer">查看方案预览</summary><div class="notice" style="margin-top:10px;font-size:12px;line-height:1.7">${preview}</div></details>` : ''}</div>`;
+  const questionProgress = (current, count = 2) => `<div data-fd-id="dialog-question-progress" style="display:flex;align-items:center;gap:12px;margin-bottom:22px"><span class="tag green">第 ${current} / ${count} 题</span><div style="display:flex;flex:1;gap:6px">${Array.from({length:count},(_,i)=>`<span style="height:4px;flex:1;border-radius:4px;background:${i<current?'var(--accent,#2f9e5a)':'var(--border)'}"></span>`).join('')}</div><span class="small muted">${current===1?'单选':'可多选'}</span></div>`;
+  const questionNotes = () => `<details data-fd-id="dialog-question-notes" style="margin-top:16px"><summary class="small muted" style="cursor:pointer">＋ 添加备注</summary><textarea class="textarea" aria-label="这道题的备注" placeholder="补充说明，将与本题答案一起发送" rows="2" style="width:100%;margin-top:10px"></textarea></details>`;
+
+  window.OWL_DIALOGS = {
+    project: {
+      title: '添加项目',
+      html: () => `<div class="form-stack" data-fd-id="dialog-project-content"><div class="notice" style="display:flex;align-items:center;gap:12px">${icon('folder',22)}<div><strong data-fd-editable="text" style="display:block;font-weight:550">从你的项目目录开始</strong><p class="small muted" data-fd-editable="text" style="margin:4px 0 0;line-height:1.6">选择已有目录，或输入新目录路径。OWL 会自动创建不存在的目录。</p></div></div>${field('项目目录','请输入完整路径',`<div style="display:flex;gap:8px"><input class="input" data-fd-id="dialog-project-path" style="flex:1;min-width:0;font-family:var(--mono,monospace)" value="D:\\work\\new-project" placeholder="D:\\work\\new-project" aria-label="项目目录">${button('浏览…','project-browse','ghost')}</div>`)}<p class="small muted" data-fd-editable="text" style="margin:0">添加后会切换到这个项目，并开始新的会话。</p></div>${footer('添加并切换','project-create',false,'Enter 确认 · Esc 取消')}`,
+    },
+    permission: {
+      title: '允许这次工具调用？',
+      html: () => `<div class="form-stack" data-fd-id="dialog-permission-content"><div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--accent-soft);color:var(--accent,#2f9e5a)">${icon('shield',22)}</span><div><strong data-fd-editable="text" style="font-weight:550">OWL 请求运行命令</strong><p class="small muted" style="margin:4px 0 0">当前项目 · owl-mono</p></div>${tag('等待确认')}</div><div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-bottom:1px solid var(--border)"><span class="small muted">工具</span><code class="small" style="color:var(--accent,#2f9e5a)">bash</code></div><pre class="code" data-fd-id="dialog-permission-command" data-fd-editable="text" style="margin:0;padding:18px;font-size:12px;line-height:1.8;white-space:pre-wrap;background:transparent">npm run check</pre><div class="small muted" style="padding:0 18px 15px">工作目录：D:\\owl\\owl-re-v1\\owl-mono</div></div><p class="small muted" data-fd-editable="text" style="line-height:1.7;margin:0">标准模式下，每次工具调用都会先征求你的同意。</p></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)">${button('拒绝','reject','ghost')}${button('允许这次调用','allow','primary')}</div>`,
+    },
+    question: {
+      title: '需要你做一个选择',
+      html: () => `<div data-fd-id="dialog-question-content">${questionProgress(1)}<h3 data-fd-editable="text" style="font-size:15px;font-weight:600;margin:0 0 7px">这一轮 OWL 的整体视觉，你更偏向哪种方向？</h3><p class="small muted" data-fd-editable="text" style="margin:0 0 18px;line-height:1.6">你的选择会帮助 OWL 收敛后续方案。</p><div class="form-stack" style="gap:10px">${option('question-neutral','克制专业','清晰留白、石墨灰与 OWL 绿色点缀。',true,false,'使用安静的中性色建立层级，绿色只用于主要操作、选中状态和成功反馈。')}${option('question-focused','深色专注','深石墨背景，降低视觉干扰，突出工作内容。',false,false,'更适合长时间专注工作；主界面仍然保留清晰的内容层级与绿色操作入口。')}<label class="field" style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--border);border-radius:11px"><span class="small muted">其他</span><input class="input" aria-label="其他视觉方向" placeholder="写下你的想法…" style="border:0;padding:2px;background:transparent;min-width:0;flex:1"></label></div>${questionNotes()}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:23px;padding-top:18px;border-top:1px solid var(--border)">${button('取消','question-cancel','ghost')}<div style="display:flex;gap:10px;align-items:center"><span class="small muted">Ctrl + Enter</span>${button('下一题','question-next','primary')}</div></div></div>`,
+    },
+    questionFinal: {
+      title: '需要你做一个选择',
+      html: () => `<div data-fd-id="dialog-question-final">${questionProgress(2)}<h3 data-fd-editable="text" style="font-size:15px;font-weight:600;margin:0 0 7px">哪些界面需要优先打磨？</h3><p class="small muted" data-fd-editable="text" style="margin:0 0 18px;line-height:1.6">可选择多个选项，也可以补充其他重点。</p><div class="form-stack" style="gap:10px">${option('question-chat','对话工作区','会话层级、消息阅读和输入体验。',true,true)}${option('question-settings','设置与模型管理','分类导航、表单布局和配置反馈。',true,true)}${option('question-permission','工具确认与提问','让每次决策的信息更清楚。',false,true)}${field('其他重点','',input('','自由补充…'))}</div>${questionNotes()}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:23px;padding-top:18px;border-top:1px solid var(--border)">${button('取消','question-cancel','ghost')}<div style="display:flex;gap:8px">${button('上一题','question-prev','ghost')}${button('提交回答','question-submit','primary')}</div></div></div>`,
+    },
+    model: {
+      title: '选择模型',
+      html: () => `<div data-fd-id="dialog-model-list"><div style="display:flex;align-items:center;gap:9px;margin-bottom:16px">${icon('search',17)}<input class="input" aria-label="搜索模型" placeholder="搜索已添加的模型…" style="flex:1"></div><p class="small muted" data-fd-editable="text" style="margin:0 0 8px">工作模型 · 示例配置</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${modelItem('demo/owl-coder','主力编码模型','128,000',true,true)}${modelItem('demo/owl-fast','快速模型','128,000',false)}${modelItem('demo/owl-reasoner','深度推理模型','200,000',true)}</div><p class="small muted" data-fd-editable="text" style="margin:16px 0 0;line-height:1.7">这里展示你在「模型与供应商」中添加的模型。</p><div style="display:flex;justify-content:flex-end;margin-top:17px">${button('管理模型','manage-models','ghost')}</div></div>`,
+    },
+    mode: {
+      title: '工作模式',
+      html: () => `<div data-fd-id="dialog-mode-list"><p class="small muted" data-fd-editable="text" style="margin:0 0 16px;line-height:1.7">根据任务调整 OWL 的执行权限。</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-mode-plan','compass','计划模式','choose-mode','使用只读工具调研，并给出实施计划。','plan')}${menuItem('dialog-mode-standard','shield','标准模式','choose-mode','每次工具调用前，由你确认是否执行。','confirm',true)}${menuItem('dialog-mode-auto','zap','自动模式','choose-mode','自动执行工具调用，无需逐次确认。','auto')}</div><div class="notice" data-fd-id="dialog-mode-note" style="margin-top:17px;font-size:12px;line-height:1.7">当前使用标准模式。需要执行操作时，OWL 会给出具体内容供你确认。</div></div>`,
+    },
+    thinking: {
+      title: '思考强度',
+      html: () => `<div data-fd-id="dialog-thinking"><p class="small muted" data-fd-editable="text" style="margin:0 0 15px;line-height:1.7">可选档位取决于当前模型的能力。</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${[['off','关闭'],['minimal','最低'],['low','低'],['medium','中'],['high','高'],['xhigh','超高'],['max','最高']].map(([v,t])=>menuItem('dialog-thinking-'+v,'brain',t,'choose-thinking','',v,v==='high')).join('')}</div></div>`,
+    },
+    context: {
+      title: '上下文与用量',
+      html: () => `<div class="form-stack" data-fd-id="dialog-context-content"><div class="card"><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px"><div><p class="small muted" style="margin:0 0 8px">当前上下文窗口</p><strong style="font-size:26px;font-weight:600;letter-spacing:-1px">30.7k <span class="muted" style="font-size:15px;font-weight:400;letter-spacing:0">/ 128k</span></strong></div>${tag('24%','green')}</div><div style="height:6px;border-radius:8px;background:var(--border);overflow:hidden;margin-top:17px"><div style="height:100%;width:24%;background:var(--accent,#2f9e5a);border-radius:8px"></div></div></div><div class="card"><p data-fd-editable="text" style="font-size:13px;font-weight:550;margin:0 0 15px">本次会话累计</p><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:15px"><div><p class="small muted" style="margin:0 0 7px">输入</p><strong style="font-size:16px;font-weight:550">32.6k</strong></div><div><p class="small muted" style="margin:0 0 7px">输出</p><strong style="font-size:16px;font-weight:550">6.2k</strong></div><div><p class="small muted" style="margin:0 0 7px">缓存</p><strong style="font-size:16px;font-weight:550">18.4k</strong></div></div><div class="divider" style="margin:17px 0"></div><div style="display:flex;justify-content:space-between;font-size:12px"><span class="muted">合计 57.2k tokens</span><strong style="font-weight:550">$0.0428</strong></div></div><p class="small muted" data-fd-editable="text" style="line-height:1.7;margin:0">用量与费用为本次会话的累计值。</p></div>`,
+    },
+    sessionMenu: {
+      title: '会话操作',
+      html: () => `<div data-fd-id="dialog-session-menu"><div class="notice" style="margin-bottom:16px"><strong data-fd-editable="text" style="font-size:13px;font-weight:550">设计 OWL 工作区</strong><p class="small muted" style="margin:5px 0 0">owl-mono · 刚刚更新</p></div><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-session-pin','pin','置顶会话','pin','在侧边栏的置顶分组中快速找到。')}${menuItem('dialog-session-archive','archive','归档会话','archive','收起到归档列表，可随时恢复。')}<div class="divider"></div>${menuItem('dialog-session-delete','trash','删除会话','open-modal','永久删除这份会话记录。','delete',false,true)}</div></div>`,
+    },
+    projectMenu: {
+      title: '项目操作',
+      html: () => `<div data-fd-id="dialog-project-menu"><div class="notice" style="display:flex;align-items:center;gap:12px;margin-bottom:16px">${icon('folder',24)}<div><strong data-fd-editable="text" style="font-size:13px;font-weight:550">owl-mono</strong><p class="small muted" style="margin:5px 0 0">D:\\owl\\owl-re-v1\\owl-mono</p></div></div><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-project-new-chat','plus','新建会话','new-chat','在当前项目中开始新的对话。')}${menuItem('dialog-project-pin','pin','置顶项目','pin','在置顶分组中保留项目入口。')}${menuItem('dialog-project-reveal','folder','在资源管理器中打开','reveal')}</div></div>`,
+    },
+    projectSwitch: {
+      title: '切换项目',
+      html: () => `<div data-fd-id="dialog-project-switch"><p class="small muted" data-fd-editable="text" style="margin:0 0 16px;line-height:1.7">切换工作目录后，会从新的会话开始。</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-project-current','folder','owl-mono','choose-project','D:\\owl\\owl-re-v1\\owl-mono','owl-mono',true)}${menuItem('dialog-project-demo','folder','demo-app','choose-project','D:\\work\\demo-app','demo-app')}<div class="divider"></div>${menuItem('dialog-project-add','plus','添加项目…','open-modal','','project')}</div></div>`,
+    },
+    sectionMenu: {
+      title: '侧边栏排序',
+      html: () => `<div class="form-stack" data-fd-id="dialog-section-menu"><div><p class="small muted" data-fd-editable="text" style="margin:0 0 10px">置顶分组</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-sort-pinned-manual','list','按置顶顺序','sort','按先后顺序排列。','pinned:manual',true)}${menuItem('dialog-sort-pinned-recent','clock','最近更新','sort','','pinned:recent')}</div></div><div><p class="small muted" data-fd-editable="text" style="margin:0 0 10px">最近分组</p><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-sort-recent-time','clock','按最近更新','sort','','recent:recent',true)}${menuItem('dialog-sort-recent-name','list','按名称','sort','','recent:name')}</div></div></div>`,
+    },
+    location: {
+      title: '运行位置',
+      html: () => `<div data-fd-id="dialog-location"><div class="menu-list" style="border:1px solid var(--border);border-radius:12px;overflow:hidden">${menuItem('dialog-location-local','monitor','本地 · 此电脑','close-modal','已连接到本地工作环境。','local',true)}<div class="menu-item" style="display:flex;align-items:center;gap:12px;padding:14px;opacity:.55" aria-disabled="true">${icon('cloud',18)}<span style="flex:1;font-size:13px">远程会话</span>${tag('暂不可用')}</div></div></div>`,
+    },
+    delete: {
+      title: '删除这份会话？',
+      html: () => `<div class="form-stack" data-fd-id="dialog-delete-content"><div class="notice warning" style="display:flex;gap:12px;align-items:flex-start">${icon('trash',21)}<p data-fd-editable="text" style="margin:0;font-size:13px;line-height:1.7">「设计 OWL 工作区」的聊天记录将被永久删除，此操作不可恢复。</p></div><p class="small muted" data-fd-editable="text" style="margin:0;line-height:1.7">如果暂时不需要这份会话，可以先归档，之后仍可恢复。</p></div><div style="display:flex;justify-content:space-between;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)">${button('改为归档','archive','ghost')}<div style="display:flex;gap:8px">${button('取消','close-modal','ghost')}${button('永久删除','delete-confirm','danger')}</div></div>`,
+    },
+    providerAdd: {
+      title: '添加供应商',
+      html: () => `<div class="form-stack" data-fd-id="dialog-provider-add"><p class="small muted" data-fd-editable="text" style="margin:0;line-height:1.7">填写服务地址与认证信息，再为它添加模型。</p><div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${field('供应商 ID *','字母或数字开头，可含 . _ -',input('demo-provider','如 demo-provider'))}${field('显示名','用于界面展示',input('我的模型服务','如 我的模型服务'))}</div>${field('Base URL *','供应商提供的接口地址',input('https://api.example.com/v1','https://…'))}${field('API 协议 *','根据供应商的接口格式选择',select(['OpenAI 兼容 · Completions','Anthropic 兼容 · Messages','OpenAI Responses']))}${field('API Key','也可填写 $环境变量名',`<input class="input" type="password" value="sk-demo-only-not-a-real-secret" aria-label="API Key" placeholder="粘贴 API Key 或 $环境变量名" autocomplete="off" style="width:100%">`)}</div><div style="display:flex;justify-content:space-between;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)">${button('清空','provider-clear','ghost')}<div style="display:flex;gap:8px">${button('取消','close-modal','ghost')}${button('保存供应商','provider-add','primary')}</div></div>`,
+    },
+    modelAdd: {
+      title: '添加模型',
+      html: () => `<div class="form-stack" data-fd-id="dialog-model-add"><div class="notice" style="display:flex;align-items:center;justify-content:space-between"><span class="small muted">添加到供应商</span><strong data-fd-editable="text" style="font-size:13px;font-weight:550">我的模型服务</strong></div><div class="settings-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">${field('模型 ID *','接口请求使用的模型名称',input('owl-coder','如 owl-coder'))}${field('显示名','用于模型选择菜单',input('主力编码模型','如 主力编码模型'))}${field('上下文窗口','单位：tokens',`<input class="input" type="number" min="1" value="128000" aria-label="上下文窗口" style="width:100%">`)}${field('最大输出','单位：tokens',`<input class="input" type="number" min="1" value="8192" aria-label="最大输出" style="width:100%">`)}</div>${row('推理模型','允许在输入栏中选择思考强度。',toggle(true))}</div>${footer('保存模型','model-add')}`,
+    },
+    oauth: {
+      title: '连接你的账号',
+      html: () => `<div class="form-stack" data-fd-id="dialog-oauth"><div style="display:flex;align-items:center;gap:12px"><span style="display:grid;place-items:center;width:42px;height:42px;border:1px solid var(--border);border-radius:12px">${icon('key',22)}</span><div><strong data-fd-editable="text" style="font-size:14px;font-weight:550">通过浏览器登录</strong><p class="small muted" data-fd-editable="text" style="margin:5px 0 0">选择厂商，然后完成账号授权。</p></div></div>${field('厂商','可用登录方式由厂商决定',select(['选择厂商…','支持浏览器登录的厂商','支持 API Key 的厂商']))}${row('GitHub 企业版','登录时填写企业域名。',toggle(false))}<div class="notice" style="font-size:12px;line-height:1.8" data-fd-editable="text">浏览器打开后，按照页面提示完成登录。授权成功后，OWL 会显示连接结果。</div><details data-fd-id="dialog-oauth-api-key"><summary class="small muted" style="cursor:pointer">使用 API Key 连接</summary><div style="margin-top:12px;display:flex;gap:8px"><input class="input" type="password" aria-label="快捷接入 API Key" placeholder="粘贴 API Key…" style="flex:1;min-width:0">${button('保存','save','primary')}</div></details><details data-fd-id="dialog-oauth-manual-code"><summary class="small muted" style="cursor:pointer">登录需要手动输入验证码？</summary><div style="margin-top:12px">${field('授权码或登录信息','根据登录流程给出的提示填写',input('','输入浏览器提供的授权码…'))}<div style="text-align:right;margin-top:12px">${button('提交','auth-respond','primary')}</div></div></details></div><div style="display:flex;justify-content:space-between;gap:8px;margin-top:24px;padding-top:18px;border-top:1px solid var(--border)">${button('取消登录','auth-cancel','ghost')}${button('继续到浏览器','oauth','primary')}</div>`,
+    },
+    authSuccess: {
+      title: '账号已连接',
+      html: () => `<div data-fd-id="dialog-auth-success" style="text-align:center;padding:10px 0 0"><div style="display:grid;place-items:center;width:54px;height:54px;margin:0 auto 17px;border-radius:50%;background:var(--accent-soft);color:var(--accent,#2f9e5a)">${icon('check',26)}</div><h3 data-fd-editable="text" style="font-size:17px;font-weight:600;margin:0 0 10px">连接成功</h3><p class="small muted" data-fd-editable="text" style="margin:0;line-height:1.8">认证信息已保存。你可以继续添加模型，或回到对话工作区。</p><div style="display:flex;justify-content:center;gap:8px;margin-top:24px">${button('返回设置','close-modal','ghost')}${button('添加模型','open-model-add','primary')}</div></div>`,
+    },
+    providerDelete: {
+      title: '删除这个供应商？',
+      html: () => `<div class="form-stack" data-fd-id="dialog-provider-delete"><div class="notice warning"><p data-fd-editable="text" style="font-size:13px;line-height:1.7;margin:0">删除「我的模型服务」后，它下方的全部模型也会一并移除。</p></div><p class="small muted" data-fd-editable="text" style="margin:0">需要再次使用时，可以重新添加供应商与模型。</p></div>${footer('删除供应商','provider-delete-confirm',true)}`,
+    },
+    questionMulti: {
+      title: '需要你做一个选择',
+      html: () => window.OWL_DIALOGS.questionFinal.html().replace(/data-fd-id="([^"]+)"/g, (_, id) => `data-fd-id="multi-${id}"`),
+    },
+    rename: {
+      title: '重命名文件',
+      html: () => `<div class="form-stack" data-fd-id="dialog-file-rename"><div class="notice" style="display:flex;align-items:center;gap:11px">${icon('file',20)}<div><strong data-fd-editable="text" style="font-size:13px;font-weight:550">App.tsx</strong><p class="small muted" style="margin:5px 0 0">apps / desktop / src</p></div></div>${field('文件名称','保留扩展名，便于识别文件类型。',`<input class="input" data-fd-id="dialog-file-rename-input" aria-label="文件名称" value="App.tsx" style="width:100%;font-family:var(--mono,monospace)">`)}</div>${footer('保存名称','rename',false,'Enter 确认 · Esc 取消')}`,
+    },
+  };
+
+  // Stable copy IDs let the feedback editor address individual dialog text nodes.
+  for (const [key, dialog] of Object.entries(window.OWL_DIALOGS)) {
+    const render = dialog.html;
+    dialog.html = () => {
+      let copyIndex = 0;
+      return render().replace(/<[^>]+\bdata-fd-editable="(?:true|text)"[^>]*>/g, (openingTag) => {
+        const normalized = openingTag.replace('data-fd-editable="true"', 'data-fd-editable="text"');
+        return /\bdata-fd-id=/.test(normalized)
+          ? normalized
+          : normalized.replace(/>$/, ` data-fd-id="dialog-${key}-copy-${++copyIndex}">`);
+      });
+    };
+  }
+})();
+
+const DEMO = {view:'home',pane:'files',settings:'general',modal:null,dock:'right',sidebar:true,running:false,model:'默认模型',mode:'标准模式',thinking:'中',status:'normal'};
+const settingsOrder = ['general','providers','plugins','appearance','prompts','archive','json','about'];
+const paneOrder = ['files','changes','editor','terminal','browser','tasks','impression','sidechat','image'];
+const paneIcons = {files:'folder',changes:'git',editor:'code',terminal:'terminal',browser:'browser',tasks:'clock',impression:'leaf',sidechat:'chat',image:'image'};
+const settingsIcons = {general:'settings',providers:'code',plugins:'plus',appearance:'image',prompts:'chat',archive:'clock',json:'code',about:'leaf'};
+const params = new URLSearchParams(location.search);
+if(params.get('view')) {const v=params.get('view');if(v.startsWith('settings-')){DEMO.view='settings';DEMO.settings=v.slice(9)}else if(paneOrder.includes(v)){DEMO.view='workspace';DEMO.pane=v;}else DEMO.view=v;}
+if(params.get('modal'))DEMO.modal=params.get('modal');
+if(params.get('dock'))DEMO.dock=params.get('dock');
+const artwork = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\">\n  \n  <path d=\"M208.0 128.0 L234.0 128.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M201.9 158.6 L225.9 168.6\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M184.6 184.6 L203.0 203.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M158.6 201.9 L168.6 225.9\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M128.0 208.0 L128.0 234.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M97.4 201.9 L87.4 225.9\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M71.4 184.6 L53.0 203.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M54.1 158.6 L30.1 168.6\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M48.0 128.0 L22.0 128.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M54.1 97.4 L30.1 87.4\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M71.4 71.4 L53.0 53.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M128.0 48.0 L128.0 22.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M184.6 71.4 L203.0 53.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M201.9 97.4 L225.9 87.4\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M108.2 67.1 L92.2 17.7\" stroke=\"#2f9e5a\" stroke-width=\"17\" stroke-linecap=\"round\"/>\n  <path d=\"M147.8 67.1 L163.8 17.7\" stroke=\"#2f9e5a\" stroke-width=\"17\" stroke-linecap=\"round\"/>\n  <circle cx=\"94\" cy=\"116\" r=\"28\" fill=\"#241d16\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"28\" fill=\"#241d16\"/>\n  <defs>\n    <radialGradient id=\"halo\"><stop offset=\"0%\" stop-color=\"#5ecf82\" stop-opacity=\"0.55\"/><stop offset=\"60%\" stop-color=\"#5ecf82\" stop-opacity=\"0.18\"/><stop offset=\"100%\" stop-color=\"#5ecf82\" stop-opacity=\"0\"/></radialGradient>\n    <radialGradient id=\"pup\"><stop offset=\"0%\" stop-color=\"#9df0c1\"/><stop offset=\"65%\" stop-color=\"#5ecf82\"/><stop offset=\"100%\" stop-color=\"#41b06a\"/></radialGradient>\n  </defs>\n  <circle cx=\"94\" cy=\"116\" r=\"22\" fill=\"url(#halo)\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"22\" fill=\"url(#halo)\"/>\n  <circle cx=\"94\" cy=\"116\" r=\"11.5\" fill=\"url(#pup)\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"11.5\" fill=\"url(#pup)\"/>\n  <circle cx=\"90.5\" cy=\"112.5\" r=\"3.5\" fill=\"#fffdf8\"/>\n  <circle cx=\"158.5\" cy=\"112.5\" r=\"3.5\" fill=\"#fffdf8\"/>\n  <path d=\"M128 138 L140 153 Q128 168 116 153 Z\" fill=\"#c4a82a\"/>\n</svg>\n";
+function mark(){return `<span class="brand-mark">${artwork}</span>`;}
+function esc(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');}
+function icon(name,size=18){const paths={folder:'<path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 19 0Z"/><path d="M7 10h10M7 14h6"/>',settings:'<path d="m10 3-1 3-3 1-3-1-1 4 3 2v3l-2 3 3 3 3-2 3 1 1 3 4-1 1-3 3-1 3 1 1-4-3-2v-3l2-3-3-3-3 2-3-1-1-3-4 1Z" transform="scale(.83) translate(2 0)"/><circle cx="12" cy="12" r="3"/>',code:'<path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 4l-4 16"/>',terminal:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m6 9 3 3-3 3m6 0h6"/>',git:'<circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m0-4c8 0 12-2 12-5"/>',browser:'<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2c6 5 6 15 0 20-6-5-6-15 0-20Z"/>',check:'<path d="m5 12 4 4 10-10"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M12 20V4m-6 6 6-6 6 6"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',shield:'<path d="M12 2 3 6v6c0 5 6 8 9 10 3-2 9-5 9-10V6l-9-4Z"/><path d="m8 12 3 3 5-6"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',chevron:'<path d="m9 5 7 7-7 7"/>',image:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/>',leaf:'<path d="M20 3C7 2 1 10 5 16s15 4 15-13Zm-1 1L4 20"/>',more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',refresh:'<path d="M21 8V3l-3 3a9 9 0 1 0 2 11M21 8h-5"/>',panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',bottom:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/>'};return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.code}</svg>`;}
+function button(text,action,cls=''){return `<button type="button" class="btn ${cls}" data-action="${action}" data-fd-id="btn-${action}">${text}</button>`;}
+function input(value,placeholder=''){return `<input class="input" value="${esc(value)}" placeholder="${esc(placeholder)}"/>`;}
+function select(opts){return `<select class="select">${opts.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;}
+function toggle(on=true){return `<button class="switch" role="switch" aria-checked="${on}" data-action="toggle" aria-label="切换选项"></button>`;}
+function tag(t,tone=''){return `<span class="tag ${tone}">${t}</span>`;}
+function field(label,desc,control){return `<div class="field"><label>${label}</label>${control}<span class="field-desc">${desc}</span></div>`;}
+function row(title,desc,control){return `<div class="row"><div><div class="row-title">${title}</div><div class="row-description">${desc}</div></div>${control}</div>`;}
+function sectionHead(title,desc=''){return `<div class="section-heading"><h3>${title}</h3>${desc?`<p>${desc}</p>`:''}</div>`;}
+function iconButton(name,action,title,active=false){return `<button class="icon-btn ${active?'active':''}" data-action="${action}" aria-label="${title}" title="${title}" data-fd-id="btn-${action}">${icon(name,17)}</button>`;}
+function rail(){return `<nav class="rail" data-fd-id="section-activity-rail" aria-label="主导航">${mark()}<div style="height:11px"></div>${iconButton('chat','view-home','会话',DEMO.view!=='settings')}${iconButton('settings','settings-general','设置',DEMO.view==='settings')}<div style="margin-top:auto">${iconButton('leaf','settings-about','关于 OWL')}</div></nav>`;}
+function sidebar(){return `<aside class="sidebar ${!DEMO.sidebar?'hide':''}" data-fd-id="section-session-sidebar"><div class="sidebar-brand">owl<small>LOCAL</small></div><label class="sidebar-search">${icon('search',14)}<input placeholder="搜索会话" aria-label="搜索会话" data-action="search-session"/><span class="key">⌘ K</span></label>${button(icon('plus',15)+' 新会话','view-home','new-chat')}<div class="nav-section"><span>置顶</span>${iconButton('more','dialog-sectionMenu','分组操作')}</div><button class="nav-row" data-action="view-chat" data-fd-id="row-pinned-session">${icon('chat',14)}<span class="clip">梳理项目架构</span>${icon('more',14)}</button><div class="nav-section" style="margin-top:15px"><span>项目</span>${iconButton('plus','dialog-project','添加项目')}</div><button class="nav-row" data-action="dialog-projectMenu" data-fd-id="row-current-project">${icon('chevron',10)}${icon('folder',15)}<span class="clip">owl-mono</span>${tag('当前','green')}</button><div class="nested"><button class="nav-row ${DEMO.view!=='home'?'active':''}" data-action="view-chat" data-fd-id="row-design-session">${icon('chat',13)}<span class="clip" data-fd-editable="text" data-fd-id="text-current-session">重新设计工作台界面</span><span class="dot"></span></button><button class="nav-row" data-action="view-chat">${icon('chat',13)}<span class="clip">检查设置页交互</span></button></div><button class="nav-row" data-action="dialog-projectSwitch">${icon('chevron',10)}${icon('folder',15)}<span class="clip">Owl-def</span></button><div class="nav-section" style="margin-top:22px"><span>最近会话</span>${iconButton('more','dialog-sessionMenu','会话操作')}</div><button class="nav-row" data-action="view-chat">${icon('chat',14)}<span class="clip">理解权限确认流程</span></button><button class="nav-row" data-action="view-chat">${icon('chat',14)}<span class="clip">整理用户印象</span></button><button class="nav-row" data-action="view-chat">${icon('chat',14)}<span class="clip">检查本地开发环境</span></button><div class="sidebar-foot"><span class="avatar">L</span><div><div style="font-weight:550;font-size:12px">本地工作空间</div><div class="tiny">所有会话保存在本机</div></div>${iconButton('settings','settings-general','打开设置')}</div></aside>`;}
+function chrome(){return `<header class="chrome" data-fd-id="section-chat-header">${iconButton('panel','toggle-sidebar','收起会话列表')}<span class="title" data-fd-id="text-session-header" data-fd-editable="text">${DEMO.view==='home'?'新会话':'重新设计工作台界面'}</span><span class="muted">/</span><span class="muted small" style="display:flex;align-items:center;gap:6px">${icon('folder',13)} owl-mono</span><div class="chrome-actions"><span class="connection-dot" title="本地已连接"></span><span class="small muted" style="margin-right:12px">本地</span>${iconButton('bottom','dock-bottom','停靠到底部',DEMO.view==='workspace'&&DEMO.dock==='bottom')}${iconButton('panel','dock-right','停靠到右侧',DEMO.view==='workspace'&&DEMO.dock==='right')}<span style="height:17px;width:1px;background:var(--border);margin:0 5px"></span>${iconButton('more','dialog-sessionMenu','更多会话操作')}</div></header>`;}
+function home(){return `<div class="hero" data-fd-id="section-start-page">${mark()}<span class="tiny" style="letter-spacing:.12em;margin-bottom:8px">YOUR LOCAL CODING COMPANION</span><h1 data-fd-id="text-welcome" data-fd-editable="text">让想法，在这里落地。</h1><p data-fd-id="text-welcome-subtitle" data-fd-editable="text">从一个问题、一段代码，或一个待完成的任务开始。</p><div class="quick-links">${[['folder','files','浏览项目文件','熟悉项目与代码'],['git','changes','查看文件变动','审阅每一处修改'],['browser','browser','打开浏览器','查看页面与效果']].map(([ico,key,title,desc])=>`<button class="quick-link" data-action="pane-${key}" data-fd-id="card-quick-${key}">${icon(ico,22)}<span>${title}</span><small class="muted">${desc}</small></button>`).join('')}</div><div class="quick-secondary">${button(icon('terminal',14)+' 终端','pane-terminal','ghost')}${button(icon('clock',14)+' 执行记录','pane-tasks','ghost')}${button(icon('chat',14)+' 侧边对话','pane-sidechat','ghost')}${button(icon('leaf',14)+' 用户印象','pane-impression','ghost')}</div></div>`;}
+function chat(){const state=DEMO.status;return `<div class="chat-content" data-fd-id="section-chat-stream">${state==='offline'?`<div class="notice warning" style="margin-bottom:23px" data-fd-id="notice-disconnected">连接已断开，正在重连… ${button('重新连接','state-normal','ghost')}</div>`:''}<div class="chat-message user-message" data-fd-id="message-user"><p data-fd-id="text-user-prompt" data-fd-editable="text">帮我梳理 OWL 工作台的布局，让聊天、文件和代码变动更清楚。</p></div><div class="assistant-heading">${mark()}<span>owl</span>${tag(DEMO.running?'正在处理':'已完成',DEMO.running?'warning':'green')}<span class="tiny" style="margin-left:auto">16:24</span></div><div class="assistant-copy" data-fd-id="message-assistant"><p data-fd-id="text-answer-lead" data-fd-editable="text">我检查了工作台的结构。聊天负责推进任务，右侧面板负责查看文件和验证结果；这两部分应该始终保持清楚的边界。</p><div class="tool-group" data-fd-id="section-tool-activity"><details open><summary class="tool-summary"><span style="display:flex;align-items:center;gap:7px">${icon('check',15)} 已检查 3 个文件</span><span class="tiny">收起 ${icon('chevron',10)}</span></summary><div class="tool-line">${icon('check',13)} 读取 <span class="code">App.tsx</span><span class="tiny" style="margin-left:auto">完成</span></div><div class="tool-line">${icon('check',13)} 读取 <span class="code">Workbench.tsx</span><span class="tiny" style="margin-left:auto">完成</span></div><details><summary class="tool-line">${icon('terminal',13)} 查看当前工作区<span class="tiny" style="margin-left:auto">查看输出 ${icon('chevron',10)}</span></summary><pre class="code" style="margin:4px 0;padding:10px;background:var(--color-owl-bg);border-radius:6px">apps/desktop/src\n  components/\n  sidebar/\n  theme.ts</pre></details></details></div><p data-fd-id="text-answer-suggestion" data-fd-editable="text">建议将当前项目、会话和执行状态放在固定位置，让每一步操作都有明确的上下文：</p><ol><li><strong>左侧导航</strong>：项目与会话清晰分组，当前会话用轻量选中态。</li><li><strong>聊天区域</strong>：回复保持舒适行宽，工具过程默认显示摘要。</li><li><strong>工作台</strong>：统一标签与工具栏，文件变动留出完整预览空间。</li></ol><div class="notice" data-fd-id="notice-design-only" style="margin-top:16px">${icon('shield',14)} 当前仅展示设计原型，业务代码将在你确认后修改。</div></div><div class="chat-meta">${iconButton('copy','copy-demo','复制回答')}${button('查看相关文件','pane-files','ghost')}<span>3 个文件 · 12.4k tokens</span><span style="margin-left:auto">${button('操作菜单','dialog-sessionMenu','ghost')}</span></div>${state==='error'?`<div class="notice warning" style="margin-top:18px" data-fd-id="notice-tool-error"><strong>命令执行失败</strong><p>找不到目标路径。请检查工作目录后重试。</p>${button('查看错误详情','pane-tasks','ghost')}</div>`:''}</div>`;}
+function composer(){return `<div class="composer-zone" data-fd-id="section-composer">${DEMO.view!=='home'?`<div class="todo-pin" data-fd-id="section-todo-pin" data-action="dialog-todo">${icon('check',14)}<span>任务进度 <strong>2 / 3</strong></span><span class="muted">正在整理设计建议</span><span class="progress"></span>${icon('chevron',11)}</div>`:''}<div class="composer"><div class="composer-top">${button(icon('folder',13)+' owl-mono','dialog-projectSwitch','ghost')}${button('+ 项目','dialog-project','ghost')}<span style="margin-left:auto;display:flex;gap:5px;align-items:center">${icon('shield',12)} 本地工作空间</span></div><textarea placeholder="描述你的需求，或输入你想了解的问题…" rows="2" aria-label="输入消息" data-fd-id="field-chat-input" data-fd-editable="value"></textarea><div class="composer-footer">${button(icon('shield',13)+` ${DEMO.mode}`,'dialog-mode','ghost')}${button(`${DEMO.model} ▾`,'dialog-model','ghost')}${button(`思考 · ${DEMO.thinking}`,'dialog-thinking','ghost')}${button('<span class="connection-dot"></span> 24%','dialog-context','ghost')}<button class="send" data-action="send-demo" title="${DEMO.running?'停止':'发送'}" aria-label="${DEMO.running?'停止':'发送'}" data-fd-id="btn-send">${DEMO.running?'<span style="width:10px;height:10px;border-radius:2px;background:white"></span>':icon('arrow',17)}</button></div></div><div class="composer-hint">Enter 发送 <span style="margin:0 7px">·</span> Shift + Enter 换行 <span style="margin:0 7px">·</span> 请审阅 OWL 的关键操作</div></div>`;}
+function workbench(){const pane=window.OWL_PANES[DEMO.pane]||window.OWL_PANES.files;return `<aside class="workbench" data-fd-id="section-workbench"><div class="workbench-bar"><div class="workbench-tools">${paneOrder.map(k=>iconButton(paneIcons[k],'pane-'+k,window.OWL_PANES[k]?.title||k,DEMO.pane===k)).join('')}</div>${iconButton(DEMO.dock==='right'?'bottom':'panel','dock-'+(DEMO.dock==='right'?'bottom':'right'),'切换停靠位置')}${iconButton('close','close-workbench','收起工作台')}</div><div class="pane-toolbar" style="height:44px"><span style="font-weight:600;display:flex;align-items:center;gap:7px">${icon(paneIcons[DEMO.pane],14)} ${pane.title}</span>${DEMO.pane==='editor'?'<span class="tiny">App.tsx</span>':''}<span class="tiny" style="margin-left:auto">owl-mono</span></div><div class="workbench-body" data-fd-id="pane-${DEMO.pane}">${pane.html()}</div></aside>`;}
+function settings(){const cfg=window.OWL_SETTINGS[DEMO.settings]||window.OWL_SETTINGS.general;return `<div class="settings-frame" data-fd-id="section-settings"><div class="settings-top">${button('← 返回工作台','view-chat','ghost')}<span style="height:18px;width:1px;background:var(--border)"></span><h2>设置</h2><span class="tiny" style="margin-left:auto">你的本地 OWL 偏好</span></div><div class="settings-layout"><nav class="settings-nav" aria-label="设置导航" data-fd-id="settings-navigation"><div class="nav-section" style="margin-bottom:8px">工作空间</div>${settingsOrder.map((k,i)=>`${i===6?'<div class="nav-section" style="margin-top:17px">高级</div>':''}<button class="nav-row ${DEMO.settings===k?'active':''}" data-action="settings-${k}" data-fd-id="tab-settings-${k}">${icon(settingsIcons[k],17)}${window.OWL_SETTINGS[k]?.title||k}</button>`).join('')}<div class="notice" style="margin-top:40px;font-size:11px;padding:12px">${icon('shield',16)}<p style="margin-top:7px">偏好与会话保存在本机，你可以随时调整。</p></div></nav><div class="settings-area"><div class="settings-heading"><div><h1 data-fd-id="text-settings-title">${cfg.title}</h1><p data-fd-id="text-settings-description" data-fd-editable="text">${cfg.description||'按你的工作方式配置 OWL。'}</p></div>${tag(DEMO.settings==='appearance'?'立即生效':DEMO.settings==='archive'?'会话管理':'本地配置','green')}</div><main class="settings-content">${cfg.html()}</main><div class="settings-footer" data-fd-id="settings-save-footer"><span class="hint" data-fd-id="settings-save-status">${DEMO.settings==='appearance'?'选择主题后立即生效。':'设置示例仅用于预览；你可以编辑并导出设计意见。'}</span>${button('关闭','view-chat','ghost')}${['appearance','about'].includes(DEMO.settings)?'':button('保存更改','save','primary')}</div></div></div></div>`;}
+function dialogsGallery(){const list=[['project','添加项目','选择或创建本地工作目录','folder'],['model','模型选择','供应商、模型与上下文信息','code'],['mode','执行模式','标准、计划与自动模式','shield'],['permission','操作确认','命令详情与允许 / 拒绝','shield'],['question','Agent 提问','逐题作答与自由补充','chat'],['questionMulti','多选提问','选项、备注与多题进度','chat'],['providerAdd','添加供应商','地址、协议与凭据','code'],['modelAdd','添加模型','模型 ID 与能力配置','code'],['context','上下文用量','Tokens、缓存与费用','clock'],['sessionMenu','会话操作','置顶、归档与删除','chat'],['delete','删除确认','对象名称与明确操作结果','close'],['filePicker','网页选择文件','本机路径与多文件选择','folder'],['todo','任务清单','当前任务、完成进度','check'],['oauth','浏览器登录','设备码与登录进度','browser'],['authSuccess','连接成功','授权结果与下一步','check']];return `<main class="dialog-gallery"><span class="tiny">INTERACTION LIBRARY</span><h1 style="margin:5px 0 8px">每一步，都有清楚的反馈。</h1><p class="muted">统一弹窗、菜单与关键状态，点击任意卡片查看完整效果。</p><div class="dialog-grid">${list.map(([k,title,desc,i])=>`<button class="dialog-tile" data-action="dialog-${k}" data-fd-id="card-dialog-${k}"><span class="green">${icon(i,22)}</span><h3>${title}</h3><p class="muted">${desc}</p></button>`).join('')}</div><div class="state-strip">${button('正常会话','state-normal')}${button('运行中','state-running')}${button('连接中断','state-offline')}${button('工具失败','state-error')}${button('空状态','state-empty')}${button('编辑器外部变更','state-stale')}</div></main>`;}
+function specialDialog(k){if(k==='todo')return {title:'当前任务',html:()=>`<p class="muted small" style="margin-bottom:20px">重新设计工作台界面 · 2 / 3 已完成</p>${row('核对页面与功能','已完成',tag('完成','green'))}${row('统一视觉层级','已完成',tag('完成','green'))}${row('整理全部界面原型','正在进行',tag('进行中'))}<div style="margin-top:24px;text-align:right">${button('返回对话','close-modal','primary')}</div>`};if(k==='filePicker')return {title:'网页请求选择文件',html:()=>`${field('本机文件路径','多个文件使用 | 分隔。',`<input class="input" value="D:\\owl\\screenshots\\preview.png" data-fd-id="field-browser-file-path" data-fd-editable="value"/>`)}<div class="notice">目标网页将读取你选择的文件，请确认路径后继续。</div><div style="display:flex;gap:10px;justify-content:end;margin-top:22px">${button('忽略','close-modal','ghost')}${button('提交选择','browser-file-submit','primary')}</div>`};if(k==='fileContext')return {title:'文件操作 · App.tsx',html:()=>`<div class="menu-list">${[['code','打开编辑器','pane-editor'],['folder','在资源管理器中显示','demo-feedback'],['copy','复制相对路径','copy-demo'],['copy','复制完整路径','copy-demo'],['code','在 VS Code 中打开','demo-feedback'],['code','重命名','dialog-rename'],['close','删除','dialog-delete']].map(([i,t,a])=>button(icon(i,16)+' '+t,a,'ghost')).join('')}</div>`};return null;}
+function modal(){const k=DEMO.modal;if(!k)return '';const dlg=specialDialog(k)||window.OWL_SETTINGS_DIALOGS?.[k]||window.OWL_DIALOGS?.[k];if(!dlg)return '';return `<div class="modal-shade" data-fd-id="modal-${k}"><section class="product-modal" role="dialog" aria-modal="true" aria-label="${dlg.title}"><div class="modal-heading"><h2>${dlg.title}</h2>${iconButton('close','close-modal','关闭弹窗')}</div><div class="modal-content">${dlg.html()}</div></section></div>`;}
+let editedValues=new Map();
+function restoreComments(){if(typeof comments==='undefined')return;for(const c of comments){if(!c.anchorFdId)continue;document.querySelectorAll(`[data-fd-id="${c.anchorFdId}"]`).forEach(el=>el.setAttribute('data-fd-comment-target',c.targetAttr||'c'+c.id));}renderMarkers();}
+function renderApp(){document.querySelectorAll('[data-owl-mount]').forEach(mount=>{const v=DEMO.view;mount.innerHTML=`<div class="owl-screen" data-fd-id="owl-app-shell">${rail()}${v==='settings'?'':sidebar()}${v==='settings'?settings():`<div class="main">${chrome()}${v==='dialogs'?dialogsGallery():`<div class="body-split ${DEMO.dock==='bottom'?'bottom':''}"><div class="conversation"><div class="chat-scroll">${v==='home'?home():chat()}</div>${composer()}</div>${v==='workspace'?workbench():''}</div>`}</div>`}${modal()}</div>`;});document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(editedValues.has(key))setEditableValue(el,editedValues.get(key));});if(typeof initDirectEdits==='function')initDirectEdits();restoreComments();renderCatalog();scaleScreens();}
+function scaleScreens(){document.querySelectorAll('.canvas-frame').forEach(frame=>{const screen=frame.querySelector('.owl-screen');if(!screen)return;let scale=frame.clientWidth/1280;if(document.body.classList.contains('presentation'))scale=Math.min(innerWidth/1280,innerHeight/800);screen.style.zoom=scale;frame.style.height=(800*scale)+'px';});}
+function renderCatalog(){const cat=document.getElementById('screen-catalog');cat.innerHTML=`<div class="catalog-heading">核心界面</div>${[['home','开始页','chat'],['chat','聊天会话','chat'],['workspace','工作台','panel'],['dialogs','弹窗与状态','shield']].map(([k,t,i])=>`<button data-review-view="${k}" class="${DEMO.view===k?'active':''}">${icon(i,14)}${t}</button>`).join('')}<div class="catalog-heading">工作台 · 9 个面板</div>${paneOrder.map(k=>`<button data-review-pane="${k}" class="${DEMO.view==='workspace'&&DEMO.pane===k?'active':''}">${icon(paneIcons[k],14)}${window.OWL_PANES[k]?.title||k}</button>`).join('')}<div class="catalog-heading">设置 · 8 个分区</div>${settingsOrder.map(k=>`<button data-review-settings="${k}" class="${DEMO.view==='settings'&&DEMO.settings===k?'active':''}">${icon(settingsIcons[k],14)}${window.OWL_SETTINGS[k]?.title||k}</button>`).join('')}`;document.querySelectorAll('[data-review-theme]').forEach(b=>b.classList.toggle('active',b.dataset.reviewTheme===getPaneState()));}
+function rememberEdits(){document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(key&&typeof getEditableValue==='function')editedValues.set(key,getEditableValue(el));});}
+function navigate(view,key){rememberEdits();DEMO.modal=null;DEMO.view=view;if(view==='settings'&&key)DEMO.settings=key;if(view==='workspace'&&key)DEMO.pane=key;renderApp();}
+document.addEventListener('click',e=>{const review=e.target.closest('[data-review-view],[data-review-pane],[data-review-settings],[data-review-theme]');if(review){if(review.dataset.reviewView)navigate(review.dataset.reviewView);if(review.dataset.reviewPane)navigate('workspace',review.dataset.reviewPane);if(review.dataset.reviewSettings)navigate('settings',review.dataset.reviewSettings);if(review.dataset.reviewTheme){setPaneState(review.dataset.reviewTheme);renderCatalog();setTimeout(scaleScreens,250);}return;}if(typeof commentMode!=='undefined'&&commentMode)return;const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;
+ if(a.startsWith('view-')){navigate(a.slice(5));return;}if(a.startsWith('settings-')){navigate('settings',a.slice(9));return;}if(a.startsWith('pane-')){navigate('workspace',a.slice(5));return;}if(a.startsWith('dialog-')){rememberEdits();DEMO.modal=a.slice(7);renderApp();return;}
+ if(a==='close-modal'){DEMO.modal=null;renderApp();return;}if(a==='toggle-sidebar'){DEMO.sidebar=!DEMO.sidebar;renderApp();return;}if(a==='close-workbench'){navigate('chat');return;}if(a.startsWith('dock-')){DEMO.dock=a.slice(5);DEMO.view='workspace';renderApp();return;}
+ if(a==='toggle'||b.getAttribute('role')==='switch'){b.setAttribute('aria-checked',b.getAttribute('aria-checked')!=='true');return;}
+ if(a.startsWith('theme-')){setPaneState(a==='theme-dark'?'dark-expanded':a==='theme-light'?'light-expanded':'split');setTimeout(scaleScreens,250);return;}
+ if(a.startsWith('state-')){DEMO.status=a.slice(6);DEMO.running=a==='state-running';if(a==='state-stale'){navigate('workspace','editor');showToast('编辑器外部变更状态已展示');}else navigate(a==='state-empty'?'home':'chat');return;}
+ if(a==='provider-add'){DEMO.modal='providerAdd';renderApp();return;}if(a==='model-add'){DEMO.modal='modelAdd';renderApp();return;}if(a==='oauth'){DEMO.modal='oauth';renderApp();return;}
+ if(a==='provider-delete'||a==='delete-archive'||a==='file-delete'||a==='discard'||a==='delete-plugin'){DEMO.modal=a==='provider-delete'?'providerDelete':a==='delete-archive'?'archiveDelete':'delete';renderApp();return;}
+ if(a==='file-context'){DEMO.modal='fileContext';renderApp();return;}if(a==='file-new'||a==='file-rename'){DEMO.modal='rename';renderApp();return;}if(a==='browser-file-picker'){DEMO.modal='filePicker';renderApp();return;}
+ if(a==='question-next'){DEMO.modal='questionFinal';renderApp();return;}if(a==='question-prev'){DEMO.modal='question';renderApp();return;}
+ if(a.startsWith('choose-model')){DEMO.model=b.dataset.model||b.dataset.value||b.textContent.trim().split('\n')[0];DEMO.modal=null;renderApp();return;}if(a.startsWith('choose-mode')){DEMO.mode=b.dataset.label||({'confirm':'标准模式','standard':'标准模式','plan':'计划模式','auto':'自动模式'}[b.dataset.value])||b.textContent.trim().split('\n')[0];DEMO.modal=null;renderApp();return;}if(a.startsWith('choose-thinking')){DEMO.thinking=b.dataset.value||b.textContent.trim();DEMO.modal=null;renderApp();return;}
+ if(a==='send-demo'){rememberEdits();DEMO.view='chat';DEMO.running=!DEMO.running;renderApp();showToast(DEMO.running?'已展示执行中状态':'已展示停止状态');return;}
+ if(a==='editor-stale'){const body=b.closest('.workbench-body');body.insertAdjacentHTML('afterbegin','<div class="notice warning" style="margin:12px">磁盘中的文件已更新。请重新加载或保留当前编辑。 '+button('重新加载','editor-reload','ghost')+'</div>');return;}
+ if(a==='editor-reload'){const n=b.closest('.notice');if(n)n.remove();showToast('原型：已重新加载文件');return;}
+ if(a==='image-zoom'||a==='image-zoom-in'||a==='image-zoom-out'||a==='image-fit'){const svg=b.closest('.workbench')?.querySelector('.workbench-body svg[viewBox]');if(svg)svg.style.transform=a==='image-fit'?'none':a==='image-zoom-out'?'scale(.8)':'scale(1.15)';showToast('图片缩放预览');return;}
+ if(a==='save'){rememberEdits();const json=document.querySelector('[data-fd-id="field-raw-settings-json"]');if(json){try{JSON.parse(json.value)}catch{showToast('JSON 格式有误，请检查后再保存');return;}}document.querySelectorAll('.settings-save-footer .hint').forEach(el=>el.textContent='已保存 · 原型演示');showToast('原型：已保存。没有写入实际配置。');return;}
+ if(['allow','reject','question-submit','project-create','delete-confirm','auth-complete','oauth-complete','provider-save','model-save','archive-confirm','browser-file-submit'].includes(a)){DEMO.modal=a==='oauth-complete'?'authSuccess':null;renderApp();showToast('操作反馈已展示 · 原型数据');return;}
+ if(a==='copy-demo'){showToast('原型：已复制');return;}
+ if(a==='terminal-clear'){const t=b.closest('.workbench')?.querySelector('.terminal');if(t)t.innerHTML='<span class="green">PS D:\\owl\\owl-mono&gt;</span> <span style="animation:pulse 1s infinite">▍</span>';return;}
+ if(a==='task-expand'){const d=b.closest('details');if(d)d.open=!d.open;else showToast('点击执行记录中的箭头查看详情');return;}
+ if(a==='select-option'){b.classList.toggle('active');return;}
+ showToast('原型：'+(b.textContent.trim()||b.getAttribute('aria-label')||'操作')+' · 已展示交互反馈');
+});
+window.addEventListener('resize',scaleScreens);
+document.querySelectorAll('.pane-toggle-btn').forEach(b=>b.addEventListener('click',()=>setTimeout(()=>{scaleScreens();renderCatalog();},250)));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&DEMO.modal){DEMO.modal=null;renderApp();}});
+if(params.has('presentation')){document.body.classList.add('presentation');const theme=params.get('theme')||'dark';document.querySelectorAll('.preview').forEach(p=>p.classList.toggle('hidden-theme',p.dataset.theme!==theme));}
+renderApp();
+</script>
+</body></html>
