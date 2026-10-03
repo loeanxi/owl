@@ -88,5 +88,9 @@ export function buildAcpSystemPrompt(prompts: Prompts, sections?: PromptSections
 		tier3: prompts.tier3CondenseRules,
 	};
 	const filled = SECTIONS.map(([key, text]) => [key, text || (ruleSlots[key] ?? text)] as const);
-	return "\nACP context management\n\n" + applySectionOverrides(filled, (sections ?? {}) as Record<string, SectionOverride>).join("\n\n") + "\n";
+	return (
+		"\nACP context management\n\n" +
+		applySectionOverrides(filled, (sections ?? {}) as Record<string, SectionOverride>).join("\n\n") +
+		"\n"
+	);
 }

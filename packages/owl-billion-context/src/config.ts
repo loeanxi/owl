@@ -5,7 +5,7 @@
  * 其余全部走 acp-kernel defaultConfig 出厂值。上游的三级 acp.json 覆盖
  * （global→provider→model）、prompt pack、输出余量自适应等未移植。
  */
-import { defaultConfig, type Config } from "./kernel.js";
+import { type Config, defaultConfig } from "./kernel.js";
 
 export function resolveConfig(contextWindow: number): Config {
 	const limit = Number.isFinite(contextWindow) && contextWindow > 0 ? Math.floor(contextWindow) : 0;

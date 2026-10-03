@@ -8,7 +8,7 @@
  * context 事件时条目已持久化，无需合并未持久化尾部）、派生子会话。
  */
 import { promises as fs } from "node:fs";
-import { createInitialState, type CompressionState } from "./kernel.js";
+import { type CompressionState, createInitialState } from "./kernel.js";
 
 export const STATE_SUFFIX = ".acp.json";
 const SCHEMA_VERSION = 1;
@@ -48,7 +48,9 @@ export class SessionStateStore {
 			} catch (e) {
 				const code = (e as NodeJS.ErrnoException).code;
 				if (code !== "ENOENT") {
-					console.warn(`[owl-billion-context] state load failed (${file}): ${e instanceof Error ? e.message : String(e)}`);
+					console.warn(
+						`[owl-billion-context] state load failed (${file}): ${e instanceof Error ? e.message : String(e)}`,
+					);
 				}
 			}
 		}
@@ -65,7 +67,9 @@ export class SessionStateStore {
 		try {
 			await fs.writeFile(file, JSON.stringify(payload, null, "\t"), { encoding: "utf8", mode: 0o600 });
 		} catch (e) {
-			console.warn(`[owl-billion-context] state save failed (${file}): ${e instanceof Error ? e.message : String(e)}`);
+			console.warn(
+				`[owl-billion-context] state save failed (${file}): ${e instanceof Error ? e.message : String(e)}`,
+			);
 		}
 	}
 

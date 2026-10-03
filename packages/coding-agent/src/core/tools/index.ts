@@ -53,6 +53,8 @@ export {
 	type PowerShellToolInput,
 	type PowerShellToolOptions,
 } from "./powershell.ts";
+export { createProcessTool, createProcessToolDefinition, type ProcessToolDetails } from "./process.ts";
+export * from "./process-store.ts";
 export {
 	createReadTool,
 	createReadToolDefinition,
@@ -61,8 +63,6 @@ export {
 	type ReadToolInput,
 	type ReadToolOptions,
 } from "./read.ts";
-export { createProcessTool, createProcessToolDefinition, type ProcessToolDetails } from "./process.ts";
-export * from "./process-store.ts";
 export {
 	createTodoTool,
 	createTodoToolDefinition,

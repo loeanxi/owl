@@ -5,9 +5,9 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { createInterface } from "node:readline";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
@@ -41,12 +41,11 @@ import {
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
-import type { InlineExtension } from "./core/extensions/types.ts";
 import type { ToolDefinition } from "./core/extensions/index.ts";
-import { builtInExtensions } from "./extensions/index.ts";
+import type { InlineExtension } from "./core/extensions/types.ts";
+import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "./core/mcp-lite.ts";
 import type { McpServerConfig } from "./core/mcp-servers.ts";
-import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
@@ -59,6 +58,7 @@ import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { setCapabilityOverrides } from "./core/tui-seam.ts";
+import { builtInExtensions } from "./extensions/index.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { runPrintMode } from "./modes/index.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
@@ -810,9 +810,7 @@ export async function main(args: string[], options?: MainOptions) {
 			noTools: sessionOptions.noTools,
 			customTools: [
 				...(sessionOptions.customTools ?? []),
-				...(await getCliMcpTools(agentDir, (message) =>
-					diagnostics.push({ type: "warning", message }),
-				)),
+				...(await getCliMcpTools(agentDir, (message) => diagnostics.push({ type: "warning", message }))),
 			],
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;

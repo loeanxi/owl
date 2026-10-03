@@ -10,7 +10,7 @@
  * 消息铸的稳定引用号（mNNNNN），模型用它在 compress 调用里圈定压缩区间。
  */
 import type { SessionEntry, SessionMessageEntry } from "@owl/owl-coding-agent";
-import { defaultCountTokens, type CoreMessage } from "./kernel.js";
+import { type CoreMessage, defaultCountTokens } from "./kernel.js";
 import { rewriteTagTokens } from "./tag-tokens.js";
 
 type AgentMessage = SessionMessageEntry["message"];
@@ -46,7 +46,9 @@ export function isCustomMessageEntry(entry: SessionEntry): entry is SessionEntry
 }
 
 /** owl 原生摘要条目（compaction / branch_summary）的统一投影文本。 */
-function nativeSummaryText(entry: { type: "compaction"; summary: string } | { type: "branch_summary"; summary: string }): string {
+function nativeSummaryText(
+	entry: { type: "compaction"; summary: string } | { type: "branch_summary"; summary: string },
+): string {
 	return entry.type === "compaction"
 		? `The conversation history before this point was compacted into the following summary:\n<summary>\n${entry.summary}\n</summary>`
 		: `The following is a summary of a branch that this conversation came back from:\n<summary>\n${entry.summary}\n</summary>`;
@@ -115,7 +117,17 @@ function projectMessage(message: AgentMessage, id: string): CoreMessage[] {
 				const call = calls[0]!;
 				const argStr = stringifyArgs(call.arguments);
 				const text = argStr && textParts ? `${textParts}\n${argStr}` : argStr || textParts;
-				return [{ id, role: "assistant", contentType: "tool-call", toolName: call.name, toolCallId: call.id, text, ...thinkingField }];
+				return [
+					{
+						id,
+						role: "assistant",
+						contentType: "tool-call",
+						toolName: call.name,
+						toolCallId: call.id,
+						text,
+						...thinkingField,
+					},
+				];
 			}
 			return calls.map((call, i) => {
 				const argStr = stringifyArgs(call.arguments);
@@ -220,7 +232,10 @@ export function messageRef(message: unknown): string | undefined {
  * 过滤它们、靠 compress 工具调用对充当摘要锚点（args 里留 200 字残根）；
  * owl 这里选择更直的常驻摘要路径，压缩调用对仍由内核 hide-consumed 维护。
  * 其余消息还原原始对象并同步引用标签。 */
-export function coreOutToAgentMessages(coreOut: CoreMessage[], originalById: Map<string, AgentMessage>): AgentMessage[] {
+export function coreOutToAgentMessages(
+	coreOut: CoreMessage[],
+	originalById: Map<string, AgentMessage>,
+): AgentMessage[] {
 	const out: AgentMessage[] = [];
 	const emittedSplit = new Set<string>();
 	const kernelTextByCallId = new Map<string, string>();

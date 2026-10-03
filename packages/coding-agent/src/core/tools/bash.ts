@@ -15,12 +15,7 @@ import {
 } from "../../utils/shell.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
-import {
-	killSessionProcess,
-	registerSessionProcess,
-	waitSessionProcess,
-	type ProcessEntry,
-} from "./process-store.ts";
+import { killSessionProcess, type ProcessEntry, registerSessionProcess, waitSessionProcess } from "./process-store.ts";
 
 const BASH_UPDATE_THROTTLE_MS = 100;
 
@@ -345,7 +340,8 @@ export function createShellToolDefinition(
 	return {
 		name: config.name,
 		label: config.label,
-		description: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. ` +
+		description:
+			`Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. ` +
 			`By default the command runs in unified-exec mode: if it is still running after ${DEFAULT_YIELD_TIME_MS / 1000}s, it keeps running in the background and you get a session_id — use the process tool to poll for output, write stdin ('\\u0003' = Ctrl-C), or kill it. ` +
 			`Pass timeout (seconds) for classic block-until-done semantics with a hard kill at the timeout.`,
 		promptSnippet: config.promptSnippet,
@@ -355,11 +351,7 @@ export function createShellToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
-			{
-				command,
-				timeout,
-				yield_time_ms,
-			}: { command: string; timeout?: number; yield_time_ms?: number },
+			{ command, timeout, yield_time_ms }: { command: string; timeout?: number; yield_time_ms?: number },
 			signal?: AbortSignal,
 			onUpdate?,
 			ctx?: ExtensionContext,
@@ -523,11 +515,7 @@ export function createShellToolDefinition(
 						}
 						exitCode =
 							entry.exitCode ??
-							(entry.exitSignal
-								? 128 + (osConstants.signals[entry.exitSignal] ?? 0)
-								: entry.killed
-									? 137
-									: 1);
+							(entry.exitSignal ? 128 + (osConstants.signals[entry.exitSignal] ?? 0) : entry.killed ? 137 : 1);
 					} finally {
 						entry.listeners.delete(onSessionData);
 						if (signal) signal.removeEventListener("abort", onAbortSession);

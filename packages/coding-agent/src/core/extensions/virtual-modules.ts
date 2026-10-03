@@ -2,17 +2,15 @@ import * as bundledPiAgentCore from "@earendil-works/pi-agent-core";
 import * as bundledPiAiCompat from "@earendil-works/pi-ai/compat";
 import * as bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
 import * as bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
-
-// owl: the TUI package was cut from the workspace, but extensions still import
-// it at module scope — serve them the inert stand-in instead of an empty object.
-import * as bundledPiTui from "./pi-tui-stub.ts";
-
 import * as bundledTypebox from "typebox";
 import * as bundledTypeboxCompile from "typebox/compile";
 import * as bundledTypeboxValue from "typebox/value";
 // This import is safe because loader.ts exports are not re-exported from index.ts.
 // Extensions can therefore import from @owl/owl-coding-agent.
 import * as bundledPiCodingAgent from "../../index.ts";
+// owl: the TUI package was cut from the workspace, but extensions still import
+// it at module scope — serve them the inert stand-in instead of an empty object.
+import * as bundledPiTui from "./pi-tui-stub.ts";
 
 /** Modules available to extensions in source and compiled binary runtimes. */
 export const VIRTUAL_MODULES: Record<string, unknown> = {

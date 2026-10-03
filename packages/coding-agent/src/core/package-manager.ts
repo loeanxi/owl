@@ -38,11 +38,11 @@ import ignore from "ignore";
 import { minimatch } from "minimatch";
 import { gt, maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
 import { CONFIG_DIR_NAME, getGlobalSkillsDir } from "../config.ts";
-import { isExtensionFile } from "./extensions/loader.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
+import { isExtensionFile } from "./extensions/loader.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import { type PiManifest, readPiManifest } from "./pi-manifest.ts";
 import type { PackageSource, PluginSource, SettingsManager } from "./settings-manager.ts";
@@ -367,11 +367,7 @@ function collectFiles(
 	return files;
 }
 
-function collectSkillEntries(
-	dir: string,
-	ignoreMatcher?: IgnoreMatcher,
-	rootDir?: string,
-): string[] {
+function collectSkillEntries(dir: string, ignoreMatcher?: IgnoreMatcher, rootDir?: string): string[] {
 	const entries: string[] = [];
 	if (!existsSync(dir)) return entries;
 
@@ -423,8 +419,7 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			const shouldIncludeMarkdownFile =
-				isFile && entry.name.endsWith(".md") && !ig.ignores(relPath) && dir === root;
+			const shouldIncludeMarkdownFile = isFile && entry.name.endsWith(".md") && !ig.ignores(relPath) && dir === root;
 			if (shouldIncludeMarkdownFile) {
 				entries.push(fullPath);
 				continue;
@@ -989,7 +984,11 @@ export class DefaultPackageManager implements PackageManager {
 				path,
 				{ source: "builtin", scope: projectEnabled === undefined ? "user" : "project", origin: "top-level" },
 				projectEnabled ??
-					isEnabledByOverrides(path, [...(globalSettings.extensions ?? []), ...pluginOverridePatterns.user], globalBaseDir),
+					isEnabledByOverrides(
+						path,
+						[...(globalSettings.extensions ?? []), ...pluginOverridePatterns.user],
+						globalBaseDir,
+					),
 			);
 		}
 

@@ -5,20 +5,20 @@
  * 输出按 token 预算截断（约 4 字符/token，头尾各半保留，中段省略）。
  */
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Type } from "typebox";
 import type { Static } from "typebox";
+import { Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import {
 	getSessionProcess,
 	killSessionProcess,
 	listSessionProcesses,
+	type ProcessEntry,
 	takePending,
 	waitSessionProcess,
 	writeSessionProcess,
-	type ProcessEntry,
 } from "./process-store.ts";
-import { truncateMiddle } from "./truncate.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
+import { truncateMiddle } from "./truncate.ts";
 
 const DEFAULT_POLL_YIELD_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
@@ -26,17 +26,13 @@ const MIN_YIELD_MS = 1_000;
 const MAX_YIELD_MS = 300_000;
 
 const processSchema = Type.Object({
-	action: Type.Union(
-		[Type.Literal("poll"), Type.Literal("write"), Type.Literal("kill"), Type.Literal("list")],
-		{
-			description:
-				"poll: wait for a session's output (default). write: send chars to the session's stdin ('\\u0003' = Ctrl-C). kill: terminate the session's process tree. list: show all sessions.",
-		},
-	),
+	action: Type.Union([Type.Literal("poll"), Type.Literal("write"), Type.Literal("kill"), Type.Literal("list")], {
+		description:
+			"poll: wait for a session's output (default). write: send chars to the session's stdin ('\\u0003' = Ctrl-C). kill: terminate the session's process tree. list: show all sessions.",
+	}),
 	session_id: Type.Optional(
 		Type.Number({
-			description:
-				"Session id returned by bash/powershell or a previous poll. Required unless action is list.",
+			description: "Session id returned by bash/powershell or a previous poll. Required unless action is list.",
 		}),
 	),
 	chars: Type.Optional(Type.String({ description: "Input to write (action=write). Append '\\n' for Enter." })),
@@ -74,10 +70,7 @@ export interface ProcessToolDetails {
 
 type ProcessToolResult = AgentToolResult<ProcessToolDetails | undefined>;
 
-export function createProcessToolDefinition(): ToolDefinition<
-	typeof processSchema,
-	ProcessToolDetails | undefined
-> {
+export function createProcessToolDefinition(): ToolDefinition<typeof processSchema, ProcessToolDetails | undefined> {
 	return {
 		name: "process",
 		label: "process",
@@ -118,9 +111,7 @@ export function createProcessToolDefinition(): ToolDefinition<
 			if (params.action === "write") {
 				const chars = params.chars;
 				if (!chars) {
-					return errorResult(
-						"`chars` is required for action=write. Use action=poll to just wait for output.",
-					);
+					return errorResult("`chars` is required for action=write. Use action=poll to just wait for output.");
 				}
 				const accepted = writeSessionProcess(entry, chars);
 				if (!accepted) {
@@ -154,12 +145,7 @@ function sessionDetails(entry: ProcessEntry): ProcessToolDetails["session"] {
 	};
 }
 
-function formatBody(
-	entry: ProcessEntry,
-	output: string,
-	maxOutputTokens: number,
-	prefix?: string,
-): string {
+function formatBody(entry: ProcessEntry, output: string, maxOutputTokens: number, prefix?: string): string {
 	const status =
 		entry.exitCode === undefined
 			? "still running"

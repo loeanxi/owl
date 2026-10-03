@@ -202,12 +202,26 @@ describe("defaultTools setting", () => {
 			writeSettings({ defaultTools: ["+inactive_tool", "+grep"] });
 			await session.reload();
 			// bash was disabled during the session and is not newly added, so it stays off.
-			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "process", "read", "write"]);
+			expect(session.getActiveToolNames().sort()).toEqual([
+				"edit",
+				"grep",
+				"inactive_tool",
+				"process",
+				"read",
+				"write",
+			]);
 
 			// Removing tools from the setting does not disable them.
 			writeSettings({ defaultTools: ["-read"] });
 			await session.reload();
-			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "process", "read", "write"]);
+			expect(session.getActiveToolNames().sort()).toEqual([
+				"edit",
+				"grep",
+				"inactive_tool",
+				"process",
+				"read",
+				"write",
+			]);
 			session.dispose();
 		});
 

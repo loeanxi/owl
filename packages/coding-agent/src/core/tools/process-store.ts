@@ -272,9 +272,7 @@ function pruneProcessesIfNeeded(): void {
 		processes.delete(entry.id);
 		if (processes.size < MAX_PROCESSES) return;
 	}
-	const running = entries
-		.filter((e) => e.exitCode === undefined)
-		.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+	const running = entries.filter((e) => e.exitCode === undefined).sort((a, b) => a.lastUsedAt - b.lastUsedAt);
 	for (const entry of running) {
 		killSessionProcess(entry);
 		processes.delete(entry.id);

@@ -184,7 +184,7 @@ export default function App(): React.JSX.Element {
 	const openDeveloper = (): void => {
 		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
 		setDeveloperLayoutPersisted(true);
-		setDockPersisted("right");
+		setDockPersisted(window.innerWidth < 1100 ? "bottom" : "right");
 		setWorkbenchOpenPersisted(true);
 		setShowSettings(false);
 	};

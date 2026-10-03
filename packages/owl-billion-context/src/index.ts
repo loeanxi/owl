@@ -14,37 +14,52 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@owl/owl-coding-agent";
+import { getSystemPromptText } from "./compat.js";
+import { resolveConfig } from "./config.js";
 import {
+	type CompressionCore,
+	type CompressionState,
+	type Config,
 	createCore,
 	defaultCountTokens,
 	defaultPrompts,
 	formatRanges,
+	type NudgeDecision,
+	type Prompts,
 	renderNudgeText,
 	resolvePrompts,
 	viableRanges,
-	type CompressionCore,
-	type CompressionState,
-	type Config,
-	type NudgeDecision,
-	type Prompts,
 } from "./kernel.js";
-import { resolveConfig } from "./config.js";
-import { SessionStateStore } from "./state.js";
 import {
+	ACP_NUDGE_CUSTOM_TYPE,
+	type AcpNudgeRecord,
 	collectOriginals,
 	coreOutToAgentMessages,
 	entriesToCoreMessages,
 	extractText,
-	ACP_NUDGE_CUSTOM_TYPE,
-	type AcpNudgeRecord,
 } from "./messages.js";
-import { collectCoveredMessageIds, collectImageTokens, estimateTokens, modelSupportsImages } from "./tokens.js";
-import { applyStrictReasoningGate, dropCompressReasoning, resolveReasoningDrop, countThinkingChars, type CompressReasoningConfig } from "./reasoning-drop.js";
-import { sanitizeToolPairing } from "./tool-pair-sanitizer.js";
+import {
+	applyStrictReasoningGate,
+	type CompressReasoningConfig,
+	countThinkingChars,
+	dropCompressReasoning,
+	resolveReasoningDrop,
+} from "./reasoning-drop.js";
+import { SessionStateStore } from "./state.js";
 import { carryHostSystemMessages } from "./system-passthrough.js";
 import { buildAcpSystemPrompt } from "./system-prompt.js";
-import { getSystemPromptText } from "./compat.js";
-import { makeCompressTool, makeDecompressTool, makeSearchTool, makeStatusTool, isCompressSuccessText, isCompressNoopText, MAX_COMPRESS_ATTEMPTS, type BiliRuntime } from "./tools.js";
+import { collectCoveredMessageIds, collectImageTokens, estimateTokens, modelSupportsImages } from "./tokens.js";
+import { sanitizeToolPairing } from "./tool-pair-sanitizer.js";
+import {
+	type BiliRuntime,
+	isCompressNoopText,
+	isCompressSuccessText,
+	MAX_COMPRESS_ATTEMPTS,
+	makeCompressTool,
+	makeDecompressTool,
+	makeSearchTool,
+	makeStatusTool,
+} from "./tools.js";
 
 // ---------------------------------------------------------------------------
 // 运行时：每插件实例一份内核 + 状态存储 + 进程内记账
@@ -121,7 +136,8 @@ function createRuntime() {
 		},
 		configFor: (ctx) => {
 			const usage = ctx.getContextUsage?.();
-			const window2 = usage?.contextWindow && usage.contextWindow > 0 ? usage.contextWindow : (ctx.model?.contextWindow ?? 0);
+			const window2 =
+				usage?.contextWindow && usage.contextWindow > 0 ? usage.contextWindow : (ctx.model?.contextWindow ?? 0);
 			return resolveConfig(window2);
 		},
 		// 内核 recommend 阶段已经算好可压清单 —— 独立再跑一轮 processTurn 拿它
@@ -161,7 +177,11 @@ type Runtime = ReturnType<typeof createRuntime>;
 // nudge 消息体
 // ---------------------------------------------------------------------------
 
-function nudgeMessageText(nudge: NudgeDecision, blocks: { blockId: string; tier: number; summary: string; compressedTokens: number }[], prompts: Prompts): string {
+function nudgeMessageText(
+	nudge: NudgeDecision,
+	blocks: { blockId: string; tier: number; summary: string; compressedTokens: number }[],
+	prompts: Prompts,
+): string {
 	const rendered = renderNudgeText(nudge, prompts);
 	const lines = [rendered.text];
 	if (blocks.length > 0) {
@@ -174,9 +194,15 @@ function nudgeMessageText(nudge: NudgeDecision, blocks: { blockId: string; tier:
 			.sort()
 			.map((t) => `T${t}:${tierCounts[t]}`)
 			.join(" ");
-		const ids = blocks.slice(0, 10).map((b) => b.blockId).join(", ");
+		const ids = blocks
+			.slice(0, 10)
+			.map((b) => b.blockId)
+			.join(", ");
 		const extra = blocks.length > 10 ? ` (+${blocks.length - 10} more)` : "";
-		lines.push("", `Compressed blocks: ${blocks.length} active (${tierStr}) — ${formatK2(totalSummary)} summary, ${formatK2(totalCompressed)} original compressed. Blocks: ${ids}${extra}.`);
+		lines.push(
+			"",
+			`Compressed blocks: ${blocks.length} active (${tierStr}) — ${formatK2(totalSummary)} summary, ${formatK2(totalCompressed)} original compressed. Blocks: ${ids}${extra}.`,
+		);
 	}
 	return lines.join("\n");
 }
@@ -247,7 +273,9 @@ export default function (pi: ExtensionAPI): void {
 			return await transformContext(pi, runtime, { degraded, terminalEscapeSeen }, event, ctx);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			console.error(`[owl-billion-context] context transform FAILED for session ${sid} — 本轮按原上下文发送，原生 compaction 兜底重新生效: ${message}`);
+			console.error(
+				`[owl-billion-context] context transform FAILED for session ${sid} — 本轮按原上下文发送，原生 compaction 兜底重新生效: ${message}`,
+			);
 			degraded.add(sid);
 			return undefined;
 		}
@@ -290,7 +318,15 @@ async function transformContext(
 	// 被剪掉的消息永远计入，把占用钉死在紧急区）。
 	if (state.blocks.some((b) => b.active && b.effectiveMessageIds.length > 0)) {
 		const { sentViewTokenCount } = await import("./tokens.js");
-		const view = sentViewTokenCount(runtime.core, coreMessages, state, config, tokenCount, imageTokens, systemPromptTokens);
+		const view = sentViewTokenCount(
+			runtime.core,
+			coreMessages,
+			state,
+			config,
+			tokenCount,
+			imageTokens,
+			systemPromptTokens,
+		);
 		if (view.drifted) tokenCount = Math.max(view.viewTokens, hostTokens > 0 ? hostTokens : 0);
 	}
 
@@ -301,7 +337,9 @@ async function transformContext(
 	if (turn.terminalEscape) {
 		if (!flags.terminalEscapeSeen.has(sid)) {
 			flags.terminalEscapeSeen.add(sid);
-			console.warn(`[owl-billion-context] terminal escape (stuck ${turn.terminalEscape.stuckEvents} turns at ${Math.round(turn.terminalEscape.usage * 100)}%) — native compaction will take over for this session`);
+			console.warn(
+				`[owl-billion-context] terminal escape (stuck ${turn.terminalEscape.stuckEvents} turns at ${Math.round(turn.terminalEscape.usage * 100)}%) — native compaction will take over for this session`,
+			);
 		}
 	} else {
 		flags.terminalEscapeSeen.delete(sid);
@@ -328,7 +366,9 @@ async function transformContext(
 		const sanitized = sanitizeToolPairing(rebuilt);
 		if (sanitized.droppedResults.length > 0) {
 			rebuilt = sanitized.messages;
-			console.warn(`[owl-billion-context] dropped ${sanitized.droppedResults.length} orphaned tool result(s): ${sanitized.droppedResults.join(", ")}`);
+			console.warn(
+				`[owl-billion-context] dropped ${sanitized.droppedResults.length} orphaned tool result(s): ${sanitized.droppedResults.join(", ")}`,
+			);
 		}
 	}
 
@@ -340,7 +380,10 @@ async function transformContext(
 		const adaptiveGrowth =
 			!config.modelContextLimit || config.modelContextLimit <= 0
 				? config.nudge.growthFloor
-				: Math.min(config.nudge.growthCap, Math.max(config.nudge.growthFloor, Math.round(config.modelContextLimit * config.nudge.growthRatio)));
+				: Math.min(
+						config.nudge.growthCap,
+						Math.max(config.nudge.growthFloor, Math.round(config.modelContextLimit * config.nudge.growthRatio)),
+					);
 		const reInjectFloor = Math.max(config.nudge.minGrowthFloor, config.nudge.minGrowthRatio * adaptiveGrowth);
 		let shownAt = runtime.nudgeShownTokensFor(sid, turnKey);
 		if (shownAt !== undefined && tokenCount < shownAt - adaptiveGrowth) {
@@ -352,8 +395,16 @@ async function transformContext(
 		const reInjectReady = shownAt === undefined || tokenCount - shownAt >= reInjectFloor;
 		const alreadyShown = retryCapped || (!emergency && runtime.nudgeShownFor(sid, turnKey) && !reInjectReady);
 		if (!alreadyShown) {
-			const text = nudgeMessageText(turn.nudge, turn.state.blocks.filter((b) => b.active), runtime.prompts());
-			rebuilt.push({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as (typeof rebuilt)[number]);
+			const text = nudgeMessageText(
+				turn.nudge,
+				turn.state.blocks.filter((b) => b.active),
+				runtime.prompts(),
+			);
+			rebuilt.push({
+				role: "user",
+				content: [{ type: "text", text }],
+				timestamp: Date.now(),
+			} as (typeof rebuilt)[number]);
 			if (!emergency) runtime.markNudgeShown(sid, turnKey, tokenCount);
 			// 展示型持久记录（type:"custom" 条目不进模型上下文）。
 			try {

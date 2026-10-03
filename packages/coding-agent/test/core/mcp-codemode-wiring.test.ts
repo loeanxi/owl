@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ToolDefinition } from "../../src/core/extensions/types.ts";
 import { DefaultResourceLoader } from "../../src/core/resource-loader.ts";
 import { createAgentSession } from "../../src/core/sdk.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { builtInExtensions } from "../../src/extensions/index.ts";
-import type { ToolDefinition } from "../../src/core/extensions/types.ts";
 
 /** 模拟 mcp-lite 产出的 codemode 暴露工具：注册即可被 codemode 脚本调用，不声明给模型。 */
 function fakeMcpTool(name: string, exposure: "codemode" | "direct" | "deferred"): ToolDefinition {
@@ -50,7 +50,12 @@ describe("MCP codemode wiring", () => {
 		}
 		const settingsManager = SettingsManager.create(tempDir, agentDir);
 		const sessionManager = SessionManager.create(tempDir, join(agentDir, "sessions"), { id: "mcp-wiring-test" });
-		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager, extensionFactories: [...builtInExtensions] });
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [...builtInExtensions],
+		});
 		await resourceLoader.reload();
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
 		const { session } = await createAgentSession({

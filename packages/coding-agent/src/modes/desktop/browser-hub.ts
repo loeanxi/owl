@@ -9,8 +9,8 @@
  *（与 term.* 同策略：帧只发给订阅连接，页面清单变化才广播）。
  */
 import { randomUUID } from "node:crypto";
-import pw from "playwright-core";
 import type { Browser, CDPSession, FileChooser, Page } from "playwright-core";
+import pw from "playwright-core";
 import { Type } from "typebox";
 import type { ToolDefinition } from "../../core/extensions/index.ts";
 import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
@@ -363,7 +363,6 @@ export class BrowserHub {
 	}
 
 	tools(): ToolDefinition[] {
-		const hub = this;
 		const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 
 		const navigateParams = Type.Object({
@@ -378,14 +377,16 @@ export class BrowserHub {
 			promptSnippet: "browser_navigate: 在内嵌浏览器打开 URL（用户可见）",
 			parameters: navigateParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					let url = params.url.trim();
 					if (!url) return text("缺少 url 参数。");
 					if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
 					await entry.page.goto(url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
-					await hub.refreshPageMeta(entry);
-					return text(`已打开 ${entry.info.url}（标题：${entry.info.title || "(无)"}）。用 browser_snapshot 观察页面。`);
+					await this.refreshPageMeta(entry);
+					return text(
+						`已打开 ${entry.info.url}（标题：${entry.info.title || "(无)"}）。用 browser_snapshot 观察页面。`,
+					);
 				}),
 		};
 
@@ -403,8 +404,8 @@ export class BrowserHub {
 			],
 			parameters: Type.Object({}),
 			execute: async () =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const result = (await entry.page.evaluate(SNAPSHOT_SCRIPT)) as {
 						url: string;
 						title: string;
@@ -429,18 +430,21 @@ export class BrowserHub {
 		const click: ToolDefinition<typeof clickParams> = {
 			name: "browser_click",
 			label: "浏览器：点击元素",
-			description: "点击快照里某个 ref 对应的元素（按元素中心派发真实鼠标事件）。点击后用 browser_snapshot 确认效果。",
+			description:
+				"点击快照里某个 ref 对应的元素（按元素中心派发真实鼠标事件）。点击后用 browser_snapshot 确认效果。",
 			promptSnippet: "browser_click: 按快照 ref 点击内嵌浏览器里的元素",
 			parameters: clickParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const point = await resolveRef(entry, params.ref);
 					if (!point) return text(`ref=${params.ref} 已失效（页面可能刷新过），请重新 browser_snapshot。`);
 					await entry.page.mouse.move(point.x, point.y);
 					await entry.page.mouse.click(point.x, point.y);
 					await sleep(ACTION_SETTLE_MS);
-					return text(`已点击 ref=${params.ref}${point.name ? `（${point.name}）` : ""}。用 browser_snapshot 观察结果。`);
+					return text(
+						`已点击 ref=${params.ref}${point.name ? `（${point.name}）` : ""}。用 browser_snapshot 观察结果。`,
+					);
 				}),
 		};
 
@@ -456,8 +460,8 @@ export class BrowserHub {
 			promptSnippet: "browser_type: 向内嵌浏览器的输入元素输入文本",
 			parameters: typeParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const point = await resolveRef(entry, params.ref);
 					if (!point) return text(`ref=${params.ref} 已失效，请重新 browser_snapshot。`);
 					await entry.page.mouse.click(point.x, point.y);
@@ -483,8 +487,8 @@ export class BrowserHub {
 			promptSnippet: "browser_press_key: 向内嵌浏览器发送按键",
 			parameters: pressKeyParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					await entry.page.keyboard.press(params.key);
 					await sleep(ACTION_SETTLE_MS);
 					return text(`已按下 ${params.key}。`);
@@ -502,11 +506,14 @@ export class BrowserHub {
 			promptSnippet: "browser_scroll: 滚动内嵌浏览器页面",
 			parameters: scrollParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
 					await entry.page.mouse.move(viewport.width / 2, viewport.height / 2);
-					await entry.page.mouse.wheel(0, params.direction === "up" ? -(params.amount ?? 600) : (params.amount ?? 600));
+					await entry.page.mouse.wheel(
+						0,
+						params.direction === "up" ? -(params.amount ?? 600) : (params.amount ?? 600),
+					);
 					return text("已滚动。");
 				}),
 		};
@@ -514,12 +521,13 @@ export class BrowserHub {
 		const screenshot: ToolDefinition = {
 			name: "browser_screenshot",
 			label: "浏览器：截图",
-			description: "对内嵌浏览器当前页面截图并作为图片返回（视觉核对布局/样式时用；日常观察优先 browser_snapshot）。",
+			description:
+				"对内嵌浏览器当前页面截图并作为图片返回（视觉核对布局/样式时用；日常观察优先 browser_snapshot）。",
 			promptSnippet: "browser_screenshot: 截取内嵌浏览器当前页面（返回图片）",
 			parameters: Type.Object({}),
 			execute: async () =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
 					return {
 						content: [
@@ -551,7 +559,9 @@ export class BrowserHub {
 
 		const consoleParams = Type.Object({
 			action: Type.Optional(
-				Type.Union([Type.Literal("list"), Type.Literal("clear")], { description: "list=读取最近消息（默认），clear=清空" }),
+				Type.Union([Type.Literal("list"), Type.Literal("clear")], {
+					description: "list=读取最近消息（默认），clear=清空",
+				}),
 			),
 		});
 		const consoleTool: ToolDefinition<typeof consoleParams> = {
@@ -561,8 +571,8 @@ export class BrowserHub {
 			promptSnippet: "browser_console: 读取内嵌浏览器的 console 输出与报错",
 			parameters: consoleParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					if (params.action === "clear") {
 						entry.console.length = 0;
 						return text("已清空。");
@@ -586,8 +596,8 @@ export class BrowserHub {
 			promptSnippet: "browser_set_file_chooser: 页面弹出文件选择框时提供本机文件路径",
 			parameters: fileChooserParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
-					const entry = await hub.agentPage();
+				this.withAgent(async () => {
+					const entry = await this.agentPage();
 					const pending = entry.pendingChooser;
 					if (!pending) return text("页面当前没有等待中的文件选择框。");
 					if (!pending.multiple && params.paths.length > 1) {
@@ -617,10 +627,10 @@ export class BrowserHub {
 			promptSnippet: "browser_tabs: 管理内嵌浏览器的标签页（列出/新开/切换/关闭）",
 			parameters: tabsParams,
 			execute: async (_id, params) =>
-				hub.withAgent(async () => {
+				this.withAgent(async () => {
 					const action = params.action;
 					if (action === "list") {
-						const pages = hub.listPages();
+						const pages = this.listPages();
 						if (pages.length === 0) return text("（当前没有打开的页面）");
 						return text(
 							pages
@@ -632,23 +642,23 @@ export class BrowserHub {
 						);
 					}
 					if (action === "new") {
-						const entry = await hub.newPage(params.url ? normalizeAgentUrl(params.url) : undefined);
-						hub.activePageId = entry.info.pageId;
-						hub.emitPages();
+						const entry = await this.newPage(params.url ? normalizeAgentUrl(params.url) : undefined);
+						this.activePageId = entry.info.pageId;
+						this.emitPages();
 						return text(`已新开页面 ${entry.info.pageId.slice(0, 8)}：${entry.info.url || "(空白页)"}`);
 					}
 					const wantedId = params.pageId;
 					const entry = wantedId
-						? (hub.pages.get(wantedId) ??
-							[...hub.pages.values()].find((candidate) => candidate.info.pageId.startsWith(wantedId)))
+						? (this.pages.get(wantedId) ??
+							[...this.pages.values()].find((candidate) => candidate.info.pageId.startsWith(wantedId)))
 						: undefined;
 					if (!entry) return text("页面不存在，用 action=list 查看。");
 					if (action === "select") {
-						hub.activePageId = entry.info.pageId;
-						await hub.refreshPageMeta(entry);
+						this.activePageId = entry.info.pageId;
+						await this.refreshPageMeta(entry);
 						return text(`已切换到 ${entry.info.title || entry.info.url}。`);
 					}
-					await hub.closePage(entry.info.pageId);
+					await this.closePage(entry.info.pageId);
 					return text("已关闭。");
 				}),
 		};
@@ -663,10 +673,7 @@ function normalizeAgentUrl(raw: string): string {
 }
 
 /** ref → 可点击坐标（滚动到视口内取中心）。元素丢失返回 null（快照过期）。 */
-async function resolveRef(
-	entry: { page: Page },
-	ref: number,
-): Promise<{ x: number; y: number; name?: string } | null> {
+async function resolveRef(entry: { page: Page }, ref: number): Promise<{ x: number; y: number; name?: string } | null> {
 	const target = (await entry.page.evaluate(
 		`(() => {
 			const el = window.__owlRefs?.map.get(${ref});
@@ -680,7 +687,7 @@ async function resolveRef(
 				y: Math.round(rect.y + Math.min(Math.max(rect.height / 2, 2), rect.height - 2)),
 				name,
 			};
-		})()`
+		})()`,
 	)) as { x: number; y: number; name?: string } | null;
 	return target;
 }
@@ -748,4 +755,3 @@ const SNAPSHOT_SCRIPT = `
 		return { url: location.href, title: document.title, lines };
 	})()
 `;
-

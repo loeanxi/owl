@@ -1,14 +1,14 @@
+import { spawn } from "child_process";
 import { afterAll, describe, expect, it } from "vitest";
 import { createBashToolDefinition } from "../../src/core/tools/bash.ts";
+import { createProcessToolDefinition } from "../../src/core/tools/process.ts";
 import {
 	getSessionProcess,
+	HeadTailBuffer,
 	listSessionProcesses,
 	registerSessionProcess,
 	terminateSessionProcesses,
-	HeadTailBuffer,
 } from "../../src/core/tools/process-store.ts";
-import { createProcessToolDefinition } from "../../src/core/tools/process.ts";
-import { spawn } from "child_process";
 
 const cwd = process.cwd();
 

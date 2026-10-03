@@ -903,14 +903,14 @@ export type DesktopClientRequest =
 	| SessionSetApprovalModeRequest
 	| SessionCompactRequest
 	| SessionStatsRequest
-		| CommandsListRequest
-		| SkillsListRequest
-		| SkillsReadRequest
-		| SkillsSetEnabledRequest
-		| SkillsCreateRequest
-		| SkillsUpdateRequest
-		| SkillsDeleteRequest
-		| SessionListRequest
+	| CommandsListRequest
+	| SkillsListRequest
+	| SkillsReadRequest
+	| SkillsSetEnabledRequest
+	| SkillsCreateRequest
+	| SkillsUpdateRequest
+	| SkillsDeleteRequest
+	| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

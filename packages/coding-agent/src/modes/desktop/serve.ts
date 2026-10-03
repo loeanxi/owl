@@ -52,6 +52,15 @@ import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
+import {
+	createSkill,
+	deleteSkill,
+	listSkills,
+	readSkill,
+	setSkillEnabled,
+	SkillCenterError,
+	updateSkill,
+} from "./skills-center.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
@@ -510,6 +519,32 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return options.agentDir ? join(dirname(options.agentDir), "skills") : getGlobalSkillsDir();
 	}
 
+	/** 项目是否已信任（技能中心项目 tab 的读写门槛；读不出设置就当未信任）。 */
+	async function isProjectTrustedFor(cwd: string): Promise<boolean> {
+		try {
+			const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+				m.SettingsManager.create(cwd, defaultAgentDir()),
+			);
+			return settingsManager.isProjectTrusted();
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * 技能中心的写操作落盘后，让该 cwd 已挂载会话的资源加载器重扫，
+	 * 下一条消息即用新目录（无挂载会话时静默跳过 —— 新会话自然生效）。
+	 */
+	function reloadMountedSkillSessions(cwd: string): void {
+		const resolved = resolve(cwd).toLowerCase();
+		for (const { runtime } of sessions.values()) {
+			if (resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) continue;
+			void runtime.session.resourceLoader.reload().catch((error: unknown) => {
+				onDiagnostic(error instanceof Error ? error.message : String(error));
+			});
+		}
+	}
+
 	async function getListingServices(): Promise<AgentSessionServices> {
 		if (!listServices) {
 			listServices = await createAgentSessionServices({
@@ -655,15 +690,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 与全局 ~/.owl/skills 永远加载；项目级 .owl/skills 需项目已信任。兜底扫描尽量
 			// 对齐，挂载会话后以会话的资源加载器为准。
 			const skillPaths: string[] = [join(agentDir, "skills"), defaultGlobalSkillsDir()];
-			try {
-				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
-					m.SettingsManager.create(resolvedCwd, agentDir),
-				);
-				if (settingsManager.isProjectTrusted()) {
-					skillPaths.push(join(resolvedCwd, ".owl", "skills"));
-				}
-			} catch {
-				// 设置读不出来就当未信任：只带用户级目录
+			if (await isProjectTrustedFor(resolvedCwd)) {
+				skillPaths.push(join(resolvedCwd, ".owl", "skills"));
 			}
 			const skills = loadSkills({ cwd: resolvedCwd, agentDir, skillPaths, includeDefaults: true });
 			for (const skill of skills.skills) {
@@ -1089,6 +1117,54 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "commands.list": {
 				reply(ws, request.id, { ok: true, result: await listSlashCommands(request.cwd) });
+				return;
+			}
+			case "skills.list": {
+				const cwd = request.cwd ?? options.cwd ?? process.cwd();
+				reply(ws, request.id, {
+					ok: true,
+					result: listSkills(cwd, await isProjectTrustedFor(cwd), options.agentDir),
+				});
+				return;
+			}
+			case "skills.read":
+			case "skills.setEnabled":
+			case "skills.create":
+			case "skills.update":
+			case "skills.delete": {
+				const cwd = request.cwd ?? options.cwd ?? process.cwd();
+				try {
+					let result: unknown;
+					switch (request.type) {
+						case "skills.read":
+							result = readSkill(cwd, request, options.agentDir);
+							break;
+						case "skills.setEnabled":
+							setSkillEnabled(cwd, request, options.agentDir);
+							reloadMountedSkillSessions(cwd);
+							break;
+						case "skills.create": {
+							result = createSkill(cwd, request, await isProjectTrustedFor(cwd), options.agentDir);
+							reloadMountedSkillSessions(cwd);
+							break;
+						}
+						case "skills.update":
+							updateSkill(cwd, request, options.agentDir);
+							reloadMountedSkillSessions(cwd);
+							break;
+						case "skills.delete":
+							deleteSkill(cwd, request, options.agentDir);
+							reloadMountedSkillSessions(cwd);
+							break;
+					}
+					reply(ws, request.id, { ok: true, result });
+				} catch (error) {
+					const message =
+						error instanceof SkillCenterError
+							? error.message
+							: `技能操作失败：${error instanceof Error ? error.message : String(error)}`;
+					reply(ws, request.id, { ok: false, error: message });
+				}
 				return;
 			}
 			case "session.resume": {

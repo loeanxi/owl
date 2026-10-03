@@ -3,6 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	extractMemoriesFromPreviousSessions,
+	parseMemoryPayload,
+	parseSessionTranscript,
+	redactSecrets,
+} from "../../src/core/memory/extract.ts";
+import {
 	appendMemoryEntries,
 	clearMemoryEntries,
 	deleteMemoryEntry,
@@ -13,12 +19,6 @@ import {
 	renderMemorySection,
 	resetMemoryStorage,
 } from "../../src/core/memory/store.ts";
-import {
-	extractMemoriesFromPreviousSessions,
-	parseMemoryPayload,
-	parseSessionTranscript,
-	redactSecrets,
-} from "../../src/core/memory/extract.ts";
 import { getDefaultSessionDirPath } from "../../src/core/session-manager.ts";
 
 let tempDir: string;
@@ -41,11 +41,7 @@ function writeSessionFile(name: string, lines: unknown[]): string {
 	const dir = getDefaultSessionDirPath(cwd, agentDir);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, name);
-	writeFileSync(
-		path,
-		lines.map((line) => JSON.stringify(line)).join("\n"),
-		"utf-8",
-	);
+	writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
 	return path;
 }
 
@@ -97,7 +93,13 @@ describe("session transcript parsing", () => {
 			{ type: "model_change", id: "x", parentId: null, timestamp: "", provider: "p", modelId: "m" },
 			sessionLine("user", "帮我把构建脚本改成 pnpm"),
 			sessionLine("assistant", "好的，已修改 package.json。"),
-			{ type: "message", id: "y", parentId: null, timestamp: "", message: { role: "user", timestamp: 1, content: "   " } },
+			{
+				type: "message",
+				id: "y",
+				parentId: null,
+				timestamp: "",
+				message: { role: "user", timestamp: 1, content: "   " },
+			},
 			sessionLine("user", "再跑一下测试"),
 		]);
 		const { userTexts, transcript } = parseSessionTranscript(path);
@@ -107,7 +109,9 @@ describe("session transcript parsing", () => {
 	});
 
 	it("redacts secrets", () => {
-		const text = redactSecrets("key is sk-abcdefghijklmnop123456, github ghp_abcdefghijklmnopqrstuvwxyz123456, mail a@b.com");
+		const text = redactSecrets(
+			"key is sk-abcdefghijklmnop123456, github ghp_abcdefghijklmnopqrstuvwxyz123456, mail a@b.com",
+		);
 		expect(text).not.toContain("sk-abcdefghijklmnop123456");
 		expect(text).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
 		expect(text).not.toContain("a@b.com");
@@ -182,7 +186,12 @@ describe("extraction pipeline", () => {
 					return {
 						role: "assistant",
 						timestamp: Date.now(),
-						content: [{ type: "text", text: '{"memories":[{"content":"该项目使用 pnpm 作为包管理器，测试命令 pnpm test"}]}' }],
+						content: [
+							{
+								type: "text",
+								text: '{"memories":[{"content":"该项目使用 pnpm 作为包管理器，测试命令 pnpm test"}]}',
+							},
+						],
 						stopReason: "stop",
 						usage: {},
 					};

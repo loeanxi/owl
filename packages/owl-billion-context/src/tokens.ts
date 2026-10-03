@@ -3,13 +3,22 @@
  * 去掉了 #561 的跨轮 sent-view 记账（稳态每轮做一次探针重测，正确性优先，
  * 该插件为实验定位、性能优化留待后续）。
  */
-import { defaultCountTokens, type CompressionCore, type CompressionState, type Config, type CoreMessage } from "./kernel.js";
+
 import type { SessionMessageEntry } from "@owl/owl-coding-agent";
+import {
+	type CompressionCore,
+	type CompressionState,
+	type Config,
+	type CoreMessage,
+	defaultCountTokens,
+} from "./kernel.js";
 import { countImageBlocks } from "./messages.js";
 
 type AgentMessage = SessionMessageEntry["message"];
 
-export function collectCoveredMessageIds(state: { blocks: { active: boolean; effectiveMessageIds: string[] }[] }): Set<string> {
+export function collectCoveredMessageIds(state: {
+	blocks: { active: boolean; effectiveMessageIds: string[] }[];
+}): Set<string> {
 	const ids = new Set<string>();
 	for (const b of state.blocks) {
 		if (!b.active) continue;
@@ -41,7 +50,11 @@ export function collectImageTokens(
 	return out;
 }
 
-export function estimateTokens(messages: CoreMessage[], coveredIds?: Set<string>, imageTokensById?: Map<string, number>): number {
+export function estimateTokens(
+	messages: CoreMessage[],
+	coveredIds?: Set<string>,
+	imageTokensById?: Map<string, number>,
+): number {
 	let tokens = 0;
 	for (const m of messages) {
 		if (m.toolName === "compress") continue;
@@ -73,8 +86,14 @@ export function sentViewTokenCount(
 		config.modelContextLimit > 0
 			? Math.max(0, Math.floor(config.truncate.threshold * config.modelContextLimit) - 1)
 			: Number.MAX_SAFE_INTEGER;
-	const probe = core.processTurn({ messages, state: structuredClone(state), config, tokenCount: Math.min(prelim, cap) });
-	const viewTokens = estimateTokens(probe.messages, collectCoveredMessageIds(probe.state), imageTokensById) + systemPromptTokens;
+	const probe = core.processTurn({
+		messages,
+		state: structuredClone(state),
+		config,
+		tokenCount: Math.min(prelim, cap),
+	});
+	const viewTokens =
+		estimateTokens(probe.messages, collectCoveredMessageIds(probe.state), imageTokensById) + systemPromptTokens;
 	return { viewTokens, drifted: Math.abs(viewTokens - prelim) > Math.max(1000, 0.1 * prelim) };
 }
 

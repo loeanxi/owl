@@ -6,28 +6,35 @@
  * 死引用重复熔断、prompt pack 覆盖、symlink 加固的 toFile 白名单（用固定
  * 安全目录代替）。
  */
-import { Type, type Static } from "typebox";
+
 import type { AgentToolResult, ExtensionContext, SessionEntry, ToolDefinition } from "@owl/owl-coding-agent";
+import { type Static, Type } from "typebox";
+import { assertNotAborted } from "./abort.js";
+import { getSystemPromptText } from "./compat.js";
 import {
-	formatRanges,
-	parseBlockIdArg,
-	parseCompressArgs,
-	viableRanges,
-	collectBlockContent,
 	blockDocs,
-	searchBlocks,
 	type CompressionBlock,
 	type CompressionCore,
 	type CompressionState,
 	type CompressParseDiagnostics,
 	type Config,
+	collectBlockContent,
+	formatRanges,
 	type NudgeDecision,
+	parseBlockIdArg,
+	parseCompressArgs,
+	searchBlocks,
+	viableRanges,
 } from "./kernel.js";
-import { assertNotAborted } from "./abort.js";
-import { entriesToCoreMessages } from "./messages.js";
-import { adjustedTokenCount, collectCoveredMessageIds, collectImageTokens, estimateTokens, modelSupportsImages } from "./tokens.js";
-import { getSystemPromptText } from "./compat.js";
+import type { entriesToCoreMessages } from "./messages.js";
 import type { SessionStateStore } from "./state.js";
+import {
+	adjustedTokenCount,
+	collectCoveredMessageIds,
+	collectImageTokens,
+	estimateTokens,
+	modelSupportsImages,
+} from "./tokens.js";
 
 // ---------------------------------------------------------------------------
 // 运行时接口（由 index.ts 提供）
@@ -36,12 +43,22 @@ import type { SessionStateStore } from "./state.js";
 export interface BiliRuntime {
 	core: CompressionCore;
 	store: SessionStateStore;
-	stateFor(ctx: ExtensionContext): Promise<{ state: CompressionState; coreMessages: ReturnType<typeof entriesToCoreMessages>; entries: SessionEntry[] }>;
+	stateFor(
+		ctx: ExtensionContext,
+	): Promise<{
+		state: CompressionState;
+		coreMessages: ReturnType<typeof entriesToCoreMessages>;
+		entries: SessionEntry[];
+	}>;
 	save(state: CompressionState, ctx: ExtensionContext): Promise<void>;
 	configFor(ctx: ExtensionContext): Config;
 	nudgeOf(ctx: ExtensionContext): Promise<NudgeDecision | undefined>;
 	/** 本轮 compress 失败/空转计数；达到上限返回 cappedNow=true。 */
-	noteCompressOutcome(sid: string, turnKey: string, outcome: { isError: boolean; success: boolean; noop: boolean }): { count: number; cappedNow: boolean };
+	noteCompressOutcome(
+		sid: string,
+		turnKey: string,
+		outcome: { isError: boolean; success: boolean; noop: boolean },
+	): { count: number; cappedNow: boolean };
 	compressRetryCappedFor(sid: string, turnKey: string): boolean;
 }
 
@@ -113,17 +130,30 @@ export function isCompressNoopText(text: string): boolean {
 const RangeSpec = Type.Object({
 	startId: Type.String({ description: 'Message ref, e.g. "m00005" (from the acp tag), or a block id "b3".' }),
 	endId: Type.String({ description: "Inclusive end ref. Must be at or after startId." }),
-	summary: Type.String({ description: "Complete technical summary replacing all content in range. Keep only essential details (conclusions, file paths, decisions, exact values, etc.)." }),
-	topic: Type.Optional(Type.String({ description: "Short label (3-5 words) for THIS range. Give each unrelated range its own topic for better quality." })),
+	summary: Type.String({
+		description:
+			"Complete technical summary replacing all content in range. Keep only essential details (conclusions, file paths, decisions, exact values, etc.).",
+	}),
+	topic: Type.Optional(
+		Type.String({
+			description:
+				"Short label (3-5 words) for THIS range. Give each unrelated range its own topic for better quality.",
+		}),
+	),
 });
 
 const CompressParams = Type.Object({
 	topic: Type.Optional(Type.String({ description: "Fallback topic for entries without their own." })),
 	content: Type.Union([
 		Type.Array(RangeSpec),
-		Type.String({ description: "JSON-encoded array of ranges — accepted because non-strict-tool providers sometimes stringify array arguments; parsed automatically." }),
+		Type.String({
+			description:
+				"JSON-encoded array of ranges — accepted because non-strict-tool providers sometimes stringify array arguments; parsed automatically.",
+		}),
 	]),
-	summaryMaxChars: Type.Optional(Type.Number({ description: "Override max summary length (default max: 20000 chars)." })),
+	summaryMaxChars: Type.Optional(
+		Type.Number({ description: "Override max summary length (default max: 20000 chars)." }),
+	),
 });
 
 type CompressArgs = Static<typeof CompressParams>;
@@ -269,8 +299,17 @@ export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof Co
 			const systemPromptText = getSystemPromptText(ctx);
 			const systemPromptTokens = systemPromptText ? estimateCharsTokens(systemPromptText) : 0;
 			const imageTokens = collectImageTokens(entries, modelSupportsImages(ctx.model));
-			const sentTokens = estimateTokens(coreMessages, collectCoveredMessageIds(initialState), imageTokens) + systemPromptTokens;
-			const tokenCount = adjustedTokenCount(runtime.core, coreMessages, initialState, config, sentTokens, imageTokens, systemPromptTokens);
+			const sentTokens =
+				estimateTokens(coreMessages, collectCoveredMessageIds(initialState), imageTokens) + systemPromptTokens;
+			const tokenCount = adjustedTokenCount(
+				runtime.core,
+				coreMessages,
+				initialState,
+				config,
+				sentTokens,
+				imageTokens,
+				systemPromptTokens,
+			);
 
 			// 先跑一轮 processTurn：拿当前 nudge（其 compressibleRanges 就是可压清单，
 			// 同时让 emergency-truncate 在必要时先收紧工具输出）。
@@ -281,7 +320,8 @@ export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof Co
 			const maybeRanges = normalizeRanges(args);
 			if (typeof maybeRanges === "string") throw new Error(maybeRanges);
 			const ranges = maybeRanges;
-			if (ranges.length === 0) return { details: undefined, content: [{ type: "text", text: "No ranges provided." }] };
+			if (ranges.length === 0)
+				return { details: undefined, content: [{ type: "text", text: "No ranges provided." }] };
 
 			if (runtime.compressRetryCappedFor(sid, turnKey)) {
 				return {
@@ -289,7 +329,10 @@ export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof Co
 					content: [
 						{
 							type: "text",
-							text: cappedRejectionText(formatRanges(viableRanges(turn.nudge?.compressibleRanges ?? []), []), MAX_COMPRESS_ATTEMPTS),
+							text: cappedRejectionText(
+								formatRanges(viableRanges(turn.nudge?.compressibleRanges ?? []), []),
+								MAX_COMPRESS_ATTEMPTS,
+							),
 						},
 					],
 				};
@@ -349,8 +392,17 @@ function buildCompressReceipt(
 
 const DecompressParams = Type.Object({
 	blockId: Type.String({ description: 'Block id to restore, e.g. "b5".' }),
-	full: Type.Optional(Type.Boolean({ description: "If true, recurse through all nested blocks to original messages. Default: false (one tier up)." })),
-	inline: Type.Optional(Type.Boolean({ description: "If true, return content inline as this tool's result. Default: false — content is written to a file to avoid context bloat." })),
+	full: Type.Optional(
+		Type.Boolean({
+			description: "If true, recurse through all nested blocks to original messages. Default: false (one tier up).",
+		}),
+	),
+	inline: Type.Optional(
+		Type.Boolean({
+			description:
+				"If true, return content inline as this tool's result. Default: false — content is written to a file to avoid context bloat.",
+		}),
+	),
 });
 
 type DecompressArgs = Static<typeof DecompressParams>;
@@ -375,9 +427,14 @@ export function makeDecompressTool(runtime: BiliRuntime): ToolDefinition<typeof 
 			if (!blockId) throw new Error(`Invalid blockId: ${args.blockId}. Use a block id like "b5" (see acp_status).`);
 			const { state, coreMessages } = await runtime.stateFor(ctx);
 			const block = state.blocks.find((b) => b.blockId === blockId);
-			if (!block) throw new Error(`Block ${blockId} does not exist in this session. Call acp_status for the block list.`);
+			if (!block)
+				throw new Error(`Block ${blockId} does not exist in this session. Call acp_status for the block list.`);
 			const collected = collectBlockContent(state, block, coreMessages, { full: args.full === true });
-			if (collected.count === 0) return { details: undefined, content: [{ type: "text", text: `Block ${blockId} has no restorable content.` }] };
+			if (collected.count === 0)
+				return {
+					details: undefined,
+					content: [{ type: "text", text: `Block ${blockId} has no restorable content.` }],
+				};
 
 			if (args.inline !== true) {
 				const { writeFile, mkdir } = await import("node:fs/promises");
@@ -437,14 +494,25 @@ export function makeSearchTool(runtime: BiliRuntime): ToolDefinition<typeof Sear
 			const hits = searchBlocks(blockDocs(state), args.query, { limit: args.limit ?? 8 });
 			const limit = args.limit ?? 8;
 			if (hits.length === 0) {
-				return { details: undefined, content: [{ type: "text", text: `No matches for "${args.query}" across ${state.blocks.length} block(s).` }] };
+				return {
+					details: undefined,
+					content: [
+						{ type: "text", text: `No matches for "${args.query}" across ${state.blocks.length} block(s).` },
+					],
+				};
 			}
-			const lines = [`Found ${Math.min(hits.length, limit)} match(es) for "${args.query}" (searched ${state.blocks.length} blocks):`];
+			const lines = [
+				`Found ${Math.min(hits.length, limit)} match(es) for "${args.query}" (searched ${state.blocks.length} blocks):`,
+			];
 			for (const hit of hits.slice(0, limit)) {
 				const b = state.blocks.find((blk) => blk.blockId === hit.blockId);
 				if (!b) continue;
 				const summary = (b.summary || "").replace(/\s+/g, " ").slice(0, 200);
-				lines.push("", `${b.blockId} (T${b.tier}${b.topic ? `, "${b.topic}"` : ""}, score ${hit.score.toFixed(2)}) — ${b.effectiveMessageIds.length} msgs`, `  ${summary}${(b.summary || "").length > 200 ? "…" : ""}`);
+				lines.push(
+					"",
+					`${b.blockId} (T${b.tier}${b.topic ? `, "${b.topic}"` : ""}, score ${hit.score.toFixed(2)}) — ${b.effectiveMessageIds.length} msgs`,
+					`  ${summary}${(b.summary || "").length > 200 ? "…" : ""}`,
+				);
 			}
 			return { details: undefined, content: [{ type: "text", text: lines.join("\n") }] };
 		},
@@ -489,7 +557,9 @@ export function makeStatusTool(runtime: BiliRuntime): ToolDefinition<typeof Stat
 					.join(" | ")}`,
 				"",
 				"Compressible ranges (refs as listed):",
-				ranges.length > 0 ? formatRanges(ranges, nudge?.protectedRanges ?? []) : "(none — nothing worth compressing right now)",
+				ranges.length > 0
+					? formatRanges(ranges, nudge?.protectedRanges ?? [])
+					: "(none — nothing worth compressing right now)",
 			];
 			return { details: undefined, content: [{ type: "text", text: lines.join("\n") }] };
 		},

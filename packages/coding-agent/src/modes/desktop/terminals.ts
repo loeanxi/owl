@@ -7,7 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { spawn as ptySpawn, type IPty } from "node-pty";
+import { type IPty, spawn as ptySpawn } from "node-pty";
 
 interface ShellSpec {
 	file: string;
@@ -31,7 +31,10 @@ export class TerminalManager {
 		cwd: string,
 		cols: number,
 		rows: number,
-		hooks: { onData: (termId: string, data: string) => void; onExit: (termId: string, exitCode: number | undefined) => void },
+		hooks: {
+			onData: (termId: string, data: string) => void;
+			onExit: (termId: string, exitCode: number | undefined) => void;
+		},
 	): { termId: string; shell: string } {
 		const shell = pickShell();
 		const termId = `term-${randomUUID()}`;
@@ -57,7 +60,12 @@ export class TerminalManager {
 
 	resize(termId: string, cols: number, rows: number): void {
 		try {
-			this.terms.get(termId)?.resize(Math.min(Math.max(Math.floor(cols) || 80, 2), 500), Math.min(Math.max(Math.floor(rows) || 24, 2), 300));
+			this.terms
+				.get(termId)
+				?.resize(
+					Math.min(Math.max(Math.floor(cols) || 80, 2), 500),
+					Math.min(Math.max(Math.floor(rows) || 24, 2), 300),
+				);
 		} catch {
 			// 行列非法或进程正在退出：忽略，下一轮 resize 会再校
 		}

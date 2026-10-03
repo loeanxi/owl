@@ -95,11 +95,17 @@ async function connectServer(
 		if (exposure === "hidden") continue;
 		counts[exposure === "direct" ? "direct" : exposure === "deferred" ? "deferred" : "codemode"]++;
 		definitions.push(
-			defineMcpTool(name, client, {
-				name: tool.name,
-				description: tool.description ?? "",
-				inputSchema: tool.inputSchema,
-			}, exposure, namespace),
+			defineMcpTool(
+				name,
+				client,
+				{
+					name: tool.name,
+					description: tool.description ?? "",
+					inputSchema: tool.inputSchema,
+				},
+				exposure,
+				namespace,
+			),
 		);
 	}
 	onDiagnostic?.(

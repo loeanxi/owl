@@ -8,17 +8,12 @@
  *
  * 无凭据/无模型时静默跳过；失败只打日志，绝不影响会话。
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "../model-registry.ts";
 import { getDefaultSessionDirPath } from "../session-manager.ts";
-import {
-	appendMemoryEntries,
-	markExtracted,
-	readExtractedMarkers,
-	type OwlMemoryEntry,
-} from "./store.ts";
+import { appendMemoryEntries, markExtracted, type OwlMemoryEntry, readExtractedMarkers } from "./store.ts";
 
 /** 每次会话启动最多抽取几个历史会话，防止冷启动风暴。 */
 const MAX_SESSIONS_PER_RUN = 3;
@@ -60,7 +55,9 @@ export async function extractMemoriesFromPreviousSessions(
 			} catch (error) {
 				// 单个会话失败不阻断批次；标记跳过避免反复踩同一个坑
 				markExtracted(agentDir, [sessionFile]);
-				log?.(`memory extract failed for ${sessionFile}: ${error instanceof Error ? error.message : String(error)}`);
+				log?.(
+					`memory extract failed for ${sessionFile}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			}
 		}
 		return { sessionsProcessed: batch.length, memoriesAdded };

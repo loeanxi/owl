@@ -10,6 +10,7 @@ import { IconLoader, IconPencil, IconSave } from "../icons.tsx";
 export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element {
 	const [impression, setImpression] = useState("");
 	const [loaded, setLoaded] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [savedMsg, setSavedMsg] = useState("");
 	const [error, setError] = useState("");
@@ -22,14 +23,48 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 	}, []);
 
 	useEffect(() => {
-		void (async () => {
-			const response = await client.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" });
-			if (response.ok && response.result) {
+		let cancelled = false;
+		let requestVersion = 0;
+		let initialized = false;
+		setLoaded(false);
+		const load = async (): Promise<void> => {
+			const version = ++requestVersion;
+			setLoading(true);
+			setError("");
+			try {
+				const response = await client.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" });
+				if (cancelled || version !== requestVersion) return;
+				if (!response.ok || !response.result) {
+					setError(response.error ?? "读取用户印象失败");
+					return;
+				}
 				const obj = (response.result.settings ?? {}) as Record<string, unknown>;
-				if (typeof obj.owlUserImpression === "string") setImpression(obj.owlUserImpression);
+				setImpression(typeof obj.owlUserImpression === "string" ? obj.owlUserImpression : "");
+				initialized = true;
+				setLoaded(true);
+			} catch (err) {
+				if (!cancelled && version === requestVersion) {
+					setError(err instanceof Error ? err.message : String(err));
+				}
+			} finally {
+				if (!cancelled && version === requestVersion) setLoading(false);
 			}
-			setLoaded(true);
-		})();
+		};
+		const offStatus = client.onStatus((connected) => {
+			if (cancelled || initialized) return;
+			if (connected) void load();
+			else {
+				requestVersion += 1;
+				setLoading(false);
+				setError("连接已断开，恢复后将自动重新读取");
+			}
+		});
+		void load();
+		return () => {
+			cancelled = true;
+			requestVersion += 1;
+			offStatus();
+		};
 	}, [client]);
 
 	async function save(): Promise<void> {
@@ -51,6 +86,8 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 			} else {
 				setError(response.error ?? "保存失败");
 			}
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setBusy(false);
 		}
@@ -77,7 +114,11 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 			<div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
 				{!loaded ? (
 					<div className="flex h-full items-center justify-center text-owl-faint">
-						<IconLoader size={18} className="animate-spin" />
+						{loading ? (
+							<IconLoader size={18} className="animate-spin" />
+						) : (
+							<p className="px-4 text-center text-xs leading-relaxed">尚未读取用户印象，连接恢复后会自动重试。</p>
+						)}
 					</div>
 				) : (
 					<textarea

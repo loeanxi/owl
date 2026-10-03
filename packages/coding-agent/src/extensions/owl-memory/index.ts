@@ -13,6 +13,7 @@
  */
 import { Type } from "typebox";
 import { getAgentDir } from "../../config.ts";
+import type { ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
 import { extractMemoriesFromPreviousSessions } from "../../core/memory/extract.ts";
 import {
 	appendMemoryEntries,
@@ -21,7 +22,6 @@ import {
 	readMemoryEntries,
 	renderMemorySection,
 } from "../../core/memory/store.ts";
-import type { ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
 
 function memoryEnabled(pi: Parameters<ExtensionFactory>[0]): boolean {
 	return pi.getSettings().owlMemory?.enabled !== false;
@@ -76,7 +76,11 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 					const target = entries[index];
 					if (!target) {
 						pi.sendMessage(
-							{ customType: "owl-memory", content: `没有第 ${forgetMatch[1]} 条记忆（当前共 ${entries.length} 条）。`, display: true },
+							{
+								customType: "owl-memory",
+								content: `没有第 ${forgetMatch[1]} 条记忆（当前共 ${entries.length} 条）。`,
+								display: true,
+							},
 							{ triggerTurn: false },
 						);
 						return;

@@ -93,9 +93,10 @@ function getAliases(): Record<string, string> {
 	try {
 		piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
 	} catch {
-		piTuiEntry = ["./pi-tui-stub.js", "./pi-tui-stub.ts"]
-			.map((relative) => path.resolve(__dirname, relative))
-			.find((candidate) => fs.existsSync(candidate)) ?? path.resolve(__dirname, "./pi-tui-stub.js");
+		piTuiEntry =
+			["./pi-tui-stub.js", "./pi-tui-stub.ts"]
+				.map((relative) => path.resolve(__dirname, relative))
+				.find((candidate) => fs.existsSync(candidate)) ?? path.resolve(__dirname, "./pi-tui-stub.js");
 	}
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old

@@ -1,0 +1,300 @@
+{
+  "errors": [
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    },
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    },
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    },
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    },
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    },
+    {
+      "message": "bridge not connected",
+      "stack": "Error: bridge not connected\n    at http://127.0.0.1:18970/src/bridge/client.ts:107:16\n    at new Promise (<anonymous>)\n    at BridgeClient.request (http://127.0.0.1:18970/src/bridge/client.ts:105:12)\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:20:37\n    at http://127.0.0.1:18970/src/sidebar/tabs/ImpressionTab.tsx:26:7\n    at Object.react_stack_bottom_frame (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:18567:20)\n    at runWithFiberInDEV (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:997:72)\n    at commitHookEffectListMount (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9411:163)\n    at commitHookPassiveMountEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:9465:60)\n    at reconnectPassiveEffects (http://127.0.0.1:18970/node_modules/.vite/deps/react-dom_client.js?v=7192be2e:11273:13)"
+    }
+  ],
+  "report": [
+    {
+      "theme": "dark",
+      "view": "home",
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "常规",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "模型与供应商",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "插件",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "侧边卡片",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "外观",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "提示词",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "跨会话记忆",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "归档",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings.json",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "关于",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "home",
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "常规",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "模型与供应商",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "插件",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "侧边卡片",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "外观",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "提示词",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "跨会话记忆",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "归档",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings.json",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "关于",
+      "titlebarVisible": true,
+      "outer": {
+        "w": 1280,
+        "cw": 1280,
+        "h": 800,
+        "ch": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "home-small",
+      "outer": {
+        "w": 936,
+        "cw": 936,
+        "h": 672,
+        "ch": 672
+      }
+    }
+  ],
+  "requestTypes": [
+    "session.list",
+    "models.list",
+    "session.running",
+    "settings.get",
+    "project.create",
+    "commands.list",
+    "auth.providers",
+    "session.archiveConfig",
+    "memory.list",
+    "systemPrompt.preview",
+    "fs.tree",
+    "watch.set",
+    "term.create",
+    "term.kill",
+    "session.resume",
+    "session.stats"
+  ],
+  "realBackendAccess": false,
+  "protectedComponentsNotReplaced": true
+}
