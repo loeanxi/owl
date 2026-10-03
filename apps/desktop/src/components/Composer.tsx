@@ -270,9 +270,9 @@ export function Composer({
 
 	return (
 		<div className="bg-owl-bg px-4 pt-2 pb-4">
-			<div className="mx-auto max-w-3xl rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70">
-				{/* 环境行（Claude 同款）：运行位置 · 项目 · 添加项目 */}
-				<div className="flex items-center gap-1 px-2.5 pt-2.5">
+			<div className="mx-auto max-w-3xl">
+				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
+				<div className="flex items-center gap-1.5 px-1 pb-2">
 					<Menu
 						triggerClassName={envChipClass}
 						triggerTitle={connected ? "运行位置：本地（已连接）" : "运行位置：本地（连接断开）"}
@@ -374,21 +374,59 @@ export function Composer({
 						<FolderPlusIcon />
 					</button>
 				</div>
-				<textarea
-					className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-2.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
-					placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-					value={value}
-					rows={2}
-					onChange={(event) => setValue(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							submit();
-						}
-					}}
-				/>
-				{/* 选择行（精简 ghost）：审批模式居左，思考 / 模型 / 上下文 / 发送居右 */}
-				<div className="flex items-center gap-1 px-2 pt-1 pb-2">
+				{/* 输入框本体：Claude 同款纯净单盒，只留输入与发送；吉祥物蹲在右上角沿口 */}
+				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70">
+					<img
+						src="/owl.svg"
+						alt=""
+						aria-hidden="true"
+						draggable={false}
+						className="pointer-events-none absolute -top-5 right-3 z-10 h-8 w-8 select-none"
+					/>
+					<textarea
+						className="max-h-48 min-h-[52px] w-full resize-y bg-transparent px-4 pt-3 text-sm text-owl-text outline-none placeholder:text-owl-faint"
+						placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+						value={value}
+						rows={2}
+						onChange={(event) => setValue(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								submit();
+							}
+						}}
+					/>
+					<div className="flex items-center justify-end px-2 pb-2">
+						{running ? (
+							<button
+								type="button"
+								aria-label="中止"
+								title="中止"
+								className="flex h-8 w-8 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
+								onClick={onAbort}
+							>
+								<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
+									<rect x="2" y="2" width="8" height="8" rx="1" />
+								</svg>
+							</button>
+						) : (
+							<button
+								type="button"
+								aria-label="发送"
+								title="发送"
+								className="flex h-8 w-8 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+								disabled={disabled}
+								onClick={submit}
+							>
+								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
+									<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+								</svg>
+							</button>
+						)}
+					</div>
+				</div>
+				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
+				<div className="flex items-center gap-1 px-1 pt-2">
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.title}
@@ -524,32 +562,6 @@ export function Composer({
 							<p className="px-3 py-2 text-xs text-owl-faint">会话开始后可查看上下文用量</p>
 						)}
 					</Menu>
-					{running ? (
-						<button
-							type="button"
-							aria-label="中止"
-							title="中止"
-							className="flex h-9 w-9 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
-							onClick={onAbort}
-						>
-							<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-								<rect x="2" y="2" width="8" height="8" rx="1" />
-							</svg>
-						</button>
-					) : (
-						<button
-							type="button"
-							aria-label="发送"
-							title="发送"
-							className="flex h-9 w-9 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-							disabled={disabled}
-							onClick={submit}
-						>
-							<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
-								<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
-							</svg>
-						</button>
-					)}
 				</div>
 			</div>
 			{showNewProject && (
