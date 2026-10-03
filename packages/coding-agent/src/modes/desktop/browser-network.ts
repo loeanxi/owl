@@ -134,7 +134,11 @@ function redactedJson(value: unknown, depth = 0): unknown {
 	);
 }
 
-function bodyResult(state: BrowserNetworkBody["state"], sourceBytes: number | null, reason?: string): BrowserNetworkBody {
+function bodyResult(
+	state: BrowserNetworkBody["state"],
+	sourceBytes: number | null,
+	reason?: string,
+): BrowserNetworkBody {
 	return { state, truncated: false, sourceBytes, ...(reason ? { reason } : {}) };
 }
 
@@ -150,7 +154,10 @@ function formatBody(buffer: Buffer, contentType: string, maxChars: number): Brow
 		} else if (/application\/x-www-form-urlencoded/i.test(contentType)) {
 			const parameters = new URLSearchParams(source);
 			text = [...parameters.entries()]
-				.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(secretKey(key) ? REDACTED : safeText(value))}`)
+				.map(
+					([key, value]) =>
+						`${encodeURIComponent(key)}=${encodeURIComponent(secretKey(key) ? REDACTED : safeText(value))}`,
+				)
 				.join("&");
 		} else {
 			text = safeText(source);
@@ -158,7 +165,12 @@ function formatBody(buffer: Buffer, contentType: string, maxChars: number): Brow
 	} catch {
 		return bodyResult("unsupported", buffer.length, "body_cannot_be_safely_parsed");
 	}
-	return { state: "available", text: text.slice(0, maxChars), truncated: text.length > maxChars, sourceBytes: buffer.length };
+	return {
+		state: "available",
+		text: text.slice(0, maxChars),
+		truncated: text.length > maxChars,
+		sourceBytes: buffer.length,
+	};
 }
 
 function bodyType(headers: BrowserNetworkHeaders): { type: string; declaredBytes: number | null } {
@@ -346,7 +358,8 @@ export class BrowserNetworkJournal {
 			limits: {
 				maxBodyChars,
 				maxBodyBytes: MAX_BODY_BYTES,
-				bodyReadMode: "Playwright materializes each requested body; unknown or decoded source sizes are checked after reading",
+				bodyReadMode:
+					"Playwright materializes each requested body; unknown or decoded source sizes are checked after reading",
 				redaction: "known_secret_fields",
 			},
 		};

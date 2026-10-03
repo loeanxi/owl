@@ -1,0 +1,6 @@
+.owl-plugin-viewer { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.owl-plugin-viewer-toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--color-owl-border); color: var(--color-owl-muted); font-size: 12px; }
+.owl-plugin-viewer-toolbar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-plugin-viewer-toolbar button { border: 1px solid var(--color-owl-border); border-radius: 5px; padding: 3px 8px; color: var(--color-owl-text); }
+.owl-plugin-viewer-message { padding: 14px; color: var(--color-owl-muted); font-size: 12px; overflow-wrap: anywhere; }
+.owl-plugin-viewer iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: white; }

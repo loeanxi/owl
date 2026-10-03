@@ -77,7 +77,7 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 
 	it("fills by snapshot ref and appends at the end with trusted input events", async () => {
 		expect(await interaction.fill({ ref: 1 }, "new")).toEqual({ verified: true, characters: 3, redacted: false });
-		await page.locator("#text").evaluate(`el => el.setSelectionRange(0, 0)`);
+		await page.evaluate(`document.querySelector('#text').setSelectionRange(0, 0)`);
 		expect(await interaction.fill({ ref: 1 }, " suffix", { append: true })).toEqual({
 			verified: true,
 			characters: 10,
@@ -103,7 +103,7 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 		const result = await interaction.fill({ selector: "#password" }, secret);
 		expect(result).toEqual({ verified: true, characters: secret.length, redacted: true });
 		expect(JSON.stringify(result)).not.toContain(secret);
-		await page.locator("#password").evaluate(`el => el.style.display='none'`);
+		await page.evaluate(`document.querySelector('#password').style.display='none'`);
 		const error = await interaction.fill({ selector: "#password" }, secret).catch((reason: unknown) => reason);
 		expect(String(error)).not.toContain(secret);
 		expect(String(error)).toContain("输入失败");
@@ -119,7 +119,7 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 
 	it("detects rejected or shortened input through readback", async () => {
 		await expect(interaction.fill({ selector: "#short" }, "long value")).rejects.toThrow("读回校验失败");
-		await page.locator("#text").evaluate(`el => el.addEventListener('input',()=>{el.value='reset'})`);
+		await page.evaluate(`document.querySelector('#text').addEventListener('input',event=>{event.target.value='reset'})`);
 		await expect(interaction.fill({ selector: "#text" }, "expected")).rejects.toThrow("读回校验失败");
 	});
 
@@ -130,7 +130,7 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 		await expect(interaction.click({ selector: ".duplicate" })).rejects.toThrow("2 个元素");
 		await expect(interaction.click({ selector: "#missing" })).rejects.toThrow("未匹配");
 		await expect(interaction.click({ selector: "[" })).rejects.toThrow("无法解析");
-		await page.locator("#text").evaluate(`el => {el.outerHTML='<input id="text" value="replacement">'}`);
+		await page.evaluate(`document.querySelector('#text').outerHTML='<input id="text" value="replacement">'`);
 		await expect(interaction.fill({ ref: 1 }, "wrong")).rejects.toThrow("已失效");
 		expect(await page.locator("#text").inputValue()).toBe("replacement");
 	});
@@ -181,10 +181,10 @@ describe.skipIf(!browserPath)("desktop browser reliable interactions", () => {
 
 	it("scrolls the target container and brings a deep element into view", async () => {
 		await interaction.scroll({ selector: "#scroller" }, { deltaY: 300 });
-		await expect.poll(() => page.locator("#scroller").evaluate<number>(`el => el.scrollTop`)).toBeGreaterThan(0);
+		await expect.poll(() => page.evaluate<number>(`document.querySelector('#scroller').scrollTop`)).toBeGreaterThan(0);
 		expect(await page.evaluate(`window.scrollY`)).toBe(0);
 		await interaction.scrollIntoView({ selector: "#deep" });
-		expect(await page.locator("#scroller").evaluate<number>(`el => el.scrollTop`)).toBeGreaterThan(600);
+		expect(await page.evaluate<number>(`document.querySelector('#scroller').scrollTop`)).toBeGreaterThan(600);
 		expect(await page.evaluate(`window.events.some(e=>e.type==='wheel' && e.trusted)`)).toBe(true);
 		await expect(interaction.scroll({ selector: "#scroller" }, { deltaY: Number.NaN })).rejects.toThrow("有限数字");
 	});

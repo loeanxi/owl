@@ -87,10 +87,9 @@ function validateManifest(manifest, target) {
 	if (
 		manifest.name !== MANIFEST_NAME ||
 		manifest.private !== true ||
+		manifest.type !== "module" ||
 		!matchesDependencies(manifest.dependencies) ||
-		manifest.scripts ||
-		manifest.devDependencies ||
-		manifest.workspaces
+		Object.keys(manifest).some((key) => !["name", "private", "type", "dependencies"].includes(key))
 	) {
 		throw new Error(`Refusing to modify an unmanaged or differently configured runtime package: ${target}`);
 	}
@@ -200,8 +199,9 @@ async function runNpm(target, env) {
 }
 
 export async function installRuntime(options = {}) {
-	const nodeVersion = (options.nodeVersion ?? process.versions.node).split(".").map(Number);
-	if (nodeVersion[0] < 22 || (nodeVersion[0] === 22 && nodeVersion[1] < 19)) {
+	const versionText = options.nodeVersion ?? process.versions.node;
+	const nodeVersion = versionText.split(".").map(Number);
+	if (!/^\d+\.\d+\.\d+$/u.test(versionText) || nodeVersion[0] < 22 || (nodeVersion[0] === 22 && nodeVersion[1] < 19)) {
 		throw new Error("The Univer runtime requires Node.js >=22.19.0.");
 	}
 	const env = options.env ?? process.env;

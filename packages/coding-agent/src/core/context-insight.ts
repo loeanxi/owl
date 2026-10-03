@@ -97,6 +97,13 @@ export const EMPTY_CONTEXT_INSIGHT: Pick<ContextInsightState, "requests" | "even
 
 const IMAGE_CHARS = 4800;
 
+/**
+ * 系统提示的基础 sections（buildSystemPromptSections 的固定产出）。owl 的系统
+ * 提示几乎整体活在命名 sections 里（content 通常为空串），这些归「系统提示」；
+ * 其余命名 sections（如 owl_memory 等扩展注入）归「注入内容」。
+ */
+const BASE_SYSTEM_SECTIONS = new Set(["preamble", "tools", "rules", "docs", "addendum", "project_context", "skills", "cwd"]);
+
 type ContentBlock = { type: string; text?: string; thinking?: string; name?: string; arguments?: unknown };
 
 function contentBlocks(content: unknown): ContentBlock[] {
@@ -149,8 +156,17 @@ export function classifyRequestMessages(messages: readonly AgentMessage[]): Cont
 			case "system": {
 				const { base, sections } = systemMessageChars(message);
 				if (!leadingSeen) {
-					composition.system += toTokens(base);
-					composition.inject += toTokens(sections);
+					let baseSections = 0;
+					let injectedSections = 0;
+					if (message.sections && typeof message.sections === "object") {
+						for (const [name, value] of Object.entries(message.sections as Record<string, unknown>)) {
+							if (typeof value !== "string") continue;
+							if (BASE_SYSTEM_SECTIONS.has(name)) baseSections += value.length;
+							else injectedSections += value.length;
+						}
+					}
+					composition.system += toTokens(base + baseSections);
+					composition.inject += toTokens(injectedSections);
 					leadingSeen = true;
 				} else {
 					composition.inject += toTokens(base + sections);

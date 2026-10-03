@@ -15,16 +15,20 @@ const cwd0 = "D:\\tmp\\caps";
 const emptyComposition = () => ({ system: 1, inject: 0, user: 0, assistant: 0, toolResult: 0, toolSchemas: 0, other: 0 });
 
 describe("classifyRequestMessages", () => {
-	it("leading system 拆 system/inject，后续 system 整体记 inject", () => {
+	it("leading system 拆 system/inject：基础 sections 归 system，扩展注入归 inject", () => {
 		const composition = classifyRequestMessages([
 			{
 				role: "system",
 				content: "base prompt", // 11 chars → 3
-				sections: { owl_memory: "memory section", gone: null }, // 14 chars → 4
+				sections: {
+					preamble: "12345678", // 基础 section：8 chars → 2
+					owl_memory: "memory section", // 扩展注入：14 chars → 4
+					gone: null,
+				},
 			},
 			{ role: "system", content: "additional instructions" }, // 23 chars → 6
 		] as any);
-		expect(composition.system).toBe(3);
+		expect(composition.system).toBe(3 + 2);
 		expect(composition.inject).toBe(4 + 6);
 		expect(composition.user).toBe(0);
 	});

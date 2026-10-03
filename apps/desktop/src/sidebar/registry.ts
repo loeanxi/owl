@@ -41,6 +41,8 @@ export interface TabDefinition {
 	component: React.ComponentType<TabComponentProps>;
 	/** 文件 viewer 的扩展名匹配（image / editor 类 tab 声明）。 */
 	exts?: readonly string[];
+	/** Bridge plugin which resolves the viewer URL; absent on built-in tabs. */
+	workspaceViewerId?: string;
 }
 
 interface RegistrySnapshot {
@@ -90,10 +92,20 @@ export function useTabRegistry(): RegistrySnapshot {
 
 /** 文件扩展名 → viewer kind（未命中返回 editor 兜底）。 */
 export function viewerKindFor(path: string): string {
+	return fileViewerForPath(path)?.kind ?? "editor";
+}
+
+export function getTabDefinition(kind: string): TabDefinition | undefined {
+	return snapshot.byKind.get(kind);
+}
+
+/** Explicit registrations, without the editor fallback. */
+export function fileViewerForPath(path: string): TabDefinition | undefined {
 	const name = path.split("/").pop() ?? path;
 	const dot = name.lastIndexOf(".");
 	const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-	return snapshot.byExt.get(ext) ?? "editor";
+	const kind = snapshot.byExt.get(ext);
+	return kind ? snapshot.byKind.get(kind) : undefined;
 }
 
 /** 图片类扩展名（决定双击行为与图标着色）。 */

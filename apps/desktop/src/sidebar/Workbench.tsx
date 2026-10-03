@@ -12,12 +12,14 @@ import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
-import { IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
+import { IconFile, IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
 import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
 import { useTabRegistry, type TabComponentProps } from "./registry.ts";
 import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
 import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
 import { fileUrlOf } from "./api.ts";
+import { attachPluginViewers } from "./plugin-viewers.ts";
+import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
 import "./workbench-design.css";
 
 const WIDTH_KEY = "owl.workbench.width";
@@ -84,6 +86,8 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const gitTimer = useRef<number | undefined>(undefined);
 
 	registerBuiltins();
+
+	useEffect(() => attachPluginViewers(client, store, PluginViewerTab, (size) => <IconFile size={size ?? 14} />), [client, store]);
 
 	// -- 拖拽分屏：指针自绘（leaf rect 命中 → 25% 边缘分区） -------------------
 	const [dragTab, setDragTab] = useState<DragState | null>(null);

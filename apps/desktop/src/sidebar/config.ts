@@ -7,7 +7,7 @@
  * 模块级单例与 registry.ts 同款取舍（桌面端只有一个工作台实例）。
  */
 import { useSyncExternalStore } from "react";
-import { isImagePath, viewerKindFor } from "./registry.ts";
+import { fileViewerForPath, isImagePath, viewerKindFor } from "./registry.ts";
 
 export interface SidebarConfig {
 	/** 停用的侧边卡片（工作台 tab kind：files/changes/terminal/browser/tasks/impression/sidechat）。 */
@@ -71,6 +71,10 @@ export function isTabKindEnabled(kind: string, cfg: SidebarConfig = current): bo
  * 调用方交给系统默认程序打开。
  */
 export function viewerKindForPath(path: string, cfg: SidebarConfig = current): string | undefined {
+	const plugin = fileViewerForPath(path);
+	if (plugin?.workspaceViewerId) {
+		return cfg.disabledViewers.includes(plugin.kind) || cfg.disabledTabs.includes(plugin.kind) ? undefined : plugin.kind;
+	}
 	// Binary documents belong in the system's document app, never the text editor.
 	if (/\.(?:pdf|docx?|xlsx?|xlsm|pptx?|pptm|odt|ods|odp|rtf|zip|7z)$/i.test(path)) return undefined;
 	let kind = isImagePath(path) ? "image" : viewerKindFor(path);

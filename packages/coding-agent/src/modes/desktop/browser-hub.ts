@@ -9,11 +9,14 @@
  *（与 term.* 同策略：帧只发给订阅连接，页面清单变化才广播）。
  */
 import { randomUUID } from "node:crypto";
-import type { Browser, CDPSession, FileChooser, Page } from "playwright-core";
+import type { Browser, BrowserContext, CDPSession, FileChooser, Page } from "playwright-core";
 import pw from "playwright-core";
 import { Type } from "typebox";
 import type { ToolDefinition } from "../../core/extensions/index.ts";
 import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
+import { BrowserInteraction, initializeBrowserInteraction } from "./browser-interaction.ts";
+import { BrowserNetworkJournal } from "./browser-network.ts";
+import { BrowserOperationQueue } from "./browser-queue.ts";
 
 /** 新页面默认视口（ZCode IAB 同款默认档）。 */
 const DEFAULT_VIEWPORT = { width: 1280, height: 860 };
@@ -28,7 +31,7 @@ const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setT
 
 export interface BrowserHubCallbacks {
 	/** 页面清单变化（导航/开关页/标题变化）。origin 标记触发方（agent 工具 or UI）。 */
-	onPagesChanged: (pages: IabPageInfo[], origin: "agent" | "ui") => void;
+	onPagesChanged: (pages: IabPageInfo[], origin: "agent" | "ui", originSessionId?: string) => void;
 	/** 一帧 screencast（PNG base64，文字锐利）。 */
 	onFrame: (pageId: string, data: string, width: number, height: number) => void;
 	/** 页面弹出了文件选择框（无头浏览器弹不出系统对话框，需要 UI 提示 / agent 应答）。 */
@@ -42,6 +45,10 @@ interface PageEntry {
 	info: IabPageInfo;
 	/** 页面 console/未捕获报错的环形缓冲（browser_console 读取）。 */
 	console: string[];
+	interaction: BrowserInteraction;
+	network: BrowserNetworkJournal;
+	/** Next ref survives navigation so a stale number never targets the new document. */
+	nextRefSeed: number;
 	/** 页面当前等待应答的文件选择框（如有）。 */
 	pendingChooser: { chooser: FileChooser; multiple: boolean } | null;
 }
@@ -49,7 +56,8 @@ interface PageEntry {
 /** 注入页面的 ref 记账器：元素 ↔ 数字 ref，双击快照里的 ref 即可定位回元素。 */
 const REF_SETUP = `
 	(() => {
-		if (!window.__owlRefs) window.__owlRefs = { next: 1, map: new Map() };
+		if (!window.__owlRefs) window.__owlRefs = { next: __OWL_REF_SEED__, map: new Map() };
+		window.__owlRefs.next = Math.max(window.__owlRefs.next, __OWL_REF_SEED__);
 		return window.__owlRefs;
 	})()
 `;
@@ -59,10 +67,9 @@ export class BrowserHub {
 	private browser: Browser | null = null;
 	private launchPromise: Promise<Browser> | null = null;
 	private pages = new Map<string, PageEntry>();
-	/** agent 工具当前作用的目标页；UI 打开/绑定不改变它。 */
-	private activePageId: string | undefined;
-	/** 正在执行的触发方：工具执行期间置 "agent"，事件回调用它标记 origin。 */
-	private origin: "agent" | "ui" = "ui";
+	private readonly activePages = new Map<string, string>();
+	private readonly contexts = new Map<string, BrowserContext>();
+	private readonly operations = new BrowserOperationQueue();
 
 	constructor(callbacks: BrowserHubCallbacks) {
 		this.callbacks = callbacks;
@@ -78,11 +85,16 @@ export class BrowserHub {
 				// 浏览器进程意外退出（崩溃/被杀）：清账，下次使用时重新拉起
 				this.browser = null;
 				this.launchPromise = null;
-				for (const pageId of [...this.pages.keys()]) this.pages.delete(pageId);
-				this.activePageId = undefined;
+				for (const entry of this.pages.values()) entry.network.dispose();
+				this.pages.clear();
+				this.activePages.clear();
+				this.contexts.clear();
 				this.emitPages();
 			});
 			return browser;
+		}).catch((error: unknown) => {
+			this.launchPromise = null;
+			throw error;
 		});
 		return this.launchPromise;
 	}
@@ -119,10 +131,13 @@ export class BrowserHub {
 	}
 
 	async dispose(): Promise<void> {
-		for (const { cdp } of this.pages.values()) {
+		for (const { cdp, network } of this.pages.values()) {
+			network.dispose();
 			await cdp.detach().catch(() => {});
 		}
 		this.pages.clear();
+		this.activePages.clear();
+		this.contexts.clear();
 		await this.browser?.close().catch(() => {});
 		this.browser = null;
 		this.launchPromise = null;
@@ -130,9 +145,14 @@ export class BrowserHub {
 
 	// -- 页面管理 -------------------------------------------------------------
 
-	private async newPage(url?: string): Promise<PageEntry> {
+	private async newPage(url?: string, sessionId?: string): Promise<PageEntry> {
+		await initializeBrowserInteraction();
 		const browser = await this.ensureBrowser();
-		const context = browser.contexts()[0] ?? (await browser.newContext());
+		let context = sessionId ? this.contexts.get(sessionId) : undefined;
+		if (!context) {
+			context = sessionId ? await browser.newContext() : browser.contexts()[0] ?? (await browser.newContext());
+			if (sessionId) this.contexts.set(sessionId, context);
+		}
 		const page = await context.newPage();
 		await page.setViewportSize(DEFAULT_VIEWPORT).catch(() => {});
 		const pageId = randomUUID();
@@ -140,14 +160,23 @@ export class BrowserHub {
 		const entry: PageEntry = {
 			page,
 			cdp,
-			info: { pageId, url: "", title: "", viewport: { ...DEFAULT_VIEWPORT }, active: false },
+			info: { pageId, sessionId, url: "", title: "", viewport: { ...DEFAULT_VIEWPORT }, active: false },
 			console: [],
+			interaction: new BrowserInteraction(page),
+			network: new BrowserNetworkJournal(page),
+			nextRefSeed: 1,
 			pendingChooser: null,
 		};
 		this.pages.set(pageId, entry);
 		page.on("close", () => {
+			entry.network.dispose();
 			this.pages.delete(pageId);
-			if (this.activePageId === pageId) this.activePageId = [...this.pages.keys()][0];
+			const owner = entry.info.sessionId;
+			if (owner && this.activePages.get(owner) === pageId) {
+				const next = [...this.pages.values()].find((candidate) => candidate.info.sessionId === owner);
+				if (next) this.activePages.set(owner, next.info.pageId);
+				else this.activePages.delete(owner);
+			}
 			this.emitPages();
 		});
 		page.on("domcontentloaded", () => this.refreshPageMeta(entry));
@@ -191,74 +220,96 @@ export class BrowserHub {
 		this.emitPages();
 	}
 
-	private emitPages(): void {
-		const origin = this.origin;
-		this.callbacks.onPagesChanged(this.listPages(), origin);
+	private emitPages(origin: "agent" | "ui" = "ui", originSessionId?: string): void {
+		this.callbacks.onPagesChanged(this.listPages(), origin, originSessionId);
 	}
 
-	listPages(): IabPageInfo[] {
-		return [...this.pages.values()].map(({ info }) => ({
+	listPages(sessionId?: string): IabPageInfo[] {
+		return [...this.pages.values()].filter(({ info }) => sessionId === undefined || info.sessionId === sessionId).map(({ info }) => ({
 			...info,
-			active: info.pageId === this.activePageId,
+			active: info.sessionId !== undefined && this.activePages.get(info.sessionId) === info.pageId,
 		}));
 	}
 
+	private claimPage(entry: PageEntry, sessionId: string): void {
+		if (entry.info.sessionId !== undefined && entry.info.sessionId !== sessionId) {
+			throw new Error("这个浏览器页面属于其他聊天，当前 agent 不能操作它");
+		}
+		entry.info.sessionId = sessionId;
+		this.activePages.set(sessionId, entry.info.pageId);
+	}
+
+	async disposeSession(sessionId: string): Promise<void> {
+		await this.operations.run(`session:${sessionId}`, async () => {
+			for (const entry of [...this.pages.values()]) {
+				if (entry.info.sessionId === sessionId) await entry.page.close();
+			}
+			this.activePages.delete(sessionId);
+			const context = this.contexts.get(sessionId);
+			this.contexts.delete(sessionId);
+			await context?.close();
+			this.emitPages();
+		});
+	}
+
 	/** 绑定/打开：pageId 优先（只绑定），url 其次（按 URL 复用或新建），双给 = 导航既有页。 */
-	async open(options: { pageId?: string; url?: string }): Promise<IabPageInfo> {
-		this.origin = "ui";
-		try {
+	async open(options: { pageId?: string; url?: string; sessionId?: string }): Promise<IabPageInfo> {
+		const owner = options.sessionId ?? (options.pageId ? this.pages.get(options.pageId)?.info.sessionId : undefined);
+		return this.operations.run(owner ? `session:${owner}` : "ui:open", async () => {
 			if (options.pageId) {
 				const found = this.pages.get(options.pageId);
 				if (!found) throw new Error(`页面不存在或已关闭: ${options.pageId}`);
+				if (options.sessionId) this.claimPage(found, options.sessionId);
 				if (options.url && options.url !== found.info.url) {
 					await found.page.goto(options.url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
 				}
 				await this.refreshPageMeta(found);
-				return { ...found.info, active: found.info.pageId === this.activePageId };
+				this.emitPages();
+				return this.listPages().find((info) => info.pageId === found.info.pageId)!;
 			}
 			if (options.url) {
-				const existing = [...this.pages.values()].find(({ info }) => info.url === options.url);
-				if (existing) return { ...existing.info, active: existing.info.pageId === this.activePageId };
+				const existing = [...this.pages.values()].find(({ info }) => info.url === options.url && info.sessionId === options.sessionId);
+				if (existing) {
+					if (options.sessionId) this.claimPage(existing, options.sessionId);
+					this.emitPages();
+					return this.listPages().find((info) => info.pageId === existing.info.pageId)!;
+				}
 			}
-			const entry = await this.newPage(options.url);
+			const entry = await this.newPage(options.url, options.sessionId);
+			if (options.sessionId) this.activePages.set(options.sessionId, entry.info.pageId);
 			this.emitPages();
-			return { ...entry.info, active: entry.info.pageId === this.activePageId };
-		} finally {
-			this.origin = "ui";
-		}
+			return this.listPages().find((info) => info.pageId === entry.info.pageId)!;
+		});
 	}
 
 	async nav(pageId: string, action: "back" | "forward" | "reload"): Promise<void> {
-		const entry = this.requirePage(pageId);
-		this.origin = "ui";
-		try {
-			if (action === "back") await entry.page.goBack({ waitUntil: "load", timeout: 15_000 }).catch(() => {});
+		await this.withPage(pageId, async (entry) => {
+			if (action === "back") await entry.page.goBack({ waitUntil: "load", timeout: 15_000 });
 			else if (action === "forward")
-				await entry.page.goForward({ waitUntil: "load", timeout: 15_000 }).catch(() => {});
-			else await entry.page.reload({ waitUntil: "load", timeout: 20_000 }).catch(() => {});
+				await entry.page.goForward({ waitUntil: "load", timeout: 15_000 });
+			else await entry.page.reload({ waitUntil: "load", timeout: 20_000 });
 			await this.refreshPageMeta(entry);
-		} finally {
-			this.origin = "ui";
-		}
+		});
 	}
 
 	async setViewport(pageId: string, width: number, height: number): Promise<void> {
-		const entry = this.requirePage(pageId);
-		const clamped = {
-			width: Math.min(Math.max(Math.round(width), 320), 3840),
-			height: Math.min(Math.max(Math.round(height), 320), 2160),
-		};
-		await entry.page.setViewportSize(clamped).catch(() => {});
-		entry.info.viewport = clamped;
-		// 视口变化后 screencast 会自动出新一帧；这里补一次全量截图避免拼接缝
-		await this.captureFrame(pageId);
-		this.emitPages();
+		if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error("视口宽高必须是有限数字");
+		await this.withPage(pageId, async (entry) => {
+			const clamped = {
+				width: Math.min(Math.max(Math.round(width), 320), 3840),
+				height: Math.min(Math.max(Math.round(height), 320), 2160),
+			};
+			await entry.page.setViewportSize(clamped);
+			entry.info.viewport = clamped;
+			await this.captureFrame(pageId);
+			this.emitPages();
+		});
 	}
 
 	async closePage(pageId: string): Promise<void> {
 		const entry = this.pages.get(pageId);
 		if (!entry) return;
-		await entry.page.close().catch(() => {}); // close 事件统一清账与广播
+		await this.withPage(pageId, (current) => current.page.close());
 	}
 
 	/** attach 时先推一帧全量截图，screencast 只管后续增量。截图可能因页面
@@ -280,7 +331,7 @@ export class BrowserHub {
 
 	/** 应答等待中的文件选择框（agent 工具与 iab.fileResponse 共用）。 */
 	async fileResponse(pageId: string, paths: string[]): Promise<void> {
-		const entry = this.requirePage(pageId);
+		await this.withPage(pageId, async (entry) => {
 		const pending = entry.pendingChooser;
 		if (!pending) throw new Error("页面当前没有等待中的文件选择框");
 		const clean = paths.map((path) => path.trim()).filter((path) => path !== "");
@@ -288,13 +339,11 @@ export class BrowserHub {
 		if (!pending.multiple && clean.length > 1) throw new Error("该选择框只允许单选，paths 只能提供一个文件");
 		await pending.chooser.setFiles(clean);
 		entry.pendingChooser = null;
+		});
 	}
 
 	async input(pageId: string, payload: IabInputPayload): Promise<void> {
-		const entry = this.requirePage(pageId);
-		const { page } = entry;
-		this.origin = "ui";
-		try {
+		await this.withPage(pageId, async ({ page }) => {
 			if (payload.kind === "mouse") {
 				const button = payload.button ?? "left";
 				// 视口/显示缩放变化后，按下与抬起也要使用这次请求的坐标。
@@ -320,9 +369,7 @@ export class BrowserHub {
 					for (const modifier of modifiers) await page.keyboard.up(modifier);
 				}
 			}
-		} finally {
-			this.origin = "ui";
-		}
+		});
 	}
 
 	private requirePage(pageId: string): PageEntry {
@@ -331,39 +378,45 @@ export class BrowserHub {
 		return entry;
 	}
 
+	private withPage<T>(pageId: string, operation: (entry: PageEntry) => Promise<T>): Promise<T> {
+		const entry = this.requirePage(pageId);
+		const key = entry.info.sessionId ? `session:${entry.info.sessionId}` : `page:${pageId}`;
+		return this.operations.run(key, () => operation(this.requirePage(pageId)));
+	}
+
 	// -- agent 工具 -------------------------------------------------------------
 
-	/** agent 作用页：activePageId 缺失时取第一页，都没有就开空白页。 */
-	private async agentPage(): Promise<PageEntry> {
-		let entry = this.activePageId ? this.pages.get(this.activePageId) : undefined;
-		if (!entry) entry = [...this.pages.values()][0];
-		if (!entry) {
-			entry = await this.newPage();
-			this.activePageId = entry.info.pageId;
-			this.emitPages();
+	private async agentPage(sessionId: string, pageId?: string): Promise<PageEntry> {
+		if (pageId) {
+			const entry = this.requirePage(pageId);
+			this.claimPage(entry, sessionId);
 			return entry;
 		}
-		if (this.activePageId !== entry.info.pageId) {
-			this.activePageId = entry.info.pageId;
-			this.emitPages();
+		const active = this.activePages.get(sessionId);
+		let entry = active ? this.pages.get(active) : undefined;
+		if (!entry) entry = [...this.pages.values()].find((candidate) => candidate.info.sessionId === sessionId);
+		if (!entry) {
+			entry = await this.newPage(undefined, sessionId);
 		}
+		this.claimPage(entry, sessionId);
 		return entry;
 	}
 
 	/** 工具执行包裹：期间产生的事件标 origin=agent（UI 据此自动开面板）。
 	 *  收尾时无条件广播一次页面清单——snapshot/screenshot 这类不改变页面
 	 *  清单的操作也要让 UI 知道「agent 在动浏览器」（停靠位切右列等联动）。 */
-	private async withAgent<T>(operation: () => Promise<T>): Promise<T> {
-		this.origin = "agent";
-		try {
-			return await operation();
-		} finally {
-			this.origin = "ui";
-			this.emitPages();
-		}
+	private withAgent<T>(sessionId: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+		return this.operations.run(`session:${sessionId}`, async () => {
+			try {
+				return await operation();
+			} finally {
+				this.emitPages("agent", sessionId);
+			}
+		}, signal);
 	}
 
-	tools(): ToolDefinition[] {
+	tools(sessionId: string): ToolDefinition[] {
+		if (!sessionId.trim()) throw new Error("浏览器工具必须绑定聊天");
 		const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 
 		const navigateParams = Type.Object({

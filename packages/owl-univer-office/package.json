@@ -1,0 +1,26 @@
+{
+	"name": "owl-univer-office",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Owl Office 插件：Univer 内容创作、独立草稿、审阅与 Office 文件预览",
+	"license": "Apache-2.0",
+	"files": ["src", "skills", "scripts", "README.md", "NOTICE", "LICENSE"],
+	"scripts": {
+		"install:runtime": "node scripts/install-runtime.mjs"
+	},
+	"dependencies": {
+		"ws": "8.21.0"
+	},
+	"peerDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"typebox": "*"
+	},
+	"owl": {
+		"extensions": ["./src/index.ts"],
+		"skills": ["./skills"]
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

@@ -57,6 +57,7 @@ import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
+import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import type {
 	CommandsListResult,
 	IabFrameMessage,
@@ -101,23 +102,11 @@ const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", 
 /** AgentSession ThinkingLevel 合法值（session.setThinkingLevel 校验用）。 */
 const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-/** plan 模式放行的只读内置工具；其余（bash/powershell/edit/write 及 MCP/扩展工具）一律拦截。 */
-const READ_ONLY_TOOLS = new Set([
-	"read",
-	"ls",
-	"find",
-	"grep",
-	"browser_snapshot",
-	"browser_screenshot",
-	"browser_tabs",
-	"browser_console",
-	"browser_wait",
-]);
-
 /** plan 模式的系统提示词附录：创建会话时即告知模型只读约束与目标（产出计划）。 */
 const PLAN_MODE_ADDENDUM = [
 	"<plan_mode>",
-	"当前会话处于「计划（plan）模式」：只允许使用只读工具（read / ls / find / grep）做调研，",
+	"当前会话处于「计划（plan）模式」：只允许读取文件、观察已有浏览器页面和读取控制台/网络证据。",
+	"浏览器标签页只允许 list / select；不能新开、关闭、导航、输入或清空证据。",
 	"创建、修改、删除文件或执行有副作用的命令都会被直接拒绝。",
 	"请完成调研后给出一份清晰、可执行的实施计划，等用户确认后再动手；不要尝试绕过只读约束。",
 	"</plan_mode>",
@@ -371,12 +360,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 			}
 		},
-		onPagesChanged: (pages: IabPageInfo[], origin) => broadcast({ type: "iab.pages", pages, origin }),
+		onPagesChanged: (pages: IabPageInfo[], origin, originSessionId) => broadcast({ type: "iab.pages", pages, origin, originSessionId }),
 		onFileChooser: (pageId: string, multiple: boolean) => broadcast({ type: "iab.filechooser", pageId, multiple }),
 		onDiagnostic,
 	});
-	/** browser_* 工具定义（工具执行时才拉起浏览器，列定义零开销）。 */
-	const iabTools = iab.tools();
 	/** requestId → resolver for tool calls awaiting a user decision */
 	const pendingPermissions = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>();
 	/** Shared services for non-session queries (models.list); built lazily. */
@@ -396,16 +383,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
 	async function unmountSessionRuntime(sessionId: string): Promise<void> {
 		const mounted = sessions.get(sessionId);
-		if (!mounted) return;
-		try {
-			await mounted.runtime.session.abort();
-		} catch {
-			// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
+		for (const [requestId, pending] of pendingPermissions) {
+			if (pending.sessionId !== sessionId) continue;
+			pendingPermissions.delete(requestId);
+			pending.resolve(false);
+		}
+		if (mounted) {
+			try {
+				await mounted.runtime.session.abort();
+			} catch {
+				// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
+			}
+			mounted.unsubscribe();
+			sessions.delete(sessionId);
 		}
 		// abort 会顺带经 signal 取消挂起的提问，这里兜底清掉可能漏网的
 		cancelPendingQuestionsForSession(sessionId);
-		mounted.unsubscribe();
-		sessions.delete(sessionId);
+		await iab.disposeSession(sessionId);
 	}
 
 	/**
@@ -583,6 +577,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		appendSystemPrompt: string[],
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
+			const sessionId = runtimeOptions.sessionManager.getSessionId();
 			const services = await createAgentSessionServices({
 				cwd: runtimeOptions.cwd,
 				agentDir,
@@ -605,7 +600,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				sessionManager: runtimeOptions.sessionManager,
 				customTools: [
 					...(await getMcpTools()),
-					...iabTools,
+					...iab.tools(sessionId),
 					...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
 				],
 				...(model ? { model } : {}),
@@ -791,12 +786,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
 					if (event.toolName === "ask_user_question") return {};
 					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
-					if (mode === "plan" && !READ_ONLY_TOOLS.has(event.toolName)) {
+					if (mode === "plan" && !isReadOnlyDesktopTool(event.toolName, event.input)) {
 						return {
 							block: true,
 							reason:
 								`Plan mode: tool "${event.toolName}" was blocked — only read-only tools ` +
-								"(read / ls / find / grep) are allowed. 调研并产出计划，不要修改任何东西。",
+								"and browser observation/target selection are allowed. 调研并产出计划，不要修改页面或清空证据。",
 						};
 					}
 					// auto（以及 plan 下的只读工具）：不询问直接放行
@@ -1767,6 +1762,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const page = await iab.open({
 						...(request.pageId !== undefined ? { pageId: request.pageId } : {}),
 						...(request.url !== undefined ? { url: request.url } : {}),
+						...(request.sessionId !== undefined ? { sessionId: request.sessionId } : {}),
 					});
 					reply(ws, request.id, { ok: true, result: { page } satisfies IabOpenResult });
 				} catch (error) {

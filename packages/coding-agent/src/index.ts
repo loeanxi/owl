@@ -240,6 +240,13 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
+export {
+	getWorkspaceViewer,
+	listWorkspaceViewers,
+	openWorkspaceViewer,
+	registerWorkspaceViewer,
+	subscribeWorkspaceViewers,
+} from "./core/workspace-viewers.ts";
 // 「上下文洞察」注册表：插件（owl-context）写入、桌面桥 context.get 读取，
 // 与 question-channel 同一套单例接缝
 export {

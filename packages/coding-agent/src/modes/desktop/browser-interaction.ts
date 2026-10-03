@@ -31,8 +31,32 @@ interface ControlState {
 	password: boolean;
 }
 
+// Browser-side structural types keep this Node package independent of the DOM lib.
+interface BrowserElement {
+	tagName: string;
+	type?: string;
+	readOnly?: boolean;
+	isContentEditable: boolean;
+	innerText: string;
+	value?: string;
+	multiple?: boolean;
+	options?: ArrayLike<BrowserOption>;
+	selectedOptions?: ArrayLike<BrowserOption>;
+	ownerDocument: { activeElement: unknown };
+	matches(selector: string): boolean;
+	closest(selector: string): unknown;
+	getAttribute(name: string): string | null;
+}
+
+interface BrowserOption {
+	value: string;
+	disabled: boolean;
+	closest(selector: string): unknown;
+}
+
 const DEFAULT_TIMEOUT_MS = 5_000;
-const VERIFY_SETTLE_MS = 100;
+const VERIFY_POLL_MS = 50;
+const VERIFY_STABLE_MS = 200;
 let selectorRegistration: Promise<void> | undefined;
 
 /** Register before BrowserHub creates its first page. Keep refs in the page's main world. */
@@ -81,15 +105,15 @@ export class BrowserInteraction {
 
 	async fill(target: BrowserTarget, text: string, options: { append?: boolean } = {}): Promise<BrowserFillResult> {
 		return this.act(target, "输入", async (locator) => {
-			const state = await locator.evaluate<ControlState>(
-				`el => ({
+			const state = await locator.evaluate(
+				(el: BrowserElement): ControlState => ({
 					kind: el.tagName === "INPUT" ? "input" : el.tagName === "TEXTAREA" ? "textarea" : el.isContentEditable ? "contenteditable" : "other",
-					inputType: el.tagName === "INPUT" ? el.type : "",
+					inputType: el.tagName === "INPUT" ? el.type ?? "text" : "",
 					disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
 					readOnly: !!el.readOnly || el.getAttribute("aria-readonly") === "true",
 					value: el.isContentEditable ? el.innerText : String(el.value ?? ""),
 					password: el.tagName === "INPUT" && el.type === "password",
-				})`,
+				}),
 				undefined,
 				{ timeout: this.timeoutMs },
 			);
@@ -112,35 +136,24 @@ export class BrowserInteraction {
 			} else {
 				await locator.fill(text, { timeout: this.timeoutMs });
 			}
-			await new Promise<void>((resolve) => setTimeout(resolve, VERIFY_SETTLE_MS));
-			const actual = await locator.evaluate<string>(
-				`el => el.isContentEditable ? el.innerText : String(el.value ?? "")`,
-				undefined,
-				{ timeout: this.timeoutMs },
+			const actual = await this.verify(
+				() => locator.evaluate((el: BrowserElement) => el.isContentEditable ? el.innerText : String(el.value ?? ""), undefined, { timeout: this.timeoutMs }),
+				(value) => value.replace(/\r\n/g, "\n") === expected.replace(/\r\n/g, "\n"),
+				"输入后的读回校验失败；页面可能限制长度、格式化内容或拒绝了输入，请重新观察字段。",
 			);
-			if (actual.replace(/\r\n/g, "\n") !== expected.replace(/\r\n/g, "\n")) {
-				throw new InteractionError(
-					"输入后的读回校验失败；页面可能限制长度、格式化内容或拒绝了输入，请重新观察字段。",
-				);
-			}
 			return { verified: true, characters: actual.length, redacted: state.password };
 		});
 	}
 
 	async selectOptions(target: BrowserTarget, values: string[]): Promise<BrowserSelectResult> {
 		return this.act(target, "选择选项", async (locator) => {
-			const state = await locator.evaluate<{
-				isSelect: boolean;
-				disabled: boolean;
-				multiple: boolean;
-				options: Array<{ value: string; disabled: boolean }>;
-			}>(
-				`el => ({
+			const state = await locator.evaluate(
+				(el: BrowserElement) => ({
 					isSelect: el.tagName === "SELECT",
 					disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
 					multiple: !!el.multiple,
 					options: Array.from(el.options ?? []).map(option => ({ value: option.value, disabled: option.disabled || !!option.closest("optgroup[disabled]") })),
-				})`,
+				}),
 				undefined,
 				{ timeout: this.timeoutMs },
 			);
@@ -157,15 +170,11 @@ export class BrowserInteraction {
 				uniqueValues.map((value) => ({ value })),
 				{ timeout: this.timeoutMs },
 			);
-			await new Promise<void>((resolve) => setTimeout(resolve, VERIFY_SETTLE_MS));
-			const actual = await locator.evaluate<string[]>(
-				`el => Array.from(el.selectedOptions).map(option => option.value)`,
-				undefined,
-				{ timeout: this.timeoutMs },
+			const actual = await this.verify(
+				() => locator.evaluate((el: BrowserElement) => Array.from(el.selectedOptions ?? []).map(option => option.value), undefined, { timeout: this.timeoutMs }),
+				(value) => JSON.stringify([...value].sort()) === JSON.stringify([...uniqueValues].sort()),
+				"选中值读回校验失败；页面可能重置了选择，请重新观察下拉框。",
 			);
-			if (JSON.stringify([...actual].sort()) !== JSON.stringify([...uniqueValues].sort())) {
-				throw new InteractionError("选中值读回校验失败；页面可能重置了选择，请重新观察下拉框。");
-			}
 			return { verified: true, values: actual };
 		});
 	}
@@ -183,7 +192,7 @@ export class BrowserInteraction {
 				throw new InteractionError("目标已禁用，不能聚焦。");
 			await locator.focus({ timeout: this.timeoutMs });
 			if (
-				!(await locator.evaluate<boolean>(`el => el === document.activeElement`, undefined, {
+				!(await locator.evaluate((el: BrowserElement) => el === el.ownerDocument.activeElement, undefined, {
 					timeout: this.timeoutMs,
 				}))
 			) {
@@ -196,7 +205,7 @@ export class BrowserInteraction {
 		await this.act(target, "取消焦点", async (locator) => {
 			await locator.blur({ timeout: this.timeoutMs });
 			if (
-				await locator.evaluate<boolean>(`el => el === document.activeElement`, undefined, {
+				await locator.evaluate((el: BrowserElement) => el === el.ownerDocument.activeElement, undefined, {
 					timeout: this.timeoutMs,
 				})
 			) {
@@ -255,6 +264,22 @@ export class BrowserInteraction {
 		}
 		if (count > 1) throw new InteractionError(`selector 匹配到 ${count} 个元素，目标不唯一，请缩小选择范围。`);
 		return locator;
+	}
+
+	private async verify<T>(read: () => Promise<T>, matches: (value: T) => boolean, failure: string): Promise<T> {
+		const deadline = Date.now() + Math.min(this.timeoutMs, 1_000);
+		let matchedSince: number | undefined;
+		do {
+			const value = await read();
+			if (matches(value)) {
+				matchedSince ??= Date.now();
+				if (Date.now() - matchedSince >= VERIFY_STABLE_MS) return value;
+			} else {
+				matchedSince = undefined;
+			}
+			await new Promise<void>((resolve) => setTimeout(resolve, VERIFY_POLL_MS));
+		} while (Date.now() < deadline);
+		throw new InteractionError(failure);
 	}
 
 	private async act<T>(
