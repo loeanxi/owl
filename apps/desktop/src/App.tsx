@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BridgeClient } from "./bridge/client.ts";
-import type { ApprovalMode, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult } from "./bridge/protocol.ts";
+import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream } from "./components/ChatStream.tsx";
@@ -93,6 +93,8 @@ export default function App(): React.JSX.Element {
 	);
 	// 输入框项目选择器的候选列表：与侧边栏同源（当前 ∪ 有会话 ∪ 到访过），切换项目/侧边栏变更时刷新。
 	const [projects, setProjects] = useState<string[]>([]);
+	// 斜杠命令清单（桥端 commands.list）：连接后、切项目、建/恢复会话时刷新（扩展命令随会话出现）。
+	const [slashCommands, setSlashCommands] = useState<SlashCommandEntry[]>([]);
 	// 侧边栏工作台（文件树 / 编辑器 / Git 变动 / 任务 / 侧聊）：开合与停靠位置持久化。
 	const [workbenchOpen, setWorkbenchOpen] = useState(
 		() => localStorage.getItem(WORKBENCH_OPEN_KEY) === "1",

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult } from "../bridge/protocol.ts";
+import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { projectLabel, samePath } from "../utils/paths.ts";
@@ -158,6 +158,14 @@ const ghostPillClass =
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
 
+/** 斜杠命令菜单里的来源标签。 */
+const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], string> = {
+	builtin: "命令",
+	skill: "技能",
+	prompt: "模板",
+	extension: "扩展",
+};
+
 export function Composer({
 	client,
 	connected,
@@ -176,6 +184,7 @@ export function Composer({
 	workspaceDir,
 	projects,
 	onSwitchProject,
+	commands,
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
@@ -198,10 +207,18 @@ export function Composer({
 	projects: string[];
 	/** 切换项目 = 换工作目录并从新会话开始（与侧边栏点击项目同语义）。 */
 	onSwitchProject: (path: string) => void;
+	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
+	commands: SlashCommandEntry[];
 }): React.JSX.Element {
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const inputBoxRef = useRef<HTMLDivElement>(null);
+	const slashMenuRef = useRef<HTMLDivElement>(null);
+	// 斜杠命令菜单：整段输入还是单个 "/命令" token（没敲出空格）时弹出；
+	// Esc 关闭后要等输入变化才重开，避免关不掉。
+	const [slashDismissed, setSlashDismissed] = useState(false);
+	const [slashIndex, setSlashIndex] = useState(0);
 	const submit = (): void => {
 		const text = value.trim();
 		if (!text) return;
@@ -216,6 +233,47 @@ export function Composer({
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
 	}, [value]);
+
+	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
+	const slashMatch = slashDismissed ? undefined : /^\/([a-zA-Z0-9:_-]*)$/.exec(value);
+	const slashItems: SlashCommandEntry[] = [];
+	if (slashMatch) {
+		const query = slashMatch[1].toLowerCase();
+		for (const entry of commands) {
+			const name = entry.name.toLowerCase();
+			if (name.startsWith(query) || name.includes(query)) slashItems.push(entry);
+		}
+		slashItems.sort(
+			(a, b) => Number(b.name.toLowerCase().startsWith(query)) - Number(a.name.toLowerCase().startsWith(query)),
+		);
+		if (slashItems.length > 30) slashItems.length = 30;
+	}
+	const slashOpen = slashItems.length > 0;
+	const slashActive = slashOpen ? Math.min(slashIndex, slashItems.length - 1) : -1;
+
+	const acceptSlashCommand = (entry: SlashCommandEntry): void => {
+		// 填入命令留个空格：想带参数直接打字，不带就回车执行（此时菜单已因空格自动收起）
+		setValue(`/${entry.name} `);
+		setSlashDismissed(false);
+		setSlashIndex(0);
+		textareaRef.current?.focus();
+	};
+
+	// 菜单开着时点外部 = 收起（与 Menu 同款；菜单内点击用 onMouseDown 阻止抢焦点）。
+	useEffect(() => {
+		if (!slashOpen) return;
+		const onPointerDown = (event: MouseEvent): void => {
+			if (!inputBoxRef.current?.contains(event.target as Node)) setSlashDismissed(true);
+		};
+		document.addEventListener("mousedown", onPointerDown);
+		return () => document.removeEventListener("mousedown", onPointerDown);
+	}, [slashOpen]);
+
+	// 高亮项变化后滚进可视区（键盘上下选命令时菜单跟随）。
+	useEffect(() => {
+		if (slashActive < 0) return;
+		slashMenuRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+	}, [slashActive]);
 
 	const slash = model.indexOf("/");
 	const activeProvider = slash > 0 ? model.slice(0, slash) : undefined;
@@ -384,7 +442,37 @@ export function Composer({
 					</button>
 				</div>
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
-				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70">
+				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" ref={inputBoxRef}>
+					{slashMatch !== undefined && (
+						<div
+							ref={slashMenuRef}
+							className="absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
+						>
+							{slashOpen ? (
+								slashItems.map((entry, index) => (
+									<button
+										key={`${entry.kind}:${entry.name}`}
+										type="button"
+										data-active={index === slashActive || undefined}
+										className={`${menuItemClass} ${index === slashActive ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+										title={entry.description}
+										onMouseDown={(event) => event.preventDefault()}
+										onMouseMove={() => setSlashIndex(index)}
+										onClick={() => acceptSlashCommand(entry)}
+									>
+										<span className="shrink-0 font-mono text-[11px] text-owl-accent/90">/{entry.name}</span>
+										{entry.argumentHint && (
+											<span className="shrink-0 font-mono text-[10px] text-owl-faint">{entry.argumentHint}</span>
+										)}
+										<span className="flex-1 truncate text-left">{entry.description}</span>
+										<span className="shrink-0 text-[10px] text-owl-faint">{SLASH_KIND_LABELS[entry.kind]}</span>
+									</button>
+								))
+							) : (
+								<p className="px-3 py-2 text-xs text-owl-faint">无匹配命令</p>
+							)}
+						</div>
+					)}
 					<img
 						src="/owl.svg"
 						alt=""
@@ -396,11 +484,38 @@ export function Composer({
 						<textarea
 							ref={textareaRef}
 							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
-							placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+							placeholder="输入消息…（/ 唤起命令，Enter 发送，Shift+Enter 换行）"
 							value={value}
 							rows={1}
-							onChange={(event) => setValue(event.target.value)}
+							onChange={(event) => {
+								setValue(event.target.value);
+								setSlashDismissed(false);
+								setSlashIndex(0);
+							}}
 							onKeyDown={(event) => {
+								if (slashOpen) {
+									if (event.key === "ArrowDown") {
+										event.preventDefault();
+										setSlashIndex((index) => (index + 1) % slashItems.length);
+										return;
+									}
+									if (event.key === "ArrowUp") {
+										event.preventDefault();
+										setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
+										return;
+									}
+									// Enter/Tab 选中命令；Esc 关闭菜单（输入变化才重开）
+									if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+										event.preventDefault();
+										acceptSlashCommand(slashItems[slashActive]!);
+										return;
+									}
+									if (event.key === "Escape") {
+										event.preventDefault();
+										setSlashDismissed(true);
+										return;
+									}
+								}
 								if (event.key === "Enter" && !event.shiftKey) {
 									event.preventDefault();
 									submit();

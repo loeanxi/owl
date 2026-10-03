@@ -99,7 +99,8 @@
     const render = dialog.html;
     dialog.html = () => {
       let copyIndex = 0;
-      return render().replace(/<[^>]+\bdata-fd-editable="(?:true|text)"[^>]*>/g, (openingTag) => {
+      const scoped = render().replace(/data-fd-id="([^"]+)"/g, (_, id) => `data-fd-id="${key}-${id}"`);
+      return scoped.replace(/<[^>]+\bdata-fd-editable="(?:true|text)"[^>]*>/g, (openingTag) => {
         const normalized = openingTag.replace('data-fd-editable="true"', 'data-fd-editable="text"');
         return /\bdata-fd-id=/.test(normalized)
           ? normalized

@@ -576,17 +576,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	];
 
 	/**
-	 * 斜杠命令清单：内置命令 + 命令面（扩展命令 / 提示词模板 / 技能）。
+	 * 斜杠命令清单：命令面（扩展命令 / 提示词模板 / 技能）+ 内置命令垫底。
 	 * 优先复用该 cwd 已挂载会话的资源加载器与扩展运行器（含插件提供的资源）；
 	 * 没有挂载会话时按 cwd 轻量扫描默认位置（全局 + 项目级，缺扩展命令）。
-	 * session.prompt 的展开顺序是扩展命令 → /skill: → 模板，清单按同一优先级
-	 * 去重，保证菜单里选中的名字与发送后的实际行为一致。
+	 * 去重顺序与 session.prompt 的展开顺序一致（扩展命令 → /skill: → 模板 →
+	 * 内置），保证菜单里选中的名字与发送后的实际行为一致。
 	 */
 	async function listSlashCommands(cwd?: string): Promise<CommandsListResult> {
 		const resolvedCwd = cwd ?? options.cwd ?? process.cwd();
 		const agentDir = defaultAgentDir();
-		const commands: SlashCommandEntry[] = [...DESKTOP_BUILTIN_COMMANDS];
-		const seen = new Set(commands.map((entry) => entry.name));
+		const commands: SlashCommandEntry[] = [];
+		const seen = new Set<string>();
 		const add = (entry: SlashCommandEntry): void => {
 			if (seen.has(entry.name)) return;
 			seen.add(entry.name);
@@ -630,6 +630,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				add({ name: `skill:${skill.name}`, description: skill.description, kind: "skill" });
 			}
 		}
+		for (const entry of DESKTOP_BUILTIN_COMMANDS) add(entry);
 		return { commands };
 	}
 

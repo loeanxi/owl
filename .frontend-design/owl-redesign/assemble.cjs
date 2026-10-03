@@ -6,7 +6,8 @@ const root=path.resolve(dir,'../..');
 const template=fs.readFileSync('C:/Users/李现/.codex/skills/frontend-design/assets/preview-template.html','utf8').replace(/\r\n/g,'\n');
 const lines=template.split('\n');
 // Lift only review controls, preview frame and feedback machinery. Omit sample styles/content/tokens.
-const scaffoldCss=lines.slice(72,390).join('\n')+'\n'+lines.slice(546,852).join('\n');
+const allCss=template.match(/<style>([^]*?)<\/style>/)[1];
+const scaffoldCss=allCss.slice(allCss.indexOf('  * { box-sizing'),allCss.indexOf('  .preview .label'))+'\n'+allCss.slice(allCss.indexOf('  /* Direct edits */'));
 let scaffoldJs=template.slice(template.indexOf('const decisions = {}'),template.lastIndexOf('</script>'));
 scaffoldJs=scaffoldJs.replace("const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');","const ts = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Taipei'});");
 scaffoldJs=scaffoldJs.replace("lines.push('When applying these changes:');","lines.push('先继续迭代原型。只有用户明确批准实施后，才修改应用源码；映射见同目录 COVERAGE.md。');");

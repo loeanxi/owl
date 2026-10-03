@@ -1,4 +1,12 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL · 完整界面重设计 / 第 1 轮</title><style>    overflow: hidden;
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL · 完整界面重设计 / 第 1 轮</title><style>  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: var(--font-stack); height: 100%; }
+  body {
+    background: #e7eef6;
+    color: #0f1f33;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    overflow: hidden;
   }
 
   /* ============================================================
@@ -311,11 +319,7 @@
   .pane-toggle-btn:hover { border-color: var(--accent-primary); }
   .preview.theme-light .pane-toggle-btn { right: 12px; }
   .preview.theme-dark  .pane-toggle-btn { left: 12px; }
-  .preview .label {
-    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 8px;
-  }
-  .preview h2.theme-title {
+
   /* Direct edits */
   [data-fd-editable] {
     border-radius: 4px;
@@ -622,6 +626,7 @@
     padding: 10px 18px; border-top: 1px solid #d8e2ee;
     display: flex; justify-content: flex-end; gap: 8px;
   }
+
 /* OWL review surface. Product tokens retain their real source names. */
 body { background:#e7e9e7; color:#262b28; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
 header.app-header { padding:13px 22px; border-color:#d9dedb; }
@@ -2172,6 +2177,17 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
   const block = (id, title, body, desc = '') => `<section class="settings-section" data-fd-id="settings-section-${id}"><div style="margin-bottom:14px">${text(`settings-section-title-${id}`, title, 'h3', 'subheading')}${desc ? text(`settings-section-description-${id}`, desc, 'p', 'muted small') : ''}</div>${body}</section>`;
   const footer = () => '';
   const sourceHint = () => '';
+  const authPrompt = (type = 'text') => {
+    const prompts = {
+      text: ['企业域名', '填写企业登录使用的域名。', i('auth-answer-text', '', '例如 github.example.invalid')],
+      secret: ['补充授权密钥', '填写登录流程请求的密钥。', i('auth-answer-secret', '', '输入授权密钥', 'password')],
+      manual_code: ['手动授权码', '将浏览器提供的授权码粘贴到这里。', i('auth-answer-manual-code', '', '输入浏览器提供的授权码')],
+      select: ['选择登录方式', '选择当前账号使用的登录方式。', s('auth-answer-select', [['personal', '个人账号'], ['enterprise', '企业账号']], 'personal')]
+    };
+    const prompt = prompts[type] || prompts.text;
+    return `<div class="notice warning" data-fd-id="settings-auth-prompt-${type}"><div class="subheading">${prompt[0]}</div><p class="muted small" style="margin:5px 0 10px">${prompt[1]}</p><div style="display:flex;gap:8px;align-items:center">${prompt[2]}${b('提交', 'auth-answer', 'primary', `auth-answer-${type}`)}</div><div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span class="small muted">${type === 'manual_code' ? '设备码：OWL-DEMO' : '等待补充授权信息'}</span>${b('取消登录', 'auth-cancel', 'ghost', `auth-cancel-${type}`)}</div></div>`;
+  };
+  const oauthHtml = (promptType = 'text') => `<div class="form-stack">${f('quick-provider','选择服务','选择已有账号的模型服务。',s('quick-provider',[['demo-browser','浏览器授权服务'],['demo-api','API Key 服务']],'demo-browser'))}<div class="card" style="padding:18px"><div style="display:flex;align-items:center;gap:10px">${icon('browser',20)}<span class="subheading">浏览器授权</span></div><p class="muted small" style="margin:8px 0 14px">授权完成后，回到 Owl 继续。</p>${b('打开浏览器继续','oauth-start','primary')}<label style="display:flex;align-items:center;gap:9px;margin-top:14px" data-fd-id="settings-enterprise-login"><input type="checkbox" data-fd-id="settings-field-enterprise" data-fd-editable="value"><span class="small">使用 GitHub 企业版</span></label></div><div class="card" style="padding:18px">${f('quick-api-key','API Key','粘贴服务提供的密钥。',i('quick-api-key','','输入 API Key','password'))}<div style="display:flex;justify-content:flex-end;margin-top:12px">${b('保存 API Key','api-key-save','primary')}</div></div>${authPrompt(promptType)}</div>`;
 
   const providers = [
     {id:'team-gateway', name:'团队网关', letter:'T', protocol:'OpenAI 兼容', count:3, models:[['owl-code-pro','Owl Code Pro','128k','8k','推理'],['owl-chat','Owl Chat','64k','8k','通用'],['owl-vision','Owl Vision','128k','16k','视觉']]},
@@ -2223,7 +2239,7 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
     },
     prompts: {
       title:'提示词', description:'告诉 Owl 怎样与你协作，也可以查看和编辑它对你的了解。',
-      html: () => `<div class="form-stack">${effect('prompts','保存后用于新会话','长期指令和用户印象追加在内置规则之后。')}${block('custom-instructions','长期指令',`${ta('custom-instructions','回复使用中文，先说明结论。\n解释代码时给出具体示例。\n完成改动后简要说明验证结果。','写下你的沟通偏好与工作约定。',145)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">留空时使用 Owl 默认规则。</span>${b('保存长期指令','save','primary','save-custom-instructions')}</div>`)}${block('user-impression','我的档案',`${ta('user-impression','这是用于预览的示例档案。\n偏好：使用中文交流，关注修改原因与验证结果。','Owl 会在聊天中记录值得记住的偏好，你也可以直接编辑。',110)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">Owl 在聊天中也会更新这份档案。</span>${b('保存档案','save','primary','save-user-impression')}</div>`)}${block('builtin-prompts','内置规则',`<div class="card" style="padding:0 16px">${builtinNames.map(item=>`<details data-fd-id="settings-builtin-${item[0]}" style="border-bottom:1px solid var(--color-owl-border);padding:12px 0"><summary style="cursor:pointer;font-size:13px">${text(`settings-builtin-title-${item[0]}`,item[1])} <span class="muted small" style="float:right">只读</span></summary><p class="muted small" style="padding:10px 0 0;line-height:1.7">${item[2]}<br>此处为结构示意，实际内容由当前会话环境组装。</p></details>`).join('')}</div>`,'查看构成当前系统提示词的规则分区。')}</div>`
+      html: () => `<div class="form-stack">${effect('prompts','保存后用于新会话','长期指令和用户印象追加在内置规则之后。')}${block('custom-instructions','长期指令',`${ta('custom-instructions','回复使用中文，先说明结论。\n解释代码时给出具体示例。\n完成改动后简要说明验证结果。','写下你的沟通偏好与工作约定。',145)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">留空时使用 Owl 默认规则。</span>${b('保存长期指令','save','primary','save-custom-instructions')}</div>`)}${block('user-impression','我的档案',`${ta('user-impression','偏好：使用中文交流，关注修改原因与验证结果。','Owl 会在聊天中记录值得记住的偏好，你也可以直接编辑。',110)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">Owl 在聊天中也会更新这份档案。</span>${b('保存档案','save','primary','save-user-impression')}</div>`)}${block('builtin-prompts','内置规则',`<div class="card" style="padding:0 16px">${builtinNames.map(item=>`<details data-fd-id="settings-builtin-${item[0]}" style="border-bottom:1px solid var(--color-owl-border);padding:12px 0"><summary style="cursor:pointer;font-size:13px">${text(`settings-builtin-title-${item[0]}`,item[1])} <span class="muted small" style="float:right">只读</span></summary><p class="muted small" style="padding:10px 0 0;line-height:1.7">${item[2]}</p></details>`).join('')}</div>`,'查看构成当前系统提示词的规则分区。')}</div>`
     },
     archive: {
       title:'归档', description:'管理暂时收起的会话，并设置自动清理时间。',
@@ -2239,7 +2255,7 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
     },
     about: {
       title:'关于 Owl', description:'你的桌面 AI 工作伙伴。',
-      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0 <span class="small">（示例）</span></div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
+      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0</div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
     }
   };
 
@@ -2254,7 +2270,23 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
     },
     oauth: {
       title:'连接模型服务', description:'通过账号授权或 API Key 接入。',
-      html: () => `<div class="form-stack">${f('quick-provider','选择服务','原型展示的是示例厂商。',s('quick-provider',[['demo-browser','示例服务 · 支持浏览器授权'],['demo-api','示例服务 · API Key']],'demo-browser'))}<div class="card" style="padding:18px"><div style="display:flex;align-items:center;gap:10px">${icon('browser',20)}<span class="subheading">浏览器授权</span></div><p class="muted small" style="margin:8px 0 14px">授权完成后，回到 Owl 继续。</p>${b('打开浏览器继续','oauth-start','primary')}<label style="display:flex;align-items:center;gap:9px;margin-top:14px" data-fd-id="settings-enterprise-login"><input type="checkbox" data-fd-id="settings-field-enterprise" data-fd-editable="value"><span class="small">使用 GitHub 企业版</span></label></div><div class="card" style="padding:18px">${f('quick-api-key','API Key','粘贴服务提供的密钥。',i('quick-api-key','','输入 API Key','password'))}<div style="display:flex;justify-content:flex-end;margin-top:12px">${b('保存 API Key','api-key-save','primary')}</div></div><div class="notice warning" data-fd-id="settings-auth-prompt"><div class="subheading">登录流程需要输入</div><p class="muted small" style="margin:5px 0 10px">设备验证码 / 企业域名 / 手动授权码在此处提交。</p><div style="display:flex;gap:8px">${i('auth-answer','','输入授权流程提供的信息')}${b('提交','auth-answer','primary')}</div><div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span class="small muted">示例设备码：OWL-DEMO</span>${b('取消登录','auth-cancel','ghost')}</div></div></div>`
+      html: () => oauthHtml()
+    },
+    oauthText: {
+      title:'连接模型服务', description:'授权流程 · 企业域名',
+      html: () => oauthHtml('text')
+    },
+    oauthSecret: {
+      title:'连接模型服务', description:'授权流程 · 密钥输入',
+      html: () => oauthHtml('secret')
+    },
+    oauthManualCode: {
+      title:'连接模型服务', description:'授权流程 · 手动授权码',
+      html: () => oauthHtml('manual_code')
+    },
+    oauthSelect: {
+      title:'连接模型服务', description:'授权流程 · 选项回答',
+      html: () => oauthHtml('select')
     },
     authSuccess: {
       title:'连接完成', description:'你的模型服务已准备好。',
@@ -2372,7 +2404,8 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
     const render = dialog.html;
     dialog.html = () => {
       let copyIndex = 0;
-      return render().replace(/<[^>]+\bdata-fd-editable="(?:true|text)"[^>]*>/g, (openingTag) => {
+      const scoped = render().replace(/data-fd-id="([^"]+)"/g, (_, id) => `data-fd-id="${key}-${id}"`);
+      return scoped.replace(/<[^>]+\bdata-fd-editable="(?:true|text)"[^>]*>/g, (openingTag) => {
         const normalized = openingTag.replace('data-fd-editable="true"', 'data-fd-editable="text"');
         return /\bdata-fd-id=/.test(normalized)
           ? normalized
@@ -2417,10 +2450,10 @@ function specialDialog(k){if(k==='todo')return {title:'当前任务',html:()=>`<
 function modal(){const k=DEMO.modal;if(!k)return '';const dlg=specialDialog(k)||window.OWL_SETTINGS_DIALOGS?.[k]||window.OWL_DIALOGS?.[k];if(!dlg)return '';return `<div class="modal-shade" data-fd-id="modal-${k}"><section class="product-modal" role="dialog" aria-modal="true" aria-label="${dlg.title}"><div class="modal-heading"><h2>${dlg.title}</h2>${iconButton('close','close-modal','关闭弹窗')}</div><div class="modal-content">${dlg.html()}</div></section></div>`;}
 let editedValues=new Map();
 function restoreComments(){if(typeof comments==='undefined')return;for(const c of comments){if(!c.anchorFdId)continue;document.querySelectorAll(`[data-fd-id="${c.anchorFdId}"]`).forEach(el=>el.setAttribute('data-fd-comment-target',c.targetAttr||'c'+c.id));}renderMarkers();}
-function renderApp(){document.querySelectorAll('[data-owl-mount]').forEach(mount=>{const v=DEMO.view;mount.innerHTML=`<div class="owl-screen" data-fd-id="owl-app-shell">${rail()}${v==='settings'?'':sidebar()}${v==='settings'?settings():`<div class="main">${chrome()}${v==='dialogs'?dialogsGallery():`<div class="body-split ${DEMO.dock==='bottom'?'bottom':''}"><div class="conversation"><div class="chat-scroll">${v==='home'?home():chat()}</div>${composer()}</div>${v==='workspace'?workbench():''}</div>`}</div>`}${modal()}</div>`;});document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(editedValues.has(key))setEditableValue(el,editedValues.get(key));});if(typeof initDirectEdits==='function')initDirectEdits();restoreComments();renderCatalog();scaleScreens();}
+function renderApp(){document.querySelectorAll('[data-owl-mount]').forEach(mount=>{const v=DEMO.view;mount.innerHTML=`<div class="owl-screen" data-fd-id="owl-app-shell">${rail()}${v==='settings'?'':sidebar()}${v==='settings'?settings():`<div class="main">${chrome()}${v==='dialogs'?dialogsGallery():`<div class="body-split ${DEMO.dock==='bottom'?'bottom':''}"><div class="conversation"><div class="chat-scroll">${v==='home'?home():chat()}</div>${composer()}</div>${v==='workspace'?workbench():''}</div>`}</div>`}${modal()}</div>`;mount.querySelectorAll('[data-fd-editable]').forEach((el,i)=>{if(el.dataset.fdEditable==='true')el.dataset.fdEditable='text';if(!el.dataset.fdId)el.dataset.fdId=`copy-${v}-${DEMO.pane}-${DEMO.settings}-${DEMO.modal||'base'}-${i}`;});});document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(editedValues.has(key))setEditableValue(el,editedValues.get(key));});if(typeof initDirectEdits==='function')initDirectEdits();restoreComments();renderCatalog();scaleScreens();}
 function scaleScreens(){document.querySelectorAll('.canvas-frame').forEach(frame=>{const screen=frame.querySelector('.owl-screen');if(!screen)return;let scale=frame.clientWidth/1280;if(document.body.classList.contains('presentation'))scale=Math.min(innerWidth/1280,innerHeight/800);screen.style.zoom=scale;frame.style.height=(800*scale)+'px';});}
 function renderCatalog(){const cat=document.getElementById('screen-catalog');cat.innerHTML=`<div class="catalog-heading">核心界面</div>${[['home','开始页','chat'],['chat','聊天会话','chat'],['workspace','工作台','panel'],['dialogs','弹窗与状态','shield']].map(([k,t,i])=>`<button data-review-view="${k}" class="${DEMO.view===k?'active':''}">${icon(i,14)}${t}</button>`).join('')}<div class="catalog-heading">工作台 · 9 个面板</div>${paneOrder.map(k=>`<button data-review-pane="${k}" class="${DEMO.view==='workspace'&&DEMO.pane===k?'active':''}">${icon(paneIcons[k],14)}${window.OWL_PANES[k]?.title||k}</button>`).join('')}<div class="catalog-heading">设置 · 8 个分区</div>${settingsOrder.map(k=>`<button data-review-settings="${k}" class="${DEMO.view==='settings'&&DEMO.settings===k?'active':''}">${icon(settingsIcons[k],14)}${window.OWL_SETTINGS[k]?.title||k}</button>`).join('')}`;document.querySelectorAll('[data-review-theme]').forEach(b=>b.classList.toggle('active',b.dataset.reviewTheme===getPaneState()));}
-function rememberEdits(){document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(key&&typeof getEditableValue==='function')editedValues.set(key,getEditableValue(el));});}
+function rememberEdits(){document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(!key||typeof getEditableValue!=='function')return;const value=getEditableValue(el);editedValues.set(key,value);const initial=directEditInitialValues.get(key);if(initial!==undefined&&initial!==value)recordedEdits.set(key,{selector:directEditSelector(key),label:key,kind:el.dataset.fdEditable||'text',value,initial});else recordedEdits.delete(key);});}
 function navigate(view,key){rememberEdits();DEMO.modal=null;DEMO.view=view;if(view==='settings'&&key)DEMO.settings=key;if(view==='workspace'&&key)DEMO.pane=key;renderApp();}
 document.addEventListener('click',e=>{const review=e.target.closest('[data-review-view],[data-review-pane],[data-review-settings],[data-review-theme]');if(review){if(review.dataset.reviewView)navigate(review.dataset.reviewView);if(review.dataset.reviewPane)navigate('workspace',review.dataset.reviewPane);if(review.dataset.reviewSettings)navigate('settings',review.dataset.reviewSettings);if(review.dataset.reviewTheme){setPaneState(review.dataset.reviewTheme);renderCatalog();setTimeout(scaleScreens,250);}return;}if(typeof commentMode!=='undefined'&&commentMode)return;const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;
  if(a.startsWith('view-')){navigate(a.slice(5));return;}if(a.startsWith('settings-')){navigate('settings',a.slice(9));return;}if(a.startsWith('pane-')){navigate('workspace',a.slice(5));return;}if(a.startsWith('dialog-')){rememberEdits();DEMO.modal=a.slice(7);renderApp();return;}
@@ -2437,7 +2470,7 @@ document.addEventListener('click',e=>{const review=e.target.closest('[data-revie
  if(a==='editor-stale'){const body=b.closest('.workbench-body');body.insertAdjacentHTML('afterbegin','<div class="notice warning" style="margin:12px">磁盘中的文件已更新。请重新加载或保留当前编辑。 '+button('重新加载','editor-reload','ghost')+'</div>');return;}
  if(a==='editor-reload'){const n=b.closest('.notice');if(n)n.remove();showToast('原型：已重新加载文件');return;}
  if(a==='image-zoom'||a==='image-zoom-in'||a==='image-zoom-out'||a==='image-fit'){const svg=b.closest('.workbench')?.querySelector('.workbench-body svg[viewBox]');if(svg)svg.style.transform=a==='image-fit'?'none':a==='image-zoom-out'?'scale(.8)':'scale(1.15)';showToast('图片缩放预览');return;}
- if(a==='save'){rememberEdits();const json=document.querySelector('[data-fd-id="field-raw-settings-json"]');if(json){try{JSON.parse(json.value)}catch{showToast('JSON 格式有误，请检查后再保存');return;}}document.querySelectorAll('.settings-save-footer .hint').forEach(el=>el.textContent='已保存 · 原型演示');showToast('原型：已保存。没有写入实际配置。');return;}
+ if(a==='save'){rememberEdits();const json=document.querySelector('[data-fd-id="settings-field-raw-json"]');if(json){try{JSON.parse(json.value)}catch{showToast('JSON 格式有误，请检查后再保存');return;}}document.querySelectorAll('.settings-save-footer .hint').forEach(el=>el.textContent='已保存 · 原型演示');showToast('原型：已保存。没有写入实际配置。');return;}
  if(['allow','reject','question-submit','project-create','delete-confirm','auth-complete','oauth-complete','provider-save','model-save','archive-confirm','browser-file-submit'].includes(a)){DEMO.modal=a==='oauth-complete'?'authSuccess':null;renderApp();showToast('操作反馈已展示 · 原型数据');return;}
  if(a==='copy-demo'){showToast('原型：已复制');return;}
  if(a==='terminal-clear'){const t=b.closest('.workbench')?.querySelector('.terminal');if(t)t.innerHTML='<span class="green">PS D:\\owl\\owl-mono&gt;</span> <span style="animation:pulse 1s infinite">▍</span>';return;}
