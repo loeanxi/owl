@@ -585,8 +585,9 @@ export function buildSessionContext(
 /**
  * Compute the default session directory for a cwd.
  * Encodes cwd into a safe directory name under <agent-dir>/Owl-history/.
+ * owl: 导出供 memory 抽取定位同 cwd 的历史会话（路径形状是三处硬编码约定之一）。
  */
-function getDefaultSessionDirPath(cwd: string, agentDir: string = getDefaultAgentDir()): string {
+export function getDefaultSessionDirPath(cwd: string, agentDir: string = getDefaultAgentDir()): string {
 	const resolvedCwd = resolvePath(cwd);
 	const resolvedAgentDir = resolvePath(agentDir);
 	const safePath = `--${resolvedCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;

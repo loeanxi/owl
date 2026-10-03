@@ -1,7 +1,13 @@
 /**
  * owl MCP lite: connect stdio/HTTP MCP servers with the official SDK and
- * expose their tools as native tool definitions (exposure "direct" only —
- * deferred/codemode discovery is a later concern).
+ * expose their tools per the configured exposure.
+ *
+ * - `direct`（默认需显式写）：工具作为原生工具声明给模型；
+ * - `codemode`（配置默认值）：工具注册为 codemode 暴露——不直接声明给模型，
+ *   但内置 `codemode` 工具激活后可从脚本经 `ctx.executeTool()` 调用，描述里
+ *   只列服务器命名空间，省 token；
+ * - `deferred`：同 codemode 可调用，另可被 tool_search 发现；
+ * - `hidden`：不注册。
  *
  * Config shape matches core/mcp-servers.ts so settings can carry servers as
  * `{ mcpServers: { <name>: McpServerConfig } }`.
@@ -10,7 +16,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Type } from "typebox";
-import type { ToolDefinition } from "./extensions/index.ts";
+import type { ToolDefinition, ToolNamespace } from "./extensions/index.ts";
 import { getMcpToolExposure, type McpServerConfig } from "./mcp-servers.ts";
 
 interface McpConnection {
@@ -77,18 +83,28 @@ async function connectServer(
 	await client.connect(transport);
 
 	const listing = await client.listTools();
+	const namespace: ToolNamespace = {
+		name: `mcp_${name}`.replace(/[^A-Za-z0-9_-]/g, "_"),
+		description: config.description ?? `Tools of the "${name}" MCP server.`,
+		instructions: undefined,
+	};
 	const definitions: ToolDefinition[] = [];
+	const counts = { direct: 0, codemode: 0, deferred: 0 };
 	for (const tool of listing.tools) {
-		if (getMcpToolExposure(config, tool.name) !== "direct") continue;
+		const exposure = getMcpToolExposure(config, tool.name);
+		if (exposure === "hidden") continue;
+		counts[exposure === "direct" ? "direct" : exposure === "deferred" ? "deferred" : "codemode"]++;
 		definitions.push(
 			defineMcpTool(name, client, {
 				name: tool.name,
 				description: tool.description ?? "",
 				inputSchema: tool.inputSchema,
-			}),
+			}, exposure, namespace),
 		);
 	}
-	onDiagnostic?.(`MCP server "${name}": ${definitions.length} direct tool(s)`);
+	onDiagnostic?.(
+		`MCP server "${name}": ${counts.direct} direct, ${counts.codemode} codemode, ${counts.deferred} deferred tool(s)`,
+	);
 
 	return {
 		name,
@@ -104,12 +120,17 @@ function defineMcpTool(
 	server: string,
 	client: Client,
 	tool: { name: string; description: string; inputSchema: unknown },
+	exposure: "direct" | "codemode" | "deferred",
+	namespace: ToolNamespace,
 ): ToolDefinition {
-	return {
+	const definition = {
 		name: `mcp_${server}_${tool.name}`.replace(/[^A-Za-z0-9_-]/g, "_"),
 		label: `${server}: ${tool.name}`,
 		description: `[MCP:${server}] ${tool.description}`,
 		parameters: Type.Unsafe(tool.inputSchema as never),
+		// direct 走工具系统默认；codemode/deferred 注册即可被 codemode 脚本经 ctx.executeTool 调用
+		...(exposure !== "direct" ? { exposure } : {}),
+		namespace,
 		async execute(_toolCallId: string, params: Record<string, unknown>) {
 			const result = (await client.callTool({
 				name: tool.name,
@@ -132,4 +153,5 @@ function defineMcpTool(
 			};
 		},
 	} as unknown as ToolDefinition;
+	return definition;
 }

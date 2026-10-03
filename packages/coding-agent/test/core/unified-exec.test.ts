@@ -90,7 +90,7 @@ describe("unified-exec via bash tool", () => {
 			undefined,
 			// 最小 ctx：只需要 sessionManager.getSessionId()
 			{
-				sessionManager: { getSessionId: () => sessionId },
+				sessionManager: { getSessionId: () => sessionId, getSessionFile: () => undefined },
 			} as never,
 		);
 		expect(result.isError).toBeFalsy();
@@ -105,7 +105,7 @@ describe("unified-exec via bash tool", () => {
 			{ command: "echo line-one; sleep 30; echo line-two", yield_time_ms: 800 },
 			undefined,
 			undefined,
-			{ sessionManager: { getSessionId: () => sessionId } } as never,
+			{ sessionManager: { getSessionId: () => sessionId, getSessionFile: () => undefined } } as never,
 		);
 		const structured = result.structuredContent as { session_id?: number; status?: string };
 		expect(structured.status).toBe("running");

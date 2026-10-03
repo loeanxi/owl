@@ -232,8 +232,15 @@ export interface Settings {
 	owlCustomPrompt?: string;
 	/** Owl 桌面端：助手对用户的长期印象。随会话注入系统提示词，可由模型的 update_user_impression 工具或设置页维护。 */
 	owlUserImpression?: string;
+	/** Owl 跨会话记忆：自动抽取历史会话中的稳定事实并注入系统提示词。条目在设置页与 /memory 可见可删。 */
+	owlMemory?: OwlMemorySettings;
 	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
 	owlSidebar?: OwlSidebarSettings;
+}
+
+export interface OwlMemorySettings {
+	/** 是否启用跨会话记忆（自动抽取 + 注入）。默认 true。 */
+	enabled?: boolean;
 }
 
 function isMergeableObject(value: unknown): value is Record<string, unknown> {
@@ -1527,6 +1534,13 @@ export class SettingsManager {
 		return resolveDefaultTools(Array.isArray(tools) ? tools.filter((tool) => typeof tool === "string") : []);
 	}
 
+	/** owl: 原始 defaultTools 条目（含 `+name`/`-name`），用于判断用户是否显式排除某工具。 */
+	getDefaultToolsRaw(): readonly string[] | undefined {
+		const tools = this.settings.defaultTools;
+		if (!Array.isArray(tools)) return undefined;
+		return tools.filter((tool) => typeof tool === "string");
+	}
+
 	setEnabledModels(patterns: string[] | undefined): void {
 		this.globalSettings.enabledModels = patterns;
 		this.markModified("enabledModels");
@@ -1535,6 +1549,21 @@ export class SettingsManager {
 
 	getDoubleEscapeAction(): "fork" | "tree" | "none" {
 		return this.settings.doubleEscapeAction ?? "tree";
+	}
+
+	// =========================================================================
+	// owl 跨会话记忆
+	// =========================================================================
+
+	/** 跨会话记忆是否启用。默认 true；`owlMemory.enabled: false` 关闭抽取与注入。 */
+	getOwlMemoryEnabled(): boolean {
+		return this.settings.owlMemory?.enabled !== false;
+	}
+
+	setOwlMemoryEnabled(enabled: boolean): void {
+		this.globalSettings.owlMemory = { ...this.globalSettings.owlMemory, enabled };
+		this.markModified("owlMemory");
+		this.save();
 	}
 
 	setDoubleEscapeAction(action: "fork" | "tree" | "none"): void {

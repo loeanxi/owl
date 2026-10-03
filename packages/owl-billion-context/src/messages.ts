@@ -191,8 +191,14 @@ export function messageRef(message: unknown): string | undefined {
 }
 
 /** 内核输出 → owl AgentMessage 列表。
- *  摘要消息（acp_summary_*）由内核 prune 注入、不经此转换（prune 已生成
- *  可直接发送的 system 消息）；此处还原其余原始消息并同步引用标签。 */
+ *
+ * 内核渲染的摘要消息（acp_summary_*，role system）**保留**并转为 owl 的
+ * system AgentMessage 原位注入：owl 的 convertToLlm 对 system 角色透传，
+ * Anthropic 适配层会把它并进 system 区、OpenAI 系按位保持 —— 与论文的折叠
+ * 布局（摘要块常驻上下文）一致。上游 billion-context-pi 在 pi 宿主上改为
+ * 过滤它们、靠 compress 工具调用对充当摘要锚点（args 里留 200 字残根）；
+ * owl 这里选择更直的常驻摘要路径，压缩调用对仍由内核 hide-consumed 维护。
+ * 其余消息还原原始对象并同步引用标签。 */
 export function coreOutToAgentMessages(coreOut: CoreMessage[], originalById: Map<string, AgentMessage>): AgentMessage[] {
 	const out: AgentMessage[] = [];
 	const emittedSplit = new Set<string>();
@@ -204,7 +210,15 @@ export function coreOutToAgentMessages(coreOut: CoreMessage[], originalById: Map
 	}
 
 	for (const core of coreOut) {
-		if (core.id.startsWith("acp_summary_")) continue;
+		if (core.id.startsWith("acp_summary_")) {
+			// 内核渲染的折叠摘要 → owl system 消息（原位、常驻）。
+			out.push({
+				role: "system",
+				content: core.text ?? "",
+				timestamp: Date.now(),
+			} as AgentMessage);
+			continue;
+		}
 
 		const hashIdx = core.id.indexOf("#");
 		if (hashIdx < 0) {

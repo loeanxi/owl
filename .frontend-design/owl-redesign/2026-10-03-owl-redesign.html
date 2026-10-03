@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL · 完整界面重设计 / 第 1 轮</title><style>  * { box-sizing: border-box; }
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWL · 完整界面重设计 / 第 2 轮</title><style>  * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; font-family: var(--font-stack); height: 100%; }
   body {
     background: #e7eef6;
@@ -668,7 +668,37 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .catalog button.active {background:#e5f1e8;color:#237b43;font-weight:600}
 .catalog .nav-count {margin-left:auto;font-size:10px;opacity:.6}
 .catalog-heading {font-size:10px;margin:12px 9px 4px;color:#91a095;letter-spacing:.04em}
-.owl-screen {width:1280px;height:800px;position:relative;display:flex;overflow:hidden;background:var(--color-owl-bg);color:var(--color-owl-text);font-family:var(--font-sans);font-size:14px;line-height:1.55;--accent:var(--color-owl-accent);--accent-soft:color-mix(in srgb,var(--accent) 10%,transparent);--border:var(--color-owl-sidebar-border);--surface:var(--color-owl-panel);}
+.owl-screen {width:1280px;height:800px;position:relative;display:flex;flex-direction:column;overflow:hidden;container-type:inline-size;background:var(--color-owl-sidebar-bg);color:var(--color-owl-text);font-family:var(--font-sans);font-size:14px;line-height:1.55;--accent:var(--color-owl-accent);--accent-soft:color-mix(in srgb,var(--accent) 10%,transparent);--border:var(--color-owl-sidebar-border);--surface:var(--color-owl-panel);}
+.owl-screen .desktop-titlebar {height:36px;flex:0 0 36px;display:flex;align-items:center;position:relative;padding-left:9px;user-select:none;color:var(--color-owl-sidebar-muted);z-index:12;}
+.owl-screen .desktop-menu-row {display:flex;align-items:center;gap:1px;}
+.owl-screen .desktop-menu-row .icon-btn {width:32px;height:28px;margin-right:4px;}
+.owl-screen .desktop-menu-trigger {font-size:12px;padding:4px 10px;border:0;background:transparent;border-radius:5px;line-height:1.5;}
+.owl-screen .desktop-menu-trigger:hover,.owl-screen .desktop-menu-trigger.active {background:var(--color-owl-sidebar-hover);color:var(--color-owl-text);}
+.owl-screen .desktop-app-name {position:absolute;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:.14em;color:var(--color-owl-sidebar-faint);opacity:.75;}
+.owl-screen .desktop-window-controls {display:flex;align-self:stretch;margin-left:auto;}
+.owl-screen .desktop-window-controls button {display:grid;place-items:center;width:45px;border:0;background:transparent;font-size:12px;}
+.owl-screen .desktop-window-controls button:hover {background:var(--color-owl-sidebar-hover);}
+.owl-screen .desktop-window-controls .window-close:hover {background:#c44242;color:#fff;}
+.owl-screen .desktop-menu-popover {position:absolute;top:33px;left:43px;min-width:214px;background:var(--surface);border:1px solid var(--border);padding:5px;border-radius:8px;box-shadow:0 8px 28px #0002;display:flex;flex-direction:column;z-index:25;}
+.owl-screen .desktop-menu-popover button {text-align:left;border:0;border-radius:5px;background:transparent;padding:8px 11px;font-size:12px;}
+.owl-screen .desktop-menu-popover button:hover {background:var(--color-owl-hover);}
+.owl-screen .desktop-body {display:flex;flex:1;min-height:0;min-width:0;}
+.owl-screen .desktop-body>.main,.owl-screen .desktop-body>.settings-frame {margin:0 8px 8px 0;border:1px solid var(--border);border-radius:13px;overflow:hidden;min-height:0;background:var(--color-owl-bg);}
+.owl-screen .desktop-body>.rail,.owl-screen .desktop-body>.sidebar {border-right:0;}
+.owl-screen .desktop-body>.rail {padding-top:16px;}
+.owl-screen .desktop-body>.sidebar {padding-left:10px;padding-right:16px;}
+.owl-screen .desktop-body .sidebar-brand {height:63px;}
+.owl-screen .sidebar {min-height:0;overflow:hidden;}
+.owl-screen .sidebar-brand,.owl-screen .sidebar-search,.owl-screen .new-chat,.owl-screen .sidebar-foot {flex-shrink:0;}
+.owl-screen .sidebar-scroll {flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:14px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.owl-screen .desktop-body .sidebar-foot {padding:16px 0;gap:8px;}
+.owl-screen .desktop-body .sidebar-foot>div {min-width:0;flex:1;}
+.owl-screen .desktop-body .sidebar-foot .avatar {width:27px;height:27px;}
+.owl-screen .desktop-body .sidebar-foot .icon-btn {width:26px;height:28px;}
+.owl-screen .desktop-body .sidebar-foot .tiny {font-size:10.5px;white-space:nowrap;}
+.owl-screen .toolbar-local {display:flex;align-items:center;gap:6px;border:0;border-radius:6px;background:transparent;padding:6px 9px;font-size:11px;color:var(--color-owl-muted);margin-right:5px;}
+.owl-screen .toolbar-local>span.small {margin-right:0!important;}
+.owl-screen .toolbar-local:hover {background:var(--color-owl-hover);}
 .owl-screen * {box-sizing:border-box}
 .owl-screen button,.owl-screen input,.owl-screen select,.owl-screen textarea {font:inherit;color:inherit}
 .owl-screen button {cursor:pointer}
@@ -742,32 +772,33 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .owl-screen .nested:before {content:"";position:absolute;left:16px;top:4px;bottom:4px;width:1px;background:var(--border)}
 .owl-screen .sidebar-foot {margin-top:auto;border-top:1px solid var(--border);padding:17px 7px;display:flex;align-items:center;gap:10px;}
 .owl-screen .avatar {width:29px;height:29px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:50%;background:var(--color-owl-sidebar-surface);font-size:11px;}
-.owl-screen .main {min-width:0;flex:1;display:flex;flex-direction:column;}
-.owl-screen .chrome {height:58px;display:flex;align-items:center;gap:12px;padding:0 19px;border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0;}
-.owl-screen .chrome .title {font-weight:600;font-size:13px;}
-.owl-screen .chrome .chrome-actions {display:flex;gap:4px;margin-left:auto;align-items:center;}
+.owl-screen .main {min-width:0;min-height:0;flex:1;display:flex;flex-direction:column;}
+.owl-screen .chrome {height:60px;display:flex;align-items:center;gap:11px;padding:0 20px;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent);font-size:12px;flex-shrink:0;}
+.owl-screen .chrome .title {font-weight:600;font-size:13px;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;}
+.owl-screen .chrome .chrome-actions {display:flex;gap:2px;margin-left:auto;align-items:center;flex-shrink:0;}
 .owl-screen .connection-dot {width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block;}
 .owl-screen .body-split {flex:1;min-height:0;display:flex;}
 .owl-screen .body-split.bottom {flex-direction:column}
 .owl-screen .conversation {flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;}
 .owl-screen .chat-scroll {flex:1;overflow:auto;padding:30px 36px 15px;}
 .owl-screen .chat-content {max-width:730px;margin:0 auto;}
-.owl-screen .hero {display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:96px;}
-.owl-screen .hero .brand-mark {width:53px;height:53px;margin-bottom:23px;}
-.owl-screen .hero h1 {font-family:var(--font-serif);font-weight:500;font-size:32px;letter-spacing:-1px;}
-.owl-screen .hero p {font-size:13px;color:var(--color-owl-muted);margin-top:12px;}
-.owl-screen .quick-links {display:grid;grid-template-columns:repeat(3,1fr);gap:11px;max-width:620px;width:100%;margin-top:33px;text-align:left;}
-.owl-screen .quick-link {background:var(--color-owl-panel);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:13px;color:var(--color-owl-muted);font-size:12px;}
+.owl-screen.is-home .chat-scroll {display:flex;align-items:center;justify-content:center;padding:18px 36px 12px;overflow:auto;}
+.owl-screen .hero {display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:0;width:100%;transform:translateY(-6px);}
+.owl-screen .hero .brand-mark {width:47px;height:47px;margin-bottom:17px;}
+.owl-screen .hero h1 {font-family:var(--font-serif);font-weight:500;font-size:30px;letter-spacing:-.8px;}
+.owl-screen .hero p {font-size:13px;color:var(--color-owl-muted);margin-top:10px;}
+.owl-screen .quick-links {display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:606px;width:100%;margin-top:27px;text-align:left;}
+.owl-screen .quick-link {background:var(--color-owl-panel);border:1px solid color-mix(in srgb,var(--border) 75%,transparent);border-radius:10px;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:10px;color:var(--color-owl-muted);font-size:12px;transition:background 120ms,border-color 120ms,transform 120ms;}
 .owl-screen .quick-link:hover {border-color:color-mix(in srgb,var(--accent) 60%,var(--border));background:var(--accent-soft)}
 .owl-screen .quick-link span {color:var(--color-owl-text);font-weight:540;}
-.owl-screen .quick-secondary {display:flex;gap:14px;align-items:center;margin-top:20px;justify-content:center;}
+.owl-screen .quick-secondary {display:flex;gap:10px;align-items:center;margin-top:16px;justify-content:center;}
 .owl-screen .quick-secondary button {font-size:11px;}
-.owl-screen .composer-zone {padding:16px 28px 24px;max-width:790px;width:100%;margin:0 auto;}
-.owl-screen .composer {border:1px solid var(--border);border-radius:13px;background:var(--color-owl-panel);box-shadow:0 3px 14px #00000004;padding:15px 16px 11px;}
+.owl-screen .composer-zone {padding:12px 28px 20px;max-width:790px;width:100%;margin:0 auto;flex-shrink:0;}
+.owl-screen .composer {border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:15px;background:var(--color-owl-panel);box-shadow:0 4px 20px #00000004;padding:14px 16px 11px;}
 .owl-screen .composer:focus-within {border-color:color-mix(in srgb,var(--accent) 55%,var(--border));}
 .owl-screen .composer textarea {resize:none;border:0;background:transparent;width:100%;outline:0;font-size:14px;min-height:46px;line-height:1.7;padding:0;}
 .owl-screen .composer-top {display:flex;gap:5px;align-items:center;margin-bottom:10px;color:var(--color-owl-muted);font-size:11px;}
-.owl-screen .composer-footer {display:flex;gap:5px;align-items:center;border-top:1px solid var(--border);padding-top:10px;margin-top:8px;}
+.owl-screen .composer-footer {display:flex;gap:5px;align-items:center;border-top:1px solid color-mix(in srgb,var(--border) 45%,transparent);padding-top:10px;margin-top:8px;}
 .owl-screen .composer-footer .btn {min-height:27px;font-size:11px;padding:4px 8px}
 .owl-screen .send {width:31px;height:31px;background:var(--accent);border:0;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-left:auto}
 .owl-screen .composer-hint {font-size:10px;text-align:center;color:var(--color-owl-faint);margin-top:9px;}
@@ -862,8 +893,33 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .presentation .preview.hidden-theme {display:none!important;}
 .presentation .canvas-frame {height:100vh!important;}
 @media (max-width:1100px) {.main-layout{grid-template-columns:210px minmax(0,1fr)}.app-header .subtitle{max-width:440px}.preview-grid{gap:10px;padding:12px}.app-header .actions{flex-wrap:wrap;justify-content:end}}
+@container (max-width:1100px) {
+ .owl-screen .sidebar {width:208px;flex-basis:208px;}
+ .owl-screen .chrome {padding:0 16px;gap:8px;}
+ .owl-screen .chrome>.muted {display:none!important;}
+ .owl-screen .workbench {width:340px;min-width:300px;}
+ .owl-screen .composer-zone {padding-right:20px;padding-left:20px;}
+ .owl-screen .composer-footer {flex-wrap:wrap;}
+ .owl-screen .composer-top {flex-wrap:wrap;}
+ .owl-screen .composer-top>span {font-size:10px;}
+ .owl-screen .todo-pin {flex-wrap:wrap;}
+ .owl-screen .chat-scroll {padding-left:25px;padding-right:25px;}
+ .owl-screen.is-home .chat-scroll {padding-left:25px;padding-right:25px;}
+ .owl-screen .quick-links {max-width:550px;}
+ .owl-screen .quick-link {padding:13px;}
+ .owl-screen.is-home .hero .brand-mark {width:40px;height:40px;margin-bottom:14px;}
+ .owl-screen.is-home .hero h1 {font-size:27px;}
+ .owl-screen.is-home .quick-links {margin-top:16px;}
+ .owl-screen.is-home .quick-link {gap:8px;}
+ .owl-screen.is-home .quick-secondary {margin-top:12px;}
+ .owl-screen.is-home .quick-secondary .btn {min-height:28px;padding:4px 8px;}
+ .owl-screen .settings-nav {width:185px;flex-basis:185px;}
+ .owl-screen .settings-heading {padding:24px 30px 18px;}
+ .owl-screen .settings-content {padding-left:30px;padding-right:30px;}
+ .owl-screen .settings-footer {padding-left:30px;padding-right:30px;}
+}
 </style></head><body>
-<div class="app"><header class="app-header"><div><h1>OWL <span style="color:#a1aaa2;font-weight:400;margin:0 7px">/</span> 完整界面重设计 <span style="font-size:10px;color:#2f9e5a;border:1px solid #2f9e5a30;border-radius:4px;padding:2px 6px;margin-left:9px;vertical-align:middle">第 1 轮 · 待确认</span></h1><div class="subtitle">保留 OWL 绿 · 专业石墨灰 · 2026.10.03　所有操作均为原型演示，确认后再实施。</div></div><div class="actions"><button class="btn" id="comment-mode-btn"><span id="comment-mode-label">标注意见</span></button><button class="btn" id="markers-btn"><span id="markers-label">显示标记</span></button><button class="btn" id="comment-list-btn">意见 <span id="comment-count">(0)</span></button><button class="btn" id="reset-btn">重置意见</button><button class="btn primary" id="export-btn">导出给 Codex</button></div></header>
+<div class="app"><header class="app-header"><div><h1>OWL <span style="color:#a1aaa2;font-weight:400;margin:0 7px">/</span> 完整界面重设计 <span style="font-size:10px;color:#2f9e5a;border:1px solid #2f9e5a30;border-radius:4px;padding:2px 6px;margin-left:9px;vertical-align:middle">第 2 轮 · 待确认</span></h1><div class="subtitle">独立窗口标题栏 · 清晰的会话工具栏 · 2026.10.03　所有操作均为原型演示，确认后再实施。</div></div><div class="actions"><button class="btn" id="comment-mode-btn"><span id="comment-mode-label">标注意见</span></button><button class="btn" id="markers-btn"><span id="markers-label">显示标记</span></button><button class="btn" id="comment-list-btn">意见 <span id="comment-count">(0)</span></button><button class="btn" id="reset-btn">重置意见</button><button class="btn primary" id="export-btn">导出给 Codex</button></div></header>
 <div class="main-layout"><aside class="controls" id="controls-rail"><div class="controls-toggle-row"><button class="toggle-btn" id="toggle-controls-btn" aria-pressed="false"><span id="toggle-controls-icon">◀</span><span id="toggle-controls-label">收起</span></button></div><div id="screen-catalog" class="catalog" style="padding:0 12px;max-height:46vh;overflow:auto"></div><div class="controls-body" id="controls-body"><div class="help-banner">在上方切换页面。点击右侧主题箭头可放大。文字可直接编辑；开启“标注意见”可点选任意元素，最后导出意见。</div></div></aside>
 <section class="preview-pair" id="preview-pair"><div class="review-tabs"><span style="font-size:11px;color:#8a978d;margin-right:5px">查看方式</span><button data-review-theme="split" class="active">浅色 / 深色对照</button><button data-review-theme="light-expanded">浅色放大</button><button data-review-theme="dark-expanded">深色放大</button><span style="margin-left:auto;font-size:10px;color:#8a978d;padding-right:8px">设计画布 1280 × 800</span></div><div class="preview-grid"><div class="preview theme-light" id="preview-light" data-theme="light"><button class="pane-toggle-btn" data-pane="light" aria-label="放大浅色效果" title="放大浅色效果">▶</button><div class="theme-cap"><span class="cap-dot"></span> LIGHT / 浅色</div><div class="canvas-frame" data-owl-mount></div><div class="screen-note">保留现有页面能力，重新整理层级与视觉。点击导航、按钮或输入框体验。</div></div><div class="preview theme-dark" id="preview-dark" data-theme="dark"><button class="pane-toggle-btn" data-pane="dark" aria-label="放大深色效果" title="放大深色效果">◀</button><div class="theme-cap"><span class="cap-dot"></span> DARK / 深色</div><div class="canvas-frame" data-owl-mount></div><div class="screen-note">与浅色使用相同的结构、内容与操作；绿色仅承担主要行动与状态。</div></div></div></section></div></div>
 <!-- Markers layer -->
@@ -2449,7 +2505,7 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
   }
 })();
 
-const DEMO = {view:'home',pane:'files',settings:'general',modal:null,dock:'right',sidebar:true,running:false,model:'默认模型',mode:'标准模式',thinking:'中',status:'normal',focus:false,split:false,questionNav:false,shot:false};
+const DEMO = {view:'home',pane:'files',settings:'general',modal:null,dock:'right',sidebar:true,running:false,model:'默认模型',mode:'标准模式',thinking:'中',status:'normal',focus:false,split:false,questionNav:false,shot:false,desktopMenu:null};
 const settingsOrder = ['general','providers','plugins','appearance','prompts','archive','json','about'];
 const paneOrder = ['files','changes','editor','terminal','browser','tasks','impression','sidechat','image'];
 const paneIcons = {files:'folder',changes:'git',editor:'code',terminal:'terminal',browser:'browser',tasks:'clock',impression:'leaf',sidechat:'chat',image:'image'};
@@ -2464,6 +2520,7 @@ if(params.has('navigator'))DEMO.questionNav=true;
 if(params.has('shot'))DEMO.shot=true;
 const artwork = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\">\n  \n  <path d=\"M208.0 128.0 L234.0 128.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M201.9 158.6 L225.9 168.6\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M184.6 184.6 L203.0 203.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M158.6 201.9 L168.6 225.9\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M128.0 208.0 L128.0 234.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M97.4 201.9 L87.4 225.9\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M71.4 184.6 L53.0 203.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M54.1 158.6 L30.1 168.6\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M48.0 128.0 L22.0 128.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M54.1 97.4 L30.1 87.4\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M71.4 71.4 L53.0 53.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M128.0 48.0 L128.0 22.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M184.6 71.4 L203.0 53.0\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M201.9 97.4 L225.9 87.4\" stroke=\"#2f9e5a\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n  <path d=\"M108.2 67.1 L92.2 17.7\" stroke=\"#2f9e5a\" stroke-width=\"17\" stroke-linecap=\"round\"/>\n  <path d=\"M147.8 67.1 L163.8 17.7\" stroke=\"#2f9e5a\" stroke-width=\"17\" stroke-linecap=\"round\"/>\n  <circle cx=\"94\" cy=\"116\" r=\"28\" fill=\"#241d16\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"28\" fill=\"#241d16\"/>\n  <defs>\n    <radialGradient id=\"halo\"><stop offset=\"0%\" stop-color=\"#5ecf82\" stop-opacity=\"0.55\"/><stop offset=\"60%\" stop-color=\"#5ecf82\" stop-opacity=\"0.18\"/><stop offset=\"100%\" stop-color=\"#5ecf82\" stop-opacity=\"0\"/></radialGradient>\n    <radialGradient id=\"pup\"><stop offset=\"0%\" stop-color=\"#9df0c1\"/><stop offset=\"65%\" stop-color=\"#5ecf82\"/><stop offset=\"100%\" stop-color=\"#41b06a\"/></radialGradient>\n  </defs>\n  <circle cx=\"94\" cy=\"116\" r=\"22\" fill=\"url(#halo)\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"22\" fill=\"url(#halo)\"/>\n  <circle cx=\"94\" cy=\"116\" r=\"11.5\" fill=\"url(#pup)\"/>\n  <circle cx=\"162\" cy=\"116\" r=\"11.5\" fill=\"url(#pup)\"/>\n  <circle cx=\"90.5\" cy=\"112.5\" r=\"3.5\" fill=\"#fffdf8\"/>\n  <circle cx=\"158.5\" cy=\"112.5\" r=\"3.5\" fill=\"#fffdf8\"/>\n  <path d=\"M128 138 L140 153 Q128 168 116 153 Z\" fill=\"#c4a82a\"/>\n</svg>\n";
 function mark(){return `<span class="brand-mark">${artwork}</span>`;}
+function desktopTitlebar(){const menus={file:[['新会话','view-home'],['打开项目…','dialog-project']],edit:[['复制','copy-demo']],view:[['显示 / 隐藏会话列表','toggle-sidebar'],['右侧工作台','dock-right'],['底部工作台','dock-bottom']],help:[['关于 OWL','settings-about']]};return `<header class="desktop-titlebar" data-fd-id="section-desktop-titlebar"><div class="desktop-menu-row">${iconButton('panel','toggle-sidebar','显示 / 隐藏会话列表')}${[['file','文件'],['edit','编辑'],['view','视图'],['help','帮助']].map(([key,title])=>`<button class="desktop-menu-trigger ${DEMO.desktopMenu===key?'active':''}" data-action="desktop-menu" data-menu="${key}" data-fd-id="menu-${key}" aria-expanded="${DEMO.desktopMenu===key}">${title}</button>`).join('')}</div><span class="desktop-app-name">OWL</span><div class="desktop-window-controls" data-fd-id="section-window-controls"><button data-action="window-minimize" title="最小化" aria-label="最小化"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"><path d="M2 6h8"/></svg></button><button data-action="window-maximize" title="最大化 / 还原" aria-label="最大化 / 还原"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"><rect x="2" y="2" width="8" height="8" rx=".5"/></svg></button><button class="window-close" data-action="window-close" title="关闭" aria-label="关闭">${icon('close',14)}</button></div>${DEMO.desktopMenu?`<div class="desktop-menu-popover" data-fd-id="desktop-menu-${DEMO.desktopMenu}" role="menu">${menus[DEMO.desktopMenu].map(([title,action])=>`<button role="menuitem" data-action="${action}">${title}</button>`).join('')}</div>`:''}</header>`;}
 function esc(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');}
 function icon(name,size=18){const paths={folder:'<path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 19 0Z"/><path d="M7 10h10M7 14h6"/>',settings:'<path d="m10 3-1 3-3 1-3-1-1 4 3 2v3l-2 3 3 3 3-2 3 1 1 3 4-1 1-3 3-1 3 1 1-4-3-2v-3l2-3-3-3-3 2-3-1-1-3-4 1Z" transform="scale(.83) translate(2 0)"/><circle cx="12" cy="12" r="3"/>',code:'<path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 4l-4 16"/>',terminal:'<rect x="2" y="4" width="20" height="16" rx="3"/><path d="m6 9 3 3-3 3m6 0h6"/>',git:'<circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m0-4c8 0 12-2 12-5"/>',browser:'<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2c6 5 6 15 0 20-6-5-6-15 0-20Z"/>',check:'<path d="m5 12 4 4 10-10"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M12 20V4m-6 6 6-6 6 6"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',shield:'<path d="M12 2 3 6v6c0 5 6 8 9 10 3-2 9-5 9-10V6l-9-4Z"/><path d="m8 12 3 3 5-6"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',chevron:'<path d="m9 5 7 7-7 7"/>',image:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/>',leaf:'<path d="M20 3C7 2 1 10 5 16s15 4 15-13Zm-1 1L4 20"/>',more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',refresh:'<path d="M21 8V3l-3 3a9 9 0 1 0 2 11M21 8h-5"/>',panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',bottom:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/>'};return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.code}</svg>`;}
 function button(text,action,cls=''){return `<button type="button" class="btn ${cls}" data-action="${action}" data-fd-id="btn-${action}">${text}</button>`;}
@@ -2489,9 +2546,14 @@ function modal(){const k=DEMO.modal;if(!k)return '';const dlg=specialDialog(k)||
 let editedValues=new Map();
 function restoreComments(){if(typeof comments==='undefined')return;for(const c of comments){if(!c.anchorFdId)continue;document.querySelectorAll(`[data-fd-id="${c.anchorFdId}"]`).forEach(el=>el.setAttribute('data-fd-comment-target',c.targetAttr||'c'+c.id));}renderMarkers();}
 function enhance(mount){
+ const screen=mount.querySelector('.owl-screen');screen.classList.toggle('is-home',DEMO.view==='home');
+ const body=document.createElement('div');body.className='desktop-body';
+ for(const child of Array.from(screen.children)){if(!child.classList.contains('modal-shade'))body.appendChild(child);}
+ screen.prepend(body);screen.insertAdjacentHTML('afterbegin',desktopTitlebar());
+ const side=mount.querySelector('.sidebar');if(side){const list=document.createElement('div');list.className='sidebar-scroll';const foot=side.querySelector('.sidebar-foot');let collecting=false;for(const child of Array.from(side.children)){if(child.classList.contains('nav-section'))collecting=true;if(collecting&&child!==foot)list.appendChild(child);}side.insertBefore(list,foot);}
  const split=mount.querySelector('.body-split');if(split)split.classList.toggle('focused',DEMO.focus);
  const wb=mount.querySelector('.workbench');if(wb){wb.insertAdjacentHTML('afterbegin','<div class="resize-handle" data-resize-pane title="拖动调整工作台尺寸"></div>');const heading=wb.querySelector(':scope > .pane-toolbar');heading.insertAdjacentHTML('beforeend',button(DEMO.focus?'返回聊天':'展开','focus-workbench','ghost pane-focus')+button(DEMO.split?'合并':'分屏','split-workbench','ghost'));if(DEMO.split){wb.querySelector('.workbench-body').innerHTML=`<div class="split-panes"><div>${OWL_PANES.files.html()}</div><div>${OWL_PANES[DEMO.pane==='files'?'editor':DEMO.pane].html()}</div></div>`;}}
- const actions=mount.querySelector('.chrome-actions');if(actions){actions.insertAdjacentHTML('afterbegin',iconButton('chat','toggle-question-nav','提问导航')+iconButton('image','toggle-shot-preview','最新截图'));actions.insertAdjacentHTML('beforeend','<span style="width:1px;height:16px;background:var(--border);margin:0 5px"></span><button class="icon-btn" data-action="window-minimize" title="最小化">−</button><button class="icon-btn" data-action="window-maximize" title="最大化">□</button><button class="icon-btn" data-action="window-close" title="关闭窗口">×</button>');}
+ const actions=mount.querySelector('.chrome-actions');if(actions){actions.insertAdjacentHTML('afterbegin',iconButton('chat','toggle-question-nav','提问导航')+iconButton('image','toggle-shot-preview','最新截图'));const local=actions.querySelector('.connection-dot');if(local){const chip=document.createElement('button');chip.className='toolbar-local';chip.dataset.action='dialog-location';chip.setAttribute('aria-label','本地运行状态');const label=local.nextElementSibling;chip.appendChild(local);if(label)chip.appendChild(label);actions.prepend(chip);}actions.querySelectorAll(':scope > span[style*="height:17px"]').forEach(e=>e.remove());const toggle=mount.querySelector('.chrome>[data-action="toggle-sidebar"]');if(toggle)toggle.remove();}
  const convo=mount.querySelector('.conversation');if(convo&&DEMO.questionNav)convo.insertAdjacentHTML('beforeend',`<aside class="question-nav" data-fd-id="section-question-navigator"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="small">提问导航 · 1</span>${iconButton('close','toggle-question-nav','收起提问导航')}</div><button class="nav-row active" data-action="jump-question" style="align-items:flex-start"><span class="tag green">1</span><span><strong>重新设计工作台界面</strong><br><span class="muted" style="line-height:1.6">聊天、文件和代码变动更清楚。</span></span></button></aside>`);
  if(convo&&DEMO.shot)convo.insertAdjacentHTML('beforeend',`<div class="shot-preview" data-fd-id="section-latest-screenshot"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><span class="tiny">最新截图</span>${iconButton('close','toggle-shot-preview','关闭截图缩略图')}</div><button style="border:0;background:var(--color-owl-bg);border-radius:5px;width:100%;height:95px;display:flex;align-items:center;justify-content:center;gap:9px" data-action="dialog-screenshot">${mark()}<span class="small muted">页面效果</span></button></div>`);
  const group=mount.querySelector('.tool-group');if(group){group.insertAdjacentHTML('beforebegin',`<details style="margin:10px 0 14px;color:var(--color-owl-faint);font-size:11px" data-fd-id="section-thinking-process"><summary style="display:flex;align-items:center;gap:7px">${icon('leaf',13)} 思考过程 · 2 行 ${icon('chevron',10)}</summary><div class="code" style="padding:12px;border-left:1px solid var(--border);margin:9px 0">先核对已有页面能力，再整理导航、内容与操作的层级。确保每项现有功能都有对应设计。</div></details>`);const output=group.querySelector('pre');if(output)output.insertAdjacentHTML('afterend',`<details data-fd-id="section-tool-full-output"><summary class="small green" style="margin:8px 0">查看完整输出（共 24 行）</summary><pre class="code" style="max-height:220px;overflow:auto;border-left:1px solid var(--border);padding:10px">${Array.from({length:24},(_,i)=>`${String(i+1).padStart(2,'0')}  项目文件索引 · 示例输出`).join('\n')}</pre></details>`);}
@@ -2504,12 +2566,14 @@ function enhance(mount){
 function renderApp(){document.querySelectorAll('[data-owl-mount]').forEach(mount=>{const v=DEMO.view;mount.innerHTML=`<div class="owl-screen" data-fd-id="owl-app-shell">${rail()}${v==='settings'?'':sidebar()}${v==='settings'?settings():`<div class="main">${chrome()}${v==='dialogs'?dialogsGallery():`<div class="body-split ${DEMO.dock==='bottom'?'bottom':''}"><div class="conversation"><div class="chat-scroll">${v==='home'?home():chat()}</div>${composer()}</div>${v==='workspace'?workbench():''}</div>`}</div>`}${modal()}</div>`;enhance(mount);mount.querySelectorAll('[data-fd-editable]').forEach((el,i)=>{if(el.dataset.fdEditable==='true')el.dataset.fdEditable='text';if(!el.dataset.fdId)el.dataset.fdId=`copy-${v}-${DEMO.pane}-${DEMO.settings}-${DEMO.modal||'base'}-${i}`;});});document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(editedValues.has(key))setEditableValue(el,editedValues.get(key));});if(typeof initDirectEdits==='function')initDirectEdits();restoreComments();renderCatalog();scaleScreens();}
 document.addEventListener('input',e=>{const inputEl=e.target.closest('[data-fd-id="field-chat-input"]');if(!inputEl)return;const convo=inputEl.closest('.conversation');convo.querySelector('.slash-suggestions')?.remove();if(!inputEl.value.startsWith('/'))return;convo.insertAdjacentHTML('beforeend',`<div class="slash-suggestions" data-fd-id="section-slash-completion"><div class="tiny" style="margin:0 8px 5px">斜杠命令</div>${[['/model','切换模型','命令'],['/compact','压缩会话上下文','命令'],['/skill:review','审阅代码','技能 · 示例'],['/explain','解释当前代码','模板 · 示例'],['/project-status','查看项目摘要','扩展 · 示例']].filter(([name])=>name.includes(inputEl.value)).map(([name,desc,type])=>`<button class="nav-row" data-action="slash-select" data-command="${name}" style="min-height:32px;font-size:12px"><span class="code" style="color:var(--accent);min-width:130px">${name}</span><span class="muted">${desc}</span><span class="tag" style="margin-left:auto">${type}</span></button>`).join('')}</div>`);});
 document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-resize-pane]');if(!handle)return;const wb=handle.closest('.workbench');const screen=handle.closest('.owl-screen');const zoom=Number(screen.style.zoom)||1;const startX=e.clientX,startY=e.clientY,width=wb.clientWidth,height=wb.clientHeight;handle.setPointerCapture(e.pointerId);const move=ev=>{if(DEMO.dock==='bottom')wb.style.height=Math.max(180,Math.min(450,height-(ev.clientY-startY)/zoom))+'px';else wb.style.width=Math.max(330,Math.min(670,width-(ev.clientX-startX)/zoom))+'px';};const end=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);};handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end);e.preventDefault();});
-function scaleScreens(){document.querySelectorAll('.canvas-frame').forEach(frame=>{const screen=frame.querySelector('.owl-screen');if(!screen)return;let scale=frame.clientWidth/1280;if(document.body.classList.contains('presentation'))scale=Math.min(innerWidth/1280,innerHeight/800);screen.style.zoom=scale;frame.style.height=(800*scale)+'px';});}
+function scaleScreens(){document.querySelectorAll('.canvas-frame').forEach(frame=>{const screen=frame.querySelector('.owl-screen');if(!screen)return;if(document.body.classList.contains('presentation')){screen.style.width=innerWidth+'px';screen.style.height=innerHeight+'px';screen.style.zoom=1;frame.style.height=innerHeight+'px';return;}const scale=frame.clientWidth/1280;screen.style.zoom=scale;frame.style.height=(800*scale)+'px';});}
 function renderCatalog(){const cat=document.getElementById('screen-catalog');cat.innerHTML=`<div class="catalog-heading">核心界面</div>${[['home','开始页','chat'],['chat','聊天会话','chat'],['workspace','工作台','panel'],['dialogs','弹窗与状态','shield']].map(([k,t,i])=>`<button data-review-view="${k}" class="${DEMO.view===k?'active':''}">${icon(i,14)}${t}</button>`).join('')}<div class="catalog-heading">工作台 · 9 个面板</div>${paneOrder.map(k=>`<button data-review-pane="${k}" class="${DEMO.view==='workspace'&&DEMO.pane===k?'active':''}">${icon(paneIcons[k],14)}${window.OWL_PANES[k]?.title||k}</button>`).join('')}<div class="catalog-heading">设置 · 8 个分区</div>${settingsOrder.map(k=>`<button data-review-settings="${k}" class="${DEMO.view==='settings'&&DEMO.settings===k?'active':''}">${icon(settingsIcons[k],14)}${window.OWL_SETTINGS[k]?.title||k}</button>`).join('')}`;document.querySelectorAll('[data-review-theme]').forEach(b=>b.classList.toggle('active',b.dataset.reviewTheme===getPaneState()));}
 function rememberEdits(){document.querySelectorAll('[data-fd-editable]').forEach(el=>{const key=el.dataset.fdId;if(!key||typeof getEditableValue!=='function')return;const value=getEditableValue(el);editedValues.set(key,value);const initial=directEditInitialValues.get(key);if(initial!==undefined&&initial!==value)recordedEdits.set(key,{selector:directEditSelector(key),label:key,kind:el.dataset.fdEditable||'text',value,initial});else recordedEdits.delete(key);});}
-function navigate(view,key){rememberEdits();DEMO.modal=null;DEMO.view=view;if(view==='settings'&&key)DEMO.settings=key;if(view==='workspace'&&key)DEMO.pane=key;renderApp();}
+function navigate(view,key){rememberEdits();DEMO.modal=null;DEMO.desktopMenu=null;DEMO.view=view;if(view==='settings'&&key)DEMO.settings=key;if(view==='workspace'&&key)DEMO.pane=key;renderApp();}
 document.addEventListener('click',e=>{const review=e.target.closest('[data-review-view],[data-review-pane],[data-review-settings],[data-review-theme]');if(review){if(review.dataset.reviewView)navigate(review.dataset.reviewView);if(review.dataset.reviewPane)navigate('workspace',review.dataset.reviewPane);if(review.dataset.reviewSettings)navigate('settings',review.dataset.reviewSettings);if(review.dataset.reviewTheme){setPaneState(review.dataset.reviewTheme);renderCatalog();setTimeout(scaleScreens,250);}return;}if(typeof commentMode!=='undefined'&&commentMode)return;const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action;
  if(a.startsWith('view-')){navigate(a.slice(5));return;}if(a.startsWith('settings-')){navigate('settings',a.slice(9));return;}if(a.startsWith('pane-')){navigate('workspace',a.slice(5));return;}if(a.startsWith('dialog-')){rememberEdits();DEMO.modal=a.slice(7);renderApp();return;}
+ if(a==='desktop-menu'){rememberEdits();DEMO.desktopMenu=DEMO.desktopMenu===b.dataset.menu?null:b.dataset.menu;renderApp();return;}
+ if(DEMO.desktopMenu)DEMO.desktopMenu=null;
  if(a==='close-modal'){DEMO.modal=null;renderApp();return;}if(a==='toggle-sidebar'){DEMO.sidebar=!DEMO.sidebar;renderApp();return;}if(a==='close-workbench'){navigate('chat');return;}if(a.startsWith('dock-')){DEMO.dock=a.slice(5);DEMO.view='workspace';renderApp();return;}
  if(a==='slash-select'){const input=b.closest('.conversation').querySelector('[data-fd-id="field-chat-input"]');input.value=b.dataset.command+' ';input.dispatchEvent(new Event('change',{bubbles:true}));b.closest('.slash-suggestions').remove();input.focus();return;}
  if(a==='focus-workbench'){DEMO.focus=!DEMO.focus;renderApp();return;}if(a==='split-workbench'){DEMO.split=!DEMO.split;DEMO.focus=DEMO.split||DEMO.focus;renderApp();return;}
@@ -2541,8 +2605,9 @@ document.addEventListener('click',e=>{const review=e.target.closest('[data-revie
  showToast('原型：'+(b.textContent.trim()||b.getAttribute('aria-label')||'操作')+' · 已展示交互反馈');
 });
 window.addEventListener('resize',scaleScreens);
+document.addEventListener('click',e=>{if(!DEMO.desktopMenu||e.target.closest('.desktop-titlebar')||commentMode)return;DEMO.desktopMenu=null;renderApp();});
 document.querySelectorAll('.pane-toggle-btn').forEach(b=>b.addEventListener('click',()=>setTimeout(()=>{scaleScreens();renderCatalog();},250)));
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&DEMO.modal){DEMO.modal=null;renderApp();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(DEMO.modal||DEMO.desktopMenu)){DEMO.modal=null;DEMO.desktopMenu=null;renderApp();}});
 if(params.has('presentation')){document.body.classList.add('presentation');const theme=params.get('theme')||'dark';document.querySelectorAll('.preview').forEach(p=>p.classList.toggle('hidden-theme',p.dataset.theme!==theme));}
 renderApp();
 </script>

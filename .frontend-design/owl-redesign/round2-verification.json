@@ -1,0 +1,665 @@
+{
+  "errors": [],
+  "report": [
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "light",
+      "view": "home",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 463,
+        "content": 463
+      },
+      "input": {
+        "x": 380,
+        "y": 560.21875,
+        "w": 790,
+        "h": 230.78125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "light",
+      "view": "chat",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 415,
+        "content": 660
+      },
+      "input": {
+        "x": 380,
+        "y": 512.171875,
+        "w": 790,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "light",
+      "view": "files",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 415,
+        "content": 713
+      },
+      "input": {
+        "x": 279,
+        "y": 512.171875,
+        "w": 564,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "light",
+      "view": "settings-providers",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "light",
+      "view": "settings-appearance",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "dark",
+      "view": "home",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 463,
+        "content": 463
+      },
+      "input": {
+        "x": 380,
+        "y": 560.21875,
+        "w": 790,
+        "h": 230.78125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "dark",
+      "view": "chat",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 415,
+        "content": 660
+      },
+      "input": {
+        "x": 380,
+        "y": 512.171875,
+        "w": 790,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "dark",
+      "view": "files",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 279,
+        "y": 37,
+        "w": 992,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 415,
+        "content": 713
+      },
+      "input": {
+        "x": 279,
+        "y": 512.171875,
+        "w": 564,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "dark",
+      "view": "settings-providers",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 1280,
+        "height": 800
+      },
+      "theme": "dark",
+      "view": "settings-appearance",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 1145,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "light",
+      "view": "home",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 335,
+        "content": 335
+      },
+      "input": {
+        "x": 261,
+        "y": 432.21875,
+        "w": 666,
+        "h": 230.78125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "light",
+      "view": "chat",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 287,
+        "content": 687
+      },
+      "input": {
+        "x": 261,
+        "y": 384.171875,
+        "w": 666,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "light",
+      "view": "files",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 215,
+        "content": 906
+      },
+      "input": {
+        "x": 261,
+        "y": 311.671875,
+        "w": 326,
+        "h": 351.328125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "light",
+      "view": "settings-providers",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "light",
+      "view": "settings-appearance",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "dark",
+      "view": "home",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 335,
+        "content": 335
+      },
+      "input": {
+        "x": 261,
+        "y": 432.21875,
+        "w": 666,
+        "h": 230.78125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "dark",
+      "view": "chat",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 287,
+        "content": 687
+      },
+      "input": {
+        "x": 261,
+        "y": 384.171875,
+        "w": 666,
+        "h": 278.828125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "dark",
+      "view": "files",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": {
+        "x": 261,
+        "y": 37,
+        "w": 666,
+        "h": 60
+      },
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": {
+        "h": 215,
+        "content": 906
+      },
+      "input": {
+        "x": 261,
+        "y": 311.671875,
+        "w": 326,
+        "h": 351.328125
+      }
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "dark",
+      "view": "settings-providers",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    },
+    {
+      "size": {
+        "width": 936,
+        "height": 672
+      },
+      "theme": "dark",
+      "view": "settings-appearance",
+      "titlebar": {
+        "x": 0,
+        "y": 0,
+        "w": 936,
+        "h": 36
+      },
+      "toolbar": null,
+      "windowControls": {
+        "x": 801,
+        "y": 0,
+        "w": 135,
+        "h": 36
+      },
+      "windowControlsInToolbar": 0,
+      "outerOverflow": false,
+      "chatScroll": null,
+      "input": null
+    }
+  ],
+  "menuWorks": true,
+  "workbenchWorks": true,
+  "questionNavWorks": true,
+  "failures": []
+}

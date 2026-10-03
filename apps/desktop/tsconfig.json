@@ -13,5 +13,6 @@
 		"useDefineForClassFields": true,
 		"types": ["vite/client"]
 	},
-	"include": ["src", "../../coding-agent/src/modes/desktop/protocol.ts"]
+	"include": ["src", "../../coding-agent/src/modes/desktop/protocol.ts"],
+	"exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

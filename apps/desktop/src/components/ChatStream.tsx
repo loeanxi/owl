@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import type { ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
+import type { AssistantSegment, ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
-import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";
+import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
-
-/** 提问导航展开/收起偏好的 localStorage 键。 */
-const QNAV_KEY = "owl.qnav.open";
 
 /** 工具输出默认只预览末尾几行（结论/报错多在尾部），展开才看全文。 */
 const OUTPUT_PREVIEW_LINES = 10;
@@ -20,61 +17,19 @@ export function renderMarkdown(text: string): string {
 
 /**
  * 聊天流 —— 用户提问与 agent 回答收进同一条居中内容列（响应式：窄窗满宽、宽窗封顶
- * max-w-3xl 居中）。左缘是提问追踪节点轨：每次提问是带序号的强调节点，其后的思考 /
- * 工具 / 回答依次成节点，纵向连线串成一条可扫读的执行链。
+ * 阅读宽度居中）。公开说明、工具调用与答案保留消息中的先后顺序。
  *
  * 过程采用「渐进披露」：工具调用默认收成一行人话摘要，连续的工具调用（名称可不同，
  * 如浏览器套件）合并成一组（「运行了 4 条命令」「浏览器操作 × 3」），点击逐级展开
  * 参数与输出；失败行自动展开标红。答案正文永远是主角，思考过程整轮合并成一条轻量折叠行。
  */
 
-/** 时间轴上的一行：node 是左轨节点，content 是右侧内容；提问行带 questionIndex 作跳转锚点。 */
+/** 内容流的一行；提问行带 questionIndex 作跳转锚点。 */
 type TimelineRow = {
 	key: string;
-	node: React.JSX.Element;
 	content: React.JSX.Element;
 	questionIndex?: number;
 };
-
-/** 提问节点：accent 实心圆 + 提问序号，整条链上唯一的大号节点，承担「提问追踪」锚点。 */
-function QuestionNode({ index, title }: { index: number; title: string }): React.JSX.Element {
-	return (
-		<span
-			title={`提问 ${index}：${title}`}
-			className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-owl-accent text-[11px] font-semibold text-white ring-4 ring-owl-accent/15"
-		>
-			{index}
-		</span>
-	);
-}
-
-/** 过程节点：小号圆片，tone 决定配色（思考 / 工具 / 回答 / 结果 / 出错）。 */
-const STEP_TONES = {
-	muted: "border-owl-border bg-owl-panel text-owl-muted",
-	running: "border-owl-accent/60 bg-owl-accent/10 text-owl-accent animate-pulse",
-	answer: "border-owl-accent/50 bg-owl-accent/15 text-owl-accent",
-	ok: "border-emerald-600/40 bg-emerald-500/10 text-emerald-500",
-	error: "border-red-500/40 bg-red-500/10 text-red-400",
-} as const;
-
-function StepNode({
-	tone,
-	title,
-	children,
-}: {
-	tone: keyof typeof STEP_TONES;
-	title: string;
-	children: React.ReactNode;
-}): React.JSX.Element {
-	return (
-		<span
-			title={title}
-			className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${STEP_TONES[tone]}`}
-		>
-			{children}
-		</span>
-	);
-}
 
 /** 渲染含 `code` 反引号的摘要行（工具摘要里的命令/路径/模式）。 */
 export function InlineSummary({ text }: { text: string }): React.JSX.Element {
@@ -83,7 +38,7 @@ export function InlineSummary({ text }: { text: string }): React.JSX.Element {
 		<>
 			{parts.map((part, index) =>
 				index % 2 === 1 ? (
-					<code key={index} className="rounded bg-owl-bg/70 px-1 font-mono text-[11px] text-owl-text">
+					<code key={index} className="owl-tool-inline-code">
 						{part}
 					</code>
 				) : part ? (
@@ -96,16 +51,18 @@ export function InlineSummary({ text }: { text: string }): React.JSX.Element {
 
 /** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号。 */
 function StatusIcon({ status }: { status: ToolStatus }): React.JSX.Element {
+	if (status === "pending") return <IconClock className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
+	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label="已中断">—</span>;
 	if (status === "running") {
 		return (
 			<span
 				aria-label="运行中"
-				className="h-3 w-3 shrink-0 animate-spin rounded-full border border-owl-accent/30 border-t-owl-accent"
+				className="owl-tool-spinner"
 			/>
 		);
 	}
 	if (status === "error") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-red-400" />;
-	return <IconCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
+	return <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 }
 
 /** 思考过程：整轮合并成一条轻量折叠行，默认收起，不再一段一个全宽条。 */
@@ -115,8 +72,9 @@ function ThinkingRow({ thinking }: { thinking: string }): React.JSX.Element {
 		[thinking],
 	);
 	return (
-		<details className="group text-xs text-owl-faint">
+		<details className="owl-thinking group">
 			<summary className="flex cursor-pointer select-none list-none items-center gap-1.5 py-0.5 [&::-webkit-details-marker]:hidden">
+				<IconLightbulb className="h-3.5 w-3.5" />
 				<IconChevron className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
 				思考过程 · {lines} 行
 			</summary>
@@ -152,12 +110,12 @@ function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
 	const images = output?.images ?? [];
 
 	return (
-		<div className="min-w-0">
+		<div className="owl-tool-row" data-status={card.status}>
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-owl-hover/50"
+				className="owl-tool-summary"
 			>
 				<StatusIcon status={card.status} />
 				<span
@@ -165,20 +123,21 @@ function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
 				>
 					<InlineSummary text={card.summary} />
 				</span>
+				{card.status === "cancelled" && <span className="text-xs text-owl-faint">已中断</span>}
 				<IconChevron
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 				/>
 			</button>
 			{open && (
-				<div className="mb-1 ml-3 space-y-1.5 border-l border-owl-border/50 pl-3 pt-0.5">
+				<div className="owl-tool-detail">
 					{card.detail && (
-						<pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-owl-bg/60 px-2.5 py-1.5 font-mono text-[11px] text-owl-muted">
+						<pre className="owl-tool-command">
 							{card.detail}
 						</pre>
 					)}
 					{output && output.text !== "" && (
 						<>
-							<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-owl-bg/60 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-owl-muted">
+							<pre className="owl-tool-output">
 								{fullOutput || !hasMore ? output.text : `…（前 ${dropped} 行已省略）\n${preview}`}
 							</pre>
 							{hasMore && (
@@ -234,20 +193,20 @@ function ToolGroupView({ label, cards }: { label: string; cards: ToolCard[] }): 
 	}, [errorCount]);
 
 	return (
-		<div className="min-w-0">
+		<div className={`owl-tool-group ${open ? "is-open" : ""}`}>
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
-				className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-owl-hover/50"
+				className="owl-tool-summary owl-tool-group-summary"
 			>
+				<IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />
 				<IconChevron
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 				/>
 				<span className="min-w-0 flex-1 truncate text-owl-muted">{label}</span>
 				{running ? (
 					<span className="flex shrink-0 items-center gap-1.5 text-owl-accent">
-						<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-accent" />
 						运行中…
 					</span>
 				) : errorCount > 0 ? (
@@ -257,7 +216,7 @@ function ToolGroupView({ label, cards }: { label: string; cards: ToolCard[] }): 
 				) : null}
 			</button>
 			{open && (
-				<div className="mt-0.5 space-y-0.5">
+				<div className="owl-tool-group-body">
 					{cards.map((card) => (
 						<ToolRowView key={card.id} card={card} />
 					))}
@@ -317,7 +276,7 @@ function TodoCardView({ card }: { card: ToolCard }): React.JSX.Element {
 function AnswerCard({ text }: { text: string }): React.JSX.Element {
 	return (
 		<div
-			className="break-words space-y-2 font-serif leading-relaxed [&_code]:rounded [&_code]:bg-owl-sidebar [&_code]:px-1 [&_code]:font-mono [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-owl-border [&_pre]:bg-owl-sidebar [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs"
+			className="owl-answer"
 			// markdown-it with html:false escapes raw HTML; tool content is data, not markup
 			dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
 		/>

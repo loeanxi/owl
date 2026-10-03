@@ -127,6 +127,7 @@ import {
 	type SessionProjection,
 } from "./session-manager.ts";
 import { type CacheWarmingMode, DEFAULT_TOOL_NAMES, type SettingsManager } from "./settings-manager.ts";
+import { CODEMODE_TOOL_NAME } from "../extensions/codemode/tool.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
 import {
@@ -3540,6 +3541,23 @@ export class AgentSession {
 		}
 		// Pending tools that are registered now become active.
 		nextActiveToolNames.push(...this._pendingToolNames);
+
+		// owl: 存在 codemode/deferred 暴露的工具（典型为 MCP 服务器默认 exposure）时，
+		// 自动激活内置 codemode 工具——对应上游 MCP 扩展「MCP 工具只能从脚本到达时
+		// 激活 codemode」的行为。用户在 defaultTools 里显式写 `-codemode` 时不强开。
+		if (
+			this._toolRegistry.has(CODEMODE_TOOL_NAME) &&
+			!nextActiveToolNames.includes(CODEMODE_TOOL_NAME) &&
+			this._isAllowedTool(CODEMODE_TOOL_NAME) &&
+			!this.settingsManager.getDefaultToolsRaw()?.includes("-codemode") &&
+			[...this._toolRegistry.keys()].some((name) => {
+				if (name === CODEMODE_TOOL_NAME) return false;
+				const exposure = this._getToolExposure(name);
+				return exposure === "codemode" || exposure === "deferred";
+			})
+		) {
+			nextActiveToolNames.push(CODEMODE_TOOL_NAME);
+		}
 
 		this._setActiveTools([...new Set(nextActiveToolNames)]);
 	}

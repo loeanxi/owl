@@ -1,7 +1,13 @@
 import type { ServerEventMessage } from "../bridge/protocol.ts";
 import { summarizeToolCall } from "./summarize.ts";
 
-export type ToolStatus = "running" | "ok" | "error";
+export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
+
+/** 原始消息内容的时间顺序；不从文字猜测进度或最终回答的模型通道。 */
+export type AssistantSegment =
+	| { kind: "text"; text: string }
+	| { kind: "thinking"; text: string }
+	| { kind: "tool"; toolId: string };
 
 /** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
 export type ToolResultImage = { data: string; mimeType: string };
@@ -25,13 +31,17 @@ export type ToolCard = {
 	/** 展开后的参数细节（完整命令/完整路径）。 */
 	detail?: string;
 	status: ToolStatus;
-	/** 工具结果；流式期间尚无，agent_end 重建后由 toolResult 挂上。 */
+	/** 执行事件中的实时输出，结束后由权威结果替换。 */
 	output?: ToolOutput;
+	startedAt?: number;
+	finishedAt?: number;
+	/** codemode 等工具的子调用，归属同一条 assistant。 */
+	parentToolCallId?: string;
 };
 
 export type ChatEntry =
 	| { kind: "user"; text: string }
-	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string }
+	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string; segments?: AssistantSegment[] }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
 	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
 
@@ -71,6 +81,78 @@ function lastAssistant(entries: ChatEntry[]): (ChatEntry & { kind: "assistant" }
 	return undefined;
 }
 
+type AssistantEntry = Extract<ChatEntry, { kind: "assistant" }>;
+
+function cloneAssistant(entry: AssistantEntry): AssistantEntry {
+	return { ...entry, tools: entry.tools.map((tool) => ({ ...tool })), segments: entry.segments?.map((segment) => ({ ...segment })) ?? [] };
+}
+
+function upsertTool(entry: AssistantEntry, id: string, name: string, args?: unknown): ToolCard {
+	let card = entry.tools.find((tool) => tool.id === id);
+	if (!card) {
+		card = { id, name, args: "", summary: name, status: "pending" };
+		entry.tools.push(card);
+		(entry.segments ??= []).push({ kind: "tool", toolId: id });
+	}
+	card.name = name;
+	if (args !== undefined) {
+		card.args = JSON.stringify(args);
+		Object.assign(card, summarizeToolCall(name, args));
+	}
+	return card;
+}
+
+function resultStatus(result: AnyEvent, isError: boolean): ToolStatus {
+	// 普通失败不当作取消；这里仅识别工具明确标志及 agent-core 的标准中止结果。
+	if (result.details?.cancelled === true || (isError && textOf(result.content).trim() === "Operation aborted")) return "cancelled";
+	return isError ? "error" : "ok";
+}
+
+function segmentsOf(content: unknown): AssistantSegment[] {
+	if (!Array.isArray(content)) return typeof content === "string" ? [{ kind: "text", text: content }] : [];
+	return content.flatMap((part): AssistantSegment[] => {
+		if (part.type === "text") return [{ kind: "text", text: part.text ?? "" }];
+		if (part.type === "thinking") return [{ kind: "thinking", text: part.thinking ?? "" }];
+		if (part.type === "toolCall") return [{ kind: "tool", toolId: part.id }];
+		return [];
+	});
+}
+
+function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string): void {
+	const segments = (entry.segments ??= []);
+	const last = segments.at(-1);
+	if (last?.kind === kind) last.text += text;
+	else segments.push({ kind, text });
+}
+
+function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyEvent, isError: boolean): ChatEntry[] {
+	if (typeof toolCallId !== "string") return entries;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry.kind === "user") break;
+		if (entry.kind !== "assistant" || !entry.tools.some((tool) => tool.id === toolCallId)) continue;
+		const updated = cloneAssistant(entry);
+		const card = updated.tools.find((tool) => tool.id === toolCallId)!;
+		card.status = resultStatus(result, isError);
+		card.output = toolOutputOf(result);
+		card.finishedAt = typeof result.timestamp === "number" ? result.timestamp : card.finishedAt ?? Date.now();
+		applyNestedCallRecords(updated, toolCallId, result);
+		return [...entries.slice(0, index), updated, ...entries.slice(index + 1)];
+	}
+	return entries;
+}
+
+function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string, result: AnyEvent): void {
+	for (const call of result.nestedCalls?.calls ?? []) {
+		if (typeof call.id !== "string" || typeof call.name !== "string") continue;
+		const card = upsertTool(entry, call.id, call.name, call.arguments);
+		card.parentToolCallId = parentToolCallId;
+		card.status = call.status === "unfinished" ? "cancelled" : call.status === "error" ? "error" : call.status === "ok" ? "ok" : "pending";
+		// Nested snapshots persist errors/arguments, but do not contain successful result bodies.
+		if (typeof call.error === "string" && !card.output) card.output = { text: call.error, totalLines: call.error.split("\n").length };
+	}
+}
+
 /** Apply one bridge event to the transcript. Returns a new array (immutably). */
 export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): ChatEntry[] {
 	const event = message.event as AnyEvent;
@@ -80,42 +162,31 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 			// 否则每轮会多出带空"思考过程"的空气泡。
 			const message = event.message as AnyEvent | undefined;
 			if (!message || message.role !== "assistant") return entries;
-			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [] }];
+			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [], segments: [] }];
 		}
 		case "message_update": {
 			const ae = event.assistantMessageEvent as AnyEvent | undefined;
 			if (!ae) return entries;
-			const current = lastAssistant(entries);
-			if (!current) return entries;
-			const index = entries.indexOf(current);
+			const previous = lastAssistant(entries);
+			if (!previous) return entries;
+			const current = cloneAssistant(previous);
+			const index = entries.indexOf(previous);
 			switch (ae.type) {
 				case "text_delta":
 					current.text += ae.delta ?? "";
+					appendSegment(current, "text", ae.delta ?? "");
 					break;
 				case "thinking_delta":
 					current.thinking += ae.delta ?? "";
+					appendSegment(current, "thinking", ae.delta ?? "");
 					break;
 				case "toolcall_start": {
 					const toolCall = ae.partial?.content?.[ae.contentIndex];
-					current.tools.push({
-						id: ae.toolCall?.id ?? `tool-${ae.contentIndex}`,
-						name: ae.toolCall?.toolName ?? toolCall?.name ?? "tool",
-						args: "",
-						summary: ae.toolCall?.toolName ?? toolCall?.name ?? "tool",
-						status: "running",
-					});
+					upsertTool(current, ae.id ?? ae.toolCall?.id ?? toolCall?.id ?? `tool-${ae.contentIndex}`, ae.toolName ?? ae.toolCall?.name ?? toolCall?.name ?? "tool");
 					break;
 				}
 				case "toolcall_end": {
-					const card = current.tools.find((tool) => tool.id === ae.toolCall?.id);
-					if (card) {
-						// 结果要等 agent_end 重建才回来，这里先把参数落上、换成人话摘要；
-						// status 保持 running（结果未知，不假装完成）。
-						card.args = JSON.stringify(ae.toolCall?.arguments ?? {});
-						const summarized = summarizeToolCall(card.name, ae.toolCall?.arguments);
-						card.summary = summarized.summary;
-						card.detail = summarized.detail;
-					}
+					if (ae.toolCall?.id) upsertTool(current, ae.toolCall.id, ae.toolCall.name ?? "tool", ae.toolCall.arguments ?? {});
 					break;
 				}
 				default:
@@ -123,16 +194,47 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 			}
 			return [...entries.slice(0, index), { ...current }, ...entries.slice(index + 1)];
 		}
+		case "tool_execution_start":
+		case "tool_execution_update": {
+			const previous = lastAssistant(entries);
+			if (!previous || typeof event.toolCallId !== "string") return entries;
+			// Nested tool calls belong to their parent's assistant, not a later streamed answer.
+			const owner = entries.findLast((entry) => entry.kind === "assistant" && entry.tools.some((tool) => tool.id === event.toolCallId || tool.id === event.parentToolCallId));
+			const target = owner?.kind === "assistant" && entries.indexOf(owner) > entries.findLastIndex((entry) => entry.kind === "user") ? owner : previous;
+			const current = cloneAssistant(target);
+			const card = upsertTool(current, event.toolCallId, event.toolName ?? "tool", event.args);
+			if (typeof event.parentToolCallId === "string") card.parentToolCallId = event.parentToolCallId;
+			if (card.status === "pending" || card.status === "running") {
+				card.status = "running";
+				card.startedAt ??= Date.now();
+				if (event.type === "tool_execution_update" && event.partialResult) card.output = toolOutputOf(event.partialResult);
+			}
+			const index = entries.indexOf(target);
+			return [...entries.slice(0, index), current, ...entries.slice(index + 1)];
+		}
+		case "tool_execution_end":
+			return applyToolResult(entries, event.toolCallId, event.result ?? {}, event.isError === true);
 		case "message_end": {
 			const message = event.message as AnyEvent | undefined;
-			if (!message || message.role !== "assistant") return entries;
-			const current = lastAssistant(entries);
-			if (!current) return entries;
-			const index = entries.indexOf(current);
+			if (!message) return entries;
+			if (message.role === "toolResult") return applyToolResult(entries, message.toolCallId, message, message.isError === true);
+			if (message.role !== "assistant") return entries;
+			const previous = lastAssistant(entries);
+			if (!previous) return entries;
+			const current = cloneAssistant(previous);
+			const index = entries.indexOf(previous);
 			const text = (message.content ?? [])
 				.filter((part: AnyEvent) => part.type === "text")
 				.map((part: AnyEvent) => part.text)
 				.join("\n");
+			for (const part of message.content ?? []) {
+				if (part.type !== "toolCall") continue;
+				const card = upsertTool(current, part.id, part.name, part.arguments ?? {});
+				if (card.status === "pending" && (message.stopReason === "error" || message.stopReason === "aborted")) card.status = message.stopReason === "aborted" ? "cancelled" : "error";
+			}
+			current.segments = segmentsOf(message.content);
+			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
+			current.error = message.stopReason === "error" || message.stopReason === "aborted" ? formatProviderError(message.errorMessage) : undefined;
 			return [
 				...entries.slice(0, index),
 				{ ...current, text: text || current.text },
@@ -154,7 +256,9 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 				}
 			}
 			if (lastUser === -1) return entries.length > 0 ? entries : rebuilt;
-			return [...entries.slice(0, lastUser), ...rebuilt];
+			// Continue/retry runs may omit the already-displayed user message.
+			const keepUser = !messages.some((message) => message.role === "user");
+			return [...entries.slice(0, lastUser + (keepUser ? 1 : 0)), ...rebuilt];
 		}
 		default:
 			return entries;
@@ -175,8 +279,7 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 					name: part.name,
 					args: JSON.stringify(part.arguments ?? {}),
 					...summarizeToolCall(part.name, part.arguments),
-					// 失败结果随后由 toolResult 覆盖；先按成功占位
-					status: "ok" as const,
+					status: message.stopReason === "aborted" ? "cancelled" as const : message.stopReason === "error" ? "error" as const : "pending" as const,
 				}));
 			entries.push({
 				kind: "assistant",
@@ -186,6 +289,7 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 					.map((part: AnyEvent) => part.thinking ?? "")
 					.join("\n"),
 				tools,
+				segments: segmentsOf(message.content),
 				error:
 					message.stopReason === "error" || message.stopReason === "aborted"
 						? formatProviderError(message.errorMessage)
@@ -196,8 +300,10 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 			const output = toolOutputOf(message);
 			const card = findToolCard(entries, message.toolCallId);
 			if (card) {
-				card.status = message.isError ? "error" : "ok";
+				card.status = resultStatus(message, message.isError === true);
 				card.output = output;
+				const owner = entries.findLast((entry) => entry.kind === "assistant" && entry.tools.includes(card));
+				if (owner?.kind === "assistant") applyNestedCallRecords(owner, card.id, message);
 			} else {
 				// 找不到所属调用（防御）：退回独立的兜底行
 				entries.push({

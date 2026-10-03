@@ -5,400 +5,400 @@
       "theme": "dark",
       "view": "home",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "chat",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "files",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "changes",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "editor",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "terminal",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "browser",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "tasks",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "impression",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "sidechat",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "image",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-general",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-providers",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-plugins",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-appearance",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-prompts",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-archive",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-json",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "settings-about",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "dark",
       "view": "dialogs",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "home",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "chat",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "files",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "changes",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "editor",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "terminal",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "browser",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "tasks",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "impression",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "sidechat",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "image",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-general",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-providers",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-plugins",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-appearance",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-prompts",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-archive",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-json",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "settings-about",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
       "theme": "light",
       "view": "dialogs",
       "overflow": {
-        "w": 1280,
-        "h": 800,
-        "innerW": 1280,
-        "innerH": 800
+        "w": 1440,
+        "h": 900,
+        "innerW": 1440,
+        "innerH": 900
       }
     },
     {
@@ -535,6 +535,5 @@
     }
   ],
   "feedbackFlow": true,
-  "directEditAcrossPages": true,
-  "editorSpacingPx": 27
+  "directEditAcrossPages": true
 }

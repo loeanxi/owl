@@ -34,40 +34,40 @@ export interface HeadTailSnapshot {
  */
 export class HeadTailBuffer {
 	private head = "";
-	private tail = "";
 	private headBytes = 0;
+	private tail = "";
 	private tailBytes = 0;
 	private totalBytes = 0;
 
 	append(chunk: string): void {
 		const bytes = Buffer.byteLength(chunk, "utf-8");
 		this.totalBytes += bytes;
-		if (bytes <= HALF_BUFFER_BYTES) {
-			this.tail += chunk;
-			this.tailBytes += bytes;
-			this.trimTail();
-		} else {
-			// 单块超过半缓冲：直接覆盖尾半区，并把该块尾部收进 head 语义之外
-			this.tail = chunk.slice(-Math.floor(HALF_BUFFER_BYTES / 2));
+		// 先填满头半区，其余滚入尾半区（尾半区只保留最后 HALF 字节）
+		if (this.headBytes < HALF_BUFFER_BYTES) {
+			const space = HALF_BUFFER_BYTES - this.headBytes;
+			if (bytes <= space) {
+				this.head += chunk;
+				this.headBytes += bytes;
+				return;
+			}
+			const headPart = sliceUtf8FromStart(chunk, space);
+			this.head += headPart;
+			this.headBytes += Buffer.byteLength(headPart, "utf-8");
+			chunk = chunk.slice(headPart.length);
+		}
+		this.tail += chunk;
+		this.tailBytes = Buffer.byteLength(this.tail, "utf-8");
+		if (this.tailBytes > HALF_BUFFER_BYTES) {
+			this.tail = sliceUtf8FromEnd(this.tail, HALF_BUFFER_BYTES);
 			this.tailBytes = Buffer.byteLength(this.tail, "utf-8");
 		}
-		this.trimTail();
-	}
-
-	private trimTail(): void {
-		if (this.tailBytes <= HALF_BUFFER_BYTES) return;
-		const keep = sliceUtf8FromStart(this.tail, HALF_BUFFER_BYTES);
-		this.tail = keep;
-		this.tailBytes = Buffer.byteLength(keep, "utf-8");
 	}
 
 	snapshot(): HeadTailSnapshot {
 		const omitted = Math.max(0, this.totalBytes - this.headBytes - this.tailBytes);
-		const head = this.head;
-		const tail = this.tail;
-		if (omitted <= 0) return { content: head + tail, totalBytes: this.totalBytes, omittedBytes: 0 };
+		if (omitted <= 0) return { content: this.head + this.tail, totalBytes: this.totalBytes, omittedBytes: 0 };
 		const marker = `\n... ${omitted} bytes omitted ...\n`;
-		return { content: head + marker + tail, totalBytes: this.totalBytes, omittedBytes: omitted };
+		return { content: this.head + marker + this.tail, totalBytes: this.totalBytes, omittedBytes: omitted };
 	}
 }
 

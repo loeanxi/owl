@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
+import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
@@ -12,6 +13,13 @@ const API_OPTIONS = [
 	{ value: "anthropic-messages", label: "Anthropic 兼容（anthropic-messages）" },
 	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
 ];
+
+const CHAT_READING_FIELDS = [
+	{ key: "fontSize", title: "正文字号", desc: "调整回答正文的文字大小。", min: 14, max: 22, step: 1, unit: "px" },
+	{ key: "codeFontSize", title: "代码字号", desc: "调整命令、代码和工具输出的文字大小。", min: 11, max: 18, step: 1, unit: "px" },
+	{ key: "lineHeight", title: "正文行距", desc: "增大行距，让长段落更容易阅读。", min: 1.5, max: 2, step: 0.05, unit: "倍" },
+	{ key: "width", title: "阅读宽度", desc: "调整宽屏下回答的最大宽度，小窗口会自动收窄。", min: 640, max: 960, step: 1, unit: "px" },
+] as const;
 
 type SettingsSection = "general" | "models" | "plugins" | "sidebar" | "prompts" | "appearance" | "archived" | "json" | "about";
 
@@ -223,6 +231,8 @@ export function SettingsPage({
 	const [section, setSection] = useState<SettingsSection>("general");
 	const [agentDir, setAgentDir] = useState("");
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
+	const [chatAppearance, setChatAppearance] = useState<ChatAppearance>(() => ({ ...DEFAULT_CHAT_APPEARANCE }));
+	const [chatAppearanceLoaded, setChatAppearanceLoaded] = useState(false);
 	const [raw, setRaw] = useState("");
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
@@ -341,6 +351,8 @@ export function SettingsPage({
 				const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
 				setAgentDir(settings.result.agentDir);
 				setSettingsObj(obj);
+				setChatAppearance(parseChatAppearance(obj.desktopChatAppearance));
+				setChatAppearanceLoaded(true);
 				setRaw(JSON.stringify(obj, null, 2));
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
@@ -455,11 +467,17 @@ export function SettingsPage({
 					setRaw(JSON.stringify(response.result, null, 2));
 					// 侧边卡片配置的 UI 镜像即时同步（含 JSON 分区手改 settings.json 的路径）
 					setSidebarConfig(parseSidebarSettings((response.result as Record<string, unknown>).owlSidebar));
+					const appearance = parseChatAppearance(response.result.desktopChatAppearance);
+					applyChatAppearance(appearance);
+					if ("desktopChatAppearance" in partial) setChatAppearance(appearance);
 				}
 				flashSaved();
 				return true;
 			}
 			setError(response.error ?? "保存失败");
+			return false;
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
 			return false;
 		} finally {
 			setBusy(false);
@@ -586,6 +604,84 @@ export function SettingsPage({
 								>
 									<input className={smallInput} value={shellPath} onChange={(event) => setShellPath(event.target.value)} placeholder="如 D:\\developTool\\git\\Git\\bin\\bash.exe" />
 								</SettingRow>
+								<div className="flex items-center justify-between gap-3 pt-3">
+									<div>
+										<h3 className="text-sm font-semibold text-owl-text">聊天阅读</h3>
+										<p className="mt-1 text-[11px] text-owl-faint">调整后点击保存，立即应用到聊天内容。</p>
+									</div>
+									<button
+										type="button"
+										className={btn}
+										disabled={busy || !chatAppearanceLoaded}
+										onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
+									>
+										恢复默认
+									</button>
+								</div>
+								{CHAT_READING_FIELDS.map((field) => (
+									<SettingRow
+										key={field.key}
+										title={field.title}
+										desc={field.desc}
+										control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {field.unit}</span>}
+									>
+										<input
+											type="range"
+											aria-label={field.title}
+											className="w-full accent-owl-accent disabled:opacity-40"
+											min={field.min}
+											max={field.max}
+											step={field.step}
+											value={chatAppearance[field.key]}
+											disabled={busy || !chatAppearanceLoaded}
+											onChange={(event) => {
+												const value = event.currentTarget.valueAsNumber;
+												setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
+											}}
+										/>
+									</SettingRow>
+								))}
+								<SettingRow
+									title="工具记录"
+									desc="选择简洁摘要或展开的执行记录，随时可以点击查看详情。"
+									control={
+										<select
+											aria-label="工具记录"
+											className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+											value={chatAppearance.toolRecords}
+											disabled={busy || !chatAppearanceLoaded}
+											onChange={(event) => setChatAppearance((current) => ({
+												...current,
+												toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
+											}))}
+										>
+											<option value="compact">简洁摘要</option>
+											<option value="expanded">展开记录</option>
+										</select>
+									}
+								/>
+								<SettingRow
+									title="动态效果"
+									desc="任务进行时，在最新回复下方显示轻微动态提示。"
+									control={
+										<Switch
+											title="动态效果"
+											checked={chatAppearance.motion}
+											disabled={busy || !chatAppearanceLoaded}
+											onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
+										/>
+									}
+								/>
+								<div className="flex justify-end">
+									<button
+										type="button"
+										className={btnAccent}
+										disabled={busy || !chatAppearanceLoaded}
+										onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
+									>
+										保存阅读设置
+									</button>
+								</div>
 							</>
 						)}
 

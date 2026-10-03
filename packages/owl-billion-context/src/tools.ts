@@ -7,15 +7,17 @@
  * 安全目录代替）。
  */
 import { Type, type Static } from "typebox";
-import type { AgentToolResult, ExtensionContext, ToolDefinition } from "@owl/owl-coding-agent";
+import type { AgentToolResult, ExtensionContext, SessionEntry, ToolDefinition } from "@owl/owl-coding-agent";
 import {
 	formatRanges,
 	parseBlockIdArg,
 	parseCompressArgs,
 	viableRanges,
 	collectBlockContent,
-	buildStatusReport,
+	blockDocs,
+	searchBlocks,
 	type CompressionBlock,
+	type CompressionCore,
 	type CompressionState,
 	type CompressParseDiagnostics,
 	type Config,
@@ -25,13 +27,16 @@ import { assertNotAborted } from "./abort.js";
 import { entriesToCoreMessages } from "./messages.js";
 import { adjustedTokenCount, collectCoveredMessageIds, collectImageTokens, estimateTokens, modelSupportsImages } from "./tokens.js";
 import { getSystemPromptText } from "./compat.js";
+import type { SessionStateStore } from "./state.js";
 
 // ---------------------------------------------------------------------------
 // 运行时接口（由 index.ts 提供）
 // ---------------------------------------------------------------------------
 
 export interface BiliRuntime {
-	stateFor(ctx: ExtensionContext): Promise<{ state: CompressionState; coreMessages: ReturnType<typeof entriesToCoreMessages>; entries: import("@owl/owl-coding-agent").SessionEntry[] }>;
+	core: CompressionCore;
+	store: SessionStateStore;
+	stateFor(ctx: ExtensionContext): Promise<{ state: CompressionState; coreMessages: ReturnType<typeof entriesToCoreMessages>; entries: SessionEntry[] }>;
 	save(state: CompressionState, ctx: ExtensionContext): Promise<void>;
 	configFor(ctx: ExtensionContext): Config;
 	nudgeOf(ctx: ExtensionContext): Promise<NudgeDecision | undefined>;
@@ -82,7 +87,7 @@ export function blockSpanLabel(block: CompressionBlock, state: CompressionState)
 	return `${block.blockId}${tierMark}=${span}${star}`;
 }
 
-/** 面板块数（用于成功/空转判定的极简版）：`▣ ACP | …, N blocks)` 形式。 */
+/** 面板块数（成功/空转判定的极简版）：`▣ ACP | …, N blocks)` 或 span 列表。 */
 export function compressPanelBlocks(text: string): number {
 	if (!text.trimStart().startsWith("▣ ACP |")) return -1;
 	const m = text.match(/, (\d+) blocks?\)/);
@@ -125,7 +130,7 @@ type CompressArgs = Static<typeof CompressParams>;
 type RangeEntry = Static<typeof RangeSpec>;
 
 // 非严格工具调用的模型会把 content 序列化成各种坏形状 —— 内核宽松解析器
-// 兜底之前先做两种确定性修复（上游 #480 与字符串尾断括号）。
+// 兜底之前先做两种确定性修复（上游 #480 裸对象、字符串尾断括号）。
 function repairContentTail(args: CompressArgs): CompressArgs {
 	if (typeof args.content !== "string") return args;
 	const t = args.content.trimEnd();
@@ -223,7 +228,22 @@ function cappedRejectionText(snapshot: string, maxAttempts: number): string {
 	].join("\n");
 }
 
-const MAX_COMPRESS_ATTEMPTS = 3;
+export const MAX_COMPRESS_ATTEMPTS = 3;
+
+function estimateCharsTokens(text: string): number {
+	return Math.ceil(text.length / 4);
+}
+
+/** 当前 user turn 的稳定 key（最后一条 user 条目 id）——compress 失败计数的
+ *  作用域键：新用户消息自然重置，轮内多次 LLM 调用共享同一 key。 */
+function lastUserTurnKey(ctx: ExtensionContext): string {
+	const entries = ctx.sessionManager.getEntries();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i]!;
+		if (entry.type === "message" && entry.message.role === "user") return entry.id;
+	}
+	return ctx.sessionManager.getSessionId();
+}
 
 export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof CompressParams> {
 	return {
@@ -243,20 +263,21 @@ export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof Co
 			assertNotAborted(signal);
 			const args = rawParams as CompressArgs;
 			const sid = ctx.sessionManager.getSessionId();
-			const turnKey = lastUserTurnKeyFromCtx(ctx) ?? sid;
+			const turnKey = lastUserTurnKey(ctx);
 			const { state: initialState, coreMessages, entries } = await runtime.stateFor(ctx);
 			const config = runtime.configFor(ctx);
-			const systemPromptTokens = getSystemPromptText(ctx) ? estimateCharsTokens(getSystemPromptText(ctx)) : 0;
+			const systemPromptText = getSystemPromptText(ctx);
+			const systemPromptTokens = systemPromptText ? estimateCharsTokens(systemPromptText) : 0;
 			const imageTokens = collectImageTokens(entries, modelSupportsImages(ctx.model));
 			const sentTokens = estimateTokens(coreMessages, collectCoveredMessageIds(initialState), imageTokens) + systemPromptTokens;
-			const tokenCount = adjustedTokenCount(runtime.coreRef(), coreMessages, initialState, config, sentTokens, imageTokens, systemPromptTokens);
+			const tokenCount = adjustedTokenCount(runtime.core, coreMessages, initialState, config, sentTokens, imageTokens, systemPromptTokens);
 
-			// 先跑一轮 processTurn 拿当前 nudge（其 compressibleRanges 就是可压清单，
+			// 先跑一轮 processTurn：拿当前 nudge（其 compressibleRanges 就是可压清单，
 			// 同时让 emergency-truncate 在必要时先收紧工具输出）。
-			const turn = runtime.coreRef().processTurn({ messages: coreMessages, state: initialState, config, tokenCount });
+			const turn = runtime.core.processTurn({ messages: coreMessages, state: initialState, config, tokenCount });
 			await runtime.save(turn.state, ctx);
 
-			// 参数解析失败必须 THROW（pi 只对 throw 置 isError:true，失败计数依赖它）。
+			// 参数解析失败必须 THROW（owl 只对 throw 置 isError:true，失败计数依赖它）。
 			const maybeRanges = normalizeRanges(args);
 			if (typeof maybeRanges === "string") throw new Error(maybeRanges);
 			const ranges = maybeRanges;
@@ -265,11 +286,16 @@ export function makeCompressTool(runtime: BiliRuntime): ToolDefinition<typeof Co
 			if (runtime.compressRetryCappedFor(sid, turnKey)) {
 				return {
 					details: undefined,
-					content: [{ type: "text", text: cappedRejectionText(formatRanges(viableRanges(turn.nudge?.compressibleRanges ?? []), []), MAX_COMPRESS_ATTEMPTS) }],
+					content: [
+						{
+							type: "text",
+							text: cappedRejectionText(formatRanges(viableRanges(turn.nudge?.compressibleRanges ?? []), []), MAX_COMPRESS_ATTEMPTS),
+						},
+					],
 				};
 			}
 
-			const applied = runtime.coreRef().applyCompression({
+			const applied = runtime.core.applyCompression({
 				ranges: ranges.map((r) => ({
 					startRef: r.startId,
 					endRef: r.endId,
@@ -324,7 +350,7 @@ function buildCompressReceipt(
 const DecompressParams = Type.Object({
 	blockId: Type.String({ description: 'Block id to restore, e.g. "b5".' }),
 	full: Type.Optional(Type.Boolean({ description: "If true, recurse through all nested blocks to original messages. Default: false (one tier up)." })),
-	toFile: Type.Optional(Type.Boolean({ description: "Write restored content to a file instead of returning inline. Default: false (inline)." })),
+	inline: Type.Optional(Type.Boolean({ description: "If true, return content inline as this tool's result. Default: false — content is written to a file to avoid context bloat." })),
 });
 
 type DecompressArgs = Static<typeof DecompressParams>;
@@ -334,12 +360,12 @@ export function makeDecompressTool(runtime: BiliRuntime): ToolDefinition<typeof 
 		name: "decompress",
 		label: "Decompress",
 		description:
-			"Read back a previously compressed block's content by block id (see acp_status / nudge for block ids). The block STAYS compressed — context and cache prefix are not disrupted. Returns the content inline by default; pass toFile:true to write it to a file instead (blocks can be large). full:true recurses to original messages.",
-		promptSnippet: 'decompress({ blockId: "b5" }) or decompress({ blockId: "b5", full: true })',
+			"Read back a previously compressed block's content by block id (see acp_status / nudge for block ids). The block STAYS compressed — context and cache prefix are not disrupted. By DEFAULT the content is written to a file (blocks can be large); use the read tool to view it, or pass inline:true to return it in this tool's result. full:true recurses to original messages.",
+		promptSnippet: 'decompress({ blockId: "b5" }) or decompress({ blockId: "b5", inline: true })',
 		promptGuidelines: [
 			"Decompress when you need exact details lost in compression (file contents, error messages, signatures).",
 			"Use search_context first to find the right block.",
-			"toFile:true for large blocks; keep inline output small.",
+			"Block decompress writes to a file by default; inline:true only for small content you accept adding to context.",
 		],
 		parameters: DecompressParams,
 		execute: async (_toolCallId, rawParams, signal, _onUpdate, ctx): Promise<AgentToolResult> => {
@@ -353,17 +379,24 @@ export function makeDecompressTool(runtime: BiliRuntime): ToolDefinition<typeof 
 			const collected = collectBlockContent(state, block, coreMessages, { full: args.full === true });
 			if (collected.count === 0) return { details: undefined, content: [{ type: "text", text: `Block ${blockId} has no restorable content.` }] };
 
-			if (args.toFile === true) {
+			if (args.inline !== true) {
 				const { writeFile, mkdir } = await import("node:fs/promises");
 				const { join } = await import("node:path");
 				const { homedir, tmpdir } = await import("node:os");
-				const dir = join(homedir() || tmpdir(), ".owl", "billion-context", "decompress");
+				// 尊重 owl 改造版的配置目录隔离（OWL_CODING_AGENT_DIR），默认 ~/.owl。
+				const agentDir = process.env.OWL_CODING_AGENT_DIR || join(homedir() || tmpdir(), ".owl");
+				const dir = join(agentDir, "billion-context", "decompress");
 				await mkdir(dir, { recursive: true });
 				const file = join(dir, `${blockId}-${Date.now()}.txt`);
 				await writeFile(file, collected.text, { encoding: "utf8", mode: 0o600 });
 				return {
 					details: { file, count: collected.count },
-					content: [{ type: "text", text: `Block ${blockId} (${collected.count} item(s), ${formatK(collected.text.length)} chars) written to ${file}. The block stays compressed — use the read tool to view it.` }],
+					content: [
+						{
+							type: "text",
+							text: `Block ${blockId} (${collected.count} item(s), ${formatK(collected.text.length)} chars) written to ${file}. The block stays compressed — use the read tool to view it.`,
+						},
+					],
 				};
 			}
 			return {
@@ -400,15 +433,18 @@ export function makeSearchTool(runtime: BiliRuntime): ToolDefinition<typeof Sear
 		execute: async (_toolCallId, rawParams, _signal, _onUpdate, ctx): Promise<AgentToolResult> => {
 			const args = rawParams as SearchArgs;
 			const { state } = await runtime.stateFor(ctx);
-			const hits = runtime.coreRef().search(args.query, state);
+			// BM25 引擎（与上游 search-tool 同源），对块 topic+summary 建档。
+			const hits = searchBlocks(blockDocs(state), args.query, { limit: args.limit ?? 8 });
 			const limit = args.limit ?? 8;
 			if (hits.length === 0) {
 				return { details: undefined, content: [{ type: "text", text: `No matches for "${args.query}" across ${state.blocks.length} block(s).` }] };
 			}
 			const lines = [`Found ${Math.min(hits.length, limit)} match(es) for "${args.query}" (searched ${state.blocks.length} blocks):`];
-			for (const b of hits.slice(0, limit)) {
+			for (const hit of hits.slice(0, limit)) {
+				const b = state.blocks.find((blk) => blk.blockId === hit.blockId);
+				if (!b) continue;
 				const summary = (b.summary || "").replace(/\s+/g, " ").slice(0, 200);
-				lines.push("", `${b.blockId} (T${b.tier}${b.topic ? `, "${b.topic}"` : ""}) — ${b.effectiveMessageIds.length} msgs`, `  ${summary}${(b.summary || "").length > 200 ? "…" : ""}`);
+				lines.push("", `${b.blockId} (T${b.tier}${b.topic ? `, "${b.topic}"` : ""}, score ${hit.score.toFixed(2)}) — ${b.effectiveMessageIds.length} msgs`, `  ${summary}${(b.summary || "").length > 200 ? "…" : ""}`);
 			}
 			return { details: undefined, content: [{ type: "text", text: lines.join("\n") }] };
 		},
@@ -436,11 +472,11 @@ export function makeStatusTool(runtime: BiliRuntime): ToolDefinition<typeof Stat
 		execute: async (_toolCallId, _rawParams, _signal, _onUpdate, ctx): Promise<AgentToolResult> => {
 			const { state, coreMessages } = await runtime.stateFor(ctx);
 			const config = runtime.configFor(ctx);
-			const systemPromptTokens = getSystemPromptText(ctx) ? estimateCharsTokens(getSystemPromptText(ctx)) : 0;
-			const imageTokens = collectImageTokens([], false);
-			const sentTokens = estimateTokens(coreMessages, collectCoveredMessageIds(state), imageTokens) + systemPromptTokens;
-			const tokenCount = adjustedTokenCount(runtime.coreRef(), coreMessages, state, config, sentTokens, imageTokens, systemPromptTokens);
-			const report = buildStatusReport(state, tokenCount, config);
+			const systemPromptText = getSystemPromptText(ctx);
+			const systemPromptTokens = systemPromptText ? estimateCharsTokens(systemPromptText) : 0;
+			const sentTokens = estimateTokens(coreMessages, collectCoveredMessageIds(state)) + systemPromptTokens;
+			const tokenCount = adjustedTokenCount(runtime.core, coreMessages, state, config, sentTokens);
+			const report = runtime.core.status(state, tokenCount, config);
 			const nudge = await runtime.nudgeOf(ctx);
 			const ranges = viableRanges(nudge?.compressibleRanges ?? []);
 			const lines = [
@@ -458,23 +494,4 @@ export function makeStatusTool(runtime: BiliRuntime): ToolDefinition<typeof Stat
 			return { details: undefined, content: [{ type: "text", text: lines.join("\n") }] };
 		},
 	};
-}
-
-// ---------------------------------------------------------------------------
-// 共用
-// ---------------------------------------------------------------------------
-
-function estimateCharsTokens(text: string): number {
-	return Math.ceil(text.length / 4);
-}
-
-/** 当前 user turn 的稳定 key（最后一条 user 条目 id）——compress 失败计数的
- *  作用域键：新用户消息自然重置，轮内多次 LLM 调用共享同一 key。 */
-function lastUserTurnKeyFromCtx(ctx: ExtensionContext): string | undefined {
-	const entries = ctx.sessionManager.getEntries();
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i]!;
-		if (entry.type === "message" && entry.message.role === "user") return entry.id;
-	}
-	return undefined;
 }

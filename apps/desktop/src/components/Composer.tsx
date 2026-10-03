@@ -480,13 +480,6 @@ export function Composer({
 							)}
 						</div>
 					)}
-					<img
-						src="/owl.svg"
-						alt=""
-						aria-hidden="true"
-						draggable={false}
-						className="pointer-events-none absolute -top-5 right-3 z-10 h-8 w-8 select-none drop-shadow-[0_3px_3px_rgba(0,0,0,0.45)]"
-					/>
 					<div className="flex items-end gap-2 px-2 py-2">
 						<textarea
 							ref={textareaRef}
