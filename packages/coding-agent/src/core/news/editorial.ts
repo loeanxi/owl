@@ -1282,6 +1282,7 @@ export async function evaluateSelection(
 	samples: NewsEvaluationSample[],
 	config: NewsConfiguration,
 	call: NewsModelCaller,
+	onOutputError?: (error: NewsOutputError) => void,
 ): Promise<NewsEvaluation> {
 	const scoresCache = new Map<string, Promise<number[]>>();
 	const raw: Array<{ sample: NewsEvaluationSample; pass: boolean; sum: number | null; error: string | null }> = [];
@@ -1318,6 +1319,7 @@ export async function evaluateSelection(
 			}
 			raw.push({ sample, pass: prefilter.label !== "BLOCK", sum, error: null });
 		} catch (error) {
+			if (error instanceof NewsOutputError) onOutputError?.(error);
 			raw.push({ sample, pass: false, sum: null, error: error instanceof Error ? error.message : String(error) });
 		}
 	}

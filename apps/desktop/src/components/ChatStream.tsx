@@ -6,7 +6,8 @@ import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
-import { workspaceArtifactPath } from "../hooks/artifacts.ts";
+import { collectHistoricalArtifacts, workspaceArtifactPath } from "../hooks/artifacts.ts";
+import { Artifacts } from "./Artifacts.tsx";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -358,8 +359,9 @@ function UserRowView({
 }
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (entryId: string) => void): TimelineRow[] {
+function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (entryId: string) => void, cwd?: string, onOpenFile?: (path: string) => void): TimelineRow[] {
 	const rows: TimelineRow[] = [];
+	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd) : undefined;
 	let turn = 0;
 	let pendingTools: ToolCard[] = [];
 	const flushTools = (): void => {
@@ -376,6 +378,10 @@ function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (ent
 	entries.forEach((entry, index) => {
 		if (entry.kind === "user") {
 			flushTools();
+			const artifacts = historicalArtifacts?.get(index);
+			if (artifacts && onOpenFile) {
+				rows.push({ key: "artifacts-" + index, content: <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} /> });
+			}
 			turn += 1;
 			rows.push({
 				key: "q" + turn,
@@ -634,7 +640,7 @@ export function ChatStream({
 		window.addEventListener("owl-chat-appearance-change", update);
 		return () => window.removeEventListener("owl-chat-appearance-change", update);
 	}, []);
-	const rows = useMemo(() => buildRows(entries, expandedTools, onRewind), [entries, expandedTools, onRewind]);
+	const rows = useMemo(() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile), [entries, expandedTools, onRewind, cwd, onOpenFile]);
 
 	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
 	const latestShot = useMemo(() => {

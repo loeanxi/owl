@@ -70,9 +70,13 @@ export const mailZh = {
 	"mail.tasks": "提取待办",
 	"mail.reply": "起草回复",
 	"mail.summarizeInbox": "总结当前邮箱",
-	"mail.promptSummary": "请阅读本次范围内的邮件，按邮件来源总结重点、需要我处理的事项和关键日期。请引用具体账号和邮件主题。",
+	"mail.promptSummary":
+		"请阅读本次范围内的邮件，按邮件来源总结重点、需要我处理的事项和关键日期。请引用具体账号和邮件主题。",
+	"mail.promptMailboxSummary":
+		"请在本次账号范围内，搜索符合 Gmail 查询条件「{query}」的邮件，按邮件来源总结重点、需要我处理的事项和关键日期。说明实际查看的邮件数量和时间范围，并引用账号和邮件主题。",
 	"mail.promptTasks": "请从本次范围内的邮件提取待办，列出负责人、截止日期和原文依据。缺少信息时明确说明，不要猜测。",
-	"mail.promptReply": "请阅读当前邮件会话，使用邮箱回复草稿工具为最后一封需要回复的来信起草回复。发件账号必须是原邮件所属账号。未确认的信息请保留为待确认事项，先生成草稿供我编辑。",
+	"mail.promptReply":
+		"请阅读当前邮件会话，使用邮箱回复草稿工具为最后一封需要回复的来信起草回复。发件账号必须是原邮件所属账号。未确认的信息请保留为待确认事项，先生成草稿供我编辑。",
 	"mail.agentIntro": "从邮件开始对话",
 	"mail.agentIntroHint": "选择邮件后直接提问，也可以对当前邮箱范围进行总结。每次对话会固定邮件和账号范围。",
 	"mail.agentPlaceholder": "询问邮件内容，或描述你想回复什么…",
@@ -87,11 +91,13 @@ export const mailZh = {
 	"mail.conversations": "邮箱对话",
 	"mail.conversation": "对话 {n}",
 	"mail.source": "查看来源邮件",
+	"mail.readSourcesCount": "已读取 {n} 个会话",
 	"mail.excludedAccounts": "以下账号未纳入本次对话：{accounts}",
 	"mail.agentFailed": "邮箱助手暂时无法完成请求",
 	"mail.draft": "回复草稿",
 	"mail.newDraft": "Agent 已提供新草稿，当前编辑内容已保留。",
 	"mail.adoptDraft": "采用新草稿",
+	"mail.draftAlreadySent": "这份草稿已发送。修改内容后可以准备新的邮件。",
 	"mail.draftSenderFixed": "发件账号已绑定原邮件；切换账号不会改变发件人。",
 	"mail.saveDraft": "保存到 Gmail 草稿",
 	"mail.savedDraft": "草稿已保存到 {email}",
@@ -126,7 +132,8 @@ export const mailZh = {
 	"mail.connectTitle": "连接 Gmail 账号",
 	"mail.configureStep": "准备 Google 授权",
 	"mail.authorizeStep": "登录并连接",
-	"mail.configureHint": "首次连接需要在 Google Cloud 中启用 Gmail API，创建“桌面应用”类型的 OAuth 客户端，并下载客户端 JSON 文件。测试应用需要将自己的邮箱添加为测试用户。",
+	"mail.configureHint":
+		"首次连接需要在 Google Cloud 中启用 Gmail API，创建“桌面应用”类型的 OAuth 客户端，并下载客户端 JSON 文件。测试应用需要将自己的邮箱添加为测试用户。",
 	"mail.googleConsole": "打开 Google Cloud 配置",
 	"mail.chooseClient": "选择客户端 JSON 文件",
 	"mail.clientConfigured": "Google 授权配置已就绪",
@@ -163,7 +170,8 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.canSend": "Read and send",
 	"mail.reconnect": "Reconnect",
 	"mail.disconnect": "Disconnect",
-	"mail.disconnectHint": "Disconnecting {email} removes its local connection. Other accounts can continue working. Edited drafts remain on this page.",
+	"mail.disconnectHint":
+		"Disconnecting {email} removes its local connection. Other accounts can continue working. Edited drafts remain on this page.",
 	"mail.rename": "Save name",
 	"mail.accountLabel": "Account name",
 	"mail.folders": "Mail folders",
@@ -174,7 +182,8 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.folder.drafts": "Drafts",
 	"mail.accountScope": "Current account scope",
 	"mail.agentCapability": "Work through mail with your Agent",
-	"mail.agentCapabilityHint": "Read, summarize, extract tasks and draft replies. Review the complete message before confirming a send.",
+	"mail.agentCapabilityHint":
+		"Read, summarize, extract tasks and draft replies. Review the complete message before confirming a send.",
 	"mail.refresh": "Refresh mail",
 	"mail.openAgent": "Mail assistant",
 	"mail.closeAgent": "Close mail assistant",
@@ -216,11 +225,17 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.tasks": "Extract tasks",
 	"mail.reply": "Draft reply",
 	"mail.summarizeInbox": "Summarize this mailbox",
-	"mail.promptSummary": "Read the mail in this scope and summarize key points, actions I need to take and important dates. Cite the specific account and message subject.",
-	"mail.promptTasks": "Extract tasks from the mail in this scope, including owner, due date and original evidence. Clearly identify missing information instead of guessing.",
-	"mail.promptReply": "Read the selected conversation and use the mail reply draft tool to draft a response to the last incoming message needing a reply. Use the original message's account as the sender. Leave unconfirmed information as questions and create a draft for me to edit.",
+	"mail.promptSummary":
+		"Read the mail in this scope and summarize key points, actions I need to take and important dates. Cite the specific account and message subject.",
+	"mail.promptMailboxSummary":
+		"Within this account scope, search for mail matching the Gmail query ‘{query}’. Summarize key points, actions I need to take and important dates. State the actual number of messages and date range reviewed, and cite the account and subject.",
+	"mail.promptTasks":
+		"Extract tasks from the mail in this scope, including owner, due date and original evidence. Clearly identify missing information instead of guessing.",
+	"mail.promptReply":
+		"Read the selected conversation and use the mail reply draft tool to draft a response to the last incoming message needing a reply. Use the original message's account as the sender. Leave unconfirmed information as questions and create a draft for me to edit.",
 	"mail.agentIntro": "Start a conversation from your mail",
-	"mail.agentIntroHint": "Select mail and ask a question, or summarize the current mailbox. Each conversation keeps a fixed mail and account scope.",
+	"mail.agentIntroHint":
+		"Select mail and ask a question, or summarize the current mailbox. Each conversation keeps a fixed mail and account scope.",
 	"mail.agentPlaceholder": "Ask about this mail or describe your reply…",
 	"mail.ask": "Ask Agent",
 	"mail.stop": "Stop generation",
@@ -233,11 +248,13 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.conversations": "Mail conversations",
 	"mail.conversation": "Conversation {n}",
 	"mail.source": "View source mail",
+	"mail.readSourcesCount": "{n} conversations read",
 	"mail.excludedAccounts": "Accounts excluded from this conversation: {accounts}",
 	"mail.agentFailed": "The mail assistant could not complete the request",
 	"mail.draft": "Reply draft",
 	"mail.newDraft": "The Agent provided a new draft. Your current edits have been preserved.",
 	"mail.adoptDraft": "Use new draft",
+	"mail.draftAlreadySent": "This draft has been sent. Edit its content to prepare a new message.",
 	"mail.draftSenderFixed": "The sender is bound to the original mail. Switching accounts will not change it.",
 	"mail.saveDraft": "Save to Gmail drafts",
 	"mail.savedDraft": "Draft saved to {email}",
@@ -245,14 +262,17 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.saving": "Saving…",
 	"mail.preparing": "Preparing preview…",
 	"mail.enableSend": "Enable saving drafts and sending",
-	"mail.permissionHint": "{email} currently has read-only access. You can edit the draft; saving to Gmail or sending requires additional authorization for this account.",
+	"mail.permissionHint":
+		"{email} currently has read-only access. You can edit the draft; saving to Gmail or sending requires additional authorization for this account.",
 	"mail.draftRetained": "Your draft remains on this page so you can continue after reconnecting.",
 	"mail.sendReview": "Confirm sending this message",
-	"mail.sendReviewHint": "Check the sending account, every recipient, subject and complete body. Confirming sends this message.",
+	"mail.sendReviewHint":
+		"Check the sending account, every recipient, subject and complete body. Confirming sends this message.",
 	"mail.confirmSend": "Confirm send",
 	"mail.sending": "Sending…",
 	"mail.sent": "Mail sent through {email}",
-	"mail.sendUnknown": "The send result could not be confirmed. Check this account's Gmail Sent folder before deciding to send again.",
+	"mail.sendUnknown":
+		"The send result could not be confirmed. Check this account's Gmail Sent folder before deciding to send again.",
 	"mail.confirmExpired": "This send preview has expired. Close it and create a new preview.",
 	"mail.close": "Close",
 	"mail.cancel": "Cancel",
@@ -260,9 +280,11 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.busy": "Working…",
 	"mail.error": "Request failed. Please try again.",
 	"mail.onboardTitle": "Bring your mail into OWL",
-	"mail.onboardHint": "Connect one or more Gmail accounts, read mail in one workspace and work through it with your Agent.",
+	"mail.onboardHint":
+		"Connect one or more Gmail accounts, read mail in one workspace and work through it with your Agent.",
 	"mail.connectGoogle": "Connect with Google",
-	"mail.onboardPermission": "Start with read-only access. Authorize the individual account when you need to save a draft or send.",
+	"mail.onboardPermission":
+		"Start with read-only access. Authorize the individual account when you need to save a draft or send.",
 	"mail.onboardRead": "Read in one place",
 	"mail.onboardReadHint": "View all inboxes or one account, with the source account shown on every message.",
 	"mail.onboardAgent": "Talk with your Agent",
@@ -272,14 +294,18 @@ export const mailEn: { [K in keyof typeof mailZh]: string } = {
 	"mail.connectTitle": "Connect a Gmail account",
 	"mail.configureStep": "Prepare Google authorization",
 	"mail.authorizeStep": "Sign in and connect",
-	"mail.configureHint": "For the first connection, enable Gmail API in Google Cloud, create a Desktop app OAuth client and download its client JSON. For a testing app, add your email as a test user.",
+	"mail.configureHint":
+		"For the first connection, enable Gmail API in Google Cloud, create a Desktop app OAuth client and download its client JSON. For a testing app, add your email as a test user.",
 	"mail.googleConsole": "Open Google Cloud configuration",
 	"mail.chooseClient": "Choose client JSON file",
 	"mail.clientConfigured": "Google authorization is configured",
 	"mail.replaceClient": "Replace configuration file",
-	"mail.clientPrivacy": "Authorization credentials stay on this device. They are not added to chat or committed to the project.",
-	"mail.authReadHint": "Choose the Google account in your browser. You can add more accounts later; permissions are managed separately.",
-	"mail.authSendHint": "Authorize saving drafts and sending for {email}. After authorization, return here to review and confirm each message.",
+	"mail.clientPrivacy":
+		"Authorization credentials stay on this device. They are not added to chat or committed to the project.",
+	"mail.authReadHint":
+		"Choose the Google account in your browser. You can add more accounts later; permissions are managed separately.",
+	"mail.authSendHint":
+		"Authorize saving drafts and sending for {email}. After authorization, return here to review and confirm each message.",
 	"mail.authWaiting": "Waiting for Google authorization…",
 	"mail.authWaitingHint": "Sign in and allow access in the browser. This window checks the connection automatically.",
 	"mail.openAuth": "Reopen authorization page",

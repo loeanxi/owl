@@ -623,8 +623,17 @@ export function SettingsPage({
 			if (response.ok && response.result) {
 				setImageModels((prev) => ({ ...prev, [provider]: response.result?.models ?? [] }));
 				const error = response.result.error;
-				if (error) setImageModelsNote(t("settings.image.modelsFailed", { error }));
-				else setImageModelsNote(t("settings.image.modelsFetched", { n: response.result.models.length }));
+				if (error) {
+					// 报错带上 provider 名，避免“登录了订阅却拉 Google Gemini 的模型”这种错位误会；
+					// Gemini 缺 key 且订阅已登录时，顺带提示切 provider 即可免 key 生图。
+					const label = t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider as OwlImageProvider] ?? "settings.image.p.google");
+					const subHint = provider === "google" && /API key/i.test(error) && imageData?.subscription.loggedIn === true
+						? t("settings.image.tryGoogleSub")
+						: "";
+					setImageModelsNote(t("settings.image.modelsFailed", { error: `${label} — ${error}` }) + subHint);
+				} else {
+					setImageModelsNote(t("settings.image.modelsFetched", { n: response.result.models.length }));
+				}
 			} else {
 				setImageModelsNote(t("settings.image.modelsFailed", { error: response.error ?? t("common.operationFailed") }));
 			}

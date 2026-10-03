@@ -688,6 +688,7 @@ export const en: Dict = {
 	"settings.image.modelsFetched": "{n} models available — click the input to pick one",
 	"settings.image.modelsFailed": "Fetch failed: {error}",
 	"settings.image.modelFixed": "The model is fixed by the channel: {model}",
+	"settings.image.tryGoogleSub": ". You are signed in to the Google subscription — switch the default provider to \"Google subscription (Antigravity)\" to generate without an API key; the model is fixed by the channel.",
 	"settings.image.save": "Save",
 	"settings.image.saved": "Saved — image-gen.json updated",
 

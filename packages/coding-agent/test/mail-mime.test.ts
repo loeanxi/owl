@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMime, parseThread, summarizeThread } from "../src/core/mail/mime.js";
+import { buildMime, parseThread, summarizeThread } from "../src/core/mail/mime.ts";
 
 describe("Gmail MIME", () => {
 	it("decodes recursive multipart text and encoded subject, while retaining attachment metadata", () => {

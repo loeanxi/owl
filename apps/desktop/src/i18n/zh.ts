@@ -687,6 +687,7 @@ export const zh = {
 	"settings.image.modelsFetched": "已获取 {n} 个模型，点击输入框可直接选择",
 	"settings.image.modelsFailed": "拉取失败：{error}",
 	"settings.image.modelFixed": "模型由订阅通道固定：{model}",
+	"settings.image.tryGoogleSub": "。你已登录 Google 订阅——把默认 provider 切到「Google 订阅 (Antigravity)」即可免 key 生图，模型由通道固定",
 	"settings.image.save": "保存",
 	"settings.image.saved": "已保存，image-gen.json 已更新",
 

@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import type { MailAttachment, MailDraft, MailMessage, MailThread, MailThreadSummary } from "./types.js";
+import type { MailAttachment, MailDraft, MailMessage, MailThread, MailThreadSummary } from "./types.ts";
 
 export interface GmailPart {
 	mimeType?: string;

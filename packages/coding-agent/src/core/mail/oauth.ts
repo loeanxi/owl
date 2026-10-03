@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import type { GoogleClient } from "./store.js";
-import type { MailAccount, MailAuthStart, MailAuthStatus } from "./types.js";
+import type { GoogleClient } from "./store.ts";
+import type { MailAccount, MailAuthStart, MailAuthStatus } from "./types.ts";
 
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";

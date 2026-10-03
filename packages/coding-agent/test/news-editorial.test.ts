@@ -822,4 +822,33 @@ describe("news paid-output provenance", () => {
 		expect(error.purpose).toBe("report-weekly");
 		expect(error.response).toBe(received);
 	});
+
+	it("reports invalid paid evaluation outputs before swallowing case failures and keeps failed score reuse", async () => {
+		const fixture = caller();
+		const received = response({ attentionScore: 101 });
+		let scoreCalls = 0;
+		const call: NewsModelCaller = async (request) => {
+			if (request.capability === "score") {
+				scoreCalls++;
+				return received;
+			}
+			return fixture.call(request);
+		};
+		const errors: NewsOutputError[] = [];
+		const samples = [
+			{ id: "one", material, tier: "T1" as const, gold: "select" as const },
+			{ id: "two", material, tier: "T2" as const, gold: "reject" as const },
+		];
+		const result = await evaluateSelection(samples, configuration(), call, (error) => errors.push(error));
+		expect(result.cases.every((entry) => entry.error?.includes("JSON schema"))).toBe(true);
+		expect(scoreCalls).toBe(1);
+		expect(errors).toHaveLength(2);
+		expect(errors.every((error) => error.response === received && error.purpose === "score-1")).toBe(true);
+		const networkErrors: NewsOutputError[] = [];
+		const disconnected: NewsModelCaller = async () => {
+			throw new Error("uncertain transport outcome");
+		};
+		await evaluateSelection(samples.slice(0, 1), configuration(), disconnected, (error) => networkErrors.push(error));
+		expect(networkErrors).toEqual([]);
+	});
 });

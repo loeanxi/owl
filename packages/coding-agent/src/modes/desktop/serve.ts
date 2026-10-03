@@ -393,6 +393,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		{ runtime: AgentSessionRuntime; unsubscribe: () => void; approvalMode: { current: ApprovalMode } }
 	>();
 	const clients = new Set<WebSocket>();
+	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
 	/** 终端会话表（term.* 路由的目标）；termId → 创建它的连接，断线时兜底回收 */
 	const terminals = new TerminalManager();
 	const wsTerms = new WeakMap<WebSocket, Set<string>>();
@@ -1200,6 +1201,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "news.request": {
+				const origin = clientOrigins.get(ws);
+				if (origin && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname.toLowerCase())) {
+					throw new Error("资讯管理请求只接受本机界面来源");
+				}
 				reply(ws, request.id, { ok: true, result: await newsRequest(request.request) });
 				return;
 			}
@@ -2450,8 +2455,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		verifyClient: (info: { origin: string; secure: boolean; req: IncomingMessage }) =>
 			isTrustedDesktopOrigin(info.req.headers.origin, options.host),
 	});
-	wss.on("connection", (ws) => {
+	wss.on("connection", (ws, upgrade) => {
 		clients.add(ws);
+		clientOrigins.set(ws, upgrade.headers.origin);
 		ws.on("message", (data) => {
 			let request: DesktopClientRequest;
 			try {

@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { buildMime, type GmailThread, parseThread, summarizeThread, validateDraft } from "./mime.js";
-import { GOOGLE_REVOKE_URL, GOOGLE_TOKEN_URL, GoogleMailOAuth, MailOAuthError } from "./oauth.js";
-import { MailStore, type MailStoreData, type SecretTransform, type StoredMailAccount } from "./store.js";
+import { buildMime, type GmailThread, parseThread, summarizeThread, validateDraft } from "./mime.ts";
+import { GOOGLE_REVOKE_URL, GOOGLE_TOKEN_URL, GoogleMailOAuth, MailOAuthError } from "./oauth.ts";
+import { MailStore, type MailStoreData, type SecretTransform, type StoredMailAccount } from "./store.ts";
 import type {
 	MailAccount,
+	MailAccountStatus,
 	MailDraft,
 	MailPermission,
 	MailRequest,
@@ -11,7 +12,7 @@ import type {
 	MailSettings,
 	MailThread,
 	MailThreadList,
-} from "./types.js";
+} from "./types.ts";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -262,6 +263,7 @@ export class MailService {
 					throw new MailOAuthError("授权已取消或账号连接已变更，请重新连接。");
 				}
 				const existing = this.data.accounts.find((account) => account.email.toLowerCase() === email);
+				const previous = existing ? structuredClone(existing) : undefined;
 				const granted = token.scope ? token.scope.split(/\s+/).filter(Boolean) : scopes;
 				if (!granted.some((scope) => [READ_SCOPE, MODIFY_SCOPE, FULL_SCOPE].includes(scope))) {
 					throw new MailOAuthError("此 Gmail 授权缺少读取权限，请重新授权。");
@@ -279,8 +281,24 @@ export class MailService {
 				};
 				if (existing) Object.assign(existing, account, { error: undefined });
 				else this.data.accounts.push(account);
-				this.generations.set(account.id, (this.generations.get(account.id) ?? 0) + 1);
-				await this.store.save(this.data);
+				const committedGeneration = (this.generations.get(account.id) ?? 0) + 1;
+				this.generations.set(account.id, committedGeneration);
+				try {
+					await this.store.save(this.data);
+					if (!isActive() || this.disposed) throw new MailOAuthError("授权已取消或过期，请重新连接。");
+				} catch (error) {
+					// DPAPI/file persistence can take time. A cancelled or failed auth
+					// must not leave a newly connected account behind after that write.
+					// A newer reconnect/disconnect owns its own state and is preserved.
+					if ((this.generations.get(account.id) ?? 0) === committedGeneration) {
+						this.data.accounts = previous
+							? this.data.accounts.map((current) => (current.id === account.id ? previous : current))
+							: this.data.accounts.filter((current) => current.id !== account.id);
+						this.generations.set(account.id, committedGeneration + 1);
+						await this.store.save(this.data).catch(() => undefined);
+					}
+					throw error;
+				}
 				return this.publicAccount(account);
 			},
 		});
@@ -336,8 +354,10 @@ export class MailService {
 			throw new Error("邮箱连接已变更，请重新操作。");
 		}
 		const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
-		if (account.status === "disconnected" || (this.generations.get(account.id) ?? 0) !== generation) {
-			if (account.status === "connected" && account.accessToken) return account.accessToken;
+		// await 之后状态可能已被并发改写；重新读宽类型，避免沿用上面的收窄
+		const statusAfterFetch = account.status as MailAccountStatus;
+		if (statusAfterFetch === "disconnected" || (this.generations.get(account.id) ?? 0) !== generation) {
+			if (statusAfterFetch === "connected" && account.accessToken) return account.accessToken;
 			throw new Error("邮箱连接已变更，请重新操作。");
 		}
 		if (!response.ok || !token.access_token) {

@@ -99,3 +99,77 @@ pub fn show_approval_toast(
 	notifier.Show(&toast).map_err(|error| error.to_string())?;
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// 真机诊断（绕过 Tauri IPC/ACL，直接走 Windows 层）：
+	/// 依次尝试两个 AUMID，弹一条带按钮的 Toast，并挂 Failed/Dismissed 回调
+	/// 观察 Windows 的真实反馈。运行：
+	///   cargo test -p owl-desktop diagnostic -- --nocapture --test-threads=1
+	#[test]
+	fn diagnostic_show_toast_direct() {
+		let xml = "<toast activationType=\"foreground\" launch=\"focus\">\
+<visual><binding template=\"ToastGeneric\"><text>owl 诊断</text>\
+<text>如果你看到这条通知，说明 Windows 层 Toast 可用（按钮同意/拒绝可点）</text></binding></visual>\
+<actions><action content=\"同意\" arguments=\"approve\" activationType=\"foreground\"/>\
+<action content=\"拒绝\" arguments=\"deny\" activationType=\"foreground\"/></actions></toast>";
+
+		for aumid in [AUMID, FALLBACK_AUMID] {
+			println!("=== 尝试 AUMID: {aumid} ===");
+			let notifier = match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid)) {
+				Ok(notifier) => {
+					println!("    CreateToastNotifierWithId: OK");
+					notifier
+				}
+				Err(error) => {
+					println!("    CreateToastNotifierWithId 失败: {error}");
+					continue;
+				}
+			};
+			let doc = XmlDocument::new().expect("XmlDocument::new");
+			doc.LoadXml(&HSTRING::from(xml)).expect("LoadXml");
+			let toast = ToastNotification::CreateToastNotification(&doc).expect("CreateToastNotification");
+
+			let failed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+			let failed_sink = failed.clone();
+			toast
+				.Failed(&TypedEventHandler::<ToastNotification, windows::UI::Notifications::ToastFailedEventArgs>::new(
+					move |_, args| {
+						if let Ok(args) = args.ok() {
+							if let Ok(code) = args.ErrorCode() {
+								*failed_sink.lock().unwrap() = format!("{code:?}");
+							}
+						}
+						Ok(())
+					},
+				))
+				.expect("Failed handler");
+			let dismissed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+			let dismissed_sink = dismissed.clone();
+			toast
+				.Dismissed(&TypedEventHandler::<ToastNotification, windows::UI::Notifications::ToastDismissedEventArgs>::new(
+					move |_, args| {
+						if let Ok(args) = args.ok() {
+							if let Ok(reason) = args.Reason() {
+								*dismissed_sink.lock().unwrap() = format!("{reason:?}");
+							}
+						}
+						Ok(())
+					},
+				))
+				.expect("Dismissed handler");
+
+			match notifier.Show(&toast) {
+				Ok(()) => println!("    Show: OK（若右下角没出现，5 秒后看 Windows 的回调反馈）"),
+				Err(error) => {
+					println!("    Show 失败: {error}");
+					continue;
+				}
+			}
+			std::thread::sleep(std::time::Duration::from_secs(5));
+			println!("    5 秒反馈：Failed={:?} Dismissed={:?}", failed.lock().unwrap(), dismissed.lock().unwrap());
+		}
+	}
+}

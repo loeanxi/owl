@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { GmailThread } from "../src/core/mail/mime.js";
-import { MailService } from "../src/core/mail/service.js";
+import type { GmailThread } from "../src/core/mail/mime.ts";
+import { MailService } from "../src/core/mail/service.ts";
 import type {
 	MailAccount,
 	MailAuthStart,
@@ -12,7 +12,7 @@ import type {
 	MailDraft,
 	MailSendConfirmation,
 	MailThreadList,
-} from "../src/core/mail/types.js";
+} from "../src/core/mail/types.ts";
 
 const READ = "https://www.googleapis.com/auth/gmail.readonly";
 const COMPOSE = "https://www.googleapis.com/auth/gmail.compose";
@@ -65,6 +65,7 @@ class FakeGoogle {
 	readonly refreshCount = new Map<string, number>();
 	sendError: "network" | "unauthorized" | undefined;
 	refreshBarrier?: Promise<void>;
+	profileBarrier?: Promise<void>;
 	verifier = "";
 	challenge = "";
 
@@ -96,7 +97,10 @@ class FakeGoogle {
 			});
 		}
 		const token = new Headers(init.headers).get("Authorization")?.replace("Bearer access:", "") ?? "";
-		if (url.pathname.endsWith("/profile")) return json({ emailAddress: `${token}@example.com` });
+		if (url.pathname.endsWith("/profile")) {
+			if (this.profileBarrier) await this.profileBarrier;
+			return json({ emailAddress: `${token}@example.com` });
+		}
 		if (url.pathname.endsWith("/send")) {
 			if (this.sendError === "network") throw new Error("connection lost after request accepted");
 			if (this.sendError === "unauthorized") return json({}, 401);
@@ -117,12 +121,20 @@ const fixtures: Array<{ service: MailService; directory: string }> = [];
 async function harness() {
 	const directory = await mkdtemp(join(tmpdir(), "owl-mail-test-"));
 	const google = new FakeGoogle();
+	const protection: { barrier?: Promise<void>; blocked: boolean } = { blocked: false };
 	let now = Date.parse("2026-10-03T13:00:00Z");
 	const service = new MailService({
 		agentDir: directory,
 		fetch: google.fetch,
 		now: () => now,
-		seal: async (value) => Buffer.from(value).toString("base64"),
+		seal: async (value) => {
+			if (protection.barrier) {
+				protection.blocked = true;
+				await protection.barrier;
+				protection.blocked = false;
+			}
+			return Buffer.from(value).toString("base64");
+		},
 		unseal: async (value) => Buffer.from(value, "base64").toString("utf8"),
 	});
 	fixtures.push({ service, directory });
@@ -130,6 +142,7 @@ async function harness() {
 	return {
 		service,
 		google,
+		protection,
 		directory,
 		advance: (milliseconds: number) => {
 			now += milliseconds;
@@ -271,6 +284,45 @@ describe("Google mailbox authorization", () => {
 		expect(projection).not.toContain("accessToken");
 		expect(projection).not.toContain("refreshToken");
 	});
+
+	it("does not connect an account when authorization is cancelled during the profile exchange", async () => {
+		const { service, google } = await harness();
+		let release: (() => void) | undefined;
+		google.profileBarrier = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const auth = await start(service, google, "personal");
+		const callback = fetch(auth.callback);
+		await expect.poll(() => google.calls.some((call) => call.url.pathname.endsWith("/profile"))).toBe(true);
+		await service.handle({ action: "auth.cancel", authId: auth.result.authId });
+		release!();
+		expect((await callback).status).toBe(400);
+		expect(await service.handle({ action: "accounts" })).toEqual([]);
+		expect(await service.handle({ action: "auth.status", authId: auth.result.authId })).toEqual({
+			state: "cancelled",
+		});
+	});
+});
+
+describe("authorization persistence cancellation", () => {
+	it("rolls back a new connection when authorization is cancelled during credential persistence", async () => {
+		const { service, google, protection, directory } = await harness();
+		let release: (() => void) | undefined;
+		protection.barrier = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const auth = await start(service, google, "personal");
+		const callback = fetch(auth.callback);
+		await expect.poll(() => protection.blocked).toBe(true);
+		await service.handle({ action: "auth.cancel", authId: auth.result.authId });
+		release!();
+		expect((await callback).status).toBe(400);
+		expect(await service.handle({ action: "accounts" })).toEqual([]);
+		const envelope = JSON.parse(await readFile(join(directory, "mail", "accounts.json"), "utf8")) as {
+			payload: string;
+		};
+		expect(Buffer.from(envelope.payload, "base64").toString()).not.toContain("refresh:personal");
+	});
 });
 
 describe("multiple Gmail accounts", () => {
@@ -345,6 +397,30 @@ describe("multiple Gmail accounts", () => {
 		expect(prepared.draft.inReplyTo).toBe("<message-personal-thread@example.com>");
 		expect(prepared.draft.references).toBe("<earlier@example.com> <message-personal-thread@example.com>");
 	});
+
+	it("does not restore removed credentials when a concurrent refresh completes after disconnect", async () => {
+		const { service, google, advance, directory } = await harness();
+		const work = await connect(service, google, "work");
+		advance(3_600_000);
+		let release: (() => void) | undefined;
+		google.refreshBarrier = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = service.handle({ action: "thread.get", accountId: work.id, threadId: "work-thread" });
+		// Attach the rejection assertion immediately so the rejected read is handled.
+		const failedRead = expect(read).rejects.toThrow("连接已变更");
+		await expect.poll(() => google.refreshCount.get("refresh:work")).toBe(1);
+		await service.handle({ action: "disconnect", accountId: work.id });
+		release!();
+		await failedRead;
+		const envelope = JSON.parse(await readFile(join(directory, "mail", "accounts.json"), "utf8")) as {
+			payload: string;
+		};
+		const decrypted = Buffer.from(envelope.payload, "base64").toString();
+		expect(decrypted).not.toContain("refresh:work");
+		expect(decrypted).not.toContain("access:work");
+		expect(await service.handle({ action: "accounts" })).toMatchObject([{ id: work.id, status: "disconnected" }]);
+	});
 });
 
 describe("explicit send confirmation", () => {
@@ -412,6 +488,19 @@ describe("explicit send confirmation", () => {
 			"已使用",
 		);
 		expect(google.calls.filter((call) => call.url.pathname.endsWith("/send"))).toHaveLength(1);
+	});
+
+	it("does not automatically refresh and replay a send rejected with 401", async () => {
+		const { service, google } = await harness();
+		const work = await connect(service, google, "work", "send");
+		const prepared = (await service.handle({ action: "send.prepare", draft: draft(work) })) as MailSendConfirmation;
+		google.sendError = "unauthorized";
+		await expect(service.handle({ action: "send.confirm", confirmationId: prepared.confirmationId })).rejects.toThrow(
+			"过期",
+		);
+		expect(google.calls.filter((call) => call.url.pathname.endsWith("/send"))).toHaveLength(1);
+		expect(google.refreshCount.get("refresh:work")).toBeUndefined();
+		expect(await service.handle({ action: "accounts" })).toMatchObject([{ id: work.id, status: "expired" }]);
 	});
 
 	it("saves an account-bound Gmail draft and sends it with the immutable preview MIME", async () => {

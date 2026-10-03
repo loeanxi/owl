@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { artifactKindForPath, collectArtifacts, workspaceArtifactPath } from "./artifacts.ts";
+import { artifactKindForPath, collectArtifacts, collectHistoricalArtifacts, workspaceArtifactPath } from "./artifacts.ts";
 import { rebuild, type ChatEntry, type ToolCard, type ToolStatus } from "./transcript.ts";
 
 function tool(id: string, name: string, path: unknown, status: ToolStatus = "ok"): ToolCard {
@@ -38,6 +38,65 @@ test("the current turn is isolated, while a session lists the latest call for ea
 	assert.deepEqual(collectArtifacts(entries, "D:/owl", { scope: "session" }).map((artifact) => artifact.toolId), ["latest", "new", "other"]);
 	assert.equal(collectArtifacts(entries, "D:/owl")[1].action, "edited");
 	assert.equal(collectArtifacts(entries, "D:/owl")[0].kind, "sheet");
+});
+
+test("a new question moves prior deliverables before that question and leaves its footer empty", () => {
+	const entries: ChatEntry[] = [
+		{ kind: "user", text: "生成报告" },
+		assistant([tool("report", "write", "report.md")]),
+		{ kind: "user", text: "你是什么模型" },
+		assistant([]),
+	];
+	assert.deepEqual([...collectHistoricalArtifacts(entries, "D:/owl")].map(([beforeIndex, artifacts]) => ({
+		beforeIndex, paths: artifacts.map((artifact) => artifact.path),
+	})), [{ beforeIndex: 2, paths: ["report.md"] }]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl"), []);
+	assert.deepEqual([...collectHistoricalArtifacts(entries.slice(0, 2), "D:/owl")], []);
+	assert.equal(collectArtifacts(entries.slice(0, 2), "D:/owl")[0].path, "report.md");
+});
+
+test("the same file can belong to several questions without cross-turn deduplication", () => {
+	const entries: ChatEntry[] = [
+		{ kind: "user", text: "生成报告" },
+		assistant([tool("first", "write", "REPORT.md"), tool("first-latest", "edit", "report.md")]),
+		{ kind: "user", text: "修改报告" },
+		assistant([tool("second", "edit", "report.md")]),
+		{ kind: "user", text: "生成表格" },
+		assistant([tool("current", "write", "result.xlsx")]),
+	];
+	assert.deepEqual([...collectHistoricalArtifacts(entries, "D:/owl")].map(([beforeIndex, artifacts]) => ({
+		beforeIndex, toolIds: artifacts.map((artifact) => artifact.toolId),
+	})), [{ beforeIndex: 2, toolIds: ["first-latest"] }, { beforeIndex: 4, toolIds: ["second"] }]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl").map((artifact) => artifact.toolId), ["current"]);
+});
+
+test("restored plugin results retain their original question placement and safe workspace path", () => {
+	const entries = rebuild([
+		{ role: "user", content: "生成办公文件" },
+		{ role: "assistant", content: [{ type: "toolCall", id: "office", name: "univer_export", arguments: {} }] },
+		{ role: "toolResult", toolCallId: "office", details: { artifacts: [
+			{ path: "D:/owl/费用测试.univer", action: "edited" },
+			{ path: "../outside.xlsx", action: "written" },
+		] } },
+		{ role: "assistant", content: [{ type: "text", text: "请审阅" }] },
+		{ role: "user", content: "你是什么模型" },
+		{ role: "assistant", content: [{ type: "text", text: "模型信息" }] },
+	]);
+	assert.deepEqual([...collectHistoricalArtifacts(entries, "D:/owl")].map(([beforeIndex, artifacts]) => ({
+		beforeIndex, files: artifacts.map(({ path, action }) => ({ path, action })),
+	})), [{ beforeIndex: 3, files: [{ path: "费用测试.univer", action: "edited" }] }]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl"), []);
+});
+
+test("user-less prefixes keep their outputs before the first question and empty turns add no cards", () => {
+	const prefix = assistant([tool("prefix", "write", "initial.md")]);
+	const entries: ChatEntry[] = [prefix, { kind: "user", text: "新问题" }, assistant([]), { kind: "user", text: "再问" }];
+	assert.deepEqual([...collectHistoricalArtifacts(entries, "D:/owl")].map(([beforeIndex, artifacts]) => ({
+		beforeIndex, toolIds: artifacts.map((artifact) => artifact.toolId),
+	})), [{ beforeIndex: 1, toolIds: ["prefix"] }]);
+	assert.deepEqual(collectArtifacts([prefix], "D:/owl").map((artifact) => artifact.toolId), ["prefix"]);
+	assert.deepEqual([...collectHistoricalArtifacts([prefix], "D:/owl")], []);
+	assert.deepEqual([...collectHistoricalArtifacts([], "D:/owl")], []);
 });
 
 test("code changes have a separate category and are hidden from general deliverables by default", () => {

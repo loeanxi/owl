@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { MailAccountStatus } from "./types.js";
+import type { MailAccountStatus } from "./types.ts";
 
 export interface GoogleClient {
 	clientId: string;

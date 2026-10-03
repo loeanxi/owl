@@ -115,8 +115,8 @@ export class DiffApprovalStore {
 
 	/**
 	 * 工具执行前暂存改前状态（tool_call 时机）。已有 pending 条目的文件不换
-	 * 基线（最早的改前内容才是回滚点）；已处理条目暂不清理，commit 时以新
-	 * 基线的 pending 条目取代。
+	 * 基线（最早的改前内容才是回滚点）；已处理条目保留在列表（对齐 dsh 的
+	 * 「处理完仍可见」），再次被编辑时以新基线新增一条 pending。
 	 */
 	stage(toolCallId: string, absolutePath: string): void {
 		const staged: StagedCapture = { path: absolutePath, existed: false };
@@ -153,10 +153,7 @@ export class DiffApprovalStore {
 		);
 		if (existing) return; // 基线保持最早一次的改前内容
 
-		// 已处理条目被再次编辑：由新 pending 条目取代（时间序上旧条目已无意义）
-		this.entries = this.entries.filter(
-			(entry) => !(diffApprovalPathKey(entry.path) === key && entry.status !== "pending"),
-		);
+		// 已处理条目保留（列表留痕），新 pending 条目以本次改前内容为基线
 		this.entries.unshift({
 			id: randomUUID(),
 			path: staged.path,
@@ -186,16 +183,17 @@ export class DiffApprovalStore {
 	diff(entryId: string): { diff: string; truncated: boolean } {
 		const entry = this.entries.find((item) => item.id === entryId);
 		if (!entry) throw new Error(`Unknown diff-approval entry: ${entryId}`);
-		if (entry.status !== "pending" || entry.originalContent === null) {
-			throw new Error("该条目已处理，基线内容已释放");
-		}
+		if (entry.status !== "pending") throw new Error("该条目已处理，基线内容已释放");
+		// 新建文件（AI 编辑前不存在）没有改前内容，基线按空串 = 全文新增
+		const baseline = entry.originalExisted ? entry.originalContent : (entry.originalContent ?? "");
+		if (baseline === null) throw new Error("该条目缺少改前内容，无法生成 diff");
 		let current = "";
 		if (existsSync(entry.path)) {
 			const raw = readFileSync(entry.path, "utf-8");
 			if (raw.includes("\0")) throw new Error("文件已变成二进制内容，无法生成 diff");
 			current = raw;
 		}
-		let patch = generateUnifiedPatch(entry.path, entry.originalContent, current, 4);
+		let patch = generateUnifiedPatch(entry.path, baseline, current, 4);
 		if (!patch.startsWith("diff --git ")) {
 			patch = `diff --git a/${entry.path} b/${entry.path}\n${patch}`;
 		}
@@ -269,26 +267,22 @@ export class DiffApprovalStore {
 		}
 		let added: number | null = null;
 		let removed: number | null = null;
-		if (
-			entry.status === "pending" &&
-			entry.originalContent !== null &&
-			size <= DIFF_TEXT_CAP_CHARS &&
-			currentExists
-		) {
+		const baseline = entry.status === "pending" ? (entry.originalExisted ? entry.originalContent : (entry.originalContent ?? "")) : null;
+		if (baseline !== null && size <= DIFF_TEXT_CAP_CHARS && currentExists) {
 			try {
 				const current = readFileSync(entry.path, "utf-8");
 				if (!current.includes("\0")) {
-					for (const part of Diff.diffLines(entry.originalContent, current)) {
-						if (part.added) added = (added ?? 0) + countNewlines(part.value);
-						else if (part.removed) removed = (removed ?? 0) + countNewlines(part.value);
+					for (const part of Diff.diffLines(baseline, current)) {
+						if (part.added) added = (added ?? 0) + countChunkLines(part.value);
+						else if (part.removed) removed = (removed ?? 0) + countChunkLines(part.value);
 					}
 				}
 			} catch {
 				added = null;
 				removed = null;
 			}
-		} else if (entry.status === "pending" && !currentExists && entry.originalContent !== null) {
-			removed = countNewlines(entry.originalContent);
+		} else if (baseline !== null && !currentExists) {
+			removed = countChunkLines(baseline);
 			added = 0;
 		}
 		return {

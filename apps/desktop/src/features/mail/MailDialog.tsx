@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 import { useT } from "../../i18n/index.ts";
 
 /** Local modal with focus containment and restoration for keyboard users. */
-export function MailDialog({ title, children, onClose, busy = false }: {
+export function MailDialog({
+	title,
+	children,
+	onClose,
+	busy = false,
+}: {
 	title: string;
 	children: ReactNode;
 	onClose: () => void;
@@ -20,7 +25,12 @@ export function MailDialog({ title, children, onClose, busy = false }: {
 		const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		const root = dialog.current;
 		if (!root) return;
-		const focusable = (): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter((element) => element.getClientRects().length > 0);
+		const focusable = (): HTMLElement[] =>
+			[
+				...root.querySelectorAll<HTMLElement>(
+					'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
+				),
+			].filter((element) => element.getClientRects().length > 0);
 		(focusable()[0] ?? root).focus();
 		const onKey = (event: KeyboardEvent): void => {
 			if (event.key === "Escape" && !busyRef.current) {
@@ -46,10 +56,30 @@ export function MailDialog({ title, children, onClose, busy = false }: {
 			if (previous?.isConnected) previous.focus();
 		};
 	}, []);
-	return <div className="owl-mail-modal">
-		<div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={label} className="owl-mail-dialog">
-			<div className="owl-mail-dialog-heading"><h2 id={label}>{title}</h2><button type="button" className="owl-mail-icon-button" aria-label={t("mail.close")} onClick={onClose} disabled={busy}>×</button></div>
-			{children}
+	return (
+		<div className="owl-mail-modal">
+			<div
+				ref={dialog}
+				tabIndex={-1}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={label}
+				className="owl-mail-dialog"
+			>
+				<div className="owl-mail-dialog-heading">
+					<h2 id={label}>{title}</h2>
+					<button
+						type="button"
+						className="owl-mail-icon-button"
+						aria-label={t("mail.close")}
+						onClick={onClose}
+						disabled={busy}
+					>
+						×
+					</button>
+				</div>
+				{children}
+			</div>
 		</div>
-	</div>;
+	);
 }

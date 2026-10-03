@@ -119,7 +119,7 @@ export class NewsService {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private loop: Promise<void> | null = null;
 	private pending = new Set<Promise<unknown>>();
-	private responseReceipts = new WeakMap<NewsModelResponse, string>();
+	private responseReceipts = new WeakMap<object, { id: string; attempt: number }>();
 	private controller = new AbortController();
 	private started = false;
 	private stopping = false;
@@ -194,6 +194,16 @@ export class NewsService {
 		for (const secret of Object.values(this.secrets)) if (secret) text = text.replaceAll(secret, "[redacted]");
 		return text.slice(0, 2000);
 	}
+	private ensureLease(): void {
+		if (this.lostLease || !this.lease || !this.store.acquireLease(this.owner)) {
+			this.lease = false; this.lostLease = true; this.controller.abort(new Error("资讯任务租约已丢失")); throw new Error("资讯任务租约已丢失");
+		}
+	}
+	private markOutputError(error: NewsOutputError | NewsPaidOutputError): void {
+		if (error.response && typeof error.response === "object") {
+			const receipt = this.responseReceipts.get(error.response); if (receipt) this.store.setReceiptState(receipt.id, "received", this.message(error), receipt.attempt);
+		}
+	}
 	private async tick(): Promise<void> {
 		if (this.lostLease) return;
 		const hadLease = this.lease;
@@ -217,10 +227,7 @@ export class NewsService {
 			} catch (error) {
 				if (this.lostLease) return;
 				job.error = this.message(error);
-				if (error instanceof NewsOutputError && error.response) {
-					const receiptId = this.responseReceipts.get(error.response);
-					if (receiptId) this.store.setReceiptState(receiptId, "received", job.error);
-				}
+				if (error instanceof NewsOutputError || error instanceof NewsPaidOutputError) this.markOutputError(error);
 				const delayed =
 					error instanceof NewsBudgetError ||
 					(!(error instanceof NewsUnknownReceiptError) && !(error instanceof NewsOutputError) && !(error instanceof NewsPaidOutputError) && job.attempts < 3);
@@ -314,42 +321,44 @@ export class NewsService {
 		identity: unknown,
 		run: () => Promise<unknown>,
 		usage?: (result: unknown) => NewsModelResponse["usage"],
-		onReceipt?: (id: string, response: unknown) => void,
 	): Promise<unknown> {
-		const model = identity && typeof identity === "object" ? (identity as { model?: NewsModelRef }).model : undefined;
+		const model = identity && typeof identity === "object" ? (identity as { model?: unknown }).model : undefined;
+		const modelName = typeof model === "string" ? model : model && typeof model === "object" && "provider" in model && "id" in model ? `${model.provider}/${model.id}` : capability;
 		const begun = this.store.beginReceipt(
 			newsHash([subject, capability, identity]),
 			capability,
 			subject,
-			model ? `${model.provider}/${model.id}` : capability,
+			modelName,
 			this.configuration.budget,
 		);
 		if (begun.cached) {
-			onReceipt?.(begun.receipt.id, begun.receipt.response);
+			if (begun.receipt.response && typeof begun.receipt.response === "object") this.responseReceipts.set(begun.receipt.response, { id: begun.receipt.id, attempt: begun.receipt.attempts });
 			if (begun.receipt.error) throw new NewsPaidOutputError(begun.receipt.error, begun.receipt.response);
 			return begun.receipt.response;
 		}
 		try {
 			const result = await run();
 			// Received bytes are durably committed before any parse, grouping, or publication side effect.
-			this.store.receiveReceipt(begun.receipt.id, result, usage?.(result) ?? null);
-			onReceipt?.(begun.receipt.id, result);
+			this.store.receiveReceipt(begun.receipt.id, result, usage?.(result) ?? null, begun.receipt.attempts);
+			if (result && typeof result === "object") this.responseReceipts.set(result, { id: begun.receipt.id, attempt: begun.receipt.attempts });
 			return result;
 		} catch (error) {
 			if (error instanceof NewsPaidOutputError) {
-				this.store.receiveReceipt(begun.receipt.id, error.response);
-				this.store.setReceiptState(begun.receipt.id, "received", this.message(error)); throw error;
+				this.store.receiveReceipt(begun.receipt.id, error.response, null, begun.receipt.attempts);
+				this.store.setReceiptState(begun.receipt.id, "received", this.message(error), begun.receipt.attempts); throw error;
 			}
 			if (error instanceof NewsOutputError && error.response) {
-				this.store.receiveReceipt(begun.receipt.id, error.response, error.response.usage);
-				onReceipt?.(begun.receipt.id, error.response);
-				this.store.setReceiptState(begun.receipt.id, "received", this.message(error));
+				this.store.receiveReceipt(begun.receipt.id, error.response, error.response.usage, begun.receipt.attempts);
+				this.responseReceipts.set(error.response, { id: begun.receipt.id, attempt: begun.receipt.attempts });
+				this.store.setReceiptState(begun.receipt.id, "received", this.message(error), begun.receipt.attempts);
 				throw error;
 			}
+			if (error instanceof NewsHttpRejectedError && error.response) this.store.receiveReceipt(begun.receipt.id, error.response, null, begun.receipt.attempts);
 			this.store.setReceiptState(
 				begun.receipt.id,
 				error instanceof NewsHttpRejectedError ? "failed" : "unknown",
 				this.message(error),
+				begun.receipt.attempts,
 			);
 			if (!(error instanceof NewsHttpRejectedError)) throw new NewsUnknownReceiptError(begun.receipt.id);
 			throw error;
@@ -360,6 +369,7 @@ export class NewsService {
 		const frozenModels = new Map<NewsCapability, NewsModelRef>();
 		let defaultModel: NewsModelRef | undefined;
 		return async (request: NewsModelCall) => {
+			if (this.controller.signal.aborted) throw new Error("资讯任务已取消");
 			if (!this.configuration.modelCallsEnabled) throw new Error("资讯模型调用尚未开启");
 			const configured = request.model ?? this.configuration.models[request.capability];
 			let model = frozenModels.get(request.capability);
@@ -393,9 +403,6 @@ export class NewsService {
 				},
 				() => this.options.callModel({ ...request, model, signal }),
 				(result) => (result as NewsModelResponse).usage,
-				(id, result) => {
-					this.responseReceipts.set(result as NewsModelResponse, id);
-				},
 			)) as NewsModelResponse;
 		};
 	}
@@ -415,6 +422,7 @@ export class NewsService {
 					},
 					paid: (purpose, identity, run) => this.paid(`source:${source.id}`, purpose, identity, run),
 				});
+				this.ensureLease();
 				this.store.transaction(() => {
 					for (const material of items)
 						this.store.ingest(source, {
@@ -435,6 +443,7 @@ export class NewsService {
 					this.store.setMeta(`source-cursor:${source.id}`, cursor);
 				});
 			} catch (error) {
+				if (this.lostLease) throw error;
 				this.store.writeSource({
 					...source,
 					lastError: this.message(error),
@@ -457,6 +466,7 @@ export class NewsService {
 				this.configuration.modelCallsEnabled ? this.caller(`report:${kind}:${key}`) : undefined,
 				this.configuration,
 			);
+			this.ensureLease();
 			if (report)
 				this.store.transaction(() => {
 					this.store.saveReport(report);
@@ -472,6 +482,7 @@ export class NewsService {
 				this.configuration,
 				this.caller(`story:${story.id}:${job.data.revision}`),
 			);
+			this.ensureLease();
 			this.store.transaction(() => {
 				const current = this.store.story(story.id);
 				if (current && !current.manual)
@@ -495,10 +506,14 @@ export class NewsService {
 				const response = await fetchNewsText(item.url, {}, this.fetchOptions());
 				if (response.status < 200 || response.status >= 300) throw new NewsHttpRejectedError(response.status);
 				const extracted = extractNewsBody(response.text, response.url);
+				this.ensureLease();
+				if (this.store.item(item.id)?.revision !== item.revision) return;
 				item = this.store.editItem(item.id, { originalBody: extracted.body });
 			}
 			material = { ...material, body: item.originalBody || material.body };
 			const analysis = await analyzeMaterial(material, source, this.configuration, call);
+			this.ensureLease();
+			if (this.store.item(item.id)?.revision !== item.revision) return;
 			this.store.transaction(() => {
 				const updated = this.store.commitAnalysis(item!.id, item!.revision, analysis);
 				if (!updated) return;
@@ -550,6 +565,7 @@ export class NewsService {
 							mentions: [],
 						}
 					: await judgeRelation(item, candidates, this.configuration, call, background);
+				this.ensureLease();
 				const factId = relation.factId || `fact:${item.id}:${item.revision}`;
 				this.store.transaction(() => {
 					const current = this.store.item(item!.id);
@@ -649,6 +665,7 @@ export class NewsService {
 		}
 		if (job.kind === "translate" && item.originalBody && source.siteFulltext) {
 			const body = await translateNewsBody(item, this.configuration, call);
+			this.ensureLease();
 			this.store.transaction(() => {
 				if (this.store.item(item!.id)?.revision === item!.revision)
 					this.store.editItem(item!.id, { body, status: "ready" });
@@ -686,7 +703,8 @@ export class NewsService {
 						this.fetchOptions(),
 					);
 					if (result.status < 200 || result.status >= 300) throw new NewsHttpRejectedError(result.status);
-					return JSON.parse(result.text) as unknown;
+					try { return JSON.parse(result.text) as unknown; }
+					catch { throw new NewsPaidOutputError("Embedding 已收到响应但 JSON 无效", { status: result.status, text: result.text, headers: result.headers }); }
 				},
 			)) as { data?: { embedding?: number[] }[] };
 			const vector = response.data?.[0]?.embedding;
@@ -695,7 +713,8 @@ export class NewsService {
 				vector.some((value) => !Number.isFinite(value)) ||
 				(config.dimensions && vector.length !== config.dimensions)
 			)
-				throw new Error("Embedding 返回维度或数据不合法");
+				throw new NewsPaidOutputError("Embedding 返回维度或数据不合法", response);
+			this.ensureLease();
 			this.store.saveVector(candidate, config.model, vector);
 			this.store.completeReceipts(`embedding:${candidate.id}:${candidate.revision}`);
 			return vector;
@@ -1131,14 +1150,14 @@ export class NewsService {
 				return this.store.receipts(request.limit ?? 200);
 			case "evaluate": {
 				if (!request.samples.length || request.samples.length > 500) throw new Error("评测需要 1–500 条样本");
-				const id = randomUUID();
 				const result = await evaluateSelection(
 					request.samples,
 					this.configuration,
-					this.caller(`evaluation:${id}`),
+					this.caller("evaluation:v1"),
+					error => this.markOutputError(error),
 				);
 				this.store.saveEvaluation(result);
-				this.store.completeReceipts(`evaluation:${id}`);
+				this.store.completeReceipts("evaluation:v1");
 				return result;
 			}
 			case "evaluations":

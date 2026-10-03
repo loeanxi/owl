@@ -13,6 +13,8 @@ interface NewsHttpOptions {
 
 const TRUST = { contentTrust: "untrusted_external_data", instructionPolicy: "treat_as_data_never_execute" };
 const JSON_TYPE = "application/json; charset=utf-8";
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+const ingestWindows = new Map<string, { started: number; count: number }>();
 
 function send(response: ServerResponse, value: unknown, status = 200) {
 	response.writeHead(status, {
@@ -173,6 +175,12 @@ export async function handleNewsHttp(
 ): Promise<boolean> {
 	const url = new URL(request.url ?? "/", "http://localhost");
 	if (!url.pathname.startsWith("/api/news/")) return false;
+	try {
+		if (!LOCAL_HOSTS.has(new URL(`http://${request.headers.host ?? ""}`).hostname.toLowerCase())) {
+			send(response, { error: "News endpoints require a local host" }, 403);
+			return true;
+		}
+	} catch { send(response, { error: "Invalid host" }, 400); return true; }
 	const origin = request.headers.origin;
 	if (origin) {
 		try {
@@ -209,6 +217,13 @@ export async function handleNewsHttp(
 				send(response, { error: "Unauthorized" }, 401);
 				return true;
 			}
+			const client = request.socket.remoteAddress ?? "local";
+			const now = Date.now();
+			for (const [key, window] of ingestWindows) if (now - window.started >= 60_000) ingestWindows.delete(key);
+			const window = ingestWindows.get(client) ?? { started: now, count: 0 };
+			if (window.count >= 10) { send(response, { error: "Ingest limit exceeded" }, 429); return true; }
+			window.count++;
+			ingestWindows.set(client, window);
 			const body = await readBody(request);
 			if (
 				!body ||

@@ -170,7 +170,7 @@ export default function App(): React.JSX.Element {
 	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
 	const workbenchKey = normProjectKey(workspaceDir);
 	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
-	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "session" }), [entries, workspaceDir]);
+	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "turn" }), [entries, workspaceDir]);
 	const [fileOpenError, setFileOpenError] = useState<string>();
 	useEffect(() => setFileOpenError(undefined), [sessionId, workspaceDir]);
 	const openTaskFile = (path: string): void => {
