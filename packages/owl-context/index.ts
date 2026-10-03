@@ -18,6 +18,7 @@ import {
 	recordContextEvent,
 	recordContextRequest,
 	recordContextTools,
+	recordContextUsage,
 	type ContextUsageInfo,
 	type ExtensionAPI,
 } from "@owl/owl-coding-agent";
@@ -29,6 +30,7 @@ function asUsage(usage: Partial<ContextUsageInfo> | undefined): ContextUsageInfo
 		output: usage.output ?? 0,
 		cacheRead: usage.cacheRead ?? 0,
 		cacheWrite: usage.cacheWrite ?? 0,
+		...(typeof usage.totalTokens === "number" ? { totalTokens: usage.totalTokens } : {}),
 	};
 }
 
@@ -84,6 +86,24 @@ export default function (pi: ExtensionAPI): void {
 			});
 		} catch {
 			// 同上，静默
+		}
+	});
+
+	// 响应计费即时回填：assistant 消息一结束就把 provider 实测 usage 补到最近一行
+	// 请求（不再等下一轮请求组装）。跳过中止/出错/全零的响应（与 core 的
+	// getAssistantUsage 同判据）。
+	pi.on("message_end", (event, ctx) => {
+		try {
+			const sessionId = ctx.sessionManager.getSessionId();
+			if (!sessionId) return;
+			const message = event.message as { role?: string; stopReason?: string; usage?: Partial<ContextUsageInfo> };
+			if (message?.role !== "assistant") return;
+			if (message.stopReason === "aborted" || message.stopReason === "error") return;
+			const usage = asUsage(message.usage);
+			if (!usage || usage.input + usage.output + usage.cacheRead + usage.cacheWrite === 0) return;
+			recordContextUsage(sessionId, usage);
+		} catch {
+			// 静默
 		}
 	});
 }

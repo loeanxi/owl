@@ -63,9 +63,11 @@ export {
 	estimateToolDeclarations,
 	findContextInsightByCwd,
 	getContextInsight,
+	measuredContextTokens,
 	recordContextEvent,
 	recordContextRequest,
 	recordContextTools,
+	recordContextUsage,
 } from "./core/context-insight.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system

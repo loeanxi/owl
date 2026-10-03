@@ -82,8 +82,13 @@ function TrendChart({ requests, events }: { requests: ContextRequestRow[]; event
 								return <rect key={category.key} x={x} y={y} width={width} height={height} fill={category.color} />;
 							})}
 							<rect x={x} y={0} width={width} height={H} fill="transparent" className="cursor-help">
-								<title>{`#${row.seq} · ${fmtTime(row.ts)}\n总计 ${fmtTokens(row.totalTokens)} tok${
-									row.usage ? `\n计费输入 ${fmtTokens(row.usage.input)}（缓存读 ${fmtTokens(row.usage.cacheRead)}）` : ""
+								<title>{`#${row.seq} · ${fmtTime(row.ts)}\n估算 ${fmtTokens(row.totalTokens)} tok${
+									row.usage
+										? `\n实测 ${fmtTokens(
+												row.usage.totalTokens ||
+													row.usage.input + row.usage.output + row.usage.cacheRead + row.usage.cacheWrite,
+											)} tok（计费输入 ${fmtTokens(row.usage.input)} · 缓存读 ${fmtTokens(row.usage.cacheRead)}）`
+										: ""
 								}`}</title>
 							</rect>
 						</g>
@@ -147,7 +152,14 @@ export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string
 	const latest = data.requests[data.requests.length - 1];
 	const composition = latest ? compositionOf(latest) : undefined;
 	const total = latest?.totalTokens ?? 0;
-	const percent = latest?.contextWindow ? (total / latest.contextWindow) * 100 : undefined;
+	// 双口径：实测（provider 计费，与输入栏状态一致）优先；估算（chars/4，对中文
+	// 明显偏低）只做构成占比参考。实测要等响应回来才有——之前只显示估算。
+	const measured = latest?.usage
+		? latest.usage.totalTokens ||
+			latest.usage.input + latest.usage.output + latest.usage.cacheRead + latest.usage.cacheWrite
+		: undefined;
+	const headline = measured ?? total;
+	const percent = latest?.contextWindow ? (headline / latest.contextWindow) * 100 : undefined;
 	const usage = latest?.usage;
 	const toolGroups = useMemo(() => {
 		const groups = new Map<string, string[]>();
@@ -180,9 +192,22 @@ export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string
 			{/* 总览条 */}
 			<div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
 				<span className="text-2xl font-semibold text-owl-text">
-					{fmtTokens(total)}
+					{fmtTokens(headline)}
 					<span className="ml-1 text-xs font-normal text-owl-faint">tok</span>
+					<span
+						className={`ml-1.5 rounded px-1 py-0.5 align-middle text-[10px] font-normal ${
+							measured !== undefined ? "bg-emerald-500/15 text-emerald-400" : "bg-owl-hover text-owl-faint"
+						}`}
+						title={measured !== undefined ? "provider 实测计费，与输入栏状态一致" : "chars/4 估算，等响应回来后显示实测值"}
+					>
+						{measured !== undefined ? "实测" : "估算"}
+					</span>
 				</span>
+				{measured !== undefined && Math.abs(measured - total) > 500 && (
+					<span className="text-xs text-owl-faint" title="chars/4 估算对中文/JSON 明显偏低，构成占比仍可参考">
+						估算构成 {fmtTokens(total)}
+					</span>
+				)}
 				{latest.contextWindow && (
 					<span className="text-xs text-owl-faint">
 						上下文窗口 {fmtTokens(latest.contextWindow)} · 已用 {percent?.toFixed(1)}%
@@ -203,7 +228,7 @@ export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string
 				)}
 			</div>
 
-			{/* 当前构成：堆叠条 + 图例 */}
+			{/* 当前构成：堆叠条 + 图例（估算口径） */}
 			<section className="mt-4">
 				<div className="flex h-3.5 w-full overflow-hidden rounded-full bg-owl-hover">
 					{CATEGORIES.map((category) => {

@@ -462,6 +462,117 @@ export interface MemoryClearResult {
 }
 
 // ---------------------------------------------------------------------------
+// owl-image 图像生成（owl-image 插件）—— 设置页「图像生成」卡片同源数据。
+//
+// 配置面（get/set）直接读写 <agentDir>/image-gen.json，与插件解耦——桥进程
+// 纯文件操作，不 import 插件代码；密钥永不下发明文（keyStatus 只给存在性）。
+// 订阅登录需要 PKCE+回环服务器+令牌交换，这部分动态调用 owl-image dist 暴露
+// 的导出函数（单一事实源），插件缺失时返回可读错误。
+// ---------------------------------------------------------------------------
+
+/** owl-image 支持的 provider（与 packages/owl-image/src/shared.ts 的 IMAGE_PROVIDERS 对齐）。 */
+export type OwlImageProvider =
+	| "google"
+	| "openai"
+	| "openai-compat"
+	| "seedream"
+	| "dashscope"
+	| "xai"
+	| "zhipu"
+	| "comfyui"
+	| "google-sub";
+
+/** BYOK provider（google-sub 走订阅不在内），apiKeys/env 的键集。 */
+export const OWL_IMAGE_BYOK_PROVIDERS = ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu"] as const satisfies readonly OwlImageProvider[];
+
+/** image-gen.json 的公开投影：不含 apiKeys 明文。 */
+export interface OwlImageConfigPublic {
+	provider?: OwlImageProvider;
+	googleModel?: string;
+	googleEndpoint?: string;
+	openaiBaseURL?: string;
+	openaiModel?: string;
+	openaiCompatBaseURL?: string;
+	openaiCompatModel?: string;
+	openaiCompatEditFormat?: "multipart" | "jsonImageUrlArray" | "formReferenceImages";
+	seedreamBaseURL?: string;
+	seedreamModel?: string;
+	seedreamOutputFormat?: "png" | "jpeg";
+	seedreamWatermark?: boolean;
+	seedreamBackground?: "opaque" | "transparent";
+	dashscopeEndpoint?: string;
+	dashscopeModel?: string;
+	xaiBaseURL?: string;
+	xaiModel?: string;
+	zhipuBaseURL?: string;
+	zhipuModel?: string;
+	comfyuiBaseURL?: string;
+	comfyuiWorkflows?: { name: string; json: string; presetPrompt?: string }[];
+	comfyuiActiveWorkflow?: string;
+	comfyuiTimeoutMs?: number;
+	saveToWorkspace?: boolean;
+	workspaceFolder?: string;
+	attachImageToResult?: boolean;
+	maxImageBytes?: number;
+	proxy?: string;
+}
+
+export interface ImageConfigGetRequest {
+	type: "imageConfig.get";
+	id: string;
+}
+
+export interface ImageConfigGetResult {
+	/** 当前配置（apiKeys 不含明文）。 */
+	config: OwlImageConfigPublic;
+	/** 各 BYOK provider 的 key 状态：configured=可用（config 或 env），source=来自哪一层。 */
+	keyStatus: Record<string, { configured: boolean; source: "config" | "env" | undefined }>;
+	/** Google 订阅（Antigravity）登录状态。 */
+	subscription: { loggedIn: boolean; email?: string };
+	/** 配置文件路径（空提示用）。 */
+	configPath: string;
+	/** owl-image 插件是否已安装（settings.plugins 里能解析到 dist）。 */
+	pluginInstalled: boolean;
+}
+
+export interface ImageConfigSetRequest {
+	type: "imageConfig.set";
+	id: string;
+	/** 覆盖到 image-gen.json 的公开配置字段（浅合并）。 */
+	config: OwlImageConfigPublic;
+	/**
+	 * 要更新的 API key：非空=写入该 provider 的 apiKeys 行；空串=删除该行；
+	 * 不出现的 provider 保持原值。
+	 */
+	apiKeys?: Partial<Record<(typeof OWL_IMAGE_BYOK_PROVIDERS)[number], string>>;
+}
+
+export interface ImageConfigSetResult {
+	ok: boolean;
+}
+
+export interface ImageSubLoginRequest {
+	type: "imageSub.login";
+	id: string;
+}
+
+export interface ImageSubLoginResult {
+	ok: boolean;
+	/** 授权 URL（桥端已尝试自动开浏览器；UI 可再兜底打开/展示）。 */
+	url?: string;
+	error?: string;
+}
+
+export interface ImageSubLogoutRequest {
+	type: "imageSub.logout";
+	id: string;
+}
+
+export interface ImageSubLogoutResult {
+	ok: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // 侧边栏工作台（owl workbench）— fs / git / watch / open.external
 //
 // 路径约定：所有 path/dir 都是 workspace 相对路径（POSIX 分隔符，客户端从
@@ -998,6 +1109,10 @@ export type DesktopClientRequest =
 	| MemoryListRequest
 	| MemoryDeleteRequest
 	| MemoryClearRequest
+	| ImageConfigGetRequest
+	| ImageConfigSetRequest
+	| ImageSubLoginRequest
+	| ImageSubLogoutRequest
 	| PingRequest
 	| PermissionResponseRequest
 	| ViewerListRequest

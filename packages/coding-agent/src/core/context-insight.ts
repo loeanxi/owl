@@ -10,8 +10,9 @@
  * @owl/owl-coding-agent 别名拿到的是同一份模块实例，这里就是两边共享的接缝。
  *
  * 估算口径与 core/compaction 的 estimateTokens 一致：chars/4 启发式、图片按
- * 4800 字符折算。usage（provider 计费数字）在下一轮请求时补填到上一行——
- * 请求 N 的 transcript 里躺着的正是请求 N-1 的响应。
+ * 4800 字符折算——对中文明显偏低，只做构成占比参考。实测口径（provider 计费）
+ * 走 usage：下一轮请求组装时补填上一行，另外 message_end 一到就当场回填最后一行，
+ * 单轮会话也能立刻看到实测值。
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -43,6 +44,13 @@ export interface ContextUsageInfo {
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
+	/** provider 报告的总 token（有的话优先用它，与 core 的 calculateContextTokens 同口径）。 */
+	totalTokens?: number;
+}
+
+/** 实测上下文占用：优先 totalTokens，否则四项之和（对齐 core 的 calculateContextTokens）。 */
+export function measuredContextTokens(usage: ContextUsageInfo): number {
+	return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 }
 
 /** 单个工具的声明来源（UI 来源芯片用）。 */
@@ -286,6 +294,20 @@ export function recordContextEvent(sessionId: string, cwd: string, event: Omit<C
 	const state = stateOf(sessionId, cwd);
 	state.events.push({ ...event, ts: Date.now() });
 	if (state.events.length > MAX_EVENTS) state.events.splice(0, state.events.length - MAX_EVENTS);
+}
+
+/**
+ * 用一条响应的真实计费回填最近一行请求（插件在 message_end 时调用）。
+ * 只补空不覆盖：上一轮请求路径的补填可能已先到；陈旧响应落空也无妨
+ * （agent 循环里响应总是先于下一次请求组装结束，归属始终正确）。
+ */
+export function recordContextUsage(sessionId: string, usage: ContextUsageInfo): void {
+	const state = states.get(sessionId);
+	if (!state) return;
+	const last = state.requests[state.requests.length - 1];
+	if (!last || last.usage) return;
+	last.usage = usage;
+	state.lastTs = Date.now();
 }
 
 /** 记录最近一次声明给模型的工具集。 */
