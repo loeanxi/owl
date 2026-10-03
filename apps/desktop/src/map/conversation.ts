@@ -338,7 +338,10 @@ export class MapConversation {
 		this.update({ submitting: true });
 		const recovery = (async () => {
 			try {
-				const response = await this.request<SessionSnapshot>({ type: "session.resume", sessionId }, generation);
+				const response = await this.request<SessionSnapshot>(
+					{ type: "session.resume", sessionId, approvalMode: this.config.approvalMode },
+					generation,
+				);
 				if (!this.current(generation)) return;
 				if (!response.ok || !response.result)
 					throw new Error(response.error ?? "Could not restore the map conversation.");

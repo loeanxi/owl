@@ -310,6 +310,7 @@ test("reconnect restores missed streamed messages without exposing map context a
 	assert.equal(entryText(conversation.getState().entries[0]), "你好");
 	assert.equal(entryText(conversation.getState().entries.at(-1)), "重连后保留的回答");
 	assert.ok(bridge.requests.some((request) => request.type === "session.resume" && request.sessionId === "map-1"));
+	assert.equal(bridge.requests.find((request) => request.type === "session.resume")?.approvalMode, "confirm");
 	bridge.emit("map-1", { type: "agent_settled" });
 	assert.equal(conversation.getState().busy, false);
 	assert.equal(await conversation.send("继续", context), true);
@@ -460,4 +461,38 @@ test("a reconnect snapshot cannot overwrite newer live stream events", async (t)
 	await flush();
 	assert.equal(entryText(conversation.getState().entries.at(-1)), "流式更新");
 	assert.equal(conversation.getState().busy, false);
+});
+
+test("resuming a still-running map thread preserves its selected approval mode without changing model or effort", async (t) => {
+	for (const approvalMode of ["confirm", "plan"] as const) {
+		const bridge = new FakeBridge();
+		let resumedMode = "auto";
+		const conversation = new MapConversation(bridge, { ...config, approvalMode }, true);
+		t.after(() => conversation.dispose());
+		await conversation.send("你好", context);
+		bridge.active = ["map-1"];
+		bridge.handler = (request) => {
+			if (request.type === "session.resume") resumedMode = request.approvalMode ?? "auto";
+			return bridge.defaultReply(request);
+		};
+		bridge.status(false);
+		bridge.status(true);
+		await flush();
+		assert.equal(resumedMode, approvalMode);
+		assert.equal(conversation.getState().running, true);
+		assert.deepEqual(
+			bridge.requests.find((request) => request.type === "session.resume"),
+			{
+				type: "session.resume",
+				sessionId: "map-1",
+				approvalMode,
+			},
+		);
+		assert.equal(
+			bridge.requests.some(
+				(request) => request.type === "session.setModel" || request.type === "session.setThinkingLevel",
+			),
+			false,
+		);
+	}
 });
