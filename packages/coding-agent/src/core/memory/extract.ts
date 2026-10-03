@@ -198,6 +198,7 @@ async function extractFromSessionFile(
 				messages: [
 					{
 						role: "user",
+						timestamp: Date.now(),
 						content: [{ type: "text", text: `会话记录（项目目录：${cwd}）：\n\n${redactSecrets(transcript)}` }],
 					},
 				],
