@@ -231,7 +231,10 @@ try {
   });
   await check("anonymous wire and DOM hide metadata; scoring draft survives chat/evaluation switches", async () => {
     const run = await rpc({ action: "run.get", runId: firstRunId });
-    for (const value of run.results) for (const key of ["profile", "profileId", "usage", "costUsd", "thinking", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, key), false, `Anonymous result leaked ${key}`);
+    for (const value of run.results) {
+      assert.equal(value.thinking, "fixture reasoning");
+      for (const key of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, key), false, `Anonymous result leaked ${key}`);
+    }
     assert.equal(await area().locator(".eval-result-card").filter({ hasText: "Fixture Alpha" }).count(), 0);
     const group = area().locator(".eval-rating").first();
     await group.getByRole("button", { name: "4 分", exact: true }).click();

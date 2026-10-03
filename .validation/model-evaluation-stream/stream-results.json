@@ -7,7 +7,11 @@
   "paidCalls": 0,
   "cases": [
     {
-      "name": "thinking-only stage stays running and shows waiting hint without revealing identity",
+      "name": "waiting stage uses the process tab and still hides model identity",
+      "success": true
+    },
+    {
+      "name": "provider thinking grows visibly before either model produces an answer",
       "success": true
     },
     {
@@ -27,6 +31,10 @@
       "success": true
     },
     {
+      "name": "the process reports artifact checking after the producer finishes",
+      "success": true
+    },
+    {
       "name": "cancelling retains every received body paragraph and ignores late producer callbacks",
       "success": true
     }
@@ -39,7 +47,7 @@
         "action": "bootstrap"
       },
       "id": "req-28",
-      "sentAt": 1791054226597
+      "sentAt": 1791055854179
     },
     {
       "type": "evaluation.request",
@@ -47,7 +55,7 @@
         "action": "bootstrap"
       },
       "id": "req-29",
-      "sentAt": 1791054226597
+      "sentAt": 1791055854179
     },
     {
       "type": "evaluation.request",
@@ -74,7 +82,7 @@
         "samples": 1
       },
       "id": "req-30",
-      "sentAt": 1791054226755
+      "sentAt": 1791055854364
     },
     {
       "type": "evaluation.request",
@@ -82,69 +90,70 @@
         "action": "bootstrap"
       },
       "id": "req-31",
-      "sentAt": 1791054226771
+      "sentAt": 1791055854381
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-32",
-      "sentAt": 1791054226771
+      "sentAt": 1791055854381
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-33",
-      "sentAt": 1791054227273
+      "sentAt": 1791055854883
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-34",
-      "sentAt": 1791054227776
+      "sentAt": 1791055855385
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-35",
-      "sentAt": 1791054228278
-    },
-    {
-      "type": "evaluation.request",
-      "request": {
-        "action": "bootstrap"
-      },
-      "id": "req-36",
-      "sentAt": 1791054228810
+      "sentAt": 1791055855887
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
-      "id": "req-37",
-      "sentAt": 1791054228810
+      "id": "req-36",
+      "sentAt": 1791055856401
     },
     {
       "type": "evaluation.request",
       "request": {
-        "action": "run.cancel",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "action": "run.get",
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+      },
+      "id": "req-37",
+      "sentAt": 1791055856894
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-38",
-      "sentAt": 1791054228850
+      "sentAt": 1791055857397
     },
     {
       "type": "evaluation.request",
@@ -152,24 +161,59 @@
         "action": "bootstrap"
       },
       "id": "req-39",
-      "sentAt": 1791054228863
+      "sentAt": 1791055857554
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.get",
-        "runId": "c921fd37-04fd-49ee-abe2-f79cb2a949b0"
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
       },
       "id": "req-40",
-      "sentAt": 1791054228863
+      "sentAt": 1791055857554
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+      },
+      "id": "req-41",
+      "sentAt": 1791055858059
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.cancel",
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+      },
+      "id": "req-42",
+      "sentAt": 1791055858427
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-43",
+      "sentAt": 1791055858440
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "408cc0b0-6e98-4f21-99aa-448574183c50"
+      },
+      "id": "req-44",
+      "sentAt": 1791055858440
     },
     {
       "type": "evaluation.request",
       "request": {
         "action": "run.list"
       },
-      "id": "req-41",
-      "sentAt": 1791054228867
+      "id": "req-45",
+      "sentAt": 1791055858443
     }
   ],
   "snapshots": [
@@ -177,9 +221,11 @@
       "status": "running",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "running",
+          "phase": "waiting",
           "outputChars": 0,
+          "thinkingChars": 0,
           "keys": [
             "id",
             "taskId",
@@ -192,14 +238,18 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "running",
+          "phase": "waiting",
           "outputChars": 0,
+          "thinkingChars": 0,
           "keys": [
             "id",
             "taskId",
@@ -212,6 +262,8 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
@@ -222,9 +274,64 @@
       "status": "running",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "running",
+          "phase": "thinking",
+          "outputChars": 0,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "status": "running",
+          "phase": "thinking",
+          "outputChars": 0,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "status": "running",
+          "phase": "answering",
           "outputChars": 2273,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -237,14 +344,18 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "running",
+          "phase": "answering",
           "outputChars": 2273,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -257,6 +368,8 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
@@ -267,9 +380,11 @@
       "status": "running",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "running",
+          "phase": "answering",
           "outputChars": 3674,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -282,14 +397,18 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "running",
+          "phase": "answering",
           "outputChars": 3674,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -302,6 +421,8 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
@@ -312,9 +433,11 @@
       "status": "running",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "running",
+          "phase": "answering",
           "outputChars": 4375,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -327,14 +450,18 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "running",
+          "phase": "answering",
           "outputChars": 4375,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -347,6 +474,8 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
@@ -357,9 +486,11 @@
       "status": "running",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "running",
+          "phase": "answering",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -372,14 +503,18 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "running",
+          "phase": "answering",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -392,6 +527,61 @@
             "checks",
             "error",
             "rating",
+            "thinking",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
+          "status": "running",
+          "phase": "checking",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
+          "status": "running",
+          "phase": "checking",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "generationPhase",
             "anonymousLabel",
             "revealed"
           ]
@@ -402,9 +592,10 @@
       "status": "cancelled",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "cancelled",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -417,14 +608,16 @@
             "checks",
             "error",
             "rating",
+            "thinking",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "cancelled",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -437,6 +630,7 @@
             "checks",
             "error",
             "rating",
+            "thinking",
             "anonymousLabel",
             "revealed"
           ]
@@ -447,9 +641,10 @@
       "status": "cancelled",
       "results": [
         {
-          "id": "abdc487a-7e61-4c8a-97d0-35eab2b96281",
+          "id": "c8df1d91-991e-4860-81fd-e7c78e535289",
           "status": "cancelled",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -462,14 +657,16 @@
             "checks",
             "error",
             "rating",
+            "thinking",
             "anonymousLabel",
             "revealed"
           ]
         },
         {
-          "id": "dcf7a040-9b8a-4205-b40e-6f71649caca9",
+          "id": "3ed8fddf-17a9-40e4-afaa-a4762ab678c1",
           "status": "cancelled",
           "outputChars": 4726,
+          "thinkingChars": 3676,
           "keys": [
             "id",
             "taskId",
@@ -482,6 +679,7 @@
             "checks",
             "error",
             "rating",
+            "thinking",
             "anonymousLabel",
             "revealed"
           ]
@@ -491,17 +689,19 @@
   ],
   "screenshots": [
     "01-waiting.png",
+    "01-thinking-live.png",
     "02-growing-body.png",
     "03-paused-reading.png",
+    "04-checking-stage.png",
     "04-cancelled-retained.png"
   ],
   "sourceSha256": {
-    "apps/desktop/src/App.tsx": "0ddd3b8042ef58d236eef245b07879493a82b9c9d5104a4fd407f3c7a6d0c189",
-    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "481a68e621a69e3f4bea3f2557b1f3f27063916640012c7e4682066f1745b12a",
+    "apps/desktop/src/App.tsx": "4dbe64c9c94e11a8088babd150bbad615191779c0b890455e56a994b47636e1b",
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "5861850d77aacd70a5a4fe019bbf0070797c3d8c853b0d98402e1e0b02ae452a",
     "apps/desktop/src/features/evaluation/useEvaluation.ts": "eef6177c776d530405dd469cedae0c325ad6c6d8b7b53a7df4d0e34f7acfacae",
-    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "1b4b8e1bab2bd431388dcd82075dd6210e85bd33ff4acf6272ca0e6f696bdba2",
-    "packages/coding-agent/src/core/evaluation/service.ts": "b486a72491b4dff5eff631c5a9ec140abcfe059a7d8ecab521c818d175772ce8"
+    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "da8f89f718718aa1e8d6598aaf5e37fb9875efa968e08c79535ee54c5e670b60",
+    "packages/coding-agent/src/core/evaluation/service.ts": "6849a99102345cce2bb82a773b7084981ff61b34bba05054990be81d869b162e"
   },
   "origin": "http://127.0.0.1:5189/",
-  "bridgePort": 62154
+  "bridgePort": 51441
 }

@@ -24,7 +24,8 @@ export function EvaluationResultCard({ result, task, draft, busy, t, onDraft, on
 	const [followPaused, setFollowPaused] = useState(false);
 	const generating = result.status === "queued" || result.status === "running";
 	const stage = evaluationProcessStage(result);
-	const thinkingText = result.thinking || "";
+	const hasThinkingChannel = typeof result.thinking === "string";
+	const thinkingText = hasThinkingChannel ? result.thinking : "";
 	const bodyText = result.output;
 	const artifact = result.artifact;
 	const canPreview = result.status === "completed" && artifact?.previewAllowed && (artifact.type === "svg" || artifact.type === "html");
@@ -32,8 +33,8 @@ export function EvaluationResultCard({ result, task, draft, busy, t, onDraft, on
 	const tabs: ResultTab[] = task.outputType === "svg" || task.outputType === "html" ? ["process", "preview", "source", "answer", "analysis"] : ["process", "source", "answer", "analysis"];
 	const profileName = result.revealed && result.profile ? t("modelConfig", { model: result.profile.model.name, level: result.profile.thinkingLevel === "default" ? t("defaultThinking") : result.profile.thinkingLevel }) : t("result", { letter: result.anonymousLabel });
 	const scores = result.revealed ? result.rating?.scores ?? {} : draft.scores;
-	const emptyProcess = generating ? result.status === "queued" ? t("queueDetail") : t("waitingFirstSegment") : result.error || t(result.status);
-	const answerText = tab === "source" ? artifact?.content || bodyText : tab === "analysis" ? thinkingText || (generating ? t("thinkingNotReturned") : t("noAnalysis")) : bodyText;
+	const emptyProcess = generating ? result.status === "queued" ? t("queueDetail") : hasThinkingChannel ? t("waitingFirstSegment") : t("waitingBody") : result.error || t(result.status);
+	const answerText = tab === "source" ? artifact?.content || bodyText : tab === "analysis" ? !hasThinkingChannel ? t("thinkingServiceUnavailable") : thinkingText || (generating ? t("thinkingNotReturned") : t("noAnalysis")) : bodyText;
 	const displayText = answerText || (generating ? t("waitingBody") : result.error || t(result.status));
 	const contentRevision = tab === "process" ? `${thinkingText}\u0000${bodyText}\u0000${emptyProcess}` : displayText;
 	const phaseDetail = stage === "thinking" ? t("receivingThinking") : stage === "answering" ? t("streamingBody") : stage === "checking" ? t("checkingDetail") : stage === "waiting" ? t("requestSent") : "";
@@ -57,6 +58,7 @@ export function EvaluationResultCard({ result, task, draft, busy, t, onDraft, on
 		<div className="eval-artifact">
 			{tab === "preview" ? canPreview && artifact ? <iframe title={`${t("preview")} ${result.anonymousLabel}`} sandbox={artifact.type === "html" ? "allow-scripts allow-forms" : ""} referrerPolicy="no-referrer" srcDoc={isolatedPreview(artifact.content, artifact.type as "svg" | "html")} /> : <div className="eval-artifact-placeholder">{isFailure ? <IconAlert /> : result.status === "completed" ? <IconInfo /> : <IconClock />}<strong>{isFailure || result.status !== "completed" ? t(result.status) : t("noArtifact")}</strong>{result.error && <small>{result.error}</small>}</div>
 				: tab === "process" ? <div ref={setTextElement} className="eval-process-pane eval-stream-scroll" data-live-output={generating ? "true" : undefined} onScroll={onScroll} role="region" aria-label={t("process")}>
+					{!hasThinkingChannel && <p className="eval-process-service-notice">{t("thinkingServiceUnavailable")}</p>}
 					{thinkingText && <section className="eval-process-section eval-process-thinking" data-process-section="thinking"><h4>{t("returnedThinking")}</h4><pre>{thinkingText}</pre></section>}
 					{bodyText && <section className="eval-process-section eval-process-answer" data-process-section="answer"><h4>{t("responseBody")}</h4><pre>{bodyText}</pre></section>}
 					{!thinkingText && !bodyText && <p className="eval-process-empty">{emptyProcess}</p>}

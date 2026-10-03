@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>owl × dsh-media-bridge 原型</title>
+<style>
+	/* ============ 基础 ============ */
+	* { margin: 0; padding: 0; box-sizing: border-box; }
+	html, body { height: 100%; }
+	body {
+		font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+		color: #e8e8ea;
+		overflow: hidden;
+		/* owl 壁纸底：暖色抽象光斑 */
+		background:
+			radial-gradient(560px 420px at 8% 12%, rgba(255,120,40,.75), transparent 62%),
+			radial-gradient(680px 520px at 96% 8%, rgba(230,60,40,.6), transparent 60%),
+			radial-gradient(760px 560px at 88% 96%, rgba(255,150,50,.55), transparent 58%),
+			radial-gradient(520px 480px at 30% 100%, rgba(160,40,80,.5), transparent 60%),
+			linear-gradient(135deg, #2a0f0a 0%, #4a1410 45%, #200a1e 100%);
+	}
+	.screen { display: none; height: 100vh; padding: 14px; }
+	.screen.active { display: block; }
+
+	/* ============ 应用窗口 ============ */
+	.app {
+		position: relative;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		border-radius: 12px;
+		overflow: hidden;
+		background: rgba(13,13,15,.88);
+		backdrop-filter: blur(26px);
+		border: 1px solid rgba(255,255,255,.07);
+		box-shadow: 0 24px 80px rgba(0,0,0,.55);
+	}
+
+	/* 深背景能量层（chat 屏专用，垫在内容下面） */
+	.deepglow {
+		position: absolute; inset: 0; z-index: 0; pointer-events: none;
+		background:
+			radial-gradient(520px 380px at 50% -8%, rgba(99,102,241,.28), transparent 65%),
+			radial-gradient(640px 460px at 108% 108%, rgba(236,72,153,.22), transparent 62%),
+			radial-gradient(520px 420px at -6% 104%, rgba(34,211,238,.16), transparent 60%);
+		animation: breathe 5.5s ease-in-out infinite alternate;
+	}
+	@keyframes breathe { from { opacity:.55; transform: scale(1); } to { opacity: 1; transform: scale(1.035); } }
+
+	/* ============ 标题栏 ============ */
+	.titlebar {
+		position: relative; z-index: 5;
+		height: 34px; flex: none;
+		display: flex; align-items: center;
+		padding: 0 12px; gap: 16px;
+		font-size: 12px; color: #b9b9bf;
+		background: rgba(18,18,20,.6);
+		border-bottom: 1px solid rgba(255,255,255,.05);
+	}
+	.titlebar .menus { display: flex; gap: 14px; }
+	.titlebar .menus span:hover { color: #fff; }
+	.titlebar .brand { position: absolute; left: 50%; transform: translateX(-50%); letter-spacing: 3px; color: #d9d9de; font-weight: 600; font-size: 11px; }
+	.titlebar .winctl { margin-left: auto; display: flex; gap: 18px; color: #9a9aa0; }
+
+	/* ============ 三栏骨架 ============ */
+	.bodyrow { position: relative; z-index: 1; flex: 1; display: flex; min-height: 0; }
+
+	/* ---- ActivityRail ---- */
+	.rail {
+		width: 52px; flex: none;
+		display: flex; flex-direction: column; align-items: center;
+		padding: 10px 0 12px; gap: 6px;
+		border-right: 1px solid rgba(255,255,255,.05);
+		background: rgba(16,16,18,.5);
+	}
+	.rail .logo { width: 28px; height: 28px; margin-bottom: 10px; }
+	.rbtn {
+		position: relative;
+		width: 36px; height: 36px; border-radius: 10px;
+		display: flex; align-items: center; justify-content: center;
+		color: #8b8b92; background: none; border: none; cursor: pointer;
+	}
+	.rbtn:hover { background: rgba(255,255,255,.06); color: #d6d6dc; }
+	.rbtn.active { color: #4ade80; background: rgba(74,222,128,.1); }
+	.rbtn.active::before {
+		content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px;
+		width: 3px; border-radius: 2px; background: #4ade80;
+	}
+	.rbtn .dot {
+		position: absolute; top: 5px; right: 5px; width: 7px; height: 7px;
+		border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80;
+		border: 2px solid #101012;
+	}
+	.rail .spacer { flex: 1; }
+	.rail .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg,#4ade80,#0ea5e9); }
+
+	/* ---- 侧栏 ---- */
+	.sidebar {
+		width: 258px; flex: none;
+		display: flex; flex-direction: column;
+		border-right: 1px solid rgba(255,255,255,.05);
+		background: rgba(17,17,19,.45);
+		padding: 12px 10px 8px;
+		font-size: 13px;
+	}
+	.search {
+		height: 30px; border-radius: 8px; padding: 0 10px;
+		background: rgba(255,255,255,.05); color: #77777d;
+		display: flex; align-items: center; font-size: 12px;
+		border: 1px solid rgba(255,255,255,.05);
+	}
+	.newchat {
+		margin: 10px 0; height: 32px; border-radius: 8px;
+		background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3);
+		color: #4ade80; font-size: 12.5px;
+		display: flex; align-items: center; justify-content: center; gap: 6px;
+	}
+	.sidehead { color: #85858c; font-size: 12px; margin: 6px 6px; display: flex; justify-content: space-between; }
+	.tree { flex: 1; overflow: hidden; }
+	.tnode { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; color: #c9c9cf; }
+	.tnode .chev { color: #6b6b72; font-size: 10px; width: 10px; }
+	.tnode.child { padding-left: 26px; color: #a9a9b0; }
+	.tnode.child.active { background: rgba(255,255,255,.07); color: #f0f0f2; }
+	.tnode .glyph { color: #6b6b72; }
+	.sidefoot { border-top: 1px solid rgba(255,255,255,.05); padding: 10px 8px 4px; color: #85858c; font-size: 12px; }
+	.sidefoot .sub { color: #5d5d64; font-size: 11px; margin-top: 3px; }
+
+	/* ---- 主区 ---- */
+	.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+	.topbar {
+		height: 46px; flex: none;
+		display: flex; align-items: center; gap: 14px;
+		padding: 0 16px;
+		border-bottom: 1px solid rgba(255,255,255,.05);
+		font-size: 13px;
+	}
+	.topbar .ctx { color: #d6d6dc; display: flex; align-items: center; gap: 8px; }
+	.topbar .ctx .name { background: rgba(255,255,255,.06); border-radius: 6px; padding: 3px 8px; font-size: 12.5px; }
+	.seg { display: flex; background: rgba(255,255,255,.05); border-radius: 8px; padding: 2px; font-size: 12px; }
+	.seg span { padding: 3px 12px; border-radius: 6px; color: #9a9aa0; }
+	.seg span.on { background: rgba(74,222,128,.16); color: #4ade80; }
+	.topbar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; color: #9a9aa0; font-size: 12.5px; }
+	.topbar .right .loc { display: flex; align-items: center; gap: 5px; color: #c9c9cf; }
+	.topbar .right .loc i { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+	.topbar .right .chip { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 3px 10px; }
+	.content { flex: 1; min-height: 0; position: relative; }
+
+	/* ============ 聊天屏 ============ */
+	.chatwrap { position: absolute; inset: 0; display: flex; flex-direction: column; }
+	.chatcol { flex: 1; overflow: hidden; padding: 18px 0 8px; }
+	#screen-chat .chatinner { padding-top: 62px; }
+	.chatinner { max-width: 780px; margin: 0 auto; padding: 0 24px; font-size: 13.5px; line-height: 1.75; }
+	.chatinner h4 { font-size: 14px; margin: 4px 0 10px; }
+	.codeblock {
+		background: rgba(10,12,14,.75); border: 1px solid rgba(255,255,255,.06);
+		border-radius: 10px; padding: 14px 18px;
+		font-family: Consolas, "Courier New", monospace; font-size: 12.5px;
+		color: #c9d1d9; white-space: pre; line-height: 1.65;
+	}
+	.codeblock .cm { color: #7d8590; }
+	.codeblock .flag { color: #79c0ff; }
+	.histotabs { display: flex; gap: 22px; margin: 18px 0 10px; font-size: 13.5px; }
+	.histotabs span { color: #8b8b92; padding-bottom: 6px; }
+	.histotabs span.on { color: #e8e8ea; border-bottom: 2px solid #4ade80; }
+	.graph { padding: 6px 0 2px; }
+	.callout {
+		margin-top: 16px; border-radius: 10px; padding: 13px 16px;
+		background: rgba(234,179,8,.07); border: 1px solid rgba(234,179,8,.3);
+	}
+	.callout b { color: #facc15; font-size: 13.5px; }
+	.callout p { color: #d8d8bd; font-size: 12.8px; margin-top: 6px; text-align: justify; }
+	.oneline { margin-top: 14px; color: #c9c9cf; font-size: 13.2px; }
+
+	.composer { flex: none; padding: 8px 24px 10px; }
+	.composer .box {
+		max-width: 780px; margin: 0 auto;
+		display: flex; align-items: center; gap: 12px;
+		background: rgba(28,28,31,.85); border: 1px solid rgba(255,255,255,.08);
+		border-radius: 12px; padding: 9px 12px 9px 16px;
+	}
+	.composer .ph { flex: 1; color: #6d6d74; font-size: 13px; }
+	.composer .send { width: 30px; height: 30px; border-radius: 50%; background: #22a04d; display: flex; align-items: center; justify-content: center; color: #fff; }
+	.statusrow { max-width: 780px; margin: 7px auto 0; display: flex; gap: 16px; color: #77777d; font-size: 12px; align-items: center; }
+	.statusrow .right { margin-left: auto; }
+
+	/* ---- 顶部歌词条（全局覆盖层 1）---- */
+	.lyricsbar {
+		position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+		z-index: 30;
+		display: flex; align-items: center; gap: 10px;
+		background: rgba(18,18,22,.78); backdrop-filter: blur(14px);
+		border: 1px solid rgba(255,255,255,.1);
+		border-radius: 999px; padding: 8px 18px 8px 14px;
+		box-shadow: 0 8px 30px rgba(0,0,0,.45), 0 0 24px rgba(99,102,241,.15);
+		min-width: 430px;
+	}
+	.lyricsbar .note { color: #4ade80; }
+	.lyricsbar .ltext { display: flex; flex-direction: column; gap: 2px; }
+	.lyricsbar .line { font-size: 13px; color: #f2f2f4; text-shadow: 0 0 12px rgba(148,137,255,.5); }
+	.lyricsbar .who { font-size: 10.5px; color: #8b8b92; }
+	.lyricsbar .prog { width: 64px; }
+	.lyricsbar .prog .track { height: 3px; border-radius: 2px; background: rgba(255,255,255,.12); overflow: hidden; }
+	.lyricsbar .prog .fill { width: 64%; height: 100%; background: linear-gradient(90deg,#4ade80,#818cf8); }
+	.lyricsbar .prog .t { display: flex; justify-content: space-between; font-size: 9.5px; color: #77777d; margin-top: 3px; }
+
+	/* ============ 媒体主视图 ============ */
+	.mediapage { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 18px 26px 20px; }
+	mtv-tabs, .mtabs { display: flex; gap: 24px; font-size: 13.5px; flex: none; }
+	.mtabs span { color: #8b8b92; padding-bottom: 7px; cursor: pointer; }
+	.mtabs span.on { color: #e8e8ea; border-bottom: 2px solid #4ade80; }
+	.mtabs .src { margin-left: auto; display: flex; align-items: center; gap: 7px; color: #9a9aa0; font-size: 12px; padding-bottom: 4px; }
+	.mtabs .src i { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+
+	.player { flex: 1; min-height: 0; display: flex; gap: 34px; margin-top: 20px; }
+	.artcol { width: 292px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+	.artglow { position: relative; }
+	.artglow::before {
+		content: ""; position: absolute; inset: -34px;
+		background: radial-gradient(closest-side, rgba(124,58,237,.4), rgba(34,211,238,.12) 60%, transparent);
+		filter: blur(18px); z-index: 0;
+	}
+	.art {
+		position: relative; width: 264px; height: 264px; border-radius: 14px; overflow: hidden;
+		background:
+			radial-gradient(180px 180px at 24% 18%, rgba(236,72,153,.85), transparent 55%),
+			radial-gradient(220px 220px at 82% 30%, rgba(34,211,238,.7), transparent 58%),
+			radial-gradient(260px 260px at 50% 95%, rgba(79,70,229,.9), transparent 65%),
+			linear-gradient(150deg, #17103a, #0d0b22 70%);
+		border: 1px solid rgba(255,255,255,.12);
+		box-shadow: 0 18px 50px rgba(0,0,0,.5);
+	}
+	.art .vinyl {
+		position: absolute; right: -66px; top: 50%; transform: translateY(-50%);
+		width: 210px; height: 210px; border-radius: 50%;
+		background:
+			repeating-radial-gradient(circle at center, rgba(255,255,255,.05) 0 1.6px, transparent 1.6px 5px),
+			conic-gradient(from 210deg, #1a1a20, #2e2440 25%, #101016 50%, #241c38 75%, #1a1a20);
+		border: 1px solid rgba(255,255,255,.1);
+	}
+	.art .vinyl::after {
+		content: ""; position: absolute; inset: 0; margin: auto;
+		width: 62px; height: 62px; border-radius: 50%;
+		background: radial-gradient(circle, #ec4899 0 18%, #0d0b22 19% 100%);
+		border: 1px solid rgba(255,255,255,.14);
+	}
+	.art .eq {
+		position: absolute; left: 14px; bottom: 12px;
+		display: flex; align-items: flex-end; gap: 3px; height: 22px;
+	}
+	.art .eq i { width: 4px; background: #4ade80; border-radius: 2px; box-shadow: 0 0 8px rgba(74,222,128,.8); animation: eq 1s ease-in-out infinite alternate; }
+	.art .eq i:nth-child(1) { height: 40%; animation-delay: 0s; }
+	.art .eq i:nth-child(2) { height: 85%; animation-delay: .18s; }
+	.art .eq i:nth-child(3) { height: 60%; animation-delay: .36s; }
+	.art .eq i:nth-child(4) { height: 95%; animation-delay: .1s; }
+	@keyframes eq { from { transform: scaleY(.5);} to { transform: scaleY(1.15);} }
+	.srcbadge {
+		display: flex; align-items: center; gap: 8px;
+		font-size: 12px; color: #b9b9bf;
+		background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+		border-radius: 999px; padding: 6px 14px;
+	}
+	.srcbadge i { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+
+	.ctlcol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.ttitle { font-size: 26px; font-weight: 650; letter-spacing: .5px; }
+	.tmeta { color: #9a9aa0; font-size: 13.5px; margin-top: 7px; }
+	.tmeta b { color: #c9c9cf; font-weight: 500; }
+	.tagrow { display: flex; gap: 8px; margin-top: 12px; }
+	.tag { font-size: 11px; color: #9a9aa0; border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 3px 10px; }
+	.tag.hl { color: #4ade80; border-color: rgba(74,222,128,.35); background: rgba(74,222,128,.07); }
+
+	.pbar { margin-top: 22px; }
+	.pbar .track { height: 5px; border-radius: 3px; background: rgba(255,255,255,.09); overflow: hidden; }
+	.pbar .fill { width: 64%; height: 100%; border-radius: 3px; background: linear-gradient(90deg,#4ade80,#818cf8); box-shadow: 0 0 10px rgba(74,222,128,.5); }
+	.pbar .times { display: flex; justify-content: space-between; font-size: 11.5px; color: #77777d; margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+	.transport { display: flex; align-items: center; gap: 18px; margin-top: 18px; }
+	.tbtn { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(255,255,255,.06); color: #d6d6dc; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+	.tbtn:hover { background: rgba(255,255,255,.1); }
+	.tbtn.playbtn { width: 54px; height: 54px; flex: none; background: #4ade80; color: #08130b; box-shadow: 0 6px 24px rgba(74,222,128,.35); }
+	.tbtn.side { width: 34px; height: 34px; background: none; border: 1px solid rgba(255,255,255,.12); }
+
+	.volrow { display: flex; align-items: center; gap: 12px; margin-top: 18px; color: #9a9aa0; }
+	.volrow .vtrack { flex: 0 0 200px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.1); position: relative; }
+	.volrow .vfill { position: absolute; inset: 0 auto 0 0; width: 58%; background: #c9c9cf; border-radius: 2px; }
+	.volrow .vknob { position: absolute; left: 58%; top: 50%; transform: translate(-50%,-50%); width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.5); }
+	.volrow .pct { font-size: 12px; color: #77777d; font-variant-numeric: tabular-nums; }
+	.volrow .smooth { margin-left: 14px; display: flex; align-items: center; gap: 7px; font-size: 12px; color: #9a9aa0; }
+
+	.lyrics {
+		flex: 1; min-height: 0; margin-top: 22px;
+		border-radius: 14px; border: 1px solid rgba(255,255,255,.06);
+		background: rgba(20,20,24,.5);
+		padding: 18px 26px;
+		display: flex; flex-direction: column; justify-content: center; gap: 13px;
+		overflow: hidden; position: relative;
+	}
+	.lyrics::before, .lyrics::after { content: ""; position: absolute; left: 0; right: 0; height: 46px; pointer-events: none; }
+	.lyrics::before { top: 0; background: linear-gradient(rgba(20,20,24,1), transparent); }
+	.lyrics::after { bottom: 0; background: linear-gradient(transparent, rgba(20,20,24,1)); }
+	.lline { color: #6d6d76; font-size: 14px; transition: all .3s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.lline.near { color: #a5a5ad; }
+	.lline.cur {
+		color: #fff; font-size: 21px; font-weight: 650;
+		text-shadow: 0 0 18px rgba(129,140,248,.55);
+	}
+
+	/* ============ 听歌记忆 ============ */
+	.mempage { position: absolute; inset: 0; padding: 18px 26px 20px; overflow: auto; }
+	.memhead { display: flex; align-items: baseline; gap: 12px; margin: 2px 0 14px; }
+	.memhead h3 { font-size: 16px; }
+	.memhead span { color: #77777d; font-size: 12px; }
+	.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+	.stat {
+		border-radius: 12px; border: 1px solid rgba(255,255,255,.06);
+		background: rgba(24,24,28,.55); padding: 14px 16px;
+	}
+	.stat .k { color: #8b8b92; font-size: 12px; }
+	.stat .v { font-size: 22px; font-weight: 650; margin-top: 6px; }
+	.stat .v small { font-size: 12px; color: #77777d; font-weight: 400; margin-left: 4px; }
+	.stat .d { color: #4ade80; font-size: 11.5px; margin-top: 5px; }
+	.memgrid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; margin-top: 14px; }
+	.card {
+		border-radius: 12px; border: 1px solid rgba(255,255,255,.06);
+		background: rgba(24,24,28,.55); padding: 14px 16px;
+	}
+	.card h5 { font-size: 13px; color: #c9c9cf; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+	.card h5 .more { margin-left: auto; color: #6d6d74; font-weight: 400; font-size: 11.5px; }
+	.trow { display: flex; align-items: center; gap: 11px; padding: 6px 0; }
+	.trow + .trow { border-top: 1px solid rgba(255,255,255,.04); }
+	.trow .cov { width: 34px; height: 34px; border-radius: 7px; flex: none; }
+	.cov.c1 { background: linear-gradient(135deg,#7c3aed,#ec4899); }
+	.cov.c2 { background: linear-gradient(135deg,#0ea5e9,#22d3ee); }
+	.cov.c3 { background: linear-gradient(135deg,#f59e0b,#ef4444); }
+	.cov.c4 { background: linear-gradient(135deg,#10b981,#34d399); }
+	.cov.c5 { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
+	.trow .tt { font-size: 13px; }
+	.trow .ta { font-size: 11.5px; color: #77777d; margin-top: 2px; }
+	.trow .when { margin-left: auto; color: #6d6d74; font-size: 11.5px; }
+	.trow .heart { color: #ec4899; }
+	.hours { display: flex; align-items: flex-end; gap: 9px; height: 108px; padding: 4px 2px 0; }
+	.hours .bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+	.hours .bar i { width: 100%; border-radius: 5px 5px 2px 2px; background: linear-gradient(180deg,#4ade80,#166534); opacity: .9; }
+	.hours .bar i.peak { background: linear-gradient(180deg,#818cf8,#3730a3); box-shadow: 0 0 14px rgba(129,140,248,.35); }
+	.hours .bar span { font-size: 10.5px; color: #6d6d74; }
+	.favnote { margin-top: 10px; color: #8b8b92; font-size: 12px; line-height: 1.7; }
+	.favnote b { color: #c9c9cf; font-weight: 500; }
+
+	/* ============ 首次引导 / 设置 ============ */
+	.obwrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+	.obcard {
+		width: 620px; max-height: 96%;
+		border-radius: 16px; border: 1px solid rgba(255,255,255,.08);
+		background: rgba(22,22,26,.92);
+		box-shadow: 0 24px 70px rgba(0,0,0,.5);
+		padding: 20px 26px 16px; overflow: auto;
+	}
+	.obcard h3 { font-size: 16px; }
+	.obcard .sub { color: #8b8b92; font-size: 12px; margin-top: 5px; line-height: 1.55; }
+	.steps { display: flex; gap: 8px; margin: 13px 0 15px; }
+	.steps .st { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.09); }
+	.steps .st.on { background: #4ade80; }
+	.players { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.pcard {
+		border-radius: 12px; border: 1.5px solid rgba(255,255,255,.1);
+		background: rgba(255,255,255,.03); padding: 12px 14px;
+		display: flex; gap: 12px; align-items: center;
+	}
+	.pcard.sel { border-color: #4ade80; background: rgba(74,222,128,.06); box-shadow: 0 0 0 3px rgba(74,222,128,.08); }
+	.pcard .plogo { width: 40px; height: 40px; border-radius: 10px; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; color: #fff; }
+	.pcard .plogo.qq { background: linear-gradient(135deg,#31c27c,#0aa35f); }
+	.pcard .plogo.nc { background: linear-gradient(135deg,#ec4436,#c22a1e); }
+	.pcard .pn { font-size: 14px; }
+	.pcard .pd { font-size: 11.5px; color: #8b8b92; margin-top: 3px; }
+	.pcard .ok { margin-left: auto; color: #4ade80; }
+	.obnote {
+		margin-top: 12px; border-radius: 10px; padding: 9px 13px;
+		background: rgba(56,132,255,.07); border: 1px solid rgba(56,132,255,.25);
+		color: #a9c4e8; font-size: 11.5px; line-height: 1.6;
+	}
+	.obrow { display: flex; align-items: center; gap: 12px; padding: 9px 2px; }
+	.obrow + .obrow { border-top: 1px solid rgba(255,255,255,.05); }
+	.obrow .ot { font-size: 13px; }
+	.obrow .od { font-size: 11px; color: #8b8b92; margin-top: 2px; }
+	.obrow .sp { flex: 1; }
+	.toggle { width: 38px; height: 21px; border-radius: 999px; background: rgba(255,255,255,.14); position: relative; flex: none; }
+	.toggle::after { content: ""; position: absolute; top: 2.5px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+	.toggle.on { background: #4ade80; }
+	.toggle.on::after { left: auto; right: 3px; }
+	.checks { margin-top: 6px; }
+	.chk { display: flex; align-items: center; gap: 10px; padding: 6px 2px; font-size: 12.5px; }
+	.chk .cico { width: 19px; height: 19px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+	.chk .cico.ok { background: rgba(74,222,128,.15); color: #4ade80; }
+	.chk .cico.wait { background: rgba(255,255,255,.08); color: #77777d; }
+	.chk .cd { margin-left: auto; color: #6d6d74; font-size: 11.5px; }
+	.obfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 13px; }
+	.obfoot .skip { color: #77777d; font-size: 12.5px; }
+	.btnrow { display: flex; gap: 10px; }
+	.btn { border-radius: 9px; padding: 8px 20px; font-size: 13px; border: 1px solid rgba(255,255,255,.12); color: #d6d6dc; background: rgba(255,255,255,.04); }
+	.btn.primary { background: #4ade80; border-color: #4ade80; color: #08130b; font-weight: 600; }
+
+	/* ============ 原型导航 ============ */
+	.prototype-nav {
+		position: fixed; left: 16px; bottom: 14px; z-index: 99;
+		display: flex; gap: 7px; align-items: center;
+	}
+	.prototype-nav a {
+		font-size: 11px; color: rgba(255,255,255,.75); text-decoration: none;
+		background: rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.16);
+		padding: 4px 11px; border-radius: 999px; backdrop-filter: blur(8px);
+	}
+	.prototype-nav a.on { background: rgba(74,222,128,.25); border-color: rgba(74,222,128,.5); color: #d9ffe8; }
+	.prototype-nav .cap { font-size: 10.5px; color: rgba(255,255,255,.5); margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ======================= 屏1：媒体主视图 ======================= -->
+<div class="screen" id="screen-home">
+<div class="app">
+	<div class="titlebar">
+		<div class="menus"><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span></div>
+		<div class="brand">OWL</div>
+		<div class="winctl"><span>—</span><span>☐</span><span>✕</span></div>
+	</div>
+	<div class="bodyrow">
+		<div class="rail">
+			<svg class="logo" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4ade80"/><circle cx="11" cy="14" r="3.4" fill="#0b120d"/><circle cx="21" cy="14" r="3.4" fill="#0b120d"/><path d="M8 6 L13 10 L9 12 Z" fill="#4ade80"/><path d="M24 6 L19 10 L23 12 Z" fill="#4ade80"/><path d="M12 21 Q16 25 20 21" stroke="#0b120d" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+			<button class="rbtn" title="聊天"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z"/></svg></button>
+			<button class="rbtn" title="纪要"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+			<button class="rbtn" title="邮件"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></button>
+			<button class="rbtn active" title="音乐"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15" r="2.6"/></svg></button>
+			<div class="spacer"></div>
+			<button class="rbtn" title="设置"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .48.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.09-.46.14-.92.14-1.4z"/></svg></button>
+			<div class="avatar"></div>
+		</div>
+		<div class="sidebar">
+			<div class="search">🔍 搜索会话或项目</div>
+			<div class="newchat">＋ 新会话</div>
+			<div class="sidehead"><span>项目 ▾</span><span>⋯ ＋</span></div>
+			<div class="tree">
+				<div class="tnode"><span class="chev">▾</span><span class="glyph">📁</span> Owl-def</div>
+				<div class="tnode child active"><span class="glyph">💬</span> [Owl map context] You...</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你好</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你好</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你是谁</div>
+				<div class="tnode child"><span class="glyph">💬</span> 用内威浏览器打开 http...</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> smoke</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> office-manual-test</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl-lens</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> sandbox</div>
+			</div>
+			<div class="sidefoot"><div>↳ 本地工作空间</div><div class="sub">会话保存在本机</div></div>
+		</div>
+		<div class="main">
+			<div class="topbar">
+				<div class="ctx"><span class="name">音乐</span></div>
+				<div class="right">
+					<span class="loc"><i></i>本地</span>
+					<span>☰ 对话目录 8</span>
+					<span class="chip">开发工作台</span>
+					<span>▭</span>
+				</div>
+			</div>
+			<div class="content">
+				<div class="mediapage">
+					<div class="mtabs">
+						<span class="on">播放中</span><span>听歌记忆</span><span>诊断</span><span>设置</span>
+						<span class="src"><i></i>QQ音乐 · 已连接</span>
+					</div>
+					<div class="player">
+						<div class="artcol">
+							<div class="artglow"><div class="art">
+								<div class="vinyl"></div>
+								<div class="eq"><i></i><i></i><i></i><i></i></div>
+							</div></div>
+							<div class="srcbadge"><i></i>QQ音乐 · 播放中</div>
+						</div>
+						<div class="ctlcol">
+							<div class="ttitle">夜航西</div>
+							<div class="tmeta"><b>木星盆地乐队</b> · 专辑《午夜电台》 · 2025</div>
+							<div class="tagrow">
+								<span class="tag hl">无损 SQ</span><span class="tag">Mandopop</span><span class="tag">歌词已同步</span><span class="tag">Agent 控制 · 关</span>
+							</div>
+							<div class="pbar">
+								<div class="track"><div class="fill"></div></div>
+								<div class="times"><span>2:35</span><span>-1:28 / 4:03</span></div>
+							</div>
+							<div class="transport">
+								<button class="tbtn side" title="上一首"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+								<button class="tbtn side" title="快退10秒"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10a8 8 0 1 1 2 6"/><path d="M4 5v5h5" /></svg></button>
+								<button class="tbtn playbtn" title="暂停"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg></button>
+								<button class="tbtn side" title="快进10秒"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10a8 8 0 1 0-2 6"/><path d="M20 5v5h-5"/></svg></button>
+								<button class="tbtn" title="下一首"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18 5h-2v14h2zM4 5v14l11-7z"/></svg></button>
+								<button class="tbtn" title="收藏" style="color:#ec4899"><svg width="16" height="16" viewBox="0 0 24 24" fill="#ec4899"><path d="M12 21s-7.5-4.7-10-9.3C.6 8.6 2.6 5 6.2 5c2.2 0 3.7 1.2 4.6 2.6L12 9l1.2-1.4C14.1 6.2 15.6 5 17.8 5c3.6 0 5.6 3.6 4.2 6.7C19.5 16.3 12 21 12 21z"/></svg></button>
+							</div>
+							<div class="volrow">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+								<div class="vtrack"><div class="vfill"></div><div class="vknob"></div></div>
+								<span class="pct">58%</span>
+								<span class="smooth">平滑音量过渡
+									<span class="toggle on" style="display:inline-block;transform:scale(.8)"></span>
+								</span>
+							</div>
+							<div class="lyrics">
+								<div class="lline">耳机里的世界安静得像海底</div>
+								<div class="lline near">仪表盘的光落在你的侧脸</div>
+								<div class="lline cur">我们彻夜绕着环城高速飞行</div>
+								<div class="lline near">电台说黎明还有四十分钟到达</div>
+								<div class="lline">就让我把这一首歌听完</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</div>
+
+<!-- ======================= 屏2：听歌记忆 ======================= -->
+<div class="screen" id="screen-memory">
+<div class="app">
+	<div class="titlebar">
+		<div class="menus"><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span></div>
+		<div class="brand">OWL</div>
+		<div class="winctl"><span>—</span><span>☐</span><span>✕</span></div>
+	</div>
+	<div class="bodyrow">
+		<div class="rail">
+			<svg class="logo" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4ade80"/><circle cx="11" cy="14" r="3.4" fill="#0b120d"/><circle cx="21" cy="14" r="3.4" fill="#0b120d"/><path d="M8 6 L13 10 L9 12 Z" fill="#4ade80"/><path d="M24 6 L19 10 L23 12 Z" fill="#4ade80"/><path d="M12 21 Q16 25 20 21" stroke="#0b120d" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></button>
+			<button class="rbtn active"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15" r="2.6"/></svg></button>
+			<div class="spacer"></div>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .48.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.09-.46.14-.92.14-1.4z"/></svg></button>
+			<div class="avatar"></div>
+		</div>
+		<div class="sidebar">
+			<div class="search">🔍 搜索会话或项目</div>
+			<div class="newchat">＋ 新会话</div>
+			<div class="sidehead"><span>项目 ▾</span><span>⋯ ＋</span></div>
+			<div class="tree">
+				<div class="tnode"><span class="chev">▾</span><span class="glyph">📁</span> Owl-def</div>
+				<div class="tnode child"><span class="glyph">💬</span> [Owl map context] You...</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你好</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> smoke</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl-lens</div>
+			</div>
+			<div class="sidefoot"><div>↳ 本地工作空间</div><div class="sub">会话保存在本机</div></div>
+		</div>
+		<div class="main">
+			<div class="topbar">
+				<div class="ctx"><span class="name">音乐</span></div>
+				<div class="right">
+					<span class="loc"><i></i>本地</span>
+					<span>☰ 对话目录 8</span>
+					<span class="chip">开发工作台</span>
+					<span>▭</span>
+				</div>
+			</div>
+			<div class="content">
+				<div class="mempage">
+					<div class="mtabs" style="margin-bottom:2px">
+						<span>播放中</span><span class="on">听歌记忆</span><span>诊断</span><span>设置</span>
+						<span class="src"><i></i>QQ音乐 · 播放中</span>
+					</div>
+					<div class="memhead"><h3>今天</h3><span>10月4日 周日 · 元数据只存在本机 data/</span></div>
+					<div class="stats">
+						<div class="stat"><div class="k">今日收听</div><div class="v">47<small>分钟 · 14 首</small></div><div class="d">▲ 比昨天多 12 分钟</div></div>
+						<div class="stat"><div class="k">连续收听</div><div class="v">5<small>天</small></div><div class="d">本周新纪录</div></div>
+						<div class="stat"><div class="k">最常一起听</div><div class="v" style="font-size:15px;line-height:1.5">木星盆地乐队<small>→ 深空投影乐队</small></div><div class="d">按收藏与重播统计</div></div>
+					</div>
+					<div class="memgrid">
+						<div class="card">
+							<h5>🕐 最近播放<span class="more">今天 14 首</span></h5>
+							<div class="trow"><div class="cov c1"></div><div><div class="tt">夜航西</div><div class="ta">木星盆地乐队</div></div><span class="when">正在播放</span></div>
+							<div class="trow"><div class="cov c5"></div><div><div class="tt">环城高速</div><div class="ta">木星盆地乐队</div></div><span class="when">14:02</span></div>
+							<div class="trow"><div class="cov c2"></div><div><div class="tt">引力信标</div><div class="ta">深空投影乐队</div></div><span class="when">13:47</span></div>
+							<div class="trow"><div class="cov c3"></div><div><div class="tt">霓虹深渊</div><div class="ta">城市迷宫合唱团</div></div><span class="when">13:31</span></div>
+							<div class="trow"><div class="cov c4"></div><div><div class="tt">雨季接口</div><div class="ta">南方公园后街</div></div><span class="when">11:20</span></div>
+							<div class="trow"><div class="cov c1"></div><div><div class="tt">午夜电台</div><div class="ta">木星盆地乐队</div></div><span class="when">10:55</span></div>
+						</div>
+						<div style="display:flex;flex-direction:column;gap:14px">
+							<div class="card">
+								<h5>📊 高频时段<span class="more">近 7 天</span></h5>
+								<div class="hours">
+									<div class="bar"><i style="height:18%"></i><span>一</span></div>
+									<div class="bar"><i style="height:32%"></i><span>二</span></div>
+									<div class="bar"><i style="height:24%"></i><span>三</span></div>
+									<div class="bar"><i style="height:52%"></i><span>四</span></div>
+									<div class="bar"><i class="peak" style="height:88%"></i><span>五</span></div>
+									<div class="bar"><i style="height:70%"></i><span>六</span></div>
+									<div class="bar"><i style="height:58%"></i><span>日</span></div>
+								</div>
+							</div>
+							<div class="card">
+								<h5>♥ 本地收藏<span class="more">28 首</span></h5>
+								<div class="trow"><div class="cov c2"></div><div><div class="tt">引力信标</div><div class="ta">深空投影乐队</div></div><span class="heart">♥</span></div>
+								<div class="trow"><div class="cov c3"></div><div><div class="tt">霓虹深渊</div><div class="ta">城市迷宫合唱团</div></div><span class="heart">♥</span></div>
+								<div class="trow"><div class="cov c4"></div><div><div class="tt">雨季接口</div><div class="ta">南方公园后街</div></div><span class="heart">♥</span></div>
+								<div class="favnote">Agent 可以通过 <b>media_bridge_memory</b> 只读访问这些记忆，比如「根据我下午听的诗意摇滚，推荐几首类似的」。</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</div>
+
+<!-- ======================= 屏3：聊天 + 全局覆盖层 ======================= -->
+<div class="screen" id="screen-chat">
+<div class="app">
+	<div class="deepglow"></div>
+	<div class="titlebar">
+		<div class="menus"><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span></div>
+		<div class="brand">OWL</div>
+		<div class="winctl"><span>—</span><span>☐</span><span>✕</span></div>
+	</div>
+	<div class="bodyrow">
+		<div class="rail">
+			<svg class="logo" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4ade80"/><circle cx="11" cy="14" r="3.4" fill="#0b120d"/><circle cx="21" cy="14" r="3.4" fill="#0b120d"/><path d="M8 6 L13 10 L9 12 Z" fill="#4ade80"/><path d="M24 6 L19 10 L23 12 Z" fill="#4ade80"/><path d="M12 21 Q16 25 20 21" stroke="#0b120d" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+			<button class="rbtn active"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></button>
+			<button class="rbtn" title="音乐 · 正在播放"><span class="dot"></span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15" r="2.6"/></svg></button>
+			<div class="spacer"></div>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .48.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.09-.46.14-.92.14-1.4z"/></svg></button>
+			<div class="avatar"></div>
+		</div>
+		<div class="sidebar">
+			<div class="search">🔍 搜索会话或项目</div>
+			<div class="newchat">＋ 新会话</div>
+			<div class="sidehead"><span>项目 ▾</span><span>⋯ ＋</span></div>
+			<div class="tree">
+				<div class="tnode"><span class="chev">▾</span><span class="glyph">📁</span> Owl-def</div>
+				<div class="tnode child active"><span class="glyph">💬</span> [Owl map context] You...</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你好</div>
+				<div class="tnode child"><span class="glyph">💬</span> 你是谁</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> smoke</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> office-manual-test</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl-lens</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> sandbox</div>
+			</div>
+			<div class="sidefoot"><div>↳ 本地工作空间</div><div class="sub">会话保存在本机</div></div>
+		</div>
+		<div class="main">
+			<div class="topbar">
+				<div class="ctx"><span class="name">[Owl map context]</span><span class="name">Owl-def</span>
+					<div class="seg"><span class="on">对话</span><span>上下文</span></div>
+				</div>
+				<div class="right">
+					<span class="loc"><i></i>本地</span>
+					<span>☰ 对话目录 8</span>
+					<span class="chip">开发工作台</span>
+					<span>▭</span>
+				</div>
+			</div>
+			<div class="content">
+				<!-- 全局覆盖层：顶部歌词条 -->
+				<div class="lyricsbar">
+					<span class="note">♪</span>
+					<div class="ltext">
+						<span class="line">我们彻夜绕着环城高速飞行</span>
+						<span class="who">夜航西 · 木星盆地乐队</span>
+					</div>
+					<div class="prog"><div class="track"><div class="fill"></div></div><div class="t"><span>2:35</span><span>4:03</span></div></div>
+				</div>
+				<div class="chatwrap">
+					<div class="chatcol"><div class="chatinner">
+						<h4>merge 之后的历史是这样的：</h4>
+						<div class="codeblock"><span class="cm"># 3. 推送</span>
+git push origin main
+
+<span class="cm"># 常用变体</span>
+git merge <span class="flag">--no-ff</span> feature   <span class="cm"># 强制生成合并提交（即使可以快进）</span>
+git merge <span class="flag">--ff-only</span> feature  <span class="cm"># 只允许快进，否则报错退出</span>
+git merge <span class="flag">--squash</span> feature   <span class="cm"># 把 feature 压成一个改动，不自动提交</span></div>
+						<div class="histotabs"><span class="on">merge 后的历史</span><span>rebase 后的历史</span></div>
+						<div class="graph">
+							<svg width="620" height="128" viewBox="0 0 620 128">
+								<rect x="8" y="8" width="52" height="20" rx="5" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.14)"/><text x="34" y="22" fill="#e8e8ea" font-size="11" text-anchor="middle">main</text>
+								<line x1="70" y1="18" x2="560" y2="18" stroke="rgba(255,255,255,.22)" stroke-width="1.6"/>
+								<circle cx="100" cy="18" r="6" fill="#e8e8ea"/><circle cx="160" cy="18" r="6" fill="#e8e8ea"/><circle cx="340" cy="18" r="7" fill="#8b8b92"/><circle cx="430" cy="18" r="6" fill="#e8e8ea"/>
+								<text x="100" y="40" fill="#8b8b92" font-size="10" text-anchor="middle">A</text><text x="160" y="40" fill="#8b8b92" font-size="10" text-anchor="middle">B</text><text x="340" y="40" fill="#8b8b92" font-size="10" text-anchor="middle">M</text><text x="430" y="40" fill="#8b8b92" font-size="10" text-anchor="middle">C</text>
+								<rect x="8" y="96" width="58" height="20" rx="5" fill="rgba(74,222,128,.1)" stroke="rgba(74,222,128,.35)"/><text x="37" y="110" fill="#4ade80" font-size="11" text-anchor="middle">feature</text>
+								<path d="M160 24 C 160 60, 230 110, 300 110 L 400 110 C 440 110, 340 24, 340 24" fill="none" stroke="rgba(74,222,128,.5)" stroke-width="1.6"/>
+								<circle cx="300" cy="110" r="6" fill="#e8e8ea"/><circle cx="380" cy="110" r="6" fill="#e8e8ea"/>
+								<text x="300" y="126" fill="#8b8b92" font-size="10" text-anchor="middle">D</text><text x="380" y="126" fill="#8b8b92" font-size="10" text-anchor="middle">E</text>
+							</svg>
+						</div>
+						<div class="callout">
+							<b>黄金法则</b>
+							<p>rebase 只用于你自己独有的分支。绝对不对别人正在使用的公共分支 rebase——重写历史会让协作者的本地历史错乱。常见团队惯例：本地整理提交用 rebase，进主干用 merge 或 squash merge。</p>
+						</div>
+						<p class="oneline">一句话记忆：<b style="color:#e8e8ea">merge 是"如实记录发生过什么"，rebase 是"把历史整理成希望它发生的样子"。</b></p>
+					</div></div>
+					<div class="composer">
+						<div class="box">
+							<span class="ph">描述问题或想完成的任务... (/ 唤起命令)</span>
+							<div class="send">↑</div>
+						</div>
+						<div class="statusrow">
+							<span>🛡 标准模式 ▾</span><span>💧 思考中 ▾</span><span>默认模型 ▾</span>
+							<span class="right">7%</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</div>
+
+<!-- ======================= 屏4：首次引导 / 设置 ======================= -->
+<div class="screen" id="screen-onboarding">
+<div class="app">
+	<div class="titlebar">
+		<div class="menus"><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span></div>
+		<div class="brand">OWL</div>
+		<div class="winctl"><span>—</span><span>☐</span><span>✕</span></div>
+	</div>
+	<div class="bodyrow">
+		<div class="rail">
+			<svg class="logo" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#4ade80"/><circle cx="11" cy="14" r="3.4" fill="#0b120d"/><circle cx="21" cy="14" r="3.4" fill="#0b120d"/><path d="M8 6 L13 10 L9 12 Z" fill="#4ade80"/><path d="M24 6 L19 10 L23 12 Z" fill="#4ade80"/><path d="M12 21 Q16 25 20 21" stroke="#0b120d" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></button>
+			<button class="rbtn active"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15" r="2.6"/></svg></button>
+			<div class="spacer"></div>
+			<button class="rbtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55A7 7 0 0 0 5 12c0 .48.05.94.14 1.4l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.09-.46.14-.92.14-1.4z"/></svg></button>
+			<div class="avatar"></div>
+		</div>
+		<div class="sidebar">
+			<div class="search">🔍 搜索会话或项目</div>
+			<div class="newchat">＋ 新会话</div>
+			<div class="sidehead"><span>项目 ▾</span><span>⋯ ＋</span></div>
+			<div class="tree">
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> Owl-def</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> owl</div>
+				<div class="tnode"><span class="chev">▸</span><span class="glyph">📁</span> smoke</div>
+			</div>
+			<div class="sidefoot"><div>↳ 本地工作空间</div><div class="sub">会话保存在本机</div></div>
+		</div>
+		<div class="main">
+			<div class="topbar">
+				<div class="ctx"><span class="name">音乐</span></div>
+				<div class="right">
+					<span class="loc"><i></i>本地</span>
+					<span>☰ 对话目录 8</span>
+					<span class="chip">开发工作台</span>
+					<span>▭</span>
+				</div>
+			</div>
+			<div class="content">
+				<div class="obwrap">
+					<div class="obcard">
+						<h3>把音乐接进 owl</h3>
+						<div class="sub">插件通过 Windows 媒体会话读取播放状态、只调节播放器自己的音量。<br>不修改播放器文件、不读取登录凭据、不碰系统音量。</div>
+						<div class="steps"><div class="st on"></div><div class="st on"></div><div class="st"></div></div>
+						<div class="players">
+							<div class="pcard sel">
+								<div class="plogo qq">QQ</div>
+								<div><div class="pn">QQ音乐</div><div class="pd">检测到 QQMusic.exe 正在运行</div></div>
+								<span class="ok">✓</span>
+							</div>
+							<div class="pcard">
+								<div class="plogo nc">云</div>
+								<div><div class="pn">网易云音乐</div><div class="pd">未检测到进程，仍可指定</div></div>
+							</div>
+						</div>
+						<div class="obnote">⚠ 播放器是显式指定的：不会回退到 Windows 当前恰好活跃的会话。切换播放器需要回到这里重新选择。</div>
+						<div style="margin-top:14px">
+							<div class="obrow">
+								<div><div class="ot">允许 Agent 控制播放</div><div class="od">关闭时模型只能读状态，不能播放/暂停/切歌（默认关）</div></div>
+								<span class="sp"></span><span class="toggle"></span>
+							</div>
+							<div class="obrow">
+								<div><div class="ot">平滑音量过渡</div><div class="od">暂停渐弱、恢复渐强，音量变化不再突兀</div></div>
+								<span class="sp"></span><span class="toggle on"></span>
+							</div>
+							<div class="obrow">
+								<div><div class="ot">进程音频表（波形 / 深背景用）</div><div class="od">读取播放器进程的实时响度，仅供本地可视化</div></div>
+								<span class="sp"></span><span class="toggle on"></span>
+							</div>
+						</div>
+						<div class="checks">
+							<div class="chk"><span class="cico ok">✓</span>播放器进程<span class="cd">QQMusic.exe</span></div>
+							<div class="chk"><span class="cico ok">✓</span>媒体会话匹配<span class="cd">aumid · QQMusic</span></div>
+							<div class="chk"><span class="cico ok">✓</span>音频会话（ISimpleAudioVolume）<span class="cd">已挂接</span></div>
+							<div class="chk"><span class="cico ok">✓</span>PowerShell 工作进程<span class="cd">空闲 12s 后自动回收</span></div>
+							<div class="chk"><span class="cico wait">…</span>元数据增强（封面 / 歌词）<span class="cd">后台渐进加载</span></div>
+						</div>
+						<div class="obfoot">
+							<span class="skip">先跳过，保持未连接</span>
+							<div class="btnrow"><span class="btn">上一步</span><span class="btn primary">完成并连接</span></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</div>
+
+<!-- ======================= 原型导航（截图时会被隐藏） ======================= -->
+<div class="prototype-nav">
+	<span class="cap">owl × media-bridge 原型</span>
+	<a href="?screen=home" data-s="home">① 播放主视图</a>
+	<a href="?screen=memory" data-s="memory">② 听歌记忆</a>
+	<a href="?screen=chat" data-s="chat">③ 聊天+全局层</a>
+	<a href="?screen=onboarding" data-s="onboarding">④ 首次引导</a>
+</div>
+
+<script>
+	const params = new URLSearchParams(location.search);
+	const want = params.get("screen") || "home";
+	document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+	const target = document.getElementById("screen-" + want) || document.getElementById("screen-home");
+	target.classList.add("active");
+	document.querySelectorAll(".prototype-nav a").forEach(a =>
+		a.classList.toggle("on", a.dataset.s === (target.id.replace("screen-", ""))));
+</script>
+</body>
+</html>

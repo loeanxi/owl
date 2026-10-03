@@ -40,15 +40,19 @@ const result = { success: false, actualApp: true, actualDesktopWebSocket: true, 
 for (const path of ["apps/desktop/src/App.tsx", "apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/useEvaluation.ts", "apps/desktop/src/features/evaluation/evaluation-copy.ts", "packages/coding-agent/src/core/evaluation/service.ts"])
   result.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, path))).digest("hex");
 const pending = [];
+const finishes = new Map();
+let checkingCount = 0;
+let checkingResolve;
+const checkingReady = new Promise((done) => { checkingResolve = done; });
 let readyResolve;
 const ready = new Promise((done) => { readyResolve = done; });
-const privateThinking = "PRIVATE_REASONING_NOT_FOR_ANONYMOUS_RESULTS";
+let providerThinking = "";
 const forbiddenFetch = async () => { throw new Error("Remote model/network requests forbidden in isolated streaming test"); };
 const models = ["one", "two"].map((modelId) => ({ provider: "offline-stream", modelId, name: `Offline stream ${modelId}`, sourceName: "Offline fixture", supportedThinkingLevels: ["default"], contextWindow: 100000, maxTokens: 1000, pricing: null }));
 let bridge, vite, browser, page, rpcSocket, runId;
 const area = () => page.locator(".owl-eval:visible");
 const cards = () => area().locator(".eval-result-card");
-const text = (index) => cards().nth(index).locator(".eval-artifact pre");
+const text = (index) => cards().nth(index).locator(".eval-stream-scroll");
 const entry = () => page.locator('[data-fd-id="model-evaluation-entry"]');
 async function rpc(request) {
   const id = randomUUID();
@@ -66,10 +70,10 @@ async function check(name, operation) {
 async function screenshot(name) { await page.screenshot({ path: join(output, name) }); result.screenshots.push(name); }
 async function snapshot() {
   const run = await rpc({ action: "run.get", runId });
-  result.snapshots.push({ status: run.status, results: run.results.map((item) => ({ id: item.id, status: item.status, outputChars: item.output.length, keys: Object.keys(item) })) });
+  result.snapshots.push({ status: run.status, results: run.results.map((item) => ({ id: item.id, status: item.status, phase: item.generationPhase, outputChars: item.output.length, thinkingChars: item.thinking.length, keys: Object.keys(item) })) });
   return run;
 }
-function publish(body) { for (const request of pending) request.onPartial(body, privateThinking); }
+function publish(body, thinking = providerThinking) { providerThinking = thinking; for (const request of pending) request.onPartial(body, thinking); }
 async function seeBody(marker) { for (let index = 0; index < 2; index++) await text(index).filter({ hasText: marker }).waitFor(); }
 function longBody(marker, lines) { return `${marker}\n\n${Array.from({ length: lines }, (_, index) => `段落 ${index + 1}：这是隔离模型逐步输出的正文，只用来验收真实页面实时显示。`).join("\n")}\n`; }
 async function scrollState(index) { return await text(index).evaluate((element) => ({ top: element.scrollTop, gap: element.scrollHeight - element.scrollTop - element.clientHeight, scrollHeight: element.scrollHeight })); }
@@ -78,9 +82,9 @@ try {
   bridge = await startDesktopServer({ port: 0, host: "127.0.0.1", agentDir, cwd, mcpServers: {}, onDiagnostic: () => {},
     news: { fetch: forbiddenFetch, listModels: () => [], callModel: forbiddenFetch, resolveModel: forbiddenFetch },
     evaluation: { timeoutMs: 120000, listModels: async () => structuredClone(models), invoke: async (request) => {
-      pending.push(request); request.onPartial("", privateThinking); if (pending.length === 2) readyResolve();
-      return new Promise(() => {});
-    }, check: async () => { throw new Error("No checker before model stage is finished"); } },
+      pending.push(request); request.onPartial("", ""); if (pending.length === 2) readyResolve();
+      return new Promise((done) => { finishes.set(request, done); });
+    }, check: async () => { checkingCount++; if (checkingCount === 2) checkingResolve(); return new Promise(() => {}); } },
   });
   process.env.PI_RE_BRIDGE = `ws://127.0.0.1:${bridge.port}`;
   for (const port of [5189, 5191]) { try { vite = await createViteServer({ root: desktop, configFile: join(desktop, "vite.config.ts"), server: { host: "127.0.0.1", port, strictPort: true } }); await vite.listen(); break; } catch (error) { await vite?.close(); vite = undefined; if (port === 5191) throw error; } }
@@ -92,7 +96,7 @@ try {
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => { try { const value = JSON.parse(String(payload)); if (value.type === "evaluation.request") result.requests.push({ ...value, sentAt: Date.now() }); } catch {} }));
   await page.route("**/*", (route) => { const url = new URL(route.request().url()); if (url.origin === new URL(origin).origin) return route.continue(); result.errors.push(`External request blocked: ${url.origin}`); return route.abort(); });
   await page.addInitScript(({ workspace }) => { if (window !== window.top) return; localStorage.setItem("owl.workspaceDir", workspace); localStorage.setItem("owl.uiLanguage", "zh-CN"); localStorage.setItem("owl.workbench.open", "0"); }, { workspace: cwd });
-  await page.goto(origin); await entry().click();
+  await page.goto(origin); await entry().click({ timeout: 30000 });
   await area().getByText("开始你的第一次模型测评", { exact: true }).waitFor();
   await area().locator(".eval-main-head").getByRole("button", { name: "新建测评", exact: true }).click();
   await area().getByRole("button", { name: "清空选择", exact: true }).click(); await area().locator("#eval-select-G08").check();
@@ -103,16 +107,26 @@ try {
   try { await Promise.race([ready, new Promise((_done, reject) => { readyTimer = setTimeout(() => reject(new Error("Fake invocation stage gates did not become ready")), 10000); })]); }
   finally { clearTimeout(readyTimer); }
   await cards().nth(1).waitFor(); runId = (await rpc({ action: "run.list" }))[0].id;
-  await check("thinking-only stage stays running and shows waiting hint without revealing identity", async () => {
+  await check("waiting stage uses the process tab and still hides model identity", async () => {
     const run = await snapshot(); assert.equal(run.status, "running");
-    for (let index = 0; index < 2; index++) { await cards().nth(index).getByRole("button", { name: "完整回答", exact: true, pressed: true }).waitFor(); assert.match(await text(index).innerText(), /等待模型输出正文/); }
-    for (const item of run.results) { assert.equal(item.output, ""); for (const field of ["thinking", "profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(item, field), false); }
-    assert.equal(await area().getByText(privateThinking, { exact: false }).count(), 0); for (const model of models) assert.equal(await cards().filter({ hasText: model.name }).count(), 0);
+    for (let index = 0; index < 2; index++) await cards().nth(index).getByRole("button", { name: "作答过程", exact: true, pressed: true }).waitFor();
+    for (const item of run.results) { assert.equal(item.output, ""); assert.equal(item.thinking, ""); assert.equal(item.generationPhase, "waiting"); for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(item, field), false); }
+    for (const model of models) assert.equal(await cards().filter({ hasText: model.name }).count(), 0);
     await screenshot("01-waiting.png");
+  });
+  await check("provider thinking grows visibly before either model produces an answer", async () => {
+    const thinkingOne = longBody("第一批模型思考", 65);
+    publish("", thinkingOne); await seeBody("第一批模型思考");
+    const thinkingTwo = `${thinkingOne}\n${longBody("第二批模型思考", 40)}`;
+    publish("", thinkingTwo); await seeBody("第二批模型思考");
+    const run = await snapshot(); assert.ok(run.results.every((item) => item.status === "running" && item.generationPhase === "thinking" && item.output === "" && item.thinking === thinkingTwo));
+    for (let index = 0; index < 2; index++) { await cards().nth(index).locator(".eval-process-thinking").filter({ hasText: "第二批模型思考" }).waitFor(); assert.ok((await scrollState(index)).gap <= 2); }
+    await screenshot("01-thinking-live.png");
   });
   const bodyOne = longBody("第一批正文", 65);
   await check("two cards receive growing body while their real service run is unfinished", async () => {
-    publish(bodyOne); await seeBody("第一批正文"); const run = await snapshot(); assert.equal(run.status, "running"); assert.ok(run.results.every((item) => item.output === bodyOne && item.status === "running"));
+    publish(bodyOne); await seeBody("第一批正文"); const run = await snapshot(); assert.equal(run.status, "running"); assert.ok(run.results.every((item) => item.output === bodyOne && item.status === "running" && item.generationPhase === "answering"));
+    for (let index = 0; index < 2; index++) await cards().nth(index).locator(".eval-process-answer").filter({ hasText: "第一批正文" }).waitFor();
     for (let index = 0; index < 2; index++) assert.ok((await scrollState(index)).gap <= 2);
     await screenshot("02-growing-body.png");
   });
@@ -121,7 +135,7 @@ try {
     await text(0).evaluate((element) => { element.scrollTop = 0; }); await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).waitFor();
     publish(bodyTwo); await seeBody("第二批新增正文"); assert.ok((await scrollState(0)).top <= 2); assert.ok((await scrollState(1)).gap <= 2); assert.equal((await snapshot()).status, "running");
     await cards().nth(0).getByRole("button", { name: "源码", exact: true }).click();
-    await cards().nth(0).getByRole("button", { name: "完整回答", exact: true }).click();
+    await cards().nth(0).getByRole("button", { name: "作答过程", exact: true }).click();
     assert.ok((await scrollState(0)).top <= 2);
     await screenshot("03-paused-reading.png");
     await cards().nth(0).getByRole("button", { name: "继续跟随输出", exact: true }).click(); assert.ok((await scrollState(0)).gap <= 2);
@@ -137,12 +151,21 @@ try {
     publish(bodyFour); const run = await snapshot(); assert.ok(run.results.every((item) => item.output === bodyFour));
     await entry().click(); await seeBody("第四批后台正文"); await cards().nth(0).getByRole("button", { name: "源码", exact: true, pressed: true }).waitFor();
   });
+  await check("the process reports artifact checking after the producer finishes", async () => {
+    for (const request of pending) finishes.get(request)({ text: bodyFour, thinking: providerThinking, stopReason: "stop", error: null, usage: null, costUsd: null });
+    let checkingTimer;
+    try { await Promise.race([checkingReady, new Promise((_done, reject) => { checkingTimer = setTimeout(() => reject(new Error("Checking stage did not start")), 8000); })]); }
+    finally { clearTimeout(checkingTimer); }
+    for (let index = 0; index < 2; index++) await cards().nth(index).locator('.eval-live-status[data-generation-phase="checking"]').waitFor();
+    assert.ok((await snapshot()).results.every((item) => item.status === "running" && item.generationPhase === "checking"));
+    await screenshot("04-checking-stage.png");
+  });
   await check("cancelling retains every received body paragraph and ignores late producer callbacks", async () => {
     await area().getByRole("button", { name: "取消剩余运行", exact: true }).click(); await area().locator('[role="progressbar"]').waitFor({ state: "hidden" });
     const run = await snapshot(); assert.equal(run.status, "cancelled"); assert.ok(run.results.every((item) => item.status === "cancelled" && item.output === bodyFour)); assert.ok(pending.every((request) => request.signal.aborted));
     publish("LATE_BODY_MUST_BE_IGNORED"); assert.ok((await snapshot()).results.every((item) => item.output === bodyFour)); await seeBody("第四批后台正文");
-    assert.equal(await area().getByText(privateThinking, { exact: false }).count(), 0); assert.equal(await area().getByText("LATE_BODY_MUST_BE_IGNORED", { exact: false }).count(), 0);
-    const stored = JSON.parse(await readFile(join(agentDir, "model-evaluations", "runs", `${runId}.json`), "utf8")); assert.ok(stored.results.every((item) => item.output === bodyFour && item.thinking === privateThinking));
+    assert.equal(await area().getByText("LATE_BODY_MUST_BE_IGNORED", { exact: false }).count(), 0);
+    const stored = JSON.parse(await readFile(join(agentDir, "model-evaluations", "runs", `${runId}.json`), "utf8")); assert.ok(stored.results.every((item) => item.output === bodyFour && item.thinking === providerThinking));
     await screenshot("04-cancelled-retained.png");
   });
   assert.equal(result.errors.length, 0, result.errors.join("\n")); result.success = result.cases.every((item) => item.success);

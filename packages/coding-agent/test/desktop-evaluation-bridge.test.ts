@@ -161,7 +161,9 @@ it("routes evaluation RPCs over the real bridge and leaves background work alive
 			},
 		});
 		expect(JSON.stringify(read)).not.toContain("Offline fixture");
-		expect(JSON.stringify(read)).not.toContain("private reasoning");
+		expect(read.result?.results[0].thinking).toBe("private reasoning");
+		for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"])
+			expect(read.result?.results[0]).not.toHaveProperty(field);
 	} finally {
 		for (const socket of sockets) socket.terminate();
 		await bridge.close();
