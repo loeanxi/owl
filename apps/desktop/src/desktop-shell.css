@@ -314,7 +314,8 @@ html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-2xl {
  * 开启动态壁纸即进入毛玻璃模式：锁定统一玻璃配色，不再跟随深色/浅色主题与主题预设
  * （本块在 index.css / 本文件各主题块之后加载，同特异性下后者胜出）。强调色
  * （--color-owl-accent，用户可自定义）不在此覆盖。关闭壁纸即整体恢复用户主题。 */
-html[data-owl-wallpaper="on"] {
+/* 特异性 (0,2,1) 高于 index.css 的浅色/预设块 (0,1,1),不受 CSS 合并顺序影响 */
+html[data-owl-theme][data-owl-wallpaper="on"] {
 	color-scheme: dark;
 	--owl-conversation-bg: #1c1c1c;
 	--color-owl-bg: #202020;
@@ -336,7 +337,7 @@ html[data-owl-wallpaper="on"] {
 	--color-owl-muted: #a8a8a8;
 	--color-owl-faint: #909090;
 }
-html[data-owl-wallpaper="on"] .owl-desktop-shell {
+html[data-owl-theme][data-owl-wallpaper="on"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #202020);
 	--owl-ui-panel: #2a2a2a;
 	--owl-ui-sidebar: #181818;
