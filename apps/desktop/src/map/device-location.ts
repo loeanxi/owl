@@ -1,12 +1,12 @@
 import type { MapCoordinate } from "../bridge/protocol.ts";
 
 export interface DeviceLocation extends MapCoordinate {
-	accuracyMeters: number;
+	accuracyMeters: number | null;
 	timestamp: number;
-	source: "device";
+	source: "gps";
 }
 
-export type DeviceLocationFailure = "locationDenied" | "locationUnavailable" | "locationTimeout" | "locationInsecure";
+export type DeviceLocationFailure = "locationDenied" | "locationUnavailable" | "locationTimeout" | "locationNoGps";
 
 export interface DeviceLocationState {
 	phase: "idle" | "pending" | "located" | "error";
@@ -21,8 +21,7 @@ interface PendingLocation {
 }
 
 export class DeviceLocator {
-	private readonly geolocation?: Pick<Geolocation, "getCurrentPosition">;
-	private readonly secureContext: boolean;
+	private readonly readGps?: () => Promise<unknown>;
 	private state: DeviceLocationState = { phase: "idle" };
 	private readonly listeners = new Set<() => void>();
 	private automaticConsumed = false;
@@ -30,12 +29,8 @@ export class DeviceLocator {
 	private pending?: PendingLocation;
 
 	/** Construction and subscriptions never access the device or start timers. */
-	constructor(options: {
-		geolocation?: Pick<Geolocation, "getCurrentPosition">;
-		secureContext: boolean;
-	}) {
-		this.geolocation = options.geolocation;
-		this.secureContext = options.secureContext;
+	constructor(options: { readGps?: () => Promise<unknown> }) {
+		this.readGps = options.readGps;
 	}
 
 	getState = (): DeviceLocationState => this.state;
@@ -51,11 +46,11 @@ export class DeviceLocator {
 		if (automatic && this.automaticConsumed) return Promise.resolve(undefined);
 		if (this.pending) return this.pending.promise;
 		this.automaticConsumed = true;
-		if (!this.secureContext || !this.geolocation) {
+		if (!this.readGps) {
 			this.setState({
 				phase: "error",
 				location: this.state.location,
-				error: this.secureContext ? "locationUnavailable" : "locationInsecure",
+				error: "locationNoGps",
 			});
 			return Promise.resolve(undefined);
 		}
@@ -69,45 +64,48 @@ export class DeviceLocator {
 		this.setState({ phase: "pending", location: this.state.location });
 		if (this.pending?.id !== id) return promise;
 
-		try {
-			// Keep the native Geolocation object as the method receiver.
-			this.geolocation.getCurrentPosition(
-				(position) => {
-					if (this.pending?.id !== id) return;
-					try {
-						const lat = position?.coords?.latitude;
-						const lng = position?.coords?.longitude;
-						const accuracyMeters = position?.coords?.accuracy;
-						const timestamp = position?.timestamp;
-						if (
-							!Number.isFinite(lat) ||
-							Math.abs(lat) > 90 ||
-							!Number.isFinite(lng) ||
-							Math.abs(lng) > 180 ||
-							!Number.isFinite(accuracyMeters) ||
-							accuracyMeters < 0 ||
-							!Number.isFinite(timestamp) ||
-							timestamp < 0 ||
-							!Number.isFinite(new Date(timestamp).getTime())
-						) {
-							this.finish(id, undefined, "locationUnavailable");
-							return;
-						}
-						this.finish(id, { lat, lng, accuracyMeters, timestamp, source: "device" });
-					} catch {
-						this.finish(id, undefined, "locationUnavailable");
-					}
-				},
-				(error) => {
-					const failure =
-						error?.code === 1 ? "locationDenied" : error?.code === 3 ? "locationTimeout" : "locationUnavailable";
-					this.finish(id, undefined, failure);
-				},
-				{ enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
-			);
-		} catch {
-			this.finish(id, undefined, "locationUnavailable");
-		}
+		void Promise.resolve()
+			.then(() => (this.pending?.id === id ? this.readGps?.() : undefined))
+			.then((value) => {
+				if (this.pending?.id !== id) return;
+				if (!value || typeof value !== "object") {
+					this.finish(id, undefined, "locationUnavailable");
+					return;
+				}
+				const position = value as Record<string, unknown>;
+				const { lat, lng, accuracyMeters, timestamp, source } = position;
+				if (
+					source !== "gps" ||
+					typeof lat !== "number" ||
+					!Number.isFinite(lat) ||
+					Math.abs(lat) > 90 ||
+					typeof lng !== "number" ||
+					!Number.isFinite(lng) ||
+					Math.abs(lng) > 180 ||
+					(accuracyMeters !== null &&
+						(typeof accuracyMeters !== "number" || !Number.isFinite(accuracyMeters) || accuracyMeters < 0)) ||
+					typeof timestamp !== "number" ||
+					!Number.isFinite(timestamp) ||
+					timestamp < 0 ||
+					!Number.isFinite(new Date(timestamp).getTime())
+				) {
+					this.finish(id, undefined, "locationUnavailable");
+					return;
+				}
+				this.finish(id, { lat, lng, accuracyMeters, timestamp, source: "gps" });
+			})
+			.catch((error: unknown) => {
+				const code = error && typeof error === "object" ? (error as Record<string, unknown>).code : undefined;
+				const failure: DeviceLocationFailure =
+					code === "no-gps-device"
+						? "locationNoGps"
+						: code === "gps-permission-denied"
+							? "locationDenied"
+							: code === "gps-no-fix"
+								? "locationTimeout"
+								: "locationUnavailable";
+				this.finish(id, undefined, failure);
+			});
 		return promise;
 	}
 

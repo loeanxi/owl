@@ -412,7 +412,7 @@ test("map context uses fetched place coordinates, source links and explicit unkn
 
 test("authorized device coordinates reach the selected model separately from an explored search center", () => {
 	const location = {
-		source: "device" as const,
+		source: "gps" as const,
 		lat: 29.87196,
 		lng: 121.54996,
 		accuracyMeters: 18,

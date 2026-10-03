@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gps-location"
+description = "Enables the gps_location command without any pre-configured scope."
+commands.allow = ["gps_location"]
+
+[[permission]]
+identifier = "deny-gps-location"
+description = "Denies the gps_location command without any pre-configured scope."
+commands.deny = ["gps_location"]

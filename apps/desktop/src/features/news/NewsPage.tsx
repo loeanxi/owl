@@ -76,7 +76,7 @@ export function NewsPage({
 	const [query, setQuery] = useState("");
 	const [queryInput, setQueryInput] = useState("");
 	const [context, setContext] = useState<NewsContext>({ items: [] });
-	const [assistantOpen, setAssistantOpen] = useState(false);
+	const [assistantOpen, setAssistantOpen] = useState(true);
 	const [prefill, setPrefill] = useState<{ id: number; text: string }>();
 	const prefillSeq = useRef(0);
 	const lastStatus = useRef("");
@@ -313,14 +313,18 @@ export function NewsPage({
 									<>
 										<div className="owl-news-heading">
 											<div>
-												<div className="owl-news-eyebrow">OWL NEWS</div>
-												<h1>{title}</h1>
-												<p>{t(section === "saved" ? "news.savedHint" : "news.feedHint")}</p>
+												<div className="owl-news-eyebrow">
+													{section === "selected" ? "OWL NEWS / FOR YOU" : "OWL NEWS"}
+												</div>
+												<h1>{section === "selected" ? t("news.todayHeadline") : title}</h1>
+												<p>{t(section === "saved" ? "news.savedHint" : section === "selected" ? "news.todayFeedHint" : "news.feedHint")}</p>
 											</div>
 											<span className="owl-news-muted">
 												{snapshot?.status.lastUpdatedAt
 													? new Date(snapshot.status.lastUpdatedAt).toLocaleDateString()
-													: ""}
+													: section === "selected"
+														? new Date().toLocaleDateString()
+														: ""}
 											</span>
 										</div>
 										<form
@@ -382,6 +386,8 @@ export function NewsPage({
 											onToggleContext={toggleContext}
 											onDiscuss={discuss}
 											onChanged={refreshed}
+											onSetupSources={() => selectSection("sources")}
+											onSetupModels={() => selectSection("configuration")}
 										/>
 									</>
 								)}
@@ -475,6 +481,8 @@ export function NewsPage({
 							onClose={() => setAssistantOpen(false)}
 							onItem={openItem}
 							onToChat={onToChat}
+							onConfigureSources={() => selectSection("sources")}
+							onConfigureModels={() => selectSection("configuration")}
 							prefill={prefill}
 						/>
 					</div>
@@ -493,6 +501,8 @@ interface FeedProps {
 	onToggleContext: (item: NewsItem) => void;
 	onDiscuss: (context: NewsContext) => void;
 	onChanged: () => void;
+	onSetupSources?: () => void;
+	onSetupModels?: () => void;
 }
 function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): React.JSX.Element {
 	const t = useT();
@@ -534,9 +544,31 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 				</div>
 			)}
 			{result.data?.items.length === 0 && (
-				<div className="owl-news-empty">
-					<h2>{t("news.noItems")}</h2>
-					<p>{t("news.noItemsHint")}</p>
+				<div className={`owl-news-empty${query.mode === "selected" && !query.query && !query.category && !query.topic ? " owl-news-first-run" : ""}`}>
+					<div>
+						{query.mode === "selected" && !query.query && !query.category && !query.topic ? (
+							<>
+								<div className="owl-news-eyebrow">AIHOT · OWL NEWS</div>
+								<h2>{t("news.firstRunTitle")}</h2>
+								<p>{t("news.firstRunHint")}</p>
+							</>
+						) : (
+							<>
+								<h2>{t("news.noItems")}</h2>
+								<p>{t("news.noItemsHint")}</p>
+							</>
+						)}
+					</div>
+					{query.mode === "selected" && !query.query && !query.category && !query.topic && (
+						<div className="owl-news-first-run-actions">
+							<button type="button" className="owl-news-primary" onClick={props.onSetupSources}>
+								{t("news.setupSources")}
+							</button>
+							<button type="button" onClick={props.onSetupModels}>
+								{t("news.setupModels")}
+							</button>
+						</div>
+					)}
 				</div>
 			)}
 			<div className="owl-news-feed">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type {
 	ImageConfigGetResult,
@@ -17,6 +17,7 @@ import type {
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, PRESET_DEFAULT_COLORS, type OwlAppearanceColors, type OwlPresetId } from "../owl-appearance.ts";
 import { DEFAULT_OWL_WALLPAPER, parseOwlWallpaper, type OwlWallpaperSettings, type WallpaperContentRating } from "../wallpaper.ts";
+import { entryDirPrefix, parseUserPropDefs, weColorToHex, weEvalCondition, weHexToColor, type WallpaperPropDef } from "../we-props.ts";
 import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
 import { pickFile, pickFolder } from "../bridge/native.ts";
 import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
@@ -299,13 +300,132 @@ function SettingRow({
 	);
 }
 
+/**
+ * 壁纸属性面板的单行控件（移植上游 picker-props-panel 的控件映射）：
+ * text/group = 分节标题；bool/ color / slider / combo / textinput / file 各按类型渲染。
+ * condition 显隐已在调用方过滤；「已改」用圆点标记，改回默认值自动清除覆盖。
+ */
+function WallpaperPropRow({
+	prop,
+	disabled,
+	onInput,
+	onReset,
+}: {
+	prop: WallpaperPropDef;
+	disabled: boolean;
+	onInput: (value: unknown) => void;
+	onReset: () => void;
+}) {
+	const inputClass = "rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent";
+	// 静态说明 / 分节标题
+	if (prop.ptype === "text" || prop.ptype === "group") {
+		return (
+			<div className="owl-wallpaper-prop is-heading">
+				<span>{prop.text}</span>
+			</div>
+		);
+	}
+	const changed = prop.overridden;
+	return (
+		<div className="owl-settings-row is-tight owl-wallpaper-prop">
+			<div className="owl-settings-row-heading">
+				<div className="min-w-0">
+					<div className="owl-settings-row-title">
+						{prop.text}
+						{changed && <i className="owl-wallpaper-prop-dot" title={t("settings.appearance.wallpaperPropChanged")} />}
+					</div>
+				</div>
+				{changed && (
+					<div className="owl-settings-row-control">
+						<button
+							type="button"
+							className="owl-settings-button"
+							disabled={disabled}
+							onClick={onReset}
+						>
+							{t("settings.appearance.wallpaperPropReset")}
+						</button>
+					</div>
+				)}
+			</div>
+			<div className="owl-settings-row-body">
+				{prop.ptype === "bool" && (
+					<Switch
+						title={prop.text}
+						checked={prop.value === true}
+						disabled={disabled}
+						onChange={(checked) => onInput(checked)}
+					/>
+				)}
+				{prop.ptype === "color" && (
+					<div className="owl-settings-colorfield">
+						<input
+							type="color"
+							aria-label={prop.text}
+							className="owl-settings-colorfield-swatch"
+							disabled={disabled}
+							value={weColorToHex(prop.value)}
+							onChange={(event) => onInput(weHexToColor(event.currentTarget.value))}
+						/>
+						<code className="owl-settings-accent-hex">{weColorToHex(prop.value)}</code>
+					</div>
+				)}
+				{prop.ptype === "slider" && (
+					<div>
+						<div className="mb-1 text-right text-xs tabular-nums text-owl-text">
+							{Number(prop.value ?? 0).toFixed(prop.precision ?? 0)}
+						</div>
+						<input
+							type="range"
+							aria-label={prop.text}
+							className="w-full accent-owl-accent disabled:opacity-40"
+							min={prop.min ?? 0}
+							max={prop.max ?? 1}
+							step={prop.step ?? (prop.max ?? 1) - (prop.min ?? 0) > 0 ? ((prop.max ?? 1) - (prop.min ?? 0)) / 100 : 0.01}
+							value={Number(prop.value ?? 0)}
+							disabled={disabled}
+							onChange={(event) => onInput(event.currentTarget.valueAsNumber)}
+						/>
+					</div>
+				)}
+				{prop.ptype === "combo" && prop.options && (
+					<select
+						aria-label={prop.text}
+						className={inputClass}
+						value={String(prop.options.findIndex((o) => o.value === prop.value))}
+						disabled={disabled}
+						onChange={(event) => {
+							// 用下标当 value，回写取回声明 JSON 类型（整数/字符串/布尔混用）
+							const option = prop.options?.[Number(event.target.value)];
+							if (option) onInput(option.value);
+						}}
+					>
+						{prop.options.map((option, index) => (
+							<option key={index} value={String(index)}>{option.label}</option>
+						))}
+					</select>
+				)}
+				{(prop.ptype === "textinput" || prop.ptype === "other" || prop.ptype === "file" || prop.ptype === "directory") && (
+					<input
+						type="text"
+						aria-label={prop.text}
+						className={`${inputClass} w-full`}
+						value={typeof prop.value === "string" ? prop.value : prop.value === null ? "" : JSON.stringify(prop.value)}
+						disabled={disabled}
+						onChange={(event) => onInput(event.currentTarget.value)}
+					/>
+				)}
+			</div>
+		</div>
+	);
+}
+
 /** 开关（DSH 设置页同款胶囊样式；用按钮自绘，不依赖原生 checkbox 外观）。 */
 function Switch({
 	checked,
 	onChange,
 	disabled,
-	title,
-}: {
+	title,}: {
 	checked: boolean;
 	onChange: (next: boolean) => void;
 	disabled?: boolean;
@@ -436,12 +556,46 @@ export function SettingsPage({
 	const [wallpaperScanning, setWallpaperScanning] = useState(false);
 	// 自定义目录输入框的草稿（输入过程不触发重扫，点保存才生效）
 	const [wallpaperCustomDir, setWallpaperDraft] = useState("");
+	// 当前选中壁纸的用户属性（拉 project.json 解析；属性面板数据源）
+	const [wallpaperPropDefs, setWallpaperPropDefs] = useState<WallpaperPropDef[]>([]);
 	// App 传入的设置变化后同步草稿（设置页重开 / JSON 分区手改 settings.json 后回填）
 	useEffect(() => setWallpaperDraft(wallpaper.customDir), [wallpaper.customDir]);
 	/** 清单过滤：排除 application（需要跑第三方程序，不支持）；内容分级过滤与渲染层同规则。 */
 	const filteredWallpapers = wallpaperEntries.filter(
 		(entry) => entry.type !== "application" && passesRating(entry, wallpaper.contentRating),
 	);
+	/** 当前选中的壁纸条目（属性面板/轮播标注用；本地文件路径优先）。 */
+	const selectedWallpaper = useMemo(
+		() => resolveActiveEntry(wallpaperEntries, wallpaper),
+		[wallpaperEntries, wallpaper],
+	);
+	// 选中壁纸变化 / 覆盖值变化：拉 project.json 重新解析属性面板
+	useEffect(() => {
+		if (!selectedWallpaper?.projectUrl || !selectedWallpaper.hasProps) {
+			setWallpaperPropDefs([]);
+			return;
+		}
+		let cancelled = false;
+		void fetch(selectedWallpaper.projectUrl)
+			.then((response) => (response.ok ? response.json() : null))
+			.then((project) => {
+				if (cancelled) return;
+				if (!project) {
+					setWallpaperPropDefs([]);
+					return;
+				}
+				const overrides = wallpaper.props[selectedWallpaper.id] ?? {};
+				setWallpaperPropDefs(
+					parseUserPropDefs(project, overrides, { filePrefix: entryDirPrefix((project as { file?: unknown }).file) }),
+				);
+			})
+			.catch(() => {
+				if (!cancelled) setWallpaperPropDefs([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedWallpaper?.id, selectedWallpaper?.projectUrl, selectedWallpaper?.hasProps, wallpaper.props]);
 	const [raw, setRaw] = useState("");
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
@@ -1415,6 +1569,26 @@ export function SettingsPage({
 			setWallpaperScanning(true);
 			setWallpaperRefreshKey((key) => key + 1);
 		}
+	}
+
+	/** 写一条用户属性覆盖：改回默认值即删除覆盖（渲染层随后把线值热下发给壁纸）。 */
+	function saveWallpaperProp(name: string, value: unknown): void {
+		if (!selectedWallpaper) return;
+		const per = { ...(wallpaper.props[selectedWallpaper.id] ?? {}) };
+		per[name] = value;
+		const props = { ...wallpaper.props, [selectedWallpaper.id]: per };
+		saveWallpaper({ ...wallpaper, props });
+	}
+
+	/** 恢复一条属性的默认值（删除覆盖）。 */
+	function resetWallpaperProp(name: string): void {
+		if (!selectedWallpaper) return;
+		const per = { ...(wallpaper.props[selectedWallpaper.id] ?? {}) };
+		delete per[name];
+		const props = { ...wallpaper.props };
+		if (Object.keys(per).length) props[selectedWallpaper.id] = per;
+		else delete props[selectedWallpaper.id];
+		saveWallpaper({ ...wallpaper, props });
 	}
 
 	/** 开/停一个文件预览 viewer。 */
@@ -2857,7 +3031,11 @@ export function SettingsPage({
 																	<span className="owl-wallpaper-thumb" style={entry.schemeColor ? { backgroundColor: entry.schemeColor } : undefined}>
 																		{entry.previewUrl && <img src={entry.previewUrl} alt="" loading="lazy" draggable={false} />}
 																		{!entry.previewUrl && <span className="owl-wallpaper-thumb-empty">{t("settings.appearance.wallpaperNoPreview")}</span>}
-																		<span className={`owl-wallpaper-badge is-${entry.type}`}>{t(WALLPAPER_TYPE_LABEL[entry.type])}</span>
+																		<span
+																			className={`owl-wallpaper-badge ${entry.type === "scene" && !entry.sceneSrc ? "is-scene-static" : `is-${entry.type}`}`}
+																		>
+																			{t(entry.type === "scene" && !entry.sceneSrc ? "settings.appearance.wallpaperTypeScenePreview" : WALLPAPER_TYPE_LABEL[entry.type])}
+																		</span>
 																	</span>
 																	<span className="owl-wallpaper-name">{entry.title}</span>
 																	{active && <span className="owl-settings-preset-check" aria-hidden="true">✓</span>}
@@ -2923,6 +3101,39 @@ export function SettingsPage({
 														</button>
 													</div>
 												</SettingRow>
+												{selectedWallpaper && selectedWallpaper.hasProps && wallpaperPropDefs.length > 0 && (
+													<>
+														<SettingRow
+															title={t("settings.appearance.wallpaperProps")}
+															desc={t("settings.appearance.wallpaperPropsDesc")}
+															control={
+																<span className="text-xs tabular-nums text-owl-muted">
+																	{t("settings.appearance.wallpaperPropsChanged", {
+																		count: wallpaperPropDefs.filter((p) => p.overridden).length,
+																	})}
+																</span>
+															}
+														/>
+														<div className="owl-settings-row">
+															<div className="owl-settings-row-body">
+																<div className="owl-settings-group owl-wallpaper-props">
+																	{wallpaperPropDefs
+																		.filter((prop) => weEvalCondition(prop.condition, Object.fromEntries(wallpaperPropDefs.map((d) => [d.name, d.value]))))
+																		.map((prop) => (
+																			<WallpaperPropRow
+																				key={prop.name}
+																				prop={prop}
+																				disabled={busy}
+																				onInput={(value) => saveWallpaperProp(prop.name, value)}
+																				onReset={() => resetWallpaperProp(prop.name)}
+																			/>
+																		))}
+																</div>
+																<div className="owl-settings-notice">{t("settings.appearance.wallpaperPropsNotice")}</div>
+															</div>
+														</div>
+													</>
+												)}
 												<SettingRow
 													title={t("settings.appearance.wallpaperVolume")}
 													desc={t("settings.appearance.wallpaperVolumeDesc")}
@@ -3034,6 +3245,56 @@ export function SettingsPage({
 														<option value="mature">{t("settings.appearance.wallpaperRatingMature")}</option>
 													</select>
 												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperSceneFps")} desc={t("settings.appearance.wallpaperSceneFpsDesc")}>
+													<select
+														aria-label={t("settings.appearance.wallpaperSceneFps")}
+														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+														value={wallpaper.sceneFps}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, sceneFps: Number(event.target.value) })}
+													>
+														<option value="15">{t("settings.appearance.wallpaperSceneFps15")}</option>
+														<option value="30">{t("settings.appearance.wallpaperSceneFps30")}</option>
+														<option value="60">{t("settings.appearance.wallpaperSceneFps60")}</option>
+													</select>
+												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperRotation")} desc={t("settings.appearance.wallpaperRotationDesc")}>
+													<Switch
+														title={t("settings.appearance.wallpaperRotation")}
+														checked={wallpaper.rotationEnabled}
+														disabled={busy}
+														onChange={(rotationEnabled) => saveWallpaper({ ...wallpaper, rotationEnabled })}
+													/>
+												</SettingRow>
+												{wallpaper.rotationEnabled && (
+													<>
+														<SettingRow title={t("settings.appearance.wallpaperRotationInterval")} desc={t("settings.appearance.wallpaperRotationIntervalDesc")}>
+															<select
+																aria-label={t("settings.appearance.wallpaperRotationInterval")}
+																className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+																value={wallpaper.rotationInterval}
+																disabled={busy}
+																onChange={(event) => saveWallpaper({ ...wallpaper, rotationInterval: Number(event.target.value) })}
+															>
+																{[1, 5, 15, 30, 60, 120].map((minutes) => (
+																	<option key={minutes} value={minutes}>{t("settings.appearance.wallpaperRotationMinutes", { count: minutes })}</option>
+																))}
+															</select>
+														</SettingRow>
+														<SettingRow title={t("settings.appearance.wallpaperRotationOrder")} desc={t("settings.appearance.wallpaperRotationOrderDesc")}>
+															<select
+																aria-label={t("settings.appearance.wallpaperRotationOrder")}
+																className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+																value={wallpaper.rotationOrder}
+																disabled={busy}
+																onChange={(event) => saveWallpaper({ ...wallpaper, rotationOrder: event.target.value === "random" ? "random" : "sequence" })}
+															>
+																<option value="sequence">{t("settings.appearance.wallpaperRotationSequence")}</option>
+																<option value="random">{t("settings.appearance.wallpaperRotationRandom")}</option>
+															</select>
+														</SettingRow>
+													</>
+												)}
 												<SettingRow title={t("settings.appearance.wallpaperPauseHidden")} desc={t("settings.appearance.wallpaperPauseHiddenDesc")}>
 													<Switch
 														title={t("settings.appearance.wallpaperPauseHidden")}

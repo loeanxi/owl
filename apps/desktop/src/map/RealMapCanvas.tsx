@@ -21,7 +21,7 @@ export interface RealMapLabels {
 	locationDenied: string;
 	locationUnavailable: string;
 	locationTimeout: string;
-	locationInsecure: string;
+	locationNoGps: string;
 	searchCenter: string;
 }
 

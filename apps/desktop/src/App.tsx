@@ -32,7 +32,7 @@ import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
-import { WallpaperLayer } from "./components/WallpaperLayer.tsx";
+import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
@@ -57,6 +57,7 @@ const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 const APPROVAL_KEY = "owl.approvalMode";
 const SIDEBAR_MINIMIZED_KEY = "owl.sidebar.minimized";
+const NEWS_SIDEBAR_MINIMIZED_KEY = "owl.news.sidebar.minimized";
 
 /** localStorage 里记录的审批模式是否合法（防旧值/手改值落到未知档位）。 */
 function isApprovalMode(value: string | null): value is ApprovalMode {
@@ -105,6 +106,9 @@ export default function App(): React.JSX.Element {
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
+	);
+	const [newsSidebarMinimized, setNewsSidebarMinimized] = useState(
+		() => localStorage.getItem(NEWS_SIDEBAR_MINIMIZED_KEY) === "1",
 	);
 	const sidebarToggleRef = useRef<HTMLButtonElement>(null);
 	const toggleSessionSidebar = (): void => {
@@ -603,6 +607,41 @@ export default function App(): React.JSX.Element {
 		}
 	}
 
+	// 壁纸轮播：到点在可用壁纸列表里顺次/随机切换并落盘。就绪门在渲染层
+	// （staging 层加载完成才接管），切换不会黑屏；本机文件路径优先时轮播暂停。
+	useEffect(() => {
+		if (!wallpaper.enabled || !wallpaper.rotationEnabled || wallpaper.customPath.trim()) return;
+		const intervalMs = Math.max(1, wallpaper.rotationInterval) * 60_000;
+		const timer = setTimeout(() => {
+			void (async () => {
+				try {
+					const entries = await fetchInventory();
+					const pool = entries.filter(
+						(entry) =>
+							entry.id !== wallpaper.selectionId &&
+							(entry.mediaUrl || entry.webUrl || entry.sceneSrc || entry.previewUrl) &&
+							passesRating(entry, wallpaper.contentRating),
+					);
+					if (!pool.length) return;
+					let picked: (typeof pool)[number];
+					if (wallpaper.rotationOrder === "random") {
+						picked = pool[Math.floor(Math.random() * pool.length)];
+					} else {
+						const at = pool.findIndex((entry) => entry.id === wallpaper.selectionId);
+						picked = pool[(at + 1) % pool.length] ?? pool[0];
+					}
+					const next = parseOwlWallpaper({ ...wallpaper, selectionId: picked.id });
+					setWallpaper(next);
+					applyOwlWallpaper(next);
+					await client.request({ type: "settings.set", values: { owlWallpaper: next } });
+				} catch {
+					// 清单拉不到（桥重启中等）：下个周期再试
+				}
+			})();
+		}, intervalMs);
+		return () => clearTimeout(timer);
+	}, [wallpaper, client]);
+
 	async function ensureSession(): Promise<string | undefined> {
 		if (sessionIdRef.current) return sessionIdRef.current;
 		const response = await client.request<{ sessionId: string }>({
@@ -988,6 +1027,14 @@ export default function App(): React.JSX.Element {
 		showShortcuts: (): void => setHelpSection("shortcuts"),
 		openGuide: (): void => setHelpSection("guide"),
 		toggleSidebar: (): void => {
+			if (railView === "news" && !showSettings) {
+				setNewsSidebarMinimized((current) => {
+					const next = !current;
+					localStorage.setItem(NEWS_SIDEBAR_MINIMIZED_KEY, next ? "1" : "0");
+					return next;
+				});
+				return;
+			}
 			if (showSettings) {
 				setShowSettings(false);
 				if (sidebarMinimized) toggleSessionSidebar();
@@ -1035,7 +1082,7 @@ export default function App(): React.JSX.Element {
 			<WallpaperLayer settings={wallpaper} />
 			<DesktopTitlebar
 				connected={connected}
-				sidebarCollapsed={sidebarMinimized || showSettings}
+				sidebarCollapsed={railView === "news" && !showSettings ? newsSidebarMinimized : sidebarMinimized || showSettings}
 				sidebarView={railView}
 				sidebarToggleRef={sidebarToggleRef}
 				workbenchOpen={workbenchOpen}
@@ -1117,7 +1164,7 @@ export default function App(): React.JSX.Element {
 				/>
 			</div>
 			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
-				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={sidebarMinimized} initialTarget={newsTarget} onToChat={(text) => {
+				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={newsSidebarMinimized} initialTarget={newsTarget} onToChat={(text) => {
 					setRailView("chat"); setShowSettings(false); setConversationViewPersisted("chat");
 					setDraftRequest({ id: ++draftSequence.current, text });
 				}} />

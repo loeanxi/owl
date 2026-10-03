@@ -263,3 +263,24 @@ html[data-owl-wallpaper="on"] .owl-settings-page {
 	background: color-mix(in srgb, var(--owl-ui-canvas, var(--color-owl-bg)) var(--owl-wp-panel-mix, 82%), transparent);
 	backdrop-filter: blur(16px);
 }
+
+/* 开启壁纸：内容卡片/设置导航列也透出壁纸（比主面板更透一档 --owl-wp-card-mix，
+   由 wallpaper.ts 按「面板不透明度 − 18、下限 40%」写入；聊天气泡等小块保持实色保可读）。 */
+html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-nav {
+	background: color-mix(in srgb, var(--owl-ui-sidebar, var(--color-owl-sidebar-bg)) var(--owl-wp-card-mix, 56%), transparent);
+}
+html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-group,
+html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-mode-thumb,
+html[data-owl-wallpaper="on"] .owl-settings-page .owl-settings-preset-card {
+	background: color-mix(in srgb, var(--settings-panel, var(--color-owl-panel)) var(--owl-wp-card-mix, 56%), transparent);
+	backdrop-filter: blur(10px);
+}
+html[data-owl-wallpaper="on"] .owl-sidebar .owl-sidebar-section,
+html[data-owl-wallpaper="on"] .owl-sidebar input {
+	background: transparent;
+}
+
+/* 切层就绪门：staging 层不可见地加载，就绪后加 is-on 接管（淡入），预览图垫底退到 is-under。 */
+.owl-wallpaper-layer .owl-wp-fade { opacity: 0; }
+.owl-wallpaper-layer .owl-wp-fade.is-on { opacity: 1; transition: opacity 0.45s ease; }
+.owl-wallpaper-layer .owl-wp-fade.is-under { opacity: 1; }

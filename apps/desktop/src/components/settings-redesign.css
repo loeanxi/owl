@@ -1377,3 +1377,29 @@
 	top: 12px;
 	color: var(--color-owl-accent);
 }
+
+/* ---------------------------------------------------------------- 动态壁纸属性面板 ---- */
+.owl-settings-page .owl-settings-row.is-tight { padding-block: 9px; }
+.owl-settings-page .owl-wallpaper-prop.is-heading {
+	padding: 10px 2px 2px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--settings-muted);
+	white-space: pre-line;
+}
+.owl-settings-page .owl-wallpaper-prop-dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin-left: 6px;
+	border-radius: 999px;
+	background: var(--color-owl-accent);
+	vertical-align: middle;
+}
+.owl-settings-page .owl-wallpaper-props {
+	display: flex;
+	flex-direction: column;
+	max-height: 420px;
+	overflow-y: auto;
+	padding: 4px 14px;
+}

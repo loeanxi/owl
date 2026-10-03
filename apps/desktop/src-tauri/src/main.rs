@@ -20,6 +20,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
+mod gps;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -318,7 +320,7 @@ fn main() {
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
-		.invoke_handler(tauri::generate_handler![toast::show_approval_toast, quit_app])
+		.invoke_handler(tauri::generate_handler![toast::show_approval_toast, quit_app, gps::gps_location])
 		.setup(move |app| {
 			let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")

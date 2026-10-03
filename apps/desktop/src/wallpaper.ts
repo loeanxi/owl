@@ -20,6 +20,7 @@
 
 export type WallpaperFit = "cover" | "contain";
 export type WallpaperContentRating = "all" | "everyone" | "pg13" | "mature";
+export type WallpaperRotationOrder = "sequence" | "random";
 
 export interface OwlWallpaperSettings {
 	enabled: boolean;
@@ -41,6 +42,16 @@ export interface OwlWallpaperSettings {
 	pauseOnHidden: boolean;
 	pauseOnBlur: boolean;
 	contentRating: WallpaperContentRating;
+	/** scene 实时渲染帧率上限（15/30/60）；0 或非法值 = 渲染页默认。 */
+	sceneFps: number;
+	/** 用户属性覆盖：{ <壁纸id>: { <属性名>: 线格式值 } }（属性面板写入，热下发生效）。 */
+	props: Record<string, Record<string, unknown>>;
+	/** 轮播：到点在可用壁纸列表里顺次/随机切换（就绪后才切，不黑屏）。 */
+	rotationEnabled: boolean;
+	/** 轮播间隔（分钟，1–1440）。 */
+	rotationInterval: number;
+	/** 轮播顺序。 */
+	rotationOrder: WallpaperRotationOrder;
 }
 
 export const DEFAULT_OWL_WALLPAPER: Readonly<OwlWallpaperSettings> = Object.freeze({
@@ -52,12 +63,19 @@ export const DEFAULT_OWL_WALLPAPER: Readonly<OwlWallpaperSettings> = Object.free
 	playbackRate: 1,
 	dim: 25,
 	blur: 0,
-	panelOpacity: 82,
+	panelOpacity: 74,
 	fit: "cover",
 	pauseOnHidden: true,
 	pauseOnBlur: false,
 	contentRating: "everyone",
+	sceneFps: 30,
+	props: Object.freeze({}),
+	rotationEnabled: false,
+	rotationInterval: 15,
+	rotationOrder: "sequence",
 });
+
+const SCENE_FPS_VALUES = new Set([15, 30, 60]);
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
 	const num = typeof value === "number" ? value : Number(value);
@@ -76,6 +94,15 @@ export function parseOwlWallpaper(raw: unknown): OwlWallpaperSettings {
 	const value = asRecord(raw);
 	const fit = value.fit === "contain" ? "contain" : "cover";
 	const rating = value.contentRating as WallpaperContentRating;
+	const order = value.rotationOrder as WallpaperRotationOrder;
+	const rawProps = asRecord(value.props);
+	const props: Record<string, Record<string, unknown>> = {};
+	for (const [wid, defs] of Object.entries(rawProps)) {
+		if (typeof wid !== "string" || wid === "") continue;
+		const defsRecord = asRecord(defs);
+		if (!Object.keys(defsRecord).length) continue;
+		props[wid] = defsRecord;
+	}
 	return {
 		enabled: value.enabled === true,
 		selectionId: typeof value.selectionId === "string" ? value.selectionId : "",
@@ -90,6 +117,11 @@ export function parseOwlWallpaper(raw: unknown): OwlWallpaperSettings {
 		pauseOnHidden: value.pauseOnHidden !== false,
 		pauseOnBlur: value.pauseOnBlur === true,
 		contentRating: ["all", "everyone", "pg13", "mature"].includes(rating) ? rating : DEFAULT_OWL_WALLPAPER.contentRating,
+		sceneFps: SCENE_FPS_VALUES.has(Number(value.sceneFps)) ? Number(value.sceneFps) : DEFAULT_OWL_WALLPAPER.sceneFps,
+		props,
+		rotationEnabled: value.rotationEnabled === true,
+		rotationInterval: Math.round(clampNumber(value.rotationInterval, 1, 1440, DEFAULT_OWL_WALLPAPER.rotationInterval)),
+		rotationOrder: order === "random" ? "random" : "sequence",
 	};
 }
 
@@ -110,11 +142,16 @@ export function applyOwlWallpaper(settings: OwlWallpaperSettings): void {
 	if (typeof document === "undefined") return;
 	const root = document.documentElement;
 	root.style.removeProperty("--owl-wp-panel-mix");
+	root.style.removeProperty("--owl-wp-card-mix");
 	if (current.enabled) {
 		root.dataset.owlWallpaper = "on";
 		// 面板半透明：color-mix(in srgb, var(--color-owl-bg) <mix>, transparent)。
 		// var() 携带百分比在样式解析前替换，浏览器兼容性比 calc() 混算更稳。
-		root.style.setProperty("--owl-wp-panel-mix", `${Math.round(current.panelOpacity)}%`);
+		const panel = Math.round(current.panelOpacity);
+		root.style.setProperty("--owl-wp-panel-mix", `${panel}%`);
+		// 卡片/次级面板比主面板更透一档，让壁纸在内容卡上也能透出来（有下限保可读）。
+		const card = Math.max(40, panel - 18);
+		root.style.setProperty("--owl-wp-card-mix", `${card}%`);
 	} else {
 		delete root.dataset.owlWallpaper;
 	}

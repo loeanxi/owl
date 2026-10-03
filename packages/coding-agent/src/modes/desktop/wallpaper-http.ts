@@ -43,6 +43,14 @@ export interface WallpaperEntry {
 	schemeColor: string;
 	/** 来源标注，UI 分组显示用。 */
 	source: "workshop" | "myprojects" | "default" | "custom";
+	/** 目录 token：/wallpaper/files/<dirToken>/<subpath>（所有类型都登记，属性面板读 project.json 用）。 */
+	projectUrl: string | null;
+	/** scene 实时渲染：scene.pkg 的媒体 token（渲染页拼 mediaBase + src 取包）。非 pkg 场景为 null。 */
+	sceneSrc: string | null;
+	/** scene 包体积（字节）：客户端按它放大首帧预算（几百 MB 的包要拉很久）。 */
+	pkgBytes: number | null;
+	/** project.json 是否含用户属性（决定属性面板显隐）。 */
+	hasProps: boolean;
 }
 
 export interface WallpaperInventory {
@@ -239,6 +247,7 @@ interface ProjectInfo {
 	preview: string;
 	contentRating: string;
 	schemeColor: string;
+	hasProps: boolean;
 }
 
 /** 读单个工程的 project.json；无效（缺 file / 非法 JSON / application）返回 null。 */
@@ -255,7 +264,10 @@ async function readProject(dir: string): Promise<ProjectInfo | null> {
 	if (rawType === "application") return null;
 	const type = (["scene", "video", "web"].includes(rawType) ? rawType : inferType(file)) as WallpaperEntry["type"];
 	const general = (pj.general ?? {}) as Record<string, unknown>;
-	const properties = (general.properties ?? {}) as Record<string, { value?: unknown }>;
+	const properties = (general.properties ?? {}) as Record<
+		string,
+		{ value?: unknown; type?: unknown; editable?: unknown }
+	>;
 	const scheme = properties.schemecolor?.value;
 	let schemeColor = "";
 	if (typeof scheme === "string") {
@@ -264,6 +276,8 @@ async function readProject(dir: string): Promise<ProjectInfo | null> {
 			schemeColor = `rgb(${parts.map((n) => Math.round(n * 255)).join(",")})`;
 		}
 	}
+	// 是否有用户可调属性（editable:false 是作者标记的内部变量，不算）
+	const hasProps = Object.values(properties).some((p) => p && typeof p.type === "string" && p.editable !== false);
 	return {
 		title: typeof pj.title === "string" && pj.title.trim() ? pj.title.trim() : basename(dir),
 		type,
@@ -271,6 +285,7 @@ async function readProject(dir: string): Promise<ProjectInfo | null> {
 		preview: typeof pj.preview === "string" ? pj.preview : "",
 		contentRating: typeof pj.contentrating === "string" ? pj.contentrating : "",
 		schemeColor,
+		hasProps,
 	};
 }
 
@@ -309,20 +324,39 @@ async function entryFromProject(
 		contentRating: info.contentRating,
 		schemeColor: info.schemeColor,
 		source,
+		projectUrl: null,
+		sceneSrc: null,
+		pkgBytes: null,
+		hasProps: info.hasProps,
 	};
 	const entryAbs = resolve(dir, info.file);
 	if (!entryAbs.startsWith(resolve(dir) + sep) && entryAbs !== resolve(dir)) return null;
+	// 目录 token：所有类型都登记 —— 属性面板要读 project.json，web 壁纸要取子资源
+	const dirToken = newToken();
+	dirTokens.set(dirToken, resolve(dir));
+	entry.projectUrl = `/wallpaper/files/${dirToken}/project.json`;
 	if (info.type === "video") {
 		const token = registerMediaFile(entryAbs);
 		if (!token) return null;
 		entry.mediaUrl = `/wallpaper/media/${token}`;
 	} else if (info.type === "web") {
 		if (!existsSync(entryAbs) || !WEB_EXTS.has(extname(entryAbs).toLowerCase())) return null;
-		const dirToken = newToken();
-		dirTokens.set(dirToken, resolve(dir));
 		entry.webUrl = `/wallpaper/files/${dirToken}/${info.file.split(/[\\/]/).map(encodeURIComponent).join("/")}`;
 	} else if (info.type === "scene") {
-		// v1 不做实时渲染：只出预览图（客户端降级为静态壁纸）。
+		// scene 实时渲染：入口是 scene.pkg（二进制容器）才行；scene.json 等旧格式降级为静态预览。
+		// token 走 /wallpaper/media（同源 + Range），渲染页拼 mediaBase + src 取包自行解析。
+		const isPkg = !entryAbs.toLowerCase().endsWith(".json");
+		if (isPkg && existsSync(entryAbs)) {
+			const token = registerMediaFile(entryAbs);
+			if (token) {
+				entry.sceneSrc = token;
+				try {
+					entry.pkgBytes = statSync(entryAbs).size;
+				} catch {
+					entry.pkgBytes = null;
+				}
+			}
+		}
 	}
 	const preview = findPreview(dir, info.preview);
 	if (preview) {
@@ -420,6 +454,8 @@ async function buildInventory(options: WallpaperHttpOptions): Promise<WallpaperI
 			if (WEB_EXTS.has(ext)) {
 				const dirToken = newToken();
 				dirTokens.set(dirToken, dirname(abs));
+				// 网页文件可能带同目录 project.json（属性面板数据源）；没有则面板不显示
+				const customInfo = await readProject(dirname(abs));
 				wallpapers.push({
 					id: "custom",
 					title: basename(abs),
@@ -430,6 +466,10 @@ async function buildInventory(options: WallpaperHttpOptions): Promise<WallpaperI
 					contentRating: "",
 					schemeColor: "",
 					source: "custom",
+					projectUrl: `/wallpaper/files/${dirToken}/project.json`,
+					sceneSrc: null,
+					pkgBytes: null,
+					hasProps: customInfo?.hasProps ?? false,
 				});
 			} else if (token) {
 				wallpapers.push({
@@ -442,6 +482,10 @@ async function buildInventory(options: WallpaperHttpOptions): Promise<WallpaperI
 					contentRating: "",
 					schemeColor: "",
 					source: "custom",
+					projectUrl: null,
+					sceneSrc: null,
+					pkgBytes: null,
+					hasProps: false,
 				});
 			}
 		}
@@ -490,6 +534,8 @@ function serveFileBytes(request: IncomingMessage, response: ServerResponse, absP
 		"Accept-Ranges": "bytes",
 		ETag: etag,
 		"X-Content-Type-Options": "nosniff",
+		// 渲染页(含将来可能的跨源载荷页)fetch 壁纸载荷用；上游 scene-files 同款
+		"Access-Control-Allow-Origin": "*",
 		...(cacheable ? { "Cache-Control": "private, max-age=3600" } : { "Cache-Control": "no-store" }),
 	};
 	const rangeHeader = request.headers.range;
@@ -544,10 +590,15 @@ function buildSeedProps(entryDir: string): Record<string, { value: unknown }> {
 	}
 }
 
-/** 在 <head> 后注入 seed + shim；没有 <head> 就塞到文档最前面（shim 必须先于作者脚本）。 */
-function injectWebShim(html: string, seed: Record<string, { value: unknown }>): string {
+/**
+ * 在 <head> 后注入 site-root / seed + shim；没有 <head> 就塞到文档最前面（shim 必须先于作者脚本）。
+ * siteRoot = 壁纸目录的 URL 前缀（以 / 开头结尾）：shim 把逃出该前缀的 `..` 夹回根
+ * （官方语义：壁纸目录即站点根；spine 类网页壁纸依赖这个，否则整页黑屏）。
+ */
+function injectWebShim(html: string, seed: Record<string, { value: unknown }>, dirToken: string): string {
+	const siteRoot = `/wallpaper/files/${dirToken}/`;
 	const inject =
-		`<script>window.__weSiteRoot=${JSON.stringify("")};window.__weSeedProps=${JSON.stringify(seed)};</script>` +
+		`<script>window.__weSiteRoot=${JSON.stringify(siteRoot)};window.__weSeedProps=${JSON.stringify(seed)};</script>` +
 		`<script src="/wallpaper-shim.js"></script>`;
 	const headMatch = /<head[^>]*>/i.exec(html);
 	if (headMatch) {
@@ -623,7 +674,7 @@ export async function handleWallpaperHttp(
 				return true;
 			}
 			if (ext === ".html" || ext === ".htm") {
-				// 网页壁纸 HTML：注入 seed 属性 + shim（shim 由桌面端 dist 静态提供）。
+				// 网页壁纸 HTML：注入 site-root / seed 属性 + shim（shim 由桌面端 dist 静态提供）。
 				// iframe 沙箱（sandbox="allow-scripts"）在客户端设置，这里只管内容。
 				const html = readFileSync(target, "utf8");
 				response.writeHead(200, {
@@ -631,7 +682,9 @@ export async function handleWallpaperHttp(
 					"Cache-Control": "no-store",
 					"X-Content-Type-Options": "nosniff",
 				});
-				response.end(request.method === "HEAD" ? undefined : injectWebShim(html, buildSeedProps(dir)));
+				response.end(
+					request.method === "HEAD" ? undefined : injectWebShim(html, buildSeedProps(dir), filesMatch[1]),
+				);
 				return true;
 			}
 			serveFileBytes(request, response, target, true);

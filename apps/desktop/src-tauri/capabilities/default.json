@@ -16,6 +16,7 @@
 		"core:window:allow-set-fullscreen",
 		"core:webview:allow-set-webview-zoom",
 		"allow-quit-app",
+		"allow-gps-location",
 		"dialog:allow-open",
 		"allow-show-approval-toast"
 	]

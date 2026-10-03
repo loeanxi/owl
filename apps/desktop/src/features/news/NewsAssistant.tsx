@@ -22,6 +22,8 @@ export function NewsAssistant({
 	onClose,
 	onItem,
 	onToChat,
+	onConfigureSources,
+	onConfigureModels,
 	prefill,
 }: {
 	api: NewsClient;
@@ -30,6 +32,8 @@ export function NewsAssistant({
 	onClose: () => void;
 	onItem: (id: string) => void;
 	onToChat: (text: string) => void;
+	onConfigureSources: () => void;
+	onConfigureModels: () => void;
 	prefill?: { id: number; text: string };
 }): React.JSX.Element {
 	const t = useT();
@@ -37,6 +41,7 @@ export function NewsAssistant({
 	const [turns, setTurns] = useState<AssistantTurn[]>([]);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const hasContext = context.items.length > 0 || !!context.storyId || !!context.reportId;
 	useEffect(() => {
 		if (prefill) setQuestion(prefill.text);
 	}, [prefill]);
@@ -131,7 +136,7 @@ export function NewsAssistant({
 				)}
 			</div>
 			<div className="owl-news-assistant-messages" aria-live="polite">
-				{turns.length === 0 && (
+				{turns.length === 0 && hasContext && (
 					<>
 						<h3>{t("news.assistantGreeting")}</h3>
 						<p className="owl-news-muted">{t("news.assistantHint")}</p>
@@ -144,6 +149,14 @@ export function NewsAssistant({
 							))}
 						</div>
 					</>
+				)}
+				{turns.length === 0 && !hasContext && (
+					<div className="owl-news-assistant-setup">
+						<h3>{t("news.assistantFirstRunTitle")}</h3>
+						<p className="owl-news-muted">{t("news.assistantFirstRunHint")}</p>
+						<button type="button" onClick={onConfigureSources}>{t("news.setupSources")}</button>
+						<button type="button" onClick={onConfigureModels}>{t("news.setupModels")}</button>
+					</div>
 				)}
 				{turns.map((turn, index) => (
 					<div key={`${index}-${turn.question}`}>
@@ -174,16 +187,17 @@ export function NewsAssistant({
 			>
 				<textarea
 					aria-label={t("news.askPlaceholder")}
+					disabled={!hasContext || busy}
 					value={question}
 					onChange={(event) => setQuestion(event.target.value)}
 					placeholder={t("news.askPlaceholder")}
 					rows={3}
 				/>
 				<div className="owl-news-small-row">
-					<button type="button" disabled={busy || (!context.items.length && !turns.length)} onClick={toChat}>
+					<button type="button" disabled={busy || (!hasContext && !turns.length)} onClick={toChat}>
 						{t("news.toChat")}
 					</button>
-					<button type="submit" className="owl-news-primary" disabled={busy || !question.trim()}>
+					<button type="submit" className="owl-news-primary" disabled={busy || !hasContext || !question.trim()}>
 						{t("composer.send")}
 					</button>
 				</div>

@@ -75,7 +75,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		: props.sidebarView === "mail"
 		? props.sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
 		: props.sidebarView === "news"
-		? t("news.navigation")
+		? t(props.sidebarCollapsed ? "news.showNavigation" : "news.hideNavigation")
 		: props.sidebarView === "map"
 		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
 		: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");

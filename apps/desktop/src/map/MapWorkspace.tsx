@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { type JSX, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
+import { hasTauri } from "../bridge/native.ts";
 import type {
 	ApprovalMode,
 	MapCategory,
@@ -96,7 +98,7 @@ export function MapWorkspace({
 	);
 	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
 	const deviceLocator = useMemo(
-		() => new DeviceLocator({ geolocation: navigator.geolocation, secureContext: window.isSecureContext }),
+		() => new DeviceLocator({ readGps: hasTauri() ? () => invoke<unknown>("gps_location") : undefined }),
 		[],
 	);
 	const deviceLocationState = useSyncExternalStore(
@@ -119,7 +121,10 @@ export function MapWorkspace({
 		}
 	});
 	const [center, setCenter] = useState<MapCoordinate>(() => savedState.lastCenter ?? DEFAULT_MAP_CENTER);
-	const [locationName, setLocationName] = useState(() => savedState.lastLocationName ?? "");
+	const [locationName, setLocationName] = useState(() => {
+		const name = savedState.lastLocationName;
+		return name === "我的位置" || name === "My location" ? "" : (name ?? "");
+	});
 	const [category, setCategory] = useState<MapCategory>("all");
 	const [radius, setRadius] = useState(2000);
 	const [places, setPlaces] = useState<RealPlace[]>([]);
@@ -217,7 +222,7 @@ export function MapWorkspace({
 		locationDenied: m("locationDenied"),
 		locationUnavailable: m("locationUnavailable"),
 		locationTimeout: m("locationTimeout"),
-		locationInsecure: m("locationInsecure"),
+		locationNoGps: m("locationNoGps"),
 		searchCenter: m("searchCenter"),
 	};
 	applyDeviceLocationRef.current = (location) => {
@@ -998,7 +1003,9 @@ export function MapWorkspace({
 				)}
 				{deviceLocationState.location && (
 					<p className="map-device-location-status">
-						{m("deviceAccuracy", { n: Math.ceil(deviceLocationState.location.accuracyMeters) })}
+						{deviceLocationState.location.accuracyMeters === null
+							? m("gpsAccuracyUnknown")
+							: m("deviceAccuracy", { n: Math.ceil(deviceLocationState.location.accuracyMeters) })}
 					</p>
 				)}
 				{locationOpen && (
