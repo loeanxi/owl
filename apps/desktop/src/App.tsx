@@ -25,7 +25,7 @@ import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { ShortcutsDialog, type HelpSection } from "./components/ShortcutsDialog.tsx";
 import { FindBar } from "./components/FindBar.tsx";
 import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
-import { SettingsPage } from "./components/SettingsPage.tsx";
+import { SettingsPage, type SettingsInitialTab } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { RetryPin } from "./components/RetryPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
@@ -91,7 +91,7 @@ export default function App(): React.JSX.Element {
 	const [connected, setConnected] = useState(false);
 	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
-	const [settingsInitialTab, setSettingsInitialTab] = useState<"general" | "about">("general");
+	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>("general");
 	// 动态壁纸（owlWallpaper）：设置页保存时同步到这里，WallpaperLayer 随之重渲。
 	const [wallpaper, setWallpaper] = useState<OwlWallpaperSettings>(() => parseOwlWallpaper(undefined));
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
@@ -541,11 +541,15 @@ export default function App(): React.JSX.Element {
 	}, []);
 
 	useEffect(() => {
-		if (!connected) return;
+		if (!connected || showSettings) return;
 		void client
 			.request<ProviderModelsMessage[]>({ type: "models.list" })
 			.then((response) => response.ok && setProviders(response.result ?? []))
 			.catch(() => {});
+	}, [connected, client, showSettings]);
+
+	useEffect(() => {
+		if (!connected) return;
 		// 连接后拉一次运行中的会话：UI 刷新或桥重连后恢复侧边栏的运行状态点。
 		void client
 			.request<SessionRunningResult>({ type: "session.running" })
@@ -1164,7 +1168,10 @@ export default function App(): React.JSX.Element {
 				/>
 			</div>
 			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
-				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={newsSidebarMinimized} initialTarget={newsTarget} onToChat={(text) => {
+				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={newsSidebarMinimized} initialTarget={newsTarget} onOpenModelSettings={() => {
+					setSettingsInitialTab("models");
+					setShowSettings(true);
+				}} onToChat={(text) => {
 					setRailView("chat"); setShowSettings(false); setConversationViewPersisted("chat");
 					setDraftRequest({ id: ++draftSequence.current, text });
 				}} />

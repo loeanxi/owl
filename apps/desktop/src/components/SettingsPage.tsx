@@ -76,6 +76,8 @@ function presetDefaultColors(preset: OwlPresetId, mode: "dark" | "light") {
 
 type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
 
+export type SettingsInitialTab = "general" | "models" | "about";
+
 /** owl-image 的 provider 清单（顺序即下拉顺序；标签走 settings.image.p.* 字典）。 */
 const OWL_IMAGE_PROVIDERS: readonly OwlImageProvider[] = [
 	"google",
@@ -534,7 +536,7 @@ export function SettingsPage({
 	onClose: () => void;
 	/** 会话列表发生变化（恢复/删除归档会话）：让侧边栏同步重拉，避免两边状态对不上。 */
 	onSessionsChanged?: () => void;
-	initialTab?: "general" | "about";
+	initialTab?: SettingsInitialTab;
 	/** 动态壁纸设置：App 持有状态（渲染层也要用），设置页只做编辑 + 落盘。 */
 	wallpaper: OwlWallpaperSettings;
 	onWallpaperChange: (next: OwlWallpaperSettings) => void;

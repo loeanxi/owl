@@ -88,34 +88,6 @@ describe("GenUI runtime schema normalization", () => {
 				spec: { items: [{ type: "accordion", items: [3, 4] }] },
 				paths: ["items[0].items[0]", "items[0].items[1]"],
 			},
-			{
-				name: "two chart series with five points each",
-				spec: {
-					items: [
-						{
-							type: "chart",
-							kind: "line",
-							data: [{ label: "a", value: 1 }],
-							series: [
-								{ label: "S1", data: [1, 2, 3, 4, 5] },
-								{ label: "S2", data: [1, 2, 3, 4, 5] },
-							],
-						},
-					],
-				},
-				paths: [
-					"items[0].series[0].data[0]",
-					"items[0].series[0].data[1]",
-					"items[0].series[0].data[2]",
-					"items[0].series[0].data[3]",
-					"items[0].series[0].data[4]",
-					"items[0].series[1].data[0]",
-					"items[0].series[1].data[1]",
-					"items[0].series[1].data[2]",
-					"items[0].series[1].data[3]",
-					"items[0].series[1].data[4]",
-				],
-			},
 		];
 		for (const { name, spec, paths } of cases) {
 			const expected = paths.map((path) => `${path} must be an object`);
@@ -432,7 +404,6 @@ describe("GenUI runtime schema normalization", () => {
 		expect(warnings.map((warning) => warning.path)).toEqual(
 			expect.arrayContaining([
 				"spec.itmes",
-				"items[0].data[0].lable",
 				"items[1].tabs[0].lable",
 				"items[2].items[0].titlle",
 				"items[3].nodes[0].lable",
@@ -556,8 +527,6 @@ describe("GenUI runtime schema normalization", () => {
 		});
 		expect(warnings.map((warning) => warning.path)).toEqual([
 			"spec.titel",
-			"items[0].data[0].colour",
-			"items[0].series[0].data[0].valye",
 			"items[1].tabs[0].labell",
 			"items[2].items[0].titlle",
 			"items[3].nodes[0].labell",

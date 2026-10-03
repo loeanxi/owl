@@ -285,31 +285,37 @@ html[data-owl-wallpaper="on"] .owl-sidebar input {
 .owl-wallpaper-layer .owl-wp-fade.is-on { opacity: 1; transition: opacity 0.45s ease; }
 .owl-wallpaper-layer .owl-wp-fade.is-under { opacity: 1; }
 
-/* 全屏壁纸的对话区玻璃化：壁纸要真正「覆盖」窗口 —— 对话区底只留最薄一层暗纱
- * （card-mix），正文内容浮在「阅读玻璃」上（read-mix + backdrop blur）：文字可读，
- * 壁纸在玻璃外与玻璃内都大面积可见。用户气泡 / 输入卡同语言（毛玻璃块）。 */
+/* 全屏壁纸：壁纸即窗口背景，大面积直出；正文文字直接压在壁纸上（暗化 + 文字阴影
+ * 保可读），只有小面积元素（用户气泡 / 输入框 / 代码块）是玻璃块。没有大块底板。 */
 html[data-owl-wallpaper="on"] .owl-shell-conversation,
 html[data-owl-wallpaper="on"] .owl-chat-surface {
-	background: color-mix(in srgb, var(--owl-conversation-bg) var(--owl-wp-card-mix, 30%), transparent);
+	background: color-mix(in srgb, var(--owl-conversation-bg) var(--owl-wp-card-mix, 16%), transparent);
 }
 html[data-owl-wallpaper="on"] .owl-chat-scroll {
-	margin: 6px 14px 6px 6px;
-	padding: 22px 26px 20px;
-	border: 1px solid color-mix(in srgb, var(--owl-ui-border, #343434) 55%, transparent);
-	border-radius: 14px;
-	background: color-mix(in srgb, var(--owl-conversation-bg) var(--owl-wp-read-mix, 62%), transparent);
-	backdrop-filter: blur(18px);
+	background: transparent;
 }
-html[data-owl-wallpaper="on"] .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll { margin-left: 48px; }
 html[data-owl-wallpaper="on"] .owl-user-bubble {
-	background: color-mix(in srgb, var(--color-owl-bubble) var(--owl-wp-read-mix, 62%), transparent);
+	background: color-mix(in srgb, var(--color-owl-bubble) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(10px);
+}
+/* 正文/标题直压壁纸：深色文字阴影描边保对比（浅色主题换亮色描边） */
+html[data-owl-wallpaper="on"] .owl-answer,
+html[data-owl-wallpaper="on"] .owl-answer h1, html[data-owl-wallpaper="on"] .owl-answer h2,
+html[data-owl-wallpaper="on"] .owl-answer h3, html[data-owl-wallpaper="on"] .owl-answer h4 {
+	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45);
+}
+html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer,
+html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h1,
+html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h2,
+html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h3,
+html[data-owl-theme="light"][data-owl-wallpaper="on"] .owl-answer h4 {
+	text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.5);
 }
 html[data-owl-wallpaper="on"] .owl-answer code,
 html[data-owl-wallpaper="on"] .owl-answer pre {
-	background: color-mix(in srgb, var(--owl-reading-panel) 86%, transparent);
+	background: color-mix(in srgb, var(--owl-reading-panel) 88%, transparent);
 }
 html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-2xl {
-	background: color-mix(in srgb, var(--color-owl-panel) var(--owl-wp-read-mix, 62%), transparent);
+	background: color-mix(in srgb, var(--color-owl-panel) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(14px);
 }
