@@ -79,25 +79,6 @@ describe("GenUI runtime schema normalization", () => {
 	it("returns each nested record error once across validation and processing", () => {
 		const cases = [
 			{
-				name: "chart data",
-				spec: { items: [{ type: "chart", kind: "line", data: [3, 4] }] },
-				paths: ["items[0].data[0]", "items[0].data[1]"],
-			},
-			{
-				name: "chart series data",
-				spec: {
-					items: [
-						{
-							type: "chart",
-							kind: "line",
-							data: [{ label: "a", value: 1 }],
-							series: [{ label: "S1", data: [3, 4] }],
-						},
-					],
-				},
-				paths: ["items[0].series[0].data[0]", "items[0].series[0].data[1]"],
-			},
-			{
 				name: "tabs",
 				spec: { items: [{ type: "tabs", tabs: [3, 4] }] },
 				paths: ["items[0].tabs[0]", "items[0].tabs[1]"],

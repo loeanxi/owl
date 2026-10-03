@@ -1853,13 +1853,21 @@ type Walker = (list: unknown, depth: number, path: string) => void;
 function validateChartData(value: unknown, at: string, errors: string[]): void {
 	if (!Array.isArray(value)) return;
 	for (let index = 0; index < value.length; index++) {
-		const datum = obj(value[index]);
+		const raw = value[index];
 		const path = `${at}[${index}]`;
-		if (datum === undefined) {
-			errors.push(`${path} must be an object`);
+		// 裸数字是合法数据点（repairChartData 合成序号 label）；数字字符串交给
+		// repair 按数值解析，解析不了会被丢弃。
+		if (typeof raw === "number" || typeof raw === "string") {
+			if (typeof raw === "number" && !Number.isFinite(raw)) errors.push(`${path} must be a finite number`);
 			continue;
 		}
-		if (typeof datum.label !== "string") errors.push(`${path}.label must be a string`);
+		const datum = obj(raw);
+		if (datum === undefined) {
+			errors.push(`${path} must be an object or number`);
+			continue;
+		}
+		// label 可省略（repair 合成序号）；写了就必须是字符串。
+		if (datum.label !== undefined && typeof datum.label !== "string") errors.push(`${path}.label must be a string`);
 		if (typeof datum.value !== "number" || !Number.isFinite(datum.value)) {
 			errors.push(`${path}.value must be a finite number`);
 		}

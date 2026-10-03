@@ -70,7 +70,7 @@ export function normalizeConfiguredLocation(value: unknown): ConfiguredMapLocati
 		typeof record.name !== "string" ||
 		!record.name.trim() ||
 		record.name.length > 500 ||
-		/[\u0000-\u001f\u007f]/.test(record.name) ||
+		[...record.name].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) ||
 		record.source !== "user" ||
 		(record.precision !== "area" && record.precision !== "point") ||
 		typeof record.updatedAt !== "string"

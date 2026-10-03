@@ -175,21 +175,15 @@ const recordSchema = (
 
 const nodeFields = { type: "string", span: "number" } as const;
 
-const chartDatumSchema = recordSchema(["label", "value"], {
+// 数据点形状（{label,value} / 裸数字 / 缺 label 的 {value}）不在 schema 层锁死：
+// 模型天然爱写裸数字数组（SKILL 的 series 示例是对象形状，但违约率高），guard 的
+// repairChartData 负责把这些形状归一化，这里再报 "must be an object" 只会把
+// 整个节点推向丢弃。只保留 series 条目级（label/data 必填）的校验。
+const chartSeriesSchema = recordSchema(["label", "data"], {
 	label: "string",
-	value: "number",
 	color: "string",
+	data: "array",
 });
-
-const chartSeriesSchema = recordSchema(
-	["label", "data"],
-	{
-		label: "string",
-		color: "string",
-		data: "array",
-	},
-	{ data: chartDatumSchema },
-);
 
 const stepsRecordSchema = recordSchema(["title"], { title: "string", desc: "string" });
 // `label` is what models write for the left-hand column (issue #186); the
@@ -402,7 +396,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<string, ComponentSchema>> = {
 			// `line` may carry its points in `series` (multi-series line); only the
 			// donut is a single-series shape that always needs `data`.
 			conditionalRequired: [{ kind: "required-if", when: { field: "kind", equals: "donut" }, required: ["data"] }],
-			nested: { data: chartDatumSchema, series: chartSeriesSchema },
+			nested: { series: chartSeriesSchema },
 			enums: { kind: CHART_KINDS },
 			validator: { name: "chart-renderability" },
 		},
