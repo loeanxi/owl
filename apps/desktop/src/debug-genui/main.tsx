@@ -2,7 +2,7 @@
  * 打开 http://localhost:5188/debug-genui.html 看控制台。 */
 import { StrictMode, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { GenuiActionContext, GenuiBlock } from "../../../../packages/owl-genui/client/index.ts";
+import { GenuiActionContext, GenuiBlock, processGenuiSpec, validateGenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
 import type { GenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
 
 const noop = () => {};
@@ -45,6 +45,16 @@ const dashboard: GenuiSpec = {
 const mermaidOnly: GenuiSpec = { items: [{ type: "mermaid", code: "graph LR\nA[需求] --> B[开发] --> C[测试] --> D[发布]" }] } as GenuiSpec;
 
 const echartOnly: GenuiSpec = { items: [dashboard.items[0]] } as GenuiSpec;
+
+import { isRenderableProcess } from "../../../../packages/owl-genui/client/guard.ts";
+
+/** 模拟真实 fence 管线：spec 先过 guard 修复再渲染（GenuiBlock 直接喂原始 spec 会绕过守卫）。 */
+function guarded(spec: GenuiSpec): GenuiSpec {
+  const processed = processGenuiSpec(spec);
+  if (isRenderableProcess(processed) && processed.spec !== null) return processed.spec;
+  console.warn("[debug] spec not renderable:", processed.errors);
+  return spec;
+}
 
 function Case({ name, spec }: { name: string; spec: GenuiSpec }): React.JSX.Element {
 	return createElement(

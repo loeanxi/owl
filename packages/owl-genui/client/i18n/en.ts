@@ -322,6 +322,7 @@ export const EN = {
 	"block.svgPreview": "Preview",
 	"block.svgSource": "Source",
 	"block.svgError": "SVG could not be displayed — showing the source instead",
+	"block.chart.untitledSeries": "Data",
 	"block.mermaidError": "Invalid diagram syntax — showing the source instead",
 	"block.mermaidEngine": "Diagram engine failed to load — check the console for details",
 	"block.mermaidLoading": "Rendering…",

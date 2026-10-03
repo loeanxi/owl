@@ -311,6 +311,7 @@ export const ZH: Record<keyof typeof EN, string> = {
 	"block.svgPreview": "预览",
 	"block.svgSource": "源码",
 	"block.svgError": "SVG 无法显示，已降级显示源码",
+	"block.chart.untitledSeries": "数据",
 	"block.mermaidError": "图语法有误，已降级显示源码",
 	"block.mermaidEngine": "图表引擎加载失败，详情见控制台",
 	"block.mermaidLoading": "渲染中…",
