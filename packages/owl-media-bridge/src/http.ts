@@ -24,66 +24,109 @@ export interface BridgeWebServer {
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
 
-/** Register the browser-only, same-origin plugin route. */
+/** config/update 的合法补丁面（parseConfig 的输出）。 */
+export type BridgeSettingsPatch = {
+  allowAgentControl?: boolean
+  deepBackground?: boolean
+  realWaveEnabled?: boolean
+  softTransitions?: boolean
+  skipFadeOut?: boolean
+  preferLiveVideo?: boolean
+  playerId?: string
+}
+
+/** 宿主传入的选项：桌面桥把已有的来源信任判定交给媒体桥复用。 */
+export interface BridgeHttpOptions {
+  readonly authorizeOrigin?: (origin: string | undefined) => boolean
+  /** 配置变更的持久化钩子（owl 写 <agentDir>/media-bridge/config.json）；失败向上抛成 400。 */
+  readonly onConfigChange?: (patch: BridgeSettingsPatch) => void | Promise<void>
+}
+
+/**
+ * Handle one browser request against the same-origin plugin API. Resolves
+ * false when the path is not under /media-bridge/api so hosts can chain
+ * handlers; every owned path is answered exactly once and never throws.
+ */
+export async function handleBridgeApiRequest(
+  request: BridgeHttpRequest,
+  response: BridgeHttpResponse,
+  runtime: BridgeRuntime,
+  options: BridgeHttpOptions = {},
+): Promise<boolean> {
+  const path = new URL(request.url ?? '/', 'http://owl.local').pathname
+  if (path !== '/media-bridge/api' && !path.startsWith('/media-bridge/api/')) return false
+  // Same-origin remains the default gate; a host-provided check wins because
+  // it knows the full desktop trust story (tauri:, localhost variants).
+  const originOk = options.authorizeOrigin !== undefined
+    ? options.authorizeOrigin(header(request.headers.origin))
+    : isSameOrigin(request)
+  if (!originOk) return write(response, 403, { ok: false, error: 'forbidden' }), true
+  if (request.method !== 'POST') return write(response, 405, { ok: false, error: 'method-not-allowed' }), true
+
+  try {
+    const body = await readJsonBody(request)
+    if (path === '/media-bridge/api/status') return write(response, 200, { ok: true, value: await runtime.statusForUi() }), true
+    if (path === '/media-bridge/api/launch') { await runtime.launch(); return write(response, 200, { ok: true, value: { launched: true } }), true }
+    if (path === '/media-bridge/api/control') {
+      await runtime.controlFromUi(parseMediaCommand(body))
+      return write(response, 200, { ok: true, value: await runtime.statusForUi() }), true
+    }
+    if (path === '/media-bridge/api/control/undo') {
+      await runtime.undoControl(parseActivityId(body))
+      return write(response, 200, { ok: true, value: await runtime.statusForUi() }), true
+    }
+    if (path === '/media-bridge/api/volume/fade') {
+      const fade = parseVolumeFade(body)
+      await runtime.fadeFromUi(fade.volumePercent, fade.durationSeconds)
+      return write(response, 200, { ok: true, value: await runtime.statusForUi() }), true
+    }
+    if (path === '/media-bridge/api/listening/report') {
+      return write(response, 200, { ok: true, value: await runtime.listeningReport(parseReportRange(body)) }), true
+    }
+    if (path === '/media-bridge/api/memory/history') {
+      return write(response, 200, { ok: true, value: { today: runtime.memoryToday(), recent: runtime.memoryRecent(parseHistoryLimit(body)) } }), true
+    }
+    if (path === '/media-bridge/api/memory/favorites') {
+      return write(response, 200, { ok: true, value: { favorites: runtime.memoryFavorites() } }), true
+    }
+    if (path === '/media-bridge/api/memory/favorite/toggle') {
+      await runtime.toggleMemoryFavorite(parseFavoriteTrack(body))
+      return write(response, 200, { ok: true, value: await runtime.statusForUi() }), true
+    }
+    if (path === '/media-bridge/api/memory/favorite/remove') {
+      const removed = runtime.removeMemoryFavorite(parseFavoriteKey(body))
+      return write(response, 200, { ok: true, value: { removed } }), true
+    }
+    if (path === '/media-bridge/api/diagnose') return write(response, 200, { ok: true, value: await runtime.diagnoseForUi() }), true
+    // Browser-only waveform frames; intentionally absent from model tools.
+    if (path === '/media-bridge/api/signal') return write(response, 200, { ok: true, value: await runtime.signalForUi() }), true
+    if (path === '/media-bridge/api/config') return write(response, 200, { ok: true, value: runtime.getConfig() }), true
+    if (path === '/media-bridge/api/config/update') {
+      const patch = parseConfig(body)
+      const view = runtime.updateConfig(patch)
+      await options.onConfigChange?.(patch)
+      return write(response, 200, { ok: true, value: view }), true
+    }
+    // Browser-owned Live playback mirror. The server never controls the
+    // <video>; it only keeps a fresh capability boundary for agent tools.
+    if (path === '/media-bridge/api/live/state') {
+      runtime.reportLiveState(parseLiveState(body))
+      return write(response, 200, { ok: true, value: { reported: true } }), true
+    }
+    return write(response, 404, { ok: false, error: 'not-found' }), true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown media bridge error.'
+    return write(response, 400, { ok: false, error: message }), true
+  }
+}
+
+/** DSH-host shim kept for the unit tests: register the handler on a route table. */
 export function registerBridgeHttpApi(server: BridgeWebServer, runtime: BridgeRuntime): () => void {
   return server.register({
     kind: 'prefix',
     path: '/media-bridge/api',
     handler: async (request, response) => {
-      if (!isSameOrigin(request)) return write(response, 403, { ok: false, error: 'forbidden' })
-      if (request.method !== 'POST') return write(response, 405, { ok: false, error: 'method-not-allowed' })
-
-      const path = new URL(request.url ?? '/', 'http://dsh.local').pathname
-      try {
-        const body = await readJsonBody(request)
-        if (path === '/media-bridge/api/status') return write(response, 200, { ok: true, value: await runtime.statusForUi() })
-        if (path === '/media-bridge/api/launch') { await runtime.launch(); return write(response, 200, { ok: true, value: { launched: true } }) }
-        if (path === '/media-bridge/api/control') {
-          await runtime.controlFromUi(parseMediaCommand(body))
-          return write(response, 200, { ok: true, value: await runtime.statusForUi() })
-        }
-        if (path === '/media-bridge/api/control/undo') {
-          await runtime.undoControl(parseActivityId(body))
-          return write(response, 200, { ok: true, value: await runtime.statusForUi() })
-        }
-        if (path === '/media-bridge/api/volume/fade') {
-          const fade = parseVolumeFade(body)
-          await runtime.fadeFromUi(fade.volumePercent, fade.durationSeconds)
-          return write(response, 200, { ok: true, value: await runtime.statusForUi() })
-        }
-        if (path === '/media-bridge/api/listening/report') {
-          return write(response, 200, { ok: true, value: await runtime.listeningReport(parseReportRange(body)) })
-        }
-        if (path === '/media-bridge/api/memory/history') {
-          return write(response, 200, { ok: true, value: { today: runtime.memoryToday(), recent: runtime.memoryRecent(parseHistoryLimit(body)) } })
-        }
-        if (path === '/media-bridge/api/memory/favorites') {
-          return write(response, 200, { ok: true, value: { favorites: runtime.memoryFavorites() } })
-        }
-        if (path === '/media-bridge/api/memory/favorite/toggle') {
-          await runtime.toggleMemoryFavorite(parseFavoriteTrack(body))
-          return write(response, 200, { ok: true, value: await runtime.statusForUi() })
-        }
-        if (path === '/media-bridge/api/memory/favorite/remove') {
-          const removed = runtime.removeMemoryFavorite(parseFavoriteKey(body))
-          return write(response, 200, { ok: true, value: { removed } })
-        }
-        if (path === '/media-bridge/api/diagnose') return write(response, 200, { ok: true, value: await runtime.diagnoseForUi() })
-        // Browser-only waveform frames; intentionally absent from model tools.
-        if (path === '/media-bridge/api/signal') return write(response, 200, { ok: true, value: await runtime.signalForUi() })
-        if (path === '/media-bridge/api/config') return write(response, 200, { ok: true, value: runtime.getConfig() })
-        if (path === '/media-bridge/api/config/update') return write(response, 200, { ok: true, value: runtime.updateConfig(parseConfig(body)) })
-        // Browser-owned Live playback mirror. The server never controls the
-        // <video>; it only keeps a fresh capability boundary for agent tools.
-        if (path === '/media-bridge/api/live/state') {
-          runtime.reportLiveState(parseLiveState(body))
-          return write(response, 200, { ok: true, value: { reported: true } })
-        }
-        return write(response, 404, { ok: false, error: 'not-found' })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown media bridge error.'
-        return write(response, 400, { ok: false, error: message })
-      }
+      await handleBridgeApiRequest(request, response, runtime)
     },
   })
 }

@@ -80,11 +80,16 @@ const REJECT_MARKERS = /翻唱|伴奏|纯音乐|铃声|剪辑|花絮|教学|饭�
 export class QqLiveVideoResolver {
   private readonly cache = new Map<string, CacheEntry>()
   private readonly inflight = new Map<string, Promise<VideoLookup>>()
+  private readonly fetcher: FetchLike
+  private readonly timeoutMs: number
 
   constructor(
-    private readonly fetcher: FetchLike = fetch,
-    private readonly timeoutMs = REQUEST_TIMEOUT_MS,
-  ) {}
+    fetcher: FetchLike = fetch,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ) {
+    this.fetcher = fetcher
+    this.timeoutMs = timeoutMs
+  }
 
   async resolve(track: Track, signal?: AbortSignal): Promise<LiveVideoDescription | undefined> {
     throwIfAborted(signal)

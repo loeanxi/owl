@@ -22,7 +22,7 @@
  * （上游教训：频繁 resume 会重置帧计量，首帧判定永不通过）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { OwlWallpaperSettings } from "../wallpaper.ts";
+import { applyOwlGlassTheme, type OwlWallpaperSettings } from "../wallpaper.ts";
 import { WALLPAPER_IFRAME_SANDBOX } from "../wallpaper.ts";
 
 /** 桥端 inventory 条目（wallpaper-http.ts WallpaperEntry 的客户端视图）。 */
@@ -196,6 +196,12 @@ export function WallpaperLayer({ settings, refreshKey = 0 }: WallpaperLayerProps
 
 	const resolved = useMemo(() => resolveActiveEntry(entries, settings), [entries, settings]);
 	const spec = useMemo(() => (resolved ? specFor(resolved, settings) : null), [resolved, settings]);
+
+	// 染色玻璃：选中壁纸变化 → 从它的主题色派生整套玻璃变量（强调色/面板/文字）。
+	// 关闭壁纸/无选中时 applyOwlGlassTheme 内部直接跳过（applyOwlWallpaper 关闭时已清变量）。
+	useEffect(() => {
+		applyOwlGlassTheme(resolved?.schemeColor);
+	}, [resolved?.id, resolved?.schemeColor]);
 
 	// scene live 会话级失败集合：失败过的渲染 key 本轮直接走静态预览（重新扫描后重置）
 	const [liveFailedKeys, setLiveFailedKeys] = useState<ReadonlySet<string>>(() => new Set());

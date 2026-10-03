@@ -26,10 +26,12 @@ export class NeteaseMusicWindowsAdapter implements PlayerAdapter {
   readonly id = 'netease-music'
   readonly displayName = '网易云音乐'
   private readonly metadata: ProgressiveTrackMetadata<NeteaseMusicVisuals>
+  private readonly runner: PowerShellRunner
   constructor(
-    private readonly runner: PowerShellRunner = new WindowsPowerShellRunner(),
+    runner: PowerShellRunner = new WindowsPowerShellRunner(),
     coverResolver: Pick<NeteaseMusicCoverResolver, 'resolve'> = new NeteaseMusicCoverResolver(),
   ) {
+    this.runner = runner
     this.metadata = new ProgressiveTrackMetadata(
       (track, signal) => coverResolver.resolve(track, signal),
       {

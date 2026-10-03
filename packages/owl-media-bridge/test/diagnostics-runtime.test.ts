@@ -9,7 +9,11 @@ class DiagnosableAdapter implements PlayerAdapter {
   readonly id = 'qq-music'
   readonly displayName = 'QQ 音乐'
 
-  constructor(private readonly probes: AdapterDiagnostics = {}) {}
+  private readonly probes: AdapterDiagnostics
+
+  constructor(probes: AdapterDiagnostics = {}) {
+    this.probes = probes
+  }
 
   async readStatus(): Promise<BridgeStatus> {
     return {

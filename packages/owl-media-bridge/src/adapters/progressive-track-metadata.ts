@@ -29,13 +29,17 @@ export interface ProgressiveMetadataOptions<T> {
 export class ProgressiveTrackMetadata<T> {
   private readonly entries = new Map<string, MetadataEntry<T>>()
   private activeKey: string | undefined
+  private readonly resolve: (track: Track, signal: AbortSignal) => Promise<T | undefined>
+  private readonly options: ProgressiveMetadataOptions<T>
   private readonly retryAfterMs: number
   private readonly maxEntries: number
 
   constructor(
-    private readonly resolve: (track: Track, signal: AbortSignal) => Promise<T | undefined>,
-    private readonly options: ProgressiveMetadataOptions<T>,
+    resolve: (track: Track, signal: AbortSignal) => Promise<T | undefined>,
+    options: ProgressiveMetadataOptions<T>,
   ) {
+    this.resolve = resolve
+    this.options = options
     this.retryAfterMs = options.retryAfterMs ?? 15_000
     this.maxEntries = options.maxEntries ?? 16
   }

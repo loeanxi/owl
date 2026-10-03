@@ -6,7 +6,13 @@ import type { PowerShellRunner } from '../src/adapters/powershell-runner.ts'
 class FakeRunner implements PowerShellRunner {
   readonly calls: Array<{ command: string; positionSeconds?: number; player?: string }> = []
 
-  constructor(private readonly publishTrack = false, private readonly statusState: 'paused' | 'playing' = 'paused') {}
+  private readonly publishTrack: boolean
+  private readonly statusState: 'paused' | 'playing'
+
+  constructor(publishTrack = false, statusState: 'paused' | 'playing' = 'paused') {
+    this.publishTrack = publishTrack
+    this.statusState = statusState
+  }
 
   async run(command: 'status' | 'diagnose' | 'play-pause' | 'next' | 'previous' | 'seek' | 'set-volume', positionSeconds?: number, _signal?: AbortSignal, player = 'qq-music'): Promise<unknown> {
     this.calls.push({ command, positionSeconds, player })

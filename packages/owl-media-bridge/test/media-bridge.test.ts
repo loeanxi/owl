@@ -19,7 +19,11 @@ class FakeAdapter implements PlayerAdapter {
   readonly displayName = 'QQ 音乐'
   readonly calls: MediaCommand[] = []
 
-  constructor(private current: BridgeStatus = status()) {}
+  private current: BridgeStatus
+
+  constructor(current: BridgeStatus = status()) {
+    this.current = current
+  }
 
   async readStatus(): Promise<BridgeStatus> {
     return this.current
@@ -126,11 +130,19 @@ class DiagnoseAdapter implements PlayerAdapter {
   readonly id = 'qq-music'
   readonly displayName = 'QQ 音乐'
 
+  private readonly probes: AdapterDiagnostics
+  private readonly failReads: boolean
+  private readonly throwDuringDiagnose: boolean
+
   constructor(
-    private readonly probes: AdapterDiagnostics = {},
-    private readonly failReads = false,
-    private readonly throwDuringDiagnose = false,
-  ) {}
+    probes: AdapterDiagnostics = {},
+    failReads = false,
+    throwDuringDiagnose = false,
+  ) {
+    this.probes = probes
+    this.failReads = failReads
+    this.throwDuringDiagnose = throwDuringDiagnose
+  }
 
   async readStatus(): Promise<BridgeStatus> {
     if (this.failReads) throw new Error('powershell.exe is missing while loading C:\\Windows\\System32\\bridge.ps1')

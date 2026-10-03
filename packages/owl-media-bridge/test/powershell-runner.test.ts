@@ -12,8 +12,11 @@ class FakeWorker extends EventEmitter {
   killed = false
   private input = ''
 
-  constructor(private readonly respond: (request: any, index: number) => unknown | undefined) {
+  private readonly respond: (request: any, index: number) => unknown | undefined
+
+  constructor(respond: (request: any, index: number) => unknown | undefined) {
     super()
+    this.respond = respond
     this.stdin.setEncoding('utf8')
     this.stdin.on('data', (chunk: string) => {
       this.input += chunk

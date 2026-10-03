@@ -59,12 +59,19 @@ function scopeSignal(signal: AbortSignal | undefined, timeoutMs: number): { sign
 export class QqMusicCoverResolver {
   private readonly cache = new Map<string, CoverCacheEntry>()
   private readonly inflight = new Map<string, Promise<QqMusicVisuals>>()
+  private readonly fetcher: FetchLike
+  private readonly ttlMs: number
+  private readonly timeoutMs: number
 
   constructor(
-    private readonly fetcher: FetchLike = fetch,
-    private readonly ttlMs = 60 * 60 * 1000,
-    private readonly timeoutMs = REQUEST_TIMEOUT_MS,
-  ) {}
+    fetcher: FetchLike = fetch,
+    ttlMs = 60 * 60 * 1000,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ) {
+    this.fetcher = fetcher
+    this.ttlMs = ttlMs
+    this.timeoutMs = timeoutMs
+  }
 
   async resolve(track: Track, signal?: AbortSignal): Promise<QqMusicVisuals> {
     throwIfAborted(signal)

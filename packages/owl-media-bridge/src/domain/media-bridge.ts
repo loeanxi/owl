@@ -8,11 +8,13 @@ export interface MediaControlReceipt {
 }
 
 export class MediaBridgeError extends Error {
+  readonly code: 'PLAYER_NOT_CONFIGURED' | 'COMMAND_UNAVAILABLE' | 'INVALID_COMMAND' | 'AGENT_CONTROL_DISABLED' | 'LIVE_VIDEO_ACTIVE'
   constructor(
-    public readonly code: 'PLAYER_NOT_CONFIGURED' | 'COMMAND_UNAVAILABLE' | 'INVALID_COMMAND' | 'AGENT_CONTROL_DISABLED' | 'LIVE_VIDEO_ACTIVE',
+    code: 'PLAYER_NOT_CONFIGURED' | 'COMMAND_UNAVAILABLE' | 'INVALID_COMMAND' | 'AGENT_CONTROL_DISABLED' | 'LIVE_VIDEO_ACTIVE',
     message: string,
   ) {
     super(message)
+    this.code = code
     this.name = 'MediaBridgeError'
   }
 }

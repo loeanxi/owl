@@ -17,13 +17,21 @@ export class StatusCache {
   /** Invalidates reads that were started before launch/player-policy changes. */
   private generation = 0
 
+  private readonly ttlMs: number
+  /** Guards priming/settling against stale player selections racing a switch. */
+  private readonly currentPlayerId: () => PlayerId
+  /** The authoritative loader; must bypass this cache and re-read on each call. */
+  private readonly load: () => Promise<BridgeStatus>
+
   constructor(
-    private readonly ttlMs: number,
-    /** Guards priming/settling against stale player selections racing a switch. */
-    private readonly currentPlayerId: () => PlayerId,
-    /** The authoritative loader; must bypass this cache and re-read on each call. */
-    private readonly load: () => Promise<BridgeStatus>,
-  ) {}
+    ttlMs: number,
+    currentPlayerId: () => PlayerId,
+    load: () => Promise<BridgeStatus>,
+  ) {
+    this.ttlMs = ttlMs
+    this.currentPlayerId = currentPlayerId
+    this.load = load
+  }
 
   async read(signal?: AbortSignal): Promise<BridgeStatus> {
     const cached = this.freshCachedStatus()

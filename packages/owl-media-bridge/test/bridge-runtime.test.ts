@@ -11,7 +11,13 @@ class StatefulAdapter implements PlayerAdapter {
   volumePercent = 80
   reads = 0
 
-  constructor(readonly id: PlayerId = 'qq-music', readonly displayName = 'QQ 音乐') {}
+  readonly id: PlayerId
+  readonly displayName: string
+
+  constructor(id: PlayerId = 'qq-music', displayName = 'QQ 音乐') {
+    this.id = id
+    this.displayName = displayName
+  }
 
   async readStatus(): Promise<BridgeStatus> {
     this.reads += 1

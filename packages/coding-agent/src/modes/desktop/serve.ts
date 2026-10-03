@@ -125,6 +125,7 @@ import {
 } from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
 import { handleWallpaperHttp } from "./wallpaper-http.ts";
+import { getMediaBridgeHttpHandler } from "../../core/media-bridge-channel.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
@@ -2517,6 +2518,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						getCustomDir: () => owlWallpaperField("customDir"),
 						getCustomPath: () => owlWallpaperField("customPath"),
 					}),
+			)
+			// 媒体桥（owl-media-bridge 插件）的同源 API；插件未加载时处理器缺位，
+			// 直接落到 UI 静态服务——与没有媒体桥时完全一致。
+			.then(
+				(handled) =>
+					handled ||
+					(getMediaBridgeHttpHandler()?.(request, response, {
+						authorizeOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
+					}) ??
+						false),
 			)
 			.then((handled) => {
 				if (handled) return;

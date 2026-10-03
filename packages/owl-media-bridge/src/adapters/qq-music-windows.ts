@@ -22,11 +22,13 @@ export class QqMusicWindowsAdapter implements PlayerAdapter {
   readonly id = 'qq-music'
   readonly displayName = 'QQ 音乐'
   private readonly metadata: ProgressiveTrackMetadata<QqMusicVisuals>
+  private readonly runner: PowerShellRunner
 
   constructor(
-    private readonly runner: PowerShellRunner = new WindowsPowerShellRunner(),
+    runner: PowerShellRunner = new WindowsPowerShellRunner(),
     coverResolver: Pick<QqMusicCoverResolver, 'resolve'> = new QqMusicCoverResolver(),
   ) {
+    this.runner = runner
     this.metadata = new ProgressiveTrackMetadata(
       (track, signal) => coverResolver.resolve(track, signal),
       {

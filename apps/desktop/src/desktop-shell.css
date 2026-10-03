@@ -242,7 +242,7 @@ html[data-owl-wallpaper="on"] .owl-wallpaper-layer { display: block; }
 html[data-owl-wallpaper="on"] .owl-desktop-shell { background: transparent; }
 html[data-owl-wallpaper="on"] .owl-desktop-body { z-index: 1; }
 html[data-owl-wallpaper="on"] .owl-main-frame {
-	background: color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 82%), transparent);
+	background: color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent);
 	backdrop-filter: blur(16px);
 }
 html[data-owl-wallpaper="on"] .owl-main-frame .owl-chat-header {
@@ -258,7 +258,7 @@ html[data-owl-wallpaper="on"] .owl-activity-rail {
 }
 /* 设置页也透出壁纸：调滑杆时实时看到效果（面板本体 z:40 盖在壁纸上）。 */
 html[data-owl-wallpaper="on"] .owl-settings-page {
-	background: color-mix(in srgb, var(--owl-ui-canvas, var(--color-owl-bg)) var(--owl-wp-panel-mix, 82%), transparent);
+	background: color-mix(in srgb, var(--owl-ui-canvas, var(--color-owl-bg)) var(--owl-wp-panel-mix, 28%), transparent);
 	backdrop-filter: blur(16px);
 }
 
@@ -295,11 +295,19 @@ html[data-owl-wallpaper="on"] .owl-user-bubble {
 	background: color-mix(in srgb, var(--color-owl-bubble) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(10px);
 }
-/* 正文/标题直压壁纸：深色文字阴影描边保对比（玻璃模式锁定浅色文字，统一黑描边） */
+/* 正文/标题直压壁纸:阴影由染色玻璃档位派生(深玻璃重黑影/亮玻璃轻白晕) */
 html[data-owl-wallpaper="on"] .owl-answer,
 html[data-owl-wallpaper="on"] .owl-answer h1, html[data-owl-wallpaper="on"] .owl-answer h2,
 html[data-owl-wallpaper="on"] .owl-answer h3, html[data-owl-wallpaper="on"] .owl-answer h4 {
-	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45);
+	text-shadow: var(--owl-wp-text-shadow, 0 1px 3px rgba(0, 0, 0, 0.85));
+}
+html[data-owl-wallpaper="on"] .owl-chat-surface {
+	--owl-reading-text: var(--owl-glass-text, #e4e4e4);
+	--owl-reading-muted: var(--owl-glass-muted, #999);
+	--owl-reading-border: var(--owl-glass-border, #343434);
+	--owl-reading-panel: var(--owl-glass-code, #202020);
+	--owl-reading-code: var(--owl-glass-text, #ddbdad);
+	--owl-reading-link: var(--owl-glass-accent, #8bc4ed);
 }
 html[data-owl-wallpaper="on"] .owl-answer code,
 html[data-owl-wallpaper="on"] .owl-answer pre {
@@ -314,36 +322,46 @@ html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-2xl {
  * 开启动态壁纸即进入毛玻璃模式：锁定统一玻璃配色，不再跟随深色/浅色主题与主题预设
  * （本块在 index.css / 本文件各主题块之后加载，同特异性下后者胜出）。强调色
  * （--color-owl-accent，用户可自定义）不在此覆盖。关闭壁纸即整体恢复用户主题。 */
-/* 特异性 (0,2,1) 高于 index.css 的浅色/预设块 (0,1,1),不受 CSS 合并顺序影响 */
+/* 特异性 (0,2,1) 高于 index.css 的浅色/预设块 (0,1,1),不受 CSS 合并顺序影响。
+ * 全部色彩引用 --owl-glass-* 变量(wallpaper.ts 从壁纸主题色派生,含亮暗自适应),
+ * 换壁纸 = 整个 UI 换气质;强调色跟随壁纸,不再用设置页的 accent。 */
 html[data-owl-theme][data-owl-wallpaper="on"] {
 	color-scheme: dark;
-	--owl-conversation-bg: #1c1c1c;
-	--color-owl-bg: #202020;
-	--color-owl-sidebar: #1b1b1b;
-	--color-owl-rail: #171717;
-	--color-owl-panel: #2a2a2a;
-	--color-owl-bubble: #303030;
-	--color-owl-hover: #353535;
-	--color-owl-border: #454545;
-	--color-owl-sidebar-bg: #1d1d1d;
-	--color-owl-sidebar-surface: #272727;
-	--color-owl-sidebar-hover: #2b2b2b;
-	--color-owl-sidebar-selected: #343434;
-	--color-owl-sidebar-border: #333333;
-	--color-owl-sidebar-text: #ececec;
-	--color-owl-sidebar-muted: #a8a8a8;
-	--color-owl-sidebar-faint: #8d8d8d;
-	--color-owl-text: #ececec;
-	--color-owl-muted: #a8a8a8;
-	--color-owl-faint: #909090;
+	--owl-conversation-bg: var(--owl-glass-panel, #202020);
+	--color-owl-bg: var(--owl-glass-panel, #202020);
+	--color-owl-sidebar: var(--owl-glass-panel-2, #1b1b1b);
+	--color-owl-rail: var(--owl-glass-panel-2, #171717);
+	--color-owl-panel: var(--owl-glass-panel-3, #2a2a2a);
+	--color-owl-bubble: var(--owl-glass-panel-3, #303030);
+	--color-owl-hover: var(--owl-glass-hover, #353535);
+	--color-owl-border: var(--owl-glass-border, #454545);
+	--color-owl-sidebar-bg: var(--owl-glass-panel-2, #1d1d1d);
+	--color-owl-sidebar-surface: var(--owl-glass-panel, #272727);
+	--color-owl-sidebar-hover: var(--owl-glass-hover, #2b2b2b);
+	--color-owl-sidebar-selected: var(--owl-glass-hover, #343434);
+	--color-owl-sidebar-border: var(--owl-glass-border, #333333);
+	--color-owl-sidebar-text: var(--owl-glass-text, #ececec);
+	--color-owl-sidebar-muted: var(--owl-glass-muted, #a8a8a8);
+	--color-owl-sidebar-faint: var(--owl-glass-faint, #8d8d8d);
+	--color-owl-text: var(--owl-glass-text, #ececec);
+	--color-owl-muted: var(--owl-glass-muted, #a8a8a8);
+	--color-owl-faint: var(--owl-glass-faint, #909090);
+	--color-owl-accent: var(--owl-glass-accent, var(--color-owl-accent));
+	--color-owl-accent-hover: var(--owl-glass-accent-hover, var(--color-owl-accent));
 }
 html[data-owl-theme][data-owl-wallpaper="on"] .owl-desktop-shell {
-	--owl-ui-canvas: var(--owl-ui-canvas-override, #202020);
-	--owl-ui-panel: #2a2a2a;
-	--owl-ui-sidebar: #181818;
-	--owl-ui-border: #414141;
-	--owl-ui-text: var(--owl-ui-text-override, #ececec);
-	--owl-ui-muted: #a0a0a0;
-	--owl-ui-hover: #2e2e2e;
-	--owl-ui-menu-hover: #3a3a3a;
+	--owl-ui-canvas: var(--owl-ui-canvas-override, var(--owl-glass-panel, #202020));
+	--owl-ui-panel: var(--owl-glass-panel-3, #2a2a2a);
+	--owl-ui-sidebar: var(--owl-glass-panel-2, #181818);
+	--owl-ui-border: var(--owl-glass-border, #414141);
+	--owl-ui-text: var(--owl-ui-text-override, var(--owl-glass-text, #ececec));
+	--owl-ui-muted: var(--owl-glass-muted, #a0a0a0);
+	--owl-ui-hover: var(--owl-glass-hover, #2e2e2e);
+	--owl-ui-menu-hover: var(--owl-glass-hover, #3a3a3a);
+	--owl-ui-accent-soft: var(--owl-glass-accent-soft, color-mix(in srgb, var(--color-owl-accent) 12%, transparent));
+}
+/* 玻璃模式:标题栏压在壁纸最上沿(往往是壁纸最亮的部分),给它一层独立的薄纱保对比。 */
+html[data-owl-wallpaper="on"] .owl-desktop-titlebar {
+	background: color-mix(in srgb, var(--owl-glass-panel-2, #181818) 52%, transparent);
+	backdrop-filter: blur(14px);
 }

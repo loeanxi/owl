@@ -103,11 +103,13 @@ export function resumeStartPercent(targetPercent: number): number {
 
 /** Why a transition stopped before reaching its target. */
 export class TransitionAbortedError extends Error {
+  readonly reason: 'player-changed' | 'volume-overridden'
   constructor(
-    public readonly reason: 'player-changed' | 'volume-overridden',
+    reason: 'player-changed' | 'volume-overridden',
     message: string,
   ) {
     super(message)
+    this.reason = reason
     this.name = 'TransitionAbortedError'
   }
 }
