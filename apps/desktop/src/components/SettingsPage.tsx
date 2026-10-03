@@ -477,12 +477,121 @@ export function SettingsPage({
 		})();
 		void loadArchive();
 		void loadMemory();
+		void loadImageConfig();
 	}, [client]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 进入「图像生成」分区时刷新一次（订阅登录发生在浏览器里，回来要看新状态）。
+	useEffect(() => {
+		if (section === "image") void loadImageConfig();
+	}, [section]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	/** 拉取跨会话记忆（条目 + 开关）。 */
 	async function loadMemory(): Promise<void> {
 		const response = await client.request<MemoryListResult>({ type: "memory.list" });
 		if (response.ok && response.result) setMemory(response.result);
+	}
+
+	// ---- 图像生成（owl-image）：imageConfig.* / imageSub.* ----
+
+	async function loadImageConfig(): Promise<void> {
+		const response = await client.request<ImageConfigGetResult>({ type: "imageConfig.get" });
+		if (response.ok && response.result) {
+			setImageData(response.result);
+			setImageCfg(response.result.config);
+		}
+	}
+
+	/** 保存配置 + 密钥（新值非空写入、勾选清除的删行），成功后回读刷新状态。 */
+	async function saveImageConfig(): Promise<void> {
+		setBusy(true);
+		setError("");
+		setImageSaved(false);
+		try {
+			const apiKeys: Record<string, string> = {};
+			for (const [provider, value] of Object.entries(imageKeys)) {
+				const trimmed = (value ?? "").trim();
+				if (trimmed.length > 0) apiKeys[provider] = trimmed;
+			}
+			for (const [provider, checked] of Object.entries(imageKeyClear)) {
+				if (checked === true && apiKeys[provider] === undefined) apiKeys[provider] = "";
+			}
+			const response = await client.request<{ ok: boolean }>({
+				type: "imageConfig.set",
+				config: imageCfg,
+				...(Object.keys(apiKeys).length > 0 ? { apiKeys } : {}),
+			});
+			if (response.ok) {
+				setImageKeys({});
+				setImageKeyClear({});
+				setImageSaved(true);
+				if (savedTimer.current) clearTimeout(savedTimer.current);
+				savedTimer.current = setTimeout(() => setImageSaved(false), 3000);
+				await loadImageConfig();
+			} else {
+				setError(response.error ?? t("common.operationFailed"));
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** Google 订阅登录：桥端起回环服务器并自动开浏览器；URL 仅作展示兜底。 */
+	async function imageSubLogin(): Promise<void> {
+		setBusy(true);
+		setError("");
+		setImageSubHint("");
+		try {
+			const response = await client.request<{ ok: boolean; url?: string }>({ type: "imageSub.login" });
+			if (response.ok) {
+				setImageSubHint(`${t("settings.image.subLoginStarted")}${response.result?.url ? `\n${response.result.url}` : ""}`);
+			} else {
+				setError(response.error ?? t("common.operationFailed"));
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function imageSubLogout(): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({ type: "imageSub.logout" });
+			if (response.ok) {
+				setImageSubHint("");
+				await loadImageConfig();
+			} else {
+				setError(response.error ?? t("common.operationFailed"));
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 追加一条 ComfyUI 工作流到待保存配置（客户端先做轻校验，服务端再验一遍）。 */
+	function addComfyWorkflow(): void {
+		const name = comfyForm.name.trim();
+		const json = comfyForm.json.trim();
+		if (name.length === 0 || json.length === 0) {
+			setError(t("settings.image.comfyAdd") + ": name/json 不能为空");
+			return;
+		}
+		try {
+			JSON.parse(json);
+		} catch {
+			setError(t("settings.image.comfyAdd") + ": json 不是合法 JSON");
+			return;
+		}
+		const workflows = [...(imageCfg.comfyuiWorkflows ?? [])];
+		if (workflows.some((w) => w.name === name)) {
+			setError(`「${name}」已存在`);
+			return;
+		}
+		const preset = comfyForm.preset.trim();
+		workflows.push(preset.length > 0 ? { name, json, presetPrompt: preset } : { name, json });
+		setImageCfg((prev) => ({ ...prev, comfyuiWorkflows: workflows, ...(prev.comfyuiActiveWorkflow ? {} : { comfyuiActiveWorkflow: name }) }));
+		setComfyForm({ name: "", json: "", preset: "" });
+		setError("");
 	}
 
 	/** 开/关跨会话记忆：写 settings.owlMemory.enabled，新会话生效。 */
@@ -979,6 +1088,7 @@ export function SettingsPage({
 						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => setSection("prompts")} />
 					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => setSection("memory")} />
+						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => setSection("image")} />
 						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
 						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
