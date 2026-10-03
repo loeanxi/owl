@@ -18,6 +18,17 @@
   const block = (id, title, body, desc = '') => `<section class="settings-section" data-fd-id="settings-section-${id}"><div style="margin-bottom:14px">${text(`settings-section-title-${id}`, title, 'h3', 'subheading')}${desc ? text(`settings-section-description-${id}`, desc, 'p', 'muted small') : ''}</div>${body}</section>`;
   const footer = () => '';
   const sourceHint = () => '';
+  const authPrompt = (type = 'text') => {
+    const prompts = {
+      text: ['企业域名', '填写企业登录使用的域名。', i('auth-answer-text', '', '例如 github.example.invalid')],
+      secret: ['补充授权密钥', '填写登录流程请求的密钥。', i('auth-answer-secret', '', '输入授权密钥', 'password')],
+      manual_code: ['手动授权码', '将浏览器提供的授权码粘贴到这里。', i('auth-answer-manual-code', '', '输入浏览器提供的授权码')],
+      select: ['选择登录方式', '选择当前账号使用的登录方式。', s('auth-answer-select', [['personal', '个人账号'], ['enterprise', '企业账号']], 'personal')]
+    };
+    const prompt = prompts[type] || prompts.text;
+    return `<div class="notice warning" data-fd-id="settings-auth-prompt-${type}"><div class="subheading">${prompt[0]}</div><p class="muted small" style="margin:5px 0 10px">${prompt[1]}</p><div style="display:flex;gap:8px;align-items:center">${prompt[2]}${b('提交', 'auth-answer', 'primary', `auth-answer-${type}`)}</div><div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span class="small muted">${type === 'manual_code' ? '设备码：OWL-DEMO' : '等待补充授权信息'}</span>${b('取消登录', 'auth-cancel', 'ghost', `auth-cancel-${type}`)}</div></div>`;
+  };
+  const oauthHtml = (promptType = 'text') => `<div class="form-stack">${f('quick-provider','选择服务','选择已有账号的模型服务。',s('quick-provider',[['demo-browser','浏览器授权服务'],['demo-api','API Key 服务']],'demo-browser'))}<div class="card" style="padding:18px"><div style="display:flex;align-items:center;gap:10px">${icon('browser',20)}<span class="subheading">浏览器授权</span></div><p class="muted small" style="margin:8px 0 14px">授权完成后，回到 Owl 继续。</p>${b('打开浏览器继续','oauth-start','primary')}<label style="display:flex;align-items:center;gap:9px;margin-top:14px" data-fd-id="settings-enterprise-login"><input type="checkbox" data-fd-id="settings-field-enterprise" data-fd-editable="value"><span class="small">使用 GitHub 企业版</span></label></div><div class="card" style="padding:18px">${f('quick-api-key','API Key','粘贴服务提供的密钥。',i('quick-api-key','','输入 API Key','password'))}<div style="display:flex;justify-content:flex-end;margin-top:12px">${b('保存 API Key','api-key-save','primary')}</div></div>${authPrompt(promptType)}</div>`;
 
   const providers = [
     {id:'team-gateway', name:'团队网关', letter:'T', protocol:'OpenAI 兼容', count:3, models:[['owl-code-pro','Owl Code Pro','128k','8k','推理'],['owl-chat','Owl Chat','64k','8k','通用'],['owl-vision','Owl Vision','128k','16k','视觉']]},
@@ -69,7 +80,7 @@
     },
     prompts: {
       title:'提示词', description:'告诉 Owl 怎样与你协作，也可以查看和编辑它对你的了解。',
-      html: () => `<div class="form-stack">${effect('prompts','保存后用于新会话','长期指令和用户印象追加在内置规则之后。')}${block('custom-instructions','长期指令',`${ta('custom-instructions','回复使用中文，先说明结论。\n解释代码时给出具体示例。\n完成改动后简要说明验证结果。','写下你的沟通偏好与工作约定。',145)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">留空时使用 Owl 默认规则。</span>${b('保存长期指令','save','primary','save-custom-instructions')}</div>`)}${block('user-impression','我的档案',`${ta('user-impression','这是用于预览的示例档案。\n偏好：使用中文交流，关注修改原因与验证结果。','Owl 会在聊天中记录值得记住的偏好，你也可以直接编辑。',110)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">Owl 在聊天中也会更新这份档案。</span>${b('保存档案','save','primary','save-user-impression')}</div>`)}${block('builtin-prompts','内置规则',`<div class="card" style="padding:0 16px">${builtinNames.map(item=>`<details data-fd-id="settings-builtin-${item[0]}" style="border-bottom:1px solid var(--color-owl-border);padding:12px 0"><summary style="cursor:pointer;font-size:13px">${text(`settings-builtin-title-${item[0]}`,item[1])} <span class="muted small" style="float:right">只读</span></summary><p class="muted small" style="padding:10px 0 0;line-height:1.7">${item[2]}<br>此处为结构示意，实际内容由当前会话环境组装。</p></details>`).join('')}</div>`,'查看构成当前系统提示词的规则分区。')}</div>`
+      html: () => `<div class="form-stack">${effect('prompts','保存后用于新会话','长期指令和用户印象追加在内置规则之后。')}${block('custom-instructions','长期指令',`${ta('custom-instructions','回复使用中文，先说明结论。\n解释代码时给出具体示例。\n完成改动后简要说明验证结果。','写下你的沟通偏好与工作约定。',145)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">留空时使用 Owl 默认规则。</span>${b('保存长期指令','save','primary','save-custom-instructions')}</div>`)}${block('user-impression','我的档案',`${ta('user-impression','偏好：使用中文交流，关注修改原因与验证结果。','Owl 会在聊天中记录值得记住的偏好，你也可以直接编辑。',110)}<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px"><span class="muted small">Owl 在聊天中也会更新这份档案。</span>${b('保存档案','save','primary','save-user-impression')}</div>`)}${block('builtin-prompts','内置规则',`<div class="card" style="padding:0 16px">${builtinNames.map(item=>`<details data-fd-id="settings-builtin-${item[0]}" style="border-bottom:1px solid var(--color-owl-border);padding:12px 0"><summary style="cursor:pointer;font-size:13px">${text(`settings-builtin-title-${item[0]}`,item[1])} <span class="muted small" style="float:right">只读</span></summary><p class="muted small" style="padding:10px 0 0;line-height:1.7">${item[2]}</p></details>`).join('')}</div>`,'查看构成当前系统提示词的规则分区。')}</div>`
     },
     archive: {
       title:'归档', description:'管理暂时收起的会话，并设置自动清理时间。',
@@ -85,7 +96,7 @@
     },
     about: {
       title:'关于 Owl', description:'你的桌面 AI 工作伙伴。',
-      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0 <span class="small">（示例）</span></div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
+      html: () => `<div class="form-stack"><div style="padding:20px 0 28px;border-bottom:1px solid var(--color-owl-border);display:flex;gap:18px;align-items:center" data-fd-id="settings-product"><div style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:rgba(47,158,90,.1);color:#2f9e5a">${icon('leaf',36)}</div><div>${text('settings-product-name','Owl','h2')}<div class="muted" style="margin-top:6px">桌面版 <span style="padding:0 6px">·</span> v0.1.0</div></div></div>${block('about-product','产品信息',`<div class="card" style="padding:0 18px">${r('product-foundation','运行基础','基于 pi coding agent 的桌面应用。',pill('桌面版'))}${r('model-total','已配置模型','来自你的供应商配置。','<span class="small">3 个供应商 · 5 个模型</span>')}</div>`)}${block('about-environment','本机数据',`<div class="card" style="padding:18px">${text('settings-about-path-title','Owl 数据目录','div','subheading')}<div class="code muted small" style="margin-top:10px;overflow-wrap:anywhere" data-fd-id="settings-about-data-path">D:\\owl\\demo-data</div><p class="muted small" style="margin-top:8px">保存设置、模型声明与会话历史。</p></div>`)}${sourceHint()}</div>`
     }
   };
 
@@ -100,7 +111,23 @@
     },
     oauth: {
       title:'连接模型服务', description:'通过账号授权或 API Key 接入。',
-      html: () => `<div class="form-stack">${f('quick-provider','选择服务','原型展示的是示例厂商。',s('quick-provider',[['demo-browser','示例服务 · 支持浏览器授权'],['demo-api','示例服务 · API Key']],'demo-browser'))}<div class="card" style="padding:18px"><div style="display:flex;align-items:center;gap:10px">${icon('browser',20)}<span class="subheading">浏览器授权</span></div><p class="muted small" style="margin:8px 0 14px">授权完成后，回到 Owl 继续。</p>${b('打开浏览器继续','oauth-start','primary')}<label style="display:flex;align-items:center;gap:9px;margin-top:14px" data-fd-id="settings-enterprise-login"><input type="checkbox" data-fd-id="settings-field-enterprise" data-fd-editable="value"><span class="small">使用 GitHub 企业版</span></label></div><div class="card" style="padding:18px">${f('quick-api-key','API Key','粘贴服务提供的密钥。',i('quick-api-key','','输入 API Key','password'))}<div style="display:flex;justify-content:flex-end;margin-top:12px">${b('保存 API Key','api-key-save','primary')}</div></div><div class="notice warning" data-fd-id="settings-auth-prompt"><div class="subheading">登录流程需要输入</div><p class="muted small" style="margin:5px 0 10px">设备验证码 / 企业域名 / 手动授权码在此处提交。</p><div style="display:flex;gap:8px">${i('auth-answer','','输入授权流程提供的信息')}${b('提交','auth-answer','primary')}</div><div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span class="small muted">示例设备码：OWL-DEMO</span>${b('取消登录','auth-cancel','ghost')}</div></div></div>`
+      html: () => oauthHtml()
+    },
+    oauthText: {
+      title:'连接模型服务', description:'授权流程 · 企业域名',
+      html: () => oauthHtml('text')
+    },
+    oauthSecret: {
+      title:'连接模型服务', description:'授权流程 · 密钥输入',
+      html: () => oauthHtml('secret')
+    },
+    oauthManualCode: {
+      title:'连接模型服务', description:'授权流程 · 手动授权码',
+      html: () => oauthHtml('manual_code')
+    },
+    oauthSelect: {
+      title:'连接模型服务', description:'授权流程 · 选项回答',
+      html: () => oauthHtml('select')
     },
     authSuccess: {
       title:'连接完成', description:'你的模型服务已准备好。',
