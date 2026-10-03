@@ -1,9 +1,10 @@
 import { useT } from "../i18n/index.ts";
+import { useMediaPlayingDot } from "../features/media/use-media.ts";
 import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map" | "news" | "mail" | "evaluation";
+export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -22,6 +23,7 @@ export function ActivityRail({
 	onOpenSettings: () => void;
 }): React.JSX.Element {
 	const t = useT();
+	const mediaPlaying = useMediaPlayingDot();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 
 	return (
@@ -91,6 +93,23 @@ export function ActivityRail({
 					<rect x="3" y="5" width="18" height="14" rx="2" />
 					<path d="m3 6 9 7 9-7" />
 				</svg>
+			</button>
+
+			{/* 媒体桥（owl-media-bridge 插件）：音乐一等视图入口；绿点 = 有播放器正在播放。 */}
+			<button
+				type="button"
+				className={itemClass(view === "media" && !settingsOpen)}
+				title={t("rail.media")}
+				aria-label={t("rail.media")}
+				aria-current={view === "media" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("media")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<path d="M9 18V6l11-2v11" />
+					<circle cx="6.5" cy="18" r="2.6" />
+					<circle cx="17.5" cy="15" r="2.6" />
+				</svg>
+				{mediaPlaying && <span className="owl-rail-media-dot" aria-hidden="true" />}
 			</button>
 
 			{/* 底部：owl 头像位。先复用为设置入口，后续可挂账号/状态菜单。 */}

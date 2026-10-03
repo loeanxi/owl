@@ -51,6 +51,7 @@ import { MailService, type MailServiceOptions } from "../../core/mail/service.ts
 import type { MailAgentContext } from "../../core/mail/types.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
+import { getMediaBridgeHttpHandler } from "../../core/media-bridge-channel.ts";
 import { ModelRegistry } from "../../core/model-registry.ts";
 import { NewsService, type NewsServiceOptions } from "../../core/news/service.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
@@ -125,7 +126,6 @@ import {
 } from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
 import { handleWallpaperHttp } from "./wallpaper-http.ts";
-import { getMediaBridgeHttpHandler } from "../../core/media-bridge-channel.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）

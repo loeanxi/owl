@@ -10,6 +10,8 @@ import { NewsPage } from "./features/news/NewsPage.tsx";
 import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
 import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
+import { MediaView } from "./features/media/MediaView.tsx";
+import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
@@ -100,10 +102,12 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "mail" || view === "map" || view === "evaluation" ? view : "chat";
+		return view === "mail" || view === "map" || view === "evaluation" || view === "media" ? view : "chat";
 	});
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
+	// 媒体桥视图懒挂载：首次点开 Rail「音乐」才渲染，之后保活（保留 tab/滚动位置）。
+	const [mediaMounted, setMediaMounted] = useState(railView === "media");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -1084,10 +1088,12 @@ export default function App(): React.JSX.Element {
 	return (
 		<div className="owl-desktop-shell font-sans text-owl-text">
 			<WallpaperLayer settings={wallpaper} />
+			{/* 媒体桥全局覆盖层（顶部歌词条 + 深背景）：各自有开关，默认都不渲染。 */}
+			<MediaOverlays />
 			<DesktopTitlebar
 				connected={connected}
 				sidebarCollapsed={railView === "news" && !showSettings ? newsSidebarMinimized : sidebarMinimized || showSettings}
-				sidebarView={railView}
+				sidebarView={railView === "media" ? "chat" : railView}
 				sidebarToggleRef={sidebarToggleRef}
 				workbenchOpen={workbenchOpen}
 				workbenchDock={workbenchDock}
@@ -1127,7 +1133,7 @@ export default function App(): React.JSX.Element {
 			<ActivityRail
 				view={railView}
 				settingsOpen={showSettings}
-				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); }}
+				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); }}
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
 			<SessionSidebar
@@ -1181,6 +1187,10 @@ export default function App(): React.JSX.Element {
 			</div>}
 			{evaluationMounted && <div style={{ display: railView === "evaluation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<EvaluationPage client={client} active={railView === "evaluation" && !showSettings} sidebarCollapsed={sidebarMinimized} />
+			</div>}
+			{/* 媒体桥（owl-media-bridge 插件）：Rail 一等视图，纯新增入口。 */}
+			{mediaMounted && <div style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
 			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">

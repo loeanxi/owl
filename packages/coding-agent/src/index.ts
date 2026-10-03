@@ -247,6 +247,15 @@ export {
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
 export type { RegisteredMcpServer } from "./core/mcp-servers.ts";
+// 「媒体桥」HTTP 通道：桌面桥分发链取用，插件（owl-media-bridge）经此别名注入
+export {
+	getMediaBridgeHttpHandler,
+	type MediaBridgeHttpHandler,
+	type MediaBridgeHttpOptions,
+	type MediaBridgeHttpRequest,
+	type MediaBridgeHttpResponse,
+	setMediaBridgeHttpHandler,
+} from "./core/media-bridge-channel.ts";
 export { convertToLlm } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export {
@@ -285,15 +294,6 @@ export {
 	resolveQuestion,
 	setQuestionChannel,
 } from "./core/question-channel.ts";
-// 「媒体桥」HTTP 通道：桌面桥分发链取用，插件（owl-media-bridge）经此别名注入
-export {
-	getMediaBridgeHttpHandler,
-	type MediaBridgeHttpHandler,
-	type MediaBridgeHttpOptions,
-	type MediaBridgeHttpRequest,
-	type MediaBridgeHttpResponse,
-	setMediaBridgeHttpHandler,
-} from "./core/media-bridge-channel.ts";
 export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
 // SDK for programmatic usage
