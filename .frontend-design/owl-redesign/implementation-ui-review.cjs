@@ -21,8 +21,9 @@ case 'systemPrompt.preview':result={sections:{preamble:'示例基础规则',tool
 case 'memory.list':result={enabled:true,entries:[]};break;
 case 'skills.list':result={roots:{personal:'D:/owl/ui-review-fixture/skills',global:'D:/owl/ui-review-fixture/global-skills',project:'D:/owl/ui-review-fixture/project/.owl/skills'},skills:[],projectTrusted:true};break;
 case 'session.archiveConfig':result={retentionDays:15,sessions:[]};break;
-case 'fs.tree':result={path:msg.path||'.',truncated:false,entries:[{name:'src',path:'src',isDir:true},{name:'App.tsx',path:'App.tsx',isDir:false},{name:'README.md',path:'README.md',isDir:false}]};break;
+case 'fs.tree':result={path:msg.path||'.',truncated:false,entries:[{name:'src',path:'src',isDir:true},{name:'App.tsx',path:'App.tsx',isDir:false},{name:'owl.svg',path:'owl.svg',isDir:false},{name:'README.md',path:'README.md',isDir:false}]};break;
 case 'fs.read':result={kind:'text',content:'export const ui = "OWL";\n',size:24,truncated:false};break;
+case 'fs.readBin':result={base64:fs.readFileSync(path.join(dir,'../../apps/desktop/public/owl.svg')).toString('base64'),mediaType:'image/svg+xml',size:2048,truncated:false};break;
 case 'fs.search':result=[];break;
 case 'git.status':result={repo:true,branch:'main',upstream:'origin/main',entries:[{path:'App.tsx',x:' ',y:'M'}]};break;
 case 'git.diff':result={diff:'diff --git a/App.tsx b/App.tsx\n--- a/App.tsx\n+++ b/App.tsx\n@@ -1 +1 @@\n-old\n+new\n'};break;
@@ -41,6 +42,8 @@ await page.locator('.owl-activity-rail').getByRole('button',{name:'设置',exact
 await page.getByRole('button',{name:'帮助',exact:true}).click();await page.getByRole('menuitem',{name:'关于 OWL',exact:true}).click();await page.getByRole('button',{name:'返回工作区',exact:true}).click();
 await page.locator('.owl-start-page').getByRole('button',{name:/浏览(?:项目)?文件/}).click();await page.locator('.owl-workbench-shell:visible').waitFor();await page.waitForTimeout(100);await page.screenshot({path:path.join(shots,theme+'-files.png')});
 const quicks=await page.locator('.owl-workbench-shortcuts button').evaluateAll(bs=>bs.map(b=>b.getAttribute('title')));for(let i=0;i<quicks.length;i++){if(!quicks[i])continue;await page.locator('.owl-workbench-shortcuts').getByRole('button',{name:quicks[i],exact:true}).click();await page.waitForTimeout(80);await page.screenshot({path:path.join(shots,theme+'-workbench-'+i+'.png')});}
+await page.locator('.owl-workbench-shortcuts').getByRole('button',{name:'文件',exact:true}).click();await page.locator('.owl-workbench-pane[data-tab-kind="files"]:visible').getByText('App.tsx',{exact:true}).click();await page.locator('.owl-workbench-pane[data-tab-kind="editor"]:visible .cm-editor').waitFor();await page.screenshot({path:path.join(shots,theme+'-editor.png')});
+await page.locator('.owl-workbench-shortcuts').getByRole('button',{name:'文件',exact:true}).click();await page.locator('.owl-workbench-pane[data-tab-kind="files"]:visible').getByText('owl.svg',{exact:true}).click();await page.locator('.owl-workbench-pane[data-tab-kind="image"]:visible img').waitFor();await page.screenshot({path:path.join(shots,theme+'-image.png')});
 }
 scenario='chat';await page.goto('http://127.0.0.1:18970');await page.waitForTimeout(300);await page.screenshot({path:path.join(shots,'protected-chat.png')});
 await page.setViewportSize({width:936,height:672});scenario='home';await page.goto('http://127.0.0.1:18970');await page.locator('.owl-start-page').waitFor();await page.screenshot({path:path.join(shots,'light-home-small.png')});report.push({theme:'light',view:'home-small',outer:await page.locator('.owl-desktop-shell').evaluate(el=>({w:el.scrollWidth,cw:el.clientWidth,h:el.scrollHeight,ch:el.clientHeight}))});

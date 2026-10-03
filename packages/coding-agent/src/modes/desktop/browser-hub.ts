@@ -297,9 +297,10 @@ export class BrowserHub {
 		try {
 			if (payload.kind === "mouse") {
 				const button = payload.button ?? "left";
-				if (payload.action === "move") await page.mouse.move(payload.x, payload.y);
-				else if (payload.action === "down") await page.mouse.down({ button });
-				else await page.mouse.up({ button });
+				// 视口/显示缩放变化后，按下与抬起也要使用这次请求的坐标。
+				await page.mouse.move(payload.x, payload.y);
+				if (payload.action === "down") await page.mouse.down({ button });
+				else if (payload.action === "up") await page.mouse.up({ button });
 			} else if (payload.kind === "wheel") {
 				await page.mouse.move(payload.x, payload.y);
 				await page.mouse.wheel(payload.deltaX, payload.deltaY);
@@ -633,12 +634,12 @@ export class BrowserHub {
 						const pages = this.listPages();
 						if (pages.length === 0) return text("（当前没有打开的页面）");
 						return text(
-							pages
+							`${pages
 								.map(
 									(page) =>
 										`${page.active ? "* " : "  "}${page.pageId.slice(0, 8)}  ${page.title || "(无标题)"}  ${page.url}`,
 								)
-								.join("\n") + "\n（* = agent 当前作用页）",
+								.join("\n")}\n（* = agent 当前作用页）`,
 						);
 					}
 					if (action === "new") {

@@ -14,7 +14,17 @@
  * - 创建/编辑内容上限 64KB；名称/描述按 Agent Skills 规范校验。
  */
 
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { getAgentDir, getGlobalSkillsDir } from "../../config.ts";

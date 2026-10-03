@@ -715,7 +715,10 @@ export default function App(): React.JSX.Element {
 				sidebarCollapsed={sidebarMinimized || showSettings}
 				sidebarToggleRef={sidebarToggleRef}
 				onToggleSidebar={() => {
-					if (showSettings) setShowSettings(false);
+					if (showSettings) {
+						setShowSettings(false);
+						if (sidebarMinimized) toggleSessionSidebar();
+					}
 					else toggleSessionSidebar();
 				}}
 				onNewChat={() => {
@@ -732,8 +735,14 @@ export default function App(): React.JSX.Element {
 					setSettingsInitialTab("about");
 					setShowSettings(true);
 				}}
-				onDockRight={() => togglePanelAt("right")}
-				onDockBottom={() => togglePanelAt("bottom")}
+				onDockRight={() => {
+					setShowSettings(false);
+					togglePanelAt("right");
+				}}
+				onDockBottom={() => {
+					setShowSettings(false);
+					togglePanelAt("bottom");
+				}}
 				onOpenDeveloper={openDeveloper}
 			/>
 			<div className="owl-desktop-body">

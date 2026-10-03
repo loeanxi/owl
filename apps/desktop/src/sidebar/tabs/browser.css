@@ -1,0 +1,105 @@
+.owl-browser .owl-browser-responsive-toggle {
+	width: auto;
+	flex-shrink: 0;
+	gap: 4px;
+	padding: 0 6px;
+	font-size: 11px;
+}
+
+.owl-browser-responsive-toggle svg {
+	width: 14px;
+	height: 14px;
+}
+
+.owl-browser-responsive-toggle[aria-pressed="true"] {
+	background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+	color: var(--color-owl-accent);
+}
+
+.owl-browser-responsive-toolbar {
+	display: flex;
+	flex-shrink: 0;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 1px solid color-mix(in srgb, var(--color-owl-border) 40%, transparent);
+	background: var(--color-owl-panel);
+	color: var(--color-owl-muted);
+	font-size: 11px;
+}
+
+.owl-browser-device,
+.owl-browser-dimensions,
+.owl-browser-dimensions label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.owl-browser-device {
+	flex: 0 1 200px;
+}
+
+.owl-browser-device > span {
+	flex-shrink: 0;
+}
+
+.owl-browser-responsive-toolbar select,
+.owl-browser-responsive-toolbar input {
+	height: 26px;
+	min-width: 0;
+	border: 1px solid color-mix(in srgb, var(--color-owl-border) 55%, transparent);
+	border-radius: 6px;
+	background: var(--color-owl-bg);
+	color: var(--color-owl-text);
+	padding: 0 6px;
+	outline: none;
+	font-size: 11px;
+}
+
+.owl-browser-device select {
+	width: 100%;
+	text-overflow: ellipsis;
+}
+
+.owl-browser-responsive-toolbar select:focus,
+.owl-browser-responsive-toolbar input:focus {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 65%, transparent);
+}
+
+.owl-browser-responsive-toolbar :disabled {
+	opacity: 0.45;
+}
+
+.owl-browser-dimensions input {
+	width: 58px;
+	text-align: center;
+	font-family: monospace;
+	appearance: textfield;
+}
+
+.owl-browser-dimensions input::-webkit-inner-spin-button,
+.owl-browser-dimensions input::-webkit-outer-spin-button {
+	margin: 0;
+	-webkit-appearance: none;
+}
+
+.owl-browser-zoom {
+	width: 98px;
+}
+
+.owl-browser-responsive-close {
+	margin-left: auto;
+}
+
+.owl-browser-viewport-error {
+	flex-basis: 100%;
+	color: var(--color-owl-danger, #f87171);
+	overflow-wrap: anywhere;
+}
+
+.owl-browser-stage {
+	overscroll-behavior: contain;
+}

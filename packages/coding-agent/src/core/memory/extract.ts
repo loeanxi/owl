@@ -16,11 +16,11 @@ import { getDefaultSessionDirPath } from "../session-manager.ts";
 import {
 	appendMemoryEntries,
 	applyMemoryMerges,
+	type MemoryMerge,
 	markExtracted,
+	type OwlMemoryEntry,
 	readExtractedMarkers,
 	readMemoryEntries,
-	type MemoryMerge,
-	type OwlMemoryEntry,
 } from "./store.ts";
 
 /** 每次会话启动最多抽取几个历史会话，防止冷启动风暴。 */
@@ -43,23 +43,34 @@ export interface ExtractMemoriesOptions {
 	log?: (message: string) => void;
 }
 
-/** 追加同 cwd 未抽取的历史会话记忆。返回本次新增条数。 */
-export async function extractMemoriesFromPreviousSessions(
-	options: ExtractMemoriesOptions,
-): Promise<{ sessionsProcessed: number; memoriesAdded: number }> {
+/** 追加同 cwd 未抽取的历史会话记忆。返回新增条数与强化的已有条数。 */
+export async function extractMemoriesFromPreviousSessions(options: ExtractMemoriesOptions): Promise<{
+	sessionsProcessed: number;
+	memoriesAdded: number;
+	memoriesStrengthened: number;
+}> {
 	const { agentDir, cwd, model, modelRegistry, currentSessionFile, log } = options;
-	if (inFlight.has(agentDir)) return { sessionsProcessed: 0, memoriesAdded: 0 };
+	if (inFlight.has(agentDir)) return { sessionsProcessed: 0, memoriesAdded: 0, memoriesStrengthened: 0 };
 	inFlight.add(agentDir);
 	try {
 		const candidates = listUnextractedSessions(agentDir, cwd, currentSessionFile);
-		if (candidates.length === 0) return { sessionsProcessed: 0, memoriesAdded: 0 };
+		if (candidates.length === 0) return { sessionsProcessed: 0, memoriesAdded: 0, memoriesStrengthened: 0 };
 		const batch = candidates.slice(0, MAX_SESSIONS_PER_RUN);
 		let memoriesAdded = 0;
+		let memoriesStrengthened = 0;
 		for (const sessionFile of batch) {
 			try {
-				const added = await extractFromSessionFile(agentDir, cwd, sessionFile, model, modelRegistry, log);
+				const { added, strengthened } = await extractFromSessionFile(
+					agentDir,
+					cwd,
+					sessionFile,
+					model,
+					modelRegistry,
+					log,
+				);
 				markExtracted(agentDir, [sessionFile]);
 				memoriesAdded += added.length;
+				memoriesStrengthened += strengthened;
 			} catch (error) {
 				// 单个会话失败不阻断批次；标记跳过避免反复踩同一个坑
 				markExtracted(agentDir, [sessionFile]);
@@ -68,7 +79,7 @@ export async function extractMemoriesFromPreviousSessions(
 				);
 			}
 		}
-		return { sessionsProcessed: batch.length, memoriesAdded };
+		return { sessionsProcessed: batch.length, memoriesAdded, memoriesStrengthened };
 	} finally {
 		inFlight.delete(agentDir);
 	}
@@ -173,7 +184,10 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 	{ name: "aws_access_key", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
 	{ name: "google_api_key", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
 	{ name: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g },
-	{ name: "private_key_block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
+	{
+		name: "private_key_block",
+		pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+	},
 	{
 		name: "database_url",
 		pattern: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s'"]*:[^\s'"@/]*@[^\s'"]+/g,
@@ -211,9 +225,10 @@ const EXTRACTION_SYSTEM_PROMPT = `你是一个记忆抽取器。输入是一段�
 你的任务：提取值得跨会话长期记住的"稳定记忆"，输出 JSON。
 
 只提取以下几类：
-- 用户表达的持久偏好（语言、沟通风格、代码习惯、工具选择）
-- 项目/环境的稳定事实（构建命令、目录结构约定、部署方式、本机特殊性）
-- 重要的长期决策（选型、架构方向、命名约定）
+- 用户表达的持久偏好（语言、沟通风格、代码习惯、工具选择）→ scope 标 "global"
+- 本机/跨项目的环境特点（操作系统、Shell、代理设置）→ scope 标 "global"
+- 项目/环境的稳定事实（构建命令、目录结构约定、部署方式）→ scope 标 "project"
+- 重要的长期决策（选型、架构方向、命名约定）→ scope 标 "project"
 
 不要提取：
 - 一次性任务细节、临时调试过程、具体 bug 修复内容
@@ -222,11 +237,12 @@ const EXTRACTION_SYSTEM_PROMPT = `你是一个记忆抽取器。输入是一段�
 - 没有明确证据的推测
 
 输出格式（仅输出 JSON，不要 markdown 代码块、不要解释）：
-{"memories":[{"content":"一条独立的记忆，第三人称、具体、简短（不超过 80 字）"}]}
+{"memories":[{"content":"一条独立的记忆，第三人称、具体、简短（不超过 80 字）","scope":"project"}]}
 
+scope 只能是 "project"（只对当前项目有效）或 "global"（跨项目有效的用户偏好/环境特点）。
 没有值得记的就输出：{"memories":[]}`;
 
-/** 对单个会话文件做抽取，返回新增的记忆条目。 */
+/** 对单个会话文件做抽取，返回新增的记忆条目（重复内容会强化已有条目的证据计数）。 */
 async function extractFromSessionFile(
 	agentDir: string,
 	cwd: string,
@@ -234,9 +250,9 @@ async function extractFromSessionFile(
 	model: Model<any>,
 	modelRegistry: Pick<ModelRegistry, "streamSimple">,
 	log?: (message: string) => void,
-): Promise<OwlMemoryEntry[]> {
+): Promise<{ added: OwlMemoryEntry[]; strengthened: number }> {
 	const { userTexts, transcript } = parseSessionTranscript(sessionFilePath);
-	if (userTexts.length < MIN_USER_MESSAGES || !transcript) return [];
+	if (userTexts.length < MIN_USER_MESSAGES || !transcript) return { added: [], strengthened: 0 };
 	const response = await modelRegistry
 		.streamSimple(
 			model,
@@ -255,32 +271,173 @@ async function extractFromSessionFile(
 		.result();
 	if (response.stopReason === "error" || response.stopReason === "aborted") {
 		log?.(`memory extraction stream ended with ${response.stopReason}`);
-		return [];
+		return { added: [], strengthened: 0 };
 	}
 	const text = messageText(response.content);
 	const memories = parseMemoryPayload(text);
-	if (memories.length === 0) return [];
-	return appendMemoryEntries(
+	if (memories.length === 0) return { added: [], strengthened: 0 };
+	const { added, strengthened } = appendMemoryEntries(
 		agentDir,
-		memories.map((content) => ({
-			content,
+		memories.map((memory) => ({
+			content: memory.content,
+			scope: memory.scope,
 			sourceSession: sessionFilePath,
 			sourceCwd: cwd,
 		})),
 	);
+	return { added, strengthened };
 }
 
-/** 三级降级解析：严格 JSON → 首个 {...} 子串 → 放弃。 */
-export function parseMemoryPayload(text: string): string[] {
-	const attempt = (raw: string): string[] | undefined => {
+export interface ExtractedMemory {
+	content: string;
+	scope?: "project" | "global";
+}
+
+/** 三级降级解析：严格 JSON → 首个 {...} 子串 → 放弃。兼容旧格式（纯字符串条目）。 */
+export function parseMemoryPayload(text: string): ExtractedMemory[] {
+	const attempt = (raw: string): ExtractedMemory[] | undefined => {
 		try {
 			const parsed = JSON.parse(raw) as { memories?: unknown };
 			if (!Array.isArray(parsed.memories)) return undefined;
-			return parsed.memories
-				.filter((entry) => typeof entry === "string" || (entry && typeof (entry as any).content === "string"))
-				.map((entry) => (typeof entry === "string" ? entry : (entry as { content: string }).content).trim())
-				.filter(Boolean)
+			const memories = parsed.memories
+				.map((entry) => {
+					if (typeof entry === "string") return { content: entry.trim() };
+					if (entry && typeof (entry as { content?: unknown }).content === "string") {
+						const record = entry as { content: string; scope?: unknown };
+						const scope =
+							record.scope === "global" || record.scope === "project"
+								? (record.scope as "project" | "global")
+								: undefined;
+						return { content: record.content.trim(), ...(scope ? { scope } : {}) };
+					}
+					return { content: "" };
+				})
+				.filter((memory) => memory.content)
 				.slice(0, 10);
+			return memories;
+		} catch {
+			return undefined;
+		}
+	};
+	const direct = attempt(text);
+	if (direct) return direct;
+	const start = text.indexOf("{");
+	const end = text.lastIndexOf("}");
+	if (start !== -1 && end > start) {
+		const inner = attempt(text.slice(start, end + 1));
+		if (inner) return inner;
+	}
+	return [];
+}
+
+// ---------------------------------------------------------------------------
+// 归并流水线（hindsight observations + Codex Phase-2 的本地化：模型判合近似重复）
+// ---------------------------------------------------------------------------
+
+const CONSOLIDATE_SYSTEM_PROMPT = `你是一个记忆归并器。输入是一个记忆库的编号条目列表，每条格式：
+[i] (scope, 证据×n) 内容
+
+任务：找出**表达同一件事**的近似重复条目（例如"用户偏好 pnpm"和"该项目用 pnpm 管理依赖"），
+输出合并方案。规则：
+- 只合并确实表达同一事实的条目；语义相近但事实不同的不要合并
+- 合并后的内容要综合各条信息，保留具体细节（命令、路径、名称），不超过 80 字
+- 每组指定一个条目号作为并入目标（into，优先选内容最完整/证据最多的）
+- 最多输出 10 组；没有可合并的就输出空数组
+- 单条内容自相矛盾的（同一事实的新旧版本）也算一组，合并时以较新的表述为准
+
+输出格式（仅输出 JSON，不要 markdown 代码块、不要解释）：
+{"merges":[{"into":0,"merge":[3,7],"content":"合并后的记忆文本"}]}
+
+没有可合并的就输出：{"merges":[]}`;
+
+/** 条目数达到该阈值才值得跑一次归并模型调用。 */
+const CONSOLIDATE_MIN_ENTRIES = 6;
+/** 喂给归并模型的条目上限（按注入排序优先级取前 N）。 */
+const CONSOLIDATE_MAX_ENTRIES = 60;
+
+export interface ConsolidateMemoriesOptions {
+	agentDir: string;
+	model: Model<any>;
+	modelRegistry: Pick<ModelRegistry, "streamSimple">;
+	log?: (message: string) => void;
+}
+
+/**
+ * 归并近似重复记忆：模型判合 → applyMemoryMerges 落库（证据计数累加、被并条目删除）。
+ * 条目太少时跳过；互斥与抽取流水线共享同一把锁的调用方负责。
+ */
+export async function consolidateMemories(options: ConsolidateMemoriesOptions): Promise<{ mergesApplied: number }> {
+	const { agentDir, model, modelRegistry, log } = options;
+	const entries = readMemoryEntries(agentDir);
+	if (entries.length < CONSOLIDATE_MIN_ENTRIES) return { mergesApplied: 0 };
+
+	const byIndex = new Map(entries.map((entry, index) => [index, entry]));
+	// 按注入排序的思路挑前 N 条参与归并：全局在后、证据多优先（复用排序但不过滤项目）
+	const ordered = [...entries]
+		.sort((a, b) => {
+			const proofA = a.proofCount ?? 1;
+			const proofB = b.proofCount ?? 1;
+			if (proofB !== proofA) return proofB - proofA;
+			return b.createdAt.localeCompare(a.createdAt);
+		})
+		.slice(0, CONSOLIDATE_MAX_ENTRIES);
+	const listing = ordered
+		.map((entry, index) => {
+			const scope = entry.scope === "global" ? "global" : "project";
+			const proofs = entry.proofCount ?? 1;
+			return `[${index}] (${scope}, 证据×${proofs}) ${entry.content}`;
+		})
+		.join("\n");
+
+	const response = await modelRegistry
+		.streamSimple(
+			model,
+			{
+				systemPrompt: CONSOLIDATE_SYSTEM_PROMPT,
+				messages: [
+					{
+						role: "user",
+						timestamp: Date.now(),
+						content: [{ type: "text", text: `记忆库共 ${entries.length} 条：\n\n${listing}` }],
+					},
+				],
+			},
+			{ maxTokens: 2000, maxRetries: 1 },
+		)
+		.result();
+	if (response.stopReason === "error" || response.stopReason === "aborted") {
+		log?.(`memory consolidation stream ended with ${response.stopReason}`);
+		return { mergesApplied: 0 };
+	}
+
+	const merges = parseMergePayload(messageText(response.content), (index) => byIndex.get(index)?.id);
+	if (merges.length === 0) return { mergesApplied: 0 };
+	const applied = applyMemoryMerges(agentDir, merges);
+	log?.(`memory consolidation: ${applied} merge(s) applied`);
+	return { mergesApplied: applied };
+}
+
+/** 解析归并输出：条目号 → 条目 id 映射由调用方注入，非法条目号/内容直接丢弃。 */
+export function parseMergePayload(text: string, resolveId: (index: number) => string | undefined): MemoryMerge[] {
+	const attempt = (raw: string): MemoryMerge[] | undefined => {
+		try {
+			const parsed = JSON.parse(raw) as { merges?: unknown };
+			if (!Array.isArray(parsed.merges)) return undefined;
+			const merges: MemoryMerge[] = [];
+			for (const group of parsed.merges.slice(0, 10)) {
+				if (!group || typeof group !== "object") continue;
+				const record = group as { into?: unknown; merge?: unknown; content?: unknown };
+				const intoIndex = typeof record.into === "number" ? record.into : Number.NaN;
+				const mergeIndexes = Array.isArray(record.merge)
+					? record.merge.filter((i): i is number => typeof i === "number")
+					: [];
+				const intoId = resolveId(intoIndex);
+				if (!intoId || mergeIndexes.length === 0 || typeof record.content !== "string") continue;
+				const mergeIds = mergeIndexes.map((index) => resolveId(index)).filter((id): id is string => Boolean(id));
+				if (mergeIds.length === 0) continue;
+				merges.push({ intoId, mergeIds, content: record.content.trim() });
+			}
+			return merges;
 		} catch {
 			return undefined;
 		}

@@ -17,17 +17,33 @@ import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { bindIabPage, encodeIabPath, parseIabPath, unbindIabPage } from "../iab-bound.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
+import "./browser.css";
 
 /** 起始页的快捷目标（开发预览是浏览器 tab 的主场景）。 */
-const QUICK_URLS = ["http://localhost:5188", "http://localhost:5173", "http://127.0.0.1:18970", "http://127.0.0.1:3000"];
-
-/** 视口预设（ZCode IAB 的 1280×860 默认档 + 常用响应式档位）。 */
-const VIEWPORT_PRESETS = [
-	{ label: "1280 × 860", width: 1280, height: 860 },
-	{ label: "1920 × 1080", width: 1920, height: 1080 },
-	{ label: "768 × 1024", width: 768, height: 1024 },
-	{ label: "390 × 844", width: 390, height: 844 },
+const QUICK_URLS = [
+	"http://localhost:5188",
+	"http://localhost:5173",
+	"http://127.0.0.1:18970",
+	"http://127.0.0.1:3000",
 ];
+
+/** 设备的 CSS 视口尺寸；预设只调整布局尺寸，不改变 UA 或触控模式。 */
+const VIEWPORT_PRESETS = [
+	{ label: "4K", width: 3840, height: 2160 },
+	{ label: "Laptop L", width: 1440, height: 900 },
+	{ label: "笔记本电脑", width: 1280, height: 860 },
+	{ label: "Surface Pro 7", width: 912, height: 1368 },
+	{ label: "iPad Air", width: 820, height: 1180 },
+	{ label: "iPad Mini", width: 768, height: 1024 },
+	{ label: "Surface Duo", width: 540, height: 720 },
+	{ label: "iPhone 15 Pro Max", width: 430, height: 932 },
+	{ label: "Pixel 8", width: 412, height: 915 },
+	{ label: "iPhone 15 Pro", width: 393, height: 852 },
+	{ label: "Samsung Galaxy S24 Ultra", width: 412, height: 915 },
+	{ label: "iPhone SE", width: 375, height: 667 },
+];
+
+const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5];
 
 const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
 
@@ -69,8 +85,6 @@ interface Frame {
 /** 事件坐标 → 页面视口坐标的换算上下文（帧居中显示，四周是信箱留黑）。 */
 interface StageGeometry {
 	scale: number;
-	offsetX: number;
-	offsetY: number;
 	frame: Frame;
 	rect: DOMRect;
 }
@@ -82,7 +96,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const [fileChooser, setFileChooser] = useState<{ multiple: boolean } | undefined>(undefined);
 	const [filePathDraft, setFilePathDraft] = useState("");
 	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+	const [responsive, setResponsive] = useState(true);
+	const [viewportPreset, setViewportPreset] = useState("responsive");
+	const [viewportDraft, setViewportDraft] = useState({ width: "1280", height: "860" });
+	const [viewportPending, setViewportPending] = useState(false);
+	const [viewportError, setViewportError] = useState("");
+	const [zoom, setZoom] = useState<"auto" | number>("auto");
 	const stageRef = useRef<HTMLDivElement>(null);
+	const surfaceRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const lastMoveSent = useRef(0);
 	// ref 镜像：iab 消息回调与输入转发读最新值，免 stale closure
@@ -130,17 +151,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		setTimeout(drawFrame, 0);
 	}, [drawFrame]);
 
-	/** 舞台几何：帧按适应窗口缩放居中；没有帧时返回 undefined。 */
+	/** 从实际画面取几何信息，固定缩放后滚动舞台仍能正确换算点击坐标。 */
 	const stageGeometry = (): StageGeometry | undefined => {
-		const element = stageRef.current;
+		const element = surfaceRef.current;
 		const current = frameRef.current;
 		if (!element || !current || current.width === 0 || element.clientWidth === 0) return undefined;
-		const scale = Math.min(element.clientWidth / current.width, element.clientHeight / current.height);
 		const rect = element.getBoundingClientRect();
 		return {
-			scale,
-			offsetX: (rect.width - current.width * scale) / 2,
-			offsetY: (rect.height - current.height * scale) / 2,
+			scale: rect.width / current.width,
 			frame: current,
 			rect,
 		};
@@ -149,10 +167,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const toPageCoords = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
 		const geometry = stageGeometry();
 		if (!geometry) return undefined;
+		if (
+			clientX < geometry.rect.left ||
+			clientX >= geometry.rect.right ||
+			clientY < geometry.rect.top ||
+			clientY >= geometry.rect.bottom
+		)
+			return undefined;
 		const clamp = (value: number, max: number): number => Math.min(Math.max(value, 0), Math.max(max - 1, 0));
 		return {
-			x: clamp((clientX - geometry.rect.left - geometry.offsetX) / geometry.scale, geometry.frame.width),
-			y: clamp((clientY - geometry.rect.top - geometry.offsetY) / geometry.scale, geometry.frame.height),
+			x: clamp((clientX - geometry.rect.left) / geometry.scale, geometry.frame.width),
+			y: clamp((clientY - geometry.rect.top) / geometry.scale, geometry.frame.height),
 		};
 	};
 
@@ -239,7 +264,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					frameRef.current = next;
 					// 尺寸变化（视口切换）才进 state；普通帧只重绘 canvas
 					setFrameSize((prev) =>
-						prev && prev.width === next.width && prev.height === next.height ? prev : { width: next.width, height: next.height },
+						prev && prev.width === next.width && prev.height === next.height
+							? prev
+							: { width: next.width, height: next.height },
 					);
 					scheduleDraw();
 				}
@@ -253,7 +280,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				const current = pageRef.current;
 				const mine = message.pages.find((candidate) => candidate.pageId === current.pageId);
 				if (mine) {
-					if (mine.url !== current.url || mine.title !== current.title) applyPage(mine);
+					if (
+						mine.url !== current.url ||
+						mine.title !== current.title ||
+						mine.active !== current.active ||
+						mine.viewport.width !== current.viewport.width ||
+						mine.viewport.height !== current.viewport.height
+					)
+						applyPage(mine);
 				} else {
 					// 绑定的页面被关掉（agent browser_tabs close / 桥重启）：回起始页
 					pageRef.current = undefined;
@@ -266,6 +300,20 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			}
 		});
 	}, [client, applyPage, scheduleDraw, store, tab.id]);
+
+	// 页面元信息才是已生效的尺寸；帧流和标题更新不能覆盖用户正在编辑的尺寸。
+	useEffect(() => {
+		if (!page) return;
+		const { width, height } = page.viewport;
+		setViewportDraft({ width: String(width), height: String(height) });
+		setViewportPreset((selected) => {
+			const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === selected);
+			return preset &&
+				((preset.width === width && preset.height === height) || (preset.height === width && preset.width === height))
+				? selected
+				: "responsive";
+		});
+	}, [page?.pageId, page?.viewport.width, page?.viewport.height]);
 
 	// canvas 挂载/舞台尺寸就位时补画缓冲帧：后台绑定期间收到的帧当时画不进
 	// （canvas 未挂载），激活切回来时靠这次补绘显示，否则白屏
@@ -304,9 +352,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		const element = stageRef.current;
 		if (!element || !page) return;
 		const onWheel = (event: WheelEvent): void => {
-			event.preventDefault();
 			const coords = toPageCoords(event.clientX, event.clientY);
 			if (!coords) return;
+			event.preventDefault();
 			sendInput({ kind: "wheel", x: coords.x, y: coords.y, deltaX: event.deltaX, deltaY: event.deltaY });
 		};
 		element.addEventListener("wheel", onWheel, { passive: false });
@@ -336,12 +384,49 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		void client.request({ type: "iab.nav", pageId: current.pageId, action }).catch(() => {});
 	};
 
-	const applyViewportPreset = (preset: (typeof VIEWPORT_PRESETS)[number]): void => {
+	const applyViewport = (width: number, height: number, preset = "responsive"): void => {
 		const current = pageRef.current;
-		if (!current) return;
+		if (!current || viewportPending) return;
+		if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+			setViewportDraft({ width: String(current.viewport.width), height: String(current.viewport.height) });
+			return;
+		}
+		const next = {
+			width: Math.min(Math.max(Math.round(width), 320), 3840),
+			height: Math.min(Math.max(Math.round(height), 320), 2160),
+		};
+		setViewportError("");
+		setViewportDraft({ width: String(next.width), height: String(next.height) });
+		if (next.width === current.viewport.width && next.height === current.viewport.height) {
+			setViewportPreset(preset);
+			return;
+		}
+		setViewportPending(true);
 		void client
-			.request({ type: "iab.viewport", pageId: current.pageId, width: preset.width, height: preset.height })
-			.catch(() => {});
+			.request({ type: "iab.viewport", pageId: current.pageId, ...next })
+			.then((response) => {
+				if (pageRef.current?.pageId !== current.pageId) return;
+				if (!response.ok) throw new Error(response.error ?? "无法调整页面尺寸");
+				setViewportPreset(preset);
+			})
+			.catch((error: unknown) => {
+				if (pageRef.current?.pageId !== current.pageId) return;
+				const viewport = pageRef.current.viewport;
+				setViewportDraft({ width: String(viewport.width), height: String(viewport.height) });
+				setViewportError(error instanceof Error ? error.message : "无法调整页面尺寸");
+			})
+			.finally(() => setViewportPending(false));
+	};
+
+	const submitViewport = (): void => {
+		const width = Number(viewportDraft.width);
+		const height = Number(viewportDraft.height);
+		const current = pageRef.current;
+		if (current && width === current.viewport.width && height === current.viewport.height) {
+			setViewportDraft({ width: String(width), height: String(height) });
+			return;
+		}
+		applyViewport(width, height);
 	};
 
 	const openExternal = (): void => {
@@ -352,7 +437,10 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const submitFileChooser = (): void => {
 		const current = pageRef.current;
 		if (!current) return;
-		const paths = filePathDraft.split("|").map((path) => path.trim()).filter((path) => path !== "");
+		const paths = filePathDraft
+			.split("|")
+			.map((path) => path.trim())
+			.filter((path) => path !== "");
 		if (paths.length === 0) return;
 		void client
 			.request({ type: "iab.fileResponse", pageId: current.pageId, paths })
@@ -422,29 +510,61 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		"flex h-6 w-6 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
 	const scale = (() => {
 		if (!frameSize || stageSize.width === 0) return undefined;
-		return Math.min(stageSize.width / frameSize.width, stageSize.height / frameSize.height);
+		return zoom === "auto" ? Math.min(stageSize.width / frameSize.width, stageSize.height / frameSize.height) : zoom;
 	})();
-	const viewportLabel = page ? `${page.viewport.width} × ${page.viewport.height}` : "";
-	const viewportIsPreset = VIEWPORT_PRESETS.some((preset) => preset.label === viewportLabel);
 
 	return (
-		<div className="flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
-			{/* 工具条：后退 / 前进 / 刷新 / 地址栏 / 视口 / 外部打开 */}
+		<div className="owl-browser flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
+			{/* 导航工具条；响应式控制单独一行，侧栏收窄时自然换行。 */}
 			<div className="flex shrink-0 select-none items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
 				<button type="button" title="后退" className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
-					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="h-3 w-3">
+					<svg
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						className="h-3 w-3"
+					>
 						<path d="M10 3 5 8l5 5" />
 					</svg>
 				</button>
 				<button type="button" title="前进" className={toolbarButton} disabled={!page} onClick={() => runNav("forward")}>
-					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="h-3 w-3">
+					<svg
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						className="h-3 w-3"
+					>
 						<path d="m6 3 5 5-5 5" />
 					</svg>
 				</button>
 				<button type="button" title="刷新" className={toolbarButton} disabled={!page} onClick={() => runNav("reload")}>
 					<IconRefresh size={11} />
 				</button>
+				<button
+					type="button"
+					title="响应式预览"
+					aria-label="响应式预览"
+					aria-pressed={responsive}
+					className={`owl-browser-responsive-toggle ${toolbarButton}`}
+					disabled={!page}
+					onClick={() => {
+						setResponsive((enabled) => !enabled);
+						setZoom("auto");
+					}}
+				>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+						<rect x="1.5" y="2" width="10" height="8" rx="1" />
+						<path d="M4 13h5M6.5 10v3" />
+						<rect x="10" y="6" width="4.5" height="7.5" rx=".8" fill="var(--color-owl-panel)" />
+					</svg>
+					<span>响应式</span>
+				</button>
 				<input
+					aria-label="浏览器地址"
 					value={draft}
 					placeholder="输入 URL，回车打开（agent 也能看到这个页面）"
 					spellCheck={false}
@@ -458,31 +578,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					}}
 					className="h-6.5 min-w-0 flex-1 rounded-md border border-owl-border/50 bg-owl-panel px-2.5 text-xs text-owl-text outline-none placeholder:text-owl-faint focus:border-owl-accent/60"
 				/>
-				{page && (
-					<select
-						title="视口大小"
-						value={viewportLabel}
-						onChange={(e) => {
-							const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === e.target.value);
-							if (preset) applyViewportPreset(preset);
-						}}
-						className="h-6.5 shrink-0 rounded-md border border-owl-border/50 bg-owl-panel px-1 font-mono text-[10px] text-owl-muted outline-none focus:border-owl-accent/60"
-					>
-						{!viewportIsPreset && <option value={viewportLabel}>{viewportLabel}</option>}
-						{VIEWPORT_PRESETS.map((preset) => (
-							<option key={preset.label} value={preset.label}>
-								{preset.label}
-							</option>
-						))}
-					</select>
-				)}
-				<button
-					type="button"
-					title="在独立窗口打开"
-					className={toolbarButton}
-					disabled={!page?.url}
-					onClick={popout}
-				>
+				<button type="button" title="在独立窗口打开" className={toolbarButton} disabled={!page?.url} onClick={popout}>
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
 						<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
 						<rect x="8" y="7.5" width="5" height="4" rx="0.5" fill="currentColor" stroke="none" />
@@ -505,18 +601,135 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="M4 2.5h8a.8.8 0 0 1 .8.8v10.2L8 10.2 3.2 13.5V3.3a.8.8 0 0 1 .8-.8z" />
 					</svg>
 				</button>
-				<button type="button" title="在系统浏览器打开" className={toolbarButton} disabled={!page?.url} onClick={openExternal}>
+				<button
+					type="button"
+					title="在系统浏览器打开"
+					className={toolbarButton}
+					disabled={!page?.url}
+					onClick={openExternal}
+				>
 					<IconExternal size={11} />
 				</button>
 			</div>
+
+			{page && responsive && (
+				<div className="owl-browser-responsive-toolbar" aria-label="响应式工具栏" aria-busy={viewportPending}>
+					<label className="owl-browser-device">
+						<span>尺寸:</span>
+						<select
+							aria-label="预览设备"
+							value={viewportPreset}
+							disabled={viewportPending}
+							onChange={(event) => {
+								const selected = event.target.value;
+								const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === selected);
+								if (preset) applyViewport(preset.width, preset.height, preset.label);
+								else setViewportPreset("responsive");
+							}}
+						>
+							<option value="responsive">响应式</option>
+							{VIEWPORT_PRESETS.map((preset) => (
+								<option key={preset.label} value={preset.label}>
+									{preset.label}
+								</option>
+							))}
+						</select>
+					</label>
+					<div className="owl-browser-dimensions">
+						{(["width", "height"] as const).map((dimension, index) => (
+							<label key={dimension}>
+								{index === 1 && <span aria-hidden="true">×</span>}
+								<input
+									type="number"
+									aria-label={dimension === "width" ? "视口宽度" : "视口高度"}
+									title={dimension === "width" ? "宽度（320–3840 CSS px）" : "高度（320–2160 CSS px）"}
+									min={320}
+									max={dimension === "width" ? 3840 : 2160}
+									step={1}
+									value={viewportDraft[dimension]}
+									disabled={viewportPending}
+									onChange={(event) => setViewportDraft((current) => ({ ...current, [dimension]: event.target.value }))}
+									onBlur={submitViewport}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") {
+											event.preventDefault();
+											event.currentTarget.blur();
+										}
+									}}
+								/>
+							</label>
+						))}
+					</div>
+					<button
+						type="button"
+						className={toolbarButton}
+						aria-label="旋转视口"
+						title={page.viewport.width > 2160 ? "当前宽度超出可用高度（2160px）" : "旋转视口"}
+						disabled={viewportPending || page.viewport.width > 2160}
+						onClick={() => applyViewport(page.viewport.height, page.viewport.width, viewportPreset)}
+					>
+						<svg
+							viewBox="0 0 16 16"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.3"
+							className="h-3.5 w-3.5"
+							aria-hidden="true"
+						>
+							<path d="M2.5 6A5.5 5.5 0 0 1 12 3.5M12 1v3h-3" />
+							<rect x="4" y="6.5" width="9" height="6" rx="1" />
+						</svg>
+					</button>
+					<select
+						aria-label="预览缩放"
+						title="仅缩放预览画面"
+						className="owl-browser-zoom"
+						value={String(zoom)}
+						onChange={(event) => setZoom(event.target.value === "auto" ? "auto" : Number(event.target.value))}
+					>
+						<option value="auto">适应{scale ? ` ${Math.round(scale * 100)}%` : ""}</option>
+						{ZOOM_LEVELS.map((level) => (
+							<option key={level} value={String(level)}>
+								{Math.round(level * 100)}%
+							</option>
+						))}
+					</select>
+					<button
+						type="button"
+						aria-label="关闭响应式预览"
+						title="关闭响应式工具栏"
+						className={`${toolbarButton} owl-browser-responsive-close`}
+						onClick={() => {
+							setResponsive(false);
+							setZoom("auto");
+						}}
+					>
+						<svg
+							viewBox="0 0 16 16"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.3"
+							className="h-3 w-3"
+							aria-hidden="true"
+						>
+							<path d="m4 4 8 8m0-8-8 8" />
+						</svg>
+					</button>
+					{viewportError && (
+						<span className="owl-browser-viewport-error" role="alert">
+							{viewportError}
+						</span>
+					)}
+				</div>
+			)}
 
 			{/* 内容：起始页 或 screencast 舞台 */}
 			{!page ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
 					<p className="text-sm text-owl-muted">内嵌浏览器</p>
 					<p className="max-w-sm text-xs leading-relaxed text-owl-faint">
-						桥进程托管的独立浏览器：不受 X-Frame-Options 限制，随便开什么站；
-						Agent 的 browser_* 工具驱动的是同一个页面，它的每一步操作你都看得到。
+						桥进程托管的独立浏览器：不受 X-Frame-Options 限制，随便开什么站； Agent 的 browser_*
+						工具驱动的是同一个页面，它的每一步操作你都看得到。
 					</p>
 					<div className="mt-1 flex flex-wrap justify-center gap-2">
 						{QUICK_URLS.map((candidate) => (
@@ -562,35 +775,50 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					)}
 				</div>
 			) : (
-				<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black/40">
+				<div ref={stageRef} className="owl-browser-stage relative min-h-0 flex-1 overflow-auto bg-black/40">
 					{frameSize && scale ? (
 						<div
-							tabIndex={0}
-							className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default outline-none"
-							style={{ width: frameSize.width * scale, height: frameSize.height * scale }}
-							onKeyDown={onKeyDown}
-							onContextMenu={(e) => e.preventDefault()}
-							onMouseDown={(e) => {
-								(e.currentTarget as HTMLDivElement).focus();
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "down", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
-							}}
-							onMouseUp={(e) => {
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
-							}}
-							onMouseMove={(e) => {
-								const now = Date.now();
-								if (now - lastMoveSent.current < 40) return;
-								lastMoveSent.current = now;
-								const coords = toPageCoords(e.clientX, e.clientY);
-								if (!coords) return;
-								sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
+							style={{
+								position: "relative",
+								width: Math.max(stageSize.width, frameSize.width * scale),
+								height: Math.max(stageSize.height, frameSize.height * scale),
 							}}
 						>
-							<canvas ref={canvasRef} className="h-full w-full select-none bg-white" />
+							<div
+								ref={surfaceRef}
+								tabIndex={0}
+								className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default outline-none"
+								style={{ width: frameSize.width * scale, height: frameSize.height * scale }}
+								onKeyDown={onKeyDown}
+								onContextMenu={(e) => e.preventDefault()}
+								onMouseDown={(e) => {
+									(e.currentTarget as HTMLDivElement).focus();
+									const coords = toPageCoords(e.clientX, e.clientY);
+									if (!coords) return;
+									sendInput({
+										kind: "mouse",
+										action: "down",
+										x: coords.x,
+										y: coords.y,
+										button: mouseButtonOf(e.button),
+									});
+								}}
+								onMouseUp={(e) => {
+									const coords = toPageCoords(e.clientX, e.clientY);
+									if (!coords) return;
+									sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+								}}
+								onMouseMove={(e) => {
+									const now = Date.now();
+									if (now - lastMoveSent.current < 40) return;
+									lastMoveSent.current = now;
+									const coords = toPageCoords(e.clientX, e.clientY);
+									if (!coords) return;
+									sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
+								}}
+							>
+								<canvas ref={canvasRef} className="h-full w-full select-none bg-white" />
+							</div>
 						</div>
 					) : (
 						<div className="flex h-full items-center justify-center">

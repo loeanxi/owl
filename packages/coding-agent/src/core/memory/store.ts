@@ -57,7 +57,10 @@ function extractedFile(agentDir: string): string {
 
 /** Windows/POSIX 路径归一比较（大小写与分隔符不敏感）。 */
 export function normalizeCwd(path: string | undefined): string {
-	return (path ?? "").replace(/[/\\]+/g, "/").replace(/\/$/, "").toLowerCase();
+	return (path ?? "")
+		.replace(/[/\\]+/g, "/")
+		.replace(/\/$/, "")
+		.toLowerCase();
 }
 
 let cache: { path: string; mtimeMs: number; data: MemoryFile } | undefined;
@@ -84,7 +87,9 @@ function readMemoryFile(agentDir: string): MemoryFile {
 							...(entry.sourceSession ? { sourceSession: entry.sourceSession } : {}),
 							...(entry.sourceCwd ? { sourceCwd: entry.sourceCwd } : {}),
 							...(entry.scope === "global" || entry.scope === "project" ? { scope: entry.scope } : {}),
-							...(typeof entry.proofCount === "number" && entry.proofCount > 1 ? { proofCount: entry.proofCount } : {}),
+							...(typeof entry.proofCount === "number" && entry.proofCount > 1
+								? { proofCount: entry.proofCount }
+								: {}),
 							createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
 						}))
 				: [],
@@ -218,7 +223,10 @@ function renderMemoryMarkdown(agentDir: string, entries: OwlMemoryEntry[]): void
  * 注入候选：当前项目的条目 + 全局条目（其它项目的记忆不进上下文）。
  * 无来源的旧条目按全局对待（宁多勿漏，用户可在设置页删）。
  */
-export function injectionCandidates(entries: OwlMemoryEntry[], cwd: string): { included: OwlMemoryEntry[]; excluded: number } {
+export function injectionCandidates(
+	entries: OwlMemoryEntry[],
+	cwd: string,
+): { included: OwlMemoryEntry[]; excluded: number } {
 	const currentCwd = normalizeCwd(cwd);
 	const included = entries.filter(
 		(entry) =>
@@ -309,12 +317,7 @@ export interface MemorySearchHit {
  * 词面检索：query 按空白拆词（≥2 字符），按命中词数打分；再按 proofCount/新近度决胜。
  * query 为空时返回最近的条目（浏览语义）。搜索范围与注入一致（当前项目 + 全局）。
  */
-export function searchMemoryEntries(
-	agentDir: string,
-	cwd: string,
-	query: string,
-	limit = 10,
-): MemorySearchHit[] {
+export function searchMemoryEntries(agentDir: string, cwd: string, query: string, limit = 10): MemorySearchHit[] {
 	const { included } = injectionCandidates(readMemoryEntries(agentDir), cwd);
 	const terms = query
 		.toLowerCase()

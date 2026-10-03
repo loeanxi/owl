@@ -52,15 +52,6 @@ import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
-import {
-	createSkill,
-	deleteSkill,
-	listSkills,
-	readSkill,
-	setSkillEnabled,
-	SkillCenterError,
-	updateSkill,
-} from "./skills-center.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
@@ -88,6 +79,15 @@ import {
 import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "./sidebar-git.ts";
 import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
 import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch.ts";
+import {
+	createSkill,
+	deleteSkill,
+	listSkills,
+	readSkill,
+	SkillCenterError,
+	setSkillEnabled,
+	updateSkill,
+} from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
 
 // ---------------------------------------------------------------------------

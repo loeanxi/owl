@@ -43,9 +43,7 @@ import {
 export interface BiliRuntime {
 	core: CompressionCore;
 	store: SessionStateStore;
-	stateFor(
-		ctx: ExtensionContext,
-	): Promise<{
+	stateFor(ctx: ExtensionContext): Promise<{
 		state: CompressionState;
 		coreMessages: ReturnType<typeof entriesToCoreMessages>;
 		entries: SessionEntry[];

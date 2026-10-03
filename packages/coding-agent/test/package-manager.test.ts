@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultPackageManager, type ProgressEvent, type ResolvedResource } from "../src/core/package-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { HOME_HAS_AGENTS_SKILLS, SYMLINKS_SUPPORTED } from "./capabilities.ts";
+import { SYMLINKS_SUPPORTED } from "./capabilities.ts";
 
 function normalizeForMatch(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -439,212 +439,78 @@ Content`,
 			expect(skill?.metadata.baseDir).toBe(projectBaseDir);
 		});
 
-		it("should use ~/.agents as baseDir for user .agents skills", async () => {
-			const previousHome = process.env.HOME;
-			process.env.HOME = tempDir;
+		it("should use ~/.owl as baseDir for user global skills", async () => {
+			// agentDir 模拟 ~/.owl/agent，其父目录 tempDir 模拟 ~/.owl
+			const owlBaseDir = tempDir;
+			const skillPath = join(owlBaseDir, "skills", "user-global", "SKILL.md");
+			mkdirSync(join(owlBaseDir, "skills", "user-global"), { recursive: true });
+			writeFileSync(skillPath, "---\nname: user-global\ndescription: user global\n---\n");
 
-			try {
-				const agentsBaseDir = join(tempDir, ".agents");
-				const skillPath = join(agentsBaseDir, "skills", "user-agents", "SKILL.md");
-				mkdirSync(join(agentsBaseDir, "skills", "user-agents"), { recursive: true });
-				writeFileSync(skillPath, "---\nname: user-agents\ndescription: user agents\n---\n");
+			const result = await packageManager.resolve();
+			const skill = result.skills.find((r) => r.path === skillPath);
 
-				const result = await packageManager.resolve();
-				const skill = result.skills.find((r) => r.path === skillPath);
-
-				expect(skill?.metadata.source).toBe("auto");
-				expect(skill?.metadata.scope).toBe("user");
-				expect(skill?.metadata.baseDir).toBe(agentsBaseDir);
-			} finally {
-				if (previousHome === undefined) {
-					delete process.env.HOME;
-				} else {
-					process.env.HOME = previousHome;
-				}
-			}
-		});
-
-		it("should use each project .agents dir as baseDir for project .agents skills", async () => {
-			const repoRoot = join(tempDir, "repo");
-			const nestedCwd = join(repoRoot, "packages", "feature");
-			mkdirSync(nestedCwd, { recursive: true });
-			mkdirSync(join(repoRoot, ".git"), { recursive: true });
-
-			const repoAgentsBaseDir = join(repoRoot, ".agents");
-			const repoSkill = join(repoAgentsBaseDir, "skills", "repo", "SKILL.md");
-			mkdirSync(join(repoAgentsBaseDir, "skills", "repo"), { recursive: true });
-			writeFileSync(repoSkill, "---\nname: repo\ndescription: repo\n---\n");
-
-			const packageAgentsBaseDir = join(repoRoot, "packages", ".agents");
-			const packageSkill = join(packageAgentsBaseDir, "skills", "package", "SKILL.md");
-			mkdirSync(join(packageAgentsBaseDir, "skills", "package"), { recursive: true });
-			writeFileSync(packageSkill, "---\nname: package\ndescription: package\n---\n");
-
-			const pm = new DefaultPackageManager({
-				cwd: nestedCwd,
-				agentDir,
-				settingsManager,
-			});
-
-			const result = await pm.resolve();
-			const resolvedRepoSkill = result.skills.find((r) => r.path === repoSkill);
-			const resolvedPackageSkill = result.skills.find((r) => r.path === packageSkill);
-
-			expect(resolvedRepoSkill?.metadata.source).toBe("auto");
-			expect(resolvedRepoSkill?.metadata.scope).toBe("project");
-			expect(resolvedRepoSkill?.metadata.baseDir).toBe(repoAgentsBaseDir);
-			expect(resolvedPackageSkill?.metadata.source).toBe("auto");
-			expect(resolvedPackageSkill?.metadata.scope).toBe("project");
-			expect(resolvedPackageSkill?.metadata.baseDir).toBe(packageAgentsBaseDir);
+			expect(skill?.metadata.source).toBe("auto");
+			expect(skill?.metadata.scope).toBe("user");
+			expect(skill?.metadata.baseDir).toBe(owlBaseDir);
 		});
 	});
 
-	describe(".agents/skills auto-discovery", () => {
-		it("should scan .agents/skills from cwd up to git repo root", async () => {
+	describe("global skills auto-discovery (~/.owl/skills)", () => {
+		it("should discover global skills as user resources regardless of cwd", async () => {
+			const globalSkillsDir = join(tempDir, "skills");
+			const skillPath = join(globalSkillsDir, "shared", "SKILL.md");
+			mkdirSync(join(globalSkillsDir, "shared"), { recursive: true });
+			writeFileSync(skillPath, "---\nname: shared\ndescription: shared\n---\n");
+
+			const workCwd = join(tempDir, "work");
+			mkdirSync(workCwd, { recursive: true });
+			const pm = new DefaultPackageManager({ cwd: workCwd, agentDir, settingsManager });
+
+			const result = await pm.resolve();
+			expect(result.skills.some((r) => r.path === skillPath && r.enabled)).toBe(true);
+		});
+
+		it("should discover loose root markdown files in the global skills dir", async () => {
+			const globalSkillsDir = join(tempDir, "skills");
+			mkdirSync(globalSkillsDir, { recursive: true });
+			const looseSkill = join(globalSkillsDir, "loose-global.md");
+			writeFileSync(looseSkill, "---\nname: loose-global\ndescription: loose\n---\n");
+
+			const result = await packageManager.resolve();
+			expect(result.skills.some((r) => r.path === looseSkill && r.enabled)).toBe(true);
+		});
+
+		it("should not scan project .agents dirs anymore", async () => {
 			const repoRoot = join(tempDir, "repo");
 			const nestedCwd = join(repoRoot, "packages", "feature");
 			mkdirSync(nestedCwd, { recursive: true });
 			mkdirSync(join(repoRoot, ".git"), { recursive: true });
 
-			const aboveRepoSkill = join(tempDir, ".agents", "skills", "above-repo", "SKILL.md");
-			mkdirSync(join(tempDir, ".agents", "skills", "above-repo"), { recursive: true });
-			writeFileSync(aboveRepoSkill, "---\nname: above-repo\ndescription: above\n---\n");
+			const legacySkill = join(repoRoot, ".agents", "skills", "legacy", "SKILL.md");
+			mkdirSync(join(legacySkill, ".."), { recursive: true });
+			writeFileSync(legacySkill, "---\nname: legacy\ndescription: legacy\n---\n");
 
-			const repoRootSkill = join(repoRoot, ".agents", "skills", "repo-root", "SKILL.md");
-			mkdirSync(join(repoRoot, ".agents", "skills", "repo-root"), { recursive: true });
-			writeFileSync(repoRootSkill, "---\nname: repo-root\ndescription: repo\n---\n");
-
-			const nestedSkill = join(repoRoot, "packages", ".agents", "skills", "nested", "SKILL.md");
-			mkdirSync(join(repoRoot, "packages", ".agents", "skills", "nested"), { recursive: true });
-			writeFileSync(nestedSkill, "---\nname: nested\ndescription: nested\n---\n");
-
-			const pm = new DefaultPackageManager({
-				cwd: nestedCwd,
-				agentDir,
-				settingsManager,
-			});
+			const pm = new DefaultPackageManager({ cwd: nestedCwd, agentDir, settingsManager });
 
 			const result = await pm.resolve();
-			expect(result.skills.some((r) => r.path === repoRootSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === nestedSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === aboveRepoSkill)).toBe(false);
+			expect(result.skills.some((r) => r.path === legacySkill)).toBe(false);
 		});
 
-		it("should scan .agents/skills up to filesystem root when not in a git repo", async () => {
-			const nonRepoRoot = join(tempDir, "non-repo");
-			const nestedCwd = join(nonRepoRoot, "a", "b");
-			mkdirSync(nestedCwd, { recursive: true });
+		it("should dedupe user skill entries when personal skills dir links the global dir", async () => {
+			const globalSkillsDir = join(tempDir, "skills");
+			mkdirSync(globalSkillsDir, { recursive: true });
+			// Use junction on Windows to avoid EPERM when symlink privileges are unavailable.
+			const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
+			symlinkSync(globalSkillsDir, join(agentDir, "skills"), directoryLinkType);
 
-			const rootSkill = join(nonRepoRoot, ".agents", "skills", "root", "SKILL.md");
-			mkdirSync(join(nonRepoRoot, ".agents", "skills", "root"), { recursive: true });
-			writeFileSync(rootSkill, "---\nname: root\ndescription: root\n---\n");
+			const skillPath = join(globalSkillsDir, "foo", "SKILL.md");
+			mkdirSync(join(globalSkillsDir, "foo"), { recursive: true });
+			writeFileSync(skillPath, "---\nname: foo\ndescription: foo\n---\n");
 
-			const middleSkill = join(nonRepoRoot, "a", ".agents", "skills", "middle", "SKILL.md");
-			mkdirSync(join(nonRepoRoot, "a", ".agents", "skills", "middle"), { recursive: true });
-			writeFileSync(middleSkill, "---\nname: middle\ndescription: middle\n---\n");
+			const result = await packageManager.resolve();
+			const fooSkills = result.skills.filter((r) => pathEndsWith(r.path, "foo/SKILL.md"));
 
-			const pm = new DefaultPackageManager({
-				cwd: nestedCwd,
-				agentDir,
-				settingsManager,
-			});
-
-			const result = await pm.resolve();
-			expect(result.skills.some((r) => r.path === rootSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === middleSkill && r.enabled)).toBe(true);
-		});
-
-		it("should ignore root markdown files in .agents/skills but discover nested markdown skills", async () => {
-			const agentsSkillsDir = join(tempDir, ".agents", "skills");
-			mkdirSync(join(agentsSkillsDir, "nested-skill"), { recursive: true });
-			mkdirSync(join(agentsSkillsDir, "third-party"), { recursive: true });
-			mkdirSync(join(agentsSkillsDir, "third-party", "vendor", "pack"), { recursive: true });
-			const rootSkill = join(agentsSkillsDir, "root-file.md");
-			const nestedSkill = join(agentsSkillsDir, "nested-skill", "SKILL.md");
-			const nestedMarkdownSkill = join(agentsSkillsDir, "third-party", "child-skill.md");
-			const deeplyNestedMarkdownSkill = join(agentsSkillsDir, "third-party", "vendor", "pack", "deep-skill.md");
-			writeFileSync(rootSkill, "---\nname: root-file\ndescription: Root markdown file\n---\n");
-			writeFileSync(nestedSkill, "---\nname: nested-skill\ndescription: Nested skill\n---\n");
-			writeFileSync(nestedMarkdownSkill, "---\nname: child-skill\ndescription: Nested markdown skill\n---\n");
-			writeFileSync(deeplyNestedMarkdownSkill, "---\nname: deep-skill\ndescription: Deep markdown skill\n---\n");
-
-			const pm = new DefaultPackageManager({
-				cwd: join(tempDir, "work"),
-				agentDir,
-				settingsManager,
-			});
-			mkdirSync(join(tempDir, "work"), { recursive: true });
-
-			const result = await pm.resolve();
-			expect(result.skills.some((r) => r.path === rootSkill)).toBe(false);
-			expect(result.skills.some((r) => r.path === nestedSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === nestedMarkdownSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === deeplyNestedMarkdownSkill && r.enabled)).toBe(true);
-		});
-
-		it("should keep ~/.agents/skills user-scoped when cwd is under home in a non-git directory", async () => {
-			const previousHome = process.env.HOME;
-			process.env.HOME = tempDir;
-
-			try {
-				const cwd = join(tempDir, "scratch", "nested");
-				const localAgentDir = join(tempDir, ".owl", "agent");
-				const localSettingsManager = SettingsManager.inMemory();
-				mkdirSync(cwd, { recursive: true });
-				mkdirSync(localAgentDir, { recursive: true });
-
-				const homeSkill = join(tempDir, ".agents", "skills", "home-skill", "SKILL.md");
-				mkdirSync(join(tempDir, ".agents", "skills", "home-skill"), { recursive: true });
-				writeFileSync(homeSkill, "---\nname: home-skill\ndescription: home\n---\n");
-
-				const pm = new DefaultPackageManager({
-					cwd,
-					agentDir: localAgentDir,
-					settingsManager: localSettingsManager,
-				});
-
-				const result = await pm.resolve();
-				const matchingSkills = result.skills.filter((r) => r.path === homeSkill);
-				expect(matchingSkills).toHaveLength(1);
-				expect(matchingSkills[0]?.enabled).toBe(true);
-				expect(matchingSkills[0]?.metadata.scope).toBe("user");
-				expect(matchingSkills[0]?.metadata.source).toBe("auto");
-			} finally {
-				if (previousHome === undefined) {
-					delete process.env.HOME;
-				} else {
-					process.env.HOME = previousHome;
-				}
-			}
-		});
-
-		it("should dedupe user skill entries when ~/.owl/agent/skills is a symlink to ~/.agents/skills", async () => {
-			const previousHome = process.env.HOME;
-			process.env.HOME = tempDir;
-
-			try {
-				const agentSkillsDir = join(agentDir, "skills");
-				const agentsSkillsDir = join(tempDir, ".agents", "skills");
-				mkdirSync(agentsSkillsDir, { recursive: true });
-				// Use junction on Windows to avoid EPERM when symlink privileges are unavailable.
-				const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
-				symlinkSync(agentsSkillsDir, agentSkillsDir, directoryLinkType);
-
-				const skillPath = join(agentsSkillsDir, "foo", "SKILL.md");
-				mkdirSync(join(agentsSkillsDir, "foo"), { recursive: true });
-				writeFileSync(skillPath, "---\nname: foo\ndescription: foo\n---\n");
-
-				const result = await packageManager.resolve();
-				const fooSkills = result.skills.filter((r) => pathEndsWith(r.path, "foo/SKILL.md"));
-
-				expect(fooSkills).toHaveLength(1);
-			} finally {
-				if (previousHome === undefined) {
-					delete process.env.HOME;
-				} else {
-					process.env.HOME = previousHome;
-				}
-			}
+			expect(fooSkills).toHaveLength(1);
 		});
 	});
 
@@ -2055,26 +1921,22 @@ Content`,
 			expect(states[join(pkgDir, "extensions", "bar.ts")]).toEqual({ enabled: true, scope: "user" });
 		});
 
-		it.skipIf(HOME_HAS_AGENTS_SKILLS)(
-			"should resolve autoload-disabled package entries as positive-only without a global package",
-			async () => {
-				vi.stubEnv("HOME", tempDir);
-				const pkgDir = join(tempDir, "positive-only-pkg");
-				mkdirSync(join(pkgDir, "extensions"), { recursive: true });
-				mkdirSync(join(pkgDir, "skills", "foo"), { recursive: true });
-				writeFileSync(join(pkgDir, "extensions", "foo.ts"), "export default function() {}");
-				writeFileSync(join(pkgDir, "extensions", "bar.ts"), "export default function() {}");
-				writeFileSync(join(pkgDir, "skills", "foo", "SKILL.md"), "# Foo\n");
-				settingsManager.setProjectPackages([
-					{ source: relative(join(tempDir, ".owl"), pkgDir), autoload: false, extensions: ["+extensions/foo.ts"] },
-				]);
+		it("should resolve autoload-disabled package entries as positive-only without a global package", async () => {
+			const pkgDir = join(tempDir, "positive-only-pkg");
+			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+			mkdirSync(join(pkgDir, "skills", "foo"), { recursive: true });
+			writeFileSync(join(pkgDir, "extensions", "foo.ts"), "export default function() {}");
+			writeFileSync(join(pkgDir, "extensions", "bar.ts"), "export default function() {}");
+			writeFileSync(join(pkgDir, "skills", "foo", "SKILL.md"), "# Foo\n");
+			settingsManager.setProjectPackages([
+				{ source: relative(join(tempDir, ".owl"), pkgDir), autoload: false, extensions: ["+extensions/foo.ts"] },
+			]);
 
-				const result = await packageManager.resolve();
+			const result = await packageManager.resolve();
 
-				expect(result.extensions.map((resource) => resource.path)).toEqual([join(pkgDir, "extensions", "foo.ts")]);
-				expect(result.skills).toEqual([]);
-			},
-		);
+			expect(result.extensions.map((resource) => resource.path)).toEqual([join(pkgDir, "extensions", "foo.ts")]);
+			expect(result.skills).toEqual([]);
+		});
 	});
 
 	describe("force-include patterns", () => {

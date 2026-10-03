@@ -9,7 +9,6 @@
  */
 import {
 	chmodSync,
-	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -17,7 +16,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getToolPath } from "../src/utils/tools-manager.ts";
 
@@ -70,14 +69,6 @@ export const READONLY_DIRS_SUPPORTED: boolean = probe((dir) => {
 		chmodSync(locked, 0o700);
 	}
 });
-
-/**
- * True when the real user profile has `~/.agents/skills`. Resource loading walks
- * cwd's ancestors for `.agents/skills`, so a test that puts its temp cwd inside the
- * user profile discovers the developer's own skills as project resources and cannot
- * assert an empty result.
- */
-export const HOME_HAS_AGENTS_SKILLS: boolean = existsSync(join(homedir(), ".agents", "skills"));
 
 /** npm's global root for a custom prefix is `<prefix>/lib/node_modules` only on POSIX. */
 export const POSIX_NPM_PREFIX_LAYOUT: boolean = process.platform !== "win32";
