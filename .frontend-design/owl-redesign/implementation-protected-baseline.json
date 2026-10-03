@@ -1,0 +1,14 @@
+{
+  "appNodes": [
+    "<ChatStream key={sessionId ?? workspaceDir} entries={entries} onQuickAction={requestOpenKind} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />",
+    "<TodoPin entries={entries} />",
+    "<Composer\n\t\t\t\t\t\t\tclient={client}\n\t\t\t\t\t\t\tconnected={connected}\n\t\t\t\t\t\t\tdisabled={running || submitting || !connected}\n\t\t\t\t\t\t\trunning={running}\n\t\t\t\t\t\t\tonSend={(text) => void sendPrompt(text)}\n\t\t\t\t\t\t\tonAbort={() => void abort()}\n\t\t\t\t\t\t\tproviders={providers}\n\t\t\t\t\t\t\tmodel={modelValue}\n\t\t\t\t\t\t\tonModel={handleModelChange}\n\t\t\t\t\t\t\tthinkingLevel={thinkingLevel}\n\t\t\t\t\t\t\tonThinkingLevel={handleThinkingChange}\n\t\t\t\t\t\t\tapprovalMode={approvalMode}\n\t\t\t\t\t\t\tonApprovalMode={handleApprovalModeChange}\n\t\t\t\t\t\t\tsessionInfo={sessionInfo}\n\t\t\t\t\t\t\tworkspaceDir={workspaceDir}\n\t\t\t\t\t\t\tprojects={projects}\n\t\t\t\t\t\t\tonSwitchProject={switchProject}\n\t\t\t\t\t\t\tcommands={slashCommands}\n\t\t\t\t\t\t/>"
+  ],
+  "files": {
+    "components/ChatStream.tsx": "42a709b388b1cf8ce31805308db1d4141abb20ef3dab8b899e5af5ec51537442",
+    "components/Composer.tsx": "87180042e13c0034e478591592fee6ccb9084ad02f2e3bf673b76c41a8293acb",
+    "components/TodoPin.tsx": "09ab360802ffa70f58a40266d8eac64a303ef996bdacff5bebfc1e20d175aced",
+    "hooks/transcript.ts": "21759e43fd2782fee88c0f14303d64cb2782a0cc8855c231c96e7c36d6244276",
+    "chat-appearance.ts": "55bc94bbaa48cbbeb2570f3aa554650d7c85f29addcd4d9ef0427f08887d2eb2"
+  }
+}

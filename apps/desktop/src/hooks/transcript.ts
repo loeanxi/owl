@@ -47,6 +47,9 @@ export type ChatEntry =
 
 type AnyEvent = Record<string, any>; // wire events are forward-compat; render defensively
 
+/** Run boundaries belong to UI snapshots, never to messages or model-visible text. */
+const runBoundaries = new WeakMap<ChatEntry[], number>();
+
 /**
  * 把供应商错误整理成可读中文。OpenAI 兼容 SDK 的报错形如
  * `429: {"code":"1308","message":"已达到 5 小时的使用上限。…"}`，
@@ -155,8 +158,22 @@ function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string,
 
 /** Apply one bridge event to the transcript. Returns a new array (immutably). */
 export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): ChatEntry[] {
+	const next = applyTranscriptEvent(entries, message);
+	const boundary = runBoundaries.get(entries);
+	if (boundary !== undefined && next !== entries && !runBoundaries.has(next)) runBoundaries.set(next, boundary);
+	return next;
+}
+
+function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage): ChatEntry[] {
 	const event = message.event as AnyEvent;
 	switch (event.type) {
+		case "agent_start": {
+			const next = [...entries];
+			// App already appended a newly submitted user message; continuation runs have no new user.
+			const boundary = entries.at(-1)?.kind === "user" ? entries.length - 1 : entries.length;
+			runBoundaries.set(next, boundary);
+			return next;
+		}
 		case "message_start": {
 			// system/user 消息由 sendPrompt 或 rebuild 负责入列，这里只给 assistant 建流式气泡，
 			// 否则每轮会多出带空"思考过程"的空气泡。
@@ -248,6 +265,16 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 			// 因此只重建最后一条用户消息之后的部分，之前的转录原样保留。
 			const messages = (event.messages ?? []) as AnyEvent[];
 			const rebuilt = rebuild(messages);
+			const runBoundary = runBoundaries.get(entries);
+			if (runBoundary !== undefined) {
+				const prefix = entries.slice(0, runBoundary);
+				// Some hosts omit the already-displayed user from the run snapshot.
+				if (!messages.some((message) => message.role === "user") && entries[runBoundary]?.kind === "user") prefix.push(entries[runBoundary]);
+				const next = [...prefix, ...rebuilt];
+				runBoundaries.set(next, runBoundary);
+				return next;
+			}
+			// Snapshot replay can begin without agent_start; retain the legacy user-turn fallback.
 			let lastUser = -1;
 			for (let i = entries.length - 1; i >= 0; i--) {
 				if (entries[i].kind === "user") {

@@ -8,10 +8,11 @@ import { Composer } from "./components/Composer.tsx";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
-import { IconCompose, IconList, IconPanelLeft } from "./components/icons.tsx";
+import { IconList } from "./components/icons.tsx";
+import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
+import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
-import { WindowControls } from "./components/WindowControls.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
@@ -24,6 +25,7 @@ import { isIabPageBound, boundTabIdFor, encodeIabPath } from "./sidebar/iab-boun
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
+import "./desktop-shell.css";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
 /** 未选择过项目时的默认工作目录；启动时会自动创建，保证开箱即可对话。 */
@@ -59,6 +61,8 @@ export default function App(): React.JSX.Element {
 	const [connected, setConnected] = useState(false);
 	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	const [settingsInitialTab, setSettingsInitialTab] = useState<"general" | "about">("general");
+	const [showProjectDialog, setShowProjectDialog] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
 	const [railView, setRailView] = useState<RailView>("chat");
@@ -80,6 +84,8 @@ export default function App(): React.JSX.Element {
 	const [pendingPrompts, setPendingPrompts] = useState<ReadonlySet<string>>(() => new Set<string>());
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
+	const runningSessionsRef = useRef(runningSessions);
+	runningSessionsRef.current = runningSessions;
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
 	const [questionNavOpen, setQuestionNavOpen] = useState(false);
@@ -623,6 +629,19 @@ export default function App(): React.JSX.Element {
 		setPendingPrompts((current) => new Set(current).add(target!));
 		const response = await client.request({ type: "session.prompt", sessionId: target, message });
 		if (!response.ok) throw new Error(response.error ?? "消息发送失败");
+		// Some extension commands finish before starting an agent run. Reconcile their
+		// optimistic indicator with the bridge instead of leaving the input locked.
+		const submittedSession = target;
+		setTimeout(() => {
+			void client.request<SessionRunningResult>({ type: "session.running" }).then((state) => {
+				if (!state.ok || state.result?.running.includes(submittedSession) || runningSessionsRef.current.has(submittedSession)) return;
+				setPendingPrompts((current) => {
+					const next = new Set(current);
+					next.delete(submittedSession);
+					return next;
+				});
+			}).catch(() => {});
+		}, 2000);
 		} catch (error) {
 			if (target) setPendingPrompts((current) => {
 				const next = new Set(current);
@@ -651,18 +670,45 @@ export default function App(): React.JSX.Element {
 	}, [entries]);
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
 	const questionCount = entries.filter((entry) => entry.kind === "user").length;
-	const waitingForUser = permission?.sessionId === sessionId || questions.some((question) => question.sessionId === sessionId);
+	const waitingForUser = Boolean(sessionId && (permission?.sessionId === sessionId || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
 
 	const headerButtonClass = (active: boolean): string =>
 		`owl-chrome-button${active ? " is-active" : ""}`;
 
 	return (
-		<div className="flex h-screen bg-owl-bg font-sans text-owl-text">
+		<div className="owl-desktop-shell font-sans text-owl-text">
+			<DesktopTitlebar
+				connected={connected}
+				sidebarCollapsed={sidebarMinimized || showSettings}
+				sidebarToggleRef={sidebarToggleRef}
+				onToggleSidebar={() => {
+					if (showSettings) setShowSettings(false);
+					else toggleSessionSidebar();
+				}}
+				onNewChat={() => {
+					setShowSettings(false);
+					setRailView("chat");
+					newChat();
+				}}
+				onOpenProject={() => setShowProjectDialog(true)}
+				onOpenSettings={() => {
+					setSettingsInitialTab("general");
+					setShowSettings(true);
+				}}
+				onOpenAbout={() => {
+					setSettingsInitialTab("about");
+					setShowSettings(true);
+				}}
+				onDockRight={() => togglePanelAt("right")}
+				onDockBottom={() => togglePanelAt("bottom")}
+			/>
+			<div className="owl-desktop-body">
 			<ActivityRail
 				view={railView}
-				onSelect={(view) => setRailView(view)}
-				onOpenSettings={() => setShowSettings(true)}
+				settingsOpen={showSettings}
+				onSelect={(view) => { setShowSettings(false); setRailView(view); }}
+				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
 			<SessionSidebar
 				client={client}
@@ -672,7 +718,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={sessionId ?? ""}
 				revision={sidebarRev}
 				focus={railView}
-				minimized={sidebarMinimized}
+				minimized={sidebarMinimized || showSettings}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
 				onNewChat={() => {
@@ -681,90 +727,27 @@ export default function App(): React.JSX.Element {
 				}}
 				onSelectProject={switchProject}
 				onOpenSession={(id) => void openSession(id)}
+				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<header
-					className="owl-chat-header flex shrink-0 select-none items-center gap-2.5 px-4"
-					data-tauri-drag-region="deep"
-				>
-					<div className="flex shrink-0 items-center gap-1" data-tauri-drag-region="false">
-						<button
-							ref={sidebarToggleRef}
-							type="button"
-							className="owl-chrome-button"
-							title={sidebarMinimized ? "展开侧边栏" : "收起侧边栏"}
-							aria-label={sidebarMinimized ? "展开侧边栏" : "收起侧边栏"}
-							aria-expanded={!sidebarMinimized}
-							aria-controls="owl-session-sidebar"
-							onClick={toggleSessionSidebar}
-						>
-							<IconPanelLeft className="h-4 w-4" />
-						</button>
-						{sidebarMinimized && (
-							<button
-								type="button"
-								className="owl-chrome-button"
-								title="新会话"
-								aria-label="新会话"
-								onClick={() => {
-									setRailView("chat");
-									newChat();
-								}}
-							>
-								<IconCompose className="h-4 w-4" />
-							</button>
-						)}
-					</div>
-					{/* 桥是界面与本地 agent 进程的内部管道：正常只留绿点，异常才出文案 */}
-					{connected ? (
-						<span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="已连接" />
-					) : (
-						<span className="flex shrink-0 items-center gap-2">
-							<span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-							<span className="text-sm text-red-400">
-								{everConnected ? "连接已断开，正在重连…" : "正在连接…"}
-							</span>
-						</span>
-					)}
-					{/* 会话标题（取首条提问），DSH 的 "Greeting and session start" 同位 */}
-					<h1 className="max-w-56 min-w-0 truncate text-sm font-semibold text-owl-text" title={sessionTitle}>
-						{sessionTitle}
-					</h1>
-					<span
-						className="flex min-w-0 items-center gap-1.5 rounded bg-owl-sidebar px-2 py-0.5 text-xs text-owl-faint"
-						title={workspaceDir}
-					>
-						<IconFolder size={11} />
-						<span className="truncate">{projectBasename}</span>
+			<div className="owl-main-frame">
+				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
+					<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={sessionTitle}>{sessionTitle}</h1>
+					<span className="owl-shell-project" title={workspaceDir}>
+						<IconFolder size={12} /><span className="owl-shell-project-label">{projectBasename}</span>
 					</span>
-					<div className="min-w-4 flex-1" data-tauri-drag-region="deep" />
-					{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>对话目录 · {questionCount}</span></button>}
-					{/* 右侧功能簇：底部工作台 / 右列工作台 / 窗口控制 */}
-					<button
-						type="button"
-						title="底部工作台"
-						aria-label="底部工作台"
-						aria-pressed={workbenchOpen && workbenchDock === "bottom"}
-						className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")}
-						onClick={() => togglePanelAt("bottom")}
-					>
-						<IconPanelBottom size={16} />
-					</button>
-					<button
-						type="button"
-						title="右列工作台"
-						aria-label="右列工作台"
-						aria-pressed={workbenchOpen && workbenchDock === "right"}
-						className={headerButtonClass(workbenchOpen && workbenchDock === "right")}
-						onClick={() => togglePanelAt("right")}
-					>
-						<IconPanelRight size={16} />
-					</button>
-					<WindowControls />
+					<div className="owl-shell-header-actions" data-tauri-drag-region="false">
+						<span className={"owl-shell-connection" + (connected ? "" : " is-offline")} role="status" title={connected ? "已连接" : "本地连接不可用"}>
+							<span className="owl-shell-connection-dot" />
+							{connected ? "本地" : everConnected ? "连接已断开，正在重连…" : "正在连接…"}
+						</span>
+						{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>对话目录 · {questionCount}</span></button>}
+						<button type="button" title="底部工作台" aria-label="底部工作台" aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
+						<button type="button" title="右列工作台" aria-label="右列工作台" aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
+					</div>
 				</header>
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
-				<div className={`flex min-h-0 flex-1 ${workbenchDock === "right" ? "flex-row" : "flex-col"}`}>
-					<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "")}>
+					<div className="owl-shell-conversation">
 						<ChatStream key={sessionId ?? workspaceDir} entries={entries} onQuickAction={requestOpenKind} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} />
@@ -799,7 +782,28 @@ export default function App(): React.JSX.Element {
 						onSetDock={setDockPersisted}
 					/>
 				</div>
+			{showSettings && (
+				<SettingsPage
+					client={client}
+					workspaceDir={workspaceDir}
+					initialTab={settingsInitialTab}
+					onWorkspaceDir={(dir) => {
+						setWorkspaceDir(dir);
+						localStorage.setItem(WORKSPACE_KEY, dir);
+					}}
+					onClose={() => setShowSettings(false)}
+					onSessionsChanged={() => setSidebarRev((v) => v + 1)}
+				/>
+			)}
 			</div>
+			</div>
+			{showProjectDialog && (
+				<NewProjectDialog client={client} onClose={() => setShowProjectDialog(false)} onCreated={(path) => {
+					setShowProjectDialog(false);
+					setShowSettings(false);
+					switchProject(path);
+				}} />
+			)}
 			{permission && (
 				<PermissionDialog
 					request={permission}
@@ -817,18 +821,6 @@ export default function App(): React.JSX.Element {
 						client.respondQuestion(questions[0].requestId, answers, cancelled);
 						setQuestions((current) => current.slice(1));
 					}}
-				/>
-			)}
-			{showSettings && (
-				<SettingsPage
-					client={client}
-					workspaceDir={workspaceDir}
-					onWorkspaceDir={(dir) => {
-						setWorkspaceDir(dir);
-						localStorage.setItem(WORKSPACE_KEY, dir);
-					}}
-					onClose={() => setShowSettings(false)}
-					onSessionsChanged={() => setSidebarRev((v) => v + 1)}
 				/>
 			)}
 		</div>

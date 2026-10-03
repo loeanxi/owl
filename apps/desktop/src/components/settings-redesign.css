@@ -333,6 +333,42 @@
 	margin-top: 14px;
 }
 
+.owl-settings-page .owl-settings-plugin-list {
+	overflow: hidden;
+	border: 1px solid var(--settings-border);
+	border-radius: 10px;
+	background: var(--settings-panel);
+}
+
+.owl-settings-page .owl-settings-plugin-row {
+	display: flex;
+	min-height: 72px;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 16px 18px;
+}
+
+.owl-settings-page .owl-settings-plugin-row + .owl-settings-plugin-row {
+	border-top: 1px solid var(--settings-border);
+}
+
+.owl-settings-page .owl-settings-content details {
+	border-color: var(--settings-border);
+	background: var(--settings-panel);
+}
+
+.owl-settings-page .owl-settings-content details summary {
+	padding: 12px 14px;
+	font-size: 13px;
+}
+
+.owl-settings-page .owl-settings-content details pre {
+	padding: 12px 14px;
+	color: var(--settings-muted);
+	font-size: 12px;
+}
+
 .owl-settings-page .owl-settings-provider-header {
 	display: flex;
 	align-items: center;

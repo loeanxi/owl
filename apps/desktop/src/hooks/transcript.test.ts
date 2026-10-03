@@ -134,3 +134,31 @@ test("nested execution stays with its parent and canonical replay retains its ac
 	assert.equal(nested?.parentToolCallId, "read-1");
 	assert.equal(nested?.output?.text, "not found");
 });
+
+test("a user-less continuation replaces only its run and preserves the preceding assistant and tools", () => {
+	const previous = rebuild([user, assistant, result("read-1", "file contents"), result("bash-1", "v24")]);
+	let entries = event(previous, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "继续后的答案" } });
+	const messages = [{ role: "assistant", content: [{ type: "text", text: "继续后的答案" }] }];
+	entries = event(entries, { type: "agent_end", messages });
+	assert.deepEqual(entries, [...previous, ...rebuild(messages)]);
+	assert.equal(entries.filter((entry) => entry.kind === "assistant").length, 2);
+	assert.equal((entries[1] as Extract<ChatEntry, { kind: "assistant" }>).tools[0].output?.text, "file contents");
+	assert.deepEqual(event(entries, { type: "agent_end", messages }), entries);
+	// A third run starts after the second one, rather than inheriting its boundary.
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "最后一个回答" }] }] });
+	assert.equal(entries.filter((entry) => entry.kind === "assistant").length, 3);
+});
+
+test("agent_start includes the optimistic user for a new prompt without duplicating that user", () => {
+	const history = rebuild([{ role: "user", content: "旧任务" }, { role: "assistant", content: [{ type: "text", text: "旧回答" }] }]);
+	let entries: ChatEntry[] = [...history, { kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "agent_end", messages: [user, assistant, result("read-1", "new file")] });
+	assert.deepEqual(entries, [...history, ...rebuild([user, assistant, result("read-1", "new file")])]);
+	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
+});

@@ -325,6 +325,8 @@ export function SettingsPage({
 		};
 	}, []);
 
+	useEffect(() => setSection(initialTab), [initialTab]);
+
 	function respondPrompt(answer: string) {
 		setLoginAsk(null);
 		setAskAnswer("");
@@ -819,6 +821,8 @@ export function SettingsPage({
 										<div className="mt-2 space-y-2">
 											<div className="flex gap-2">
 												<input
+													type="password"
+													autoComplete="off"
 													className="flex-1 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
 													value={quickKey}
 													onChange={(e) => setQuickKey(e.target.value)}
@@ -868,7 +872,7 @@ export function SettingsPage({
 											)}
 											{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
 											{loginAsk && (
-												<div className="rounded border border-amber-700 bg-amber-950/40 p-2">
+												<div className="owl-settings-notice is-warning">
 													<div className="text-[11px] text-amber-200">{loginAsk.message ?? "登录流程需要输入"}</div>
 													{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
 														<div className="mt-1.5 flex gap-2">
@@ -959,7 +963,7 @@ export function SettingsPage({
 										</div>
 										<label className="block text-[11px] text-owl-muted">
 											API Key（也可以填 <code>$环境变量名</code> 引用）
-											<input className={input} value={pApiKey} onChange={(e) => setPApiKey(e.target.value)} placeholder="sk-..." />
+											<input type="password" autoComplete="off" className={input} value={pApiKey} onChange={(e) => setPApiKey(e.target.value)} placeholder="sk-..." />
 										</label>
 										<div className="flex justify-end gap-2">
 											<button type="button" className={btn} onClick={resetProviderForm}>
@@ -1419,11 +1423,13 @@ export function SettingsPage({
 										</div>
 									}
 								/>
-								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="按归档时间排序；「恢复」放回侧边栏原位置（所属项目），「删除」立即删文件。">
+								<div className="owl-settings-notice is-warning">每小时以及应用启动时自动清理。删除后的会话无法恢复。</div>
+								<SettingRow title={`已归档会话（${archiveCfg.sessions.length}）`} desc="恢复的会话会回到原项目。">
 									{archiveCfg.sessions.length === 0 ? (
 										<p className="text-[11px] text-owl-faint">暂无归档会话。</p>
 									) : (
-										<div className="space-y-1">
+										<div className="owl-settings-archive-list">
+											<div className="owl-settings-archive-header"><span>会话与来源</span><span>保留状态与操作</span></div>
 											{[...archiveCfg.sessions]
 												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
 												.map((entry) => {
@@ -1434,7 +1440,7 @@ export function SettingsPage({
 													return (
 														<div
 															key={entry.sessionId}
-															className="flex items-center gap-2 rounded-lg bg-owl-sidebar/60 px-2 py-1.5"
+															className="owl-settings-archive-row"
 														>
 															<div className="min-w-0 flex-1">
 																<div className="truncate text-xs text-owl-text" title={title}>
@@ -1442,10 +1448,14 @@ export function SettingsPage({
 																</div>
 																<div className="mt-0.5 text-[10px] text-owl-faint">
 																	归档于 {formatDateTime(entry.archivedAt)}
-																	{origin ? ` · 来自 ${origin}` : ""} ·{" "}
-																	{left > 0 ? `${left} 天后自动删除` : "待自动清理"}
+																	{origin ? ` · 来自 ${origin}` : ""}
 																</div>
 															</div>
+															<div className="text-right">
+																<div className={`mb-2 text-xs ${left <= 2 ? "owl-settings-archive-warning" : "text-owl-muted"}`}>
+																	{left > 0 ? `${left} 天后自动删除` : "待自动清理"}
+																</div>
+																<div className="owl-settings-archive-actions">
 															<button
 																type="button"
 																className={btn}
@@ -1458,11 +1468,11 @@ export function SettingsPage({
 																<>
 																	<button
 																		type="button"
-																		className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-40"
+																		className={`${btn} is-danger`}
 																		disabled={busy}
 																		onClick={() => void deleteArchived(entry.sessionId)}
 																	>
-																		确认删除
+																		永久删除
 																	</button>
 																	<button type="button" className={btn} onClick={() => setConfirmDelId(null)}>
 																		取消
@@ -1471,12 +1481,15 @@ export function SettingsPage({
 															) : (
 																<button
 																	type="button"
-																	className={`${btn} hover:border-red-500/60 hover:text-red-300`}
+																	className={`${btn} is-danger`}
 																	onClick={() => setConfirmDelId(entry.sessionId)}
 																>
 																	删除
 																</button>
 															)}
+																</div>
+																{confirmDelId === entry.sessionId && <p className="owl-settings-archive-warning mt-2">确认后会话内容无法恢复。</p>}
+															</div>
 														</div>
 													);
 												})}
@@ -1668,9 +1681,11 @@ export function SettingsPage({
 						{/* -------- settings.json（高级） -------- */}
 						{section === "json" && (
 							<>
-								<SectionHeader title="settings.json（高级）" desc="直接编辑 JSON 原文并保存写回；其余分区保存后此文本会自动同步。" />
+								<SectionHeader title="高级配置" desc="直接编辑 settings.json，适合需要精细配置的用户。" />
+								<div className="owl-settings-notice">其他设置页面的保存结果会同步到这里。确认 JSON 格式正确后保存，配置按字段合并。</div>
 								<textarea
-									className="h-96 w-full rounded-lg border border-owl-border bg-owl-sidebar p-2 font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
+									className="owl-settings-json-editor"
+									aria-label="settings.json 配置内容"
 									value={raw}
 									onChange={(event) => setRaw(event.target.value)}
 									spellCheck={false}
@@ -1700,14 +1715,18 @@ export function SettingsPage({
 						{/* -------- 关于 -------- */}
 						{section === "about" && (
 							<>
-								<SectionHeader title="关于" />
-								<SettingRow title="Owl 桌面版" desc="基于 pi coding agent 的桌面封装。">
-									<span className="font-mono text-xs text-owl-muted">v{version}</span>
+								<SectionHeader title="关于 Owl" desc="你的桌面 AI 工作伙伴。" />
+								<div className="owl-settings-about-brand">
+									<img src="/owl.svg" alt="" draggable={false} />
+									<div><h3>Owl</h3><p className="owl-settings-row-description">桌面版 · {version === "未知" ? "版本信息暂无" : `v${version}`}</p></div>
+								</div>
+								<SettingRow title="运行基础" desc="基于 pi coding agent 的桌面应用。">
+									<span className="text-xs text-owl-muted">本机工作区与模型服务协作</span>
 								</SettingRow>
-								<SettingRow title="agent 目录" desc="隔离的数据目录。">
-									<span className="max-w-[360px] truncate font-mono text-xs text-owl-muted">{agentDir || "—"}</span>
+								<SettingRow title="Owl 数据目录" desc="保存设置、模型配置与会话历史。">
+									<span className="break-all font-mono text-xs text-owl-muted">{agentDir || "—"}</span>
 								</SettingRow>
-								<SettingRow title="已配置模型" desc="来自 models.json 的声明。">
+								<SettingRow title="已配置模型" desc="来自你的供应商配置。">
 									<span className="text-xs text-owl-muted">
 										{groups.length} 个供应商 · {modelCount} 个模型
 									</span>
@@ -1720,17 +1739,37 @@ export function SettingsPage({
 				{/* ============ 底部 ============ */}
 				<div className="owl-settings-footer">
 					<span className={savedMsg ? "owl-settings-save-status is-saved" : "owl-settings-save-status"} role="status" aria-live="polite">
-						{busy ? "正在保存…" : savedMsg || "设置保存在本机，部分更改将用于新会话。"}
+						{busy ? "正在处理…" : savedMsg || "设置保存在本机，部分更改将用于新会话。"}
 					</span>
 					<button type="button" className={btn} onClick={onClose}>完成</button>
 				</div>
 			</div>
 
+			{confirmProvider && (
+				<div className="owl-settings-modal-shade" onClick={() => setConfirmProviderId(null)}>
+					<div className="owl-settings-modal" role="alertdialog" aria-modal="true" aria-labelledby="owl-provider-delete-title" aria-describedby="owl-provider-delete-description" onClick={(event) => event.stopPropagation()}>
+						<h3 id="owl-provider-delete-title">删除供应商</h3>
+						<p id="owl-provider-delete-description">删除“{confirmProvider.name ?? confirmProvider.id}”也会移除该供应商下的 {confirmProvider.models.length} 个模型配置。</p>
+						<p>你可以之后重新添加供应商和模型。</p>
+						<div className="mt-6 flex justify-end gap-2">
+							<button type="button" className={btn} autoFocus onClick={() => setConfirmProviderId(null)}>取消</button>
+							<button type="button" className={`${btn} is-danger`} disabled={busy} onClick={() => {
+								setConfirmProviderId(null);
+								void run({ type: "models.removeProvider", providerKey: confirmProvider.id });
+							}}>删除供应商</button>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* ============ 登录 / 保存 Key 成功弹窗 ============ */}
 			{authSuccess && (
-				<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setAuthSuccess(null)}>
+				<div className="owl-settings-modal-shade" onClick={() => setAuthSuccess(null)}>
 					<div
-						className="w-[360px] rounded-xl border border-owl-border bg-owl-panel p-5 text-center shadow-2xl shadow-black/40"
+						className="owl-settings-modal text-center"
+						role="dialog"
+						aria-modal="true"
+						aria-label={authSuccess.title}
 						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-lg text-emerald-400">✓</div>

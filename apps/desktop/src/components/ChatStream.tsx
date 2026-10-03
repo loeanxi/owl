@@ -220,7 +220,7 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 			{open && (
 				<div className="owl-tool-group-body">
 					{cards.map((card) => (
-						<ToolRowView key={card.id} card={card} expanded={expanded} />
+						<ToolRowView key={card.id} card={card} />
 					))}
 				</div>
 			)}

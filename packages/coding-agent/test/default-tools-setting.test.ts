@@ -63,7 +63,7 @@ describe("defaultTools setting", () => {
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "edit", "find", "grep", "ls", "powershell", "read", "todo", "write"]);
+		).toEqual(["bash", "edit", "find", "grep", "ls", "powershell", "process", "read", "todo", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["grep", "find"]);
 		expect(session.systemPrompt).toContain("- grep:");
 		expect(session.systemPrompt).not.toContain("- read:");
@@ -93,7 +93,7 @@ describe("defaultTools setting", () => {
 			},
 		]);
 
-		expect(session.getActiveToolNames().sort()).toEqual(["bash", "edit", "inactive_tool", "read", "todo"]);
+		expect(session.getActiveToolNames().sort()).toEqual(["bash", "edit", "inactive_tool", "process", "read", "todo"]);
 		session.dispose();
 	});
 
@@ -196,18 +196,18 @@ describe("defaultTools setting", () => {
 		// #10245
 		it("activates only tools newly added to defaultTools", async () => {
 			const session = await createFileSession();
-			expect(session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "todo"]);
+			expect(session.getActiveToolNames()).toEqual(["read", "bash", "process", "edit", "write", "todo"]);
 			session.setActiveToolsByName(["read", "edit", "write"]);
 
 			writeSettings({ defaultTools: ["+inactive_tool", "+grep"] });
 			await session.reload();
 			// bash was disabled during the session and is not newly added, so it stays off.
-			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "read", "write"]);
+			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "process", "read", "write"]);
 
 			// Removing tools from the setting does not disable them.
 			writeSettings({ defaultTools: ["-read"] });
 			await session.reload();
-			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "read", "write"]);
+			expect(session.getActiveToolNames().sort()).toEqual(["edit", "grep", "inactive_tool", "process", "read", "write"]);
 			session.dispose();
 		});
 
@@ -255,7 +255,7 @@ describe("defaultTools setting", () => {
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "edit", "find", "grep", "ls", "powershell", "read", "todo", "write"]);
+		).toEqual(["bash", "edit", "find", "grep", "ls", "powershell", "process", "read", "todo", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["ls"]);
 		session.dispose();
 	});
