@@ -80,6 +80,16 @@ export function IconSearch({ className }: { className?: string }): React.JSX.Ele
 	);
 }
 
+/** 侧栏头部：展开 / 收起会话列表 */
+export function IconPanelLeft({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<rect x="3" y="4" width="18" height="16" rx="2" />
+			<path d="M9 4v16" />
+		</Svg>
+	);
+}
+
 /** 分组折叠指示：闭合时指右，展开时旋转向下 */
 export function IconChevron({ className }: { className?: string }): React.JSX.Element {
 	return (

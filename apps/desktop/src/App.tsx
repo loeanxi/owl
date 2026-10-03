@@ -469,14 +469,10 @@ export default function App(): React.JSX.Element {
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
 
 	const headerButtonClass = (active: boolean): string =>
-		`rounded-md border p-1 transition-colors ${
-			active
-				? "border-owl-accent/60 bg-owl-accent/10 text-owl-accent"
-				: "border-owl-border text-owl-muted hover:bg-owl-hover hover:text-owl-text"
-		}`;
+		`owl-chrome-button${active ? " is-active" : ""}`;
 
 	return (
-		<div className="flex h-screen bg-owl-bg text-owl-text">
+		<div className="flex h-screen bg-owl-bg font-sans text-owl-text">
 			<ActivityRail
 				view={railView}
 				onSelect={(view) => setRailView(view)}
@@ -500,7 +496,7 @@ export default function App(): React.JSX.Element {
 			/>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header
-					className="flex shrink-0 select-none items-center gap-2.5 border-b border-owl-border/60 px-4 py-2"
+					className="owl-chat-header flex shrink-0 select-none items-center gap-2.5 px-4"
 					data-tauri-drag-region="deep"
 				>
 					{/* 桥是界面与本地 agent 进程的内部管道：正常只留绿点，异常才出文案 */}
@@ -531,19 +527,21 @@ export default function App(): React.JSX.Element {
 						type="button"
 						title="底部工作台"
 						aria-label="底部工作台"
+						aria-pressed={workbenchOpen && workbenchDock === "bottom"}
 						className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")}
 						onClick={() => togglePanelAt("bottom")}
 					>
-						<IconPanelBottom size={14} />
+						<IconPanelBottom size={16} />
 					</button>
 					<button
 						type="button"
 						title="右列工作台"
 						aria-label="右列工作台"
+						aria-pressed={workbenchOpen && workbenchDock === "right"}
 						className={headerButtonClass(workbenchOpen && workbenchDock === "right")}
 						onClick={() => togglePanelAt("right")}
 					>
-						<IconPanelRight size={14} />
+						<IconPanelRight size={16} />
 					</button>
 					<WindowControls />
 				</header>

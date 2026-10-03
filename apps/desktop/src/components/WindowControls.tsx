@@ -4,9 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 /** 浏览器 dev 下没有 Tauri 注入的 IPC，此时不渲染窗口按钮。 */
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const buttonClass =
-	"inline-flex h-5 w-6 items-center justify-center rounded text-owl-faint " +
-	"transition-colors hover:bg-owl-hover hover:text-owl-muted";
+const buttonClass = "owl-chrome-button";
 
 /** 无边框窗口的自绘控制按钮：最小化 / 最大化还原 / 关闭。 */
 export function WindowControls(): React.JSX.Element | null {
@@ -38,7 +36,7 @@ export function WindowControls(): React.JSX.Element | null {
 	const current = getCurrentWindow();
 
 	return (
-		<div className="ml-1.5 flex items-center gap-1" data-tauri-drag-region="false">
+		<div className="ml-1.5 flex items-center gap-0.5" data-tauri-drag-region="false">
 			<button
 				type="button"
 				aria-label="最小化"
@@ -46,7 +44,7 @@ export function WindowControls(): React.JSX.Element | null {
 				className={buttonClass}
 				onClick={() => void current.minimize()}
 			>
-				<svg className="h-2 w-2" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+				<svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
 					<path d="M2 6h8" />
 				</svg>
 			</button>
@@ -58,12 +56,12 @@ export function WindowControls(): React.JSX.Element | null {
 				onClick={() => void current.toggleMaximize()}
 			>
 				{maximized ? (
-					<svg className="h-2 w-2" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+					<svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
 						<rect x="2.2" y="4.2" width="5.6" height="5.6" rx="0.5" />
 						<path d="M4.4 4.2V2.6a0.4 0.4 0 0 1 0.4-0.4h4.6a0.4 0.4 0 0 1 0.4 0.4v4.6a0.4 0.4 0 0 1-0.4 0.4H7.8" />
 					</svg>
 				) : (
-					<svg className="h-2 w-2" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+					<svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
 						<rect x="2.2" y="2.2" width="7.6" height="7.6" rx="0.5" />
 					</svg>
 				)}
@@ -72,15 +70,12 @@ export function WindowControls(): React.JSX.Element | null {
 				type="button"
 				aria-label="关闭"
 				title="关闭"
-					className={
-						"inline-flex h-5 w-6 items-center justify-center rounded text-owl-faint " +
-						"transition-colors hover:bg-red-600 hover:text-white"
-					}
-					onClick={() => void current.close()}
-				>
-					<svg className="h-2 w-2" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-						<path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
-					</svg>
+				className="owl-chrome-button owl-window-close"
+				onClick={() => void current.close()}
+			>
+				<svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+					<path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
+				</svg>
 			</button>
 		</div>
 	);

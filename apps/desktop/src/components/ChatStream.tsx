@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { ChatEntry, ToolCard, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
-import { toolGroupLabel } from "../hooks/summarize.ts";
+import { toolRunLabel } from "../hooks/summarize.ts";
 import { IconAlert, IconChat, IconCheck, IconChevron, IconLightbulb, IconList, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 
@@ -23,9 +23,9 @@ export function renderMarkdown(text: string): string {
  * max-w-3xl 居中）。左缘是提问追踪节点轨：每次提问是带序号的强调节点，其后的思考 /
  * 工具 / 回答依次成节点，纵向连线串成一条可扫读的执行链。
  *
- * 过程采用「渐进披露」：工具调用默认收成一行人话摘要，连续同类工具合并成组
- * （「运行了 4 条命令」），点击逐级展开参数与输出；失败行自动展开标红。答案正文
- * 永远是主角，思考过程整轮合并成一条轻量折叠行。
+ * 过程采用「渐进披露」：工具调用默认收成一行人话摘要，连续的工具调用（名称可不同，
+ * 如浏览器套件）合并成一组（「运行了 4 条命令」「浏览器操作 × 3」），点击逐级展开
+ * 参数与输出；失败行自动展开标红。答案正文永远是主角，思考过程整轮合并成一条轻量折叠行。
  */
 
 /** 时间轴上的一行：node 是左轨节点，content 是右侧内容；提问行带 questionIndex 作跳转锚点。 */
@@ -224,8 +224,8 @@ function ToolRowView({ card }: { card: ToolCard }): React.JSX.Element {
 	);
 }
 
-/** 连续同类工具的合组：「运行了 4 条命令」；失败自动展开，展开后每行再各自展开。 */
-function ToolGroupView({ name, cards }: { name: string; cards: ToolCard[] }): React.JSX.Element {
+/** 连续工具调用的合组（名称可不同）：失败自动展开，展开后每行再各自展开。 */
+function ToolGroupView({ label, cards }: { label: string; cards: ToolCard[] }): React.JSX.Element {
 	const [open, setOpen] = useState(() => cards.some((card) => card.status === "error"));
 	const errorCount = cards.filter((card) => card.status === "error").length;
 	const running = cards.some((card) => card.status === "running");
@@ -233,7 +233,6 @@ function ToolGroupView({ name, cards }: { name: string; cards: ToolCard[] }): Re
 		if (errorCount > 0) setOpen(true);
 	}, [errorCount]);
 
-	const label = toolGroupLabel(name, cards.length) ?? `${name} × ${cards.length}`;
 	return (
 		<div className="min-w-0">
 			<button
@@ -360,9 +359,13 @@ function toolRow(key: string, card: ToolCard): TimelineRow {
 /** 一轮提问聚合出的内容（同一轮可能有多条 assistant 消息：工具调用把它们隔开）。 */
 type TurnAcc = { thinking: string[]; tools: ToolCard[]; texts: string[]; error?: string };
 
-const isGroupable = (name: string): boolean => toolGroupLabel(name, 1) !== undefined;
+/**
+ * 独立呈现、不进合组的工具：todo 有专属清单卡，ask_user 是等用户输入的轮次边界，
+ * 都值得常驻可见；其余连续工具（名称可不同）收进一个可折叠组。
+ */
+const STANDALONE_TOOLS = new Set(["todo", "ask_user_question"]);
 
-/** 把一轮的聚合内容排成时间轴行：思考一条 → 工具按连续同名合组 → 回答正文 → 报错。 */
+/** 把一轮的聚合内容排成时间轴行：思考一条 → 连续工具收成一组 → 回答正文 → 报错。 */
 function turnRows(acc: TurnAcc, turn: number): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	const thinking = acc.thinking.join("\n\n").trim();
@@ -381,13 +384,13 @@ function turnRows(acc: TurnAcc, turn: number): TimelineRow[] {
 	let groupIndex = 0;
 	while (index < acc.tools.length) {
 		const tool = acc.tools[index]!;
-		if (!isGroupable(tool.name)) {
+		if (STANDALONE_TOOLS.has(tool.name)) {
 			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
 			index += 1;
 			continue;
 		}
 		let end = index + 1;
-		while (end < acc.tools.length && acc.tools[end]!.name === tool.name) end += 1;
+		while (end < acc.tools.length && !STANDALONE_TOOLS.has(acc.tools[end]!.name)) end += 1;
 		const group = acc.tools.slice(index, end);
 		if (group.length === 1) {
 			rows.push(toolRow(`t${turn}-tool-${tool.id}`, tool));
@@ -398,13 +401,13 @@ function turnRows(acc: TurnAcc, turn: number): TimelineRow[] {
 					? "error"
 					: "ok";
 			rows.push({
-				key: `t${turn}-group-${groupIndex}-${tool.name}`,
+				key: `t${turn}-group-${groupIndex}`,
 				node: (
-					<StepNode tone={tone} title={`工具调用：${tool.name} × ${group.length}`}>
+					<StepNode tone={tone} title={`工具调用 × ${group.length}`}>
 						<IconTerminal className="h-3 w-3" />
 					</StepNode>
 				),
-				content: <ToolGroupView name={tool.name} cards={group} />,
+				content: <ToolGroupView label={toolRunLabel(group.map((card) => card.name), group.length)} cards={group} />,
 			});
 		}
 		groupIndex += 1;
@@ -532,23 +535,25 @@ function QuestionNavigator({
 				type="button"
 				title={`提问导航（${questions.length} 个提问）`}
 				aria-label="提问导航"
+				aria-expanded={false}
 				onClick={toggle}
-				className="absolute left-2 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg border border-owl-border bg-owl-panel/90 text-owl-muted shadow-lg shadow-black/20 backdrop-blur-sm transition-colors hover:text-owl-text"
+				className="owl-chrome-button owl-question-nav-toggle absolute left-2 top-1/2 z-20 -translate-y-1/2"
 			>
 				<IconList className="h-3.5 w-3.5" />
 			</button>
 		);
 	}
 	return (
-		<div className="absolute left-2 top-1/2 z-20 flex max-h-[72vh] w-60 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
-			<header className="flex shrink-0 items-center justify-between border-b border-owl-border/60 py-1.5 pl-3 pr-1.5">
-				<span className="text-xs font-medium text-owl-muted">提问导航 · {questions.length}</span>
+		<div className="owl-question-nav absolute left-2 top-1/2 z-20 flex max-h-[72vh] w-60 -translate-y-1/2 flex-col overflow-hidden rounded-xl border" role="navigation" aria-label="提问列表">
+			<header className="flex shrink-0 items-center justify-between border-b border-owl-sidebar-border py-1.5 pl-3 pr-1.5">
+				<span className="text-xs font-medium text-owl-sidebar-muted">提问导航 · {questions.length}</span>
 				<button
 					type="button"
 					title="收起提问导航"
 					aria-label="收起提问导航"
+					aria-expanded
 					onClick={toggle}
-					className="flex h-6 w-6 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
+					className="owl-chrome-button"
 				>
 					<IconChevron className="h-3.5 w-3.5 rotate-180" />
 				</button>
@@ -559,27 +564,67 @@ function QuestionNavigator({
 						key={question.n}
 						type="button"
 						onClick={() => onJump(question.n)}
-						className={`flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-							question.n === active ? "bg-owl-accent/10" : "hover:bg-owl-hover"
-						}`}
+						aria-current={question.n === active ? "location" : undefined}
+						className={`owl-question-nav-item flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${question.n === active ? "is-active" : ""}`}
 					>
 						<span
-							className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
-								question.n === active ? "bg-owl-accent text-white" : "bg-owl-hover text-owl-muted"
-							}`}
+							className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-owl-sidebar-hover text-[10px] font-semibold text-owl-sidebar-muted"
 						>
 							{question.n}
 						</span>
 						<span className="min-w-0 flex-1">
-							<span className="block truncate text-xs text-owl-text">{question.text}</span>
+							<span className="block truncate text-xs text-owl-sidebar-text">{question.text}</span>
 							{question.preview && (
-								<span className="block truncate text-[11px] leading-4 text-owl-faint">{question.preview}</span>
+								<span className="block truncate text-[11px] leading-4 text-owl-sidebar-faint">{question.preview}</span>
 							)}
 						</span>
 					</button>
 				))}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * 最新截图 Dock（ZCode 同款）：贴在聊天底部的小缩略图，免翻时间轴直接看
+ * agent 刚截的图。点缩略图弹出完整大图（浮层），✕ 关闭后同一张不再出现，
+ * agent 截了新图会重新弹出。
+ */
+function ScreenshotDock({
+	shot,
+	onClose,
+}: {
+	shot: { key: string; image: ToolResultImage };
+	onClose: () => void;
+}): React.JSX.Element {
+	const [zoom, setZoom] = useState(false);
+	const src = `data:${shot.image.mimeType};base64,${shot.image.data}`;
+	return (
+		<>
+			{zoom && (
+				<div
+					className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6"
+					onClick={() => setZoom(false)}
+				>
+					<img src={src} alt="完整截图" className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl" />
+				</div>
+			)}
+			<div className="absolute bottom-2 left-2 z-20 w-56 overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
+				<header className="flex items-center justify-between px-2 py-1">
+					<span className="text-[11px] font-medium text-owl-muted">最新截图</span>
+					<button
+						type="button"
+						title="关闭"
+						aria-label="关闭最新截图"
+						onClick={onClose}
+						className="flex h-5 w-5 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
+					>
+						✕
+					</button>
+				</header>
+				<img src={src} alt="最新截图" className="w-full cursor-zoom-in" onClick={() => setZoom(true)} />
+			</div>
+		</>
 	);
 }
 
@@ -615,6 +660,23 @@ export function ChatStream({
 	}, [entries]);
 
 	const rows = useMemo(() => buildRows(entries), [entries]);
+
+	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
+	const latestShot = useMemo(() => {
+		let latest: { key: string; image: ToolResultImage } | undefined;
+		entries.forEach((entry, index) => {
+			if (entry.kind !== "assistant") return;
+			for (const tool of entry.tools) {
+				const images = tool.output?.images;
+				if (images?.length) {
+					latest = { key: `a${index}-tool-${tool.id}`, image: images[images.length - 1] };
+				}
+			}
+		});
+		return latest;
+	}, [entries]);
+	const [dismissedShotKey, setDismissedShotKey] = useState<string | undefined>(undefined);
+	const showShotDock = latestShot !== undefined && latestShot.key !== dismissedShotKey;
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
 	const questions = useMemo(() => buildQuestions(entries), [entries]);
@@ -695,6 +757,9 @@ export function ChatStream({
 				</div>
 			</main>
 			<QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} />
+			{showShotDock && latestShot && (
+				<ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />
+			)}
 		</div>
 	);
 }

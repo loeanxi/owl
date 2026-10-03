@@ -18,39 +18,39 @@ export function ActivityRail({
 	onOpenSettings: () => void;
 }): React.JSX.Element {
 	const itemClass = (active: boolean): string =>
-		`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-			active ? "bg-owl-hover text-owl-text" : "text-owl-faint hover:bg-owl-hover/60 hover:text-owl-text"
-		}`;
+		`owl-rail-button${active ? " is-active" : ""}`;
 
 	return (
 		<nav
-			className="flex w-[52px] shrink-0 select-none flex-col items-center gap-1 border-r border-owl-border bg-owl-rail py-3"
+			className="owl-activity-rail"
 			data-tauri-drag-region="deep"
 			aria-label="主导航"
 		>
-			<button type="button" className={itemClass(view === "chat")} title="聊天" onClick={() => onSelect("chat")}>
+			<button type="button" className={itemClass(view === "chat")} title="聊天" aria-label="聊天" aria-current={view === "chat" ? "page" : undefined} onClick={() => onSelect("chat")}>
 				<IconHome className="h-[18px] w-[18px]" />
 			</button>
 
-			<div className="my-1.5 h-px w-6 bg-owl-border" />
+			<div className="owl-rail-divider" />
 
 			<button
 				type="button"
 				className={itemClass(false)}
 				title="设置"
+				aria-label="设置"
 				onClick={onOpenSettings}
 			>
 				<IconSettings className="h-[18px] w-[18px]" />
 			</button>
-			<button type="button" className={`${itemClass(false)} opacity-40`} title="更多功能开发中" disabled>
+			<button type="button" className={itemClass(false)} title="更多" aria-label="更多" disabled>
 				<IconMore className="h-[18px] w-[18px]" />
 			</button>
 
 			{/* 底部：owl 头像位。先复用为设置入口，后续可挂账号/状态菜单。 */}
 			<button
 				type="button"
-				className="mt-auto flex h-8 w-8 items-center justify-center rounded-full border border-owl-border bg-owl-panel transition-colors hover:border-owl-faint"
+				className="owl-rail-avatar"
 				title="owl"
+				aria-label="Owl 设置"
 				onClick={onOpenSettings}
 			>
 				<img src="/owl.svg" alt="owl" className="h-4.5 w-4.5" draggable={false} />

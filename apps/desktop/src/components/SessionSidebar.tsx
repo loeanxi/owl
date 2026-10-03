@@ -4,11 +4,13 @@ import { KNOWN_PROJECTS_KEY, loadKnownProjects, normPath, projectLabel, samePath
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import {
 	IconArchive,
+	IconChat,
 	IconCheck,
 	IconChevron,
 	IconCompose,
 	IconFolder,
 	IconMore,
+	IconPanelLeft,
 	IconPin,
 	IconPlus,
 	IconSearch,
@@ -133,7 +135,7 @@ function loadCollapsed(): Set<string> {
 	}
 }
 
-/** 可折叠分组：头部（箭头 + 标题，悬停露出操作按钮）+ 展开内容 + 可选下拉菜单。 */
+/** 可折叠分组：标题与尾随箭头，悬停或键盘聚焦时露出快捷操作。 */
 function Section({
 	id,
 	label,
@@ -156,41 +158,35 @@ function Section({
 	children: React.ReactNode;
 }): React.JSX.Element {
 	return (
-		<div id={id} data-section={id} className="mt-3 first:mt-0">
-			<div
-				className="group/header relative flex items-center rounded-md px-3 py-1 transition-colors hover:bg-owl-hover/40"
-			>
+		<div id={id} data-section={id} className="owl-sidebar-section">
+			<div className={`owl-sidebar-section-header ${showMenu ? "is-open" : ""}`}>
 				<button
 					type="button"
-					className="flex min-w-0 flex-1 items-center gap-1 text-left"
+					className="owl-sidebar-section-toggle"
 					onClick={onToggle}
+					aria-label={`${open ? "收起" : "展开"}${label}`}
 					aria-expanded={open}
 				>
+					<span className="owl-sidebar-section-label">{label}</span>
 					<IconChevron
-						className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
+						className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${open ? "rotate-90" : ""}`}
 					/>
-					<span className="text-xs font-medium text-owl-muted">{label}</span>
 				</button>
 				{actions && (
-					<div
-						data-menu-root
-						className={`flex shrink-0 items-center gap-0.5 transition-opacity ${
-							showMenu ? "opacity-100" : "opacity-0 group-hover/header:opacity-100"
-						}`}
-					>
+					<div data-menu-root className="owl-sidebar-section-actions">
 						{actions}
 					</div>
 				)}
 				{menu && showMenu && (
 					<div
 						data-menu-root
-						className="absolute right-2 top-full z-30 mt-1 w-56 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+						className="absolute right-2 top-full z-30 mt-1 w-56 rounded-xl border border-owl-sidebar-border bg-owl-sidebar-surface py-1 shadow-xl shadow-black/30"
 					>
 						{menu}
 					</div>
 				)}
 			</div>
-			{open && <div className="mt-0.5 px-2">{children}</div>}
+			{open && <div className="owl-sidebar-section-content">{children}</div>}
 		</div>
 	);
 }
@@ -216,28 +212,28 @@ function MenuRow({
 			title={disabled ? "该功能开发中" : undefined}
 			className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs transition-colors ${
 				disabled
-					? "cursor-default text-owl-faint/50"
-					: "text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+					? "cursor-default text-owl-sidebar-faint/50"
+					: "text-owl-sidebar-muted hover:bg-owl-sidebar-hover hover:text-owl-sidebar-text"
 			}`}
 			onClick={onClick}
 		>
 			<span className="flex items-center gap-2">
 				{label}
-				{hint && <span className="text-[10px] font-normal text-owl-faint/70">{hint}</span>}
+				{hint && <span className="text-[10px] font-normal text-owl-sidebar-faint/70">{hint}</span>}
 			</span>
-			{checked && <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-text" />}
+			{checked && <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-text" />}
 		</button>
 	);
 }
 
 /** 分组菜单里的小节标题（如「排序方式」）。 */
 function MenuLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-	return <p className="px-3 pb-1 pt-2 text-[10px] text-owl-faint/80">{children}</p>;
+	return <p className="px-3 pb-1 pt-2 text-[10px] text-owl-sidebar-faint/80">{children}</p>;
 }
 
 /** 分组菜单分隔线。 */
 function MenuDivider(): React.JSX.Element {
-	return <div className="my-1 border-t border-owl-border/70" />;
+	return <div className="my-1 border-t border-owl-sidebar-border/70" />;
 }
 
 export function SessionSidebar({
@@ -388,8 +384,7 @@ export function SessionSidebar({
 		const key = `${scope}:${normPath(path)}`;
 		setOpenProjects((current) => {
 			const expandedNow =
-				(current?.has(key) ?? false) ||
-				(current === null && scope === "project" && samePath(path, activeProject));
+				(current?.has(key) ?? false) || (current === null && scope === "project" && samePath(path, activeProject));
 			const next = new Set(current ?? []);
 			if (expandedNow) next.delete(key);
 			else next.add(key);
@@ -446,9 +441,7 @@ export function SessionSidebar({
 				// 恢复后行会回到原位置（置顶/项目分组/最近）：
 				// 把可能的落点分组顺手展开，避免会话“回去了”却被折叠藏住、看起来像消失。
 				if (row.cwd) {
-					setOpenProjects((current) =>
-						new Set(current ?? []).add(`project:${normPath(row.cwd as string)}`),
-					);
+					setOpenProjects((current) => new Set(current ?? []).add(`project:${normPath(row.cwd as string)}`));
 				}
 				setCollapsed((current) => {
 					const next = new Set(current);
@@ -506,16 +499,12 @@ export function SessionSidebar({
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
 	const sessionMatches = (row: SessionRow): boolean =>
-		!search ||
-		sessionTitle(row).toLowerCase().includes(search) ||
-		(row.cwd ?? "").toLowerCase().includes(search);
+		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search);
 
 	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
 
 	const pinnedSessions = useMemo(() => {
-		const rows = sessions.filter(
-			(row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row),
-		);
+		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row));
 		if (pinnedSort === "manual") {
 			// 手动排序 = 置顶操作发生的先后顺序（pinned 数组序）
 			return rows.sort((a, b) => pinned.indexOf(a.id as string) - pinned.indexOf(b.id as string));
@@ -576,9 +565,8 @@ export function SessionSidebar({
 
 	const archivedSessions = useMemo(() => sessions.filter((row) => isArchivedRow(row)).sort(byLatest), [sessions]);
 
-	/** 会话行悬停操作按钮的统一样式。 */
-	const rowBtn =
-		"shrink-0 rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60";
+	/** 行内操作保留键盘入口，样式统一在侧边栏内控制。 */
+	const rowBtn = "owl-sidebar-action";
 
 	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
 	const sessionRowTip = (row: SessionRow, archivedRow: boolean): string => {
@@ -588,7 +576,7 @@ export function SessionSidebar({
 	};
 
 	/**
-	 * 会话行（单行紧凑式）：左侧运行状态点（agent run 活跃 = 绿色脉冲）+ 标题，
+	 * 会话行（单行紧凑式）：聊天图标 + 标题，运行中的会话显示绿色状态，
 	 * 悬停露出置顶/归档/删除按钮；归档行常显「恢复」按钮。
 	 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, archivedRow = false): React.JSX.Element => {
@@ -598,35 +586,35 @@ export function SessionSidebar({
 		return (
 			<div
 				key={id ?? index}
-				className={`group/row flex h-7 items-center gap-2 rounded-lg px-2 transition-colors ${
-					id === activeId ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text"
+				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
+					pinnedRow || archivedRow ? "owl-sidebar-row--has-marker" : ""
 				}`}
 			>
-				<span
-					className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
-						isRunning ? "animate-pulse bg-emerald-500" : "bg-owl-faint/40"
-					}`}
-					title={isRunning ? "Agent 运行中" : undefined}
-				/>
 				<button
 					type="button"
-					className="min-w-0 flex-1 truncate text-left text-xs"
+					className="owl-sidebar-row-main"
 					title={sessionRowTip(row, archivedRow)}
+					aria-current={id === activeId ? "page" : undefined}
 					onClick={() => id && onOpenSession(id)}
 				>
-					{sessionTitle(row)}
+					<span
+						className={`owl-sidebar-session-icon ${isRunning ? "is-running animate-pulse text-emerald-500" : ""}`}
+						title={isRunning ? "Agent 运行中" : undefined}
+					>
+						<IconChat className="h-3.5 w-3.5" />
+					</span>
+					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
+					{isRunning && <span className="sr-only">，Agent 运行中</span>}
 				</button>
 				{id && (
-					<div className="flex shrink-0 items-center gap-0.5">
+					<div className="owl-sidebar-row-actions" data-persistent={pinnedRow || archivedRow}>
 						{!archivedRow && (
 							<button
 								type="button"
-								className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
-									pinnedRow
-										? "text-owl-accent"
-										: `text-owl-faint opacity-0 group-hover/row:opacity-100 ${isPinned ? "text-owl-accent" : ""}`
-								}`}
+								className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent order-last" : ""}`}
 								title={isPinned ? "取消置顶" : "置顶"}
+								aria-label={isPinned ? "取消置顶会话" : "置顶会话"}
+								aria-pressed={isPinned}
 								onClick={() => togglePin(id)}
 							>
 								<IconPin className="h-3.5 w-3.5" filled={isPinned} />
@@ -635,8 +623,9 @@ export function SessionSidebar({
 						{archivedRow ? (
 							<button
 								type="button"
-								className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+								className={`${rowBtn} owl-sidebar-action--persistent order-last`}
 								title="恢复到原位置"
+								aria-label="恢复会话到原位置"
 								onClick={() => void toggleArchive(row)}
 							>
 								<IconUnarchive className="h-3.5 w-3.5" />
@@ -644,8 +633,9 @@ export function SessionSidebar({
 						) : (
 							<button
 								type="button"
-								className={`${rowBtn} hover:text-owl-text`}
+								className={rowBtn}
 								title="归档"
+								aria-label="归档会话"
 								onClick={() => void toggleArchive(row)}
 							>
 								<IconArchive className="h-3.5 w-3.5" />
@@ -653,8 +643,9 @@ export function SessionSidebar({
 						)}
 						<button
 							type="button"
-							className={`${rowBtn} hover:text-red-400`}
+							className={`${rowBtn} owl-sidebar-action--danger`}
 							title="删除会话"
+							aria-label="删除会话"
 							onClick={() => {
 								setConfirmDelete(row);
 								setDeleteError("");
@@ -670,9 +661,7 @@ export function SessionSidebar({
 
 	/** 项目下的未归档会话（按最近活动排序，搜索时同步过滤）。「项目」/「置顶」两组行共用。 */
 	const projectSessionRows = (path: string): SessionRow[] =>
-		sessions
-			.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row))
-			.sort(byLatest);
+		sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort(byLatest);
 
 	/**
 	 * 置顶栏里的项目行：chevron 展开该项目的会话列表，名称点击切换项目（当前项目点击仅展开/收起）；
@@ -690,63 +679,69 @@ export function SessionSidebar({
 			setOpenMenu(null);
 		};
 		return (
-			<div key={menuId}>
-				<div className="group/row relative flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors text-owl-muted hover:bg-owl-hover/60 hover:text-owl-text">
+			<div key={menuId} className="owl-sidebar-project-group">
+				<div
+					className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${
+						isCurrent ? "is-current" : ""
+					} ${openMenu === menuId ? "is-open" : ""}`}
+				>
 					<button
 						type="button"
-						className="flex shrink-0 items-center p-0.5"
+						className="owl-sidebar-project-toggle"
 						aria-expanded={expanded}
+						aria-label={`${expanded ? "收起" : "展开"}${projectLabel(path)}的会话列表`}
 						title={expanded ? "收起会话列表" : "展开会话列表"}
 						onClick={() => toggleProjectGroup(path, "pinned")}
 					>
 						<IconChevron
-							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+							className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`}
 						/>
 					</button>
 					<button
 						type="button"
-						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+						className="owl-sidebar-row-main"
 						title={path}
+						aria-label={isCurrent ? `${projectLabel(path)}，当前项目` : `切换到项目 ${projectLabel(path)}`}
 						onClick={() => (isCurrent ? toggleProjectGroup(path, "pinned") : onSelectProject(path))}
 					>
-						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
-						<span className="truncate text-xs">{projectLabel(path)}</span>
+						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+						<span className="owl-sidebar-row-label">{projectLabel(path)}</span>
 					</button>
-					<div className="flex shrink-0 items-center gap-0.5">
+					<div data-menu-root className="owl-sidebar-row-actions" data-persistent>
 						<button
 							type="button"
-							className="shrink-0 rounded p-1 text-owl-accent transition-colors hover:bg-owl-border/60"
+							className="owl-sidebar-action owl-sidebar-action--persistent order-last"
 							title="取消置顶"
+							aria-label="取消置顶项目"
+							aria-pressed
 							onClick={() => toggleProjectPin(path)}
 						>
 							<IconPin className="h-3.5 w-3.5" filled />
 						</button>
 						<button
 							type="button"
-							className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/row:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+							className="owl-sidebar-action"
 							title={isCurrent ? "在本项目新建会话" : "切换到此项目并新建会话"}
+							aria-label={`在项目 ${projectLabel(path)} 新建会话`}
 							onClick={startChat}
 						>
 							<IconPlus className="h-3.5 w-3.5" />
 						</button>
 						<button
 							type="button"
-							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
-								openMenu === menuId
-									? "text-owl-text opacity-100"
-									: "text-owl-faint opacity-0 group-hover/row:opacity-100 hover:text-owl-text"
-							}`}
+							className="owl-sidebar-action"
 							title="项目操作"
+							aria-label={`${projectLabel(path)} 项目操作`}
+							aria-expanded={openMenu === menuId}
 							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
 						>
 							<IconMore className="h-3.5 w-3.5" />
 						</button>
-						{isCurrent && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
 					</div>
 					{openMenu === menuId && (
 						<div
 							data-menu-root
-							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-sidebar-border bg-owl-sidebar-surface py-1 shadow-xl shadow-black/30"
 						>
 							{isCurrent ? (
 								<MenuRow
@@ -776,11 +771,9 @@ export function SessionSidebar({
 					)}
 				</div>
 				{expanded && (
-					<div className="mt-0.5 pl-4">
+					<div className="owl-sidebar-project-sessions">
 						{rows.map((row, index) => sessionRow(row, index, false))}
-						{rows.length === 0 && (
-							<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
-						)}
+						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
 					</div>
 				)}
 			</div>
@@ -795,39 +788,41 @@ export function SessionSidebar({
 		const expanded = search !== "" || projectGroupOpen(path, "project");
 		const rows = projectSessionRows(path);
 		return (
-			<div key={menuId}>
-				<div className="group/project relative flex items-center rounded-md px-2 py-1 transition-colors hover:bg-owl-hover/40">
+			<div key={menuId} className="owl-sidebar-project-group">
+				<div
+					className={`owl-sidebar-row owl-sidebar-project-row ${isCurrent ? "is-current" : ""} ${
+						projectPinned ? "owl-sidebar-row--has-marker" : ""
+					} ${openMenu === menuId ? "is-open" : ""}`}
+				>
 					<button
 						type="button"
-						className="flex shrink-0 items-center p-0.5"
+						className="owl-sidebar-project-toggle"
 						aria-expanded={expanded}
+						aria-label={`${expanded ? "收起" : "展开"}${projectLabel(path)}的会话列表`}
 						title={expanded ? "收起会话列表" : "展开会话列表"}
 						onClick={() => toggleProjectGroup(path, "project")}
 					>
 						<IconChevron
-							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+							className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`}
 						/>
 					</button>
 					<button
 						type="button"
-						className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+						className="owl-sidebar-row-main"
 						title={path}
+						aria-label={isCurrent ? `${projectLabel(path)}，当前项目` : `切换到项目 ${projectLabel(path)}`}
 						onClick={() => (isCurrent ? toggleProjectGroup(path, "project") : onSelectProject(path))}
 					>
-						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-faint/70" />
-						<span className={`truncate text-xs ${isCurrent ? "text-owl-text" : "text-owl-muted"}`}>
-							{projectLabel(path)}
-						</span>
+						<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+						<span className="owl-sidebar-row-label">{projectLabel(path)}</span>
 					</button>
-					<div className="flex shrink-0 items-center gap-0.5">
+					<div data-menu-root className="owl-sidebar-row-actions" data-persistent={projectPinned}>
 						<button
 							type="button"
-							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
-								projectPinned
-									? "text-owl-accent"
-									: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
-							}`}
+							className={`owl-sidebar-action ${projectPinned ? "owl-sidebar-action--persistent order-last" : ""}`}
 							title={projectPinned ? "取消置顶" : "置顶项目"}
+							aria-label={projectPinned ? "取消置顶项目" : "置顶项目"}
+							aria-pressed={projectPinned}
 							onClick={() => toggleProjectPin(path)}
 						>
 							<IconPin className="h-3.5 w-3.5" filled={projectPinned} />
@@ -835,8 +830,9 @@ export function SessionSidebar({
 						{isCurrent && (
 							<button
 								type="button"
-								className="rounded p-1 text-owl-faint opacity-0 transition-colors group-hover/project:opacity-100 hover:bg-owl-border/60 hover:text-owl-text"
+								className="owl-sidebar-action"
 								title="在本项目新建会话"
+								aria-label={`在项目 ${projectLabel(path)} 新建会话`}
 								onClick={onNewChat}
 							>
 								<IconPlus className="h-3.5 w-3.5" />
@@ -844,22 +840,19 @@ export function SessionSidebar({
 						)}
 						<button
 							type="button"
-							className={`rounded p-1 transition-colors hover:bg-owl-border/60 ${
-								openMenu === menuId
-									? "text-owl-text opacity-100"
-									: "text-owl-faint opacity-0 group-hover/project:opacity-100 hover:text-owl-text"
-							}`}
+							className="owl-sidebar-action"
 							title="项目操作"
+							aria-label={`${projectLabel(path)} 项目操作`}
+							aria-expanded={openMenu === menuId}
 							onClick={() => setOpenMenu(openMenu === menuId ? null : menuId)}
 						>
 							<IconMore className="h-3.5 w-3.5" />
 						</button>
-						{isCurrent && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title="当前项目" />}
 					</div>
 					{openMenu === menuId && (
 						<div
 							data-menu-root
-							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/30"
+							className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-owl-sidebar-border bg-owl-sidebar-surface py-1 shadow-xl shadow-black/30"
 						>
 							{isCurrent ? (
 								<MenuRow
@@ -889,11 +882,9 @@ export function SessionSidebar({
 					)}
 				</div>
 				{expanded && (
-					<div className="mt-0.5 pl-4">
+					<div className="owl-sidebar-project-sessions">
 						{rows.map((row, index) => sessionRow(row, index, false))}
-						{rows.length === 0 && (
-							<p className="px-2 py-2 text-xs text-owl-faint/70">{search ? "无匹配会话" : "暂无会话"}</p>
-						)}
+						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
 					</div>
 				)}
 			</div>
@@ -908,85 +899,96 @@ export function SessionSidebar({
 		archivedSessions.filter(sessionMatches).length === 0 &&
 		pinnedSessions.filter(sessionMatches).length === 0;
 
-		/** 分组头部快捷按钮的统一样式。 */
-		const actionBtn =
-			"rounded p-1 text-owl-faint transition-colors hover:bg-owl-border/60 hover:text-owl-text";
-		const switchPinnedSort = (value: PinnedSort): void => {
-			setPinnedSort(value);
-			saveChoice(PINNED_SORT_KEY, value);
-			setOpenMenu(null);
-		};
-		const switchRecentSort = (value: ListSort): void => {
-			setRecentSort(value);
-			saveChoice(RECENT_SORT_KEY, value);
-			setOpenMenu(null);
-		};
-		const openNewProject = (): void => {
-			setShowNewProject(true);
-			setOpenMenu(null);
-		};
+	/** 分组头部快捷按钮的统一样式。 */
+	const actionBtn = "owl-sidebar-action";
+	const switchPinnedSort = (value: PinnedSort): void => {
+		setPinnedSort(value);
+		saveChoice(PINNED_SORT_KEY, value);
+		setOpenMenu(null);
+	};
+	const switchRecentSort = (value: ListSort): void => {
+		setRecentSort(value);
+		saveChoice(RECENT_SORT_KEY, value);
+		setOpenMenu(null);
+	};
+	const openNewProject = (): void => {
+		setShowNewProject(true);
+		setOpenMenu(null);
+	};
 
-		// 收起态：原位留一条窄栏，owl 图标停在展开时的位置，点击即展开。
-		if (minimized) {
-			return (
-				<aside
-					className="flex w-12 shrink-0 select-none flex-col items-center border-r border-owl-border bg-owl-sidebar pt-3"
-					data-tauri-drag-region="deep"
-					aria-label="会话侧边栏（已收起）"
-				>
+	// 收起态：原位留一条窄栏，在顶部恢复侧边栏。
+	if (minimized) {
+		return (
+			<aside
+				className="owl-sidebar owl-sidebar--minimized"
+				data-tauri-drag-region="deep"
+				aria-label="会话侧边栏（已收起）"
+			>
+				<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 					<button
 						type="button"
-						className="rounded-md p-1 transition-colors hover:bg-owl-hover/60"
+						className="owl-sidebar-icon-button"
 						title="展开侧边栏"
 						aria-label="展开侧边栏"
 						aria-expanded={false}
 						onClick={toggleMinimized}
 					>
-						<img src="/owl.svg" alt="owl" className="h-6 w-6" draggable={false} />
+						<IconPanelLeft className="h-4 w-4" />
 					</button>
-				</aside>
-			);
-		}
+				</div>
+			</aside>
+		);
+	}
 
-		return (
-			<aside className="flex w-64 shrink-0 flex-col border-r border-owl-border bg-owl-sidebar">
-			<div
-				className="flex select-none items-center gap-2 px-3 pb-1 pt-3"
-				data-tauri-drag-region="deep"
-			>
+	return (
+		<aside className="owl-sidebar" aria-label="会话侧边栏">
+			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button
 					type="button"
-					className="-ml-1 flex shrink-0 items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-owl-hover/60"
+					className="owl-sidebar-brand"
 					title="收起侧边栏"
 					aria-label="收起侧边栏"
 					aria-expanded={!minimized}
 					onClick={toggleMinimized}
 				>
-					<img src="/owl.svg" alt="owl" className="h-6 w-6" draggable={false} />
-					<span className="font-serif text-base tracking-wide text-owl-text">owl</span>
+					<img src="/owl.svg" alt="" className="h-5 w-5" draggable={false} />
+					<span>owl</span>
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
-				<button
-					type="button"
-					className={`rounded-md p-1.5 transition-colors hover:bg-owl-hover/60 ${
-						searchOpen ? "text-owl-text" : "text-owl-faint hover:text-owl-text"
-					}`}
-					title="搜索会话与项目"
-					onClick={() => {
-						setSearchOpen((open) => !open);
-						if (searchOpen) setQuery("");
-					}}
-				>
-					<IconSearch className="h-4 w-4" />
-				</button>
+				<div className="owl-sidebar-header-actions">
+					<button
+						type="button"
+						className={`owl-sidebar-icon-button ${searchOpen ? "is-active" : ""}`}
+						title="搜索会话与项目"
+						aria-label="搜索会话与项目"
+						aria-expanded={searchOpen}
+						onClick={() => {
+							setSearchOpen((open) => !open);
+							if (searchOpen) setQuery("");
+						}}
+					>
+						<IconSearch className="h-4 w-4" />
+					</button>
+					<button
+						type="button"
+						className="owl-sidebar-icon-button"
+						title="收起侧边栏"
+						aria-label="收起侧边栏"
+						aria-expanded
+						onClick={toggleMinimized}
+					>
+						<IconPanelLeft className="h-4 w-4" />
+					</button>
+				</div>
 			</div>
 
 			{searchOpen && (
-				<div className="px-3 pb-1 pt-1">
+				<div className="owl-sidebar-search">
 					<input
 						type="text"
-						className="w-full rounded-lg border border-owl-border bg-owl-bg px-2.5 py-1.5 text-xs text-owl-text outline-none transition-colors placeholder:text-owl-faint focus:border-owl-accent"
+						className="owl-sidebar-search-input"
 						placeholder="搜索会话或项目…"
+						aria-label="搜索会话或项目"
 						value={query}
 						autoFocus
 						onChange={(event) => setQuery(event.target.value)}
@@ -1000,17 +1002,14 @@ export function SessionSidebar({
 				</div>
 			)}
 
-			<div className="px-3 pt-2">
-				<button
-					type="button"
-					className="w-full rounded-lg bg-owl-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover"
-					onClick={onNewChat}
-				>
-					＋ 新会话
+			<div className="owl-sidebar-shortcuts">
+				<button type="button" className="owl-sidebar-new-chat" aria-label="新会话" onClick={onNewChat}>
+					<IconCompose className="h-4 w-4 shrink-0" />
+					<span>新会话</span>
 				</button>
 			</div>
 
-			<div ref={scrollRef} className="mt-2 flex-1 overflow-y-auto pb-3">
+			<div ref={scrollRef} className="owl-sidebar-list">
 				{(pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && (
 					<Section
 						id="pinned"
@@ -1023,6 +1022,8 @@ export function SessionSidebar({
 								type="button"
 								className={actionBtn}
 								title="置顶选项"
+								aria-label="置顶选项"
+								aria-expanded={openMenu === "pinned"}
 								onClick={() => setOpenMenu(openMenu === "pinned" ? null : "pinned")}
 							>
 								<IconMore className="h-3.5 w-3.5" />
@@ -1061,11 +1062,19 @@ export function SessionSidebar({
 								type="button"
 								className={actionBtn}
 								title="项目选项"
+								aria-label="项目选项"
+								aria-expanded={openMenu === "projects"}
 								onClick={() => setOpenMenu(openMenu === "projects" ? null : "projects")}
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
-							<button type="button" className={actionBtn} title="新建项目" onClick={openNewProject}>
+							<button
+								type="button"
+								className={actionBtn}
+								title="新建项目"
+								aria-label="新建项目"
+								onClick={openNewProject}
+							>
 								<IconPlus className="h-3.5 w-3.5" />
 							</button>
 						</>
@@ -1074,12 +1083,8 @@ export function SessionSidebar({
 				>
 					{/* 项目列表：当前项目置顶，其余按最近活动排序；点击项目名切换，chevron 展开会话 */}
 					{visibleProjects.map((path) => projectRow(path))}
-					<button
-						type="button"
-						className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-owl-faint transition-colors hover:bg-owl-hover/60 hover:text-owl-text"
-						onClick={openNewProject}
-					>
-						<span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-sm leading-none">＋</span>
+					<button type="button" className="owl-sidebar-add-project" aria-label="新建项目" onClick={openNewProject}>
+						<IconPlus className="h-3.5 w-3.5 shrink-0" />
 						新建项目
 					</button>
 				</Section>
@@ -1096,11 +1101,13 @@ export function SessionSidebar({
 								type="button"
 								className={actionBtn}
 								title="最近选项"
+								aria-label="最近选项"
+								aria-expanded={openMenu === "recent"}
 								onClick={() => setOpenMenu(openMenu === "recent" ? null : "recent")}
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
-							<button type="button" className={actionBtn} title="新建聊天" onClick={onNewChat}>
+							<button type="button" className={actionBtn} title="新建聊天" aria-label="新建聊天" onClick={onNewChat}>
 								<IconCompose className="h-3.5 w-3.5" />
 							</button>
 						</>
@@ -1115,34 +1122,21 @@ export function SessionSidebar({
 								checked={recentSort === "recent"}
 								onClick={() => switchRecentSort("recent")}
 							/>
-							<MenuRow
-								label="按名称"
-								checked={recentSort === "name"}
-								onClick={() => switchRecentSort("name")}
-							/>
+							<MenuRow label="按名称" checked={recentSort === "name"} onClick={() => switchRecentSort("name")} />
 						</>
 					}
 				>
 					{recentSessions.map((row, index) => sessionRow(row, index, false))}
-					{recentSessions.length === 0 && (
-						<p className="px-2 py-2 text-xs text-owl-faint/70">
-							{search ? "无匹配会话" : "暂无会话"}
-						</p>
-					)}
+					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? "无匹配会话" : "暂无会话"}</p>}
 				</Section>
 
 				{archivedSessions.length > 0 && (
-					<Section
-						id="archived"
-						label="归档"
-						open={isOpen("archived")}
-						onToggle={() => toggleSection("archived")}
-					>
+					<Section id="archived" label="归档" open={isOpen("archived")} onToggle={() => toggleSection("archived")}>
 						{archivedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, false, true))}
 					</Section>
 				)}
 
-				{noMatch && <p className="px-3 py-3 text-xs text-owl-faint/70">无匹配结果</p>}
+				{noMatch && <p className="owl-sidebar-empty">无匹配结果</p>}
 			</div>
 
 			{showNewProject && (

@@ -113,6 +113,30 @@ export function toolGroupLabel(name: string, count: number): string | undefined 
 	}
 }
 
+/** 混合工具族的组显示名(浏览器套件等),未收录的族退回通用文案。 */
+const FAMILY_LABELS: Record<string, string> = {
+	browser: "浏览器操作",
+	websearch: "网页搜索",
+};
+
+/**
+ * 一段连续工具调用(名称可不同)的组标题:全部同名用专名文案(「运行了 4 条命令」),
+ * 同一前缀族(browser_snapshot/browser_screenshot…)用族名,其余退回通用文案。
+ * todo / ask_user_question 不进组,由 ChatStream 侧排除。
+ */
+export function toolRunLabel(names: string[], count: number): string {
+	const first = names[0] ?? "tool";
+	if (names.every((name) => name === first)) {
+		return toolGroupLabel(first, count) ?? `${first} × ${count}`;
+	}
+	const family = first.split("_")[0] ?? first;
+	if (family && names.every((name) => (name.split("_")[0] ?? name) === family)) {
+		const label = FAMILY_LABELS[family];
+		if (label) return `${label} × ${count}`;
+	}
+	return `执行了 ${count} 个工具调用`;
+}
+
 /**
  * 权限确认框的参数说明:人话多行,让用户看得懂在批什么。
  * 写入/编辑类把内容载荷也带上(批准的就是内容本身);未知工具退回 JSON。
