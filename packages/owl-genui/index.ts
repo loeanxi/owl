@@ -21,7 +21,7 @@ import { GENUI_SECTION_TEXT } from "./src/plugin/section.ts";
 
 /** 本包根目录（index.ts 位于包根）。 */
 function packageRoot(): string {
-	return dirname(dirname(fileURLToPath(new URL(import.meta.url))));
+	return dirname(fileURLToPath(new URL(import.meta.url)));
 }
 
 /**

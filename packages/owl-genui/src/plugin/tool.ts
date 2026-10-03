@@ -9,9 +9,10 @@
  * 模型/桥层偶尔会把 spec 双重编码成字符串，能解则解，解不开再报错。
  * @module owl-genui/plugin/tool
  */
-import { Type } from "typebox";
+
 import type { ToolDefinition } from "@owl/owl-coding-agent";
-import { isRenderableProcess, processGenuiSpec, type GenuiProcessResult } from "../../client/guard.ts";
+import { Type } from "typebox";
+import { type GenuiProcessResult, isRenderableProcess, processGenuiSpec } from "../../client/guard.ts";
 import type { GenuiSpec } from "../../client/spec.ts";
 import { collectInlineContentWarnings } from "./inline-content-diagnostic.ts";
 
@@ -92,7 +93,8 @@ function formatProcessWarnings(processed: GenuiProcessResult): string[] {
 /** 将行内字段的块级 Markdown 诊断写入稳定的验证协议。 */
 function formatInlineContentWarningsLines(spec: GenuiSpec): string[] {
 	return collectInlineContentWarnings(spec).map(
-		(warning) => `warning=block_markdown path=${warning.path} kind=${warning.kind} replacement=${warning.replacement}`,
+		(warning) =>
+			`warning=block_markdown path=${warning.path} kind=${warning.kind} replacement=${warning.replacement}`,
 	);
 }
 
@@ -102,9 +104,9 @@ export function createRenderUiTool(): ToolDefinition<typeof RenderUiParams> {
 		name: "render_ui",
 		label: "渲染 UI 卡片",
 		description:
-			"Render an interactive UI card in the conversation tool row by passing a GenUI spec (a white-listed component tree; the same vocabulary as the ```owl-ui fence, see the system prompt). "
-			+ "Use it when the user asks for a structured panel, dashboard, or form that belongs in the tool row rather than inline in the reply. "
-			+ "The card is interactive client-side (tabs, buttons, inputs, switches); components carrying an \"action\" field send [owl-ui-action] back to you when the user interacts, and you should re-render the updated UI.",
+			"Render an interactive UI card in the conversation tool row by passing a GenUI spec (a white-listed component tree; the same vocabulary as the ```owl-ui fence, see the system prompt). " +
+			"Use it when the user asks for a structured panel, dashboard, or form that belongs in the tool row rather than inline in the reply. " +
+			'The card is interactive client-side (tabs, buttons, inputs, switches); components carrying an "action" field send [owl-ui-action] back to you when the user interacts, and you should re-render the updated UI.',
 		promptSnippet: "render_ui: 用 GenUI spec 在工具行渲染一张交互式 UI 卡片",
 		parameters: RenderUiParams,
 		// 桥层/模型偶尔把 spec 双重编码成字符串：验证前先解包回对象。
@@ -119,7 +121,14 @@ export function createRenderUiTool(): ToolDefinition<typeof RenderUiParams> {
 					content: [
 						{
 							type: "text",
-							text: ["[owl-ui-render]", "status=invalid", "error=invalid_spec", "required=items", "next=fix_and_retry", "reply_language=conversation"].join("\n"),
+							text: [
+								"[owl-ui-render]",
+								"status=invalid",
+								"error=invalid_spec",
+								"required=items",
+								"next=fix_and_retry",
+								"reply_language=conversation",
+							].join("\n"),
 						},
 					],
 					details: { genuiSpec: null },

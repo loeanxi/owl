@@ -43,4 +43,4 @@ Rules:
 - 卷子模式: 每题一个 radio（group+answer+explanation）+ 一个 submit（groups 全列），本地判分。
 - Secrets ban: 不索取密码、API Key、Token、恢复码；需要时拒绝并解释。
 - Tool channel: render_ui 工具把同一 spec 渲染为工具行卡片；围栏用于回答内联 UI。
-- 围栏位置：\`owl-ui\` 只写在**回答正文**；写在 reasoning/思考块里不渲染、用户看不到。`
+- 围栏位置：\`owl-ui\` 只写在**回答正文**；写在 reasoning/思考块里不渲染、用户看不到。`;

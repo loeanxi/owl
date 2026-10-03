@@ -1,4 +1,4 @@
-import { validateGenuiChartSemantics } from '../../client/guard.ts'
+import { validateGenuiChartSemantics } from "../../client/guard.ts";
 
 /**
  * Validate chart nodes using the guard's shared native renderability contract.
@@ -9,5 +9,5 @@ import { validateGenuiChartSemantics } from '../../client/guard.ts'
  * @returns Chart errors in deterministic tree order.
  */
 export function validateRenderableChartSemantics(value: unknown): string[] {
-  return validateGenuiChartSemantics(value)
+	return validateGenuiChartSemantics(value);
 }
