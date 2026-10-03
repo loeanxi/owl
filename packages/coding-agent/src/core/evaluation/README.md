@@ -18,7 +18,7 @@ Targeted validation:
 node ../../node_modules/vitest/dist/cli.js --run test/evaluation-service.test.ts test/evaluation-model.test.ts test/desktop-evaluation-bridge.test.ts test/core/evaluation-checkers.test.ts test/core/evaluation-browser-checks.test.ts
 
 # From the repository root
-node --test apps/desktop/src/features/evaluation/evaluation-model.test.ts apps/desktop/src/features/evaluation/evaluation-preview.test.ts
+node --test apps/desktop/src/features/evaluation/evaluation-model.test.ts apps/desktop/src/features/evaluation/evaluation-preview.test.ts apps/desktop/src/features/evaluation/evaluation-process.test.ts
 node apps/desktop/scripts/evaluation.browser.mjs
 node apps/desktop/scripts/evaluation-stream.browser.mjs
 ```

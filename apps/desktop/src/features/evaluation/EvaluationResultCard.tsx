@@ -17,7 +17,7 @@ export function EvaluationResultCard({ result, task, draft, busy, t, onDraft, on
 	onRetry: () => void;
 	onExpand: (artifact: EvaluationArtifact) => void;
 }): React.JSX.Element {
-	const [tab, setTab] = useState<ResultTab>(result.status === "queued" || result.status === "running" ? "process" : task.outputType === "code" || task.outputType === "json" ? "source" : "preview");
+	const [tab, setTab] = useState<ResultTab>(result.status !== "completed" ? "process" : task.outputType === "code" || task.outputType === "json" ? "source" : "preview");
 	const textElement = useRef<HTMLElement | null>(null);
 	const following = useRef<Record<ResultTab, boolean>>({ process: true, preview: true, answer: true, source: true, analysis: true });
 	const readingPositions = useRef<Partial<Record<ResultTab, number>>>({});
