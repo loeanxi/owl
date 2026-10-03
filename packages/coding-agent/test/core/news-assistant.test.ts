@@ -66,22 +66,23 @@ describe("news assistant without collected articles", () => {
 
 	it("keeps normal assistant calls behind the model processing switch", async () => {
 		const { service, callModel } = fixture();
-		await expect(service.handle({ action: "assistant", request: { question: "RSS 是什么？", itemIds: [] } }))
-			.rejects.toThrow("资讯模型调用尚未开启");
+		await expect(
+			service.handle({ action: "assistant", request: { question: "RSS 是什么？", itemIds: [] } }),
+		).rejects.toThrow("资讯模型调用尚未开启");
 		expect(callModel).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		{ itemIds: ["missing"] },
-		{ itemIds: [], storyId: "missing" },
-		{ itemIds: [], reportId: "missing" },
-	])("rejects explicitly selected unavailable context instead of silently answering generally: %j", async (context) => {
-		const { service, callModel } = fixture();
-		await service.handle({ action: "configure", patch: { modelCallsEnabled: true } });
-		await expect(service.handle({ action: "assistant", request: { question: "分析一下", ...context } }))
-			.rejects.toThrow("先选择可阅读的资讯");
-		expect(callModel).not.toHaveBeenCalled();
-	});
+	it.each([{ itemIds: ["missing"] }, { itemIds: [], storyId: "missing" }, { itemIds: [], reportId: "missing" }])(
+		"rejects explicitly selected unavailable context instead of silently answering generally: %j",
+		async (context) => {
+			const { service, callModel } = fixture();
+			await service.handle({ action: "configure", patch: { modelCallsEnabled: true } });
+			await expect(
+				service.handle({ action: "assistant", request: { question: "分析一下", ...context } }),
+			).rejects.toThrow("先选择可阅读的资讯");
+			expect(callModel).not.toHaveBeenCalled();
+		},
+	);
 });
 
 describe("manual news model connection test", () => {
@@ -98,7 +99,11 @@ describe("manual news model connection test", () => {
 		expect(callModel).toHaveBeenCalledTimes(2);
 		for (const [request] of callModel.mock.calls)
 			expect(request).toMatchObject({
-				capability: "assistant", purpose: "connection-test", model: draftModel, maxTokens: 64, temperature: 0,
+				capability: "assistant",
+				purpose: "connection-test",
+				model: draftModel,
+				maxTokens: 64,
+				temperature: 0,
 			});
 		const snapshot = await service.handle({ action: "snapshot" });
 		expect(snapshot.configuration.modelCallsEnabled).toBe(false);

@@ -7,6 +7,7 @@ import type {
 	NewsSnapshot,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { useT } from "../../i18n/index.ts";
+import { NewsModelTest } from "./NewsModelTest.tsx";
 import { downloadNews, errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 
@@ -31,12 +32,14 @@ export function NewsManagement({
 	section,
 	revision,
 	onChanged,
+	onOpenModelSettings,
 }: {
 	api: NewsClient;
 	snapshot: NewsSnapshot;
 	section: "configuration" | "operations" | "evaluation" | "exports";
 	revision: number;
 	onChanged: () => void;
+	onOpenModelSettings: () => void;
 }): React.JSX.Element {
 	const t = useT();
 	const [config, setConfig] = useState<NewsConfiguration>(() => structuredClone(snapshot.configuration));
@@ -174,6 +177,17 @@ export function NewsManagement({
 									</select>
 								</label>
 							))}
+						</div>
+						<NewsModelTest
+							api={api}
+							model={config.models.assistant}
+							modelName={snapshot.models.find((model) => model.provider === config.models.assistant?.provider && model.id === config.models.assistant?.id)?.name}
+							disabled={busy}
+							draft
+							onBusyChange={setBusy}
+						/>
+						<div className="owl-news-actions">
+							<button type="button" disabled={busy} onClick={onOpenModelSettings}>{t("news.manageModelServices")}</button>
 						</div>
 					</fieldset>
 					<fieldset disabled={busy}>

@@ -1,5 +1,6 @@
 import type { ModelRegistry } from "../../core/model-registry.ts";
 import { NewsOutputError } from "../../core/news/editorial.ts";
+import { newsModelFailureMessage } from "../../core/news/model-error.ts";
 import type { NewsModelCall, NewsModelRef, NewsModelResponse } from "../../core/news/types.ts";
 
 export interface NewsModelAccess {
@@ -48,7 +49,7 @@ export async function callNewsModel(access: NewsModelAccess, request: NewsModelC
 		},
 	};
 	if (response.stopReason === "error" || response.stopReason === "aborted") {
-		throw new Error(`资讯模型调用结果不明：${response.stopReason}（${model.provider}/${model.id}）`);
+		throw new Error(newsModelFailureMessage(response.errorMessage || response.stopReason));
 	}
 	if (response.stopReason !== "stop" || !text) {
 		throw new NewsOutputError(

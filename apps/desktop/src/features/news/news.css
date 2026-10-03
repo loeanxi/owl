@@ -805,6 +805,29 @@
 	background: var(--owl-ui-panel);
 	color: var(--color-owl-accent);
 }
+.owl-news-model-test {
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+	margin: 12px 0 18px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 8px;
+	background: var(--owl-ui-panel);
+	font-size: 11px;
+	overflow-wrap: anywhere;
+}
+.owl-news-model-test-header {
+	display: grid;
+	gap: 3px;
+}
+.owl-news-model-test > button {
+	justify-self: start;
+}
+.owl-news-model-test .owl-news-muted,
+.owl-news-model-test .owl-news-notice,
+.owl-news-model-test .owl-news-error {
+	margin: 0;
+}
 .owl-news-user-message {
 	background: var(--owl-ui-hover);
 	border-radius: 8px;

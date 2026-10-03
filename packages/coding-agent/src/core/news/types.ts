@@ -297,6 +297,12 @@ export interface NewsAssistantResult {
 	citations: { id: number; itemId: string; title: string; url: string }[];
 	usage: NewsUsage;
 }
+export interface NewsModelTestResult {
+	model: NewsModelRef;
+	answer: string;
+	usage?: NewsUsage;
+	durationMs: number;
+}
 export type NewsRequest =
 	| { action: "adminItems"; query?: NewsListQuery; status?: NewsItem["status"] | "withdrawn" }
 	| { action: "adminItem"; id: string }
@@ -330,6 +336,7 @@ export type NewsRequest =
 	| { action: "evaluate"; samples: NewsEvaluationSample[] }
 	| { action: "evaluations" }
 	| { action: "assistant"; request: NewsAssistantRequest }
+	| { action: "test_model"; model?: NewsModelRef }
 	| { action: "export"; format: "rss" | "json" | "markdown"; query?: NewsListQuery; fulltext?: boolean }
 	| { action: "backup" };
 
@@ -362,6 +369,7 @@ export interface NewsResultByAction {
 	evaluate: NewsEvaluation;
 	evaluations: NewsEvaluation[];
 	assistant: NewsAssistantResult;
+	test_model: NewsModelTestResult;
 	export: { content: string; filename: string; mimeType: string };
 	backup: { path: string; createdAt: string };
 }

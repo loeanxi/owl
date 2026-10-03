@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { NewsAssistantResult, NewsItem } from "../../../../../packages/coding-agent/src/core/news/types.ts";
+import type { NewsAssistantResult, NewsItem, NewsSnapshot } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { useT } from "../../i18n/index.ts";
+import { NewsModelTest } from "./NewsModelTest.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 
 export interface NewsContext {
@@ -24,6 +25,9 @@ export function NewsAssistant({
 	onToChat,
 	onConfigureSources,
 	onConfigureModels,
+	onOpenModelSettings,
+	snapshot,
+	connected,
 	prefill,
 }: {
 	api: NewsClient;
@@ -34,20 +38,30 @@ export function NewsAssistant({
 	onToChat: (text: string) => void;
 	onConfigureSources: () => void;
 	onConfigureModels: () => void;
+	onOpenModelSettings: () => void;
+	snapshot: NewsSnapshot | undefined;
+	connected: boolean;
 	prefill?: { id: number; text: string };
 }): React.JSX.Element {
 	const t = useT();
 	const [question, setQuestion] = useState("");
 	const [turns, setTurns] = useState<AssistantTurn[]>([]);
 	const [busy, setBusy] = useState(false);
+	const [testing, setTesting] = useState(false);
 	const [error, setError] = useState("");
 	const hasContext = context.items.length > 0 || !!context.storyId || !!context.reportId;
+	const model = snapshot?.configuration.models.assistant;
+	const modelName = snapshot?.models.find((entry) => entry.provider === model?.provider && entry.id === model?.id)?.name;
 	useEffect(() => {
 		if (prefill) setQuestion(prefill.text);
 	}, [prefill]);
 	const suggestions = [t("news.suggestImpact"), t("news.suggestVerify"), t("news.suggestCompare")];
 	async function send(): Promise<void> {
-		if (!question.trim() || busy) return;
+		if (!question.trim() || busy || testing || !connected) return;
+		if (!snapshot?.configuration.modelCallsEnabled) {
+			setError(t("news.assistantDisabledHint"));
+			return;
+		}
 		const submitted = question.trim();
 		const submittedContext = structuredClone(context);
 		setBusy(true);
@@ -136,6 +150,7 @@ export function NewsAssistant({
 				)}
 			</div>
 			<div className="owl-news-assistant-messages" aria-live="polite">
+				<NewsModelTest api={api} model={model} modelName={modelName} disabled={busy || !connected || !snapshot} onBusyChange={setTesting} />
 				{turns.length === 0 && hasContext && (
 					<>
 						<h3>{t("news.assistantGreeting")}</h3>
@@ -155,7 +170,9 @@ export function NewsAssistant({
 						<h3>{t("news.assistantFirstRunTitle")}</h3>
 						<p className="owl-news-muted">{t("news.assistantFirstRunHint")}</p>
 						<button type="button" onClick={onConfigureSources}>{t("news.setupSources")}</button>
-						<button type="button" onClick={onConfigureModels}>{t("news.setupModels")}</button>
+						<button type="button" onClick={onOpenModelSettings}>{t("news.manageModelServices")}</button>
+						<button type="button" onClick={onConfigureModels}>{t("news.chooseAssistantModel")}</button>
+						<button type="button" onClick={() => setQuestion(t("news.assistantSetupPrompt"))}>{t("news.assistantSetupPrompt")}</button>
 					</div>
 				)}
 				{turns.map((turn, index) => (
@@ -175,6 +192,7 @@ export function NewsAssistant({
 				{error && (
 					<p className="owl-news-error" role="alert">
 						{error}
+						{!snapshot?.configuration.modelCallsEnabled && <button type="button" onClick={onConfigureModels}>{t("news.chooseAssistantModel")}</button>}
 					</p>
 				)}
 			</div>
@@ -187,17 +205,17 @@ export function NewsAssistant({
 			>
 				<textarea
 					aria-label={t("news.askPlaceholder")}
-					disabled={!hasContext || busy}
+					disabled={busy || testing || !connected}
 					value={question}
 					onChange={(event) => setQuestion(event.target.value)}
 					placeholder={t("news.askPlaceholder")}
 					rows={3}
 				/>
 				<div className="owl-news-small-row">
-					<button type="button" disabled={busy || (!hasContext && !turns.length)} onClick={toChat}>
+					<button type="button" disabled={busy || testing || (!hasContext && !turns.length && !question.trim())} onClick={toChat}>
 						{t("news.toChat")}
 					</button>
-					<button type="submit" className="owl-news-primary" disabled={busy || !hasContext || !question.trim()}>
+					<button type="submit" className="owl-news-primary" disabled={busy || testing || !connected || !question.trim()}>
 						{t("composer.send")}
 					</button>
 				</div>

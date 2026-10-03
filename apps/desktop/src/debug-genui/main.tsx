@@ -72,8 +72,8 @@ function Case({ name, spec }: { name: string; spec: GenuiSpec }): React.JSX.Elem
 const root = createRoot(document.getElementById("app")!);
 root.render(
 	createElement(StrictMode, null, [
-		createElement(Case, { key: "dash", name: "完整看板（原始失败 spec）", spec: dashboard }),
-		createElement(Case, { key: "echart", name: "仅 echart line", spec: echartOnly }),
-		createElement(Case, { key: "mermaid", name: "仅 mermaid", spec: mermaidOnly }),
+		createElement(Case, { key: "dash", name: "完整看板（原始失败 spec）", spec: guarded(dashboard) }),
+		createElement(Case, { key: "echart", name: "仅 echart line", spec: guarded(echartOnly) }),
+		createElement(Case, { key: "mermaid", name: "仅 mermaid", spec: guarded(mermaidOnly) }),
 	]),
 );

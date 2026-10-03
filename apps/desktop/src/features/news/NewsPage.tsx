@@ -52,12 +52,14 @@ const MANAGEMENT: { id: NewsSection; key: TextKey }[] = [
 export function NewsPage({
 	client,
 	onToChat,
+	onOpenModelSettings,
 	initialTarget,
 	active = true,
 	sidebarCollapsed = false,
 }: {
 	client: BridgeClient;
 	onToChat: (text: string) => void;
+	onOpenModelSettings: () => void;
 	active?: boolean;
 	sidebarCollapsed?: boolean;
 	initialTarget?: NewsTarget & { revision: number };
@@ -81,6 +83,7 @@ export function NewsPage({
 	const prefillSeq = useRef(0);
 	const lastStatus = useRef("");
 	const snapshotRevision = useRef(0);
+	const contentRef = useRef<HTMLElement>(null);
 	const refreshed = (): void => setRevision((current) => current + 1);
 	useEffect(
 		() =>
@@ -161,6 +164,7 @@ export function NewsPage({
 		setSection(next);
 		setTarget(undefined);
 		setTopic("");
+		contentRef.current?.scrollTo({ top: 0 });
 	}
 	function discuss(next: NewsContext): void {
 		setContext(next);
@@ -266,7 +270,7 @@ export function NewsPage({
 					</div>
 				</header>
 				<div className={`owl-news-workspace${assistantOpen ? " has-assistant" : ""}`}>
-					<main className="owl-news-content">
+					<main className="owl-news-content" ref={contentRef}>
 						{!connected && (
 							<p className="owl-news-error" aria-live="polite">
 								{t("news.disconnected")}
@@ -424,13 +428,14 @@ export function NewsPage({
 										section === "operations" ||
 										section === "evaluation" ||
 										section === "exports") && (
-										<NewsManagement
+											<NewsManagement
 											key={section}
 											section={section}
 											api={api}
 											revision={revision}
 											snapshot={snapshot}
-											onChanged={refreshed}
+												onChanged={refreshed}
+												onOpenModelSettings={onOpenModelSettings}
 										/>
 									)}
 								{!snapshot && !loading && (
@@ -483,6 +488,9 @@ export function NewsPage({
 							onToChat={onToChat}
 							onConfigureSources={() => selectSection("sources")}
 							onConfigureModels={() => selectSection("configuration")}
+							onOpenModelSettings={onOpenModelSettings}
+							snapshot={snapshot}
+							connected={connected}
 							prefill={prefill}
 						/>
 					</div>
