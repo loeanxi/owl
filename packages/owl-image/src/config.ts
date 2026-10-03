@@ -292,6 +292,23 @@ export async function requireApiKey(provider: ImageProvider, tool?: string): Pro
 	);
 }
 
+/** The workflow a ComfyUI call runs: the requested name when given, else the active one. */
+export function selectComfyUIWorkflow(
+	active: { workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry },
+	requested?: string,
+): ComfyUIWorkflowEntry {
+	if (active.workflow === undefined) {
+		throw new Error("ComfyUI 图像生成需要先在 image-gen.json 的 comfyuiWorkflows 里导入工作流。");
+	}
+	if (typeof requested !== "string" || requested.trim().length === 0) return active.workflow;
+	const name = requested.trim();
+	const workflow = active.workflows.find((candidate) => candidate.name === name);
+	if (workflow === undefined) {
+		throw new Error(`No ComfyUI workflow named "${name}" is configured. Available workflows: ${active.workflows.map((entry) => entry.name).join(", ")}.`);
+	}
+	return workflow;
+}
+
 // ---------------------------------------------------------------------------
 // Proxy-aware fetch
 // ---------------------------------------------------------------------------

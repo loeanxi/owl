@@ -170,6 +170,9 @@ const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], TextKey> = {
 /** 随消息发送的图片附件（base64；与后端 ImageContent 同形）。 */
 export type ComposerImage = { type: "image"; data: string; mimeType: string };
 
+/** 待发送区里的附图：额外带本地 id 供列表 key 与单张移除。 */
+type PendingImage = ComposerImage & { id: string };
+
 /** 单张附图上限：10MB（base64 后约 13MB，远小于桥 WebSocket 上限；服务端会按模型输入限制再压缩）。 */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 /** 一条消息最多附图数。 */
@@ -262,7 +265,7 @@ export function Composer({
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
-	const [pendingImages, setPendingImages] = useState<ComposerImage[]>([]);
+	const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
 	const [pasteHint, setPasteHint] = useState<string | undefined>(undefined);
 	const [dragOver, setDragOver] = useState(false);
 	const hintTimerRef = useRef<number | undefined>(undefined);
@@ -604,6 +607,26 @@ export function Composer({
 							)}
 						</div>
 					)}
+					{/* 待发送附图：粘贴/拖入后悬在输入行上方（对齐 Claude/VS Code 的附件预览），可逐张移除 */}
+					{pendingImages.length > 0 && (
+						<div className="flex flex-wrap gap-2 px-3 pt-2.5">
+							{pendingImages.map((image) => (
+								<div key={image.id} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-owl-border bg-owl-sidebar">
+									<img src={`data:${image.mimeType};base64,${image.data}`} alt="" className="h-full w-full object-cover" />
+									<button
+										type="button"
+										aria-label={t("composer.removeImage")}
+										title={t("composer.removeImage")}
+										className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-[11px] leading-none text-white opacity-0 transition-opacity hover:bg-black focus-visible:opacity-100 group-hover:opacity-100"
+										onClick={() => setPendingImages((current) => current.filter((entry) => entry.id !== image.id))}
+									>
+										✕
+									</button>
+								</div>
+							))}
+						</div>
+					)}
+					{pasteHint && <p className="px-3 pt-1.5 text-[11px] text-amber-400">{pasteHint}</p>}
 					<div className="flex items-end gap-2 px-2 py-2">
 						<textarea
 							ref={textareaRef}
@@ -612,6 +635,7 @@ export function Composer({
 							placeholder={t("composer.inputPlaceholder")}
 							value={value}
 							rows={1}
+							onPaste={onClipboardPaste}
 							onChange={(event) => {
 								setValue(event.target.value);
 								setSlashDismissed(false);

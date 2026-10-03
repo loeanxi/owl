@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { delimiter, dirname, join } from "node:path";
 import { isRecord, OfficeRuntimeError } from "./runtime-paths.ts";
 
@@ -12,7 +12,23 @@ export interface ProcessOptions {
 /** Resolve binaries from the isolated installation, never from the DSH Host. */
 export function processEnvironment(options: ProcessOptions): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {};
-	for (const key of ["HOME", "USERPROFILE", "LANG", "LC_ALL", "PATH", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES"]) {
+	for (const key of [
+		"HOME",
+		"USERPROFILE",
+		"LANG",
+		"LC_ALL",
+		"PATH",
+		"TMPDIR",
+		"TEMP",
+		"TMP",
+		"SystemRoot",
+		"SYSTEMROOT",
+		"WINDIR",
+		"COMSPEC",
+		"APPDATA",
+		"LOCALAPPDATA",
+		"PROGRAMFILES",
+	]) {
 		if (process.env[key] !== undefined) env[key] = process.env[key];
 	}
 	env.NODE_PATH = [join(options.assetRoot, "node_modules"), dirname(options.assetRoot)].join(delimiter);
@@ -27,7 +43,12 @@ export async function stopProcess(child: ChildProcess): Promise<void> {
 	const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
 	child.kill("SIGTERM");
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	await Promise.race([closed, new Promise<void>((resolve) => { timer = setTimeout(resolve, 1_000); })]);
+	await Promise.race([
+		closed,
+		new Promise<void>((resolve) => {
+			timer = setTimeout(resolve, 1_000);
+		}),
+	]);
 	if (timer !== undefined) clearTimeout(timer);
 	if (child.exitCode === null && child.signalCode === null) {
 		child.kill("SIGKILL");
@@ -39,12 +60,16 @@ export class OfficeProcesses {
 	readonly options: ProcessOptions;
 	private readonly children = new Set<ChildProcess>();
 	private disposed = false;
-	constructor(options: ProcessOptions) { this.options = options; }
+	constructor(options: ProcessOptions) {
+		this.options = options;
+	}
 
 	start(entry: string, env: NodeJS.ProcessEnv): ChildProcess {
 		if (this.disposed) throw new OfficeRuntimeError("RUNTIME_DISPOSED", "Office runtime is closed.");
 		const child = spawn(this.options.nodeExecutable ?? process.execPath, [entry], {
-			env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+			env,
+			stdio: ["pipe", "pipe", "pipe"],
+			windowsHide: true,
 		});
 		this.children.add(child);
 		child.on("error", () => undefined);
@@ -60,8 +85,10 @@ export class OfficeProcesses {
 		let outputTooLarge = false;
 		child.stdout?.on("data", (chunk: Buffer) => {
 			bytes += chunk.length;
-			if (bytes > 64 * 1024 * 1024) { outputTooLarge = true; child.kill(); }
-			else chunks.push(chunk);
+			if (bytes > 64 * 1024 * 1024) {
+				outputTooLarge = true;
+				child.kill();
+			} else chunks.push(chunk);
 		});
 		// Drain stderr; SDK diagnostics may contain source content and are not model output.
 		child.stderr?.on("data", () => undefined);
@@ -69,24 +96,37 @@ export class OfficeProcesses {
 			child.once("error", reject);
 			child.once("close", () => resolve());
 		});
-		const abort = () => { child.kill(); };
+		const abort = () => {
+			child.kill();
+		};
 		signal.addEventListener("abort", abort, { once: true });
 		if (signal.aborted) abort();
 		child.stdin?.on("error", () => undefined);
 		child.stdin?.end(JSON.stringify(request));
-		try { await closed; signal.throwIfAborted(); }
-		finally { signal.removeEventListener("abort", abort); await stopProcess(child); }
-		if (outputTooLarge) throw new OfficeRuntimeError("WORKER_OUTPUT_LIMIT", "Office worker output exceeded the limit.");
+		try {
+			await closed;
+			signal.throwIfAborted();
+		} finally {
+			signal.removeEventListener("abort", abort);
+			await stopProcess(child);
+		}
+		if (outputTooLarge)
+			throw new OfficeRuntimeError("WORKER_OUTPUT_LIMIT", "Office worker output exceeded the limit.");
 		let value: unknown;
-		try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
-		catch { throw new OfficeRuntimeError("WORKER_INVALID_RESPONSE", "Office worker did not return valid JSON."); }
+		try {
+			value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+		} catch {
+			throw new OfficeRuntimeError("WORKER_INVALID_RESPONSE", "Office worker did not return valid JSON.");
+		}
 		if (!isRecord(value) || typeof value.ok !== "boolean") {
 			throw new OfficeRuntimeError("WORKER_INVALID_RESPONSE", "Office worker returned an invalid response.");
 		}
 		if (!value.ok) {
 			const error = isRecord(value.error) ? value.error : {};
-			throw new OfficeRuntimeError(typeof error.code === "string" ? error.code : "WORKER_FAILED",
-				typeof error.message === "string" ? error.message : "Office worker failed.");
+			throw new OfficeRuntimeError(
+				typeof error.code === "string" ? error.code : "WORKER_FAILED",
+				typeof error.message === "string" ? error.message : "Office worker failed.",
+			);
 		}
 		return value.result;
 	}

@@ -126,22 +126,27 @@ export function listSkills(
 	return { roots, skills, projectTrusted, projectSkillPatterns: skillOverrides ?? [] };
 }
 
-/** 项目 skills 模式的三种形态：未配置（全部可用）/ 纯名字勾选 / 含手写 glob 的自定义模式。 */
+/** 项目 skills 模式的三种形态：未配置（全部可用）/ 纯 `!名字` 禁用列表 / 含手写 glob 的自定义模式。 */
 export type ProjectSelection =
 	| { kind: "default" }
-	| { kind: "names"; names: string[] }
+	| { kind: "exclusions"; names: string[] }
 	| { kind: "custom"; patterns: string[] };
 
 export function parseProjectSelection(patterns: string[]): ProjectSelection {
 	if (!patterns || patterns.length === 0) return { kind: "default" };
-	const plain = patterns.every((p) => !p.startsWith("+") && !p.startsWith("-") && !p.startsWith("!"));
-	return plain ? { kind: "names", names: [...patterns] } : { kind: "custom", patterns: [...patterns] };
+	const exclusions = patterns.every((p) => p.startsWith("!"));
+	return exclusions
+		? { kind: "exclusions", names: patterns.map((p) => p.slice(1)) }
+		: { kind: "custom", patterns: [...patterns] };
 }
 
-/** 勾选结果 → settings.skills 模式：空勾选 = 全部禁用（!**）；否则纯名字列表。 */
-export function selectionToPatterns(selectedNames: string[]): string[] {
-	if (selectedNames.length === 0) return ["!**"];
-	return [...selectedNames];
+/**
+ * 取消勾选的技能 → settings.skills 模式：逐个 `!名字`（glob 匹配技能目录名，
+ * 与 core 的 isEnabledByOverrides 对自动发现技能的判定一致）。项目内禁用，
+ * 其他项目不受影响；新装技能默认可用。
+ */
+export function disabledNamesToPatterns(disabledNames: string[]): string[] {
+	return disabledNames.map((name) => `!${name}`);
 }
 
 /** 写操作共用的身份校验：重新扫描并要求同名且路径精确一致。 */

@@ -286,10 +286,10 @@ export interface SkillsDeleteRequest {
 }
 
 /**
- * 勾选本项目需要的技能：写项目 settings.json 的 skills 覆盖模式。
- * - mode "set"：names = 勾中的技能名（普通名字模式，未勾的在项目内禁用）；
- *   空数组 = 全部禁用（写成 !**）。
- * - mode "clear"：清空覆盖，恢复默认（全部可用）。
+ * 勾选本项目需要的技能：写项目 settings.json 的 skills 覆盖模式（opt-out 语义）。
+ * - mode "set"：names = 取消勾选（项目内禁用）的技能名，逐个写成 `!名字`；
+ *   空数组 = 全部启用（清空覆盖）。
+ * - mode "clear"：等价于空数组的显式说法。
  * 写操作需项目已信任；落盘后桥端热刷新挂载会话。
  */
 export interface SkillsSetProjectSelectionRequest {
@@ -976,11 +976,11 @@ export type DesktopClientRequest =
 	| SkillsListRequest
 	| SkillsReadRequest
 	| SkillsSetEnabledRequest
-		| SkillsCreateRequest
-		| SkillsUpdateRequest
-		| SkillsDeleteRequest
-		| SkillsSetProjectSelectionRequest
-		| SessionListRequest
+	| SkillsCreateRequest
+	| SkillsUpdateRequest
+	| SkillsDeleteRequest
+	| SkillsSetProjectSelectionRequest
+	| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

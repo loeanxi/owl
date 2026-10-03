@@ -7,7 +7,12 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import { assertInside, fileKey, OfficeRuntimeError } from "./runtime-paths.ts";
 
-interface Session { file: string; cwd: string; expires: number; cookie: string; }
+interface Session {
+	file: string;
+	cwd: string;
+	expires: number;
+	cookie: string;
+}
 export interface ViewerProxyOptions {
 	viewerRoot: string;
 	license?: string;
@@ -17,8 +22,9 @@ export interface ViewerProxyOptions {
 
 /** Only replace complete vendor license literals; leave all SDK license validation intact. */
 export function injectViewerLicense(source: string, license: string): string {
-	return source.replace(/(["'])(\d{10,}-\d+-[A-Za-z0-9+/=]+-[A-Za-z0-9+/=]+-\d{8,})\1/g,
-		() => JSON.stringify(license));
+	return source.replace(/(["'])(\d{10,}-\d+-[A-Za-z0-9+/=]+-[A-Za-z0-9+/=]+-\d{8,})\1/g, () =>
+		JSON.stringify(license),
+	);
 }
 
 export function gatewayScope(path: string): { key: string; worktreeId?: string } | undefined {
@@ -33,7 +39,9 @@ export function gatewayScope(path: string): { key: string; worktreeId?: string }
 			const decoded = decodeURIComponent(id);
 			if (!/^[A-Za-z0-9_.-]+$/.test(decoded) || decoded === "." || decoded === "..") return undefined;
 			return { key: match[1], worktreeId: decoded };
-		} catch { return undefined; }
+		} catch {
+			return undefined;
+		}
 	}
 	return { key: match[1] };
 }
@@ -58,8 +66,12 @@ export class OfficeViewerProxy {
 	constructor(options: ViewerProxyOptions) {
 		this.options = options;
 		this.server = http.createServer((req, res) => {
-			void this.handle(req, res).catch(() => {
-				if (!res.headersSent) send(res, 502); else res.destroy();
+			void this.handle(req, res).catch((error: unknown) => {
+				const denied =
+					error instanceof OfficeRuntimeError &&
+					["WORKSPACE_DENIED", "WORKTREE_NOT_FOUND", "INVALID_ARGUMENT"].includes(error.code);
+				if (!res.headersSent) send(res, denied ? 403 : 502);
+				else res.destroy();
 			});
 		});
 		this.server.on("upgrade", (req, socket, head) => {
@@ -99,29 +111,44 @@ export class OfficeViewerProxy {
 	private prune(): void {
 		for (const [key, value] of this.sessions) if (value.expires <= Date.now()) this.sessions.delete(key);
 		for (const [key, value] of this.tokens) if (value.expires <= Date.now()) this.tokens.delete(key);
-		if (this.sessions.size >= 32) throw new OfficeRuntimeError("VIEWER_SESSION_LIMIT", "Close and restart the Office runtime before opening more files.");
+		if (this.sessions.size >= 32)
+			throw new OfficeRuntimeError(
+				"VIEWER_SESSION_LIMIT",
+				"Close and restart the Office runtime before opening more files.",
+			);
 	}
 
 	private requestTrusted(req: IncomingMessage, mutation: boolean): boolean {
 		if (this.disposed || !this.origin || req.headers.host !== new URL(this.origin).host) return false;
-		return mutation ? req.headers.origin === this.origin : req.headers.origin === undefined || req.headers.origin === this.origin;
+		return mutation
+			? req.headers.origin === this.origin
+			: req.headers.origin === undefined || req.headers.origin === this.origin;
 	}
 
 	private sessionFor(req: IncomingMessage, key?: string): Session | undefined {
-		const cookies = new Map((req.headers.cookie ?? "").split(";").map((value) => {
-			const split = value.indexOf("=");
-			return [value.slice(0, split).trim(), value.slice(split + 1)] as const;
-		}));
+		const cookies = new Map(
+			(req.headers.cookie ?? "").split(";").map((value) => {
+				const split = value.indexOf("=");
+				return [value.slice(0, split).trim(), value.slice(split + 1)] as const;
+			}),
+		);
 		for (const [id, session] of this.sessions) {
-			if (session.expires > Date.now() && cookies.get(session.cookie) === id &&
-				(key === undefined || fileKey(session.file) === key)) return session;
+			if (
+				session.expires > Date.now() &&
+				cookies.get(session.cookie) === id &&
+				(key === undefined || fileKey(session.file) === key)
+			)
+				return session;
 		}
 		return undefined;
 	}
 
 	private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const mutation = req.method !== "GET" && req.method !== "HEAD";
-		if (!this.requestTrusted(req, mutation)) { send(res, 403); return; }
+		if (!this.requestTrusted(req, mutation)) {
+			send(res, 403);
+			return;
+		}
 		const url = new URL(req.url ?? "/", this.origin);
 		res.setHeader("Referrer-Policy", "no-referrer");
 		res.setHeader("X-Content-Type-Options", "nosniff");
@@ -130,45 +157,82 @@ export class OfficeViewerProxy {
 			const grant = this.tokens.get(token);
 			this.tokens.delete(token);
 			const session = grant ? this.sessions.get(grant.session) : undefined;
-			if (!grant || grant.expires <= Date.now() || !session) { send(res, 403); return; }
+			if (!grant || grant.expires <= Date.now() || !session) {
+				send(res, 403);
+				return;
+			}
 			await this.options.validate(session.file, session.cwd);
 			res.writeHead(303, {
 				"set-cookie": `${session.cookie}=${grant.session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`,
 				location: `/univer-viewer/?file=${fileKey(session.file)}`,
 				"cache-control": "no-store",
 			});
-			res.end(); return;
+			res.end();
+			return;
 		}
 		if (url.pathname.startsWith("/uf/")) {
 			const scope = gatewayScope(url.pathname);
 			const session = scope ? this.sessionFor(req, scope.key) : undefined;
-			if (!scope || !session || (mutation && url.pathname === `/uf/${scope.key}`)) { send(res, 403); return; }
+			if (!scope || !session || (mutation && url.pathname === `/uf/${scope.key}`)) {
+				send(res, 403);
+				return;
+			}
 			await this.options.validate(session.file, session.cwd, scope.worktreeId);
-			await this.forward(req, res, `${url.pathname}${url.search}`); return;
+			await this.forward(req, res, `${url.pathname}${url.search}`);
+			return;
 		}
-		if ((url.pathname !== "/univer-viewer" && !url.pathname.startsWith("/univer-viewer/")) || mutation) { send(res, 404); return; }
-		const key = url.pathname === "/univer-viewer" || url.pathname === "/univer-viewer/"
-			? url.searchParams.get("file") ?? "" : undefined;
+		if ((url.pathname !== "/univer-viewer" && !url.pathname.startsWith("/univer-viewer/")) || mutation) {
+			send(res, 404);
+			return;
+		}
+		const key =
+			url.pathname === "/univer-viewer" || url.pathname === "/univer-viewer/"
+				? (url.searchParams.get("file") ?? "")
+				: undefined;
 		const session = this.sessionFor(req, key);
-		if (!session) { send(res, 403); return; }
+		if (!session) {
+			send(res, 403);
+			return;
+		}
 		await this.options.validate(session.file, session.cwd, optionalWorktree(url.searchParams.get("worktree")));
 		if (url.pathname === "/univer-viewer/runtime-config") {
 			res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-			res.end(JSON.stringify({ desktopStreamBaseUrl: this.origin })); return;
+			res.end(JSON.stringify({ desktopStreamBaseUrl: this.origin }));
+			return;
 		}
 		let suffix: string;
-		try { suffix = decodeURIComponent(url.pathname.slice("/univer-viewer".length)); }
-		catch { send(res, 404); return; }
-		if (suffix.includes("\\") || suffix.includes("\0")) { send(res, 404); return; }
+		try {
+			suffix = decodeURIComponent(url.pathname.slice("/univer-viewer".length));
+		} catch {
+			send(res, 404);
+			return;
+		}
+		if (suffix.includes("\\") || suffix.includes("\0")) {
+			send(res, 404);
+			return;
+		}
 		const root = await realpath(this.options.viewerRoot);
 		const asset = await realpath(join(root, suffix === "" || suffix === "/" ? "index.html" : suffix));
 		assertInside(root, asset);
 		const extension = extname(asset);
 		const bytes = await readFile(asset);
-		const body = extension === ".js" && this.options.license
-			? Buffer.from(injectViewerLicense(bytes.toString("utf8"), this.options.license)) : bytes;
-		const contentType: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".json": "application/json" };
-		res.writeHead(200, { "content-type": contentType[extension] ?? "application/octet-stream", "cache-control": "no-store" });
+		const body =
+			extension === ".js" && this.options.license
+				? Buffer.from(injectViewerLicense(bytes.toString("utf8"), this.options.license))
+				: bytes;
+		const contentType: Record<string, string> = {
+			".html": "text/html; charset=utf-8",
+			".js": "text/javascript; charset=utf-8",
+			".css": "text/css; charset=utf-8",
+			".svg": "image/svg+xml",
+			".png": "image/png",
+			".woff2": "font/woff2",
+			".json": "application/json",
+		};
+		res.writeHead(200, {
+			"content-type": contentType[extension] ?? "application/octet-stream",
+			"cache-control": "no-store",
+		});
 		res.end(req.method === "HEAD" ? undefined : body);
 	}
 
@@ -182,11 +246,15 @@ export class OfficeViewerProxy {
 		upstream.once("close", () => this.requests.delete(upstream));
 		req.once("aborted", () => upstream.destroy());
 		res.once("close", () => upstream.destroy());
-		upstream.once("error", () => { if (!res.headersSent) send(res, 502); else res.destroy(); });
+		upstream.once("error", () => {
+			if (!res.headersSent) send(res, 502);
+			else res.destroy();
+		});
 		upstream.on("response", (response) => {
 			const responseHeaders = { ...response.headers };
 			for (const name of Object.keys(responseHeaders)) {
-				if (name.startsWith("access-control-") || ["set-cookie", "connection", "transfer-encoding"].includes(name)) delete responseHeaders[name];
+				if (name.startsWith("access-control-") || ["set-cookie", "connection", "transfer-encoding"].includes(name))
+					delete responseHeaders[name];
 			}
 			res.writeHead(response.statusCode ?? 502, responseHeaders);
 			response.once("error", () => res.destroy());
@@ -196,52 +264,88 @@ export class OfficeViewerProxy {
 	}
 
 	private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
-		if (!this.requestTrusted(req, true)) { socket.destroy(); return; }
+		if (!this.requestTrusted(req, true)) {
+			socket.destroy();
+			return;
+		}
 		const url = new URL(req.url ?? "/", this.origin);
 		const tunnel = url.pathname === "/univer-viewer/ws";
 		const target = tunnel ? url.searchParams.get("target") : `${url.pathname}${url.search}`;
-		if (!target?.startsWith("/uf/") || target.startsWith("//")) { socket.destroy(); return; }
+		if (!target?.startsWith("/uf/") || target.startsWith("//")) {
+			socket.destroy();
+			return;
+		}
 		const targetUrl = new URL(target, await this.options.gatewayOrigin());
 		const scope = gatewayScope(targetUrl.pathname);
 		const session = scope ? this.sessionFor(req, scope.key) : undefined;
-		if (!scope || !session) { socket.destroy(); return; }
+		if (!scope || !session) {
+			socket.destroy();
+			return;
+		}
 		await this.options.validate(session.file, session.cwd, scope.worktreeId);
-		if (tunnel) for (const [name, value] of url.searchParams) if (name !== "target") targetUrl.searchParams.set(name, value);
+		if (tunnel)
+			for (const [name, value] of url.searchParams) if (name !== "target") targetUrl.searchParams.set(name, value);
 		targetUrl.protocol = "ws:";
-		if (this.disposed) { socket.destroy(); return; }
+		if (this.disposed) {
+			socket.destroy();
+			return;
+		}
 		this.sockets.handleUpgrade(req, socket, head, (client) => {
 			const protocols = req.headers["sec-websocket-protocol"];
-			const upstream = new WebSocket(targetUrl, protocols?.split(",").map((value) => value.trim()));
+			const upstream = new WebSocket(
+				targetUrl,
+				protocols?.split(",").map((value) => value.trim()),
+			);
 			const pending: { data: Buffer; binary: boolean }[] = [];
 			let pendingBytes = 0;
 			let closed = false;
 			const close = () => {
 				if (closed) return;
-				closed = true; this.bridges.delete(close); client.terminate(); upstream.terminate();
+				closed = true;
+				this.bridges.delete(close);
+				client.terminate();
+				upstream.terminate();
 			};
 			this.bridges.add(close);
 			client.on("message", (data, binary) => {
 				if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary });
 				else if (upstream.readyState === WebSocket.CONNECTING) {
-					const buffer = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
+					const buffer = Buffer.isBuffer(data)
+						? data
+						: Array.isArray(data)
+							? Buffer.concat(data)
+							: Buffer.from(data);
 					pendingBytes += buffer.length;
-					if (pendingBytes > 1024 * 1024) close(); else pending.push({ data: buffer, binary });
+					if (pendingBytes > 1024 * 1024) close();
+					else pending.push({ data: buffer, binary });
 				}
 			});
-			upstream.once("open", () => { for (const frame of pending.splice(0)) upstream.send(frame.data, { binary: frame.binary }); });
-			upstream.on("message", (data, binary) => { if (client.readyState === WebSocket.OPEN) client.send(data, { binary }); });
-			for (const ws of [client, upstream]) { ws.once("error", close); ws.once("close", close); }
+			upstream.once("open", () => {
+				for (const frame of pending.splice(0)) upstream.send(frame.data, { binary: frame.binary });
+			});
+			upstream.on("message", (data, binary) => {
+				if (client.readyState === WebSocket.OPEN) client.send(data, { binary });
+			});
+			for (const ws of [client, upstream]) {
+				ws.once("error", close);
+				ws.once("close", close);
+			}
 		});
 	}
 
 	async dispose(): Promise<void> {
 		this.disposed = true;
-		this.sessions.clear(); this.tokens.clear();
+		this.sessions.clear();
+		this.tokens.clear();
 		for (const request of this.requests) request.destroy();
 		for (const close of this.bridges) close();
 		this.sockets.close();
 		if (this.starting) await this.starting.catch(() => undefined);
-		if (this.server.listening) await new Promise<void>((resolve) => { this.server.close(() => resolve()); this.server.closeAllConnections(); });
+		if (this.server.listening)
+			await new Promise<void>((resolve) => {
+				this.server.close(() => resolve());
+				this.server.closeAllConnections();
+			});
 	}
 }
 

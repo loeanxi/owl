@@ -162,3 +162,21 @@ test("agent_start includes the optimistic user for a new prompt without duplicat
 	assert.deepEqual(entries, [...history, ...rebuild([user, assistant, result("read-1", "new file")])]);
 	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
 });
+
+test("user prompt images survive the authoritative rebuild", () => {
+	const withImage = {
+		role: "user",
+		content: [{ type: "text", text: "看这张截图" }, { type: "image", data: "aGk=", mimeType: "image/png" }],
+	};
+	const entries = rebuild([withImage, assistant, result("read-1", "done")]);
+	const userEntry = entries.find((entry) => entry.kind === "user") as Extract<ChatEntry, { kind: "user" }>;
+	assert.equal(userEntry.text, "看这张截图");
+	assert.deepEqual(userEntry.images, [{ data: "aGk=", mimeType: "image/png" }]);
+	// 纯文本用户消息不带 images 字段
+	const plain = rebuild([user]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	assert.equal(plain.images, undefined);
+	// agent_end 用含图片的用户快照整轮重建后，附图仍在
+	const snapshot = [withImage, { role: "assistant", content: [{ type: "text", text: "收到" }] }];
+	const replayed = event(rebuild([withImage]), { type: "agent_end", messages: snapshot });
+	assert.deepEqual((replayed.at(0) as Extract<ChatEntry, { kind: "user" }>).images, [{ data: "aGk=", mimeType: "image/png" }]);
+});

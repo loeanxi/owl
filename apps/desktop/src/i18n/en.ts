@@ -204,7 +204,7 @@ export const en: Dict = {
 	"settings.skills.pickerReset": "Reset to default (all available)",
 	"settings.skills.pickerClose": "Collapse",
 	"settings.skills.saveSelectionFailed": "Failed to save project skill selection",
-	"settings.skills.projectTabDesc": "Checking decides which skills this project can auto-invoke (written to the project settings.json `skills`; applies across personal/global/project scopes).",
+	"settings.skills.projectTabDesc": "All skills are available by default; unchecked ones are disabled for this project (written to the project settings.json `skills`, across personal/global/project scopes).",
 
 	// ---- Settings: side cards ----
 	"settings.sidecards.title": "Side cards",
@@ -464,6 +464,49 @@ export const en: Dict = {
 	"newproject.creating": "Creating…",
 	"newproject.createAndSwitch": "Create & switch",
 
+
+	// ---- Question dialog ----
+	"question.progress": "Question {i} of {n}",
+	"question.answeredCount": "{n}/{total} answered",
+	"question.multiSelectHint": "(multiple choice)",
+	"question.missingWarning": "Answer this one first: pick an option or type under “Other”",
+	"question.preview": "Preview",
+	"question.other": "Other",
+	"question.customPlaceholder": "Type freely…",
+	"question.notePlaceholder": "Extra context for this question (sent back with the answer)…",
+	"question.addNote": "+ Add a note",
+	"question.prev": "Previous",
+	"question.next": "Next",
+	"question.submit": "Submit answers",
+
+	// ---- Todo pin ----
+	"todo.title": "Tasks",
+	"todo.allDone": " all done",
+	"todo.collapse": "Collapse list",
+	"todo.expand": "Expand list",
+	"todo.dismiss": "Dismiss bar",
+	"todo.dismissTip": "Dismiss the bar (it pops up again when the list updates)",
+
+	// ---- Artifacts ----
+	"artifacts.title": "Outputs",
+	"artifacts.fileCount": "{n} files",
+	"artifacts.openAria": "Open {name}",
+	"artifacts.kindDocument": "Doc",
+	"artifacts.kindSheet": "Sheet",
+	"artifacts.kindPresentation": "Slides",
+	"artifacts.kindImage": "Image",
+	"artifacts.kindCode": "Code",
+	"artifacts.kindFile": "File",
+	"artifacts.written": "written",
+	"artifacts.edited": "edited",
+	"artifacts.opened": "shown",
+
+	// ---- Permission dialog ----
+	"perm.title": "Confirm tool request",
+	"perm.wantsToRun": "The agent wants to run",
+	"perm.deny": "Deny",
+	"perm.allow": "Allow",
+
 	// ---- Composer ----
 	"composer.thinking.off": "Off",
 	"composer.thinking.minimal": "Minimal",
@@ -484,6 +527,9 @@ export const en: Dict = {
 	"composer.slashKind.extension": "Extension",
 	"composer.noModels": "No models available (configure credentials first)",
 	"composer.reasoningBadge": "thinking",
+	"composer.removeImage": "Remove image",
+	"composer.imageLimitReached": "Up to {max} images per message",
+	"composer.imageTooLarge": "Image exceeds {limit} MB and was not added",
 	"composer.runLocation.local": "Local",
 	"composer.runLocation.title": "Run location",
 	"composer.runLocation.localFull": "Local (this computer)",

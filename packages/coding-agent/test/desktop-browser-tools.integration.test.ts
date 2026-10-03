@@ -225,6 +225,17 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 			expect(hub.listPages("chat-b")).toEqual([]);
 		}, 30_000);
 
+		it("does not share cookies between UI pages claimed by different chats", async () => {
+			const first = await hub.open({ url: `${baseUrl}/form?manual=first` });
+			const second = await hub.open({ url: `${baseUrl}/form?manual=second` });
+			await invoke("chat-a", "browser_tabs", { action: "select", pageId: first.pageId });
+			await invoke("chat-b", "browser_tabs", { action: "select", pageId: second.pageId });
+			await invoke("chat-a", "browser_fill", { selector: "#cookie-value", text: "claimed-chat-a" });
+			await invoke("chat-a", "browser_click", { selector: "#set-cookie" });
+			expect((await report("chat-a")).cookie).toContain("owner=claimed-chat-a");
+			expect((await report("chat-b")).cookie).not.toContain("owner=claimed-chat-a");
+		}, 30_000);
+
 		it("queues navigation and fill in the same chat without losing input", async () => {
 			const page = await open("chat-a");
 			await Promise.all([

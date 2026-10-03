@@ -33,7 +33,10 @@ interface ResourceSdk {
 		output: ResourceOutput;
 	}): ResourceLibrary;
 	FilesystemResourceCache: new (root: string) => ResourceCache;
-	HttpsResourceDownloader: new (options: { fetch: typeof fetch; timeoutMs: number }) => {
+	HttpsResourceDownloader: new (options: {
+		fetch: typeof fetch;
+		timeoutMs: number;
+	}) => {
 		download(url: string): Promise<string>;
 	};
 	loadResourceManifestFromPath(path: string): unknown;
@@ -51,7 +54,10 @@ const manifests = new Map<string, unknown>();
 
 function strings(value: unknown, label: string, allowEmpty = false): string[] {
 	if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || value.length > 50) {
-		throw new OfficeRuntimeError("INVALID_ARGUMENT", `${label} must be an array of ${allowEmpty ? "0" : "1"} to 50 strings.`);
+		throw new OfficeRuntimeError(
+			"INVALID_ARGUMENT",
+			`${label} must be an array of ${allowEmpty ? "0" : "1"} to 50 strings.`,
+		);
 	}
 	return value.map((entry) => requiredString(entry, label));
 }
@@ -65,7 +71,10 @@ async function noLinks(path: string, signal: AbortSignal): Promise<void> {
 		cursor = join(cursor, segment);
 		try {
 			if ((await lstat(cursor)).isSymbolicLink()) {
-				throw new OfficeRuntimeError("RESOURCE_SYMLINK_DENIED", "Resource paths must not contain symbolic links or junctions.");
+				throw new OfficeRuntimeError(
+					"RESOURCE_SYMLINK_DENIED",
+					"Resource paths must not contain symbolic links or junctions.",
+				);
 			}
 		} catch (error) {
 			if (isRecord(error) && error.code === "ENOENT") return;
@@ -76,11 +85,11 @@ async function noLinks(path: string, signal: AbortSignal): Promise<void> {
 
 function safeCachePath(root: string, handle: string): string {
 	const parts = handle.split("/");
-	if (
-		parts.length !== 2 ||
-		parts.some((part) => !/^[A-Za-z0-9._-]+$/u.test(part) || part === "." || part === "..")
-	) {
-		throw new OfficeRuntimeError("RESOURCE_INVALID_HANDLE", "Use a registry/resource handle returned by resources find.");
+	if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9._-]+$/u.test(part) || part === "." || part === "..")) {
+		throw new OfficeRuntimeError(
+			"RESOURCE_INVALID_HANDLE",
+			"Use a registry/resource handle returned by resources find.",
+		);
 	}
 	return join(root, parts[0], `${parts[1]}.svg`);
 }
@@ -98,9 +107,13 @@ function loadSdk(assetRoot: string): { sdk: ResourceSdk; manifest: unknown } {
 		const loaded: unknown = require(entry);
 		if (
 			!isRecord(loaded) ||
-			!["createResourceLibrary", "FilesystemResourceCache", "HttpsResourceDownloader", "loadResourceManifestFromPath", "isResourceLibraryError"].every(
-				(key) => typeof loaded[key] === "function",
-			)
+			![
+				"createResourceLibrary",
+				"FilesystemResourceCache",
+				"HttpsResourceDownloader",
+				"loadResourceManifestFromPath",
+				"isResourceLibraryError",
+			].every((key) => typeof loaded[key] === "function")
 		) {
 			throw new Error("The installed resource SDK has an incompatible interface.");
 		}
@@ -115,15 +128,26 @@ function loadSdk(assetRoot: string): { sdk: ResourceSdk; manifest: unknown } {
 	}
 }
 
-async function createDestination(cwd: string, input: string, signal: AbortSignal): Promise<{ root: string; path: string }> {
+async function createDestination(
+	cwd: string,
+	input: string,
+	signal: AbortSignal,
+): Promise<{ root: string; path: string }> {
 	const root = await realpath(requiredString(cwd, "cwd"));
 	const path = resolve(root, requiredString(input, "output"));
 	assertInside(root, path);
-	if (root === path) throw new OfficeRuntimeError("OUTPUT_EXISTS", "Choose a new directory beneath the workspace for exported resources.");
+	if (root === path)
+		throw new OfficeRuntimeError(
+			"OUTPUT_EXISTS",
+			"Choose a new directory beneath the workspace for exported resources.",
+		);
 	await noLinks(path, signal);
 	try {
 		await lstat(path);
-		throw new OfficeRuntimeError("OUTPUT_EXISTS", "The resource export directory already exists. Choose a new directory.");
+		throw new OfficeRuntimeError(
+			"OUTPUT_EXISTS",
+			"The resource export directory already exists. Choose a new directory.",
+		);
 	} catch (error) {
 		if (!isRecord(error) || error.code !== "ENOENT") throw error;
 	}
@@ -138,7 +162,10 @@ async function createDestination(cwd: string, input: string, signal: AbortSignal
 			if (!isRecord(error) || error.code !== "EEXIST" || index === segments.length - 1) throw error;
 			const info = await lstat(cursor);
 			if (info.isSymbolicLink() || !info.isDirectory()) {
-				throw new OfficeRuntimeError("RESOURCE_SYMLINK_DENIED", "Resource output ancestors must be ordinary directories.");
+				throw new OfficeRuntimeError(
+					"RESOURCE_SYMLINK_DENIED",
+					"Resource output ancestors must be ordinary directories.",
+				);
 			}
 		}
 		await noLinks(cursor, signal);
@@ -149,7 +176,8 @@ async function createDestination(cwd: string, input: string, signal: AbortSignal
 
 function result(value: unknown, outputs: string[] = []): Record<string, unknown> {
 	const safe: unknown = JSON.parse(JSON.stringify(value));
-	if (!isRecord(safe)) throw new OfficeRuntimeError("RESOURCE_INVALID_RESPONSE", "Resource SDK returned an invalid object.");
+	if (!isRecord(safe))
+		throw new OfficeRuntimeError("RESOURCE_INVALID_RESPONSE", "Resource SDK returned an invalid object.");
 	return { result: safe, outputs };
 }
 
@@ -166,7 +194,11 @@ export async function resourceOfficeOperation(
 		throw new OfficeRuntimeError("INVALID_ARGUMENT", "Resource action must be registries, find, read, or export.");
 	}
 	const deadline = new AbortController();
-	const timer = setTimeout(() => deadline.abort(new OfficeRuntimeError("RESOURCE_OPERATION_TIMEOUT", "Resource operation exceeded 120000 ms.")), 120_000);
+	const timer = setTimeout(
+		() =>
+			deadline.abort(new OfficeRuntimeError("RESOURCE_OPERATION_TIMEOUT", "Resource operation exceeded 120000 ms.")),
+		120_000,
+	);
 	const operationSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
 	let sdk: ResourceSdk | undefined;
 	try {
@@ -204,16 +236,29 @@ export async function resourceOfficeOperation(
 					await cache.write(handle, svg);
 					await noLinks(safeCachePath(cacheRoot, handle), operationSignal);
 				},
-				clear: () => { throw new OfficeRuntimeError("INVALID_ARGUMENT", "Resource cache clearing is not exposed as an agent operation."); },
+				clear: () => {
+					throw new OfficeRuntimeError(
+						"INVALID_ARGUMENT",
+						"Resource cache clearing is not exposed as an agent operation.",
+					);
+				},
 			},
 			downloader: new sdk.HttpsResourceDownloader({ fetch: fetchImpl, timeoutMs: 15_000 }),
 			output: {
 				write: async (directory, filename, svg) => {
 					operationSignal.throwIfAborted();
 					if (!destination || directory !== destination.path) {
-						throw new OfficeRuntimeError("WORKSPACE_DENIED", "Resource exports require the authorized destination directory.");
+						throw new OfficeRuntimeError(
+							"WORKSPACE_DENIED",
+							"Resource exports require the authorized destination directory.",
+						);
 					}
-					if (basename(filename) !== filename || /[\\/:\u0000-\u001f]/u.test(filename) || filename === "." || filename === "..") {
+					if (
+						basename(filename) !== filename ||
+						/[\\/:\u0000-\u001f]/u.test(filename) ||
+						filename === "." ||
+						filename === ".."
+					) {
 						throw new OfficeRuntimeError("WORKSPACE_DENIED", "The resource SDK returned an unsafe filename.");
 					}
 					const path = join(directory, filename);
@@ -247,7 +292,8 @@ export async function resourceOfficeOperation(
 			return result(read);
 		}
 		const handles = strings(args.handles, "handles");
-		if (new Set(handles).size !== handles.length) throw new OfficeRuntimeError("INVALID_ARGUMENT", "handles must not contain duplicates.");
+		if (new Set(handles).size !== handles.length)
+			throw new OfficeRuntimeError("INVALID_ARGUMENT", "handles must not contain duplicates.");
 		destination = await createDestination(cwd, requiredString(args.output, "output"), operationSignal);
 		const exported = await library.export({ handles, destination: destination.path });
 		operationSignal.throwIfAborted();
@@ -259,7 +305,10 @@ export async function resourceOfficeOperation(
 			assertInside(destination.path, canonical);
 			verified.push({ handle: item.handle, path: canonical });
 		}
-		return result({ exported: verified, failed: exported.failed }, verified.map((item) => item.path));
+		return result(
+			{ exported: verified, failed: exported.failed },
+			verified.map((item) => item.path),
+		);
 	} catch (error) {
 		operationSignal.throwIfAborted();
 		if (error instanceof OfficeRuntimeError) throw error;

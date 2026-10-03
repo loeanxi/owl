@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	createSkill,
 	deleteSkill,
+	disabledNamesToPatterns,
 	listSkills,
 	parseProjectSelection,
 	readSkill,
 	resolveSkillRoots,
-	selectionToPatterns,
 	SkillCenterError,
 	setSkillEnabled,
 	updateSkill,
@@ -206,5 +206,38 @@ describe("skills-center", () => {
 		);
 		// 链接目标安然无恙
 		expect(existsSync(join(targetDir, "SKILL.md"))).toBe(true);
+	});
+
+	it("computes per-skill projectEnabled from the project skills overrides", () => {
+		mkdirSync(join(agentDir, "skills", "skill-a"), { recursive: true });
+		writeFileSync(join(agentDir, "skills", "skill-a", "SKILL.md"), "---\nname: skill-a\ndescription: a\n---\n");
+		mkdirSync(join(agentDir, "skills", "skill-b"), { recursive: true });
+		writeFileSync(join(agentDir, "skills", "skill-b", "SKILL.md"), "---\nname: skill-b\ndescription: b\n---\n");
+		mkdirSync(join(cwd, ".owl", "skills", "skill-c"), { recursive: true });
+		writeFileSync(join(cwd, ".owl", "skills", "skill-c", "SKILL.md"), "---\nname: skill-c\ndescription: c\n---\n");
+
+		// 未配置：全部可用
+		const unconfigured = listSkills(cwd, true, agentDir, []);
+		expect(unconfigured.projectSkillPatterns).toEqual([]);
+		expect(unconfigured.skills.every((s) => s.projectEnabled)).toBe(true);
+
+		// 取消勾选 skill-b：项目内禁用，其余（含项目的 skill-c）不受影响
+		const subset = listSkills(cwd, true, agentDir, disabledNamesToPatterns(["skill-b"]));
+		const byName = Object.fromEntries(subset.skills.map((s) => [s.name, s.projectEnabled]));
+		expect(byName).toEqual({ "skill-a": true, "skill-b": false, "skill-c": true });
+
+		// !** = 全部禁用
+		const none = listSkills(cwd, true, agentDir, ["!**"]);
+		expect(none.skills.every((s) => !s.projectEnabled)).toBe(true);
+	});
+
+	it("parses and serializes project selections round-trip", () => {
+		expect(parseProjectSelection([])).toEqual({ kind: "default" });
+		expect(parseProjectSelection(["!b"])).toEqual({ kind: "exclusions", names: ["b"] });
+		expect(parseProjectSelection(["+a", "!b"])).toEqual({ kind: "custom", patterns: ["+a", "!b"] });
+
+		expect(disabledNamesToPatterns(["a", "b"])).toEqual(["!a", "!b"]);
+		// 全部勾选 = 没有禁用项 = 清空覆盖
+		expect(disabledNamesToPatterns([])).toEqual([]);
 	});
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { latestTodoState } from "../hooks/todo.ts";
+import { useT } from "../i18n/index.ts";
 import { IconCheck, IconChevron } from "./icons.tsx";
 
 /** 收起态偏好键：0 = 上次手动收起（新清单到来时仍会自动展开提醒）。 */
@@ -12,6 +13,7 @@ const TODO_PIN_KEY = "owl.todopin.open";
  * 用户点 × 收下后，清单下一次更新会重新弹出提醒。
  */
 export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Element | null {
+	const t = useT();
 	const todos = latestTodoState(entries);
 	const dismissedRef = useRef<string | null>(null);
 	const [open, setOpen] = useState(() => localStorage.getItem(TODO_PIN_KEY) !== "0");
@@ -42,11 +44,11 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 			<div className="mb-1.5 rounded-xl border border-owl-border bg-owl-sidebar/80 px-3 py-2 text-xs shadow-lg shadow-black/25 backdrop-blur-sm">
 				<div className="flex items-center gap-2.5">
 					<span className={`shrink-0 font-medium ${allDone ? "text-emerald-500" : "text-owl-text"}`}>
-						任务清单
+						{t("todo.title")}
 					</span>
 					<span className="shrink-0 text-owl-faint">
 						{done}/{todos.length}
-						{allDone ? " 全部完成" : ""}
+						{allDone ? t("todo.allDone") : ""}
 					</span>
 					<div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-owl-hover">
 						<div
@@ -63,8 +65,8 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 					)}
 					<button
 						type="button"
-						title={open ? "收起清单" : "展开清单"}
-						aria-label={open ? "收起清单" : "展开清单"}
+						title={open ? t("todo.collapse") : t("todo.expand")}
+						aria-label={open ? t("todo.collapse") : t("todo.expand")}
 						onClick={() => setOpen((v) => !v)}
 						className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
 					>
@@ -72,8 +74,8 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 					</button>
 					<button
 						type="button"
-						title="收下图标条（清单更新时会重新弹出）"
-						aria-label="收下图标条"
+						title={t("todo.dismissTip")}
+						aria-label={t("todo.dismiss")}
 						onClick={dismiss}
 						className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
 					>

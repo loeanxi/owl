@@ -18,7 +18,7 @@ export class BrowserOperationQueue {
 					reject(new Error("浏览器操作已取消"));
 					return;
 				}
-				void operation().then(resolve, reject);
+				void Promise.resolve().then(operation).then(resolve, reject);
 			});
 		});
 		// An aborted waiter must still retain the preceding operation in the chain.

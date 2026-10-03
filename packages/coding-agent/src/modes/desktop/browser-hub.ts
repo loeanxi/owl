@@ -41,6 +41,7 @@ export interface BrowserHubCallbacks {
 
 interface PageEntry {
 	page: Page;
+	context: BrowserContext;
 	cdp: CDPSession;
 	info: IabPageInfo;
 	/** 页面 console/未捕获报错的环形缓冲（browser_console 读取）。 */
@@ -69,7 +70,8 @@ export class BrowserHub {
 	private pages = new Map<string, PageEntry>();
 	private readonly activePages = new Map<string, string>();
 	private readonly contexts = new Map<string, BrowserContext>();
-	private uiContext: BrowserContext | undefined;
+	private readonly ownedContexts = new Map<string, Set<BrowserContext>>();
+	private disposed = false;
 	private readonly operations = new BrowserOperationQueue();
 
 	constructor(callbacks: BrowserHubCallbacks) {
@@ -79,9 +81,14 @@ export class BrowserHub {
 	// -- 生命周期 -------------------------------------------------------------
 
 	private ensureBrowser(): Promise<Browser> {
+		if (this.disposed) throw new Error("浏览器服务已关闭");
 		if (this.browser) return Promise.resolve(this.browser);
 		this.launchPromise ??= this.launchBrowser()
-			.then((browser) => {
+			.then(async (browser) => {
+				if (this.disposed) {
+					await browser.close();
+					throw new Error("浏览器服务已关闭");
+				}
 				this.browser = browser;
 				browser.on("disconnected", () => {
 					// 浏览器进程意外退出（崩溃/被杀）：清账，下次使用时重新拉起
@@ -91,7 +98,7 @@ export class BrowserHub {
 					this.pages.clear();
 					this.activePages.clear();
 					this.contexts.clear();
-					this.uiContext = undefined;
+					this.ownedContexts.clear();
 					this.emitPages();
 				});
 				return browser;
@@ -135,6 +142,8 @@ export class BrowserHub {
 	}
 
 	async dispose(): Promise<void> {
+		this.disposed = true;
+		const browser = this.browser ?? (await this.launchPromise?.catch(() => null));
 		for (const { cdp, network } of this.pages.values()) {
 			network.dispose();
 			await cdp.detach().catch(() => {});
@@ -142,8 +151,8 @@ export class BrowserHub {
 		this.pages.clear();
 		this.activePages.clear();
 		this.contexts.clear();
-		this.uiContext = undefined;
-		await this.browser?.close().catch(() => {});
+		this.ownedContexts.clear();
+		await browser?.close().catch(() => {});
 		this.browser = null;
 		this.launchPromise = null;
 	}
@@ -153,18 +162,35 @@ export class BrowserHub {
 	private async newPage(url?: string, sessionId?: string): Promise<PageEntry> {
 		await initializeBrowserInteraction();
 		const browser = await this.ensureBrowser();
-		let context = sessionId ? this.contexts.get(sessionId) : this.uiContext;
+		let context = sessionId ? this.contexts.get(sessionId) : undefined;
 		if (!context) {
 			context = await browser.newContext();
 			if (sessionId) this.contexts.set(sessionId, context);
-			else this.uiContext = context;
+		}
+		if (sessionId) {
+			const owned = this.ownedContexts.get(sessionId) ?? new Set<BrowserContext>();
+			owned.add(context);
+			this.ownedContexts.set(sessionId, owned);
+		}
+		if (this.disposed) {
+			await context.close();
+			throw new Error("浏览器服务已关闭");
 		}
 		const page = await context.newPage();
+		if (this.disposed) {
+			await context.close();
+			throw new Error("浏览器服务已关闭");
+		}
 		await page.setViewportSize(DEFAULT_VIEWPORT).catch(() => {});
 		const pageId = randomUUID();
 		const cdp = await context.newCDPSession(page);
+		if (this.disposed) {
+			await context.close();
+			throw new Error("浏览器服务已关闭");
+		}
 		const entry: PageEntry = {
 			page,
+			context,
 			cdp,
 			info: { pageId, sessionId, url: "", title: "", viewport: { ...DEFAULT_VIEWPORT }, active: false },
 			console: [],
@@ -207,6 +233,7 @@ export class BrowserHub {
 		// PNG 帧：本地 WS 带宽充裕，换文字锐利（JPEG 的糊字在 UI 放大后没法看）
 		await cdp.send("Page.startScreencast", { format: "png" }).catch(() => {});
 		if (url) await page.goto(url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
+		if (this.disposed) throw new Error("浏览器服务已关闭");
 		await this.refreshPageMeta(entry);
 		return entry;
 	}
@@ -239,23 +266,38 @@ export class BrowserHub {
 			}));
 	}
 
-	private claimPage(entry: PageEntry, sessionId: string): void {
-		if (entry.info.sessionId !== undefined && entry.info.sessionId !== sessionId) {
-			throw new Error("这个浏览器页面属于其他聊天，当前 agent 不能操作它");
+	private async claimPage(entry: PageEntry, sessionId: string): Promise<void> {
+		const claim = (): void => {
+			if (entry.info.sessionId !== undefined && entry.info.sessionId !== sessionId) {
+				throw new Error("这个浏览器页面属于其他聊天，当前 agent 不能操作它");
+			}
+			entry.info.sessionId = sessionId;
+			if (!this.contexts.has(sessionId)) this.contexts.set(sessionId, entry.context);
+			const owned = this.ownedContexts.get(sessionId) ?? new Set<BrowserContext>();
+			owned.add(entry.context);
+			this.ownedContexts.set(sessionId, owned);
+			this.activePages.set(sessionId, entry.info.pageId);
+		};
+		if (entry.info.sessionId === undefined) {
+			await this.operations.run(`page:${entry.info.pageId}`, async () => {
+				this.requirePage(entry.info.pageId);
+				claim();
+			});
+		} else {
+			claim();
 		}
-		entry.info.sessionId = sessionId;
-		this.activePages.set(sessionId, entry.info.pageId);
 	}
 
 	async disposeSession(sessionId: string): Promise<void> {
 		await this.operations.run(`session:${sessionId}`, async () => {
 			for (const entry of [...this.pages.values()]) {
-				if (entry.info.sessionId === sessionId) await entry.page.close();
+				if (entry.info.sessionId === sessionId) await this.withPage(entry.info.pageId, (current) => current.page.close());
 			}
 			this.activePages.delete(sessionId);
-			const context = this.contexts.get(sessionId);
 			this.contexts.delete(sessionId);
-			await context?.close();
+			const contexts = this.ownedContexts.get(sessionId);
+			this.ownedContexts.delete(sessionId);
+			for (const context of contexts ?? []) await context.close();
 			this.emitPages();
 		});
 	}
@@ -267,7 +309,7 @@ export class BrowserHub {
 			if (options.pageId) {
 				const found = this.pages.get(options.pageId);
 				if (!found) throw new Error(`页面不存在或已关闭: ${options.pageId}`);
-				if (options.sessionId) this.claimPage(found, options.sessionId);
+				if (options.sessionId) await this.claimPage(found, options.sessionId);
 				if (options.url && options.url !== found.info.url) {
 					await found.page.goto(options.url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
 				}
@@ -280,7 +322,7 @@ export class BrowserHub {
 					({ info }) => info.url === options.url && info.sessionId === options.sessionId,
 				);
 				if (existing) {
-					if (options.sessionId) this.claimPage(existing, options.sessionId);
+					if (options.sessionId) await this.claimPage(existing, options.sessionId);
 					this.emitPages();
 					return this.listPages().find((info) => info.pageId === existing.info.pageId)!;
 				}
@@ -389,8 +431,7 @@ export class BrowserHub {
 
 	private withPage<T>(pageId: string, operation: (entry: PageEntry) => Promise<T>): Promise<T> {
 		const entry = this.requirePage(pageId);
-		const key = entry.info.sessionId ? `session:${entry.info.sessionId}` : `page:${pageId}`;
-		return this.operations.run(key, () => operation(this.requirePage(pageId)));
+		return this.operations.run(`page:${entry.info.pageId}`, () => operation(this.requirePage(pageId)));
 	}
 
 	// -- agent 工具 -------------------------------------------------------------
@@ -398,7 +439,7 @@ export class BrowserHub {
 	private async agentPage(sessionId: string, pageId?: string): Promise<PageEntry> {
 		if (pageId) {
 			const entry = this.requirePage(pageId);
-			this.claimPage(entry, sessionId);
+			await this.claimPage(entry, sessionId);
 			return entry;
 		}
 		const active = this.activePages.get(sessionId);
@@ -407,7 +448,7 @@ export class BrowserHub {
 		if (!entry) {
 			entry = await this.newPage(undefined, sessionId);
 		}
-		this.claimPage(entry, sessionId);
+		await this.claimPage(entry, sessionId);
 		return entry;
 	}
 
@@ -418,6 +459,7 @@ export class BrowserHub {
 		return this.operations.run(
 			`session:${sessionId}`,
 			async () => {
+				if (this.disposed) throw new Error("浏览器服务已关闭");
 				try {
 					return await operation();
 				} finally {
@@ -847,7 +889,7 @@ const SNAPSHOT_SCRIPT = `
 			const style = getComputedStyle(el);
 			if (style.display === "none" || style.visibility === "hidden") continue;
 			let ref = el.__owlRef;
-			if (!ref) {
+			if (!ref || refs.map.get(ref) !== el) {
 				ref = refs.next++;
 				el.__owlRef = ref;
 				refs.map.set(ref, el);

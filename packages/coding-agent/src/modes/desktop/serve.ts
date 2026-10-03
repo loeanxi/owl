@@ -85,10 +85,10 @@ import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch
 import {
 	createSkill,
 	deleteSkill,
+	disabledNamesToPatterns,
 	listSkills,
 	readSkill,
 	SkillCenterError,
-	selectionToPatterns,
 	setSkillEnabled,
 	updateSkill,
 } from "./skills-center.ts";
@@ -1155,7 +1155,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "skills.setProjectSelection": {
-				// 勾选本项目需要的技能 → 项目 settings.json 的 skills 覆盖模式
+				// 勾选本项目需要的技能（opt-out）→ 项目 settings.json 的 skills 覆盖模式
 				const settingsManager = await getSettingsManagerFor(request.cwd);
 				if (!settingsManager?.isProjectTrusted()) {
 					reply(ws, request.id, { ok: false, error: "项目尚未信任，无法修改项目技能选择" });
@@ -1163,7 +1163,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				try {
 					settingsManager.setProjectSkillPaths(
-						request.mode === "clear" ? [] : selectionToPatterns(request.names),
+						request.mode === "clear" ? [] : disabledNamesToPatterns(request.names),
 					);
 					reloadMountedSkillSessions(request.cwd);
 					reply(ws, request.id, { ok: true });

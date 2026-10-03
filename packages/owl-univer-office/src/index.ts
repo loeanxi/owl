@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getAgentDir, registerWorkspaceViewer, type ExtensionAPI } from "@owl/owl-coding-agent";
+import { type ExtensionAPI, getAgentDir, registerWorkspaceViewer } from "@owl/owl-coding-agent";
 import { OfficeRuntime } from "./runtime.ts";
 import { registerOfficeTools } from "./tools.ts";
 
@@ -9,7 +9,9 @@ let owners = 0;
 
 function getRuntime(): OfficeRuntime {
 	runtime ??= new OfficeRuntime({
-		assetRoot: process.env.OWL_UNIVER_RUNTIME_ROOT?.trim() || join(getAgentDir(), "cache", "univer-office", "runtime", "node_modules", "dsh-univer-office"),
+		assetRoot:
+			process.env.OWL_UNIVER_RUNTIME_ROOT?.trim() ||
+			join(getAgentDir(), "cache", "univer-office", "runtime", "node_modules", "dsh-univer-office"),
 		license: process.env.UNIVER_LICENSE?.trim(),
 		browserExecutablePath: process.env.UNIVER_RENDER_BROWSER?.trim(),
 	});
@@ -20,7 +22,9 @@ export default function univerOffice(pi: ExtensionAPI): void {
 	owners += 1;
 	if (!unregisterViewer) {
 		unregisterViewer = registerWorkspaceViewer({
-			id: "univer-office", title: "Office", extensions: ["univer", "xlsx", "docx", "pptx"],
+			id: "univer-office",
+			title: "Office",
+			extensions: ["univer", "xlsx", "docx", "pptx"],
 			open: (request) => getRuntime().open(request),
 		});
 	}

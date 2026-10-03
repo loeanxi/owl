@@ -206,7 +206,7 @@ export function QuestionDialog({
 													togglePreview(qi, option.label);
 												}}
 											>
-												预览
+												{t("question.preview")}
 											</button>
 										)}
 									</div>
@@ -253,7 +253,7 @@ export function QuestionDialog({
 								className="text-[11px] text-owl-muted hover:text-owl-text"
 								onClick={() => patch(qi, { noteOpen: true })}
 							>
-								＋ 添加备注
+								{t("question.addNote")}
 							</button>
 						)}
 					</div>
@@ -262,10 +262,10 @@ export function QuestionDialog({
 					<button
 						type="button"
 						className="rounded-lg border border-owl-border px-3 py-1.5 text-sm text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-						onClick={() => onAnswer([], true)}
-					>
-						取消
-					</button>
+							onClick={() => onAnswer([], true)}
+						>
+							{t("common.cancel")}
+						</button>
 					<div className="flex items-center gap-2">
 						{qi > 0 && (
 							<button

@@ -202,7 +202,7 @@ export const zh = {
 	"settings.skills.pickerReset": "恢复默认（全部可用）",
 	"settings.skills.pickerClose": "收起",
 	"settings.skills.saveSelectionFailed": "保存项目技能选择失败",
-	"settings.skills.projectTabDesc": "勾选决定该项目能自动调用哪些技能（写入项目 settings.json 的 skills；对个人/全局/项目三级都生效）。",
+	"settings.skills.projectTabDesc": "默认全部可用；取消勾选的技能会在该项目内禁用（写入项目 settings.json 的 skills，对个人/全局/项目三级生效）。",
 
 	// ---- 设置页：侧边卡片 ----
 	"settings.sidecards.title": "侧边卡片",
@@ -462,6 +462,49 @@ export const zh = {
 	"newproject.creating": "创建中…",
 	"newproject.createAndSwitch": "创建并切换",
 
+
+	// ---- 提问答卷 ----
+	"question.progress": "第 {i} / {n} 题",
+	"question.answeredCount": "已答 {n}/{total}",
+	"question.multiSelectHint": "（可多选）",
+	"question.missingWarning": "先答这道题：选一个选项，或在「其他」里输入",
+	"question.preview": "预览",
+	"question.other": "其他",
+	"question.customPlaceholder": "自由输入…",
+	"question.notePlaceholder": "给这道题补充说明（随答案一起回给 agent）…",
+	"question.addNote": "＋ 添加备注",
+	"question.prev": "上一题",
+	"question.next": "下一题",
+	"question.submit": "提交回答",
+
+	// ---- 任务清单常驻条 ----
+	"todo.title": "任务清单",
+	"todo.allDone": " 全部完成",
+	"todo.collapse": "收起清单",
+	"todo.expand": "展开清单",
+	"todo.dismiss": "收下图标条",
+	"todo.dismissTip": "收下图标条（清单更新时会重新弹出）",
+
+	// ---- 成果文件 ----
+	"artifacts.title": "成果文件",
+	"artifacts.fileCount": "{n} 个文件",
+	"artifacts.openAria": "打开 {name}",
+	"artifacts.kindDocument": "文档",
+	"artifacts.kindSheet": "表格",
+	"artifacts.kindPresentation": "演示",
+	"artifacts.kindImage": "图片",
+	"artifacts.kindCode": "代码",
+	"artifacts.kindFile": "文件",
+	"artifacts.written": "已写入",
+	"artifacts.edited": "已更新",
+	"artifacts.opened": "已展示",
+
+	// ---- 工具确认弹窗 ----
+	"perm.title": "工具请求确认",
+	"perm.wantsToRun": "Agent 想运行",
+	"perm.deny": "拒绝",
+	"perm.allow": "允许",
+
 	// ---- 输入框（Composer） ----
 	"composer.thinking.off": "关闭",
 	"composer.thinking.minimal": "最低",
@@ -482,6 +525,9 @@ export const zh = {
 	"composer.slashKind.extension": "扩展",
 	"composer.noModels": "无可用模型（先配置凭据）",
 	"composer.reasoningBadge": "思考",
+	"composer.removeImage": "移除这张图片",
+	"composer.imageLimitReached": "一条消息最多附 {max} 张图片",
+	"composer.imageTooLarge": "图片超过 {limit} MB，未添加",
 	"composer.runLocation.local": "本地",
 	"composer.runLocation.title": "运行位置",
 	"composer.runLocation.localFull": "本地（此电脑）",

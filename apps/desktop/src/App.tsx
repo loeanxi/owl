@@ -4,7 +4,7 @@ import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModel
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
-import { Composer } from "./components/Composer.tsx";
+import { Composer, type ComposerImage } from "./components/Composer.tsx";
 import { Artifacts } from "./components/Artifacts.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
@@ -645,8 +645,9 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	const sendPrompt = async (message: string): Promise<void> => {
-		if (!connected || running || submitInFlight.current || !message.trim()) return;
+	const sendPrompt = async (message: string, images?: ComposerImage[]): Promise<void> => {
+		const hasImages = (images?.length ?? 0) > 0;
+		if (!connected || running || submitInFlight.current || (!message.trim() && !hasImages)) return;
 		submitInFlight.current = true;
 		setSubmitting(true);
 		let target: string | undefined;
@@ -661,9 +662,17 @@ export default function App(): React.JSX.Element {
 		}
 		target = await ensureSession();
 		if (!target) return;
-		setEntries((current) => [...current, { kind: "user", text: message }]);
+		setEntries((current) => [
+			...current,
+			{ kind: "user", text: message, ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
+		]);
 		setPendingPrompts((current) => new Set(current).add(target!));
-		const response = await client.request({ type: "session.prompt", sessionId: target, message });
+		const response = await client.request({
+			type: "session.prompt",
+			sessionId: target,
+			message,
+			...(hasImages ? { images } : {}),
+		});
 		if (!response.ok) throw new Error(response.error ?? "消息发送失败");
 		// Some extension commands finish before starting an agent run. Reconcile their
 		// optimistic indicator with the bridge instead of leaving the input locked.
@@ -807,7 +816,7 @@ export default function App(): React.JSX.Element {
 							connected={connected}
 							disabled={running || submitting || !connected}
 							running={running}
-							onSend={(text) => void sendPrompt(text)}
+							onSend={(text, images) => void sendPrompt(text, images)}
 							onAbort={() => void abort()}
 							providers={providers}
 							model={modelValue}

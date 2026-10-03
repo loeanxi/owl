@@ -584,21 +584,21 @@ export function SettingsPage({
 		return choices;
 	}
 
-	/** 勾选/取消一个技能：把当前生效集合 ± 该名字整体写回项目 settings.json。 */
+	/** 勾选/取消一个技能（opt-out）：把当前项目内禁用的名字集合整体写回项目 settings.json。 */
 	async function toggleProjectSkill(name: string, enabled: boolean): Promise<void> {
 		const cwd = skillProject || workspaceDir;
 		if (!cwd) return;
 		setBusy(true);
 		setError("");
 		try {
-			const selected = new Set(skillsData.skills.filter((s) => s.projectEnabled).map((s) => s.name));
-			if (enabled) selected.add(name);
-			else selected.delete(name);
+			const disabled = new Set(skillsData.skills.filter((s) => !s.projectEnabled).map((s) => s.name));
+			if (enabled) disabled.delete(name);
+			else disabled.add(name);
 			const response = await client.request({
 				type: "skills.setProjectSelection",
 				cwd,
 				mode: "set",
-				names: [...selected],
+				names: [...disabled],
 			});
 			if (response.ok) await loadSkillsList(cwd);
 			else setError(response.error ?? t("settings.skills.saveSelectionFailed"));
