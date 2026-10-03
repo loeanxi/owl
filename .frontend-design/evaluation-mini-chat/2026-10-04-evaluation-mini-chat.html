@@ -1,0 +1,1823 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owl 模型测评 · 独立小会话原型</title><style>  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: var(--font-stack); height: 100%; }
+  body {
+    background: #e7eef6;
+    color: #0f1f33;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    overflow: hidden;
+  }
+
+  /* ============================================================
+     App shell
+     ============================================================ */
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  header.app-header {
+    background: #ffffff;
+    border-bottom: 1px solid #d8e2ee;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    z-index: 50;
+  }
+  header.app-header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header.app-header .subtitle { color: #5a6b80; font-size: 11px; margin-top: 2px; }
+  header.app-header .actions { display: flex; gap: 8px; align-items: center; }
+
+  button.btn {
+    font: inherit; cursor: pointer;
+    border-radius: 8px; border: 1px solid #d8e2ee;
+    background: #ffffff; color: #0f1f33;
+    padding: 7px 13px; font-size: 13px;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  button.btn:hover { background: #f1f6fc; }
+  button.btn.primary { background: #2563eb; border-color: #2563eb; color: #ffffff; font-weight: 500; }
+  button.btn.primary:hover { background: #1d54d4; border-color: #1d54d4; }
+  button.btn.toggled { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+
+  .main-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    overflow: hidden;
+    transition: grid-template-columns 220ms ease;
+  }
+  .main-layout.controls-collapsed { grid-template-columns: 56px 1fr; }
+  .main-layout.controls-collapsed aside.controls { padding: 12px 6px; overflow: hidden; }
+  .main-layout.controls-collapsed .controls-body { display: none; }
+  .main-layout.controls-collapsed .toggle-btn .toggle-label { display: none; }
+  .main-layout.controls-collapsed .controls-toggle-row { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+  /* ============================================================
+     Left controls rail
+     ============================================================ */
+  aside.controls {
+    background: #ffffff;
+    border-right: 1px solid #d8e2ee;
+    overflow-y: auto;
+    padding: 16px 12px 80px;
+  }
+  .controls-toggle-row {
+    display: flex; justify-content: center;
+    padding: 0 0 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #eef2f7;
+  }
+  button.toggle-btn {
+    font: inherit; cursor: pointer;
+    border-radius: 999px; border: 1px solid #d8e2ee;
+    background: #f7fbff; color: #2563eb;
+    padding: 6px 12px; font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background 120ms ease, border-color 120ms ease;
+    white-space: nowrap;
+  }
+  button.toggle-btn:hover { background: #eef6ff; border-color: #b9c6d8; }
+  button.toggle-btn .toggle-icon { font-size: 13px; line-height: 1; }
+
+  aside.controls .section-head {
+    margin: 14px 4px 8px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5a6b80;
+    font-weight: 600;
+    border-top: 1px solid #eef2f7;
+    padding-top: 14px;
+  }
+  aside.controls .section-head:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+
+  .control-row { padding: 6px 4px 8px; }
+  .control-row .lbl {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px; gap: 8px;
+  }
+  .control-row .var-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; font-weight: 600; color: #0f1f33;
+  }
+  .control-row .var-intent { font-size: 11px; color: #5a6b80; }
+
+  .help-banner {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 8px 10px; font-size: 11px; color: #78350f; margin-bottom: 12px; line-height: 1.45;
+  }
+
+  /* ============================================================
+     Decision controls
+     ============================================================ */
+  .dropdown { position: relative; }
+  .dd-trigger {
+    width: 100%;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+    cursor: pointer; font: inherit; color: #0f1f33; font-size: 12px;
+    text-align: left;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .dd-trigger:hover { border-color: #b9c6d8; }
+  .dd-trigger.open { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+  .dd-trigger .left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+  .dd-trigger .opt-id {
+    background: #eef6ff; color: #2563eb; font-weight: 600;
+    border-radius: 4px; padding: 1px 6px; font-size: 10px;
+    flex-shrink: 0;
+  }
+  .dd-trigger .opt-summary {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dd-trigger .caret { color: #5a6b80; font-size: 10px; flex-shrink: 0; }
+
+  .sw-pair { display: inline-flex; gap: 2px; flex-shrink: 0; }
+  .sw {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+  }
+  .sw.lg { width: 28px; height: 22px; border-radius: 4px; }
+
+  .dd-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: #ffffff;
+    border: 1px solid #d8e2ee;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+    z-index: 40;
+    padding: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+    display: none;
+  }
+  .dd-panel.open { display: block; }
+  .dd-panel.wide { width: 360px; right: auto; }
+
+  .dd-option {
+    width: 100%;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border: none; background: transparent; cursor: pointer;
+    border-radius: 6px;
+    font: inherit; text-align: left; color: #0f1f33;
+  }
+  .dd-option:hover, .dd-option.active { background: #eef6ff; }
+  .dd-option.selected { background: #eef6ff; box-shadow: inset 2px 0 0 #2563eb; }
+  .dd-option .opt-id {
+    background: #f1f5f9; color: #475569; font-weight: 600;
+    border-radius: 4px; padding: 1px 6px; font-size: 10px;
+    flex-shrink: 0;
+  }
+  .dd-option.selected .opt-id { background: #2563eb; color: #ffffff; }
+  .dd-option .opt-text { flex: 1; min-width: 0; }
+  .dd-option .opt-value {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #0f1f33;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dd-option .opt-note { font-size: 10px; color: #5a6b80; margin-top: 2px; }
+  .dd-option .visual { flex-shrink: 0; display: flex; align-items: center; }
+
+  .slider-control {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+  }
+  .slider-control input[type="range"] {
+    flex: 1; height: 4px;
+    -webkit-appearance: none; appearance: none;
+    background: linear-gradient(to right, #2563eb 0%, #2563eb var(--fill, 50%), #e2e8f0 var(--fill, 50%), #e2e8f0 100%);
+    border-radius: 2px; outline: none; cursor: pointer;
+    margin: 0;
+  }
+  .slider-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #2563eb;
+    cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  }
+  .slider-control input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #2563eb;
+    cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  }
+  .slider-control .value-chip {
+    min-width: 48px; text-align: right;
+    font-family: ui-monospace, monospace; font-size: 11px; font-weight: 600;
+    color: #2563eb;
+  }
+  .slider-control .range-meta {
+    font-family: ui-monospace, monospace; font-size: 9px; color: #94a3b8;
+    flex-shrink: 0;
+  }
+
+  .segmented {
+    display: inline-flex; padding: 2px;
+    background: #f1f5f9; border-radius: 8px; border: 1px solid #d8e2ee;
+    width: 100%;
+  }
+  .segmented button {
+    flex: 1; font: inherit; cursor: pointer;
+    border: none; background: transparent;
+    padding: 5px 8px; font-size: 11px; color: #5a6b80;
+    border-radius: 6px; transition: background 120ms ease, color 120ms ease;
+    white-space: nowrap;
+  }
+  .segmented button:hover { color: #0f1f33; }
+  .segmented button.active {
+    background: #ffffff; color: #2563eb; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+
+  .toggle-control {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px;
+    background: #ffffff; border: 1px solid #d8e2ee; border-radius: 8px;
+    cursor: pointer;
+  }
+  .toggle-switch {
+    width: 32px; height: 18px; border-radius: 999px;
+    background: #cbd5e1; position: relative;
+    transition: background 120ms ease;
+    flex-shrink: 0;
+  }
+  .toggle-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #ffffff;
+    transition: transform 120ms ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  }
+  .toggle-control.on .toggle-switch { background: #2563eb; }
+  .toggle-control.on .toggle-switch::after { transform: translateX(14px); }
+  .toggle-control .toggle-state {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #5a6b80;
+    margin-right: 8px;
+  }
+  .toggle-control.on .toggle-state { color: #2563eb; font-weight: 600; }
+
+  /* ============================================================
+     Preview pair
+     ============================================================ */
+  .preview-pair {
+    overflow-y: auto;
+    background: #d8e2ee;
+    position: relative;
+  }
+  .preview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    min-height: 100%;
+    transition: grid-template-columns 220ms ease;
+  }
+  .preview-grid.light-expanded { grid-template-columns: 1fr 36px; }
+  .preview-grid.dark-expanded  { grid-template-columns: 36px 1fr; }
+  .preview-grid.light-expanded .preview.theme-dark > *:not(.pane-toggle-btn),
+  .preview-grid.dark-expanded  .preview.theme-light > *:not(.pane-toggle-btn) {
+    display: none;
+  }
+  .preview-grid.light-expanded .preview.theme-dark,
+  .preview-grid.dark-expanded  .preview.theme-light {
+    padding: 0;
+    overflow: hidden;
+  }
+  /* Hide the expand button on the pane that is currently fully expanded —
+     the collapsed strip's button alone is enough to restore the split view. */
+  .preview-grid.light-expanded .preview.theme-light .pane-toggle-btn { display: none; }
+  .preview-grid.dark-expanded  .preview.theme-dark  .pane-toggle-btn { display: none; }
+  .preview {
+    background: var(--surface-page);
+    color: var(--text-primary);
+    padding: 20px;
+    position: relative;
+  }
+  /* Pane expand/collapse toggle button (top corner of each theme pane) */
+  .pane-toggle-btn {
+    position: absolute;
+    top: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .pane-toggle-btn:hover { border-color: var(--accent-primary); }
+  .preview.theme-light .pane-toggle-btn { right: 12px; }
+  .preview.theme-dark  .pane-toggle-btn { left: 12px; }
+  .preview .label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .preview h2.theme-title {
+    margin: 0 0 16px; font-size: 14px; font-weight: 600; color: var(--text-primary);
+  }
+
+  /* Direct edits */
+  [data-fd-editable] {
+    border-radius: 4px;
+    transition: outline-color 120ms ease, background-color 120ms ease;
+  }
+  body:not(.comment-mode) [data-fd-editable]:hover {
+    outline: 1px dashed var(--accent-primary);
+    outline-offset: 2px;
+  }
+  [data-fd-editable][contenteditable]:focus {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  }
+
+  /* ============================================================
+     Comment system
+     ============================================================ */
+  .markers-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 60;
+  }
+  body:not(.markers-visible):not(.comment-mode) .markers-layer { display: none; }
+  .comment-marker {
+    position: absolute;
+    pointer-events: auto;
+    min-width: 18px; height: 18px;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #ffffff;
+    font-size: 10px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.4);
+    cursor: pointer;
+    padding: 0 5px;
+    border: 2px solid #ffffff;
+  }
+
+  .picker-overlay {
+    position: fixed;
+    pointer-events: none;
+    border: 2px dashed #2563eb;
+    background-color: rgba(37, 99, 235, 0.12);
+    z-index: 80;
+    display: none;
+    transition: top 60ms ease, left 60ms ease, width 60ms ease, height 60ms ease;
+  }
+  .picker-overlay.visible { display: block; }
+  .picker-overlay .picker-add {
+    position: absolute;
+    top: -11px; right: -11px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+    pointer-events: none;
+  }
+
+  .picker-hint {
+    position: fixed;
+    pointer-events: none;
+    background: #0f1f33;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    z-index: 90;
+    display: none;
+    max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .picker-hint.visible { display: block; }
+  .picker-hint.warning::before { content: "⚠ "; color: #fbbf24; }
+
+  .comment-popover {
+    position: fixed;
+    z-index: 100;
+    background: #ffffff;
+    border: 1px solid #d8e2ee;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    width: 360px;
+    padding: 12px;
+    display: none;
+  }
+  .comment-popover.open { display: block; }
+  .comment-popover .pop-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .comment-popover .pop-target {
+    font-family: ui-monospace, monospace; font-size: 11px; color: #2563eb;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 220px;
+  }
+  .comment-popover .pop-warning {
+    background: #fffbeb; color: #78350f; border: 1px solid #fde68a;
+    padding: 4px 8px; border-radius: 6px; font-size: 10px;
+    margin-bottom: 8px;
+  }
+  .comment-popover .nav-links { display: flex; gap: 10px; flex-shrink: 0; }
+  .comment-popover .nav-link {
+    background: transparent; border: none; cursor: pointer;
+    color: #2563eb; font-size: 11px; font-weight: 500;
+    padding: 0;
+  }
+  .comment-popover .nav-link:hover:not(:disabled) { text-decoration: underline; }
+  .comment-popover .nav-link:disabled { color: #cbd5e1; cursor: not-allowed; }
+  .comment-popover textarea {
+    width: 100%; min-height: 80px;
+    border: 1px solid #d8e2ee; border-radius: 8px;
+    padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+    resize: vertical;
+    font-family: var(--font-stack);
+  }
+  .comment-popover textarea:focus { border-color: #2563eb; }
+  .comment-popover .scope-row {
+    margin: 10px 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .comment-popover .scope-label {
+    font-size: 11px; color: #5a6b80; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .comment-popover .scope-options {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  }
+  .comment-popover .scope-opt {
+    padding: 6px 8px;
+    border: 1px solid #d8e2ee; border-radius: 6px;
+    font-size: 11px; cursor: pointer; background: #ffffff;
+    text-align: left;
+  }
+  .comment-popover .scope-opt.selected {
+    border-color: #2563eb; background: #eef6ff; color: #2563eb; font-weight: 600;
+  }
+  .comment-popover .pop-foot {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding-top: 8px; border-top: 1px solid #eef2f7;
+  }
+  .comment-popover .pop-foot .left-actions { display: flex; gap: 8px; }
+  .comment-popover .pop-foot .right-actions { display: flex; gap: 8px; }
+  .comment-popover .pop-foot button {
+    font: inherit; cursor: pointer;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px;
+  }
+  .comment-popover .btn-cancel { background: transparent; border: 1px solid #d8e2ee; color: #0f1f33; }
+  .comment-popover .btn-save { background: #2563eb; border: 1px solid #2563eb; color: #ffffff; font-weight: 500; }
+  .comment-popover .btn-delete { background: transparent; border: 1px solid #fecaca; color: #dc2626; }
+
+  .comment-list-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 320px;
+    background: #ffffff;
+    border-left: 1px solid #d8e2ee;
+    box-shadow: -4px 0 16px rgba(15, 23, 42, 0.1);
+    z-index: 70;
+    transform: translateX(100%);
+    transition: transform 220ms ease;
+    display: flex; flex-direction: column;
+  }
+  .comment-list-panel.open { transform: translateX(0); }
+  .comment-list-panel .clp-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid #d8e2ee;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .comment-list-panel .clp-title { margin: 0; font-size: 14px; font-weight: 600; }
+  .comment-list-panel .clp-count { color: #5a6b80; font-size: 11px; margin-left: 6px; }
+  .comment-list-panel .clp-body {
+    flex: 1; overflow-y: auto;
+    padding: 12px;
+  }
+  .comment-list-panel .empty-state {
+    text-align: center; padding: 32px 20px;
+    color: #5a6b80; font-size: 12px;
+  }
+  .comment-list-panel .clp-item {
+    background: #f7fbff;
+    border: 1px solid #d8e2ee;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .comment-list-panel .clp-item:hover { border-color: #2563eb; background: #eef6ff; }
+  .comment-list-panel .clp-item-head {
+    display: flex; justify-content: flex-start; align-items: center;
+    gap: 6px; margin-bottom: 4px;
+  }
+  .comment-list-panel .clp-num {
+    background: #f59e0b; color: #ffffff; font-weight: 700;
+    border-radius: 999px; padding: 0 6px; font-size: 10px;
+  }
+  .comment-list-panel .clp-scope {
+    background: #f1f5f9; color: #475569; font-size: 9px;
+    border-radius: 4px; padding: 1px 5px; font-weight: 600; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .comment-list-panel .clp-target {
+    font-family: ui-monospace, monospace; font-size: 10px;
+    color: #2563eb; margin-bottom: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .comment-list-panel .clp-text {
+    font-size: 12px; color: #0f1f33; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .comment-list-panel .clp-actions { display: flex; gap: 4px; margin-left: auto; }
+  .comment-list-panel .clp-actions button {
+    background: transparent;
+    border: 1px solid #d8e2ee;
+    color: #5a6b80;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .comment-list-panel .clp-actions button:hover { background: #f1f6fc; color: #0f1f33; }
+  .comment-list-panel .clp-actions .clp-delete:hover { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+  .comment-list-panel .clp-edit-form { display: none; margin-top: 8px; }
+  .comment-list-panel .clp-item.editing .clp-edit-form { display: block; }
+  .comment-list-panel .clp-item.editing .clp-text { display: none; }
+  .comment-list-panel .clp-item.editing .clp-actions { display: none; }
+  .comment-list-panel .clp-edit-form textarea {
+    width: 100%; min-height: 60px;
+    border: 1px solid #d8e2ee; border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit; font-size: 12px;
+    outline: none; resize: vertical;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .comment-list-panel .clp-edit-form textarea:focus { border-color: #2563eb; }
+  .comment-list-panel .clp-edit-actions {
+    display: flex; justify-content: flex-end; gap: 6px;
+    margin-top: 6px;
+  }
+  .comment-list-panel .clp-edit-actions button {
+    width: 28px; height: 28px;
+    border: none; border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .comment-list-panel .clp-edit-actions .clp-edit-cancel { background: #dc2626; color: #ffffff; }
+  .comment-list-panel .clp-edit-actions .clp-edit-cancel:hover { background: #b91c1c; }
+  .comment-list-panel .clp-edit-actions .clp-edit-save { background: #2563eb; color: #ffffff; }
+  .comment-list-panel .clp-edit-actions .clp-edit-save:hover { background: #1d54d4; }
+
+  /* ============================================================
+     Toast & export modal
+     ============================================================ */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #0f1f33; color: #ffffff;
+    padding: 10px 16px; border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+    font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease; z-index: 200;
+  }
+  .toast.visible { opacity: 1; }
+
+  .export-modal {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: none; align-items: center; justify-content: center;
+    z-index: 250; padding: 24px;
+  }
+  .export-modal.open { display: flex; }
+  .export-modal .panel {
+    background: #ffffff; border-radius: 12px;
+    width: min(720px, 100%); max-height: 80vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .export-modal .panel-head {
+    padding: 14px 18px; border-bottom: 1px solid #d8e2ee;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .export-modal .panel-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .export-modal .panel-body {
+    padding: 14px 18px; overflow: auto; background: #f7fbff;
+  }
+  .export-modal pre {
+    margin: 0; background: #0f1f33; color: #e6edf7;
+    padding: 14px; border-radius: 8px;
+    font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .export-modal .panel-foot {
+    padding: 10px 18px; border-top: 1px solid #d8e2ee;
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+
+:root{--color-owl-accent:#2f9e5a;--owl-ui-canvas:#1c1c1c;--owl-ui-panel:#252525;--owl-ui-sidebar:#161616;--owl-ui-border:#343434;--owl-ui-text:#e8e8e8;--owl-ui-muted:#9b9b9b;--owl-ui-hover:#2a2a2a;--owl-conversation-bg:#171717;--font-sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--owl-ui-sidebar);color:var(--owl-ui-text);font:13px/1.65 var(--font-sans)}button,input,textarea,select{font:inherit;color:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--color-owl-accent);outline-offset:2px}button{background:none;border:0}svg{display:block} .theme-light{--owl-conversation-bg:#fafbf9} .theme-light .mc-bubble{background:#eef1ed}.theme-light .mc-thought-body{background:#edf0eb}.theme-light .mc-art{border-color:#dce3dc}
+.mc-app{height:100dvh;min-height:700px;display:flex;flex-direction:column;overflow:hidden;background:var(--owl-ui-sidebar);color:var(--owl-ui-text);font-family:var(--font-sans)}.mc-titlebar{height:36px;flex-shrink:0;display:flex;align-items:center;padding:0 13px;gap:21px;font-size:12px;color:var(--owl-ui-muted)}.mc-titlebar .menu-active{color:var(--color-owl-accent);border:1px solid color-mix(in srgb,var(--color-owl-accent) 35%,transparent);border-radius:5px;padding:2px 10px;background:color-mix(in srgb,var(--color-owl-accent) 9%,transparent)}.mc-titlebar .brand-center{position:absolute;left:50%;font-size:10px;letter-spacing:2px}.mc-spacer{flex:1}.mc-frame{display:flex;flex:1;min-height:0;padding-right:8px;padding-bottom:8px}.mc-rail{width:52px;flex-shrink:0;display:flex;align-items:center;flex-direction:column;gap:22px;padding:14px 0}.mc-rail .rail-mark{color:var(--color-owl-accent);font-size:25px}.mc-rail button{width:32px;height:32px;color:var(--owl-ui-muted);display:grid;place-items:center;border-radius:8px}.mc-rail button.active{color:var(--color-owl-accent);background:color-mix(in srgb,var(--color-owl-accent) 12%,transparent)}.mc-rail button svg{width:17px;height:17px}.mc-nav{width:224px;flex-shrink:0;padding:8px 12px 12px;display:flex;flex-direction:column}.mc-logo{height:48px;display:flex;align-items:center;gap:10px;font-size:24px;font-weight:650}.mc-logo small{margin-left:auto;font-weight:400;font-size:9px;border:1px solid var(--owl-ui-border);border-radius:4px;padding:0 5px;color:var(--owl-ui-muted)}.mc-nav-caption{font-size:11px;color:var(--owl-ui-muted);margin:24px 11px 9px}.mc-nav-button{display:flex;align-items:center;gap:10px;text-align:left;padding:9px 11px;border-radius:7px;font-size:12px;width:100%;color:var(--owl-ui-muted)}.mc-nav-button.active{background:color-mix(in srgb,var(--color-owl-accent) 12%,transparent);color:var(--owl-ui-text)}.mc-nav-button b{font-weight:400;margin-left:auto;font-size:11px}.mc-run-tile{border:1px solid var(--owl-ui-border);background:var(--owl-ui-canvas);border-radius:8px;padding:11px;margin:0 4px}.mc-run-tile strong{display:block;font-size:12px;font-weight:500}.mc-run-tile small{color:var(--owl-ui-muted);font-size:10px}.mc-task-type{font-size:10px;color:var(--owl-ui-muted);margin:18px 10px 5px}.mc-task{padding:8px 9px;font-size:11px;display:flex;gap:7px;width:100%;text-align:left;border-radius:6px;color:var(--owl-ui-muted)}.mc-task.active{background:color-mix(in srgb,var(--color-owl-accent) 12%,transparent);color:var(--owl-ui-text)}.mc-task code{color:var(--color-owl-accent);font-size:9px}.mc-nav-foot{margin-top:auto;border-top:1px solid var(--owl-ui-border);padding:12px 8px 0;font-size:10px;color:var(--owl-ui-muted)}
+.mc-workspace{flex:1;min-width:0;border:1px solid var(--owl-ui-border);border-radius:13px;overflow:hidden;display:flex;flex-direction:column;background:var(--owl-ui-canvas)}.mc-header{height:54px;flex-shrink:0;border-bottom:1px solid var(--owl-ui-border);display:flex;align-items:center;padding:0 22px;gap:10px}.mc-header strong{font-size:13px;font-weight:550}.mc-header small{color:var(--owl-ui-muted);font-size:11px}.mc-button{border:1px solid var(--owl-ui-border);padding:6px 11px;border-radius:7px;font-size:11px;background:var(--owl-ui-panel);white-space:nowrap}.mc-button:hover{background:var(--owl-ui-hover)}.mc-button.primary{background:var(--color-owl-accent);border-color:var(--color-owl-accent);color:white}.mc-dot{height:5px;width:5px;border-radius:100%;background:var(--color-owl-accent);display:inline-block;margin-right:5px}.mc-toolbar{flex-shrink:0;display:flex;align-items:center;gap:15px;padding:19px 22px 17px}.mc-task-heading{flex:1;min-width:0}.mc-task-heading h1{margin:0;font-size:21px;font-weight:600;line-height:1.4}.mc-task-heading p{font-size:11px;color:var(--owl-ui-muted);margin:3px 0 0}.mc-toolbar label{font-size:10px;color:var(--owl-ui-muted)}.mc-toolbar select{display:block;margin-top:3px;border:1px solid var(--owl-ui-border);border-radius:6px;background:var(--owl-ui-panel);font-size:11px;padding:5px 8px}.mc-anonymous-note{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--owl-ui-muted);padding:0 22px 13px}.mc-anonymous-note .shield{color:var(--color-owl-accent)}.mc-chat-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:0 22px 20px}.mc-window{display:flex;flex-direction:column;min-height:0;min-width:0;border:1px solid var(--owl-ui-border);border-radius:12px;background:var(--owl-conversation-bg);overflow:hidden}.mc-window-header{height:58px;flex-shrink:0;padding:0 17px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--owl-ui-border);background:color-mix(in srgb,var(--owl-ui-panel) 55%,var(--owl-conversation-bg))}.mc-avatar{display:grid;place-items:center;background:color-mix(in srgb,var(--color-owl-accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--color-owl-accent) 23%,transparent);color:var(--color-owl-accent);width:30px;height:30px;border-radius:9px;font-size:12px;font-weight:600}.mc-window-name{font-size:13px;font-weight:550}.mc-window-subtitle{font-size:10px;color:var(--owl-ui-muted)}.mc-status{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--owl-ui-muted)}.mc-status[data-state=running]{color:var(--color-owl-accent)}.mc-status[data-state=failed]{color:#d78b83}.mc-running-dot{height:5px;width:5px;background:currentColor;border-radius:50%;animation:mcPulse 1.2s infinite}.mc-window-action{font-size:17px;color:var(--owl-ui-muted);padding:4px}.mc-messages{flex:1;min-height:0;overflow:auto;padding:20px 22px 22px;scrollbar-width:thin;scrollbar-color:var(--owl-ui-border) transparent}.mc-message{margin-bottom:17px}.mc-user{display:flex;justify-content:flex-end}.mc-bubble{background:var(--owl-ui-panel);padding:10px 13px;border-radius:12px 12px 3px 12px;max-width:90%;font-size:12px;line-height:1.75}.mc-bubble small{font-size:9px;display:block;color:var(--owl-ui-muted);margin-bottom:4px}.mc-assistant-label{display:flex;align-items:center;gap:7px;color:var(--owl-ui-muted);font-size:10px;margin-bottom:9px}.mc-assistant-label .tiny-avatar{height:19px;width:19px;display:grid;place-items:center;background:color-mix(in srgb,var(--color-owl-accent) 10%,transparent);color:var(--color-owl-accent);border-radius:5px;font-size:10px}.mc-measure-tag{margin-left:auto;font-size:9px;border:1px solid var(--owl-ui-border);border-radius:4px;padding:0 5px}.mc-thinking{margin-bottom:10px;font-size:11px;color:var(--owl-ui-muted)}.mc-thinking summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}.mc-thinking summary::-webkit-details-marker{display:none}.mc-thinking summary:before{content:'›';font-size:16px;line-height:1}.mc-thinking[open] summary:before{transform:rotate(90deg)}.mc-thinking summary small{font-size:9px;opacity:.7;margin-left:auto}.mc-thought-body{margin:8px 0 11px;padding:10px 12px;border-left:2px solid color-mix(in srgb,var(--color-owl-accent) 35%,transparent);background:color-mix(in srgb,var(--owl-ui-panel) 50%,transparent);border-radius:0 6px 6px 0;font-size:11px;line-height:1.8;white-space:pre-wrap;max-height:155px;overflow:auto}.mc-answer{font-size:13px;line-height:1.9}.mc-answer p{margin:0 0 10px}.mc-art{border:1px solid var(--owl-ui-border);border-radius:9px;overflow:hidden;background:var(--owl-ui-panel)}.mc-art-scene{height:174px;display:grid;place-items:center;background:#dfece3}.mc-art-scene svg{width:100%;height:100%;max-width:360px}.mc-art-foot{padding:8px 10px;display:flex;align-items:center;gap:7px;font-size:10px;color:var(--owl-ui-muted)}.mc-art-foot strong{color:var(--owl-ui-text);font-weight:500;font-size:11px}.mc-text-button{font-size:10px;color:var(--owl-ui-muted);padding:3px 4px}.mc-text-button:hover{color:var(--color-owl-accent)}.mc-assistant-actions{display:flex;gap:10px;font-size:11px;color:var(--owl-ui-muted);margin-top:8px}.mc-followup-divider{border-top:1px solid var(--owl-ui-border);margin:20px 0 15px;padding-top:11px;font-size:10px;color:var(--owl-ui-muted)}.mc-follow-bottom{position:sticky;bottom:0;margin-left:auto;display:block;border:1px solid var(--owl-ui-border);border-radius:15px;padding:4px 10px;font-size:10px;background:var(--owl-ui-panel)}.mc-composer{flex-shrink:0;padding:10px 14px 13px;border-top:1px solid var(--owl-ui-border)}.mc-input-card{border:1px solid var(--owl-ui-border);background:var(--owl-ui-panel);border-radius:10px;padding:9px 11px 8px}.mc-composer textarea{resize:none;display:block;width:100%;height:36px;border:0;outline:none;background:transparent;font-size:12px;line-height:1.6}.mc-composer textarea::placeholder{color:var(--owl-ui-muted)}.mc-composer-actions{display:flex;align-items:center;gap:6px;color:var(--owl-ui-muted);font-size:9px}.mc-send{margin-left:auto;width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:var(--color-owl-accent);color:white;font-size:16px}.mc-window-footer{height:41px;flex-shrink:0;border-top:1px solid var(--owl-ui-border);padding:0 14px;display:flex;align-items:center;gap:8px;background:color-mix(in srgb,var(--owl-ui-panel) 35%,var(--owl-conversation-bg))}.mc-check-link{font-size:10px;color:var(--color-owl-accent)}.mc-score-link{font-size:11px;color:var(--owl-ui-text)}.mc-error-message{padding:14px;border:1px solid #67403c;background:#382321;border-radius:9px;color:#e4b4ad;font-size:12px}.mc-error-message p{margin:5px 0 10px;color:#c59d97;font-size:11px}.mc-drawer-mask{position:absolute;inset:36px 0 0;background:#0006;z-index:50;display:flex;justify-content:flex-end}.mc-drawer{width:410px;max-width:90%;height:100%;background:var(--owl-ui-canvas);border-left:1px solid var(--owl-ui-border);padding:24px;overflow:auto;box-shadow:-12px 0 40px #0002}.mc-drawer h2{font-size:18px;margin:0}.mc-drawer header{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.mc-drawer header button{font-size:20px;color:var(--owl-ui-muted)}.mc-drawer p{font-size:12px;color:var(--owl-ui-muted)}.mc-drawer .mc-rating-row{padding:17px 0;border-bottom:1px solid var(--owl-ui-border)}.mc-rating-row strong{font-size:12px;display:block;margin-bottom:9px;font-weight:500}.mc-rating-values{display:flex;gap:6px}.mc-rating-values button{border:1px solid var(--owl-ui-border);border-radius:6px;display:grid;place-items:center;width:36px;height:33px;font-size:12px}.mc-rating-values button.selected{color:var(--color-owl-accent);border-color:var(--color-owl-accent);background:color-mix(in srgb,var(--color-owl-accent) 10%,transparent)}.mc-drawer textarea{width:100%;height:86px;resize:vertical;background:var(--owl-ui-panel);border:1px solid var(--owl-ui-border);border-radius:8px;padding:10px;font-size:12px;margin:15px 0}.mc-drawer pre{font:11px/1.8 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--owl-ui-panel);border-radius:8px;padding:12px}.mc-check-row{display:flex;gap:9px;padding:14px 0;border-bottom:1px solid var(--owl-ui-border);font-size:12px}.mc-check-row span:first-child{color:var(--color-owl-accent)}.mc-check-row small{display:block;font-size:11px;color:var(--owl-ui-muted)}.mc-toast{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:var(--owl-ui-panel);padding:8px 15px;border:1px solid var(--owl-ui-border);border-radius:7px;font-size:12px;z-index:70;box-shadow:0 6px 22px #0003}.mc-app{position:relative}.mc-focused .mc-window:not(.is-focused){display:none}.mc-focused{grid-template-columns:1fr}.mc-focused .mc-messages{padding-left:max(22px,calc((100% - 680px)/2));padding-right:max(22px,calc((100% - 680px)/2))}@keyframes mcPulse{50%{opacity:.3}}@media(prefers-reduced-motion:reduce){.mc-running-dot{animation:none}}@media(max-width:1100px){.mc-nav{width:192px}.mc-chat-grid{padding:0 14px 14px;gap:10px}.mc-messages{padding:17px 15px}.mc-toolbar{padding:17px 15px}.mc-header{padding:0 15px}.mc-anonymous-note{padding-left:15px}.mc-art-scene{height:155px}}@media(max-width:920px){.mc-nav{display:none}.mc-toolbar .scenario-label{display:none}.mc-task-heading h1{font-size:18px}.mc-chat-grid{min-width:670px}.mc-workspace{overflow:auto}.mc-window-header{padding:0 12px}.mc-window-subtitle{font-size:9px}}
+
+:root{--font-stack:"Segoe UI","Microsoft YaHei",sans-serif;--font-app-title:18px;--font-body:13px;--font-dense:12px;--font-meta:11px;--radius-default:6px;--radius-shell:10px} .preview{padding:30px 0 0;overflow:auto;background:var(--owl-ui-canvas);--surface-panel:var(--owl-ui-panel);--border-subtle:var(--owl-ui-border);--accent-primary:var(--color-owl-accent);--text-primary:var(--owl-ui-text);--text-muted:var(--owl-ui-muted)} .preview .mc-app{height:calc(100dvh - 102px);min-height:740px;min-width:1120px} .preview-grid{min-width:0} .pane-toggle-btn{top:2px} .preview-grid:not(.dark-expanded):not(.light-expanded) .preview{overflow-x:auto} .app-header h1{font-size:16px} .app-header .subtitle{font-size:11px} .help-banner{line-height:1.7} .theme-light{--owl-ui-canvas:#fafbf9;--owl-ui-panel:#fff;--owl-ui-sidebar:#f1f3ef;--owl-ui-border:#e0e5df;--owl-ui-text:#3d3a32;--owl-ui-muted:#66726a;--owl-ui-hover:#e9eeea} .theme-dark{--owl-ui-canvas:#1c1c1c;--owl-ui-panel:#252525;--owl-ui-sidebar:#161616;--owl-ui-border:#343434;--owl-ui-text:#e8e8e8;--owl-ui-muted:#9b9b9b;--owl-ui-hover:#2a2a2a}</style></head><body><div class="app">
+
+  <header class="app-header">
+    <div>
+      <h1>模型测评 · 独立会话原型</h1>
+      <div class="subtitle">展开深色画面查看完整布局；可以点击元素批注、修改文字，最后导出你的调整。</div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="comment-mode-btn" title="Toggle Comment Mode (Esc to exit)">
+        <span id="comment-mode-label">添加批注</span>
+      </button>
+      <button class="btn" id="markers-btn" title="Show / hide existing comment markers">
+        <span id="markers-label">显示批注</span>
+      </button>
+      <button class="btn" id="comment-list-btn" title="Open comment list panel">
+        <span>Comments <span id="comment-count">(0)</span></span>
+      </button>
+      <button class="btn" id="reset-btn">重置</button>
+      <button class="btn primary" id="export-btn">导出设计意见</button>
+    </div>
+  </header>
+
+  <div class="main-layout">
+
+    <aside class="controls" id="controls-rail">
+      <div class="controls-toggle-row">
+        <button class="toggle-btn" id="toggle-controls-btn" aria-pressed="false" title="Collapse controls panel">
+          <span class="toggle-icon" id="toggle-controls-icon">◀</span>
+          <span class="toggle-label" id="toggle-controls-label">收起调参</span>
+        </button>
+      </div>
+      <div class="controls-body" id="controls-body">
+        <div class="help-banner">这里使用 Owl 的实际主题变量。主画面中可以展开思考、追问、打开作品源码与评分。所有模型回复仅用于原型演示。</div>
+        <!-- Sections rendered by JS -->
+      </div>
+    </aside>
+
+<section class="preview-pair" id="preview-pair"><div class="preview-grid"><div class="preview theme-light" id="preview-light" data-theme="light"><button class="pane-toggle-btn" type="button" data-pane="light" aria-label="展开浅色画面">▶</button>
+<div class="mc-app" data-fd-id="evaluation-conversation-workspace">
+ <div class="mc-titlebar"><span>▣</span><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span><span class="menu-active">模型测评</span><span class="brand-center">OWL</span><span class="mc-spacer"></span><span>−</span><span>□</span><span>×</span></div>
+ <div class="mc-frame">
+  <aside class="mc-rail"><span class="rail-mark">✳</span><button title="聊天">◯</button><button class="active" title="模型测评">▤</button><button title="地图">◫</button><span class="mc-spacer"></span><button title="设置">⚙</button></aside>
+  <aside class="mc-nav" data-fd-id="evaluation-navigation"><div class="mc-logo"><span style="color:var(--color-owl-accent);font-size:20px">✳</span>owl<small>LOCAL</small></div><div class="mc-nav-caption" style="margin-top:9px;color:var(--owl-ui-text)">⌁　模型测评</div><button class="mc-nav-button active">⌁　测评</button><button class="mc-nav-button" data-demo-action="library">▱　题库<b>24</b></button><button class="mc-nav-button" data-demo-action="history">◷　运行记录<b>4</b></button><div class="mc-nav-caption">当前测评</div><div class="mc-run-tile"><strong data-fd-id="evaluation-run-title" data-fd-editable="text">日常模型比较</strong><small class="mc-run-status">已完成 · 2 个模型</small></div><div class="mc-task-type">SVG　2</div><button class="mc-task active"><code>G01</code><span>鹈鹕骑自行车</span><span class="mc-spacer"></span><span>✓</span></button><button class="mc-task" data-demo-action="other-task"><code>G06</code><span>仅修改指定零件</span></button><div class="mc-task-type">HTML　2</div><button class="mc-task" data-demo-action="other-task"><code>W01</code><span>订单筛选表格</span></button><button class="mc-task" data-demo-action="other-task"><code>W03</code><span>维修申请表</span></button><div class="mc-task-type">代码　2</div><button class="mc-task" data-demo-action="other-task"><code>C02</code><span>金额精度修复</span></button><button class="mc-task" data-demo-action="other-task"><code>C07</code><span>搜索请求竞态修复</span></button><div class="mc-nav-foot">首轮回答用于测评<br>各模型可以独立继续对话</div></aside>
+  <main class="mc-workspace"><header class="mc-header"><span style="color:var(--color-owl-accent)">⌁</span><strong>模型测评</strong><small>/ 会话对比</small><span class="mc-spacer"></span><small><i class="mc-dot"></i>本地</small><button class="mc-button" data-demo-action="summary">测评汇总</button><button class="mc-button primary" data-demo-action="new">＋ 新建测评</button></header>
+   <div class="mc-toolbar" data-fd-id="evaluation-task-toolbar"><div class="mc-task-heading"><h1 data-fd-id="evaluation-task-title" data-fd-editable="text">鹈鹕骑自行车</h1><p>G01 · SVG 创作　 /　日常模型比较</p></div><label>样本<select class="mc-sample" aria-label="样本"><option value="1">样本 1</option><option value="2">样本 2</option><option value="3">样本 3</option></select></label><label class="scenario-label">原型场景<select class="mc-scenario" aria-label="原型场景"><option value="complete">已完成</option><option value="running">正在生成</option><option value="failed">一侧失败</option></select></label><button class="mc-button" data-demo-action="prompt">原始提示词</button><button class="mc-button primary mc-reveal" data-fd-id="evaluation-reveal-action">评分并揭晓</button></div>
+   <div class="mc-anonymous-note" data-fd-id="evaluation-anonymous-note"><span class="shield">♧</span><span class="mc-identity-hint">匿名对比 · 模型身份在评分后揭晓</span><span class="mc-spacer"></span><span style="font-size:10px;opacity:.7">交互原型 · 示例回答</span></div>
+   <div class="mc-chat-grid"></div>
+  </main>
+ </div>
+</div>
+</div>
+<div class="preview theme-dark" id="preview-dark" data-theme="dark"><button class="pane-toggle-btn" type="button" data-pane="dark" aria-label="展开深色画面">◀</button>
+<div class="mc-app" data-fd-id="evaluation-conversation-workspace">
+ <div class="mc-titlebar"><span>▣</span><span>文件</span><span>编辑</span><span>视图</span><span>帮助</span><span class="menu-active">模型测评</span><span class="brand-center">OWL</span><span class="mc-spacer"></span><span>−</span><span>□</span><span>×</span></div>
+ <div class="mc-frame">
+  <aside class="mc-rail"><span class="rail-mark">✳</span><button title="聊天">◯</button><button class="active" title="模型测评">▤</button><button title="地图">◫</button><span class="mc-spacer"></span><button title="设置">⚙</button></aside>
+  <aside class="mc-nav" data-fd-id="evaluation-navigation"><div class="mc-logo"><span style="color:var(--color-owl-accent);font-size:20px">✳</span>owl<small>LOCAL</small></div><div class="mc-nav-caption" style="margin-top:9px;color:var(--owl-ui-text)">⌁　模型测评</div><button class="mc-nav-button active">⌁　测评</button><button class="mc-nav-button" data-demo-action="library">▱　题库<b>24</b></button><button class="mc-nav-button" data-demo-action="history">◷　运行记录<b>4</b></button><div class="mc-nav-caption">当前测评</div><div class="mc-run-tile"><strong data-fd-id="evaluation-run-title" data-fd-editable="text">日常模型比较</strong><small class="mc-run-status">已完成 · 2 个模型</small></div><div class="mc-task-type">SVG　2</div><button class="mc-task active"><code>G01</code><span>鹈鹕骑自行车</span><span class="mc-spacer"></span><span>✓</span></button><button class="mc-task" data-demo-action="other-task"><code>G06</code><span>仅修改指定零件</span></button><div class="mc-task-type">HTML　2</div><button class="mc-task" data-demo-action="other-task"><code>W01</code><span>订单筛选表格</span></button><button class="mc-task" data-demo-action="other-task"><code>W03</code><span>维修申请表</span></button><div class="mc-task-type">代码　2</div><button class="mc-task" data-demo-action="other-task"><code>C02</code><span>金额精度修复</span></button><button class="mc-task" data-demo-action="other-task"><code>C07</code><span>搜索请求竞态修复</span></button><div class="mc-nav-foot">首轮回答用于测评<br>各模型可以独立继续对话</div></aside>
+  <main class="mc-workspace"><header class="mc-header"><span style="color:var(--color-owl-accent)">⌁</span><strong>模型测评</strong><small>/ 会话对比</small><span class="mc-spacer"></span><small><i class="mc-dot"></i>本地</small><button class="mc-button" data-demo-action="summary">测评汇总</button><button class="mc-button primary" data-demo-action="new">＋ 新建测评</button></header>
+   <div class="mc-toolbar" data-fd-id="evaluation-task-toolbar"><div class="mc-task-heading"><h1 data-fd-id="evaluation-task-title" data-fd-editable="text">鹈鹕骑自行车</h1><p>G01 · SVG 创作　 /　日常模型比较</p></div><label>样本<select class="mc-sample" aria-label="样本"><option value="1">样本 1</option><option value="2">样本 2</option><option value="3">样本 3</option></select></label><label class="scenario-label">原型场景<select class="mc-scenario" aria-label="原型场景"><option value="complete">已完成</option><option value="running">正在生成</option><option value="failed">一侧失败</option></select></label><button class="mc-button" data-demo-action="prompt">原始提示词</button><button class="mc-button primary mc-reveal" data-fd-id="evaluation-reveal-action">评分并揭晓</button></div>
+   <div class="mc-anonymous-note" data-fd-id="evaluation-anonymous-note"><span class="shield">♧</span><span class="mc-identity-hint">匿名对比 · 模型身份在评分后揭晓</span><span class="mc-spacer"></span><span style="font-size:10px;opacity:.7">交互原型 · 示例回答</span></div>
+   <div class="mc-chat-grid"></div>
+  </main>
+ </div>
+</div>
+</div></div></section></div></div><!-- Markers layer -->
+<div class="markers-layer" id="markers-layer"></div>
+
+<!-- Picker overlay -->
+<div class="picker-overlay" id="picker-overlay"><span class="picker-add">+</span></div>
+
+<!-- Selector hint -->
+<div class="picker-hint" id="picker-hint"></div>
+
+<!-- Comment popover -->
+<div class="comment-popover" id="comment-popover">
+  <div class="pop-head">
+    <span class="pop-target" id="pop-target"></span>
+    <div class="nav-links">
+      <button class="nav-link" id="parent-link">↑ Parent</button>
+      <button class="nav-link" id="child-link">↓ Child</button>
+    </div>
+  </div>
+  <div class="pop-warning" id="pop-warning" style="display:none;">No data-fd-id anchor — selector is best-effort.</div>
+  <textarea id="pop-textarea" placeholder="What change do you want here?"></textarea>
+  <div class="scope-row">
+    <span class="scope-label">Scope</span>
+    <div class="scope-options" id="pop-scope-options"></div>
+  </div>
+  <div class="pop-foot">
+    <div class="left-actions">
+      <button class="btn-delete" id="pop-delete" style="display:none;">Delete</button>
+    </div>
+    <div class="right-actions">
+      <button class="btn-cancel" id="pop-cancel">Cancel</button>
+      <button class="btn-save" id="pop-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Comment list panel -->
+<aside class="comment-list-panel" id="comment-list-panel">
+  <div class="clp-head">
+    <h3 class="clp-title">Comments <span class="clp-count" id="clp-count">(0)</span></h3>
+    <button class="btn" id="clp-close">×</button>
+  </div>
+  <div class="clp-body" id="clp-body">
+    <div class="empty-state">No comments yet. Click <strong>Comment Mode</strong> in the header, then click any element in the preview to annotate.</div>
+  </div>
+</aside>
+
+<!-- Toast & export modal -->
+<div class="toast" id="toast"></div>
+<div class="export-modal" id="export-modal">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Export</h2>
+      <button class="btn" id="modal-close">Close</button>
+    </div>
+    <div class="panel-body">
+      <pre id="export-pre"></pre>
+    </div>
+    <div class="panel-foot">
+      <button class="btn" id="copy-again">Copy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(()=>{
+ const prompt='Generate an SVG of a pelican riding a bicycle.';
+ const thoughts=['先确定自行车、鹈鹕和脚踏板之间的空间关系。','鸟身需要在车座上方，长喙朝前，双脚分别落在两侧踏板。','最后补上车轮与轮辐，并用简洁的配色保持画面清晰。'];
+ const rubric=['结构关系','动作表达','视觉清晰度'];
+ function scene(model){const frame=model==='A'?'#3d8067':'#d47c43';return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 225" aria-label="鹈鹕骑自行车的示例 SVG"><rect width="380" height="225" fill="#dfece3"/><circle cx="305" cy="37" r="19" fill="#f7efd0"/><path d="M0 181Q110 156 200 179T380 177V225H0Z" fill="#c5d9c6"/><path d="M0 198H380" stroke="#99b7a0"/><g fill="none" stroke="#345049" stroke-width="4"><circle cx="101" cy="173" r="38"/><circle cx="281" cy="173" r="38"/></g><g stroke="#99b3a5" stroke-width="1.3"><path d="M63 173h76m-38-38v76m-27-65 54 54m0-54-54 54M243 173h76m-38-38v76m-27-65 54 54m0-54-54 54"/></g><g fill="none" stroke="${frame}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M101 173 154 115 189 173H101l88-0 71-58 21 58M154 115h106M148 112h25M259 116l-7-23h18"/></g><circle cx="189" cy="173" r="5" fill="#345049"/><path d="M174 93 164 126 188 163M199 104l18 33-23 36" fill="none" stroke="#dd9f3a" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/><path d="M193 173h-14M188 163h12" stroke="#345049" stroke-width="4" stroke-linecap="round"/><ellipse cx="178" cy="91" rx="47" ry="23" fill="#fffdf5" stroke="#c0d3c4"/><path d="M204 84q14-27 32-38" fill="none" stroke="#fffdf5" stroke-width="18" stroke-linecap="round"/><circle cx="241" cy="43" r="13" fill="#fffdf5"/><path d="m252 42 48 8-47 8q-9-7-1-16" fill="#efb742"/><path d="m252 44 48 6" stroke="#dd9624" stroke-width="2"/><circle cx="245" cy="40" r="2.1" fill="#345049"/><path d="M157 84q17 4 29 14" fill="none" stroke="#dde6db" stroke-width="2"/><path d="M204 97q24 7 44 14" fill="none" stroke="#fffdf5" stroke-width="7" stroke-linecap="round"/></svg>`}
+ document.querySelectorAll('.mc-app').forEach(app=>{
+  const cache=new Map();let sample='1',scenario='complete',revealed=false;const timers=new Set();
+  const state=model=>{const key=sample+model;if(!cache.has(key))cache.set(key,{draft:'',followups:[],scores:[0,0,0],note:''});return cache.get(key)};
+  const notify=text=>{app.querySelector('.mc-toast')?.remove();const node=document.createElement('div');node.className='mc-toast';node.textContent=text;app.append(node);setTimeout(()=>node.remove(),2600)};
+  function render(){
+   for(const timer of timers)clearTimeout(timer);timers.clear();
+   app.querySelector('.mc-chat-grid').innerHTML=['A','B'].map(model=>{
+    const data=state(model),failed=scenario==='failed'&&model==='B',running=scenario==='running',name=revealed?(model==='A'?'DeepSeek V4.1 Flash':'GLM-5.3-Flash'):`结果 ${model}`;
+    return `<section class="mc-window" data-model="${model}" data-fd-id="evaluation-chat-${model.toLowerCase()}"><header class="mc-window-header"><div class="mc-avatar">${model}</div><div><div class="mc-window-name">${name}</div><div class="mc-window-subtitle">独立会话 · 样本 ${sample}</div></div><span class="mc-spacer"></span><span class="mc-status" data-state="${failed?'failed':running?'running':'complete'}">${running?'<i class="mc-running-dot"></i>':'<span>'+(failed?'!':'✓')+'</span>'}<span class="mc-state-text">${failed?'生成失败':running?'思考中':'已完成'}</span></span><button class="mc-window-action mc-focus" title="展开此会话">⤢</button></header><div class="mc-messages" data-fd-id="evaluation-messages-${model.toLowerCase()}"><div class="mc-message mc-user"><div class="mc-bubble"><small>测评题目</small>${prompt}</div></div><div class="mc-message mc-assistant first-answer"><div class="mc-assistant-label"><span class="tiny-avatar">${model}</span><span>${name}</span><span class="mc-measure-tag">测评回答</span></div><details class="mc-thinking" ${running?'open':''}><summary>思考过程<small>${running?'实时展开':'点击展开'}</small></summary><div class="mc-thought-body">${running?'':thoughts.join('\n')}</div></details>${failed?'<div class="mc-error-message"><strong>本次生成未完成</strong><p>已保留收到的思考内容，可以查看原因或新增一次尝试。</p><button class="mc-button mc-retry">重试此结果</button></div>':`<div class="mc-answer" ${running?'hidden':''}><p>${model==='A'?'完成了。鹈鹕坐在车座上，双脚落在踏板两侧；车架和车轮保持完整连接。':'这里是生成的 SVG。我用长喙和喉囊突出鹈鹕特征，并把脚、踏板与车架分开表现。'}</p><div class="mc-art" data-fd-id="evaluation-artifact-${model.toLowerCase()}"><div class="mc-art-scene">${scene(model)}</div><div class="mc-art-foot"><span style="color:var(--color-owl-accent)">◇</span><strong>pelican-bicycle.svg</strong><span class="mc-spacer"></span><button class="mc-text-button mc-source">源码</button><button class="mc-text-button mc-expand-art">放大 ↗</button></div></div><div class="mc-assistant-actions"><button class="mc-text-button mc-copy">复制回答</button><button class="mc-text-button mc-source">查看源码</button></div></div>`}</div><div class="mc-followups"></div></div><div class="mc-composer" data-fd-id="evaluation-composer-${model.toLowerCase()}"><div class="mc-input-card"><textarea aria-label="追问结果 ${model}" placeholder="只追问结果 ${model}…" data-fd-id="evaluation-input-${model.toLowerCase()}" data-fd-editable="value"></textarea><div class="mc-composer-actions"><span>后续探索不计入本轮测评</span><span class="mc-spacer"></span><button class="mc-send" ${running?'disabled':''} aria-label="发送给结果 ${model}">↑</button></div></div></div><footer class="mc-window-footer"><button class="mc-check-link mc-checks" ${running?'disabled':''}>${running?'○ 检查待完成':failed?'! 查看失败信息':'✓ 自动检查'}</button><span class="mc-spacer"></span><button class="mc-score-link mc-score" ${running||failed?'disabled':''} data-fd-id="evaluation-score-${model.toLowerCase()}">${data.scores.every(Boolean)?'★ 已评价首次回答':'☆ 评价首次回答'}</button></footer></section>`;
+   }).join('');
+   for(const card of app.querySelectorAll('.mc-window')){const model=card.dataset.model;card.querySelector('textarea').value=state(model).draft;for(const item of state(model).followups)appendFollowup(card,item,false);wire(card)}
+   app.querySelector('.mc-run-status').textContent=(scenario==='running'?'运行中':'已完成')+' · 2 个模型';
+   if(scenario==='running')for(const card of app.querySelectorAll('.mc-window')){thoughts.forEach((line,index)=>{const timer=setTimeout(()=>{card.querySelector('.mc-thought-body').textContent+=line+'\n';if(card.querySelector('.mc-thinking').open)card.querySelector('.mc-messages').scrollTop=card.querySelector('.mc-messages').scrollHeight},700+index*1100);timers.add(timer)});const timer=setTimeout(()=>{card.querySelector('.mc-answer').hidden=false;card.querySelector('.mc-status').dataset.state='complete';card.querySelector('.mc-state-text').textContent='已完成';card.querySelector('.mc-send').disabled=false;card.querySelector('.mc-score').disabled=false;card.querySelector('.mc-checks').disabled=false;card.querySelector('.mc-checks').textContent='✓ 自动检查';card.querySelector('.mc-running-dot')?.remove();card.querySelector('.mc-thinking').open=false;card.querySelector('.mc-messages').scrollTop=card.querySelector('.mc-messages').scrollHeight},4600);timers.add(timer)}
+  }
+  function appendFollowup(card,text,withReply=true){const host=card.querySelector('.mc-followups');if(!host.children.length){const divider=document.createElement('div');divider.className='mc-followup-divider';divider.textContent='后续探索 · 不计入本轮测评';host.append(divider)}const user=document.createElement('div');user.className='mc-message mc-user';const bubble=document.createElement('div');bubble.className='mc-bubble';bubble.textContent=text;user.append(bubble);host.append(user);const answer=document.createElement('div');answer.className='mc-message mc-answer';answer.textContent='可以。可以进一步调整脚踏板的位置，让脚与踏板的连接更清楚，同时保留这份作品的整体构图。';host.append(answer);if(withReply)card.querySelector('.mc-messages').scrollTop=card.querySelector('.mc-messages').scrollHeight}
+  function drawer(title,markup){app.querySelector('.mc-drawer-mask')?.remove();const mask=document.createElement('div');mask.className='mc-drawer-mask';mask.innerHTML=`<aside class="mc-drawer" role="dialog" aria-label="${title}"><header><h2>${title}</h2><button aria-label="关闭抽屉">×</button></header>${markup}</aside>`;app.append(mask);mask.querySelector('header button').onclick=()=>mask.remove();mask.onclick=event=>{if(event.target===mask)mask.remove()};return mask}
+  function score(model){const data=state(model);const mask=drawer(`评价结果 ${model}`,`<p>评分对象：样本 ${sample} 的首次测评回答。后续追问不影响这次评分。</p>${rubric.map((label,index)=>`<div class="mc-rating-row"><strong>${label}</strong><div class="mc-rating-values" data-criterion="${index}">${[1,2,3,4,5].map(value=>`<button data-value="${value}" class="${data.scores[index]===value?'selected':''}">${value}</button>`).join('')}</div></div>`).join('')}<textarea aria-label="评价备注" placeholder="记录具体优点或问题…"></textarea><button class="mc-button primary mc-save-score">保存评分</button><button class="mc-text-button mc-skip-score">跳过评分并揭晓</button>`);mask.querySelector('textarea').value=data.note;mask.querySelectorAll('[data-value]').forEach(button=>button.onclick=()=>{const index=Number(button.parentElement.dataset.criterion);data.scores[index]=Number(button.dataset.value);button.parentElement.querySelectorAll('button').forEach(item=>item.classList.toggle('selected',item===button))});mask.querySelector('.mc-save-score').onclick=()=>{if(!data.scores.every(Boolean)){notify('请完成三个评价项');return}data.note=mask.querySelector('textarea').value;mask.remove();render();notify(`已保存结果 ${model} 的首次回答评分`)};mask.querySelector('.mc-skip-score').onclick=()=>{revealed=true;mask.remove();app.querySelector('.mc-identity-hint').textContent='模型已揭晓 · 首次回答与后续探索分别保留';render()}}
+  function wire(card){const model=card.dataset.model;card.querySelector('textarea').addEventListener('input',event=>state(model).draft=event.target.value);card.querySelector('.mc-send').onclick=()=>{const input=card.querySelector('textarea'),text=input.value.trim();if(!text)return;state(model).followups.push(text);state(model).draft='';input.value='';appendFollowup(card,text)};card.querySelector('textarea').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();card.querySelector('.mc-send').click()}};card.querySelector('.mc-score').onclick=()=>score(model);card.querySelector('.mc-checks').onclick=()=>{if(scenario==='failed'&&model==='B'){drawer('结果 B · 失败信息','<p>示例状态：请求未正常完成。收到的思考内容已保留，未进行作品检查。</p><button class="mc-button">关闭后可新增一次尝试</button>');return}drawer(`结果 ${model} · 自动检查`,`<p>检查对应首次测评回答。</p>${['输出格式有效','独立预览与外部资源检查','浏览器渲染检查'].map(label=>`<div class="mc-check-row"><span>✓</span><div>${label}<small>通过 · 示例检查结果</small></div></div>`).join('')}`)};card.querySelectorAll('.mc-source').forEach(button=>button.onclick=()=>{const mask=drawer(`结果 ${model} · SVG 源码`,'<p>首次测评回答的作品源码</p><pre></pre>');mask.querySelector('pre').textContent=scene(model)});card.querySelector('.mc-expand-art')?.addEventListener('click',()=>drawer(`结果 ${model} · 作品预览`,`<div class="mc-art-scene" style="height:330px">${scene(model)}</div>`));card.querySelector('.mc-retry')?.addEventListener('click',()=>{notify('原型演示：新增一次尝试，保留失败记录');scenario='running';app.querySelector('.mc-scenario').value=scenario;render()});card.querySelector('.mc-copy')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(card.querySelector('.first-answer .mc-answer p').textContent);notify('已复制回答')}catch{notify('请选中回答文字后复制')}});card.querySelector('.mc-focus').onclick=()=>{const grid=app.querySelector('.mc-chat-grid');if(grid.classList.contains('mc-focused')){grid.classList.remove('mc-focused');card.classList.remove('is-focused')}else{grid.classList.add('mc-focused');card.classList.add('is-focused')}}}
+  app.querySelector('.mc-scenario').onchange=event=>{scenario=event.target.value;render()};app.querySelector('.mc-sample').onchange=event=>{sample=event.target.value;render()};app.querySelector('.mc-reveal').onclick=()=>{const unscored=['A','B'].find(model=>!state(model).scores.every(Boolean));if(unscored){score(unscored);return}revealed=true;app.querySelector('.mc-identity-hint').textContent='模型已揭晓 · 首次回答与后续探索分别保留';render()};app.querySelectorAll('[data-demo-action]').forEach(button=>button.onclick=()=>{const action=button.dataset.demoAction;if(action==='prompt'){const mask=drawer('原始提示词','<p>每个模型使用同一道题、相同提示词。</p><pre></pre>');mask.querySelector('pre').textContent=prompt}else if(action==='summary')drawer('测评汇总','<p>原型重点展示会话对比。汇总保留首次测评回答的分项评分、耗时与费用。</p><p>后续探索作为各会话的独立记录查看。</p>');else notify('这版原型聚焦两个模型的会话对比')});render();
+ });
+})();
+</script><script>const PREVIEW_META={"source":".frontend-design/evaluation-mini-chat/2026-10-04-evaluation-mini-chat.html","topic":"evaluation-mini-chat","targetFile":"apps/desktop/src/features/evaluation/evaluation.css"};const TOKENS={"appearance":[{"key":"--owl-ui-canvas","intent":"工作区底色","kind":"color","options":[{"id":"neutral","light":"#fafbf9","dark":"#1c1c1c","note":"Owl 当前中性灰 (default)"},{"id":"owl-green","light":"#fafbf9","dark":"#202321","note":"Owl 绿灰预设"}]},{"key":"--owl-ui-panel","intent":"独立会话表面","kind":"color","options":[{"id":"neutral","light":"#ffffff","dark":"#252525","note":"Owl 当前面板 (default)"},{"id":"owl-green","light":"#ffffff","dark":"#282d29","note":"Owl 绿灰面板"}]},{"key":"--owl-ui-border","intent":"窗口边界","kind":"color","options":[{"id":"neutral","light":"#e0e5df","dark":"#343434","note":"当前边界 (default)"},{"id":"owl-green","light":"#e0e5df","dark":"#343c35","note":"绿灰边界"}]},{"key":"--color-owl-accent","intent":"Owl 强调色","kind":"color","options":[{"id":"owl","light":"#2f9e5a","dark":"#2f9e5a","note":"Owl 图标绿 (default)"},{"id":"custom-green","light":"#28864d","dark":"#28864d","note":"Owl 深绿"}]}],"reading":[{"key":"--font-sans","intent":"界面与消息字体","kind":"dropdown","options":[{"id":"sans","value":"\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif","note":"Owl 无衬线 (default)"},{"id":"serif","value":"Georgia, \"Microsoft YaHei\", \"PingFang SC\", serif","note":"Owl 回答字体"}]}]};const SECTION_ORDER=[['Owl 配色','appearance'],['阅读字体','reading']];const decisions = {};
+
+function defaultId(group) {
+  if (group.kind === 'segmented' || group.kind === 'dropdown' || group.kind === 'color') {
+    if (group.defaultId) return group.defaultId;
+    if (!group.options) return null;
+    const planDefault = group.options.find(o => /default/i.test(o.note || ''));
+    return (planDefault || group.options[0]).id;
+  }
+  return null;
+}
+function initDecisions() {
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      if (group.kind === 'slider') decisions[group.key] = group.defaultValue;
+      else if (group.kind === 'toggle') decisions[group.key] = !!group.defaultValue;
+      else decisions[group.key] = defaultId(group);
+    }
+  }
+}
+initDecisions();
+
+function findOption(group, id) {
+  return (group.options || []).find(o => o.id === id);
+}
+
+const lightEl = () => document.getElementById('preview-light');
+const darkEl  = () => document.getElementById('preview-dark');
+
+function applyVariableToPreview(group, value) {
+  if (group.kind === 'color') {
+    lightEl().style.setProperty(group.key, value.light);
+    darkEl().style.setProperty(group.key, value.dark);
+  } else if (group.kind === 'slider') {
+    const cssVal = value + (group.unit || '');
+    lightEl().style.setProperty(group.key, cssVal);
+    darkEl().style.setProperty(group.key, cssVal);
+  } else if (group.kind === 'segmented' || group.kind === 'dropdown') {
+    lightEl().style.setProperty(group.key, value.value);
+    darkEl().style.setProperty(group.key, value.value);
+  } else if (group.kind === 'toggle') {
+    lightEl().style.setProperty(group.key, value ? '1' : '0');
+    darkEl().style.setProperty(group.key, value ? '1' : '0');
+  }
+}
+
+function getCurrentValueForApply(group) {
+  const v = decisions[group.key];
+  if (group.kind === 'color' || group.kind === 'segmented' || group.kind === 'dropdown') {
+    return findOption(group, v);
+  }
+  return v;
+}
+
+function applyAllDecisions() {
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      applyVariableToPreview(group, getCurrentValueForApply(group));
+    }
+  }
+}
+
+function visualForOption(group, opt, size) {
+  if (group.kind === 'color') {
+    const sw = size === 'lg' ? 'lg' : '';
+    return `<span class="sw-pair"><span class="sw ${sw}" style="background:${opt.light}"></span><span class="sw ${sw}" style="background:${opt.dark}; border-color: rgba(255,255,255,0.15)"></span></span>`;
+  }
+  return '';
+}
+function summaryText(group, opt) {
+  if (group.kind === 'color') return `${opt.light} / ${opt.dark}`;
+  return opt.value || opt.id;
+}
+
+let activeDropdown = null;
+function closeActiveDropdown() {
+  if (!activeDropdown) return;
+  activeDropdown.panel.classList.remove('open');
+  activeDropdown.trigger.classList.remove('open');
+  applyVariableToPreview(activeDropdown.group, getCurrentValueForApply(activeDropdown.group));
+  activeDropdown = null;
+}
+
+function renderControls() {
+  const rail = document.getElementById('controls-body');
+  const helpBanner = rail.querySelector('.help-banner');
+  rail.innerHTML = '';
+  if (helpBanner) rail.appendChild(helpBanner);
+
+  for (const [secTitle, secKey] of SECTION_ORDER) {
+    const head = document.createElement('div');
+    head.className = 'section-head';
+    head.textContent = secTitle;
+    rail.appendChild(head);
+
+    for (const group of TOKENS[secKey]) {
+      const row = document.createElement('div');
+      row.className = 'control-row';
+      row.dataset.varKey = group.key;
+      row.innerHTML = `
+        <div class="lbl">
+          <span class="var-name">${group.key}</span>
+          <span class="var-intent">${group.intent}</span>
+        </div>
+      `;
+      if (group.kind === 'color' || group.kind === 'dropdown') renderDropdown(row, group);
+      else if (group.kind === 'slider') renderSlider(row, group);
+      else if (group.kind === 'segmented') renderSegmented(row, group);
+      else if (group.kind === 'toggle') renderToggle(row, group);
+      rail.appendChild(row);
+    }
+  }
+}
+
+function renderDropdown(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'dropdown';
+  wrap.innerHTML = `
+    <button type="button" class="dd-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+    <div class="dd-panel" role="listbox"></div>
+  `;
+  row.appendChild(wrap);
+  const trigger = wrap.querySelector('.dd-trigger');
+  const panel = wrap.querySelector('.dd-panel');
+
+  const refreshTrigger = () => {
+    const opt = findOption(group, decisions[group.key]);
+    trigger.innerHTML = `
+      <span class="left">
+        <span class="opt-id">${opt.id}</span>
+        <span class="visual">${visualForOption(group, opt, '')}</span>
+        <span class="opt-summary">${summaryText(group, opt)}</span>
+      </span>
+      <span class="caret">▾</span>
+    `;
+  };
+  refreshTrigger();
+
+  panel.innerHTML = '';
+  for (const opt of group.options) {
+    const optBtn = document.createElement('button');
+    optBtn.type = 'button';
+    optBtn.className = 'dd-option';
+    optBtn.dataset.optId = opt.id;
+    optBtn.innerHTML = `
+      <span class="opt-id">${opt.id}</span>
+      <span class="visual">${visualForOption(group, opt, 'lg')}</span>
+      <span class="opt-text">
+        <div class="opt-value">${group.kind === 'color' ? `${opt.light} / ${opt.dark}` : opt.value || opt.id}</div>
+        <div class="opt-note">${opt.note || ''}</div>
+      </span>
+    `;
+    if (decisions[group.key] === opt.id) optBtn.classList.add('selected');
+    optBtn.addEventListener('mouseenter', () => applyVariableToPreview(group, opt));
+    optBtn.addEventListener('mouseleave', () => applyVariableToPreview(group, getCurrentValueForApply(group)));
+    optBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      decisions[group.key] = opt.id;
+      applyVariableToPreview(group, opt);
+      panel.querySelectorAll('.dd-option').forEach(s => s.classList.remove('selected'));
+      optBtn.classList.add('selected');
+      refreshTrigger();
+      panel.classList.remove('open');
+      trigger.classList.remove('open');
+      activeDropdown = null;
+    });
+    panel.appendChild(optBtn);
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = panel.classList.contains('open');
+    closeActiveDropdown();
+    if (!isOpen) {
+      panel.classList.add('open');
+      trigger.classList.add('open');
+      activeDropdown = { panel, trigger, group };
+    }
+  });
+}
+
+function renderSlider(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-control';
+  const fillPct = (decisions[group.key] - group.min) / (group.max - group.min) * 100;
+  wrap.innerHTML = `
+    <span class="range-meta">${group.min}</span>
+    <input type="range" min="${group.min}" max="${group.max}" step="${group.step}" value="${decisions[group.key]}" style="--fill: ${fillPct}%">
+    <span class="range-meta">${group.max}</span>
+    <span class="value-chip">${decisions[group.key]}${group.unit || ''}</span>
+  `;
+  row.appendChild(wrap);
+  const slider = wrap.querySelector('input[type="range"]');
+  const chip = wrap.querySelector('.value-chip');
+  slider.addEventListener('input', () => {
+    const v = Number(slider.value);
+    decisions[group.key] = v;
+    applyVariableToPreview(group, v);
+    chip.textContent = v + (group.unit || '');
+    const pct = (v - group.min) / (group.max - group.min) * 100;
+    slider.style.setProperty('--fill', pct + '%');
+  });
+}
+
+function renderSegmented(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'segmented';
+  for (const opt of group.options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.optId = opt.id;
+    btn.textContent = opt.id;
+    if (decisions[group.key] === opt.id) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      decisions[group.key] = opt.id;
+      applyVariableToPreview(group, opt);
+      wrap.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+    wrap.appendChild(btn);
+  }
+  row.appendChild(wrap);
+}
+
+function renderToggle(row, group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'toggle-control' + (decisions[group.key] ? ' on' : '');
+  wrap.innerHTML = `
+    <span class="toggle-state">${decisions[group.key] ? 'on' : 'off'}</span>
+    <span class="toggle-switch"></span>
+  `;
+  row.appendChild(wrap);
+  wrap.addEventListener('click', () => {
+    decisions[group.key] = !decisions[group.key];
+    wrap.classList.toggle('on', decisions[group.key]);
+    wrap.querySelector('.toggle-state').textContent = decisions[group.key] ? 'on' : 'off';
+    applyVariableToPreview(group, decisions[group.key]);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (activeDropdown && !activeDropdown.panel.contains(e.target) && !activeDropdown.trigger.contains(e.target)) {
+    closeActiveDropdown();
+  }
+});
+
+/* ============================================================
+   COMMENT SYSTEM
+   ============================================================ */
+const SCOPE_OPTIONS = [
+  { id: 'this',          label: 'This element' },
+  { id: 'all-matching',  label: 'All matching' },
+  { id: 'all-like-this', label: 'All like this' },
+  { id: 'global',        label: 'Global' }
+];
+
+const directEditInitialValues = new Map();
+
+function editableKey(el) {
+  return el.dataset.fdId || elementToPathPart(el);
+}
+
+function getEditableValue(el) {
+  if (el.matches('input, textarea, select')) {
+    return el.value;
+  }
+  return el.textContent.trim();
+}
+
+function setEditableValue(el, value) {
+  if (el.matches('input, textarea, select')) {
+    el.value = value;
+    return;
+  }
+  el.textContent = value;
+}
+
+function directEditSelector(key) {
+  return `[data-fd-id="${key}"]`;
+}
+
+function syncEditableMirrors(sourceEl) {
+  const key = editableKey(sourceEl);
+  const value = getEditableValue(sourceEl);
+  document.querySelectorAll(`${directEditSelector(key)}[data-fd-editable]`).forEach(el => {
+    if (el !== sourceEl) setEditableValue(el, value);
+  });
+}
+
+function initDirectEdits() {
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (!directEditInitialValues.has(key)) {
+      directEditInitialValues.set(key, getEditableValue(el));
+    }
+    if (el.dataset.fdEditable === 'text') {
+      el.setAttribute('contenteditable', 'plaintext-only');
+      el.setAttribute('spellcheck', 'false');
+      el.setAttribute('tabindex', '0');
+    }
+    const sync = () => syncEditableMirrors(el);
+    el.addEventListener('input', sync);
+    el.addEventListener('change', sync);
+  });
+}
+
+function collectDirectEdits() {
+  const edits = [];
+  const seen = new Set();
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const initial = directEditInitialValues.get(key);
+    const value = getEditableValue(el);
+    if (initial !== undefined && value !== initial) {
+      edits.push({
+        selector: directEditSelector(key),
+        label: key,
+        kind: el.dataset.fdEditable || 'text',
+        value,
+        initial
+      });
+    }
+  });
+  return edits;
+}
+
+function resetDirectEdits() {
+  document.querySelectorAll('[data-fd-editable]').forEach(el => {
+    const key = editableKey(el);
+    if (directEditInitialValues.has(key)) {
+      setEditableValue(el, directEditInitialValues.get(key));
+    }
+  });
+}
+
+const comments = [];
+let nextCommentId = 1;
+let commentMode = false;
+let markersVisible = false;
+let popoverEditingId = null;
+let popoverTargetEl = null;
+let popoverTargetSelector = null;
+
+const markersLayer = document.getElementById('markers-layer');
+const previewPair = document.getElementById('preview-pair');
+
+function setCommentMode(on) {
+  commentMode = on;
+  document.body.classList.toggle('comment-mode', on);
+  document.getElementById('comment-mode-btn').classList.toggle('toggled', on);
+  document.getElementById('comment-mode-label').textContent = on ? 'Exit Comment Mode' : 'Comment Mode';
+  if (!on) { hidePickerOverlay(); hidePickerHint(); }
+}
+
+function setMarkersVisible(on) {
+  markersVisible = on;
+  document.body.classList.toggle('markers-visible', on);
+  document.getElementById('markers-btn').classList.toggle('toggled', on);
+  document.getElementById('markers-label').textContent = on ? 'Hide Markers' : 'Show Markers';
+}
+
+function resolveSelectorForElement(el) {
+  let cursor = el;
+  let subPath = [];
+  let anchorEl = null;
+  while (cursor && cursor !== document.body) {
+    if (cursor.dataset && cursor.dataset.fdId) { anchorEl = cursor; break; }
+    subPath.unshift(elementToPathPart(cursor));
+    cursor = cursor.parentElement;
+  }
+  if (!anchorEl) {
+    return {
+      selector: elementToPathPart(el),
+      anchorFdId: null, subSelector: null,
+      label: '(no anchor)', hasWarning: true
+    };
+  }
+  const anchorId = anchorEl.dataset.fdId;
+  if (subPath.length === 0) {
+    return {
+      selector: `[data-fd-id="${anchorId}"]`,
+      anchorFdId: anchorId, subSelector: null,
+      label: anchorId, hasWarning: false
+    };
+  }
+  const sub = subPath.join(' > ');
+  return {
+    selector: `[data-fd-id="${anchorId}"] > ${sub}`,
+    anchorFdId: anchorId, subSelector: sub,
+    label: `${anchorId} > ${sub}`, hasWarning: false
+  };
+}
+function elementToPathPart(el) {
+  const tag = el.tagName.toLowerCase();
+  const cls = (el.className && typeof el.className === 'string')
+    ? el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('comment-')).slice(0, 2).join('.')
+    : '';
+  return cls ? `${tag}.${cls}` : tag;
+}
+
+function findMirrorElement(el) {
+  const lightRoot = document.getElementById('preview-light');
+  const darkRoot = document.getElementById('preview-dark');
+  const inLight = lightRoot.contains(el);
+  const inDark = darkRoot.contains(el);
+  if (!inLight && !inDark) return null;
+  const sourceRoot = inLight ? lightRoot : darkRoot;
+  const mirrorRoot = inLight ? darkRoot : lightRoot;
+  const path = [];
+  let cursor = el;
+  while (cursor && cursor !== sourceRoot) {
+    const parent = cursor.parentElement;
+    if (!parent) return null;
+    path.unshift(Array.from(parent.children).indexOf(cursor));
+    cursor = parent;
+  }
+  let mirror = mirrorRoot;
+  for (const idx of path) {
+    if (!mirror.children[idx]) return null;
+    mirror = mirror.children[idx];
+  }
+  return mirror;
+}
+
+function tagElementForComment(el, commentId) {
+  const tag = `c${commentId}`;
+  el.setAttribute('data-fd-comment-target', tag);
+  const mirror = findMirrorElement(el);
+  if (mirror) mirror.setAttribute('data-fd-comment-target', tag);
+  return tag;
+}
+function untagComment(commentId) {
+  const tag = `c${commentId}`;
+  document.querySelectorAll(`[data-fd-comment-target="${tag}"]`).forEach(el => {
+    el.removeAttribute('data-fd-comment-target');
+  });
+}
+function untagAllComments() {
+  document.querySelectorAll('[data-fd-comment-target]').forEach(el => {
+    el.removeAttribute('data-fd-comment-target');
+  });
+}
+
+const pickerOverlay = document.getElementById('picker-overlay');
+const pickerHint = document.getElementById('picker-hint');
+
+function showPickerOverlay(el) {
+  const rect = el.getBoundingClientRect();
+  pickerOverlay.style.top = rect.top + 'px';
+  pickerOverlay.style.left = rect.left + 'px';
+  pickerOverlay.style.width = rect.width + 'px';
+  pickerOverlay.style.height = rect.height + 'px';
+  pickerOverlay.classList.add('visible');
+}
+function hidePickerOverlay() { pickerOverlay.classList.remove('visible'); }
+function showPickerHint(text, x, y, warning) {
+  pickerHint.textContent = text;
+  pickerHint.classList.toggle('warning', !!warning);
+  pickerHint.classList.add('visible');
+  pickerHint.style.left = (x + 14) + 'px';
+  pickerHint.style.top  = (y + 18) + 'px';
+}
+function hidePickerHint() { pickerHint.classList.remove('visible'); }
+
+previewPair.addEventListener('mousemove', (e) => {
+  if (!commentMode) return;
+  const t = e.target;
+  if (!t || t === pickerOverlay || pickerOverlay.contains(t)) return;
+  if (t.closest('.comment-list-panel') || t.closest('.comment-popover') || t.closest('.markers-layer')) return;
+  const previewEl = t.closest('.preview');
+  if (!previewEl) return;
+  showPickerOverlay(t);
+  const resolved = resolveSelectorForElement(t);
+  showPickerHint(resolved.label, e.clientX, e.clientY, resolved.hasWarning);
+});
+
+previewPair.addEventListener('mouseleave', () => {
+  if (commentMode) { hidePickerOverlay(); hidePickerHint(); }
+});
+
+previewPair.addEventListener('click', (e) => {
+  if (!commentMode) return;
+  const t = e.target;
+  if (!t || t.closest('.comment-list-panel') || t.closest('.comment-popover')) return;
+  const previewEl = t.closest('.preview');
+  if (!previewEl) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const existingTag = t.getAttribute('data-fd-comment-target');
+  if (existingTag) {
+    const existing = comments.find(c => c.targetAttr === existingTag);
+    if (existing) { openCommentPopover(t, existing.id); return; }
+  }
+  openCommentPopover(t);
+}, true);
+
+const popover = document.getElementById('comment-popover');
+const popTarget = document.getElementById('pop-target');
+const popWarning = document.getElementById('pop-warning');
+const popTextarea = document.getElementById('pop-textarea');
+const popScopeOptions = document.getElementById('pop-scope-options');
+const popDelete = document.getElementById('pop-delete');
+const parentLink = document.getElementById('parent-link');
+const childLink = document.getElementById('child-link');
+
+function renderScopeOptions(activeId) {
+  popScopeOptions.innerHTML = '';
+  for (const opt of SCOPE_OPTIONS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'scope-opt' + (opt.id === activeId ? ' selected' : '');
+    btn.dataset.scope = opt.id;
+    btn.innerHTML = `<div>${opt.label}</div>`;
+    btn.addEventListener('click', () => {
+      popScopeOptions.querySelectorAll('.scope-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+    popScopeOptions.appendChild(btn);
+  }
+}
+function getSelectedScope() {
+  const sel = popScopeOptions.querySelector('.scope-opt.selected');
+  return sel ? sel.dataset.scope : 'this';
+}
+function updateNavLinks() {
+  if (!popoverTargetEl) {
+    parentLink.disabled = true; childLink.disabled = true; return;
+  }
+  const parent = popoverTargetEl.parentElement;
+  parentLink.disabled = !parent || !parent.closest('.preview') || parent.classList.contains('preview');
+  const firstChild = popoverTargetEl.firstElementChild;
+  childLink.disabled = !firstChild;
+}
+
+function openCommentPopover(targetEl, existingId = null) {
+  popoverTargetEl = targetEl;
+  let resolved, comment, defaultScope = 'this', defaultText = '';
+  if (existingId !== null) {
+    comment = comments.find(c => c.id === existingId);
+    if (!comment) return;
+    popoverEditingId = existingId;
+    if (comment.scope === 'global') {
+      resolved = { selector: '(global)', anchorFdId: null, subSelector: null, label: '(global)', hasWarning: false };
+    } else {
+      resolved = {
+        selector: comment.fallbackSelector,
+        anchorFdId: comment.anchorFdId,
+        subSelector: comment.subSelector,
+        label: comment.label,
+        hasWarning: comment.hasWarning
+      };
+    }
+    defaultScope = comment.scope;
+    defaultText = comment.text;
+    popDelete.style.display = 'inline-block';
+  } else {
+    popoverEditingId = null;
+    resolved = resolveSelectorForElement(targetEl);
+    popDelete.style.display = 'none';
+  }
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  popTextarea.value = defaultText;
+  renderScopeOptions(defaultScope);
+  updateNavLinks();
+
+  const r = targetEl.getBoundingClientRect();
+  let left = Math.min(r.left, window.innerWidth - 380);
+  left = Math.max(12, left);
+  let top = r.bottom + 8;
+  if (top + 360 > window.innerHeight) top = Math.max(12, r.top - 360);
+  popover.style.left = left + 'px';
+  popover.style.top = top + 'px';
+  popover.classList.add('open');
+  popTextarea.focus();
+}
+function closeCommentPopover() {
+  popover.classList.remove('open');
+  popoverEditingId = null;
+  popoverTargetEl = null;
+  popoverTargetSelector = null;
+}
+
+parentLink.addEventListener('click', () => {
+  if (!popoverTargetEl) return;
+  const parent = popoverTargetEl.parentElement;
+  if (!parent || !parent.closest('.preview') || parent.classList.contains('preview')) return;
+  popoverTargetEl = parent;
+  const resolved = resolveSelectorForElement(parent);
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  updateNavLinks();
+});
+childLink.addEventListener('click', () => {
+  if (!popoverTargetEl) return;
+  const firstChild = popoverTargetEl.firstElementChild;
+  if (!firstChild) return;
+  popoverTargetEl = firstChild;
+  const resolved = resolveSelectorForElement(firstChild);
+  popoverTargetSelector = resolved;
+  popTarget.textContent = resolved.label;
+  popWarning.style.display = resolved.hasWarning ? 'block' : 'none';
+  updateNavLinks();
+});
+
+document.getElementById('pop-cancel').addEventListener('click', closeCommentPopover);
+document.getElementById('pop-save').addEventListener('click', () => {
+  const text = popTextarea.value.trim();
+  if (!text) { showToast('Note is empty'); return; }
+  const scope = getSelectedScope();
+  const resolved = popoverTargetSelector;
+  if (popoverEditingId !== null) {
+    const c = comments.find(x => x.id === popoverEditingId);
+    if (c) {
+      untagComment(c.id);
+      if (scope !== 'global' && popoverTargetEl) {
+        const tag = tagElementForComment(popoverTargetEl, c.id);
+        c.targetAttr = tag;
+        c.anchorFdId = resolved.anchorFdId;
+        c.subSelector = resolved.subSelector;
+        c.fallbackSelector = resolved.selector;
+        c.label = resolved.label;
+        c.hasWarning = resolved.hasWarning;
+      } else {
+        c.targetAttr = null;
+        c.anchorFdId = null; c.subSelector = null; c.fallbackSelector = null;
+        c.label = '(global)'; c.hasWarning = false;
+      }
+      c.scope = scope;
+      c.text = text;
+    }
+  } else {
+    const id = nextCommentId++;
+    let targetAttr = null;
+    if (scope !== 'global' && popoverTargetEl) {
+      targetAttr = tagElementForComment(popoverTargetEl, id);
+    }
+    comments.push({
+      id, targetAttr,
+      anchorFdId: scope === 'global' ? null : resolved.anchorFdId,
+      subSelector: scope === 'global' ? null : resolved.subSelector,
+      fallbackSelector: scope === 'global' ? null : resolved.selector,
+      label: scope === 'global' ? '(global)' : resolved.label,
+      hasWarning: scope === 'global' ? false : resolved.hasWarning,
+      scope, text
+    });
+  }
+  closeCommentPopover();
+  refreshMarkersAndList();
+});
+popDelete.addEventListener('click', () => {
+  if (popoverEditingId === null) return;
+  deleteCommentById(popoverEditingId);
+  closeCommentPopover();
+});
+
+function deleteCommentById(id) {
+  const i = comments.findIndex(c => c.id === id);
+  if (i < 0) return;
+  untagComment(id);
+  comments.splice(i, 1);
+  refreshMarkersAndList();
+}
+
+function renderMarkers() {
+  markersLayer.innerHTML = '';
+  comments.forEach((c, idx) => {
+    if (c.scope === 'global') return;
+    if (!c.targetAttr) return;
+    const num = idx + 1;
+    const els = document.querySelectorAll(`[data-fd-comment-target="${c.targetAttr}"]`);
+    els.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      const marker = document.createElement('span');
+      marker.className = 'comment-marker';
+      marker.textContent = num;
+      marker.title = `Comment ${num}`;
+      marker.style.left = (rect.right - 9) + 'px';
+      marker.style.top  = (rect.top - 9) + 'px';
+      marker.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        openCommentPopover(el, c.id);
+      });
+      markersLayer.appendChild(marker);
+    });
+  });
+}
+
+function refreshCommentList() {
+  const body = document.getElementById('clp-body');
+  document.getElementById('clp-count').textContent = `(${comments.length})`;
+  document.getElementById('comment-count').textContent = `(${comments.length})`;
+  if (comments.length === 0) {
+    body.innerHTML = `<div class="empty-state">No comments yet. Click <strong>Comment Mode</strong> in the header, then click any element in the preview to annotate.</div>`;
+    return;
+  }
+  body.innerHTML = '';
+  comments.forEach((c, idx) => {
+    const item = document.createElement('div');
+    item.className = 'clp-item';
+    item.dataset.commentId = c.id;
+    const target = c.scope === 'global'
+      ? '(global)'
+      : (c.subSelector ? `[data-fd-id="${c.anchorFdId}"] > ${c.subSelector}` : (c.anchorFdId ? `[data-fd-id="${c.anchorFdId}"]` : c.fallbackSelector));
+    item.innerHTML = `
+      <div class="clp-item-head">
+        <span class="clp-num">${idx + 1}</span>
+        <span class="clp-scope">${c.scope}</span>
+        <div class="clp-actions">
+          <button class="clp-edit" title="Edit">✎</button>
+          <button class="clp-delete" title="Delete">✕</button>
+        </div>
+      </div>
+      <div class="clp-target">${target}</div>
+      <div class="clp-text">${escapeHtml(c.text)}</div>
+      <div class="clp-edit-form">
+        <textarea>${escapeHtml(c.text)}</textarea>
+        <div class="clp-edit-actions">
+          <button class="clp-edit-cancel" title="Cancel">✕</button>
+          <button class="clp-edit-save" title="Save">✓</button>
+        </div>
+      </div>
+    `;
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.clp-actions') || e.target.closest('.clp-edit-form')) return;
+      if (item.classList.contains('editing')) return;
+      if (c.scope === 'global') {
+        openCommentPopover(document.getElementById('preview-light'), c.id);
+        return;
+      }
+      const el = c.targetAttr
+        ? document.querySelector(`[data-fd-comment-target="${c.targetAttr}"]`)
+        : (c.anchorFdId ? document.querySelector(`[data-fd-id="${c.anchorFdId}"]`) : null);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => openCommentPopover(el, c.id), 250);
+      }
+    });
+    item.querySelector('.clp-edit').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      item.classList.add('editing');
+      const ta = item.querySelector('.clp-edit-form textarea');
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
+    item.querySelector('.clp-delete').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      deleteCommentById(c.id);
+    });
+    item.querySelector('.clp-edit-save').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const newText = item.querySelector('.clp-edit-form textarea').value.trim();
+      if (!newText) { showToast('Note is empty'); return; }
+      c.text = newText;
+      refreshCommentList();
+    });
+    item.querySelector('.clp-edit-cancel').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      item.querySelector('.clp-edit-form textarea').value = c.text;
+      item.classList.remove('editing');
+    });
+    body.appendChild(item);
+  });
+}
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function refreshMarkersAndList() { renderMarkers(); refreshCommentList(); }
+
+previewPair.addEventListener('scroll', renderMarkers);
+window.addEventListener('resize', renderMarkers);
+
+document.getElementById('comment-mode-btn').addEventListener('click', () => setCommentMode(!commentMode));
+document.getElementById('markers-btn').addEventListener('click', () => setMarkersVisible(!markersVisible));
+document.getElementById('comment-list-btn').addEventListener('click', () => {
+  document.getElementById('comment-list-panel').classList.toggle('open');
+});
+document.getElementById('clp-close').addEventListener('click', () => {
+  document.getElementById('comment-list-panel').classList.remove('open');
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (popover.classList.contains('open')) { closeCommentPopover(); return; }
+    if (commentMode) { setCommentMode(false); return; }
+    closeActiveDropdown();
+  }
+});
+
+/* ============================================================
+   EXPORT
+   ============================================================ */
+function buildExportMarkdown() {
+  const lines = [];
+  const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  lines.push('## Frontend design round-trip');
+  lines.push('Source: ' + PREVIEW_META.source);
+  lines.push('Captured at: ' + ts + ' (local)');
+  lines.push('Skill: frontend-design');
+  lines.push('Topic: ' + PREVIEW_META.topic);
+  lines.push('');
+
+  const changedDecisions = collectChangedDecisions();
+  const directEdits = collectDirectEdits();
+  const hasDecisions = changedDecisions.size > 0;
+  const hasDirectEdits = directEdits.length > 0;
+  const hasComments = comments.length > 0;
+
+  if (!hasDecisions && !hasDirectEdits && !hasComments) return null;
+
+  if (hasDecisions) {
+    lines.push('### Decisions');
+    lines.push('');
+    for (const [secTitle, secKey] of SECTION_ORDER) {
+      const groupsInSec = TOKENS[secKey].filter(g => changedDecisions.has(g.key));
+      if (groupsInSec.length === 0) continue;
+      lines.push('#### ' + secTitle);
+      for (const group of groupsInSec) appendDecisionLines(lines, group);
+      lines.push('');
+    }
+  }
+
+  if (hasDirectEdits) {
+    lines.push('### Direct edits');
+    lines.push('');
+    directEdits.forEach((edit, idx) => {
+      lines.push('#### Edit ' + (idx + 1));
+      lines.push('- Element: `' + edit.selector + '` (' + edit.label + ')');
+      lines.push('- Kind: ' + edit.kind);
+      const valueLines = edit.value.split('\n');
+      lines.push('- Value: ' + valueLines[0]);
+      for (let i = 1; i < valueLines.length; i++) lines.push('  ' + valueLines[i]);
+      lines.push('');
+    });
+  }
+
+  if (hasComments) {
+    lines.push('### Element comments');
+    lines.push('');
+    comments.forEach((c, idx) => {
+      lines.push('#### Comment ' + (idx + 1));
+      let elementLine;
+      if (c.scope === 'global') {
+        elementLine = '- Element: (global)';
+      } else if (c.anchorFdId) {
+        const sel = c.subSelector
+          ? `\`[data-fd-id="${c.anchorFdId}"] > ${c.subSelector}\` (descendant of ${c.anchorFdId})`
+          : `\`[data-fd-id="${c.anchorFdId}"]\` (${c.anchorFdId})`;
+        elementLine = `- Element: ${sel}`;
+      } else {
+        elementLine = `- Element: \`${c.fallbackSelector}\` (warning: no data-fd-id anchor — selector is best-effort)`;
+      }
+      lines.push(elementLine);
+      lines.push('- Scope: ' + c.scope);
+      const noteLines = c.text.split('\n');
+      lines.push('- Note: ' + noteLines[0]);
+      for (let i = 1; i < noteLines.length; i++) lines.push('  ' + noteLines[i]);
+      lines.push('');
+    });
+  }
+
+  lines.push('### Apply');
+  lines.push('');
+  lines.push('When applying these changes:');
+  lines.push('');
+  let step = 1;
+  if (hasDecisions) {
+    lines.push(step + '. **Token decisions** — write into `' + PREVIEW_META.targetFile + '` under `:root` (typography/radius/spacing), `.theme-light`, and `.theme-dark` blocks. Components must consume the CSS variables; do not hardcode values per component.');
+    lines.push('');
+    step += 1;
+  }
+  if (hasDirectEdits) {
+    lines.push(step + '. **Direct edits** — locate each edited element via its `data-fd-id` in the corresponding source. Apply value changes to components, props, fixtures, or locale keys as appropriate. Do not bypass i18n for user-facing copy when the project has i18n.');
+    lines.push('');
+    step += 1;
+  }
+  if (hasComments) {
+    lines.push(step + '. **Element comments** — locate each commented element via its `data-fd-id` in the corresponding source. Apply the change as instructed by the Note text. Honor the Scope:');
+    lines.push('   - `this` → modify only this specific instance');
+    lines.push('   - `all-matching` → modify the component-level CSS / source so all matching elements get the change');
+    lines.push('   - `all-like-this` → modify the shared component such that all elements sharing the data-fd-id family pick up the change');
+    lines.push('   - `global` → modify the global token / theme file');
+    lines.push('');
+    step += 1;
+  }
+  lines.push(step + '. **Verify** — build / lint / preview as appropriate for the project. Optionally regenerate the preview HTML to confirm the new state.');
+  return lines.join('\n');
+}
+
+function collectChangedDecisions() {
+  const changed = new Set();
+  for (const [, secKey] of SECTION_ORDER) {
+    for (const group of TOKENS[secKey]) {
+      const cur = decisions[group.key];
+      if (group.kind === 'slider') {
+        if (cur !== group.defaultValue) changed.add(group.key);
+      } else if (group.kind === 'toggle') {
+        if (!!cur !== !!group.defaultValue) changed.add(group.key);
+      } else {
+        if (cur !== defaultId(group)) changed.add(group.key);
+      }
+    }
+  }
+  return changed;
+}
+
+function appendDecisionLines(lines, group) {
+  if (group.kind === 'color') {
+    const opt = findOption(group, decisions[group.key]);
+    lines.push(`- \`${group.key}\` (light) → \`${opt.light}\``);
+    lines.push(`- \`${group.key}\` (dark)  → \`${opt.dark}\``);
+    const rejected = group.options.filter(o => o.id !== opt.id)
+      .map(o => `${o.id}(L:${o.light}/D:${o.dark})`).join(', ');
+    if (rejected) lines.push(`  - rejected: ${rejected}`);
+  } else if (group.kind === 'slider') {
+    lines.push(`- \`${group.key}\` → \`${decisions[group.key]}${group.unit || ''}\` (slider, range ${group.min}-${group.max}, step ${group.step})`);
+  } else if (group.kind === 'segmented' || group.kind === 'dropdown') {
+    const opt = findOption(group, decisions[group.key]);
+    const label = group.options.map(o => o.id === opt.id ? `[${o.id}]` : o.id).join(' | ');
+    lines.push(`- \`${group.key}\` → \`${opt.value || opt.id}\` (segmented: ${label})`);
+    const rejected = group.options.filter(o => o.id !== opt.id).map(o => `${o.id}(${o.value || o.id})`).join(', ');
+    if (rejected) lines.push(`  - rejected: ${rejected}`);
+  } else if (group.kind === 'toggle') {
+    lines.push(`- \`${group.key}\` → \`${decisions[group.key]}\` (toggle)`);
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 2200);
+}
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Copied to clipboard');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Copied (fallback)');
+  }
+}
+
+document.getElementById('export-btn').addEventListener('click', async () => {
+  const md = buildExportMarkdown();
+  if (md === null) {
+    showToast('Nothing to export — change a decision, edit text, or add a comment first');
+    return;
+  }
+  document.getElementById('export-pre').textContent = md;
+  document.getElementById('export-modal').classList.add('open');
+  await copyToClipboard(md);
+});
+document.getElementById('modal-close').addEventListener('click', () => {
+  document.getElementById('export-modal').classList.remove('open');
+});
+document.getElementById('copy-again').addEventListener('click', async () => {
+  await copyToClipboard(document.getElementById('export-pre').textContent);
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  initDecisions();
+  resetDirectEdits();
+  untagAllComments();
+  comments.length = 0;
+  nextCommentId = 1;
+  closeCommentPopover();
+  setCommentMode(false);
+  setMarkersVisible(false);
+  document.getElementById('comment-list-panel').classList.remove('open');
+  renderControls();
+  applyAllDecisions();
+  refreshMarkersAndList();
+  showToast('Reset');
+});
+
+document.getElementById('toggle-controls-btn').addEventListener('click', () => {
+  const layout = document.querySelector('.main-layout');
+  const collapsed = layout.classList.toggle('controls-collapsed');
+  const btn = document.getElementById('toggle-controls-btn');
+  btn.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+  btn.title = collapsed ? 'Show controls panel' : 'Collapse controls panel';
+  document.getElementById('toggle-controls-icon').textContent = collapsed ? '▶' : '◀';
+  document.getElementById('toggle-controls-label').textContent = collapsed ? 'Show' : 'Collapse';
+  if (collapsed && activeDropdown) closeActiveDropdown();
+});
+
+/* Pane expand/collapse — split / light-expanded / dark-expanded.
+   Knob changes still apply to BOTH themes regardless of which pane is visible,
+   because applyVariableToPreview() always writes to both lightEl() and darkEl(). */
+const previewGrid = document.querySelector('.preview-grid');
+function getPaneState() {
+  if (previewGrid.classList.contains('light-expanded')) return 'light-expanded';
+  if (previewGrid.classList.contains('dark-expanded')) return 'dark-expanded';
+  return 'split';
+}
+function setPaneState(next) {
+  previewGrid.classList.remove('light-expanded', 'dark-expanded');
+  if (next === 'light-expanded') previewGrid.classList.add('light-expanded');
+  if (next === 'dark-expanded') previewGrid.classList.add('dark-expanded');
+  setTimeout(renderMarkers, 240);
+}
+document.querySelectorAll('.pane-toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pane = btn.dataset.pane;
+    const cur = getPaneState();
+    if (pane === 'light') setPaneState(cur === 'split' ? 'light-expanded' : 'split');
+    else                  setPaneState(cur === 'split' ? 'dark-expanded'  : 'split');
+  });
+});
+
+renderControls();
+applyAllDecisions();
+initDirectEdits();
+refreshCommentList();
+
+if(new URLSearchParams(location.search).get('pane')==='dark')setPaneState('dark-expanded');</script></body></html>

@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "errors": [],
+  "cases": [
+    "two independent mini conversations with visible input, original question and artifacts",
+    "thinking expansion and per-model follow-up leave the other model untouched",
+    "artifact source and first-answer rating drawers work",
+    "streaming-thinking state is visible within conversation messages",
+    "1280px desktop keeps both conversations and composers on screen",
+    "theme token controls, direct edits, comments and export are usable",
+    "the prototype works directly from a local HTML file"
+  ],
+  "screenshots": [
+    "01-mini-conversations.png",
+    "02-independent-followup.png",
+    "03-thinking-conversations.png",
+    "04-compact-desktop.png"
+  ],
+  "paidCalls": 0,
+  "liveRouteNote": "page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5190/?view=evaluation\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:5190/?view=evaluation\", waiting until \"load\"\u001b[22m\n"
+}
