@@ -7,15 +7,7 @@
  * is a host limitation rather than a product failure. Guard such tests with
  * `describe.skipIf(!CAPABILITY)` or `it.skipIf(!CAPABILITY)`.
  */
-import {
-	chmodSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getToolPath } from "../src/utils/tools-manager.ts";

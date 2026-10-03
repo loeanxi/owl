@@ -516,7 +516,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	return (
 		<div className="owl-browser flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
 			{/* 导航工具条；响应式控制单独一行，侧栏收窄时自然换行。 */}
-			<div className="flex shrink-0 select-none items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
+			<div className="flex shrink-0 select-none flex-wrap items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
 				<button type="button" title="后退" className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
 					<svg
 						viewBox="0 0 16 16"

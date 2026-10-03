@@ -40,6 +40,7 @@ describe("ProjectTrustStore", () => {
 		expect(hasTrustRequiringProjectResources(tempDir)).toBe(false);
 		expect(hasTrustRequiringProjectResources(cwd)).toBe(false);
 
+		mkdirSync(join(tempDir, ".owl"), { recursive: true });
 		writeFileSync(join(tempDir, ".owl", "settings.json"), "{}");
 		expect(hasTrustRequiringProjectResources(tempDir)).toBe(true);
 		rmSync(join(tempDir, ".owl", "settings.json"), { force: true });

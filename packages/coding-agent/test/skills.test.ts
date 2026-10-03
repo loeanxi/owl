@@ -1,6 +1,8 @@
 import { homedir } from "os";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ResourceDiagnostic } from "../src/core/diagnostics.ts";
 import { formatSkillsForPrompt, loadSkills, loadSkillsFromDir, type Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
@@ -346,8 +348,23 @@ describe("skills", () => {
 	});
 
 	describe("loadSkills with options", () => {
-		const emptyAgentDir = resolve(__dirname, "fixtures/empty-agent");
-		const emptyCwd = resolve(__dirname, "fixtures/empty-cwd");
+		// 空的隔离目录：全局技能目录是 agentDir 的兄弟目录（fixtures/skills 已被真实
+		// fixture 占用），所以用临时目录而不是 fixtures/empty-agent。
+		let emptyRoot: string;
+		let emptyAgentDir: string;
+		let emptyCwd: string;
+
+		beforeEach(() => {
+			emptyRoot = mkdtempSync(join(tmpdir(), "skills-options-"));
+			emptyAgentDir = join(emptyRoot, "agent");
+			emptyCwd = join(emptyRoot, "cwd");
+			mkdirSync(emptyAgentDir, { recursive: true });
+			mkdirSync(emptyCwd, { recursive: true });
+		});
+
+		afterEach(() => {
+			rmSync(emptyRoot, { recursive: true, force: true });
+		});
 
 		it("should load from explicit skillPaths", () => {
 			const { skills, diagnostics } = loadSkills({

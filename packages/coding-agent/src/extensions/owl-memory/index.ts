@@ -99,7 +99,7 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 			name: "recall",
 			label: "查记忆",
 			description:
-				"按关键词检索 Owl 的跨会话记忆库（当前项目 + 全局条目）。当用户提到\"之前/上次/我记得\"或当前任务可能与历史会话相关时使用。" +
+				'按关键词检索 Owl 的跨会话记忆库（当前项目 + 全局条目）。当用户提到"之前/上次/我记得"或当前任务可能与历史会话相关时使用。' +
 				"留空 query 则返回最近的记忆。检索范围包含其它项目的存档条目（它们不注入系统提示词，只有通过这里才能查到）。",
 			promptSnippet: "recall: 按关键词检索跨会话记忆",
 			parameters: Type.Object({
