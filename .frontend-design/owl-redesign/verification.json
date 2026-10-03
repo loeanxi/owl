@@ -1,0 +1,539 @@
+{
+  "errors": [],
+  "report": [
+    {
+      "theme": "dark",
+      "view": "home",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "chat",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "files",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "changes",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "editor",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "terminal",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "browser",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "tasks",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "impression",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "sidechat",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "image",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-general",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-providers",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-plugins",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-appearance",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-prompts",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-archive",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-json",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "settings-about",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "dark",
+      "view": "dialogs",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "home",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "chat",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "files",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "changes",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "editor",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "terminal",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "browser",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "tasks",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "impression",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "sidechat",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "image",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-general",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-providers",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-plugins",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-appearance",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-prompts",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-archive",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-json",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "settings-about",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "theme": "light",
+      "view": "dialogs",
+      "overflow": {
+        "w": 1280,
+        "h": 800,
+        "innerW": 1280,
+        "innerH": 800
+      }
+    },
+    {
+      "modal": "project",
+      "exists": 1
+    },
+    {
+      "modal": "permission",
+      "exists": 1
+    },
+    {
+      "modal": "question",
+      "exists": 1
+    },
+    {
+      "modal": "questionFinal",
+      "exists": 1
+    },
+    {
+      "modal": "model",
+      "exists": 1
+    },
+    {
+      "modal": "mode",
+      "exists": 1
+    },
+    {
+      "modal": "thinking",
+      "exists": 1
+    },
+    {
+      "modal": "context",
+      "exists": 1
+    },
+    {
+      "modal": "sessionMenu",
+      "exists": 1
+    },
+    {
+      "modal": "projectMenu",
+      "exists": 1
+    },
+    {
+      "modal": "projectSwitch",
+      "exists": 1
+    },
+    {
+      "modal": "sectionMenu",
+      "exists": 1
+    },
+    {
+      "modal": "location",
+      "exists": 1
+    },
+    {
+      "modal": "delete",
+      "exists": 1
+    },
+    {
+      "modal": "providerAdd",
+      "exists": 1
+    },
+    {
+      "modal": "modelAdd",
+      "exists": 1
+    },
+    {
+      "modal": "oauth",
+      "exists": 1
+    },
+    {
+      "modal": "authSuccess",
+      "exists": 1
+    },
+    {
+      "modal": "providerDelete",
+      "exists": 1
+    },
+    {
+      "modal": "questionMulti",
+      "exists": 1
+    },
+    {
+      "modal": "rename",
+      "exists": 1
+    },
+    {
+      "modal": "oauthText",
+      "exists": 1
+    },
+    {
+      "modal": "oauthSecret",
+      "exists": 1
+    },
+    {
+      "modal": "oauthManualCode",
+      "exists": 1
+    },
+    {
+      "modal": "oauthSelect",
+      "exists": 1
+    },
+    {
+      "modal": "archiveDelete",
+      "exists": 1
+    },
+    {
+      "modal": "newFolder",
+      "exists": 1
+    },
+    {
+      "modal": "deleteFile",
+      "exists": 1
+    },
+    {
+      "modal": "discard",
+      "exists": 1
+    },
+    {
+      "modal": "todo",
+      "exists": 1
+    },
+    {
+      "modal": "filePicker",
+      "exists": 1
+    },
+    {
+      "modal": "screenshot",
+      "exists": 1
+    },
+    {
+      "modal": "fileContext",
+      "exists": 1
+    }
+  ],
+  "feedbackFlow": true,
+  "directEditAcrossPages": true
+}

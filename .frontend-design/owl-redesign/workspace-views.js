@@ -122,13 +122,13 @@
     terminal: {
       title: '终端',
       html: () => `<div class="pane-body" data-fd-id="pane-terminal">
-        ${toolbar(`<span style="flex:1;display:flex;align-items:center;gap:8px">${glyph('terminal')} ${text('PowerShell', 'terminal-shell')} ${badge('运行中', 'green', 'terminal-status')}</span>${ib('新建终端', 'terminal-new', 'terminal-new', 'plus')}`, 'terminal-toolbar')}
+        ${toolbar(`<span style="flex:1;display:flex;align-items:center;gap:8px">${glyph('terminal')} ${text('PowerShell', 'terminal-shell')} ${badge(window.OWL_TERMINAL_EXITED ? '已退出' : '运行中', window.OWL_TERMINAL_EXITED ? '' : 'green', 'terminal-status')}</span>${ib('新建终端', 'terminal-new', 'terminal-new', 'plus')}`, 'terminal-toolbar')}
         <div class="small muted" style="margin:12px 0" data-fd-id="terminal-directory">D:\\owl\\owl-re-v1\\owl-mono</div>
         <div class="terminal" style="border-radius:10px;background:#161616;color:#dfdfdc;padding:18px 16px;font-family:Consolas,'Cascadia Mono',monospace;font-size:12px;line-height:1.9;min-height:325px;overflow:auto" data-fd-id="terminal-output">
           <div class="terminal-line" style="color:#8c948d">PowerShell 7.5.2</div><div class="terminal-line" style="margin-top:13px"><span style="color:#75b78a">PS D:\\owl\\owl-re-v1\\owl-mono&gt;</span> npm run check</div><div class="terminal-line" style="margin-top:12px;color:#b5b5af">&gt; owl-monorepo@ check</div><div class="terminal-line" style="color:#b5b5af">&gt; biome check . &amp;&amp; tsc --noEmit</div><div class="terminal-line" style="margin-top:13px;color:#75b78a">Checked 812 files in 2.4s.</div><div class="terminal-line" style="color:#b5b5af">No fixes applied.</div><div class="terminal-line" style="margin-top:13px;color:#75b78a">PS D:\\owl\\owl-re-v1\\owl-mono&gt; <span style="display:inline-block;width:7px;height:15px;background:#75b78a;vertical-align:-3px"></span></div>
         </div>
         <div class="small muted" style="margin-top:12px" data-fd-id="terminal-note" data-fd-editable="text">命令在当前项目目录运行。每个终端使用独立的会话。</div>
-        <div class="card" style="margin-top:18px;padding:13px;display:flex;justify-content:space-between;align-items:center;gap:12px" data-fd-id="terminal-exited-example"><div><strong class="small">进程已退出</strong><div class="muted small" style="margin-top:4px">退出代码 0</div></div>${b('重新启动', 'terminal-restart', 'terminal-restart', 'ghost', 'refresh')}</div>
+        ${window.OWL_TERMINAL_EXITED ? `<div class="card" style="margin-top:18px;padding:13px;display:flex;justify-content:space-between;align-items:center;gap:12px" data-fd-id="terminal-exited-example"><div><strong class="small">进程已退出</strong><div class="muted small" style="margin-top:4px">退出代码 0</div></div>${b('重新启动', 'terminal-restart', 'terminal-restart', 'ghost', 'refresh')}</div>` : `<div style="margin-top:18px">${b('查看退出状态', 'terminal-state-toggle', 'terminal-state-toggle', 'ghost')}</div>`}
       </div>`,
     },
     browser: {
@@ -156,7 +156,11 @@
           <div style="display:flex;gap:9px;align-items:center;margin:10px 0 12px" data-fd-id="task-round-3">${badge('第 3 轮')}<span class="small" data-fd-editable="text">调整工作台布局，让文件和终端更好找</span></div>
           <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-read-app"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('check', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">读取 App.tsx 和 Workbench.tsx</strong><span class="small muted">已完成</span></div><div class="muted small" style="margin:7px 0 0 23px">2 个文件 · 已获取页面结构</div></div>
           <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-read-styles"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('check', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">检查样式与主题变量</strong><span class="small muted">已完成</span></div><div class="muted small" style="margin:7px 0 0 23px">index.css · 颜色、字号、间距</div></div>
-          <div class="task-item card" style="padding:13px;margin-bottom:8px;border-color:rgba(47,158,90,.4);background:rgba(47,158,90,.05)" data-fd-id="task-check-running"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('clock', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">运行代码检查</strong>${badge('运行中', 'green')}</div><div class="muted small" style="margin:7px 0 0 23px">npm run check</div><div style="margin:9px 0 0 23px">${b('查看输出', 'task-expand', 'tasks-view-output', 'ghost')}</div></div>
+          <div class="task-item card" style="padding:13px;margin-bottom:8px;border-color:rgba(47,158,90,.4);background:rgba(47,158,90,.05)" data-fd-id="task-check-running"><div style="display:flex;gap:9px;align-items:center"><span style="color:#2f9e5a">${glyph('clock', 14)}</span><strong class="small" style="flex:1" data-fd-editable="text">运行代码检查</strong>${badge('运行中', 'green')}</div><div class="muted small" style="margin:7px 0 0 23px">npm run check</div><details class="task-output" style="margin:12px 0 0 23px" data-fd-id="tasks-output"><summary class="small" style="cursor:pointer;color:#2f9e5a" data-fd-id="tasks-view-output">查看输出</summary><pre class="code" style="margin:10px 0 0;padding:12px;border-radius:7px;font-size:11px;white-space:pre-wrap;background:rgba(127,127,127,.07)" data-fd-id="tasks-check-output">&gt; owl-monorepo@ check
+&gt; biome check . &amp;&amp; tsc --noEmit
+
+Checked 812 files in 2.4s.
+正在检查 TypeScript 类型…</pre></details></div>
           <div class="task-item card" style="padding:13px;margin-bottom:8px" data-fd-id="task-failed-example"><div style="display:flex;gap:9px;align-items:center"><span style="color:#cd7b71">×</span><strong class="small" style="flex:1" data-fd-editable="text">读取不存在的配置文件</strong><span class="small" style="color:#cd7b71">失败</span></div><div class="muted small" style="margin:7px 0 0 23px">ENOENT · 已改为读取项目默认配置</div></div>
           <div class="divider" style="margin:18px 0"></div><div style="display:flex;gap:9px;align-items:center;margin:10px 0 12px" data-fd-id="task-round-2">${badge('第 2 轮')}<span class="small muted" data-fd-editable="text">先了解当前项目的页面构成</span></div><div class="small muted" style="padding-left:5px;line-height:1.8" data-fd-id="task-round-2-summary">已读取 9 个工作台面板，完成页面清单。</div>
         </div>
@@ -201,6 +205,21 @@ OWL 是本地 AI 编程工作区，包含对话、文件、终端与浏览器。
         <div style="display:flex;align-items:center;justify-content:center;gap:10px" data-fd-id="image-zoom-controls">${ib('缩小', 'image-zoom-out', 'image-zoom-out', 'minus')}<span class="small" style="min-width:45px;text-align:center" data-fd-id="image-zoom-value">100%</span>${ib('放大', 'image-zoom', 'image-zoom-in', 'plus')}${b('适应窗口', 'image-fit', 'image-fit', 'ghost')}</div>
         <div class="small muted" style="text-align:center;margin-top:17px" data-fd-id="image-footer" data-fd-editable="text">360 × 300 · 透明背景</div>
       </div>`,
+    },
+  };
+
+  window.OWL_PANE_DIALOGS = {
+    newFolder: {
+      title: '新建文件夹',
+      html: () => `<div data-fd-id="dialog-new-folder-content"><p class="small muted" style="margin:0 0 18px;line-height:1.7" data-fd-editable="text">在当前项目根目录创建文件夹。</p><div class="card" style="padding:13px;margin-bottom:17px"><div class="small muted">创建位置</div><div class="code small" style="margin-top:7px;overflow-wrap:anywhere">D:\\owl\\owl-re-v1\\owl-mono</div></div><label class="small" style="display:block;margin-bottom:8px" data-fd-id="new-folder-name-label" data-fd-editable="text">文件夹名称</label><input class="input" value="design" placeholder="输入文件夹名称" data-fd-id="new-folder-name" data-fd-editable="value" aria-label="文件夹名称"><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:23px;padding-top:17px;border-top:1px solid rgba(127,127,127,.2)">${b('取消', 'close-modal', 'new-folder-cancel', 'ghost')}${b('创建文件夹', 'folder-create', 'new-folder-create', 'primary', 'plus')}</div></div>`,
+    },
+    deleteFile: {
+      title: '删除这个文件？',
+      html: () => `<div data-fd-id="dialog-delete-file-content"><div class="card" style="padding:15px;margin-bottom:16px"><strong class="small" data-fd-id="delete-file-name" data-fd-editable="text">App.tsx</strong><div class="code small muted" style="margin-top:6px;overflow-wrap:anywhere">apps/desktop/src/App.tsx</div></div><div class="notice warning" style="padding:13px;font-size:13px;line-height:1.7" data-fd-id="delete-file-consequence" data-fd-editable="text">文件将被永久删除，此操作无法恢复。</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:23px;padding-top:17px;border-top:1px solid rgba(127,127,127,.2)">${b('取消', 'close-modal', 'delete-file-cancel', 'ghost')}${b('永久删除文件', 'file-delete-confirm', 'delete-file-confirm', 'danger')}</div></div>`,
+    },
+    discard: {
+      title: '丢弃这个文件的修改？',
+      html: () => `<div data-fd-id="dialog-discard-content"><div class="card" style="padding:15px;margin-bottom:16px"><strong class="small" data-fd-id="discard-file-name" data-fd-editable="text">App.tsx</strong><div class="code small muted" style="margin-top:6px;overflow-wrap:anywhere">apps/desktop/src/App.tsx</div></div><div class="notice warning" style="padding:13px;font-size:13px;line-height:1.7" data-fd-id="discard-consequence" data-fd-editable="text">当前尚未暂存的修改将被丢弃，文件会恢复到 Git 中保存的版本。</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:23px;padding-top:17px;border-top:1px solid rgba(127,127,127,.2)">${b('取消', 'close-modal', 'discard-cancel', 'ghost')}${b('丢弃修改', 'discard-confirm', 'discard-confirm', 'danger')}</div></div>`,
     },
   };
 })();

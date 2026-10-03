@@ -14,9 +14,10 @@ import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
 import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
-import { useTabRegistry, viewerKindFor, type TabComponentProps } from "./registry.ts";
-import { isImagePath } from "./registry.ts";
+import { useTabRegistry, type TabComponentProps } from "./registry.ts";
+import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
 import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
+import { fileUrlOf } from "./api.ts";
 
 const WIDTH_KEY = "owl.workbench.width";
 const HEIGHT_KEY = "owl.workbench.height";
@@ -63,6 +64,8 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
+	// 侧边卡片配置（设置页「侧边卡片」）：工具行/空态卡片的可见性与文件预览回退
+	const cfg = useSidebarConfig();
 	const [gitStatus, setGitStatus] = useState<GitStatusResult | undefined>(undefined);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(WIDTH_KEY));
@@ -191,16 +194,28 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 		});
 	}, [client, store, cwd]);
 
-	// -- 打开文件（viewer 匹配） ----------------------------------------------
+	// -- 打开文件（viewer 匹配 + 侧边卡片停用回退） ------------------------------
 	const openFile = useCallback(
 		(path: string) => {
-			const kind = isImagePath(path) ? "image" : viewerKindFor(path);
+			const kind = viewerKindForPath(path, cfg);
+			if (kind === undefined) {
+				// 预览卡片停用（如关掉「代码」兜底）：交给系统默认程序，工作台不再接管
+				void api.openExternal("url", fileUrlOf(cwd, path)).catch(() => {});
+				return;
+			}
 			const title = path.split("/").pop() ?? path;
 			store.openFileTab(kind, path, title);
 			if (!open) onSetOpen(true);
 		},
-		[store, open, onSetOpen],
+		[api, cfg, cwd, store, open, onSetOpen],
 	);
+
+	// -- 停用卡片即时收尾：关掉已打开的同类 tab（与 DSH 停用插件关 tab 同语义） -
+	useEffect(() => {
+		for (const tab of state.tabs) {
+			if (!isTabKindEnabled(tab.kind, cfg)) store.closeTab(tab.id);
+		}
+	}, [cfg, state.tabs, store]);
 
 	const tabPropsOf = useCallback(
 		(tabId: string): TabComponentProps => ({
@@ -333,7 +348,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 					{leaf.tabs.length === 0 ? (
 						/* 空 leaf：DSH paneEmptyCards 同款卡片（放进当前 leaf） */
 						<div className="grid h-full content-start gap-2.5 overflow-y-auto p-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
-							{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => (
+							{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => (
 								<button
 									key={action.kind}
 									type="button"
@@ -400,7 +415,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 
 			{/* 工具行：快捷单例（彩色图标）+ 停靠切换 + 关闭 */}
 			<div className="flex shrink-0 select-none items-center gap-1 border-b border-owl-border/60 px-2 py-1.5" data-tauri-drag-region="deep">
-				{QUICK_ACTIONS.filter((action) => !action.disabled).map((action) => {
+				{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {
 					const active = state.activeId === action.kind;
 					return (
 						<button

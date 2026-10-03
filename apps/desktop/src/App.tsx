@@ -17,6 +17,8 @@ import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
+import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarConfig, viewerKindForPath } from "./sidebar/config.ts";
+import { fileUrlOf } from "./sidebar/api.ts";
 import { isIabPageBound, boundTabIdFor, encodeIabPath } from "./sidebar/iab-bound.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
@@ -235,9 +237,11 @@ export default function App(): React.JSX.Element {
 		// 看得见 agent 的浏览器操作。用户自己开的面板（origin=ui）不打扰。
 		// agent 拉起的停靠位固定为右列：浏览器需要纵向空间，底栏会压成一条
 		// 视觉效果很差；用户自己点的面板不改变它原本的停靠位。
+		// 侧边卡片设置停用了「浏览器」卡片时不再自动弹面板（设置页「侧边卡片」）。
 		useEffect(() => {
 			return client.onIabMessage((message) => {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
+				if (!isTabKindEnabled("browser", getSidebarConfig())) return;
 				const target = message.pages.find((page) => page.active) ?? message.pages[0];
 				if (!target) return;
 				// 已有面板在看：直接激活那个 tab；没有才开新 tab
@@ -246,6 +250,25 @@ export default function App(): React.JSX.Element {
 				else workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
 				if (dockRef.current !== "right") setDockPersisted("right");
 				setWorkbenchOpenPersisted(true);
+			});
+		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+		// sidebar_open 工具广播：模型请求在侧边工作台打开文件（设置页「侧边卡片」
+		// 开启工具注入后才会出现）。仅处理当前项目的广播——路径是该项目 cwd 的
+		// 相对路径，切了项目后旧广播里的路径对不上新工作台。预览卡片停用时的
+		// 回退与工作台一致：交给系统默认程序。
+		useEffect(() => {
+			return client.onSidebarMessage((message) => {
+				if (normProjectKey(message.cwd) !== normProjectKey(workspaceRef.current)) return;
+				const kind = viewerKindForPath(message.path, getSidebarConfig());
+				if (kind === undefined) {
+					void client
+						.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, message.path) })
+						.catch(() => {});
+					return;
+				}
+				workbenchStore.openFileTab(kind, message.path, message.path.split("/").pop() ?? message.path);
+				if (!openRef.current) setWorkbenchOpenPersisted(true);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -266,12 +289,14 @@ export default function App(): React.JSX.Element {
 			.request<SessionRunningResult>({ type: "session.running" })
 			.then((response) => response.ok && setRunningSessions(new Set(response.result?.running ?? [])))
 			.catch(() => {});
-		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用。
+		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用；
+		// 侧边卡片配置（owlSidebar）同源拉取，供工作台/快捷入口即时生效。
 		void client
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
 			.then((response) => {
-				const theme = (response.result?.settings as Record<string, unknown> | undefined)?.theme;
-				if (isThemePreference(theme)) setThemePreference(theme);
+				const settings = response.result?.settings as Record<string, unknown> | undefined;
+				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
+				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
@@ -424,6 +449,21 @@ export default function App(): React.JSX.Element {
 		};
 	}, [connected, client, workspaceDir, sidebarRev]);
 
+	// 斜杠命令清单：随项目（技能/模板按 cwd 扫描）与会话（扩展命令挂在运行时上）刷新。
+	useEffect(() => {
+		if (!connected) return;
+		let cancelled = false;
+		void client
+			.request<CommandsListResult>({ type: "commands.list", cwd: workspaceRef.current })
+			.then((response) => {
+				if (!cancelled && response.ok && response.result) setSlashCommands(response.result.commands);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [connected, client, workspaceDir, sessionId]);
+
 	// 输入栏的模型/思考切换：未建会话时只记选择（localStorage + 状态），
 	// 已有会话则即时下发到运行中的 session（setModel 自带思考级别自适应）。
 	const handleModelChange = (value: string): void => {
@@ -468,7 +508,83 @@ export default function App(): React.JSX.Element {
 			.catch(() => {});
 	};
 
+	// 桌面内置斜杠命令：都在界面/桥本地执行，session.prompt 不认识它们，绝不能当文本发给模型。
+	// 技能（/skill:name）、提示词模板、扩展命令不在此列，原样发送由核心展开执行。
+	const executeBuiltinCommand = async (name: string, args: string): Promise<boolean> => {
+		switch (name) {
+			case "new":
+				newChat();
+				return true;
+			case "settings":
+				setShowSettings(true);
+				return true;
+			case "model": {
+				const spec = args.trim();
+				if (!spec) {
+					setEntries((current) => [
+						...current,
+						{ kind: "toolResult", toolName: "/model", ok: false, brief: "用法：/model <provider/model>" },
+					]);
+					return true;
+				}
+				handleModelChange(spec);
+				return true;
+			}
+			case "thinking": {
+				const level = args.trim();
+				if (!level) {
+					setEntries((current) => [
+						...current,
+						{ kind: "toolResult", toolName: "/thinking", ok: false, brief: "用法：/thinking <off|minimal|low|medium|high|xhigh|max>" },
+					]);
+					return true;
+				}
+				handleThinkingChange(level);
+				return true;
+			}
+			case "compact": {
+				const target = await ensureSession();
+				if (!target) return true;
+				setEntries((current) => [
+					...current,
+					{ kind: "toolResult", toolName: "压缩上下文", ok: true, brief: "开始手动压缩…" },
+				]);
+				try {
+					const response = await client.request<SessionStatsResult>({ type: "session.compact", sessionId: target });
+					setEntries((current) => [
+						...current,
+						response.ok
+							? { kind: "toolResult", toolName: "压缩上下文", ok: true, brief: "压缩完成。" }
+							: { kind: "toolResult", toolName: "压缩上下文", ok: false, brief: response.error ?? "压缩失败" },
+					]);
+					if (response.ok && response.result) setSessionInfo(response.result);
+				} catch (error) {
+					setEntries((current) => [
+						...current,
+						{
+							kind: "toolResult",
+							toolName: "压缩上下文",
+							ok: false,
+							brief: error instanceof Error ? error.message : String(error),
+						},
+					]);
+				}
+				return true;
+			}
+			default:
+				return false;
+		}
+	};
+
 	const sendPrompt = async (message: string): Promise<void> => {
+		// "/命令 参数" 形态先过内置命令表：只拦 kind=builtin 且当前清单里确实是内置的
+		// 名字（扩展命令若与内置同名，桥端清单里它是 extension，让位给扩展）。
+		const match = /^\/([a-zA-Z0-9:_-]+)(?:\s+([\s\S]*))?$/.exec(message.trim());
+		if (match) {
+			const [, name, args] = match;
+			const entry = slashCommands.find((candidate) => candidate.name === name);
+			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return;
+		}
 		const target = await ensureSession();
 		if (!target) return;
 		setEntries((current) => [...current, { kind: "user", text: message }]);
@@ -620,6 +736,7 @@ export default function App(): React.JSX.Element {
 							workspaceDir={workspaceDir}
 							projects={projects}
 							onSwitchProject={switchProject}
+							commands={slashCommands}
 						/>
 					</div>
 					<Workbench

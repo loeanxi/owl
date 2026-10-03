@@ -158,6 +158,19 @@ export function effectivePlugins(settings: Pick<Settings, "plugins" | "packages"
 	return [...(settings.plugins ?? []), ...(settings.packages ?? []), ...(settings.extensions ?? [])];
 }
 
+/**
+ * Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。设置页「侧边卡片」
+ * 分区读写；数组整体保存（桥端深合并对数组是整体替换）。
+ */
+export interface OwlSidebarSettings {
+	/** 停用的侧边卡片（工作台 tab kind：files/changes/terminal/browser/tasks/impression/sidechat）。 */
+	disabledTabs?: string[];
+	/** 停用的文件预览 viewer（image / editor；editor 是兜底，停用后文件交给系统默认程序）。 */
+	disabledViewers?: string[];
+	/** 为模型注入 sidebar_open 工具（在侧边栏主动打开文件；默认关闭，新会话生效）。 */
+	injectOpenTool?: boolean;
+}
+
 export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
@@ -219,6 +232,8 @@ export interface Settings {
 	owlCustomPrompt?: string;
 	/** Owl 桌面端：助手对用户的长期印象。随会话注入系统提示词，可由模型的 update_user_impression 工具或设置页维护。 */
 	owlUserImpression?: string;
+	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
+	owlSidebar?: OwlSidebarSettings;
 }
 
 function isMergeableObject(value: unknown): value is Record<string, unknown> {

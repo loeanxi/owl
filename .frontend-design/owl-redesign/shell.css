@@ -68,7 +68,7 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .owl-screen .tag {display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:var(--color-owl-muted);white-space:nowrap;background:var(--color-owl-sidebar-surface)}
 .owl-screen .tag.green {color:var(--accent);border-color:color-mix(in srgb,var(--accent) 22%,transparent);background:var(--accent-soft)}
 .owl-screen .tag.warning {color:#bd944b;background:#bd944b12;border-color:#bd944b36}
-.owl-screen .key {font-family:Consolas,monospace;font-size:10px;border:1px solid var(--border);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 var(--border);color:var(--color-owl-faint);}
+.owl-screen .key {font-family:Consolas,monospace;font-size:10px;border:1px solid var(--border);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 var(--border);color:var(--color-owl-faint);white-space:nowrap;flex-shrink:0;}
 .owl-screen .card {background:var(--color-owl-panel);border:1px solid var(--border);border-radius:10px;padding:18px;}
 .owl-screen .divider {height:1px;background:var(--border);margin:18px 0}
 .owl-screen .notice {border-radius:8px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 15%,transparent);padding:12px 14px;color:var(--color-owl-muted);font-size:12px;line-height:1.7}
@@ -163,6 +163,19 @@ aside.controls {border-color:#dce2dd;background:#fafbfa;width:auto}
 .owl-screen .workbench-tools .icon-btn {width:30px;height:28px;}
 .owl-screen .workbench-tools .icon-btn.active {background:var(--accent-soft);color:var(--accent)}
 .owl-screen .workbench-body {overflow:auto;flex:1;min-height:0;position:relative;}
+.owl-screen .body-split.focused .conversation {display:none}
+.owl-screen .body-split.focused .workbench {width:auto;flex:1;border-left:0;}
+.owl-screen .pane-toolbar .pane-focus {margin-left:auto;}
+.owl-screen .split-panes {display:grid;grid-template-columns:300px 1fr;min-height:100%;}
+.owl-screen .split-panes>div:first-child {border-right:1px solid var(--border)}
+.owl-screen .resize-handle {position:absolute;left:-3px;top:42px;bottom:0;width:6px;cursor:col-resize;z-index:5;}
+.owl-screen .workbench {position:relative;}
+.owl-screen .body-split.bottom .resize-handle {left:0;right:0;top:-3px;width:auto;height:6px;bottom:auto;cursor:row-resize;}
+.owl-screen .resize-handle:hover {background:var(--accent-soft)}
+.owl-screen .question-nav {position:absolute;left:14px;top:46%;width:240px;background:var(--surface);border:1px solid var(--border);border-radius:11px;box-shadow:0 8px 35px #0002;z-index:8;padding:13px;}
+.owl-screen .question-nav .nav-row {font-size:11px;}
+.owl-screen .shot-preview {position:absolute;right:17px;bottom:240px;width:176px;border:1px solid var(--border);background:var(--surface);border-radius:9px;padding:10px;box-shadow:0 5px 22px #0002;z-index:7;}
+.owl-screen .slash-suggestions {position:absolute;bottom:172px;left:35px;right:35px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:11px;z-index:7;box-shadow:0 5px 22px #0002;}
 .owl-screen .pane-body {padding:16px;}
 .owl-screen .pane-toolbar {display:flex;align-items:center;gap:8px;padding:13px 14px;border-bottom:1px solid var(--border);font-size:12px;}
 .owl-screen .pane-toolbar .btn {min-height:28px;padding:4px 8px;font-size:11px;}

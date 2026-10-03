@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
+import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
+import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
+import { IconPanelRight } from "../sidebar/icons.tsx";
 import { IconArchive, IconCode, IconCompose, IconInfo, IconPlug, IconSettings, IconSliders, IconSun } from "./icons.tsx";
 
 const API_OPTIONS = [
@@ -10,7 +13,7 @@ const API_OPTIONS = [
 	{ value: "openai-responses", label: "OpenAI Responses（openai-responses）" },
 ];
 
-type SettingsSection = "general" | "models" | "plugins" | "prompts" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "sidebar" | "prompts" | "appearance" | "archived" | "json" | "about";
 
 /** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
 type PluginEntry =
@@ -166,6 +169,39 @@ function SettingRow({
 			</div>
 			{children && <div className="mt-2">{children}</div>}
 		</div>
+	);
+}
+
+/** 开关（DSH 设置页同款胶囊样式；用按钮自绘，不依赖原生 checkbox 外观）。 */
+function Switch({
+	checked,
+	onChange,
+	disabled,
+	title,
+}: {
+	checked: boolean;
+	onChange: (next: boolean) => void;
+	disabled?: boolean;
+	title?: string;
+}): React.JSX.Element {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={checked}
+			title={title}
+			disabled={disabled}
+			onClick={() => onChange(!checked)}
+			className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-default disabled:opacity-40 ${
+				checked ? "bg-owl-accent" : "bg-owl-border"
+			}`}
+		>
+			<span
+				className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] duration-150 ${
+					checked ? "left-[18px]" : "left-0.5"
+				}`}
+			/>
+		</button>
 	);
 }
 
@@ -417,6 +453,8 @@ export function SettingsPage({
 				if (response.result && typeof response.result === "object") {
 					setSettingsObj(response.result);
 					setRaw(JSON.stringify(response.result, null, 2));
+					// 侧边卡片配置的 UI 镜像即时同步（含 JSON 分区手改 settings.json 的路径）
+					setSidebarConfig(parseSidebarSettings((response.result as Record<string, unknown>).owlSidebar));
 				}
 				flashSaved();
 				return true;
@@ -436,6 +474,35 @@ export function SettingsPage({
 		setPApiKey("");
 	}
 
+	/** 保存侧边卡片配置：settings.set 深合并对象、整体替换数组，所以传完整对象。 */
+	function saveSidebar(next: SidebarConfig): void {
+		void saveSettings({ owlSidebar: next });
+	}
+
+	/** 开/停一张侧边卡片（数组全量写回）。 */
+	function toggleSidebarTab(kind: string, enabled: boolean): void {
+		const set = new Set(sidebarCfg.disabledTabs);
+		if (enabled) set.delete(kind);
+		else set.add(kind);
+		saveSidebar({ ...sidebarCfg, disabledTabs: [...set] });
+	}
+
+	/** 开/停一个文件预览 viewer。 */
+	function toggleSidebarViewer(kind: string, enabled: boolean): void {
+		const set = new Set(sidebarCfg.disabledViewers);
+		if (enabled) set.delete(kind);
+		else set.add(kind);
+		saveSidebar({ ...sidebarCfg, disabledViewers: [...set] });
+	}
+
+	/** 打开配置文件（settings.json，系统默认编辑器）。 */
+	function openSidebarConfigFile(): void {
+		if (!agentDir) return;
+		void client
+			.request({ type: "open.external", action: "url", target: encodeURI(`file:///${agentDir.replace(/\\/g, "/").replace(/^\/+/, "")}/settings.json`) })
+			.catch(() => {});
+	}
+
 	async function run(request: Parameters<BridgeClient["request"]>[0]) {
 		setBusy(true);
 		setError("");
@@ -449,6 +516,7 @@ export function SettingsPage({
 	const plugins = Array.isArray(settingsObj.plugins) ? (settingsObj.plugins as PluginEntry[]) : [];
 	const packages = Array.isArray(settingsObj.packages) ? (settingsObj.packages as PluginEntry[]) : [];
 	const extensions = Array.isArray(settingsObj.extensions) ? (settingsObj.extensions as string[]) : [];
+	const sidebarCfg = parseSidebarSettings(settingsObj.owlSidebar);
 	const theme = typeof settingsObj.theme === "string" ? settingsObj.theme : "dark";
 	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "未知";
 	const modelCount = groups.reduce((n, g) => n + g.models.length, 0);
@@ -480,6 +548,7 @@ export function SettingsPage({
 						<NavItem icon={<IconSettings />} label="常规" active={section === "general"} onClick={() => setSection("general")} />
 						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label="插件" active={section === "plugins"} onClick={() => setSection("plugins")} />
+						<NavItem icon={<IconPanelRight size={14} />} label="侧边卡片" active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
 						<div className="px-2.5 pb-1 pt-3 text-[10px] font-semibold tracking-wider text-owl-faint">高级</div>

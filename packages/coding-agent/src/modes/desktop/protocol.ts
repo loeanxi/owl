@@ -679,6 +679,17 @@ export interface FsChangedEvent {
 	dirs: string[];
 }
 
+/**
+ * sidebar_open 工具触发：模型请求在侧边工作台打开一个文件。path 是相对
+ * cwd 的 workspace 相对 POSIX 路径（与 fs 层同一围栏：越出工作区的路径在
+ * 工具侧就拒绝，不会过线）。UI 只在当前项目与 cwd 一致时处理。
+ */
+export interface SidebarOpenMessage {
+	type: "sidebar.open";
+	cwd: string;
+	path: string;
+}
+
 export interface PermissionResponseRequest {
 	type: "permission.response";
 	id: string;
@@ -884,7 +895,8 @@ export type DesktopServerMessage =
 	| QuestionRequestMessage
 	| TermDataMessage
 	| TermExitMessage
-	| IabServerMessage;
+	| IabServerMessage
+	| SidebarOpenMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

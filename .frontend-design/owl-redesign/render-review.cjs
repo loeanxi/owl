@@ -39,12 +39,19 @@ const overflow=await page.locator('.preview:not(.hidden-theme) .owl-screen').eva
 await page.screenshot({path:path.join(out,theme+'-'+view+'.png')});
 report.push({theme,view,overflow});
 }}
-for(const modal of ['permission','question','questionMulti','model','mode','context','project','providerAdd','modelAdd','oauth','delete','todo','filePicker']){
+const modalKeys=await page.evaluate(()=>Array.from(new Set([...Object.keys(window.OWL_DIALOGS),...Object.keys(window.OWL_SETTINGS_DIALOGS),...Object.keys(window.OWL_PANE_DIALOGS),'todo','filePicker','screenshot','fileContext'])));
+for(const modal of modalKeys){
 await page.goto(url+'?presentation=1&theme=dark&view=chat&modal='+modal);await page.waitForTimeout(50);
 const exists=await page.locator('.preview:not(.hidden-theme) .product-modal').count();
 await page.screenshot({path:path.join(out,'dialog-'+modal+'.png')});report.push({modal,exists});
 }
-try{await page.goto('http://127.0.0.1:18970');await page.waitForTimeout(300);await page.screenshot({path:path.join(out,'current-source.png')});console.log(JSON.stringify({currentUI:await page.title(),headings:await page.locator('h1').allTextContents()}));}catch(e){console.log('Current UI capture: '+e.message)}
+for(const [name,query] of [['dark-editor-focused','&view=editor&focus=1'],['dark-changes-focused','&view=changes&focus=1'],['dark-workbench-split','&view=editor&split=1'],['dark-terminal-bottom','&view=terminal&dock=bottom'],['dark-question-navigation','&view=chat&navigator=1'],['dark-screenshot-preview','&view=chat&shot=1']]){await page.goto(url+'?presentation=1&theme=dark'+query);await page.screenshot({path:path.join(out,name+'.png')});}
+await page.goto(url+'?presentation=1&theme=dark&view=home');await page.locator('.preview:not(.hidden-theme) [data-fd-id="field-chat-input"]').fill('/');await page.screenshot({path:path.join(out,'dark-slash-completion.png')});
+const slashCount=await page.locator('.preview:not(.hidden-theme) .slash-suggestions .nav-row').count();
+await page.locator('.preview:not(.hidden-theme) [data-action="slash-select"]').first().click();
+console.log(JSON.stringify({slashCount,selection:await page.locator('.preview:not(.hidden-theme) [data-fd-id="field-chat-input"]').inputValue()}));
+await page.goto(url+'?view=settings-json');await page.locator('#preview-light [data-fd-id="settings-field-raw-json"]').fill('{broken');await page.locator('#preview-light [data-action="save"]').click();console.log(JSON.stringify({jsonError:await page.locator('#toast').innerText()}));
+await page.goto(url+'?view=editor');await page.locator('#preview-dark [data-action="focus-workbench"]').click({force:true});await page.locator('#preview-dark [data-action="split-workbench"]').click({force:true});console.log(JSON.stringify({splitPanes:await page.locator('#preview-dark .split-panes').count()}));
 fs.writeFileSync(path.join(dir,'verification.json'),JSON.stringify({errors,report,feedbackFlow:true,directEditAcrossPages:exportText.includes('pwsh.exe')},null,2));
 await browser.close();console.log(JSON.stringify({screenshots:fs.readdirSync(out).length,errors,complete:true}));
 })().catch(e=>{console.error(e);process.exit(1)});

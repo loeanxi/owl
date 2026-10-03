@@ -5,8 +5,12 @@
  * 未来绑定，与 DSH paneCard 的 disabled 态一致。
  */
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
+import { isTabKindEnabled, useSidebarConfig } from "../sidebar/config.ts";
 
 export function StartPage({ onAction }: { onAction: (kind: string) => void }): React.JSX.Element {
+	// 侧边卡片设置停用的卡片不在开始页出现（订阅配置，设置页改动即时生效）
+	const cfg = useSidebarConfig();
+	const actions = QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg));
 	return (
 		<div className="mt-[12vh] flex flex-col items-center px-6">
 			<img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" />
@@ -14,20 +18,15 @@ export function StartPage({ onAction }: { onAction: (kind: string) => void }): R
 			<p className="mt-2 text-sm text-owl-faint">比 pi 更轻的 coding agent · 发消息开始</p>
 
 			<div className="mt-8 flex w-full max-w-xl flex-col gap-2.5">
-				{QUICK_ACTIONS.map((action) => (
+				{actions.map((action) => (
 					<button
 						key={action.kind}
 						type="button"
-						disabled={action.disabled}
-						title={action.disabled ? `${action.label}（即将支持）` : action.label}
-						className={`flex min-h-13 items-center gap-3.5 rounded-2xl border px-5 py-3.5 text-left text-sm transition-colors ${
-							action.disabled
-								? "cursor-default border-owl-border/50 bg-owl-panel/40 text-owl-faint opacity-45"
-								: "border-owl-border/70 bg-owl-panel text-owl-text hover:bg-owl-hover"
-						}`}
-						onClick={() => !action.disabled && onAction(action.kind)}
+						title={action.label}
+						className="flex min-h-13 items-center gap-3.5 rounded-2xl border border-owl-border/70 bg-owl-panel px-5 py-3.5 text-left text-sm text-owl-text transition-colors hover:bg-owl-hover"
+						onClick={() => onAction(action.kind)}
 					>
-						<span className="shrink-0" style={{ color: action.disabled ? undefined : action.color }}>
+						<span className="shrink-0" style={{ color: action.color }}>
 							{action.icon(18)}
 						</span>
 						<span className="flex-1">{action.label}</span>

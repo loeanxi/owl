@@ -7,6 +7,7 @@
 import type { ReactNode } from "react";
 import { IconGitBranch } from "./icons.tsx";
 import type { SidebarStore } from "./store.ts";
+import { isTabKindEnabled } from "./config.ts";
 
 interface IconProps {
 	size?: number;
@@ -129,10 +130,11 @@ export function quickActionOf(kind: string): QuickAction | undefined {
 	return QUICK_ACTIONS.find((action) => action.kind === kind);
 }
 
-/** 统一的快捷入口打开逻辑：单例去重，终端/浏览器每次开新的。 */
+/** 统一的快捷入口打开逻辑：单例去重，终端/浏览器每次开新的；侧边卡片设置停用的卡片直接忽略。 */
 export function openQuickAction(store: SidebarStore, kind: string): void {
 	const action = quickActionOf(kind);
 	if (!action || action.disabled) return;
+	if (!isTabKindEnabled(kind)) return;
 	if (action.multi) store.openNew(kind, action.tabTitle ?? action.label);
 	else store.openSingleton(kind, action.label);
 }

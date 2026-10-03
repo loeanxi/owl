@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -77,6 +78,7 @@ import {
 	writeWorkspaceFile,
 } from "./sidebar-fs.ts";
 import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "./sidebar-git.ts";
+import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
 import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch.ts";
 import { TerminalManager } from "./terminals.ts";
 
@@ -516,6 +518,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 	void getListingServices; // owl: models.list 已改为只读 models.json，保留 getter 备后续声明式扩展
 
+	/**
+	 * owlSidebar.injectOpenTool 开启时返回 sidebar_open 工具（默认关）。
+	 * 每次建会话现读一次设置：改设置后新会话即生效，进行中的会话不受影响。
+	 */
+	async function sidebarOpenToolFor(agentDir: string, cwd: string): Promise<ToolDefinition[]> {
+		try {
+			const manager = await import("../../core/settings-manager.ts").then((m) =>
+				m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
+			);
+			if (manager.getGlobalSettings().owlSidebar?.injectOpenTool !== true) return [];
+			return [createSidebarOpenTool(cwd, broadcast)];
+		} catch (error) {
+			onDiagnostic(`sidebar_open tool skipped: ${error instanceof Error ? error.message : String(error)}`);
+			return [];
+		}
+	}
+
 	function buildFactory(
 		agentDir: string,
 		modelSpec: { provider?: string; model?: string; thinkingLevel?: string } | undefined,
@@ -543,7 +562,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
-				customTools: [...(await getMcpTools()), ...iabTools],
+				customTools: [
+					...(await getMcpTools()),
+					...iabTools,
+					...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
+				],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
 			});
@@ -625,7 +648,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					...(template.argumentHint ? { argumentHint: template.argumentHint } : {}),
 				});
 			}
-			const skills = loadSkills({ cwd: resolvedCwd, agentDir, skillPaths: [], includeDefaults: true });
+			// fork 的额外技能目录（package-manager 的发现规则）：用户级 ~/.agents/skills
+			// 永远加载；项目级 .agents/skills 需项目已信任。兜底扫描尽量对齐，挂载会话后
+			// 以会话的资源加载器为准。
+			const skillPaths: string[] = [];
+			const userAgentsSkills = join(process.env.HOME || homedir(), ".agents", "skills");
+			if (existsSync(userAgentsSkills)) skillPaths.push(userAgentsSkills);
+			try {
+				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
+					m.SettingsManager.create(resolvedCwd, agentDir),
+				);
+				if (settingsManager.isProjectTrusted()) {
+					const projectAgentsSkills = join(resolvedCwd, ".agents", "skills");
+					if (existsSync(projectAgentsSkills)) skillPaths.push(projectAgentsSkills);
+				}
+			} catch {
+				// 设置读不出来就当未信任：只带用户级目录
+			}
+			const skills = loadSkills({ cwd: resolvedCwd, agentDir, skillPaths, includeDefaults: true });
 			for (const skill of skills.skills) {
 				add({ name: `skill:${skill.name}`, description: skill.description, kind: "skill" });
 			}

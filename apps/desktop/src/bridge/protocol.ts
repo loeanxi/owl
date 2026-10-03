@@ -68,6 +68,7 @@ export type {
 	IabOpenResult,
 	IabStateResult,
 	IabInputPayload,
+	SidebarOpenMessage,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 
 import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";

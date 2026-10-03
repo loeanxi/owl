@@ -6,6 +6,7 @@ import type {
 	QuestionAnswerPayload,
 	QuestionRequestMessage,
 	ServerEventMessage,
+	SidebarOpenMessage,
 	TermDataMessage,
 	TermExitMessage,
 } from "./protocol.ts";
@@ -18,6 +19,7 @@ export type QuestionHandler = (request: QuestionRequest) => void;
 export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
+export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 
 type Pending = { resolve: (value: any) => void };
 
@@ -34,6 +36,7 @@ export class BridgeClient {
 	private questionHandlers = new Set<QuestionHandler>();
 	private termHandlers = new Set<TermMessageHandler>();
 	private iabHandlers = new Set<IabMessageHandler>();
+	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -80,6 +83,10 @@ export class BridgeClient {
 			}
 			if (message.type === "iab.frame" || message.type === "iab.pages" || message.type === "iab.filechooser") {
 				for (const handler of this.iabHandlers) handler(message);
+				return;
+			}
+			if (message.type === "sidebar.open") {
+				for (const handler of this.sidebarOpenHandlers) handler(message);
 			}
 		};
 		ws.onclose = () => {
@@ -120,6 +127,12 @@ export class BridgeClient {
 	onIabMessage(handler: IabMessageHandler): () => void {
 		this.iabHandlers.add(handler);
 		return () => this.iabHandlers.delete(handler);
+	}
+
+	/** sidebar_open 工具广播：模型请求在侧边工作台打开文件（App 决定开哪种 viewer）。 */
+	onSidebarMessage(handler: SidebarOpenHandler): () => void {
+		this.sidebarOpenHandlers.add(handler);
+		return () => this.sidebarOpenHandlers.delete(handler);
 	}
 
 	onStatus(handler: (connected: boolean) => void): () => void {

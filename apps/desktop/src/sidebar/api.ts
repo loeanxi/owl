@@ -95,6 +95,12 @@ export function createSidebarApi(client: BridgeClient) {
 
 export type SidebarApi = ReturnType<typeof createSidebarApi>;
 
+/** workspace 相对路径 → file:// URL（open.external 走系统默认程序时的形态）。 */
+export function fileUrlOf(cwd: string, relPath: string): string {
+	const base = `${cwd.replace(/\\/g, "/").replace(/\/+$/, "")}/${relPath.replace(/\\/g, "/")}`;
+	return encodeURI(`file:///${base.replace(/^\/+/, "")}`);
+}
+
 /** 归一化路径比较（Windows 大小写不敏感 + 分隔符统一），与 App 的 samePath 同规则。 */
 export function samePath(a: string | undefined, b: string | undefined): boolean {
 	const norm = (p: string | undefined): string => (p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();

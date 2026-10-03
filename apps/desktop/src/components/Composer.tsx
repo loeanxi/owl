@@ -235,17 +235,24 @@ export function Composer({
 	}, [value]);
 
 	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
-	const slashMatch = slashDismissed ? undefined : /^\/([a-zA-Z0-9:_-]*)$/.exec(value);
+	// exec 不命中返回 null（≠ undefined），用 null 判「不在输入命令」。
+	const slashExec = slashDismissed ? null : /^\/([a-zA-Z0-9:_-]*)$/.exec(value);
 	const slashItems: SlashCommandEntry[] = [];
-	if (slashMatch) {
-		const query = slashMatch[1].toLowerCase();
+	if (slashExec) {
+		const query = slashExec[1].toLowerCase();
 		for (const entry of commands) {
 			const name = entry.name.toLowerCase();
 			if (name.startsWith(query) || name.includes(query)) slashItems.push(entry);
 		}
-		slashItems.sort(
-			(a, b) => Number(b.name.toLowerCase().startsWith(query)) - Number(a.name.toLowerCase().startsWith(query)),
-		);
+		if (query === "") {
+			// 空查询（刚敲 "/"）：内置命令置顶，技能/扩展按原顺序跟在后面——
+			// 技能动辄几十个，不置顶的话内置命令会被挤出可见区。
+			slashItems.sort((a, b) => Number(a.kind !== "builtin") - Number(b.kind !== "builtin"));
+		} else {
+			slashItems.sort(
+				(a, b) => Number(b.name.toLowerCase().startsWith(query)) - Number(a.name.toLowerCase().startsWith(query)),
+			);
+		}
 		if (slashItems.length > 30) slashItems.length = 30;
 	}
 	const slashOpen = slashItems.length > 0;
@@ -443,7 +450,7 @@ export function Composer({
 				</div>
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div className="relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" ref={inputBoxRef}>
-					{slashMatch !== undefined && (
+					{slashExec !== null && (
 						<div
 							ref={slashMenuRef}
 							className="absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
@@ -504,10 +511,12 @@ export function Composer({
 										setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
 										return;
 									}
-									// Enter/Tab 选中命令；Esc 关闭菜单（输入变化才重开）
+									// Enter/Tab 选中命令；命令名已完整敲入时回车直接执行（省一次回车）
 									if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
 										event.preventDefault();
-										acceptSlashCommand(slashItems[slashActive]!);
+										const picked = slashItems[slashActive]!;
+										acceptSlashCommand(picked);
+										if (event.key === "Enter" && `/${picked.name}` === value.trim()) submit();
 										return;
 									}
 									if (event.key === "Escape") {
