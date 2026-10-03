@@ -10,6 +10,7 @@ import { lazy } from "react";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
+import { ContextTab } from "./tabs/ContextTab.tsx";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
@@ -69,6 +70,12 @@ const DEFINITIONS: TabDefinition[] = [
 		title: "任务管理",
 		icon: quickIcon("tasks"),
 		component: TasksTab,
+	},
+	{
+		kind: "context",
+		title: "上下文",
+		icon: quickIcon("context"),
+		component: ContextTab,
 	},
 	{
 		kind: "impression",

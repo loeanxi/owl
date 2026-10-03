@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
-import { t, useT, type TextKey } from "../i18n/index.ts";
+import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { projectLabel, samePath } from "../utils/paths.ts";
@@ -314,8 +314,10 @@ export function Composer({
 		const aCurrent = samePath(a, workspaceDir);
 		const bCurrent = samePath(b, workspaceDir);
 		if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
-		return projectLabel(a).localeCompare(projectLabel(b), "zh-CN");
+		return projectLabel(a).localeCompare(projectLabel(b), getUiLanguage() === "en" ? "en" : "zh-CN");
 	});
+
+	const activeMode = APPROVAL_MODES.find((entry) => entry.value === approvalMode);
 
 	const modelMenu = (close: () => void): React.JSX.Element => (
 		<div className="max-h-72 w-72 overflow-y-auto">
@@ -552,8 +554,8 @@ export function Composer({
 						) : (
 							<button
 								type="button"
-								aria-label="发送"
-								title="发送"
+								aria-label={t("composer.send")}
+								title={t("composer.send")}
 								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 								disabled={disabled}
 								onClick={submit}
@@ -569,12 +571,12 @@ export function Composer({
 				<div className="flex flex-wrap items-center gap-1 px-1 pt-2">
 					<Menu
 						triggerClassName={ghostPillClass}
-						triggerTitle={APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.title}
+						triggerTitle={activeMode ? t(activeMode.titleKey) : undefined}
 						panelClassName="left-0 w-64"
 						trigger={
 							<>
 								<ModeIcon mode={approvalMode} active={approvalMode !== "confirm"} />
-								<span>{APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.label ?? approvalMode}</span>
+								<span>{activeMode ? t(activeMode.labelKey) : approvalMode}</span>
 								<Chevron />
 							</>
 						}
@@ -586,14 +588,14 @@ export function Composer({
 										key={entry.value}
 										type="button"
 										className={`${menuItemClass} ${entry.value === approvalMode ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
-										title={entry.title}
+										title={t(entry.titleKey)}
 										onClick={() => {
 											onApprovalMode(entry.value);
 											close();
 										}}
 									>
 										<ModeIcon mode={entry.value} active={entry.value === approvalMode} />
-										<span className="flex-1">{entry.label}</span>
+										<span className="flex-1">{t(entry.labelKey)}</span>
 										{entry.value === approvalMode && <span className="text-owl-accent">✓</span>}
 									</button>
 								))}
@@ -603,7 +605,7 @@ export function Composer({
 					<div className="flex-1" />
 					<Menu
 						triggerClassName={ghostPillClass}
-						triggerTitle={thinkingDisabled ? "当前模型不支持思考" : "调整思考强度"}
+						triggerTitle={thinkingDisabled ? t("composer.thinkingUnsupported") : t("composer.thinkingTitle")}
 						panelClassName="right-0 w-36"
 						trigger={
 							<>
@@ -617,7 +619,7 @@ export function Composer({
 									<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
 									<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
 								</svg>
-								<span>思考·{THINKING_LABELS[thinkingLevel] ?? thinkingLevel}</span>
+								<span>{t("composer.thinkingChip", { level: THINKING_LABELS[thinkingLevel] ? t(THINKING_LABELS[thinkingLevel]) : thinkingLevel })}</span>
 								<Chevron />
 							</>
 						}
@@ -634,7 +636,7 @@ export function Composer({
 											close();
 										}}
 									>
-										<span className="flex-1">{THINKING_LABELS[level] ?? level}</span>
+										<span className="flex-1">{THINKING_LABELS[level] ? t(THINKING_LABELS[level]) : level}</span>
 										{level === thinkingLevel && <span className="text-owl-accent">✓</span>}
 									</button>
 								))}
@@ -643,7 +645,7 @@ export function Composer({
 					</Menu>
 					<Menu
 						triggerClassName={ghostPillClass}
-						triggerTitle="切换模型"
+						triggerTitle={t("composer.switchModel")}
 						panelClassName="right-0 w-72"
 						trigger={
 							<>
@@ -656,20 +658,20 @@ export function Composer({
 					</Menu>
 					<Menu
 						triggerClassName={ghostPillClass}
-						triggerTitle="查看上下文"
+						triggerTitle={t("composer.viewContext")}
 						panelClassName="right-0 w-72"
 						trigger={
 							<>
 								<ContextRing percent={percent} />
 								<span className={percent !== null ? contextTone(percent) : undefined}>
-									{percent !== null ? `${Math.round(percent)}%` : "上下文"}
+									{percent !== null ? `${Math.round(percent)}%` : t("composer.context")}
 								</span>
 							</>
 						}
 					>
 						{sessionInfo ? (
 							<div className="w-full px-3 py-2 text-xs text-owl-muted">
-								<p className="pb-1.5 text-owl-text">上下文窗口</p>
+								<p className="pb-1.5 text-owl-text">{t("composer.contextWindow")}</p>
 								<div className="mb-1 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
 									<div
 										className={`h-full rounded-full ${
@@ -685,21 +687,22 @@ export function Composer({
 								</p>
 								{sessionInfo.stats && (
 									<>
-										<p className="pb-1.5 text-owl-text">本次会话累计</p>
+										<p className="pb-1.5 text-owl-text">{t("composer.sessionTotals")}</p>
 										<p className="text-owl-faint">
-											输入 {formatTokens(sessionInfo.stats.tokens.input)} · 输出{" "}
-											{formatTokens(sessionInfo.stats.tokens.output)} · 缓存{" "}
-											{formatTokens(sessionInfo.stats.tokens.cacheRead + sessionInfo.stats.tokens.cacheWrite)}
+											{t("composer.statsTokens", {
+												input: formatTokens(sessionInfo.stats.tokens.input),
+												output: formatTokens(sessionInfo.stats.tokens.output),
+												cache: formatTokens(sessionInfo.stats.tokens.cacheRead + sessionInfo.stats.tokens.cacheWrite),
+											})}
 										</p>
 										<p className="text-owl-faint">
-											合计 {formatTokens(sessionInfo.stats.tokens.total)} tokens · $
-											{sessionInfo.stats.cost.toFixed(4)}
+											{t("composer.statsCost", { total: formatTokens(sessionInfo.stats.tokens.total), cost: sessionInfo.stats.cost.toFixed(4) })}
 										</p>
 									</>
 								)}
 							</div>
 						) : (
-							<p className="px-3 py-2 text-xs text-owl-faint">会话开始后可查看上下文用量</p>
+							<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.contextEmptyHint")}</p>
 						)}
 					</Menu>
 				</div>

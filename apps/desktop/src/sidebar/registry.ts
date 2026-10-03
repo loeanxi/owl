@@ -7,11 +7,14 @@
  * 一个工作台实例）；viewer 按 kind 两档（image / editor），文件打开时按扩展
  * 名匹配。
  */
-import { useSyncExternalStore } from "react";
+import { createContext, useSyncExternalStore } from "react";
 import type { SidebarApi } from "./api.ts";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import type { SidebarStore, SidebarTab } from "./store.ts";
+
+/** 当前主聊天的资源归属；工作台跨聊天保留，具体页面仍保留自己的归属。 */
+export const BrowserSessionContext = createContext<string | undefined>(undefined);
 
 /** 每个 tab 组件收到的公共 props。 */
 export interface TabComponentProps {

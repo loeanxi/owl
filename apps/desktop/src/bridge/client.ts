@@ -9,6 +9,7 @@ import type {
 	SidebarOpenMessage,
 	TermDataMessage,
 	TermExitMessage,
+	ViewerChangedMessage,
 } from "./protocol.ts";
 
 export type PermissionRequest = PermissionRequestMessage;
@@ -20,6 +21,7 @@ export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
 export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
+export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 
 type Pending = { resolve: (value: any) => void };
 
@@ -37,6 +39,7 @@ export class BridgeClient {
 	private termHandlers = new Set<TermMessageHandler>();
 	private iabHandlers = new Set<IabMessageHandler>();
 	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
+	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -87,6 +90,10 @@ export class BridgeClient {
 			}
 			if (message.type === "sidebar.open") {
 				for (const handler of this.sidebarOpenHandlers) handler(message);
+				return;
+			}
+			if (message.type === "viewer.changed") {
+				for (const handler of this.viewerChangedHandlers) handler(message);
 			}
 		};
 		ws.onclose = () => {
@@ -138,6 +145,11 @@ export class BridgeClient {
 	onStatus(handler: (connected: boolean) => void): () => void {
 		this.statusHandlers.add(handler);
 		return () => this.statusHandlers.delete(handler);
+	}
+
+	onViewersChanged(handler: ViewerChangedHandler): () => void {
+		this.viewerChangedHandlers.add(handler);
+		return () => this.viewerChangedHandlers.delete(handler);
 	}
 
 	request<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{

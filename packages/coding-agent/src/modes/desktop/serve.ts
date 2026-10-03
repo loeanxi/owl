@@ -52,6 +52,7 @@ import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
+import { listWorkspaceViewers, openWorkspaceViewer, subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
@@ -356,6 +357,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** 终端会话表（term.* 路由的目标）；termId → 创建它的连接，断线时兜底回收 */
 	const terminals = new TerminalManager();
 	const wsTerms = new WeakMap<WebSocket, Set<string>>();
+	const viewerRequests = new WeakMap<WebSocket, Set<AbortController>>();
 	/** IAB 帧流订阅：连接 → 它在看的 pageId 集合（断线兜底回收）。 */
 	const iabSubscriptions = new WeakMap<WebSocket, Set<string>>();
 	/** 内嵌浏览器 hub：UI 面板与 agent 工具共用的无头浏览器。 */
@@ -1569,6 +1571,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: await listWorkspaceDirectory(request.cwd, request.path ?? "") });
 				return;
 			}
+			case "viewer.list": {
+				reply(ws, request.id, { ok: true, result: { viewers: listWorkspaceViewers() } });
+				return;
+			}
+			case "viewer.open": {
+				const controller = new AbortController();
+				const pending = viewerRequests.get(ws) ?? new Set<AbortController>();
+				viewerRequests.set(ws, pending);
+				pending.add(controller);
+				try {
+					const result = await openWorkspaceViewer(request.viewerId, {
+						cwd: request.cwd, path: request.path, signal: controller.signal,
+					});
+					reply(ws, request.id, { ok: true, result });
+				} finally {
+					pending.delete(controller);
+				}
+				return;
+			}
 			case "fs.read": {
 				reply(ws, request.id, { ok: true, result: await readWorkspaceFile(request.cwd, request.path) });
 				return;
@@ -1860,6 +1881,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		});
 		ws.on("close", () => {
 			clients.delete(ws);
+			for (const controller of viewerRequests.get(ws) ?? []) controller.abort();
+			viewerRequests.delete(ws);
 			// 连接断开：回收它名下的终端（UI 关闭时也会主动 kill，这里是兜底）
 			const owned = wsTerms.get(ws);
 			if (owned) {
@@ -1877,10 +1900,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		httpServer.listen(port, host, resolve);
 	});
 	startArchivePurgeTimer();
+	const unsubscribeViewers = subscribeWorkspaceViewers((viewers) => broadcast({ type: "viewer.changed", viewers }));
 
 	return {
 		port,
 		async close() {
+			unsubscribeViewers();
 			if (archiveTimer) clearInterval(archiveTimer);
 			for (const { unsubscribe } of sessions.values()) unsubscribe();
 			sessions.clear();

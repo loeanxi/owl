@@ -25,7 +25,8 @@ import { openQuickAction } from "./sidebar/quick.tsx";
 import { openDeveloperWorkbench } from "./sidebar/developer.ts";
 import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarConfig, viewerKindForPath } from "./sidebar/config.ts";
 import { fileUrlOf } from "./sidebar/api.ts";
-import { isIabPageBound, boundTabIdFor, encodeIabPath } from "./sidebar/iab-bound.ts";
+import { isIabPageBound, boundTabIdFor, encodeIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
+import { BrowserSessionContext } from "./sidebar/registry.ts";
 import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -306,12 +307,12 @@ export default function App(): React.JSX.Element {
 			return client.onIabMessage((message) => {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
 				if (!isTabKindEnabled("browser", getSidebarConfig())) return;
-				const target = message.pages.find((page) => page.active) ?? message.pages[0];
+				const target = agentPageForSession(message, sessionIdRef.current);
 				if (!target) return;
 				// 已有面板在看：直接激活那个 tab；没有才开新 tab
 				const boundTabId = isIabPageBound(target.pageId) ? boundTabIdFor(target.pageId) : undefined;
 				if (boundTabId) workbenchStore.activate(boundTabId);
-				else workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
+				else workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url, target.sessionId));
 				if (dockRef.current !== "right") setDockPersisted("right");
 				setWorkbenchOpenPersisted(true);
 			});
@@ -823,6 +824,7 @@ export default function App(): React.JSX.Element {
 							draftRequest={draftRequest}
 						/>
 					</div>
+					<BrowserSessionContext.Provider value={sessionId}>
 					<Workbench
 						client={client}
 						cwd={workspaceDir}
@@ -833,6 +835,7 @@ export default function App(): React.JSX.Element {
 						onSetDock={setDockPersisted}
 						developerLayout={developerLayout}
 					/>
+					</BrowserSessionContext.Provider>
 				</div>
 			{showSettings && (
 				<SettingsPage

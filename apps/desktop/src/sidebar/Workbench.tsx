@@ -41,7 +41,7 @@ export interface WorkbenchProps {
 
 const HEIGHT_MIN = 140;
 const WIDTH_MIN = 280;
-const DESIGNED_TAB_KINDS = new Set(["files", "changes", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
+const DESIGNED_TAB_KINDS = new Set(["files", "changes", "editor", "terminal", "browser", "tasks", "context", "impression", "image", "document"]);
 
 interface DragState {
 	id: string;

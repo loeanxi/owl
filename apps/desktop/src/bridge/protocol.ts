@@ -42,6 +42,8 @@ export type {
 	ServerResponseMessage,
 	SessionAbortRequest,
 	SessionCreateRequest,
+	ContextGetRequest,
+	ContextGetResult,
 	SessionListRequest,
 	SessionPromptRequest,
 	SessionSetApprovalModeRequest,
@@ -85,7 +87,15 @@ export type {
 	IabStateResult,
 	IabInputPayload,
 	SidebarOpenMessage,
+	ViewerChangedMessage,
+	ViewerListRequest,
+	ViewerListResult,
+	ViewerOpenRequest,
+	WorkspaceViewerInfo,
+	WorkspaceViewerOpenResult,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
+// 上下文洞察的 wire 类型本体在 core/context-insight（内核 protocol 也只是转引）
+export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";
 
 import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 

@@ -5,6 +5,9 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
+
+export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
 /**
  * 工具审批模式：
@@ -724,11 +727,13 @@ export interface TermExitMessage {
 /** IAB 里的一个页面（= 无头浏览器的一个 tab）。 */
 export interface IabPageInfo {
 	pageId: string;
+	/** 拥有该页面的聊天；未绑定聊天的手动页面可由聊天显式认领。 */
+	sessionId?: string;
 	url: string;
 	title: string;
 	/** 当前 CSS 视口（用户可由 iab.viewport 调整）。 */
 	viewport: { width: number; height: number };
-	/** agent 最近操作/导航的页面（每连接至多一个，供 UI 高亮与自动开 tab）。 */
+	/** 该聊天内 agent 最近操作/导航的页面，供 UI 高亮与自动开 tab。 */
 	active: boolean;
 }
 
@@ -740,6 +745,8 @@ export interface IabPagesMessage {
 	type: "iab.pages";
 	pages: IabPageInfo[];
 	origin: "agent" | "ui";
+	/** 触发 agent 操作的聊天；页面清单始终包含全部聊天的页面。 */
+	originSessionId?: string;
 }
 
 /** 页面弹出了文件选择框（无头浏览器弹不出系统对话框）：UI 提示横幅，agent 可用 browser_set_file_chooser 提供路径。 */
@@ -766,6 +773,8 @@ export interface IabOpenRequest {
 	id: string;
 	url?: string;
 	pageId?: string;
+	/** 新建/认领页面的聊天；已有页面不能由其他聊天认领。 */
+	sessionId?: string;
 }
 
 export interface IabOpenResult {
@@ -859,6 +868,28 @@ export interface SidebarOpenMessage {
 	path: string;
 }
 
+/** Discover file viewers registered by active Owl plugins. */
+export interface ViewerListRequest {
+	type: "viewer.list";
+	id: string;
+}
+
+export interface ViewerListResult {
+	viewers: WorkspaceViewerInfo[];
+}
+
+export interface ViewerOpenRequest {
+	type: "viewer.open";
+	id: string;
+	viewerId: string;
+	cwd: string;
+	path: string;
+}
+
+export interface ViewerChangedMessage extends ViewerListResult {
+	type: "viewer.changed";
+}
+
 export interface PermissionResponseRequest {
 	type: "permission.response";
 	id: string;
@@ -949,6 +980,8 @@ export type DesktopClientRequest =
 	| MemoryClearRequest
 	| PingRequest
 	| PermissionResponseRequest
+	| ViewerListRequest
+	| ViewerOpenRequest
 	| FsTreeRequest
 	| FsReadRequest
 	| FsReadBinRequest
@@ -1075,6 +1108,7 @@ export type DesktopServerMessage =
 	| TermDataMessage
 	| TermExitMessage
 	| IabServerMessage
+	| ViewerChangedMessage
 	| SidebarOpenMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */

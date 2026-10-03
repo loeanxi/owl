@@ -12,9 +12,10 @@
  * 重渲染会拿 state 覆写 DOM value）。state 只留低频量：绑定页元信息、帧的
  * 尺寸（视口切换才变）、舞台尺寸、文件选择横幅。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
-import type { TabComponentProps } from "../registry.ts";
+import { BrowserSessionContext, type TabComponentProps } from "../registry.ts";
+import { useSidebarState } from "../store.ts";
 import { bindIabPage, encodeIabPath, parseIabPath, unbindIabPage } from "../iab-bound.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
 import "./browser.css";
@@ -90,6 +91,10 @@ interface StageGeometry {
 }
 
 export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
+	const sessionId = useContext(BrowserSessionContext);
+	const sidebarState = useSidebarState(store);
+	const sessionIdRef = useRef(sessionId);
+	sessionIdRef.current = sessionId;
 	const [page, setPage] = useState<IabPageInfo | undefined>(undefined);
 	const [draft, setDraft] = useState(() => parseIabPath(tab.path).url ?? "");
 	const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>(undefined);
@@ -115,9 +120,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const applyPage = useCallback(
 		(next: IabPageInfo): void => {
 			const current = pageRef.current;
-			if (current?.pageId !== next.pageId || current.url !== next.url) {
+			if (current?.pageId !== next.pageId || current.url !== next.url || current.sessionId !== next.sessionId) {
 				// 绑定/换页/URL 被带走：持久化跟着走（pageId 优先，URL 兜底，重开应用还原）
-				store.setTabPath(tab.id, encodeIabPath(next.pageId, next.url));
+				store.setTabPath(tab.id, encodeIabPath(next.pageId, next.url, next.sessionId));
 				setDraft(next.url);
 			}
 			pageRef.current = next;
@@ -198,10 +203,11 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		let retryOff: (() => void) | undefined;
 		let fellBack = false;
 		const attempt = (): void => {
+			const ownerSessionId = parsed.sessionId ?? sessionIdRef.current;
 			const request =
 				initialPageId && !fellBack
 					? { type: "iab.open" as const, pageId: initialPageId }
-					: { type: "iab.open" as const, url: initialUrl ?? "about:blank" };
+					: { type: "iab.open" as const, url: initialUrl ?? "about:blank", ...(ownerSessionId ? { sessionId: ownerSessionId } : {}) };
 			void client
 				.request<{ page: IabPageInfo }>(request)
 				.then((response) => {
@@ -234,6 +240,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	// 未建聊天时用户先打开的页面，在该面板成为当前聊天的操作目标时认领。
+	// 已归属其他聊天的页面保留手动查看，不随聊天切换重新绑定。
+	useEffect(() => {
+		if (!sessionId || !page || page.sessionId || sidebarState.activeId !== tab.id) return;
+		let cancelled = false;
+		void client.request<{ page: IabPageInfo }>({ type: "iab.open", pageId: page.pageId, sessionId }).then((response) => {
+			if (!cancelled && response.ok && response.result) applyPage(response.result.page);
+		}).catch(() => {});
+		return () => { cancelled = true; };
+	}, [client, sessionId, page?.pageId, page?.sessionId, sidebarState.activeId, tab.id, applyPage]);
 
 	// 页面就位：登记 + 订阅帧流；卸载/换页时退订。绑定 3 秒后仍无一帧
 	// （attach 时首帧可能丢）就重发一次 attach，让桥重新抓全量帧。
@@ -284,6 +301,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						mine.url !== current.url ||
 						mine.title !== current.title ||
 						mine.active !== current.active ||
+						mine.sessionId !== current.sessionId ||
 						mine.viewport.width !== current.viewport.width ||
 						mine.viewport.height !== current.viewport.height
 					)
@@ -366,9 +384,10 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		setDraft(next);
 		if (!next) return;
 		const current = pageRef.current;
+		const ownerSessionId = current?.sessionId ?? sessionIdRef.current;
 		void client
 			.request<{ page: IabPageInfo }>(
-				current ? { type: "iab.open", pageId: current.pageId, url: next } : { type: "iab.open", url: next },
+				{ type: "iab.open", ...(current ? { pageId: current.pageId } : {}), url: next, ...(ownerSessionId ? { sessionId: ownerSessionId } : {}) },
 			)
 			.then((response) => {
 				if (response.ok && response.result) {

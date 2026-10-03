@@ -144,7 +144,7 @@ export function classifyRequestMessages(messages: readonly AgentMessage[]): Cont
 		other: 0,
 	};
 	let leadingSeen = false;
-	for (const message of messages as Array<Record<string, any>>) {
+	for (const message of messages as ReadonlyArray<Record<string, any>>) {
 		switch (message?.role) {
 			case "system": {
 				const { base, sections } = systemMessageChars(message);
@@ -267,12 +267,17 @@ export function getContextInsight(sessionId: string): Readonly<ContextInsightSta
 	return states.get(sessionId);
 }
 
+/** cwd 归一化：分隔符统一为 /、去尾斜杠、小写（Windows 路径两侧写法不定）。 */
+function normalizeCwd(cwd: string): string {
+	return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 /** 按 cwd 找最近活跃的会话洞察（桥的 context.get 不带 sessionId 时用）。 */
 export function findContextInsightByCwd(cwd: string): { sessionId: string; state: Readonly<ContextInsightState> } | undefined {
-	const resolved = cwd.replace(/[\\/]+$/, "").toLowerCase();
+	const resolved = normalizeCwd(cwd);
 	let best: { sessionId: string; state: ContextInsightState } | undefined;
 	for (const state of states.values()) {
-		if (state.cwd.replace(/[\\/]+$/, "").toLowerCase() !== resolved) continue;
+		if (normalizeCwd(state.cwd) !== resolved) continue;
 		if (!best || state.lastTs > best.state.lastTs) best = { sessionId: state.sessionId, state };
 	}
 	return best;
