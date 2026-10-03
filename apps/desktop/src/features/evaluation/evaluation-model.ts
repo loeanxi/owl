@@ -79,10 +79,7 @@ const PREVIEW_POLICY = "default-src 'none'; base-uri 'none'; connect-src 'none';
 export function isolatedPreview(content: string, type: "svg" | "html"): string {
 	const policy = type === "svg" ? PREVIEW_POLICY.replace("script-src 'unsafe-inline'", "script-src 'none'") : PREVIEW_POLICY;
 	const document = new DOMParser().parseFromString(content, "text/html");
-	for (const element of document.querySelectorAll("base,meta[http-equiv],iframe,frame,object,embed,link,form")) {
-		if (element.tagName === "FORM") element.replaceWith(...element.childNodes);
-		else element.remove();
-	}
+	for (const element of document.querySelectorAll("base,meta[http-equiv],iframe,frame,object,embed,link")) element.remove();
 	for (const element of document.querySelectorAll("[href],[xlink\\:href],[target],[action],[formaction]")) {
 		for (const attribute of ["target", "action", "formaction"]) element.removeAttribute(attribute);
 		for (const attribute of ["href", "xlink:href"]) {

@@ -71,6 +71,14 @@ export interface EvaluationRating {
 	scores: Record<string, number>;
 	note: string;
 }
+export interface EvaluationActualModel {
+	provider: string;
+	modelId: string;
+	responseModel: string | null;
+	/** null means provider defaults were used, with no guaranteed requested effort. */
+	forwardedThinkingLevel: Exclude<EvaluationThinkingLevel, "default"> | null;
+	providerThinkingLevel: string | null;
+}
 export type EvaluationResultStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export interface EvaluationResult {
 	id: string;
@@ -91,6 +99,7 @@ export interface EvaluationResult {
 	costUsd: number | null;
 	rating: EvaluationRating | null;
 	retryOf: string | null;
+	actualModel?: EvaluationActualModel;
 }
 export interface EvaluationGroup {
 	taskId: string;
@@ -115,7 +124,7 @@ export interface EvaluationRun {
 export interface EvaluationResultView
 	extends Omit<
 		EvaluationResult,
-		"profileId" | "thinking" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd"
+		"profileId" | "thinking" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"
 	> {
 	anonymousLabel: string;
 	revealed: boolean;
@@ -126,6 +135,7 @@ export interface EvaluationResultView
 	durationMs?: number | null;
 	usage?: EvaluationUsage | null;
 	costUsd?: number | null;
+	actualModel?: EvaluationActualModel;
 }
 export interface EvaluationRunView extends Omit<EvaluationRun, "profiles" | "results"> {
 	profileCount: number;

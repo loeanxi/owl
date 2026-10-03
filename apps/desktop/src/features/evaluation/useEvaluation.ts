@@ -25,7 +25,13 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 		setLoading(!snapshot);
 		void api.query({ action: "bootstrap" }).then((value) => {
 			if (current) { setSnapshot(value); setError(""); setConnected(true); }
-		}, (cause: unknown) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (current) setLoading(false); });
+		}, (cause: unknown) => {
+			if (current) {
+				const message = cause instanceof Error ? cause.message : String(cause);
+				setError(message);
+				if (/bridge (not connected|disconnected)/i.test(message)) setConnected(false);
+			}
+		}).finally(() => { if (current) setLoading(false); });
 		return () => { current = false; };
 	}, [api, active, revision]);
 	useEffect(() => {

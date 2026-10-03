@@ -161,6 +161,7 @@ export type {
 export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";
 export type * from "../../../../packages/coding-agent/src/core/news/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/mail/types.ts";
+export type * from "../../../../packages/coding-agent/src/core/evaluation/types.ts";
 
 import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 

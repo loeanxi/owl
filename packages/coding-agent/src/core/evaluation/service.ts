@@ -61,11 +61,16 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 		for (const [index, id] of group.resultIds.entries()) {
 			const result = run.results.find((entry) => entry.id === id);
 			if (!result) continue;
-			const { profileId, thinking, startedAt, finishedAt, durationMs, usage, costUsd, ...anonymous } = result;
+			let anonymousLabel = "";
+			for (let number = index + 1; number > 0; number = Math.floor((number - 1) / 26)) {
+				anonymousLabel = String.fromCharCode(65 + ((number - 1) % 26)) + anonymousLabel;
+			}
+			const { profileId, thinking, startedAt, finishedAt, durationMs, usage, costUsd, actualModel, ...anonymous } =
+				result;
 			results.push({
 				...structuredClone(anonymous),
 				error: !group.revealed && result.error ? "本次生成未完成；揭晓后可查看详细原因" : result.error,
-				anonymousLabel: `结果 ${String.fromCharCode(65 + index)}`,
+				anonymousLabel,
 				revealed: group.revealed,
 				...(group.revealed
 					? {
@@ -76,6 +81,7 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 							durationMs,
 							usage: structuredClone(usage),
 							costUsd,
+							...(actualModel ? { actualModel: structuredClone(actualModel) } : {}),
 						}
 					: {}),
 			});
@@ -111,6 +117,24 @@ function validateTask(task: EvaluationTask): void {
 		rubricIds.add(item.id);
 	}
 	if (!Array.isArray(task.checks) || task.checks.length > 30) throw new Error("检查项格式错误");
+	for (const check of task.checks) {
+		if (
+			!check ||
+			typeof check.id !== "string" ||
+			!check.id ||
+			typeof check.label !== "string" ||
+			typeof check.kind !== "string" ||
+			!check.kind
+		)
+			throw new Error("检查项格式错误");
+	}
+	if (
+		task.source &&
+		(typeof task.source.label !== "string" ||
+			typeof task.source.url !== "string" ||
+			!/^https?:\/\//i.test(task.source.url))
+	)
+		throw new Error("题目来源链接必须为 HTTP 或 HTTPS");
 }
 
 /** Durable background queue. Disconnecting or changing desktop pages does not stop model calls. */
@@ -152,7 +176,26 @@ export class EvaluationService {
 					throw new Error("内置题只允许复制后修改");
 				const old = this.store.listTasks().find((task) => task.id === request.task.id);
 				const task: EvaluationTask = {
-					...structuredClone(request.task),
+					id: request.task.id,
+					title: request.task.title.trim(),
+					category: request.task.category,
+					outputType: request.task.outputType,
+					prompt: request.task.prompt,
+					...(request.task.input === undefined ? {} : { input: request.task.input }),
+					...(request.task.source
+						? { source: { label: request.task.source.label, url: request.task.source.url } }
+						: {}),
+					rubric: request.task.rubric.map((item) => ({
+						id: item.id,
+						label: item.label,
+						description: item.description,
+					})),
+					checks: request.task.checks.map((item) => ({
+						id: item.id,
+						label: item.label,
+						kind: item.kind,
+						...(item.config ? { config: structuredClone(item.config) } : {}),
+					})),
 					builtin: false,
 					version: (old?.version ?? 0) + 1,
 				};
@@ -257,7 +300,10 @@ export class EvaluationService {
 			ids.add(input.id);
 			configurations.add(key);
 			return {
-				...structuredClone(input),
+				id: input.id,
+				provider: input.provider,
+				modelId: input.modelId,
+				thinkingLevel: input.thinkingLevel,
 				model: structuredClone(model),
 				maxTokens: Math.min(model.maxTokens, 32_768),
 				timeoutMs: this.timeoutMs,
@@ -392,6 +438,7 @@ export class EvaluationService {
 		const started = Date.now();
 		let lastSave = 0;
 		let timedOut = false;
+		let generationEnded: number | undefined;
 		const timeout = setTimeout(() => {
 			timedOut = true;
 			controller.abort(new Error("模型测评请求超时"));
@@ -422,11 +469,13 @@ export class EvaluationService {
 				}),
 				aborted,
 			]);
+			generationEnded = Date.now();
 			controller.signal.throwIfAborted();
 			result.output = invoked.text;
 			result.thinking = invoked.thinking;
 			result.usage = invoked.usage;
 			result.costUsd = invoked.costUsd;
+			result.actualModel = invoked.actualModel;
 			if (invoked.stopReason !== "stop") {
 				throw new Error(
 					invoked.error ??
@@ -448,7 +497,7 @@ export class EvaluationService {
 			clearTimeout(timeout);
 			if (onAbort) controller.signal.removeEventListener("abort", onAbort);
 			result.finishedAt = new Date().toISOString();
-			result.durationMs = Date.now() - started;
+			result.durationMs = (generationEnded ?? Date.now()) - started;
 			if (!run.results.some((entry) => entry.status === "queued" || entry.status === "running")) {
 				if (run.status === "running") run.status = this.closing ? "interrupted" : "completed";
 			}

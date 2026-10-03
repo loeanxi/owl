@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EvaluationInvocationResult, EvaluationInvoker } from "../src/core/evaluation/model.ts";
-import { EvaluationService } from "../src/core/evaluation/service.ts";
+import { EvaluationService, type EvaluationServiceOptions } from "../src/core/evaluation/service.ts";
 import { EvaluationStore } from "../src/core/evaluation/store.ts";
 import type {
 	EvaluationModel,
@@ -71,7 +71,7 @@ afterEach(async () => {
 	}
 });
 
-async function setup(invoke: EvaluationInvoker = async () => structuredClone(reply), timeoutMs = 1000) {
+async function setup(invoke: EvaluationInvoker = async () => structuredClone(reply), timeoutMs = 1000, check?: EvaluationServiceOptions["check"]) {
 	const directory = await mkdtemp(join(tmpdir(), "owl-evaluation-test-"));
 	directories.push(directory);
 	const service = new EvaluationService({
@@ -80,10 +80,10 @@ async function setup(invoke: EvaluationInvoker = async () => structuredClone(rep
 		listModels: async () => structuredClone(models),
 		invoke,
 		timeoutMs,
-		check: async (tested, text) => ({
+		check: check ?? (async (tested, text) => ({
 			artifact: { type: tested.outputType, content: text, previewAllowed: true },
 			checks: [{ id: "format", label: "格式", status: "passed", detail: "fixture checked" }],
-		}),
+		})),
 	});
 	services.push(service);
 	return { directory, service };
@@ -125,7 +125,9 @@ describe("durable model evaluation", () => {
 			request.onPartial("part", "hidden reasoning");
 			await new Promise((done) => setTimeout(done, 20));
 			active--;
-			return { ...structuredClone(reply), costUsd: request.profile.model.pricing ? reply.costUsd : null };
+			return { ...structuredClone(reply), costUsd: request.profile.model.pricing ? reply.costUsd : null,
+				actualModel: { provider: request.profile.provider, modelId: request.profile.modelId, responseModel: `${request.profile.modelId}-actual`, forwardedThinkingLevel: null, providerThinkingLevel: null },
+			};
 		});
 		const begun = await start(service, 3);
 		expect(begun.status).toBe("running");
@@ -141,6 +143,7 @@ describe("durable model evaluation", () => {
 			expect(result).not.toHaveProperty("durationMs");
 			expect(result).not.toHaveProperty("usage");
 			expect(result).not.toHaveProperty("costUsd");
+			expect(result).not.toHaveProperty("actualModel");
 		}
 		expect(done).not.toHaveProperty("profiles");
 		const persisted = JSON.parse(
@@ -253,6 +256,9 @@ describe("durable model evaluation", () => {
 			resultId: failed?.id ?? "",
 		})) as EvaluationRunView;
 		expect(retried.results).toHaveLength(7);
+		for (const result of done.results) {
+			expect(retried.results.find((entry) => entry.id === result.id)?.anonymousLabel).toBe(result.anonymousLabel);
+		}
 		const finished = await settle(service, done.id);
 		expect(finished.results.find((result) => result.id === failed?.id)?.status).toBe("failed");
 		expect(finished.results.find((result) => result.retryOf === failed?.id)?.status).toBe("completed");
@@ -321,5 +327,15 @@ describe("durable model evaluation", () => {
 		};
 		await expect(service.handle(request)).rejects.toThrow("档位");
 		await expect(service.handle({ ...request, profiles: [] })).rejects.toThrow("1 至 12");
+	});
+
+	it("measures model generation independently of checker execution", async () => {
+		const { service } = await setup(async () => reply, 1000, async () => {
+			await new Promise((done) => setTimeout(done, 60));
+			return { artifact: null, checks: [] };
+		});
+		const finished = await settle(service, (await start(service)).id);
+		const revealed = await service.handle({ action: "run.reveal", runId: finished.id, taskId: task.id, sample: 1, mode: "skip" }) as EvaluationRunView;
+		expect(revealed.results.every((result) => result.durationMs !== null && result.durationMs !== undefined && result.durationMs < 50)).toBe(true);
 	});
 });

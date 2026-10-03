@@ -3,7 +3,7 @@ import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map" | "news" | "mail";
+export type RailView = "chat" | "map" | "news" | "mail" | "evaluation";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。

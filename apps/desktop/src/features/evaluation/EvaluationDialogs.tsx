@@ -49,11 +49,12 @@ export function EvaluationTaskDetails({ task, t, onClose, onCopy, onEdit, onAdd,
 	</EvaluationDialog>;
 }
 
-export function EvaluationTaskEditor({ task, copy, t, busy, onClose, onSave }: {
+export function EvaluationTaskEditor({ task, copy, t, busy, externalError, onClose, onSave }: {
 	task?: EvaluationTask;
 	copy?: boolean;
 	t: EvaluationText;
 	busy: boolean;
+	externalError?: string;
 	onClose: () => void;
 	onSave: (task: EvaluationTask) => void;
 }): React.JSX.Element {
@@ -69,7 +70,7 @@ export function EvaluationTaskEditor({ task, copy, t, busy, onClose, onSave }: {
 		onSave({ id: task && !copy ? task.id : `U-${crypto.randomUUID()}`, version: task && !copy ? task.version : 1, title: title.trim(), category, prompt: prompt.trim(), input: input.trim() || undefined, outputType, builtin: false, source: task?.source, rubric: rubric.map((item) => ({ ...item, label: item.label.trim(), description: item.description.trim() })), checks: [{ id: "format", label: t("automatic"), kind: "format" }] });
 	};
 	return <EvaluationDialog title={task && !copy ? t("editTitle") : t("customTitle")} onClose={onClose} footer={<><button className="eval-button" disabled={busy} onClick={onClose}>{t("cancelEdit")}</button><button className="eval-button primary" disabled={busy} onClick={save}>{busy ? t("busy") : t("save")}</button></>}>
-		<p className="eval-muted" style={{ marginBottom: 15 }}>{t("customHint")}</p>{error && <p role="alert" style={{ color: "#d88181", marginBottom: 10 }}>{error}</p>}
+		<p className="eval-muted" style={{ marginBottom: 15 }}>{t("customHint")}</p>{(error || externalError) && <p role="alert" style={{ color: "#d88181", marginBottom: 10 }}>{error || externalError}</p>}
 		<label>{t("taskTitle")}<input autoFocus className="eval-field" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} /></label>
 		<div className="eval-toolbar"><label style={{ flex: 1 }}>{t("category")}<select className="eval-field" value={category} onChange={(event) => { const value = event.target.value as typeof category; setCategory(value); setOutputType(value); }}>{(["svg", "html", "code"] as const).map((value) => <option key={value} value={value}>{t(value)}</option>)}</select></label><label style={{ flex: 1 }}>{t("output")}<select className="eval-field" value={outputType} onChange={(event) => setOutputType(event.target.value as typeof outputType)}>{(["svg", "html", "code", "json"] as const).map((value) => <option key={value} value={value}>{value === "json" ? "JSON" : t(value)}</option>)}</select></label></div>
 		<label>{t("prompt")}<textarea className="eval-field" value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label><label>{t("input")}<textarea className="eval-field" value={input} onChange={(event) => setInput(event.target.value)} /></label>

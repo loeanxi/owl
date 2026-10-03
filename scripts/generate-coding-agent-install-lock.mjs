@@ -11,12 +11,10 @@ const outputDir = join(codingAgentDir, "install-lock");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
-const internalPackagePrefix = "@earendil-works/pi-";
-const internalPackageNames = new Set(["@earendil-works/chord"]);
 const installPackageName = "@owl/owl-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
-	["esbuild@0.28.2", "postinstall selects and verifies the platform-specific esbuild binary"],
+	["node-pty@1.1.0", "install checks bundled prebuilds or builds with node-gyp; postinstall cleans this package's build/Release and copies bundled Windows ConPTY files"],
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
 ]);
 
@@ -145,13 +143,15 @@ function getInternalWorkspaces(lockPackages) {
 		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
 			continue;
 		}
-		if (!entry.name.startsWith(internalPackagePrefix) && !internalPackageNames.has(entry.name)) {
-			continue;
-		}
-
-		workspaces.set(entry.name, {
+		const packageJsonPath = join(repoRoot, lockPath, "package.json");
+		// Ignore only unused records; missing required packages still fail resolution.
+		if (!existsSync(packageJsonPath)) continue;
+		const packageJson = readJson(packageJsonPath);
+		if (!packageJson.name || !packageJson.version) throw new Error(`${lockPath}/package.json must declare name and version`);
+		if (workspaces.has(packageJson.name)) throw new Error(`Duplicate workspace package ${packageJson.name}`);
+		workspaces.set(packageJson.name, {
 			lockPath,
-			packageJson: readJson(join(repoRoot, lockPath, "package.json")),
+			packageJson,
 		});
 	}
 
@@ -275,7 +275,7 @@ function createRootLockEntry(installerPackageJson) {
 	return sortedPackageEntry(entry);
 }
 
-function validateGeneratedFiles(installerPackageJson, installLock, internalNames) {
+function validateGeneratedFiles(installerPackageJson, installLock, internalNames, internalWorkspaces) {
 	const errors = [];
 	const rootEntry = installLock.packages[""];
 	const includedPackageNames = new Set();
@@ -312,10 +312,10 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		}
 		if (
 			packageName !== undefined &&
-			(packageName.startsWith(internalPackagePrefix) || internalPackageNames.has(packageName)) &&
-			entry.version !== installerPackageJson.version
+			internalNames.has(packageName) &&
+			entry.version !== internalWorkspaces.get(packageName)?.packageJson.version
 		) {
-			errors.push(`${lockPath} internal package version ${entry.version} does not match ${installerPackageJson.version}`);
+			errors.push(`${lockPath} internal package version ${entry.version} does not match its workspace manifest`);
 		}
 		if (entry.hasInstallScript) {
 			if (!packageName || !entry.version) {
@@ -364,11 +364,8 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		}
 	}
 
-	const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
-		.length;
-	if (platformPackageCount === 0) {
-		errors.push("no platform-specific optional dependency entries found");
-	}
+	// Node addons can ship their platform files inside one tarball rather than optional
+	// packages. Dependency resolution above still rejects any declared missing entry.
 
 	if (errors.length > 0) {
 		throw new Error(`Generated installer lock failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
@@ -422,7 +419,7 @@ function generateInstallLock() {
 		packages: sortedObject(installLockPackages),
 	};
 
-	validateGeneratedFiles(installerPackageJson, installLock, internalNames);
+	validateGeneratedFiles(installerPackageJson, installLock, internalNames, internalWorkspaces);
 	return { installerPackageJson, installLock };
 }
 

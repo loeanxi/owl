@@ -38,7 +38,11 @@ function send(response: ServerResponse, value: unknown, status = 200): void {
 }
 
 /** A bounded read-only API; clients never submit an upstream URL or raw Overpass query. */
-export async function handleMapHttp(request: IncomingMessage, response: ServerResponse, options: MapHttpOptions): Promise<boolean> {
+export async function handleMapHttp(
+	request: IncomingMessage,
+	response: ServerResponse,
+	options: MapHttpOptions,
+): Promise<boolean> {
 	const url = new URL(request.url ?? "/", "http://127.0.0.1");
 	if (!url.pathname.startsWith("/api/maps/")) return false;
 	if (options.authorizeOrigin && !options.authorizeOrigin(request.headers.origin)) {
@@ -58,10 +62,16 @@ export async function handleMapHttp(request: IncomingMessage, response: ServerRe
 			const query = (url.searchParams.get("q") ?? "").trim();
 			if (!query || query.length > 200) throw new Error("搜索地点须为 1–200 个字符");
 			const hasCenter = url.searchParams.has("lat") || url.searchParams.has("lng");
-			send(response, await options.service.geocode({ query, limit, language, ...(hasCenter ? { center: point(url) } : {}) }));
+			send(
+				response,
+				await options.service.geocode({ query, limit, language, ...(hasCenter ? { center: point(url) } : {}) }),
+			);
 		} else if (url.pathname === "/api/maps/nearby") {
 			const radiusMeters = numberParameter(url, "radius", 100, 10000, 2000);
-			send(response, await options.service.nearby({ center: point(url), category: category(url), radiusMeters, limit }));
+			send(
+				response,
+				await options.service.nearby({ center: point(url), category: category(url), radiusMeters, limit }),
+			);
 		} else if (url.pathname === "/api/maps/reverse") {
 			send(response, await options.service.reverse({ point: point(url), language }));
 		} else {

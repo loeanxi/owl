@@ -1,7 +1,22 @@
 import { join } from "node:path";
-import { type AssistantMessage, type Context, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import {
+	type Api,
+	type AssistantMessage,
+	type Context,
+	getSupportedThinkingLevels,
+	hasApi,
+	type Model,
+} from "@earendil-works/pi-ai";
 import { ModelRuntime } from "../model-runtime.ts";
-import type { EvaluationModel, EvaluationProfile, EvaluationTask, EvaluationUsage } from "./types.ts";
+import { isVirtualModel } from "../virtual-models.ts";
+import type {
+	EvaluationActualModel,
+	EvaluationModel,
+	EvaluationProfile,
+	EvaluationTask,
+	EvaluationThinkingLevel,
+	EvaluationUsage,
+} from "./types.ts";
 
 export interface EvaluationInvocation {
 	profile: EvaluationProfile;
@@ -16,8 +31,28 @@ export interface EvaluationInvocationResult {
 	costUsd: number | null;
 	stopReason: string;
 	error: string | null;
+	actualModel?: EvaluationActualModel;
 }
 export type EvaluationInvoker = (request: EvaluationInvocation) => Promise<EvaluationInvocationResult>;
+
+/** Only expose off when the existing adapter sends an explicit disable switch or mapped effort. */
+export function evaluationThinkingLevels(model: Model<Api>): EvaluationThinkingLevel[] {
+	const supported = getSupportedThinkingLevels(model);
+	const format = hasApi(model, "openai-completions") ? model.compat?.thinkingFormat : undefined;
+	const offValue = model.thinkingLevelMap?.off;
+	const offMapping = typeof offValue === "string" && ["none", "off", "disabled"].includes(offValue);
+	const explicitOff =
+		!model.reasoning ||
+		model.api === "anthropic-messages" ||
+		((model.api === "openai-responses" || model.api === "azure-openai-responses") &&
+			model.provider !== "github-copilot" &&
+			(offValue === undefined || offMapping)) ||
+		(model.api === "openai-completions" &&
+			(offMapping ||
+				["zai", "qwen", "qwen-chat-template", "deepseek", "together"].includes(format ?? "") ||
+				(["openrouter", "string-thinking"].includes(format ?? "") && offValue === undefined)));
+	return ["default", ...supported.filter((level) => level !== "off" || explicitOff)];
+}
 
 /** Creates only the configured model runtime: no resource loader, project instructions, tools, or session. */
 export function createEvaluationModelAccess(agentDir: string): {
@@ -37,31 +72,35 @@ export function createEvaluationModelAccess(agentDir: string): {
 		async listModels() {
 			const models = await runtime();
 			await models.refresh({ allowNetwork: false });
-			return models.getAvailableSnapshot().map((model) => ({
-				provider: String(model.provider),
-				modelId: model.id,
-				name: model.name,
-				sourceName: models.getProvider(model.provider)?.name ?? String(model.provider),
-				supportedThinkingLevels: ["default", ...getSupportedThinkingLevels(model)],
-				contextWindow: model.contextWindow,
-				maxTokens: model.maxTokens,
-				pricing: Object.values(model.cost).some((value) => typeof value === "number" && value > 0)
-					? {
-							input: model.cost.input,
-							output: model.cost.output,
-							cacheRead: model.cost.cacheRead,
-							cacheWrite: model.cost.cacheWrite,
-						}
-					: null,
-			}));
+			return models
+				.getAvailableSnapshot()
+				.filter((model) => !isVirtualModel(model))
+				.map((model) => ({
+					provider: String(model.provider),
+					modelId: model.id,
+					name: model.name,
+					sourceName: models.getProvider(model.provider)?.name ?? String(model.provider),
+					supportedThinkingLevels: evaluationThinkingLevels(model),
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+					pricing: Object.values(model.cost).some((value) => typeof value === "number" && value > 0)
+						? {
+								input: model.cost.input,
+								output: model.cost.output,
+								cacheRead: model.cost.cacheRead,
+								cacheWrite: model.cost.cacheWrite,
+							}
+						: null,
+				}));
 		},
 		async invoke(request) {
 			const models = await runtime();
 			request.signal.throwIfAborted();
 			const model = models.getModel(request.profile.provider, request.profile.modelId);
 			if (!model) throw new Error("测评模型已不存在，请重新选择模型");
+			if (isVirtualModel(model)) throw new Error("第一版测评请使用实体模型，不能使用自动路由模型");
 			const level = request.profile.thinkingLevel;
-			if (level !== "default" && !getSupportedThinkingLevels(model).includes(level)) {
+			if (!evaluationThinkingLevels(model).includes(level)) {
 				throw new Error("该模型不支持选定思考档位");
 			}
 			const context: Context = {
@@ -121,6 +160,13 @@ export function createEvaluationModelAccess(agentDir: string): {
 				costUsd: reported && request.profile.model.pricing !== null ? usage.cost.total : null,
 				stopReason: final.stopReason,
 				error: final.errorMessage ?? null,
+				actualModel: {
+					provider: String(final.provider),
+					modelId: final.model,
+					responseModel: final.responseModel ?? null,
+					forwardedThinkingLevel: level === "default" ? null : level,
+					providerThinkingLevel: final.providerThinkingLevel ?? null,
+				},
 			};
 		},
 	};

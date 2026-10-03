@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EvaluationArtifact, EvaluationRating, EvaluationResultView, EvaluationRunView, EvaluationTask } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 import type { EvaluationText } from "./evaluation-copy.ts";
 import { downloadEvaluationArtifact, FINISHED_STATUSES, groupResults, isolatedPreview } from "./evaluation-model.ts";
@@ -21,6 +21,7 @@ export function EvaluationResults({ run, task, sample, busy, t, onSample, onDeta
 }): React.JSX.Element {
 	const [drafts, setDrafts] = useState<Record<string, EvaluationRating>>({});
 	const [validation, setValidation] = useState("");
+	useEffect(() => setValidation(""), [task.id, sample]);
 	const group = run.groups.find((item) => item.taskId === task.id && item.sample === sample);
 	const results = groupResults(run, task.id, sample);
 	const successes = results.filter((result) => result.status === "completed");

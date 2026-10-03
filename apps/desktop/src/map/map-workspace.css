@@ -2625,6 +2625,19 @@ html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
 }
 
 /* Live place search and source-backed information share Owl's desktop frame. */
+.owl-map-workspace .map-source-badge {
+	font-size: 11px;
+	color: var(--owl-ui-muted);
+	border: 1px solid var(--owl-ui-border);
+	padding: 2px 7px;
+	border-radius: 4px;
+	white-space: nowrap;
+}
+@container owl-map-frame (max-width: 780px) {
+	.owl-map-workspace .map-source-badge {
+		display: none;
+	}
+}
 .owl-map-workspace .live-location-menu {
 	width: 320px;
 	max-width: calc(100vw - 100px);

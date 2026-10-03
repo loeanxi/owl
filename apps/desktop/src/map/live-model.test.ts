@@ -162,3 +162,16 @@ test("upstream failure is an explicit error and never returns demo fallback data
 	const malformed: typeof fetch = async () => new Response(JSON.stringify({ places: [place] }));
 	await assert.rejects(() => new RealMapClient(malformed).search("Taipei", "en"), /invalid response/);
 });
+
+test("cancelling a map lookup aborts its fetch and releases the pending wait", async () => {
+	const fakeFetch: typeof fetch = async (_input, init) =>
+		new Promise<Response>((_resolve, reject) => {
+			init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {
+				once: true,
+			});
+		});
+	const abort = new AbortController();
+	const pending = new RealMapClient(fakeFetch).search("Tokyo", "en", abort.signal);
+	abort.abort();
+	await assert.rejects(pending, { name: "AbortError" });
+});

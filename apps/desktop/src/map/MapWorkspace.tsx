@@ -18,6 +18,7 @@ import {
 	type LiveSearchRecord,
 	MAX_LIVE_COMPARISON,
 	nearbyCategoryFromMessage,
+	normalizeRealPlace,
 	parseCoordinates,
 	RealMapClient,
 	readLiveSavedState,
@@ -144,6 +145,8 @@ export function MapWorkspace({
 	const queryEpoch = useRef(0);
 	const sendEpoch = useRef(0);
 	const sendPending = useRef(false);
+	const pendingMessage = useRef("");
+	const lastModelMapUpdate = useRef<{ controller: MapConversation; revision: number } | undefined>(undefined);
 	const centerRef = useRef(center);
 	centerRef.current = center;
 	const busy = conversationState.busy || preparingMessage;
@@ -190,6 +193,56 @@ export function MapWorkspace({
 	useEffect(() => {
 		conversation.setConnected(connected);
 	}, [conversation, connected]);
+	useEffect(() => {
+		const frame = conversationState.mapUpdate;
+		if (
+			!frame ||
+			(lastModelMapUpdate.current?.controller === conversation &&
+				lastModelMapUpdate.current.revision >= frame.revision)
+		)
+			return;
+		lastModelMapUpdate.current = { controller: conversation, revision: frame.revision };
+		queryEpoch.current++;
+		queryAbort.current?.abort();
+		setMapLoading(false);
+		const update = frame.update;
+		if (update.result.sources.length > 0 && update.result.sources.every((source) => source.status === "error")) {
+			setMapError(update.result.sources.find((source) => source.error)?.error || m("mapUnavailable"));
+			return;
+		}
+		const data = update.result.data.map(normalizeRealPlace).filter((place): place is RealPlace => Boolean(place));
+		const nextCenter = update.center ?? (update.action !== "nearby" ? data[0] : undefined) ?? centerRef.current;
+		const nextName =
+			update.action !== "nearby" && data[0]
+				? placeName(data[0])
+				: straightLineDistance(nextCenter, centerRef.current) > 100
+					? pointLabel(nextCenter)
+					: centerLabel;
+		const nextCategory = update.category ?? category;
+		const nextRadius = update.radiusMeters ?? radius;
+		centerOn(nextCenter, nextName);
+		setCategory(nextCategory);
+		setRadius(nextRadius);
+		setMapError(undefined);
+		setHasSearched(true);
+		setFollowContext(undefined);
+		setLocationOpen(false);
+		setLocationCandidates(update.action === "search" ? data : []);
+		applyResult(
+			{ data, sources: update.result.sources },
+			update.query || (update.action === "reverse" ? pointLabel(nextCenter) : ""),
+			update.action === "nearby" ? "nearby" : "search",
+		);
+		setSelectedId(update.action === "nearby" ? undefined : data[0]?.id);
+		recordSearch(
+			update.query || (update.action === "nearby" ? m(categoryLabels[nextCategory]) : pointLabel(nextCenter)),
+			nextCenter,
+			nextName,
+			update.action === "nearby" ? "nearby" : "search",
+			nextCategory,
+			nextRadius,
+		);
+	}, [conversation, conversationState.mapUpdate]);
 	useEffect(() => {
 		if (active && conversationPinned.current && conversationScrollRef.current)
 			conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight;
@@ -544,6 +597,7 @@ export function MapWorkspace({
 		if (unavailable || conversation.getState().busy || sendPending.current) return;
 		const epoch = ++sendEpoch.current;
 		sendPending.current = true;
+		pendingMessage.current = text;
 		setStopped(false);
 		setConversationError(undefined);
 		if (view === "home") setView("results");
@@ -564,7 +618,7 @@ export function MapWorkspace({
 				locationName: centerLabel,
 				radiusMeters: radius,
 				category: requestedCategory ?? category,
-				selectedPlace: followContext ?? selectedPlace,
+				selectedPlace: followContext ?? (requestedCategory ? undefined : selectedPlace),
 				visiblePlaces,
 				comparisonPlaces,
 			};
@@ -580,6 +634,7 @@ export function MapWorkspace({
 			}
 			setHomeInput((current) => (current === text ? "" : current));
 			setFollowInput((current) => (current === text ? "" : current));
+			pendingMessage.current = "";
 		} catch (error) {
 			if (epoch === sendEpoch.current) {
 				setConversationError(error instanceof Error ? error.message : m("chatError"));
@@ -603,6 +658,7 @@ export function MapWorkspace({
 				queryAbort.current?.abort();
 				setPreparingMessage(false);
 				setMapLoading(false);
+				setFollowInput(pendingMessage.current);
 				setStopped(true);
 			} else if (await conversation.abort()) setStopped(true);
 		} catch (error) {
@@ -889,11 +945,13 @@ export function MapWorkspace({
 							value={radius}
 							onChange={(event) => setRadius(Number(event.target.value))}
 						>
-							{[500, 1000, 2000, 5000].map((value) => (
-								<option key={value} value={value}>
-									{value < 1000 ? m("radiusMeters", { n: value }) : m("radiusKm", { n: value / 1000 })}
-								</option>
-							))}
+							{[...new Set([500, 1000, 2000, 5000, radius])]
+								.sort((a, b) => a - b)
+								.map((value) => (
+									<option key={value} value={value}>
+										{value < 1000 ? m("radiusMeters", { n: value }) : m("radiusKm", { n: value / 1000 })}
+									</option>
+								))}
 						</select>
 					</label>
 					<button type="button" disabled={mapLoading} onClick={() => void nearbyPlaces()}>
@@ -1186,7 +1244,7 @@ export function MapWorkspace({
 						</h1>
 						<span className="header-divider" aria-hidden="true" />
 						<span className="subtitle">{m("subtitle")}</span>
-						<span className="demo-note">{m("mapBadge")}</span>
+						<span className="map-source-badge">{m("mapBadge")}</span>
 						<div className="spacer" />
 						<button
 							type="button"
@@ -1218,6 +1276,11 @@ export function MapWorkspace({
 							<div className="panel-scroll" ref={panelScrollRef}>
 								{view !== "home" && conversationPanel()}
 								{locationControl()}
+								{view === "home" && mapError && (
+									<p className="map-conversation-error" role="alert">
+										{mapError}
+									</p>
+								)}
 								{view === "home" ? (
 									<>
 										<h2 className="home-heading" style={{ whiteSpace: "pre-line" }}>

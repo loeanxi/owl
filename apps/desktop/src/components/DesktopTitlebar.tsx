@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
 import { IconPanelLeft } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
+import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
+import "./evaluation-entry.css";
 
 type MenuKey = "file" | "edit" | "view" | "help";
 
@@ -18,7 +20,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map" | "news" | "mail";
+	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	workbenchOpen: boolean;
 	workbenchDock: "right" | "bottom";
@@ -47,6 +49,7 @@ interface DesktopTitlebarProps {
 	onOpenGuide: () => void;
 	onShowShortcuts: () => void;
 	onOpenAbout: () => void;
+	onOpenEvaluation: () => void;
 }
 
 /** 可编辑目标（含内层命中后的向上回溯）；CodeMirror 与内嵌浏览器自理键位，不归菜单管。 */
@@ -63,6 +66,7 @@ function captureEditableTarget(): HTMLElement | null {
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
+	const evaluationText = useEvaluationText();
 	const sidebarLabel = props.sidebarView === "mail"
 		? props.sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
 		: props.sidebarView === "news"
@@ -248,6 +252,15 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 						)}
 					</div>
 				))}
+				<button
+					type="button"
+					className={`owl-desktop-menu-trigger owl-desktop-evaluation-entry${props.sidebarView === "evaluation" ? " is-active" : ""}`}
+					aria-pressed={props.sidebarView === "evaluation"}
+					data-fd-id="model-evaluation-entry"
+					onClick={() => { setMenu(undefined); props.onOpenEvaluation(); }}
+				>
+					{evaluationText("title")}
+				</button>
 			</div>
 			<span className="owl-desktop-app-name" data-tauri-drag-region="deep">OWL</span>
 			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}

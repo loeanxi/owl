@@ -1,0 +1,9 @@
+.owl-desktop-evaluation-entry {
+	margin-left: 6px;
+	border: 1px solid transparent;
+}
+.owl-desktop-evaluation-entry.is-active {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 25%, transparent);
+	background: var(--owl-ui-accent-soft);
+	color: var(--color-owl-accent);
+}

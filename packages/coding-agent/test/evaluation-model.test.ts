@@ -1,7 +1,7 @@
 import type { Api, AssistantMessage, Context, Model, ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createEvaluationModelAccess } from "../src/core/evaluation/model.ts";
+import { createEvaluationModelAccess, evaluationThinkingLevels } from "../src/core/evaluation/model.ts";
 import type { EvaluationProfile, EvaluationTask } from "../src/core/evaluation/types.ts";
 
 const fixtures = vi.hoisted(() => ({
@@ -123,6 +123,7 @@ describe("direct evaluation model adapter", () => {
 		expect(partial).toHaveBeenCalledWith("answer", "reasoning");
 		expect(actual.usage).toEqual({ input: 12, output: 30, cacheRead: 2, cacheWrite: 1, total: 45 });
 		expect(actual.costUsd).toBe(0.0001162);
+		expect(actual.actualModel).toEqual({ provider: model.provider, modelId: model.id, responseModel: null, forwardedThinkingLevel: "high", providerThinkingLevel: null });
 		expect(fixtures.create).toHaveBeenCalledWith(expect.objectContaining({ allowModelNetwork: false }));
 	});
 
@@ -161,5 +162,18 @@ describe("direct evaluation model adapter", () => {
 		});
 		expect(result.usage).toBeNull();
 		expect(result.costUsd).toBeNull();
+	});
+
+	it("does not offer off when omitting reasoning leaves unknown upstream defaults, and excludes virtual routing models", async () => {
+		expect(evaluationThinkingLevels(model)).not.toContain("off");
+		expect(evaluationThinkingLevels({ ...model, thinkingLevelMap: { off: "none" } })).toContain("off");
+		expect(evaluationThinkingLevels({ ...model, thinkingLevelMap: { off: "minimal" } })).not.toContain("off");
+		expect(evaluationThinkingLevels({ ...model, compat: { thinkingFormat: "qwen" } })).toContain("off");
+		fixtures.getModels.mockReturnValue([{ ...model, api: "pi-virtual" }, model]);
+		const access = createEvaluationModelAccess("D:\\offline-fixture");
+		expect(await access.listModels()).toHaveLength(1);
+		fixtures.getModel.mockReturnValue({ ...model, api: "pi-virtual" });
+		const available = await access.listModels();
+		await expect(access.invoke({ task, profile: { id: "virtual", provider: model.provider, modelId: model.id, model: available[0], thinkingLevel: "default", timeoutMs: 1000, maxTokens: 500 }, signal: new AbortController().signal, onPartial: () => {} })).rejects.toThrow("实体模型");
 	});
 });

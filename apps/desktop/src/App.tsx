@@ -9,6 +9,7 @@ import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
 import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
+import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
@@ -93,9 +94,10 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "mail" || view === "map" ? view : "chat";
+		return view === "mail" || view === "map" || view === "evaluation" ? view : "chat";
 	});
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
+	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -1052,6 +1054,11 @@ export default function App(): React.JSX.Element {
 				onToggleFullscreen={shortcuts.toggleFullscreen}
 				onOpenGuide={shortcuts.openGuide}
 				onShowShortcuts={shortcuts.showShortcuts}
+				onOpenEvaluation={() => {
+					setShowSettings(false);
+					setEvaluationMounted(true);
+					setRailView("evaluation");
+				}}
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
@@ -1100,6 +1107,9 @@ export default function App(): React.JSX.Element {
 			</div>
 			{mailMounted && <div style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} model={selectedModel()} thinkingLevel={thinkingLevel} />
+			</div>}
+			{evaluationMounted && <div style={{ display: railView === "evaluation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+				<EvaluationPage client={client} active={railView === "evaluation" && !showSettings} sidebarCollapsed={sidebarMinimized} />
 			</div>}
 			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">

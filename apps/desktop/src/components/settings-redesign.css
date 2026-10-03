@@ -1001,11 +1001,12 @@
 	font-weight: 600;
 }
 
-/* 分布卡（模型 / 项目）两列并排 */
+/* 分布卡（模型 / 项目）两列并排；start = 卡片随内容自适应高度，避免一侧数据少时留白失衡 */
 .owl-settings-page .owl-usage-cols {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 12px;
+	align-items: start;
 }
 
 .owl-settings-page .owl-usage-dist {

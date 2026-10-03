@@ -30,7 +30,7 @@ export function EvaluationCreate({ tasks, models, busy, connected, initialTaskId
 	useEffect(() => { if (initialTaskId) setSelectedTasks((previous) => previous.includes(initialTaskId) ? previous : [...previous, initialTaskId]); }, [initialTaskId]);
 	const availableTasks = selectedTasks.filter((id) => tasks.some((task) => task.id === id));
 	const shown = tasks.filter((task) => `${task.id} ${task.title} ${task.prompt}`.toLowerCase().includes(query.toLowerCase()));
-	const canStart = connected && !busy && availableTasks.length > 0 && profiles.length > 0 && name.trim().length > 0;
+	const canStart = connected && !busy && availableTasks.length > 0 && availableTasks.length <= 30 && profiles.length > 0 && profiles.length <= 12 && name.trim().length > 0;
 	return <div className="eval-page">
 		<div className="eval-crumb">{t("title")} / {t("newRun")}</div>
 		<h2 className="eval-page-title">{t("createTitle")}</h2><p className="eval-page-description">{t("createDesc")}</p>
@@ -52,7 +52,7 @@ export function EvaluationCreate({ tasks, models, busy, connected, initialTaskId
 		</div><aside><section className="eval-config"><h3 className="eval-section-title"><span className="eval-step">3</span>{t("runConfig")}</h3><label htmlFor="eval-name">{t("runName")}</label><input id="eval-name" className="eval-field" placeholder={t("runNamePlaceholder")} value={name} onChange={(event) => setName(event.target.value)} maxLength={160} />
 			<label>{t("samples")}</label><div className="eval-segment" role="group" aria-label={t("samples")}>{([1, 3, 5] as const).map((count) => <button key={count} aria-pressed={samples === count} className={samples === count ? "active" : ""} onClick={() => setSamples(count)}>{count}</button>)}</div>
 			<div className="eval-config-stats"><div className="eval-config-row"><span>{t("tasksCount")}</span><strong>{availableTasks.length}</strong></div><div className="eval-config-row"><span>{t("profilesCount")}</span><strong>{profiles.length}</strong></div><div className="eval-config-row"><span>{t("calls")}</span><strong>{availableTasks.length * profiles.length * samples}</strong></div><div className="eval-config-row"><span>{t("estimatedCost")}</span><strong>{t("unknown")}</strong></div></div>
-			<p className="eval-config-note">{t("costHint")}</p><button className="eval-button primary" disabled={!canStart} onClick={() => onStart({ name: name.trim(), taskIds: availableTasks, profiles, samples })}><IconPlay />{busy ? t("busy") : t("start")}</button><p className="eval-config-note">{t("startHint")}</p>
+			<p className="eval-config-note">{t("costHint")}</p>{(availableTasks.length > 30 || profiles.length > 12) && <p role="alert" className="eval-config-note" style={{ color: "#d88181" }}>{t("selectLimit")}</p>}<button className="eval-button primary" disabled={!canStart} onClick={() => onStart({ name: name.trim(), taskIds: availableTasks, profiles, samples })}><IconPlay />{busy ? t("busy") : t("start")}</button><p className="eval-config-note">{t("startHint")}</p>
 		</section><p className="eval-config-guide">{t("directHint")}</p></aside></div>
 	</div>;
 }

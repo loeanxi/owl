@@ -262,6 +262,12 @@ export class BridgeClient {
 					reject(new Error("邮箱请求超时，请重试"));
 				}, 120_000);
 			}
+			if (request.type === "evaluation.request") {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error("Model evaluation request timed out"));
+				}, 60_000);
+			}
 			this.pending.set(id, pending);
 			this.ws.send(JSON.stringify({ ...request, id }));
 		});

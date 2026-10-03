@@ -9,11 +9,9 @@ const repoRoot = resolve(scriptDir, "..");
 const codingAgentDir = join(repoRoot, "packages/coding-agent");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const shrinkwrapPath = join(codingAgentDir, "npm-shrinkwrap.json");
-const internalPackagePrefix = "@earendil-works/pi-";
-const internalPackageNames = new Set(["@earendil-works/chord"]);
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
-	["esbuild@0.28.2", "postinstall selects and verifies the platform-specific esbuild binary"],
+	["node-pty@1.1.0", "install checks bundled prebuilds or builds with node-gyp; postinstall cleans this package's build/Release and copies bundled Windows ConPTY files"],
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
 ]);
 
@@ -138,13 +136,16 @@ function getInternalWorkspaces(lockPackages) {
 		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
 			continue;
 		}
-		if (!entry.name.startsWith(internalPackagePrefix) && !internalPackageNames.has(entry.name)) {
-			continue;
-		}
-
-		workspaces.set(entry.name, {
+		const packageJsonPath = join(repoRoot, lockPath, "package.json");
+		// A moved checkout can retain unused workspace records in its root lock.
+		// Required missing dependencies still fail during dependency resolution below.
+		if (!existsSync(packageJsonPath)) continue;
+		const packageJson = readJson(packageJsonPath);
+		if (!packageJson.name || !packageJson.version) throw new Error(`${lockPath}/package.json must declare name and version`);
+		if (workspaces.has(packageJson.name)) throw new Error(`Duplicate workspace package ${packageJson.name}`);
+		workspaces.set(packageJson.name, {
 			lockPath,
-			packageJson: readJson(join(repoRoot, lockPath, "package.json")),
+			packageJson,
 		});
 	}
 
@@ -293,10 +294,8 @@ function validateShrinkwrap(shrinkwrap, internalNames) {
 		}
 	}
 
-	const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
-	if (platformPackageCount === 0) {
-		errors.push("no platform-specific optional dependency entries found");
-	}
+	// Pure-JS packages and addons with bundled prebuilds can have no platform-specific
+	// optional packages. The dependency checks above still require every declared entry.
 
 	if (errors.length > 0) {
 		throw new Error(`Generated shrinkwrap failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
