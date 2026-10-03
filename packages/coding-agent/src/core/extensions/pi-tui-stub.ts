@@ -34,7 +34,7 @@ export function truncateToWidth(text: string, width: number, _mode?: unknown): s
 	if (visibleWidth(text) <= width) return text;
 	const plain = text.replace(ANSI_RE, "");
 	if (width <= 1) return plain.slice(0, Math.max(0, Math.floor(width)));
-	return plain.slice(0, Math.floor(width) - 1) + "…";
+	return `${plain.slice(0, Math.floor(width) - 1)}…`;
 }
 
 export function wrapTextWithAnsi(text: string, width: number): string {
@@ -94,7 +94,6 @@ export function isKeyRelease(..._args: unknown[]): boolean {
 // ---- components (inert) -----------------------------------------------------
 
 export class Text {
-	constructor(..._args: unknown[]) {}
 	render(): string {
 		return "";
 	}
@@ -127,7 +126,6 @@ export class Markdown extends Text {}
 
 export class Input {
 	value = "";
-	constructor(..._args: unknown[]) {}
 	on(): void {}
 	handleInput(): void {}
 	render(): string {

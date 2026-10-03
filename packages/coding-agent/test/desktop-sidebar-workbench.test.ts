@@ -3,7 +3,7 @@
  * git porcelain/log 解析与真实仓库冒烟（对应 desktop 侧边栏的后端）。
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -166,7 +166,7 @@ describe("git porcelain / log 解析（纯函数）", () => {
 	});
 
 	it("parseLog：字段切分与数值时间", () => {
-		const out = ["abc123", "abc12", "feat: x", "alice", "1700000000", ""].join("\u001f") + "\u001e";
+		const out = `${["abc123", "abc12", "feat: x", "alice", "1700000000", ""].join("\u001f")}\u001e`;
 		const entries = parseLog(out);
 		expect(entries).toHaveLength(1);
 		expect(entries[0]).toEqual({

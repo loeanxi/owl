@@ -18,12 +18,9 @@ import { getSystemPromptText } from "./compat.js";
 import { resolveConfig } from "./config.js";
 import {
 	type CompressionCore,
-	type CompressionState,
-	type Config,
 	createCore,
 	defaultCountTokens,
 	defaultPrompts,
-	formatRanges,
 	type NudgeDecision,
 	type Prompts,
 	renderNudgeText,
@@ -36,7 +33,6 @@ import {
 	collectOriginals,
 	coreOutToAgentMessages,
 	entriesToCoreMessages,
-	extractText,
 } from "./messages.js";
 import {
 	applyStrictReasoningGate,
@@ -52,8 +48,6 @@ import { collectCoveredMessageIds, collectImageTokens, estimateTokens, modelSupp
 import { sanitizeToolPairing } from "./tool-pair-sanitizer.js";
 import {
 	type BiliRuntime,
-	isCompressNoopText,
-	isCompressSuccessText,
 	MAX_COMPRESS_ATTEMPTS,
 	makeCompressTool,
 	makeDecompressTool,

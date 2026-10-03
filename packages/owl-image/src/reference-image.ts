@@ -100,7 +100,7 @@ async function readWorkspaceReferenceImage(input: {
 	const root = resolve(input.workspaceRoot);
 	const candidate = isAbsolute(requested) ? resolve(requested) : resolve(root, requested);
 	if (!containsPath(root, candidate)) {
-		throw new Error("edit_image source_path must stay inside the session workspace: " + requested);
+		throw new Error(`edit_image source_path must stay inside the session workspace: ${requested}`);
 	}
 
 	let realRoot: string;
@@ -109,12 +109,12 @@ async function readWorkspaceReferenceImage(input: {
 		[realRoot, realCandidate] = await Promise.all([realpath(root), realpath(candidate)]);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			throw new Error("edit_image could not find workspace image: " + requested);
+			throw new Error(`edit_image could not find workspace image: ${requested}`);
 		}
 		throw error;
 	}
 	if (!containsPath(realRoot, realCandidate)) {
-		throw new Error("edit_image source_path resolves outside the session workspace: " + requested);
+		throw new Error(`edit_image source_path resolves outside the session workspace: ${requested}`);
 	}
 	return readContainedImage(realCandidate, input.maxBytes, input.signal, requested);
 }
@@ -126,14 +126,14 @@ async function readContainedImage(
 	label: string,
 ): Promise<GeneratedImage> {
 	const file = await stat(path);
-	if (!file.isFile()) throw new Error("edit_image source_path is not a file: " + label);
+	if (!file.isFile()) throw new Error(`edit_image source_path is not a file: ${label}`);
 	if (file.size > maxBytes) {
 		throw new Error(`edit_image source image is too large (${String(file.size)} bytes; maximum ${String(maxBytes)})`);
 	}
 	const data = await readFile(path, { signal });
 	const mediaType = detectImageMediaType(new Uint8Array(data));
 	if (mediaType === undefined) {
-		throw new Error("edit_image source_path is not a supported PNG, JPEG, WebP, or GIF image: " + label);
+		throw new Error(`edit_image source_path is not a supported PNG, JPEG, WebP, or GIF image: ${label}`);
 	}
 	return { data: new Uint8Array(data), mediaType };
 }
@@ -213,5 +213,5 @@ function mergeSelectors(
 
 function containsPath(parent: string, child: string): boolean {
 	const rel = relative(parent, child);
-	return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
