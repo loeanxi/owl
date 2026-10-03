@@ -14,19 +14,19 @@ import { detectImageMediaType, type GeneratedImage, type ImageMediaType } from "
 
 /** The slice of an owl message this module understands. */
 export interface OwlMessageLike {
-	role?: string
-	content?: unknown
+	role?: string;
+	content?: unknown;
 }
 
 /** Minimal session surface for the conversation fallback. */
 export interface OwlSessionLike {
-	buildSessionProjection(): { messages: readonly OwlMessageLike[] }
+	buildSessionProjection(): { messages: readonly OwlMessageLike[] };
 }
 
 /** Explicit selector fields accepted by edit_image. */
 export interface ReferenceSelectors {
-	sourcePath?: string
-	sourcePaths?: readonly string[]
+	sourcePath?: string;
+	sourcePaths?: readonly string[];
 }
 
 /**
@@ -35,22 +35,26 @@ export interface ReferenceSelectors {
  * conversation message is used (user messages preferred over tool output).
  */
 export async function resolveReferenceImages(input: {
-	session?: OwlSessionLike
-	sourcePath?: string
-	sourcePaths?: readonly string[]
-	maxBytes: number
-	signal: AbortSignal
-	proxy?: string
+	session?: OwlSessionLike;
+	sourcePath?: string;
+	sourcePaths?: readonly string[];
+	maxBytes: number;
+	signal: AbortSignal;
+	proxy?: string;
 }): Promise<GeneratedImage[]> {
 	const sourcePaths = mergeSelectors(input.sourcePath, input.sourcePaths);
 	if (sourcePaths !== undefined) {
 		const workspaceRoot = input.session === undefined ? undefined : sessionCwdOf(input.session);
-		return Promise.all(sourcePaths.map((sourcePath) => readWorkspaceReferenceImage({
-			sourcePath,
-			...(workspaceRoot === undefined ? {} : { workspaceRoot }),
-			maxBytes: input.maxBytes,
-			signal: input.signal,
-		})));
+		return Promise.all(
+			sourcePaths.map((sourcePath) =>
+				readWorkspaceReferenceImage({
+					sourcePath,
+					...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+					maxBytes: input.maxBytes,
+					signal: input.signal,
+				}),
+			),
+		);
 	}
 
 	if (input.session === undefined) {
@@ -58,7 +62,9 @@ export async function resolveReferenceImages(input: {
 	}
 	const images = findConversationImages(input.session.buildSessionProjection().messages);
 	if (images.length === 0) {
-		throw new Error("edit_image requires a reference image: name a workspace file with source_path, or generate/upload an image into the conversation first");
+		throw new Error(
+			"edit_image requires a reference image: name a workspace file with source_path, or generate/upload an image into the conversation first",
+		);
 	}
 	return images.map((image) => ({ data: image.data, mediaType: image.mediaType }));
 }
@@ -75,10 +81,10 @@ function sessionCwdOf(session: OwlSessionLike): string | undefined {
  * enforced so absolute paths, parent traversal, and symlink escapes fail.
  */
 async function readWorkspaceReferenceImage(input: {
-	sourcePath: string
-	workspaceRoot?: string
-	maxBytes: number
-	signal: AbortSignal
+	sourcePath: string;
+	workspaceRoot?: string;
+	maxBytes: number;
+	signal: AbortSignal;
 }): Promise<GeneratedImage> {
 	const requested = input.sourcePath.trim();
 	if (requested.length === 0) throw new Error("edit_image source_path must not be empty");
@@ -86,7 +92,8 @@ async function readWorkspaceReferenceImage(input: {
 	// No workspace root known: accept absolute paths as-is but still enforce
 	// image-type and size; relative paths have nothing to resolve against.
 	if (input.workspaceRoot === undefined) {
-		if (!isAbsolute(requested)) throw new Error("edit_image source_path requires an absolute path when no session workspace is known");
+		if (!isAbsolute(requested))
+			throw new Error("edit_image source_path requires an absolute path when no session workspace is known");
 		return readContainedImage(resolve(requested), input.maxBytes, input.signal, requested);
 	}
 
@@ -112,7 +119,12 @@ async function readWorkspaceReferenceImage(input: {
 	return readContainedImage(realCandidate, input.maxBytes, input.signal, requested);
 }
 
-async function readContainedImage(path: string, maxBytes: number, signal: AbortSignal, label: string): Promise<GeneratedImage> {
+async function readContainedImage(
+	path: string,
+	maxBytes: number,
+	signal: AbortSignal,
+	label: string,
+): Promise<GeneratedImage> {
 	const file = await stat(path);
 	if (!file.isFile()) throw new Error("edit_image source_path is not a file: " + label);
 	if (file.size > maxBytes) {
@@ -133,7 +145,9 @@ async function readContainedImage(path: string, maxBytes: number, signal: AbortS
  * plugin itself returned in earlier tool results qualify, which is what
  * makes continuous editing work.
  */
-export function findConversationImages(messages: readonly OwlMessageLike[]): Array<{ data: Uint8Array; mediaType: ImageMediaType }> {
+export function findConversationImages(
+	messages: readonly OwlMessageLike[],
+): Array<{ data: Uint8Array; mediaType: ImageMediaType }> {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const images = collectInContent(messages[index]?.content);
 		if (images.length > 0) return images;
@@ -146,12 +160,30 @@ function collectInContent(content: unknown): Array<{ data: Uint8Array; mediaType
 	if (!Array.isArray(content)) return images;
 	for (const block of content) {
 		if (typeof block !== "object" || block === null) continue;
-		const row = block as { type?: unknown; data?: unknown; mimeType?: unknown; mediaType?: unknown; content?: unknown };
+		const row = block as {
+			type?: unknown;
+			data?: unknown;
+			mimeType?: unknown;
+			mediaType?: unknown;
+			content?: unknown;
+		};
 		if (row.type === "image" && typeof row.data === "string" && row.data.length > 0) {
-			const declared = typeof row.mimeType === "string" ? row.mimeType : typeof row.mediaType === "string" ? row.mediaType : undefined;
+			const declared =
+				typeof row.mimeType === "string"
+					? row.mimeType
+					: typeof row.mediaType === "string"
+						? row.mediaType
+						: undefined;
 			const data = new Uint8Array(Buffer.from(row.data.replace(/\s+/g, ""), "base64"));
 			// Sniff the bytes; fall back to the declared type only when they are clean.
-			const mediaType = detectImageMediaType(data) ?? (declared === "image/png" || declared === "image/jpeg" || declared === "image/webp" || declared === "image/gif" ? declared : undefined);
+			const mediaType =
+				detectImageMediaType(data) ??
+				(declared === "image/png" ||
+				declared === "image/jpeg" ||
+				declared === "image/webp" ||
+				declared === "image/gif"
+					? declared
+					: undefined);
 			if (mediaType !== undefined && data.byteLength > 0) images.push({ data, mediaType });
 			continue;
 		}
@@ -162,7 +194,10 @@ function collectInContent(content: unknown): Array<{ data: Uint8Array; mediaType
 }
 
 /** Merge single/multiple path selectors with ordering and conflict checks. */
-function mergeSelectors(single: string | undefined, multiple: readonly string[] | undefined): readonly string[] | undefined {
+function mergeSelectors(
+	single: string | undefined,
+	multiple: readonly string[] | undefined,
+): readonly string[] | undefined {
 	if (multiple === undefined) {
 		return single === undefined ? undefined : [single];
 	}

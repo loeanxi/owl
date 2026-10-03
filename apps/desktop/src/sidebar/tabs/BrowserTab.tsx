@@ -145,7 +145,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		}
 		const image = new Image();
 		image.onload = () => {
-			canvas.getContext("2d")?.drawImage(image, 0, 0);
+			if (frameRef.current !== current) return;
+			canvas.getContext("2d")?.drawImage(image, 0, 0, current.width, current.height);
 		};
 		image.src = `data:image/png;base64,${current.data}`;
 	}, []);

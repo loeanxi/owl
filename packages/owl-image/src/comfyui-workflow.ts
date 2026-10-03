@@ -20,7 +20,9 @@ export function validateComfyUIWorkflowJson(workflowJson: string): void {
 	const workflow = parseWorkflow(workflowJson);
 	const imageInputs = countImagePlaceholders(workflow);
 	if (imageInputs > 1) {
-		throw new Error(`ComfyUI workflow must contain at most one ${COMFYUI_IMAGE_PLACEHOLDER} image input; found ${String(imageInputs)}`);
+		throw new Error(
+			`ComfyUI workflow must contain at most one ${COMFYUI_IMAGE_PLACEHOLDER} image input; found ${String(imageInputs)}`,
+		);
 	}
 }
 
@@ -33,7 +35,12 @@ export function validateComfyUIWorkflowJson(workflowJson: string): void {
  * whose value is exactly the placeholder, and at most one may exist, because
  * the field must carry a single uploaded file name.
  */
-export function prepareComfyUIWorkflow(workflowJson: string, prompt: string, seed = randomSeed(), image?: string): JsonRecord {
+export function prepareComfyUIWorkflow(
+	workflowJson: string,
+	prompt: string,
+	seed = randomSeed(),
+	image?: string,
+): JsonRecord {
 	const workflow = parseWorkflow(workflowJson);
 	let promptReplacements = 0;
 
@@ -42,11 +49,15 @@ export function prepareComfyUIWorkflow(workflowJson: string, prompt: string, see
 			let replaced = value;
 			if (replaced.includes(COMFYUI_PROMPT_PLACEHOLDER) || replaced.includes(LEGACY_PROMPT_PLACEHOLDER)) {
 				promptReplacements += 1;
-				replaced = replaced.replaceAll(COMFYUI_PROMPT_PLACEHOLDER, prompt).replaceAll(LEGACY_PROMPT_PLACEHOLDER, prompt);
+				replaced = replaced
+					.replaceAll(COMFYUI_PROMPT_PLACEHOLDER, prompt)
+					.replaceAll(LEGACY_PROMPT_PLACEHOLDER, prompt);
 			}
 			if (replaced === COMFYUI_SEED_PLACEHOLDER || replaced === LEGACY_SEED_PLACEHOLDER) return seed;
 			if (replaced.includes(COMFYUI_SEED_PLACEHOLDER) || replaced.includes(LEGACY_SEED_PLACEHOLDER)) {
-				replaced = replaced.replaceAll(COMFYUI_SEED_PLACEHOLDER, String(seed)).replaceAll(LEGACY_SEED_PLACEHOLDER, String(seed));
+				replaced = replaced
+					.replaceAll(COMFYUI_SEED_PLACEHOLDER, String(seed))
+					.replaceAll(LEGACY_SEED_PLACEHOLDER, String(seed));
 			}
 			return replaced;
 		}
@@ -56,31 +67,39 @@ export function prepareComfyUIWorkflow(workflowJson: string, prompt: string, see
 	};
 
 	let imageInputs = 0;
-	const prepared = Object.fromEntries(Object.entries(workflow).map(([nodeId, value]) => {
-		const node = record(value);
-		const inputs = node === undefined ? undefined : record(node.inputs);
-		if (inputs === undefined) return [nodeId, value];
-		const nextInputs = inject(inputs) as JsonRecord;
-		if (isImagePlaceholder(nextInputs[IMAGE_INPUT_KEY])) {
-			imageInputs += 1;
-			if (image !== undefined) nextInputs[IMAGE_INPUT_KEY] = image;
-		}
-		return [nodeId, { ...node, inputs: nextInputs }];
-	}));
+	const prepared = Object.fromEntries(
+		Object.entries(workflow).map(([nodeId, value]) => {
+			const node = record(value);
+			const inputs = node === undefined ? undefined : record(node.inputs);
+			if (inputs === undefined) return [nodeId, value];
+			const nextInputs = inject(inputs) as JsonRecord;
+			if (isImagePlaceholder(nextInputs[IMAGE_INPUT_KEY])) {
+				imageInputs += 1;
+				if (image !== undefined) nextInputs[IMAGE_INPUT_KEY] = image;
+			}
+			return [nodeId, { ...node, inputs: nextInputs }];
+		}),
+	);
 	if (promptReplacements === 0) {
 		throw new Error(`ComfyUI workflow must contain ${COMFYUI_PROMPT_PLACEHOLDER} in a text input`);
 	}
 	if (image === undefined) {
 		if (imageInputs > 0) {
-			throw new Error(`ComfyUI workflow contains an ${COMFYUI_IMAGE_PLACEHOLDER} image input, which requires edit_image with a source image`);
+			throw new Error(
+				`ComfyUI workflow contains an ${COMFYUI_IMAGE_PLACEHOLDER} image input, which requires edit_image with a source image`,
+			);
 		}
 		return prepared;
 	}
 	if (imageInputs === 0) {
-		throw new Error(`ComfyUI workflow must contain exactly one ${COMFYUI_IMAGE_PLACEHOLDER} image input to edit images`);
+		throw new Error(
+			`ComfyUI workflow must contain exactly one ${COMFYUI_IMAGE_PLACEHOLDER} image input to edit images`,
+		);
 	}
 	if (imageInputs > 1) {
-		throw new Error(`ComfyUI workflow must contain exactly one ${COMFYUI_IMAGE_PLACEHOLDER} image input; found ${String(imageInputs)}`);
+		throw new Error(
+			`ComfyUI workflow must contain exactly one ${COMFYUI_IMAGE_PLACEHOLDER} image input; found ${String(imageInputs)}`,
+		);
 	}
 	return prepared;
 }
@@ -91,7 +110,10 @@ export function randomSeed(): number {
 }
 
 function parseWorkflow(workflowJson: string): JsonRecord {
-	if (workflowJson.trim().length === 0) throw new Error("ComfyUI 生成需要先在 image-gen.json 的 comfyuiWorkflows 里导入一个 API 格式工作流(含 {{prompt}} 占位符)");
+	if (workflowJson.trim().length === 0)
+		throw new Error(
+			"ComfyUI 生成需要先在 image-gen.json 的 comfyuiWorkflows 里导入一个 API 格式工作流(含 {{prompt}} 占位符)",
+		);
 	if (new TextEncoder().encode(workflowJson).byteLength > MAX_COMFYUI_WORKFLOW_BYTES) {
 		throw new Error("ComfyUI workflow file must be no larger than 5 MB");
 	}
@@ -104,11 +126,15 @@ function parseWorkflow(workflowJson: string): JsonRecord {
 	if (!isRecord(value) || Object.keys(value).length === 0) {
 		throw new Error("ComfyUI workflow must be a non-empty API-format JSON object");
 	}
-	if (!Object.values(value).some((node) => {
-		const inputs = record(node)?.inputs;
-		return inputs !== undefined && containsPromptPlaceholder(inputs);
-	})) {
-		throw new Error(`ComfyUI workflow must contain ${COMFYUI_PROMPT_PLACEHOLDER} (or ${LEGACY_PROMPT_PLACEHOLDER}) in a text input`);
+	if (
+		!Object.values(value).some((node) => {
+			const inputs = record(node)?.inputs;
+			return inputs !== undefined && containsPromptPlaceholder(inputs);
+		})
+	) {
+		throw new Error(
+			`ComfyUI workflow must contain ${COMFYUI_PROMPT_PLACEHOLDER} (or ${LEGACY_PROMPT_PLACEHOLDER}) in a text input`,
+		);
 	}
 	return value;
 }

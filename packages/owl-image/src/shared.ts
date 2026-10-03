@@ -12,12 +12,12 @@ export const IMAGE_PROVIDERS = [
 	"zhipu",
 	"comfyui",
 	"google-sub",
-] as const
-export type ImageProvider = (typeof IMAGE_PROVIDERS)[number]
+] as const;
+export type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
 
 /** True when the provider generates through a logged-in subscription account. */
 export function isSubscriptionProvider(provider: ImageProvider): provider is "google-sub" {
-	return provider === "google-sub"
+	return provider === "google-sub";
 }
 
 /** Locale-neutral provider names for user-facing errors and status lines. */
@@ -31,17 +31,17 @@ export const PROVIDER_DISPLAY_NAMES: Record<ImageProvider, string> = {
 	zhipu: "智谱 GLM",
 	comfyui: "ComfyUI",
 	"google-sub": "Google 订阅 (Antigravity)",
-}
+};
 
 /** Environment variable each cloud provider's API key is read from (config `apiKeys` takes precedence). */
-export const GOOGLE_API_KEY_ENV = "GEMINI_API_KEY"
-export const OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
+export const GOOGLE_API_KEY_ENV = "GEMINI_API_KEY";
+export const OPENAI_API_KEY_ENV = "OPENAI_API_KEY";
 /** Deliberately distinct from OPENAI_API_KEY so an official key and a relay key can coexist. */
-export const OPENAI_COMPAT_API_KEY_ENV = "OWL_IMAGE_OPENAI_COMPAT_KEY"
-export const SEEDREAM_API_KEY_ENV = "ARK_API_KEY"
-export const DASHSCOPE_API_KEY_ENV = "DASHSCOPE_API_KEY"
-export const XAI_API_KEY_ENV = "XAI_API_KEY"
-export const ZHIPU_API_KEY_ENV = "ZHIPUAI_API_KEY"
+export const OPENAI_COMPAT_API_KEY_ENV = "OWL_IMAGE_OPENAI_COMPAT_KEY";
+export const SEEDREAM_API_KEY_ENV = "ARK_API_KEY";
+export const DASHSCOPE_API_KEY_ENV = "DASHSCOPE_API_KEY";
+export const XAI_API_KEY_ENV = "XAI_API_KEY";
+export const ZHIPU_API_KEY_ENV = "ZHIPUAI_API_KEY";
 
 /** The env var name storing this provider's API key, when it uses one. */
 export const API_KEY_ENV_VARS: Record<string, string> = {
@@ -52,29 +52,29 @@ export const API_KEY_ENV_VARS: Record<string, string> = {
 	dashscope: DASHSCOPE_API_KEY_ENV,
 	xai: XAI_API_KEY_ENV,
 	zhipu: ZHIPU_API_KEY_ENV,
-}
+};
 
 /** Default endpoints and base URLs. */
-export const DEFAULT_GOOGLE_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
-export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
-export const DEFAULT_SEEDREAM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-export const DEFAULT_DASHSCOPE_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1"
-export const DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
-export const DEFAULT_ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
-export const DEFAULT_COMFYUI_BASE_URL = "http://127.0.0.1:8188"
-export const DEFAULT_COMFYUI_TIMEOUT_MS = 300_000
-export const DEFAULT_COMFYUI_WORKFLOW_LABEL = "API workflow"
-export const MAX_COMFYUI_WORKFLOW_BYTES = 5 * 1024 * 1024
+export const DEFAULT_GOOGLE_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
+export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_SEEDREAM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+export const DEFAULT_DASHSCOPE_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1";
+export const DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1";
+export const DEFAULT_ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+export const DEFAULT_COMFYUI_BASE_URL = "http://127.0.0.1:8188";
+export const DEFAULT_COMFYUI_TIMEOUT_MS = 300_000;
+export const DEFAULT_COMFYUI_WORKFLOW_LABEL = "API workflow";
+export const MAX_COMFYUI_WORKFLOW_BYTES = 5 * 1024 * 1024;
 
 /** Hard cap on one generated image, matching the upstream bundle's protection intent. */
-export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024
+export const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Content types Ark's Seedream endpoint can return. */
-export const ARK_OUTPUT_FORMATS = ["png", "jpeg"] as const
+export const ARK_OUTPUT_FORMATS = ["png", "jpeg"] as const;
 /** Whether Ark stamps an "AI generated" watermark on the result. */
-export const ARK_BACKGROUND_MODES = ["opaque", "transparent"] as const
-export type ArkOutputFormat = (typeof ARK_OUTPUT_FORMATS)[number]
-export type ArkBackgroundMode = (typeof ARK_BACKGROUND_MODES)[number]
+export const ARK_BACKGROUND_MODES = ["opaque", "transparent"] as const;
+export type ArkOutputFormat = (typeof ARK_OUTPUT_FORMATS)[number];
+export type ArkBackgroundMode = (typeof ARK_BACKGROUND_MODES)[number];
 
 /**
  * Ark (Seedream) output controls, shared by the generate and edit paths.
@@ -84,11 +84,11 @@ export type ArkBackgroundMode = (typeof ARK_BACKGROUND_MODES)[number]
  */
 export interface ArkOutputOptions {
 	/** `output_format`. Ark defaults to `jpeg`; `png` is lossless and keeps an alpha channel. */
-	outputFormat?: ArkOutputFormat
+	outputFormat?: ArkOutputFormat;
 	/** `watermark`. Ark defaults to `true`, which bakes an "AI generated" mark into the image. */
-	watermark?: boolean
+	watermark?: boolean;
 	/** `background`. Ark defaults to `opaque`. */
-	background?: ArkBackgroundMode
+	background?: ArkBackgroundMode;
 }
 
 /**
@@ -102,23 +102,23 @@ export function arkOutputBody(
 	options: ArkOutputOptions | undefined,
 	{ background = true }: { background?: boolean } = {},
 ): Record<string, unknown> {
-	if (options === undefined) return {}
-	const body: Record<string, unknown> = {}
-	if (options.outputFormat !== undefined) body.output_format = options.outputFormat
-	if (options.watermark !== undefined) body.watermark = options.watermark
-	if (background && options.background === "transparent") body.background = "transparent"
-	return body
+	if (options === undefined) return {};
+	const body: Record<string, unknown> = {};
+	if (options.outputFormat !== undefined) body.output_format = options.outputFormat;
+	if (options.watermark !== undefined) body.watermark = options.watermark;
+	if (background && options.background === "transparent") body.background = "transparent";
+	return body;
 }
 
 /** Default model names. */
-export const DEFAULT_GOOGLE_MODEL = "gemini-3.1-flash-image"
-export const DEFAULT_OPENAI_MODEL = "gpt-image-2"
-export const DEFAULT_SEEDREAM_MODEL = "doubao-seedream-5-0-260128"
-export const DEFAULT_DASHSCOPE_MODEL = "qwen-image-3.0"
-export const DEFAULT_XAI_MODEL = "grok-imagine-image"
-export const DEFAULT_ZHIPU_MODEL = "glm-image"
+export const DEFAULT_GOOGLE_MODEL = "gemini-3.1-flash-image";
+export const DEFAULT_OPENAI_MODEL = "gpt-image-2";
+export const DEFAULT_SEEDREAM_MODEL = "doubao-seedream-5-0-260128";
+export const DEFAULT_DASHSCOPE_MODEL = "qwen-image-3.0";
+export const DEFAULT_XAI_MODEL = "grok-imagine-image";
+export const DEFAULT_ZHIPU_MODEL = "glm-image";
 /** The model served through the Antigravity subscription channel (Nano Banana 2). */
-export const DEFAULT_GOOGLE_SUB_MODEL = "gemini-3.1-flash-image"
+export const DEFAULT_GOOGLE_SUB_MODEL = "gemini-3.1-flash-image";
 
 export const DEFAULT_MODELS: Record<ImageProvider, string> = {
 	google: DEFAULT_GOOGLE_MODEL,
@@ -131,7 +131,7 @@ export const DEFAULT_MODELS: Record<ImageProvider, string> = {
 	zhipu: DEFAULT_ZHIPU_MODEL,
 	comfyui: DEFAULT_COMFYUI_WORKFLOW_LABEL,
 	"google-sub": DEFAULT_GOOGLE_SUB_MODEL,
-}
+};
 
 export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
 	google: DEFAULT_GOOGLE_ENDPOINT,
@@ -145,47 +145,52 @@ export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
 	comfyui: DEFAULT_COMFYUI_BASE_URL,
 	// The subscription channel calls a hosted service after login, never a configured URL.
 	"google-sub": "",
-}
+};
 
 /** One named ComfyUI API-format workflow in the config file. */
 export interface ComfyUIWorkflowEntry {
 	/** Unique human-readable label; used as the result model and by tool calls. */
-	name: string
+	name: string;
 	/** API-format workflow JSON with {{prompt}} / {{seed}} and optional {{image}} placeholders. */
-	json: string
+	json: string;
 	/** Optional preset prepended to the user prompt on every call of this workflow. */
-	presetPrompt?: string
+	presetPrompt?: string;
 }
 
 /** Named workflows from the config, tolerating blank entries. */
-export function resolveComfyUIWorkflows(source: { comfyuiWorkflows?: readonly ComfyUIWorkflowEntry[] }): ComfyUIWorkflowEntry[] {
-	const named: ComfyUIWorkflowEntry[] = []
+export function resolveComfyUIWorkflows(source: {
+	comfyuiWorkflows?: readonly ComfyUIWorkflowEntry[];
+}): ComfyUIWorkflowEntry[] {
+	const named: ComfyUIWorkflowEntry[] = [];
 	for (const entry of source.comfyuiWorkflows ?? []) {
-		const name = typeof entry?.name === "string" ? entry.name.trim() : ""
-		const json = typeof entry?.json === "string" ? entry.json : ""
+		const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+		const json = typeof entry?.json === "string" ? entry.json : "";
 		if (name.length > 0 && json.trim().length > 0) {
-			const presetPrompt = typeof entry.presetPrompt === "string" ? entry.presetPrompt.trim() : ""
-			named.push(presetPrompt.length > 0 ? { name, json, presetPrompt } : { name, json })
+			const presetPrompt = typeof entry.presetPrompt === "string" ? entry.presetPrompt.trim() : "";
+			named.push(presetPrompt.length > 0 ? { name, json, presetPrompt } : { name, json });
 		}
 	}
-	return named
+	return named;
 }
 
 /** The workflow ComfyUI calls use by default: the configured active name, else the first entry. */
-export function activeComfyUIWorkflow(source: { comfyuiWorkflows?: readonly ComfyUIWorkflowEntry[]; comfyuiActiveWorkflow?: string }): ComfyUIWorkflowEntry | undefined {
-	const workflows = resolveComfyUIWorkflows(source)
-	if (workflows.length === 0) return undefined
-	const activeName = typeof source.comfyuiActiveWorkflow === "string" ? source.comfyuiActiveWorkflow.trim() : ""
-	return workflows.find((workflow) => workflow.name === activeName) ?? workflows[0]
+export function activeComfyUIWorkflow(source: {
+	comfyuiWorkflows?: readonly ComfyUIWorkflowEntry[];
+	comfyuiActiveWorkflow?: string;
+}): ComfyUIWorkflowEntry | undefined {
+	const workflows = resolveComfyUIWorkflows(source);
+	if (workflows.length === 0) return undefined;
+	const activeName = typeof source.comfyuiActiveWorkflow === "string" ? source.comfyuiActiveWorkflow.trim() : "";
+	return workflows.find((workflow) => workflow.name === activeName) ?? workflows[0];
 }
 
 /** Derive a workflow label that does not collide with the given existing names. */
 export function uniqueComfyUIWorkflowName(name: string, existing: readonly string[]): string {
-	const base = name.trim().length > 0 ? name.trim() : DEFAULT_COMFYUI_WORKFLOW_LABEL
-	if (!existing.includes(base)) return base
+	const base = name.trim().length > 0 ? name.trim() : DEFAULT_COMFYUI_WORKFLOW_LABEL;
+	if (!existing.includes(base)) return base;
 	for (let index = 2; ; index += 1) {
-		const candidate = `${base} (${index})`
-		if (!existing.includes(candidate)) return candidate
+		const candidate = `${base} (${index})`;
+		if (!existing.includes(candidate)) return candidate;
 	}
 }
 
@@ -195,12 +200,12 @@ export function uniqueComfyUIWorkflowName(name: string, existing: readonly strin
  * separator, and reduced to the non-empty side when the other is blank.
  */
 export function mergeComfyUIPrompt(preset: string | undefined, user: string): string {
-	const presetText = typeof preset === "string" ? preset.trim().replace(/[,;\s]+$/, "") : ""
-	const userText = user.trim()
-	if (presetText.length === 0) return userText
-	if (userText.length === 0) return presetText
-	return `${presetText}, ${userText}`
+	const presetText = typeof preset === "string" ? preset.trim().replace(/[,;\s]+$/, "") : "";
+	const userText = user.trim();
+	if (presetText.length === 0) return userText;
+	if (userText.length === 0) return presetText;
+	return `${presetText}, ${userText}`;
 }
 
 /** Timeout for one subscription image call, shared by every google-sub path. */
-export const SUBSCRIPTION_TIMEOUT_MS = 300_000
+export const SUBSCRIPTION_TIMEOUT_MS = 300_000;

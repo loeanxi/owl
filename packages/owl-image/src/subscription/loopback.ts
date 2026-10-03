@@ -24,9 +24,9 @@ const LOOPBACK_ADDRESSES: ReadonlySet<string> = new Set(["127.0.0.1", "::1", "::
  * Rejects on port conflicts, network errors, or when nothing arrives in time.
  */
 export function startLoopback(options: {
-	redirectUri: string
-	timeoutMs?: number
-	onCode: (params: URLSearchParams) => Promise<string>
+	redirectUri: string;
+	timeoutMs?: number;
+	onCode: (params: URLSearchParams) => Promise<string>;
 }): Promise<{ ok: true }> {
 	const parsed = new URL(options.redirectUri);
 	if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {

@@ -1,0 +1,101 @@
+# owl-image
+
+给 Owl 编码 agent 的多 provider 图像生成插件。核心能力移植自
+[shanliuling/dsh-image-gen](https://github.com/shanliuling/dsh-image-gen)(Apache-2.0),
+把 DSH 宿主服务替换为 owl 原生等价物(工作区文件、`image-gen.json`、会话内联图片块)。
+
+## 工具(模型自动可用)
+
+| 工具 | 用途 |
+|---|---|
+| `generate_image` | 文生图。支持 per-call provider/model/比例/清晰度覆盖 |
+| `generate_images` | 批量生图(1-10 个 prompt,单项失败不中断) |
+| `edit_image` | 图生图/多图合成/改图。无选择器时自动用会话里最近一条带图消息(用户上传的本图或本工具此前生成的图);`source_path`/`source_paths` 指定工作区文件 |
+| `find_inspiration` | 检索内置灵感库(awesome-gpt-image-2 案例库 + handraw-style 手绘风格图鉴,约 500+ 条可复用 prompt) |
+
+生成的图会:(a) 作为 image block 附在工具结果里(桌面端直接渲染,模型也能看到并继续迭代);
+(b) 默认落盘到 `<工作区>/owl-image/image-<sha256前8位>.<ext>`(内容寻址,重复生成同名覆盖)。
+
+## 命令
+
+| 命令 | 用途 |
+|---|---|
+| `/image-login` | Google 订阅(Antigravity)OAuth 登录——起本机回环服务器 + 自动开浏览器 |
+| `/image-logout` | 退出 Google 订阅账号 |
+| `/image-status` | 查看各 provider 配置状态 |
+
+## Provider
+
+| provider | 凭据 | 说明 |
+|---|---|---|
+| `google`(默认) | `GEMINI_API_KEY` | Gemini Interactions API,t2i + i2i,最高 4K |
+| `google-sub` | OAuth 登录 | 走 Antigravity 账号(Nano Banana 2),`/image-login` 即用;**实验性**,打的是 Google 内部接口,协议来自社区逆向,随时可能失效或被官方封堵,风险自担 |
+| `openai` | `OPENAI_API_KEY` | 官方 Images API(gpt-image-2) |
+| `openai-compat` | `OWL_IMAGE_OPENAI_COMPAT_KEY` | 任意 OpenAI 兼容中转;edits 支持 multipart / JSON image_url 数组 / form reference_images 三种形态 |
+| `seedream` | `ARK_API_KEY` | 火山方舟 Seedream(可去水印/透明底) |
+| `dashscope` | `DASHSCOPE_API_KEY` | 阿里通义 qwen-image(编辑最多 3 张参考图) |
+| `xai` | `XAI_API_KEY` | Grok Imagine(比例+清晰度) |
+| `zhipu` | `ZHIPUAI_API_KEY` | 智谱 glm-image(仅文生图) |
+| `comfyui` | 无需 key | 本地 ComfyUI,跑 API 格式工作流(含 `{{prompt}}`/`{{seed}}`/`{{image}}` 占位符) |
+
+所有出站请求默认走 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量,或在配置里显式指定 `proxy`。
+
+## 配置(`<agentDir>/image-gen.json`)
+
+文件不存在时全部用代码内默认值;改动即时生效(每次工具调用现读)。
+
+```json
+{
+  "provider": "google",
+  "apiKeys": {
+    "google": "AIza...",
+    "openai-compat": "sk-..."
+  },
+  "googleModel": "gemini-3.1-flash-image",
+  "openaiCompatBaseURL": "https://your-relay.example/v1",
+  "openaiCompatModel": "gpt-image-2",
+  "comfyuiBaseURL": "http://127.0.0.1:8188",
+  "comfyuiWorkflows": [
+    { "name": "默认出图", "json": "{ ...API 格式工作流, 文本节点里放 {{prompt}}... }", "presetPrompt": "可选,前置到用户 prompt 前" }
+  ],
+  "comfyuiActiveWorkflow": "默认出图",
+  "saveToWorkspace": true,
+  "workspaceFolder": "owl-image",
+  "attachImageToResult": true,
+  "maxImageBytes": 10485760,
+  "proxy": ""
+}
+```
+
+- `apiKeys` 优先级高于环境变量;写进 JSON 是明文,注意该目录权限。
+- `attachImageToResult: false` 可让生成的图不回传给模型(纯落盘),省 token;桌面端仍从保存路径预览。
+- `proxy: "off"` 强制直连;空串跟随环境变量。
+
+## 构建
+
+```bash
+cd owl-mono/packages/owl-image
+npm run build        # esbuild 单文件 → dist/index.js(undici 保持 external)
+npm run typecheck
+```
+
+## 冒烟
+
+```bash
+cd /d/owl/owl-re-v1
+node smoke/owl-image-check.mjs   # 9 项:真实加载链路 + 工具注册 + 灵感检索 + 错误路径,全程不碰网络
+```
+
+## 与上游(dsh-image-gen)的差异
+
+- **没有**浏览器工作台:画布(tldraw)、Studio 批量对比、图库、设置页 UI 均依赖 DSH 的
+  slot 注入体系,owl 桌面端暂无第三方 UI 扩展点,整体不移植。
+- **砍掉** `chatgpt-sub` / `grok-sub` 订阅通道,只保留 `google-sub`(Antigravity)。
+- DSH 的 attachments 服务(带 ID 的内容寻址图片库)→ 会话内联图片块 + 工作区文件;
+  `edit_image` 的"最新会话图片"回退因此直接读消息里的 image block。
+- DSH credentials 服务 → 环境变量 + `image-gen.json` 的 `apiKeys`。
+- 新增全链路代理感知(`doFetch`),适配本机 `HTTP_PROXY` 环境。
+- 保留上游的安全细节:错误信息密钥脱敏、响应字节上限、工作区保存的双重包含检查、
+  内容嗅探优先于声明 content-type。
+
+上游 Apache-2.0 许可与出处已在各文件头注明。

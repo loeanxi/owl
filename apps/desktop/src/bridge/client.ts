@@ -44,8 +44,10 @@ export class BridgeClient {
 	private url: string;
 	private closedByUser = false;
 
-	constructor(url = `ws://${location.host}/ws`) {
-		this.url = url;
+	constructor(url?: string) {
+		const host = (globalThis as { location?: { host: string } }).location?.host;
+		if (!url && !host) throw new Error("A bridge URL is required outside the desktop browser.");
+		this.url = url ?? `ws://${host}/ws`;
 	}
 
 	connect(): void {

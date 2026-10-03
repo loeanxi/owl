@@ -4,8 +4,7 @@
  * the save path: the DSH attachment id is replaced by a sha256 digest of the
  * image bytes, so the deterministic content-addressed file name survives.
  */
-import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { extensionOf, type ImageMediaType } from "./media.ts";
@@ -71,7 +70,9 @@ async function nearestExistingRealPath(dir: string): Promise<string> {
 /** Reject a directory whose on-disk resolution lands outside the workspace. */
 function assertInsideWorkspace(realRoot: string, candidate: string, folder: string | undefined): void {
 	if (containsPath(realRoot, candidate)) return;
-	throw new Error(`image workspace folder '${folder ?? ""}' must stay inside the session workspace (${candidate} resolves outside ${realRoot})`);
+	throw new Error(
+		`image workspace folder '${folder ?? ""}' must stay inside the session workspace (${candidate} resolves outside ${realRoot})`,
+	);
 }
 
 /**
@@ -88,11 +89,11 @@ function assertInsideWorkspace(realRoot: string, candidate: string, folder: stri
  * save never resolves successfully and never leaves the image behind.
  */
 export async function saveImageToWorkspace(options: {
-	workspaceRoot: string
-	folder?: string | undefined
-	mediaType: ImageMediaType
-	data: Uint8Array
-	signal?: AbortSignal
+	workspaceRoot: string;
+	folder?: string | undefined;
+	mediaType: ImageMediaType;
+	data: Uint8Array;
+	signal?: AbortSignal;
 }): Promise<string> {
 	const dir = workspaceImageDir(options.workspaceRoot, options.folder);
 	options.signal?.throwIfAborted();

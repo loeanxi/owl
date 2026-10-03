@@ -7,6 +7,7 @@
  * 单例 tab 的图标沿用 quick.tsx 的彩色（工作台 tab 条与开始页一致）。
  */
 import { lazy } from "react";
+import { t } from "../i18n/index.ts";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
@@ -35,70 +36,70 @@ function quickIcon(kind: string): TabDefinition["icon"] {
 const DEFINITIONS: TabDefinition[] = [
 	{
 		kind: "document",
-		title: "文件预览",
+		get title() { return t("settings.sidecards.filePreview"); },
 		icon: (size) => <IconFile size={size ?? 14} />,
 		component: DocumentTab,
 		exts: ["md", "markdown", "html", "htm", "txt", "csv", "tsv"],
 	},
 	{
 		kind: "files",
-		title: "文件",
+		get title() { return t("dev.files"); },
 		icon: quickIcon("files"),
 		component: FilesTab,
 	},
 	{
 		kind: "changes",
-		title: "文件变动",
+		get title() { return t("dev.changes"); },
 		icon: quickIcon("changes"),
 		component: ChangesTab,
 	},
 	{
 		kind: "terminal",
-		title: "终端",
+		get title() { return t("start.terminal"); },
 		icon: quickIcon("terminal"),
 		// xterm + 语言包都重，走懒加载 chunk
 		component: TerminalTab,
 	},
 	{
 		kind: "browser",
-		title: "浏览器",
+		get title() { return t("app.browserTab"); },
 		icon: quickIcon("browser"),
 		component: BrowserTab,
 	},
 	{
 		kind: "tasks",
-		title: "任务管理",
+		get title() { return t("wb.tasks"); },
 		icon: quickIcon("tasks"),
 		component: TasksTab,
 	},
 	{
 		kind: "context",
-		title: "上下文",
+		get title() { return t("composer.context"); },
 		icon: quickIcon("context"),
 		component: ContextTab,
 	},
 	{
 		kind: "impression",
-		title: "用户印象",
+		get title() { return t("wb.impression"); },
 		icon: quickIcon("impression"),
 		component: ImpressionTab,
 	},
 	{
 		kind: "sidechat",
-		title: "侧边对话(beta)",
+		get title() { return t("wb.sidechat"); },
 		icon: quickIcon("sidechat"),
 		component: SideChatTab,
 	},
 	{
 		kind: "editor",
-		title: "编辑器",
+		get title() { return t("wb.editor"); },
 		icon: (size) => <IconFile size={size ?? 14} />,
 		component: EditorTab,
 		// exts 留空：editor 是 viewer 的兜底 kind（registry.viewerKindFor）
 	},
 	{
 		kind: "image",
-		title: "图片",
+		get title() { return t("settings.sidecards.viewerImage"); },
 		icon: (size) => <IconImage size={size ?? 14} />,
 		component: ImageTab,
 		exts: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"],

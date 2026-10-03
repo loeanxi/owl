@@ -1,7 +1,8 @@
 /** ComfyUI text-to-image and image-to-image adapters using an imported API-format workflow. Ported from dsh-image-gen src/comfyui.ts (Apache-2.0). */
-import { doFetch } from "./config.ts";
+
 import { prepareComfyUIWorkflow, randomSeed } from "./comfyui-workflow.ts";
-import { detectImageMediaType, imageMediaTypeOf, type GeneratedImage, type ImageMediaType } from "./media.ts";
+import { doFetch } from "./config.ts";
+import { detectImageMediaType, type GeneratedImage, type ImageMediaType, imageMediaTypeOf } from "./media.ts";
 import { redactSecrets } from "./redact.ts";
 
 const ERROR_LIMIT = 4096;
@@ -10,28 +11,30 @@ const MAX_HISTORY_BYTES = 16 * 1024 * 1024;
 
 export interface GeneratedComfyUIImage extends GeneratedImage {
 	/** Concrete seed injected into the workflow, surfaced for provenance metadata. */
-	seed: number
+	seed: number;
 }
 
 /** Source image bytes a ComfyUI workflow accepts through its image input. */
 export interface ComfyUISourceImage {
-	data: Uint8Array
-	mediaType: ImageMediaType
+	data: Uint8Array;
+	mediaType: ImageMediaType;
 }
 
 interface ComfyUIJobInput {
-	baseURL: string
-	timeoutMs: number
-	signal: AbortSignal
-	proxy?: string
+	baseURL: string;
+	timeoutMs: number;
+	signal: AbortSignal;
+	proxy?: string;
 }
 
 /** Run one ComfyUI text-to-image workflow and return its first final image. */
-export async function generateComfyUIImage(input: ComfyUIJobInput & {
-	workflowJson: string
-	prompt: string
-	maxBytes: number
-}): Promise<GeneratedComfyUIImage> {
+export async function generateComfyUIImage(
+	input: ComfyUIJobInput & {
+		workflowJson: string;
+		prompt: string;
+		maxBytes: number;
+	},
+): Promise<GeneratedComfyUIImage> {
 	const seed = randomSeed();
 	const workflow = prepareComfyUIWorkflow(input.workflowJson, input.prompt, seed);
 	const output = await runJob(input, async (baseURL, signal) => {
@@ -43,12 +46,14 @@ export async function generateComfyUIImage(input: ComfyUIJobInput & {
 }
 
 /** Upload one source image, run the workflow, and return its first final image. */
-export async function editComfyUIImage(input: ComfyUIJobInput & {
-	workflowJson: string
-	prompt: string
-	sourceImage: ComfyUISourceImage
-	maxBytes: number
-}): Promise<GeneratedComfyUIImage> {
+export async function editComfyUIImage(
+	input: ComfyUIJobInput & {
+		workflowJson: string;
+		prompt: string;
+		sourceImage: ComfyUISourceImage;
+		maxBytes: number;
+	},
+): Promise<GeneratedComfyUIImage> {
 	const seed = randomSeed();
 	const output = await runJob(input, async (baseURL, signal) => {
 		const imageName = await uploadSourceImage(baseURL, input.sourceImage, signal, input.proxy);
@@ -77,7 +82,8 @@ async function runJob<T>(input: ComfyUIJobInput, run: (baseURL: URL, signal: Abo
 		return await run(baseURL, controller.signal);
 	} catch (error) {
 		input.signal.throwIfAborted();
-		if (controller.signal.aborted) throw new Error(`ComfyUI generation timed out after ${String(input.timeoutMs)} ms`);
+		if (controller.signal.aborted)
+			throw new Error(`ComfyUI generation timed out after ${String(input.timeoutMs)} ms`);
 		if (error instanceof TypeError) throw new Error(`Could not connect to ComfyUI at ${baseURL.origin}`);
 		throw error;
 	} finally {
@@ -87,18 +93,29 @@ async function runJob<T>(input: ComfyUIJobInput, run: (baseURL: URL, signal: Abo
 }
 
 /** Upload the source image and return the LoadImage-compatible name ComfyUI stored it under. */
-async function uploadSourceImage(baseURL: URL, image: ComfyUISourceImage, signal: AbortSignal, proxy?: string): Promise<string> {
+async function uploadSourceImage(
+	baseURL: URL,
+	image: ComfyUISourceImage,
+	signal: AbortSignal,
+	proxy?: string,
+): Promise<string> {
 	const filename = uploadFilename(image.mediaType);
 	// Copy into a fresh ArrayBuffer-backed view so the bytes are a valid BlobPart.
 	const bytes = new Uint8Array(image.data.byteLength);
 	bytes.set(image.data);
 	const form = new FormData();
 	form.append("image", new Blob([bytes], { type: image.mediaType }), filename);
-	const response = await doFetch(endpoint(baseURL, "upload/image"), {
-		method: "POST", redirect: "error", signal,
-		headers: { accept: "application/json" },
-		body: form,
-	}, proxy);
+	const response = await doFetch(
+		endpoint(baseURL, "upload/image"),
+		{
+			method: "POST",
+			redirect: "error",
+			signal,
+			headers: { accept: "application/json" },
+			body: form,
+		},
+		proxy,
+	);
 	const text = await readBoundedText(response, ERROR_LIMIT);
 	if (!response.ok) throw new Error(`ComfyUI image upload failed (${response.status}): ${redactSecrets(text)}`);
 	const payload = parseJsonRecord(text, "ComfyUI /upload/image returned invalid JSON");
@@ -111,19 +128,37 @@ async function uploadSourceImage(baseURL: URL, image: ComfyUISourceImage, signal
 
 /** LoadImage-style inputs need a file name with a decodable extension. */
 function uploadFilename(mediaType: ImageMediaType): string {
-	const extension = mediaType === "image/png" ? "png" : mediaType === "image/jpeg" ? "jpg" : mediaType === "image/webp" ? "webp" : undefined;
+	const extension =
+		mediaType === "image/png"
+			? "png"
+			: mediaType === "image/jpeg"
+				? "jpg"
+				: mediaType === "image/webp"
+					? "webp"
+					: undefined;
 	if (extension === undefined) {
 		throw new Error(`ComfyUI edit_image accepts PNG, JPEG, or WebP source images; got ${mediaType}`);
 	}
 	return `owl-image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
 }
 
-async function submitWorkflow(baseURL: URL, workflow: Record<string, unknown>, signal: AbortSignal, proxy?: string): Promise<string> {
-	const response = await doFetch(endpoint(baseURL, "prompt"), {
-		method: "POST", redirect: "error", signal,
-		headers: { "content-type": "application/json", accept: "application/json" },
-		body: JSON.stringify({ prompt: workflow }),
-	}, proxy);
+async function submitWorkflow(
+	baseURL: URL,
+	workflow: Record<string, unknown>,
+	signal: AbortSignal,
+	proxy?: string,
+): Promise<string> {
+	const response = await doFetch(
+		endpoint(baseURL, "prompt"),
+		{
+			method: "POST",
+			redirect: "error",
+			signal,
+			headers: { "content-type": "application/json", accept: "application/json" },
+			body: JSON.stringify({ prompt: workflow }),
+		},
+		proxy,
+	);
 	const text = await readBoundedText(response, ERROR_LIMIT);
 	if (!response.ok) throw new Error(`ComfyUI rejected the workflow (${response.status}): ${redactSecrets(text)}`);
 	const payload = parseJsonRecord(text, "ComfyUI /prompt returned invalid JSON");
@@ -133,20 +168,36 @@ async function submitWorkflow(baseURL: URL, workflow: Record<string, unknown>, s
 	return payload.prompt_id;
 }
 
-async function waitForOutput(baseURL: URL, promptId: string, signal: AbortSignal, proxy?: string): Promise<ComfyUIImageOutput> {
+async function waitForOutput(
+	baseURL: URL,
+	promptId: string,
+	signal: AbortSignal,
+	proxy?: string,
+): Promise<ComfyUIImageOutput> {
 	for (;;) {
 		signal.throwIfAborted();
-		const response = await doFetch(endpoint(baseURL, `history/${encodeURIComponent(promptId)}`), {
-			redirect: "error", signal, headers: { accept: "application/json" },
-		}, proxy);
+		const response = await doFetch(
+			endpoint(baseURL, `history/${encodeURIComponent(promptId)}`),
+			{
+				redirect: "error",
+				signal,
+				headers: { accept: "application/json" },
+			},
+			proxy,
+		);
 		const text = await readBoundedText(response, MAX_HISTORY_BYTES);
-		if (!response.ok) throw new Error(`ComfyUI history request failed (${response.status}): ${redactSecrets(text).slice(0, ERROR_LIMIT)}`);
+		if (!response.ok)
+			throw new Error(
+				`ComfyUI history request failed (${response.status}): ${redactSecrets(text).slice(0, ERROR_LIMIT)}`,
+			);
 		const history = parseJsonRecord(text, "ComfyUI history returned invalid JSON");
 		const entry = record(history[promptId]);
 		if (entry !== undefined) {
 			const status = record(entry.status);
 			if (status?.status_str === "error") {
-				throw new Error(`ComfyUI workflow failed: ${redactSecrets(JSON.stringify(status.messages ?? status)).slice(0, ERROR_LIMIT)}`);
+				throw new Error(
+					`ComfyUI workflow failed: ${redactSecrets(JSON.stringify(status.messages ?? status)).slice(0, ERROR_LIMIT)}`,
+				);
 			}
 			const output = firstOutputImage(entry.outputs);
 			if (output !== undefined) return output;
@@ -157,9 +208,9 @@ async function waitForOutput(baseURL: URL, promptId: string, signal: AbortSignal
 }
 
 interface ComfyUIImageOutput {
-	filename: string
-	subfolder: string
-	type: string
+	filename: string;
+	subfolder: string;
+	type: string;
 }
 
 function firstOutputImage(value: unknown): ComfyUIImageOutput | undefined {
@@ -182,7 +233,13 @@ function firstOutputImage(value: unknown): ComfyUIImageOutput | undefined {
 	return undefined;
 }
 
-async function downloadOutput(baseURL: URL, output: ComfyUIImageOutput, maxBytes: number, signal: AbortSignal, proxy?: string): Promise<GeneratedImage> {
+async function downloadOutput(
+	baseURL: URL,
+	output: ComfyUIImageOutput,
+	maxBytes: number,
+	signal: AbortSignal,
+	proxy?: string,
+): Promise<GeneratedImage> {
 	const url = endpoint(baseURL, "view");
 	url.searchParams.set("filename", output.filename);
 	url.searchParams.set("subfolder", output.subfolder);
@@ -191,7 +248,10 @@ async function downloadOutput(baseURL: URL, output: ComfyUIImageOutput, maxBytes
 	if (!response.ok) throw new Error(`ComfyUI image download failed (${response.status})`);
 	const data = await readBoundedBytes(response, maxBytes);
 	// Sniff first: self-hosted /view answers can carry a generic content-type.
-	const mediaType = detectImageMediaType(data) ?? imageMediaTypeOf(response.headers.get("content-type")) ?? imageMediaTypeFromName(output.filename);
+	const mediaType =
+		detectImageMediaType(data) ??
+		imageMediaTypeOf(response.headers.get("content-type")) ??
+		imageMediaTypeFromName(output.filename);
 	if (mediaType === undefined) throw new Error("ComfyUI image download returned an unsupported content type");
 	return { data, mediaType };
 }
@@ -203,7 +263,8 @@ function comfyUIBaseURL(value: string): URL {
 	} catch {
 		throw new Error("ComfyUI URL must be an absolute http:// or https:// URL");
 	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("ComfyUI URL must use http:// or https://");
+	if (url.protocol !== "http:" && url.protocol !== "https:")
+		throw new Error("ComfyUI URL must use http:// or https://");
 	return url;
 }
 
@@ -212,7 +273,9 @@ function endpoint(baseURL: URL, path: string): URL {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
 }
 
 function parseJsonRecord(text: string, message: string): Record<string, unknown> {

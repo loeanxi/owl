@@ -49,6 +49,24 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./core/compaction/index.ts";
+// 「上下文洞察」注册表：插件（owl-context）写入、桌面桥 context.get 读取，
+// 与 question-channel 同一套单例接缝
+export {
+	type ContextComposition,
+	type ContextEventRow,
+	type ContextInsightState,
+	type ContextRequestRow,
+	type ContextToolRef,
+	type ContextUsageInfo,
+	classifyRequestMessages,
+	dropContextInsight,
+	estimateToolDeclarations,
+	findContextInsightByCwd,
+	getContextInsight,
+	recordContextEvent,
+	recordContextRequest,
+	recordContextTools,
+} from "./core/context-insight.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {
@@ -240,31 +258,6 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
-export {
-	getWorkspaceViewer,
-	listWorkspaceViewers,
-	openWorkspaceViewer,
-	registerWorkspaceViewer,
-	subscribeWorkspaceViewers,
-} from "./core/workspace-viewers.ts";
-// 「上下文洞察」注册表：插件（owl-context）写入、桌面桥 context.get 读取，
-// 与 question-channel 同一套单例接缝
-export {
-	classifyRequestMessages,
-	type ContextComposition,
-	type ContextEventRow,
-	type ContextInsightState,
-	type ContextRequestRow,
-	type ContextToolRef,
-	type ContextUsageInfo,
-	dropContextInsight,
-	estimateToolDeclarations,
-	findContextInsightByCwd,
-	getContextInsight,
-	recordContextEvent,
-	recordContextRequest,
-	recordContextTools,
-} from "./core/context-insight.ts";
 // 「向用户提问」桥通道：桌面桥注入，插件（owl-ask-user）经此别名共享同一实例
 export {
 	cancelAllPendingQuestions,
@@ -438,6 +431,17 @@ export {
 	type VirtualModelDefinition,
 	type VirtualModelStateData,
 } from "./core/virtual-models.ts";
+export {
+	getWorkspaceViewer,
+	listWorkspaceViewers,
+	openWorkspaceViewer,
+	registerWorkspaceViewer,
+	subscribeWorkspaceViewers,
+	type WorkspaceViewerDefinition,
+	type WorkspaceViewerInfo,
+	type WorkspaceViewerOpenRequest,
+	type WorkspaceViewerOpenResult,
+} from "./core/workspace-viewers.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
 export type { QuestionAnswerPayload, QuestionOptionPayload, QuestionPayload } from "./modes/desktop/protocol.ts";

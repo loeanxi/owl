@@ -50,6 +50,7 @@ interface PageEntry {
 	network: BrowserNetworkJournal;
 	/** Next ref survives navigation so a stale number never targets the new document. */
 	nextRefSeed: number;
+	frameRevision: number;
 	/** 页面当前等待应答的文件选择框（如有）。 */
 	pendingChooser: { chooser: FileChooser; multiple: boolean } | null;
 }
@@ -197,6 +198,7 @@ export class BrowserHub {
 			interaction: new BrowserInteraction(page),
 			network: new BrowserNetworkJournal(page),
 			nextRefSeed: 1,
+			frameRevision: 0,
 			pendingChooser: null,
 		};
 		this.pages.set(pageId, entry);
@@ -224,18 +226,34 @@ export class BrowserHub {
 			entry.pendingChooser = { chooser, multiple: chooser.isMultiple() };
 			this.callbacks.onFileChooser(pageId, chooser.isMultiple());
 		});
-		cdp.on("Page.screencastFrame", (params) => {
-			const meta = params.metadata;
-			void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
-			if (!meta) return;
-			this.callbacks.onFrame(pageId, params.data, meta.deviceWidth ?? 0, meta.deviceHeight ?? 0);
-		});
-		// PNG 帧：本地 WS 带宽充裕，换文字锐利（JPEG 的糊字在 UI 放大后没法看）
-		await cdp.send("Page.startScreencast", { format: "png" }).catch(() => {});
+		await this.startFrames(entry);
 		if (url) await page.goto(url, { waitUntil: "load", timeout: 20_000 }).catch(() => {});
 		if (this.disposed) throw new Error("浏览器服务已关闭");
 		await this.refreshPageMeta(entry);
 		return entry;
+	}
+
+	private async startFrames(entry: PageEntry): Promise<void> {
+		const cdp = entry.cdp;
+		const revision = entry.frameRevision;
+		const viewport = { ...entry.info.viewport };
+		cdp.on("Page.screencastFrame", (params: { data: string; sessionId: number }) => {
+			void cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
+			if (revision !== entry.frameRevision || !this.pages.has(entry.info.pageId)) return;
+			const bitmap = pngSize(Buffer.from(params.data, "base64"));
+			if (!bitmap) return;
+			// CDP's device dimensions can describe the old browser window. Only use
+			// current CSS geometry, accepting proportional raster scaling within 2px.
+			if (
+				Math.abs(bitmap.width * viewport.height - bitmap.height * viewport.width) >
+				Math.max(viewport.width, viewport.height) * 2
+			)
+				return;
+			this.callbacks.onFrame(entry.info.pageId, params.data, viewport.width, viewport.height);
+		});
+		await cdp
+			.send("Page.startScreencast", { format: "png", maxWidth: viewport.width, maxHeight: viewport.height })
+			.catch(() => {});
 	}
 
 	private pushConsole(entry: PageEntry, line: string): void {
@@ -354,10 +372,20 @@ export class BrowserHub {
 				width: Math.min(Math.max(Math.round(width), 320), 3840),
 				height: Math.min(Math.max(Math.round(height), 320), 2160),
 			};
-			await entry.page.setViewportSize(clamped);
-			entry.info.viewport = clamped;
-			await this.captureFrame(pageId);
-			this.emitPages();
+			entry.frameRevision++;
+			await entry.cdp.send("Page.stopScreencast").catch(() => {});
+			await entry.cdp.detach().catch(() => {});
+			try {
+				await entry.page.setViewportSize(clamped);
+				entry.info.viewport = clamped;
+				await this.captureFrame(pageId);
+			} finally {
+				if (this.pages.has(pageId) && !this.disposed) {
+					entry.cdp = await entry.context.newCDPSession(entry.page);
+					await this.startFrames(entry);
+					this.emitPages();
+				}
+			}
 		});
 	}
 
@@ -374,8 +402,13 @@ export class BrowserHub {
 		if (!entry) return;
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
+				const revision = entry.frameRevision;
+				const viewport = { ...(entry.page.viewportSize() ?? DEFAULT_VIEWPORT) };
 				const buffer = await entry.page.screenshot({ type: "png", caret: "hide" });
-				const viewport = entry.page.viewportSize() ?? DEFAULT_VIEWPORT;
+				if (revision !== entry.frameRevision || !this.pages.has(pageId)) return;
+				const bitmap = pngSize(buffer);
+				if (!bitmap || bitmap.width !== viewport.width || bitmap.height !== viewport.height)
+					throw new Error("页面截图尺寸尚未稳定");
 				this.callbacks.onFrame(pageId, buffer.toString("base64"), viewport.width, viewport.height);
 				return;
 			} catch {
@@ -865,6 +898,14 @@ export class BrowserHub {
 		];
 		return tools.map(bind);
 	}
+}
+
+function pngSize(buffer: Buffer): { width: number; height: number } | undefined {
+	if (buffer.length < 24 || !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+		return undefined;
+	const width = buffer.readUInt32BE(16);
+	const height = buffer.readUInt32BE(20);
+	return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
 function normalizeAgentUrl(raw: string): string {

@@ -379,9 +379,19 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 			expect(
 				frames.some((frame) => frame.pageId === page.pageId && frame.width === 390 && frame.height === 844),
 			).toBe(true);
+			await invoke("chat-a", "browser_wait", { ms: 400 });
+			expect(frames.filter((frame) => frame.pageId === page.pageId).at(-1)).toMatchObject({
+				width: 390,
+				height: 844,
+			});
 			await hub.setViewport(page.pageId, 844, 390);
 			expect((await report("chat-a")).width).toBe(844);
 			expect(hub.listPages("chat-a")[0].viewport).toEqual({ width: 844, height: 390 });
+			await invoke("chat-a", "browser_wait", { ms: 400 });
+			expect(frames.filter((frame) => frame.pageId === page.pageId).at(-1)).toMatchObject({
+				width: 844,
+				height: 390,
+			});
 			const screenshot = await invoke("chat-a", "browser_screenshot");
 			expect(
 				screenshot.content.some(

@@ -5,6 +5,7 @@
  * 文件夹、蓝终端、绿变动、蓝浏览器、琥珀任务、蓝侧聊。
  */
 import type { ReactNode } from "react";
+import { t } from "../i18n/index.ts";
 import { IconGitBranch } from "./icons.tsx";
 import type { SidebarStore } from "./store.ts";
 import { isTabKindEnabled } from "./config.ts";
@@ -123,15 +124,19 @@ export interface QuickAction {
 	disabled?: boolean;
 }
 
+/**
+ * label/tabTitle 用 getter 在「访问时」经 t() 解析：消费方（开始页/工作台/设置页）
+ * 渲染期才读到当前语言，语言切换后无需改任何使用点。key 见 i18n/zh.ts 的 wb.*。
+ */
 export const QUICK_ACTIONS: QuickAction[] = [
-	{ kind: "files", label: "文件", color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
-	{ kind: "terminal", label: "新建终端", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true, tabTitle: "终端" },
-	{ kind: "changes", label: "文件变动", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
-	{ kind: "browser", label: "浏览器", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
-	{ kind: "tasks", label: "任务管理", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
-	{ kind: "context", label: "上下文", color: "#41c463", icon: (s) => <IconPulse size={s} /> },
-	{ kind: "impression", label: "用户印象", color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
-	{ kind: "sidechat", label: "侧边对话(beta)", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
+	{ kind: "files", get label() { return t("dev.files"); }, color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
+	{ kind: "terminal", get label() { return t("wb.newTerminal"); }, color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true, get tabTitle() { return t("start.terminal"); } },
+	{ kind: "changes", get label() { return t("dev.changes"); }, color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
+	{ kind: "browser", get label() { return t("app.browserTab"); }, color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
+	{ kind: "tasks", get label() { return t("wb.tasks"); }, color: "#d29922", icon: (s) => <IconLayers size={s} /> },
+	{ kind: "context", get label() { return t("composer.context"); }, color: "#41c463", icon: (s) => <IconPulse size={s} /> },
+	{ kind: "impression", get label() { return t("wb.impression"); }, color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
+	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
 ];
 
 /** 按 kind 取快捷入口（开始页 / 空态卡片共用）。 */

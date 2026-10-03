@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-	classifyRequestMessages,
-	estimateToolDeclarations,
 	type ContextRequestRow,
+	classifyRequestMessages,
 	dropContextInsight,
+	estimateToolDeclarations,
 	findContextInsightByCwd,
 	getContextInsight,
 	recordContextEvent,
@@ -12,7 +12,15 @@ import {
 } from "../../src/core/context-insight.ts";
 
 const cwd0 = "D:\\tmp\\caps";
-const emptyComposition = () => ({ system: 1, inject: 0, user: 0, assistant: 0, toolResult: 0, toolSchemas: 0, other: 0 });
+const emptyComposition = () => ({
+	system: 1,
+	inject: 0,
+	user: 0,
+	assistant: 0,
+	toolResult: 0,
+	toolSchemas: 0,
+	other: 0,
+});
 
 describe("classifyRequestMessages", () => {
 	it("leading system 拆 system/inject：基础 sections 归 system，扩展注入归 inject", () => {
@@ -35,7 +43,13 @@ describe("classifyRequestMessages", () => {
 
 	it("user/assistant/toolResult 各归各类；图片按 4800 字符折算", () => {
 		const composition = classifyRequestMessages([
-			{ role: "user", content: [{ type: "text", text: "hello" }, { type: "image", data: "x", mimeType: "image/png" }] },
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "hello" },
+					{ type: "image", data: "x", mimeType: "image/png" },
+				],
+			},
 			{
 				role: "assistant",
 				content: [
@@ -73,7 +87,12 @@ describe("classifyRequestMessages", () => {
 describe("estimateToolDeclarations", () => {
 	it("按 name+description+schema 估算并记录来源", () => {
 		const estimate = estimateToolDeclarations([
-			{ name: "read", description: "read a file", parameters: { type: "object" }, sourceInfo: { source: "builtin" } },
+			{
+				name: "read",
+				description: "read a file",
+				parameters: { type: "object" },
+				sourceInfo: { source: "builtin" },
+			},
 			{
 				name: "mcp_playwright_navigate",
 				description: "navigate",
@@ -110,7 +129,10 @@ describe("context-insight 注册表", () => {
 		recordContextRequest(
 			sessionId,
 			cwd,
-			{ ts: 200, composition: { system: 10, inject: 4, user: 5, assistant: 6, toolResult: 7, toolSchemas: 3, other: 0 } },
+			{
+				ts: 200,
+				composition: { system: 10, inject: 4, user: 5, assistant: 6, toolResult: 7, toolSchemas: 3, other: 0 },
+			},
 			{ input: 100, output: 9, cacheRead: 80, cacheWrite: 11 },
 		);
 		state = getContextInsight(sessionId)!;

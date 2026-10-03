@@ -14,7 +14,13 @@ const browser = vi.hoisted(() => {
 			viewport = size;
 		},
 		viewportSize: () => viewport,
-		screenshot: async () => Buffer.from("frame"),
+		screenshot: async () => {
+			const frame = Buffer.alloc(24);
+			Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(frame);
+			frame.writeUInt32BE(viewport.width, 16);
+			frame.writeUInt32BE(viewport.height, 20);
+			return frame;
+		},
 		mouse: {
 			move: async (x: number, y: number) => {
 				pointer.x = x;

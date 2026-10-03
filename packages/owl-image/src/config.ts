@@ -7,12 +7,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 import {
-	activeComfyUIWorkflow,
 	API_KEY_ENV_VARS,
 	ARK_BACKGROUND_MODES,
 	ARK_OUTPUT_FORMATS,
+	type ArkBackgroundMode,
+	type ArkOutputFormat,
+	type ArkOutputOptions,
+	activeComfyUIWorkflow,
+	type ComfyUIWorkflowEntry,
 	DEFAULT_COMFYUI_TIMEOUT_MS,
 	DEFAULT_DASHSCOPE_ENDPOINT,
 	DEFAULT_DASHSCOPE_MODEL,
@@ -29,12 +33,8 @@ import {
 	DEFAULT_ZHIPU_BASE_URL,
 	DEFAULT_ZHIPU_MODEL,
 	IMAGE_PROVIDERS,
-	PROVIDER_DISPLAY_NAMES,
-	type ArkBackgroundMode,
-	type ArkOutputFormat,
-	type ArkOutputOptions,
-	type ComfyUIWorkflowEntry,
 	type ImageProvider,
+	PROVIDER_DISPLAY_NAMES,
 } from "./shared.ts";
 
 /** Default workspace subfolder that receives generated image files. */
@@ -105,12 +105,25 @@ export interface OwlImageConfig {
 export type ResolvedProvider =
 	| { provider: "google"; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
 	| { provider: "openai"; model: string; baseURL: string; imageSize: string }
-	| { provider: "openai-compat"; model: string; baseURL: string; imageSize: string; editFormat: "multipart" | "jsonImageUrlArray" | "formReferenceImages"; editExtra: Record<string, unknown> }
+	| {
+			provider: "openai-compat";
+			model: string;
+			baseURL: string;
+			imageSize: string;
+			editFormat: "multipart" | "jsonImageUrlArray" | "formReferenceImages";
+			editExtra: Record<string, unknown>;
+	  }
 	| { provider: "seedream"; model: string; baseURL: string; imageSize: string; arkOptions: ArkOutputOptions }
 	| { provider: "dashscope"; model: string; endpoint: string; imageSize: string }
 	| { provider: "xai"; model: string; baseURL: string; imageSize: string }
 	| { provider: "zhipu"; model: string; baseURL: string; imageSize: string }
-	| { provider: "comfyui"; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number }
+	| {
+			provider: "comfyui";
+			baseURL: string;
+			workflows: ComfyUIWorkflowEntry[];
+			workflow?: ComfyUIWorkflowEntry;
+			timeoutMs: number;
+	  }
 	| { provider: "google-sub"; model: string };
 
 // ---------------------------------------------------------------------------
@@ -134,7 +147,12 @@ export function imageConfigPath(): string {
 
 /** Blank-slate config: only defaults, no file touched. */
 export function defaultConfig(): OwlImageConfig {
-	return { provider: "google", workspaceFolder: DEFAULT_WORKSPACE_FOLDER, attachImageToResult: true, maxImageBytes: DEFAULT_MAX_IMAGE_BYTES };
+	return {
+		provider: "google",
+		workspaceFolder: DEFAULT_WORKSPACE_FOLDER,
+		attachImageToResult: true,
+		maxImageBytes: DEFAULT_MAX_IMAGE_BYTES,
+	};
 }
 
 /** Read the config file; a missing or unparsable file yields the defaults. */
@@ -164,17 +182,31 @@ export function saveConfig(config: OwlImageConfig): void {
 export function resolveProvider(config: OwlImageConfig): ResolvedProvider {
 	switch (config.provider ?? "google") {
 		case "openai":
-			return { provider: "openai", model: config.openaiModel ?? DEFAULT_OPENAI_MODEL, baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL, imageSize: "1024x1024" };
+			return {
+				provider: "openai",
+				model: config.openaiModel ?? DEFAULT_OPENAI_MODEL,
+				baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL,
+				imageSize: "1024x1024",
+			};
 		case "openai-compat": {
 			const baseURL = config.openaiCompatBaseURL?.trim();
 			if (baseURL === undefined || baseURL.length === 0) {
-				throw new Error("OpenAI 兼容 provider 需要先在 image-gen.json 配置 openaiCompatBaseURL 与 openaiCompatModel。");
+				throw new Error(
+					"OpenAI 兼容 provider 需要先在 image-gen.json 配置 openaiCompatBaseURL 与 openaiCompatModel。",
+				);
 			}
 			const model = config.openaiCompatModel?.trim();
 			if (model === undefined || model.length === 0) {
 				throw new Error("OpenAI 兼容 provider 需要先在 image-gen.json 配置 openaiCompatModel。");
 			}
-			return { provider: "openai-compat", model, baseURL, imageSize: "1024x1024", editFormat: config.openaiCompatEditFormat ?? "multipart", editExtra: config.openaiCompatEditExtra ?? {} };
+			return {
+				provider: "openai-compat",
+				model,
+				baseURL,
+				imageSize: "1024x1024",
+				editFormat: config.openaiCompatEditFormat ?? "multipart",
+				editExtra: config.openaiCompatEditExtra ?? {},
+			};
 		}
 		case "seedream": {
 			const seedreamBackground = config.seedreamBackground ?? "opaque";
@@ -188,18 +220,33 @@ export function resolveProvider(config: OwlImageConfig): ResolvedProvider {
 					// outright — a JPEG cannot carry the alpha channel transparent mode
 					// exists to produce. Couple them here rather than letting the
 					// combination reach the wire.
-					outputFormat: seedreamBackground === "transparent" ? "png" : config.seedreamOutputFormat ?? "jpeg",
+					outputFormat: seedreamBackground === "transparent" ? "png" : (config.seedreamOutputFormat ?? "jpeg"),
 					watermark: config.seedreamWatermark ?? true,
 					background: seedreamBackground,
 				},
 			};
 		}
 		case "dashscope":
-			return { provider: "dashscope", model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL, endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT, imageSize: "1024x1024" };
+			return {
+				provider: "dashscope",
+				model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL,
+				endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT,
+				imageSize: "1024x1024",
+			};
 		case "xai":
-			return { provider: "xai", model: config.xaiModel ?? DEFAULT_XAI_MODEL, baseURL: config.xaiBaseURL ?? DEFAULT_XAI_BASE_URL, imageSize: "1024x1024" };
+			return {
+				provider: "xai",
+				model: config.xaiModel ?? DEFAULT_XAI_MODEL,
+				baseURL: config.xaiBaseURL ?? DEFAULT_XAI_BASE_URL,
+				imageSize: "1024x1024",
+			};
 		case "zhipu":
-			return { provider: "zhipu", model: config.zhipuModel ?? DEFAULT_ZHIPU_MODEL, baseURL: config.zhipuBaseURL ?? DEFAULT_ZHIPU_BASE_URL, imageSize: "1024x1024" };
+			return {
+				provider: "zhipu",
+				model: config.zhipuModel ?? DEFAULT_ZHIPU_MODEL,
+				baseURL: config.zhipuBaseURL ?? DEFAULT_ZHIPU_BASE_URL,
+				imageSize: "1024x1024",
+			};
 		case "comfyui": {
 			const workflows = config.comfyuiWorkflows ?? [];
 			const workflow = activeComfyUIWorkflow(config);
@@ -214,7 +261,13 @@ export function resolveProvider(config: OwlImageConfig): ResolvedProvider {
 		case "google-sub":
 			return { provider: "google-sub", model: DEFAULT_GOOGLE_SUB_MODEL };
 		case "google":
-			return { provider: "google", model: config.googleModel ?? DEFAULT_GOOGLE_MODEL, endpoint: config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT, aspectRatio: "1:1", imageSize: "1K" };
+			return {
+				provider: "google",
+				model: config.googleModel ?? DEFAULT_GOOGLE_MODEL,
+				endpoint: config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT,
+				aspectRatio: "1:1",
+				imageSize: "1K",
+			};
 	}
 }
 
@@ -223,7 +276,11 @@ export function resolveProvider(config: OwlImageConfig): ResolvedProvider {
  * `model` is ignored for ComfyUI (whose per-call equivalent is `workflow`) and
  * for the subscription channel (model fixed by the channel).
  */
-export function withProviderOverrides(config: OwlImageConfig, provider?: ImageProvider, model?: string): OwlImageConfig {
+export function withProviderOverrides(
+	config: OwlImageConfig,
+	provider?: ImageProvider,
+	model?: string,
+): OwlImageConfig {
 	const base: OwlImageConfig = provider === undefined ? { ...config } : { ...config, provider };
 	if (model === undefined) return base;
 	const trimmed = model.trim();
@@ -253,7 +310,9 @@ export function withProviderOverrides(config: OwlImageConfig, provider?: ImagePr
 export function providerOverrideOf(value: unknown): ImageProvider | undefined {
 	if (value === undefined || value === null || value === "") return undefined;
 	if (typeof value !== "string" || !(IMAGE_PROVIDERS as readonly string[]).includes(value)) {
-		throw new Error(`Unsupported provider ${JSON.stringify(value)}. Supported providers: ${IMAGE_PROVIDERS.join(", ")}.`);
+		throw new Error(
+			`Unsupported provider ${JSON.stringify(value)}. Supported providers: ${IMAGE_PROVIDERS.join(", ")}.`,
+		);
 	}
 	return value as ImageProvider;
 }
@@ -304,7 +363,9 @@ export function selectComfyUIWorkflow(
 	const name = requested.trim();
 	const workflow = active.workflows.find((candidate) => candidate.name === name);
 	if (workflow === undefined) {
-		throw new Error(`No ComfyUI workflow named "${name}" is configured. Available workflows: ${active.workflows.map((entry) => entry.name).join(", ")}.`);
+		throw new Error(
+			`No ComfyUI workflow named "${name}" is configured. Available workflows: ${active.workflows.map((entry) => entry.name).join(", ")}.`,
+		);
 	}
 	return workflow;
 }
@@ -327,7 +388,8 @@ function proxyUrlOf(configured: string | undefined): string | undefined {
 	if (explicit === "off") return undefined;
 	if (explicit !== undefined && explicit.length > 0) return explicit;
 	// Node's global fetch ignores proxy env vars; honor them the way curl does.
-	const fromEnv = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
+	const fromEnv =
+		process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
 	return fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv.trim() : undefined;
 }
 
@@ -346,7 +408,10 @@ export function doFetch(url: string | URL, init: RequestInit = {}, configuredPro
 		agent = new ProxyAgent(proxyUrl);
 		cachedAgent = { key: proxyUrl, agent };
 	}
-	return undiciFetch(url, { ...(init as Parameters<typeof undiciFetch>[1]), dispatcher: agent }) as unknown as Promise<Response>;
+	return undiciFetch(url, {
+		...(init as Parameters<typeof undiciFetch>[1]),
+		dispatcher: agent,
+	}) as unknown as Promise<Response>;
 }
 
 /** True when the config file exists (used by the status command wording). */

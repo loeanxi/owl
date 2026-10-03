@@ -10,6 +10,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
+import { t, useT } from "../i18n/index.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { IconFile, IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
@@ -67,6 +68,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 };
 
 export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock, developerLayout = false }: WorkbenchProps): React.JSX.Element {
+	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);

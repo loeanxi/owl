@@ -8,9 +8,9 @@ import { createHash, randomBytes } from "node:crypto";
 
 /** A PKCE pair plus the OAuth state binding the callback to this login. */
 export interface Pkce {
-	verifier: string
-	challenge: string
-	state: string
+	verifier: string;
+	challenge: string;
+	state: string;
 }
 
 export async function createPkce(): Promise<Pkce> {
@@ -22,13 +22,13 @@ export async function createPkce(): Promise<Pkce> {
 
 /** Build an authorization-code URL with PKCE and optional extra params. */
 export function buildAuthorizeUrl(input: {
-	authUrl: string
-	clientId: string
-	redirectUri: string
-	challenge: string
-	state: string
-	scope?: string
-	extra?: Record<string, string>
+	authUrl: string;
+	clientId: string;
+	redirectUri: string;
+	challenge: string;
+	state: string;
+	scope?: string;
+	extra?: Record<string, string>;
 }): string {
 	const url = new URL(input.authUrl);
 	url.searchParams.set("response_type", "code");
@@ -72,7 +72,11 @@ export function emailFromToken(token: string): string {
 }
 
 /** POST an OAuth token endpoint with form encoding; 25s cap like the source. */
-export async function formTokenRequest(url: string, params: Record<string, string>, fetchImpl: typeof fetch): Promise<Record<string, unknown>> {
+export async function formTokenRequest(
+	url: string,
+	params: Record<string, string>,
+	fetchImpl: typeof fetch,
+): Promise<Record<string, unknown>> {
 	const response = await fetchImpl(url, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -81,7 +85,9 @@ export async function formTokenRequest(url: string, params: Record<string, strin
 	});
 	if (!response.ok) {
 		const text = await response.text().catch(() => "");
-		throw new Error(`token endpoint HTTP ${String(response.status)}${text.length > 0 ? `: ${text.slice(0, 200)}` : ""}`);
+		throw new Error(
+			`token endpoint HTTP ${String(response.status)}${text.length > 0 ? `: ${text.slice(0, 200)}` : ""}`,
+		);
 	}
 	try {
 		const parsed: unknown = await response.json();

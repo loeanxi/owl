@@ -13,9 +13,9 @@
  */
 import { randomUUID } from "node:crypto";
 import { doFetch } from "../../config.ts";
-import { buildAuthorizeUrl, formTokenRequest, type Pkce } from "../oauth.ts";
+import { DEFAULT_GOOGLE_SUB_MODEL } from "../../shared.ts";
 import type { SubscriptionBlob } from "../blob.ts";
-import { DEFAULT_GOOGLE_SUB_MODEL } from "../../../shared.ts";
+import { buildAuthorizeUrl, formTokenRequest, type Pkce } from "../oauth.ts";
 
 const AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN = "https://oauth2.googleapis.com/token";
@@ -82,7 +82,8 @@ export function setAntigravityVersionForTest(version: string | undefined): void 
 /** Fetch and cache the current version once; failures keep the fallback. */
 export async function initAntigravityVersion(): Promise<void> {
 	if (antigravityVersion !== undefined) return;
-	const parsed = (await fetchVersionText(VERSION_URL)) ?? (await fetchVersionText(CHANGELOG_URL, CHANGELOG_SCAN_CHARS));
+	const parsed =
+		(await fetchVersionText(VERSION_URL)) ?? (await fetchVersionText(CHANGELOG_URL, CHANGELOG_SCAN_CHARS));
 	if (parsed !== undefined) antigravityVersion = parsed;
 }
 
@@ -118,13 +119,17 @@ const SAFETY_SETTINGS_OFF = [
 ];
 
 export interface AntigravityConfig {
-	clientId: string
-	clientSecret: string
-	redirectUri: string
+	clientId: string;
+	clientSecret: string;
+	redirectUri: string;
 }
 
 export function antigravityConfig(): AntigravityConfig {
-	return { clientId: ANTIGRAVITY_CLIENT_ID, clientSecret: ANTIGRAVITY_CLIENT_SECRET, redirectUri: ANTIGRAVITY_REDIRECT_URI };
+	return {
+		clientId: ANTIGRAVITY_CLIENT_ID,
+		clientSecret: ANTIGRAVITY_CLIENT_SECRET,
+		redirectUri: ANTIGRAVITY_REDIRECT_URI,
+	};
 }
 
 export function antigravityAuthorizeUrl(cfg: AntigravityConfig, pkce: Pkce): string {
@@ -149,7 +154,12 @@ function loadHeaders(projectId: string): Record<string, string> {
 	return {
 		"User-Agent": "google-api-nodejs-client/9.15.1",
 		"X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-		"Client-Metadata": JSON.stringify({ ideType: "ANTIGRAVITY", platform, pluginType: "GEMINI", ...(projectId.length > 0 ? { duetProject: projectId } : {}) }),
+		"Client-Metadata": JSON.stringify({
+			ideType: "ANTIGRAVITY",
+			platform,
+			pluginType: "GEMINI",
+			...(projectId.length > 0 ? { duetProject: projectId } : {}),
+		}),
 	};
 }
 
@@ -160,12 +170,18 @@ function loadHeaders(projectId: string): Record<string, string> {
  * SDK UA here is what produced 403 #3501 on personal accounts.
  */
 function contentHeaders(projectId: string): Record<string, string> {
-	const uaPlatform = process.platform === "darwin" ? "Macintosh; Intel Mac OS X 10_15_7" : "Windows NT 10.0; Win64; x64";
+	const uaPlatform =
+		process.platform === "darwin" ? "Macintosh; Intel Mac OS X 10_15_7" : "Windows NT 10.0; Win64; x64";
 	const platform = process.platform === "win32" ? "WINDOWS" : process.platform === "darwin" ? "MACOS" : "LINUX";
 	return {
 		"User-Agent": `Mozilla/5.0 (${uaPlatform}) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${getAntigravityVersion()} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
 		"X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-		"Client-Metadata": JSON.stringify({ ideType: "ANTIGRAVITY", platform, pluginType: "GEMINI", ...(projectId.length > 0 ? { duetProject: projectId } : {}) }),
+		"Client-Metadata": JSON.stringify({
+			ideType: "ANTIGRAVITY",
+			platform,
+			pluginType: "GEMINI",
+			...(projectId.length > 0 ? { duetProject: projectId } : {}),
+		}),
 	};
 }
 
@@ -194,27 +210,39 @@ function emailFromIdToken(idToken: string): string {
 	}
 }
 
-export async function antigravityExchangeCode(cfg: AntigravityConfig, pkce: Pkce, code: string): Promise<SubscriptionBlob> {
-	const json = await formTokenRequest(TOKEN, {
-		client_id: cfg.clientId,
-		client_secret: cfg.clientSecret,
-		grant_type: "authorization_code",
-		code,
-		redirect_uri: cfg.redirectUri,
-		code_verifier: pkce.verifier,
-	}, fetch);
+export async function antigravityExchangeCode(
+	cfg: AntigravityConfig,
+	pkce: Pkce,
+	code: string,
+): Promise<SubscriptionBlob> {
+	const json = await formTokenRequest(
+		TOKEN,
+		{
+			client_id: cfg.clientId,
+			client_secret: cfg.clientSecret,
+			grant_type: "authorization_code",
+			code,
+			redirect_uri: cfg.redirectUri,
+			code_verifier: pkce.verifier,
+		},
+		fetch,
+	);
 	const blob = tokenBlobFromOAuth(json);
 	if (blob.accessToken.length === 0) throw new Error("Antigravity token endpoint returned no access token");
 	return blob;
 }
 
 export async function antigravityRefresh(blob: SubscriptionBlob): Promise<SubscriptionBlob> {
-	const json = await formTokenRequest(TOKEN, {
-		client_id: ANTIGRAVITY_CLIENT_ID,
-		client_secret: ANTIGRAVITY_CLIENT_SECRET,
-		grant_type: "refresh_token",
-		refresh_token: blob.refreshToken,
-	}, fetch);
+	const json = await formTokenRequest(
+		TOKEN,
+		{
+			client_id: ANTIGRAVITY_CLIENT_ID,
+			client_secret: ANTIGRAVITY_CLIENT_SECRET,
+			grant_type: "refresh_token",
+			refresh_token: blob.refreshToken,
+		},
+		fetch,
+	);
 	const next = tokenBlobFromOAuth(json);
 	return {
 		...next,
@@ -237,7 +265,11 @@ export async function antigravityResolveProject(blob: SubscriptionBlob): Promise
 		try {
 			const response = await doFetch(`${base}/v1internal:loadCodeAssist`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json", Authorization: `Bearer ${blob.accessToken}`, ...loadHeaders("") },
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${blob.accessToken}`,
+					...loadHeaders(""),
+				},
 				body: JSON.stringify({ metadata }),
 				signal: AbortSignal.timeout(25_000),
 			});
@@ -245,11 +277,12 @@ export async function antigravityResolveProject(blob: SubscriptionBlob): Promise
 			const payload = (await response.json().catch(() => null)) as { cloudaicompanionProject?: unknown } | null;
 			if (payload === null) continue;
 			const project = payload.cloudaicompanionProject;
-			const id = typeof project === "string"
-				? project
-				: typeof project === "object" && project !== null && typeof (project as { id?: unknown }).id === "string"
-					? (project as { id: string }).id
-					: "";
+			const id =
+				typeof project === "string"
+					? project
+					: typeof project === "object" && project !== null && typeof (project as { id?: unknown }).id === "string"
+						? (project as { id: string }).id
+						: "";
 			if (id.length > 0) return id;
 		} catch {
 			// try the next endpoint
@@ -272,12 +305,15 @@ function platformOf(): string {
  * before the text part, mirroring the reference implementation.
  */
 export function antigravityImageBody(options: {
-	prompt: string
-	aspectRatio?: string
-	hd?: boolean
-	referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>
+	prompt: string;
+	aspectRatio?: string;
+	hd?: boolean;
+	referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>;
 }): Record<string, unknown> {
-	const ratio = options.aspectRatio !== undefined && (ASPECT_RATIOS as readonly string[]).includes(options.aspectRatio) ? options.aspectRatio : undefined;
+	const ratio =
+		options.aspectRatio !== undefined && (ASPECT_RATIOS as readonly string[]).includes(options.aspectRatio)
+			? options.aspectRatio
+			: undefined;
 	// An unset aspectRatio lets the model choose (the `auto` picker option);
 	// the API's own default applies. HD maps onto the documented 4K tier.
 	const imageConfig: Record<string, unknown> = ratio === undefined ? {} : { aspectRatio: ratio };
@@ -307,9 +343,9 @@ export function antigravityEnvelope(projectId: string, request: Record<string, u
 }
 
 export interface AntigravityImageResult {
-	b64: string
-	mimeType: string
-	text?: string
+	b64: string;
+	mimeType: string;
+	text?: string;
 }
 
 /**
@@ -318,14 +354,14 @@ export interface AntigravityImageResult {
  * parse the SSE stream for the inlineData image part.
  */
 export async function antigravityGenerateImage(options: {
-	blob: SubscriptionBlob
-	projectId: string
-	prompt: string
-	aspectRatio?: string
-	hd?: boolean
-	referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>
-	signal?: AbortSignal
-	proxy?: string
+	blob: SubscriptionBlob;
+	projectId: string;
+	prompt: string;
+	aspectRatio?: string;
+	hd?: boolean;
+	referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>;
+	signal?: AbortSignal;
+	proxy?: string;
 }): Promise<AntigravityImageResult> {
 	// Content requests carry the browser UA with the client version, which the
 	// license check keys on; warm the fetched version before building headers.
@@ -343,22 +379,27 @@ export async function antigravityGenerateImage(options: {
 		const timeoutSignal = AbortSignal.timeout(IMAGE_TIMEOUT_MS);
 		const signal = options.signal !== undefined ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
 		try {
-			const response = await doFetch(url, {
-				method: "POST",
-				headers: {
-					...contentHeaders(options.projectId),
-					Authorization: `Bearer ${options.blob.accessToken}`,
-					"Content-Type": "application/json",
-					Accept: "text/event-stream",
+			const response = await doFetch(
+				url,
+				{
+					method: "POST",
+					headers: {
+						...contentHeaders(options.projectId),
+						Authorization: `Bearer ${options.blob.accessToken}`,
+						"Content-Type": "application/json",
+						Accept: "text/event-stream",
+					},
+					body: JSON.stringify(body),
+					signal,
 				},
-				body: JSON.stringify(body),
-				signal,
-			}, options.proxy);
+				options.proxy,
+			);
 			if (!response.ok) {
 				const text = await response.text().catch(() => "");
 				lastError = `HTTP ${String(response.status)}: ${text.slice(0, 200)}`;
 				// License/quota/network-class failures move on to the next endpoint.
-				if (response.status === 403 || response.status === 404 || response.status === 429 || response.status >= 500) continue;
+				if (response.status === 403 || response.status === 404 || response.status === 429 || response.status >= 500)
+					continue;
 				throw new Error(`antigravity ${lastError}`);
 			}
 			const text = await response.text();
@@ -367,11 +408,9 @@ export async function antigravityGenerateImage(options: {
 			// Endpoint answered but with no image; remember why and try the next.
 			const reason = parseSseError(text);
 			lastError = reason !== undefined ? reason : "response contained no image";
-			continue;
 		} catch (error) {
 			if (options.signal?.aborted === true) throw error;
 			lastError = error instanceof Error ? error.message : String(error);
-			continue;
 		}
 	}
 	throw new Error(`antigravity image generation failed: ${lastError}`);
@@ -384,11 +423,22 @@ function parseSseImage(text: string): AntigravityImageResult | undefined {
 		const raw = line.slice("data: ".length).trim();
 		if (raw.length === 0 || raw === "[DONE]") continue;
 		try {
-			const data = JSON.parse(raw) as { response?: { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }> } };
+			const data = JSON.parse(raw) as {
+				response?: {
+					candidates?: Array<{
+						content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> };
+					}>;
+				};
+			};
 			for (const candidate of data.response?.candidates ?? []) {
 				for (const part of candidate.content?.parts ?? []) {
 					const inline = part.inlineData;
-					if (typeof inline?.data === "string" && inline.data.length > 0 && typeof inline.mimeType === "string" && inline.mimeType.startsWith("image/")) {
+					if (
+						typeof inline?.data === "string" &&
+						inline.data.length > 0 &&
+						typeof inline.mimeType === "string" &&
+						inline.mimeType.startsWith("image/")
+					) {
 						return { b64: inline.data, mimeType: inline.mimeType };
 					}
 				}
@@ -409,7 +459,10 @@ function parseSseError(text: string): string | undefined {
 		try {
 			const data = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown } };
 			if (data.error !== undefined) {
-				const code = typeof data.error.code === "string" || typeof data.error.code === "number" ? String(data.error.code) : "";
+				const code =
+					typeof data.error.code === "string" || typeof data.error.code === "number"
+						? String(data.error.code)
+						: "";
 				const message = typeof data.error.message === "string" ? data.error.message : "";
 				const joined = `${code.length > 0 ? `${code}: ` : ""}${message}`.trim();
 				if (joined.length > 0) return joined;

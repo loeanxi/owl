@@ -17,7 +17,7 @@ import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
-import { parseUiLanguage, setUiLanguage } from "./i18n/index.ts";
+import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
@@ -63,6 +63,7 @@ function rowTime(row: SessionRowLite): string {
 }
 
 export default function App(): React.JSX.Element {
+	const t = useT();
 	const client = useMemo(() => new BridgeClient(), []);
 	const [connected, setConnected] = useState(false);
 	const [everConnected, setEverConnected] = useState(false);
@@ -152,7 +153,7 @@ export default function App(): React.JSX.Element {
 		const kind = viewerKindForPath(relative, getSidebarConfig());
 		if (kind === undefined) {
 			void client.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, relative) })
-				.then((result) => { if (!result.ok) setFileOpenError(result.error ?? "文件打开失败"); })
+				.then((result) => { if (!result.ok) setFileOpenError(result.error ?? t("app.fileOpenFailed")); })
 				.catch((error: unknown) => setFileOpenError(error instanceof Error ? error.message : String(error)));
 			return;
 		}
@@ -242,8 +243,8 @@ export default function App(): React.JSX.Element {
 			if (eventType === "agent_settled") {
 				void refreshStats();
 				void notifyAgentStatus({
-					title: "Owl 任务完成",
-					body: "当前任务已完成，可以查看回答与成果",
+					title: t("app.notifyDoneTitle"),
+					body: t("app.notifyDoneBody"),
 					critical: false,
 				});
 			}
@@ -252,8 +253,8 @@ export default function App(): React.JSX.Element {
 			setPermission(request);
 			if (request) {
 				void notifyAgentStatus({
-					title: "Owl 需要人工确认",
-					body: `Agent 请求执行工具：${request.toolName ?? "工具操作"}`,
+					title: t("app.notifyConfirmTitle"),
+					body: t("app.notifyConfirmBody", { name: request.toolName ?? t("app.toolFallback") }),
 					critical: true,
 				});
 			}
@@ -261,8 +262,8 @@ export default function App(): React.JSX.Element {
 		const offQuestion = client.onQuestionRequest((request) => {
 			setQuestions((current) => [...current, request]);
 			void notifyAgentStatus({
-				title: "Owl 向你提问",
-				body: request.questions[0]?.question ?? "Agent 需要你作答后才能继续",
+				title: t("app.notifyQuestionTitle"),
+				body: request.questions[0]?.question ?? t("app.notifyQuestionBody"),
 				critical: true,
 			});
 		});
@@ -312,7 +313,7 @@ export default function App(): React.JSX.Element {
 				// 已有面板在看：直接激活那个 tab；没有才开新 tab
 				const boundTabId = isIabPageBound(target.pageId) ? boundTabIdFor(target.pageId) : undefined;
 				if (boundTabId) workbenchStore.activate(boundTabId);
-				else workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url, target.sessionId));
+				else workbenchStore.openNew("browser", target.title || t("app.browserTab"), encodeIabPath(target.pageId, target.url, target.sessionId));
 				if (dockRef.current !== "right") setDockPersisted("right");
 				setWorkbenchOpenPersisted(true);
 			});
@@ -406,7 +407,7 @@ export default function App(): React.JSX.Element {
 		if (!response.ok || !response.result) {
 			console.error("session.create failed:", response.error);
 			setEntries([
-				{ kind: "toolResult", toolName: "会话创建失败", ok: false, brief: response.error ?? "未知错误" },
+				{ kind: "toolResult", toolName: t("app.sessionCreateFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
 			]);
 			return undefined;
 		}
@@ -454,7 +455,7 @@ export default function App(): React.JSX.Element {
 			console.error("session.resume failed:", response.error);
 			if (!options?.silent) {
 				setEntries([
-					{ kind: "toolResult", toolName: "会话恢复失败", ok: false, brief: response.error ?? "未知错误" },
+					{ kind: "toolResult", toolName: t("app.sessionRestoreFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
 				]);
 			}
 			return;
@@ -592,7 +593,7 @@ export default function App(): React.JSX.Element {
 				if (!spec) {
 					setEntries((current) => [
 						...current,
-						{ kind: "toolResult", toolName: "/model", ok: false, brief: "用法：/model <provider/model>" },
+						{ kind: "toolResult", toolName: "/model", ok: false, brief: t("app.modelUsage") },
 					]);
 					return true;
 				}
@@ -604,7 +605,7 @@ export default function App(): React.JSX.Element {
 				if (!level) {
 					setEntries((current) => [
 						...current,
-						{ kind: "toolResult", toolName: "/thinking", ok: false, brief: "用法：/thinking <off|minimal|low|medium|high|xhigh|max>" },
+						{ kind: "toolResult", toolName: "/thinking", ok: false, brief: t("app.thinkingUsage") },
 					]);
 					return true;
 				}
@@ -616,15 +617,15 @@ export default function App(): React.JSX.Element {
 				if (!target) return true;
 				setEntries((current) => [
 					...current,
-					{ kind: "toolResult", toolName: "压缩上下文", ok: true, brief: "开始手动压缩…" },
+					{ kind: "toolResult", toolName: t("app.compactTool"), ok: true, brief: t("app.compactStarted") },
 				]);
 				try {
 					const response = await client.request<SessionStatsResult>({ type: "session.compact", sessionId: target });
 					setEntries((current) => [
 						...current,
 						response.ok
-							? { kind: "toolResult", toolName: "压缩上下文", ok: true, brief: "压缩完成。" }
-							: { kind: "toolResult", toolName: "压缩上下文", ok: false, brief: response.error ?? "压缩失败" },
+							? { kind: "toolResult", toolName: t("app.compactTool"), ok: true, brief: t("app.compactDone") }
+							: { kind: "toolResult", toolName: t("app.compactTool"), ok: false, brief: response.error ?? t("app.compactFailed") },
 					]);
 					if (response.ok && response.result) setSessionInfo(response.result);
 				} catch (error) {
@@ -632,7 +633,7 @@ export default function App(): React.JSX.Element {
 						...current,
 						{
 							kind: "toolResult",
-							toolName: "压缩上下文",
+							toolName: t("app.compactTool"),
 							ok: false,
 							brief: error instanceof Error ? error.message : String(error),
 						},
@@ -673,7 +674,7 @@ export default function App(): React.JSX.Element {
 			message,
 			...(hasImages ? { images } : {}),
 		});
-		if (!response.ok) throw new Error(response.error ?? "消息发送失败");
+		if (!response.ok) throw new Error(response.error ?? t("app.sendFailedMsg"));
 		// Some extension commands finish before starting an agent run. Reconcile their
 		// optimistic indicator with the bridge instead of leaving the input locked.
 		const submittedSession = target;
@@ -694,7 +695,7 @@ export default function App(): React.JSX.Element {
 				return next;
 			});
 			if (!target || target === sessionIdRef.current) setEntries((current) => [...current, {
-				kind: "toolResult", toolName: "发送失败", ok: false, brief: error instanceof Error ? error.message : String(error),
+				kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 			}]);
 		} finally {
 			submitInFlight.current = false;
@@ -709,9 +710,9 @@ export default function App(): React.JSX.Element {
 	// -- 顶栏（对照 DSH 会话头：标题 + 元信息 chips + 右侧功能簇） --------------
 	const sessionTitle = useMemo(() => {
 		const first = entries.find((entry) => entry.kind === "user");
-		if (!first) return "新对话";
+		if (!first) return t("app.newConversation");
 		const line = first.text.split("\n").find((part) => part.trim() !== "") ?? "";
-		return line.length > 42 ? `${line.slice(0, 42)}…` : line || "新对话";
+		return line.length > 42 ? `${line.slice(0, 42)}…` : line || t("app.newConversation");
 	}, [entries]);
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
 	const questionCount = entries.filter((entry) => entry.kind === "user").length;
@@ -791,17 +792,17 @@ export default function App(): React.JSX.Element {
 						<IconFolder size={12} /><span className="owl-shell-project-label">{projectBasename}</span>
 					</span>
 					<div className="owl-shell-header-actions" data-tauri-drag-region="false">
-						<span className={"owl-shell-connection" + (connected ? "" : " is-offline")} role="status" title={connected ? "已连接" : "本地连接不可用"}>
+						<span className={"owl-shell-connection" + (connected ? "" : " is-offline")} role="status" title={connected ? t("composer.connected") : t("app.connectionOffline")}>
 							<span className="owl-shell-connection-dot" />
-							{connected ? "本地" : everConnected ? "连接已断开，正在重连…" : "正在连接…"}
+							{connected ? t("composer.runLocation.local") : everConnected ? t("app.reconnecting") : t("app.connecting")}
 						</span>
-						{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>对话目录 · {questionCount}</span></button>}
-						<button type="button" className="owl-developer-trigger" aria-pressed={workbenchOpen && developerLayout} title="在当前对话旁查看文件、终端和代码改动" onClick={() => {
+						{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>{t("chat.directoryTitle", { n: questionCount })}</span></button>}
+						<button type="button" className="owl-developer-trigger" aria-pressed={workbenchOpen && developerLayout} title={t("app.developerTriggerTip")} onClick={() => {
 							if (workbenchOpen && developerLayout) setWorkbenchOpenPersisted(false);
 							else openDeveloper();
-						}}>开发工作台</button>
-						<button type="button" title="底部工作台" aria-label="底部工作台" aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
-						<button type="button" title="右列工作台" aria-label="右列工作台" aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
+						}}>{t("app.developerTrigger")}</button>
+						<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
+						<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
 					</div>
 				</header>
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}

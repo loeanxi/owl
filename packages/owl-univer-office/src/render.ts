@@ -240,6 +240,42 @@ function resourceDependencies(data: Record<string, unknown>): { formula: string[
 	return { formula, embedded };
 }
 
+/** Render Pages must not fetch remote images or silently omit unresolved UUID assets. */
+function assertResolvedImages(value: unknown): void {
+	if (Array.isArray(value)) {
+		for (const item of value) assertResolvedImages(item);
+		return;
+	}
+	if (!isRecord(value)) return;
+	for (const [sourceKey, typeKey] of [
+		["source", "imageSourceType"],
+		["fillImageSource", "fillImageSourceType"],
+		["source", "sourceType"],
+	]) {
+		const source = value[sourceKey];
+		if (typeof source !== "string" || !source) continue;
+		if (typeKey === "sourceType" && (typeof value.mimeType !== "string" || !value.mimeType.startsWith("image/")))
+			continue;
+		if (value[typeKey] === "UUID" || (value[typeKey] === "URL" && !source.startsWith("data:image/"))) {
+			throw new OfficeRuntimeError(
+				"RENDER_IMAGE_UNSUPPORTED",
+				"Import image assets into the Office file before rendering; remote or unresolved image URLs are not supported.",
+			);
+		}
+	}
+	for (const [key, item] of Object.entries(value)) {
+		if (key === "data" && typeof item === "string") {
+			let decoded: unknown;
+			try {
+				decoded = JSON.parse(item);
+			} catch {
+				continue;
+			}
+			assertResolvedImages(decoded);
+		} else assertResolvedImages(item);
+	}
+}
+
 async function renderSource(
 	runtime: OfficeRuntime,
 	sdk: ScreenshotSdk,
@@ -327,6 +363,7 @@ async function renderSource(
 		signal,
 	);
 	if (failedAssets.length > 0) throw failedAssets[0];
+	assertResolvedImages(result);
 	return result;
 }
 

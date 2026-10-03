@@ -390,17 +390,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			pendingPermissions.delete(requestId);
 			pending.resolve(false);
 		}
+		cancelPendingQuestionsForSession(sessionId);
 		if (mounted) {
 			try {
 				await mounted.runtime.session.abort();
 			} catch {
 				// 没有进行中的回复时 abort 可能抛错，卸载流程不受影响
 			}
-			mounted.unsubscribe();
-			sessions.delete(sessionId);
+			try {
+				await mounted.runtime.dispose();
+			} finally {
+				mounted.unsubscribe();
+				sessions.delete(sessionId);
+			}
 		}
-		// abort 会顺带经 signal 取消挂起的提问，这里兜底清掉可能漏网的
-		cancelPendingQuestionsForSession(sessionId);
+		// Runtime disposal settles extension shutdown before releasing session browser resources.
 		await iab.disposeSession(sessionId);
 	}
 
@@ -539,14 +543,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	 * 技能中心的写操作落盘后，让该 cwd 已挂载会话的资源加载器重扫，
 	 * 下一条消息即用新目录（无挂载会话时静默跳过 —— 新会话自然生效）。
 	 */
-	function reloadMountedSkillSessions(cwd: string): void {
+	async function reloadMountedSkillSessions(cwd: string): Promise<void> {
 		const resolved = resolve(cwd).toLowerCase();
-		for (const { runtime } of sessions.values()) {
-			if (resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) continue;
-			void runtime.session.resourceLoader.reload().catch((error: unknown) => {
-				onDiagnostic(error instanceof Error ? error.message : String(error));
-			});
-		}
+		await Promise.all(
+			[...sessions.values()].map(async ({ runtime }) => {
+				if (resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) return;
+				try {
+					await runtime.session.reload();
+				} catch (error) {
+					onDiagnostic(error instanceof Error ? error.message : String(error));
+				}
+			}),
+		);
 	}
 
 	async function getListingServices(): Promise<AgentSessionServices> {
@@ -1165,7 +1173,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					settingsManager.setProjectSkillPaths(
 						request.mode === "clear" ? [] : disabledNamesToPatterns(request.names),
 					);
-					reloadMountedSkillSessions(request.cwd);
+					await reloadMountedSkillSessions(request.cwd);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					reply(ws, request.id, {
@@ -1189,20 +1197,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 							break;
 						case "skills.setEnabled":
 							setSkillEnabled(cwd, request, options.agentDir);
-							reloadMountedSkillSessions(cwd);
+							await reloadMountedSkillSessions(cwd);
 							break;
 						case "skills.create": {
 							result = createSkill(cwd, request, await isProjectTrustedFor(cwd), options.agentDir);
-							reloadMountedSkillSessions(cwd);
+							await reloadMountedSkillSessions(cwd);
 							break;
 						}
 						case "skills.update":
 							updateSkill(cwd, request, options.agentDir);
-							reloadMountedSkillSessions(cwd);
+							await reloadMountedSkillSessions(cwd);
 							break;
 						case "skills.delete":
 							deleteSkill(cwd, request, options.agentDir);
-							reloadMountedSkillSessions(cwd);
+							await reloadMountedSkillSessions(cwd);
 							break;
 					}
 					reply(ws, request.id, { ok: true, result });
@@ -1939,11 +1947,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		async close() {
 			unsubscribeViewers();
 			if (archiveTimer) clearInterval(archiveTimer);
-			for (const { unsubscribe } of sessions.values()) unsubscribe();
-			sessions.clear();
 			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在
 			// 每轮 reconcile 时把工具摘掉）
 			cancelAllPendingQuestions();
+			await Promise.all([...sessions.keys()].map(unmountSessionRuntime));
 			setQuestionChannel(undefined);
 			for (const watchers of sidebarWatchers.values()) watchers.close();
 			sidebarWatchers.clear();

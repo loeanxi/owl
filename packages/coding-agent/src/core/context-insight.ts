@@ -102,7 +102,16 @@ const IMAGE_CHARS = 4800;
  * 提示几乎整体活在命名 sections 里（content 通常为空串），这些归「系统提示」；
  * 其余命名 sections（如 owl_memory 等扩展注入）归「注入内容」。
  */
-const BASE_SYSTEM_SECTIONS = new Set(["preamble", "tools", "rules", "docs", "addendum", "project_context", "skills", "cwd"]);
+const BASE_SYSTEM_SECTIONS = new Set([
+	"preamble",
+	"tools",
+	"rules",
+	"docs",
+	"addendum",
+	"project_context",
+	"skills",
+	"cwd",
+]);
 
 type ContentBlock = { type: string; text?: string; thinking?: string; name?: string; arguments?: unknown };
 
@@ -207,7 +216,13 @@ export interface ToolDeclarationEstimate {
  * （pi.getAllTools() + pi.getActiveTools() 过滤出 direct 且激活的集合）。
  */
 export function estimateToolDeclarations(
-	tools: ReadonlyArray<{ name: string; description: string; parameters: unknown; namespace?: { name?: string }; sourceInfo?: { source?: string } }>,
+	tools: ReadonlyArray<{
+		name: string;
+		description: string;
+		parameters: unknown;
+		namespace?: { name?: string };
+		sourceInfo?: { source?: string };
+	}>,
 ): ToolDeclarationEstimate {
 	let chars = 0;
 	const refs: ContextToolRef[] = [];
@@ -289,7 +304,9 @@ function normalizeCwd(cwd: string): string {
 }
 
 /** 按 cwd 找最近活跃的会话洞察（桥的 context.get 不带 sessionId 时用）。 */
-export function findContextInsightByCwd(cwd: string): { sessionId: string; state: Readonly<ContextInsightState> } | undefined {
+export function findContextInsightByCwd(
+	cwd: string,
+): { sessionId: string; state: Readonly<ContextInsightState> } | undefined {
 	const resolved = normalizeCwd(cwd);
 	let best: { sessionId: string; state: ContextInsightState } | undefined;
 	for (const state of states.values()) {

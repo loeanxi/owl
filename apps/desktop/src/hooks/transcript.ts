@@ -1,4 +1,5 @@
 import type { ServerEventMessage } from "../bridge/protocol.ts";
+import { t } from "../i18n/index.ts";
 import { summarizeToolCall } from "./summarize.ts";
 
 export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
@@ -70,10 +71,10 @@ export function formatProviderError(raw: string | undefined): string | undefined
 		} catch {
 			// body 不是 JSON：走下面的兜底文案
 		}
-		if (status === "429") return `额度或限流：${message || "请求过于频繁或额度已用尽，请稍后再试。"}`;
-		if (status === "401" || status === "403") return `API 密钥无效或无权限：${message || raw}`;
-		if (status.startsWith("5")) return `模型服务暂时不可用（HTTP ${status}）：${message || "请稍后重试。"}`;
-		if (message) return `${message}（HTTP ${status}）`;
+		if (status === "429") return t("err.rateLimited", { message: message || t("err.rateLimitedFallback") });
+		if (status === "401" || status === "403") return t("err.keyInvalid", { message: message || raw });
+		if (status.startsWith("5")) return t("err.serverUnavailable", { status, message: message || t("err.retryLater") });
+		if (message) return t("err.httpStatus", { message, status });
 	}
 	return raw;
 }
@@ -341,7 +342,7 @@ export function rebuild(messages: AnyEvent[]): ChatEntry[] {
 					kind: "toolResult",
 					toolName: message.toolName ?? "tool",
 					ok: !message.isError,
-					brief: firstTextLine(output.text) || `（${message.isError ? "失败" : "完成"}，无文本输出）`,
+					brief: firstTextLine(output.text) || t("err.briefNoOutput", { status: message.isError ? t("err.failed") : t("err.completed") }),
 				});
 			}
 		}

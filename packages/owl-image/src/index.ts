@@ -10,35 +10,35 @@
  */
 import type { ExtensionAPI } from "@owl/owl-coding-agent";
 import { Type } from "typebox";
+import { openInBrowser } from "./browser-open.ts";
+import { editComfyUIImage, generateComfyUIImage } from "./comfyui.ts";
 import {
+	type AspectRatio,
+	DEFAULT_WORKSPACE_FOLDER,
+	type ImageSize,
 	installApiKeys,
 	loadConfig,
+	type OwlImageConfig,
+	providerOverrideOf,
+	type ResolvedProvider,
+	requireApiKey,
 	resolveApiKey,
 	resolveProvider,
-	providerOverrideOf,
-	requireApiKey,
 	selectComfyUIWorkflow,
 	setAmbientProxy,
 	withProviderOverrides,
-	type AspectRatio,
-	type ImageSize,
-	type OwlImageConfig,
-	type ResolvedProvider,
-	DEFAULT_WORKSPACE_FOLDER,
 } from "./config.ts";
-import { detectImageMediaType, type GeneratedImage } from "./media.ts";
-import { generateGoogleImage, editGoogleImage } from "./google.ts";
-import { generateOpenAICompatibleImage, editOpenAICompatibleImage } from "./openai-compatible.ts";
-import { editSeedreamImage } from "./seedream.ts";
-import { generateDashScopeImage, editDashScopeImage } from "./dashscope.ts";
-import { xaiToolParameters } from "./xai-params.ts";
-import { generateComfyUIImage, editComfyUIImage } from "./comfyui.ts";
-import { mergeComfyUIPrompt, SUBSCRIPTION_TIMEOUT_MS, type ImageProvider } from "./shared.ts";
-import { resolveReferenceImages, type OwlSessionLike } from "./reference-image.ts";
-import { imageDigest, saveImageToWorkspace } from "./workspace-save.ts";
-import { SubscriptionManager, type SubscriptionReferenceImage } from "./subscription/manager.ts";
-import { openInBrowser } from "./browser-open.ts";
+import { editDashScopeImage, generateDashScopeImage } from "./dashscope.ts";
+import { editGoogleImage, generateGoogleImage } from "./google.ts";
 import { BUNDLED_INSPIRATION_CATALOG, searchInspirationCases } from "./inspiration/catalog.ts";
+import { detectImageMediaType, type GeneratedImage } from "./media.ts";
+import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from "./openai-compatible.ts";
+import { type OwlSessionLike, resolveReferenceImages } from "./reference-image.ts";
+import { editSeedreamImage } from "./seedream.ts";
+import { type ImageProvider, mergeComfyUIPrompt, SUBSCRIPTION_TIMEOUT_MS } from "./shared.ts";
+import { SubscriptionManager, type SubscriptionReferenceImage } from "./subscription/manager.ts";
+import { imageDigest, saveImageToWorkspace } from "./workspace-save.ts";
+import { xaiToolParameters } from "./xai-params.ts";
 
 /** Match pi-ai's StringEnum without loading its compat barrel during registration. */
 function StringEnum<T extends string[]>(values: T, options?: { description?: string }) {
@@ -49,47 +49,57 @@ function StringEnum<T extends string[]>(values: T, options?: { description?: str
 	});
 }
 
-const PROVIDER_ENUM = ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu", "comfyui", "google-sub"] as const;
+const PROVIDER_ENUM = [
+	"google",
+	"openai",
+	"openai-compat",
+	"seedream",
+	"dashscope",
+	"xai",
+	"zhipu",
+	"comfyui",
+	"google-sub",
+] as const;
 const ASPECT_RATIO_VALUES = ["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"] as const;
 const IMAGE_SIZE_VALUES = ["1K", "2K", "4K"] as const;
 
 /** One generated image plus its provenance, shared by all generation paths. */
 interface GeneratedValue {
-	image: GeneratedImage
-	provider: ImageProvider
-	model: string
-	output: string
-	savedTo?: string
-	saveError?: string
-	seed?: number
+	image: GeneratedImage;
+	provider: ImageProvider;
+	model: string;
+	output: string;
+	savedTo?: string;
+	saveError?: string;
+	seed?: number;
 }
 
 /** Ordered per-item outcomes for the generate_images batch tool. */
 interface BatchGeneratedValue {
-	images: Array<GeneratedValue & { prompt: string }>
-	failures: Array<{ index: number; prompt: string; error: string }>
+	images: Array<GeneratedValue & { prompt: string }>;
+	failures: Array<{ index: number; prompt: string; error: string }>;
 }
 
 /** Per-item generation request fields shared by generate_image and generate_images. */
 interface SingleGenerationArgs {
-	prompt: string
-	provider?: string
-	model?: string
-	aspect_ratio?: string
-	image_size?: string
-	size?: string
-	workflow?: string
+	prompt: string;
+	provider?: string;
+	model?: string;
+	aspect_ratio?: string;
+	image_size?: string;
+	size?: string;
+	workflow?: string;
 }
 
 /** Execution environment a generation call needs from the owl session. */
 interface GenerationEnv {
-	cwd?: string
-	session?: OwlSessionLike
-	signal: AbortSignal
-	maxBytes: number
-	saveToWorkspace: boolean
-	workspaceFolder: string | undefined
-	proxy?: string
+	cwd?: string;
+	session?: OwlSessionLike;
+	signal: AbortSignal;
+	maxBytes: number;
+	saveToWorkspace: boolean;
+	workspaceFolder: string | undefined;
+	proxy?: string;
 }
 
 /** Provider description strings shared by generate_image and generate_images. */
@@ -98,7 +108,8 @@ const PROVIDER_ARG_DESCRIPTION =
 const SIZE_ARG_DESCRIPTION =
 	"Optional dimensions or size tier for OpenAI, Seedream, or DashScope; WIDTHxHEIGHT maps to aspect_ratio for xAI Grok and google-sub.";
 const RATIO_ARG_DESCRIPTION = "Optional output aspect ratio for Google Gemini, xAI Grok, and google-sub.";
-const IMAGE_SIZE_ARG_DESCRIPTION = "Optional output resolution for Google Gemini (1K/2K/4K) or google-sub (1K/4K; 4K means HD).";
+const IMAGE_SIZE_ARG_DESCRIPTION =
+	"Optional output resolution for Google Gemini (1K/2K/4K) or google-sub (1K/4K; 4K means HD).";
 
 export default function (pi: ExtensionAPI) {
 	const manager = new SubscriptionManager();
@@ -142,35 +153,81 @@ export default function (pi: ExtensionAPI) {
 				signal: env.signal,
 				proxy,
 			});
-			return { image: { data: generated.data, mediaType: generated.mediaType }, model: workflow.name, output: "API workflow", seed: generated.seed };
+			return {
+				image: { data: generated.data, mediaType: generated.mediaType },
+				model: workflow.name,
+				output: "API workflow",
+				seed: generated.seed,
+			};
 		}
 		if (active.provider === "google-sub") {
 			const params = googleSubParameters(args);
-			const result = await withSubscriptionTimeout(manager.generate({
-				prompt: args.prompt,
-				...params,
-				signal: env.signal,
-				proxy,
-			}), env.signal);
+			const result = await withSubscriptionTimeout(
+				manager.generate({
+					prompt: args.prompt,
+					...params,
+					signal: env.signal,
+					proxy,
+				}),
+				env.signal,
+			);
 			const data = new Uint8Array(Buffer.from(result.b64, "base64"));
-			if (data.byteLength > env.maxBytes) throw new Error(`google-sub image exceeded the ${String(env.maxBytes)} byte image limit`);
-			return { image: sniffImage(data, "google-sub"), model: active.model, output: params.quality === "hd" ? "4K HD" : (params.size ?? "auto") };
+			if (data.byteLength > env.maxBytes)
+				throw new Error(`google-sub image exceeded the ${String(env.maxBytes)} byte image limit`);
+			return {
+				image: sniffImage(data, "google-sub"),
+				model: active.model,
+				output: params.quality === "hd" ? "4K HD" : (params.size ?? "auto"),
+			};
 		}
 		const credential = await requireApiKey(active.provider, "generate_image");
 		if (active.provider === "google") {
 			const aspectRatio = (args.aspect_ratio ?? active.aspectRatio) as AspectRatio;
 			const imageSize = (args.image_size ?? active.imageSize) as ImageSize;
-			const generated = await generateGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: args.prompt, aspectRatio, imageSize, maxBytes: env.maxBytes, signal: env.signal, proxy });
+			const generated = await generateGoogleImage({
+				apiKey: credential,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: args.prompt,
+				aspectRatio,
+				imageSize,
+				maxBytes: env.maxBytes,
+				signal: env.signal,
+				proxy,
+			});
 			return { image: generated, model: active.model, output: `${aspectRatio}, ${imageSize}` };
 		}
 		if (active.provider === "dashscope") {
 			const size = args.size ?? active.imageSize;
-			const generated = await generateDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: args.prompt, size, maxBytes: env.maxBytes, signal: env.signal, proxy });
+			const generated = await generateDashScopeImage({
+				apiKey: credential,
+				endpoint: active.endpoint,
+				model: active.model,
+				prompt: args.prompt,
+				size,
+				maxBytes: env.maxBytes,
+				signal: env.signal,
+				proxy,
+			});
 			return { image: generated, model: active.model, output: size };
 		}
 		if (active.provider === "xai") {
-			const extraBody = xaiToolParameters({ ...(args.aspect_ratio !== undefined ? { aspectRatio: args.aspect_ratio } : {}), ...(args.image_size !== undefined ? { imageSize: args.image_size } : {}), ...(args.size !== undefined ? { size: args.size } : {}) });
-			const generated = await generateOpenAICompatibleImage({ provider: "xai", apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: args.prompt, extraBody, maxBytes: env.maxBytes, signal: env.signal, proxy });
+			const extraBody = xaiToolParameters({
+				...(args.aspect_ratio !== undefined ? { aspectRatio: args.aspect_ratio } : {}),
+				...(args.image_size !== undefined ? { imageSize: args.image_size } : {}),
+				...(args.size !== undefined ? { size: args.size } : {}),
+			});
+			const generated = await generateOpenAICompatibleImage({
+				provider: "xai",
+				apiKey: credential,
+				baseURL: active.baseURL,
+				model: active.model,
+				prompt: args.prompt,
+				extraBody,
+				maxBytes: env.maxBytes,
+				signal: env.signal,
+				proxy,
+			});
 			return { image: generated, model: active.model, output: extraBody.aspect_ratio ?? "auto" };
 		}
 		const size = args.size ?? active.imageSize;
@@ -226,17 +283,22 @@ export default function (pi: ExtensionAPI) {
 
 	/** Tool-result content for one generated image: model-facing text plus the image itself. */
 	function imageResultContent(value: GeneratedValue, config: OwlImageConfig): Array<Record<string, unknown>> {
-		const saved = typeof value.savedTo === "string"
-			? ` It was also saved to the workspace as ${value.savedTo}.`
-			: typeof value.saveError === "string"
-				? ` Saving it to the workspace failed: ${value.saveError}.`
-				: " It has no local file path.";
+		const saved =
+			typeof value.savedTo === "string"
+				? ` It was also saved to the workspace as ${value.savedTo}.`
+				: typeof value.saveError === "string"
+					? ` Saving it to the workspace failed: ${value.saveError}.`
+					: " It has no local file path.";
 		const text =
 			`Generated one image with ${value.provider}/${value.model} (${value.output}). Image id: ${imageDigest(value.image.data)}.` +
 			`${saved} It is attached to this tool result — respond to the user without calling read or other tools to locate or verify the image.`;
 		const content: Array<Record<string, unknown>> = [{ type: "text", text }];
 		if (config.attachImageToResult !== false) {
-			content.push({ type: "image", data: Buffer.from(value.image.data).toString("base64"), mimeType: value.image.mediaType });
+			content.push({
+				type: "image",
+				data: Buffer.from(value.image.data).toString("base64"),
+				mimeType: value.image.mediaType,
+			});
 		}
 		return content;
 	}
@@ -264,17 +326,31 @@ export default function (pi: ExtensionAPI) {
 		label: "Generate Image",
 		description:
 			"Generate a new image with the configured provider. Use when the user asks to create or draw a new image; use edit_image instead when they want to change an existing image. Give a complete visual prompt including subject, composition, style, lighting, and any exact text that should appear. The optional provider/model arguments switch provider or model for this call only when the user asks for a specific one. A successful image is attached to the tool result and may also be saved under the session workspace. Do not call read, glob, or other tools to locate or verify the image.",
-		promptSnippet: "Use when the user asks to create or draw a new image; prefer edit_image for changing an existing one.",
+		promptSnippet:
+			"Use when the user asks to create or draw a new image; prefer edit_image for changing an existing one.",
 		parameters: Type.Object({
 			prompt: Type.String({ description: "Complete description of the image to generate." }),
-			provider: Type.Optional(Type.Unsafe<string>({ type: "string", enum: [...PROVIDER_ENUM], description: PROVIDER_ARG_DESCRIPTION })),
-			model: Type.Optional(Type.String({ description: "Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by google-sub (model fixed by the channel)." })),
+			provider: Type.Optional(
+				Type.Unsafe<string>({ type: "string", enum: [...PROVIDER_ENUM], description: PROVIDER_ARG_DESCRIPTION }),
+			),
+			model: Type.Optional(
+				Type.String({
+					description:
+						"Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by google-sub (model fixed by the channel).",
+				}),
+			),
 			aspect_ratio: Type.Optional(StringEnum([...ASPECT_RATIO_VALUES], { description: RATIO_ARG_DESCRIPTION })),
 			image_size: Type.Optional(StringEnum([...IMAGE_SIZE_VALUES], { description: IMAGE_SIZE_ARG_DESCRIPTION })),
 			size: Type.Optional(Type.String({ description: SIZE_ARG_DESCRIPTION })),
-			workflow: Type.Optional(Type.String({ description: "Optional name of the ComfyUI workflow to run; omit to use the active workflow from image-gen.json. Only meaningful when the ComfyUI provider is selected." })),
+			workflow: Type.Optional(
+				Type.String({
+					description:
+						"Optional name of the ComfyUI workflow to run; omit to use the active workflow from image-gen.json. Only meaningful when the ComfyUI provider is selected.",
+				}),
+			),
 		}),
 		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+			signal = signal ?? new AbortController().signal;
 			const config = currentConfig();
 			const value = await generateSingle(params, {
 				cwd: ctx.cwd,
@@ -298,9 +374,20 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderResult(result, { isPartial }) {
 			if (isPartial) return "generating image...";
-			const details = (result.details ?? {}) as { provider?: string; model?: string; output?: string; savedTo?: string; saveError?: string };
-			if (result.error) return `image generation failed: ${result.error}`;
-			const where = typeof details.savedTo === "string" ? `\n  saved: ${details.savedTo}` : typeof details.saveError === "string" ? `\n  save failed: ${details.saveError}` : "";
+			const details = (result.details ?? {}) as {
+				provider?: string;
+				model?: string;
+				output?: string;
+				savedTo?: string;
+				saveError?: string;
+			};
+			if (result.isError) return `image generation failed: ${errorMessageOf(result)}`;
+			const where =
+				typeof details.savedTo === "string"
+					? `\n  saved: ${details.savedTo}`
+					: typeof details.saveError === "string"
+						? `\n  save failed: ${details.saveError}`
+						: "";
 			return `${details.provider ?? "image"}/${details.model ?? ""} (${details.output ?? ""})${where}`;
 		},
 	});
@@ -312,18 +399,39 @@ export default function (pi: ExtensionAPI) {
 			"Generate several images in one call, one per prompt, in order. Use for batches, variations, or illustration sets; prefer generate_image for a single image. Every successful image is attached to the tool result and may be saved under the session workspace. Items generate sequentially; a failed item is reported in the failures list and does not abort the rest. The optional provider/model/size arguments apply to every item.",
 		promptSnippet: "Use for image batches or variation sets; one prompt per image, failures isolated per item.",
 		parameters: Type.Object({
-			prompts: Type.Array(Type.String(), { minItems: 1, maxItems: 10, description: "Ordered complete prompts; one image is generated per entry (1-10)." }),
-			provider: Type.Optional(Type.Unsafe<string>({ type: "string", enum: [...PROVIDER_ENUM], description: "Optional provider for this call, applied to every item; omit to use the configured default." })),
-			model: Type.Optional(Type.String({ description: "Optional model name for this call, applied to every item." })),
+			prompts: Type.Array(Type.String(), {
+				minItems: 1,
+				maxItems: 10,
+				description: "Ordered complete prompts; one image is generated per entry (1-10).",
+			}),
+			provider: Type.Optional(
+				Type.Unsafe<string>({
+					type: "string",
+					enum: [...PROVIDER_ENUM],
+					description:
+						"Optional provider for this call, applied to every item; omit to use the configured default.",
+				}),
+			),
+			model: Type.Optional(
+				Type.String({ description: "Optional model name for this call, applied to every item." }),
+			),
 			aspect_ratio: Type.Optional(StringEnum([...ASPECT_RATIO_VALUES], { description: RATIO_ARG_DESCRIPTION })),
 			image_size: Type.Optional(StringEnum([...IMAGE_SIZE_VALUES], { description: IMAGE_SIZE_ARG_DESCRIPTION })),
 			size: Type.Optional(Type.String({ description: SIZE_ARG_DESCRIPTION })),
-			workflow: Type.Optional(Type.String({ description: "Optional name of the ComfyUI workflow to run; omit to use the active workflow." })),
+			workflow: Type.Optional(
+				Type.String({
+					description: "Optional name of the ComfyUI workflow to run; omit to use the active workflow.",
+				}),
+			),
 		}),
 		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+			signal = signal ?? new AbortController().signal;
 			const config = currentConfig();
 			if (params.prompts.length === 0) throw new Error("generate_images requires at least one prompt");
-			if (params.prompts.length > 10) throw new Error(`generate_images accepts at most 10 prompts per call (got ${String(params.prompts.length)}); split larger batches into several calls`);
+			if (params.prompts.length > 10)
+				throw new Error(
+					`generate_images accepts at most 10 prompts per call (got ${String(params.prompts.length)}); split larger batches into several calls`,
+				);
 			const env: GenerationEnv = {
 				cwd: ctx.cwd,
 				session: ctx.sessionManager as unknown as OwlSessionLike,
@@ -341,29 +449,38 @@ export default function (pi: ExtensionAPI) {
 					continue;
 				}
 				try {
-					const value = await generateSingle({
-						prompt,
-						...(params.provider !== undefined ? { provider: params.provider } : {}),
-						...(params.model !== undefined ? { model: params.model } : {}),
-						...(params.aspect_ratio !== undefined ? { aspect_ratio: params.aspect_ratio } : {}),
-						...(params.image_size !== undefined ? { image_size: params.image_size } : {}),
-						...(params.size !== undefined ? { size: params.size } : {}),
-						...(params.workflow !== undefined ? { workflow: params.workflow } : {}),
-					}, env);
+					const value = await generateSingle(
+						{
+							prompt,
+							...(params.provider !== undefined ? { provider: params.provider } : {}),
+							...(params.model !== undefined ? { model: params.model } : {}),
+							...(params.aspect_ratio !== undefined ? { aspect_ratio: params.aspect_ratio } : {}),
+							...(params.image_size !== undefined ? { image_size: params.image_size } : {}),
+							...(params.size !== undefined ? { size: params.size } : {}),
+							...(params.workflow !== undefined ? { workflow: params.workflow } : {}),
+						},
+						env,
+					);
 					images.push({ ...value, prompt });
 				} catch (error) {
 					failures.push({ index, prompt, error: error instanceof Error ? error.message : String(error) });
 				}
 			}
-			const content: Array<Record<string, unknown>> = [{
-				type: "text",
-				text:
-					`Generated ${String(images.length)} of ${String(images.length + failures.length)} images.\n` +
-					failures.map((failure) => `${failure.prompt.slice(0, 80)} — failed: ${failure.error}`).join("\n"),
-			}];
+			const content: Array<Record<string, unknown>> = [
+				{
+					type: "text",
+					text:
+						`Generated ${String(images.length)} of ${String(images.length + failures.length)} images.\n` +
+						failures.map((failure) => `${failure.prompt.slice(0, 80)} — failed: ${failure.error}`).join("\n"),
+				},
+			];
 			if (config.attachImageToResult !== false) {
 				for (const image of images) {
-					content.push({ type: "image", data: Buffer.from(image.image.data).toString("base64"), mimeType: image.image.mediaType });
+					content.push({
+						type: "image",
+						data: Buffer.from(image.image.data).toString("base64"),
+						mimeType: image.image.mediaType,
+					});
 				}
 			}
 			return {
@@ -371,7 +488,12 @@ export default function (pi: ExtensionAPI) {
 				details: {
 					generated: images.length,
 					failed: failures.length,
-					images: images.map((image) => ({ prompt: image.prompt, provider: image.provider, model: image.model, ...(image.savedTo === undefined ? {} : { savedTo: image.savedTo }) })),
+					images: images.map((image) => ({
+						prompt: image.prompt,
+						provider: image.provider,
+						model: image.model,
+						...(image.savedTo === undefined ? {} : { savedTo: image.savedTo }),
+					})),
 					failures,
 				},
 			} as never;
@@ -383,7 +505,7 @@ export default function (pi: ExtensionAPI) {
 		renderResult(result, { isPartial }) {
 			if (isPartial) return "generating images...";
 			const details = (result.details ?? {}) as { generated?: number; failed?: number };
-			if (result.error) return `batch image generation failed: ${result.error}`;
+			if (result.isError) return `batch image generation failed: ${errorMessageOf(result)}`;
 			return `generated ${String(details.generated ?? 0)}${(details.failed ?? 0) > 0 ? `, ${String(details.failed)} failed` : ""}`;
 		},
 	});
@@ -393,21 +515,49 @@ export default function (pi: ExtensionAPI) {
 		label: "Edit Image",
 		description:
 			"Edit, combine, or restyle existing images with the configured provider. Images the user attached to the latest message are readable from the conversation directly: call edit_image with prompt only and they are used in upload order — NEVER call read, glob, or shell to locate them, and NEVER invent paths. Images this tool generated earlier in the conversation are equally usable. For files the user explicitly names in the workspace use source_path or source_paths. Provide at most one selector kind. When the user wants a person, character, or object from the reference images kept as the same identity, write short hard identity-preservation instructions (use the same subject from the references; do not redesign it or synthesize a similar-looking replacement; change only scene, clothing, pose, lighting, style, or composition) instead of long generic appearance descriptions, which make the model replace the subject with a synthesized lookalike.",
-		promptSnippet: "Use to edit, combine, or restyle conversation or workspace images; without selectors it edits the newest conversation images.",
+		promptSnippet:
+			"Use to edit, combine, or restyle conversation or workspace images; without selectors it edits the newest conversation images.",
 		parameters: Type.Object({
-			prompt: Type.String({ description: "Describe the changes to make while preserving everything else that should remain." }),
-			provider: Type.Optional(Type.Unsafe<string>({ type: "string", enum: [...PROVIDER_ENUM], description: PROVIDER_ARG_DESCRIPTION })),
-			model: Type.Optional(Type.String({ description: "Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by google-sub." })),
-			source_path: Type.Optional(Type.String({ description: "Optional absolute or workspace-relative path of a specific image file inside the session workspace. Prefer this when the user names a saved file." })),
-			source_paths: Type.Optional(Type.Array(Type.String(), { description: "Optional ordered absolute or workspace-relative paths of multiple image files inside the session workspace." })),
+			prompt: Type.String({
+				description: "Describe the changes to make while preserving everything else that should remain.",
+			}),
+			provider: Type.Optional(
+				Type.Unsafe<string>({ type: "string", enum: [...PROVIDER_ENUM], description: PROVIDER_ARG_DESCRIPTION }),
+			),
+			model: Type.Optional(
+				Type.String({
+					description:
+						"Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by google-sub.",
+				}),
+			),
+			source_path: Type.Optional(
+				Type.String({
+					description:
+						"Optional absolute or workspace-relative path of a specific image file inside the session workspace. Prefer this when the user names a saved file.",
+				}),
+			),
+			source_paths: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Optional ordered absolute or workspace-relative paths of multiple image files inside the session workspace.",
+				}),
+			),
 			aspect_ratio: Type.Optional(StringEnum([...ASPECT_RATIO_VALUES], { description: RATIO_ARG_DESCRIPTION })),
 			image_size: Type.Optional(StringEnum([...IMAGE_SIZE_VALUES], { description: IMAGE_SIZE_ARG_DESCRIPTION })),
 			size: Type.Optional(Type.String({ description: SIZE_ARG_DESCRIPTION })),
-			workflow: Type.Optional(Type.String({ description: "Optional name of the ComfyUI workflow to run; omit to use the active workflow. Only meaningful when the ComfyUI provider is selected." })),
+			workflow: Type.Optional(
+				Type.String({
+					description:
+						"Optional name of the ComfyUI workflow to run; omit to use the active workflow. Only meaningful when the ComfyUI provider is selected.",
+				}),
+			),
 		}),
 		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+			signal = signal ?? new AbortController().signal;
 			const config = currentConfig();
-			const active = resolveProvider(withProviderOverrides(config, providerOverrideOf(params.provider), params.model));
+			const active = resolveProvider(
+				withProviderOverrides(config, providerOverrideOf(params.provider), params.model),
+			);
 			const proxy = config.proxy;
 			const env: GenerationEnv = {
 				cwd: ctx.cwd,
@@ -430,7 +580,9 @@ export default function (pi: ExtensionAPI) {
 			let generated: { image: GeneratedImage; model: string; output: string; seed?: number };
 			if (active.provider === "comfyui") {
 				if (sourceImages.length > 1) {
-					throw new Error(`ComfyUI edit_image supports exactly one source image per call; this call resolved ${String(sourceImages.length)} images. Call edit_image again with source_path set to the single image to edit.`);
+					throw new Error(
+						`ComfyUI edit_image supports exactly one source image per call; this call resolved ${String(sourceImages.length)} images. Call edit_image again with source_path set to the single image to edit.`,
+					);
 				}
 				const sourceImage = sourceImages[0];
 				if (sourceImage === undefined) throw new Error("edit_image requires a reference image");
@@ -445,32 +597,69 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					...(proxy !== undefined ? { proxy } : {}),
 				});
-				generated = { image: { data: result.data, mediaType: result.mediaType }, model: workflow.name, output: "API workflow", seed: result.seed };
+				generated = {
+					image: { data: result.data, mediaType: result.mediaType },
+					model: workflow.name,
+					output: "API workflow",
+					seed: result.seed,
+				};
 			} else if (active.provider === "google-sub") {
 				if (sourceImages.length === 0) throw new Error("edit_image requires a reference image");
 				const subParams = googleSubParameters(params);
-				const references: SubscriptionReferenceImage[] = sourceImages.map((image) => ({ data: image.data, mediaType: image.mediaType }));
-				const result = await withSubscriptionTimeout(manager.generate({
-					prompt: params.prompt,
-					...subParams,
-					referenceImages: references,
+				const references: SubscriptionReferenceImage[] = sourceImages.map((image) => ({
+					data: image.data,
+					mediaType: image.mediaType,
+				}));
+				const result = await withSubscriptionTimeout(
+					manager.generate({
+						prompt: params.prompt,
+						...subParams,
+						referenceImages: references,
+						signal,
+						...(proxy !== undefined ? { proxy } : {}),
+					}),
 					signal,
-					...(proxy !== undefined ? { proxy } : {}),
-				}), signal);
+				);
 				const data = new Uint8Array(Buffer.from(result.b64, "base64"));
-				if (data.byteLength > env.maxBytes) throw new Error(`google-sub image exceeded the ${String(env.maxBytes)} byte image limit`);
-				generated = { image: sniffImage(data, "google-sub"), model: active.model, output: subParams.quality === "hd" ? "4K HD edit" : "subscription edit" };
+				if (data.byteLength > env.maxBytes)
+					throw new Error(`google-sub image exceeded the ${String(env.maxBytes)} byte image limit`);
+				generated = {
+					image: sniffImage(data, "google-sub"),
+					model: active.model,
+					output: subParams.quality === "hd" ? "4K HD edit" : "subscription edit",
+				};
 			} else {
 				const credential = await requireApiKey(active.provider, "edit_image");
 				if (active.provider === "google") {
 					const aspectRatio = (params.aspect_ratio ?? active.aspectRatio) as AspectRatio;
 					const imageSize = (params.image_size ?? active.imageSize) as ImageSize;
-					const result = await editGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: params.prompt, sourceImages, aspectRatio, imageSize, maxBytes: env.maxBytes, signal, proxy });
+					const result = await editGoogleImage({
+						apiKey: credential,
+						endpoint: active.endpoint,
+						model: active.model,
+						prompt: params.prompt,
+						sourceImages,
+						aspectRatio,
+						imageSize,
+						maxBytes: env.maxBytes,
+						signal,
+						proxy,
+					});
 					generated = { image: result, model: active.model, output: `${aspectRatio}, ${imageSize}` };
-				} else if (active.provider === "openai" || active.provider === "openai-compat" || active.provider === "xai" || active.provider === "zhipu") {
-					const xaiExtraBody = active.provider === "xai"
-						? xaiToolParameters({ ...(params.aspect_ratio !== undefined ? { aspectRatio: params.aspect_ratio } : {}), ...(params.image_size !== undefined ? { imageSize: params.image_size } : {}), ...(params.size !== undefined ? { size: params.size } : {}) })
-						: undefined;
+				} else if (
+					active.provider === "openai" ||
+					active.provider === "openai-compat" ||
+					active.provider === "xai" ||
+					active.provider === "zhipu"
+				) {
+					const xaiExtraBody =
+						active.provider === "xai"
+							? xaiToolParameters({
+									...(params.aspect_ratio !== undefined ? { aspectRatio: params.aspect_ratio } : {}),
+									...(params.image_size !== undefined ? { imageSize: params.image_size } : {}),
+									...(params.size !== undefined ? { size: params.size } : {}),
+								})
+							: undefined;
 					const size = params.size ?? active.imageSize;
 					const result = await editOpenAICompatibleImage({
 						apiKey: credential,
@@ -485,17 +674,45 @@ export default function (pi: ExtensionAPI) {
 						...(active.provider === "openai-compat"
 							? { editFormat: active.editFormat, editExtra: active.editExtra }
 							: active.provider === "xai"
-								? { editFormat: "xaiJson" as const, ...(xaiExtraBody === undefined ? {} : { extraBody: xaiExtraBody }) }
+								? {
+										editFormat: "xaiJson" as const,
+										...(xaiExtraBody === undefined ? {} : { extraBody: xaiExtraBody }),
+									}
 								: {}),
 					});
-					generated = { image: result, model: active.model, output: active.provider === "xai" ? (xaiExtraBody?.aspect_ratio ?? "auto") : size };
+					generated = {
+						image: result,
+						model: active.model,
+						output: active.provider === "xai" ? (xaiExtraBody?.aspect_ratio ?? "auto") : size,
+					};
 				} else if (active.provider === "seedream") {
 					const size = params.size ?? active.imageSize;
-					const result = await editSeedreamImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: params.prompt, sourceImages, size, maxBytes: env.maxBytes, signal, arkOptions: active.arkOptions, proxy });
+					const result = await editSeedreamImage({
+						apiKey: credential,
+						baseURL: active.baseURL,
+						model: active.model,
+						prompt: params.prompt,
+						sourceImages,
+						size,
+						maxBytes: env.maxBytes,
+						signal,
+						arkOptions: active.arkOptions,
+						proxy,
+					});
 					generated = { image: result, model: active.model, output: size };
 				} else {
 					const size = params.size ?? active.imageSize;
-					const result = await editDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: params.prompt, sourceImages, size, maxBytes: env.maxBytes, signal, proxy });
+					const result = await editDashScopeImage({
+						apiKey: credential,
+						endpoint: active.endpoint,
+						model: active.model,
+						prompt: params.prompt,
+						sourceImages,
+						size,
+						maxBytes: env.maxBytes,
+						signal,
+						proxy,
+					});
 					generated = { image: result, model: active.model, output: size };
 				}
 			}
@@ -514,9 +731,20 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderResult(result, { isPartial }) {
 			if (isPartial) return "editing image...";
-			const details = (result.details ?? {}) as { provider?: string; model?: string; savedTo?: string; saveError?: string; referenceCount?: number };
-			if (result.error) return `image edit failed: ${result.error}`;
-			const where = typeof details.savedTo === "string" ? `\n  saved: ${details.savedTo}` : typeof details.saveError === "string" ? `\n  save failed: ${details.saveError}` : "";
+			const details = (result.details ?? {}) as {
+				provider?: string;
+				model?: string;
+				savedTo?: string;
+				saveError?: string;
+				referenceCount?: number;
+			};
+			if (result.isError) return `image edit failed: ${errorMessageOf(result)}`;
+			const where =
+				typeof details.savedTo === "string"
+					? `\n  saved: ${details.savedTo}`
+					: typeof details.saveError === "string"
+						? `\n  save failed: ${details.saveError}`
+						: "";
 			return `${details.provider ?? "image"}/${details.model ?? ""} edit (${String(details.referenceCount ?? 0)} reference)${where}`;
 		},
 	});
@@ -528,10 +756,26 @@ export default function (pi: ExtensionAPI) {
 			"Search the bundled inspiration libraries for ready-made image prompts: the handdraw-style cookbook (styles 风格, layouts 排版, theme colors 单色) plus the awesome-gpt-image-2 example set. Use before generate_image whenever the user wants a specific art style, layout template, or theme color, mentions a numbered style like 风格 #123, or asks for reference or example prompts. Each hit carries a full prompt reusable with generate_image; handdraw style prompts contain a 主题 placeholder to replace with the user's topic, and may be combined with a layout and a theme-color prompt.",
 		promptSnippet: "Search before generate_image when the user wants a specific art style, layout, or theme color.",
 		parameters: Type.Object({
-			query: Type.Optional(Type.String({ description: "Keyword matched against titles, prompts, categories, and style/scene tags; Chinese or English. Omit to sample what a library offers." })),
-			category: Type.Optional(Type.String({ description: 'Optional exact category filter, for example "风格 · D 日本作者 / 当代插画体系", "排版 · 信息图", or "单色 · 中性色系".' })),
-			source: Type.Optional(StringEnum(["handraw-style", "awesome-gpt-image-2"], { description: "Optional single library to search; omit to search both." })),
-			limit: Type.Optional(Type.Integer({ description: "Optional maximum number of hits to return, 1-20 (default 8)." })),
+			query: Type.Optional(
+				Type.String({
+					description:
+						"Keyword matched against titles, prompts, categories, and style/scene tags; Chinese or English. Omit to sample what a library offers.",
+				}),
+			),
+			category: Type.Optional(
+				Type.String({
+					description:
+						'Optional exact category filter, for example "风格 · D 日本作者 / 当代插画体系", "排版 · 信息图", or "单色 · 中性色系".',
+				}),
+			),
+			source: Type.Optional(
+				StringEnum(["handraw-style", "awesome-gpt-image-2"], {
+					description: "Optional single library to search; omit to search both.",
+				}),
+			),
+			limit: Type.Optional(
+				Type.Integer({ description: "Optional maximum number of hits to return, 1-20 (default 8)." }),
+			),
 		}),
 		execute: async (_toolCallId, params) => {
 			const { total, hits } = searchInspirationCases(BUNDLED_INSPIRATION_CATALOG, {
@@ -541,12 +785,14 @@ export default function (pi: ExtensionAPI) {
 				limit: params.limit,
 			});
 			return {
-				content: [{
-					type: "text",
-					text:
-						`${String(hits.length)} of ${String(total)} matching inspiration cases.\n\n` +
-						hits.map((hit) => `[${hit.sourceId} · ${hit.category}] ${hit.title}\n${hit.prompt}`).join("\n\n"),
-				}],
+				content: [
+					{
+						type: "text",
+						text:
+							`${String(hits.length)} of ${String(total)} matching inspiration cases.\n\n` +
+							hits.map((hit) => `[${hit.sourceId} · ${hit.category}] ${hit.title}\n${hit.prompt}`).join("\n\n"),
+					},
+				],
 				details: { total, hits },
 			} as never;
 		},
@@ -557,7 +803,7 @@ export default function (pi: ExtensionAPI) {
 		renderResult(result, { isPartial }) {
 			if (isPartial) return "searching inspiration...";
 			const details = (result.details ?? {}) as { total?: number; hits?: unknown[] };
-			if (result.error) return `inspiration search failed: ${result.error}`;
+			if (result.isError) return `inspiration search failed: ${errorMessageOf(result)}`;
 			return `${String(details.hits?.length ?? 0)} of ${String(details.total ?? 0)} inspiration cases`;
 		},
 	});
@@ -598,12 +844,24 @@ export default function (pi: ExtensionAPI) {
 			lines.push(`provider: ${config.provider ?? "google"}`);
 			const sub = manager.loginStatus();
 			lines.push(`google-sub: ${sub.state === "logged-in" ? `已登录 (${sub.email})` : "未登录 (/image-login)"}`);
-			for (const provider of ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu"] as const) {
+			for (const provider of [
+				"google",
+				"openai",
+				"openai-compat",
+				"seedream",
+				"dashscope",
+				"xai",
+				"zhipu",
+			] as const) {
 				lines.push(`${provider}: ${resolveApiKey(provider) !== undefined ? "API key 已配置" : "未配置"}`);
 			}
 			const comfy = config.comfyuiWorkflows ?? [];
-			lines.push(`comfyui: ${config.comfyuiBaseURL ?? "http://127.0.0.1:8188"} (${String(comfy.length)} workflow${comfy.length === 1 ? "" : "s"})`);
-			lines.push(`config: image-gen.json${config.proxy !== undefined && config.proxy.length > 0 ? ` (proxy: ${config.proxy})` : ""}`);
+			lines.push(
+				`comfyui: ${config.comfyuiBaseURL ?? "http://127.0.0.1:8188"} (${String(comfy.length)} workflow${comfy.length === 1 ? "" : "s"})`,
+			);
+			lines.push(
+				`config: image-gen.json${config.proxy !== undefined && config.proxy.length > 0 ? ` (proxy: ${config.proxy})` : ""}`,
+			);
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
@@ -614,7 +872,10 @@ export default function (pi: ExtensionAPI) {
 // ---------------------------------------------------------------------------
 
 /** Translate image tool options into the google-sub channel's wire inputs. */
-function googleSubParameters(args: { size?: string; aspect_ratio?: string; image_size?: string }): { size?: string; quality?: string } {
+function googleSubParameters(args: { size?: string; aspect_ratio?: string; image_size?: string }): {
+	size?: string;
+	quality?: string;
+} {
 	if (args.size !== undefined && args.aspect_ratio !== undefined) throw new Error("size 与 aspect_ratio 请只选一个");
 	let size = args.size;
 	if (size === undefined && args.aspect_ratio !== undefined) size = args.aspect_ratio;
@@ -638,7 +899,11 @@ async function withSubscriptionTimeout<T>(promise: Promise<T>, signal: AbortSign
 	const guarded = new Promise<T>((resolve, reject) => {
 		rejectCall = reject;
 		timer = setTimeout(() => {
-			reject(new Error(`Subscription image generation timed out after ${String(Math.round(SUBSCRIPTION_TIMEOUT_MS / 1000))}s`));
+			reject(
+				new Error(
+					`Subscription image generation timed out after ${String(Math.round(SUBSCRIPTION_TIMEOUT_MS / 1000))}s`,
+				),
+			);
 		}, SUBSCRIPTION_TIMEOUT_MS);
 		promise.then(resolve, reject);
 	});
@@ -656,4 +921,13 @@ function sniffImage(data: Uint8Array, provider: string): GeneratedImage {
 	const mediaType = detectImageMediaType(data);
 	if (mediaType === undefined) throw new Error(`${provider} image payload has an unrecognized format`);
 	return { data, mediaType };
+}
+
+/** First line of the model-facing text of an errored tool result, for TUI rendering. */
+function errorMessageOf(result: { content?: Array<{ type: string; text?: string }> }): string {
+	const text = (result.content ?? [])
+		.filter((block) => block.type === "text")
+		.map((block) => block.text ?? "")
+		.join(" ");
+	return text.split("\n")[0]?.trim() || "unknown error";
 }

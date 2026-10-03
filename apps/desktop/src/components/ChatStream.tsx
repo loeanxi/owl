@@ -3,6 +3,7 @@ import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
+import { t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 import { workspaceArtifactPath } from "../hooks/artifacts.ts";
@@ -53,11 +54,11 @@ export function InlineSummary({ text }: { text: string }): React.JSX.Element {
 /** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号。 */
 function StatusIcon({ status }: { status: ToolStatus }): React.JSX.Element {
 	if (status === "pending") return <IconClock className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
-	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label="已中断">—</span>;
+	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label={t("chat.cancelled")}>—</span>;
 	if (status === "running") {
 		return (
 			<span
-				aria-label="运行中"
+				aria-label={t("chat.runningAria")}
 				className="owl-tool-spinner"
 			/>
 		);
@@ -77,7 +78,7 @@ function ThinkingRow({ thinking }: { thinking: string }): React.JSX.Element {
 			<summary className="flex cursor-pointer select-none list-none items-center gap-1.5 py-0.5 [&::-webkit-details-marker]:hidden">
 				<IconLightbulb className="h-3.5 w-3.5" />
 				<IconChevron className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
-				思考过程 · {lines} 行
+				{t("chat.thinkingLines", { n: lines })}
 			</summary>
 			<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-owl-sidebar/50 px-3 py-2 text-[11px] leading-relaxed">
 				{thinking}
@@ -125,7 +126,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 				>
 					<InlineSummary text={card.summary} />
 				</span>
-				{card.status === "cancelled" && <span className="text-xs text-owl-faint">已中断</span>}
+				{card.status === "cancelled" && <span className="text-xs text-owl-faint">{t("chat.cancelled")}</span>}
 				<IconChevron
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 				/>
@@ -140,7 +141,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 					{output && output.text !== "" && (
 						<>
 							<pre className="owl-tool-output">
-								{fullOutput || !hasMore ? output.text : `…（前 ${dropped} 行已省略）\n${preview}`}
+								{fullOutput || !hasMore ? output.text : `${t("chat.outputTruncated", { n: dropped })}\n${preview}`}
 							</pre>
 							{hasMore && (
 								<button
@@ -148,7 +149,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 									onClick={() => setFullOutput((value) => !value)}
 									className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
 								>
-									{fullOutput ? "收起输出" : `查看完整输出（共 ${output.totalLines} 行）`}
+									{fullOutput ? t("chat.collapseOutput") : t("chat.expandOutput", { n: output.totalLines })}
 								</button>
 							)}
 						</>
@@ -156,7 +157,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 					{/* 服务端 50KB 截断后全文在临时文件里；文本里没带路径时补一行提示 */}
 					{output?.fullPath && !output.text.includes(output.fullPath) && (
 						<p className="truncate font-mono text-[11px] text-owl-faint" title={output.fullPath}>
-							完整输出：{output.fullPath}
+							{t("chat.fullOutputPath", { path: output.fullPath })}
 						</p>
 					)}
 					{images.length > 0 && (
@@ -165,7 +166,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 								<img
 									key={index}
 									src={`data:${image.mimeType};base64,${image.data}`}
-									alt={`${card.name} 截图 ${index + 1}`}
+									alt={t("chat.toolScreenshot", { name: card.name, i: index + 1 })}
 									className={`w-full cursor-zoom-in rounded-lg border border-owl-border ${zoomed ? "" : "max-h-72 object-contain object-top"}`}
 									onClick={() => setZoomed((value) => !value)}
 								/>
@@ -175,7 +176,7 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 								onClick={() => setZoomed((value) => !value)}
 								className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
 							>
-								{zoomed ? "收起" : "查看完整大图"}
+								{zoomed ? t("common.collapse") : t("chat.viewFullImage")}
 							</button>
 						</div>
 					)}
@@ -210,11 +211,11 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 				<span className="min-w-0 flex-1 truncate text-owl-muted">{label}</span>
 				{running ? (
 					<span className="flex shrink-0 items-center gap-1.5 text-owl-accent">
-						运行中…
+						{t("chat.groupRunning")}
 					</span>
 				) : errorCount > 0 ? (
 					<span className="shrink-0 text-red-400">
-						{errorCount} 个失败
+						{t("chat.groupFailed", { n: errorCount })}
 					</span>
 				) : null}
 			</button>
@@ -238,9 +239,9 @@ function TodoCardView({ card }: { card: ToolCard }): React.JSX.Element {
 	return (
 		<div className="rounded-lg border border-owl-border bg-owl-sidebar/70 p-2.5 text-xs">
 			<div className="flex items-center justify-between gap-2">
-				<span className="font-medium text-owl-text">任务清单</span>
+				<span className="font-medium text-owl-text">{t("todo.title")}</span>
 				<span className="text-owl-faint">
-					{done}/{items.length} 完成{card.status === "running" ? " · 更新中…" : ""}
+					{t("todo.progress", { done, total: items.length })}{card.status === "running" ? t("todo.updating") : ""}
 				</span>
 			</div>
 			<div className="mt-2 h-1 overflow-hidden rounded-full bg-owl-hover">
@@ -310,7 +311,7 @@ function UserRowView({ entry }: { entry: Extract<ChatEntry, { kind: "user" }> })
 							<img
 								key={index}
 								src={`data:${image.mimeType};base64,${image.data}`}
-								alt={`附图 ${index + 1}`}
+								alt={t("chat.attachment", { n: index + 1 })}
 								className="max-h-44 max-w-56 cursor-zoom-in rounded-lg border border-owl-border object-contain"
 								onClick={() => setZoomed(true)}
 							/>
@@ -328,7 +329,7 @@ function UserRowView({ entry }: { entry: Extract<ChatEntry, { kind: "user" }> })
 						<img
 							key={index}
 							src={`data:${image.mimeType};base64,${image.data}`}
-							alt={`附图 ${index + 1}`}
+							alt={t("chat.attachment", { n: index + 1 })}
 							className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl"
 						/>
 					))}
@@ -416,7 +417,7 @@ type QuestionMark = { n: number; text: string };
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
 	return entries.filter((entry) => entry.kind === "user").map((entry, index) => ({
 		n: index + 1,
-		text: entry.text.split("\n").find((line) => line.trim() !== "") ?? "提问 " + (index + 1),
+		text: entry.text.split("\n").find((line) => line.trim() !== "") ?? t("chat.questionFallback", { n: index + 1 }),
 	}));
 }
 
@@ -427,8 +428,8 @@ function QuestionNavigator({ questions, active, onJump, onClose }: {
 	onClose: () => void;
 }): React.JSX.Element {
 	return (
-		<aside id="owl-chat-directory" className="owl-chat-directory" aria-label="对话目录">
-			<header><span>对话目录 · {questions.length}</span><button type="button" className="owl-chrome-button" aria-label="收起对话目录" onClick={onClose}><IconChevron className="h-4 w-4" /></button></header>
+		<aside id="owl-chat-directory" className="owl-chat-directory" aria-label={t("chat.directoryAria")}>
+			<header><span>{t("chat.directoryTitle", { n: questions.length })}</span><button type="button" className="owl-chrome-button" aria-label={t("chat.directoryCollapse")} onClick={onClose}><IconChevron className="h-4 w-4" /></button></header>
 			<nav>
 				{questions.map((question) => <button key={question.n} type="button" aria-current={active === question.n ? "location" : undefined} onClick={() => onJump(question.n)}><span>{question.n}</span><span title={question.text}>{question.text}</span></button>)}
 			</nav>
@@ -446,7 +447,7 @@ function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activit
 		if (entry.kind === "user") break;
 		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
 	}
-	const label = activity === "waiting" ? "等待你的确认或回答" : activity === "disconnected" ? "连接已断开，正在恢复状态" : executing ? "正在执行工具" : "正在生成回答";
+	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
 	return <div className="owl-response-activity" data-state={activity} role="status"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" /><span>{label}</span></div>;
 }
 
@@ -471,23 +472,23 @@ function ScreenshotDock({
 					className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6"
 					onClick={() => setZoom(false)}
 				>
-					<img src={src} alt="完整截图" className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl" />
+					<img src={src} alt={t("chat.fullScreenshot")} className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl" />
 				</div>
 			)}
 			<div className="absolute bottom-2 left-2 z-20 w-56 overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
 				<header className="flex items-center justify-between px-2 py-1">
-					<span className="text-[11px] font-medium text-owl-muted">最新截图</span>
+					<span className="text-[11px] font-medium text-owl-muted">{t("chat.latestScreenshot")}</span>
 					<button
 						type="button"
-						title="关闭"
-						aria-label="关闭最新截图"
+						title={t("window.close")}
+						aria-label={t("chat.closeLatest")}
 						onClick={onClose}
 						className="flex h-5 w-5 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
 					>
 						✕
 					</button>
 				</header>
-				<img src={src} alt="最新截图" className="w-full cursor-zoom-in" onClick={() => setZoom(true)} />
+				<img src={src} alt={t("chat.latestScreenshot")} className="w-full cursor-zoom-in" onClick={() => setZoom(true)} />
 			</div>
 		</>
 	);
@@ -517,6 +518,7 @@ export function ChatStream({
 	cwd?: string;
 	onOpenFile?: (path: string) => void;
 }): React.JSX.Element {
+	const t = useT();
 	const container = useRef<HTMLElement>(null);
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
@@ -624,7 +626,7 @@ export function ChatStream({
 	return (
 		<div className="owl-chat-surface" data-activity={activity}>
 			<div className="owl-chat-layout">
-				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label="对话消息" onClick={(event) => {
+				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
 					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
 					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
 					const href = anchor?.getAttribute("href");
@@ -635,7 +637,7 @@ export function ChatStream({
 					onOpenFile(path);
 				}}>
 					<div className="owl-chat-column">
-						{entries.length === 0 && (onQuickAction && onPromptExample && onOpenDeveloper ? <StartPage onAction={onQuickAction} onPrompt={onPromptExample} onOpenDeveloper={onOpenDeveloper} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">有什么可以帮你的？</p></div>)}
+						{entries.length === 0 && (onQuickAction && onPromptExample && onOpenDeveloper ? <StartPage onAction={onQuickAction} onPrompt={onPromptExample} onOpenDeveloper={onOpenDeveloper} /> : <div className="mt-[22vh] flex flex-col items-center"><img src="/owl.svg" alt="" className="h-12 w-12 opacity-90" /><p className="mt-5 text-2xl text-owl-text">{t("chat.emptyGreeting")}</p></div>)}
 						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : "owl-chat-row"}>{row.content}</div>)}
 						<ResponseActivity entries={entries} activity={activity} />
 						{artifacts}
@@ -643,7 +645,7 @@ export function ChatStream({
 				</main>
 				{navigationOpen && questions.length > 0 && <QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} onClose={() => onNavigationClose?.()} />}
 			</div>
-			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>回到最新 <span aria-hidden="true">↓</span></button>}
+			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>{t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
 			{showShotDock && latestShot && <ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />}
 		</div>
 	);

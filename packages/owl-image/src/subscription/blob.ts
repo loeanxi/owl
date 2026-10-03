@@ -10,12 +10,12 @@ function asString(value: unknown): string {
 
 /** Everything the vendor needs to call its API plus display identity. */
 export interface SubscriptionBlob {
-	accessToken: string
-	refreshToken: string
+	accessToken: string;
+	refreshToken: string;
 	/** Epoch ms when the access token stops working; 0 when unknown. */
-	expiresAt: number
-	label: string
-	email: string
+	expiresAt: number;
+	label: string;
+	email: string;
 }
 
 /** Serialize a blob for storage; at least one token must be present. */

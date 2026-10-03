@@ -190,6 +190,28 @@ test(
 				),
 				/active Gateway/,
 			);
+			const remoteImageRuntime = {
+				getLicense: () => actual.getLicense(),
+				async call() {
+					return {
+						...slide,
+						unitData: {
+							...slide.unitData,
+							imageAssets: [{ source: "https://example.com/image.png", imageSourceType: "URL" }],
+						},
+					};
+				},
+			} as unknown as OfficeRuntime;
+			await assert.rejects(
+				renderOfficeOperation(
+					remoteImageRuntime,
+					"screenshot",
+					{ ...slideArgs, output: "remote-asset.png" },
+					cwd,
+					options,
+				),
+				/remote or unresolved/,
+			);
 			const images = await renderOfficeOperation(
 				runtime,
 				"screenshot",

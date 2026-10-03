@@ -4,6 +4,8 @@
  * 未知工具(websearch_search 等)走兜底:工具名 + 第一个字符串参数。
  */
 
+import { t } from "../i18n/index.ts";
+
 export type ToolSummary = {
 	/** 一行摘要,如「`ls -la src`」 */
 	summary: string;
@@ -43,43 +45,43 @@ export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 		case "bash":
 		case "powershell": {
 			const command = str(a.command);
-			if (!command) return { summary: `运行 ${name === "bash" ? "bash" : "PowerShell"} 命令` };
+			if (!command) return { summary: t("sum.runCommand", { shell: name === "bash" ? "bash" : "PowerShell" }) };
 			return { summary: `\`${clip(trimSpaces(command), 80)}\``, detail: command };
 		}
 		case "read": {
 			const path = str(a.path);
-			return path ? { summary: `读取 \`${shortPath(path)}\``, detail: path } : { summary: "读取文件" };
+			return path ? { summary: t("sum.readPath", { path: shortPath(path) }), detail: path } : { summary: t("sum.read") };
 		}
 		case "write": {
 			const path = str(a.path);
-			return path ? { summary: `写入 \`${shortPath(path)}\``, detail: path } : { summary: "写入文件" };
+			return path ? { summary: t("sum.writePath", { path: shortPath(path) }), detail: path } : { summary: t("sum.write") };
 		}
 		case "edit": {
 			const path = str(a.path);
 			const count = Array.isArray(a.edits) ? a.edits.length : 0;
-			if (!path) return { summary: "编辑文件" };
+			if (!path) return { summary: t("sum.edit") };
 			return {
-				summary: `编辑 \`${shortPath(path)}\`${count > 1 ? `(${count} 处)` : ""}`,
+				summary: t("sum.editPath", { path: shortPath(path) }) + (count > 1 ? t("sum.editCount", { n: count }) : ""),
 				detail: path,
 			};
 		}
 		case "find": {
 			const pattern = str(a.pattern);
-			return pattern ? { summary: `查找文件 \`${clip(pattern, 48)}\`` } : { summary: "查找文件" };
+			return pattern ? { summary: t("sum.findPath", { pattern: clip(pattern, 48) }) } : { summary: t("sum.find") };
 		}
 		case "grep": {
 			const pattern = str(a.pattern);
-			return pattern ? { summary: `搜索 \`${clip(pattern, 40)}\`` } : { summary: "搜索文件内容" };
+			return pattern ? { summary: t("sum.grepPath", { pattern: clip(pattern, 40) }) } : { summary: t("sum.grep") };
 		}
 		case "ls": {
 			const path = str(a.path);
-			return path ? { summary: `浏览 \`${shortPath(path)}\`` } : { summary: "浏览目录" };
+			return path ? { summary: t("sum.lsPath", { path: shortPath(path) }) } : { summary: t("sum.ls") };
 		}
 		case "todo":
-			return { summary: "更新任务清单" };
+			return { summary: t("sum.todo") };
 		case "ask_user_question": {
 			const count = Array.isArray(a.questions) ? a.questions.length : 0;
-			return { summary: count > 0 ? `向你提了 ${count} 个问题` : "向你提问" };
+			return { summary: count > 0 ? t("sum.askCount", { n: count }) : t("sum.ask") };
 		}
 		default: {
 			const first = firstString(a);
@@ -95,28 +97,28 @@ export function toolGroupLabel(name: string, count: number): string | undefined 
 	switch (name) {
 		case "bash":
 		case "powershell":
-			return `运行了 ${count} 条命令`;
+			return t("sum.groupBash", { n: count });
 		case "read":
-			return `读取了 ${count} 个文件`;
+			return t("sum.groupRead", { n: count });
 		case "write":
-			return `写入了 ${count} 个文件`;
+			return t("sum.groupWrite", { n: count });
 		case "edit":
-			return `编辑了 ${count} 个文件`;
+			return t("sum.groupEdit", { n: count });
 		case "find":
-			return `查找了 ${count} 次文件`;
+			return t("sum.groupFind", { n: count });
 		case "grep":
-			return `搜索了 ${count} 次`;
+			return t("sum.groupGrep", { n: count });
 		case "ls":
-			return `浏览了 ${count} 个目录`;
+			return t("sum.groupLs", { n: count });
 		default:
 			return undefined;
 	}
 }
 
 /** 混合工具族的组显示名(浏览器套件等),未收录的族退回通用文案。 */
-const FAMILY_LABELS: Record<string, string> = {
-	browser: "浏览器操作",
-	websearch: "网页搜索",
+const FAMILY_LABELS: Record<string, (vars: { n: number }) => string> = {
+	browser: ({ n }) => t("sum.familyBrowser", { n }),
+	websearch: ({ n }) => t("sum.familyWebsearch", { n }),
 };
 
 /**
@@ -132,9 +134,9 @@ export function toolRunLabel(names: string[], count: number): string {
 	const family = first.split("_")[0] ?? first;
 	if (family && names.every((name) => (name.split("_")[0] ?? name) === family)) {
 		const label = FAMILY_LABELS[family];
-		if (label) return `${label} × ${count}`;
+		if (label) return label({ n: count });
 	}
-	return `执行了 ${count} 个工具调用`;
+	return t("sum.groupGeneric", { n: count });
 }
 
 /**

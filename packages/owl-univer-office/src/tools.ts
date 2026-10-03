@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionUIContext } from "@owl/owl-coding-agent";
 import { type TSchema, Type } from "typebox";
+import { confirmOfficeAction } from "./approval.ts";
 import { authorizePath } from "./runtime-paths.ts";
 
 type OfficeJson = null | boolean | number | string | readonly OfficeJson[] | { readonly [key: string]: OfficeJson };
@@ -30,6 +31,7 @@ interface OfficeContext {
 	cwd: string;
 	hasUI: boolean;
 	ui: Pick<ExtensionUIContext, "confirm">;
+	confirm?: (title: string, message: string, signal?: AbortSignal) => Promise<boolean>;
 }
 
 const file = Type.String({ minLength: 1, description: "当前工作区中的 .univer 文件路径。" });
@@ -60,12 +62,13 @@ export async function executeOfficeOperation(
 	signal?.throwIfAborted();
 	let args = params;
 	if (operation === "worktree" && (params.action === "merge" || params.action === "discard")) {
-		if (!ctx.hasUI) throw new Error("确认或放弃 Office 草稿需要已连接的 Owl 界面。请在工作台中审阅后操作。");
-		const approved = await ctx.ui.confirm(
-			params.action === "merge" ? "确认 Office 修改" : "放弃 Office 草稿",
-			`${String(params.file)}\n草稿：${String(params.worktreeId)}\n${params.action === "merge" ? "将这份草稿合入当前版本？" : "放弃这份草稿？"}`,
-			{ signal },
-		);
+		if (!ctx.hasUI && !ctx.confirm)
+			throw new Error("确认或放弃 Office 草稿需要已连接的 Owl 界面。请在工作台中审阅后操作。");
+		const title = params.action === "merge" ? "确认 Office 修改" : "放弃 Office 草稿";
+		const message = `${String(params.file)}\n草稿：${String(params.worktreeId)}\n${params.action === "merge" ? "将这份草稿合入当前版本？" : "放弃这份草稿？"}`;
+		const approved = ctx.confirm
+			? await ctx.confirm(title, message, signal)
+			: await ctx.ui.confirm(title, message, { signal });
 		signal?.throwIfAborted();
 		if (!approved) throw new Error("用户未确认本次操作。草稿和当前版本保持原状。");
 		args = { ...params, userConfirmed: true };
@@ -133,12 +136,25 @@ export function registerOfficeTools(pi: Pick<ExtensionAPI, "registerTool">, runt
 				"只有用户明确要求时才调用 merge/discard；这些动作还需要界面确认。",
 				"先用 univer_api 查同版本 Facade API；execute 中显式 return 才能取得读回值。",
 			],
-			execute: (_id, params, signal, _update, ctx) =>
+			execute: (id, params, signal, _update, ctx) =>
 				executeOfficeOperation(
 					runtime,
 					operation,
 					params as Record<string, unknown>,
-					ctx,
+					{
+						cwd: ctx.cwd,
+						hasUI: ctx.hasUI,
+						ui: ctx.ui,
+						confirm: (title, message, approvalSignal) =>
+							confirmOfficeAction(
+								ctx.sessionManager.getSessionId(),
+								id,
+								title,
+								message,
+								approvalSignal,
+								ctx.hasUI ? () => ctx.ui.confirm(title, message, { signal: approvalSignal }) : undefined,
+							),
+					},
 					signal,
 					ctx.model?.input.includes("image") ?? false,
 				),

@@ -8,7 +8,7 @@
  * even in non-standard formats.
  * Ported from dsh-image-gen src/redact.ts (Apache-2.0).
  */
-const REDACTED = "[REDACTED]"
+const REDACTED = "[REDACTED]";
 
 const KEY_SHAPED_PATTERNS: readonly RegExp[] = [
 	// OpenAI / DashScope style keys, e.g. sk-abc123...
@@ -21,15 +21,15 @@ const KEY_SHAPED_PATTERNS: readonly RegExp[] = [
 	/\b(?:api[_-]?key|apikey|token|secret)["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{8,}/gi,
 	// secret keywords followed directly by a quoted value, e.g. invalid token "..."
 	/\b(?:api[_-]?key|apikey|token|secret)\s*["'][A-Za-z0-9._~+/=-]{8,}["']/gi,
-]
+];
 
 /** Replace every occurrence of a known secret plus key-shaped values. */
 export function redactSecrets(text: string, ...secrets: Array<string | undefined>): string {
-	let redacted = text
+	let redacted = text;
 	for (const secret of secrets) {
 		// Very short values would mangle ordinary words if substituted blindly.
-		if (secret !== undefined && secret.length >= 8) redacted = redacted.split(secret).join(REDACTED)
+		if (secret !== undefined && secret.length >= 8) redacted = redacted.split(secret).join(REDACTED);
 	}
-	for (const pattern of KEY_SHAPED_PATTERNS) redacted = redacted.replace(pattern, REDACTED)
-	return redacted
+	for (const pattern of KEY_SHAPED_PATTERNS) redacted = redacted.replace(pattern, REDACTED);
+	return redacted;
 }

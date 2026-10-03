@@ -1,36 +1,36 @@
 /** DashScope Qwen Image generation and editing adapter. Ported from dsh-image-gen src/dashscope.ts (Apache-2.0). */
 import { doFetch } from "./config.ts";
-import { detectImageMediaType, imageMediaTypeOf, type GeneratedImage, type ImageMediaType } from "./media.ts";
+import { detectImageMediaType, type GeneratedImage, type ImageMediaType, imageMediaTypeOf } from "./media.ts";
 import { redactSecrets } from "./redact.ts";
 
 export interface DashScopeImageOptions {
-	apiKey: string
-	endpoint: string
-	model: string
-	prompt: string
-	size?: string
-	maxBytes: number
-	signal?: AbortSignal
-	proxy?: string
+	apiKey: string;
+	endpoint: string;
+	model: string;
+	prompt: string;
+	size?: string;
+	maxBytes: number;
+	signal?: AbortSignal;
+	proxy?: string;
 }
 
 export interface DashScopeEditOptions extends DashScopeImageOptions {
-	sourceImages: Array<{ data: Uint8Array; mediaType: ImageMediaType }>
+	sourceImages: Array<{ data: Uint8Array; mediaType: ImageMediaType }>;
 }
 
 interface DashScopeChoiceMessageContent {
-	text?: string
-	image?: string
-	image_url?: string
-	url?: string
+	text?: string;
+	image?: string;
+	image_url?: string;
+	url?: string;
 }
 
 interface DashScopeResponse {
 	output?: {
-		choices?: Array<{ message?: { content?: DashScopeChoiceMessageContent[] } }>
-	}
-	message?: string
-	code?: string
+		choices?: Array<{ message?: { content?: DashScopeChoiceMessageContent[] } }>;
+	};
+	message?: string;
+	code?: string;
 }
 
 export async function generateDashScopeImage(options: DashScopeImageOptions): Promise<GeneratedImage> {
@@ -53,7 +53,9 @@ export async function generateDashScopeImage(options: DashScopeImageOptions): Pr
 
 export async function editDashScopeImage(options: DashScopeEditOptions): Promise<GeneratedImage> {
 	if (options.sourceImages.length > 3) {
-		throw new Error(`DashScope image editing supports at most 3 reference images; this selection resolved ${String(options.sourceImages.length)}. Select fewer images or choose a provider that supports more references. No images were omitted.`);
+		throw new Error(
+			`DashScope image editing supports at most 3 reference images; this selection resolved ${String(options.sourceImages.length)}. Select fewer images or choose a provider that supports more references. No images were omitted.`,
+		);
 	}
 	assertQwenImageModel(options.model);
 	const formattedSize = formatSize(options.size);
@@ -62,13 +64,15 @@ export async function editDashScopeImage(options: DashScopeEditOptions): Promise
 		requestBody: {
 			model: options.model,
 			input: {
-				messages: [{
-					role: "user",
-					content: [
-						...options.sourceImages.map((sourceImage) => ({ image: toDataUrl(sourceImage) })),
-						{ text: options.prompt },
-					],
-				}],
+				messages: [
+					{
+						role: "user",
+						content: [
+							...options.sourceImages.map((sourceImage) => ({ image: toDataUrl(sourceImage) })),
+							{ text: options.prompt },
+						],
+					},
+				],
 			},
 			parameters: {
 				prompt_extend: true,
@@ -94,20 +98,26 @@ function toDataUrl(image: { data: Uint8Array; mediaType: ImageMediaType }): stri
 	return `data:${image.mediaType};base64,${Buffer.from(image.data).toString("base64")}`;
 }
 
-async function requestQwenImage(options: DashScopeImageOptions & {
-	requestBody: unknown
-	operation: "generation" | "editing"
-}): Promise<GeneratedImage> {
+async function requestQwenImage(
+	options: DashScopeImageOptions & {
+		requestBody: unknown;
+		operation: "generation" | "editing";
+	},
+): Promise<GeneratedImage> {
 	const base = options.endpoint.replace(/\/+$/, "");
-	const response = await doFetch(`${base}/services/aigc/multimodal-generation/generation`, {
-		method: "POST",
-		...(options.signal ? { signal: options.signal } : {}),
-		headers: {
-			"content-type": "application/json",
-			authorization: `Bearer ${options.apiKey}`,
+	const response = await doFetch(
+		`${base}/services/aigc/multimodal-generation/generation`,
+		{
+			method: "POST",
+			...(options.signal ? { signal: options.signal } : {}),
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${options.apiKey}`,
+			},
+			body: JSON.stringify(options.requestBody),
 		},
-		body: JSON.stringify(options.requestBody),
-	}, options.proxy);
+		options.proxy,
+	);
 
 	if (!response.ok) {
 		const errorText = redactSecrets(await response.text(), options.apiKey);
@@ -117,7 +127,9 @@ async function requestQwenImage(options: DashScopeImageOptions & {
 	const payload = (await response.json()) as DashScopeResponse;
 	const imageUrl = extractImageUrl(payload);
 	if (imageUrl === undefined) {
-		throw new Error(`DashScope image ${options.operation} returned no image URL: ${redactSecrets(payload.message ?? JSON.stringify(payload), options.apiKey)}`);
+		throw new Error(
+			`DashScope image ${options.operation} returned no image URL: ${redactSecrets(payload.message ?? JSON.stringify(payload), options.apiKey)}`,
+		);
 	}
 	return downloadImageBlob(imageUrl, options);
 }
@@ -140,14 +152,18 @@ async function downloadImageBlob(imageUrl: string, options: DashScopeImageOption
 	}
 	const buffer = await imageResponse.arrayBuffer();
 	if (buffer.byteLength > options.maxBytes) {
-		throw new Error(`DashScope generated image (${String(buffer.byteLength)} bytes) exceeds the ${String(options.maxBytes)} byte limit`);
+		throw new Error(
+			`DashScope generated image (${String(buffer.byteLength)} bytes) exceeds the ${String(options.maxBytes)} byte limit`,
+		);
 	}
 	// Sniff first: the OSS CDN can answer a generic content-type (or none) while
 	// the bytes stay PNG/WebP.
 	const data = new Uint8Array(buffer);
 	const mediaType = detectImageMediaType(data) ?? imageMediaTypeOf(imageResponse.headers.get("content-type"));
 	if (mediaType === undefined) {
-		throw new Error(`DashScope image download returned an unsupported content type: ${imageResponse.headers.get("content-type") ?? "none"}`);
+		throw new Error(
+			`DashScope image download returned an unsupported content type: ${imageResponse.headers.get("content-type") ?? "none"}`,
+		);
 	}
 	return { data, mediaType };
 }

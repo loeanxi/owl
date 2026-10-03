@@ -7,7 +7,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDirOf } from "../config.ts";
-import { parseBlob, serializeBlob, type SubscriptionBlob } from "./blob.ts";
+import { parseBlob, type SubscriptionBlob, serializeBlob } from "./blob.ts";
 
 function authPath(): string {
 	return join(agentDirOf(), "image-gen-auth.json");

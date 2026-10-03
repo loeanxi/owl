@@ -20,43 +20,43 @@ export const HANDDRAW_SOURCE_UPDATED_AT = "2026-09-27T14:24:28+08:00";
 export const HANDDRAW_SOURCE_REPOSITORY = "https://github.com/yang0/handraw-style";
 
 export interface InspirationCase {
-	id: string
-	title: string
-	imageAlt: string
-	sourceLabel?: string | undefined
-	sourceUrl?: string | undefined
-	githubUrl?: string | undefined
-	prompt: string
-	promptPreview: string
-	category: string
-	styles: string[]
-	scenes: string[]
-	featured: boolean
+	id: string;
+	title: string;
+	imageAlt: string;
+	sourceLabel?: string | undefined;
+	sourceUrl?: string | undefined;
+	githubUrl?: string | undefined;
+	prompt: string;
+	promptPreview: string;
+	category: string;
+	styles: string[];
+	scenes: string[];
+	featured: boolean;
 }
 
 export interface InspirationSource {
-	id: string
-	label: string
-	repository: string
-	version: string
-	updatedAt?: string | undefined
-	categories: string[]
-	styles: string[]
-	scenes: string[]
-	cases: InspirationCase[]
+	id: string;
+	label: string;
+	repository: string;
+	version: string;
+	updatedAt?: string | undefined;
+	categories: string[];
+	styles: string[];
+	scenes: string[];
+	cases: InspirationCase[];
 }
 
 export interface InspirationCatalog {
-	schemaVersion: 1
-	sources: InspirationSource[]
+	schemaVersion: 1;
+	sources: InspirationSource[];
 }
 
 interface InspirationSourceMeta {
-	id: string
-	label: string
-	repository: string
-	version: string
-	updatedAt: string | undefined
+	id: string;
+	label: string;
+	repository: string;
+	version: string;
+	updatedAt: string | undefined;
 }
 
 /** Parse one snapshot document defensively before it becomes application data. */
@@ -108,42 +108,51 @@ function parseInspirationSource(value: unknown, meta: InspirationSourceMeta): In
 	};
 }
 
-export function findInspirationCase(catalog: InspirationCatalog, sourceId: string, caseId: string): InspirationCase | undefined {
-	return catalog.sources.find((candidate) => candidate.id === sourceId)?.cases.find((candidate) => candidate.id === caseId);
+export function findInspirationCase(
+	catalog: InspirationCatalog,
+	sourceId: string,
+	caseId: string,
+): InspirationCase | undefined {
+	return catalog.sources
+		.find((candidate) => candidate.id === sourceId)
+		?.cases.find((candidate) => candidate.id === caseId);
 }
 
 /** One model-ready search hit: where the case lives plus its full reusable prompt. */
 export interface InspirationSearchHit {
-	sourceId: string
-	sourceLabel: string
-	id: string
-	title: string
-	category: string
-	prompt: string
+	sourceId: string;
+	sourceLabel: string;
+	id: string;
+	title: string;
+	category: string;
+	prompt: string;
 }
 
 export interface InspirationSearchRequest {
 	/** Substring matched case-insensitively against titles, prompts, categories, and style/scene tags; empty matches everything. */
-	query: string
+	query: string;
 	/** Restrict the search to one source id. */
-	sourceId?: string | undefined
+	sourceId?: string | undefined;
 	/** Restrict the search to one exact category name. */
-	category?: string | undefined
+	category?: string | undefined;
 	/** Maximum hits to return; defaults to 8, clamped to 1-20. */
-	limit?: number | undefined
+	limit?: number | undefined;
 }
 
 export interface InspirationSearchResult {
 	/** Total matching cases before the limit; lets the caller refine instead of re-querying blindly. */
-	total: number
-	hits: InspirationSearchHit[]
+	total: number;
+	hits: InspirationSearchHit[];
 }
 
 const DEFAULT_INSPIRATION_SEARCH_HITS = 8;
 const MAX_INSPIRATION_SEARCH_HITS = 20;
 
 /** Search the catalog for reusable prompts; bounded hits even with an empty query. */
-export function searchInspirationCases(catalog: InspirationCatalog, request: InspirationSearchRequest): InspirationSearchResult {
+export function searchInspirationCases(
+	catalog: InspirationCatalog,
+	request: InspirationSearchRequest,
+): InspirationSearchResult {
 	const limit = Math.min(Math.max(request.limit ?? DEFAULT_INSPIRATION_SEARCH_HITS, 1), MAX_INSPIRATION_SEARCH_HITS);
 	const query = request.query.trim().toLowerCase();
 	const matches: InspirationSearchHit[] = [];
@@ -151,8 +160,21 @@ export function searchInspirationCases(catalog: InspirationCatalog, request: Ins
 		if (request.sourceId !== undefined && source.id !== request.sourceId) continue;
 		for (const item of source.cases) {
 			if (request.category !== undefined && item.category !== request.category) continue;
-			if (query !== "" && ![item.title, item.prompt, item.category, ...item.styles, ...item.scenes].some((value) => value.toLowerCase().includes(query))) continue;
-			matches.push({ sourceId: source.id, sourceLabel: source.label, id: item.id, title: item.title, category: item.category, prompt: item.prompt });
+			if (
+				query !== "" &&
+				![item.title, item.prompt, item.category, ...item.styles, ...item.scenes].some((value) =>
+					value.toLowerCase().includes(query),
+				)
+			)
+				continue;
+			matches.push({
+				sourceId: source.id,
+				sourceLabel: source.label,
+				id: item.id,
+				title: item.title,
+				category: item.category,
+				prompt: item.prompt,
+			});
 		}
 	}
 	return { total: matches.length, hits: matches.slice(0, limit) };
@@ -179,7 +201,9 @@ export const BUNDLED_INSPIRATION_CATALOG: InspirationCatalog = {
 };
 
 function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
 }
 
 function text(value: unknown, maxLength: number): string {
