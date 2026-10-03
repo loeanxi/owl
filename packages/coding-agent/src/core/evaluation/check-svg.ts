@@ -67,7 +67,7 @@ function canonicalSvg(content: string): string {
 	return JSON.stringify(
 		elements.map((node) => ({
 			name: node.localName,
-			parent: elements.findIndex((candidate) => candidate === node.parentElement),
+			parent: node.parentElement ? elements.indexOf(node.parentElement) : -1,
 			attrs: [...node.attributes].map((attr) => [attr.name, attr.value]).sort(([a], [b]) => a.localeCompare(b)),
 			text: node.children.length === 0 ? node.textContent?.trim() : "",
 		})),

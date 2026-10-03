@@ -69,11 +69,16 @@ export async function checkEvaluationCode(
 		return [{ id: spec.id, label: spec.label, status: "unchecked", detail: "JavaScript隔离检查环境不可用。" }];
 	}
 	const start = Date.now();
-	const vm = await QuickJS.create({
-		wasm,
-		memoryLimit: 32 * 1024 * 1024,
-		interruptHandler: () => Boolean(signal?.aborted) || Date.now() - start > 2000,
-	});
+	let vm: QuickJS;
+	try {
+		vm = await QuickJS.create({
+			wasm,
+			memoryLimit: 32 * 1024 * 1024,
+			interruptHandler: () => Boolean(signal?.aborted) || Date.now() - start > 2000,
+		});
+	} catch {
+		return [{ id: spec.id, label: spec.label, status: "unchecked", detail: "JavaScript隔离运行时未能启动。" }];
+	}
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	try {
 		let code = source.trim();

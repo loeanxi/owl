@@ -56,7 +56,7 @@ const loader = createJiti(import.meta.url, {
 const browserPath = [process.env.OWL_BROWSER_TEST_EXECUTABLE, "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Google/Chrome/Application/chrome.exe", "/usr/bin/chromium", "/usr/bin/google-chrome"].find((path) => path && existsSync(path));
 assert.ok(browserPath, "An installed Chromium browser is required; no browser will be downloaded.");
 const result = { success: false, actualApp: true, actualDesktopWebSocket: true, actualEvaluationService: true, fakeModelAndChecks: true, paidCalls: 0, fixtureFallbacks: [], cases: [], errors: [], diagnostics: [], requests: [], responses: [], modelCalls: [], screenshots: [], sourceSha256: {} };
-for (const path of ["apps/desktop/src/App.tsx", "apps/desktop/src/components/DesktopTitlebar.tsx", "apps/desktop/src/features/evaluation/EvaluationPage.tsx", "apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/evaluation-model.ts", "apps/desktop/src/features/evaluation/evaluation.css", "packages/coding-agent/src/core/evaluation/service.ts"])
+for (const path of ["apps/desktop/src/App.tsx", "apps/desktop/src/components/DesktopTitlebar.tsx", "apps/desktop/src/features/evaluation/EvaluationPage.tsx", "apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/EvaluationSummary.tsx", "apps/desktop/src/features/evaluation/evaluation-model.ts", "apps/desktop/src/features/evaluation/evaluation.css", "packages/coding-agent/src/core/evaluation/service.ts"])
   result.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, path))).digest("hex");
 let bridge;
 let vite;
@@ -83,7 +83,7 @@ const options = {
       await new Promise((done) => setTimeout(done, 120));
       request.signal.throwIfAborted();
       const content = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260" viewBox="0 0 400 260"><rect width="400" height="260" fill="#f4f0df"/><circle cx="115" cy="180" r="52" fill="none" stroke="#263a32" stroke-width="5"/><circle cx="285" cy="180" r="52" fill="none" stroke="#263a32" stroke-width="5"/><path d="M115 180 170 112 220 180 115 180M220 180 267 111 285 180M165 108h34M254 106h29" fill="none" stroke="#478267" stroke-width="7"/><ellipse cx="186" cy="88" rx="46" ry="23" fill="white" stroke="#263a32" stroke-width="3"/><path d="M214 83Q226 32 252 36L302 55 252 65M177 108 212 140 217 180M159 85 232 112" fill="none" stroke="#263a32" stroke-width="5"/><path d="m258 47 44 8-47 15" fill="#e6ae60"/><circle cx="253" cy="44" r="3" fill="#263a32"/></svg>';
-      return { text: failure ? "retained fixture failure" : content, thinking: "fixture reasoning", stopReason: failure ? "error" : "stop", error: failure ? "Offline fixture intentional failure" : null, usage: null, costUsd: null,
+      return { text: failure ? "retained fixture failure" : request.task.outputType === "json" ? JSON.stringify({ fixture: true, source: "Offline UI integration fixture" }) : content, thinking: "fixture reasoning", stopReason: failure ? "error" : "stop", error: failure ? "Offline fixture intentional failure" : null, usage: null, costUsd: null,
         actualModel: { provider: request.profile.provider, modelId: request.profile.modelId, responseModel: null, forwardedThinkingLevel: request.profile.thinkingLevel === "default" ? null : request.profile.thinkingLevel, providerThinkingLevel: null } };
     },
     check: async (task, text) => ({ artifact: { type: task.outputType, content: text, previewAllowed: task.outputType === "svg" }, checks: [{ id: "fixture-format", label: "隔离流程检查", status: "passed", detail: "假检查边界，仅验证 UI/RPC，不代表真实模型质量。" }] }),
@@ -129,17 +129,17 @@ const waitFinished = async (runId) => {
   }
   throw new Error("Offline run did not finish");
 };
-async function newRun(name, twoModels = false, samples = 1) {
+async function newRun(name, twoModels = false, samples = 1, taskIds = ["G01"]) {
   await area().locator(".eval-main-head").getByRole("button", { name: "新建测评", exact: true }).click();
   await area().getByRole("button", { name: "清空选择", exact: true }).click();
-  await area().locator("#eval-select-G01").check();
+  for (const taskId of taskIds) await area().locator(`#eval-select-${taskId}`).check();
   await area().locator(".eval-model-choice").filter({ hasText: "Fixture Alpha" }).getByText("默认", { exact: true }).click();
   if (twoModels) await area().locator(".eval-model-choice").filter({ hasText: "Fixture Beta" }).getByText("默认", { exact: true }).click();
   await area().getByRole("textbox", { name: "测评名称", exact: true }).fill(name);
   if (!twoModels && samples === 1) {
     await area().getByRole("group", { name: "每题运行次数", exact: true }).getByRole("button", { name: "3", exact: true }).click();
-    assert.equal(await area().locator(".eval-config-row").filter({ hasText: "调用次数" }).locator("strong").innerText(), "3");
-    await screenshot("create-three-calls.png");
+    assert.equal(await area().locator(".eval-config-row").filter({ hasText: "调用次数" }).locator("strong").innerText(), String(3 * taskIds.length));
+    await screenshot(`create-${3 * taskIds.length}-calls.png`);
   }
   await area().getByRole("group", { name: "每题运行次数", exact: true }).getByRole("button", { name: String(samples), exact: true }).click();
   await page.locator(".owl-activity-rail").getByRole("button", { name: "聊天", exact: true }).click();
@@ -147,12 +147,37 @@ async function newRun(name, twoModels = false, samples = 1) {
   assert.equal(await area().getByRole("textbox", { name: "测评名称", exact: true }).inputValue(), name);
   assert.equal(await area().locator("#eval-select-G01").isChecked(), true);
   await area().getByRole("group", { name: "每题运行次数", exact: true }).getByRole("button", { name: String(samples), exact: true, pressed: true }).waitFor();
-  await screenshot(`create-${samples}-${twoModels ? "two" : "one"}.png`);
+  await screenshot(`create-${samples}-${twoModels ? "two" : "one"}${taskIds.length > 1 ? `-tasks${taskIds.length}` : ""}.png`);
   await area().getByRole("button", { name: "开始测评", exact: true }).click();
   await area().locator(".eval-result-card").first().waitFor();
   const summary = await latestRun();
   await waitFinished(summary.id);
   return summary.id;
+}
+async function summaryDimensions(runId, expectedByTask) {
+  const run = await rpc({ action: "run.get", runId });
+  await area().getByRole("button", { name: "测评汇总", exact: true }).click();
+  await area().locator(".eval-criterion-stat").first().waitFor();
+  const dimensions = await area().locator(".eval-criterion-stat").evaluateAll((elements) => elements.map((element) => ({
+    id: element.dataset.criterionId, label: element.dataset.criterionLabel, description: element.dataset.criterionDescription,
+    taskIds: element.dataset.taskIds, mean: element.querySelector(".eval-criterion-mean")?.textContent.trim(),
+    count: element.querySelector(".eval-criterion-count")?.textContent.trim(),
+  })));
+  assert.equal(dimensions.length, Object.keys(expectedByTask).length * 3);
+  for (const [taskId, scores] of Object.entries(expectedByTask)) {
+    const task = run.tasks.find((item) => item.id === taskId);
+    assert.ok(task);
+    for (const [index, criterion] of task.rubric.entries()) {
+      const matches = dimensions.filter((item) => item.id === criterion.id && item.label === criterion.label && item.description === criterion.description);
+      assert.equal(matches.length, 1, `Missing or mixed rubric signature: ${taskId}/${criterion.id}/${criterion.label}`);
+      assert.equal(matches[0].mean, `${scores[index].toFixed(2)} / 5`);
+      assert.match(matches[0].count, /^1\s*\/\s*1\s*已评分(?:\s*·|$)/);
+      assert.ok(matches[0].taskIds.includes(taskId));
+      for (const otherId of Object.keys(expectedByTask).filter((id) => id !== taskId)) assert.equal(matches[0].taskIds.includes(otherId), false);
+    }
+  }
+  assert.equal(await area().getByText("人工评价均分", { exact: true }).count(), 0);
+  return dimensions;
 }
 try {
   ({ startDesktopServer } = await loader.import(join(repo, "packages/coding-agent/src/modes/desktop/serve.ts")));
@@ -220,7 +245,7 @@ try {
   });
   await check("three criteria scoring reveals real identities without changing order", async () => {
     const before = await rpc({ action: "run.get", runId: firstRunId });
-    for (const group of await area().locator(".eval-rating").all()) await group.getByRole("button", { name: "4 分", exact: true }).click();
+    for (const [index, group] of (await area().locator(".eval-rating").all()).entries()) await group.getByRole("button", { name: `${[5, 3, 4][index]} 分`, exact: true }).click();
     await area().locator(".eval-score-note").fill("Offline browser fixture review");
     await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
     await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
@@ -228,6 +253,12 @@ try {
     assert.deepEqual(after.groups[0].resultIds, before.groups[0].resultIds); assert.equal(Object.keys(after.results[0].rating.scores).length, 3);
     assert.equal(after.results[0].usage, null); assert.equal(after.results[0].costUsd, null);
     await screenshot("04-revealed.png");
+  });
+  await check("Summary keeps distinct 5/3/4 criterion means and each 1/1 denominator", async () => {
+    const dimensions = await summaryDimensions(firstRunId, { G01: [5, 3, 4] });
+    await screenshot("04-summary-dimensions.png");
+    await area().getByRole("button", { name: "结果对比", exact: true }).click();
+    return { dimensions };
   });
   let comparedRunId;
   await check("two-model comparison, extra samples, and retained failure retry", async () => {
@@ -271,6 +302,19 @@ try {
     assert.equal(result.modelCalls.length - beforeCount, 3);
     await screenshot("06-three-samples.png");
   });
+  await check("Summary never mixes G01 and G07 criteria sharing the SVG category", async () => {
+    const runId = await newRun("Browser distinct-rubric fixture", false, 1, ["G01", "G07"]);
+    for (const [taskId, scores] of Object.entries({ G01: [5, 3, 4], G07: [1, 2, 5] })) {
+      await area().locator(".eval-side-task").filter({ hasText: taskId }).click();
+      await area().locator(".eval-rating").first().waitFor();
+      for (const [index, group] of (await area().locator(".eval-rating").all()).entries()) await group.getByRole("button", { name: `${scores[index]} 分`, exact: true }).click();
+      await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
+      await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
+    }
+    const dimensions = await summaryDimensions(runId, { G01: [5, 3, 4], G07: [1, 2, 5] });
+    await screenshot("06-summary-distinct-rubrics.png");
+    return { dimensions };
+  });
   await check("custom-task required fields and actual persisted save", async () => {
     await area().locator(".eval-nav").getByRole("button", { name: /题库/ }).click();
     await area().getByRole("button", { name: "新建自定义题", exact: true }).click();
@@ -289,7 +333,7 @@ try {
   await check("run history refresh retains real records and browser reload", async () => {
     await area().locator(".eval-nav").getByRole("button", { name: /运行记录/ }).click();
     await area().locator("tr").filter({ hasText: "Browser one-call fixture" }).waitFor();
-    assert.equal(await area().locator("tbody tr").count(), 3);
+    assert.equal(await area().locator("tbody tr").count(), 4);
     await screenshot("07-history.png");
     await page.reload(); await entryButton().click();
     await area().locator(".eval-nav").getByRole("button", { name: /运行记录/ }).click();

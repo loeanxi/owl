@@ -55,6 +55,14 @@ export function safeExternalUrl(value: string | null | undefined): string | unde
 	}
 }
 
+export function mapDirectionsUrl(origin: MapCoordinate, destination: MapCoordinate): string {
+	if (!isCoordinate(origin) || !isCoordinate(destination)) throw new Error("Invalid route coordinates.");
+	const url = new URL("https://www.openstreetmap.org/directions");
+	url.searchParams.set("engine", "fossgis_osrm_car");
+	url.searchParams.set("route", `${origin.lat},${origin.lng};${destination.lat},${destination.lng}`);
+	return url.href;
+}
+
 function optionalText(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.slice(0, 4000) : null;
 }

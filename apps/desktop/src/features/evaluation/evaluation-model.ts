@@ -25,6 +25,17 @@ export function groupResults(run: EvaluationRunView, taskId: string, sample: num
 	});
 }
 
+export interface EvaluationCriterionStatistics {
+	key: string;
+	id: string;
+	label: string;
+	description: string;
+	taskIds: string[];
+	total: number;
+	count: number;
+	sampleCount: number;
+}
+
 export interface EvaluationStatistics {
 	key: string;
 	name: string;
@@ -35,7 +46,7 @@ export interface EvaluationStatistics {
 	unchecked: number;
 	failed: number;
 	scored: number;
-	scoreTotal: number;
+	criterionStats: EvaluationCriterionStatistics[];
 	durationTotal: number;
 	durationCount: number;
 	costTotal: number;
@@ -44,14 +55,16 @@ export interface EvaluationStatistics {
 
 /** Unknown metrics are excluded from means, with denominators retained for display. */
 export function evaluationStatistics(run: EvaluationRunView, category: EvaluationCategory): EvaluationStatistics[] {
-	const taskIds = new Set(run.tasks.filter((task) => task.category === category).map((task) => task.id));
+	const tasks = new Map(run.tasks.filter((task) => task.category === category).map((task) => [task.id, task]));
 	const groups = new Map<string, EvaluationStatistics>();
 	for (const result of run.results) {
-		if (!result.revealed || !result.profile || !taskIds.has(result.taskId) || !FINISHED_STATUSES.has(result.status)) continue;
+		if (!result.revealed || !result.profile || !tasks.has(result.taskId) || !FINISHED_STATUSES.has(result.status)) continue;
+		const task = tasks.get(result.taskId);
+		if (!task) continue;
 		const profile = result.profile;
 		let stats = groups.get(profile.id);
 		if (!stats) {
-			stats = { key: profile.id, name: profile.model.name, thinkingLevel: profile.thinkingLevel, count: 0, passed: 0, checked: 0, unchecked: 0, failed: 0, scored: 0, scoreTotal: 0, durationTotal: 0, durationCount: 0, costTotal: 0, costCount: 0 };
+			stats = { key: profile.id, name: profile.model.name, thinkingLevel: profile.thinkingLevel, count: 0, passed: 0, checked: 0, unchecked: 0, failed: 0, scored: 0, criterionStats: [], durationTotal: 0, durationCount: 0, costTotal: 0, costCount: 0 };
 			groups.set(profile.id, stats);
 		}
 		stats.count++;
@@ -62,10 +75,26 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 			stats.checked++;
 			if (result.checks.every((check) => check.status === "passed")) stats.passed++;
 		}
-		const scores = Object.values(result.rating?.scores ?? {});
-		if (scores.length > 0) {
-			stats.scored++;
-			stats.scoreTotal += scores.reduce((sum, score) => sum + score, 0) / scores.length;
+		if (result.status === "completed") {
+			let scored = false;
+			for (const item of task.rubric) {
+				// A familiar label can hide a different scoring rule; never combine those standards.
+				const key = JSON.stringify([item.id, item.label, item.description]);
+				let criterion = stats.criterionStats.find((entry) => entry.key === key);
+				if (!criterion) {
+					criterion = { key, id: item.id, label: item.label, description: item.description, taskIds: [], total: 0, count: 0, sampleCount: 0 };
+					stats.criterionStats.push(criterion);
+				}
+				if (!criterion.taskIds.includes(task.id)) criterion.taskIds.push(task.id);
+				criterion.sampleCount++;
+				const score = result.rating?.scores[item.id];
+				if (typeof score === "number" && Number.isInteger(score) && score >= 1 && score <= 5) {
+					criterion.total += score;
+					criterion.count++;
+					scored = true;
+				}
+			}
+			if (scored) stats.scored++;
 		}
 		if (typeof result.durationMs === "number") { stats.durationTotal += result.durationMs; stats.durationCount++; }
 		if (typeof result.costUsd === "number") { stats.costTotal += result.costUsd; stats.costCount++; }

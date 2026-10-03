@@ -1,6 +1,7 @@
 import * as L from "leaflet";
 import { type JSX, useEffect, useRef, useState } from "react";
 import type { MapCoordinate, RealPlace } from "../bridge/protocol.ts";
+import type { DeviceLocationState } from "./device-location.ts";
 import { MapIcon } from "./Icons.tsx";
 import "leaflet/dist/leaflet.css";
 import "./real-map-canvas.css";
@@ -31,12 +32,13 @@ export interface RealMapCanvasProps {
 	selectedId?: string;
 	detailOpen: boolean;
 	loading?: boolean;
+	locationState: DeviceLocationState;
 	labels: RealMapLabels;
 	onPlaceSelect: (id: string) => void;
 	onCenterChange: (point: MapCoordinate) => void;
 	onPointSelect?: (point: MapCoordinate) => void;
 	onSearchHere: (point: MapCoordinate) => void;
-	onLocation?: (point: MapCoordinate) => void;
+	onLocate: () => void;
 	onError?: (message: string) => void;
 }
 
@@ -45,8 +47,6 @@ const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION =
 	'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
 
-type LocationFailure = "locationDenied" | "locationUnavailable" | "locationTimeout" | "locationInsecure";
-
 export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 	const propsRef = useRef(props);
 	propsRef.current = props;
@@ -54,25 +54,18 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 	const mapRef = useRef<L.Map | null>(null);
 	const tileRef = useRef<L.TileLayer | null>(null);
 	const resizeRef = useRef<ResizeObserver | null>(null);
-	const locationEpoch = useRef(0);
-	const locationPending = useRef(false);
-	const mounted = useRef(false);
 	const failedTiles = useRef(0);
 	const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 	const [initializationAttempt, setInitializationAttempt] = useState(0);
 	const [initializationFailed, setInitializationFailed] = useState(false);
 	const [tileFailed, setTileFailed] = useState(false);
 	const [tileLoading, setTileLoading] = useState(true);
-	const [locationBusy, setLocationBusy] = useState(false);
-	const [locationError, setLocationError] = useState<LocationFailure>();
+	const locationBusy = props.locationState.phase === "pending";
+	const locationError = props.locationState.error;
 	const [zoom, setZoom] = useState(INITIAL_ZOOM);
 
 	useEffect(() => {
-		mounted.current = true;
 		return () => {
-			mounted.current = false;
-			locationEpoch.current++;
-			locationPending.current = false;
 			resizeRef.current?.disconnect();
 			resizeRef.current = null;
 			tileRef.current?.off();
@@ -168,12 +161,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 	}, [props.active, initializationAttempt]);
 
 	useEffect(() => {
-		if (!props.active) {
-			locationEpoch.current++;
-			locationPending.current = false;
-			setLocationBusy(false);
-			return;
-		}
+		if (!props.active) return;
 		const map = mapRef.current;
 		if (!map || map !== mapInstance) return;
 		const animationFrame = window.requestAnimationFrame(() => {
@@ -218,7 +206,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 			markerContent.textContent = String(index + 1);
 			const icon = L.divIcon({
 				html: markerContent,
-				className: "owl-real-map-marker" + (selected ? " is-selected" : ""),
+				className: `owl-real-map-marker${selected ? " is-selected" : ""}`,
 				iconSize: [30, 30],
 				iconAnchor: [15, 15],
 			});
@@ -285,54 +273,9 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 			});
 	}, [props.selectedId, props.places, props.active, mapInstance]);
 
-	function locate(): void {
-		if (!props.active || locationPending.current) return;
-		setLocationError(undefined);
-		let errorMessage: LocationFailure | undefined;
-		if (!window.isSecureContext) errorMessage = "locationInsecure";
-		else if (!navigator.geolocation) errorMessage = "locationUnavailable";
-		if (errorMessage) {
-			setLocationError(errorMessage);
-			props.onError?.(props.labels[errorMessage]);
-			return;
-		}
-		const epoch = ++locationEpoch.current;
-		locationPending.current = true;
-		setLocationBusy(true);
-		try {
-			navigator.geolocation.getCurrentPosition(
-				(position) => {
-					if (!mounted.current || epoch !== locationEpoch.current) return;
-					locationPending.current = false;
-					setLocationBusy(false);
-					const point = { lat: position.coords.latitude, lng: position.coords.longitude };
-					mapRef.current?.setView([point.lat, point.lng], Math.max(mapRef.current.getZoom(), INITIAL_ZOOM), {
-						animate: false,
-					});
-					propsRef.current.onLocation?.(point);
-				},
-				(error) => {
-					if (!mounted.current || epoch !== locationEpoch.current) return;
-					locationPending.current = false;
-					setLocationBusy(false);
-					const message: LocationFailure =
-						error.code === 1 ? "locationDenied" : error.code === 3 ? "locationTimeout" : "locationUnavailable";
-					setLocationError(message);
-					propsRef.current.onError?.(propsRef.current.labels[message]);
-				},
-				{ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 },
-			);
-		} catch {
-			locationPending.current = false;
-			setLocationBusy(false);
-			setLocationError("locationUnavailable");
-			props.onError?.(props.labels.locationUnavailable);
-		}
-	}
-
 	const labels = props.labels;
 	return (
-		<div className={"owl-real-map-canvas" + (props.detailOpen ? " has-detail" : "")} aria-label={labels.mapLabel}>
+		<section className={`owl-real-map-canvas${props.detailOpen ? " has-detail" : ""}`} aria-label={labels.mapLabel}>
 			<div className="owl-real-map-viewport" ref={containerRef} />
 			<div className="real-map-search-control">
 				<button
@@ -386,7 +329,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 						aria-label={locationBusy ? labels.locating : labels.locate}
 						title={locationBusy ? labels.locating : labels.locate}
 						disabled={!props.active || !mapInstance || locationBusy}
-						onClick={locate}
+						onClick={props.onLocate}
 						className={locationBusy ? "is-locating" : undefined}
 					>
 						<MapIcon name="target" />
@@ -416,7 +359,12 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 				<div className="real-map-location-error" role="alert">
 					<MapIcon name="info" />
 					<span>{labels[locationError]}</span>
-					<button type="button" aria-label={labels.retry} onClick={locate} disabled={locationBusy || !props.active}>
+					<button
+						type="button"
+						aria-label={labels.retry}
+						onClick={props.onLocate}
+						disabled={locationBusy || !props.active}
+					>
 						{labels.retry}
 					</button>
 				</div>
@@ -427,6 +375,6 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 					{locationBusy ? labels.locating : labels.tilesLoading}
 				</output>
 			)}
-		</div>
+		</section>
 	);
 }

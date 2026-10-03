@@ -1318,3 +1318,62 @@
 		padding: 12px 22px;
 	}
 }
+
+/* ---------------------------------------------------------------- 动态壁纸 ----
+ * 壁纸选择网格：缩略图 + 名称 + 类型徽标；样式沿用主题预设卡（owl-settings-preset-card）。 */
+.owl-settings-page .owl-wallpaper-grid {
+	grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+	max-height: 420px;
+	overflow-y: auto;
+	padding: 2px;
+}
+.owl-settings-page .owl-wallpaper-card {
+	position: relative;
+	padding: 8px;
+}
+.owl-settings-page .owl-wallpaper-thumb {
+	position: relative;
+	display: flex;
+	height: 84px;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	border-radius: 8px;
+	background: var(--settings-panel);
+}
+.owl-settings-page .owl-wallpaper-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.owl-settings-page .owl-wallpaper-thumb-empty {
+	font-size: 11px;
+	color: var(--settings-muted);
+}
+.owl-settings-page .owl-wallpaper-badge {
+	position: absolute;
+	left: 6px;
+	top: 6px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-size: 10px;
+	line-height: 1.6;
+	color: var(--settings-text);
+	background: color-mix(in srgb, var(--settings-canvas) 78%, transparent);
+}
+.owl-settings-page .owl-wallpaper-badge.is-scene { color: #d8a24a; }
+.owl-settings-page .owl-wallpaper-badge.is-application { color: #d96a6a; }
+.owl-settings-page .owl-wallpaper-name {
+	display: block;
+	margin-top: 6px;
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.owl-settings-page .owl-wallpaper-card .owl-settings-preset-check {
+	position: absolute;
+	right: 10px;
+	top: 12px;
+	color: var(--color-owl-accent);
+}

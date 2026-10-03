@@ -1,0 +1,155 @@
+/*
+ * owl 宿主原语（CodeBlock / DiffBlock / JsonTree）的本地样式。dsh 版样式来自
+ * 宿主 ui-primitives；这里用同一套 --dsw-alias-* 令牌自绘，视觉上与 GenuiBlock
+ * 组件融为一体（令牌由 genui-tokens.css 映射到 owl 主题）。
+ */
+
+.primitive {
+	font-family: var(--ds-font-family-code, ui-monospace, monospace);
+	background: var(--dsw-alias-markdown-code-block, var(--dsw-alias-bg-layer-2, #262626));
+	border: 1px solid var(--dsw-alias-border-l1, #3d3d3d);
+	border-radius: var(--dsl-g-radius-surface, 12px);
+	overflow: hidden;
+	min-width: 0;
+}
+
+.primitiveHead {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--dsl-g-gap-sm, 8px);
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--dsw-alias-border-l1, #3d3d3d);
+	background: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
+}
+
+.primitiveLabel {
+	font-size: var(--dsl-g-font-data, 12px);
+	color: var(--dsw-alias-label-secondary, #a3a3a3);
+	font-family: var(--dsl-g-font-body, 14px);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.copyBtn {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--dsw-alias-label-secondary, #a3a3a3);
+	font-size: var(--dsl-g-font-data, 12px);
+	padding: 2px 6px;
+	border-radius: var(--dsl-g-radius-sm, 6px);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.copyBtn:hover { color: var(--dsw-alias-label-primary, #e8e8e8); background: var(--dsl-g-hover, rgba(255, 255, 255, 0.04)); }
+.copyBtn.done { color: var(--dsw-alias-state-success-primary, #3fb96f); }
+
+.codeScroll,
+.diffScroll {
+	overflow: auto;
+	max-height: 420px;
+}
+
+.codeScroll.wrap pre,
+.diffScroll.wrap .diffLine span {
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.codeScroll pre {
+	margin: 0;
+	padding: 10px 12px;
+	font-size: var(--dsl-g-font-data, 12px);
+	line-height: 1.55;
+	color: var(--dsw-alias-label-primary, #e8e8e8);
+	white-space: pre;
+}
+
+.diffLine {
+	display: block;
+	font-size: var(--dsl-g-font-data, 12px);
+	line-height: 1.55;
+	white-space: pre;
+	padding: 0 12px;
+}
+
+.diffLine.add { background: var(--dsw-alias-state-success-secondary, rgba(63, 185, 111, 0.16)); color: var(--dsw-alias-state-success-primary, #3fb96f); }
+.diffLine.del { background: rgba(229, 101, 94, 0.12); color: var(--dsw-alias-state-error-primary, #e5655e); }
+.diffLine.ctx { color: var(--dsw-alias-label-secondary, #a3a3a3); }
+
+.diffFooter {
+	padding: 4px 10px 6px;
+	font-size: var(--dsl-g-font-data, 12px);
+	color: var(--dsw-alias-label-tertiary, #8a8a8a);
+}
+
+.diffCollapseBtn {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--dsl-g-accent, var(--dsw-alias-state-business-primary, #2f9e5a));
+	font-size: var(--dsl-g-font-data, 12px);
+	padding: 4px 10px;
+	cursor: pointer;
+	text-align: left;
+	width: 100%;
+}
+
+.diffCollapseBtn:hover { background: var(--dsl-g-hover, rgba(255, 255, 255, 0.04)); }
+
+/* JSON tree */
+.jsonTree {
+	padding: 8px 10px;
+	font-size: var(--dsl-g-font-data, 12px);
+	line-height: 1.6;
+	color: var(--dsw-alias-label-primary, #e8e8e8);
+	overflow: auto;
+	max-height: 420px;
+}
+
+.jsonRow {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: max-content;
+}
+
+.jsonToggle {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--dsw-alias-label-tertiary, #8a8a8a);
+	cursor: pointer;
+	padding: 0 2px;
+	font-size: 10px;
+	width: 12px;
+	flex-shrink: 0;
+}
+
+.jsonToggle:hover { color: var(--dsw-alias-label-primary, #e8e8e8); }
+
+.jsonKey { color: var(--dsl-g-accent, var(--dsw-alias-state-business-primary, #2f9e5a)); }
+.jsonString { color: var(--dsw-alias-state-success-primary, #3fb96f); white-space: pre-wrap; word-break: break-all; }
+.jsonNumber { color: var(--dsw-alias-state-warn-primary, #d9a03c); }
+.jsonBoolean { color: var(--dsw-alias-state-error-primary, #e5655e); }
+.jsonNull { color: var(--dsw-alias-label-tertiary, #8a8a8a); font-style: italic; }
+.jsonPunct { color: var(--dsw-alias-label-tertiary, #8a8a8a); }
+
+.jsonActions {
+	display: flex;
+	gap: 2px;
+	margin-left: 6px;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+}
+
+.jsonRow:hover .jsonActions { opacity: 1; }
+
+.jsonEmpty {
+	color: var(--dsw-alias-label-tertiary, #8a8a8a);
+	font-style: italic;
+	padding-left: 18px;
+}

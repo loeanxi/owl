@@ -83,6 +83,8 @@ export class NewsStore {
 			CREATE INDEX IF NOT EXISTS news_attempts_time ON news_attempts(started_at);
 			CREATE TABLE IF NOT EXISTS news_receipt_outputs(receipt_id TEXT NOT NULL,attempt INTEGER NOT NULL,
 			 response TEXT NOT NULL,usage TEXT,created_at TEXT NOT NULL,PRIMARY KEY(receipt_id,attempt));
+			CREATE TABLE IF NOT EXISTS news_response_cache(key TEXT PRIMARY KEY,response TEXT NOT NULL,
+			 created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 			CREATE TABLE IF NOT EXISTS news_evaluations(id TEXT PRIMARY KEY,data TEXT NOT NULL);
 			CREATE TABLE IF NOT EXISTS news_audit(id INTEGER PRIMARY KEY,action TEXT NOT NULL,subject TEXT NOT NULL,
 			 data TEXT NOT NULL,created_at TEXT NOT NULL);
@@ -546,6 +548,29 @@ export class NewsStore {
 			const receipt = JSON.parse(String(row.data)) as NewsReceipt;
 			if (receipt.subject === subject && !receipt.error) this.setReceiptState(String(row.id), "completed");
 		}
+	}
+	/** Shared reuse is separate from the payment ledger. Only validated callers explicitly populate it. */
+	cachedResponse(key: string): unknown | null {
+		const row = this.db.prepare("SELECT response FROM news_response_cache WHERE key=?").get(key);
+		return row ? (JSON.parse(String(row.response)) as unknown) : null;
+	}
+	saveResponseCache(key: string, response: unknown): void {
+		const serialized = JSON.stringify(response);
+		if (serialized === undefined) throw new Error("缓存响应必须可序列化为 JSON");
+		const now = new Date().toISOString();
+		this.db
+			.prepare(`INSERT INTO news_response_cache(key,response,created_at,updated_at) VALUES(?,?,?,?)
+			ON CONFLICT(key) DO UPDATE SET response=excluded.response,updated_at=excluded.updated_at`)
+			.run(key, serialized, now, now);
+	}
+	deleteResponseCache(key: string): void {
+		this.db.prepare("DELETE FROM news_response_cache WHERE key=?").run(key);
+	}
+	pruneResponseCache(olderThanIso: string): number {
+		const cutoff = new Date(olderThanIso);
+		if (!Number.isFinite(cutoff.getTime())) throw new Error("缓存清理时间必须是有效日期");
+		const result = this.db.prepare("DELETE FROM news_response_cache WHERE updated_at<?").run(cutoff.toISOString());
+		return Number(result.changes);
 	}
 	saveEvaluation(evaluation: NewsEvaluation): void {
 		this.db

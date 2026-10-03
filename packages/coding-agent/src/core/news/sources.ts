@@ -562,13 +562,17 @@ export async function collectNewsSource(
 	for (const post of (history.data ?? []).slice(0, maximum)) {
 		const url = safeArticleUrl(String(post.url || ""), "https://mp.weixin.qq.com");
 		if (!url || !post.title) continue;
-		const body = (await options.paid("mp-article", { url }, async () => {
-			const endpoint = `https://www.dajiala.com/fbmain/monitor/v3/article_detail?${new URLSearchParams({ url, key: secrets.DAJIALA_KEY!, mode: "1", verifycode: "" })}`;
-			const response = await get(endpoint);
-			const json = decodePaidNewsJson(response) as Record<string, unknown>;
-			if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
-			return json;
-		})) as Record<string, unknown>;
+		const body = (await options.paid(
+			"mp-article",
+			{ articleId: String(post.sn || url), updatedAt: String(post.update_time ?? post.post_time ?? "") },
+			async () => {
+				const endpoint = `https://www.dajiala.com/fbmain/monitor/v3/article_detail?${new URLSearchParams({ url, key: secrets.DAJIALA_KEY!, mode: "1", verifycode: "" })}`;
+				const response = await get(endpoint);
+				const json = decodePaidNewsJson(response) as Record<string, unknown>;
+				if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
+				return json;
+			},
+		)) as Record<string, unknown>;
 		result.push({
 			title: String(post.title),
 			url,

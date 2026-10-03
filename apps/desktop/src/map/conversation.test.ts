@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DesktopClientRequestWithoutId, ServerEventMessage, RealPlace } from "../bridge/protocol.ts";
+import type {
+	DesktopClientRequestWithoutId,
+	MapResultsMessage,
+	RealPlace,
+	ServerEventMessage,
+} from "../bridge/protocol.ts";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import {
 	MapConversation,
@@ -20,6 +25,7 @@ class FakeBridge implements MapConversationClient {
 	requests: DesktopClientRequestWithoutId[] = [];
 	events = new Set<(message: ServerEventMessage) => void>();
 	statuses = new Set<(connected: boolean) => void>();
+	mapHandlers = new Set<(message: MapResultsMessage) => void>();
 	created = 0;
 	snapshot: Record<string, unknown>[] = [];
 	active: string[] = [];
@@ -40,7 +46,10 @@ class FakeBridge implements MapConversationClient {
 			return { ok: true, result: { sessionId: request.sessionId, cwd: config.cwd, messages: this.snapshot } };
 		if (request.type === "session.running") return { ok: true, result: { running: this.active } };
 		if (request.type === "session.setModel")
-			return { ok: true, result: { model: { provider: request.provider, id: request.model }, thinkingLevel: "low" } };
+			return {
+				ok: true,
+				result: { model: { provider: request.provider, id: request.model }, thinkingLevel: "low" },
+			};
 		return { ok: true };
 	}
 
@@ -65,6 +74,13 @@ class FakeBridge implements MapConversationClient {
 	status(connected: boolean): void {
 		for (const handler of this.statuses) handler(connected);
 	}
+
+	onMapResults(handler: (message: MapResultsMessage) => void): () => void {
+		this.mapHandlers.add(handler);
+		return () => {
+			this.mapHandlers.delete(handler);
+		};
+	}
 }
 
 const config: MapConversationConfig = {
@@ -75,12 +91,55 @@ const config: MapConversationConfig = {
 	approvalMode: "confirm",
 };
 const place: RealPlace = {
-	id: "osm/node/123", name: "测试咖啡馆", lat: 30.25, lng: 120.2,
-	address: "测试地址", source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T00:00:00Z" },
-	category: "cafe", distanceMeters: 200, openingHours: null, phone: null, website: null,
-	wheelchair: null, internetAccess: null, rating: null, price: null, quiet: null, plug: null, tags: { amenity: "cafe" },
+	id: "osm/node/123",
+	name: "测试咖啡馆",
+	lat: 30.25,
+	lng: 120.2,
+	address: "测试地址",
+	source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T00:00:00Z" },
+	category: "cafe",
+	distanceMeters: 200,
+	openingHours: null,
+	phone: null,
+	website: null,
+	wheelchair: null,
+	internetAccess: null,
+	rating: null,
+	price: null,
+	quiet: null,
+	plug: null,
+	tags: { amenity: "cafe" },
 };
-const context: MapConversationContext = { center: { lat: 30.25, lng: 120.2 }, category: "cafe", radiusMeters: 2000, selectedPlace: place, visiblePlaces: [place] };
+const context: MapConversationContext = {
+	center: { lat: 30.25, lng: 120.2 },
+	category: "cafe",
+	radiusMeters: 2000,
+	selectedPlace: place,
+	visiblePlaces: [place],
+};
+
+test("structured model map updates belong only to the active map thread and detach with subscriptions", async (t) => {
+	const bridge = new FakeBridge();
+	const conversation = new MapConversation(bridge, config, true);
+	t.after(() => conversation.dispose());
+	const off = conversation.subscribe(() => {});
+	await conversation.send("查附近", context);
+	const update: MapResultsMessage["update"] = {
+		action: "nearby",
+		center: context.center,
+		category: "cafe",
+		result: { data: [place], sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io" }] },
+	};
+	for (const handler of bridge.mapHandlers) handler({ type: "map.results", sessionId: "main-chat", update });
+	assert.equal(conversation.getState().mapUpdate, undefined);
+	for (const handler of bridge.mapHandlers) handler({ type: "map.results", sessionId: "map-1", update });
+	assert.deepEqual(conversation.getState().mapUpdate?.update, update);
+	assert.equal(conversation.getState().mapUpdate?.revision, 1);
+	conversation.newThread();
+	assert.equal(conversation.getState().mapUpdate, undefined);
+	off();
+	assert.equal(bridge.mapHandlers.size, 0);
+});
 
 function deferred<T>() {
 	let resolve: (value: T) => void = () => {};
@@ -244,7 +303,11 @@ test("a config change while creating synchronizes the latest UI choice before se
 		provider: config.provider,
 		model: "new-ui-model",
 	});
-	assert.deepEqual(bridge.requests[2], { type: "session.setThinkingLevel", sessionId: "map-current", level: "medium" });
+	assert.deepEqual(bridge.requests[2], {
+		type: "session.setThinkingLevel",
+		sessionId: "map-current",
+		level: "medium",
+	});
 });
 
 test("new exploration clears only the map thread and abort targets only its own current session", async (t) => {
@@ -345,6 +408,21 @@ test("map context uses fetched place coordinates, source links and explicit unkn
 	assert.ok(prompt.includes("https://www.openstreetmap.org/node/123"));
 	assert.equal(prompt.includes("fictionalCandidates"), false);
 	assert.equal(prompt.includes("chosen-model"), false);
+});
+
+test("authorized device coordinates reach the selected model separately from an explored search center", () => {
+	const location = {
+		source: "device" as const,
+		lat: 29.87196,
+		lng: 121.54996,
+		accuracyMeters: 18,
+		timestamp: 1791040000000,
+	};
+	const prompt = mapPrompt("我附近有什么？", { ...context, deviceLocation: location });
+	assert.ok(prompt.includes(JSON.stringify(location)));
+	assert.ok(prompt.includes("without asking them to repeat their location"));
+	assert.ok(prompt.includes("search center may differ from deviceLocation"));
+	assert.ok(!mapPrompt("我在哪？", context).includes('"deviceLocation":'));
 });
 
 test("a run that settles before the prompt acknowledgement cannot resurrect the busy indicator", async (t) => {

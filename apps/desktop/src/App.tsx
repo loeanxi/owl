@@ -30,6 +30,8 @@ import { RetryPin } from "./components/RetryPin.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
+import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
+import { WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
 import { loadKnownProjects, normPath, samePath } from "./utils/paths.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
@@ -88,6 +90,8 @@ export default function App(): React.JSX.Element {
 	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [settingsInitialTab, setSettingsInitialTab] = useState<"general" | "about">("general");
+	// 动态壁纸（owlWallpaper）：设置页保存时同步到这里，WallpaperLayer 随之重渲。
+	const [wallpaper, setWallpaper] = useState<OwlWallpaperSettings>(() => parseOwlWallpaper(undefined));
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
@@ -352,6 +356,7 @@ export default function App(): React.JSX.Element {
 			if (eventType === "agent_start") {
 				setRunningSessions((current) => new Set(current).add(message.sessionId));
 			} else if (eventType === "agent_settled") {
+				setQuestions((current) => current.filter((question) => question.sessionId !== message.sessionId));
 				setRunningSessions((current) => {
 					if (!current.has(message.sessionId)) return current;
 					const next = new Set(current);
@@ -555,6 +560,10 @@ export default function App(): React.JSX.Element {
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
 				applyOwlAppearance(parseOwlAppearance(settings?.owlAppearance));
+				// 动态壁纸：写 <html data-owl-wallpaper> 门控属性 + 同步渲染层状态
+				const wallpaperSettings = parseOwlWallpaper(settings?.owlWallpaper);
+				applyOwlWallpaper(wallpaperSettings);
+				setWallpaper(wallpaperSettings);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
 				// 界面语言随 settings.json 启动加载；设置页切换后经 settings.set 持久化。
@@ -1022,6 +1031,7 @@ export default function App(): React.JSX.Element {
 
 	return (
 		<div className="owl-desktop-shell font-sans text-owl-text">
+			<WallpaperLayer settings={wallpaper} />
 			<DesktopTitlebar
 				connected={connected}
 				sidebarCollapsed={sidebarMinimized || showSettings}
@@ -1098,6 +1108,11 @@ export default function App(): React.JSX.Element {
 					modelName={mapModelName}
 					thinkingLevel={thinkingLevel}
 					approvalMode={approvalMode}
+					questions={questions}
+					onAnswerQuestion={(requestId, answers, cancelled) => {
+						client.respondQuestion(requestId, answers, cancelled);
+						setQuestions((current) => current.filter((question) => question.requestId !== requestId));
+					}}
 				/>
 			</div>
 			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
@@ -1202,6 +1217,11 @@ export default function App(): React.JSX.Element {
 					client={client}
 					workspaceDir={workspaceDir}
 					initialTab={settingsInitialTab}
+					wallpaper={wallpaper}
+					onWallpaperChange={(next) => {
+						setWallpaper(next);
+						applyOwlWallpaper(next);
+					}}
 					onWorkspaceDir={(dir) => {
 						setWorkspaceDir(dir);
 						localStorage.setItem(WORKSPACE_KEY, dir);

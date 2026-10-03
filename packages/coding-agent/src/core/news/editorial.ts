@@ -133,7 +133,7 @@ async function requestJson<S extends TSchema>(
 	temperature = 0.2,
 ): Promise<Static<S>> {
 	if (!config.modelCallsEnabled) throw new Error("News model calls are disabled");
-	const response = await call({
+	const request = {
 		capability,
 		purpose,
 		model: config.models[capability],
@@ -141,7 +141,14 @@ async function requestJson<S extends TSchema>(
 		user,
 		maxTokens,
 		temperature,
-	});
+	};
+	const responseCache = call.responseCache;
+	const cacheKey = responseCache ? await responseCache.key(request) : null;
+	if (cacheKey) {
+		const cached = responseCache?.read(cacheKey);
+		if (cached !== null && Check(schema, cached)) return cached as Static<S>;
+	}
+	const response = await call(request);
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(response.text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1"));
@@ -151,6 +158,7 @@ async function requestJson<S extends TSchema>(
 	if (!Check(schema, parsed))
 		throw new NewsOutputError(purpose, "model output does not match the JSON schema", response);
 	if (parsed && typeof parsed === "object") outputOrigins.set(parsed, { purpose, response });
+	if (cacheKey) responseCache?.stage(cacheKey, parsed);
 	return parsed;
 }
 

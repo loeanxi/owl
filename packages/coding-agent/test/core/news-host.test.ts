@@ -217,6 +217,31 @@ describe("news collectors and network boundary", () => {
 		);
 		expect(rows[0]?.externalId).toBe("1");
 		expect(paid).toHaveBeenCalledTimes(1);
+		const mpFetch = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+			String(input).includes("post_history")
+				? new Response(
+						JSON.stringify({
+							code: 0,
+							data: [
+								{
+									title: "公众号文章",
+									url: "https://mp.weixin.qq.com/s?sessionid=one",
+									sn: "stable-article-id",
+									update_time: 123456,
+								},
+							],
+						}),
+					)
+				: new Response(JSON.stringify({ code: 0, content: "公众号文章正文" })),
+		);
+		const mpPaid = vi.fn(async (_purpose: string, _identity: unknown, run: () => Promise<unknown>) => run());
+		const mpRows = await collectNewsSource(
+			{ ...sourceInput, id: "mp", kind: "mp_account", config: { ghid: "gh_test" } },
+			{ fetch: mpFetch, resolveHost: async () => ["8.8.8.8"], secrets: { DAJIALA_KEY: "fake-only" }, paid: mpPaid },
+		);
+		expect(mpRows[0]?.body).toBe("公众号文章正文");
+		expect(mpPaid.mock.calls[1]?.[0]).toBe("mp-article");
+		expect(mpPaid.mock.calls[1]?.[1]).toEqual({ articleId: "stable-article-id", updatedAt: "123456" });
 	});
 });
 
@@ -253,12 +278,85 @@ describe("news application service", () => {
 		expect(fetcher).not.toHaveBeenCalled();
 		await service.close();
 	});
+	it("shares successful X responses across equivalent source previews", async () => {
+		const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					tweets: [
+						{
+							id_str: "123",
+							full_text: "发布新模型并说明技术细节。",
+							tweet_created_at: "2026-10-04T08:00:00Z",
+							user: { screen_name: "model" },
+						},
+					],
+				}),
+			),
+		);
+		const service = new NewsService({
+			agentDir: directory(),
+			callModel: vi.fn<NewsModelCaller>(),
+			fetch: fetcher,
+			resolveHost: async () => ["8.8.8.8"],
+		});
+		await service.handle({ action: "configure", patch: {}, secrets: { SOCIALDATA_API_KEY: "faux-only" } });
+		const source: NewsSourceInput = {
+			...sourceInput,
+			id: "x-primary",
+			kind: "x_search",
+			config: { query: "from:model", searchType: "Latest" },
+		};
+		const first = await service.handle({ action: "previewSource", source });
+		const second = await service.handle({
+			action: "previewSource",
+			source: { ...source, id: "x-duplicate" },
+		});
+		expect(second).toEqual(first);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+		expect(service.store.receipts().filter((receipt) => receipt.capability === "x-search")).toHaveLength(1);
+		await service.close();
+	});
+	it("does not repeat an uncertain shared X request before its receipt is released", async () => {
+		const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error("simulated disconnect"));
+		const service = new NewsService({
+			agentDir: directory(),
+			callModel: vi.fn<NewsModelCaller>(),
+			fetch: fetcher,
+			resolveHost: async () => ["8.8.8.8"],
+		});
+		await service.handle({ action: "configure", patch: {}, secrets: { SOCIALDATA_API_KEY: "faux-only" } });
+		const source: NewsSourceInput = {
+			...sourceInput,
+			id: "x-primary",
+			kind: "x_search",
+			config: { query: "from:model", searchType: "Latest" },
+		};
+		await expect(service.handle({ action: "previewSource", source })).rejects.toBeInstanceOf(NewsUnknownReceiptError);
+		await expect(
+			service.handle({ action: "previewSource", source: { ...source, id: "x-duplicate" } }),
+		).rejects.toBeInstanceOf(NewsUnknownReceiptError);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+		expect(service.store.receipts().filter((receipt) => receipt.capability === "x-search")).toHaveLength(1);
+		await service.close();
+	});
 	it("preserves processed output after restart and completes a full faux-model pipeline", async () => {
 		const agentDir = directory();
 		const calls = vi.fn<NewsModelCaller>(async (request) => {
 			let text = "{}";
 			if (request.capability === "prefilter") text = JSON.stringify({ label: "PASS", reason: "相关" });
 			if (request.capability === "score") text = JSON.stringify({ attentionScore: 80 });
+			if (request.capability === "group") {
+				const input = JSON.parse(request.user) as { candidates?: { id: string }[] };
+				text = JSON.stringify({
+					query: "same occurrence",
+					decisions: (input.candidates ?? []).map((candidate) => ({
+						id: candidate.id,
+						relation: "SAME_OCCURRENCE",
+						confidence: 1,
+					})),
+					selection: { addsValue: false, reason: "同一事件的另一信源报道" },
+				});
+			}
 			if (request.capability === "structure")
 				text = JSON.stringify({
 					scope: "single",
@@ -282,6 +380,7 @@ describe("news application service", () => {
 			]),
 		);
 		await service.handle({ action: "configure", patch: { modelCallsEnabled: true, models } });
+		const publishedAt = new Date().toISOString();
 		await service.handle({
 			action: "ingest",
 			sourceId: "test",
@@ -290,18 +389,41 @@ describe("news application service", () => {
 					title: "发布新模型",
 					url: "https://example.com/a",
 					body: "发布新模型并说明技术细节。",
-					publishedAt: new Date().toISOString(),
+					publishedAt,
 				},
 			],
 		});
 		service.start();
 		await vi.waitFor(async () => expect((await service.handle({ action: "list" })).total).toBe(1), { timeout: 5000 });
+		const firstScores = service.store.items().find((item) => item.sourceId === "test")?.scores;
+		await service.handle({ action: "saveSource", source: { ...sourceInput, id: "test-copy" } });
+		await service.handle({
+			action: "ingest",
+			sourceId: "test-copy",
+			items: [
+				{
+					title: "发布新模型",
+					url: "https://example.com/a",
+					body: "发布新模型并说明技术细节。",
+					publishedAt,
+				},
+			],
+		});
+		await vi.waitFor(
+			() => {
+				const copy = service.store.items().find((item) => item.sourceId === "test-copy");
+				expect(copy?.status).toBe("ready");
+				expect(copy?.scores).toEqual(firstScores);
+			},
+			{ timeout: 5000 },
+		);
+		expect(calls.mock.calls.filter(([request]) => request.capability === "score")).toHaveLength(2);
 		const count = calls.mock.calls.length;
 		expect(count).toBeGreaterThanOrEqual(5);
 		await service.close();
 		service = new NewsService({ agentDir, callModel: calls });
 		service.start();
-		expect((await service.handle({ action: "list" })).total).toBe(1);
+		expect((await service.handle({ action: "list", query: { mode: "all" } })).total).toBe(2);
 		await service.close();
 		expect(calls.mock.calls.length).toBe(count);
 	});

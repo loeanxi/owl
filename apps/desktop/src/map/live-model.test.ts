@@ -5,6 +5,7 @@ import {
 	addLiveHistory,
 	LIVE_MAP_STORAGE_KEY,
 	type LiveSearchRecord,
+	mapDirectionsUrl,
 	nearbyCategoryFromMessage,
 	normalizeRealPlace,
 	parseCoordinates,
@@ -46,6 +47,14 @@ test("coordinate input accepts latitude, longitude and rejects invalid ranges or
 	assert.equal(parseCoordinates("120.15, 30.25"), undefined);
 	assert.equal(parseCoordinates("30, 181"), undefined);
 	assert.equal(parseCoordinates("Paris"), undefined);
+});
+
+test("directions preserve the real search center and destination coordinate axes", () => {
+	const url = new URL(mapDirectionsUrl({ lat: 29.87, lng: 121.55 }, { lat: 29.88, lng: 121.56 }));
+	assert.equal(url.origin, "https://www.openstreetmap.org");
+	assert.equal(url.pathname, "/directions");
+	assert.equal(url.searchParams.get("route"), "29.87,121.55;29.88,121.56");
+	assert.throws(() => mapDirectionsUrl({ lat: 95, lng: 20 }, place), /Invalid/);
 });
 
 test("live storage never reads or accepts old demo favorites and keeps complete source records", () => {
@@ -181,7 +190,12 @@ test("browser fetch keeps its global receiver and uses the server's language and
 	const fetcher: typeof fetch = async function (this: unknown, input) {
 		assert.equal(this, globalThis, "Window.fetch cannot be called with a map client as its receiver");
 		urls.push(new URL(String(input), "http://localhost"));
-		return new Response(JSON.stringify({ data: [place], sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io" }] }));
+		return new Response(
+			JSON.stringify({
+				data: [place],
+				sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io" }],
+			}),
+		);
 	};
 	const client = new RealMapClient(fetcher);
 	await client.search("宁波", "en");

@@ -1,0 +1,28 @@
+/*
+ * owl-genui 令牌表：渲染器 CSS 引用的 DSH 宿主设计令牌（--dsw-alias-*）在 owl
+ * 没有供给方，这里映射到 owl 桌面端自己的主题变量（--color-owl-*）。挂在
+ * .owl-genui-root 作用域上，变量随 owl 的 html[data-owl-theme] 深浅主题自动翻转；
+ * 状态色用固定语义色，深浅底都可读。
+ */
+.owl-genui-root {
+	--dsw-alias-label-primary: var(--color-owl-text, #e8e8e8);
+	--dsw-alias-label-secondary: var(--color-owl-muted, #a3a3a3);
+	--dsw-alias-label-tertiary: var(--color-owl-faint, #8a8a8a);
+	--dsw-alias-label-caption: var(--color-owl-faint, #8a8a8a);
+	--dsw-alias-bg-base: var(--owl-conversation-bg, #171717);
+	--dsw-alias-bg-layer-1: var(--owl-conversation-bg, #171717);
+	--dsw-alias-bg-layer-2: var(--color-owl-bubble, #282828);
+	--dsw-alias-bg-layer-3: var(--color-owl-panel, #262626);
+	--dsw-alias-border-l1: var(--color-owl-border, #3d3d3d);
+	--dsw-alias-border-l2: var(--color-owl-border, #3d3d3d);
+	--dsw-alias-markdown-code-block: var(--color-owl-panel, #262626);
+	--dsw-alias-markdown-hr: var(--color-owl-border, #3d3d3d);
+	--dsw-alias-state-business-primary: var(--color-owl-accent, #2f9e5a);
+	--dsw-alias-state-success-primary: #3fb96f;
+	--dsw-alias-state-success-secondary: rgba(63, 185, 111, 0.16);
+	--dsw-alias-state-warn-primary: #d9a03c;
+	--dsw-alias-state-warn-secondary: rgba(217, 160, 60, 0.16);
+	--dsw-alias-state-error-primary: #e5655e;
+	--dsw-alias-state-error-secondary: rgba(229, 101, 94, 0.16);
+	--ds-font-family-code: var(--font-mono, ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace);
+}

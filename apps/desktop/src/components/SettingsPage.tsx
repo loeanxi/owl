@@ -16,6 +16,9 @@ import type {
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { applyOwlAppearance, DEFAULT_ACCENT, DEFAULT_OWL_APPEARANCE, normalizeHexColor, parseOwlAppearance, PRESET_DEFAULT_COLORS, type OwlAppearanceColors, type OwlPresetId } from "../owl-appearance.ts";
+import { DEFAULT_OWL_WALLPAPER, parseOwlWallpaper, type OwlWallpaperSettings, type WallpaperContentRating } from "../wallpaper.ts";
+import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
+import { pickFile, pickFolder } from "../bridge/native.ts";
 import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
 import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
@@ -50,6 +53,14 @@ const ACCENT_PRESETS = [
 	{ value: "#f97316", labelKey: "settings.appearance.accentOrange" },
 	{ value: "#eab308", labelKey: "settings.appearance.accentAmber" },
 ] as const;
+
+/** 壁纸类型徽标文案：video/web 直渲，scene 显示「预览图」表明是降级画面。 */
+const WALLPAPER_TYPE_LABEL = {
+	video: "settings.appearance.wallpaperTypeVideo",
+	web: "settings.appearance.wallpaperTypeWeb",
+	scene: "settings.appearance.wallpaperTypeScene",
+	application: "settings.appearance.wallpaperTypeApp",
+} as const;
 
 /** 主题预设（整套深色配色）。preview 是预览小卡用的示意色，与 index.css 各预设令牌保持一致。 */
 const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: { bg: string; rail: string; line: string; panel: string } }[] = [
@@ -394,6 +405,8 @@ export function SettingsPage({
 	onClose,
 	onSessionsChanged,
 	initialTab = "general",
+	wallpaper,
+	onWallpaperChange,
 }: {
 	client: BridgeClient;
 	workspaceDir: string;
@@ -402,6 +415,9 @@ export function SettingsPage({
 	/** 会话列表发生变化（恢复/删除归档会话）：让侧边栏同步重拉，避免两边状态对不上。 */
 	onSessionsChanged?: () => void;
 	initialTab?: "general" | "about";
+	/** 动态壁纸设置：App 持有状态（渲染层也要用），设置页只做编辑 + 落盘。 */
+	wallpaper: OwlWallpaperSettings;
+	onWallpaperChange: (next: OwlWallpaperSettings) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const [section, setSection] = useState<SettingsSection>(initialTab);
@@ -414,6 +430,18 @@ export function SettingsPage({
 	const [owlAppearanceLoaded, setOwlAppearanceLoaded] = useState(false);
 	// 当前实际生效的深浅档（system 已解析）：决定背景/前景两行正在编辑哪一套颜色
 	const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">(() => getResolvedTheme());
+	// 动态壁纸（owlWallpaper）：清单从桥端 /wallpaper/inventory 拉，改 customDir/customPath 或手动刷新时重扫
+	const [wallpaperEntries, setWallpaperEntries] = useState<WallpaperEntry[]>([]);
+	const [wallpaperRefreshKey, setWallpaperRefreshKey] = useState(0);
+	const [wallpaperScanning, setWallpaperScanning] = useState(false);
+	// 自定义目录输入框的草稿（输入过程不触发重扫，点保存才生效）
+	const [wallpaperCustomDir, setWallpaperDraft] = useState("");
+	// App 传入的设置变化后同步草稿（设置页重开 / JSON 分区手改 settings.json 后回填）
+	useEffect(() => setWallpaperDraft(wallpaper.customDir), [wallpaper.customDir]);
+	/** 清单过滤：排除 application（需要跑第三方程序，不支持）；内容分级过滤与渲染层同规则。 */
+	const filteredWallpapers = wallpaperEntries.filter(
+		(entry) => entry.type !== "application" && passesRating(entry, wallpaper.contentRating),
+	);
 	const [raw, setRaw] = useState("");
 	const [shellPath, setShellPath] = useState("");
 	const [customPrompt, setCustomPrompt] = useState("");
@@ -643,6 +671,24 @@ export function SettingsPage({
 	useEffect(() => {
 		if (section === "image") void loadImageConfig();
 	}, [section]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 动态壁纸清单：挂载时拉一次；refreshKey 递增（改目录/手动刷新）后强制重扫。
+	useEffect(() => {
+		let cancelled = false;
+		void fetchInventory(wallpaperRefreshKey > 0)
+			.then((list) => {
+				if (!cancelled) setWallpaperEntries(list);
+			})
+			.catch(() => {
+				if (!cancelled) setWallpaperEntries([]);
+			})
+			.finally(() => {
+				if (!cancelled) setWallpaperScanning(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [wallpaperRefreshKey]);
 
 	/** 拉取跨会话记忆（条目 + 开关）。 */
 	async function loadMemory(): Promise<void> {
@@ -1354,6 +1400,21 @@ export function SettingsPage({
 		setOwlAppearance(next);
 		applyOwlAppearance(next);
 		void saveSettings({ owlAppearance: next });
+	}
+
+	/**
+	 * 保存动态壁纸设置：App 状态 + <html> 门控属性即时生效，再落盘 owlWallpaper。
+	 * 自定义目录/路径变化时让渲染层与清单重扫（refreshKey 递增触发 force fetch）。
+	 */
+	function saveWallpaper(next: OwlWallpaperSettings, options: { rescan?: boolean } = {}): void {
+		const changedScanSource =
+			next.customDir !== wallpaper.customDir || next.customPath !== wallpaper.customPath;
+		onWallpaperChange(next);
+		void saveSettings({ owlWallpaper: next });
+		if (options.rescan || changedScanSource) {
+			setWallpaperScanning(true);
+			setWallpaperRefreshKey((key) => key + 1);
+		}
 	}
 
 	/** 开/停一个文件预览 viewer。 */
@@ -2740,9 +2801,268 @@ export function SettingsPage({
 													</button>
 												);
 											})}
+											</div>
+										</SettingRow>
+									</div>
+
+									{/* 动态壁纸（Wallpaper Engine 适配）：video/web 直渲、scene 用预览图降级。 */}
+									<h3 className="owl-settings-group-title">{t("settings.appearance.wallpaperTitle")}</h3>
+									<div className="owl-settings-group">
+										<SettingRow title={t("settings.appearance.wallpaperEnable")} desc={t("settings.appearance.wallpaperEnableDesc")}>
+											<Switch
+												title={t("settings.appearance.wallpaperEnable")}
+												checked={wallpaper.enabled}
+												disabled={busy}
+												onChange={(enabled) => saveWallpaper({ ...wallpaper, enabled })}
+											/>
+										</SettingRow>
+										<SettingRow title={t("settings.appearance.wallpaperPick")} desc={t("settings.appearance.wallpaperPickDesc")}>
+											<div className="owl-settings-group-actions">
+												<button
+													type="button"
+													className={btn}
+													disabled={busy || wallpaperScanning}
+													onClick={() => saveWallpaper(wallpaper, { rescan: true })}
+												>
+													{wallpaperScanning ? t("settings.appearance.wallpaperScanning") : t("settings.appearance.wallpaperRefresh")}
+												</button>
+											</div>
+										</SettingRow>
+										{wallpaper.enabled && (
+											<>
+												<SettingRow title={t("settings.appearance.wallpaperList")} desc={t("settings.appearance.wallpaperListDesc")}>
+													<span className="text-xs tabular-nums text-owl-muted">
+														{t("settings.appearance.wallpaperCount", { count: filteredWallpapers.length })}
+													</span>
+												</SettingRow>
+												<div className="owl-settings-row">
+													<div className="owl-settings-row-body">
+												{filteredWallpapers.length === 0 ? (
+													<div className="owl-settings-notice">{t("settings.appearance.wallpaperEmpty")}</div>
+												) : (
+													<div className="owl-settings-preset-grid owl-wallpaper-grid" role="radiogroup" aria-label={t("settings.appearance.wallpaperPick")}>
+														{filteredWallpapers.slice(0, 60).map((entry) => {
+															const active = resolveActiveEntry(wallpaperEntries, wallpaper)?.id === entry.id;
+															return (
+																<button
+																	key={entry.id}
+																	type="button"
+																	role="radio"
+																	aria-checked={active}
+																	title={`${entry.title} · ${entry.type}`}
+																	className={`owl-settings-preset-card owl-wallpaper-card ${active ? "is-active" : ""}`}
+																	disabled={busy}
+																	onClick={() => saveWallpaper({ ...wallpaper, selectionId: entry.id, customPath: "" })}
+																>
+																	<span className="owl-wallpaper-thumb" style={entry.schemeColor ? { backgroundColor: entry.schemeColor } : undefined}>
+																		{entry.previewUrl && <img src={entry.previewUrl} alt="" loading="lazy" draggable={false} />}
+																		{!entry.previewUrl && <span className="owl-wallpaper-thumb-empty">{t("settings.appearance.wallpaperNoPreview")}</span>}
+																		<span className={`owl-wallpaper-badge is-${entry.type}`}>{t(WALLPAPER_TYPE_LABEL[entry.type])}</span>
+																	</span>
+																	<span className="owl-wallpaper-name">{entry.title}</span>
+																	{active && <span className="owl-settings-preset-check" aria-hidden="true">✓</span>}
+																</button>
+															);
+														})}
+													</div>
+												)}
+													</div>
+												</div>
+												<SettingRow title={t("settings.appearance.wallpaperLocal")} desc={t("settings.appearance.wallpaperLocalDesc")}>
+													<div className="owl-settings-group-actions">
+														<button
+															type="button"
+															className={btn}
+															disabled={busy}
+															onClick={() => {
+																void pickFile(t("settings.appearance.wallpaperLocal"), [
+																	{ name: "Media", extensions: ["mp4", "webm", "mkv", "mov", "avi", "m4v", "jpg", "jpeg", "png", "gif", "webp", "bmp", "html"] },
+																]).then((path) => {
+																	if (path) saveWallpaper({ ...wallpaper, customPath: path, selectionId: "" });
+																});
+															}}
+														>
+															{t("settings.appearance.wallpaperLocalPick")}
+														</button>
+														{wallpaper.customPath && (
+															<button
+																type="button"
+																className={btn}
+																disabled={busy}
+																onClick={() => saveWallpaper({ ...wallpaper, customPath: "" })}
+															>
+																{t("settings.appearance.wallpaperLocalClear")}
+															</button>
+														)}
+													</div>
+												</SettingRow>
+												{wallpaper.customPath && (
+													<SettingRow title={t("settings.appearance.wallpaperLocalCurrent")}>
+														<code className="owl-settings-accent-hex" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}>{wallpaper.customPath}</code>
+													</SettingRow>
+												)}
+												<SettingRow title={t("settings.appearance.wallpaperCustomDir")} desc={t("settings.appearance.wallpaperCustomDirDesc")}>
+													<div className="owl-settings-group-actions">
+														<input
+															type="text"
+															aria-label={t("settings.appearance.wallpaperCustomDir")}
+															className="owl-settings-input"
+															style={{ width: 260 }}
+															placeholder={t("settings.appearance.wallpaperCustomDirPlaceholder")}
+															value={wallpaper.customDir}
+															disabled={busy}
+															onChange={(event) => setWallpaperDraft(event.currentTarget.value)}
+														/>
+														<button
+															type="button"
+															className={btnAccent}
+															disabled={busy}
+															onClick={() => saveWallpaper({ ...wallpaper, customDir: wallpaperCustomDir })}
+														>
+															{t("settings.appearance.wallpaperCustomDirSave")}
+														</button>
+													</div>
+												</SettingRow>
+												<SettingRow
+													title={t("settings.appearance.wallpaperVolume")}
+													desc={t("settings.appearance.wallpaperVolumeDesc")}
+													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.volume * 100)}%</span>}
+												>
+													<input
+														type="range"
+														aria-label={t("settings.appearance.wallpaperVolume")}
+														className="w-full accent-owl-accent disabled:opacity-40"
+														min={0}
+														max={100}
+														step={5}
+														value={Math.round(wallpaper.volume * 100)}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, volume: event.currentTarget.valueAsNumber / 100 })}
+													/>
+												</SettingRow>
+												<SettingRow
+													title={t("settings.appearance.wallpaperRate")}
+													desc={t("settings.appearance.wallpaperRateDesc")}
+													control={<span className="text-xs tabular-nums text-owl-text">{wallpaper.playbackRate.toFixed(1)}×</span>}
+												>
+													<input
+														type="range"
+														aria-label={t("settings.appearance.wallpaperRate")}
+														className="w-full accent-owl-accent disabled:opacity-40"
+														min={0.5}
+														max={2}
+														step={0.1}
+														value={wallpaper.playbackRate}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, playbackRate: event.currentTarget.valueAsNumber })}
+													/>
+												</SettingRow>
+												<SettingRow
+													title={t("settings.appearance.wallpaperDim")}
+													desc={t("settings.appearance.wallpaperDimDesc")}
+													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.dim)}%</span>}
+												>
+													<input
+														type="range"
+														aria-label={t("settings.appearance.wallpaperDim")}
+														className="w-full accent-owl-accent disabled:opacity-40"
+														min={0}
+														max={100}
+														step={5}
+														value={Math.round(wallpaper.dim)}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, dim: event.currentTarget.valueAsNumber })}
+													/>
+												</SettingRow>
+												<SettingRow
+													title={t("settings.appearance.wallpaperBlur")}
+													desc={t("settings.appearance.wallpaperBlurDesc")}
+													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.blur)} px</span>}
+												>
+													<input
+														type="range"
+														aria-label={t("settings.appearance.wallpaperBlur")}
+														className="w-full accent-owl-accent disabled:opacity-40"
+														min={0}
+														max={24}
+														step={1}
+														value={Math.round(wallpaper.blur)}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, blur: event.currentTarget.valueAsNumber })}
+													/>
+												</SettingRow>
+												<SettingRow
+													title={t("settings.appearance.wallpaperPanel")}
+													desc={t("settings.appearance.wallpaperPanelDesc")}
+													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.panelOpacity)}%</span>}
+												>
+													<input
+														type="range"
+														aria-label={t("settings.appearance.wallpaperPanel")}
+														className="w-full accent-owl-accent disabled:opacity-40"
+														min={20}
+														max={100}
+														step={2}
+														value={Math.round(wallpaper.panelOpacity)}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, panelOpacity: event.currentTarget.valueAsNumber })}
+													/>
+												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperFit")} desc={t("settings.appearance.wallpaperFitDesc")}>
+													<select
+														aria-label={t("settings.appearance.wallpaperFit")}
+														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+														value={wallpaper.fit}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, fit: event.target.value === "contain" ? "contain" : "cover" })}
+													>
+														<option value="cover">{t("settings.appearance.wallpaperFitCover")}</option>
+														<option value="contain">{t("settings.appearance.wallpaperFitContain")}</option>
+													</select>
+												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperRating")} desc={t("settings.appearance.wallpaperRatingDesc")}>
+													<select
+														aria-label={t("settings.appearance.wallpaperRating")}
+														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+														value={wallpaper.contentRating}
+														disabled={busy}
+														onChange={(event) => saveWallpaper({ ...wallpaper, contentRating: event.target.value as WallpaperContentRating })}
+													>
+														<option value="all">{t("settings.appearance.wallpaperRatingAll")}</option>
+														<option value="everyone">{t("settings.appearance.wallpaperRatingEveryone")}</option>
+														<option value="pg13">{t("settings.appearance.wallpaperRatingPg13")}</option>
+														<option value="mature">{t("settings.appearance.wallpaperRatingMature")}</option>
+													</select>
+												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperPauseHidden")} desc={t("settings.appearance.wallpaperPauseHiddenDesc")}>
+													<Switch
+														title={t("settings.appearance.wallpaperPauseHidden")}
+														checked={wallpaper.pauseOnHidden}
+														disabled={busy}
+														onChange={(pauseOnHidden) => saveWallpaper({ ...wallpaper, pauseOnHidden })}
+													/>
+												</SettingRow>
+												<SettingRow title={t("settings.appearance.wallpaperPauseBlur")} desc={t("settings.appearance.wallpaperPauseBlurDesc")}>
+													<Switch
+														title={t("settings.appearance.wallpaperPauseBlur")}
+														checked={wallpaper.pauseOnBlur}
+														disabled={busy}
+														onChange={(pauseOnBlur) => saveWallpaper({ ...wallpaper, pauseOnBlur })}
+													/>
+												</SettingRow>
+											</>
+										)}
+										<div className="owl-settings-group-actions">
+											<button
+												type="button"
+												className={btn}
+												disabled={busy}
+												onClick={() => saveWallpaper({ ...DEFAULT_OWL_WALLPAPER }, { rescan: true })}
+											>
+												{t("settings.general.resetDefaults")}
+											</button>
 										</div>
-									</SettingRow>
-								</div>
+									</div>
 
 								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
 								<h3 className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>

@@ -6,10 +6,14 @@ import type {
 	MapCoordinate,
 	MapResult,
 	MapSourceStatus,
+	QuestionAnswerPayload,
+	QuestionRequest,
 	RealPlace,
 } from "../bridge/protocol.ts";
+import { QuestionDialog } from "../components/QuestionDialog.tsx";
 import { MapConversation, type MapConversationContext } from "./conversation.ts";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
+import { type DeviceLocation, DeviceLocator } from "./device-location.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
 import {
 	addLiveHistory,
@@ -17,6 +21,7 @@ import {
 	type LiveSavedState,
 	type LiveSearchRecord,
 	MAX_LIVE_COMPARISON,
+	mapDirectionsUrl,
 	nearbyCategoryFromMessage,
 	normalizeRealPlace,
 	parseCoordinates,
@@ -60,6 +65,8 @@ export function MapWorkspace({
 	modelName,
 	thinkingLevel,
 	approvalMode,
+	questions,
+	onAnswerQuestion,
 }: {
 	sidebarCollapsed?: boolean;
 	active?: boolean;
@@ -70,6 +77,8 @@ export function MapWorkspace({
 	modelName?: string;
 	thinkingLevel: string;
 	approvalMode: ApprovalMode;
+	questions: readonly QuestionRequest[];
+	onAnswerQuestion: (requestId: string, answers: QuestionAnswerPayload[], cancelled: boolean) => void;
 }): JSX.Element {
 	const copy = useMapCopy();
 	const m = copy.text;
@@ -86,6 +95,21 @@ export function MapWorkspace({
 		[client],
 	);
 	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
+	const deviceLocator = useMemo(
+		() => new DeviceLocator({ geolocation: navigator.geolocation, secureContext: window.isSecureContext }),
+		[],
+	);
+	const deviceLocationState = useSyncExternalStore(
+		deviceLocator.subscribe,
+		deviceLocator.getState,
+		deviceLocator.getState,
+	);
+	const activeRef = useRef(active);
+	activeRef.current = active;
+	const applyDeviceLocationRef = useRef<(location: DeviceLocation) => void>(() => {});
+	const mapQuestions = questions.filter((question) => question.sessionId === conversationState.sessionId);
+	const activeMapQuestion = mapQuestions[0];
+	const mapQuestionDockRef = useRef<HTMLDivElement>(null);
 	const maps = useMemo(() => new RealMapClient(), []);
 	const [savedState, setSavedState] = useState<LiveSavedState>(() => {
 		try {
@@ -196,6 +220,23 @@ export function MapWorkspace({
 		locationInsecure: m("locationInsecure"),
 		searchCenter: m("searchCenter"),
 	};
+	applyDeviceLocationRef.current = (location) => {
+		centerOn(location, m("myLocation"));
+		setView("results");
+		void nearbyPlaces(location, category, radius, m("myLocation"));
+	};
+	useEffect(() => {
+		if (!active) {
+			deviceLocator.cancel();
+			return;
+		}
+		// Scheduling after mount avoids duplicate native prompts during React StrictMode setup.
+		const frame = requestAnimationFrame(() => locateDevice(true));
+		return () => {
+			cancelAnimationFrame(frame);
+			deviceLocator.cancel();
+		};
+	}, [active, deviceLocator]);
 
 	useEffect(() => {
 		sendEpoch.current++;
@@ -208,6 +249,21 @@ export function MapWorkspace({
 	useEffect(() => {
 		conversation.setConnected(connected);
 	}, [conversation, connected]);
+	useEffect(() => {
+		if (!active || !activeMapQuestion) return;
+		setView((current) => (current === "home" ? "results" : current));
+		setDetailId(undefined);
+		setComparisonOpen(false);
+		setLocationOpen(false);
+		const frame = requestAnimationFrame(() => {
+			mapQuestionDockRef.current
+				?.querySelector<HTMLElement>(
+					".map-question-column:not([hidden]) [role='radio'], .map-question-column:not([hidden]) [role='checkbox'], .map-question-column:not([hidden]) input, .map-question-column:not([hidden]) button",
+				)
+				?.focus({ preventScroll: true });
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [active, activeMapQuestion?.requestId]);
 	useEffect(() => {
 		const frame = conversationState.mapUpdate;
 		if (
@@ -236,6 +292,7 @@ export function MapWorkspace({
 					: centerLabel;
 		const nextCategory = update.category ?? category;
 		const nextRadius = update.radiusMeters ?? radius;
+		deviceLocator.cancel(true);
 		centerOn(nextCenter, nextName);
 		setCategory(nextCategory);
 		setRadius(nextRadius);
@@ -396,6 +453,11 @@ export function MapWorkspace({
 		setDetailId(undefined);
 		setSavedState((current) => ({ ...current, lastCenter: coordinate, lastLocationName: name }));
 	}
+	function locateDevice(automatic = false): void {
+		void deviceLocator.request(automatic).then((location) => {
+			if (location && activeRef.current) applyDeviceLocationRef.current(location);
+		});
+	}
 	function beginQuery(): { epoch: number; signal: AbortSignal } {
 		queryAbort.current?.abort();
 		const controller = new AbortController();
@@ -461,6 +523,7 @@ export function MapWorkspace({
 	async function searchPlaces(raw: string, inLocationPanel = false): Promise<void> {
 		const query = raw.trim();
 		if (!query) return;
+		deviceLocator.cancel(true);
 		const point = parseCoordinates(query);
 		if (point) {
 			if (await selectCoordinate(point)) {
@@ -501,6 +564,7 @@ export function MapWorkspace({
 		point = centerRef.current,
 		selectedCategory = category,
 		selectedRadius = radius,
+		locationLabel?: string,
 	): Promise<MapResult<RealPlace> | undefined> {
 		lastLookup.current = {
 			action: "nearby",
@@ -510,7 +574,8 @@ export function MapWorkspace({
 		};
 		const startingCenter = { ...centerRef.current };
 		const lookupLocationName =
-			straightLineDistance(point, startingCenter) > 100 ? pointLabel(point) : locationName || pointLabel(point);
+			locationLabel ??
+			(straightLineDistance(point, startingCenter) > 100 ? pointLabel(point) : locationName || pointLabel(point));
 		const request = beginQuery();
 		setCategory(selectedCategory);
 		setRadius(selectedRadius);
@@ -542,6 +607,7 @@ export function MapWorkspace({
 		}
 	}
 	async function selectCoordinate(point: MapCoordinate, searchNearby = false): Promise<boolean> {
+		deviceLocator.cancel(true);
 		lastLookup.current = { action: "reverse", point: { ...point }, searchNearby };
 		const request = beginQuery();
 		const manual: RealPlace = {
@@ -604,6 +670,7 @@ export function MapWorkspace({
 		else if (request.point) void selectCoordinate(request.point, request.searchNearby);
 	}
 	function chooseLocation(place: RealPlace): void {
+		deviceLocator.cancel(true);
 		centerOn(place, placeName(place));
 		setSelectedId(place.id);
 		setLocationOpen(false);
@@ -611,17 +678,16 @@ export function MapWorkspace({
 		locationTriggerRef.current?.focus();
 	}
 	function movedCenter(point: MapCoordinate): void {
-		if (
-			Math.abs(point.lat - centerRef.current.lat) < 0.000001 &&
-			Math.abs(point.lng - centerRef.current.lng) < 0.000001
-		)
-			return;
+		// Leaflet aligns views to screen pixels; a few metres of rounding must not replace a chosen city name.
+		if (straightLineDistance(point, centerRef.current) < 5) return;
+		deviceLocator.cancel(true);
 		centerRef.current = point;
 		setCenter(point);
 		setLocationName(pointLabel(point));
 		setCenterChanged(true);
 	}
 	function replaySearch(entry: LiveSearchRecord): void {
+		deviceLocator.cancel(true);
 		centerOn(entry.center, entry.locationName);
 		setCategory(entry.category);
 		setRadius(entry.radiusMeters);
@@ -644,17 +710,37 @@ export function MapWorkspace({
 		setLocationOpen(false);
 		conversationPinned.current = true;
 		let visiblePlaces = rows;
+		let contextLocationName = centerLabel;
 		const requestedCategory = nearbyCategoryFromMessage(text);
 		try {
 			if (requestedCategory) {
 				setPreparingMessage(true);
-				const result = await nearbyPlaces(centerRef.current, requestedCategory);
+				if (deviceLocator.getState().phase === "pending") {
+					await deviceLocator.request();
+					if (epoch !== sendEpoch.current) return;
+				}
+				const deviceLocation = deviceLocator.getState().location;
+				const nearDevice = Boolean(
+					deviceLocation && /我(?:的)?(?:附近|周围|身边)|离我|near me|around me/i.test(text),
+				);
+				if (nearDevice && deviceLocation) {
+					deviceLocator.cancel(true);
+					centerOn(deviceLocation, m("myLocation"));
+					contextLocationName = m("myLocation");
+				}
+				const result = await nearbyPlaces(
+					nearDevice && deviceLocation ? deviceLocation : centerRef.current,
+					requestedCategory,
+					radius,
+					nearDevice ? m("myLocation") : undefined,
+				);
 				if (epoch !== sendEpoch.current) return;
 				visiblePlaces = result?.data ?? [];
 			}
 			const context: MapConversationContext = {
 				center: { ...centerRef.current },
-				locationName: centerLabel,
+				locationName: contextLocationName,
+				deviceLocation: deviceLocator.getState().location,
 				radiusMeters: radius,
 				category: requestedCategory ?? category,
 				selectedPlace: followContext ?? (requestedCategory ? undefined : selectedPlace),
@@ -707,7 +793,7 @@ export function MapWorkspace({
 		}
 	}
 	function newExploration(): void {
-		if (conversation.getState().busy || sendPending.current) return;
+		if (conversation.getState().busy || sendPending.current || mapQuestions.length > 0) return;
 		sendEpoch.current++;
 		queryEpoch.current++;
 		queryAbort.current?.abort();
@@ -905,6 +991,16 @@ export function MapWorkspace({
 						⌄
 					</span>
 				</button>
+				{deviceLocationState.phase === "pending" && (
+					<output className="map-device-location-status" aria-live="polite">
+						{m("locating")}
+					</output>
+				)}
+				{deviceLocationState.location && (
+					<p className="map-device-location-status">
+						{m("deviceAccuracy", { n: Math.ceil(deviceLocationState.location.accuracyMeters) })}
+					</p>
+				)}
 				{locationOpen && (
 					<div className="location-menu live-location-menu" id="owl-map-location-menu">
 						<div className="live-location-head">
@@ -1429,6 +1525,22 @@ export function MapWorkspace({
 									</>
 								)}
 							</div>
+							<div className="map-question-dock" ref={mapQuestionDockRef} hidden={!activeMapQuestion}>
+								{mapQuestions.map((request) => (
+									<div
+										key={request.requestId}
+										className="map-question-column"
+										hidden={request.requestId !== activeMapQuestion?.requestId}
+									>
+										<QuestionDialog
+											request={request}
+											onAnswer={(answers, cancelled) =>
+												onAnswerQuestion(request.requestId, answers, cancelled)
+											}
+										/>
+									</div>
+								))}
+							</div>
 							{view !== "home" && followupPanel()}
 						</section>
 						<section
@@ -1442,12 +1554,16 @@ export function MapWorkspace({
 								selectedId={selectedId}
 								detailOpen={hasDetail}
 								loading={mapLoading}
+								locationState={deviceLocationState}
 								labels={labels}
 								onPlaceSelect={selectPin}
 								onCenterChange={movedCenter}
 								onPointSelect={(point) => void selectCoordinate(point)}
-								onSearchHere={(point) => void nearbyPlaces(point)}
-								onLocation={(point) => void selectCoordinate(point, true)}
+								onSearchHere={(point) => {
+									deviceLocator.cancel(true);
+									void nearbyPlaces(point);
+								}}
+								onLocate={() => locateDevice()}
 								onError={(message) => setMapError(message)}
 							/>
 							{selectedPlace && !hasDetail && (
@@ -1571,6 +1687,33 @@ export function MapWorkspace({
 												<span className="spacer" />
 												<MapIcon name="chevron" />
 											</button>
+											<a
+												className="detail-ask"
+												href={mapDirectionsUrl(center, detailPlace)}
+												target="_blank"
+												rel="noopener noreferrer"
+												onClick={(event) => {
+													event.preventDefault();
+													void client
+														.request({
+															type: "open.external",
+															action: "url",
+															target: mapDirectionsUrl(center, detailPlace),
+														})
+														.then((reply) => {
+															if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
+														})
+														.catch((error: unknown) =>
+															showToast(error instanceof Error ? error.message : m("mapUnavailable")),
+														);
+												}}
+											>
+												<MapIcon name="compass" />
+												{m("viewRoute")}
+												<span className="spacer" />
+												<MapIcon name="chevron" />
+											</a>
+											<p className="detail-note">{m("routeOrigin", { name: centerLabel })}</p>
 										</div>
 									</div>
 									<div className="detail-actions">

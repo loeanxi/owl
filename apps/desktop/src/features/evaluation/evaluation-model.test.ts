@@ -40,12 +40,63 @@ test("summary excludes anonymous metrics and does not convert unknown cost, unch
 	assert.equal(stats[0].unchecked, 2);
 	assert.equal(stats[0].failed, 1);
 	assert.equal(stats[0].scored, 1);
-	assert.equal(stats[0].scoreTotal, 3);
+	assert.deepEqual(stats[0].criterionStats.map((item) => ({ id: item.id, total: item.total, count: item.count, sampleCount: item.sampleCount })), [{ id: "r1", total: 4, count: 1, sampleCount: 2 }]);
 	assert.equal(stats[0].durationCount, 2);
 	assert.equal(stats[0].durationTotal, 3000);
 	assert.equal(stats[0].costCount, 1);
 	assert.equal(stats[0].costTotal, 0.12);
 	assert.deepEqual(evaluationStatistics(run([result("a")]), "html"), []);
+});
+
+test("summary keeps each scoring axis separate and never mixes SVG, JSON or custom rules with the same label", () => {
+	const fixture = run([]);
+	const svgRubric = [
+		{ id: "structure", label: "结构关系", description: "检查形状连接与空间关系。" },
+		{ id: "action", label: "动作表达", description: "检查骑车动作。" },
+		{ id: "clarity", label: "视觉清晰度", description: "检查构图与辨识度。" },
+	];
+	const svgTask = { ...fixture.tasks[0], rubric: svgRubric };
+	const sameStandardTask = { ...svgTask, id: "G06" };
+	const jsonTask = { ...svgTask, id: "G07", outputType: "json" as const, rubric: [
+		{ id: "relation", label: "关系判断", description: "检查最终颜色与可见数量。" },
+		{ id: "transform", label: "变换理解", description: "检查defs/use与平移。" },
+		{ id: "complete", label: "答案完整性", description: "检查规定JSON字段。" },
+	] };
+	const customTask = { ...svgTask, id: "U-custom", builtin: false, rubric: svgRubric.map((item) => ({ ...item, description: `我的不同规则：${item.description}` })) };
+	fixture.tasks = [svgTask, sameStandardTask, jsonTask, customTask];
+	fixture.results = [
+		result("svg", { taskId: "G01", rating: { scores: { structure: 5, action: 3, clarity: 4 }, note: "" } }),
+		result("svg-again", { taskId: "G06", rating: { scores: { structure: 1, action: 5, clarity: 2 }, note: "" } }),
+		result("json", { taskId: "G07", rating: { scores: { relation: 1, transform: 2, complete: 5 }, note: "" } }),
+		result("custom", { taskId: "U-custom", rating: { scores: { structure: 2, action: 4, clarity: 1 }, note: "" } }),
+		result("ungraded", { taskId: "G01", rating: null, durationMs: null, costUsd: null }),
+		result("anonymous", { taskId: "G01", revealed: false, rating: { scores: { structure: 5, action: 5, clarity: 5 }, note: "" } }),
+		result("failed", { taskId: "G01", status: "failed", checks: [], rating: null }),
+	];
+	const stats = evaluationStatistics(fixture, "svg")[0];
+	assert.equal(stats.count, 6);
+	assert.equal(stats.scored, 4);
+	assert.equal(stats.costCount, 0);
+	assert.equal(stats.criterionStats.length, 9);
+	assert.equal(Object.hasOwn(stats, "scoreTotal"), false);
+	for (const [id, total] of [["structure", 6], ["action", 8], ["clarity", 6]] as const) {
+		const axis = stats.criterionStats.find((item) => item.id === id && item.description === svgRubric.find((item) => item.id === id)?.description);
+		assert.ok(axis);
+		assert.equal(axis.total, total);
+		assert.equal(axis.count, 2);
+		assert.equal(axis.sampleCount, 3);
+		assert.deepEqual(axis.taskIds, ["G01", "G06"]);
+	}
+	assert.deepEqual(stats.criterionStats.filter((item) => item.taskIds.includes("G07")).map((item) => ({ id: item.id, mean: item.total / item.count, count: item.count, sampleCount: item.sampleCount })), [
+		{ id: "relation", mean: 1, count: 1, sampleCount: 1 },
+		{ id: "transform", mean: 2, count: 1, sampleCount: 1 },
+		{ id: "complete", mean: 5, count: 1, sampleCount: 1 },
+	]);
+	assert.deepEqual(stats.criterionStats.filter((item) => item.taskIds.includes("U-custom")).map((item) => ({ id: item.id, mean: item.total / item.count, count: item.count })), [
+		{ id: "structure", mean: 2, count: 1 },
+		{ id: "action", mean: 4, count: 1 },
+		{ id: "clarity", mean: 1, count: 1 },
+	]);
 });
 
 test("zero price remains a known metric and configurations distinguish provider and thinking level", () => {

@@ -20,6 +20,14 @@ export async function pickFolder(title: string): Promise<string | null> {
 	return typeof selected === "string" ? selected : null;
 }
 
+/** 打开系统文件选择对话框；filters 形如 [{ name, extensions: ["mp4","webm"] }]。 */
+export async function pickFile(title: string, filters: { name: string; extensions: string[] }[]): Promise<string | null> {
+	if (!hasTauri()) return null;
+	const { open } = await import("@tauri-apps/plugin-dialog");
+	const selected = await open({ multiple: false, title, filters });
+	return typeof selected === "string" ? selected : null;
+}
+
 /** 设置整个 webview 的缩放（1 = 100%）；浏览器模式无意义，返回 false。 */
 export async function setWebviewZoom(zoom: number): Promise<boolean> {
 	if (!hasTauri()) return false;

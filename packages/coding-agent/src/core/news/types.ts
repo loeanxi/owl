@@ -201,7 +201,15 @@ export interface NewsModelResponse {
 	model: string;
 	usage: NewsUsage;
 }
-export type NewsModelCaller = (request: NewsModelCall) => Promise<NewsModelResponse>;
+export interface NewsModelResponseCache {
+	key(request: Omit<NewsModelCall, "signal">): Promise<string>;
+	read(key: string): unknown | null;
+	stage(key: string, value: unknown): void;
+	commit(): void;
+}
+export type NewsModelCaller = ((request: NewsModelCall) => Promise<NewsModelResponse>) & {
+	responseCache?: NewsModelResponseCache;
+};
 export interface NewsJob {
 	id: string;
 	kind: string;

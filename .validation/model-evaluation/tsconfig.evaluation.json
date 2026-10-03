@@ -1,0 +1,14 @@
+{
+  "extends": "../../apps/desktop/tsconfig.json",
+  "include": [
+    "../../apps/desktop/src/features/evaluation/**/*.ts",
+    "../../apps/desktop/src/features/evaluation/**/*.tsx",
+    "../../apps/desktop/src/components/DesktopTitlebar.tsx",
+    "../../apps/desktop/src/components/ActivityRail.tsx",
+    "../../apps/desktop/src/bridge/client.ts"
+  ],
+  "exclude": [
+    "../../apps/desktop/src/features/evaluation/**/*.test.ts",
+    "../../apps/desktop/src/features/evaluation/**/*.test.tsx"
+  ]
+}

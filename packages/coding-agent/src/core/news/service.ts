@@ -38,6 +38,7 @@ import type {
 	NewsModelCaller,
 	NewsModelRef,
 	NewsModelResponse,
+	NewsModelResponseCache,
 	NewsReport,
 	NewsReportKind,
 	NewsRequest,
@@ -136,6 +137,7 @@ export class NewsService {
 	private loop: Promise<void> | null = null;
 	private pending = new Set<Promise<unknown>>();
 	private responseReceipts = new WeakMap<object, { id: string; attempt: number }>();
+	private sourceResponseFlights = new Map<string, Promise<unknown>>();
 	private controller = new AbortController();
 	private started = false;
 	private stopping = false;
@@ -338,7 +340,9 @@ export class NewsService {
 				);
 		}
 		if (this.store.getMeta<string>("retention-day") !== key) {
-			this.store.retain(new Date(now - this.configuration.retentionDays * 86400000).toISOString());
+			const cutoff = new Date(now - this.configuration.retentionDays * 86400000).toISOString();
+			this.store.retain(cutoff);
+			this.store.pruneResponseCache(cutoff);
 			this.store.setMeta("retention-day", key);
 		}
 	}
@@ -350,12 +354,49 @@ export class NewsService {
 			signal: this.controller.signal,
 		};
 	}
+	private async cachedSourceResponse(
+		source: NewsSourceInput,
+		subject: string,
+		purpose: string,
+		identity: unknown,
+		run: () => Promise<unknown>,
+	): Promise<unknown> {
+		const secret = source.kind === "x_search" ? this.secrets.SOCIALDATA_API_KEY : this.secrets.DAJIALA_KEY;
+		if (!secret || !["x-search", "mp-history", "mp-article"].includes(purpose))
+			return this.paid(subject, purpose, identity, run);
+		const cacheKey = newsHash([
+			"source-provider-response-v1",
+			source.kind,
+			purpose,
+			identity,
+			source.kind === "x_search" ? source.config.searchType || "Latest" : null,
+			newsHash(secret),
+		]);
+		const cached = this.store.cachedResponse(cacheKey);
+		if (cached !== null) {
+			this.store.audit("source.cache.hit", subject, { purpose, cacheKey });
+			return cached;
+		}
+		const existing = this.sourceResponseFlights.get(cacheKey);
+		if (existing) return existing;
+		const operation = this.paid(subject, purpose, identity, run, undefined, cacheKey).then((response) => {
+			this.store.saveResponseCache(cacheKey, response);
+			return response;
+		});
+		this.sourceResponseFlights.set(cacheKey, operation);
+		try {
+			return await operation;
+		} finally {
+			if (this.sourceResponseFlights.get(cacheKey) === operation) this.sourceResponseFlights.delete(cacheKey);
+		}
+	}
 	private async paid(
 		subject: string,
 		capability: string,
 		identity: unknown,
 		run: () => Promise<unknown>,
 		usage?: (result: unknown) => NewsModelResponse["usage"],
+		logicalKeyOverride?: string,
 	): Promise<unknown> {
 		const model = identity && typeof identity === "object" ? (identity as { model?: unknown }).model : undefined;
 		const modelName =
@@ -365,7 +406,7 @@ export class NewsService {
 					? `${model.provider}/${model.id}`
 					: capability;
 		const begun = this.store.beginReceipt(
-			newsHash([subject, capability, identity]),
+			logicalKeyOverride ?? newsHash([subject, capability, identity]),
 			capability,
 			subject,
 			modelName,
@@ -411,13 +452,12 @@ export class NewsService {
 			throw error;
 		}
 	}
-	private caller(subject: string): NewsModelCaller {
+	private caller(subject: string, cacheOutputs = true): NewsModelCaller {
 		let ordinal = 0;
 		const frozenModels = new Map<NewsCapability, NewsModelRef>();
 		let defaultModel: NewsModelRef | undefined;
-		return async (request: NewsModelCall) => {
-			if (this.controller.signal.aborted) throw new Error("资讯任务已取消");
-			if (!this.configuration.modelCallsEnabled) throw new Error("资讯模型调用尚未开启");
+		const responseWrites = new Map<string, unknown>();
+		const resolveRequestModel = async (request: NewsModelCall): Promise<NewsModelRef> => {
 			const configured = request.model ?? this.configuration.models[request.capability];
 			let model = frozenModels.get(request.capability);
 			if (!model) {
@@ -433,6 +473,12 @@ export class NewsService {
 				}
 			}
 			if (!model) throw new Error(`未配置资讯 ${request.capability} 模型`);
+			return model;
+		};
+		const caller: NewsModelCaller = async (request: NewsModelCall) => {
+			if (this.controller.signal.aborted) throw new Error("资讯任务已取消");
+			if (!this.configuration.modelCallsEnabled) throw new Error("资讯模型调用尚未开启");
+			const model = await resolveRequestModel(request);
 			ordinal++;
 			const signal = request.signal
 				? AbortSignal.any([request.signal, this.controller.signal, AbortSignal.timeout(180000)])
@@ -452,6 +498,26 @@ export class NewsService {
 				(result) => (result as NewsModelResponse).usage,
 			)) as NewsModelResponse;
 		};
+		if (cacheOutputs) {
+			const responseCache: NewsModelResponseCache = {
+				key: async (request) => {
+					const model = await resolveRequestModel(request);
+					return newsHash(["validated-model-output-v1", model.provider, model.id, request]);
+				},
+				read: (key) => {
+					const value = this.store.cachedResponse(key);
+					if (value !== null) this.store.audit("model.cache.hit", subject, { key });
+					return value;
+				},
+				stage: (key, value) => responseWrites.set(key, value),
+				commit: () => {
+					for (const [key, value] of responseWrites) this.store.saveResponseCache(key, value);
+					responseWrites.clear();
+				},
+			};
+			caller.responseCache = responseCache;
+		}
+		return caller;
 	}
 	private async processJob(job: StoredNewsJob): Promise<void> {
 		if (job.kind === "collect") {
@@ -468,7 +534,8 @@ export class NewsService {
 					onCursor: (value) => {
 						cursor = value;
 					},
-					paid: (purpose, identity, run) => this.paid(`source:${source.id}`, purpose, identity, run),
+					paid: (purpose, identity, run) =>
+						this.cachedSourceResponse(source, `source:${source.id}`, purpose, identity, run),
 				});
 				this.ensureLease();
 				this.store.transaction(() => {
@@ -505,16 +572,18 @@ export class NewsService {
 			const kind = job.data.kind as NewsReportKind;
 			const key = String(job.data.key);
 			if (this.store.reports().some((report) => report.kind === kind && report.key === key)) return;
+			const call = this.configuration.modelCallsEnabled ? this.caller(`report:${kind}:${key}`) : undefined;
 			const report = await composeNewsReport(
 				kind,
 				key,
 				this.store.items(),
 				this.store.stories(),
 				this.store.reports(),
-				this.configuration.modelCallsEnabled ? this.caller(`report:${kind}:${key}`) : undefined,
+				call,
 				this.configuration,
 			);
 			this.ensureLease();
+			call?.responseCache?.commit();
 			if (report)
 				this.store.transaction(() => {
 					this.store.saveReport(report);
@@ -525,20 +594,17 @@ export class NewsService {
 		if (job.kind === "digest") {
 			const story = this.store.story(job.subject);
 			if (!story || story.manual || !story.reports.length) return;
-			const digest = await composeStoryDigest(
-				story,
-				this.configuration,
-				this.caller(`story:${story.id}:${job.data.revision}`),
-			);
+			const signature = newsHash(story.reports.map((item) => [item.id, item.revision, item.title, item.summary]));
+			if (this.store.getMeta<string>(`story-digest:${story.id}`) === signature) return;
+			const call = this.caller(`story:${story.id}:${job.data.revision}`);
+			const digest = await composeStoryDigest(story, this.configuration, call);
 			this.ensureLease();
+			call.responseCache?.commit();
 			this.store.transaction(() => {
 				const current = this.store.story(story.id);
 				if (current && !current.manual)
 					this.store.saveStory({ ...current, ...digest, updatedAt: new Date().toISOString() });
-				this.store.setMeta(
-					`story-digest:${story.id}`,
-					newsHash(story.reports.map((item) => [item.id, item.revision, item.title, item.summary])),
-				);
+				this.store.setMeta(`story-digest:${story.id}`, signature);
 				this.store.completeReceipts(`story:${story.id}:${job.data.revision}`);
 			});
 			return;
@@ -565,6 +631,7 @@ export class NewsService {
 			const analysis = await analyzeMaterial(material, source, this.configuration, call);
 			this.ensureLease();
 			if (this.store.item(item.id)?.revision !== item.revision) return;
+			call.responseCache?.commit();
 			this.store.transaction(() => {
 				const updated = this.store.commitAnalysis(item!.id, item!.revision, analysis);
 				if (!updated) return;
@@ -617,6 +684,7 @@ export class NewsService {
 						}
 					: await judgeRelation(item, candidates, this.configuration, call, background);
 				this.ensureLease();
+				call.responseCache?.commit();
 				const factId = relation.factId || `fact:${item.id}:${item.revision}`;
 				this.store.transaction(() => {
 					const current = this.store.item(item!.id);
@@ -717,6 +785,7 @@ export class NewsService {
 		if (job.kind === "translate" && item.originalBody && source.siteFulltext) {
 			const body = await translateNewsBody(item, this.configuration, call);
 			this.ensureLease();
+			call.responseCache?.commit();
 			this.store.transaction(() => {
 				if (this.store.item(item!.id)?.revision === item!.revision)
 					this.store.editItem(item!.id, { body, status: "ready" });
@@ -1079,7 +1148,8 @@ export class NewsService {
 					...this.fetchOptions(),
 					secrets: this.secrets,
 					maxItems: Math.min(5, this.configuration.maxItemsPerSource),
-					paid: (purpose, identity, run) => this.paid(`preview:${source.id}`, purpose, identity, run),
+					paid: (purpose, identity, run) =>
+						this.cachedSourceResponse(source, `source:${source.id}`, purpose, identity, run),
 				});
 			}
 			case "configure": {
@@ -1278,7 +1348,7 @@ export class NewsService {
 				const result = await evaluateSelection(
 					request.samples,
 					this.configuration,
-					this.caller("evaluation:v1"),
+					this.caller("evaluation:v1", false),
 					(error) => this.markOutputError(error),
 				);
 				this.store.saveEvaluation(result);

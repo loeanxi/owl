@@ -1,0 +1,14 @@
+{
+  "port": 18901,
+  "pingOk": true,
+  "activeChatSessions": 0,
+  "evaluationAvailable": true,
+  "builtinTasks": 24,
+  "configuredModels": 10,
+  "jsonQuestionChecks": [
+    "format",
+    "relations"
+  ],
+  "classification": "ready",
+  "paidModelCalls": 0
+}

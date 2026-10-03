@@ -70,7 +70,9 @@ function captureEditableTarget(): HTMLElement | null {
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
 	const evaluationText = useEvaluationText();
-	const sidebarLabel = props.sidebarView === "mail"
+	const sidebarLabel = props.sidebarView === "evaluation"
+		? evaluationText("title")
+		: props.sidebarView === "mail"
 		? props.sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
 		: props.sidebarView === "news"
 		? t("news.navigation")
@@ -227,7 +229,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					aria-label={sidebarLabel}
 					title={sidebarLabel}
 					aria-expanded={!props.sidebarCollapsed}
-					aria-controls={props.sidebarView === "mail" ? "owl-mail-sidebar" : props.sidebarView === "news" ? "owl-news-sidebar" : props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
+					aria-controls={props.sidebarView === "evaluation" ? "owl-evaluation-sidebar" : props.sidebarView === "mail" ? "owl-mail-sidebar" : props.sidebarView === "news" ? "owl-news-sidebar" : props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
 					onClick={props.onToggleSidebar}
 				>
 					<IconPanelLeft className="h-4 w-4" />

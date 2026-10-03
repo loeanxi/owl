@@ -124,6 +124,7 @@ import {
 	updateSkill,
 } from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
+import { handleWallpaperHttp } from "./wallpaper-http.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
@@ -687,7 +688,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	let globalSettingsManagerPromise: Promise<SettingsManager | null> | undefined;
-
 	/** 项目是否已信任（技能中心项目 tab 的读写门槛；读不出设置就当未信任）。 */
 	async function isProjectTrustedFor(cwd: string): Promise<boolean> {
 		return (await getSettingsManagerFor(cwd))?.isProjectTrusted() ?? false;
@@ -716,6 +716,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function getGlobalSettingsManager(): Promise<SettingsManager | null> {
 		globalSettingsManagerPromise ??= getSettingsManagerFor(options.cwd ?? process.cwd());
 		return globalSettingsManagerPromise;
+	}
+
+	/** 读全局设置里的 owlWallpaper 字段（桌面端动态壁纸；字段由 UI 写入，桥只读）。 */
+	function owlWallpaperField(key: "customDir" | "customPath"): Promise<string> {
+		return getGlobalSettingsManager().then((manager) => {
+			const wallpaper = (manager?.getGlobalSettings() as { owlWallpaper?: unknown } | undefined)?.owlWallpaper;
+			if (typeof wallpaper !== "object" || wallpaper === null) return "";
+			const value = (wallpaper as Record<string, unknown>)[key];
+			return typeof value === "string" ? value : "";
+		});
 	}
 
 	async function getListingServices(): Promise<AgentSessionServices> {
@@ -2478,6 +2488,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						handle: newsRequest,
 						authorizeIngest: (token) => getNewsService().authorizeIngest(token),
 						shutdown: closeNews,
+					}),
+			)
+			.then(
+				(handled) =>
+					handled ||
+					handleWallpaperHttp(request, response, {
+						authorizeOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
+						getCustomDir: () => owlWallpaperField("customDir"),
+						getCustomPath: () => owlWallpaperField("customPath"),
 					}),
 			)
 			.then((handled) => {
