@@ -6,6 +6,9 @@ export default defineConfig({
 	plugins: [react(), tailwindcss()],
 	server: {
 		port: 5188,
+		// 端口被占直接失败：vite 默认会静默换端口，而 tauri devUrl 固定 5188，
+		// 窗口会悄悄连上一个不相干的服务器（owl-tauri-dev.cmd 会先清端口）
+		strictPort: true,
 		watch: {
 			ignored: ["**/src-tauri/**"],
 		},
