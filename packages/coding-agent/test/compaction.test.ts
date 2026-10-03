@@ -280,7 +280,13 @@ describe("estimateContextBreakdown", () => {
 				role: "system",
 				content: "You are Owl.",
 				sections: { persona: "x".repeat(400) },
-				toolsAdded: { read: { description: "z".repeat(200) } },
+				toolsAdded: [
+					{
+						name: "read",
+						description: "z".repeat(200),
+						parameters: { type: "object", properties: {} },
+					},
+				],
 				timestamp: Date.now(),
 			},
 			createUserMessage("Hello there"),
