@@ -164,6 +164,9 @@ interface WireResponse {
 
 async function fixture() {
 	const directory = await mkdtemp(join(tmpdir(), "owl-news-bridge-"));
+	const absolute = resolve(directory);
+	if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-news-bridge-"))
+		throw new Error("Unexpected fixture cleanup path");
 	const cwd = join(directory, "workspace");
 	const agentDir = join(directory, "profile");
 	await mkdir(cwd);
@@ -201,9 +204,6 @@ async function fixture() {
 			socket.terminate();
 			await handle.close();
 		} finally {
-			const absolute = resolve(directory);
-			if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-news-bridge-"))
-				throw new Error("Unexpected fixture cleanup path");
 			await rm(absolute, { recursive: true, force: true });
 		}
 	});
@@ -326,12 +326,14 @@ describe("news on the real desktop bridge", () => {
 		await bridge.news({ action: "withdraw", id: item.id, withdrawn: true });
 		expect((await bridge.news({ action: "list", query: { mode: "all" } })).total).toBe(0);
 		expect((await localFetch(`${bridge.base}/api/news/v1/items/${item.id}`)).status).toBe(404);
-		expect((await localFetch(`${bridge.base}/api/news/feed.xml`)).text()).resolves.not.toContain(item.id);
+		await expect((await localFetch(`${bridge.base}/api/news/feed.xml`)).text()).resolves.not.toContain(item.id);
 		const hidden = await client.callTool({ name: "owl_news_latest", arguments: { mode: "all" } });
 		expect((hidden.structuredContent?.data as NewsListResult).total).toBe(0);
 		expect(await bridge.news({ action: "adminItem", id: item.id })).toMatchObject({
 			withdrawn: true,
-			originalBody: `${evidence}\n${privateBody}`,
+			originalTitle: title,
+			selectionCandidate: true,
+			originalBody: null,
 		});
 		expect(
 			(await bridge.news({ action: "adminItems", status: "withdrawn", query: { mode: "all" } })).items.map(
@@ -341,12 +343,19 @@ describe("news on the real desktop bridge", () => {
 		await bridge.news({ action: "withdraw", id: item.id, withdrawn: false });
 		expect((await bridge.news({ action: "list" })).items[0]?.id).toBe(item.id);
 		expect((await localFetch(`${bridge.base}/api/news/v1/items/${item.id}`)).status).toBe(200);
+		await bridge.news({ action: "saveSource", source: { ...source, siteFulltext: true } });
+		expect((await bridge.news({ action: "adminItem", id: item.id }))?.originalBody).toBe(
+			`${evidence}\n${privateBody}`,
+		);
+		await expect((await localFetch(`${bridge.base}/api/news/feed.xml?fulltext=true`)).text()).resolves.not.toContain(
+			privateBody,
+		);
 		expect(bridge.forbiddenFetch).not.toHaveBeenCalled();
 	}, 45000);
 
 	it("rejects a cross-site WebSocket before it can configure the local service", async () => {
 		const bridge = await fixture();
-		const socket = new WebSocket(bridge.base.replace("http:", "ws:") + "/ws", {
+		const socket = new WebSocket(`${bridge.base.replace("http:", "ws:")}/ws`, {
 			headers: { Origin: "https://cross-site.invalid" },
 		});
 		const refusal = await new Promise<number>((fulfill, reject) => {

@@ -9,7 +9,10 @@ import type { NewsContext } from "./NewsAssistant.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 
-export type NewsTarget = { kind: "item" | "story"; id: string; management?: boolean };
+export type NewsTarget =
+	| { kind: "item"; id: string; management?: boolean }
+	| { kind: "story"; id: string }
+	| { kind: NewsReportKind; key: string };
 interface ReadingProps {
 	api: NewsClient;
 	revision: number;
@@ -417,9 +420,13 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 	);
 }
 
-export function NewsReportReader({ kind, ...props }: ReadingProps & { kind: NewsReportKind }): React.JSX.Element {
+export function NewsReportReader({
+	kind,
+	initialKey = "",
+	...props
+}: ReadingProps & { kind: NewsReportKind; initialKey?: string }): React.JSX.Element {
 	const t = useT();
-	const [key, setKey] = useState("");
+	const [key, setKey] = useState(initialKey);
 	const archive = useNewsQuery(props.api, { action: "reports", kind, limit: 60 }, props.revision);
 	const result = useNewsQuery(props.api, { action: "report", kind, ...(key ? { key } : {}) }, props.revision);
 	return (
@@ -428,6 +435,7 @@ export function NewsReportReader({ kind, ...props }: ReadingProps & { kind: News
 				<h1>{t(`news.${kind}`)}</h1>
 				<select aria-label={t("news.reportArchive")} value={key} onChange={(event) => setKey(event.target.value)}>
 					<option value="">{t("news.latestIssue")}</option>
+					{key && !archive.data?.some((report) => report.key === key) && <option value={key}>{key}</option>}
 					{archive.data?.map((report) => (
 						<option key={report.id} value={report.key}>
 							{report.key}

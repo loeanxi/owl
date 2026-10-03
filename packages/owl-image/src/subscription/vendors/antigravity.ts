@@ -413,6 +413,19 @@ export async function antigravityGenerateImage(options: {
 			lastError = error instanceof Error ? error.message : String(error);
 		}
 	}
+	// 常见失败的翻译:429/RESOURCE_EXHAUSTED 是 Google 侧的生图配额耗尽(通常是
+	// 每日限额,三个端点共用同一配额池,换端点无用),给出可操作指引而非裸 JSON。
+	if (/\b429\b|RESOURCE_EXHAUSTED/i.test(lastError)) {
+		throw new Error(
+			"Google 订阅 (Antigravity) 生图配额已用尽(429 RESOURCE_EXHAUSTED,通常是每日限额,按太平洋时间零点重置)。" +
+			"可等配额重置后重试;或在 设置 > 图像生成 里把默认 provider 临时切换为 Google Gemini(API key)/ OpenAI 兼容中转 / 本地 ComfyUI。",
+		);
+	}
+	if (/\b403\b|license/i.test(lastError)) {
+		throw new Error(
+			`Google 订阅 (Antigravity) 拒绝了生图请求(403/license):当前账号计划可能不含生图配额。原始错误:${lastError.slice(0, 200)}`,
+		);
+	}
 	throw new Error(`antigravity image generation failed: ${lastError}`);
 }
 

@@ -148,7 +148,10 @@ export function NewsPage({
 		};
 	}, [api, active, connected]);
 	useEffect(() => {
-		if (initialTarget) setTarget({ kind: initialTarget.kind, id: initialTarget.id });
+		if (!initialTarget) return;
+		setTarget(initialTarget);
+		if (initialTarget.kind === "daily" || initialTarget.kind === "weekly" || initialTarget.kind === "monthly")
+			setSection(initialTarget.kind);
 	}, [initialTarget]);
 	function openItem(id: string): void {
 		setTarget({ kind: "item", id });
@@ -180,7 +183,11 @@ export function NewsPage({
 		onChanged: refreshed,
 	};
 	const title = target
-		? t(target.kind === "story" ? "news.event" : "news.reading")
+		? target.kind === "item"
+			? t("news.reading")
+			: target.kind === "story"
+				? t("news.event")
+				: t(`news.${target.kind}`)
 		: t([...SECTIONS, ...MANAGEMENT].find((entry) => entry.id === section)?.key ?? "news.selected");
 	return (
 		<div className="owl-news-module">
@@ -289,8 +296,15 @@ export function NewsPage({
 										management={target.management}
 										{...reading}
 									/>
-								) : (
+								) : target.kind === "story" ? (
 									<NewsStoryReader key={target.id} id={target.id} {...reading} />
+								) : (
+									<NewsReportReader
+										key={`${target.kind}-${target.key}`}
+										kind={target.kind}
+										initialKey={target.key}
+										{...reading}
+									/>
 								)}
 							</>
 						) : (

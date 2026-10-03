@@ -7,6 +7,7 @@ import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerS
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
+import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
@@ -82,7 +83,7 @@ export default function App(): React.JSX.Element {
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
-	const [newsTarget, setNewsTarget] = useState<{ kind: "item" | "story"; id: string; revision: number }>();
+	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
 		return view === "mail" || view === "map" ? view : "chat";
@@ -240,12 +241,14 @@ export default function App(): React.JSX.Element {
 	}), [client]);
 	useEffect(() => {
 		const openNewsHash = (): void => {
-			const match = /^#news\/(item|story)\/([^/]+)$/.exec(window.location.hash.replace(/^#\//, "#"));
+			const match = /^#news\/(item|story|daily|weekly|monthly)\/([^/]+)$/.exec(window.location.hash.replace(/^#\//, "#"));
 			if (!match) return;
 			let id: string;
 			try { id = decodeURIComponent(match[2]); } catch { return; }
 			setShowSettings(false); setRailView("news");
-			setNewsTarget({ kind: match[1] as "item" | "story", id, revision: Date.now() });
+			const kind = match[1];
+			if (kind === "daily" || kind === "weekly" || kind === "monthly") setNewsTarget({ kind, key: id, revision: Date.now() });
+			else if (kind === "item" || kind === "story") setNewsTarget({ kind, id, revision: Date.now() });
 		};
 		openNewsHash();
 		window.addEventListener("hashchange", openNewsHash);
