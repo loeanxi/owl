@@ -6,6 +6,7 @@ import type {
 	ProviderModelsMessage,
 	SkillCenterEntry,
 	SkillCenterTab,
+	SkillGroupInfo,
 	SkillsListResult,
 	SkillsReadResult,
 	SystemPromptPreviewResult,
@@ -64,11 +65,12 @@ const OWL_IMAGE_PROVIDER_LABEL_KEYS: Record<OwlImageProvider, TextKey> = {
 	"google-sub": "settings.image.p.google-sub",
 };
 
-/** 技能中心的 tab 元数据：与 skills.list 的三级根一一对应（label/desc 为字典 key，渲染时解析）。 */
-const SKILL_TABS: { tab: SkillCenterTab; labelKey: TextKey; descKey: TextKey }[] = [
+/** 技能中心的 tab 元数据（groups 是 UI 层 tab：组是全局集合，不在 skills.list 的根目录里）。 */
+const SKILL_TABS: { tab: SkillCenterTab | "groups"; labelKey: TextKey; descKey: TextKey }[] = [
 	{ tab: "personal", labelKey: "settings.skills.tabPersonal", descKey: "settings.skills.tabPersonalDesc" },
 	{ tab: "global", labelKey: "settings.skills.tabGlobal", descKey: "settings.skills.tabGlobalDesc" },
 	{ tab: "project", labelKey: "settings.skills.tabProject", descKey: "settings.skills.tabProjectDesc" },
+	{ tab: "groups", labelKey: "settings.skills.tabGroups", descKey: "settings.skills.tabGroupsDesc" },
 ];
 
 /** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
@@ -365,7 +367,7 @@ export function SettingsPage({
 		projectExtras: [],
 		skillGroups: [],
 	});
-	const [skillsTab, setSkillsTab] = useState<SkillCenterTab>("personal");
+	const [skillsTab, setSkillsTab] = useState<SkillCenterTab | "groups">("personal");
 	const [skillsQuery, setSkillsQuery] = useState("");
 	const [skillsLoading, setSkillsLoading] = useState(false);
 	const [skillForm, setSkillForm] = useState<{ mode: "create" } | { mode: "edit"; entry: SkillCenterEntry } | null>(null);
@@ -373,11 +375,14 @@ export function SettingsPage({
 	const [skDesc, setSkDesc] = useState("");
 	const [skBody, setSkBody] = useState("");
 	const [confirmDelSkill, setConfirmDelSkill] = useState<SkillCenterEntry | null>(null);
-	// 项目 tab：查看哪个项目 + 勾选本项目需要的技能
+	// 项目 tab：查看哪个项目（项目 = 关联组的生效视图 + 自己的技能目录）
 	const [skillProjects, setSkillProjects] = useState<string[]>([]);
 	const [skillProject, setSkillProject] = useState("");
 	const [skillAddProject, setSkillAddProject] = useState("");
-	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+	// 分组 tab：编辑中的组（null = 关闭；groupEditOrigName 区分新建与编辑原组）
+	const [groupEdit, setGroupEdit] = useState<SkillGroupInfo | null>(null);
+	const [groupEditOrigName, setGroupEditOrigName] = useState<string | null>(null);
+	const [soloPickerOpen, setSoloPickerOpen] = useState(false);
 
 	useEffect(() => {
 		const off = client.onSessionEvent((msg) => {
@@ -701,10 +706,10 @@ export function SettingsPage({
 		}
 	}
 
-	/** 切换查看的项目（项目 tab 的列表、根目录与勾选都以该项目为准）。 */
+	/** 切换查看的项目（项目 tab 的列表、根目录与生效集都以该项目为准）。 */
 	function switchSkillProject(cwd: string): void {
 		setSkillProject(cwd);
-		setSkillPickerOpen(false);
+		setSoloPickerOpen(false);
 		setSkillForm(null);
 		void loadSkillsList(cwd || undefined);
 	}
@@ -724,19 +729,46 @@ export function SettingsPage({
 		switchSkillProject(trimmed);
 	}
 
-	/** 项目 tab 的勾选范围：三个 tab 的全部技能按名字去重（同名个人优先，与 core 一致）。 */
-	function projectSkillChoices(): SkillCenterEntry[] {
-		const seen = new Set<string>();
-		const choices: SkillCenterEntry[] = [];
+	/** 当前项目的生效技能清单：关联组 ∪ 单独添加，标注来源（组名 / 单独添加）。 */
+	function effectiveProjectSkills(): { entry: SkillCenterEntry; from: string; solo: boolean }[] {
+		const cwd = skillProject || workspaceDir;
+		const byName = new Map<string, SkillCenterEntry>();
 		for (const entry of skillsData.skills) {
-			if (seen.has(entry.name)) continue;
-			seen.add(entry.name);
-			choices.push(entry);
+			if (!byName.has(entry.name)) byName.set(entry.name, entry);
 		}
-		return choices;
+		const out: { entry: SkillCenterEntry; from: string; solo: boolean }[] = [];
+		const seen = new Set<string>();
+		for (const group of skillsData.skillGroups) {
+			if (!group.projects.includes(cwd)) continue;
+			for (const name of group.skills) {
+				const entry = byName.get(name);
+				if (entry && !seen.has(name)) {
+					out.push({ entry, from: group.name, solo: false });
+					seen.add(name);
+				}
+			}
+		}
+		for (const name of skillsData.projectExtras) {
+			const entry = byName.get(name);
+			if (entry && !seen.has(name)) {
+				out.push({ entry, from: "", solo: true });
+				seen.add(name);
+			}
+		}
+		return out;
 	}
 
-	/** 勾选/取消一个技能（opt-out）：把当前项目内禁用的名字集合整体写回项目 settings.json。 */
+	/** 可单独添加进项目的技能 = 全部技能 − 已在生效清单里的（同名去重）。 */
+	function soloAddChoices(): SkillCenterEntry[] {
+		const effective = new Set(effectiveProjectSkills().map((row) => row.entry.name));
+		const out: SkillCenterEntry[] = [];
+		for (const entry of skillsData.skills) {
+			if (!effective.has(entry.name) && !out.some((o) => o.name === entry.name)) out.push(entry);
+		}
+		return out;
+	}
+
+	/** 生效清单里的行级勾选（opt-out）：项目内禁用写 `!名字` 模式。 */
 	async function toggleProjectSkill(name: string, enabled: boolean): Promise<void> {
 		const cwd = skillProject || workspaceDir;
 		if (!cwd) return;
@@ -759,16 +791,96 @@ export function SettingsPage({
 		}
 	}
 
-	/** 清空项目覆盖模式，恢复默认（全部技能可用）。 */
-	async function resetProjectSkillSelection(): Promise<void> {
+	/** 项目内单独添加 / 移除技能（owlSkillExtras）。 */
+	async function mutateProjectExtras(names: string[], add: boolean): Promise<void> {
 		const cwd = skillProject || workspaceDir;
-		if (!cwd) return;
+		if (!cwd || names.length === 0) return;
 		setBusy(true);
 		setError("");
 		try {
-			const response = await client.request({ type: "skills.setProjectSelection", cwd, mode: "clear", names: [] });
+			const response = await client.request({
+				type: add ? "skills.project.addExtras" : "skills.project.removeExtras",
+				cwd,
+				names,
+			});
 			if (response.ok) await loadSkillsList(cwd);
-			else setError(response.error ?? t("settings.skills.saveSelectionFailed"));
+			else setError(response.error ?? t("settings.skills.extrasSaveFailed"));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	// ---- 分组管理：组是全局集合，编辑成员 + 关联项目；项目 tab 只消费 ----
+
+	function openGroupEditor(group: SkillGroupInfo | null): void {
+		setGroupEditOrigName(group?.name ?? null);
+		setGroupEdit(
+			group
+				? { ...group, skills: [...group.skills], projects: [...group.projects] }
+				: {
+						name: "",
+						skills: [],
+						projects: skillProject || workspaceDir ? [skillProject || workspaceDir] : [],
+					},
+		);
+	}
+
+	/** 保存组（新建追加、编辑按原名替换；全量写回 owlSkillGroups），随后热刷新。 */
+	async function saveGroup(): Promise<void> {
+		if (!groupEdit || !groupEdit.name.trim()) return;
+		setBusy(true);
+		setError("");
+		try {
+			const next = groupEditOrigName
+				? skillsData.skillGroups.map((g) => (g.name === groupEditOrigName ? groupEdit : g))
+				: [...skillsData.skillGroups, groupEdit];
+			const response = await client.request({ type: "skills.groups.save", groups: next });
+			if (response.ok) {
+				setGroupEdit(null);
+				await loadSkillsList();
+			} else {
+				setError(response.error ?? t("settings.skills.groupsSaveFailed"));
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 删除分组（不影响技能文件与项目）。 */
+	async function deleteGroup(name: string): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({
+				type: "skills.groups.save",
+				groups: skillsData.skillGroups.filter((g) => g.name !== name),
+			});
+			if (response.ok) {
+				setGroupEdit(null);
+				await loadSkillsList();
+			} else {
+				setError(response.error ?? t("settings.skills.groupsSaveFailed"));
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 关联/断开某组与当前项目（只动组的项目列表；组内技能对该项目整体生效/停用）。 */
+	async function toggleGroupProject(group: SkillGroupInfo, associated: boolean): Promise<void> {
+		const cwd = skillProject || workspaceDir;
+		if (!cwd) return;
+		const next = skillsData.skillGroups.map((g) =>
+			g.name === group.name
+				? { ...g, projects: associated ? [...new Set([...g.projects, cwd])] : g.projects.filter((p) => p !== cwd) }
+				: g,
+		);
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({ type: "skills.groups.save", groups: next });
+			if (response.ok) await loadSkillsList(cwd);
+			else setError(response.error ?? t("settings.skills.groupsSaveFailed"));
 		} finally {
 			setBusy(false);
 		}
@@ -800,7 +912,7 @@ export function SettingsPage({
 
 	/** 保存创建/编辑（编辑不改名称与位置，启停状态原样保留）。 */
 	async function saveSkillForm(): Promise<void> {
-		if (!skillForm) return;
+		if (!skillForm || skillsTab === "groups") return;
 		setBusy(true);
 		setError("");
 		try {
@@ -1669,13 +1781,13 @@ export function SettingsPage({
 							const visibleSkills = query
 								? [...nameHits, ...skillsInTab.filter((s) => !s.name.toLowerCase().includes(query) && s.description.toLowerCase().includes(query))]
 								: skillsInTab;
-							const activeRoot = skillsData.roots[skillsTab];
+							const activeRoot = skillsTab === "groups" ? "" : skillsData.roots[skillsTab];
 							const projectLocked = skillsTab === "project" && !skillsData.projectTrusted;
 							return (
 								<>
 									<SectionHeader title={t("settings.skills.title")} desc={t("settings.skills.desc")} />
 
-									{/* 三级 tab：个人 / 全局 / 项目 */}
+									{/* tab：个人 / 全局 / 项目 / 分组 */}
 									<div className="mb-1 flex items-center gap-2">
 										{SKILL_TABS.map(({ tab, labelKey }) => (
 											<button
@@ -1685,16 +1797,21 @@ export function SettingsPage({
 												onClick={() => {
 													setSkillsTab(tab);
 													setSkillForm(null);
+													setSoloPickerOpen(false);
 												}}
 											>
 												{t(labelKey)}
 												<span className="ml-1.5 text-[10px] opacity-70">
-													{skillsData.skills.filter((s) => s.tab === tab).length}
+													{tab === "groups"
+														? skillsData.skillGroups.length
+														: skillsData.skills.filter((s) => s.tab === tab).length}
 												</span>
 											</button>
 										))}
 									</div>
-									<div className="mb-3 truncate font-mono text-[10px] text-owl-faint">{activeRoot || "—"}</div>
+									{skillsTab !== "groups" && (
+										<div className="mb-3 truncate font-mono text-[10px] text-owl-faint">{activeRoot || "—"}</div>
+									)}
 
 									{projectLocked && (
 										<div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
@@ -1702,20 +1819,84 @@ export function SettingsPage({
 										</div>
 									)}
 
-									{/* 项目 tab：选择要管理的项目 + 勾选本项目需要的技能 */}
+									{/* 分组 tab：组是全局集合 —— 成员 + 关联项目；项目 tab 只消费 */}
+									{skillsTab === "groups" && (
+										<>
+											<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">{t("settings.skills.groupsManageHint")}</div>
+											<div className="mb-3 flex items-center justify-end">
+												<button type="button" className={btnAccent} disabled={busy} onClick={() => openGroupEditor(null)}>
+													{t("settings.skills.newGroupBtn")}
+												</button>
+											</div>
+											<div className="owl-settings-plugin-list">
+												{skillsData.skillGroups.length === 0 && (
+													<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+														{t("settings.skills.noGroups")}
+													</div>
+												)}
+												{skillsData.skillGroups.map((group) => (
+													<div key={group.name} className="owl-settings-plugin-row !items-start flex-col !gap-1.5">
+														<div className="flex w-full items-center gap-2">
+															<span className="shrink-0 rounded border border-violet-400/30 px-1.5 py-px text-[10px] text-violet-300">
+																{t("settings.skills.groupBadge")}
+															</span>
+															<span className="text-xs font-semibold text-owl-text">{group.name}</span>
+															<span className="text-[10px] text-owl-faint">
+																{t("settings.skills.groupSkillCount", { count: group.skills.length })} ·{" "}
+																{group.projects.length
+																	? t("settings.skills.groupAssociatedCount", { count: group.projects.length })
+																	: t("settings.skills.groupNotAssociated")}
+															</span>
+															<span style={{ flex: 1 }} />
+															<button type="button" className="owl-settings-link" onClick={() => openGroupEditor(group)}>
+																{t("common.edit")}
+															</button>
+															<button
+																type="button"
+																className="owl-settings-link is-danger"
+																disabled={busy}
+																onClick={() => {
+																	if (window.confirm(t("settings.skills.deleteGroupConfirm", { name: group.name }))) void deleteGroup(group.name);
+																}}
+															>
+																{t("common.delete")}
+															</button>
+														</div>
+														<div className="flex w-full flex-wrap gap-1">
+															{group.skills.map((name) => (
+																<span key={name} className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted">
+																	{name}
+																</span>
+															))}
+														</div>
+														<div className="flex w-full flex-wrap items-center gap-1 text-[10px] text-owl-faint">
+															{t("settings.skills.groupProjectsLabel")}
+															{group.projects.length
+																? group.projects.map((p) => (
+																		<span key={p} className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted">
+																			{p}
+																		</span>
+																	))
+																: t("settings.skills.groupNoProjectsHint")}
+														</div>
+													</div>
+												))}
+											</div>
+										</>
+									)}
+
+									{/* 项目 tab：关联组 + 生效清单（组是组，项目是项目） */}
 									{skillsTab === "project" && !projectLocked && (() => {
-										const choices = projectSkillChoices();
-										const enabledCount = choices.filter((s) => s.projectEnabled).length;
-										const customPatterns = skillsData.projectSkillPatterns.some(
-											(p) => p.startsWith("+") || p.startsWith("-") || p.startsWith("!"),
-										);
-										const tabBadge = { personal: t("settings.skills.tabPersonal"), global: t("settings.skills.tabGlobal"), project: t("settings.skills.tabProject") } as const;
+										const cwd = skillProject || workspaceDir;
+										const effective = effectiveProjectSkills();
+										const associatedGroups = skillsData.skillGroups.filter((g) => g.projects.includes(cwd));
+										const soloChoices = soloAddChoices();
 										return (
 											<>
 												<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">{t("settings.skills.projectTabDesc")}</div>
 
 												{/* 项目选择 + 添加项目 */}
-												<div className="mb-2 flex items-center gap-2">
+												<div className="mb-3 flex items-center gap-2">
 													<span className="shrink-0 text-[11px] text-owl-muted">{t("settings.skills.projectPickerLabel")}</span>
 													<select
 														className={`${smallInput} min-w-0 flex-1`}
@@ -1729,8 +1910,6 @@ export function SettingsPage({
 															</option>
 														))}
 													</select>
-												</div>
-												<div className="mb-3 flex items-center gap-2">
 													<input
 														className={`${smallInput} min-w-0 flex-1`}
 														value={skillAddProject}
@@ -1745,62 +1924,109 @@ export function SettingsPage({
 													</button>
 												</div>
 
-												{/* 勾选本项目需要的技能 */}
-												<div className="relative mb-3">
-													<button
-														type="button"
-														className={`${btn} w-full justify-between`}
-														onClick={() => setSkillPickerOpen((open) => !open)}
-													>
-														<span>{t("settings.skills.pickerBtn", { enabled: enabledCount, total: choices.length })}</span>
-														<span aria-hidden="true">{skillPickerOpen ? "▲" : "▼"}</span>
-													</button>
-													{skillPickerOpen && (
-														<div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-owl-border bg-owl-panel shadow-lg">
-															{customPatterns && (
-																<div className="border-b border-owl-border/60 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
-																	{t("settings.skills.pickerCustomNotice")}
-																</div>
-															)}
-															{choices.length === 0 && (
-																<div className="px-3 py-3 text-center text-xs text-owl-faint">{t("settings.skills.emptyDir")}</div>
-															)}
-															{choices.map((entry) => (
-																<label
-																	key={`${entry.tab}:${entry.name}`}
-																	className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-owl-border/20"
-																>
-																	<input
-																		type="checkbox"
-																		checked={entry.projectEnabled}
-																		disabled={busy}
-																		onChange={(event) => void toggleProjectSkill(entry.name, event.target.checked)}
-																	/>
-																	<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
-																	<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">
-																		{tabBadge[entry.tab]}
-																	</span>
-																</label>
-															))}
-															<div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-owl-border/60 bg-owl-panel px-3 py-2">
-																<button
-																	type="button"
-																	className="owl-settings-link"
-																	disabled={busy || skillsData.projectSkillPatterns.length === 0}
-																	onClick={() => void resetProjectSkillSelection()}
-																>
-																	{t("settings.skills.pickerReset")}
-																</button>
-																<button type="button" className="owl-settings-link" onClick={() => setSkillPickerOpen(false)}>
-																	{t("settings.skills.pickerClose")}
-																</button>
+												{/* 已关联的组 */}
+												<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+													{t("settings.skills.associatedGroupsTitle")}
+													<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.associatedGroupsHint")}</span>
+												</div>
+												{associatedGroups.length === 0 ? (
+													<div className="mb-3 rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+														{t("settings.skills.emptyAssociatedGroups")}
+													</div>
+												) : (
+													associatedGroups.map((group) => (
+														<div key={group.name} className="owl-settings-plugin-row">
+															<Switch checked disabled={busy} title={t("settings.skills.disconnectGroupTitle")} onChange={() => void toggleGroupProject(group, false)} />
+															<span className="text-xs font-semibold text-owl-text">{group.name}</span>
+															<span className="text-[10px] text-owl-faint">
+																{t("settings.skills.groupSkillCount", { count: group.skills.length })}
+															</span>
+															<span style={{ flex: 1 }} />
+															<button type="button" className="owl-settings-link" onClick={() => openGroupEditor(group)}>
+																{t("settings.skills.editMembersBtn")}
+															</button>
+														</div>
+													))
+												)}
+
+												{/* 生效技能清单 */}
+												<div className="mb-2 flex flex-wrap items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+													{t("settings.skills.effectiveListTitle")}
+													<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.effectiveListHint")}</span>
+													<span style={{ flex: 1 }} />
+													<div className="relative">
+														<button type="button" className={btn} disabled={busy || soloChoices.length === 0} onClick={() => setSoloPickerOpen((open) => !open)}>
+															{t("settings.skills.addSoloBtn")}
+														</button>
+														{soloPickerOpen && (
+															<div className="absolute right-0 z-20 mt-1 max-h-72 w-72 overflow-auto rounded-lg border border-owl-border bg-owl-panel shadow-lg">
+																{soloChoices.map((entry) => (
+																	<button
+																		key={`${entry.tab}:${entry.name}`}
+																		type="button"
+																		className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-owl-border/20"
+																		onClick={() => {
+																			setSoloPickerOpen(false);
+																			void mutateProjectExtras([entry.name], true);
+																		}}
+																	>
+																		<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
+																		<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">
+																			{entry.tab === "personal" ? t("settings.skills.tabPersonal") : t("settings.skills.tabGlobal")}
+																		</span>
+																	</button>
+																))}
 															</div>
+														)}
+													</div>
+												</div>
+												<div className="owl-settings-plugin-list">
+													{effective.length === 0 && (
+														<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+															{t("settings.skills.emptyEffective")}
 														</div>
 													)}
+													{effective.map(({ entry, from, solo }) => (
+														<div key={`eff:${entry.name}`} className={`owl-settings-plugin-row ${entry.projectEnabled ? "" : "opacity-55"}`}>
+															<input
+																type="checkbox"
+																checked={entry.projectEnabled}
+																disabled={busy}
+																title={entry.projectEnabled ? t("settings.skills.rowDisableTitle") : t("settings.skills.rowEnableTitle")}
+																onChange={(event) => void toggleProjectSkill(entry.name, event.target.checked)}
+															/>
+															<span className="min-w-0 flex-1 truncate font-mono text-xs text-owl-text">{entry.name}</span>
+															{entry.tab !== "project" && (entry.tab === "personal" ? (
+																<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-300">{t("settings.skills.tabPersonal")}</span>
+															) : (
+																<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-300">{t("settings.skills.tabGlobal")}</span>
+															))}
+															{solo ? (
+																<>
+																	<span className="shrink-0 text-[10px] text-owl-faint">{t("settings.skills.soloBadge")}</span>
+																	<button type="button" className="owl-settings-link is-danger" disabled={busy} onClick={() => void mutateProjectExtras([entry.name], false)}>
+																		{t("settings.skills.removeSolo")}
+																	</button>
+																</>
+															) : (
+																<span className="shrink-0 text-[10px] text-violet-300">{t("settings.skills.fromGroup", { name: from })}</span>
+															)}
+														</div>
+													))}
 												</div>
 											</>
 										);
 									})()}
+
+									{/* 个人 / 全局 / 项目：目录技能 CRUD（分组 tab 没有目录概念，整段隐藏） */}
+									{skillsTab !== "groups" && (
+									<>
+									{skillsTab === "project" && (
+										<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+											{t("settings.skills.projectDirSkillsTitle")}
+											<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.projectDirSkillsHint")}</span>
+										</div>
+									)}
 
 									{/* 搜索 + 新建 */}
 									<div className="mb-3 flex items-center gap-2">
@@ -1955,8 +2181,112 @@ export function SettingsPage({
 													<button type="button" className={btn} onClick={() => setConfirmDelSkill(null)}>
 														{t("common.cancel")}
 													</button>
-													<button type="button" className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`} disabled={busy} onClick={() => void deleteSkillEntry(confirmDelSkill)}>
+														<button type="button" className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`} disabled={busy} onClick={() => void deleteSkillEntry(confirmDelSkill)}>
 														{t("common.delete")}
+													</button>
+												</div>
+											</div>
+										</div>
+									)}
+
+									</>
+									)}
+
+									{/* 分组编辑弹窗（成员 + 关联项目，整体保存 owlSkillGroups） */}
+									{skillsTab === "groups" && groupEdit && (
+										<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+											<div className="owl-settings-card max-h-[84vh] w-[min(680px,92vw)] space-y-3 overflow-auto">
+												<div className="text-xs font-semibold text-owl-text">
+													{groupEditOrigName ? t("settings.skills.editGroupTitle", { name: groupEditOrigName }) : t("settings.skills.newGroupTitle")}
+												</div>
+												<label className="flex items-center gap-2 text-[11px] text-owl-muted">
+													<span className="shrink-0">{t("settings.skills.groupNameLabel")}</span>
+													<input
+														className={`${smallInput} min-w-0 flex-1`}
+														value={groupEdit.name}
+														onChange={(event) => setGroupEdit({ ...groupEdit, name: event.target.value })}
+														placeholder={t("settings.skills.groupNamePlaceholder")}
+													/>
+												</label>
+												<div>
+													<div className="mb-1 text-[11px] font-semibold text-owl-muted">
+														{t("settings.skills.groupMembersLabel")}
+														<span className="ml-2 font-normal text-owl-faint">{t("settings.skills.groupMembersHint")}</span>
+													</div>
+													<div className="grid max-h-64 grid-cols-2 gap-x-4 overflow-auto rounded-lg border border-owl-border p-2">
+														{skillsData.skills.map((entry) => (
+															<label
+																key={`${entry.tab}:${entry.name}`}
+																className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 text-xs hover:bg-owl-border/20"
+															>
+																<input
+																	type="checkbox"
+																	checked={groupEdit.skills.includes(entry.name)}
+																	disabled={busy}
+																	onChange={(event) =>
+																		setGroupEdit({
+																			...groupEdit,
+																			skills: event.target.checked
+																				? [...new Set([...groupEdit.skills, entry.name])]
+																				: groupEdit.skills.filter((n) => n !== entry.name),
+																		})
+																	}
+																/>
+																<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
+																<span className="shrink-0 rounded border border-owl-border px-1 py-px text-[10px] text-owl-faint">
+																	{entry.tab === "personal" ? t("settings.skills.tabPersonal") : entry.tab === "global" ? t("settings.skills.tabGlobal") : t("settings.skills.tabProject")}
+																</span>
+															</label>
+														))}
+													</div>
+												</div>
+												<div>
+													<div className="mb-1 text-[11px] font-semibold text-owl-muted">
+														{t("settings.skills.groupProjectsLabel")}
+														<span className="ml-2 font-normal text-owl-faint">{t("settings.skills.groupProjectsHint")}</span>
+													</div>
+													<div className="flex flex-wrap gap-3 rounded-lg border border-owl-border p-2">
+														{[workspaceDir, ...skillProjects]
+															.filter((p, i, arr) => p && arr.indexOf(p) === i)
+															.map((project) => (
+																<label key={project} className="flex cursor-pointer items-center gap-2 text-xs">
+																	<input
+																		type="checkbox"
+																		checked={groupEdit.projects.includes(project)}
+																		disabled={busy}
+																		onChange={(event) =>
+																			setGroupEdit({
+																				...groupEdit,
+																				projects: event.target.checked
+																					? [...new Set([...groupEdit.projects, project])]
+																					: groupEdit.projects.filter((p) => p !== project),
+																			})
+																		}
+																	/>
+																	<span className="font-mono text-[11px] text-owl-muted">{project}</span>
+																</label>
+															))}
+													</div>
+												</div>
+												<div className="flex items-center justify-end gap-2">
+													{groupEditOrigName && (
+														<button
+															type="button"
+															className="owl-settings-link is-danger"
+															disabled={busy}
+															onClick={() => {
+																if (window.confirm(t("settings.skills.deleteGroupConfirm", { name: groupEditOrigName }))) void deleteGroup(groupEditOrigName);
+															}}
+														>
+															{t("common.delete")}
+														</button>
+													)}
+													<span style={{ flex: 1 }} />
+													<button type="button" className={btn} onClick={() => setGroupEdit(null)}>
+														{t("common.cancel")}
+													</button>
+													<button type="button" className={btnAccent} disabled={busy || !groupEdit.name.trim()} onClick={() => void saveGroup()}>
+														{t("settings.skills.saveGroupBtn")}
 													</button>
 												</div>
 											</div>

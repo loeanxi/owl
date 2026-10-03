@@ -549,7 +549,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const resolved = cwd === undefined ? null : resolve(cwd).toLowerCase();
 		await Promise.all(
 			[...sessions.values()].map(async ({ runtime }) => {
-				if (resolved !== null && resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved) return;
+				if (resolved !== null && resolve(runtime.session.sessionManager.getCwd()).toLowerCase() !== resolved)
+					return;
 				try {
 					await runtime.session.reload();
 				} catch (error) {

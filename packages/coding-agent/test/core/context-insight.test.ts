@@ -185,7 +185,7 @@ describe("context-insight 注册表", () => {
 
 		recordContextRequest(sessionId, cwd, { ts: 100, composition: emptyComposition() });
 		recordContextUsage(sessionId, { input: 42, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 49 });
-		let state = getContextInsight(sessionId)!;
+		const state = getContextInsight(sessionId)!;
 		expect(state.requests[0].usage).toEqual({ input: 42, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 49 });
 
 		// 已有 usage 不覆盖（陈旧响应不会污染新行）

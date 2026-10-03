@@ -509,7 +509,15 @@ export type OwlImageProvider =
 	| "google-sub";
 
 /** BYOK provider（google-sub 走订阅不在内），apiKeys/env 的键集。 */
-export const OWL_IMAGE_BYOK_PROVIDERS = ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu"] as const satisfies readonly OwlImageProvider[];
+export const OWL_IMAGE_BYOK_PROVIDERS = [
+	"google",
+	"openai",
+	"openai-compat",
+	"seedream",
+	"dashscope",
+	"xai",
+	"zhipu",
+] as const satisfies readonly OwlImageProvider[];
 
 /** image-gen.json 的公开投影：不含 apiKeys 明文。 */
 export interface OwlImageConfigPublic {
@@ -1113,13 +1121,13 @@ export type DesktopClientRequest =
 	| SkillsListRequest
 	| SkillsReadRequest
 	| SkillsSetEnabledRequest
-		| SkillsCreateRequest
-		| SkillsUpdateRequest
-		| SkillsDeleteRequest
-		| SkillsSetProjectSelectionRequest
-		| SkillsGroupsSaveRequest
-		| SkillsProjectExtrasRequest
-		| SessionListRequest
+	| SkillsCreateRequest
+	| SkillsUpdateRequest
+	| SkillsDeleteRequest
+	| SkillsSetProjectSelectionRequest
+	| SkillsGroupsSaveRequest
+	| SkillsProjectExtrasRequest
+	| SessionListRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest

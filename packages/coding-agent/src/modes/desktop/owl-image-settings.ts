@@ -54,7 +54,9 @@ function imageAuthPath(agentDir: string): string {
 function readImageConfigRaw(agentDir: string): Record<string, unknown> {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(imageConfigPath(agentDir), "utf8"));
-		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
 	} catch {
 		return {};
 	}
@@ -67,7 +69,9 @@ export function readImageConfigPublic(agentDir: string): OwlImageConfigPublic {
 }
 
 /** 各 BYOK provider 的 key 状态：config 行优先，其次环境变量。 */
-export function apiKeyStatus(agentDir: string): Record<string, { configured: boolean; source: "config" | "env" | undefined }> {
+export function apiKeyStatus(
+	agentDir: string,
+): Record<string, { configured: boolean; source: "config" | "env" | undefined }> {
 	const raw = readImageConfigRaw(agentDir);
 	const rows = (typeof raw.apiKeys === "object" && raw.apiKeys !== null ? raw.apiKeys : {}) as Record<string, unknown>;
 	const status: Record<string, { configured: boolean; source: "config" | "env" | undefined }> = {};
@@ -89,7 +93,9 @@ export function subscriptionStatus(agentDir: string): { loggedIn: boolean; email
 		const parsed: unknown = JSON.parse(readFileSync(imageAuthPath(agentDir), "utf8"));
 		if (typeof parsed !== "object" || parsed === null) return { loggedIn: false };
 		const row = parsed as Record<string, unknown>;
-		const hasToken = (typeof row.accessToken === "string" && row.accessToken.length > 0) || (typeof row.refreshToken === "string" && row.refreshToken.length > 0);
+		const hasToken =
+			(typeof row.accessToken === "string" && row.accessToken.length > 0) ||
+			(typeof row.refreshToken === "string" && row.refreshToken.length > 0);
 		if (!hasToken) return { loggedIn: false };
 		return { loggedIn: true, ...(typeof row.email === "string" && row.email.length > 0 ? { email: row.email } : {}) };
 	} catch {
@@ -125,7 +131,8 @@ export function writeImageConfig(
 	const next: Record<string, unknown> = { ...raw };
 
 	if (patch.provider !== undefined) {
-		if (!(IMAGE_PROVIDERS as readonly string[]).includes(patch.provider)) return { ok: false, error: `不支持的 provider:${patch.provider}` };
+		if (!(IMAGE_PROVIDERS as readonly string[]).includes(patch.provider))
+			return { ok: false, error: `不支持的 provider:${patch.provider}` };
 		next.provider = patch.provider;
 	}
 	const stringFields: Array<[keyof OwlImageConfigPublic, number]> = [
@@ -153,7 +160,8 @@ export function writeImageConfig(
 		next[field] = asTrimmedString(patch[field], max) ?? "";
 	}
 	if (patch.openaiCompatEditFormat !== undefined) {
-		if (!EDIT_FORMATS.includes(patch.openaiCompatEditFormat)) return { ok: false, error: `不支持的 edits 请求形态:${String(patch.openaiCompatEditFormat)}` };
+		if (!EDIT_FORMATS.includes(patch.openaiCompatEditFormat))
+			return { ok: false, error: `不支持的 edits 请求形态:${String(patch.openaiCompatEditFormat)}` };
 		next.openaiCompatEditFormat = patch.openaiCompatEditFormat;
 	}
 	for (const field of ["seedreamWatermark", "saveToWorkspace", "attachImageToResult"] as const) {
@@ -162,11 +170,13 @@ export function writeImageConfig(
 		if (value !== undefined) next[field] = value;
 	}
 	if (patch.seedreamOutputFormat !== undefined) {
-		if (patch.seedreamOutputFormat !== "png" && patch.seedreamOutputFormat !== "jpeg") return { ok: false, error: "seedreamOutputFormat 只接受 png / jpeg" };
+		if (patch.seedreamOutputFormat !== "png" && patch.seedreamOutputFormat !== "jpeg")
+			return { ok: false, error: "seedreamOutputFormat 只接受 png / jpeg" };
 		next.seedreamOutputFormat = patch.seedreamOutputFormat;
 	}
 	if (patch.seedreamBackground !== undefined) {
-		if (patch.seedreamBackground !== "opaque" && patch.seedreamBackground !== "transparent") return { ok: false, error: "seedreamBackground 只接受 opaque / transparent" };
+		if (patch.seedreamBackground !== "opaque" && patch.seedreamBackground !== "transparent")
+			return { ok: false, error: "seedreamBackground 只接受 opaque / transparent" };
 		next.seedreamBackground = patch.seedreamBackground;
 	}
 	if (patch.maxImageBytes !== undefined) {
@@ -187,7 +197,8 @@ export function writeImageConfig(
 			const json = asTrimmedString((entry as { json?: unknown })?.json, MAX_WORKFLOW_BYTES) ?? "";
 			const presetPrompt = asTrimmedString((entry as { presetPrompt?: unknown })?.presetPrompt, 4000) ?? "";
 			if (name.length === 0 && json.length === 0) continue;
-			if (name.length === 0 || json.length === 0) return { ok: false, error: "ComfyUI 工作流的 name 与 json 必须同时填写" };
+			if (name.length === 0 || json.length === 0)
+				return { ok: false, error: "ComfyUI 工作流的 name 与 json 必须同时填写" };
 			try {
 				JSON.parse(json);
 			} catch {
@@ -202,7 +213,9 @@ export function writeImageConfig(
 	}
 
 	if (apiKeys !== undefined) {
-		const rows = (typeof raw.apiKeys === "object" && raw.apiKeys !== null ? { ...(raw.apiKeys as Record<string, unknown>) } : {}) as Record<string, unknown>;
+		const rows = (
+			typeof raw.apiKeys === "object" && raw.apiKeys !== null ? { ...(raw.apiKeys as Record<string, unknown>) } : {}
+		) as Record<string, unknown>;
 		for (const [provider, value] of Object.entries(apiKeys)) {
 			if (!(provider in BYOK_ENV_VARS)) continue;
 			if (typeof value !== "string") continue;
@@ -232,15 +245,16 @@ export function subscriptionLogout(agentDir: string): void {
 export function findOwlImageDist(pluginSources: unknown): string | undefined {
 	if (!Array.isArray(pluginSources)) return undefined;
 	for (const entry of pluginSources) {
-		const source = typeof entry === "string"
-			? entry
-			: typeof entry === "object" && entry !== null && typeof (entry as { source?: unknown }).source === "string"
-				? (entry as { source: string; disabled?: boolean }).source
-				: undefined;
+		const source =
+			typeof entry === "string"
+				? entry
+				: typeof entry === "object" && entry !== null && typeof (entry as { source?: unknown }).source === "string"
+					? (entry as { source: string; disabled?: boolean }).source
+					: undefined;
 		if (source === undefined || source.length === 0) continue;
 		if (typeof entry === "object" && entry !== null && (entry as { disabled?: unknown }).disabled === true) continue;
 		// 模式条目（+/-/! 前缀）与远程源不是本地目录插件
-		if (/^[+!\-]/.test(source) || /^(npm:|git\+|https?:)/.test(source)) continue;
+		if (/^[+!-]/.test(source) || /^(npm:|git\+|https?:)/.test(source)) continue;
 		try {
 			const manifest = JSON.parse(readFileSync(join(source, "package.json"), "utf8")) as { name?: unknown };
 			if (manifest.name !== "owl-image") continue;
@@ -264,10 +278,15 @@ let cachedLoginModule: { path: string; mod: OwlImageLoginExports } | undefined;
  * （内部起回环服务器并自动开浏览器）。结果页面/状态以本机 auth blob 为准，
  * UI 拿到 URL 仅用于展示兜底。
  */
-export async function subscriptionLogin(pluginSources: unknown): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+export async function subscriptionLogin(
+	pluginSources: unknown,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
 	const distPath = findOwlImageDist(pluginSources);
 	if (distPath === undefined) {
-		return { ok: false, error: "未在 settings.json 的 plugins 里找到已构建的 owl-image 包（本地目录源 + dist/index.js）" };
+		return {
+			ok: false,
+			error: "未在 settings.json 的 plugins 里找到已构建的 owl-image 包（本地目录源 + dist/index.js）",
+		};
 	}
 	try {
 		let mod = cachedLoginModule?.path === distPath ? cachedLoginModule.mod : undefined;
@@ -276,7 +295,10 @@ export async function subscriptionLogin(pluginSources: unknown): Promise<{ ok: t
 			cachedLoginModule = { path: distPath, mod };
 		}
 		if (typeof mod.beginGoogleSubscriptionLogin !== "function") {
-			return { ok: false, error: "owl-image dist 缺少 beginGoogleSubscriptionLogin 导出，请重新构建插件（npm run build）" };
+			return {
+				ok: false,
+				error: "owl-image dist 缺少 beginGoogleSubscriptionLogin 导出，请重新构建插件（npm run build）",
+			};
 		}
 		const url = await mod.beginGoogleSubscriptionLogin();
 		return { ok: true, url };

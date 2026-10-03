@@ -68,6 +68,8 @@ Pi (owl) keeps all skill directories under `.owl`:
 
 The desktop app's 技能中心 (Settings → 技能) browses these three scopes and can create, edit, enable/disable, and delete skills; deletions move the skill into `<root>/.trash/`. Disabling a skill writes `disable-model-invocation: true` into its frontmatter — the model stops auto-loading it, while `/skill:name` keeps working.
 
+Projects use an opt-in model: a project's effective skills come from the **skill groups** associated with it (groups are global collections defined in the 分组 tab and stored under `owlSkillGroups` in the global settings.json) plus skills added individually to the project (`owlSkillExtras` in the project's settings.json). Individual rows in a project's effective list can be disabled with `!name` patterns in the project's `skills` setting — group associations stay untouched.
+
 Pi accepts some standalone Markdown skills, but a directory containing `SKILL.md` is the portable form and should be preferred. See [Settings](settings.md#resources) and [Pi Packages](packages.md) for additional locations.
 
 Project skills can instruct the model to run scripts or modify files. Review unfamiliar skills and their supporting files before granting project trust.

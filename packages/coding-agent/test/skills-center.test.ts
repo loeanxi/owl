@@ -208,7 +208,7 @@ describe("skills-center", () => {
 		expect(existsSync(join(targetDir, "SKILL.md"))).toBe(true);
 	});
 
-	it("computes per-skill projectEnabled from the project skills overrides", () => {
+	it("computes projectEnabled from groups, extras and row-level overrides", () => {
 		mkdirSync(join(agentDir, "skills", "skill-a"), { recursive: true });
 		writeFileSync(join(agentDir, "skills", "skill-a", "SKILL.md"), "---\nname: skill-a\ndescription: a\n---\n");
 		mkdirSync(join(agentDir, "skills", "skill-b"), { recursive: true });
@@ -216,19 +216,40 @@ describe("skills-center", () => {
 		mkdirSync(join(cwd, ".owl", "skills", "skill-c"), { recursive: true });
 		writeFileSync(join(cwd, ".owl", "skills", "skill-c", "SKILL.md"), "---\nname: skill-c\ndescription: c\n---\n");
 
-		// 未配置：全部可用
-		const unconfigured = listSkills(cwd, true, agentDir, []);
-		expect(unconfigured.projectSkillPatterns).toEqual([]);
-		expect(unconfigured.skills.every((s) => s.projectEnabled)).toBe(true);
+		const dev = { name: "开发组", skills: ["skill-b"], projects: [cwd] };
 
-		// 取消勾选 skill-b：项目内禁用，其余（含项目的 skill-c）不受影响
-		const subset = listSkills(cwd, true, agentDir, disabledNamesToPatterns(["skill-b"]));
-		const byName = Object.fromEntries(subset.skills.map((s) => [s.name, s.projectEnabled]));
-		expect(byName).toEqual({ "skill-a": true, "skill-b": false, "skill-c": true });
+		// 严格 opt-in：没有关联组也没有单独添加 → 项目内无生效技能
+		const unconfigured = listSkills(cwd, true, agentDir, {});
+		expect(unconfigured.skills.every((s) => !s.projectEnabled)).toBe(true);
 
-		// !** = 全部禁用
-		const none = listSkills(cwd, true, agentDir, ["!**"]);
-		expect(none.skills.every((s) => !s.projectEnabled)).toBe(true);
+		// 关联开发组：skill-b 生效，其余不生效
+		const withGroup = listSkills(cwd, true, agentDir, { groups: [dev], extras: [] });
+		expect(withGroup.skills.map((s) => [s.name, s.projectEnabled])).toEqual([
+			["skill-a", false],
+			["skill-b", true],
+			["skill-c", false],
+		]);
+
+		// 单独添加与组取并集
+		const withExtras = listSkills(cwd, true, agentDir, { groups: [dev], extras: ["skill-c"] });
+		const byName = Object.fromEntries(withExtras.skills.map((s) => [s.name, s.projectEnabled]));
+		expect(byName).toEqual({ "skill-a": false, "skill-b": true, "skill-c": true });
+
+		// 生效集内再做行级排除（!名字）
+		const excluded = listSkills(cwd, true, agentDir, {
+			groups: [dev],
+			extras: ["skill-c"],
+			skillOverrides: disabledNamesToPatterns(["skill-b"]),
+		});
+		const excludedByName = Object.fromEntries(excluded.skills.map((s) => [s.name, s.projectEnabled]));
+		expect(excludedByName).toEqual({ "skill-a": false, "skill-b": false, "skill-c": true });
+
+		// 组关联到别的项目时，对本项目不生效
+		const otherProject = listSkills(cwd, true, agentDir, {
+			groups: [{ name: "dev", skills: ["skill-a"], projects: ["D:\\somewhere-else"] }],
+			extras: [],
+		});
+		expect(otherProject.skills.every((s) => !s.projectEnabled)).toBe(true);
 	});
 
 	it("parses and serializes project selections round-trip", () => {
