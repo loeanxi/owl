@@ -179,7 +179,7 @@ export function createMailTools(options: {
 				const proposed: MailDraft = {
 					accountId: thread.accountId,
 					threadId: thread.id,
-					to: senderAddress === account.email.toLowerCase() ? source.to : source.from,
+					to: senderAddress === account.email.toLowerCase() ? source.to : source.replyTo || source.from,
 					subject: input.subject ?? (/^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`),
 					body: input.body,
 					inReplyTo: source.messageId,

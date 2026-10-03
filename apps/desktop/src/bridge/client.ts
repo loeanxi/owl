@@ -1,6 +1,7 @@
 import type {
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
+	DiffApprovalChangedMessage,
 	IabServerMessage,
 	MailAgentDraftMessage,
 	NewsOpenMessage,
@@ -26,6 +27,7 @@ export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 export type NewsOpenHandler = (message: NewsOpenMessage) => void;
 export type MailDraftHandler = (message: MailAgentDraftMessage) => void;
+export type DiffApprovalChangedHandler = (message: DiffApprovalChangedMessage) => void;
 
 /** Malformed wire payloads must not interrupt the desktop message stream. */
 function decodeServerMessage(data: unknown): DesktopServerMessage | undefined {
@@ -70,6 +72,7 @@ export class BridgeClient {
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private newsOpenHandlers = new Set<NewsOpenHandler>();
 	private mailDraftHandlers = new Set<MailDraftHandler>();
+	private diffApprovalHandlers = new Set<DiffApprovalChangedHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -136,6 +139,10 @@ export class BridgeClient {
 			}
 			if (message.type === "viewer.changed") {
 				for (const handler of this.viewerChangedHandlers) handler(message);
+				return;
+			}
+			if (message.type === "diffApproval.changed") {
+				for (const handler of this.diffApprovalHandlers) handler(message);
 			}
 		};
 		ws.onclose = () => {
@@ -202,6 +209,12 @@ export class BridgeClient {
 	onNewsOpen(handler: NewsOpenHandler): () => void {
 		this.newsOpenHandlers.add(handler);
 		return () => this.newsOpenHandlers.delete(handler);
+	}
+
+	/** 改动审批清单变化（owl-diff-approval 插件落库/处理后的服务端推送）。 */
+	onDiffApprovalChanged(handler: DiffApprovalChangedHandler): () => void {
+		this.diffApprovalHandlers.add(handler);
+		return () => this.diffApprovalHandlers.delete(handler);
 	}
 
 	onMailDraft(handler: MailDraftHandler): () => void {

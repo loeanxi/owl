@@ -21,6 +21,20 @@ const MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 const FULL_SCOPE = "https://mail.google.com/";
 const KNOWN_SCOPES = new Set([READ_SCOPE, COMPOSE_SCOPE, SEND_SCOPE, MODIFY_SCOPE, FULL_SCOPE]);
 
+async function mapConcurrent<T, R>(items: T[], limit: number, transform: (item: T) => Promise<R>): Promise<R[]> {
+	const results: R[] = [];
+	let cursor = 0;
+	await Promise.all(
+		Array.from({ length: Math.min(items.length, limit) }, async () => {
+			while (cursor < items.length) {
+				const index = cursor++;
+				results[index] = await transform(items[index]);
+			}
+		}),
+	);
+	return results;
+}
+
 interface GoogleTokenResponse {
 	access_token?: string;
 	refresh_token?: string;
@@ -322,6 +336,10 @@ export class MailService {
 			throw new Error("邮箱连接已变更，请重新操作。");
 		}
 		const token = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
+		if (account.status === "disconnected" || (this.generations.get(account.id) ?? 0) !== generation) {
+			if (account.status === "connected" && account.accessToken) return account.accessToken;
+			throw new Error("邮箱连接已变更，请重新操作。");
+		}
 		if (!response.ok || !token.access_token) {
 			if (response.status === 400 || response.status === 401 || token.error === "invalid_grant")
 				return this.expireAccount(account);
@@ -343,8 +361,9 @@ export class MailService {
 			if (account.status !== "connected" || (this.generations.get(account.id) ?? 0) !== generation) {
 				throw new Error("邮箱连接已变更，请重新操作。");
 			}
+			let response: Response;
 			try {
-				return await this.fetch(`${GMAIL_API}${path}`, {
+				response = await this.fetch(`${GMAIL_API}${path}`, {
 					...init,
 					headers: { "Content-Type": "application/json", ...init?.headers, Authorization: `Bearer ${token}` },
 					signal: AbortSignal.timeout(30_000),
@@ -356,6 +375,10 @@ export class MailService {
 						: "无法确认 Gmail 是否完成此操作。请先在 Gmail 中查看结果，避免重复操作。",
 				);
 			}
+			if (account.status !== "connected" || (this.generations.get(account.id) ?? 0) !== generation) {
+				throw new Error("邮箱连接已变更，请重新操作。");
+			}
+			return response;
 		};
 		let response = await invoke();
 		if (response.status === 401 && retryRead && (!init?.method || init.method === "GET")) {
@@ -419,45 +442,41 @@ export class MailService {
 			sent: "SENT",
 			drafts: "DRAFT",
 		};
-		const label = folders[request.folder];
+		const label = Object.hasOwn(folders, request.folder) ? folders[request.folder] : undefined;
 		if (!label) throw new Error("邮箱文件夹无效。");
 		const maxResults = Math.min(50, Math.max(1, Math.floor(Number(request.maxResults) || 20)));
-		await Promise.all(
-			accountIds.map(async (accountId) => {
-				try {
-					const account = this.account(accountId);
-					this.requireCapability(account, "read");
-					const query = new URLSearchParams({ labelIds: label, maxResults: String(maxResults) });
-					if (typeof request.query === "string" && request.query.trim()) query.set("q", request.query.trim());
-					if (request.pageTokens?.[accountId]) query.set("pageToken", request.pageTokens[accountId]);
-					const list = await this.gmail<{ threads?: Array<{ id: string }>; nextPageToken?: string }>(
-						account,
-						`/threads?${query}`,
-					);
-					const ids = (list.threads ?? []).slice(0, maxResults);
-					const threads = await Promise.all(
-						ids.map((thread) =>
-							this.gmail<GmailThread>(account, `/threads/${encodeURIComponent(thread.id)}?format=full`),
-						),
-					);
-					result.threads.push(...threads.map((thread) => summarizeThread(thread, accountId)));
-					if (list.nextPageToken) result.nextPageTokens[accountId] = list.nextPageToken;
-					account.lastSyncedAt = new Date(this.now()).toISOString();
-				} catch (error) {
-					result.errors.push({
-						accountId,
-						error: error instanceof Error ? error.message : "此邮箱暂时无法读取。",
-					});
-				}
-			}),
-		);
+		await mapConcurrent(accountIds, 4, async (accountId) => {
+			try {
+				const account = this.account(accountId);
+				this.requireCapability(account, "read");
+				const query = new URLSearchParams({ labelIds: label, maxResults: String(maxResults) });
+				if (typeof request.query === "string" && request.query.trim()) query.set("q", request.query.trim());
+				if (request.pageTokens?.[accountId]) query.set("pageToken", request.pageTokens[accountId]);
+				const list = await this.gmail<{ threads?: Array<{ id: string }>; nextPageToken?: string }>(
+					account,
+					`/threads?${query}`,
+				);
+				const ids = (list.threads ?? []).slice(0, maxResults);
+				const threads = await mapConcurrent(ids, 5, (thread) =>
+					this.gmail<GmailThread>(account, `/threads/${encodeURIComponent(thread.id)}?format=full`),
+				);
+				result.threads.push(...threads.map((thread) => summarizeThread(thread, accountId)));
+				if (list.nextPageToken) result.nextPageTokens[accountId] = list.nextPageToken;
+				account.lastSyncedAt = new Date(this.now()).toISOString();
+			} catch (error) {
+				result.errors.push({
+					accountId,
+					error: error instanceof Error ? error.message : "此邮箱暂时无法读取。",
+				});
+			}
+		});
 		await this.store.save(this.data);
 		result.threads.sort((left, right) => (Date.parse(right.date) || 0) - (Date.parse(left.date) || 0));
 		return result;
 	}
 
 	private async getThread(accountId: string, threadId: string): Promise<MailThread> {
-		if (typeof threadId !== "string" || !threadId) throw new Error("邮件会话标识无效。");
+		if (typeof threadId !== "string" || !/^[a-z0-9_-]{1,256}$/i.test(threadId)) throw new Error("邮件会话标识无效。");
 		const account = this.account(accountId);
 		this.requireCapability(account, "read");
 		const thread = await this.gmail<GmailThread>(account, `/threads/${encodeURIComponent(threadId)}?format=full`);

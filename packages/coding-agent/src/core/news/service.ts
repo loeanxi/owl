@@ -23,6 +23,7 @@ import {
 	NEWS_SECRET_KEYS,
 	type NewsFetchOptions,
 	NewsHttpRejectedError,
+	NewsPaidOutputError,
 	publicNewsSource,
 } from "./sources.ts";
 import { NewsBudgetError, NewsStore, NewsUnknownReceiptError, newsHash, type StoredNewsJob } from "./store.ts";
@@ -123,6 +124,7 @@ export class NewsService {
 	private started = false;
 	private stopping = false;
 	private lease = false;
+	private lostLease = false;
 	constructor(options: NewsServiceOptions) {
 		this.options = options;
 		this.directory = join(options.agentDir, "news");
@@ -144,7 +146,9 @@ export class NewsService {
 		this.lease = this.store.acquireLease(this.owner);
 		if (this.lease) this.store.recover();
 		this.timer = setInterval(() => {
-			if (this.lease && !this.stopping) this.lease = this.store.acquireLease(this.owner);
+			if (this.lease && !this.store.acquireLease(this.owner)) {
+				this.lease = false; this.lostLease = true; this.controller.abort(new Error("资讯任务租约已丢失"));
+			}
 			this.kick();
 		}, 10000);
 		this.timer.unref();
@@ -160,11 +164,11 @@ export class NewsService {
 	async close(): Promise<void> {
 		if (this.stopping) return;
 		this.stopping = true;
-		if (this.timer) clearInterval(this.timer);
 		const abortTimer = setTimeout(() => this.controller.abort(new Error("资讯服务关闭")), 195000);
 		try {
 			await Promise.allSettled([...(this.loop ? [this.loop] : []), ...this.pending]);
 		} finally {
+			if (this.timer) clearInterval(this.timer);
 			clearTimeout(abortTimer);
 			this.controller.abort();
 			this.store.releaseLease(this.owner);
@@ -175,7 +179,7 @@ export class NewsService {
 		this.options.onChanged?.();
 	}
 	private kick(): void {
-		if (!this.started || this.stopping || this.loop) return;
+		if (!this.started || this.stopping || this.lostLease || this.loop) return;
 		this.loop = this.tick()
 			.catch((error) => {
 				this.store.audit("worker.error", "worker", { error: this.message(error) });
@@ -191,6 +195,7 @@ export class NewsService {
 		return text.slice(0, 2000);
 	}
 	private async tick(): Promise<void> {
+		if (this.lostLease) return;
 		const hadLease = this.lease;
 		this.lease = this.store.acquireLease(this.owner);
 		if (!this.lease) return;
@@ -206,9 +211,11 @@ export class NewsService {
 			if (!job) break;
 			try {
 				await this.processJob(job);
+				if (this.lostLease) return;
 				job.status = "completed";
 				job.error = null;
 			} catch (error) {
+				if (this.lostLease) return;
 				job.error = this.message(error);
 				if (error instanceof NewsOutputError && error.response) {
 					const receiptId = this.responseReceipts.get(error.response);
@@ -216,7 +223,7 @@ export class NewsService {
 				}
 				const delayed =
 					error instanceof NewsBudgetError ||
-					(!(error instanceof NewsUnknownReceiptError) && !(error instanceof NewsOutputError) && job.attempts < 3);
+					(!(error instanceof NewsUnknownReceiptError) && !(error instanceof NewsOutputError) && !(error instanceof NewsPaidOutputError) && job.attempts < 3);
 				job.status = delayed ? "pending" : "failed";
 				job.nextAttemptAt = new Date(
 					Date.now() + (error instanceof NewsBudgetError ? 60000 : 30000 * 2 ** job.attempts),
@@ -319,6 +326,7 @@ export class NewsService {
 		);
 		if (begun.cached) {
 			onReceipt?.(begun.receipt.id, begun.receipt.response);
+			if (begun.receipt.error) throw new NewsPaidOutputError(begun.receipt.error, begun.receipt.response);
 			return begun.receipt.response;
 		}
 		try {
@@ -328,6 +336,10 @@ export class NewsService {
 			onReceipt?.(begun.receipt.id, result);
 			return result;
 		} catch (error) {
+			if (error instanceof NewsPaidOutputError) {
+				this.store.receiveReceipt(begun.receipt.id, error.response);
+				this.store.setReceiptState(begun.receipt.id, "received", this.message(error)); throw error;
+			}
 			if (error instanceof NewsOutputError && error.response) {
 				this.store.receiveReceipt(begun.receipt.id, error.response, error.response.usage);
 				onReceipt?.(begun.receipt.id, error.response);
@@ -464,6 +476,7 @@ export class NewsService {
 				const current = this.store.story(story.id);
 				if (current && !current.manual)
 					this.store.saveStory({ ...current, ...digest, updatedAt: new Date().toISOString() });
+				this.store.setMeta(`story-digest:${story.id}`, newsHash(story.reports.map(item => [item.id, item.revision, item.title, item.summary])));
 				this.store.completeReceipts(`story:${story.id}:${job.data.revision}`);
 			});
 			return;
@@ -728,10 +741,10 @@ export class NewsService {
 		};
 	}
 	private publicStory(story: NewsStory): NewsStory {
-		return {
-			...story,
-			reports: story.reports.filter((item) => this.visible(item)).map((item) => this.publicItem(item)),
-		};
+		const reports = story.reports.filter(item => this.visible(item)).map(item => this.publicItem(item));
+		const signature = newsHash(story.reports.map(item => [item.id, item.revision, item.title, item.summary]));
+		const fresh = this.store.getMeta<string>(`story-digest:${story.id}`) === signature;
+		return { ...story, reports, ...(!fresh && !story.manual ? { title: reports[0]?.title ?? "", summary: reports[0]?.summary ?? "" } : {}) };
 	}
 	private publicReport(report: NewsReport): NewsReport {
 		const project = (items: NewsItem[]) =>
@@ -739,14 +752,25 @@ export class NewsService {
 				const item = this.store.item(snapshot.id);
 				return item && this.visible(item) ? [this.publicItem(item)] : [];
 			});
-		return {
-			...report,
-			sections: report.sections.map((section) => ({ ...section, items: project(section.items) })),
-			briefs: project(report.briefs),
-			relatedItems: report.relatedItems
-				? Object.fromEntries(Object.entries(report.relatedItems).map(([id, items]) => [id, project(items)]))
-				: undefined,
-		};
+		const sections = report.sections.map(section => ({ ...section, items: project(section.items) })).filter(section => section.items.length);
+		const briefs = project(report.briefs); const main = sections.flatMap(section => section.items);
+		const liveHosts = new Set([...main, ...briefs].map(item => item.id));
+		const relatedItems: Record<string, NewsItem[]> = {};
+		for (const [id, items] of Object.entries(report.relatedItems ?? {})) if (liveHosts.has(id)) {
+			const projected = project(items); if (projected.length) relatedItems[id] = projected;
+		}
+		const snapshots = [...report.sections.flatMap(section => section.items), ...report.briefs, ...Object.values(report.relatedItems ?? {}).flat()];
+		const currentItems = [...main, ...briefs, ...Object.values(relatedItems).flat()];
+		const liveById = new Map(currentItems.map(item => [item.id, item]));
+		const unchanged = snapshots.length === currentItems.length && snapshots.every(snapshot => {
+			const current = liveById.get(snapshot.id); return current && current.title === snapshot.title && current.summary === snapshot.summary;
+		});
+		const originalLead = report.sections.flatMap(section => section.items).find(item => report.lead.startsWith(item.title));
+		const leadItem = originalLead ? liveById.get(originalLead.id) ?? main[0] : main[0];
+		const lead = report.kind === "daily" ? leadItem ? `${leadItem.title}\n${leadItem.summary}` : "本期没有仍可公开的资讯。"
+			: unchanged ? report.lead : `${report.key} 共收录 ${main.length} 件仍可公开的行业事件。`;
+		return { ...report, lead, sections: sections.map(section => ({ ...section, summary: unchanged ? section.summary : "" })), briefs, relatedItems,
+			sourceCount: new Set(currentItems.map(item => item.sourceId)).size, storyCount: main.length };
 	}
 	private list(query: NewsListQuery = {}, administration = false, status?: string): NewsListResult {
 		const limit = Math.floor(bounded(query.limit ?? 30, 1, 5000, "条数"));
@@ -836,7 +860,7 @@ export class NewsService {
 			}
 			case "story": {
 				const story = this.store.story(request.id);
-				return story ? this.publicStory(story) : null;
+				return story && story.reports.some(item => this.visible(item)) ? this.publicStory(story) : null;
 			}
 			case "hot": {
 				const heat = calculateNewsHeat(this.store.stories());
@@ -895,7 +919,6 @@ export class NewsService {
 								sourceName: source.name,
 								fulltextAllowed: source.siteFulltext,
 							});
-							if (source.participation !== "editorial") this.store.invalidateReports(item.id);
 						}
 					});
 				return publicNewsSource(source);
@@ -1052,7 +1075,6 @@ export class NewsService {
 			case "withdraw": {
 				const old = this.store.item(request.id);
 				if (!old) return null;
-				this.store.invalidateReports(request.id);
 				return this.publicItem(
 					this.store.editItem(request.id, {
 						withdrawn: request.withdrawn,

@@ -16,7 +16,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -307,6 +307,24 @@ export interface DesktopServerOptions {
 export interface DesktopServerHandle {
 	port: number;
 	close(): Promise<void>;
+}
+
+/** Only local desktop/browser surfaces may subscribe to private agent and mailbox events. */
+export function isTrustedDesktopOrigin(origin: string | undefined, bindingHost?: string): boolean {
+	if (origin === undefined) return true;
+	let url: URL;
+	try {
+		url = new URL(origin);
+	} catch {
+		return false;
+	}
+	if (url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash)
+		return false;
+	if (url.protocol === "tauri:") return url.hostname === "localhost";
+	if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+	if (["localhost", "127.0.0.1", "[::1]", "tauri.localhost"].includes(url.hostname)) return true;
+	if (!bindingHost || ["0.0.0.0", "::", "[::]"].includes(bindingHost)) return false;
+	return url.hostname === bindingHost.toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -750,7 +768,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	/** Mail sessions reuse model/auth settings while excluding code, browser, MCP and extension capabilities. */
-	function buildMailFactory(agentDir: string, context: MailAgentContext): CreateAgentSessionRuntimeFactory {
+	function buildMailFactory(
+		agentDir: string,
+		context: MailAgentContext,
+		modelSpec?: { provider?: string; model?: string; thinkingLevel?: string },
+	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const sessionId = runtimeOptions.sessionManager.getSessionId();
 			if (!getMailAgentContext(runtimeOptions.sessionManager)) {
@@ -774,11 +796,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				context,
 				onDraft: (draft) => broadcast({ type: "mail.agent.draft", sessionId, draft }),
 			});
+			let model: ReturnType<typeof services.modelRuntime.getModel>;
+			if (modelSpec?.model) {
+				model = modelSpec.provider
+					? services.modelRuntime.getModel(modelSpec.provider, modelSpec.model)
+					: services.modelRuntime.getModels().find((candidate) => candidate.id === modelSpec.model);
+				if (!model)
+					throw new Error(`Model not found: ${[modelSpec.provider, modelSpec.model].filter(Boolean).join("/")}`);
+			}
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
 				tools: customTools.map((tool) => tool.name),
 				customTools,
+				...(model ? { model } : {}),
+				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
 			});
 			if (!session.session.model) {
 				session.session.dispose();
@@ -1071,7 +1103,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const runtime = await createAgentSessionRuntime(
 			mailContext
-				? buildMailFactory(args.agentDir, mailContext)
+				? buildMailFactory(args.agentDir, mailContext, {
+						provider: args.provider,
+						model: args.model,
+						thinkingLevel: args.thinkingLevel,
+					})
 				: buildFactory(
 						args.agentDir,
 						{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
@@ -1153,7 +1189,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const cwd = request.cwd ?? options.cwd ?? process.cwd();
 				const sessionManager = SessionManager.create(cwd, join(agentDir, "mail", "agent-sessions"));
 				sessionManager.appendCustomEntry(MAIL_AGENT_CONTEXT_ENTRY, context);
-				await mountSession(ws, request.id, { sessionManager, agentDir, approvalMode: "auto" });
+				await mountSession(ws, request.id, {
+					sessionManager,
+					agentDir,
+					approvalMode: "auto",
+					provider: request.provider,
+					model: request.model,
+					thinkingLevel: request.thinkingLevel,
+				});
 				return;
 			}
 			case "news.request": {
@@ -2402,7 +2445,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						.end(JSON.stringify({ error: "资讯请求失败" }));
 			});
 	});
-	const wss = new WebSocketServer({ server: httpServer });
+	const wss = new WebSocketServer({
+		server: httpServer,
+		verifyClient: (info: { origin: string; secure: boolean; req: IncomingMessage }) =>
+			isTrustedDesktopOrigin(info.req.headers.origin, options.host),
+	});
 	wss.on("connection", (ws) => {
 		clients.add(ws);
 		ws.on("message", (data) => {

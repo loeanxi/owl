@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MailAccountStatus } from "./types.js";
 
@@ -51,8 +52,14 @@ function dpapi(value: string, action: "seal" | "unseal"): Promise<string> {
 			output += chunk;
 		});
 		child.stderr.resume();
+		const timer = setTimeout(() => {
+			child.kill();
+			reject(new Error("Windows 邮箱授权保护超时，请重试。"));
+		}, 15_000);
+		timer.unref();
 		child.on("error", () => reject(new Error("无法使用 Windows 用户凭据保护邮箱授权。")));
 		child.on("close", (code) => {
+			clearTimeout(timer);
 			if (code !== 0 || !output.trim()) {
 				reject(new Error("无法读取或保护邮箱授权，请使用原 Windows 用户重试。"));
 				return;
@@ -115,13 +122,18 @@ export class MailStore {
 			.then(async () => {
 				await mkdir(this.directory, { recursive: true, mode: 0o700 });
 				const payload = this.seal ? await this.seal(snapshot) : snapshot;
-				const temporary = `${this.path}.tmp`;
+				const temporary = `${this.path}.${randomUUID()}.tmp`;
 				// Non-Windows hosts use owner-only directory/file permissions. No secret
 				// encryption claim is made for this portable fallback.
-				await writeFile(temporary, JSON.stringify({ version: 1, protection: this.protection, payload }), {
-					mode: 0o600,
-				});
-				await rename(temporary, this.path);
+				try {
+					await writeFile(temporary, JSON.stringify({ version: 1, protection: this.protection, payload }), {
+						mode: 0o600,
+						flag: "wx",
+					});
+					await rename(temporary, this.path);
+				} finally {
+					await unlink(temporary).catch(() => undefined);
+				}
 			});
 		this.saveQueue = operation;
 		return operation;

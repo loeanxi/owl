@@ -15,6 +15,7 @@ import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
 import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
+import { ReviewTab } from "./tabs/ReviewTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { SideChatTab } from "./tabs/SideChatTab.tsx";
 import { IconFile, IconImage } from "./icons.tsx";
@@ -51,6 +52,12 @@ const DEFINITIONS: TabDefinition[] = [
 		get title() { return t("dev.changes"); },
 		icon: quickIcon("changes"),
 		component: ChangesTab,
+	},
+	{
+		kind: "review",
+		get title() { return t("wb.review"); },
+		icon: quickIcon("review"),
+		component: ReviewTab,
 	},
 	{
 		kind: "terminal",

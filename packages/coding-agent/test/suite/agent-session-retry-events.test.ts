@@ -280,6 +280,8 @@ describe("AgentSession retry and event characterization", () => {
 			"message_end:system",
 			"message_start:user",
 			"message_end:user",
+			// owl:用户消息条目落盘事件（owl-rewind 给乐观追加行补 entryId 用）
+			"entry_appended",
 			"message_start:assistant",
 			"message_update",
 			"message_end:assistant",
@@ -319,6 +321,7 @@ describe("AgentSession retry and event characterization", () => {
 			"message_end:system",
 			"message_start:user",
 			"message_end:user",
+			"entry_appended",
 			"message_start:assistant",
 			"message_update",
 			"message_end:assistant",

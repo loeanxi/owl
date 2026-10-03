@@ -8,6 +8,7 @@
 import type { BridgeClient } from "../bridge/client.ts";
 import { t } from "../i18n/index.ts";
 import type {
+	DiffApprovalFileSummary,
 	FsListing,
 	FsReadBinResult,
 	FsReadResult,
@@ -85,6 +86,22 @@ export function createSidebarApi(client: BridgeClient) {
 			client
 				.request<GitLogEntry[]>({ type: "git.log", cwd, count })
 				.then((r) => unwrap(r, t("api.opGitLog"))),
+		diffApprovalList: (cwd: string) =>
+			client
+				.request<{ files: DiffApprovalFileSummary[] }>({ type: "diffApproval.list", cwd })
+				.then((r) => unwrap(r, t("api.opReviewList")).files),
+		diffApprovalDiff: (cwd: string, entryId: string) =>
+			client
+				.request<{ diff: string; truncated: boolean }>({ type: "diffApproval.diff", cwd, entryId })
+				.then((r) => unwrap(r, t("api.opReviewDiff"))),
+		diffApprovalResolve: (cwd: string, entryIds: string[], action: "keep" | "revert") =>
+			client
+				.request<{ resolved: number; failed: Array<{ path: string; reason: string }> }>({ type: "diffApproval.resolve", cwd, entryIds, action })
+				.then((r) => unwrap(r, t("api.opReviewResolve"))),
+		diffApprovalClear: (cwd: string) =>
+			client
+				.request<{ removed: number }>({ type: "diffApproval.clear", cwd })
+				.then((r) => unwrap(r, t("api.opReviewClear"))),
 		watchSet: (cwd: string, dirs: string[]) =>
 			client.request({ type: "watch.set", cwd, dirs }).then((r) => unwrap(r, t("api.opWatch"))),
 		openExternal: (action: "reveal" | "url", target: string, cwd?: string) =>

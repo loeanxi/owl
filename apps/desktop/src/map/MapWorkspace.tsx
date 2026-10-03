@@ -1,4 +1,7 @@
-import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
+import { type JSX, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { BridgeClient } from "../bridge/client.ts";
+import type { ApprovalMode } from "../bridge/protocol.ts";
+import { MapConversation, type MapConversationContext } from "./conversation.ts";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
 import { mapWorldLayout } from "./geometry.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
@@ -11,7 +14,6 @@ import {
 	keepVisibleSelection,
 	MAP_REGIONS,
 	MAX_COMPARE_PLACES,
-	MAX_QUERY_LENGTH,
 	type MapRegion,
 	type MapSavedState,
 	type Place,
@@ -54,12 +56,61 @@ const filters: readonly PlaceFilter[] = ["quiet", "plug", "budget", "lake"];
 export function MapWorkspace({
 	sidebarCollapsed = false,
 	active = true,
+	client,
+	connected,
+	cwd,
+	model,
+	modelName,
+	thinkingLevel,
+	approvalMode,
 }: {
 	sidebarCollapsed?: boolean;
 	active?: boolean;
+	client: BridgeClient;
+	connected: boolean;
+	cwd: string;
+	model: string;
+	modelName?: string;
+	thinkingLevel: string;
+	approvalMode: ApprovalMode;
 }): JSX.Element {
 	const copy = useMapCopy();
 	const m = copy.text;
+	const modelSeparator = model.indexOf("/");
+	const provider = modelSeparator > 0 ? model.slice(0, modelSeparator) : undefined;
+	const modelId = modelSeparator > 0 ? model.slice(modelSeparator + 1) : model;
+	const conversation = useMemo(
+		() =>
+			new MapConversation(
+				client,
+				{ cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode },
+				connected,
+			),
+		[client],
+	);
+	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
+	const [stopped, setStopped] = useState(false);
+	const [aborting, setAborting] = useState(false);
+	const [conversationError, setConversationError] = useState<string>();
+	const unavailable = !connected ? m("chatDisconnected") : undefined;
+	const sendDisabled = !active || Boolean(unavailable) || conversationState.busy;
+	const displayedModel = modelName || modelId || m("defaultModel");
+	const conversationScrollRef = useRef<HTMLDivElement>(null);
+	const conversationPinned = useRef(true);
+	const sendEpoch = useRef(0);
+	useEffect(() => {
+		sendEpoch.current++;
+	}, [conversation, cwd]);
+	useEffect(() => {
+		conversation.setConfig({ cwd, provider, model: modelId || undefined, thinkingLevel, approvalMode });
+	}, [conversation, cwd, provider, modelId, thinkingLevel, approvalMode]);
+	useEffect(() => {
+		conversation.setConnected(connected);
+	}, [conversation, connected]);
+	useEffect(() => {
+		if (active && conversationPinned.current && conversationScrollRef.current)
+			conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight;
+	}, [active, conversationState.entries, conversationState.busy]);
 	const [view, setView] = useState<MapView>("home");
 	const [scope, setScope] = useState<SearchScope>(DEFAULT_SEARCH);
 	const [savedState, setSavedState] = useState<MapSavedState>(() => {
@@ -78,7 +129,6 @@ export function MapWorkspace({
 	const [sideInput, setSideInput] = useState("");
 	const [followInput, setFollowInput] = useState("");
 	const [followContext, setFollowContext] = useState<PlaceId>();
-	const [followAnswerId, setFollowAnswerId] = useState<PlaceId>();
 	const [zoom, setZoom] = useState(1);
 	const [toast, setToast] = useState("");
 	const workspaceRef = useRef<HTMLDivElement>(null);
@@ -109,7 +159,6 @@ export function MapWorkspace({
 	const comparisonPlaces = DEMO_PLACES.filter((p) => comparisonIds.includes(p.id));
 	const regionLabel = scope.region === "all" ? m("hangzhou") : `${m("hangzhou")} · ${copy.region(scope.region)}`;
 	const contextPlace = DEMO_PLACES.find((p) => p.id === followContext);
-	const answerPlace = DEMO_PLACES.find((p) => p.id === followAnswerId);
 	const hasDetail = Boolean(detailPlace);
 	const availableMapWidth = Math.max(0, mapViewport.width - (hasDetail ? Math.min(336, mapViewport.width) : 0));
 	const mapLayout = mapWorldLayout(availableMapWidth, mapViewport.height, zoom, selectedPlace ?? { x: 54, y: 50 });
@@ -233,7 +282,6 @@ export function MapWorkspace({
 		setDetailId(undefined);
 		setLocationOpen(false);
 		setFollowContext(undefined);
-		setFollowAnswerId(undefined);
 		const nextRows =
 			nextView === "saved" ? getFavoriteResults(savedState.favorites, next.region) : getSearchResults(next);
 		setSelectedId(keepVisibleSelection(nextRows, selectedId));
@@ -242,23 +290,63 @@ export function MapWorkspace({
 		});
 	}
 
-	function submitQuery(text: string, follow = false): void {
+	async function submitQuery(text: string, follow = false): Promise<void> {
 		const query = text.trim();
 		if (!query) {
 			showToast(m("emptyQuery"));
 			return;
 		}
-		if (follow && contextPlace) {
-			setFollowAnswerId(contextPlace.id);
-			setFollowInput("");
-			return;
-		}
+		if (unavailable || conversation.getState().busy) return;
+		const epoch = ++sendEpoch.current;
 		const next = parseMapQuery(query, follow ? scope : { ...DEFAULT_SEARCH, region: scope.region });
-		updateScope(next);
-		setSavedState((current) => ({ ...current, history: addSearchHistory(current.history, next.query) }));
-		setHomeInput("");
-		setFollowInput("");
-		setSideInput("");
+		const updateMap = !next.unsupported && !(follow && contextPlace);
+		const contextScope = updateMap ? next : scope;
+		const candidates = updateMap ? getSearchResults(next) : mapRows;
+		const context: MapConversationContext = {
+			region: contextScope.region,
+			filters: [...contextScope.filters],
+			selectedPlaceId: contextPlace?.id ?? selectedPlace?.id,
+			candidates: candidates.map((place) => place.id),
+		};
+		if (updateMap) updateScope(next);
+		else if (view === "home") setView("results");
+		setDetailId(undefined);
+		setLocationOpen(false);
+		setConversationError(undefined);
+		setStopped(false);
+		conversationPinned.current = true;
+		requestAnimationFrame(() => {
+			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
+			followInputRef.current?.focus();
+		});
+		try {
+			const sent = await conversation.send(text, context);
+			if (epoch !== sendEpoch.current) return;
+			if (!sent) {
+				setFollowInput(text);
+				return;
+			}
+			setSavedState((current) => ({ ...current, history: addSearchHistory(current.history, query) }));
+			setHomeInput((current) => (current === text ? "" : current));
+			setFollowInput((current) => (current === text ? "" : current));
+			setSideInput((current) => (current === text ? "" : current));
+		} catch (error) {
+			if (epoch !== sendEpoch.current) return;
+			setConversationError(error instanceof Error ? error.message : m("chatError"));
+			setFollowInput(text);
+		}
+	}
+
+	async function stopReply(): Promise<void> {
+		if (aborting) return;
+		setAborting(true);
+		try {
+			if (await conversation.abort()) setStopped(true);
+		} catch (error) {
+			setConversationError(error instanceof Error ? error.message : m("chatError"));
+		} finally {
+			setAborting(false);
+		}
 	}
 
 	function chooseCategory(category: PlaceType): void {
@@ -269,6 +357,11 @@ export function MapWorkspace({
 	}
 
 	function newExploration(): void {
+		if (conversation.getState().busy) return;
+		sendEpoch.current++;
+		conversation.newThread();
+		setStopped(false);
+		setConversationError(undefined);
 		setView("home");
 		setScope({ ...DEFAULT_SEARCH, region: scope.region });
 		setSelectedId(undefined);
@@ -278,7 +371,6 @@ export function MapWorkspace({
 		setHomeInput("");
 		setFollowInput("");
 		setFollowContext(undefined);
-		setFollowAnswerId(undefined);
 		setZoom(1);
 		requestAnimationFrame(() => {
 			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
@@ -323,7 +415,6 @@ export function MapWorkspace({
 			if (selectedId === id) setSelectedId(undefined);
 			if (followContext === id) {
 				setFollowContext(undefined);
-				setFollowAnswerId(undefined);
 			}
 			if (!remaining.length) setSelectedId(undefined);
 		}
@@ -371,7 +462,6 @@ export function MapWorkspace({
 		setSelectedId(place.id);
 		setDetailId(undefined);
 		setFollowContext(place.id);
-		setFollowAnswerId(undefined);
 		setFollowInput(m("placePrompt"));
 		requestAnimationFrame(() => followInputRef.current?.focus());
 	}
@@ -506,7 +596,6 @@ export function MapWorkspace({
 	}
 
 	function followupPanel(): JSX.Element {
-		const answer = answerPlace ? copy.place(answerPlace.id) : undefined;
 		return (
 			<section className="followup-box">
 				<div className="followup-context">
@@ -522,7 +611,6 @@ export function MapWorkspace({
 							aria-label={m("cancel")}
 							onClick={() => {
 								setFollowContext(undefined);
-								setFollowAnswerId(undefined);
 								setFollowInput("");
 							}}
 						>
@@ -530,22 +618,6 @@ export function MapWorkspace({
 						</button>
 					)}
 				</div>
-				{answer && answerPlace && (
-					<section className="followup-answer" aria-live="polite" aria-label={m("followAnswerTitle")}>
-						<strong>{m("followAnswerTitle")}</strong>
-						<button type="button" aria-label={m("closeAnswer")} onClick={() => setFollowAnswerId(undefined)}>
-							<MapIcon name="close" />
-						</button>
-						<p>
-							{m("placeAnswer", {
-								name: answer.name,
-								facilities: m(answerPlace.plug ? "facilitiesPlug" : "facilitiesUnknown"),
-								budget: price(answerPlace),
-								hours: answer.hours,
-							})}
-						</p>
-					</section>
-				)}
 				<div className="followup-chips">
 					{(
 						[
@@ -563,7 +635,7 @@ export function MapWorkspace({
 					className="followup-input"
 					onSubmit={(event) => {
 						event.preventDefault();
-						submitQuery(followInput, true);
+						void submitQuery(followInput, true);
 					}}
 				>
 					<input
@@ -572,16 +644,141 @@ export function MapWorkspace({
 						placeholder={m("followPlaceholder")}
 						value={followInput}
 						onChange={(event) => setFollowInput(event.target.value)}
-						maxLength={MAX_QUERY_LENGTH}
 					/>
-					<button className="send-btn" type="submit" aria-label={m("sendFollowup")}>
-						<MapIcon name="arrow" />
-					</button>
+					{conversationState.busy ? (
+						<button
+							className="map-stop-btn"
+							type="button"
+							disabled={aborting}
+							aria-label={m("chatStop")}
+							onClick={() => void stopReply()}
+						>
+							<MapIcon name="close" />
+						</button>
+					) : (
+						<button
+							className="send-btn"
+							type="submit"
+							aria-label={m("sendFollowup")}
+							disabled={sendDisabled || !followInput.trim()}
+						>
+							<MapIcon name="arrow" />
+						</button>
+					)}
 				</form>
+				{composerStatus()}
 				<div className="followup-footer">
-					<span>{m("followFooter")}</span>
+					<span>{m("chatFooter")}</span>
 					<span>{m("enterSend")}</span>
 				</div>
+			</section>
+		);
+	}
+
+	function composerStatus(): JSX.Element {
+		return (
+			<div className="map-composer-model">
+				<span>{modelName || modelId ? `${m("currentModel")} · ${displayedModel}` : displayedModel}</span>
+				<span className="map-thinking-level">{m("currentThinking", { level: thinkingLevel })}</span>
+				{unavailable && <p className="map-composer-status">{unavailable}</p>}
+				{conversationState.busy && (
+					<p className="map-composer-status" aria-live="polite">
+						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
+					</p>
+				)}
+			</div>
+		);
+	}
+
+	function conversationPanel(): JSX.Element {
+		return (
+			<section className="map-conversation" aria-label={m("conversation")}>
+				<div className="map-conversation-head">
+					<h2>{m("conversation")}</h2>
+					<span className="map-conversation-model" title={model}>
+						{displayedModel}
+					</span>
+				</div>
+				<p className="map-model-reuse">{m("currentModel")}</p>
+				<div
+					className="map-conversation-messages"
+					ref={conversationScrollRef}
+					role="log"
+					aria-live="polite"
+					aria-busy={conversationState.busy}
+					onScroll={(event) => {
+						const el = event.currentTarget;
+						conversationPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+					}}
+				>
+					{conversationState.entries.map((entry, index) => {
+						const messageId = `${index}:${entry.kind}`;
+						return (
+							<article
+								key={messageId}
+								className={`map-message map-message-${entry.kind === "user" ? "user" : "assistant"}`}
+							>
+								<div className="map-message-role">
+									{m(entry.kind === "user" ? "conversationYou" : "conversationOwl")}
+								</div>
+								{entry.kind === "toolResult" ? (
+									<div className="map-message-tools">
+										{entry.toolName} · {entry.brief}
+									</div>
+								) : (
+									<>
+										{entry.kind === "assistant" && entry.thinking && (
+											<details className="map-message-thinking">
+												<summary>{m("chatThinking")}</summary>
+												<div className="map-message-text">{entry.thinking}</div>
+											</details>
+										)}
+										{entry.text && <div className="map-message-text">{entry.text}</div>}
+										{entry.kind === "assistant" && entry.tools.length > 0 && (
+											<div className="map-message-tools">
+												{entry.tools.map((tool) => (
+													<p key={tool.id}>
+														{tool.summary || tool.name} ·{" "}
+														{m(
+															tool.status === "ok"
+																? "chatToolCompleted"
+																: tool.status === "error"
+																	? "chatToolError"
+																	: tool.status === "cancelled"
+																		? "chatToolCancelled"
+																		: "chatTool",
+														)}
+													</p>
+												))}
+											</div>
+										)}
+										{entry.kind === "assistant" && entry.error && (
+											<p className="map-conversation-error">{entry.error}</p>
+										)}
+									</>
+								)}
+							</article>
+						);
+					})}
+					{conversationState.entries.length === 0 && (
+						<p className="map-conversation-empty">{m("conversationEmpty")}</p>
+					)}
+				</div>
+				{conversationState.busy && (
+					<output className="map-conversation-status is-generating">
+						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
+					</output>
+				)}
+				{stopped && !conversationState.busy && (
+					<output className="map-conversation-status is-stopped">{m("chatStopped")}</output>
+				)}
+				{(conversationState.error || conversationError) && (
+					<div className="map-conversation-error" role="alert">
+						<strong>{m("chatError")}</strong>
+						<p>{conversationState.error || conversationError}</p>
+					</div>
+				)}
+				{unavailable && <p className="map-composer-status">{unavailable}</p>}
 			</section>
 		);
 	}
@@ -660,7 +857,7 @@ export function MapWorkspace({
 					className="sidebar-search"
 					onSubmit={(event) => {
 						event.preventDefault();
-						submitQuery(sideInput);
+						void submitQuery(sideInput);
 					}}
 				>
 					<MapIcon name="search" />
@@ -668,11 +865,11 @@ export function MapWorkspace({
 						aria-label={m("sideSearch")}
 						placeholder={m("sideSearch")}
 						value={sideInput}
-						maxLength={MAX_QUERY_LENGTH}
+						title={unavailable}
 						onChange={(event) => setSideInput(event.target.value)}
 					/>
 				</form>
-				<button type="button" className="side-new" onClick={newExploration}>
+				<button type="button" className="side-new" disabled={conversationState.busy} onClick={newExploration}>
 					<MapIcon name="plus" />
 					{m("newExplore")}
 				</button>
@@ -680,6 +877,7 @@ export function MapWorkspace({
 					type="button"
 					className={`side-item${view !== "saved" ? " active" : ""}`}
 					aria-current={view !== "saved" ? "page" : undefined}
+					disabled={conversationState.busy}
 					onClick={newExploration}
 				>
 					<MapIcon name="compass" />
@@ -709,7 +907,13 @@ export function MapWorkspace({
 					</p>
 					{savedState.history.length ? (
 						savedState.history.slice(0, 6).map((query) => (
-							<button key={query} type="button" className="recent-entry" onClick={() => submitQuery(query)}>
+							<button
+								key={query}
+								type="button"
+								className="recent-entry"
+								disabled={sendDisabled}
+								onClick={() => void submitQuery(query)}
+							>
 								<MapIcon name="clock" />
 								<span>
 									{query}
@@ -746,7 +950,13 @@ export function MapWorkspace({
 						<span className="subtitle">{m("subtitle")}</span>
 						<span className="demo-note">{m("demoBadge")}</span>
 						<div className="spacer" />
-						<button type="button" className="header-action" ref={newExploreRef} onClick={newExploration}>
+						<button
+							type="button"
+							className="header-action"
+							ref={newExploreRef}
+							disabled={conversationState.busy}
+							onClick={newExploration}
+						>
 							<MapIcon name="plus" />
 							{m("newExplore")}
 						</button>
@@ -766,6 +976,7 @@ export function MapWorkspace({
 							}
 						>
 							<div className="panel-scroll" ref={panelScrollRef}>
+								{view !== "home" && conversationPanel()}
 								{locationControl()}
 								{view === "home" ? (
 									<>
@@ -780,24 +991,29 @@ export function MapWorkspace({
 											className="home-query"
 											onSubmit={(event) => {
 												event.preventDefault();
-												submitQuery(homeInput);
+												void submitQuery(homeInput);
 											}}
 										>
 											<textarea
 												aria-label={m("queryLabel")}
 												placeholder={m("homePlaceholder")}
 												value={homeInput}
-												maxLength={MAX_QUERY_LENGTH}
 												onChange={(event) => setHomeInput(event.target.value)}
 											/>
 											<div className="query-bottom">
 												<MapIcon name="sparkle" />
 												{m("idea")}
-												<button className="send-btn" type="submit" aria-label={m("start")}>
+												<button
+													className="send-btn"
+													type="submit"
+													aria-label={m("start")}
+													disabled={sendDisabled || !homeInput.trim()}
+												>
 													<MapIcon name="arrow" />
 												</button>
 											</div>
 										</form>
+										{composerStatus()}
 										<p className="example-label">{m("exampleLabel")}</p>
 										{topics.map((topic) => (
 											<button

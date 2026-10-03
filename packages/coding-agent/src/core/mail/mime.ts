@@ -24,9 +24,10 @@ export interface GmailThread {
 }
 
 function decodedHeader(value: string): string {
-	return value.replace(
-		/=\?([^?]+)\?([bq])\?([^?]*)\?=/gi,
-		(_whole, charset: string, encoding: string, encoded: string) => {
+	return value
+		.replace(/\r?\n[ \t]+/g, " ")
+		.replace(/(\?=)[ \t]+(?==\?)/g, "$1")
+		.replace(/=\?([^?]+)\?([bq])\?([^?]*)\?=/gi, (_whole, charset: string, encoding: string, encoded: string) => {
 			try {
 				const bytes =
 					encoding.toLowerCase() === "b"
@@ -43,8 +44,7 @@ function decodedHeader(value: string): string {
 			} catch {
 				return encoded;
 			}
-		},
-	);
+		});
 }
 
 function header(part: GmailPart | undefined, name: string): string {
@@ -95,6 +95,7 @@ export function parseThread(thread: GmailThread, accountId: string): MailThread 
 		return {
 			id: message.id ?? "",
 			from: header(message.payload, "from"),
+			replyTo: header(message.payload, "reply-to") || undefined,
 			to: header(message.payload, "to"),
 			cc: header(message.payload, "cc") || undefined,
 			subject: header(message.payload, "subject"),
@@ -131,6 +132,13 @@ export function summarizeThread(thread: GmailThread, accountId: string): MailThr
 
 export function validateDraft(draft: MailDraft): MailDraft {
 	if (!draft || typeof draft.accountId !== "string" || !draft.accountId) throw new Error("请选择发件邮箱。");
+	if (
+		[draft.id, draft.threadId].some(
+			(id) => id !== undefined && (typeof id !== "string" || !/^[a-z0-9_-]{1,256}$/i.test(id)),
+		)
+	) {
+		throw new Error("邮件或草稿标识无效。");
+	}
 	if (typeof draft.body !== "string" || draft.body.length > 5_000_000) throw new Error("邮件正文无效或超过 5 MB。");
 	const fields = [draft.to, draft.cc, draft.bcc, draft.subject, draft.inReplyTo, draft.references];
 	if (fields.some((value) => value !== undefined && (typeof value !== "string" || /[\r\n\0]/.test(value)))) {

@@ -101,6 +101,20 @@ export const IconUserStar = (p: IconProps): ReactNode =>
 		</>,
 	);
 
+/** 文件+加减行（改动审批：AI 编辑的保留/回滚）。 */
+export const IconDiffApproval = (p: IconProps): ReactNode =>
+	stroked(
+		p.size,
+		p.className,
+		<>
+			<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+			<path d="M14 3v6h6" />
+			<path d="M8 13h4" />
+			<path d="M10 11v4" />
+			<path d="M8 18h8" />
+		</>,
+	);
+
 export interface QuickAction {
 	/** 工作台 tab kind。 */
 	kind: string;
@@ -124,6 +138,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "files", get label() { return t("dev.files"); }, color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
 	{ kind: "terminal", get label() { return t("wb.newTerminal"); }, color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true, get tabTitle() { return t("start.terminal"); } },
 	{ kind: "changes", get label() { return t("dev.changes"); }, color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
+	{ kind: "review", get label() { return t("wb.review"); }, color: "#e0708a", icon: (s) => <IconDiffApproval size={s} /> },
 	{ kind: "browser", get label() { return t("app.browserTab"); }, color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
 	{ kind: "tasks", get label() { return t("wb.tasks"); }, color: "#d29922", icon: (s) => <IconLayers size={s} /> },
 	{ kind: "impression", get label() { return t("wb.impression"); }, color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },

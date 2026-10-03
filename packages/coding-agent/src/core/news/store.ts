@@ -497,7 +497,7 @@ export class NewsStore {
 			return { receipt, cached: false };
 		});
 	}
-	receiveReceipt(id: string, response: unknown, usage: NewsUsage | null = null): void {
+	receiveReceipt(id: string, response: unknown, usage: NewsUsage | null = null, expectedAttempt?: number): void {
 		this.transaction(() => {
 			const old = this.receipt(id);
 			if (!old) throw new Error("回执不存在");
@@ -506,11 +506,12 @@ export class NewsStore {
 				.prepare("INSERT OR REPLACE INTO news_receipt_outputs VALUES(?,?,?,?,?)")
 				.run(
 					id,
-					old.attempts,
+					expectedAttempt ?? old.attempts,
 					JSON.stringify(response),
 					usage ? JSON.stringify(usage) : null,
 					new Date().toISOString(),
 				);
+			if (expectedAttempt !== undefined && old.attempts !== expectedAttempt) return;
 			this.db
 				.prepare("UPDATE news_receipts SET status='received',data=?,response=? WHERE id=?")
 				.run(
@@ -521,9 +522,10 @@ export class NewsStore {
 			this.db.prepare("UPDATE news_attempts SET status='received' WHERE receipt_id=? AND status='pending'").run(id);
 		});
 	}
-	setReceiptState(id: string, status: NewsReceipt["status"], error: string | null = null): void {
+	setReceiptState(id: string, status: NewsReceipt["status"], error: string | null = null, expectedAttempt?: number): void {
 		const old = this.receipt(id);
 		if (!old) throw new Error("回执不存在");
+		if (expectedAttempt !== undefined && old.attempts !== expectedAttempt) return;
 		const { logicalKey: _key, response: _response, ...data } = old;
 		this.db
 			.prepare("UPDATE news_receipts SET status=?,data=? WHERE id=?")
@@ -534,7 +536,8 @@ export class NewsStore {
 	}
 	completeReceipts(subject: string): void {
 		for (const row of this.db.prepare("SELECT id,data FROM news_receipts WHERE status='received'").all()) {
-			if ((JSON.parse(String(row.data)) as NewsReceipt).subject === subject)
+			const receipt = JSON.parse(String(row.data)) as NewsReceipt;
+			if (receipt.subject === subject && !receipt.error)
 				this.setReceiptState(String(row.id), "completed");
 		}
 	}

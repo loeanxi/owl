@@ -139,6 +139,19 @@ describe("mailbox agent scope", () => {
 		expect(onDraft.mock.calls[0][0].to).toBe("客户 <client@example.test>");
 	});
 
+	it("respects Reply-To when the source message came from a noreply sender", async () => {
+		const replyThread = structuredClone(thread);
+		replyThread.messages[0].from = "通知 <noreply@example.test>";
+		replyThread.messages[0].replyTo = "客服 <support@example.test>";
+		const mail = {
+			handle: vi.fn(async (request: MailRequest) => (request.action === "accounts" ? accounts : replyThread)),
+		};
+		const onDraft = vi.fn();
+		const tools = createMailTools({ service: mail, context: selected, onDraft });
+		await tools[1].execute("draft", { accountId: "work", threadId: "work-thread", body: "请客服确认。" });
+		expect(onDraft.mock.calls[0][0].to).toBe("客服 <support@example.test>");
+	});
+
 	it("limits account searches and pagination to the chosen accounts and reports partial results", async () => {
 		const mail = service();
 		const tools = createMailTools({

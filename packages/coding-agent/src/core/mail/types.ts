@@ -29,6 +29,7 @@ export interface MailAttachment {
 export interface MailMessage {
 	id: string;
 	from: string;
+	replyTo?: string;
 	to: string;
 	cc?: string;
 	subject: string;

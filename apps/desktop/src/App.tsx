@@ -83,9 +83,10 @@ export default function App(): React.JSX.Element {
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
 	const [newsTarget, setNewsTarget] = useState<{ kind: "item" | "story"; id: string; revision: number }>();
-	const [railView, setRailView] = useState<RailView>(() =>
-		new URLSearchParams(window.location.search).get("view") === "mail" ? "mail" : new URLSearchParams(window.location.search).get("view") === "map" ? "map" : "chat",
-	);
+	const [railView, setRailView] = useState<RailView>(() => {
+		const view = new URLSearchParams(window.location.search).get("view");
+		return view === "mail" || view === "map" ? view : "chat";
+	});
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
@@ -821,6 +822,10 @@ export default function App(): React.JSX.Element {
 		return line.length > 42 ? `${line.slice(0, 42)}…` : line || t("app.newConversation");
 	}, [entries]);
 	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
+	const mapModelValue = modelValue || (sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : "");
+	const mapModelSeparator = mapModelValue.indexOf("/");
+	const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))
+		?.models.find((model) => model.id === mapModelValue.slice(mapModelSeparator + 1))?.name;
 	const questionCount = entries.filter((entry) => entry.kind === "user").length;
 	const waitingForUser = Boolean(sessionId && (permission?.sessionId === sessionId || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
@@ -895,7 +900,17 @@ export default function App(): React.JSX.Element {
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
 			<div className="owl-map-view" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
-				<MapWorkspace active={railView === "map" && !showSettings} sidebarCollapsed={sidebarMinimized} />
+				<MapWorkspace
+					active={railView === "map" && !showSettings}
+					sidebarCollapsed={sidebarMinimized}
+					client={client}
+					connected={connected}
+					cwd={workspaceDir}
+					model={mapModelValue}
+					modelName={mapModelName}
+					thinkingLevel={thinkingLevel}
+					approvalMode={approvalMode}
+				/>
 			</div>
 			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={sidebarMinimized} initialTarget={newsTarget} onToChat={(text) => {
@@ -904,7 +919,7 @@ export default function App(): React.JSX.Element {
 				}} />
 			</div>
 			{mailMounted && <div style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
-				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} />
+				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} model={selectedModel()} thinkingLevel={thinkingLevel} />
 			</div>}
 			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">

@@ -29,10 +29,21 @@ export interface NewsFetchedText {
 }
 export class NewsHttpRejectedError extends Error {
 	status: number;
-	constructor(status: number) {
+	response?: unknown;
+	constructor(status: number, response?: unknown) {
 		super(`信源返回 HTTP ${status}`);
 		this.status = status;
+		this.response = response;
 	}
+}
+export class NewsPaidOutputError extends Error {
+	response: unknown;
+	constructor(message: string, response: unknown) { super(message); this.response = response; }
+}
+
+function decodePaidNewsJson(response: NewsFetchedText): unknown {
+	try { return JSON.parse(response.text) as unknown; }
+	catch { throw new NewsPaidOutputError("付费采集已收到响应，但返回内容不是有效 JSON", { status: response.status, text: response.text, headers: response.headers }); }
 }
 
 export function isPrivateNewsAddress(address: string): boolean {
@@ -455,7 +466,7 @@ export async function collectNewsSource(
 				{ query, next, window: Math.floor(Date.now() / 1800000) },
 				async () => {
 					const response = await get(url, { headers: { authorization: `Bearer ${secrets.SOCIALDATA_API_KEY}` } });
-					return JSON.parse(response.text) as unknown;
+			return decodePaidNewsJson(response);
 				},
 			)) as { tweets?: Record<string, unknown>[]; next_cursor?: string };
 			pages++;
@@ -516,8 +527,8 @@ export async function collectNewsSource(
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ ghid, key: secrets.DAJIALA_KEY, verifycode: "" }),
 		});
-		const json = JSON.parse(response.text) as Record<string, unknown>;
-		if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code));
+		const json = decodePaidNewsJson(response) as Record<string, unknown>;
+		if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
 		return json;
 	})) as { data?: Record<string, unknown>[] };
 	const result: NewsMaterial[] = [];
@@ -527,8 +538,8 @@ export async function collectNewsSource(
 		const body = (await options.paid("mp-article", { url }, async () => {
 			const endpoint = `https://www.dajiala.com/fbmain/monitor/v3/article_detail?${new URLSearchParams({ url, key: secrets.DAJIALA_KEY!, mode: "1", verifycode: "" })}`;
 			const response = await get(endpoint);
-			const json = JSON.parse(response.text) as Record<string, unknown>;
-			if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code));
+			const json = decodePaidNewsJson(response) as Record<string, unknown>;
+			if (Number(json.code ?? 0) !== 0) throw new NewsHttpRejectedError(Number(json.code), json);
 			return json;
 		})) as Record<string, unknown>;
 		result.push({

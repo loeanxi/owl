@@ -23,6 +23,9 @@ export interface MailAgentStartRequest {
 	id: string;
 	context: MailAgentContext;
 	cwd?: string;
+	provider?: string;
+	model?: string;
+	thinkingLevel?: string;
 }
 
 export interface MailAgentDraftMessage {

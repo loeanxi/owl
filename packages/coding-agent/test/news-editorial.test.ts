@@ -89,6 +89,16 @@ function response(value: unknown): NewsModelResponse {
 	};
 }
 
+async function outputError(operation: Promise<unknown>): Promise<NewsOutputError> {
+	try {
+		await operation;
+	} catch (error) {
+		if (error instanceof NewsOutputError) return error;
+		throw error;
+	}
+	throw new Error("Expected a rejected model output");
+}
+
 function caller(options: { scores?: number[]; label?: string; structure?: unknown; copy?: unknown } = {}): {
 	call: NewsModelCaller;
 	requests: NewsModelCall[];
@@ -727,5 +737,89 @@ describe("news translation, prompts and calibration", () => {
 		const failed = await evaluateSelection(samples.slice(0, 1), configuration(), failing);
 		expect(failed.cases[0]?.error).toContain("offline fake failure");
 		expect(failed.cases[0]?.selected).toBe(false);
+	});
+});
+
+describe("news paid-output provenance", () => {
+	it.each([
+		{ purpose: "score-1", value: { attentionScore: 101 }, scores: [80, 80], malformed: false },
+		{ purpose: "score-2", value: {}, scores: [80, 80], malformed: true },
+		{ purpose: "structure", value: { scope: "single" }, scores: [80, 80], malformed: false },
+		{
+			purpose: "understand",
+			value: { titleZh: "Anthropic 发布框架", summaryZh: "Anthropic 发布框架。" },
+			scores: [80, 80],
+			malformed: false,
+		},
+		{
+			purpose: "summarize",
+			value: { titleZh: "Anthropic 发布框架", summaryZh: "Anthropic 发布框架。" },
+			scores: [40, 40],
+			malformed: false,
+		},
+	])("preserves the actual $purpose response and usage without blaming the other paid stages", async (testCase) => {
+		const fixture = caller({ scores: testCase.scores });
+		const received = {
+			...response(testCase.value),
+			usage: { input: 42, output: 13, cacheRead: 10, cacheWrite: 0, cost: 0.003 },
+			...(testCase.malformed ? { text: "not valid JSON" } : {}),
+		};
+		const call: NewsModelCaller = async (request) =>
+			request.purpose === testCase.purpose ? received : fixture.call(request);
+		const error = await outputError(analyzeMaterial(material, source, configuration(), call));
+		expect(error.purpose).toBe(testCase.purpose);
+		expect(error.response).toBe(received);
+		expect(error.response?.usage.cost).toBe(0.003);
+		expect(error.response?.text).toBe(received.text);
+	});
+
+	it("preserves provenance for relation cardinality checks and signal checks", async () => {
+		const received = response({ query: "发布", decisions: [], selection: { addsValue: true, reason: "新信息" } });
+		const call: NewsModelCaller = async () => received;
+		const error = await outputError(judgeRelation(item("new"), [story([item("old")])], configuration(), call));
+		expect(error.purpose).toBe("group");
+		expect(error.response).toBe(received);
+		const signal = response({ decisions: [] });
+		const signalCall: NewsModelCaller = async () => signal;
+		const signalError = await outputError(
+			judgeRelation(
+				item("signal", { participation: "hot_signal" }),
+				[story([item("old")])],
+				configuration(),
+				signalCall,
+			),
+		);
+		expect(signalError.purpose).toBe("group-signal");
+		expect(signalError.response).toBe(signal);
+	});
+
+	it("preserves the digest and fragment-specific translation response when grounding fails", async () => {
+		const digest = response({ title: "Anthropic 发布框架", digest: "Anthropic 发布框架。" });
+		const digestCall: NewsModelCaller = async () => digest;
+		const digestError = await outputError(composeStoryDigest(story([item("digest")]), configuration(), digestCall));
+		expect(digestError.purpose).toBe("digest");
+		expect(digestError.response).toBe(digest);
+		const translation = response({ t: ["OpenAI 框架有 2 个步骤。"] });
+		const translationCall: NewsModelCaller = async () => translation;
+		const translationError = await outputError(
+			translateNewsBody(
+				item("translate", { originalBody: "OpenAI framework has 20 steps." }),
+				configuration(),
+				translationCall,
+			),
+		);
+		expect(translationError.purpose).toBe("translate-body-0");
+		expect(translationError.response).toBe(translation);
+	});
+
+	it("preserves the period-writer response when its JSON cannot be parsed", async () => {
+		const entries = [item("period")];
+		const received = { ...response({}), text: "incomplete JSON {" };
+		const call: NewsModelCaller = async () => received;
+		const error = await outputError(
+			composeNewsReport("weekly", "2026-W40", entries, [], [daily("2026-10-02", entries)], call, configuration()),
+		);
+		expect(error.purpose).toBe("report-weekly");
+		expect(error.response).toBe(received);
 	});
 });

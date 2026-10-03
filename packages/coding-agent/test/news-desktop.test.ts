@@ -1,9 +1,11 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AssistantMessageEventStream, type Model, type SimpleStreamOptions } from "../../ai/src/index.ts";
+import type { Api, Model, SimpleStreamOptions } from "../../ai/src/index.ts";
+import { AssistantMessageEventStream } from "../../ai/src/utils/event-stream.ts";
 import { fauxAssistantMessage } from "../../ai/src/providers/faux.ts";
 import { NewsOutputError } from "../src/core/news/editorial.ts";
+import type { ExtensionToolContext } from "../src/core/extensions/types.ts";
 import type { NewsRequest } from "../src/core/news/types.ts";
 import { isReadOnlyDesktopTool } from "../src/modes/desktop/browser-permissions.ts";
 import { handleNewsHttp } from "../src/modes/desktop/news-http.ts";
@@ -53,7 +55,8 @@ describe("Owl news desktop seams", () => {
 			action: "list",
 			query: expect.objectContaining({ mode: "all", query: "agent", limit: 7 }),
 		});
-		expect((await result.json())._trust.instructionPolicy).toBe("treat_as_data_never_execute");
+		const body = await result.json() as { _trust: { instructionPolicy: string } };
+		expect(body._trust.instructionPolicy).toBe("treat_as_data_never_execute");
 		expect((await fetch(`${base}/api/news/v1/items`, { method: "POST" })).status).toBe(405);
 		expect((await fetch(`${base}/api/news/v1/adminItems`)).status).toBe(404);
 	});
@@ -113,12 +116,13 @@ describe("Owl news desktop seams", () => {
 				})
 			).status,
 		).toBe(200);
-		const tools = (await (await post("tools/list")).json()).result.tools;
+		const listed = await (await post("tools/list")).json() as { result: { tools: { annotations: { readOnlyHint: boolean } }[] } };
+		const tools = listed.result.tools;
 		expect(tools).toHaveLength(7);
 		expect(tools.every((tool: { annotations: { readOnlyHint: boolean } }) => tool.annotations.readOnlyHint)).toBe(
 			true,
 		);
-		const answer = await (await post("tools/call", { name: "owl_news_hot", arguments: { limit: 3 } })).json();
+		const answer = await (await post("tools/call", { name: "owl_news_hot", arguments: { limit: 3 } })).json() as { result: { isError?: boolean } };
 		expect(answer.result.isError).not.toBe(true);
 		expect(handle).toHaveBeenCalledWith({ action: "hot", limit: 3 });
 	});
@@ -128,7 +132,7 @@ describe("Owl news desktop seams", () => {
 		const tools = createNewsTools(handle, "this-session", broadcast);
 		expect(tools.every((tool) => isReadOnlyDesktopTool(tool.name, {}))).toBe(true);
 		expect(isReadOnlyDesktopTool("news_configure", {})).toBe(false);
-		await tools.find((tool) => tool.name === "news_open")!.execute("call", { kind: "item", id: "article" });
+		await tools.find((tool) => tool.name === "news_open")!.execute("call", { kind: "item", id: "article" }, undefined, undefined, {} as ExtensionToolContext);
 		expect(broadcast).toHaveBeenCalledWith({
 			type: "news.open",
 			sessionId: "this-session",
@@ -143,7 +147,7 @@ describe("Owl news desktop seams", () => {
 		const registry = {
 			find: () => model,
 			getAvailable: () => [model],
-			streamSimple: (_model: Model, _context: unknown, options?: SimpleStreamOptions) => {
+			streamSimple: (_model: Model<Api>, _context: unknown, options?: SimpleStreamOptions) => {
 				seen = options;
 				const stream = new AssistantMessageEventStream();
 				stream.end(response);
