@@ -1185,6 +1185,7 @@ export const zh = {
 	"review.created": "新建",
 	"review.missing": "文件已不在磁盘上",
 	"review.loading": "正在读取待审改动…",
+	"review.resizeHint": "拖拽调整高度，双击复位",
 	"review.disconnected": "桥未连接，等待重连…",
 	"review.loadFailed": "读取待审改动失败",
 	"review.keptBadge": "已保留",

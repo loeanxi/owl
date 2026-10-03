@@ -42,6 +42,19 @@ function decodeServerMessage(data: unknown): DesktopServerMessage | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const message = value as Record<string, unknown>;
 	if (typeof message.type !== "string") return undefined;
+	if (message.type === "map.results") {
+		if (typeof message.sessionId !== "string" || !message.sessionId || !message.update || typeof message.update !== "object") return undefined;
+		const update = message.update as Record<string, unknown>;
+		if (update.action !== "search" && update.action !== "nearby" && update.action !== "reverse") return undefined;
+		if (!update.result || typeof update.result !== "object") return undefined;
+		const result = update.result as Record<string, unknown>;
+		if (!Array.isArray(result.data) || !Array.isArray(result.sources)) return undefined;
+		if (update.center !== undefined) {
+			if (!update.center || typeof update.center !== "object") return undefined;
+			const center = update.center as Record<string, unknown>;
+			if (typeof center.lat !== "number" || !Number.isFinite(center.lat) || Math.abs(center.lat) > 90 || typeof center.lng !== "number" || !Number.isFinite(center.lng) || Math.abs(center.lng) > 180) return undefined;
+		}
+	}
 	if (message.type === "mail.agent.draft") {
 		if (typeof message.sessionId !== "string" || !message.sessionId || !message.draft || typeof message.draft !== "object") return undefined;
 		const draft = message.draft as Record<string, unknown>;

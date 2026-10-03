@@ -6,7 +6,7 @@
  * 持久化（跨会话存续），插件落库后经 diffApproval.changed 推送自动刷新。
  * 移植自 9087/dsh-diff-approval 的文件级审批子集。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
 import type { DiffApprovalFileSummary } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
@@ -23,6 +23,12 @@ function statLine(entry: DiffApprovalFileSummary): string {
 	return parts.join(" ");
 }
 
+/** diff 预览面板高度（占 tab 容器百分比）：拖拽条自由拉伸，▴ 按钮在默认/放大两档间切换。 */
+const DEFAULT_PREVIEW_PERCENT = 45;
+const EXPANDED_PREVIEW_PERCENT = 78;
+const MIN_PREVIEW_PERCENT = 15;
+const MAX_PREVIEW_PERCENT = 85;
+
 export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const [files, setFiles] = useState<DiffApprovalFileSummary[] | undefined>(undefined);
@@ -35,7 +41,8 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const [diffTruncated, setDiffTruncated] = useState(false);
 	const [diffLoading, setDiffLoading] = useState(false);
 	const [diffError, setDiffError] = useState<string | undefined>(undefined);
-	const [expandedDiff, setExpandedDiff] = useState(false);
+	const [previewHeight, setPreviewHeight] = useState(DEFAULT_PREVIEW_PERCENT);
+	const rootRef = useRef<HTMLDivElement | null>(null);
 
 	const refresh = (): void => {
 		setLoading(true);
@@ -116,6 +123,29 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 			.finally(() => setDiffLoading(false));
 	};
 
+	/** 顶部拖拽条：按指针 Y 相对容器底边的距离实时改预览面板高度（拖动期间禁选中）。 */
+	const startResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		const root = rootRef.current;
+		if (root === null) return;
+		const onMove = (move: PointerEvent): void => {
+			const rect = root.getBoundingClientRect();
+			const percent = ((rect.bottom - move.clientY) / rect.height) * 100;
+			setPreviewHeight(Math.min(MAX_PREVIEW_PERCENT, Math.max(MIN_PREVIEW_PERCENT, percent)));
+		};
+		const onUp = (): void => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onUp);
+			document.body.style.userSelect = "";
+			document.body.style.cursor = "";
+		};
+		document.body.style.userSelect = "none";
+		document.body.style.cursor = "row-resize";
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onUp);
+	};
+
 	const resolve = (entryIds: string[], action: "keep" | "revert"): Promise<void> =>
 		act(async () => {
 			const result = await api.diffApprovalResolve(cwd, entryIds, action);
@@ -132,6 +162,7 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const pending = (files ?? []).filter((entry) => entry.status === "pending");
 	const resolved = (files ?? []).filter((entry) => entry.status !== "pending");
 	const selectedEntry = (files ?? []).find((entry) => entry.id === selected);
+	const expandedDiff = previewHeight > (DEFAULT_PREVIEW_PERCENT + EXPANDED_PREVIEW_PERCENT) / 2;
 
 	const group = (title: string, rows: DiffApprovalFileSummary[], actionable: boolean): React.JSX.Element => (
 		<div className="px-1">
@@ -228,7 +259,7 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	);
 
 	return (
-		<div className="flex h-full flex-col overflow-hidden">
+		<div ref={rootRef} className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint">{t("review.subtitle", { n: pending.length })}</span>
 				{resolved.length > 0 && (
@@ -286,9 +317,19 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 				{resolved.length > 0 && group(t("review.resolvedGroup"), resolved, false)}
 			</div>
 
-			{/* diff 预览面板（可展开为独占视图） */}
+			{/* diff 预览面板：顶部拖拽条自由调高（往上拉大/往下缩小，双击复位） */}
 			{selectedEntry !== undefined && (
-				<div className={`${expandedDiff ? "h-[78%]" : "h-[45%]"} flex shrink-0 flex-col border-t border-owl-border/60`}>
+				<div className="flex shrink-0 flex-col" style={{ height: `${previewHeight}%` }}>
+					<div
+						role="separator"
+						aria-orientation="horizontal"
+						title={t("review.resizeHint")}
+						className="group flex h-1.5 shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-owl-border/60 transition-colors hover:bg-owl-hover/60"
+						onPointerDown={startResize}
+						onDoubleClick={() => setPreviewHeight(DEFAULT_PREVIEW_PERCENT)}
+					>
+						<span className="h-0.5 w-10 rounded-full bg-owl-border/70 transition-colors group-hover:bg-owl-muted" />
+					</div>
 					<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1">
 						<IconPencil size={11} className="shrink-0 text-owl-faint" />
 						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted" title={selectedEntry.path}>
@@ -321,7 +362,12 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 								</button>
 							</>
 						)}
-						<button type="button" title={expandedDiff ? t("common.collapse") : t("common.expand")} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
+						<button
+							type="button"
+							title={expandedDiff ? t("common.collapse") : t("common.expand")}
+							className="rounded p-1 text-owl-muted hover:text-owl-text"
+							onClick={() => setPreviewHeight(expandedDiff ? DEFAULT_PREVIEW_PERCENT : EXPANDED_PREVIEW_PERCENT)}
+						>
 							{expandedDiff ? "▾" : "▴"}
 						</button>
 						<button

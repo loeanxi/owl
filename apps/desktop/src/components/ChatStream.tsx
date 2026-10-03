@@ -101,14 +101,16 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
  * 输出（默认末 10 行，可看全文）；失败自动展开标红。
  */
 function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: boolean }): React.JSX.Element {
-	const [open, setOpen] = useState(expanded || card.status === "error");
-	useEffect(() => setOpen(expanded || card.status === "error"), [expanded, card.status === "error"]);
 	const [fullOutput, setFullOutput] = useState(false);
 	const [zoomed, setZoomed] = useState(false);
-	// 失败时弹开（含流式中 running→error 的转变）；用户随后手动收起不再打扰
-	useEffect(() => {
-		if (card.status === "error") setOpen(true);
-	}, [card.status]);
+	// 有图的结果(生图产物、浏览器截图)默认展开——图是这条工具调用的主要内容,
+	// 折叠成一行摘要等于把产物藏起来;失败时也弹开(含流式中 running→error 转变)。
+	const hasImages = (card.output?.images?.length ?? 0) > 0;
+	const [open, setOpen] = useState(expanded || card.status === "error" || hasImages);
+	useEffect(
+		() => setOpen(expanded || card.status === "error" || (card.output?.images?.length ?? 0) > 0),
+		[expanded, card.status, card.output?.images],
+	);
 
 	const output = card.output;
 	const { preview, dropped } = output ? tailLines(output.text, OUTPUT_PREVIEW_LINES) : { preview: "", dropped: 0 };
@@ -668,12 +670,16 @@ export function ChatStream({
 		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard],
 	);
 
-	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
+	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----
+	// 只收浏览器/页面截图类工具：生图类工具（owl-image 的 generate/edit_image）的
+	// 产物属于会话内容,已内嵌渲染在各自工具卡片里,不进 Dock 浮窗。
+	const SCREENSHOT_TOOL_PATTERN = /^(browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
 	const latestShot = useMemo(() => {
 		let latest: { key: string; image: ToolResultImage } | undefined;
 		entries.forEach((entry, index) => {
 			if (entry.kind !== "assistant") return;
 			for (const tool of entry.tools) {
+				if (!SCREENSHOT_TOOL_PATTERN.test(tool.name)) continue;
 				const images = tool.output?.images;
 				if (images?.length) {
 					latest = { key: `a${index}-tool-${tool.id}`, image: images[images.length - 1] };

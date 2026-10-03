@@ -311,10 +311,12 @@ try {
         assert.ok(Math.abs(g.options[i].x - g.options[0].x) <= 1);
         assert.ok(g.options[i].y > g.options[i - 1].y);
       }
-      await card().getByText(polishedQuestion.options[3].description, { exact: true }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(output, "13-polished-four-options-narrow-light.png") });
+      await card().getByText(polishedQuestion.options[3].description, { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(output, "15-polished-narrow-description-tail.png") });
       await page.evaluate(() => document.documentElement.setAttribute("data-owl-theme", "dark"));
       await page.waitForTimeout(250);
+      await card().locator(".owl-question-card__body").evaluate((el) => el.scrollTop = 0);
       await page.screenshot({ path: join(output, "14-polished-four-options-narrow-dark.png") });
       return g;
     });
