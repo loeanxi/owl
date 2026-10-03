@@ -688,7 +688,7 @@ export class NewsService {
 				current?.selected &&
 				current.fulltextAllowed &&
 				current.originalBody &&
-				this.configuration.models.translate
+				(this.configuration.models.translate || this.options.resolveModel)
 			)
 				this.store.enqueue(
 					"translate",
@@ -1300,7 +1300,7 @@ export class NewsService {
 					title: item.title,
 					url: item.url,
 					summary: item.summary,
-					body: item.body?.slice(0, 20000) || null,
+					body: (item.body || item.originalBody)?.slice(0, 20000) || null,
 				})),
 			}),
 			maxTokens: 4096,

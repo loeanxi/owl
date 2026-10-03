@@ -2964,6 +2964,27 @@ export function SettingsPage({
 										</div>
 									}
 								>
+									{imageData?.subscription.loggedIn === true && (
+										<div className="space-y-1.5">
+											<p className="text-[11px] text-owl-text">{t("settings.image.subModelLine", { model: "gemini-3.1-flash-image" })}</p>
+											{imageCfg.provider !== "google-sub" && (
+												<p className="text-[11px] text-owl-muted">
+													{t("settings.image.switchToSubHint")}{" "}
+													<button
+														type="button"
+														className={`${btn} ml-1`}
+														disabled={busy}
+														onClick={() => {
+															setImageModelsNote("");
+															setImageCfg((prev) => ({ ...prev, provider: "google-sub" }));
+														}}
+													>
+														{t("settings.image.switchToSub")}
+													</button>
+												</p>
+											)}
+										</div>
+									)}
 									{imageSubHint && <pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed text-owl-muted">{imageSubHint}</pre>}
 								</SettingRow>
 
@@ -3040,6 +3061,9 @@ export function SettingsPage({
 														</datalist>
 													)}
 													{isModelField && imageModelsNote && <span className="mt-0.5 block text-[10px] text-owl-faint">{imageModelsNote}</span>}
+													{isModelField && !imageModelsNote && !imageData?.keyStatus[provider]?.configured && (
+														<span className="mt-0.5 block text-[10px] text-owl-faint">{t("settings.image.modelsNeedKey")}</span>
+													)}
 												</label>
 											);
 											if (provider === "google") {

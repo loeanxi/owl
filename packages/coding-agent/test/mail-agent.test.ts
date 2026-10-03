@@ -10,6 +10,7 @@ import {
 } from "../src/core/mail/agent.ts";
 import type { MailAccount, MailAgentContext, MailDraft, MailRequest, MailThread } from "../src/core/mail/types.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { wrapToolDefinition } from "../src/core/tools/tool-definition-wrapper.ts";
 
 const accounts: MailAccount[] = [
 	{
@@ -77,12 +78,12 @@ describe("mailbox agent scope", () => {
 		expect(tools.map((tool) => tool.name)).toEqual(["mail_read_thread", "mail_draft_reply"]);
 		mutable.accountIds.push("personal");
 		mutable.threads?.push({ accountId: "personal", threadId: "personal-thread" });
-		await expect(tools[0].execute("read", { accountId: "personal", threadId: "personal-thread" })).rejects.toThrow(
-			"处理范围",
-		);
-		await expect(tools[0].execute("read", { accountId: "work", threadId: "unselected-thread" })).rejects.toThrow(
-			"处理范围",
-		);
+		await expect(
+			wrapToolDefinition(tools[0]).execute("read", { accountId: "personal", threadId: "personal-thread" }),
+		).rejects.toThrow("处理范围");
+		await expect(
+			wrapToolDefinition(tools[0]).execute("read", { accountId: "work", threadId: "unselected-thread" }),
+		).rejects.toThrow("处理范围");
 		expect(mail.handle).not.toHaveBeenCalled();
 	});
 
@@ -102,16 +103,20 @@ describe("mailbox agent scope", () => {
 	it("rejects a backend response whose mailbox identity differs from the requested source", async () => {
 		const mail = { handle: vi.fn(async () => ({ ...thread, accountId: "personal" })) };
 		const tools = createMailTools({ service: mail, context: selected, onDraft: () => {} });
-		await expect(tools[0].execute("read", { accountId: "work", threadId: "work-thread" })).rejects.toThrow(
-			"来源不匹配",
-		);
+		await expect(
+			wrapToolDefinition(tools[0]).execute("read", { accountId: "work", threadId: "work-thread" }),
+		).rejects.toThrow("来源不匹配");
 	});
 
 	it("binds a proposed reply to the source mailbox and RFC message headers without saving or sending", async () => {
 		const mail = service();
 		const drafts: MailDraft[] = [];
 		const tools = createMailTools({ service: mail, context: selected, onDraft: (draft) => drafts.push(draft) });
-		await tools[1].execute("draft", { accountId: "work", threadId: "work-thread", body: "周五交付。" });
+		await wrapToolDefinition(tools[1]).execute("draft", {
+			accountId: "work",
+			threadId: "work-thread",
+			body: "周五交付。",
+		});
 		expect(drafts).toEqual([
 			{
 				accountId: "work",
@@ -135,7 +140,11 @@ describe("mailbox agent scope", () => {
 		};
 		const onDraft = vi.fn();
 		const tools = createMailTools({ service: mail, context: selected, onDraft });
-		await tools[1].execute("draft", { accountId: "work", threadId: "work-thread", body: "补充交付时间。" });
+		await wrapToolDefinition(tools[1]).execute("draft", {
+			accountId: "work",
+			threadId: "work-thread",
+			body: "补充交付时间。",
+		});
 		expect(onDraft.mock.calls[0][0].to).toBe("客户 <client@example.test>");
 	});
 
@@ -148,7 +157,11 @@ describe("mailbox agent scope", () => {
 		};
 		const onDraft = vi.fn();
 		const tools = createMailTools({ service: mail, context: selected, onDraft });
-		await tools[1].execute("draft", { accountId: "work", threadId: "work-thread", body: "请客服确认。" });
+		await wrapToolDefinition(tools[1]).execute("draft", {
+			accountId: "work",
+			threadId: "work-thread",
+			body: "请客服确认。",
+		});
 		expect(onDraft.mock.calls[0][0].to).toBe("客服 <support@example.test>");
 	});
 
@@ -159,12 +172,12 @@ describe("mailbox agent scope", () => {
 			context: { mode: "accounts", accountIds: ["work", "personal"] },
 			onDraft: () => {},
 		});
-		await expect(tools[0].execute("search", { accountIds: ["unknown"] })).rejects.toThrow("超出");
+		await expect(wrapToolDefinition(tools[0]).execute("search", { accountIds: ["unknown"] })).rejects.toThrow("超出");
 		await expect(
-			tools[0].execute("search", { accountIds: ["work"], pageTokens: { personal: "other" } }),
+			wrapToolDefinition(tools[0]).execute("search", { accountIds: ["work"], pageTokens: { personal: "other" } }),
 		).rejects.toThrow("分页账号");
 		expect(mail.handle).not.toHaveBeenCalled();
-		const result = await tools[0].execute("search", { query: "newer_than:7d" });
+		const result = await wrapToolDefinition(tools[0]).execute("search", { query: "newer_than:7d" });
 		expect(result.details).toMatchObject({
 			requestedAccountIds: ["work", "personal"],
 			nextPageTokens: { work: "next" },
