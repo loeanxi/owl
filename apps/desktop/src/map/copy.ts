@@ -194,7 +194,8 @@ const en: Record<MapCopyKey, string> = {
 	location: "Choose a city or place",
 	positionSettings: "Location settings",
 	positionSettingsTitle: "Current location settings",
-	positionSettingsDescription: "Set your current city, area or specific place. The map and Owl will use the saved location as your current position.",
+	positionSettingsDescription:
+		"Set your current city, area or specific place. The map and Owl will use the saved location as your current position.",
 	positionSearch: "Search current location",
 	closePositionSettings: "Close location settings",
 	savePosition: "Save location",

@@ -26,8 +26,8 @@ import {
 	MAX_LIVE_COMPARISON,
 	mapDirectionsUrl,
 	nearbyCategoryFromMessage,
-	normalizeRealPlace,
 	normalizeConfiguredLocation,
+	normalizeRealPlace,
 	parseCoordinates,
 	RealMapClient,
 	readLiveSavedState,
@@ -123,7 +123,10 @@ export function MapWorkspace({
 		}
 	});
 	const configuredLocation = savedState.configuredLocation ?? DEFAULT_CONFIGURED_LOCATION;
-	const [center, setCenter] = useState<MapCoordinate>(() => ({ lat: configuredLocation.lat, lng: configuredLocation.lng }));
+	const [center, setCenter] = useState<MapCoordinate>(() => ({
+		lat: configuredLocation.lat,
+		lng: configuredLocation.lng,
+	}));
 	const [locationName, setLocationName] = useState(() => configuredLocation.name);
 	const [category, setCategory] = useState<MapCategory>("all");
 	const [radius, setRadius] = useState(2000);
@@ -510,6 +513,7 @@ export function MapWorkspace({
 	function closePositionSettings(): void {
 		settingsEpoch.current++;
 		settingsAbort.current?.abort();
+		positionSettingsRef.current?.close();
 		setSettingsBusy(false);
 		setPositionSettingsOpen(false);
 		positionSettingsButtonRef.current?.focus();
@@ -526,7 +530,13 @@ export function MapWorkspace({
 		setSettingsDraft(undefined);
 		const point = parseCoordinates(query);
 		if (point) {
-			setSettingsDraft({ ...point, name: query, source: "user", precision: "point", updatedAt: new Date().toISOString() });
+			setSettingsDraft({
+				...point,
+				name: query,
+				source: "user",
+				precision: "point",
+				updatedAt: new Date().toISOString(),
+			});
 			return;
 		}
 		if (/^[+-]?\d+(?:\.\d+)?\s*[,，;]\s*[+-]?\d/.test(query)) {
@@ -551,7 +561,12 @@ export function MapWorkspace({
 	function saveConfiguredLocation(): void {
 		const next = normalizeConfiguredLocation({ ...settingsDraft, updatedAt: new Date().toISOString() });
 		if (!next || settingsBusy) return;
-		const nextSaved = { ...savedState, configuredLocation: next, lastCenter: { lat: next.lat, lng: next.lng }, lastLocationName: next.name };
+		const nextSaved = {
+			...savedState,
+			configuredLocation: next,
+			lastCenter: { lat: next.lat, lng: next.lng },
+			lastLocationName: next.name,
+		};
 		if (!writeLiveSavedState(window.localStorage, nextSaved)) {
 			setSettingsError(m("storageUnavailable"));
 			return;
@@ -1080,7 +1095,10 @@ export function MapWorkspace({
 		return (
 			<div className="location-control" ref={locationRef}>
 				<div className="map-current-location">
-					<span><MapIcon name="pin" />{configuredLocation.name}</span>
+					<span>
+						<MapIcon name="pin" />
+						{configuredLocation.name}
+					</span>
 					<button
 						type="button"
 						className="map-location-config-button"
@@ -1092,7 +1110,9 @@ export function MapWorkspace({
 						<MapIcon name="settings" />
 					</button>
 				</div>
-				<p className="map-device-location-status">{m(configuredLocation.precision === "area" ? "positionAreaNote" : "positionPointNote")}</p>
+				<p className="map-device-location-status">
+					{m(configuredLocation.precision === "area" ? "positionAreaNote" : "positionPointNote")}
+				</p>
 				<button
 					type="button"
 					className="location-pill"
@@ -1410,10 +1430,17 @@ export function MapWorkspace({
 				>
 					<header>
 						<h2 id="owl-position-settings-title">{m("positionSettingsTitle")}</h2>
-						<button type="button" aria-label={m("closePositionSettings")} onClick={closePositionSettings}><MapIcon name="close" /></button>
+						<button type="button" aria-label={m("closePositionSettings")} onClick={closePositionSettings}>
+							<MapIcon name="close" />
+						</button>
 					</header>
 					<p>{m("positionSettingsDescription")}</p>
-					<form onSubmit={(event) => { event.preventDefault(); void searchConfiguredLocation(); }}>
+					<form
+						onSubmit={(event) => {
+							event.preventDefault();
+							void searchConfiguredLocation();
+						}}
+					>
 						<input
 							ref={positionSettingsInputRef}
 							aria-label={m("positionSearch")}
@@ -1429,32 +1456,58 @@ export function MapWorkspace({
 								setSettingsBusy(false);
 							}}
 						/>
-						<button type="submit" disabled={settingsBusy || !settingsInput.trim()}>{m("locationSubmit")}</button>
+						<button type="submit" disabled={settingsBusy || !settingsInput.trim()}>
+							{m("locationSubmit")}
+						</button>
 					</form>
 					<small>{m("coordinatesHint")}</small>
 					{settingsBusy && <output aria-live="polite">{m("searching")}</output>}
-					{settingsError && <p className="map-conversation-error" role="alert">{settingsError}</p>}
+					{settingsError && (
+						<p className="map-conversation-error" role="alert">
+							{settingsError}
+						</p>
+					)}
 					<div className="map-position-candidates">
 						{settingsCandidates.map((place) => (
 							<button
 								key={place.id}
 								type="button"
 								aria-pressed={settingsDraft?.lat === place.lat && settingsDraft?.lng === place.lng}
-								onClick={() => setSettingsDraft({
-									lat: place.lat, lng: place.lng, name: place.name, source: "user",
-									precision: place.tags.admin_level || place.tags.place ? "area" : "point",
-									updatedAt: new Date().toISOString(),
-								})}
+								onClick={() =>
+									setSettingsDraft({
+										lat: place.lat,
+										lng: place.lng,
+										name: place.name,
+										source: "user",
+										precision: place.tags.admin_level || place.tags.place ? "area" : "point",
+										updatedAt: new Date().toISOString(),
+									})
+								}
 							>
 								<strong>{placeName(place)}</strong>
 								<small>{place.address || pointLabel(place)}</small>
 							</button>
 						))}
 					</div>
-					{settingsDraft && <p className="map-position-selection"><MapIcon name="check" />{settingsDraft.name}<small>{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}</small></p>}
+					{settingsDraft && (
+						<p className="map-position-selection">
+							<MapIcon name="check" />
+							{settingsDraft.name}
+							<small>{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}</small>
+						</p>
+					)}
 					<footer>
-						<button type="button" onClick={closePositionSettings}>{m("cancel")}</button>
-						<button type="button" className="primary" disabled={!settingsDraft || settingsBusy} onClick={saveConfiguredLocation}>{m("savePosition")}</button>
+						<button type="button" onClick={closePositionSettings}>
+							{m("cancel")}
+						</button>
+						<button
+							type="button"
+							className="primary"
+							disabled={!settingsDraft || settingsBusy}
+							onClick={saveConfiguredLocation}
+						>
+							{m("savePosition")}
+						</button>
 					</footer>
 				</dialog>
 			)}

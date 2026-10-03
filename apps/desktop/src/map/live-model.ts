@@ -168,7 +168,9 @@ export function normalizeRealPlace(value: unknown): RealPlace | undefined {
 		address: optionalText(record.address),
 		category,
 		distanceMeters:
-			typeof record.distanceMeters === "number" && Number.isFinite(record.distanceMeters) && record.distanceMeters >= 0
+			typeof record.distanceMeters === "number" &&
+			Number.isFinite(record.distanceMeters) &&
+			record.distanceMeters >= 0
 				? record.distanceMeters
 				: null,
 		openingHours: optionalText(record.openingHours),
@@ -237,7 +239,9 @@ export function parseLiveSavedState(raw: string | null): LiveSavedState {
 		return {
 			favorites: [...new Map(favorites.map((place) => [place.id, place])).values()].slice(0, MAX_FAVORITES),
 			history: history.slice(0, MAX_HISTORY),
-			configuredLocation: normalizeConfiguredLocation(record.configuredLocation) ?? { ...DEFAULT_CONFIGURED_LOCATION },
+			configuredLocation: normalizeConfiguredLocation(record.configuredLocation) ?? {
+				...DEFAULT_CONFIGURED_LOCATION,
+			},
 			...(isCoordinate(record.lastCenter)
 				? { lastCenter: { lat: record.lastCenter.lat, lng: record.lastCenter.lng } }
 				: {}),

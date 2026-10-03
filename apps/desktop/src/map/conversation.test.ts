@@ -426,7 +426,14 @@ test("authorized device coordinates reach the selected model separately from an 
 });
 
 test("manually confirmed current areas reach the model without becoming GPS measurements or map browsing state", () => {
-	const userLocation = { source: "user" as const, name: "南京市雨花台区", lat: 31.9931143, lng: 118.7739579, precision: "area" as const, updatedAt: "2026-10-03T18:50:00.000Z" };
+	const userLocation = {
+		source: "user" as const,
+		name: "南京市雨花台区",
+		lat: 31.9931143,
+		lng: 118.7739579,
+		precision: "area" as const,
+		updatedAt: "2026-10-03T18:50:00.000Z",
+	};
 	const prompt = mapPrompt("我附近有什么？", { ...context, userLocation });
 	assert.ok(prompt.includes(JSON.stringify(userLocation)));
 	assert.ok(prompt.includes("only the user's location settings can update it"));

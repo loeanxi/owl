@@ -333,7 +333,10 @@ test("untrusted configuration writes are rejected before touching persistent sto
 	assert.equal(writeLiveSavedState(storage, { favorites: [], history: [], configuredLocation: badConfigured }), false);
 	assert.equal(writes, 0);
 	const badCoordinates = { ...DEFAULT_CONFIGURED_LOCATION, lat: Number.NaN };
-	assert.equal(writeLiveSavedState(storage, { favorites: [], history: [], configuredLocation: badCoordinates }), false);
+	assert.equal(
+		writeLiveSavedState(storage, { favorites: [], history: [], configuredLocation: badCoordinates }),
+		false,
+	);
 	assert.equal(writes, 0);
 });
 
