@@ -82,9 +82,9 @@ export const NEWS_PROMPTS: Readonly<Record<string, string>> = {
 const TOKEN = /\{\{(>\s*)?([A-Za-z][\w.-]*)\s*\}\}/g;
 
 function expand(name: string, seen: string[] = []): string {
-	if (seen.includes(name)) throw new Error("News prompt include cycle: " + [...seen, name].join(" -> "));
+	if (seen.includes(name)) throw new Error(`News prompt include cycle: ${[...seen, name].join(" -> ")}`);
 	const value = NEWS_PROMPTS[name];
-	if (value === undefined) throw new Error("Unknown news prompt: " + name);
+	if (value === undefined) throw new Error(`Unknown news prompt: ${name}`);
 	return value.replace(TOKEN, (token, include: string | undefined, key: string) =>
 		include ? expand(key, [...seen, name]) : token,
 	);
@@ -94,13 +94,13 @@ export function newsPrompt(name: string, values: Record<string, string> = {}): s
 	const defaults = { siteName: "Owl 资讯", ...values };
 	return expand(name).replace(TOKEN, (_token, _include, key: string) => {
 		const value = (defaults as Record<string, string>)[key];
-		if (value === undefined) throw new Error("News prompt missing value: " + name + "." + key);
+		if (value === undefined) throw new Error(`News prompt missing value: ${name}.${key}`);
 		return value;
 	});
 }
 
 export function newsPromptVersion(name: string): string {
-	return name + "@" + createHash("sha256").update(expand(name)).digest("hex").slice(0, 16);
+	return `${name}@${createHash("sha256").update(expand(name)).digest("hex").slice(0, 16)}`;
 }
 
 export const NEWS_DATA_BOUNDARY =

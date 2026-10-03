@@ -5,7 +5,7 @@ import { DOMParser } from "linkedom";
 import { Agent } from "undici";
 import type { NewsMaterial, NewsSourceInput } from "./types.ts";
 
-export const NEWS_SECRET_KEYS = ["SOCIALDATA_API_KEY", "DAJIALA_KEY", "EMBEDDING_API_KEY", "GITHUB_TOKEN"] as const;
+export const NEWS_SECRET_KEYS = ["SOCIALDATA_API_KEY", "DAJIALA_KEY", "EMBEDDING_API_KEY", "GITHUB_TOKEN", "ingest"] as const;
 export interface NewsFetchOptions {
 	fetch?: typeof fetch;
 	resolveHost?: (host: string) => Promise<string[]>;
@@ -203,7 +203,12 @@ export interface NewsCollectorOptions extends NewsFetchOptions {
 /** Generic configuration never sends write-only credentials back to the UI. */
 export function publicNewsSource<T extends NewsSourceInput>(source: T): T {
 	const redact = (value: unknown, key = ""): unknown => {
+		if (key === "headers" && value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, /^(accept|content-type|user-agent)$/i.test(name) ? entry : entry ? "[configured]" : ""]));
 		if (/api.?key|token|secret|password|authorization|cookie/i.test(key)) return value ? "[configured]" : "";
+		if ((key === "url" || key === "feedUrl") && typeof value === "string") {
+			try { const url = new URL(value); for (const name of [...url.searchParams.keys()]) if (/key|token|secret|auth|password/i.test(name)) url.searchParams.set(name, "[configured]"); return url.toString(); }
+			catch { return value; }
+		}
 		if (Array.isArray(value)) return value.map(entry => redact(entry));
 		if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, redact(entry, name)]));
 		return value;

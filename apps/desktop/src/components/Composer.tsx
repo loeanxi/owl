@@ -258,8 +258,9 @@ export function Composer({
 	onSwitchProject: (path: string) => void;
 	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
 	commands: SlashCommandEntry[];
-	/** Start-page examples fill a draft without submitting or replacing existing text. */
-	draftRequest?: { id: number; text: string };
+	/** Start-page examples fill a draft without submitting or replacing existing text.
+	 *  replace: 会话回退后的「文本回填」——整体替换输入框内容而不是追加。 */
+	draftRequest?: { id: number; text: string; replace?: boolean };
 }): React.JSX.Element {
 	const t = useT();
 	const [value, setValue] = useState("");
@@ -279,7 +280,11 @@ export function Composer({
 	const [slashIndex, setSlashIndex] = useState(0);
 	useEffect(() => {
 		if (!draftRequest) return;
-		setValue((current) => current.trim() ? `${current}\n\n${draftRequest.text}` : draftRequest.text);
+		if (draftRequest.replace) {
+			setValue(draftRequest.text);
+		} else {
+			setValue((current) => (current.trim() ? `${current}\n\n${draftRequest.text}` : draftRequest.text));
+		}
 		setSlashDismissed(true);
 		textareaRef.current?.focus();
 	}, [draftRequest]);

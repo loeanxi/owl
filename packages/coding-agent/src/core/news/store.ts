@@ -268,7 +268,8 @@ export class NewsStore {
 			error: null,
 			...(manual.fields as Partial<NewsItem> | undefined),
 		};
-		updated.selected = updated.selectionCandidate && updated.participation === "editorial" && !updated.withdrawn;
+		// Scoring admits a candidate; publication waits for novelty/group confirmation.
+		updated.selected = false;
 		if (manual.fields && typeof manual.fields === "object" && "selected" in manual.fields)
 			updated.selected = !!(manual.fields as Record<string, unknown>).selected;
 		if (updated.relevance === "block" || updated.participation !== "editorial") updated.selected = false;

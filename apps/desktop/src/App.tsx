@@ -11,6 +11,7 @@ import { Artifacts } from "./components/Artifacts.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
+import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { IconList } from "./components/icons.tsx";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
@@ -75,7 +76,9 @@ export default function App(): React.JSX.Element {
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
-	const [railView, setRailView] = useState<RailView>("chat");
+	const [railView, setRailView] = useState<RailView>(() =>
+		new URLSearchParams(window.location.search).get("view") === "map" ? "map" : "chat",
+	);
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -104,6 +107,8 @@ export default function App(): React.JSX.Element {
 	const [permission, setPermission] = useState<PermissionRequest | undefined>(undefined);
 	/** agent 提问队列：ask_user_question 的 question_request 按到达顺序排队弹出 */
 	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
+	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
+	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
 	const [modelValue, setModelValue] = useState(() => localStorage.getItem(MODEL_KEY) ?? "");
 	const [thinkingLevel, setThinkingLevel] = useState(() => localStorage.getItem(THINKING_KEY) ?? "medium");
@@ -458,6 +463,7 @@ export default function App(): React.JSX.Element {
 			sessionId: string;
 			cwd: string;
 			messages: Record<string, unknown>[];
+			messageEntryIds?: (string | undefined)[];
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
@@ -473,12 +479,12 @@ export default function App(): React.JSX.Element {
 			}
 			return;
 		}
-		const { sessionId: resumedId, cwd, messages } = response.result;
+		const { sessionId: resumedId, cwd, messages, messageEntryIds } = response.result;
 		setWorkspaceDir(cwd);
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
 		sessionIdRef.current = resumedId;
-		setEntries(rebuild(messages));
+		setEntries(rebuild(messages, messageEntryIds));
 		void refreshStats(resumedId);
 	};
 

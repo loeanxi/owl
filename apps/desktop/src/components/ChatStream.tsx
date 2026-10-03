@@ -298,12 +298,30 @@ function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolRes
 	);
 }
 
-/** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡。 */
-function UserRowView({ entry }: { entry: Extract<ChatEntry, { kind: "user" }> }): React.JSX.Element {
+/** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡 + 悬停浮现的 ↶ 回退按钮。 */
+function UserRowView({
+	entry,
+	onRewind,
+}: {
+	entry: Extract<ChatEntry, { kind: "user" }>;
+	onRewind?: (entryId: string) => void;
+}): React.JSX.Element {
 	const [zoomed, setZoomed] = useState(false);
 	const images = entry.images ?? [];
+	const canRewind = Boolean(entry.entryId && onRewind);
 	return (
 		<div className="owl-user-row">
+			{canRewind && (
+				<button
+					type="button"
+					className="owl-rewind-trigger"
+					title={t("rewind.buttonTitle")}
+					aria-label={t("rewind.buttonTitle")}
+					onClick={() => entry.entryId && onRewind?.(entry.entryId)}
+				>
+					↶
+				</button>
+			)}
 			<div className="owl-user-bubble">
 				{images.length > 0 && (
 					<div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
@@ -340,7 +358,7 @@ function UserRowView({ entry }: { entry: Extract<ChatEntry, { kind: "user" }> })
 }
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] {
+function buildRows(entries: ChatEntry[], expandedTools: boolean, onRewind?: (entryId: string) => void): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	let turn = 0;
 	let pendingTools: ToolCard[] = [];
@@ -362,7 +380,7 @@ function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] 
 			rows.push({
 				key: "q" + turn,
 				questionIndex: turn,
-				content: <UserRowView entry={entry} />,
+				content: <UserRowView entry={entry} onRewind={onRewind} />,
 			});
 			return;
 		}
@@ -566,6 +584,7 @@ export function ChatStream({
 	activity = "idle",
 	navigationOpen = false,
 	onNavigationClose,
+	onRewind,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -578,6 +597,8 @@ export function ChatStream({
 	artifacts?: React.ReactNode;
 	cwd?: string;
 	onOpenFile?: (path: string) => void;
+	/** 用户消息 ↶ 回退（owl-rewind）：传了才渲染按钮，未带 entryId 的行不渲染。 */
+	onRewind?: (entryId: string) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const container = useRef<HTMLElement>(null);
@@ -613,7 +634,7 @@ export function ChatStream({
 		window.addEventListener("owl-chat-appearance-change", update);
 		return () => window.removeEventListener("owl-chat-appearance-change", update);
 	}, []);
-	const rows = useMemo(() => buildRows(entries, expandedTools), [entries, expandedTools]);
+	const rows = useMemo(() => buildRows(entries, expandedTools, onRewind), [entries, expandedTools, onRewind]);
 
 	// -- 最新截图 Dock：转录里最后一张工具截图，贴底展示（ZCode 同款）---------
 	const latestShot = useMemo(() => {

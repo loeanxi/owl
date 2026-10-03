@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -90,6 +90,11 @@ export class NewsService {
 		this.started = true; this.lease = this.store.acquireLease(this.owner);
 		if (this.lease) this.store.recover();
 		this.timer = setInterval(() => this.kick(), 10000); this.timer.unref(); this.kick();
+	}
+	authorizeIngest(token: string): boolean {
+		const expected = this.secrets.ingest;
+		if (!expected || expected.length < 16 || token.length !== expected.length) return false;
+		return timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 	}
 	async close(): Promise<void> {
 		if (this.stopping) return;
@@ -245,20 +250,21 @@ export class NewsService {
 			const lock = this.store.manual(item.id);
 			if (!lock.groupLocked) {
 				const relation = await judgeRelation(item, candidates, this.configuration, call);
-				const factId = relation.factId || `fact:${newsHash([item.fact?.subject, item.fact?.action, item.fact?.object, item.fact?.occurredAt])}`;
+				const factId = relation.factId || `fact:${item.id}:${item.revision}`;
 				this.store.transaction(() => {
 					const current = this.store.item(item!.id); if (!current || current.revision !== item!.revision || this.store.manual(item!.id).groupLocked) return;
 					let storyId = relation.storyId;
 					if (item!.contentKind !== "single") {
-						this.store.editItem(item!.id, { mentionedStoryIds: relation.mentions ?? [], selected: false, novel: false, storyId: null }); return;
+						this.store.editItem(item!.id, { mentionedStoryIds: relation.mentions ?? [], selected: false, novel: false, storyId: null, status: "ready", error: null }); return;
 					}
 					if (!storyId && item!.fact?.evidence.length) {
 						storyId = randomUUID(); this.store.saveStory({ id: storyId, title: item!.title, summary: item!.summary,
 							category: item!.category, tags: item!.tags, entities: item!.entities, createdAt: item!.publishedAt,
 							updatedAt: item!.publishedAt, reports: [], sourceCount: 0, manual: false, relatedStoryIds: [] });
 					}
-					const selected = item!.selectionCandidate && relation.novel && !!item!.fact?.evidence.length && item!.participation === "editorial";
-					const updated = this.store.editItem(item!.id, { storyId, factId, novel: relation.novel, selected,
+					const fields = this.store.manual(item!.id).fields as Partial<NewsItem> | undefined;
+					const selected = fields?.selected ?? (item!.selectionCandidate && relation.novel && !!item!.fact?.evidence.length && item!.participation === "editorial");
+					const updated = this.store.editItem(item!.id, { storyId, factId, novel: relation.novel, selected, status: "ready", error: null,
 						selectedReadyAt: selected ? item!.selectedReadyAt || new Date().toISOString() : item!.selectedReadyAt });
 					if (storyId) {
 						const story = this.store.story(storyId); if (story) this.store.saveStory({ ...story, updatedAt: updated.backfill ? story.updatedAt : updated.publishedAt > story.updatedAt ? updated.publishedAt : story.updatedAt });
@@ -362,7 +368,7 @@ export class NewsService {
 			}
 			case "deleteSource": this.store.deleteSource(request.id); return { ok: true };
 			case "previewSource": {
-				const source = validateSource(request.source);
+				const source = validateSource({ ...request.source, config: mergeSourceConfig(this.store.source(request.source.id)?.config ?? {}, request.source.config) });
 				return collectNewsSource(source, { ...this.fetchOptions(), secrets: this.secrets, maxItems: Math.min(5, this.configuration.maxItemsPerSource),
 					paid: (purpose, identity, run) => this.paid(`preview:${source.id}`, purpose, identity, run) });
 			}
@@ -376,6 +382,7 @@ export class NewsService {
 				for (const threshold of Object.values(config.thresholds)) if (threshold !== null) bounded(threshold, 0, 100, "精选门槛");
 				for (const [key, value] of Object.entries(request.secrets ?? {})) {
 					if (!NEWS_SECRET_KEYS.includes(key as typeof NEWS_SECRET_KEYS[number]) || typeof value !== "string") throw new Error("不支持的资讯凭据字段");
+					if (key === "ingest" && value && value.length < 16) throw new Error("导入密钥至少需要 16 位");
 					if (value) this.secrets[key] = value; else delete this.secrets[key];
 				}
 				if (request.secrets) {
