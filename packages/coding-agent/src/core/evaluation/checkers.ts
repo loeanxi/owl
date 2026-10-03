@@ -1,4 +1,7 @@
 import { DOMParser } from "linkedom";
+import { checkEvaluationBrowser } from "./check-browser.ts";
+import { checkEvaluationCode } from "./check-code.ts";
+import { checkEvaluationSvgRequirement, evaluationPreviewPolicy, isEvaluationSvgWellFormed } from "./check-svg.ts";
 import type { EvaluationArtifact, EvaluationCheck, EvaluationTask } from "./types.ts";
 
 export interface EvaluationCheckedArtifact {
@@ -9,9 +12,9 @@ export interface EvaluationCheckedArtifact {
 export function extractEvaluationArtifact(task: EvaluationTask, output: string): EvaluationArtifact | null {
 	const fences = [...output.matchAll(/```([^\n`]*)\n([\s\S]*?)```/g)];
 	let content = output.trim();
-	if (task.outputType === "svg") content = output.match(/<svg\b[\s\S]*?<\/svg\s*>/i)?.[0] ?? "";
+	if (task.outputType === "svg") content = fences.find((m) => /^(?:svg|xml)\s*$/i.test(m[1]))?.[2] ?? output.match(/<svg\b[\s\S]*<\/svg\s*>/i)?.[0] ?? "";
 	else if (task.outputType === "html")
-		content = output.match(/(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>/i)?.[0] ?? "";
+		content = fences.find((m) => /^html\s*$/i.test(m[1]))?.[2] ?? output.match(/(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*<\/html\s*>/i)?.[0] ?? "";
 	else if (task.outputType === "code")
 		content =
 			fences.find((m) => /^(?:javascript|js|typescript|ts)\s*$/i.test(m[1]))?.[2] ?? fences[0]?.[2] ?? content;
@@ -55,7 +58,7 @@ export async function checkEvaluationArtifact(
 	} else if (artifact.type === "svg") {
 		try {
 			const document = new DOMParser().parseFromString(artifact.content, "image/svg+xml");
-			formatValid = document.documentElement?.localName === "svg" && !document.querySelector("parsererror");
+			formatValid = isEvaluationSvgWellFormed(artifact.content) && document.documentElement?.localName === "svg" && !document.querySelector("parsererror");
 		} catch {
 			formatValid = false;
 		}
@@ -68,10 +71,7 @@ export async function checkEvaluationArtifact(
 		detail: formatValid ? "已提取完整产物。" : "格式解析失败。",
 	});
 	if (artifact.type === "svg" || artifact.type === "html") {
-		const safe =
-			!/<(?:iframe|object|embed|base)\b|<!ENTITY|<!DOCTYPE\s+(?!html\b)|\b(?:src|href|xlink:href)\s*=\s*["']\s*(?:https?:|\/\/|file:|javascript:|data:)|@import|url\(\s*["']?\s*(?:https?:|\/\/|file:)/i.test(
-				artifact.content,
-			) && !(artifact.type === "svg" && /<script\b|<foreignObject\b|\son[a-z]+\s*=/i.test(artifact.content));
+		const safe = evaluationPreviewPolicy(artifact.content, artifact.type);
 		artifact.previewAllowed = formatValid && safe;
 		checks.push({
 			id: "safe",
@@ -82,13 +82,17 @@ export async function checkEvaluationArtifact(
 				: "包含禁止的嵌入、SVG脚本或外部资源，保留源码并停用预览。",
 		});
 	}
+	if (formatValid && artifact.type === "code") checks.push(...await checkEvaluationCode(task, artifact.content, signal));
+	const requirement = formatValid ? checkEvaluationSvgRequirement(task, artifact) : undefined;
+	if (requirement) checks.push(requirement);
+	if (artifact.previewAllowed && (artifact.type === "svg" || artifact.type === "html")) checks.push(...await checkEvaluationBrowser(task, artifact, signal));
 	for (const spec of task.checks)
-		if (!["format", "safe"].includes(spec.kind))
+		if (!checks.some((check) => check.id === spec.id))
 			checks.push({
 				id: spec.id,
 				label: spec.label,
 				status: "unchecked",
-				detail: "检查器尚未运行；不会按通过计分。",
+				detail: "产物格式或预览条件不满足，未执行此检查；不按通过计分。",
 			});
 	return { artifact, checks };
 }

@@ -408,6 +408,33 @@ export function Composer({
 		: [...ALL_THINKING_LEVELS];
 	const thinkingDisabled = sessionInfo !== undefined && !sessionInfo.supportsThinking;
 
+	// 上下文构成占比（核心按消息角色估算后缩放到总口径），仿 ZCode 上下文容量弹层；
+	// 四类取整后的余额归入「其他」，保证加总 ≈ 100%。
+	const breakdownRows = (() => {
+		const breakdown = sessionInfo?.contextUsage?.breakdown;
+		if (!breakdown || contextTokens === null || contextTokens <= 0) return [];
+		const total = breakdown.systemPrompt + breakdown.toolDefinitions + breakdown.messages + breakdown.toolResults;
+		if (total <= 0) return [];
+		const entries = [
+			{ label: t("composer.ctxMessages"), value: breakdown.messages, color: "bg-emerald-400" },
+			{ label: t("composer.ctxSystemPrompt"), value: breakdown.systemPrompt, color: "bg-sky-400" },
+			{ label: t("composer.ctxToolDefinitions"), value: breakdown.toolDefinitions, color: "bg-violet-400" },
+			{ label: t("composer.ctxToolResults"), value: breakdown.toolResults, color: "bg-amber-400" },
+		].map((entry) => ({ ...entry, percent: (entry.value / total) * 100 }));
+		const rows = entries.filter((entry) => entry.percent >= 0.1);
+		const other = 100 - rows.reduce((sum, entry) => sum + entry.percent, 0);
+		if (other >= 0.5) rows.push({ label: t("composer.ctxOther"), value: 0, color: "bg-zinc-500", percent: other });
+		return rows;
+	})();
+
+	// 平均缓存命中率 = 缓存读取 /（缓存读取 + 未缓存输入）；无用量数据时不展示。
+	const cacheHitRate = (() => {
+		const tokens = sessionInfo?.stats?.tokens;
+		if (!tokens) return null;
+		const denominator = tokens.cacheRead + tokens.input;
+		return denominator > 0 ? (tokens.cacheRead / denominator) * 100 : null;
+	})();
+
 	// 项目选择器排序：当前项目置顶，其余按名称；显示名取路径末段。
 	const sortedProjects = [...projects].sort((a, b) => {
 		const aCurrent = samePath(a, workspaceDir);
@@ -810,8 +837,15 @@ export function Composer({
 					>
 						{sessionInfo ? (
 							<div className="w-full px-3 py-2 text-xs text-owl-muted">
-								<p className="pb-1.5 text-owl-text">{t("composer.contextWindow")}</p>
-								<div className="mb-1 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
+								<div className="flex items-baseline justify-between gap-3 pb-1.5">
+									<p className="text-owl-text">{t("composer.contextWindow")}</p>
+									<p className="flex-none text-owl-faint">
+										{contextTokens !== null ? formatTokens(contextTokens) : "—"}
+										{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
+										{percent !== null ? ` · ${Math.round(percent)}%` : ""}
+									</p>
+								</div>
+								<div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
 									<div
 										className={`h-full rounded-full ${
 											(percent ?? 0) >= 85 ? "bg-red-500" : (percent ?? 0) >= 60 ? "bg-amber-500" : "bg-emerald-500"
@@ -819,14 +853,26 @@ export function Composer({
 										style={{ width: `${Math.min(100, Math.max(2, percent ?? 0))}%` }}
 									/>
 								</div>
-								<p className="pb-2 text-owl-faint">
-									{contextTokens !== null ? formatTokens(contextTokens) : "—"}
-									{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
-									{percent !== null ? ` · ${Math.round(percent)}%` : ""}
-								</p>
+								{breakdownRows.length > 0 && (
+									<div className="pb-1">
+										{breakdownRows.map((row) => (
+											<div key={row.label} className="flex items-center gap-1.5 py-0.5">
+												<span className={`h-1.5 w-1.5 flex-none rounded-full ${row.color}`} />
+												<span className="min-w-0 flex-1 truncate">{row.label}</span>
+												<span className="flex-none text-owl-faint">{row.percent.toFixed(1)}%</span>
+											</div>
+										))}
+									</div>
+								)}
+								{cacheHitRate !== null && (
+									<div className="mt-1 flex items-center justify-between border-t border-owl-border pt-1.5">
+										<span>{t("composer.cacheHitRate")}</span>
+										<span className="text-owl-faint">{cacheHitRate.toFixed(1)}%</span>
+									</div>
+								)}
 								{sessionInfo.stats && (
 									<>
-										<p className="pb-1.5 text-owl-text">{t("composer.sessionTotals")}</p>
+										<p className="pt-1.5 pb-1 text-owl-text">{t("composer.sessionTotals")}</p>
 										<p className="text-owl-faint">
 											{t("composer.statsTokens", {
 												input: formatTokens(sessionInfo.stats.tokens.input),

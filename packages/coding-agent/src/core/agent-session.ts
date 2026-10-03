@@ -70,6 +70,7 @@ import {
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
+	estimateContextBreakdown,
 	estimateContextTokens,
 	estimateProjectedContextTokens,
 	estimateTokens,
@@ -82,6 +83,7 @@ import {
 	type AgentActivityOutcome,
 	type BoundaryContextPreview,
 	type ContextUsage,
+	type ContextUsageBreakdown,
 	type ExecuteToolOptions,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
@@ -4252,10 +4254,24 @@ export class AgentSession {
 		const estimate = estimateProjectedContextTokens(projection, branch);
 		const percent = (estimate.tokens / contextWindow) * 100;
 
+		// 分类构成：按估算比例缩放到总口径（provider usage 无法按类别拆分，仅供展示）。
+		const raw = estimateContextBreakdown(projection.messages);
+		const rawTotal = raw.systemPrompt + raw.toolDefinitions + raw.messages + raw.toolResults;
+		const breakdown: ContextUsageBreakdown | undefined =
+			rawTotal > 0 && estimate.tokens > 0
+				? {
+						systemPrompt: Math.round((raw.systemPrompt / rawTotal) * estimate.tokens),
+						toolDefinitions: Math.round((raw.toolDefinitions / rawTotal) * estimate.tokens),
+						messages: Math.round((raw.messages / rawTotal) * estimate.tokens),
+						toolResults: Math.round((raw.toolResults / rawTotal) * estimate.tokens),
+					}
+				: undefined;
+
 		return {
 			tokens: estimate.tokens,
 			contextWindow,
 			percent,
+			...(breakdown ? { breakdown } : {}),
 		};
 	}
 

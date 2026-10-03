@@ -78,7 +78,7 @@ const PREVIEW_POLICY = "default-src 'none'; base-uri 'none'; connect-src 'none';
 /** Generated markup is only returned as an isolated iframe document, never injected in the app DOM. */
 export function isolatedPreview(content: string, type: "svg" | "html"): string {
 	const policy = type === "svg" ? PREVIEW_POLICY.replace("script-src 'unsafe-inline'", "script-src 'none'") : PREVIEW_POLICY;
-	const document = new DOMParser().parseFromString(content, "text/html");
+	const document = new DOMParser().parseFromString(type === "svg" ? `<!doctype html><html><body>${content}</body></html>` : content, "text/html");
 	for (const element of document.querySelectorAll("base,meta[http-equiv],iframe,frame,object,embed,link")) element.remove();
 	for (const element of document.querySelectorAll("[href],[xlink\\:href],[target],[action],[formaction]")) {
 		for (const attribute of ["target", "action", "formaction"]) element.removeAttribute(attribute);
@@ -87,7 +87,21 @@ export function isolatedPreview(content: string, type: "svg" | "html"): string {
 			if (value && !value.startsWith("#")) element.removeAttribute(attribute);
 		}
 	}
-	const markup = type === "svg" ? `<style>html,body{margin:0;width:100%;height:100%;display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>${document.body.innerHTML}` : document.documentElement.outerHTML;
+	if (type === "svg") {
+		const svg = document.querySelector<SVGElement>("svg");
+		if (svg) {
+			// Fit the preview viewport, keeping the original stored artifact and its viewBox intact.
+			if (!svg.hasAttribute("viewBox")) {
+				const width = svg.getAttribute("width")?.match(/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i)?.[1];
+				const height = svg.getAttribute("height")?.match(/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i)?.[1];
+				if (width && height && Number(width) > 0 && Number(height) > 0) svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+			}
+			svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+			for (const property of ["width", "height", "max-width", "max-height"]) svg.style.setProperty(property, "100%", "important");
+			for (const property of ["min-width", "min-height"]) svg.style.setProperty(property, "0", "important");
+		}
+	}
+	const markup = type === "svg" ? `<style>html,body{margin:0;padding:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}body{display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:0 1 100%;width:100%;height:100%;min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain}</style>${document.body.innerHTML}` : document.documentElement.outerHTML;
 	return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">${markup}`;
 }
 

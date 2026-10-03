@@ -533,7 +533,18 @@ export interface SessionStatsResult {
 	thinkingLevel: string;
 	availableThinkingLevels: string[];
 	supportsThinking: boolean;
-	contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+	contextUsage?: {
+		tokens: number | null;
+		contextWindow: number;
+		percent: number | null;
+		/** 上下文构成分类估算（tokens，按总口径缩放）；tokens 未知时缺省。 */
+		breakdown?: {
+			systemPrompt: number;
+			toolDefinitions: number;
+			messages: number;
+			toolResults: number;
+		};
+	};
 	stats?: {
 		userMessages: number;
 		assistantMessages: number;

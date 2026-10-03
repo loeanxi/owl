@@ -263,7 +263,7 @@ export function straightLineDistance(a: MapCoordinate, b: MapCoordinate): number
 export class RealMapClient {
 	private fetcher: typeof fetch;
 	constructor(fetcher: typeof fetch = fetch) {
-		this.fetcher = fetcher;
+		this.fetcher = fetcher.bind(globalThis);
 	}
 	search(query: string, language: "zh" | "en", signal?: AbortSignal): Promise<MapResult<RealPlace>> {
 		return this.request("search", { q: query, lang: language, limit: "12" }, signal);

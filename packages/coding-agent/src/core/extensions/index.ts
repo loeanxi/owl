@@ -57,6 +57,7 @@ export type {
 	// Event Results
 	ContextEventResult,
 	ContextUsage,
+	ContextUsageBreakdown,
 	ContextWithSystemEvent,
 	CustomEntryDraft,
 	CustomMessageEntryDraft,

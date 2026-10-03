@@ -33,6 +33,12 @@
 	min-width: 0;
 }
 
+/* 改动审批卡（ReviewChangesCard）：文件清单单列自上而下，不参与成果文件卡的多列网格 */
+.owl-changes-list {
+	grid-template-columns: 1fr;
+	gap: 2px;
+}
+
 .owl-artifact-file {
 	display: flex;
 	width: 100%;
