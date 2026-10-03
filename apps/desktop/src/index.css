@@ -201,9 +201,8 @@ html[data-owl-theme="light"] {
 	line-height: 1.4;
 }
 
-.owl-sidebar--minimized {
-	width: 44px;
-	flex-basis: 44px;
+.owl-sidebar[hidden] {
+	display: none;
 }
 
 .owl-sidebar-header {
@@ -214,11 +213,6 @@ html[data-owl-theme="light"] {
 	gap: 8px;
 	padding: 0 12px;
 	user-select: none;
-}
-
-.owl-sidebar--minimized .owl-sidebar-header {
-	justify-content: center;
-	padding: 0;
 }
 
 .owl-sidebar-brand {
@@ -315,6 +309,7 @@ html[data-owl-theme="light"] {
 	display: inline-flex;
 	min-width: 0;
 	height: 28px;
+	flex: 1;
 	align-items: center;
 	gap: 5px;
 	border-radius: 5px;
@@ -328,6 +323,10 @@ html[data-owl-theme="light"] {
 .owl-sidebar-section-label {
 	font-size: 12px;
 	font-weight: 600;
+}
+
+.owl-sidebar-section-menu {
+	max-width: calc(100% - 8px);
 }
 
 .owl-sidebar-section-actions {

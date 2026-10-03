@@ -8,6 +8,7 @@ import { Composer } from "./components/Composer.tsx";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDialog } from "./components/QuestionDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
+import { IconCompose, IconPanelLeft } from "./components/icons.tsx";
 import { SettingsPage } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { WindowControls } from "./components/WindowControls.tsx";
@@ -27,6 +28,7 @@ const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 const APPROVAL_KEY = "owl.approvalMode";
+const SIDEBAR_MINIMIZED_KEY = "owl.sidebar.minimized";
 
 /** localStorage 里记录的审批模式是否合法（防旧值/手改值落到未知档位）。 */
 function isApprovalMode(value: string | null): value is ApprovalMode {
@@ -57,6 +59,18 @@ export default function App(): React.JSX.Element {
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
 	const [railView, setRailView] = useState<RailView>("chat");
+	const [sidebarMinimized, setSidebarMinimized] = useState(
+		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
+	);
+	const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+	const toggleSessionSidebar = (): void => {
+		setSidebarMinimized((current) => {
+			const next = !current;
+			localStorage.setItem(SIDEBAR_MINIMIZED_KEY, next ? "1" : "0");
+			return next;
+		});
+		sidebarToggleRef.current?.focus({ preventScroll: true });
+	};
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
@@ -215,16 +229,22 @@ export default function App(): React.JSX.Element {
 			return () => window.removeEventListener("keydown", onKey);
 		}, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-		// IAB 联动（ZCode 同款）：agent 用 browser_* 工具开/切页面时，如果没有
-		// 面板在看那个页面，自动开一个浏览器 tab 并展开工作台——用户始终看得见
-		// agent 的浏览器操作。用户自己开的面板（origin=ui）不打扰。
+		// IAB 联动（ZCode 同款）：agent 用 browser_* 工具开/切页面时，用户始终
+		// 看得见 agent 的浏览器操作。用户自己开的面板（origin=ui）不打扰。
+		// agent 拉起的停靠位固定为右列：浏览器需要纵向空间，底栏会压成一条
+		// 视觉效果很差；用户自己点的面板不改变它原本的停靠位。
 		useEffect(() => {
 			return client.onIabMessage((message) => {
 				if (message.type !== "iab.pages" || message.origin !== "agent") return;
 				const target = message.pages.find((page) => page.active) ?? message.pages[0];
-				if (!target || isIabPageBound(target.pageId)) return;
-				workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
-				if (!openRef.current) setWorkbenchOpenPersisted(true);
+				if (!target) return;
+				// 没有面板在看这个页面才开新 tab；已有面板也把底栏切到右列，
+				// 否则 agent 的操作被压在 167px 的条里根本看不清
+				if (!isIabPageBound(target.pageId)) {
+					workbenchStore.openNew("browser", target.title || "浏览器", encodeIabPath(target.pageId, target.url));
+				}
+				if (dockRef.current !== "right") setDockPersisted("right");
+				setWorkbenchOpenPersisted(true);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -486,6 +506,8 @@ export default function App(): React.JSX.Element {
 				refreshKey={sessionId ?? ""}
 				revision={sidebarRev}
 				focus={railView}
+				minimized={sidebarMinimized}
+				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
 				onNewChat={() => {
 					setRailView("chat");
@@ -499,6 +521,34 @@ export default function App(): React.JSX.Element {
 					className="owl-chat-header flex shrink-0 select-none items-center gap-2.5 px-4"
 					data-tauri-drag-region="deep"
 				>
+					<div className="flex shrink-0 items-center gap-1" data-tauri-drag-region="false">
+						<button
+							ref={sidebarToggleRef}
+							type="button"
+							className="owl-chrome-button"
+							title={sidebarMinimized ? "展开侧边栏" : "收起侧边栏"}
+							aria-label={sidebarMinimized ? "展开侧边栏" : "收起侧边栏"}
+							aria-expanded={!sidebarMinimized}
+							aria-controls="owl-session-sidebar"
+							onClick={toggleSessionSidebar}
+						>
+							<IconPanelLeft className="h-4 w-4" />
+						</button>
+						{sidebarMinimized && (
+							<button
+								type="button"
+								className="owl-chrome-button"
+								title="新会话"
+								aria-label="新会话"
+								onClick={() => {
+									setRailView("chat");
+									newChat();
+								}}
+							>
+								<IconCompose className="h-4 w-4" />
+							</button>
+						)}
+					</div>
 					{/* 桥是界面与本地 agent 进程的内部管道：正常只留绿点，异常才出文案 */}
 					{connected ? (
 						<span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="已连接" />
@@ -511,7 +561,7 @@ export default function App(): React.JSX.Element {
 						</span>
 					)}
 					{/* 会话标题（取首条提问），DSH 的 "Greeting and session start" 同位 */}
-					<h1 className="max-w-56 shrink-0 truncate text-sm font-semibold text-owl-text" title={sessionTitle}>
+					<h1 className="max-w-56 min-w-0 truncate text-sm font-semibold text-owl-text" title={sessionTitle}>
 						{sessionTitle}
 					</h1>
 					<span

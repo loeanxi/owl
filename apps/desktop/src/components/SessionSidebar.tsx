@@ -37,8 +37,6 @@ const PINNED_KEY = "owl.pinnedSessions";
 /** 置顶项目（localStorage）：置顶栏里的项目快捷入口，项目本身仍留在「项目」分组。 */
 const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
-/** 整条侧边栏收起（localStorage）：收起后原位只留 owl 图标窄条，点击图标展开。 */
-const MINIMIZED_KEY = "owl.sidebar.minimized";
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 const PINNED_SORT_KEY = "owl.sidebar.pinnedSort";
 const RECENT_SORT_KEY = "owl.sidebar.recentSort";
@@ -180,7 +178,7 @@ function Section({
 				{menu && showMenu && (
 					<div
 						data-menu-root
-						className="absolute right-2 top-full z-30 mt-1 w-56 rounded-xl border border-owl-sidebar-border bg-owl-sidebar-surface py-1 shadow-xl shadow-black/30"
+						className="owl-sidebar-section-menu absolute right-2 top-full z-30 mt-1 w-56 rounded-xl border border-owl-sidebar-border bg-owl-sidebar-surface py-1 shadow-xl shadow-black/30"
 					>
 						{menu}
 					</div>
@@ -245,6 +243,8 @@ export function SessionSidebar({
 	refreshKey,
 	revision,
 	focus,
+	minimized,
+	onToggleMinimized,
 	onNewChat,
 	onSelectProject,
 	onOpenSession,
@@ -263,6 +263,9 @@ export function SessionSidebar({
 	revision: number;
 	/** rail 当前视图；变化时把会话列表滚回顶部。 */
 	focus: RailView;
+	/** 收起时完全隐藏侧栏，展开入口由 App 顶栏提供。 */
+	minimized: boolean;
+	onToggleMinimized: () => void;
 	onNewChat: () => void;
 	onSelectProject: (path: string) => void;
 	/** 点击历史会话：恢复回放并续聊。 */
@@ -274,8 +277,6 @@ export function SessionSidebar({
 	const [pinned, setPinned] = useState<string[]>(loadPinned);
 	const [pinnedProjects, setPinnedProjects] = useState<string[]>(loadPinnedProjects);
 	const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
-	/** 整条侧边栏收起：owl 图标点击触发，收起后只剩窄条。 */
-	const [minimized, setMinimized] = useState(() => localStorage.getItem(MINIMIZED_KEY) === "1");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
@@ -363,15 +364,6 @@ export function SessionSidebar({
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
 			localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
-			return next;
-		});
-	};
-
-	/** 收起/展开整条侧边栏（头部 owl 图标触发），状态持久化到 localStorage。 */
-	const toggleMinimized = (): void => {
-		setMinimized((current) => {
-			const next = !current;
-			localStorage.setItem(MINIMIZED_KEY, next ? "1" : "0");
 			return next;
 		});
 	};
@@ -916,32 +908,8 @@ export function SessionSidebar({
 		setOpenMenu(null);
 	};
 
-	// 收起态：原位留一条窄栏，在顶部恢复侧边栏。
-	if (minimized) {
-		return (
-			<aside
-				className="owl-sidebar owl-sidebar--minimized"
-				data-tauri-drag-region="deep"
-				aria-label="会话侧边栏（已收起）"
-			>
-				<div className="owl-sidebar-header" data-tauri-drag-region="deep">
-					<button
-						type="button"
-						className="owl-sidebar-icon-button"
-						title="展开侧边栏"
-						aria-label="展开侧边栏"
-						aria-expanded={false}
-						onClick={toggleMinimized}
-					>
-						<IconPanelLeft className="h-4 w-4" />
-					</button>
-				</div>
-			</aside>
-		);
-	}
-
 	return (
-		<aside className="owl-sidebar" aria-label="会话侧边栏">
+		<aside id="owl-session-sidebar" className="owl-sidebar" aria-label="会话侧边栏" hidden={minimized}>
 			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button
 					type="button"
@@ -949,7 +917,7 @@ export function SessionSidebar({
 					title="收起侧边栏"
 					aria-label="收起侧边栏"
 					aria-expanded={!minimized}
-					onClick={toggleMinimized}
+					onClick={onToggleMinimized}
 				>
 					<img src="/owl.svg" alt="" className="h-5 w-5" draggable={false} />
 					<span>owl</span>
@@ -975,7 +943,7 @@ export function SessionSidebar({
 						title="收起侧边栏"
 						aria-label="收起侧边栏"
 						aria-expanded
-						onClick={toggleMinimized}
+						onClick={onToggleMinimized}
 					>
 						<IconPanelLeft className="h-4 w-4" />
 					</button>
