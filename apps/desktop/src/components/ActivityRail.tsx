@@ -2,8 +2,8 @@ import { useT } from "../i18n/index.ts";
 import { IconChat, IconMore, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
-/** rail 当前高亮项。目前只有聊天视图；后续新功能再加枚举。 */
-export type RailView = "chat";
+/** 主导航视图；设置作为覆盖页保留当前视图。 */
+export type RailView = "chat" | "map";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -17,7 +17,7 @@ export function ActivityRail({
 }: {
 	view: RailView;
 	settingsOpen?: boolean;
-	/** 点击 rail 图标：回到聊天视图。 */
+	/** 切换主导航视图，保留各视图当前内容。 */
 	onSelect: (view: RailView) => void;
 	onOpenSettings: () => void;
 }): React.JSX.Element {
@@ -45,6 +45,20 @@ export function ActivityRail({
 				onClick={() => onSelect("chat")}
 			>
 				<IconChat className="h-[18px] w-[18px]" />
+			</button>
+
+			<button
+				type="button"
+				className={itemClass(view === "map" && !settingsOpen)}
+				title={t("rail.map")}
+				aria-label={t("rail.map")}
+				aria-current={view === "map" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("map")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
+					<path d="M9 3v15M15 6v15" />
+				</svg>
 			</button>
 
 			<button

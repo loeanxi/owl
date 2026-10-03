@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
-import { t, useT } from "../i18n/index.ts";
+import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
 import { StartPage } from "./StartPage.tsx";
 import { workspaceArtifactPath } from "../hooks/artifacts.ts";
@@ -456,7 +456,11 @@ function QuestionMinimap({ questions, active, onJump }: {
 		<nav ref={root} className="owl-chat-minimap" aria-label={t("chat.questionNavigation")} onMouseLeave={() => setPreview(null)} onBlur={(event) => {
 			if (!event.currentTarget.contains(event.relatedTarget)) setPreview(null);
 		}} onKeyDown={(event) => { if (event.key === "Escape") setPreview(null); }}>
-			<div ref={list} className="owl-chat-minimap-marks" onScroll={() => setPreview(null)}>
+			<div ref={list} className="owl-chat-minimap-marks" onScroll={() => {
+				const focused = document.activeElement;
+				if (focused instanceof HTMLButtonElement && list.current?.contains(focused)) showPreview(Number(focused.dataset.questionIndex), focused);
+				else setPreview(null);
+			}}>
 				{questions.map((item) => (
 					<button key={item.n} type="button" data-question-index={item.n}
 						aria-label={t("chat.jumpToQuestion", { n: item.n, text: item.text })}
@@ -532,7 +536,7 @@ function ScreenshotDock({
 					<img src={src} alt={t("chat.fullScreenshot")} className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl" />
 				</div>
 			)}
-			<div className="absolute bottom-2 left-2 z-20 w-56 overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
+			<div className="owl-screenshot-dock absolute bottom-2 left-2 z-20 w-56 overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
 				<header className="flex items-center justify-between px-2 py-1">
 					<span className="text-[11px] font-medium text-owl-muted">{t("chat.latestScreenshot")}</span>
 					<button
@@ -580,10 +584,12 @@ export function ChatStream({
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
 	const stick = useRef(true);
+	const navigationTarget = useRef<number | null>(null);
 	const prevEntries = useRef<ChatEntry[]>([]);
 	const [showLatest, setShowLatest] = useState(false);
 
 	const onWheel = (event: React.WheelEvent<HTMLElement>): void => {
+		navigationTarget.current = null;
 		// 向上滚（deltaY<0）是明确的用户意图，先于滚动发生：直接停跟随。
 		// 触控板/高精度滚轮单次位移很小，靠位移阈值判断会漏，必须在 wheel 上拦。
 		if (event.deltaY < 0) stick.current = false;
@@ -627,12 +633,13 @@ export function ChatStream({
 	const showShotDock = latestShot !== undefined && latestShot.key !== dismissedShotKey;
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
-	const questions = buildQuestions(entries);
+	const uiLanguage = getUiLanguage();
+	const questions = useMemo(() => buildQuestions(entries), [entries, uiLanguage]);
 	const [activeQuestion, setActiveQuestion] = useState(0);
 
 	const updateActiveQuestion = (): void => {
 		const el = container.current;
-		if (!el || questions.length === 0) return;
+		if (!el || questions.length === 0 || navigationTarget.current !== null) return;
 		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
 		if (atBottom) {
 			// 贴底 = 正在读最后一个提问的回答（短回答时其节点不在顶部判定线内）
@@ -661,9 +668,12 @@ export function ChatStream({
 		// 导航跳转是明确的翻历史意图：关掉贴底跟随，避免流式输出把视图拽回去
 		stick.current = false;
 		setActiveQuestion(n);
-		const top = node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
+		const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+		const top = Math.max(0, Math.min(maxTop, node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16));
+		navigationTarget.current = Math.abs(el.scrollTop - top) > 1 ? top : null;
+		if (navigationTarget.current === null) stick.current = maxTop - top < 24;
 		el.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-		setShowLatest(true);
+		setShowLatest(maxTop - top >= 24);
 		if ((el.parentElement?.clientWidth ?? 1000) < 700) onNavigationClose?.();
 	};
 
@@ -675,6 +685,11 @@ export function ChatStream({
 	const onScrollWithTracking = (): void => {
 		const el = container.current;
 		if (!el) return;
+		// 平滑跳转第一帧仍靠近底部，抵达目标前不能重新开启贴底跟随。
+		if (navigationTarget.current !== null) {
+			if (Math.abs(el.scrollTop - navigationTarget.current) > 1) return;
+			navigationTarget.current = null;
+		}
 		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
 		stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
 		setShowLatest(!stick.current);
@@ -685,7 +700,7 @@ export function ChatStream({
 		<div className="owl-chat-surface" data-activity={activity}>
 			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />}
 			<div className="owl-chat-layout">
-				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
+				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} onScrollEnd={() => { navigationTarget.current = null; onScrollWithTracking(); }} onPointerDown={() => { navigationTarget.current = null; }} onTouchStart={() => { navigationTarget.current = null; }} onKeyDown={() => { navigationTarget.current = null; }} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
 					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
 					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
 					const href = anchor?.getAttribute("href");
@@ -704,7 +719,7 @@ export function ChatStream({
 				</main>
 				{navigationOpen && questions.length > 0 && <QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} onClose={() => onNavigationClose?.()} />}
 			</div>
-			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>{t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
+			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { navigationTarget.current = null; stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>{t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
 			{showShotDock && latestShot && <ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />}
 		</div>
 	);

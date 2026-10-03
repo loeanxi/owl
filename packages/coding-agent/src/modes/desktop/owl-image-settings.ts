@@ -271,12 +271,14 @@ interface OwlImageLoginExports {
 	beginGoogleSubscriptionLogin?: () => Promise<string>;
 }
 
-let cachedLoginModule: { path: string; mod: OwlImageLoginExports } | undefined;
-
 /**
  * 开始 Google 订阅登录：动态 import 插件 dist 的 beginGoogleSubscriptionLogin
  * （内部起回环服务器并自动开浏览器）。结果页面/状态以本机 auth blob 为准，
  * UI 拿到 URL 仅用于展示兜底。
+ *
+ * 每次 login 都带时间戳查询参数强制从盘上重新加载插件 dist（Node ESM 把不同
+ * URL 视为不同模块）：插件重构建后无需重启桥，下一次点登录就是新代码——登录
+ * 是低频操作，重复 import 的内存开销可以忽略；换来的确定性是"点登录 = 盘上最新"。
  */
 export async function subscriptionLogin(
 	pluginSources: unknown,
@@ -289,11 +291,7 @@ export async function subscriptionLogin(
 		};
 	}
 	try {
-		let mod = cachedLoginModule?.path === distPath ? cachedLoginModule.mod : undefined;
-		if (mod === undefined) {
-			mod = (await import(pathToFileURL(distPath).href)) as OwlImageLoginExports;
-			cachedLoginModule = { path: distPath, mod };
-		}
+		const mod = (await import(`${pathToFileURL(distPath).href}?login=${Date.now()}`)) as OwlImageLoginExports;
 		if (typeof mod.beginGoogleSubscriptionLogin !== "function") {
 			return {
 				ok: false,

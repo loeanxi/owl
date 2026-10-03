@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" role="img" aria-label="湖边现代博物馆插画" preserveAspectRatio="xMidYMid slice">
+<defs><linearGradient id="mu-sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#bccfd0"/><stop offset="1" stop-color="#ece4cf"/></linearGradient><linearGradient id="mu-wall" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eee8d8"/><stop offset="1" stop-color="#c2bfae"/></linearGradient><linearGradient id="mu-dark"><stop stop-color="#475b54"/><stop offset="1" stop-color="#283f37"/></linearGradient></defs>
+<rect width="600" height="380" fill="url(#mu-sky)"/>
+<path d="M0 169c60-24 119-47 202-15s108-15 186-27 113 12 212 21v99H0Z" fill="#889b87"/><path d="M0 213c91-55 152-30 220-35s139-39 234-21 98 4 146 26v64H0Z" fill="#6f8978"/>
+<path d="M42 147L222 100 543 145 513 314 34 314Z" fill="#a1a795"/>
+<path d="M52 155L226 109 224 274 52 306Z" fill="#c4c6b7"/>
+<path d="M225 109L552 152V312L224 275Z" fill="url(#mu-wall)"/>
+<path d="M43 146L225 98 562 142V154L223 113 43 160Z" fill="#f2ead8"/>
+<path d="M72 173L201 141V265L72 290Z" fill="url(#mu-dark)"/>
+<g stroke="#b9c1b2" stroke-width="5"><path d="M97 168v115M123 161v117M149 155v118M175 148v120"/></g>
+<path d="M256 307V230c0-72 82-81 82-1v90Z" fill="#58665a"/><path d="M350 319v-84c0-73 84-77 84 2v93Z" fill="#7f8a76"/><path d="M446 330v-84c0-73 80-73 80 5v87Z" fill="#4a6054"/>
+<path d="M264 303V230c0-60 66-66 66-1v79Z" fill="#293d35"/><path d="M360 317v-82c0-61 63-62 63 2v87Z" fill="#4b6352"/><path d="M455 329v-83c0-61 61-59 61 5v80Z" fill="#2b4438"/>
+<g stroke="#a7b29c" stroke-width="2" opacity=".6"><path d="M297 188v119M264 263l66 7M393 195v129M360 273l63 7M486 210v121M455 281l61 7"/></g>
+<path d="M257 156L526 191" stroke="#c7c9b6" stroke-width="2"/>
+<path d="M250 138L531 176" stroke="#f7f2e2" stroke-width="2" opacity=".7"/>
+<path d="M0 315L92 297 253 303 600 341V380H0Z" fill="#b5bba7"/><path d="M84 317L295 330 473 380H117Z" fill="#d9d8c3"/>
+<path d="M106 310L246 318M102 320L268 330M119 337L335 353" stroke="#9ea996" stroke-width="2"/>
+<path d="M189 267l-12 29h36l-11-29Z" fill="#848f7b"/><path d="M194 255v33M194 261l-19-11M194 273l17-15" fill="none" stroke="#708568" stroke-width="4"/><g fill="#759071"><ellipse cx="180" cy="251" rx="16" ry="7" transform="rotate(31 180 251)"/><ellipse cx="207" cy="260" rx="16" ry="7" transform="rotate(-27 207 260)"/><ellipse cx="194" cy="244" rx="8" ry="18"/></g>
+<path d="M11 349h68l-6-58-54-9Z" fill="#687f67"/><g fill="#738c6e"><circle cx="18" cy="295" r="28"/><circle cx="52" cy="286" r="34"/><circle cx="75" cy="309" r="24"/></g>
+<path d="M520 362h80v-45l-69 5Z" fill="#5c745e"/><g fill="#68846b"><circle cx="542" cy="320" r="26"/><circle cx="579" cy="311" r="32"/><circle cx="603" cy="314" r="25"/></g>
+<path d="M41 100c9-25 24-37 34-53M63 68l30-32" fill="none" stroke="#b2b99f" stroke-width="2"/><ellipse cx="82" cy="46" rx="20" ry="3" fill="#e8e8d2" opacity=".7"/>
+</svg>

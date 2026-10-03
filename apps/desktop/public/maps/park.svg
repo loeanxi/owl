@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" role="img" aria-label="西湖湖畔公园插画" preserveAspectRatio="xMidYMid slice">
+<defs><linearGradient id="pa-sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#abc5be"/><stop offset=".6" stop-color="#dddcc0"/><stop offset="1" stop-color="#e8d7b1"/></linearGradient><linearGradient id="pa-lake" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8aaca1"/><stop offset="1" stop-color="#b3c5b1"/></linearGradient><linearGradient id="pa-path"><stop stop-color="#d5c7a6"/><stop offset="1" stop-color="#a4a483"/></linearGradient></defs>
+<rect width="600" height="380" fill="url(#pa-sky)"/>
+<circle cx="414" cy="92" r="30" fill="#eee1b6" opacity=".65"/>
+<path d="M0 180c78-23 103-83 161-53s95 24 140-12 58 28 110 29 112-43 189 10v52H0Z" fill="#91a896"/><path d="M0 199c89-26 98-55 165-39s100 11 138-8 66 13 111 25 122-21 186 6v53H0Z" fill="#78998a"/>
+<path d="M0 209H600V341H0Z" fill="url(#pa-lake)"/>
+<path d="M411 208l-28 86h76l-33-86Z" fill="#e5d7ad" opacity=".16"/>
+<g fill="none" stroke="#e3dfc1" stroke-width="2" opacity=".65"><path d="M104 234h109M383 234h72M58 261h135M250 252h90M432 267h108M151 288h169M363 296h164M50 313h220M290 325h244"/></g>
+<path d="M397 194h67v7h-67Z" fill="#5d7765"/><path d="M405 182h51v13h-51Z" fill="#5c7866"/><path d="M397 182l33-18 34 18Z" fill="#536d5b"/><path d="M412 185v10M450 185v10" stroke="#d6d2ac" stroke-width="3"/>
+<path d="M0 277c116 17 215 18 277 44s112 35 323 3v56H0Z" fill="#678b62"/>
+<path d="M0 305c117-1 217 0 288 28s138 26 312-4v25c-178 26-249 34-335-1S113 333 0 335Z" fill="url(#pa-path)"/>
+<path d="M0 305c117-1 217 0 288 28s138 26 312-4" stroke="#cdd0aa" stroke-width="2" fill="none"/>
+<g fill="#80935f"><ellipse cx="52" cy="353" rx="78" ry="24"/><ellipse cx="167" cy="371" rx="79" ry="20"/><ellipse cx="557" cy="366" rx="90" ry="20"/></g>
+<path d="M44 310L52 149 60 55 41-7H16L31 53 29 146 21 307Z" fill="#607457"/><path d="M43 145c21-50 41-54 56-92M41 83c-22-29-27-41-32-75" stroke="#607457" stroke-width="11" fill="none"/>
+<g fill="#648961"><ellipse cx="4" cy="19" rx="80" ry="42"/><ellipse cx="70" cy="19" rx="91" ry="42"/><ellipse cx="152" cy="15" rx="84" ry="30" transform="rotate(-7 152 15)"/><ellipse cx="92" cy="54" rx="62" ry="26"/></g>
+<g stroke="#628a61" stroke-width="3" fill="none" opacity=".82"><path d="M65 42c-4 39-5 63-19 107M86 45c-4 31-5 61-17 98M106 47c-1 39-2 65-11 98M127 41c3 30 2 54-5 81M146 29c1 30 4 71-2 96M170 20c1 27 4 56-1 88M191 14c-2 22 1 43 0 69"/></g>
+<path d="M503 298L526 170 538 57 525-7h25l12 64-16 115-24 130Z" fill="#677b59"/>
+<path d="M548 107c-36-23-48-44-52-85M543 55c29-21 47-37 57-65" stroke="#677b59" stroke-width="11" fill="none"/>
+<g fill="#6b905f"><ellipse cx="487" cy="25" rx="66" ry="37"/><ellipse cx="559" cy="13" rx="88" ry="46"/><ellipse cx="595" cy="64" rx="65" ry="31"/></g>
+<g fill="none" stroke="#6b905f" stroke-width="3" opacity=".8"><path d="M462 29c3 34 15 61 14 104M482 29c2 25 11 58 9 87M565 47c-3 41 7 60 5 90M584 58c-1 32 8 49 7 75M603 63c-2 35-1 56 0 74"/></g>
+<path d="M211 276l84 9v9l-84-9Z" fill="#876d46"/><path d="M210 267l85 9v8l-85-9Z" fill="#a28657"/><path d="M211 293l84 8v8l-84-8Z" fill="#8c7148"/><path d="M221 282l-5 43M284 291l5 44" stroke="#4e664a" stroke-width="5"/><path d="M213 293v-29M296 302v-28" stroke="#4e664a" stroke-width="4"/>
+<g fill="#e5dbb6" opacity=".6"><path d="M268 235q9-10 18 0-9-4-18 0Z"/><path d="M301 221q8-8 16 0-8-3-16 0Z"/></g>
+<path d="M352 379l3-27M369 380l-1-32M391 380l4-24" stroke="#668154" stroke-width="3"/><g fill="#b7bb79"><circle cx="356" cy="354" r="5"/><circle cx="367" cy="348" r="4"/><circle cx="395" cy="356" r="5"/></g>
+</svg>

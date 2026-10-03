@@ -8,6 +8,7 @@ type MenuKey = "file" | "edit" | "view" | "help";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
+	sidebarView?: "chat" | "map";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
@@ -22,6 +23,9 @@ interface DesktopTitlebarProps {
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
+	const sidebarLabel = props.sidebarView === "map"
+		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
+		: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");
 	const [menu, setMenu] = useState<MenuKey | undefined>();
 	const [copyError, setCopyError] = useState("");
 	const root = useRef<HTMLElement>(null);
@@ -64,7 +68,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		],
 		view: [
 			{ label: t("titlebar.openDeveloperWorkbench"), action: props.onOpenDeveloper },
-			{ label: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions"), action: props.onToggleSidebar },
+			{ label: sidebarLabel, action: props.onToggleSidebar },
 			{ label: t("titlebar.dockRight"), action: props.onDockRight },
 			{ label: t("titlebar.dockBottom"), action: props.onDockBottom },
 		],
@@ -78,10 +82,10 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					ref={props.sidebarToggleRef}
 					type="button"
 					className="owl-chrome-button owl-desktop-sidebar-toggle"
-					aria-label={props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions")}
-					title={props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions")}
+					aria-label={sidebarLabel}
+					title={sidebarLabel}
 					aria-expanded={!props.sidebarCollapsed}
-					aria-controls="owl-session-sidebar"
+					aria-controls={props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
 					onClick={props.onToggleSidebar}
 				>
 					<IconPanelLeft className="h-4 w-4" />

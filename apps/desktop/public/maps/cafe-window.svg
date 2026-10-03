@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" role="img" aria-label="大窗与绿植的暖色咖啡馆插画" preserveAspectRatio="xMidYMid slice">
+<defs>
+<linearGradient id="c1-wall" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e7dcc2"/><stop offset="1" stop-color="#bda783"/></linearGradient>
+<linearGradient id="c1-sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#c5ddda"/><stop offset="1" stop-color="#edf0d8"/></linearGradient>
+<linearGradient id="c1-floor" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#be956c"/><stop offset="1" stop-color="#7e583e"/></linearGradient>
+<linearGradient id="c1-table" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#c68a53"/><stop offset="1" stop-color="#83522f"/></linearGradient>
+<linearGradient id="c1-glow"><stop stop-color="#fff6c7" stop-opacity=".55"/><stop offset="1" stop-color="#fff6c7" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="600" height="380" fill="url(#c1-wall)"/>
+<path d="M0 283L600 254V380H0Z" fill="url(#c1-floor)"/>
+<g opacity=".23" stroke="#4e392a" stroke-width="2"><path d="M0 321L600 279M0 365L600 310M35 380L281 269M277 380L420 263M532 380L537 258"/></g>
+<path d="M33 17H420V280H33Z" fill="#695243"/><path d="M46 30H407V267H46Z" fill="url(#c1-sky)"/>
+<g fill="#77997a"><path d="M47 210c24-73 29-127 78-146s54 24 56 50 39 23 53 57 31 20 46 55v40H47Z"/><path d="M241 261c31-95 63-137 101-141s50 11 66 67v80Z" fill="#99ae89"/></g>
+<g fill="none" stroke="#c2cbb4" stroke-width="3" opacity=".45"><path d="M102 249L105 108M108 170L78 137M106 195L139 155M351 258L348 148M349 203L377 178"/></g>
+<path d="M43 202H409V230H43Z" fill="#c4bc9d"/><path d="M45 229H408V235H45Z" fill="#9a927e"/>
+<g fill="#725948"><rect x="159" y="27" width="10" height="241"/><rect x="285" y="27" width="10" height="241"/><rect x="43" y="123" width="366" height="8"/></g>
+<path d="M46 258L600 120V224L162 380H0V317Z" fill="url(#c1-glow)"/>
+<path d="M0 275H425V292H0Z" fill="#76573d"/><path d="M0 273H425V280H0Z" fill="#cda370"/>
+<path d="M484 167H600V380H484Z" fill="#6e6653"/><path d="M470 156H600V170H470Z" fill="#a19174"/>
+<g stroke="#7f6c51" stroke-width="3"><path d="M479 196H600M479 238H600M479 279H600"/></g>
+<path d="M487 169L495 185H524L530 169Z" fill="#c2a77f"/><path d="M542 178h22v-28h-22Z" fill="#bbaa91"/><ellipse cx="553" cy="150" rx="11" ry="3" fill="#e0cfac"/>
+<path d="M458 6v34" stroke="#655039" stroke-width="4"/><path d="M429 59c2-26 13-35 29-35s27 9 29 35Z" fill="#506955"/><ellipse cx="458" cy="59" rx="28" ry="5" fill="#eee2ac"/>
+<path d="M409 111v155M452 83v174M449 145l-40-27M450 181l35-54" fill="none" stroke="#496949" stroke-width="4"/>
+<g fill="#557746"><ellipse cx="417" cy="131" rx="22" ry="9" transform="rotate(32 417 131)"/><ellipse cx="447" cy="109" rx="12" ry="28" transform="rotate(-12 447 109)"/><ellipse cx="468" cy="154" rx="23" ry="10" transform="rotate(-44 468 154)"/><ellipse cx="423" cy="200" rx="30" ry="11" transform="rotate(24 423 200)"/><ellipse cx="454" cy="226" rx="24" ry="9" transform="rotate(-26 454 226)"/><ellipse cx="409" cy="172" rx="12" ry="26" transform="rotate(-25 409 172)"/></g>
+<path d="M401 249h64l-10 50h-44Z" fill="#bd7657"/><ellipse cx="433" cy="249" rx="32" ry="7" fill="#da9b75"/>
+<path d="M63 285L96 285 109 326 58 326Z" fill="#867653"/><path d="M63 298L59 368M100 298L108 368" stroke="#463c2e" stroke-width="8"/>
+<path d="M265 279h40l10 48h-62Z" fill="#756748"/><path d="M260 305L252 380M307 305L317 380" stroke="#423b2d" stroke-width="8"/>
+<path d="M69 266L327 255 362 285 90 302Z" fill="url(#c1-table)"/><path d="M90 302L362 285v8L91 311Z" fill="#684426"/><path d="M108 306v74M325 296v84" stroke="#583d2c" stroke-width="10"/>
+<path d="M170 281l55-3 20 8-58 5Z" fill="#d3d4bf"/><path d="M178 271l42-2 7 12-43 3Z" fill="#717f76"/><path d="M185 273l29-2" stroke="#e0e6d2" stroke-width="2"/>
+<ellipse cx="273" cy="278" rx="17" ry="5" fill="#e5d7bd"/><path d="M261 262h20l-2 14h-16Z" fill="#f1dfbb"/><ellipse cx="271" cy="262" rx="10" ry="3" fill="#654436"/><path d="M281 263c13-3 13 10-1 9" fill="none" stroke="#f1dfbb" stroke-width="3"/>
+<rect x="6" y="0" width="4" height="380" fill="#f6ebd7" opacity=".22"/>
+</svg>

@@ -1,0 +1,97 @@
+import { getUiLanguage, useT } from "../i18n/index.ts";
+import type { MapRegion, PlaceId } from "./model.ts";
+
+const zh = {
+	map: "地图", subtitle: "发现值得去的地方", demoBadge: "示意地图 · 演示地点", newExplore: "新探索", favorites: "我的收藏", explore: "探索",
+	sideSearch: "搜索地点或收藏", recent: "最近探索", historyEmpty: "你的探索会出现在这里", sideTip: "告诉 Owl 你想做什么，一起找到合适的去处。",
+	localSpace: "本地工作空间", localSaved: "你的探索，保存在这里", local: "本地", regionAll: "全部片区", regionXihu: "西湖区", regionHubin: "湖滨", regionWulin: "武林",
+	hangzhou: "杭州", location: "选择搜索范围", locationNote: "仅展示杭州示意片区，不读取设备位置。", eyebrow: "A LITTLE DISCOVERY",
+	homeTitle: "今天，\n想去哪里？", homeDescription: "找一杯好咖啡、一条散步路线，\n或一个让你停留的地方。", homePlaceholder: "例如：西湖附近，适合带电脑工作的咖啡馆",
+	queryLabel: "描述你想去的地方", idea: "说说你的想法", start: "开始探索", exampleLabel: "从一个小想法开始", offlineNote: "地点、预算与设施均为演示数据。搜索会匹配示例条件，不会调用真实 AI 或地图服务。",
+	cafeTitle: "找一家舒服的咖啡馆", cafeDescription: "安静、有插座，适合带电脑", parkTitle: "沿着湖边走走", parkDescription: "绿荫、湖景，慢慢散步", museumTitle: "周末看个展", museumDescription: "艺术、建筑，收集新灵感",
+	queryCafe: "西湖附近适合带电脑工作的咖啡馆", queryPark: "沿着湖边找个地方走走", queryMuseum: "周末找一个可以慢慢逛的展览",
+	resultsCafe: "找个地方，专注一会儿", resultsPark: "沿着湖边，慢慢走", resultsMuseum: "给周末一点新灵感", resultsSaved: "留住喜欢的地方",
+	resultsSummary: "围绕 {region}，找到 {n} 个示例地点。", savedSummary: "收藏过的地点都在这里，下一次出门时，可以接着探索。", filterSummary: "已按你选定的条件缩小范围。", unsupportedSummary: "演示搜索支持咖啡馆、散步和看展。已保留识别到的条件。",
+	quiet: "更安静", plug: "有插座", budget: "¥50 内", lake: "西湖边", resultsCount: "{n} 个结果", savedCount: "{n} 个收藏", sort: "结果排序", recommended: "示例排序", priceSort: "参考预算从低到高",
+	priority: "示例优先推荐", referencePrice: "约 ¥{n} / 人", free: "免费", categoryCafe: "咖啡馆", categoryPark: "公园步道", categoryMuseum: "艺术空间", area: "{region}片区",
+	viewDetail: "查看 {name} 详情", favoritePlace: "收藏 {name}", unfavoritePlace: "取消收藏 {name}", sampleReason: "示例推荐", addCompare: "加入比较", removeCompare: "移出比较", inCompare: "已加入比较", askPlace: "问问这家",
+	emptyTitle: "暂时没有符合条件的地点", emptyDescription: "试着放宽一个条件，或换一个搜索片区。", emptyUnsupported: "这份演示尚未收录这个搜索内容。试试咖啡馆、散步或看展。", emptySavedTitle: "还没有收藏的地点", emptySavedDescription: "在地点卡片上点击收藏，就能在这里找到它。", clearFilters: "清除筛选", discoverCafe: "去探索咖啡馆",
+	followContext: "继续探索 · {region}", discussing: "正在讨论：{name}", followQuiet: "更安静一点", followBudget: "预算 ¥50 内", followLake: "只看西湖边", followPlaceholder: "补充条件，或聊聊你喜欢哪家…", followLabel: "继续讨论地点", sendFollowup: "发送追问", followFooter: "根据当前示例地点继续探索", enterSend: "Enter 发送",
+	placePrompt: "这里适合带电脑坐一下午吗？", placeAnswer: "示例回答 · {name}：{facilities}参考预算为{budget}，营业时间示例为 {hours}。这些信息用于体验选择，不代表真实地点情况。", facilitiesPlug: "示例有插座座位，适合带电脑停留。", facilitiesUnknown: "插座情况尚未确认，更适合休闲；无法保证适合长时间办公。", followAnswerTitle: "基于演示数据的回答",
+	mapLabel: "杭州示意地图", mapScope: "{n} 个地点", mapSavedScope: "{n} 个收藏", mapHomeScope: "探索这一片", mapExplore: "探索地图", markerSelect: "在地图上选择 {name}", searchCenter: "搜索中心", zoomIn: "放大地图", zoomOut: "缩小地图", resetMap: "重置地图范围", scale: "比例示意", mapDemo: "杭州示意地图 · 虚构地点与演示数据",
+	inspirationTitle: "在杭州，留一点时间给自己", inspirationDescription: "挑一个方向，开始探索", inspirationCafe: "咖啡与小憩", inspirationCafeSub: "找个舒服的座位", inspirationPark: "湖边散步", inspirationParkSub: "走进风景里", inspirationMuseum: "周末看展", inspirationMuseumSub: "收集一点新灵感", detail: "查看详情",
+	detailLabel: "{name} 详情", closeDetail: "关闭地点详情", detailEyebrow: "A PLACE TO SLOW DOWN", why: "为什么适合你", understand: "了解这个地方", positionDemo: "地点位置为界面演示", budgetDemo: "参考预算，用于比较", plugDemo: "示例有插座座位", plugUnknown: "插座情况尚未确认", hours: "营业时间", hoursDemo: "示例时间，未接入实时营业信息", detailAsk: "问问 Owl，这里适合我吗？", detailNote: "地点、预算与设施为演示内容，用于体验筛选和比较。", saved: "已收藏", save: "收藏",
+	comparePlaces: "比较地点", removeComparePlace: "从比较中移除 {name}", startCompare: "开始比较", compareTitle: "哪个地方，更适合这次出发？", closeCompare: "关闭比较", compareDimension: "比较项目", referenceBudget: "参考预算", environment: "环境", sockets: "插座", position: "位置", suitableFor: "适合做什么", suitableWork: "带电脑办公、阅读", suitableCafe: "喝咖啡、休闲", suitablePark: "散步、放松", suitableMuseum: "看展、找灵感", compareAdviceTitle: "示例选择建议", compareAdvice: "若这次更重视办公与预算，可优先比较 {names}。建议只依据演示信息。", compareAdviceGeneral: "根据这次出行目的比较位置、环境和预算。以上依据均为演示信息。", continueBrowse: "继续看看", chooseDemo: "看看示例建议", compareFull: "最多比较 3 个地点，请先移除一个。", compareNeedTwo: "再加入一个地点，就可以开始比较。",
+	emptyQuery: "先说说你想去哪里，或选一个探索方向。", storageUnavailable: "当前环境无法保存探索记录；本次浏览仍可使用。", toastFavorite: "已收藏 {name}", toastUnfavorite: "已取消收藏 {name}", currentQuery: "搜索：{query}", closeAnswer: "关闭示例回答", clearHistory: "清除探索记录", cancel: "取消",
+} as const;
+
+export type MapCopyKey = keyof typeof zh;
+const en: Record<MapCopyKey, string> = {
+	map: "Map", subtitle: "Discover places worth visiting", demoBadge: "Illustrated map · Demo places", newExplore: "New exploration", favorites: "Saved places", explore: "Explore",
+	sideSearch: "Search places or saved places", recent: "Recent explorations", historyEmpty: "Your explorations will appear here", sideTip: "Tell Owl what you want to do, and find a place that fits.",
+	localSpace: "Local workspace", localSaved: "Your explorations, saved here", local: "LOCAL", regionAll: "All areas", regionXihu: "West Lake district", regionHubin: "Hubin", regionWulin: "Wulin",
+	hangzhou: "Hangzhou", location: "Choose a search area", locationNote: "Illustrated Hangzhou areas only. Device location is not accessed.", eyebrow: "A LITTLE DISCOVERY",
+	homeTitle: "Where would you\nlike to go today?", homeDescription: "A good coffee, a quiet walk,\nor somewhere to linger.", homePlaceholder: "For example: a cafe near West Lake to work on my laptop",
+	queryLabel: "Describe a place you want to visit", idea: "Share an idea", start: "Start exploring", exampleLabel: "Start with a small idea", offlineNote: "Places, prices and facilities are demo data. Search matches example conditions without calling AI or map services.",
+	cafeTitle: "Find a comfortable cafe", cafeDescription: "Quiet, with sockets and room for a laptop", parkTitle: "Take a lakeside walk", parkDescription: "Shade, lake views and a slower pace", museumTitle: "See an exhibition this weekend", museumDescription: "Art, architecture and fresh inspiration",
+	queryCafe: "A cafe near West Lake to work on my laptop", queryPark: "Find a lakeside park for a walk", queryMuseum: "An exhibition to explore this weekend",
+	resultsCafe: "A place to focus for a while", resultsPark: "Slow down by the lake", resultsMuseum: "A little weekend inspiration", resultsSaved: "Keep your favorite places",
+	resultsSummary: "Found {n} demo places around {region}.", savedSummary: "Your saved places are here for your next exploration.", filterSummary: "Narrowed down using your selected conditions.", unsupportedSummary: "Demo search supports cafes, walks and exhibitions. Recognized conditions were kept.",
+	quiet: "Quieter", plug: "Sockets", budget: "Under ¥50", lake: "Lakeside", resultsCount: "{n} results", savedCount: "{n} saved places", sort: "Sort results", recommended: "Demo order", priceSort: "Reference budget: low to high",
+	priority: "Demo recommendation", referencePrice: "About ¥{n} / person", free: "Free", categoryCafe: "Cafe", categoryPark: "Park trail", categoryMuseum: "Art space", area: "{region} area",
+	viewDetail: "View details for {name}", favoritePlace: "Save {name}", unfavoritePlace: "Unsave {name}", sampleReason: "Demo suggestion", addCompare: "Compare", removeCompare: "Remove from comparison", inCompare: "Added to comparison", askPlace: "Ask about this place",
+	emptyTitle: "No places match these conditions", emptyDescription: "Try relaxing a condition or selecting another area.", emptyUnsupported: "This demo has no data for that search. Try a cafe, a walk or an exhibition.", emptySavedTitle: "No saved places yet", emptySavedDescription: "Save a place from its card to find it here.", clearFilters: "Clear filters", discoverCafe: "Explore cafes",
+	followContext: "Keep exploring · {region}", discussing: "Discussing: {name}", followQuiet: "Somewhere quieter", followBudget: "Budget under ¥50", followLake: "Lakeside only", followPlaceholder: "Add a condition, or discuss a place…", followLabel: "Continue discussing places", sendFollowup: "Send follow-up", followFooter: "Continue with the current demo places", enterSend: "Enter to send",
+	placePrompt: "Can I work here on my laptop for an afternoon?", placeAnswer: "Demo answer · {name}: {facilities}The reference budget is {budget}, and example hours are {hours}. This is selection practice, not real place information.", facilitiesPlug: "The demo includes sockets and seats for laptop use. ", facilitiesUnknown: "Socket availability is unconfirmed, so a long work session cannot be guaranteed. ", followAnswerTitle: "Answer based on demo data",
+	mapLabel: "Illustrated map of Hangzhou", mapScope: "{n} places", mapSavedScope: "{n} saved", mapHomeScope: "Explore this area", mapExplore: "Explore map", markerSelect: "Select {name} on the map", searchCenter: "Search center", zoomIn: "Zoom in", zoomOut: "Zoom out", resetMap: "Reset map view", scale: "Illustrated scale", mapDemo: "Illustrated Hangzhou map · Fictional places and demo data",
+	inspirationTitle: "Leave a little time for yourself in Hangzhou", inspirationDescription: "Pick a direction and start exploring", inspirationCafe: "Coffee and a break", inspirationCafeSub: "Find a comfortable seat", inspirationPark: "A lakeside walk", inspirationParkSub: "Step into the scenery", inspirationMuseum: "Weekend exhibitions", inspirationMuseumSub: "Collect some fresh inspiration", detail: "View details",
+	detailLabel: "Details for {name}", closeDetail: "Close place details", detailEyebrow: "A PLACE TO SLOW DOWN", why: "Why it might suit you", understand: "About this place", positionDemo: "Location is for demonstration", budgetDemo: "Reference budget for comparison", plugDemo: "Demo seats with sockets", plugUnknown: "Socket availability unconfirmed", hours: "Opening hours", hoursDemo: "Example hours; no live opening information", detailAsk: "Ask Owl whether this place suits me", detailNote: "Places, budgets and facilities are demo content for filtering and comparison.", saved: "Saved", save: "Save",
+	comparePlaces: "Compare places", removeComparePlace: "Remove {name} from comparison", startCompare: "Compare", compareTitle: "Which place fits this outing?", closeCompare: "Close comparison", compareDimension: "Criteria", referenceBudget: "Reference budget", environment: "Environment", sockets: "Sockets", position: "Location", suitableFor: "Suitable for", suitableWork: "Laptop work and reading", suitableCafe: "Coffee and relaxing", suitablePark: "Walking and unwinding", suitableMuseum: "Exhibitions and inspiration", compareAdviceTitle: "Demo selection advice", compareAdvice: "If work space and budget matter most, compare {names} first. This advice uses demo data only.", compareAdviceGeneral: "Compare location, environment and budget for your outing. All information is demo data.", continueBrowse: "Keep browsing", chooseDemo: "See demo advice", compareFull: "You can compare up to 3 places. Remove one first.", compareNeedTwo: "Add one more place to start comparing.",
+	emptyQuery: "Describe somewhere to visit, or choose an exploration.", storageUnavailable: "This environment cannot save your explorations. You can still use this visit.", toastFavorite: "Saved {name}", toastUnfavorite: "Unsaved {name}", currentQuery: "Search: {query}", closeAnswer: "Close demo answer", clearHistory: "Clear exploration history", cancel: "Cancel",
+};
+
+export interface PlaceCopy {
+	name: string;
+	tags: readonly string[];
+	reason: string;
+	address: string;
+	environment: string;
+	hours: string;
+	seat: string;
+	budget: string;
+	why: string;
+}
+
+const zhPlaces: Record<PlaceId, PlaceCopy> = {
+	liubai: { name: "湖畔留白", tags: ["安静座位", "有插座", "靠近西湖"], reason: "窗边桌面宽敞，适合带电脑坐一下午。", address: "杭州 · 湖滨片区", environment: "明亮窗边 · 较安静", hours: "10:00–20:00", seat: "窗边长桌与双人桌", budget: "咖啡 ¥32–48", why: "窗边长桌、有插座座位和较低的参考预算，适合安静办公这一示例场景。" },
+	muchuang: { name: "木窗咖啡", tags: ["安静座位", "有插座", "木质空间"], reason: "木质空间与独立桌位，适合专注一会儿。", address: "杭州 · 武林片区", environment: "木质暖光 · 安静", hours: "09:30–21:00", seat: "独立小桌与吧台", budget: "咖啡 ¥28–42", why: "如果更重视预算和安静环境，独立桌位便于专注。它位于武林片区，距离湖边更远。" },
+	qingshi: { name: "青石慢焙", tags: ["靠近西湖", "露台座位", "手冲咖啡"], reason: "适合散步后喝杯咖啡，露台可以看看湖。", address: "杭州 · 湖滨片区", environment: "湖边露台 · 较热闹", hours: "10:30–19:00", seat: "露台圆桌与室内吧台", budget: "咖啡 ¥38–58", why: "更适合休闲和散步。示例有湖边露台，但插座情况尚未确认，办公时可以比较另外两家。" },
+	shangu: { name: "山谷咖啡", tags: ["安静座位", "有插座", "绿植环绕"], reason: "绿植与宽敞桌位，适合长时间阅读。", address: "杭州 · 西湖区山麓片区", environment: "绿植空间 · 安静", hours: "10:00–18:30", seat: "多人长桌与独立桌", budget: "咖啡 ¥45–68", why: "安静环境和桌位合适，但参考预算高于 ¥50。若预算可以放宽，可以将它加入比较。" },
+	museum: { name: "青禾艺术馆", tags: ["室内展览", "建筑空间", "周末灵感"], reason: "从建筑和展览中找一点新的灵感。", address: "杭州 · 西湖区", environment: "室内展厅 · 适合慢逛", hours: "10:00–17:00", seat: "休息区座位", budget: "示例展览免费", why: "这座示意艺术馆适合慢慢逛，可以安排在半天的散步路线中。" },
+	park: { name: "湖西绿径", tags: ["湖边散步", "绿荫步道", "户外休闲"], reason: "沿着绿荫和湖岸走走，给下午留一点空白。", address: "杭州 · 西湖区", environment: "湖边绿荫 · 户外空间", hours: "全天开放", seat: "沿途公共长椅", budget: "无需门票", why: "这条示意绿径适合轻松散步，可以与咖啡馆组成半天的短途安排。" },
+};
+
+const enPlaces: Record<PlaceId, PlaceCopy> = {
+	liubai: { name: "Lakeside Pause", tags: ["Quiet seats", "Sockets", "Near West Lake"], reason: "Wide window tables for an afternoon with a laptop.", address: "Hangzhou · Hubin area", environment: "Bright windows · Quieter", hours: "10:00–20:00", seat: "Window counter and tables for two", budget: "Coffee ¥32–48", why: "Window tables, demo sockets and a lower reference budget fit this quiet-work example." },
+	muchuang: { name: "Timber Window Cafe", tags: ["Quiet seats", "Sockets", "Timber interior"], reason: "Timber interiors and individual tables for focused time.", address: "Hangzhou · Wulin area", environment: "Warm timber light · Quiet", hours: "09:30–21:00", seat: "Individual tables and counter seats", budget: "Coffee ¥28–42", why: "Individual tables make it a useful budget and quiet-work option. It is in Wulin, farther from the lake." },
+	qingshi: { name: "Bluestone Slow Roast", tags: ["Near West Lake", "Terrace seats", "Pour-over coffee"], reason: "A terrace coffee after a walk, with a view of the lake.", address: "Hangzhou · Hubin area", environment: "Lakeside terrace · Livelier", hours: "10:30–19:00", seat: "Terrace tables and indoor counter", budget: "Coffee ¥38–58", why: "Better suited to relaxing and walking. The demo terrace has unconfirmed sockets, so compare other cafes for laptop work." },
+	shangu: { name: "Valley Cafe", tags: ["Quiet seats", "Sockets", "Green surroundings"], reason: "Plants and generous tables for a longer reading break.", address: "Hangzhou · West Lake foothills", environment: "Green interior · Quiet", hours: "10:00–18:30", seat: "Shared long tables and individual tables", budget: "Coffee ¥45–68", why: "The quiet setting and tables fit, but the reference budget exceeds ¥50. Compare it if the budget can stretch." },
+	museum: { name: "Greenfield Art House", tags: ["Indoor exhibitions", "Architecture", "Weekend inspiration"], reason: "Find new inspiration in architecture and exhibitions.", address: "Hangzhou · West Lake district", environment: "Indoor galleries · A slower visit", hours: "10:00–17:00", seat: "Rest area seats", budget: "Free demo exhibition", why: "This illustrated art house suits a slower visit as part of a half-day walking plan." },
+	park: { name: "West Lake Green Trail", tags: ["Lakeside walk", "Shaded trail", "Outdoor relaxation"], reason: "Leave a little space in your afternoon among shade and lake views.", address: "Hangzhou · West Lake district", environment: "Lakeside shade · Outdoors", hours: "Open all day", seat: "Public benches along the trail", budget: "No admission fee", why: "This illustrated trail suits a relaxed walk paired with a cafe for a short half-day outing." },
+};
+
+export function useMapCopy() {
+	useT();
+	const language = getUiLanguage();
+	const dictionary = language === "en" ? en : zh;
+	return {
+		language,
+		text(key: MapCopyKey, vars?: Record<string, string | number>): string {
+			return dictionary[key].replace(/\{(\w+)\}/g, (raw, name: string) => vars && name in vars ? String(vars[name]) : raw);
+		},
+		place(id: PlaceId): PlaceCopy { return (language === "en" ? enPlaces : zhPlaces)[id]; },
+		region(region: MapRegion): string {
+			return dictionary[region === "all" ? "regionAll" : region === "西湖区" ? "regionXihu" : region === "湖滨" ? "regionHubin" : "regionWulin"];
+		},
+	};
+}

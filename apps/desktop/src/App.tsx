@@ -3,6 +3,7 @@ import { BridgeClient } from "./bridge/client.ts";
 import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
+import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
@@ -197,6 +198,7 @@ export default function App(): React.JSX.Element {
 
 	const openDeveloper = (): void => {
 		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
+		setRailView("chat");
 		setDeveloperLayoutPersisted(true);
 		setDockPersisted(window.innerWidth < 1100 ? "bottom" : "right");
 		setWorkbenchOpenPersisted(true);
@@ -205,6 +207,7 @@ export default function App(): React.JSX.Element {
 
 	/** 快捷键开终端 / 浏览器 tab：面板没开就先展开（不切停靠位）。 */
 	const openInPanel = (kind: string): void => {
+		setRailView("chat");
 		if (!openRef.current) setWorkbenchOpenPersisted(true);
 		openQuickAction(workbenchStore, kind);
 	};
@@ -737,6 +740,7 @@ export default function App(): React.JSX.Element {
 			<DesktopTitlebar
 				connected={connected}
 				sidebarCollapsed={sidebarMinimized || showSettings}
+				sidebarView={railView}
 				sidebarToggleRef={sidebarToggleRef}
 				onToggleSidebar={() => {
 					if (showSettings) {
@@ -750,7 +754,7 @@ export default function App(): React.JSX.Element {
 					setRailView("chat");
 					newChat();
 				}}
-				onOpenProject={() => setShowProjectDialog(true)}
+				onOpenProject={() => { setRailView("chat"); setShowProjectDialog(true); }}
 				onOpenSettings={() => {
 					setSettingsInitialTab("general");
 					setShowSettings(true);
@@ -761,10 +765,12 @@ export default function App(): React.JSX.Element {
 				}}
 				onDockRight={() => {
 					setShowSettings(false);
+					setRailView("chat");
 					togglePanelAt("right");
 				}}
 				onDockBottom={() => {
 					setShowSettings(false);
+					setRailView("chat");
 					togglePanelAt("bottom");
 				}}
 				onOpenDeveloper={openDeveloper}
@@ -784,7 +790,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={sessionId ?? ""}
 				revision={sidebarRev}
 				focus={railView}
-				minimized={sidebarMinimized || showSettings}
+				minimized={sidebarMinimized || showSettings || railView === "map"}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
 				onNewChat={() => {
@@ -795,7 +801,10 @@ export default function App(): React.JSX.Element {
 				onOpenSession={(id) => void openSession(id)}
 				onOpenSettings={() => { setSettingsInitialTab("general"); setShowSettings(true); }}
 			/>
-			<div className="owl-main-frame">
+			<div className="owl-map-view" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+				<MapWorkspace active={railView === "map" && !showSettings} sidebarCollapsed={sidebarMinimized} />
+			</div>
+			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
 					<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={sessionTitle}>{sessionTitle}</h1>
 					<span className="owl-shell-project" title={workspaceDir}>
