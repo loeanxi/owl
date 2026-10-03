@@ -140,7 +140,7 @@ function Chevron(): React.JSX.Element {
  * 运行位置 / 项目 / 添加项目。
  */
 const envChipClass =
-	"flex h-7 items-center gap-1.5 rounded-lg bg-owl-hover/40 px-2.5 text-xs text-owl-muted " +
+	"flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-owl-hover/40 px-2.5 text-xs text-owl-muted " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40";
 
 /** 环境行的纯图标 chip（添加项目）。 */
@@ -153,7 +153,7 @@ const envIconButtonClass =
  * 审批模式 / 思考强度 / 模型 / 上下文。
  */
 const ghostPillClass =
-	"flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-owl-faint " +
+	"flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
@@ -356,7 +356,7 @@ export function Composer({
 		<div className="bg-owl-bg px-4 pt-2 pb-4">
 			<div className="mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
-				<div className="flex items-center gap-1.5 px-1 pb-2">
+				<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
 					<Menu
 						triggerClassName={envChipClass}
 						triggerTitle={connected ? "运行位置：本地（已连接）" : "运行位置：本地（连接断开）"}
@@ -564,7 +564,7 @@ export function Composer({
 					</div>
 				</div>
 				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
-				<div className="flex items-center gap-1 px-1 pt-2">
+				<div className="flex flex-wrap items-center gap-1 px-1 pt-2">
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={APPROVAL_MODES.find((entry) => entry.value === approvalMode)?.title}

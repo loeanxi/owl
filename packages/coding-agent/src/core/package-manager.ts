@@ -2533,8 +2533,9 @@ export class DefaultPackageManager implements PackageManager {
 			globalBaseDir,
 		);
 
-		// User global skills from ~/.owl/skills/ (cross-project, shared by every session)
-		const userGlobalSkillsDir = getGlobalSkillsDir();
+		// User global skills from ~/.owl/skills/ (cross-project, shared by every session).
+		// Derived from the agent dir in use so OWL_CODING_AGENT_DIR / test harnesses stay isolated.
+		const userGlobalSkillsDir = join(dirname(globalBaseDir), "skills");
 		const userGlobalBaseDir = dirname(userGlobalSkillsDir);
 		const userGlobalMetadata: PathMetadata = {
 			...userMetadata,

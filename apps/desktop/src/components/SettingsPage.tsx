@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { MemoryListResult, ProviderModelsMessage, SystemPromptPreviewResult } from "../bridge/protocol.ts";
+import type {
+	MemoryListResult,
+	ProviderModelsMessage,
+	SkillCenterEntry,
+	SkillCenterTab,
+	SkillsListResult,
+	SkillsReadResult,
+	SystemPromptPreviewResult,
+} from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconArchive, IconCode, IconCompose, IconInfo, IconLightbulb, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconArchive, IconCode, IconCompose, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -22,7 +30,14 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", title: "阅读宽度", desc: "调整宽屏下回答的最大宽度，小窗口会自动收窄。", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-type SettingsSection = "general" | "models" | "plugins" | "sidebar" | "prompts" | "memory" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "appearance" | "archived" | "json" | "about";
+
+/** 技能中心的 tab 元数据：与 skills.list 的三级根一一对应。 */
+const SKILL_TABS: { tab: SkillCenterTab; label: string; desc: string }[] = [
+	{ tab: "personal", label: "个人", desc: "~/.owl/agent/skills · 本机 owl 专属" },
+	{ tab: "global", label: "全局", desc: "~/.owl/skills · 跨项目共享" },
+	{ tab: "project", label: "项目", desc: "<工作区>/.owl/skills · 仅当前项目" },
+];
 
 /** settings.json 的 plugins 条目：npm:/git/本地目录/本地单文件统一形态。 */
 type PluginEntry =
@@ -291,6 +306,21 @@ export function SettingsPage({
 	// 插件：新增输入框
 	const [pluginInput, setPluginInput] = useState("");
 
+	// 技能中心：三级 tab + 列表 + 搜索 + 行内编辑/创建表单
+	const [skillsData, setSkillsData] = useState<SkillsListResult>({
+		roots: { personal: "", global: "", project: "" },
+		skills: [],
+		projectTrusted: false,
+	});
+	const [skillsTab, setSkillsTab] = useState<SkillCenterTab>("personal");
+	const [skillsQuery, setSkillsQuery] = useState("");
+	const [skillsLoading, setSkillsLoading] = useState(false);
+	const [skillForm, setSkillForm] = useState<{ mode: "create" } | { mode: "edit"; entry: SkillCenterEntry } | null>(null);
+	const [skName, setSkName] = useState("");
+	const [skDesc, setSkDesc] = useState("");
+	const [skBody, setSkBody] = useState("");
+	const [confirmDelSkill, setConfirmDelSkill] = useState<SkillCenterEntry | null>(null);
+
 	useEffect(() => {
 		const off = client.onSessionEvent((msg) => {
 			const ev = msg.event as {
@@ -438,6 +468,132 @@ export function SettingsPage({
 		} finally {
 			setBusy(false);
 			setConfirmClearMemory(false);
+		}
+	}
+
+	// ---- 技能中心：三级浏览 + CRUD（skills.* 路由；写操作后桥端热刷新挂载会话）----
+
+	/** 拉取技能列表（个人/全局/项目三个根一起返回；cwd 决定项目根）。 */
+	async function loadSkillsList(): Promise<void> {
+		setSkillsLoading(true);
+		try {
+			const response = await client.request<SkillsListResult>({
+				type: "skills.list",
+				...(workspaceDir ? { cwd: workspaceDir } : {}),
+			});
+			if (response.ok && response.result) setSkillsData(response.result);
+			else setError(response.error ?? "技能列表加载失败");
+		} finally {
+			setSkillsLoading(false);
+		}
+	}
+
+	/** 打开技能面板时拉一次；工作区切换后项目根会变，也要重拉。 */
+	useEffect(() => {
+		if (section === "skills") void loadSkillsList();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [section, client, workspaceDir]);
+
+	/** 启停 = 改写 SKILL.md frontmatter，落盘后桥端自动热刷新挂载会话。 */
+	async function toggleSkill(entry: SkillCenterEntry, enabled: boolean): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({
+				type: "skills.setEnabled",
+				name: entry.name,
+				path: entry.path,
+				tab: entry.tab,
+				enabled,
+				...(workspaceDir ? { cwd: workspaceDir } : {}),
+			});
+			if (response.ok) await loadSkillsList();
+			else setError(response.error ?? "操作失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 打开编辑器：先经桥读取正文（列表只带元数据）。 */
+	async function openSkillEditor(entry: SkillCenterEntry): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request<SkillsReadResult>({
+				type: "skills.read",
+				name: entry.name,
+				path: entry.path,
+				tab: entry.tab,
+				...(workspaceDir ? { cwd: workspaceDir } : {}),
+			});
+			if (response.ok && response.result) {
+				setSkillForm({ mode: "edit", entry });
+				setSkDesc(response.result.description);
+				setSkBody(response.result.body);
+			} else {
+				setError(response.error ?? "读取技能失败");
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 保存创建/编辑（编辑不改名称与位置，启停状态原样保留）。 */
+	async function saveSkillForm(): Promise<void> {
+		if (!skillForm) return;
+		setBusy(true);
+		setError("");
+		try {
+			const response =
+				skillForm.mode === "create"
+					? await client.request({
+							type: "skills.create",
+							tab: skillsTab,
+							name: skName.trim(),
+							description: skDesc,
+							body: skBody,
+							...(workspaceDir ? { cwd: workspaceDir } : {}),
+						})
+					: await client.request({
+							type: "skills.update",
+							name: skillForm.entry.name,
+							path: skillForm.entry.path,
+							tab: skillForm.entry.tab,
+							description: skDesc,
+							body: skBody,
+							...(workspaceDir ? { cwd: workspaceDir } : {}),
+						});
+			if (response.ok) {
+				setSkillForm(null);
+				setSkName("");
+				setSkDesc("");
+				setSkBody("");
+				await loadSkillsList();
+			} else {
+				setError(response.error ?? "保存失败");
+			}
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** 删除（移入 .trash 回收站，可手工恢复）。 */
+	async function deleteSkillEntry(entry: SkillCenterEntry): Promise<void> {
+		setBusy(true);
+		setError("");
+		try {
+			const response = await client.request({
+				type: "skills.delete",
+				name: entry.name,
+				path: entry.path,
+				tab: entry.tab,
+				...(workspaceDir ? { cwd: workspaceDir } : {}),
+			});
+			if (response.ok) await loadSkillsList();
+			else setError(response.error ?? "删除失败");
+		} finally {
+			setBusy(false);
+			setConfirmDelSkill(null);
 		}
 	}
 
@@ -669,6 +825,7 @@ export function SettingsPage({
 						<NavItem icon={<IconSettings />} label="常规" active={section === "general"} onClick={() => setSection("general")} />
 						<NavItem icon={<IconSliders />} label="模型与供应商" active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label="插件" active={section === "plugins"} onClick={() => setSection("plugins")} />
+						<NavItem icon={<IconList />} label="技能" active={section === "skills"} onClick={() => setSection("skills")} />
 						<NavItem icon={<IconPanelRight size={14} />} label="侧边卡片" active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label="外观" active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconCompose />} label="提示词" active={section === "prompts"} onClick={() => setSection("prompts")} />
@@ -1224,6 +1381,210 @@ export function SettingsPage({
 								</div>
 							</>
 						)}
+
+						{/* -------- 技能 -------- */}
+						{section === "skills" && (() => {
+							const skillsInTab = skillsData.skills.filter((s) => s.tab === skillsTab);
+							const query = skillsQuery.trim().toLowerCase();
+							const nameHits = query ? skillsInTab.filter((s) => s.name.toLowerCase().includes(query)) : skillsInTab;
+							const visibleSkills = query
+								? [...nameHits, ...skillsInTab.filter((s) => !s.name.toLowerCase().includes(query) && s.description.toLowerCase().includes(query))]
+								: skillsInTab;
+							const activeRoot = skillsData.roots[skillsTab];
+							const projectLocked = skillsTab === "project" && !skillsData.projectTrusted;
+							return (
+								<>
+									<SectionHeader title="技能" desc="按来源管理 SKILL.md 技能：启用/禁用模型自动调用、创建、编辑与删除（移入回收站）。修改立即热刷新当前会话。" />
+
+									{/* 三级 tab：个人 / 全局 / 项目 */}
+									<div className="mb-1 flex items-center gap-2">
+										{SKILL_TABS.map(({ tab, label }) => (
+											<button
+												key={tab}
+												type="button"
+												className={`${skillsTab === tab ? "owl-settings-button is-primary" : "owl-settings-button"} px-3 py-1 text-[11px]`}
+												onClick={() => {
+													setSkillsTab(tab);
+													setSkillForm(null);
+												}}
+											>
+												{label}
+												<span className="ml-1.5 text-[10px] opacity-70">
+													{skillsData.skills.filter((s) => s.tab === tab).length}
+												</span>
+											</button>
+										))}
+									</div>
+									<div className="mb-3 truncate font-mono text-[10px] text-owl-faint">{activeRoot || "—"}</div>
+
+									{projectLocked && (
+										<div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
+											项目尚未信任：先在「常规」里信任该项目，才能浏览和写入项目技能。
+										</div>
+									)}
+
+									{/* 搜索 + 新建 */}
+									<div className="mb-3 flex items-center gap-2">
+										<input
+											className={`${smallInput} min-w-0 flex-1`}
+											value={skillsQuery}
+											onChange={(event) => setSkillsQuery(event.target.value)}
+											placeholder="按名称或描述过滤（名称命中排前，Esc 清空）"
+											onKeyDown={(event) => {
+												if (event.key === "Escape") setSkillsQuery("");
+											}}
+										/>
+										<button
+											type="button"
+											className={`${btnAccent} shrink-0`}
+											disabled={busy || projectLocked}
+											onClick={() => {
+												setSkName("");
+												setSkDesc("");
+												setSkBody("");
+												setSkillForm({ mode: "create" });
+											}}
+										>
+											+ 新建技能
+										</button>
+									</div>
+
+									{/* 创建 / 编辑表单 */}
+									{skillForm && (
+										<div className="owl-settings-card mb-3 space-y-3">
+											{skillForm.mode === "create" ? (
+												<label className="block text-[11px] text-owl-muted">
+													技能名 *（小写字母、数字、连字符）
+													<input
+														className={`${smallInput} mt-1`}
+														value={skName}
+														onChange={(event) => setSkName(event.target.value)}
+														placeholder="如 loean7-my-skill"
+													/>
+												</label>
+											) : (
+												<div className="text-[11px] text-owl-muted">
+													编辑 <span className="font-mono text-owl-text">{skillForm.entry.name}</span>
+													<span className="ml-2 font-mono text-[10px] text-owl-faint">{skillForm.entry.path}</span>
+												</div>
+											)}
+											<label className="block text-[11px] text-owl-muted">
+												描述 *（模型按它决定何时使用）
+												<input
+													className={`${smallInput} mt-1`}
+													value={skDesc}
+													onChange={(event) => setSkDesc(event.target.value)}
+													placeholder="一句话说明这个技能做什么、什么时候用"
+												/>
+											</label>
+											<label className="block text-[11px] text-owl-muted">
+												正文（frontmatter 之后的 markdown 指令）
+												<textarea
+													className={`${smallInput} mt-1 min-h-[180px] font-mono text-[11px]`}
+													value={skBody}
+													onChange={(event) => setSkBody(event.target.value)}
+													placeholder="# 步骤…"
+												/>
+											</label>
+											<div className="flex justify-end gap-2">
+												<button type="button" className={btn} onClick={() => setSkillForm(null)}>
+													取消
+												</button>
+												<button
+													type="button"
+													className={btnAccent}
+													disabled={busy || (skillForm.mode === "create" ? !skName.trim() : false) || !skDesc.trim()}
+													onClick={() => void saveSkillForm()}
+												>
+													{skillForm.mode === "create" ? "创建技能" : "保存修改"}
+												</button>
+											</div>
+										</div>
+									)}
+
+									{/* 列表 */}
+									<div className="owl-settings-plugin-list">
+										{skillsLoading && visibleSkills.length === 0 && (
+											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+												加载中…
+											</div>
+										)}
+										{!skillsLoading && visibleSkills.length === 0 && (
+											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+												{query ? "没有匹配的技能" : "这个目录还没有技能"}
+											</div>
+										)}
+										{visibleSkills.map((entry) => (
+											<div key={`${entry.tab}:${entry.path}`} className={`owl-settings-plugin-row ${entry.disabled ? "opacity-55" : ""}`}>
+												<div className="flex min-w-0 items-center gap-2">
+													{entry.isSymlink && (
+														<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-400" title="符号链接技能：可启停，不可编辑/删除">
+															链接
+														</span>
+													)}
+													<div className="min-w-0">
+														<span className="block truncate font-mono text-xs text-owl-text">{entry.name}</span>
+														<span className="mt-0.5 block truncate text-[10px] text-owl-faint" title={entry.description}>
+															{entry.description}
+														</span>
+													</div>
+												</div>
+												<div className="ml-2 flex shrink-0 items-center gap-2.5">
+													<span className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-emerald-400"}`}>
+														{entry.disabled ? "仅手动 /skill:" : "模型可用"}
+													</span>
+													<Switch
+														checked={!entry.disabled}
+														disabled={busy}
+														title={entry.disabled ? "启用模型自动调用" : "禁用模型自动调用（/skill: 手动仍可用）"}
+														onChange={(next) => void toggleSkill(entry, next)}
+													/>
+													<button
+														type="button"
+														className="owl-settings-link disabled:opacity-40"
+														disabled={busy || entry.isSymlink}
+														title={entry.isSymlink ? "链接技能不可编辑" : "编辑描述与正文"}
+														onClick={() => void openSkillEditor(entry)}
+													>
+														编辑
+													</button>
+													<button
+														type="button"
+														className="owl-settings-link is-danger disabled:opacity-40"
+														disabled={busy || entry.isSymlink}
+														title={entry.isSymlink ? "链接技能不可删除" : "移入 .trash 回收站（可恢复）"}
+														onClick={() => setConfirmDelSkill(entry)}
+													>
+														删除
+													</button>
+												</div>
+											</div>
+										))}
+									</div>
+
+									{/* 删除确认 */}
+									{confirmDelSkill && (
+										<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+											<div className="owl-settings-card w-[min(420px,90vw)] space-y-3">
+												<div className="text-xs font-semibold text-owl-text">删除技能「{confirmDelSkill.name}」？</div>
+												<div className="text-[11px] leading-relaxed text-owl-muted">
+													文件将移入 <span className="font-mono">{skillsData.roots[confirmDelSkill.tab]}/.trash</span>
+													，可在文件管理器中手工恢复。
+												</div>
+												<div className="flex justify-end gap-2">
+													<button type="button" className={btn} onClick={() => setConfirmDelSkill(null)}>
+														取消
+													</button>
+													<button type="button" className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`} disabled={busy} onClick={() => void deleteSkillEntry(confirmDelSkill)}>
+														删除
+													</button>
+												</div>
+											</div>
+										</div>
+									)}
+								</>
+							);
+						})()}
 
 						{/* -------- 侧边卡片 -------- */}
 						{section === "sidebar" && (

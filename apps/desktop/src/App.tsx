@@ -156,6 +156,7 @@ export default function App(): React.JSX.Element {
 		}
 		workbenchStore.openFileTab(kind, relative, relative.split("/").pop() ?? relative);
 		setDeveloperLayoutPersisted(false);
+		if (!openRef.current) setDockPersisted(window.innerWidth < 1100 ? "bottom" : "right");
 		setWorkbenchOpenPersisted(true);
 	};
 
@@ -322,15 +323,7 @@ export default function App(): React.JSX.Element {
 		useEffect(() => {
 			return client.onSidebarMessage((message) => {
 				if (normProjectKey(message.cwd) !== normProjectKey(workspaceRef.current)) return;
-				const kind = viewerKindForPath(message.path, getSidebarConfig());
-				if (kind === undefined) {
-					void client
-						.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, message.path) })
-						.catch(() => {});
-					return;
-				}
-				workbenchStore.openFileTab(kind, message.path, message.path.split("/").pop() ?? message.path);
-				if (!openRef.current) setWorkbenchOpenPersisted(true);
+				openTaskFile(message.path);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 

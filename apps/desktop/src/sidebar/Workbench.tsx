@@ -179,8 +179,12 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 	}, [api, cwd]);
 
 	useEffect(() => {
+		const offStatus = client.onStatus((connected) => {
+			if (connected) refreshGit();
+		});
 		refreshGit();
-	}, [refreshGit]);
+		return offStatus;
+	}, [client, refreshGit]);
 
 	useEffect(() => {
 		return store.onFsChanged(() => {
