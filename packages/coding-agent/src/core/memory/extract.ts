@@ -13,7 +13,15 @@ import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "../model-registry.ts";
 import { getDefaultSessionDirPath } from "../session-manager.ts";
-import { appendMemoryEntries, markExtracted, type OwlMemoryEntry, readExtractedMarkers } from "./store.ts";
+import {
+	appendMemoryEntries,
+	applyMemoryMerges,
+	markExtracted,
+	readExtractedMarkers,
+	readMemoryEntries,
+	type MemoryMerge,
+	type OwlMemoryEntry,
+} from "./store.ts";
 
 /** 每次会话启动最多抽取几个历史会话，防止冷启动风暴。 */
 const MAX_SESSIONS_PER_RUN = 3;
@@ -148,13 +156,55 @@ function messageText(content: unknown): string {
 	return "";
 }
 
-/** 常见密钥/PII 形态脱敏，避免会话里的 secret 进入记忆文件。 */
+/**
+ * 脱敏模式表（借鉴 hindsight Memory Defense 的思路，本地正则版）。
+ * 命中即替换为 [REDACTED:*] 占位，宁可误杀不可漏网。
+ */
+const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
+	{ name: "openai_key", pattern: /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g },
+	{ name: "anthropic_key", pattern: /\bsk-ant-[A-Za-z0-9_-]{16,}\b/g },
+	{ name: "github_token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g },
+	{ name: "github_fine_grained", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
+	{ name: "gitlab_token", pattern: /\bglpat-[A-Za-z0-9_-]{16,}\b/g },
+	{ name: "npm_token", pattern: /\bnpm_[A-Za-z0-9]{20,}\b/g },
+	{ name: "slack_token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
+	{ name: "stripe_key", pattern: /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
+	{ name: "stripe_webhook", pattern: /\bwhsec_[A-Za-z0-9]{16,}\b/g },
+	{ name: "aws_access_key", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
+	{ name: "google_api_key", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+	{ name: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g },
+	{ name: "private_key_block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
+	{
+		name: "database_url",
+		pattern: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s'"]*:[^\s'"@/]*@[^\s'"]+/g,
+	},
+	{ name: "bearer", pattern: /\bBearer\s+[A-Za-z0-9._-]{20,}\b/g },
+	{
+		name: "key_value_pair",
+		pattern:
+			/\b(api[_-]?key|secret(?:[_-]?(?:key|token))?|access[_-]?token|password|passwd|token)\b\s*[:=]\s*["']?[A-Za-z0-9._+/=-]{16,}["']?/gi,
+	},
+	{ name: "wecom_webhook", pattern: /qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=[0-9a-fA-F-]+/g },
+	{ name: "dingtalk_webhook", pattern: /oapi\.dingtalk\.com\/robot\/send\?access_token=[0-9a-fA-F]+/g },
+	{ name: "feishu_webhook", pattern: /open\.feishu\.cn\/open-apis\/bot\/v2\/hook\/[A-Za-z0-9-]+/g },
+	{ name: "telegram_bot", pattern: /\b\d{8,10}:AA[A-Za-z0-9_-]{30,}\b/g },
+	{ name: "email", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
+];
+
+/** 入库前脱敏：常见密钥/PII 形态替换为占位符，避免会话里的 secret 进入记忆文件。 */
 export function redactSecrets(text: string): string {
-	return text
-		.replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_KEY]")
-		.replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GITHUB_TOKEN]")
-		.replace(/\bBearer\s+[A-Za-z0-9._-]{20,}\b/g, "Bearer [REDACTED]")
-		.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "[REDACTED_EMAIL]");
+	let redacted = text;
+	for (const { name, pattern } of SECRET_PATTERNS) {
+		redacted = redacted.replace(pattern, (match) => {
+			// 结构化赋值（api_key=xxx）保留键名，只抹值
+			const separator = match.search(/[:=]\s*/);
+			if (name === "key_value_pair" && separator !== -1) {
+				return `${match.slice(0, separator)}= [REDACTED:${name}]`;
+			}
+			return `[REDACTED:${name}]`;
+		});
+	}
+	return redacted;
 }
 
 const EXTRACTION_SYSTEM_PROMPT = `你是一个记忆抽取器。输入是一段编程会话记录（用户/助手对话）。

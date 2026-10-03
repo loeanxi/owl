@@ -19,6 +19,7 @@ case 'session.create':result={sessionId:'ui-review-new'};break;
 case 'session.stats':result={thinkingLevel:'medium',availableThinkingLevels:['off','low','medium','high'],supportsThinking:true,contextUsage:{tokens:2000,contextWindow:128000,percent:2}};break;
 case 'systemPrompt.preview':result={sections:{preamble:'示例基础规则',tools:'示例工具说明',rules:'现有项目约定',docs:'项目文档',addendum:'补充信息',project_context:'项目上下文',skills:'可用技能',cwd}};break;
 case 'memory.list':result={enabled:true,entries:[]};break;
+case 'skills.list':result={roots:{personal:'D:/owl/ui-review-fixture/skills',global:'D:/owl/ui-review-fixture/global-skills',project:'D:/owl/ui-review-fixture/project/.owl/skills'},skills:[],projectTrusted:true};break;
 case 'session.archiveConfig':result={retentionDays:15,sessions:[]};break;
 case 'fs.tree':result={path:msg.path||'.',truncated:false,entries:[{name:'src',path:'src',isDir:true},{name:'App.tsx',path:'App.tsx',isDir:false},{name:'README.md',path:'README.md',isDir:false}]};break;
 case 'fs.read':result={kind:'text',content:'export const ui = "OWL";\n',size:24,truncated:false};break;
