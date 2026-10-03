@@ -111,8 +111,17 @@ const RATIO_ARG_DESCRIPTION = "Optional output aspect ratio for Google Gemini, x
 const IMAGE_SIZE_ARG_DESCRIPTION =
 	"Optional output resolution for Google Gemini (1K/2K/4K) or google-sub (1K/4K; 4K means HD).";
 
+/**
+ * Module-level subscription manager shared by the extension instance and the
+ * bridge-facing exports at the bottom of this file: the desktop settings page
+ * drives login/logout from the bridge process, which imports this dist file
+ * directly, while the session-resident extension reads the same on-disk auth
+ * blob on every call.
+ */
+const sharedSubscriptionManager = new SubscriptionManager();
+
 export default function (pi: ExtensionAPI) {
-	const manager = new SubscriptionManager();
+	const manager = sharedSubscriptionManager;
 
 	/** Config re-read per call so image-gen.json edits apply without a restart. */
 	function currentConfig(): OwlImageConfig {
@@ -930,4 +939,31 @@ function errorMessageOf(result: { content?: Array<{ type: string; text?: string 
 		.map((block) => block.text ?? "")
 		.join(" ");
 	return text.split("\n")[0]?.trim() || "unknown error";
+}
+
+// ---------------------------------------------------------------------------
+// Bridge-facing named exports — the desktop bridge (serve.ts) imports this
+// dist file to drive the Google subscription login from the settings page.
+// Everything else (config get/set, status, logout) is plain file access and
+// lives in the bridge; only the PKCE + loopback + token-exchange flow needs
+// this module (single source of truth with the /image-login command).
+// ---------------------------------------------------------------------------
+
+/** Begin the Antigravity OAuth login: start the loopback catch server, open
+ * the browser, and return the authorize URL (for the UI to display). */
+export async function beginGoogleSubscriptionLogin(): Promise<string> {
+	const { url } = await sharedSubscriptionManager.beginLogin();
+	openInBrowser(url);
+	return url;
+}
+
+/** Sign out: clear the stored OAuth blob and this instance's caches. */
+export function googleSubscriptionLogout(): void {
+	sharedSubscriptionManager.logout();
+}
+
+/** Login status for badges: { loggedIn, email? }. */
+export function googleSubscriptionStatus(): { loggedIn: boolean; email?: string } {
+	const status = sharedSubscriptionManager.loginStatus();
+	return status.state === "logged-in" ? { loggedIn: true, email: status.email } : { loggedIn: false };
 }

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<!-- PROTOTYPE — 技能中心「项目」tab 三个方案，?variant=A|B|C 切换（悬浮条/←→键）。
+     问题：添加项目后怎么选"哪些技能生效"，分组和 loean7 一键全选长什么样。用完即扔。 -->
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>原型 · 项目技能生效管理</title>
+<style>
+	:root {
+		--bg: #0b100d; --panel: #101812; --panel2: #14201a; --border: #21301f;
+		--accent: #4ade80; --accent-dim: #22c55e33; --text: #e6ebe6; --muted: #93a39a; --faint: #5f6f66;
+		--amber: #fbbf24; --red: #f87171; --sky: #7dd3fc;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body { background: var(--bg); color: var(--text); font: 13px/1.55 "Segoe UI", "Microsoft YaHei", sans-serif; padding: 28px 32px 96px; }
+	.mono { font-family: Consolas, "Cascadia Mono", monospace; }
+	h1 { font-size: 20px; margin-bottom: 4px; }
+	.sub { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+	.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+	.btn { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+	.btn:hover { border-color: var(--accent); }
+	.btn.primary { background: var(--accent); color: #08130b; border-color: var(--accent); font-weight: 600; }
+	.btn.ghost { border-color: transparent; color: var(--muted); }
+	.btn.ghost:hover { color: var(--text); }
+	.btn.danger-ghost { border-color: transparent; color: var(--red); }
+	.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 11px; color: var(--muted); }
+	.badge { font-size: 10px; border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; color: var(--faint); }
+	.badge.personal { color: var(--accent); border-color: #22c55e55; }
+	.badge.global { color: var(--sky); border-color: #38bdf855; }
+	.badge.project { color: var(--amber); border-color: #fbbf2455; }
+	.badge.group { color: #c4b5fd; border-color: #a78bfa55; }
+	input[type=text], select { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: 12px; outline: none; }
+	input[type=text]:focus { border-color: var(--accent); }
+	input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+	.switch { position: relative; width: 34px; height: 19px; border-radius: 999px; background: var(--border); cursor: pointer; transition: background .15s; flex: none; }
+	.switch.on { background: var(--accent); }
+	.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left .15s; }
+	.switch.on::after { left: 17px; }
+	.section-title { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+	.count { color: var(--faint); font-weight: 400; }
+	.rowline { display: flex; align-items: center; gap: 8px; }
+
+	/* 切换条 */
+	#switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+		background: #000; border: 1px solid #3a3; border-radius: 999px; padding: 6px 10px; z-index: 99; box-shadow: 0 6px 24px #000c; }
+	#switcher button { background: none; border: none; color: #3f6; font-size: 16px; cursor: pointer; padding: 0 6px; }
+	#switcher .label { color: #cfc; font-size: 12px; min-width: 200px; text-align: center; }
+	.proto-note { position: fixed; bottom: 18px; right: 18px; color: var(--faint); font-size: 11px; z-index: 99; }
+
+	/* A: 项目卡片 */
+	.proj-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+	.proj-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; cursor: pointer; min-width: 210px; background: var(--panel2); }
+	.proj-card.active { border-color: var(--accent); background: #14251a; }
+	.proj-card .path { font-size: 11px; color: var(--muted); }
+	.proj-card .stat { font-size: 11px; margin-top: 4px; }
+	.proj-card.add { border-style: dashed; display: flex; align-items: center; justify-content: center; color: var(--muted); min-width: 120px; }
+	.group-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+	.group-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--panel2); }
+	.group-card.on { border-color: #a78bfa66; }
+	.group-card .g-skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+	.group-card .g-skills span { font-size: 10px; background: var(--bg); border-radius: 4px; padding: 0 6px; color: var(--faint); }
+	.pool { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 6px; margin-top: 10px; }
+	.pool label { display: flex; align-items: center; gap: 7px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+	.pool label.on { border-color: var(--accent-dim); background: #14251a; }
+	.pool label .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+	/* B: 穿梭 */
+	.shuttle { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+	.shuttle .pane { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; max-height: 520px; }
+	.pane .head { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+	.pane .body { overflow: auto; padding: 8px 10px; }
+	.srow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; font-size: 12px; cursor: pointer; }
+	.srow:hover { background: var(--panel2); }
+	.chipbox { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 2px; }
+	.chipbox .chip { font-family: Consolas, monospace; color: var(--text); }
+	.chipbox .chip b { color: var(--red); cursor: pointer; font-weight: 400; padding: 0 2px; }
+	.gquick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+	.gquick .btn { padding: 3px 10px; font-size: 11px; border-radius: 999px; }
+
+	/* C: 表格 */
+	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+	table { width: 100%; border-collapse: collapse; font-size: 12px; }
+	th { text-align: left; color: var(--faint); font-weight: 500; font-size: 11px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+	td { padding: 5px 10px; border-bottom: 1px solid #18231b; }
+	tr:hover td { background: #10181266; }
+	td .desc { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+</style>
+</head>
+<body>
+	<h1>原型 · 设置 → 技能 → 项目</h1>
+	<div class="sub">三个方案（悬浮条或 ← → 切换，状态互通可交互）。要回答的问题：添加项目后，怎么直观地选"哪些技能对这个项目生效"，分组与 loean7 一键全选放在哪。</div>
+	<div id="app"></div>
+	<div id="switcher">
+		<button onclick="cycle(-1)">←</button>
+		<span class="label" id="sw-label"></span>
+		<button onclick="cycle(1)">→</button>
+	</div>
+	<div class="proto-note">PROTOTYPE · 用完即扔</div>
+
+<script>
+// ---------- 状态（三个方案共用，切换方案不丢） ----------
+const PERSONAL = ["loean7-codingfollow","loean7-cosplay","loean7-cursorson","loean7-fakecommit","loean7-grammar","loean7-journal-business","loean7-journal-coding","loean7-journal-question","loean7-map-change","loean7-map-eli5","loean7-map-sql","loean7-nenglish","loean7-pagestest","loean7-push","loean7-skillhub","loean7-taskbreak","loean7-usagereport","loean7-video","loean7-yunbug","loean7-yunbugpush","loean7-yunbugrework","loean7-yunneed"];
+const GLOBAL = ["ask-matt","batch-grill-me","browser-use","claude-handoff","cloud","code-review","codebase-design","design-an-interface","diagnosing-bugs","domain-modeling","edit-article","frontend-design","git-guardrails-claude-code","grill-me","grill-with-docs","grilling","handoff","implement","improve-codebase-architecture","loop-me","migrate-to-shoehorn","obsidian-vault","open-source","prototype","qa","remote-browser","request-refactor-plan","research","resolving-merge-conflicts","scaffold-exercises","setup-matt-pocock-skills","setup-pre-commit","setup-ts-deep-modules","tdd","teach","to-questionnaire","to-spec","to-tickets","triage","typesafe-ai","ubiquitous-language","wayfinder","web-design-guidelines","wizard","writing-beats","writing-fragments","writing-great-skills","writing-shape","x402"];
+const ALL = [...PERSONAL.map(n => ({ name: n, src: "personal" })), ...GLOBAL.map(n => ({ name: n, src: "global" }))];
+const SRC_LABEL = { personal: "个人", global: "全局", project: "项目" };
+
+const projects = ["D:\\owl\\Owl-def", "D:\\owl\\owl-re-v1", "D:\\blog\\hexo-site"];
+let activeProject = projects[0];
+// 每个项目的生效集合（名字 → true）。预置 Owl-def 一部分作为示例状态。
+const enabled = { "D:\\owl\\Owl-def": {}, "D:\\owl\\owl-re-v1": {}, "D:\\blog\\hexo-site": {} };
+PERSONAL.forEach(n => enabled[projects[0]][n] = true);
+GLOBAL.forEach(n => enabled[projects[0]][["grilling","code-review","tdd","implement","writing-great-skills","diagnosing-bugs"].includes(n)] = enabled[projects[0]][n] || false);
+["grilling","code-review","tdd","implement","writing-great-skills","diagnosing-bugs"].forEach(n => enabled[projects[0]][n] = true);
+
+const groups = [
+	{ name: "写作组", skills: ["loean7-journal-business","loean7-journal-coding","loean7-journal-question","loean7-grammar","loean7-nenglish","writing-beats"] },
+	{ name: "开发组", skills: ["loean7-codingfollow","loean7-yunbug","loean7-push","code-review","tdd","implement","diagnosing-bugs"] },
+	{ name: "爬取组", skills: ["browser-use","remote-browser","cloud"] },
+];
+const enabledCount = () => ALL.filter(s => enabled[activeProject][s.name]).length;
+const isOn = n => !!enabled[activeProject][n];
+const setOn = (n, v) => enabled[activeProject][n] = v;
+const groupOn = g => g.skills.every(s => isOn(s));
+function toggleGroup(g, on) { g.skills.forEach(s => setOn(s, on)); render(); }
+
+// ---------- 工具 ----------
+function projSwitcher() {
+	return `<div class="rowline" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
+		<select onchange="activeProject=this.value;render()" style="min-width:300px">
+			${projects.map(p => `<option ${p===activeProject?"selected":""}>${p}</option>`).join("")}
+		</select>
+		<input type="text" placeholder="添加项目路径，回车" style="flex:1;min-width:220px"
+			onkeydown="if(event.key==='Enter'&&this.value.trim()){projects.push(this.value.trim());activeProject=this.value.trim();render()}">
+		<button class="btn" onclick="alert('原型：弹出目录选择')">添加项目</button>
+	</div>`;
+}
+function summaryLine() {
+	return `<div class="rowline" style="margin-bottom:6px">
+		<span class="mono" style="color:var(--muted);font-size:12px">${activeProject}</span>
+		<span class="chip" style="color:var(--accent)">生效 ${enabledCount()}/${ALL.length}</span>
+		<span style="flex:1"></span>
+		<button class="btn ghost" onclick="ALL.forEach(s=>setOn(s.name,false));render()">全部取消</button>
+	</div>`;
+}
+function poolSection(title, items, accent) {
+	const poolKey = "pool-" + title.replace(/\W/g, "");
+	window[poolKey] = items.map(s => s.name);
+	const call = fn => `${fn}("${poolKey}")`;
+	return `<div class="panel" style="margin-bottom:10px">
+		<div class="rowline">
+			<b style="font-size:12px;${accent?`color:${accent}`:""}">${title}</b>
+			<span class="count">${items.filter(s=>isOn(s.name)).length}/${items.length}</span>
+			<span style="flex:1"></span>
+			<button class="btn" onclick="${call("poolAll")}">全选</button>
+			<button class="btn ghost" onclick="${call("poolNone")}">全不选</button>
+		</div>
+		<div class="pool">
+			${items.map(s => `<label class="${isOn(s.name)?"on":""}">
+				<input type="checkbox" ${isOn(s.name)?"checked":""} onchange="setOn('${s.name}',this.checked);render()">
+				<span class="nm mono">${s.name}</span>
+			</label>`).join("")}
+		</div>
+	</div>`;
+}
+function poolAll(key) { window[key].forEach(n => setOn(n, true)); render(); }
+function poolNone(key) { window[key].forEach(n => setOn(n, false)); render(); }
+
+// ---------- 方案 A：分组卡片 + 折叠技能池 ----------
+function variantA() {
+	return `<div>
+		${projSwitcher()}
+		${summaryLine()}
+		<div class="section-title">分组 · 一键接入一组技能 <span class="count">点卡片开关 = 整组生效/停用</span>
+			<span style="flex:1"></span><button class="btn" onclick="alert('原型：新建分组（选名字 + 勾技能）')">+ 新建分组</button>
+		</div>
+		<div class="group-cards">
+			${groups.map(g => `<div class="group-card ${groupOn(g)?"on":""}">
+				<div class="rowline">
+					<span class="switch ${groupOn(g)?"on":""}" onclick="toggleGroup(groups[${groups.indexOf(g)}],${!groupOn(g)})"></span>
+					<b style="font-size:12px">${g.name}</b>
+					<span class="count">${g.skills.length} 个技能</span>
+				</div>
+				<div class="g-skills">${g.skills.map(s=>`<span>${s}</span>`).join("")}</div>
+				<div class="rowline" style="margin-top:8px">
+					<span class="badge group">分组</span>
+					<span style="flex:1"></span>
+					<button class="btn ghost" onclick="alert('原型：编辑分组「${g.name}」的成员')">编辑成员</button>
+				</div>
+			</div>`).join("")}
+			<div class="group-card add" style="border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer" onclick="alert('原型：新建分组')">+ 新建分组</div>
+		</div>
+		<div class="section-title">全部技能 · 勾选 = 本项目生效 <span class="count">个人(loean7) / 全局 / 项目</span></div>
+		${poolSection("个人 · loean7（一键全选）", ALL.filter(s=>s.src==="personal"), "var(--accent)")}
+		${poolSection("全局", ALL.filter(s=>s.src==="global"))}
+		<div class="panel" style="color:var(--faint);font-size:12px">项目 · 当前项目还没有自己的技能目录</div>
+	</div>`;
+}
+
+// ---------- 方案 B：穿梭双栏 ----------
+function variantB() {
+	const on = ALL.filter(s => isOn(s.name));
+	const off = ALL.filter(s => !isOn(s.name));
+	return `<div>
+		${projSwitcher()}
+		${summaryLine()}
+		<div class="shuttle">
+			<div class="pane">
+				<div class="head"><b style="font-size:12px">可用技能</b><span class="count">${off.length} 个未生效</span>
+					<span style="flex:1"></span><input type="text" placeholder="过滤…" style="width:140px;padding:3px 8px"></div>
+				<div class="body">
+					<div class="gquick">
+						${groups.map(g => `<button class="btn" onclick="toggleGroup(groups[${groups.indexOf(g)}],true)">＋ ${g.name}（${g.skills.length}）</button>`).join("")}
+						<button class="btn" onclick="PERSONAL.forEach(n=>setOn(n,true));render()">＋ loean7 全部（22）</button>
+					</div>
+					${off.map(s => `<div class="srow" onclick="setOn('${s.name}',true);render()">
+						<span style="color:var(--faint)">＋</span>
+						<span class="mono">${s.name}</span>
+						<span style="flex:1"></span><span class="badge ${s.src}">${SRC_LABEL[s.src]}</span>
+					</div>`).join("") || `<div style="color:var(--faint);text-align:center;padding:20px">全部已生效</div>`}
+				</div>
+			</div>
+			<div class="pane">
+				<div class="head"><b style="font-size:12px">本项目生效</b><span class="count">${on.length} 个</span>
+					<span style="flex:1"></span>
+					<button class="btn ghost" onclick="ALL.forEach(s=>setOn(s.name,false));render()">清空</button></div>
+				<div class="body">
+					<div class="chipbox">
+						${on.map(s => `<span class="chip">${s.name}<b onclick="setOn('${s.name}',false);render()">×</b></span>`).join("")}
+					</div>
+					<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+						<span class="count" style="font-size:11px">按分组批量移除：</span>
+						<div class="gquick" style="margin-top:6px">
+							${groups.map(g => `<button class="btn ghost" onclick="g.skills.forEach?0:0;toggleGroup(groups[${groups.indexOf(g)}],false)">－ ${g.name}</button>`).join("")}
+							<button class="btn ghost" onclick="PERSONAL.forEach(n=>setOn(n,false));render()">－ loean7 全部</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="section-title">分组管理 <span class="count">分组是全局的技能集合，项目按需接入</span>
+			<span style="flex:1"></span><button class="btn" onclick="alert('原型：新建分组')">+ 新建分组</button></div>
+		<div class="chipbox">
+			${groups.map(g => `<span class="chip">${g.name} · ${g.skills.length} 个技能 <b onclick="alert('原型：编辑成员')">编辑</b></span>`).join("")}
+		</div>
+	</div>`;
+}
+
+// ---------- 方案 C：紧凑清单 ----------
+let cFilter = "全部";
+function variantC() {
+	const filters = ["全部","写作组","开发组","爬取组","仅个人","仅全局"];
+	let rows = ALL;
+	if (cFilter === "仅个人") rows = rows.filter(s=>s.src==="personal");
+	else if (cFilter === "仅全局") rows = rows.filter(s=>s.src==="global");
+	else { const g = groups.find(x=>x.name===cFilter); if (g) rows = rows.filter(s=>g.skills.includes(s.name)); }
+	window.cRows = rows.map(s => s.name);
+	const visibleOn = rows.filter(s=>isOn(s.name)).length;
+	return `<div>
+		${projSwitcher()}
+		${summaryLine()}
+		<div class="toolbar">
+			${filters.map(f => `<button class="btn ${cFilter===f?"primary":""}" onclick="cFilter='${f}';render()">${f}</button>`).join("")}
+			<span style="flex:1"></span>
+			<button class="btn primary" onclick="PERSONAL.forEach(n=>setOn(n,true));render()">loean7 一键全选</button>
+			<button class="btn" onclick="alert('原型：新建分组')">+ 新建分组</button>
+			<input type="text" placeholder="搜索技能…" style="width:160px">
+		</div>
+		<div class="panel" style="padding:0">
+			<table>
+				<thead><tr>
+					<th style="width:36px"><input type="checkbox"
+						onchange="cRowsAll(this.checked)" title="全选/全不选当前筛选"></th>
+					<th>技能</th><th>来源</th><th>分组</th><th>描述</th><th style="width:60px">本项目生效</th>
+				</tr></thead>
+				<tbody>
+					${rows.map(s => {
+						const gs = groups.filter(g=>g.skills.includes(s.name)).map(g=>g.name);
+						return `<tr>
+							<td><input type="checkbox" ${isOn(s.name)?"checked":""} onchange="setOn('${s.name}',this.checked);render()"></td>
+							<td class="mono">${s.name}</td>
+							<td><span class="badge ${s.src}">${SRC_LABEL[s.src]}</span></td>
+							<td>${gs.map(n=>`<span class="badge group">${n}</span>`).join(" ")||'<span class="count">—</span>'}</td>
+							<td><div class="desc">示例描述：什么场景用这个技能（原型占位）</div></td>
+							<td><span class="switch ${isOn(s.name)?"on":""}" onclick="setOn('${s.name}',${!isOn(s.name)});render()"></span></td>
+						</tr>`;}).join("")}
+				</tbody>
+			</table>
+		</div>
+		<div style="color:var(--faint);font-size:11px;margin-top:8px">当前筛选 ${rows.length} 项 · 生效 ${visibleOn} 项 · 列头复选框 = 全选/全不选当前筛选</div>
+	</div>`;
+}
+
+// ---------- 切换条 ----------
+function cRowsAll(on) { window.cRows.forEach(n => setOn(n, on)); render(); }
+const VARIANTS = [
+	{ key: "A", name: "分组卡片", render: variantA },
+	{ key: "B", name: "穿梭双栏", render: variantB },
+	{ key: "C", name: "紧凑清单", render: variantC },
+];
+function currentVariant() {
+	const v = new URLSearchParams(location.search).get("variant") ?? "A";
+	return VARIANTS.find(x => x.key === v) ?? VARIANTS[0];
+}
+function render() {
+	const v = currentVariant();
+	document.getElementById("app").innerHTML = v.render();
+	document.getElementById("sw-label").textContent = `${v.key} — ${v.name}`;
+}
+function cycle(dir) {
+	const i = VARIANTS.indexOf(currentVariant());
+	const next = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length];
+	const url = new URL(location); url.searchParams.set("variant", next.key);
+	history.replaceState(null, "", url); render();
+}
+document.addEventListener("keydown", e => {
+	if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) return;
+	if (e.key === "ArrowLeft") cycle(-1);
+	if (e.key === "ArrowRight") cycle(1);
+});
+render();
+</script>
+</body>
+</html>
