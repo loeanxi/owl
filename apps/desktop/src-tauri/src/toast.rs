@@ -1,8 +1,9 @@
-//! Windows 原生 Toast 通知（带操作按钮）。
+//! Windows 原生 Toast 通知（桌面壳的系统通知统一出口）。
 //!
-//! WebView2 的 Web Notification API 不支持操作按钮，审批类的「同意 / 拒绝」
-//! 快捷裁决走这里：Rust 侧弹 Toast，按钮点击经 Activated 回调（进程内触发）
-//! 转成 Tauri 事件发回前端应答。因此仅在 owl 运行期间可点，与桌面壳常驻形态一致。
+//! WebView2 的 Notification 权限默认被拒、且其 Web Notification 不支持操作按钮，
+//! 所以桌面壳的各类系统通知（审批 / 提问 / 完成）都走这里的 Rust Toast：
+//! 审批类带「同意 / 拒绝」按钮，点击经 Activated 回调（进程内触发）转成 Tauri
+//! 事件发回前端应答。因此仅在 owl 运行期间可点，与桌面壳常驻形态一致。
 
 use tauri::{AppHandle, Emitter, Manager};
 use windows::Data::Xml::Dom::XmlDocument;
@@ -39,29 +40,39 @@ fn focus_main_window(app: &AppHandle) {
 	}
 }
 
-/// 弹一条带「同意 / 拒绝」按钮的系统 Toast。
-/// 按钮点击后向前端发 `owl-toast-action`（kind=decision + requestId + approved），
-/// 前端直接应答对应审批；点通知本体只回焦主窗口（不裁决）。
+/// 弹一条系统 Toast。
+/// - 传 approve_label + deny_label：带「同意 / 拒绝」按钮（审批快捷裁决），
+///   点击后向前端发 `owl-toast-action`（kind=decision + requestId + approved）。
+/// - 不传：普通通知（完成 / 提问提醒）。WebView2 的 Notification 权限默认被拒，
+///   桌面壳里的系统通知统一由本命令承担。
+/// 点通知本体只回焦主窗口（不裁决）。
 #[tauri::command]
 pub fn show_approval_toast(
 	app: AppHandle,
 	title: String,
 	body: String,
 	request_id: String,
-	approve_label: String,
-	deny_label: String,
+	approve_label: Option<String>,
+	deny_label: Option<String>,
 ) -> Result<(), String> {
+	let actions = match (&approve_label, &deny_label) {
+		(Some(approve), Some(deny)) => format!(
+			"<actions>\
+<action content=\"{}\" arguments=\"approve\" activationType=\"foreground\"/>\
+<action content=\"{}\" arguments=\"deny\" activationType=\"foreground\"/>\
+</actions>",
+			escape_xml(approve),
+			escape_xml(deny),
+		),
+		_ => String::new(),
+	};
 	let xml = format!(
 		"<toast activationType=\"foreground\" launch=\"focus\">\
 <visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual>\
-<actions>\
-<action content=\"{}\" arguments=\"approve\" activationType=\"foreground\"/>\
-<action content=\"{}\" arguments=\"deny\" activationType=\"foreground\"/>\
-</actions></toast>",
+{}</toast>",
 		escape_xml(&title),
 		escape_xml(&body),
-		escape_xml(&approve_label),
-		escape_xml(&deny_label),
+		actions,
 	);
 
 	let doc = XmlDocument::new().map_err(|error| error.to_string())?;

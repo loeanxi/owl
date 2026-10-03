@@ -445,14 +445,18 @@ test("a reconnect snapshot cannot overwrite newer live stream events", async (t)
 	bridge.emit("map-1", { type: "message_start", message: { role: "assistant" } });
 	bridge.emit("map-1", { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "流式" } });
 	bridge.status(false);
-	bridge.handler = (request) => request.type === "session.resume" ? restored.promise : bridge.defaultReply(request);
+	bridge.handler = (request) => (request.type === "session.resume" ? restored.promise : bridge.defaultReply(request));
 	bridge.status(true);
 	bridge.emit("map-1", { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "更新" } });
 	bridge.emit("map-1", { type: "agent_settled" });
-	restored.resolve({ ok: true, result: {
-		sessionId: "map-1", cwd: config.cwd,
-		messages: [{ role: "assistant", content: [{ type: "text", text: "旧恢复快照" }] }],
-	} });
+	restored.resolve({
+		ok: true,
+		result: {
+			sessionId: "map-1",
+			cwd: config.cwd,
+			messages: [{ role: "assistant", content: [{ type: "text", text: "旧恢复快照" }] }],
+		},
+	});
 	await flush();
 	assert.equal(entryText(conversation.getState().entries.at(-1)), "流式更新");
 	assert.equal(conversation.getState().busy, false);

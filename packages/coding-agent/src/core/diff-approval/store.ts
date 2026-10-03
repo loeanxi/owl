@@ -267,7 +267,12 @@ export class DiffApprovalStore {
 		}
 		let added: number | null = null;
 		let removed: number | null = null;
-		const baseline = entry.status === "pending" ? (entry.originalExisted ? entry.originalContent : (entry.originalContent ?? "")) : null;
+		const baseline =
+			entry.status === "pending"
+				? entry.originalExisted
+					? entry.originalContent
+					: (entry.originalContent ?? "")
+				: null;
 		if (baseline !== null && size <= DIFF_TEXT_CAP_CHARS && currentExists) {
 			try {
 				const current = readFileSync(entry.path, "utf-8");
@@ -313,12 +318,10 @@ export class DiffApprovalStore {
 	}
 }
 
-function countNewlines(text: string): number {
-	let count = 0;
-	for (let i = 0; i < text.length; i++) {
-		if (text.charCodeAt(i) === 10) count += 1;
-	}
-	return count;
+/** 一段 diff 文本块的行数（末尾不带换行的残行也算一行）。 */
+function countChunkLines(text: string): number {
+	if (text === "") return 0;
+	return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
 }
 
 function displayPathOf(absolutePath: string, cwd: string): string {

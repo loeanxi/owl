@@ -56,7 +56,10 @@ export function sameMailDraft(a: MailDraft, b: MailDraft): boolean {
 }
 
 /** Only successful, scoped mailbox reads become clickable source references. */
-export function mailReadSource(value: unknown, context: MailAgentContext): (MailThreadRef & { subject: string }) | undefined {
+export function mailReadSource(
+	value: unknown,
+	context: MailAgentContext,
+): (MailThreadRef & { subject: string }) | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const event = value as Record<string, unknown>;
 	if (event.toolName !== "mail_read_thread" || event.isError === true) return undefined;
@@ -67,7 +70,20 @@ export function mailReadSource(value: unknown, context: MailAgentContext): (Mail
 	const thread = (details as { thread?: unknown }).thread;
 	if (!thread || typeof thread !== "object") return undefined;
 	const item = thread as { accountId?: unknown; id?: unknown; subject?: unknown };
-	if (typeof item.accountId !== "string" || typeof item.id !== "string" || !context.accountIds.includes(item.accountId)) return undefined;
-	if (context.mode === "threads" && !context.threads?.some((ref) => ref.accountId === item.accountId && ref.threadId === item.id)) return undefined;
-	return { accountId: item.accountId, threadId: item.id, subject: typeof item.subject === "string" ? item.subject : "" };
+	if (
+		typeof item.accountId !== "string" ||
+		typeof item.id !== "string" ||
+		!context.accountIds.includes(item.accountId)
+	)
+		return undefined;
+	if (
+		context.mode === "threads" &&
+		!context.threads?.some((ref) => ref.accountId === item.accountId && ref.threadId === item.id)
+	)
+		return undefined;
+	return {
+		accountId: item.accountId,
+		threadId: item.id,
+		subject: typeof item.subject === "string" ? item.subject : "",
+	};
 }

@@ -185,6 +185,7 @@ export class MailService {
 				modify: usable && broad,
 			},
 			lastSyncedAt: account.lastSyncedAt,
+			unreadCount: account.unreadCount,
 			error: account.error,
 		};
 	}
@@ -278,6 +279,7 @@ export class MailService {
 					refreshToken: token.refresh_token ?? existing?.refreshToken,
 					expiresAt: this.now() + Math.max(1, Number(token.expires_in) || 3600) * 1000,
 					lastSyncedAt: new Date(this.now()).toISOString(),
+					unreadCount: existing?.unreadCount,
 				};
 				if (existing) Object.assign(existing, account, { error: undefined });
 				else this.data.accounts.push(account);
@@ -432,6 +434,7 @@ export class MailService {
 		account.accessToken = undefined;
 		account.refreshToken = undefined;
 		account.expiresAt = undefined;
+		account.unreadCount = undefined;
 		account.status = "disconnected";
 		account.error = undefined;
 		this.generations.set(account.id, (this.generations.get(account.id) ?? 0) + 1);
@@ -483,6 +486,23 @@ export class MailService {
 				result.threads.push(...threads.map((thread) => summarizeThread(thread, accountId)));
 				if (list.nextPageToken) result.nextPageTokens[accountId] = list.nextPageToken;
 				account.lastSyncedAt = new Date(this.now()).toISOString();
+				try {
+					const inbox = await this.gmail<{ threadsUnread?: unknown }>(
+						account,
+						"/labels/INBOX?fields=threadsUnread",
+					);
+					if (
+						typeof inbox.threadsUnread === "number" &&
+						Number.isInteger(inbox.threadsUnread) &&
+						inbox.threadsUnread >= 0
+					) {
+						account.unreadCount = inbox.threadsUnread;
+					}
+				} catch {
+					// This badge counts unread INBOX conversations, not loaded messages.
+					// A failed count leaves it unknown/cached and never discards the page.
+					// An auth failure is still reflected by the account's expired status.
+				}
 			} catch (error) {
 				result.errors.push({
 					accountId,

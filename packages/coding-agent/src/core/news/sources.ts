@@ -38,12 +38,22 @@ export class NewsHttpRejectedError extends Error {
 }
 export class NewsPaidOutputError extends Error {
 	response: unknown;
-	constructor(message: string, response: unknown) { super(message); this.response = response; }
+	constructor(message: string, response: unknown) {
+		super(message);
+		this.response = response;
+	}
 }
 
 function decodePaidNewsJson(response: NewsFetchedText): unknown {
-	try { return JSON.parse(response.text) as unknown; }
-	catch { throw new NewsPaidOutputError("付费采集已收到响应，但返回内容不是有效 JSON", { status: response.status, text: response.text, headers: response.headers }); }
+	try {
+		return JSON.parse(response.text) as unknown;
+	} catch {
+		throw new NewsPaidOutputError("付费采集已收到响应，但返回内容不是有效 JSON", {
+			status: response.status,
+			text: response.text,
+			headers: response.headers,
+		});
+	}
 }
 
 export function isPrivateNewsAddress(address: string): boolean {
@@ -377,7 +387,7 @@ export function publicNewsSource<T extends NewsSourceInput>(source: T): T {
 					/^(accept|content-type|user-agent)$/i.test(name) ? entry : entry ? "[configured]" : "",
 				]),
 			);
-		if (/api.?key|token|secret|password|authorization|cookie/i.test(key)) return value ? "[configured]" : "";
+		if (/^key$|credential|api.?key|token|secret|password|authorization|cookie/i.test(key)) return value ? "[configured]" : "";
 		if ((key === "url" || key === "feedUrl") && typeof value === "string") {
 			try {
 				const url = new URL(value);
@@ -450,7 +460,7 @@ export async function collectNewsSource(
 	if (source.kind === "x_search") {
 		if (!secrets.SOCIALDATA_API_KEY) throw new Error("请配置 SOCIALDATA_API_KEY");
 		if (!config.query) throw new Error("X 信源缺少搜索 query");
-		const cursor = options.cursor ?? {};
+		const cursor = options.cursor?.query && options.cursor.query !== String(config.query) ? {} : options.cursor ?? {};
 		const carry = Array.isArray(cursor.pending) ? (cursor.pending as NewsMaterial[]) : [];
 		const backlog = Array.isArray(cursor.backlog) ? ([...cursor.backlog] as { query: string; next: string }[]) : [];
 		const tweets: Record<string, unknown>[] = [];
@@ -466,7 +476,7 @@ export async function collectNewsSource(
 				{ query, next, window: Math.floor(Date.now() / 1800000) },
 				async () => {
 					const response = await get(url, { headers: { authorization: `Bearer ${secrets.SOCIALDATA_API_KEY}` } });
-			return decodePaidNewsJson(response);
+					return decodePaidNewsJson(response);
 				},
 			)) as { tweets?: Record<string, unknown>[]; next_cursor?: string };
 			pages++;
@@ -515,7 +525,7 @@ export async function collectNewsSource(
 		const combined = [
 			...new Map([...carry, ...mapped].map((material) => [material.externalId || material.url, material])).values(),
 		];
-		options.onCursor?.({ lastId: newest, backlog: backlog.slice(0, 5), pending: combined.slice(maximum) });
+		options.onCursor?.({ query: String(config.query), lastId: newest, backlog: backlog.slice(0, 5), pending: combined.slice(maximum) });
 		return combined.slice(0, maximum);
 	}
 	if (!secrets.DAJIALA_KEY) throw new Error("请配置 DAJIALA_KEY");

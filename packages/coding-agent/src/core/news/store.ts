@@ -522,7 +522,12 @@ export class NewsStore {
 			this.db.prepare("UPDATE news_attempts SET status='received' WHERE receipt_id=? AND status='pending'").run(id);
 		});
 	}
-	setReceiptState(id: string, status: NewsReceipt["status"], error: string | null = null, expectedAttempt?: number): void {
+	setReceiptState(
+		id: string,
+		status: NewsReceipt["status"],
+		error: string | null = null,
+		expectedAttempt?: number,
+	): void {
 		const old = this.receipt(id);
 		if (!old) throw new Error("回执不存在");
 		if (expectedAttempt !== undefined && old.attempts !== expectedAttempt) return;
@@ -537,8 +542,7 @@ export class NewsStore {
 	completeReceipts(subject: string): void {
 		for (const row of this.db.prepare("SELECT id,data FROM news_receipts WHERE status='received'").all()) {
 			const receipt = JSON.parse(String(row.data)) as NewsReceipt;
-			if (receipt.subject === subject && !receipt.error)
-				this.setReceiptState(String(row.id), "completed");
+			if (receipt.subject === subject && !receipt.error) this.setReceiptState(String(row.id), "completed");
 		}
 	}
 	saveEvaluation(evaluation: NewsEvaluation): void {

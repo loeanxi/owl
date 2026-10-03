@@ -67,17 +67,26 @@ export function useMailAgent(
 			if (!sessionsRef.current.some((session) => session.id === message.sessionId)) return;
 			const event = message.event as { type?: string; messages?: unknown[] };
 			update(message.sessionId, (session) => {
-				const reads = [message.event, ...(event.type === "agent_end" ? event.messages ?? [] : [])]
-					.map((entry) => mailReadSource(entry, session.context)).filter((entry) => entry !== undefined);
+				const reads = [message.event, ...(event.type === "agent_end" ? (event.messages ?? []) : [])]
+					.map((entry) => mailReadSource(entry, session.context))
+					.filter((entry) => entry !== undefined);
 				const sources = new Map(session.sources.map((source) => [mailThreadKey(source), source]));
 				const readSources = new Map(session.readSources.map((source) => [mailThreadKey(source), source]));
-				for (const source of reads) { sources.set(mailThreadKey(source), source); readSources.set(mailThreadKey(source), source); }
+				for (const source of reads) {
+					sources.set(mailThreadKey(source), source);
+					readSources.set(mailThreadKey(source), source);
+				}
 				return {
 					...session,
 					sources: [...sources.values()],
 					readSources: [...readSources.values()],
 					entries: applyEvent(session.entries, message),
-					running: event.type === "agent_start" ? true : event.type === "agent_end" || event.type === "agent_settled" ? false : session.running,
+					running:
+						event.type === "agent_start"
+							? true
+							: event.type === "agent_end" || event.type === "agent_settled"
+								? false
+								: session.running,
 				};
 			});
 		});

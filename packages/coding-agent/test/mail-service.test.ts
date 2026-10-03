@@ -63,6 +63,8 @@ class FakeGoogle {
 	readonly unavailableThreads = new Set<string>();
 	readonly nextPages = new Map<string, string>();
 	readonly refreshCount = new Map<string, number>();
+	readonly inboxUnread = new Map<string, unknown>();
+	readonly unavailableCounts = new Set<string>();
 	sendError: "network" | "unauthorized" | undefined;
 	refreshBarrier?: Promise<void>;
 	profileBarrier?: Promise<void>;
@@ -107,6 +109,11 @@ class FakeGoogle {
 			return json({ id: "sent-message", threadId: "work-thread" });
 		}
 		if (url.pathname.includes("/drafts")) return json({ id: "saved-draft" });
+		if (url.pathname.endsWith("/labels/INBOX")) {
+			return this.unavailableCounts.has(token)
+				? json({}, 503)
+				: json({ threadsUnread: this.inboxUnread.get(token) });
+		}
 		if (url.pathname.endsWith("/threads")) {
 			return json({ threads: [{ id: `${token}-thread` }], nextPageToken: this.nextPages.get(token) });
 		}
@@ -326,6 +333,38 @@ describe("authorization persistence cancellation", () => {
 });
 
 describe("multiple Gmail accounts", () => {
+	it("caches the real INBOX unread conversation count independently from loaded pages", async () => {
+		const { service, google } = await harness();
+		const personal = await connect(service, google, "personal");
+		const work = await connect(service, google, "work");
+		google.inboxUnread.set("personal", 137);
+		const list = (await service.handle({
+			action: "threads.list",
+			accountIds: [personal.id, work.id],
+			folder: "inbox",
+			maxResults: 1,
+		})) as MailThreadList;
+		expect(list.threads.filter((thread) => thread.accountId === personal.id)).toHaveLength(1);
+		let accounts = (await service.handle({ action: "accounts" })) as MailAccount[];
+		expect(accounts.find((account) => account.id === personal.id)?.unreadCount).toBe(137);
+		expect(accounts.find((account) => account.id === work.id)?.unreadCount).toBeUndefined();
+		const labels = google.calls.filter((call) => call.url.pathname.endsWith("/labels/INBOX"));
+		expect(labels).toHaveLength(2);
+		expect(labels[0].url.searchParams.get("fields")).toBe("threadsUnread");
+		google.unavailableCounts.add("personal");
+		google.unavailableCounts.add("work");
+		const unavailable = (await service.handle({
+			action: "threads.list",
+			accountIds: [personal.id, work.id],
+			folder: "inbox",
+		})) as MailThreadList;
+		expect(unavailable.threads).toHaveLength(2);
+		expect(unavailable.errors).toEqual([]);
+		accounts = (await service.handle({ action: "accounts" })) as MailAccount[];
+		expect(accounts.find((account) => account.id === personal.id)?.unreadCount).toBe(137);
+		expect(accounts.find((account) => account.id === work.id)?.unreadCount).toBeUndefined();
+	});
+
 	it("isolates an invalid refresh and paginates the remaining account with its own folder/query", async () => {
 		const { service, google, advance } = await harness();
 		const personal = await connect(service, google, "personal");

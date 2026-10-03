@@ -1,0 +1,16 @@
+import { readFile, writeFile } from 'node:fs/promises';
+const repo = 'D:/owl/owl-re-v1/owl-mono';
+let source = await readFile(`${repo}/.temp/artifacts-turn-20261003/browser.mjs`, 'utf8');
+source = source.replace("import {createServer} from 'node:http';", "import {createServer} from 'node:http';\nimport {tmpdir} from 'node:os';");
+source = source.replace("const here = dirname(fileURLToPath(import.meta.url));\nconst repo = resolve(here, '../..');\nconst stage = process.argv[2] ?? 'red';\nconst output = resolve('D:/owl/.validation/artifacts-turn-20261003', stage);", "// Only local fake bridge/viewer servers are used; no provider APIs or user data.\nconst scriptDir = dirname(fileURLToPath(import.meta.url));\nconst repo = resolve(scriptDir, '../../..');\nconst output = resolve(process.argv[2] ?? join(tmpdir(), 'owl-artifacts-turn-results'));");
+source = source.replace("const browserPath = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);\nassert.ok(browserPath);\nconst cwd = 'D:/owl/.validation/artifacts-turn-fixture';", "const browserPath = [process.env.OWL_BROWSER_TEST_EXECUTABLE, 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'].find(candidate => candidate && existsSync(candidate));\nassert.ok(browserPath, 'Set OWL_BROWSER_TEST_EXECUTABLE to an installed Chromium browser; this test never downloads one.');\nconst cwd = join(output, 'fake-workspace').replace(/\\\\/g, '/');");
+source = source.replace('requests:[], stage, sourceSha256:{}', 'requests:[], browserPath, sourceSha256:{}, fixtureFallbacks:[]');
+const entryLine = source.split('\n').find(line => line.startsWith("await writeFile(join(here,'entry.mjs')"));
+if (!entryLine) throw new Error('Temporary entry writer not found');
+source = source.replace(`${entryLine}\n`, '');
+source = source.replace("entryPoints:[join(here,'entry.mjs')]", "entryPoints:[join(scriptDir,'fixtures/artifacts-turn.mjs')]");
+source = source.replace("build.onResolve({filter:/^\\.\\/mail\\.css$/},args=>existsSync(join(args.resolveDir,args.path))?undefined:{path:'fixture-empty-mail-css',namespace:'fixture'});", "build.onResolve({filter:/^\\.\\/mail\\.css$/}, args => {if (existsSync(join(args.resolveDir, args.path))) return undefined; result.fixtureFallbacks.push(join(args.resolveDir, args.path)); return {path:'fixture-empty-mail-css',namespace:'fixture'};});");
+source = source.replace("if(stage!=='red')await caseRun", "await caseRun");
+source = source.replace(".locator('.owl-chat-row .owl-artifact-file[title=\"费用测试.univer\"]').click();", ".locator('.owl-chat-row .owl-artifact-file[title=\"费用测试.univer\"]').click({timeout:2000});");
+await writeFile(`${repo}/apps/desktop/scripts/artifacts-turn.browser.mjs`, source);
+await writeFile(`${repo}/apps/desktop/scripts/fixtures/artifacts-turn.mjs`, "import React from 'react';\nimport {createRoot} from 'react-dom/client';\nimport App from '../../src/App.tsx';\n\n// Bundle the actual App, including its artifact scope, transcript and bridge client.\ncreateRoot(document.getElementById('root')).render(React.createElement(App));\n");

@@ -18,6 +18,7 @@ export interface StoredMailAccount {
 	accessToken?: string;
 	refreshToken?: string;
 	expiresAt?: number;
+	unreadCount?: number;
 	lastSyncedAt?: string;
 	error?: string;
 }

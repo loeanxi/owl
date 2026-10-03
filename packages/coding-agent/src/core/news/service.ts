@@ -34,7 +34,6 @@ import type {
 	NewsItem,
 	NewsListQuery,
 	NewsListResult,
-	NewsMaterial,
 	NewsModelCall,
 	NewsModelCaller,
 	NewsModelRef,
@@ -70,6 +69,14 @@ function mergeSourceConfig(old: Record<string, unknown>, incoming: Record<string
 	const result = { ...old };
 	for (const [key, value] of Object.entries(incoming)) {
 		if (value === "[configured]") continue;
+		if (typeof value === "string" && /\[configured\]|%5Bconfigured%5D/i.test(value) && typeof old[key] === "string") {
+			const nextUrl = new URL(value); const oldUrl = new URL(old[key] as string);
+			if (nextUrl.origin !== oldUrl.origin || nextUrl.pathname !== oldUrl.pathname) throw new Error("更改含凭据的信源地址时需要重新配置凭据");
+			for (const name of [...nextUrl.searchParams.keys()]) if (nextUrl.searchParams.get(name) === "[configured]") {
+				const previous = oldUrl.searchParams.get(name); if (previous !== null) nextUrl.searchParams.set(name, previous);
+			}
+			result[key] = nextUrl.toString(); continue;
+		}
 		result[key] =
 			value && typeof value === "object" && !Array.isArray(value)
 				? mergeSourceConfig(
@@ -147,7 +154,9 @@ export class NewsService {
 		if (this.lease) this.store.recover();
 		this.timer = setInterval(() => {
 			if (this.lease && !this.store.acquireLease(this.owner)) {
-				this.lease = false; this.lostLease = true; this.controller.abort(new Error("资讯任务租约已丢失"));
+				this.lease = false;
+				this.lostLease = true;
+				this.controller.abort(new Error("资讯任务租约已丢失"));
 			}
 			this.kick();
 		}, 10000);
@@ -196,12 +205,16 @@ export class NewsService {
 	}
 	private ensureLease(): void {
 		if (this.lostLease || !this.lease || !this.store.acquireLease(this.owner)) {
-			this.lease = false; this.lostLease = true; this.controller.abort(new Error("资讯任务租约已丢失")); throw new Error("资讯任务租约已丢失");
+			this.lease = false;
+			this.lostLease = true;
+			this.controller.abort(new Error("资讯任务租约已丢失"));
+			throw new Error("资讯任务租约已丢失");
 		}
 	}
 	private markOutputError(error: NewsOutputError | NewsPaidOutputError): void {
 		if (error.response && typeof error.response === "object") {
-			const receipt = this.responseReceipts.get(error.response); if (receipt) this.store.setReceiptState(receipt.id, "received", this.message(error), receipt.attempt);
+			const receipt = this.responseReceipts.get(error.response);
+			if (receipt) this.store.setReceiptState(receipt.id, "received", this.message(error), receipt.attempt);
 		}
 	}
 	private async tick(): Promise<void> {
@@ -230,7 +243,10 @@ export class NewsService {
 				if (error instanceof NewsOutputError || error instanceof NewsPaidOutputError) this.markOutputError(error);
 				const delayed =
 					error instanceof NewsBudgetError ||
-					(!(error instanceof NewsUnknownReceiptError) && !(error instanceof NewsOutputError) && !(error instanceof NewsPaidOutputError) && job.attempts < 3);
+					(!(error instanceof NewsUnknownReceiptError) &&
+						!(error instanceof NewsOutputError) &&
+						!(error instanceof NewsPaidOutputError) &&
+						job.attempts < 3);
 				job.status = delayed ? "pending" : "failed";
 				job.nextAttemptAt = new Date(
 					Date.now() + (error instanceof NewsBudgetError ? 60000 : 30000 * 2 ** job.attempts),
@@ -323,7 +339,12 @@ export class NewsService {
 		usage?: (result: unknown) => NewsModelResponse["usage"],
 	): Promise<unknown> {
 		const model = identity && typeof identity === "object" ? (identity as { model?: unknown }).model : undefined;
-		const modelName = typeof model === "string" ? model : model && typeof model === "object" && "provider" in model && "id" in model ? `${model.provider}/${model.id}` : capability;
+		const modelName =
+			typeof model === "string"
+				? model
+				: model && typeof model === "object" && "provider" in model && "id" in model
+					? `${model.provider}/${model.id}`
+					: capability;
 		const begun = this.store.beginReceipt(
 			newsHash([subject, capability, identity]),
 			capability,
@@ -332,7 +353,11 @@ export class NewsService {
 			this.configuration.budget,
 		);
 		if (begun.cached) {
-			if (begun.receipt.response && typeof begun.receipt.response === "object") this.responseReceipts.set(begun.receipt.response, { id: begun.receipt.id, attempt: begun.receipt.attempts });
+			if (begun.receipt.response && typeof begun.receipt.response === "object")
+				this.responseReceipts.set(begun.receipt.response, {
+					id: begun.receipt.id,
+					attempt: begun.receipt.attempts,
+				});
 			if (begun.receipt.error) throw new NewsPaidOutputError(begun.receipt.error, begun.receipt.response);
 			return begun.receipt.response;
 		}
@@ -340,12 +365,14 @@ export class NewsService {
 			const result = await run();
 			// Received bytes are durably committed before any parse, grouping, or publication side effect.
 			this.store.receiveReceipt(begun.receipt.id, result, usage?.(result) ?? null, begun.receipt.attempts);
-			if (result && typeof result === "object") this.responseReceipts.set(result, { id: begun.receipt.id, attempt: begun.receipt.attempts });
+			if (result && typeof result === "object")
+				this.responseReceipts.set(result, { id: begun.receipt.id, attempt: begun.receipt.attempts });
 			return result;
 		} catch (error) {
 			if (error instanceof NewsPaidOutputError) {
 				this.store.receiveReceipt(begun.receipt.id, error.response, null, begun.receipt.attempts);
-				this.store.setReceiptState(begun.receipt.id, "received", this.message(error), begun.receipt.attempts); throw error;
+				this.store.setReceiptState(begun.receipt.id, "received", this.message(error), begun.receipt.attempts);
+				throw error;
 			}
 			if (error instanceof NewsOutputError && error.response) {
 				this.store.receiveReceipt(begun.receipt.id, error.response, error.response.usage, begun.receipt.attempts);
@@ -353,7 +380,8 @@ export class NewsService {
 				this.store.setReceiptState(begun.receipt.id, "received", this.message(error), begun.receipt.attempts);
 				throw error;
 			}
-			if (error instanceof NewsHttpRejectedError && error.response) this.store.receiveReceipt(begun.receipt.id, error.response, null, begun.receipt.attempts);
+			if (error instanceof NewsHttpRejectedError && error.response)
+				this.store.receiveReceipt(begun.receipt.id, error.response, null, begun.receipt.attempts);
 			this.store.setReceiptState(
 				begun.receipt.id,
 				error instanceof NewsHttpRejectedError ? "failed" : "unknown",
@@ -487,7 +515,10 @@ export class NewsService {
 				const current = this.store.story(story.id);
 				if (current && !current.manual)
 					this.store.saveStory({ ...current, ...digest, updatedAt: new Date().toISOString() });
-				this.store.setMeta(`story-digest:${story.id}`, newsHash(story.reports.map(item => [item.id, item.revision, item.title, item.summary])));
+				this.store.setMeta(
+					`story-digest:${story.id}`,
+					newsHash(story.reports.map((item) => [item.id, item.revision, item.title, item.summary])),
+				);
 				this.store.completeReceipts(`story:${story.id}:${job.data.revision}`);
 			});
 			return;
@@ -682,7 +713,7 @@ export class NewsService {
 			const response = (await this.paid(
 				`embedding:${candidate.id}:${candidate.revision}`,
 				"embedding",
-				{ model: config.model, text: candidate.title + "\n" + candidate.summary },
+				{ model: config.model, text: `${candidate.title}\n${candidate.summary}` },
 				async () => {
 					const result = await fetchNewsText(
 						`${config.baseUrl.replace(/\/$/, "")}/embeddings`,
@@ -696,15 +727,22 @@ export class NewsService {
 							},
 							body: JSON.stringify({
 								model: config.model,
-								input: candidate.title + "\n" + candidate.summary,
+								input: `${candidate.title}\n${candidate.summary}`,
 								...(config.dimensions ? { dimensions: config.dimensions } : {}),
 							}),
 						},
 						this.fetchOptions(),
 					);
 					if (result.status < 200 || result.status >= 300) throw new NewsHttpRejectedError(result.status);
-					try { return JSON.parse(result.text) as unknown; }
-					catch { throw new NewsPaidOutputError("Embedding 已收到响应但 JSON 无效", { status: result.status, text: result.text, headers: result.headers }); }
+					try {
+						return JSON.parse(result.text) as unknown;
+					} catch {
+						throw new NewsPaidOutputError("Embedding 已收到响应但 JSON 无效", {
+							status: result.status,
+							text: result.text,
+							headers: result.headers,
+						});
+					}
 				},
 			)) as { data?: { embedding?: number[] }[] };
 			const vector = response.data?.[0]?.embedding;
@@ -760,10 +798,14 @@ export class NewsService {
 		};
 	}
 	private publicStory(story: NewsStory): NewsStory {
-		const reports = story.reports.filter(item => this.visible(item)).map(item => this.publicItem(item));
-		const signature = newsHash(story.reports.map(item => [item.id, item.revision, item.title, item.summary]));
+		const reports = story.reports.filter((item) => this.visible(item)).map((item) => this.publicItem(item));
+		const signature = newsHash(story.reports.map((item) => [item.id, item.revision, item.title, item.summary]));
 		const fresh = this.store.getMeta<string>(`story-digest:${story.id}`) === signature;
-		return { ...story, reports, ...(!fresh && !story.manual ? { title: reports[0]?.title ?? "", summary: reports[0]?.summary ?? "" } : {}) };
+		return {
+			...story,
+			reports,
+			...(!fresh && !story.manual ? { title: reports[0]?.title ?? "", summary: reports[0]?.summary ?? "" } : {}),
+		};
 	}
 	private publicReport(report: NewsReport): NewsReport {
 		const project = (items: NewsItem[]) =>
@@ -771,25 +813,54 @@ export class NewsService {
 				const item = this.store.item(snapshot.id);
 				return item && this.visible(item) ? [this.publicItem(item)] : [];
 			});
-		const sections = report.sections.map(section => ({ ...section, items: project(section.items) })).filter(section => section.items.length);
-		const briefs = project(report.briefs); const main = sections.flatMap(section => section.items);
-		const liveHosts = new Set([...main, ...briefs].map(item => item.id));
+		const sections = report.sections
+			.map((section) => ({ ...section, items: project(section.items) }))
+			.filter((section) => section.items.length);
+		const briefs = project(report.briefs);
+		const main = sections.flatMap((section) => section.items);
+		const liveHosts = new Set([...main, ...briefs].map((item) => item.id));
 		const relatedItems: Record<string, NewsItem[]> = {};
-		for (const [id, items] of Object.entries(report.relatedItems ?? {})) if (liveHosts.has(id)) {
-			const projected = project(items); if (projected.length) relatedItems[id] = projected;
-		}
-		const snapshots = [...report.sections.flatMap(section => section.items), ...report.briefs, ...Object.values(report.relatedItems ?? {}).flat()];
+		for (const [id, items] of Object.entries(report.relatedItems ?? {}))
+			if (liveHosts.has(id)) {
+				const projected = project(items);
+				if (projected.length) relatedItems[id] = projected;
+			}
+		const snapshots = [
+			...report.sections.flatMap((section) => section.items),
+			...report.briefs,
+			...Object.values(report.relatedItems ?? {}).flat(),
+		];
 		const currentItems = [...main, ...briefs, ...Object.values(relatedItems).flat()];
-		const liveById = new Map(currentItems.map(item => [item.id, item]));
-		const unchanged = snapshots.length === currentItems.length && snapshots.every(snapshot => {
-			const current = liveById.get(snapshot.id); return current && current.title === snapshot.title && current.summary === snapshot.summary;
-		});
-		const originalLead = report.sections.flatMap(section => section.items).find(item => report.lead.startsWith(item.title));
-		const leadItem = originalLead ? liveById.get(originalLead.id) ?? main[0] : main[0];
-		const lead = report.kind === "daily" ? leadItem ? `${leadItem.title}\n${leadItem.summary}` : "本期没有仍可公开的资讯。"
-			: unchanged ? report.lead : `${report.key} 共收录 ${main.length} 件仍可公开的行业事件。`;
-		return { ...report, lead, sections: sections.map(section => ({ ...section, summary: unchanged ? section.summary : "" })), briefs, relatedItems,
-			sourceCount: new Set(currentItems.map(item => item.sourceId)).size, storyCount: main.length };
+		const liveById = new Map(currentItems.map((item) => [item.id, item]));
+		const unchanged =
+			snapshots.length === currentItems.length &&
+			snapshots.every((snapshot) => {
+				const current = liveById.get(snapshot.id);
+				return current && current.title === snapshot.title && current.summary === snapshot.summary;
+			});
+		const originalLead = report.sections
+			.flatMap((section) => section.items)
+			.find((item) => (report.leadItemId ? item.id === report.leadItemId : report.lead.startsWith(item.title)));
+		const leadItem = originalLead ? (liveById.get(originalLead.id) ?? main[0]) : main[0];
+		const lead =
+			report.kind === "daily"
+				? leadItem
+					? `${leadItem.title}\n${leadItem.summary}`
+					: "本期没有仍可公开的资讯。"
+				: unchanged
+					? report.lead
+					: `${report.key} 共收录 ${main.length} 件仍可公开的行业事件。`;
+		return {
+			...report,
+			lead,
+			leadItemId: leadItem?.id,
+			highlights: report.highlights?.filter((id) => liveById.has(id)),
+			sections: sections.map((section) => ({ ...section, summary: unchanged ? section.summary : "" })),
+			briefs,
+			relatedItems,
+			sourceCount: new Set(currentItems.map((item) => item.sourceId)).size,
+			storyCount: main.length,
+		};
 	}
 	private list(query: NewsListQuery = {}, administration = false, status?: string): NewsListResult {
 		const limit = Math.floor(bounded(query.limit ?? 30, 1, 5000, "条数"));
@@ -879,7 +950,7 @@ export class NewsService {
 			}
 			case "story": {
 				const story = this.store.story(request.id);
-				return story && story.reports.some(item => this.visible(item)) ? this.publicStory(story) : null;
+				return story?.reports.some((item) => this.visible(item)) ? this.publicStory(story) : null;
 			}
 			case "hot": {
 				const heat = calculateNewsHeat(this.store.stories());
@@ -1154,7 +1225,7 @@ export class NewsService {
 					request.samples,
 					this.configuration,
 					this.caller("evaluation:v1"),
-					error => this.markOutputError(error),
+					(error) => this.markOutputError(error),
 				);
 				this.store.saveEvaluation(result);
 				this.store.completeReceipts("evaluation:v1");

@@ -108,7 +108,7 @@ export function MailPage({
 	const [listError, setListError] = useState<string>();
 	const [selected, setSelected] = useState<MailThreadRef>();
 	const [checked, setChecked] = useState<MailThreadRef[]>([]);
-	const [thread, setThread] = useState<MailThread>();
+	const [loadedThread, setThread] = useState<MailThread>();
 	const [threadLoading, setThreadLoading] = useState(false);
 	const [threadError, setThreadError] = useState<string>();
 	const [panel, setPanel] = useState<"list" | "reader" | "agent">("reader");
@@ -138,6 +138,10 @@ export function MailPage({
 	const agent = useMailAgent(client, connected, cwd, model, thinkingLevel);
 	const scopedAccounts = scope === "all" ? accounts : accounts.filter((account) => account.id === scope);
 	const available = readableAccounts(scopedAccounts);
+	const thread =
+		selected && loadedThread?.accountId === selected.accountId && loadedThread.id === selected.threadId
+			? loadedThread
+			: undefined;
 	const accountStamp = JSON.stringify(
 		accounts.map((account) => [account.id, account.status, account.capabilities.read]),
 	);
@@ -164,6 +168,24 @@ export function MailPage({
 		return () => {
 			mounted.current = false;
 			authGeneration.current++;
+		};
+	}, []);
+	useEffect(() => {
+		const closeOutside = (event: PointerEvent): void => {
+			if (event.target instanceof Node && !accountMenu.current?.contains(event.target) && accountMenu.current)
+				accountMenu.current.open = false;
+		};
+		const closeOnEscape = (event: KeyboardEvent): void => {
+			if (event.key === "Escape" && accountMenu.current?.open) {
+				accountMenu.current.open = false;
+				event.preventDefault();
+			}
+		};
+		document.addEventListener("pointerdown", closeOutside);
+		document.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", closeOutside);
+			document.removeEventListener("keydown", closeOnEscape);
 		};
 	}, []);
 	useEffect(() => {
@@ -232,7 +254,7 @@ export function MailPage({
 				if (!mounted.current || generation !== listGeneration.current) return;
 				setList(result);
 				setSelected((current) => current ?? (result.threads[0] ? summaryRef(result.threads[0]) : undefined));
-				if (result.errors.length) void loadAccounts().catch(() => {});
+				void loadAccounts().catch(() => {});
 			})
 			.catch((failure: unknown) => {
 				if (mounted.current && generation === listGeneration.current)
@@ -282,6 +304,12 @@ export function MailPage({
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let alive = true;
 		const poll = async (): Promise<void> => {
+			if (Date.now() >= Date.parse(auth.expiresAt)) {
+				setAuth(undefined);
+				setAuthError(t("mail.authExpired"));
+				void request({ action: "auth.cancel", authId: auth.authId }).catch(() => {});
+				return;
+			}
 			try {
 				const state = await request<MailAuthStatus>({ action: "auth.status", authId: auth.authId });
 				if (!alive || generation !== authGeneration.current) return;
@@ -712,9 +740,11 @@ export function MailPage({
 						>
 							<MailGlyph kind={value} />
 							<span>{t(`mail.folder.${value}`)}</span>
-							{value === "unread" && scopedAccounts.some((account) => account.unreadCount !== undefined) && (
-								<small>{scopedAccounts.reduce((sum, account) => sum + (account.unreadCount ?? 0), 0)}</small>
-							)}
+							{value === "unread" &&
+								scopedAccounts.length > 0 &&
+								scopedAccounts.every((account) => account.unreadCount !== undefined) && (
+									<small>{scopedAccounts.reduce((sum, account) => sum + (account.unreadCount ?? 0), 0)}</small>
+								)}
 						</button>
 					))}
 				</nav>
@@ -930,10 +960,15 @@ export function MailPage({
 										className="owl-mail-link-button"
 										disabled={agentDisabled || available.length === 0}
 										onClick={() =>
-											void ask(t("mail.promptMailboxSummary", { query: `${FOLDER_SEARCH[folder]} ${query}`.trim() }), {
-												mode: "accounts",
-												accountIds: available.map((account) => account.id),
-											}).catch(() => {})
+											void ask(
+												t("mail.promptMailboxSummary", {
+													query: `${FOLDER_SEARCH[folder]} ${query}`.trim(),
+												}),
+												{
+													mode: "accounts",
+													accountIds: available.map((account) => account.id),
+												},
+											).catch(() => {})
 										}
 									>
 										{t("mail.summarizeInbox")} <span aria-hidden="true">→</span>

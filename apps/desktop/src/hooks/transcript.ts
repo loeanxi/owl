@@ -314,7 +314,9 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// 整表替换会把历史覆盖掉（表现为"一回答完，前面的对话全没了"）。
 			// 因此只重建最后一条用户消息之后的部分，之前的转录原样保留。
 			const messages = (event.messages ?? []) as AnyEvent[];
-			const rebuilt = rebuild(messages);
+			// 重建出的用户行不带 entryId（会话回退按钮靠它）：按尾部对齐从现有转录的
+			// 用户行取回（本轮 run 的用户消息 = 原转录末尾的那 N 条用户行，steering 也对齐）。
+			const rebuilt = rebuild(messages, alignUserEntryIds(entries, messages));
 			const runBoundary = runBoundaries.get(entries);
 			if (runBoundary !== undefined) {
 				const prefix = entries.slice(0, runBoundary);
@@ -345,8 +347,7 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 /** Rebuild the transcript from a full AgentMessage[] snapshot.
  *  entryIds（可选）与 messages 按下标对齐：会话快照带条目 id 时，用户消息行
  *  就能带上 entryId（回退按钮用）。 */
-export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | undefined>): ChatEntry[] {
-	const entries: ChatEntry[] = [];
+export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | undefined>): ChatEntry[] {	const entries: ChatEntry[] = [];
 	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
 		const message = messages[messageIndex]!;
 		const entryId = entryIds?.[messageIndex];

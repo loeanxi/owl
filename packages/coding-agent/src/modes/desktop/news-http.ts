@@ -180,7 +180,10 @@ export async function handleNewsHttp(
 			send(response, { error: "News endpoints require a local host" }, 403);
 			return true;
 		}
-	} catch { send(response, { error: "Invalid host" }, 400); return true; }
+	} catch {
+		send(response, { error: "Invalid host" }, 400);
+		return true;
+	}
 	const origin = request.headers.origin;
 	if (origin) {
 		try {
@@ -221,7 +224,10 @@ export async function handleNewsHttp(
 			const now = Date.now();
 			for (const [key, window] of ingestWindows) if (now - window.started >= 60_000) ingestWindows.delete(key);
 			const window = ingestWindows.get(client) ?? { started: now, count: 0 };
-			if (window.count >= 10) { send(response, { error: "Ingest limit exceeded" }, 429); return true; }
+			if (window.count >= 10) {
+				send(response, { error: "Ingest limit exceeded" }, 429);
+				return true;
+			}
 			window.count++;
 			ingestWindows.set(client, window);
 			const body = await readBody(request);

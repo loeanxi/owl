@@ -1,5 +1,10 @@
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ApprovalMode, ServerEventMessage, SessionRunningResult } from "../bridge/protocol.ts";
+import type {
+	ApprovalMode,
+	DesktopClientRequestWithoutId,
+	ServerEventMessage,
+	SessionRunningResult,
+} from "../bridge/protocol.ts";
 import { applyEvent, type ChatEntry, rebuild } from "../hooks/transcript.ts";
 import { DEMO_PLACES, type MapRegion, type PlaceFilter, type PlaceId } from "./model.ts";
 
@@ -56,6 +61,7 @@ export class MapConversation {
 	private eventRevision = 0;
 	private lifecycleRevision = 0;
 	private probeTimer?: ReturnType<typeof setTimeout>;
+	private cancelRequests = new Set<() => void>();
 
 	/** Pure construction also avoids discarded useMemo instances leaking subscriptions in StrictMode. */
 	constructor(client: MapConversationClient, config: MapConversationConfig, connected = false) {
@@ -84,11 +90,12 @@ export class MapConversation {
 
 	setConnected(connected: boolean): void {
 		if (connected === this.state.connected) return;
-		this.update({ connected });
 		if (!connected) {
-			this.clearProbe();
+			this.invalidateRequests();
+			this.update({ connected: false, submitting: false });
 			return;
 		}
+		this.update({ connected: true });
 		if (this.state.sessionId) void this.recover();
 	}
 
@@ -121,11 +128,14 @@ export class MapConversation {
 			if (!this.state.connected) throw new Error("Owl is disconnected. Reconnect before sending.");
 			this.update({ entries: [...this.state.entries, { kind: "user", text: rawText }], running: true });
 			appended = true;
-			const response = await this.client.request({
-				type: "session.prompt",
-				sessionId,
-				message: mapPrompt(rawText, context),
-			});
+			const response = await this.request(
+				{
+					type: "session.prompt",
+					sessionId,
+					message: mapPrompt(rawText, context),
+				},
+				generation,
+			);
 			if (!this.current(generation)) return false;
 			runStarted = this.lifecycleRevision !== revision;
 			if (!response.ok) throw new Error(response.error ?? "Could not send the map message.");
@@ -152,16 +162,13 @@ export class MapConversation {
 	async abort(): Promise<boolean> {
 		if (!this.state.busy) return false;
 		const sessionId = this.state.sessionId;
-		const generation = ++this.generation;
-		this.activeSend = undefined;
-		this.recovering = undefined;
-		this.clearProbe();
+		const generation = this.invalidateRequests();
 		if (!sessionId) {
 			this.update({ submitting: false, running: false });
 			return true;
 		}
 		try {
-			const response = await this.client.request({ type: "session.abort", sessionId });
+			const response = await this.request({ type: "session.abort", sessionId }, generation);
 			if (!this.current(generation)) return false;
 			if (!response.ok) throw new Error(response.error ?? "Could not stop the map conversation.");
 			this.update({ submitting: false, running: false });
@@ -174,11 +181,8 @@ export class MapConversation {
 	}
 
 	newThread(): void {
-		this.generation++;
-		this.activeSend = undefined;
-		this.recovering = undefined;
+		this.invalidateRequests();
 		this.appliedConfig = undefined;
-		this.clearProbe();
 		this.update({ sessionId: undefined, entries: [], submitting: false, running: false, error: undefined });
 	}
 
@@ -227,10 +231,52 @@ export class MapConversation {
 		return generation === this.generation;
 	}
 
+	/** A socket close may leave a bridge promise unresolved. Cancel only this controller's local waits. */
+	private invalidateRequests(): number {
+		this.generation++;
+		this.activeSend = undefined;
+		this.recovering = undefined;
+		this.clearProbe();
+		for (const cancel of [...this.cancelRequests]) cancel();
+		return this.generation;
+	}
+
+	private request<T = unknown>(
+		request: DesktopClientRequestWithoutId,
+		generation: number,
+	): Promise<{ ok: boolean; result?: T; error?: string }> {
+		if (!this.current(generation)) return Promise.reject(new Error("Map request was cancelled."));
+		return new Promise((resolve, reject) => {
+			let settled = false;
+			const settle = (): boolean => {
+				if (settled) return false;
+				settled = true;
+				this.cancelRequests.delete(cancel);
+				return true;
+			};
+			const cancel = (): void => {
+				if (settle()) reject(new Error("Map request was cancelled."));
+			};
+			this.cancelRequests.add(cancel);
+			try {
+				void this.client.request<T>(request).then(
+					(response) => {
+						if (settle()) resolve(response);
+					},
+					(error: unknown) => {
+						if (settle()) reject(error);
+					},
+				);
+			} catch (error) {
+				if (settle()) reject(error);
+			}
+		});
+	}
+
 	private async ensureSession(generation: number): Promise<string | undefined> {
 		if (this.state.sessionId) return this.state.sessionId;
 		const config = { ...this.config };
-		const response = await this.client.request<SessionSnapshot>({ type: "session.create", ...config });
+		const response = await this.request<SessionSnapshot>({ type: "session.create", ...config }, generation);
 		if (!this.current(generation)) return undefined;
 		if (!response.ok || !response.result?.sessionId)
 			throw new Error(response.error ?? "Could not create the map conversation.");
@@ -243,31 +289,40 @@ export class MapConversation {
 		const applied = this.appliedConfig;
 		const modelChanged = config.provider !== applied?.provider || config.model !== applied?.model;
 		if (modelChanged && config.provider && config.model) {
-			const response = await this.client.request({
-				type: "session.setModel",
-				sessionId,
-				provider: config.provider,
-				model: config.model,
-			});
+			const response = await this.request(
+				{
+					type: "session.setModel",
+					sessionId,
+					provider: config.provider,
+					model: config.model,
+				},
+				generation,
+			);
 			if (!this.current(generation)) return;
 			if (!response.ok) throw new Error(response.error ?? "Could not select the model for the map conversation.");
 		}
 		// setModel may adapt its effort. Always reapply the explicit UI selection after a model change.
 		if (modelChanged || config.thinkingLevel !== applied?.thinkingLevel) {
-			const response = await this.client.request({
-				type: "session.setThinkingLevel",
-				sessionId,
-				level: config.thinkingLevel,
-			});
+			const response = await this.request(
+				{
+					type: "session.setThinkingLevel",
+					sessionId,
+					level: config.thinkingLevel,
+				},
+				generation,
+			);
 			if (!this.current(generation)) return;
 			if (!response.ok) throw new Error(response.error ?? "Could not update the map thinking level.");
 		}
 		if (config.approvalMode !== applied?.approvalMode) {
-			const response = await this.client.request({
-				type: "session.setApprovalMode",
-				sessionId,
-				approvalMode: config.approvalMode,
-			});
+			const response = await this.request(
+				{
+					type: "session.setApprovalMode",
+					sessionId,
+					approvalMode: config.approvalMode,
+				},
+				generation,
+			);
 			if (!this.current(generation)) return;
 			if (!response.ok) throw new Error(response.error ?? "Could not update map tool permissions.");
 		}
@@ -283,7 +338,7 @@ export class MapConversation {
 		this.update({ submitting: true });
 		const recovery = (async () => {
 			try {
-				const response = await this.client.request<SessionSnapshot>({ type: "session.resume", sessionId });
+				const response = await this.request<SessionSnapshot>({ type: "session.resume", sessionId }, generation);
 				if (!this.current(generation)) return;
 				if (!response.ok || !response.result)
 					throw new Error(response.error ?? "Could not restore the map conversation.");
@@ -296,7 +351,7 @@ export class MapConversation {
 					});
 				this.appliedConfig = undefined;
 				const lifecycle = this.lifecycleRevision;
-				const active = await this.client.request<SessionRunningResult>({ type: "session.running" });
+				const active = await this.request<SessionRunningResult>({ type: "session.running" }, generation);
 				if (!this.current(generation)) return;
 				if (active.ok && active.result && lifecycle === this.lifecycleRevision)
 					this.update({ running: active.result.running.includes(sessionId), error: undefined });
@@ -326,8 +381,7 @@ export class MapConversation {
 		this.probeTimer = setTimeout(() => {
 			this.probeTimer = undefined;
 			const lifecycle = this.lifecycleRevision;
-			void this.client
-				.request<SessionRunningResult>({ type: "session.running" })
+			void this.request<SessionRunningResult>({ type: "session.running" }, generation)
 				.then((response) => {
 					if (!this.current(generation) || lifecycle !== this.lifecycleRevision || !response.ok || !response.result)
 						return;
