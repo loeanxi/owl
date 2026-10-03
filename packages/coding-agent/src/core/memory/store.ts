@@ -273,7 +273,7 @@ export function renderMemorySection(agentDir: string, cwd: string): string {
 	if (sectionCache && sectionCache.path === path && sectionCache.mtimeMs === mtimeMs && sectionCache.cwd === cwd) {
 		return sectionCache.text;
 	}
-	const { included, excluded } = injectionCandidates(readMemoryEntries(agentDir), cwd);
+	const { included } = injectionCandidates(readMemoryEntries(agentDir), cwd);
 	if (included.length === 0) {
 		sectionCache = { path, mtimeMs, cwd, text: "" };
 		return "";

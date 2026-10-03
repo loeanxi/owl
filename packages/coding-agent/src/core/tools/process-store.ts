@@ -212,7 +212,6 @@ export function getSessionProcess(id: number, sessionId?: string): ProcessEntry 
 
 export function listSessionProcesses(sessionId?: string): ProcessEntry[] {
 	const all = [...processes.values()].filter((entry) => !sessionId || entry.sessionId === sessionId);
-	for (const entry of all) entry.lastUsedAt = entry.lastUsedAt;
 	return all.sort((a, b) => a.id - b.id);
 }
 

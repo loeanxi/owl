@@ -17,6 +17,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import type { Dirent } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { FsEntry, FsListing, FsReadBinResult, FsReadResult, FsSearchHit } from "./protocol.ts";
@@ -136,7 +137,7 @@ export async function listWorkspaceDirectory(cwd: string, target = ""): Promise<
 }
 
 async function readDirectoryLevel(cwd: string, absolute: string): Promise<FsListing> {
-	let dirents;
+	let dirents: Dirent[];
 	try {
 		dirents = await readdir(absolute, { withFileTypes: true });
 	} catch (error) {
@@ -377,7 +378,7 @@ export async function searchWorkspaceFiles(cwd: string, query: string): Promise<
 	while (queue.length > 0 && hits.length < SEARCH_HIT_LIMIT && visited < SEARCH_DIR_BUDGET) {
 		const dir = queue.shift()!;
 		visited += 1;
-		let dirents;
+		let dirents: Dirent[];
 		try {
 			dirents = await readdir(dir, { withFileTypes: true });
 		} catch {
