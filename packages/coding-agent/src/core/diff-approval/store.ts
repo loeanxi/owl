@@ -329,7 +329,7 @@ function displayPathOf(absolutePath: string, cwd: string): string {
 	const normalizedPath = absolutePath.replace(/\//g, "\\");
 	const lowerCwd = normalizedCwd.toLowerCase();
 	const lowerPath = normalizedPath.toLowerCase();
-	if (lowerPath.startsWith(lowerCwd + "\\")) {
+	if (lowerPath.startsWith(`${lowerCwd}\\`)) {
 		return normalizedPath.slice(normalizedCwd.length + 1).replace(/\\/g, "/");
 	}
 	return absolutePath;
@@ -337,7 +337,7 @@ function displayPathOf(absolutePath: string, cwd: string): string {
 
 /** 工作区存储文件名（内容寻址，避免路径里的非法字符）。 */
 export function diffApprovalStoreFileName(cwd: string): string {
-	return createHash("sha1").update(diffApprovalPathKey(cwd)).digest("hex").slice(0, 16) + ".json";
+	return `${createHash("sha1").update(diffApprovalPathKey(cwd)).digest("hex").slice(0, 16)}.json`;
 }
 
 export function diffApprovalStorePath(agentDir: string, cwd: string): string {

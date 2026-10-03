@@ -223,7 +223,7 @@ export class RewindSnapshotStore {
 
 	private rewriteIndex(): void {
 		mkdirSync(this.sessionDir, { recursive: true });
-		atomicWrite(this.indexFile, this.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+		atomicWrite(this.indexFile, `${this.records.map((record) => JSON.stringify(record)).join("\n")}\n`);
 	}
 
 	private gcBlobs(): void {

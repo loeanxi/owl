@@ -67,7 +67,7 @@ export async function listProviderModelIds(providerInput: string): Promise<Provi
 async function listGoogleModels(
 	apiKey: string,
 	config: OwlImageConfig,
-	provider: ImageProvider,
+	_provider: ImageProvider,
 ): Promise<ProviderModelList> {
 	const base = (config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT).replace(/\/interactions\/?$/, "");
 	const response = await doFetch(

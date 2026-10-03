@@ -14,6 +14,7 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 	const [connected, setConnected] = useState(true);
 	const [revision, setRevision] = useState(0);
 	const runRequest = useRef(0);
+	const polling = useRef(false);
 	const actionPending = useRef(false);
 	const mounted = useRef(true);
 	useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -39,12 +40,15 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 		let current = true;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const poll = async () => {
+			if (!current) return;
+			if (polling.current) { timer = setTimeout(() => { void poll(); }, 500); return; }
+			polling.current = true;
 			const serial = ++runRequest.current;
 			try {
 				const value = await api.query({ action: "run.get", runId });
 				if (!current || serial !== runRequest.current) return;
 				setRun(value);
-				if (value.status === "running") timer = setTimeout(() => { void poll(); }, 1800);
+				if (value.status === "running") timer = setTimeout(() => { void poll(); }, 500);
 				else {
 					const runs = await api.query({ action: "run.list" });
 					if (current) setSnapshot((previous) => previous ? { ...previous, runs } : previous);
@@ -53,6 +57,8 @@ export function useEvaluation(client: BridgeClient, active: boolean) {
 				if (!current || serial !== runRequest.current) return;
 				setError(cause instanceof Error ? cause.message : String(cause));
 				timer = setTimeout(() => { void poll(); }, 5000);
+			} finally {
+				polling.current = false;
 			}
 		};
 		void poll();

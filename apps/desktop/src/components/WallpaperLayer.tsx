@@ -408,6 +408,7 @@ interface WebWallGLControl {
 	updateWebProps(props: Record<string, { value: unknown }>): void;
 	pushPointer(u: number, v: number, buttons: number, mods?: number): void;
 	pointerLeave(): void;
+	getState?(): { type?: string; iframeLoaded?: boolean | null; webError?: string | null; paused?: boolean; webFps?: number | null };
 }
 
 interface WebWallGLStats {
@@ -462,16 +463,17 @@ function SceneLiveFrame({
 
 	const url = useMemo(() => buildSceneLiveUrl(spec, settings), [spec, settings.sceneFps, settings.fit, settings.volume > 0]);
 
-	const wp = (): WebWallGLControl | null => {
+	const renderWin = (): WebWallGLWindow | null => {
 		try {
-			return (frameRef.current?.contentWindow as WebWallGLWindow | null)?.__wp ?? null;
+			return (frameRef.current?.contentWindow as WebWallGLWindow | null) ?? null;
 		} catch {
 			return null;
 		}
 	};
+	const wp = (): WebWallGLControl | null => renderWin()?.__wp ?? null;
 	const statsOf = (): { fps: number; running: boolean } | null => {
 		try {
-			const stats = (frameRef.current?.contentWindow as WebWallGLWindow | null)?.__wpStats;
+			const stats = renderWin()?.__wpStats;
 			return stats ? stats.frame() : null;
 		} catch {
 			return null;
@@ -483,34 +485,64 @@ function SceneLiveFrame({
 	const wireRef = useRef(wire);
 	wireRef.current = wire;
 
-	// 首帧轮询 + 看门狗（上游 liveWatch 同思路）
+	// 首帧轮询 + 看门狗（上游 liveWatch 同思路，另加静态兜底：
+	// 宿主后台 tab / 某些合成器状态下 rAF 会被冻结，渲染器画得出首帧但 fps 恒 0 ——
+	// 此时只要渲染页无错误且 canvas 出了画面就判就绪（静态正确，动画随帧时钟恢复自动继续），
+	// 避免「其实渲染成功了却被降级成预览图」）。
 	useEffect(() => {
 		let stopped = false;
 		let ready = false;
 		let startedAt = Date.now();
 		let stallTicks = 0;
 		const budget = sceneFirstFrameBudget(spec.pkgBytes);
+		const canvasOf = (): boolean => {
+			try {
+				return Boolean(renderWin()?.document.querySelector("canvas"));
+			} catch {
+				return false;
+			}
+		};
+		const renderHidden = (): boolean => {
+			try {
+				return Boolean(renderWin()?.document.hidden);
+			} catch {
+				return false;
+			}
+		};
 		const fail = (reason: string): void => {
 			if (stopped) return;
 			stopped = true;
 			console.warn(`[wallpaper] scene live ${reason}: ${spec.entryId}`);
 			onFail(spec.key);
 		};
+		const markReady = (): void => {
+			ready = true;
+			setLiveOn(true);
+			if (!readyFired.current) {
+				readyFired.current = true;
+				onReady(spec.key);
+			}
+			// 首帧后回放用户属性覆盖（面板改过的值不丢）
+			try {
+				if (Object.keys(wireRef.current).length) wp()?.updateWebProps(toWireProps(wireRef.current));
+			} catch {}
+		};
 		const poll = setInterval(() => {
 			if (stopped || ready) return;
 			const stats = statsOf();
 			if (stats && stats.running && stats.fps > 0) {
-				ready = true;
-				setLiveOn(true);
-				if (!readyFired.current) {
-					readyFired.current = true;
-					onReady(spec.key);
-				}
-				// 首帧后回放用户属性覆盖（面板改过的值不丢）
-				try {
-					if (Object.keys(wireRef.current).length) wp()?.updateWebProps(toWireProps(wireRef.current));
-				} catch {}
+				markReady();
+				return;
 			}
+			// 静态兜底：过宽限期后 canvas 有画面且渲染页无错误 → 就绪（等动画时钟恢复）
+			const state = (() => {
+				try {
+					return renderWin()?.__wp?.getState?.() ?? null;
+				} catch {
+					return null;
+				}
+			})();
+			if (canvasOf() && state && !state.webError && Date.now() - startedAt > 8_000) markReady();
 		}, 500);
 		const watch = setInterval(() => {
 			if (stopped) return;
@@ -524,6 +556,8 @@ function SceneLiveFrame({
 				return;
 			}
 			if (pausedRef.current) return; // 暂停期不算 stall
+			// 渲染页自身被隐藏（宿主最小化等）：rAF 冻结不是故障
+			if (renderHidden()) return;
 			const stats = statsOf();
 			const alive = Boolean(stats && stats.running && stats.fps > 0);
 			if (!alive) {

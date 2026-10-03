@@ -886,11 +886,20 @@ function repairChartData(v: unknown, cap: number): Array<{ label: string; value:
 	const out: Array<{ label: string; value: number; color?: string }> = [];
 	for (const datum of v) {
 		if (out.length >= cap) break;
+		// 原始数字（series data 的文档格式，如 "data":[168,195]）和缺 label 的
+		// {value} 对象都是合法数据点：合成序号 label，而不是把整点丢弃——
+		// 此前模型给出的 primitive 序列会被静默清空，图表只剩图例没有线。
+		if (typeof datum === "number" || typeof datum === "string") {
+			const value = num(datum, -1e12, 1e12);
+			if (value !== undefined) out.push({ label: String(out.length + 1), value });
+			continue;
+		}
 		const o = obj(datum);
-		const label = o === undefined ? undefined : str(o.label, 128);
-		const value = o === undefined ? undefined : num(o.value, -1e12, 1e12);
-		if (label === undefined || value === undefined) continue;
-		out.push({ label, value, ...opt("color", o === undefined ? undefined : color(o.color)) });
+		if (o === undefined) continue;
+		const label = str(o.label, 128);
+		const value = num(o.value, -1e12, 1e12);
+		if (value === undefined) continue;
+		out.push({ label: label === undefined ? String(out.length + 1) : label, value, ...opt("color", color(o.color)) });
 	}
 	return out;
 }

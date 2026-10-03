@@ -19,7 +19,6 @@ import { createPkce, type Pkce } from "./oauth.ts";
 import { clearStoredBlob, writeStoredBlob } from "./store.ts";
 import {
 	ANTIGRAVITY_REDIRECT_URI,
-	type AntigravityProjectResolution,
 	antigravityAuthorizeUrl,
 	antigravityConfig,
 	antigravityExchangeCode,
@@ -163,7 +162,7 @@ export class SubscriptionManager {
 		}
 		const project = await this.ensureAntigravityProject(session);
 		const aspectRatio = antigravityAspectRatioOf(options.size);
-		let result;
+		let result: Awaited<ReturnType<typeof antigravityGenerateImage>>;
 		try {
 			result = await antigravityGenerateImage({
 				blob: session,

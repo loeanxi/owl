@@ -15,7 +15,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream, type Dirent, existsSync, readFileSync, type Stats, statSync } from "node:fs";
+import { createReadStream, type Dirent, existsSync, readdirSync, readFileSync, type Stats, statSync } from "node:fs";
 import { access, readdir, readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -307,6 +307,38 @@ function registerMediaFile(absPath: string): string | null {
 	return token;
 }
 
+/**
+ * scene 主文件容器探测（上游 resolveSceneMainFileP 同序）：project.json 声明的 file
+ * 经常不可信 —— 大量工坊壁纸声明 scene.json 但实际只带 scene.pkg。探测顺序：
+ * 声明 file（.pkg 才直接认）→ scene.pkg → scene.json → 目录里唯一的 *.pkg。
+ * 返回 pkg 的绝对路径；解析不到（纯 json 场景等）返回 null（客户端降级静态预览）。
+ */
+function resolveSceneMainFile(dir: string, declaredFile: string): string | null {
+	const declared = resolve(dir, declaredFile);
+	if (
+		declared.startsWith(dir + sep) &&
+		!declared.toLowerCase().endsWith(".json") &&
+		existsSync(declared) &&
+		statSync(declared).isFile()
+	) {
+		return declared;
+	}
+	const candidates = [join(dir, "scene.pkg"), join(dir, "scene.json")];
+	for (const candidate of candidates) {
+		if (existsSync(candidate) && statSync(candidate).isFile() && !candidate.toLowerCase().endsWith(".json")) {
+			return candidate;
+		}
+	}
+	try {
+		const pkgs = readdirSync(dir).filter((name) => name.toLowerCase().endsWith(".pkg"));
+		if (pkgs.length === 1) {
+			const only = join(dir, pkgs[0]);
+			return statSync(only).isFile() ? only : null;
+		}
+	} catch {}
+	return null;
+}
+
 async function entryFromProject(
 	dir: string,
 	id: string,
@@ -343,15 +375,15 @@ async function entryFromProject(
 		if (!existsSync(entryAbs) || !WEB_EXTS.has(extname(entryAbs).toLowerCase())) return null;
 		entry.webUrl = `/wallpaper/files/${dirToken}/${info.file.split(/[\\/]/).map(encodeURIComponent).join("/")}`;
 	} else if (info.type === "scene") {
-		// scene 实时渲染：入口是 scene.pkg（二进制容器）才行；scene.json 等旧格式降级为静态预览。
+		// scene 实时渲染：入口要解析到 scene.pkg 二进制容器；scene.json 等降级为静态预览。
 		// token 走 /wallpaper/media（同源 + Range），渲染页拼 mediaBase + src 取包自行解析。
-		const isPkg = !entryAbs.toLowerCase().endsWith(".json");
-		if (isPkg && existsSync(entryAbs)) {
-			const token = registerMediaFile(entryAbs);
+		const pkgAbs = resolveSceneMainFile(resolve(dir), info.file);
+		if (pkgAbs) {
+			const token = registerMediaFile(pkgAbs);
 			if (token) {
 				entry.sceneSrc = token;
 				try {
-					entry.pkgBytes = statSync(entryAbs).size;
+					entry.pkgBytes = statSync(pkgAbs).size;
 				} catch {
 					entry.pkgBytes = null;
 				}
@@ -634,14 +666,43 @@ export async function handleWallpaperHttp(
 			sendJson(response, { error: "壁纸接口只支持 GET" }, 405);
 			return true;
 		}
-		const mediaMatch = /^\/wallpaper\/media\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+		// 媒体路由：裸 token 直出文件；带子路径时以「文件所在目录」为根解析
+		// （scene 渲染页把 src 当目录 token，请求 <token>/scene.pkg、<token>/scenes/scene.pkg
+		// 等候选 —— 上游 scene-files 同语义：pkg 的所在目录即壁纸根）。
+		const mediaMatch = /^\/wallpaper\/media\/([A-Za-z0-9_-]+)(?:\/(.+))?$/.exec(url.pathname);
 		if (mediaMatch) {
 			const absPath = mediaTokens.get(mediaMatch[1]);
 			if (!absPath) {
 				sendJson(response, { error: "媒体 token 不存在或已过期，请刷新壁纸列表" }, 404);
 				return true;
 			}
-			serveFileBytes(request, response, absPath, true);
+			if (!mediaMatch[2]) {
+				serveFileBytes(request, response, absPath, true);
+				return true;
+			}
+			let subpath: string;
+			try {
+				subpath = decodeURIComponent(mediaMatch[2]);
+			} catch {
+				sendJson(response, { error: "路径编码非法" }, 400);
+				return true;
+			}
+			const root = dirname(absPath);
+			const target = resolve(root, subpath);
+			if (target !== root && !target.startsWith(root + sep)) {
+				sendJson(response, { error: "路径越界" }, 403);
+				return true;
+			}
+			if (!existsSync(target) || !statSync(target).isFile()) {
+				sendJson(response, { error: "文件不存在" }, 404);
+				return true;
+			}
+			const ext = extname(target).toLowerCase();
+			if (ext !== ".pkg" && !(ext in MIME_BY_EXT)) {
+				sendJson(response, { error: "不支持的文件类型" }, 403);
+				return true;
+			}
+			serveFileBytes(request, response, target, true);
 			return true;
 		}
 		// 网页壁纸子文件：目录 token + 相对子路径，resolve 后必须仍在目录内。

@@ -24,7 +24,7 @@ import {
 	readFileSync,
 	realpathSync,
 	renameSync,
-	statSync,
+	type Stats,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -221,7 +221,9 @@ export class SessionRewindTracker {
 		// 锚点位置表：能定位到当前分支的记录用位置比较，定位不到的（被回退掉的
 		// 旧未来）只按时间戳比较——wall-clock 顺序即真实顺序
 		this.branchPosCache = new Map();
-		branch.forEach((entry, index) => this.branchPosCache!.set(entry.id, index));
+		branch.forEach((entry, index) => {
+			this.branchPosCache!.set(entry.id, index);
+		});
 		const actions: RestorePlanItem[] = [];
 		let unchanged = 0;
 		for (const path of this.trackedPaths()) {
@@ -417,7 +419,7 @@ function randomTail(): string {
 
 /** 磁盘现状：存在性 + 内容 hash（与备份记录同一算法，供差量比较）。 */
 function diskStateOf(path: string): { exists: boolean; hash?: string } {
-	let stats;
+	let stats: Stats | undefined;
 	try {
 		stats = lstatSync(path, { throwIfNoEntry: false });
 	} catch {
