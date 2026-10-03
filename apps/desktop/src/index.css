@@ -618,6 +618,18 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }
 .owl-response-activity[data-state="working"] .owl-response-mark { animation: owl-response-breathe 2s ease-in-out infinite; }
 .owl-response-activity[data-state="disconnected"] .owl-response-mark { opacity: .4; }
+.owl-chat-minimap { position: absolute; z-index: 20; top: 16px; bottom: 16px; left: 8px; display: flex; align-items: center; width: 32px; }
+.owl-chat-minimap-marks { position: relative; width: 32px; max-height: min(320px, 100%); overflow-y: auto; scrollbar-width: none; padding: 4px 0; }
+.owl-chat-minimap-marks::-webkit-scrollbar { display: none; }
+.owl-chat-minimap-marks button { display: flex; align-items: center; width: 32px; height: 16px; border-radius: 4px; padding-left: 4px; }
+.owl-chat-minimap-mark { display: block; width: 14px; height: 2px; border-radius: 2px; background: var(--owl-reading-muted); opacity: .45; transition: width .15s, opacity .15s; }
+.owl-chat-minimap-marks button:hover .owl-chat-minimap-mark, .owl-chat-minimap-marks button:focus-visible .owl-chat-minimap-mark { width: 24px; opacity: 1; }
+.owl-chat-minimap-marks button[aria-current] .owl-chat-minimap-mark { width: 26px; background: var(--color-owl-accent); opacity: 1; }
+.owl-chat-minimap-marks button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-chat-minimap-preview { position: absolute; left: 38px; transform: translateY(-50%); width: min(360px, calc(100cqw - 64px)); max-height: min(176px, 100%); overflow: hidden; padding: 11px 14px; border: 1px solid var(--owl-reading-border); border-radius: 9px; background: var(--owl-reading-panel); color: var(--owl-reading-text); box-shadow: 0 6px 24px #0003; pointer-events: none; }
+.owl-chat-minimap-preview-label { color: var(--owl-reading-muted); font-size: 11px; }
+.owl-chat-minimap-preview p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 5px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll { padding-left: 48px; }
 .owl-chat-directory { flex: 0 0 232px; width: 232px; min-height: 0; overflow-y: auto; border-left: 1px solid var(--owl-reading-border); background: var(--color-owl-sidebar-bg); padding: 12px 10px; }
 .owl-chat-directory header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 5px 12px; color: var(--color-owl-sidebar-muted); font-size: 12px; }
 .owl-chat-directory nav { display: flex; flex-direction: column; gap: 3px; }

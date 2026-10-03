@@ -412,13 +412,70 @@ function buildRows(entries: ChatEntry[], expandedTools: boolean): TimelineRow[] 
 	return rows;
 }
 
-type QuestionMark = { n: number; text: string };
+type QuestionMark = { n: number; text: string; preview: string };
 
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
-	return entries.filter((entry) => entry.kind === "user").map((entry, index) => ({
-		n: index + 1,
-		text: entry.text.split("\n").find((line) => line.trim() !== "") ?? t("chat.questionFallback", { n: index + 1 }),
-	}));
+	return entries.filter((entry) => entry.kind === "user").map((entry, index) => {
+		const preview = entry.text.trim() || (entry.images?.length
+			? t("chat.questionImages", { n: entry.images.length })
+			: t("chat.questionFallback", { n: index + 1 }));
+		return { n: index + 1, text: preview.split("\n")[0], preview };
+	});
+}
+
+/** 常驻提问短线；预览置于滚动列表外，长会话也不会裁掉浮层。 */
+function QuestionMinimap({ questions, active, onJump }: {
+	questions: QuestionMark[];
+	active: number;
+	onJump: (n: number) => void;
+}): React.JSX.Element {
+	const t = useT();
+	const root = useRef<HTMLElement>(null);
+	const list = useRef<HTMLDivElement>(null);
+	const [preview, setPreview] = useState<{ n: number; top: number } | null>(null);
+	const question = questions.find((item) => item.n === preview?.n);
+
+	useEffect(() => {
+		const el = list.current;
+		const mark = el?.querySelector<HTMLElement>(`[data-question-index="${active}"]`);
+		if (!el || !mark) return;
+		const top = mark.offsetTop;
+		if (top < el.scrollTop) el.scrollTop = top;
+		else if (top + mark.offsetHeight > el.scrollTop + el.clientHeight) el.scrollTop = top + mark.offsetHeight - el.clientHeight;
+	}, [active, questions.length]);
+
+	const showPreview = (n: number, button: HTMLButtonElement): void => {
+		const bounds = root.current?.getBoundingClientRect();
+		if (!bounds) return;
+		const mark = button.getBoundingClientRect();
+		const margin = Math.min(88, bounds.height / 2);
+		setPreview({ n, top: Math.max(margin, Math.min(bounds.height - margin, mark.top + mark.height / 2 - bounds.top)) });
+	};
+
+	return (
+		<nav ref={root} className="owl-chat-minimap" aria-label={t("chat.questionNavigation")} onMouseLeave={() => setPreview(null)} onBlur={(event) => {
+			if (!event.currentTarget.contains(event.relatedTarget)) setPreview(null);
+		}} onKeyDown={(event) => { if (event.key === "Escape") setPreview(null); }}>
+			<div ref={list} className="owl-chat-minimap-marks" onScroll={() => setPreview(null)}>
+				{questions.map((item) => (
+					<button key={item.n} type="button" data-question-index={item.n}
+						aria-label={t("chat.jumpToQuestion", { n: item.n, text: item.text })}
+						aria-current={active === item.n ? "location" : undefined}
+						onMouseEnter={(event) => showPreview(item.n, event.currentTarget)}
+						onFocus={(event) => showPreview(item.n, event.currentTarget)}
+						onClick={() => { setPreview(null); onJump(item.n); }}>
+						<span className="owl-chat-minimap-mark" aria-hidden="true" />
+					</button>
+				))}
+			</div>
+			{question && preview && (
+				<div className="owl-chat-minimap-preview" style={{ top: preview.top }} aria-hidden="true">
+					<span className="owl-chat-minimap-preview-label">{t("chat.questionFallback", { n: question.n })}</span>
+					<p>{question.preview}</p>
+				</div>
+			)}
+		</nav>
+	);
 }
 
 function QuestionNavigator({ questions, active, onJump, onClose }: {
@@ -570,7 +627,7 @@ export function ChatStream({
 	const showShotDock = latestShot !== undefined && latestShot.key !== dismissedShotKey;
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
-	const questions = useMemo(() => buildQuestions(entries), [entries]);
+	const questions = buildQuestions(entries);
 	const [activeQuestion, setActiveQuestion] = useState(0);
 
 	const updateActiveQuestion = (): void => {
@@ -586,7 +643,7 @@ export function ChatStream({
 			return;
 		}
 		const base = el.getBoundingClientRect().top;
-		let active = 0;
+		let active = questions[0].n;
 		for (const question of questions) {
 			const node = el.querySelector(`[data-qidx="${question.n}"]`);
 			if (!node) break;
@@ -603,6 +660,7 @@ export function ChatStream({
 		if (!el || !node) return;
 		// 导航跳转是明确的翻历史意图：关掉贴底跟随，避免流式输出把视图拽回去
 		stick.current = false;
+		setActiveQuestion(n);
 		const top = node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
 		el.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
 		setShowLatest(true);
@@ -625,6 +683,7 @@ export function ChatStream({
 
 	return (
 		<div className="owl-chat-surface" data-activity={activity}>
+			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />}
 			<div className="owl-chat-layout">
 				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
 					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
