@@ -39,7 +39,12 @@
   保持不变,勾选「清除」删配置行。**密钥明文永不下发 UI**,协议里只有存在性
 - **模型与端点**:按当前 provider 显示对应字段(google/openai/compat/seedream/
   dashscope/xai/zhipu 各自的 baseURL+model;compat 另有 edits 请求形态;seedream
-  另有输出格式/水印/背景)
+  另有输出格式/水印/背景)。模型输入框带**「拉取模型」**:走桥协议
+  `imageModels.list` 动态 import 插件 dist 的 `listProviderModelIds`,按 provider
+  调各家 models 接口(Gemini 优先返回图像模型,OpenAI 形状接口全量返回、由
+  datalist 随输入前缀过滤;google-sub 固定模型;comfyui 直接列工作流名)。进入
+  分区或切换 provider 且 key 已配置时自动拉取一次,也可手动点按钮重拉;拉取
+  失败只显示原因,模型仍可手填,不阻断配置
 - **ComfyUI 工作流**:列表(设默认/删除)+ 添加表单(名称/前置提示词/JSON 粘贴框),
   客户端与服务端双重校验 JSON 与 `{{prompt}}` 占位符
 - **输出**:落盘开关与子目录、图片是否回传给模型(省 token)、单图上限(MB)、代理

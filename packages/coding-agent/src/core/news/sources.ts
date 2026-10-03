@@ -181,6 +181,7 @@ export function newsPlainText(value: string): string {
 }
 
 function safeArticleUrl(value: string, base: string): string | null {
+	if (!value.trim()) return null;
 	try {
 		const url = new URL(value, base);
 		return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.toString() : null;
@@ -292,19 +293,26 @@ export function parseNewsJsonList(data: unknown, base: string, config: Record<st
 	return items.flatMap((item) => {
 		const title = newsPlainText(read(item, config.titlePaths, ["title", "name"]));
 		let target = read(item, config.urlPaths, ["url", "html_url", "link"]);
-		if (config.urlTemplate)
-			target = String(config.urlTemplate).replace(/\{([^}]+)\}/g, (_match, path: string) =>
-				encodeURIComponent(String(newsObjectPath(item, path) ?? "")),
-			);
+		if (config.urlTemplate) {
+			let missing = false;
+			target = String(config.urlTemplate).replace(/\{([^}]+)\}/g, (_match, path: string) => {
+				const value = newsObjectPath(item, path);
+				if (value === null || value === undefined || value === "") missing = true;
+				return encodeURIComponent(String(value ?? ""));
+			});
+			if (missing) return [];
+		}
 		const url = safeArticleUrl(target, base);
 		if (!title || !url) return [];
 		const value = config.publishedAtPath ? newsObjectPath(item, String(config.publishedAtPath)) : null;
 		const date =
-			config.publishedAtUnit === "epoch_s"
-				? Number(value) * 1000
-				: config.publishedAtUnit === "epoch_ms"
-					? Number(value)
-					: Date.parse(String(value ?? ""));
+			value === null || value === undefined || value === ""
+				? Number.NaN
+				: config.publishedAtUnit === "epoch_s"
+					? Number(value) * 1000
+					: config.publishedAtUnit === "epoch_ms"
+						? Number(value)
+						: Date.parse(String(value ?? ""));
 		const body = read(item, config.bodyPaths ?? config.summaryPaths, ["body", "content", "description"]);
 		return [
 			{

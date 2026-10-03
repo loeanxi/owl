@@ -320,7 +320,10 @@ export async function listProviderModels(
 ): Promise<{ models: string[]; error?: string }> {
 	const distPath = findOwlImageDist(pluginSources);
 	if (distPath === undefined) {
-		return { models: [], error: "未在 settings.json 的 plugins 里找到已构建的 owl-image 包（本地目录源 + dist/index.js）" };
+		return {
+			models: [],
+			error: "未在 settings.json 的 plugins 里找到已构建的 owl-image 包（本地目录源 + dist/index.js）",
+		};
 	}
 	try {
 		const mod = (await import(`${pathToFileURL(distPath).href}?models=${Date.now()}`)) as OwlImageModelsExports;

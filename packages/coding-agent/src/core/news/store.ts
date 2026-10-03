@@ -348,10 +348,19 @@ export class NewsStore {
 	}
 	invalidateReports(itemId: string): void {
 		for (const report of this.reports()) {
-			const references = [...report.sections.flatMap(section => section.items), ...report.briefs, ...Object.values(report.relatedItems ?? {}).flat()];
-			if (!references.some(item => item.id === itemId)) continue;
+			const references = [
+				...report.sections.flatMap((section) => section.items),
+				...report.briefs,
+				...Object.values(report.relatedItems ?? {}).flat(),
+			];
+			if (!references.some((item) => item.id === itemId)) continue;
 			this.db.prepare("DELETE FROM news_reports WHERE id=?").run(report.id);
-			this.enqueue("report", `${report.kind}:${report.key}`, { kind: report.kind, key: report.key }, `report:refresh:${report.id}:${randomUUID()}`);
+			this.enqueue(
+				"report",
+				`${report.kind}:${report.key}`,
+				{ kind: report.kind, key: report.key },
+				`report:refresh:${report.id}:${randomUUID()}`,
+			);
 		}
 	}
 	enqueue(
@@ -488,12 +497,20 @@ export class NewsStore {
 			return { receipt, cached: false };
 		});
 	}
-		receiveReceipt(id: string, response: unknown, usage: NewsUsage | null = null): void {
+	receiveReceipt(id: string, response: unknown, usage: NewsUsage | null = null): void {
 		this.transaction(() => {
 			const old = this.receipt(id);
 			if (!old) throw new Error("回执不存在");
 			const { logicalKey: _key, response: _response, ...data } = old;
-			this.db.prepare("INSERT OR REPLACE INTO news_receipt_outputs VALUES(?,?,?,?,?)").run(id, old.attempts, JSON.stringify(response), usage ? JSON.stringify(usage) : null, new Date().toISOString());
+			this.db
+				.prepare("INSERT OR REPLACE INTO news_receipt_outputs VALUES(?,?,?,?,?)")
+				.run(
+					id,
+					old.attempts,
+					JSON.stringify(response),
+					usage ? JSON.stringify(usage) : null,
+					new Date().toISOString(),
+				);
 			this.db
 				.prepare("UPDATE news_receipts SET status='received',data=?,response=? WHERE id=?")
 				.run(

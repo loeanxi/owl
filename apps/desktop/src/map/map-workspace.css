@@ -2340,7 +2340,7 @@ html[data-owl-theme="light"] .owl-map-workspace .map-world > .map-art-light {
 		transition: none;
 	}
 }
-+
+
 .owl-map-workspace .map-conversation {
 	min-width: 0;
 	margin-bottom: 20px;
@@ -2623,4 +2623,3 @@ html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
 		animation: none;
 	}
 }
-

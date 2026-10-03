@@ -1,0 +1,20 @@
+{
+	"compilerOptions": {
+		"target": "ES2023",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2023"],
+		"types": ["node"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"isolatedModules": true,
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"paths": {
+			"@owl/owl-coding-agent": ["../coding-agent/src/index.ts"]
+		}
+	},
+	"include": ["*.ts"]
+}

@@ -424,21 +424,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			news = new NewsService({
 				agentDir: defaultAgentDir(),
 				...options.news,
-				resolveModel: options.news?.resolveModel ?? (async (_capability, configured) => {
-					const services = await getListingServices();
-					await services.modelRuntime.refresh({ allowNetwork: false });
-					const provider = services.settingsManager.getDefaultProvider();
-					const id = services.settingsManager.getDefaultModel();
-					const fallback = provider && id ? { provider, id } : services.modelRuntime.getAvailableSnapshot()[0];
-					const choice = configured ?? fallback;
-					if (!choice) throw new Error("资讯模型未配置，请先在 Owl 模型设置中选择模型。");
-					const model = services.modelRuntime.getModel(choice.provider, choice.id);
-					if (!model) throw new Error(`资讯模型不存在：${choice.provider}/${choice.id}`);
-					const registry = new ModelRegistry(services.modelRuntime);
-					const auth = await registry.getApiKeyAndHeaders(model);
-					if (!auth.ok) throw new Error(auth.error);
-					return { provider: String(model.provider), id: model.id };
-				}),
+				resolveModel:
+					options.news?.resolveModel ??
+					(async (_capability, configured) => {
+						const services = await getListingServices();
+						await services.modelRuntime.refresh({ allowNetwork: false });
+						const provider = services.settingsManager.getDefaultProvider();
+						const id = services.settingsManager.getDefaultModel();
+						const fallback = provider && id ? { provider, id } : services.modelRuntime.getAvailableSnapshot()[0];
+						const choice = configured ?? fallback;
+						if (!choice) throw new Error("资讯模型未配置，请先在 Owl 模型设置中选择模型。");
+						const model = services.modelRuntime.getModel(choice.provider, choice.id);
+						if (!model) throw new Error(`资讯模型不存在：${choice.provider}/${choice.id}`);
+						const registry = new ModelRegistry(services.modelRuntime);
+						const auth = await registry.getApiKeyAndHeaders(model);
+						if (!auth.ok) throw new Error(auth.error);
+						return { provider: String(model.provider), id: model.id };
+					}),
 				callModel:
 					options.news?.callModel ??
 					(async (request) => {
@@ -481,7 +483,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** 按 id 定位历史会话的 JSONL 文件。 */
 	async function findSessionFile(sessionId: string): Promise<string | undefined> {
 		const ordinary = (await SessionManager.listAll()).find((row) => row.id === sessionId)?.path;
-		return ordinary ?? (await SessionManager.listAll(join(defaultAgentDir(), "mail", "agent-sessions"))).find((row) => row.id === sessionId)?.path;
+		return (
+			ordinary ??
+			(await SessionManager.listAll(join(defaultAgentDir(), "mail", "agent-sessions"))).find(
+				(row) => row.id === sessionId,
+			)?.path
+		);
 	}
 
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */

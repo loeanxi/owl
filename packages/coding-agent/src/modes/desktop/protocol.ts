@@ -9,8 +9,8 @@ import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/t
 import type { NewsRequest } from "../../core/news/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
-export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 export type * from "../../core/mail/types.ts";
+export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
 export interface MailClientRequest {
 	type: "mail.request";

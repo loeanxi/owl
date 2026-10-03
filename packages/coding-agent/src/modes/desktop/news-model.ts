@@ -51,7 +51,11 @@ export async function callNewsModel(access: NewsModelAccess, request: NewsModelC
 		throw new Error(`资讯模型调用结果不明：${response.stopReason}（${model.provider}/${model.id}）`);
 	}
 	if (response.stopReason !== "stop" || !text) {
-		throw new NewsOutputError(request.purpose ?? request.capability, `模型未完成有效回答：${response.stopReason}`, received);
+		throw new NewsOutputError(
+			request.purpose ?? request.capability,
+			`模型未完成有效回答：${response.stopReason}`,
+			received,
+		);
 	}
 	return received;
 }

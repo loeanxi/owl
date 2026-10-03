@@ -124,7 +124,14 @@ export type MailRequest =
 	| { action: "auth.cancel"; authId: string }
 	| { action: "disconnect"; accountId: string }
 	| { action: "rename"; accountId: string; label: string }
-	| { action: "threads.list"; accountIds: string[]; folder: MailFolder; query?: string; pageTokens?: Record<string, string>; maxResults?: number }
+	| {
+			action: "threads.list";
+			accountIds: string[];
+			folder: MailFolder;
+			query?: string;
+			pageTokens?: Record<string, string>;
+			maxResults?: number;
+	  }
 	| { action: "thread.get"; accountId: string; threadId: string }
 	| { action: "draft.save"; draft: MailDraft }
 	| { action: "send.prepare"; draft: MailDraft }

@@ -6,11 +6,7 @@
  */
 import { resolve } from "node:path";
 import type { DesktopServerMessage } from "../../modes/desktop/protocol.ts";
-import {
-	DIFF_APPROVAL_DEFAULT_MAX_FILE_BYTES,
-	diffApprovalStorePath,
-	DiffApprovalStore,
-} from "./store.ts";
+import { DIFF_APPROVAL_DEFAULT_MAX_FILE_BYTES, DiffApprovalStore, diffApprovalStorePath } from "./store.ts";
 
 const stores = new Map<string, DiffApprovalStore>();
 

@@ -16,10 +16,6 @@ import {
 	getWorkspaceDiffApprovalStore,
 	resolveToCwd,
 	type ExtensionAPI,
-	type ExtensionContext,
-	type ToolCallEvent,
-	type ToolResultEvent,
-	type ToolCallEventResult,
 } from "@owl/owl-coding-agent";
 
 /** 只追踪直接改文件的两个工具；shell 造成的改动不在捕获范围（对齐上游口径）。 */
@@ -27,18 +23,17 @@ const TRACKED_TOOLS = new Set(["write", "edit"]);
 
 export default function createDiffApprovalExtension(pi: ExtensionAPI): void {
 	const agentDir = getAgentDir();
-	const storeFor = (ctx: ExtensionContext) => getWorkspaceDiffApprovalStore(agentDir, ctx.cwd);
+	const storeFor = (cwd: string) => getWorkspaceDiffApprovalStore(agentDir, cwd);
 
-	pi.on("tool_call", (event: ToolCallEvent, ctx): ToolCallEventResult | undefined => {
+	pi.on("tool_call", (event, ctx) => {
 		if (!TRACKED_TOOLS.has(event.toolName)) return;
 		const path = (event.input as { path?: unknown } | undefined)?.path;
 		if (typeof path !== "string" || !path.trim()) return;
-		storeFor(ctx).stage(event.toolCallId, resolveToCwd(path, ctx.cwd));
-		return;
+		storeFor(ctx.cwd).stage(event.toolCallId, resolveToCwd(path, ctx.cwd));
 	});
 
-	pi.on("tool_result", (event: ToolResultEvent, ctx) => {
+	pi.on("tool_result", (event, ctx) => {
 		if (!TRACKED_TOOLS.has(event.toolName)) return;
-		storeFor(ctx).commit(event.toolCallId, event.isError === true);
+		storeFor(ctx.cwd).commit(event.toolCallId, event.isError === true);
 	});
 }

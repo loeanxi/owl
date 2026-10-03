@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	SessionRewindTracker,
 	listRewindTargets,
 	type RewindAnchorSource,
 	type RewindBranchEntry,
+	SessionRewindTracker,
 } from "../../src/core/rewind/engine.ts";
-import { RewindSnapshotStore, captureFileState } from "../../src/core/rewind/store.ts";
+import { captureFileState, RewindSnapshotStore } from "../../src/core/rewind/store.ts";
 
 let tempDir: string;
 let workspace: string;
@@ -78,7 +78,13 @@ describe("captureFileState", () => {
 describe("RewindSnapshotStore", () => {
 	it("追加的记录重载后完整可读；坏行被丢弃", () => {
 		const store = newStore();
-		store.recordCapture({ path: "p1", dirRealPath: workspace, anchorId: "u1", content: Buffer.from("v1"), source: "write" });
+		store.recordCapture({
+			path: "p1",
+			dirRealPath: workspace,
+			anchorId: "u1",
+			content: Buffer.from("v1"),
+			source: "write",
+		});
 		store.recordCapture({ path: "p2", dirRealPath: workspace, anchorId: "u1", content: null, source: "write" });
 
 		const reloaded = newStore();
@@ -90,8 +96,20 @@ describe("RewindSnapshotStore", () => {
 
 	it("相同内容只存一份 blob；修剪按锚点组丢弃并回收无引用 blob", () => {
 		const store = newStore();
-		store.recordCapture({ path: "p1", dirRealPath: workspace, anchorId: "u1", content: Buffer.from("same"), source: "write" });
-		store.recordCapture({ path: "p2", dirRealPath: workspace, anchorId: "u2", content: Buffer.from("same"), source: "write" });
+		store.recordCapture({
+			path: "p1",
+			dirRealPath: workspace,
+			anchorId: "u1",
+			content: Buffer.from("same"),
+			source: "write",
+		});
+		store.recordCapture({
+			path: "p2",
+			dirRealPath: workspace,
+			anchorId: "u2",
+			content: Buffer.from("same"),
+			source: "write",
+		});
 		// 两个记录、一个 blob
 		const blobs = readFileSync(join(store.sessionDir, "index.jsonl"), "utf-8").trim().split("\n");
 		expect(blobs).toHaveLength(2);
@@ -106,9 +124,20 @@ describe("RewindSnapshotStore", () => {
 	it("还原日志可写入读取清空；存在日志时 prune 跳过", () => {
 		const store = newStore();
 		expect(store.readJournal()).toBeNull();
-		store.writeJournal({ v: 1, targetId: "u1", startedAt: "t", actions: [{ path: "p", action: "restore", done: false, hash: "h", dirRealPath: workspace }] });
+		store.writeJournal({
+			v: 1,
+			targetId: "u1",
+			startedAt: "t",
+			actions: [{ path: "p", action: "restore", done: false, hash: "h", dirRealPath: workspace }],
+		});
 		expect(store.readJournal()?.actions).toHaveLength(1);
-		store.recordCapture({ path: "p3", dirRealPath: workspace, anchorId: "u1", content: Buffer.from("x"), source: "scan" });
+		store.recordCapture({
+			path: "p3",
+			dirRealPath: workspace,
+			anchorId: "u1",
+			content: Buffer.from("x"),
+			source: "scan",
+		});
 		expect(store.prune(0)).toBe(0);
 		store.writeJournal(null);
 		expect(store.readJournal()).toBeNull();
@@ -180,7 +209,9 @@ describe("SessionRewindTracker 追踪", () => {
 });
 
 describe("planRestore / applyRestore", () => {
-	function trackerWith(records: Array<{ path: string; anchorId: string; content: string | null; source?: "write" | "scan" }>): SessionRewindTracker {
+	function trackerWith(
+		records: Array<{ path: string; anchorId: string; content: string | null; source?: "write" | "scan" }>,
+	): SessionRewindTracker {
 		const store = newStore();
 		const tracker = new SessionRewindTracker({ store, maxFileBytes: 1024 });
 		for (const record of records) {
@@ -202,7 +233,10 @@ describe("planRestore / applyRestore", () => {
 			{ path: file, anchorId: "u3", content: "pre-edit2" },
 		]);
 		writeFileSync(join(workspace, file), "current");
-		const plan = tracker.planRestore({ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() }, branchOf("u1", "u2", "u3"));
+		const plan = tracker.planRestore(
+			{ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() },
+			branchOf("u1", "u2", "u3"),
+		);
 		expect(plan.actions).toHaveLength(1);
 		expect(plan.actions[0]?.action).toBe("restore");
 
@@ -215,7 +249,10 @@ describe("planRestore / applyRestore", () => {
 		const file = "g.txt";
 		const tracker = trackerWith([{ path: file, anchorId: "u3", content: "original" }]);
 		writeFileSync(join(workspace, file), "edited-by-tool");
-		const plan = tracker.planRestore({ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() }, branchOf("u1", "u2", "u3"));
+		const plan = tracker.planRestore(
+			{ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() },
+			branchOf("u1", "u2", "u3"),
+		);
 		expect(plan.actions).toHaveLength(1);
 		tracker.applyRestore(plan);
 		expect(readFileSync(join(workspace, file), "utf-8")).toBe("original");
@@ -225,12 +262,18 @@ describe("planRestore / applyRestore", () => {
 		const created = "created.txt";
 		const tracker = trackerWith([{ path: created, anchorId: "u3", content: null }]);
 		writeFileSync(join(workspace, created), "tool-made");
-		const plan = tracker.planRestore({ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() }, branchOf("u1", "u2", "u3"));
+		const plan = tracker.planRestore(
+			{ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() },
+			branchOf("u1", "u2", "u3"),
+		);
 		expect(plan.actions[0]?.action).toBe("delete");
 		tracker.applyRestore(plan);
 		expect(existsSync(join(workspace, created))).toBe(false);
 
-		const plan2 = tracker.planRestore({ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() }, branchOf("u1", "u2", "u3"));
+		const plan2 = tracker.planRestore(
+			{ entryId: "u2", time: new Date(Date.parse("2026-01-01T00:01:00Z")).toISOString() },
+			branchOf("u1", "u2", "u3"),
+		);
 		expect(plan2.actions).toHaveLength(0); // 幂等：再算一次已无事可做
 		expect(plan2.unchanged).toBe(1);
 	});
@@ -250,7 +293,10 @@ describe("planRestore / applyRestore", () => {
 		});
 		writeFileSync(join(workspace, file), "after-u3-write");
 		// 回退到 u1（锚点不在当前分支也无所谓，时间戳说了算）
-		const plan = tracker.planRestore({ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() }, branchOf("u1"));
+		const plan = tracker.planRestore(
+			{ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() },
+			branchOf("u1"),
+		);
 		expect(plan.actions).toHaveLength(1);
 		tracker.applyRestore(plan);
 		expect(readFileSync(join(workspace, file), "utf-8")).toBe("before-u3-write");
@@ -264,8 +310,17 @@ describe("planRestore / applyRestore", () => {
 		symlinkSync(real, link);
 		const store = newStore();
 		const tracker = new SessionRewindTracker({ store, maxFileBytes: 1024 });
-		store.recordCapture({ path: link, dirRealPath: workspace, anchorId: "u2", content: Buffer.from("older"), source: "write" });
-		const plan = tracker.planRestore({ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() }, branchOf("u1", "u2"));
+		store.recordCapture({
+			path: link,
+			dirRealPath: workspace,
+			anchorId: "u2",
+			content: Buffer.from("older"),
+			source: "write",
+		});
+		const plan = tracker.planRestore(
+			{ entryId: "u1", time: new Date(Date.parse("2026-01-01T00:00:00Z")).toISOString() },
+			branchOf("u1", "u2"),
+		);
 		expect(plan.actions).toHaveLength(1);
 		const result = tracker.applyRestore(plan);
 		expect(result.restored).toBe(0);
@@ -307,7 +362,12 @@ describe("listRewindTargets", () => {
 		const entries = [
 			{ id: "e1", type: "message", timestamp: "t1", message: { role: "user", content: "第一条" } },
 			{ id: "e2", type: "message", timestamp: "t2", message: { role: "assistant", content: "回答" } },
-			{ id: "e3", type: "message", timestamp: "t3", message: { role: "user", content: [{ type: "text", text: "带图消息" }] } },
+			{
+				id: "e3",
+				type: "message",
+				timestamp: "t3",
+				message: { role: "user", content: [{ type: "text", text: "带图消息" }] },
+			},
 			{ id: "e4", type: "custom", timestamp: "t4" },
 			{ id: "e5", type: "message", timestamp: "t5", message: { role: "user", content: "   " } },
 		];

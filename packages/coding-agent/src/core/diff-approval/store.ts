@@ -148,11 +148,15 @@ export class DiffApprovalStore {
 		if (!staged || staged.skip !== undefined || isError) return;
 
 		const key = diffApprovalPathKey(staged.path);
-		const existing = this.entries.find((entry) => entry.status === "pending" && diffApprovalPathKey(entry.path) === key);
+		const existing = this.entries.find(
+			(entry) => entry.status === "pending" && diffApprovalPathKey(entry.path) === key,
+		);
 		if (existing) return; // 基线保持最早一次的改前内容
 
 		// 已处理条目被再次编辑：由新 pending 条目取代（时间序上旧条目已无意义）
-		this.entries = this.entries.filter((entry) => !(diffApprovalPathKey(entry.path) === key && entry.status !== "pending"));
+		this.entries = this.entries.filter(
+			(entry) => !(diffApprovalPathKey(entry.path) === key && entry.status !== "pending"),
+		);
 		this.entries.unshift({
 			id: randomUUID(),
 			path: staged.path,
@@ -265,7 +269,12 @@ export class DiffApprovalStore {
 		}
 		let added: number | null = null;
 		let removed: number | null = null;
-		if (entry.status === "pending" && entry.originalContent !== null && size <= DIFF_TEXT_CAP_CHARS && currentExists) {
+		if (
+			entry.status === "pending" &&
+			entry.originalContent !== null &&
+			size <= DIFF_TEXT_CAP_CHARS &&
+			currentExists
+		) {
 			try {
 				const current = readFileSync(entry.path, "utf-8");
 				if (!current.includes("\0")) {

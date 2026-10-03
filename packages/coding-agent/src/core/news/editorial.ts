@@ -148,7 +148,8 @@ async function requestJson<S extends TSchema>(
 	} catch {
 		throw new NewsOutputError(purpose, "model returned invalid JSON", response);
 	}
-	if (!Check(schema, parsed)) throw new NewsOutputError(purpose, "model output does not match the JSON schema", response);
+	if (!Check(schema, parsed))
+		throw new NewsOutputError(purpose, "model output does not match the JSON schema", response);
 	if (parsed && typeof parsed === "object") outputOrigins.set(parsed, { purpose, response });
 	return parsed;
 }
@@ -393,7 +394,11 @@ export async function analyzeMaterial(
 			near ? 16_384 : 2048,
 		);
 		const corpus = `${material.title}\n${material.body ?? ""}\n${source.name}`;
-		guardCopy({ title: copy.titleZh, summary: copy.summaryZh }, corpus, { publisherUrl: material.url, owner: source.owner, origin: copy });
+		guardCopy({ title: copy.titleZh, summary: copy.summaryZh }, corpus, {
+			publisherUrl: material.url,
+			owner: source.owner,
+			origin: copy,
+		});
 		const tags = normalizeNewsTags(structure.tags);
 		const entities = [
 			...new Set(

@@ -32,7 +32,10 @@ export function createOwlRewindExtension(): ExtensionFactory {
 			const owlRewind = pi.getSettings().owlRewind;
 			return {
 				enabled: owlRewind?.enabled !== false,
-				maxFileBytes: typeof owlRewind?.maxFileBytes === "number" && owlRewind.maxFileBytes > 0 ? owlRewind.maxFileBytes : undefined,
+				maxFileBytes:
+					typeof owlRewind?.maxFileBytes === "number" && owlRewind.maxFileBytes > 0
+						? owlRewind.maxFileBytes
+						: undefined,
 			};
 		};
 		const trackerFor = (sessionId: string): ReturnType<typeof getSessionRewindTracker> | null => {
@@ -118,7 +121,10 @@ export function createOwlRewindExtension(): ExtensionFactory {
 				let restoreNote = "";
 				if (modeBoth) {
 					const rewindTracker = trackerFor(sessionManager.getSessionId());
-					const plan = rewindTracker?.planRestore({ entryId: target.entryId, time: target.timestamp }, sessionManager);
+					const plan = rewindTracker?.planRestore(
+						{ entryId: target.entryId, time: target.timestamp },
+						sessionManager,
+					);
 					if (rewindTracker && plan && plan.actions.length > 0) {
 						const result = rewindTracker.applyRestore(plan);
 						restoreNote = `；文件已还原 ${result.restored} 个、删除 ${result.deleted} 个${
