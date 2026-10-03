@@ -5,10 +5,10 @@
  * 但不通过 SessionManager 挂载会话——直接流式读文件，只解析带 usage 的行，因此
  * 大历史也能秒级聚合，且正在进行的会话落盘即计入（设置页 5s 轮询 = 实时监测）。
  */
-import { createReadStream, existsSync, stat } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { createInterface } from "node:readline";
+import { createReadStream, existsSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { getSessionsDir } from "../../config.ts";
 import type {
 	UsageGetResult,
@@ -79,7 +79,14 @@ interface ScanEntry {
 	model?: string;
 	usage?: Record<string, unknown>;
 	name?: string;
-	message?: { role?: string; provider?: string; model?: string; responseModel?: string; usage?: Record<string, unknown>; content?: unknown };
+	message?: {
+		role?: string;
+		provider?: string;
+		model?: string;
+		responseModel?: string;
+		usage?: Record<string, unknown>;
+		content?: unknown;
+	};
 }
 
 /** 从消息 content 里提取首段文本（firstMessage 展示用；结构与 AgentMessage 对齐）。 */
@@ -114,7 +121,10 @@ function recordUsage(scan: SessionScan, modelKey: string, usage: Record<string, 
 			scan.days.set(date, day);
 		}
 		day.totalTokens += usageTokenTotal(usage);
-		day.cost += typeof usage.cost === "object" && usage.cost !== null ? Number((usage.cost as { total?: unknown }).total ?? 0) || 0 : 0;
+		day.cost +=
+			typeof usage.cost === "object" && usage.cost !== null
+				? Number((usage.cost as { total?: unknown }).total ?? 0) || 0
+				: 0;
 		day.requests += 1;
 	}
 }
@@ -148,7 +158,9 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 			if (!line || line.length < 2) continue;
 			const isHead = scan.sessionId === "";
 			const isUserMiss = !sawFirstUser && line.includes('"role":"user"');
-			if (!isHead && !isUserMiss && !line.includes('"usage"')) continue;
+			// session_info（会话命名）也不含 "usage"，单独放行，否则自定义名永远抓不到
+			const isInfo = line.includes('"session_info"');
+			if (!isHead && !isUserMiss && !isInfo && !line.includes('"usage"')) continue;
 
 			let entry: ScanEntry;
 			try {
@@ -171,14 +183,17 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 			if (isUserMiss && entry.type === "message" && entry.message?.role === "user") {
 				sawFirstUser = true;
 				const text = firstText(entry.message.content).replace(/\s+/g, " ").trim();
-				if (text) scan.firstMessage = text.length > FIRST_MESSAGE_MAX ? `${text.slice(0, FIRST_MESSAGE_MAX)}…` : text;
+				if (text)
+					scan.firstMessage = text.length > FIRST_MESSAGE_MAX ? `${text.slice(0, FIRST_MESSAGE_MAX)}…` : text;
 				continue;
 			}
 			if (typeof entry.timestamp === "string" && entry.timestamp) lastTimestamp = entry.timestamp;
 
 			let found: { usage: Record<string, unknown>; modelKey: string } | undefined;
 			if (entry.type === "usage") {
-				found = entry.usage ? { usage: entry.usage, modelKey: `${entry.provider ?? "?"}/${entry.model ?? "?"}` } : undefined;
+				found = entry.usage
+					? { usage: entry.usage, modelKey: `${entry.provider ?? "?"}/${entry.model ?? "?"}` }
+					: undefined;
 			} else if (entry.type === "message" && entry.message?.usage && typeof entry.message.usage === "object") {
 				found = {
 					usage: entry.message.usage,
@@ -187,7 +202,11 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 							? `${entry.message.provider ?? "?"}/${entry.message.responseModel ?? entry.message.model ?? "?"}`
 							: "Tools/summaries",
 				};
-			} else if ((entry.type === "compaction" || entry.type === "branch_summary") && entry.usage && typeof entry.usage === "object") {
+			} else if (
+				(entry.type === "compaction" || entry.type === "branch_summary") &&
+				entry.usage &&
+				typeof entry.usage === "object"
+			) {
 				found = { usage: entry.usage, modelKey: "Tools/summaries" };
 			}
 			if (!found) continue;

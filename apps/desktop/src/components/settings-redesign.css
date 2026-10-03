@@ -249,7 +249,7 @@
 	color: #d86e6e;
 }
 
-.owl-settings-page .owl-settings-content input:not([type="checkbox"]):not([type="range"]),
+.owl-settings-page .owl-settings-content input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
 .owl-settings-page .owl-settings-content select,
 .owl-settings-page .owl-settings-content textarea,
 .owl-settings-page .owl-settings-input {
@@ -845,6 +845,315 @@
 	color: var(--settings-muted);
 	font-size: 13px;
 	line-height: 1.8;
+}
+
+/* ============ 使用统计（owl-usage-*） ============ */
+
+/* 实时徽标：绿点 + 呼吸 */
+.owl-settings-page .owl-usage-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--settings-muted);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-usage-live.is-on {
+	color: #4ade80;
+}
+
+.owl-settings-page .owl-usage-live-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: var(--settings-muted);
+	flex-shrink: 0;
+}
+
+.owl-settings-page .owl-usage-live.is-on .owl-usage-live-dot {
+	background: #4ade80;
+	animation: owl-usage-breathe 2s ease-in-out infinite;
+}
+
+@keyframes owl-usage-breathe {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+
+/* 今日卡片上的活跃脉冲点（今天有用量 = 正在监测到活动） */
+.owl-settings-page .owl-usage-pulse {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	margin-left: 9px;
+	border-radius: 999px;
+	background: #4ade80;
+	box-shadow: 0 0 0 0 color-mix(in srgb, #4ade80 55%, transparent);
+	animation: owl-usage-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+	vertical-align: super;
+}
+
+@keyframes owl-usage-ping {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, #4ade80 55%, transparent);
+	}
+	70% {
+		box-shadow: 0 0 0 7px transparent;
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+
+/* 概览指标卡（4 列） */
+.owl-settings-page .owl-usage-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.owl-settings-page .owl-usage-stat {
+	padding: 14px 16px;
+	border: 1px solid var(--settings-border);
+	border-radius: 10px;
+	background: var(--settings-panel);
+}
+
+.owl-settings-page .owl-usage-stat-label {
+	color: var(--settings-muted);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-usage-stat-value {
+	margin-top: 3px;
+	color: var(--settings-text);
+	font-size: 24px;
+	font-weight: 650;
+	line-height: 1.25;
+	letter-spacing: -0.5px;
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-settings-page .owl-usage-stat-sub {
+	margin-top: 4px;
+	color: var(--settings-muted);
+	font-size: 11px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-variant-numeric: tabular-nums;
+}
+
+/* 近 30 天柱状图（纯 CSS，today 高亮，hover 显示完整数值） */
+.owl-settings-page .owl-usage-chart {
+	display: flex;
+	gap: 4px;
+	align-items: stretch;
+	margin-top: 16px;
+	height: 148px;
+}
+
+.owl-settings-page .owl-usage-col {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 0;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.owl-settings-page .owl-usage-bar-track {
+	display: flex;
+	flex: 1;
+	align-items: flex-end;
+	min-height: 0;
+}
+
+.owl-settings-page .owl-usage-bar {
+	width: 100%;
+	min-height: 2px;
+	border-radius: 3px 3px 1px 1px;
+	background: color-mix(in srgb, var(--color-owl-accent) 55%, var(--settings-panel));
+	transition: height 300ms ease;
+}
+
+.owl-settings-page .owl-usage-col:hover .owl-usage-bar,
+.owl-settings-page .owl-usage-col.is-today .owl-usage-bar {
+	background: var(--color-owl-accent);
+}
+
+.owl-settings-page .owl-usage-col-label {
+	height: 14px;
+	color: var(--settings-muted);
+	font-size: 9px;
+	line-height: 14px;
+	text-align: center;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-usage-col.is-today .owl-usage-col-label {
+	color: var(--settings-text);
+	font-weight: 600;
+}
+
+/* 分布卡（模型 / 项目）两列并排 */
+.owl-settings-page .owl-usage-cols {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.owl-settings-page .owl-usage-dist {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 12px;
+}
+
+.owl-settings-page .owl-usage-dist-top {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.owl-settings-page .owl-usage-dist-key {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--settings-text);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-usage-dist-nums {
+	display: inline-flex;
+	flex-shrink: 0;
+	gap: 10px;
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-settings-page .owl-usage-dist-tokens {
+	color: var(--settings-text);
+	font-size: 12px;
+}
+
+.owl-settings-page .owl-usage-dist-cost {
+	color: var(--settings-muted);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-usage-dist-track {
+	overflow: hidden;
+	height: 5px;
+	margin-top: 5px;
+	border-radius: 999px;
+	background: var(--settings-sidebar);
+}
+
+.owl-settings-page .owl-usage-dist-fill {
+	height: 100%;
+	border-radius: 999px;
+	background: linear-gradient(90deg, color-mix(in srgb, var(--color-owl-accent) 70%, transparent), var(--color-owl-accent));
+}
+
+/* 会话榜（表头 + 行，同归档列表的版式） */
+.owl-settings-page .owl-usage-sessions {
+	overflow: hidden;
+	border: 1px solid var(--settings-border);
+	border-radius: 10px;
+	background: var(--settings-panel);
+}
+
+.owl-settings-page .owl-usage-sessions-header,
+.owl-settings-page .owl-usage-session-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 18px;
+	padding: 11px 14px;
+}
+
+.owl-settings-page .owl-usage-sessions-header {
+	padding-top: 9px;
+	padding-bottom: 9px;
+	background: var(--settings-sidebar);
+	color: var(--settings-muted);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-usage-session-row + .owl-usage-session-row {
+	border-top: 1px solid var(--settings-border);
+}
+
+.owl-settings-page .owl-usage-session-main {
+	min-width: 0;
+}
+
+.owl-settings-page .owl-usage-session-name {
+	overflow: hidden;
+	color: var(--settings-text);
+	font-size: 12.5px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-usage-session-sub {
+	margin-top: 2px;
+	color: var(--settings-muted);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-usage-session-nums {
+	display: flex;
+	flex-shrink: 0;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-settings-page .owl-usage-session-tokens {
+	color: var(--settings-text);
+	font-size: 12px;
+}
+
+.owl-settings-page .owl-usage-session-cost {
+	color: var(--settings-muted);
+	font-size: 11px;
+}
+
+/* 窄容器：指标卡与分布卡折列 */
+@container (max-width: 860px) {
+	.owl-settings-page .owl-usage-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.owl-settings-page .owl-usage-cols {
+		grid-template-columns: 1fr;
+	}
+}
+
+@container (max-width: 620px) {
+	.owl-settings-page .owl-usage-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-settings-page .owl-usage-live-dot,
+	.owl-settings-page .owl-usage-pulse {
+		animation: none;
+	}
+
+	.owl-settings-page .owl-usage-bar {
+		transition: none;
+	}
 }
 
 @container (max-width: 950px) {

@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { RealPlace } from "../bridge/protocol.ts";
-import { addLiveHistory, LIVE_MAP_STORAGE_KEY, nearbyCategoryFromMessage, normalizeRealPlace, parseCoordinates, parseLiveSavedState, readLiveSavedState, RealMapClient, safeExternalUrl, straightLineDistance, toggleLiveCompare, toggleLiveFavorite, writeLiveSavedState, type LiveSearchRecord } from "./live-model.ts";
+import {
+	addLiveHistory,
+	LIVE_MAP_STORAGE_KEY,
+	type LiveSearchRecord,
+	nearbyCategoryFromMessage,
+	normalizeRealPlace,
+	parseCoordinates,
+	parseLiveSavedState,
+	RealMapClient,
+	readLiveSavedState,
+	safeExternalUrl,
+	straightLineDistance,
+	toggleLiveCompare,
+	toggleLiveFavorite,
+	writeLiveSavedState,
+} from "./live-model.ts";
 
 const place: RealPlace = {
-	id: "osm:node:123", name: "Test Source Place", lat: 48.8566, lng: 2.3522, address: "Paris", category: "cafe", distanceMeters: 100,
-	openingHours: "Mo-Fr 09:00-17:00", phone: null, website: "https://example.org", wheelchair: null, internetAccess: null,
-	rating: null, price: null, quiet: null, plug: null, tags: { amenity: "cafe" }, source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T12:00:00Z" },
+	id: "osm:node:123",
+	name: "Test Source Place",
+	lat: 48.8566,
+	lng: 2.3522,
+	address: "Paris",
+	category: "cafe",
+	distanceMeters: 100,
+	openingHours: "Mo-Fr 09:00-17:00",
+	phone: null,
+	website: "https://example.org",
+	wheelchair: null,
+	internetAccess: null,
+	rating: null,
+	price: null,
+	quiet: null,
+	plug: null,
+	tags: { amenity: "cafe" },
+	source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T12:00:00Z" },
 };
 
 test("coordinate input accepts latitude, longitude and rejects invalid ranges or silent swapping", () => {
@@ -19,14 +49,31 @@ test("coordinate input accepts latitude, longitude and rejects invalid ranges or
 });
 
 test("live storage never reads or accepts old demo favorites and keeps complete source records", () => {
-	const storage = new Map<string, string>([["owl.map.demo.v1", JSON.stringify({ version: 1, favorites: ["liubai"], history: ["cafe"] })]]);
+	const storage = new Map<string, string>([
+		["owl.map.demo.v1", JSON.stringify({ version: 1, favorites: ["liubai"], history: ["cafe"] })],
+	]);
 	assert.deepEqual(readLiveSavedState({ getItem: (key) => storage.get(key) ?? null }), { favorites: [], history: [] });
-	assert.equal(writeLiveSavedState({ setItem: (key, value) => { storage.set(key, value); } }, { favorites: [place], history: [], lastCenter: { lat: 48.8566, lng: 2.3522 }, lastLocationName: "Paris" }), true);
+	assert.equal(
+		writeLiveSavedState(
+			{
+				setItem: (key, value) => {
+					storage.set(key, value);
+				},
+			},
+			{ favorites: [place], history: [], lastCenter: { lat: 48.8566, lng: 2.3522 }, lastLocationName: "Paris" },
+		),
+		true,
+	);
 	const restored = parseLiveSavedState(storage.get(LIVE_MAP_STORAGE_KEY) ?? null);
 	assert.deepEqual(restored.favorites[0], place);
 	assert.equal(restored.lastLocationName, "Paris");
 	assert.deepEqual(parseLiveSavedState("{broken"), { favorites: [], history: [] });
-	assert.deepEqual(parseLiveSavedState(JSON.stringify({ version: 1, favorites: ["liubai", { ...place, lat: 300 }], history: ["old query"] })), { favorites: [], history: [] });
+	assert.deepEqual(
+		parseLiveSavedState(
+			JSON.stringify({ version: 1, favorites: ["liubai", { ...place, lat: 300 }], history: ["old query"] }),
+		),
+		{ favorites: [], history: [] },
+	);
 });
 
 test("storage validates external links and cannot turn unknown facilities into fabricated facts", () => {
@@ -44,13 +91,24 @@ test("storage validates external links and cannot turn unknown facilities into f
 test("favorites toggle complete records and comparisons enforce a unique three-place limit", () => {
 	assert.deepEqual(toggleLiveFavorite([], place), [place]);
 	assert.deepEqual(toggleLiveFavorite([place], place), []);
-	const second = { ...place, id: "osm:node:124" }, third = { ...place, id: "osm:node:125" }, fourth = { ...place, id: "osm:node:126" };
+	const second = { ...place, id: "osm:node:124" },
+		third = { ...place, id: "osm:node:125" },
+		fourth = { ...place, id: "osm:node:126" };
 	assert.deepEqual(toggleLiveCompare([place, second, third], fourth), { places: [place, second, third], full: true });
 	assert.deepEqual(toggleLiveCompare([place, second], place), { places: [second], full: false });
 });
 
 test("search history retains the selected city, coordinates, radius and category", () => {
-	const history: LiveSearchRecord = { id: "a", query: "Paris", center: { lat: 48.8566, lng: 2.3522 }, locationName: "Paris", category: "museum", radiusMeters: 2000, kind: "nearby", createdAt: "2026-10-03T12:00:00Z" };
+	const history: LiveSearchRecord = {
+		id: "a",
+		query: "Paris",
+		center: { lat: 48.8566, lng: 2.3522 },
+		locationName: "Paris",
+		category: "museum",
+		radiusMeters: 2000,
+		kind: "nearby",
+		createdAt: "2026-10-03T12:00:00Z",
+	};
 	const replacement = { ...history, id: "b" };
 	assert.deepEqual(addLiveHistory([history], replacement), [replacement]);
 	assert.equal(addLiveHistory([history], { ...replacement, center: { lat: 25.0478, lng: 121.517 } }).length, 2);
@@ -74,9 +132,18 @@ test("the distance is coordinate-based and explicitly a straight line, not trave
 
 test("map requests send arbitrary cities and use the same-origin real service without truncation", async () => {
 	const urls: string[] = [];
-	const fakeFetch: typeof fetch = async (input) => { urls.push(String(input)); return new Response(JSON.stringify({ data: [place], sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io/api/" }] }), { headers: { "Content-Type": "application/json" } }); };
+	const fakeFetch: typeof fetch = async (input) => {
+		urls.push(String(input));
+		return new Response(
+			JSON.stringify({
+				data: [place],
+				sources: [{ provider: "photon", status: "ok", endpoint: "https://photon.komoot.io/api/" }],
+			}),
+			{ headers: { "Content-Type": "application/json" } },
+		);
+	};
 	const client = new RealMapClient(fakeFetch);
-	const query = "巴黎 " + "address ".repeat(100);
+	const query = `巴黎 ${"address ".repeat(100)}`;
 	assert.deepEqual((await client.search(query, "zh")).data, [place]);
 	assert.equal(new URL(urls[0], "http://localhost").searchParams.get("q"), query);
 	await client.nearby({ lat: 25.0478, lng: 121.517 }, "restaurant", 5000);
@@ -89,7 +156,8 @@ test("map requests send arbitrary cities and use the same-origin real service wi
 });
 
 test("upstream failure is an explicit error and never returns demo fallback data", async () => {
-	const failure: typeof fetch = async () => new Response(JSON.stringify({ error: "Source temporarily unavailable" }), { status: 503 });
+	const failure: typeof fetch = async () =>
+		new Response(JSON.stringify({ error: "Source temporarily unavailable" }), { status: 503 });
 	await assert.rejects(() => new RealMapClient(failure).search("Taipei", "en"), /Source temporarily unavailable/);
 	const malformed: typeof fetch = async () => new Response(JSON.stringify({ places: [place] }));
 	await assert.rejects(() => new RealMapClient(malformed).search("Taipei", "en"), /invalid response/);

@@ -45,6 +45,8 @@ export interface EvaluationProfileInput {
 }
 export interface EvaluationProfile extends EvaluationProfileInput {
 	model: EvaluationModel;
+	maxTokens: number;
+	timeoutMs: number;
 }
 export interface EvaluationUsage {
 	input: number;
@@ -110,7 +112,11 @@ export interface EvaluationRun {
 	results: EvaluationResult[];
 	groups: EvaluationGroup[];
 }
-export interface EvaluationResultView extends Omit<EvaluationResult, "profileId" | "thinking" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd"> {
+export interface EvaluationResultView
+	extends Omit<
+		EvaluationResult,
+		"profileId" | "thinking" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd"
+	> {
 	anonymousLabel: string;
 	revealed: boolean;
 	profile?: EvaluationProfile;
@@ -155,7 +161,14 @@ export type EvaluationRequest =
 	| { action: "run.cancel"; runId: string }
 	| { action: "run.append"; runId: string; samples: 3 | 5 }
 	| { action: "run.retry"; runId: string; resultId: string }
-	| { action: "run.reveal"; runId: string; taskId: string; sample: number; mode: "score" | "skip"; ratings?: Record<string, EvaluationRating> };
+	| {
+			action: "run.reveal";
+			runId: string;
+			taskId: string;
+			sample: number;
+			mode: "score" | "skip";
+			ratings?: Record<string, EvaluationRating>;
+	  };
 export interface EvaluationResponseMap {
 	bootstrap: EvaluationBootstrap;
 	"task.save": EvaluationTask;

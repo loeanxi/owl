@@ -639,6 +639,48 @@ export function SettingsPage({
 		if (response.ok && response.result) setMemory(response.result);
 	}
 
+	// ---- 使用统计（usage.get）：5s 轮询 + 对话事件即时刷新 ----
+
+	/** 拉一次全量用量聚合（并发去重：上一轮没回来就跳过，避免轮询堆积）。 */
+	async function loadUsage(): Promise<void> {
+		if (usageInFlight.current) return;
+		usageInFlight.current = true;
+		setUsageLoading(true);
+		try {
+			const response = await client.request<UsageGetResult>({ type: "usage.get" });
+			if (response.ok && response.result) setUsageData(response.result);
+		} finally {
+			usageInFlight.current = false;
+			setUsageLoading(false);
+		}
+	}
+
+	// 进入「使用统计」分区：立即拉一次并保持轮询（开关控制）；离开分区即停。
+	useEffect(() => {
+		if (section !== "usage") return;
+		void loadUsage();
+		const timer = setInterval(() => {
+			if (usageAutoRef.current) void loadUsage();
+		}, 5000);
+		return () => clearInterval(timer);
+	}, [section]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 对话进行中的即时性：message_end / agent_end 意味着有新用量落盘，1s 去抖后立刻刷新。
+	useEffect(() => {
+		if (section !== "usage") return;
+		const off = client.onSessionEvent((msg) => {
+			const type = (msg.event as { type?: string } | undefined)?.type;
+			if (type !== "message_end" && type !== "agent_end") return;
+			if (!usageAutoRef.current) return;
+			if (usageRefreshTimer.current) clearTimeout(usageRefreshTimer.current);
+			usageRefreshTimer.current = setTimeout(() => void loadUsage(), 1000);
+		});
+		return () => {
+			off();
+			if (usageRefreshTimer.current) clearTimeout(usageRefreshTimer.current);
+		};
+	}, [section, client]);
+
 	// ---- 图像生成（owl-image）：imageConfig.* / imageSub.* ----
 
 	async function loadImageConfig(): Promise<void> {
@@ -1400,6 +1442,7 @@ export function SettingsPage({
 					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => setSection("memory")} />
 						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => setSection("image")} />
 						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
+						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => setSection("usage")} />
 						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
 						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => setSection("about")} />
@@ -2825,6 +2868,167 @@ export function SettingsPage({
 								<div className="owl-settings-notice">{t("settings.notifications.note")}</div>
 							</>
 						)}
+
+						{/* -------- 使用统计 -------- */}
+						{section === "usage" && (() => {
+							const maxDay = usageData ? Math.max(...usageData.byDay.map((day) => day.totalTokens), 0) : 0;
+							const todayKey = usageData?.byDay[usageData.byDay.length - 1]?.date ?? "";
+							const modelMax = usageData ? Math.max(...usageData.byModel.map((m) => m.totalTokens), 0) : 0;
+							const projectMax = usageData ? Math.max(...usageData.byProject.map((p) => p.totalTokens), 0) : 0;
+							return (
+								<>
+									<SectionHeader title={t("settings.usage.title")} desc={t("settings.usage.desc")} />
+
+									{/* 实时监测：状态徽标 + 立即刷新 + 自动轮询开关 */}
+									<SettingRow
+										title={t("settings.usage.liveTitle")}
+										desc={usageData ? t("settings.usage.updatedAt", { time: formatClock(usageData.generatedAt) }) : t("settings.usage.liveDesc")}
+										control={
+											<div className="flex items-center gap-3">
+												<span className={`owl-usage-live ${usageAuto ? "is-on" : ""}`}>
+													<span className="owl-usage-live-dot" aria-hidden="true" />
+													{usageAuto ? t("settings.usage.liveOn") : t("settings.usage.liveOff")}
+												</span>
+												<button type="button" className={btn} disabled={usageLoading} onClick={() => void loadUsage()}>
+													{t("settings.usage.refresh")}
+												</button>
+												<Switch checked={usageAuto} onChange={setUsageAuto} title={t("settings.usage.liveTitle")} />
+											</div>
+										}
+									/>
+
+									{!usageData ? (
+										<div className="owl-settings-notice">{t("settings.usage.loading")}</div>
+									) : usageData.totals.requests === 0 ? (
+										<div className="owl-settings-notice">{t("settings.usage.empty")}</div>
+									) : (
+										<>
+											{/* 概览：总量 / 今日 / 费用 / 会话 */}
+											<div className="owl-usage-grid">
+												<div className="owl-usage-stat">
+													<div className="owl-usage-stat-label">{t("settings.usage.statTotal")}</div>
+													<div className="owl-usage-stat-value">{formatTokens(usageData.totals.totalTokens)}</div>
+													<div className="owl-usage-stat-sub">
+														{t("settings.usage.tokInput")} {formatTokens(usageData.totals.input)} · {t("settings.usage.tokOutput")} {formatTokens(usageData.totals.output)}
+														{usageData.totals.cacheRead > 0 ? ` · ${t("settings.usage.tokCacheRead")} ${formatTokens(usageData.totals.cacheRead)}` : ""}
+													</div>
+												</div>
+												<div className="owl-usage-stat">
+													<div className="owl-usage-stat-label">{t("settings.usage.statToday")}</div>
+													<div className="owl-usage-stat-value">
+														{formatTokens(usageData.today.totalTokens)}
+														{usageData.today.totalTokens > 0 && <span className="owl-usage-pulse" aria-hidden="true" />}
+													</div>
+													<div className="owl-usage-stat-sub">{t("settings.usage.statTodaySub", { n: usageData.today.requests })}</div>
+												</div>
+												<div className="owl-usage-stat">
+													<div className="owl-usage-stat-label">{t("settings.usage.statCost")}</div>
+													<div className="owl-usage-stat-value">{formatCost(usageData.totals.cost)}</div>
+													<div className="owl-usage-stat-sub">{t("settings.usage.statCostSub")}</div>
+												</div>
+												<div className="owl-usage-stat">
+													<div className="owl-usage-stat-label">{t("settings.usage.statSessions")}</div>
+													<div className="owl-usage-stat-value">{usageData.sessionCount}</div>
+													<div className="owl-usage-stat-sub">{t("settings.usage.requestsLabel", { n: usageData.totals.requests })}</div>
+												</div>
+											</div>
+
+											{/* 近 30 天趋势（纯 CSS 柱状图，today 高亮） */}
+											<div className="owl-settings-card">
+												<div className="owl-settings-row-title">{t("settings.usage.chartTitle")}</div>
+												<p className="owl-settings-row-description">{t("settings.usage.chartDesc")}</p>
+												<div className="owl-usage-chart" role="img" aria-label={t("settings.usage.chartTitle")}>
+													{usageData.byDay.map((day, index) => {
+														const height = maxDay > 0 && day.totalTokens > 0 ? Math.max(6, Math.round((day.totalTokens / maxDay) * 100)) : 0;
+														const showLabel = index % 5 === 0 || index === usageData.byDay.length - 1;
+														return (
+															<div
+																key={day.date}
+																className={`owl-usage-col${day.date === todayKey ? " is-today" : ""}`}
+																title={`${day.date} · ${formatTokens(day.totalTokens)} · ${formatCost(day.cost)} · ${t("settings.usage.requestsLabel", { n: day.requests })}`}
+															>
+																<div className="owl-usage-bar-track">
+																	<div className="owl-usage-bar" style={height > 0 ? { height: `${height}%` } : undefined} />
+																</div>
+																<span className="owl-usage-col-label">{showLabel ? day.date.slice(5) : ""}</span>
+															</div>
+														);
+													})}
+												</div>
+											</div>
+
+											{/* 分布：模型 / 项目（宽屏并排，条形为 Token 占比） */}
+											<div className="owl-usage-cols">
+												<div className="owl-settings-card">
+													<div className="owl-settings-row-title">{t("settings.usage.byModel")}</div>
+													<p className="owl-settings-row-description">{t("settings.usage.byModelDesc")}</p>
+													<div className="owl-usage-dist">
+														{usageData.byModel.map((m) => (
+															<div key={m.key} className="owl-usage-dist-row" title={t("settings.usage.requestsLabel", { n: m.requests })}>
+																<div className="owl-usage-dist-top">
+																	<span className="owl-usage-dist-key">{m.key}</span>
+																	<span className="owl-usage-dist-nums">
+																		<span className="owl-usage-dist-tokens">{formatTokens(m.totalTokens)}</span>
+																		<span className="owl-usage-dist-cost">{formatCost(m.cost)}</span>
+																	</span>
+																</div>
+																<div className="owl-usage-dist-track">
+																	<div className="owl-usage-dist-fill" style={{ width: modelMax > 0 ? `${Math.max(2, Math.round((m.totalTokens / modelMax) * 100))}%` : "0%" }} />
+																</div>
+															</div>
+														))}
+													</div>
+												</div>
+												<div className="owl-settings-card">
+													<div className="owl-settings-row-title">{t("settings.usage.byProject")}</div>
+													<p className="owl-settings-row-description">{t("settings.usage.byProjectDesc")}</p>
+													<div className="owl-usage-dist">
+														{usageData.byProject.map((p) => (
+															<div key={p.cwd} className="owl-usage-dist-row" title={`${p.cwd} · ${t("settings.usage.requestsLabel", { n: p.requests })}`}>
+																<div className="owl-usage-dist-top">
+																	<span className="owl-usage-dist-key">{projectLabel(p.cwd)}</span>
+																	<span className="owl-usage-dist-nums">
+																		<span className="owl-usage-dist-tokens">{formatTokens(p.totalTokens)}</span>
+																		<span className="owl-usage-dist-cost">{formatCost(p.cost)}</span>
+																	</span>
+																</div>
+																<div className="owl-usage-dist-track">
+																	<div className="owl-usage-dist-fill" style={{ width: projectMax > 0 ? `${Math.max(2, Math.round((p.totalTokens / projectMax) * 100))}%` : "0%" }} />
+																</div>
+															</div>
+														))}
+													</div>
+												</div>
+											</div>
+
+											{/* Token 用量最高的会话 */}
+											<SettingRow title={t("settings.usage.topSessions")} desc={t("settings.usage.topSessionsDesc")}>
+												<div className="owl-usage-sessions">
+													<div className="owl-usage-sessions-header">
+														<span>{t("settings.usage.colSession")}</span>
+														<span>{t("settings.usage.colTokens")} · {t("settings.usage.colCost")}</span>
+													</div>
+													{usageData.topSessions.map((s) => (
+														<div key={s.sessionId} className="owl-usage-session-row">
+															<div className="owl-usage-session-main">
+																<div className="owl-usage-session-name">{s.name ?? s.firstMessage ?? t("settings.sessionFallback", { id: s.sessionId.slice(0, 8) })}</div>
+																<div className="owl-usage-session-sub">
+																	{projectLabel(s.cwd || "")} · {t("settings.usage.sessionActive", { time: formatDateTime(s.lastActiveAt) })}
+																</div>
+															</div>
+															<div className="owl-usage-session-nums">
+																<span className="owl-usage-session-tokens">{formatTokens(s.totalTokens)}</span>
+																<span className="owl-usage-session-cost">{formatCost(s.cost)}</span>
+															</div>
+														</div>
+													))}
+												</div>
+											</SettingRow>
+										</>
+									)}
+								</>
+							);
+						})()}
 
 						{/* -------- 归档 -------- */}
 						{section === "archived" && (

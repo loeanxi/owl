@@ -13,6 +13,9 @@ export default defineConfig({
 			ignored: ["**/src-tauri/**"],
 		},
 		proxy: {
+			"/api/maps": {
+				target: (process.env.PI_RE_BRIDGE ?? "ws://127.0.0.1:8787").replace(/^ws/, "http"),
+			},
 			// dev: WebSocket through vite to the local bridge
 			"/ws": {
 				// 8787 默认端口被 manager 网关占用时，用 PI_RE_BRIDGE 指到桥的实际端口

@@ -16,6 +16,9 @@ const READ_ONLY_TOOLS = new Set([
 	"news_hot",
 	"news_report",
 	"news_open",
+	"map_search",
+	"map_nearby",
+	"map_reverse",
 ]);
 
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {

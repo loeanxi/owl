@@ -1,10 +1,11 @@
 /* UI chrome has its own palette. Shared chat/composer variables stay unchanged. */
+/* canvas/text 两项留 override 口：外观设置的自定义背景/前景经 <html> 内联变量穿透到这里。 */
 .owl-desktop-shell {
-	--owl-ui-canvas: #202321;
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #202321);
 	--owl-ui-panel: #282d29;
 	--owl-ui-sidebar: #191d1a;
 	--owl-ui-border: #343c35;
-	--owl-ui-text: #e9e7e0;
+	--owl-ui-text: var(--owl-ui-text-override, #e9e7e0);
 	--owl-ui-muted: #969f97;
 	--owl-ui-hover: #282e29;
 	--owl-ui-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
@@ -18,11 +19,11 @@
 }
 
 html[data-owl-theme="light"] .owl-desktop-shell {
-	--owl-ui-canvas: #fafbf9;
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafbf9);
 	--owl-ui-panel: #ffffff;
 	--owl-ui-sidebar: #f1f3ef;
 	--owl-ui-border: #e0e5df;
-	--owl-ui-text: #3d3a32;
+	--owl-ui-text: var(--owl-ui-text-override, #3d3a32);
 	--owl-ui-muted: #66726a;
 	--owl-ui-hover: #e9eeea;
 }

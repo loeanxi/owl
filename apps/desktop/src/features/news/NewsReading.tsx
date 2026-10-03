@@ -56,6 +56,7 @@ export function NewsItemReader({
 		);
 	const item = result.data;
 	if (!item) return <div className="owl-news-empty">{t("news.itemUnavailable")}</div>;
+	const categoryLabel = props.snapshot?.categories.find((category) => category.id === item.category)?.label;
 	return (
 		<article
 			className="owl-news-reading"
@@ -68,7 +69,7 @@ export function NewsItemReader({
 			<div className="owl-news-meta">
 				<span>{item.sourceName}</span>
 				<time>{new Date(item.publishedAt).toLocaleString()}</time>
-				<span>{item.category}</span>
+				{categoryLabel && <span>{categoryLabel}</span>}
 				<span>{t(`news.status.${item.status}`)}</span>
 			</div>
 			<h1>{item.title || item.originalTitle}</h1>

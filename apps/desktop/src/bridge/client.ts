@@ -4,6 +4,7 @@ import type {
 	DiffApprovalChangedMessage,
 	IabServerMessage,
 	MailAgentDraftMessage,
+	MapResultsMessage,
 	NewsOpenMessage,
 	PermissionRequestMessage,
 	QuestionAnswerPayload,
@@ -27,6 +28,7 @@ export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 export type NewsOpenHandler = (message: NewsOpenMessage) => void;
 export type MailDraftHandler = (message: MailAgentDraftMessage) => void;
+export type MapResultsHandler = (message: MapResultsMessage) => void;
 export type DiffApprovalChangedHandler = (message: DiffApprovalChangedMessage) => void;
 
 /** Malformed wire payloads must not interrupt the desktop message stream. */
@@ -72,6 +74,7 @@ export class BridgeClient {
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private newsOpenHandlers = new Set<NewsOpenHandler>();
 	private mailDraftHandlers = new Set<MailDraftHandler>();
+	private mapResultsHandlers = new Set<MapResultsHandler>();
 	private diffApprovalHandlers = new Set<DiffApprovalChangedHandler>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
@@ -98,6 +101,10 @@ export class BridgeClient {
 			if (!message) return;
 			if (message.type === "mail.agent.draft") {
 				for (const handler of this.mailDraftHandlers) handler(message);
+				return;
+			}
+			if (message.type === "map.results") {
+				for (const handler of this.mapResultsHandlers) handler(message);
 				return;
 			}
 			if (message.type === "response") {
@@ -220,6 +227,11 @@ export class BridgeClient {
 	onMailDraft(handler: MailDraftHandler): () => void {
 		this.mailDraftHandlers.add(handler);
 		return () => this.mailDraftHandlers.delete(handler);
+	}
+
+	onMapResults(handler: MapResultsHandler): () => void {
+		this.mapResultsHandlers.add(handler);
+		return () => this.mapResultsHandlers.delete(handler);
 	}
 
 	request<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{

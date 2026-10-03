@@ -5,12 +5,16 @@
  */
 
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { EvaluationRequest } from "../../core/evaluation/types.ts";
 import type { MapResultsMessage } from "../../core/maps/types.ts";
+
 export type { MapResultsMessage } from "../../core/maps/types.ts";
+
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
+export type * from "../../core/evaluation/types.ts";
 export type * from "../../core/mail/types.ts";
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
@@ -18,6 +22,12 @@ export interface MailClientRequest {
 	type: "mail.request";
 	id: string;
 	request: MailRequest;
+}
+
+export interface EvaluationClientRequest {
+	type: "evaluation.request";
+	id: string;
+	request: EvaluationRequest;
 }
 
 export interface MailAgentStartRequest {
@@ -1399,6 +1409,7 @@ export interface ProviderModelsMessage {
 }
 
 export type DesktopClientRequest =
+	| EvaluationClientRequest
 	| MailClientRequest
 	| MailAgentStartRequest
 	| NewsClientRequest

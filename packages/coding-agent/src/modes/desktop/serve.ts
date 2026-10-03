@@ -37,6 +37,7 @@ import {
 } from "../../core/agent-session-services.ts";
 import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
 import { getWorkspaceDiffApprovalStore, setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
+import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import {
@@ -73,6 +74,9 @@ import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
+import { handleMapHttp } from "./map-http.ts";
+import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
+import { createMapTools } from "./map-tools.ts";
 import { handleNewsHttp } from "./news-http.ts";
 import { callNewsModel } from "./news-model.ts";
 import { createNewsTools } from "./news-tools.ts";
@@ -302,6 +306,12 @@ export interface DesktopServerOptions {
 	mail?: Partial<Pick<MailServiceOptions, "fetch" | "now" | "seal" | "unseal">>;
 	/** Local dependencies for isolated news integration tests; production uses the Owl model runtime. */
 	news?: Partial<Pick<NewsServiceOptions, "callModel" | "listModels" | "fetch" | "resolveHost" | "resolveModel">>;
+	/** Real geographic sources, injectable for offline map regression checks. */
+	maps?: RealMapServiceOptions;
+	/** Fake evaluation dependencies for isolated local tests; never use paid models in tests. */
+	evaluation?: Partial<
+		Pick<EvaluationServiceOptions, "listModels" | "invoke" | "check" | "builtinTasks" | "timeoutMs">
+	>;
 }
 
 export interface DesktopServerHandle {
@@ -430,6 +440,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	let closingNews = false;
 	let mail: MailService | undefined;
 	let closingMail = false;
+	const maps = new RealMapService(options.maps);
+	let evaluation: EvaluationService | undefined;
+	let closingEvaluation = false;
+
+	function getEvaluationService(): EvaluationService {
+		if (closingEvaluation) throw new Error("模型测评服务正在关闭");
+		evaluation ??= new EvaluationService({ agentDir: defaultAgentDir(), ...options.evaluation });
+		return evaluation;
+	}
 
 	function getMailService(): MailService {
 		if (closingMail) throw new Error("邮箱服务正在关闭");
@@ -760,6 +779,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					...iab.tools(sessionId),
 					...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
 					...createNewsTools(newsRequest, sessionId, broadcast),
+					...createMapTools(maps, sessionId, broadcast),
 				],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
@@ -1180,6 +1200,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
 		switch (request.type) {
+			case "evaluation.request": {
+				const origin = clientOrigins.get(ws);
+				if (
+					origin &&
+					!["127.0.0.1", "localhost", "[::1]", "tauri.localhost"].includes(new URL(origin).hostname.toLowerCase())
+				) {
+					throw new Error("模型测评请求只接受本机界面来源");
+				}
+				reply(ws, request.id, { ok: true, result: await getEvaluationService().handle(request.request) });
+				return;
+			}
 			case "mail.request": {
 				reply(ws, request.id, { ok: true, result: await getMailService().handle(request.request) });
 				return;
@@ -2436,11 +2467,19 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	const uiRoot = resolveUiRoot();
 	const httpServer = createServer((request, response) => {
-		void handleNewsHttp(request, response, {
-			handle: newsRequest,
-			authorizeIngest: (token) => getNewsService().authorizeIngest(token),
-			shutdown: closeNews,
+		void handleMapHttp(request, response, {
+			service: maps,
+			authorizeOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
 		})
+			.then(
+				(handled) =>
+					handled ||
+					handleNewsHttp(request, response, {
+						handle: newsRequest,
+						authorizeIngest: (token) => getNewsService().authorizeIngest(token),
+						shutdown: closeNews,
+					}),
+			)
 			.then((handled) => {
 				if (handled) return;
 				if (!uiRoot) {
@@ -2519,6 +2558,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		async close() {
 			unsubscribeViewers();
 			if (archiveTimer) clearInterval(archiveTimer);
+			closingEvaluation = true;
+			await evaluation?.close();
 			await closeNews();
 			closingMail = true;
 			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在

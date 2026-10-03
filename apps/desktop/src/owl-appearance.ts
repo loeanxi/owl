@@ -69,7 +69,15 @@ function resolvedTheme(): "dark" | "light" {
 function applyToDocument(colors: OwlAppearanceColors): void {
 	if (typeof document === "undefined") return;
 	const root = document.documentElement;
-	for (const name of ["--color-owl-accent", "--color-owl-accent-hover", "--color-owl-bg", "--owl-conversation-bg", "--color-owl-text"]) {
+	for (const name of [
+		"--color-owl-accent",
+		"--color-owl-accent-hover",
+		"--color-owl-bg",
+		"--owl-conversation-bg",
+		"--color-owl-text",
+		"--owl-ui-canvas-override",
+		"--owl-ui-text-override",
+	]) {
 		root.style.removeProperty(name);
 	}
 	if (colors.accent) {
@@ -80,10 +88,14 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 	const perMode = colors[mode];
 	if (perMode.background) {
 		root.style.setProperty("--color-owl-bg", perMode.background);
+		root.style.setProperty("--owl-ui-canvas-override", perMode.background);
 		// 深色档的对话区底色是独立常量，跟随自定义背景保持整屏一致；浅色档它本就指向 --color-owl-bg。
 		if (mode === "dark") root.style.setProperty("--owl-conversation-bg", perMode.background);
 	}
-	if (perMode.foreground) root.style.setProperty("--color-owl-text", perMode.foreground);
+	if (perMode.foreground) {
+		root.style.setProperty("--color-owl-text", perMode.foreground);
+		root.style.setProperty("--owl-ui-text-override", perMode.foreground);
+	}
 }
 
 /** 应用一整套自定义颜色：先存模块级副本（供主题切档时重放），再立即落变量。 */

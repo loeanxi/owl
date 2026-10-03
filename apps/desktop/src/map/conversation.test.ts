@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DesktopClientRequestWithoutId, ServerEventMessage } from "../bridge/protocol.ts";
+import type { DesktopClientRequestWithoutId, ServerEventMessage, RealPlace } from "../bridge/protocol.ts";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import {
 	MapConversation,
@@ -74,12 +74,13 @@ const config: MapConversationConfig = {
 	thinkingLevel: "high",
 	approvalMode: "confirm",
 };
-const context: MapConversationContext = {
-	region: "all",
-	filters: ["quiet"],
-	selectedPlaceId: "liubai",
-	candidates: ["liubai", "muchuang"],
+const place: RealPlace = {
+	id: "osm/node/123", name: "测试咖啡馆", lat: 30.25, lng: 120.2,
+	address: "测试地址", source: { provider: "photon", url: "https://www.openstreetmap.org/node/123", fetchedAt: "2026-10-03T00:00:00Z" },
+	category: "cafe", distanceMeters: 200, openingHours: null, phone: null, website: null,
+	wheelchair: null, internetAccess: null, rating: null, price: null, quiet: null, plug: null, tags: { amenity: "cafe" },
 };
+const context: MapConversationContext = { center: { lat: 30.25, lng: 120.2 }, category: "cafe", radiusMeters: 2000, selectedPlace: place, visiblePlaces: [place] };
 
 function deferred<T>() {
 	let resolve: (value: T) => void = () => {};
@@ -123,7 +124,7 @@ test("the selected Owl model handles greetings, streams and keeps isolated multi
 	assert.ok(prompt?.type === "session.prompt");
 	assert.equal(prompt.sessionId, "map-1");
 	assert.ok(prompt.message.endsWith("你好"));
-	assert.ok(prompt.message.includes("fictional demo data"));
+	assert.ok(prompt.message.includes("real coordinates"));
 	assert.equal(conversation.getState().busy, true);
 	assert.equal(await conversation.send("重复发送", context), false);
 	bridge.emit("main-chat", { type: "message_start", message: { role: "assistant" } });
@@ -335,12 +336,14 @@ test("aborting during creation cancels the pending prompt even if session creati
 	);
 });
 
-test("map context keeps identifiers as fictional data rather than fabricating real addresses", () => {
+test("map context uses fetched place coordinates, source links and explicit unknown details", () => {
 	const prompt = mapPrompt("  原样的问题\n第二行  ", context);
 	assert.ok(prompt.endsWith("  原样的问题\n第二行  "));
-	assert.ok(prompt.includes('"fictional":true'));
-	assert.ok(prompt.includes('"illustratedArea":"湖滨"'));
-	assert.equal(prompt.includes('"address"'), false);
+	assert.ok(prompt.includes('"lat":30.25'));
+	assert.ok(prompt.includes('"address":"测试地址"'));
+	assert.ok(prompt.includes('"rating":null'));
+	assert.ok(prompt.includes("https://www.openstreetmap.org/node/123"));
+	assert.equal(prompt.includes("fictionalCandidates"), false);
 	assert.equal(prompt.includes("chosen-model"), false);
 });
 

@@ -376,6 +376,7 @@ export function NewsPage({
 											api={api}
 											revision={revision}
 											query={{ mode: section, query, category, ...(topic ? { topic } : {}) }}
+											categories={snapshot?.categories}
 											context={context}
 											onItem={openItem}
 											onToggleContext={toggleContext}
@@ -393,6 +394,7 @@ export function NewsPage({
 										api={api}
 										revision={revision}
 										topic={topic}
+										categories={snapshot?.categories}
 										onTopic={setTopic}
 										context={context}
 										onItem={openItem}
@@ -464,6 +466,7 @@ export function NewsPage({
 							</div>
 						)}
 					</main>
+					{/* Keep the discussion and composer mounted when hidden or when another primary view is active. */}
 					<div className="owl-news-assistant-container" style={{ display: assistantOpen ? undefined : "none" }}>
 						<NewsAssistant
 							api={api}
@@ -484,6 +487,7 @@ export function NewsPage({
 interface FeedProps {
 	api: NewsClient;
 	revision: number;
+	categories?: NewsSnapshot["categories"];
 	context: NewsContext;
 	onItem: (id: string) => void;
 	onToggleContext: (item: NewsItem) => void;
@@ -545,7 +549,9 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 							<span className="owl-news-source-letter">{item.sourceName.slice(0, 1)}</span>
 							<span>{item.sourceName}</span>
 							<time>{new Date(item.publishedAt).toLocaleString()}</time>
-							<span>{item.category}</span>
+							{props.categories?.find((category) => category.id === item.category)?.label && (
+								<span>{props.categories.find((category) => category.id === item.category)?.label}</span>
+							)}
 							{item.selected && <span className="owl-news-accent">{t("news.selected")}</span>}
 							{item.status !== "ready" && <span>{t(`news.status.${item.status}`)}</span>}
 						</div>
