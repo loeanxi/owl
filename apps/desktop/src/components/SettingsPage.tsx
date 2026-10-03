@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type {
+	ImageConfigGetResult,
 	MemoryListResult,
 	ProviderModelsMessage,
 	SkillCenterEntry,
@@ -8,6 +9,8 @@ import type {
 	SkillsListResult,
 	SkillsReadResult,
 	SystemPromptPreviewResult,
+	OwlImageConfigPublic,
+	OwlImageProvider,
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
 import { isThemePreference, setThemePreference } from "../theme.ts";
@@ -15,7 +18,7 @@ import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } 
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconArchive, IconCode, IconCompose, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconArchive, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -31,7 +34,35 @@ const CHAT_READING_FIELDS = [
 	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "appearance" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "archived" | "json" | "about";
+
+/** owl-image 的 provider 清单（顺序即下拉顺序；标签走 settings.image.p.* 字典）。 */
+const OWL_IMAGE_PROVIDERS: readonly OwlImageProvider[] = [
+	"google",
+	"openai",
+	"openai-compat",
+	"seedream",
+	"dashscope",
+	"xai",
+	"zhipu",
+	"comfyui",
+	"google-sub",
+];
+
+/** owl-image 的 BYOK provider（有 API key 输入行的子集）。 */
+const OWL_IMAGE_BYOK: readonly Exclude<OwlImageProvider, "comfyui" | "google-sub">[] = ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu"];
+
+const OWL_IMAGE_PROVIDER_LABEL_KEYS: Record<OwlImageProvider, TextKey> = {
+	google: "settings.image.p.google",
+	openai: "settings.image.p.openai",
+	"openai-compat": "settings.image.p.openai-compat",
+	seedream: "settings.image.p.seedream",
+	dashscope: "settings.image.p.dashscope",
+	xai: "settings.image.p.xai",
+	zhipu: "settings.image.p.zhipu",
+	comfyui: "settings.image.p.comfyui",
+	"google-sub": "settings.image.p.google-sub",
+};
 
 /** 技能中心的 tab 元数据：与 skills.list 的三级根一一对应（label/desc 为字典 key，渲染时解析）。 */
 const SKILL_TABS: { tab: SkillCenterTab; labelKey: TextKey; descKey: TextKey }[] = [
@@ -311,6 +342,16 @@ export function SettingsPage({
 	const [memory, setMemory] = useState<MemoryListResult>({ enabled: true, entries: [] });
 	const [confirmDelMemoryId, setConfirmDelMemoryId] = useState<string | null>(null);
 	const [confirmClearMemory, setConfirmClearMemory] = useState(false);
+
+	// 图像生成（owl-image）：配置/密钥状态/订阅状态（imageConfig.* / imageSub.*）。
+	// keyStatus 只拿存在性；imageKeys/imageKeyClear 是「待保存」的输入缓冲。
+	const [imageData, setImageData] = useState<ImageConfigGetResult | null>(null);
+	const [imageCfg, setImageCfg] = useState<OwlImageConfigPublic>({});
+	const [imageKeys, setImageKeys] = useState<Partial<Record<string, string>>>({});
+	const [imageKeyClear, setImageKeyClear] = useState<Partial<Record<string, boolean>>>({});
+	const [imageSaved, setImageSaved] = useState(false);
+	const [imageSubHint, setImageSubHint] = useState("");
+	const [comfyForm, setComfyForm] = useState<{ name: string; json: string; preset: string }>({ name: "", json: "", preset: "" });
 
 	// 插件：新增输入框
 	const [pluginInput, setPluginInput] = useState("");
