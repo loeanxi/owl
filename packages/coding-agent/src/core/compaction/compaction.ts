@@ -348,6 +348,58 @@ export function estimateTokens(message: AgentMessage): number {
 	return 0;
 }
 
+/** 上下文构成的分类估算（字符/4 启发式，与 estimateTokens 同口径）。 */
+export interface ContextBreakdownEstimate {
+	/** 系统提示词（system content + sections）。 */
+	systemPrompt: number;
+	/** 注入的工具定义（system.toolsAdded）。 */
+	toolDefinitions: number;
+	/** 对话消息（user + assistant + 其余非工具结果角色）。 */
+	messages: number;
+	/** 工具结果（toolResult 角色）。 */
+	toolResults: number;
+}
+
+/**
+ * 按角色分类估算上下文构成：系统提示词 / 工具定义 / 对话消息 / 工具结果。
+ * 只做比例与趋势展示用——provider 返回的 usage 无法按类别拆分。
+ */
+export function estimateContextBreakdown(messages: AgentMessage[]): ContextBreakdownEstimate {
+	const breakdown: ContextBreakdownEstimate = { systemPrompt: 0, toolDefinitions: 0, messages: 0, toolResults: 0 };
+	for (const message of messages) {
+		switch (message.role) {
+			case "system": {
+				const system = message as SystemMessage;
+				let promptChars = estimateTextAndImageContentChars(system.content);
+				if (system.sections) {
+					for (const section of Object.values(system.sections)) {
+						if (section) promptChars += section.length;
+					}
+				}
+				breakdown.systemPrompt += Math.ceil(promptChars / 4);
+				if (system.toolsAdded) {
+					breakdown.toolDefinitions += Math.ceil(JSON.stringify(system.toolsAdded).length / 4);
+				}
+				break;
+			}
+			case "toolResult": {
+				breakdown.toolResults += estimateTokens(message);
+				break;
+			}
+			case "user":
+			case "assistant": {
+				breakdown.messages += estimateTokens(message);
+				break;
+			}
+			default: {
+				// bashExecution / branchSummary / compactionSummary 等归入对话消息
+				breakdown.messages += estimateTokens(message);
+			}
+		}
+	}
+	return breakdown;
+}
+
 function isCutPointMessage(message: AgentMessage): boolean {
 	switch (message.role) {
 		case "user":

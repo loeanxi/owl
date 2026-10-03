@@ -48,7 +48,7 @@ export class SubscriptionManager {
 	private pending: { pkce: Pkce } | undefined;
 	private refreshLock: Promise<SubscriptionBlob> | undefined;
 	/** Antigravity needs a per-account project id on every generation call. */
-	private readonly projectCache = new Map<string, string>();
+	private readonly projectCache = new Map<string, { projectId: string; source: "managed" | "onboarded" | "fallback" | "persisted" }>();
 
 	/** Read the stored blob, or undefined when signed out. */
 	readBlob(): SubscriptionBlob | undefined {
@@ -190,13 +190,15 @@ export class SubscriptionManager {
 	 * Antigravity generation envelope needs. Re-resolved when the account
 	 * signs out or a different account logs in.
 	 */
-	private async ensureAntigravityProject(blob: SubscriptionBlob): Promise<AntigravityProjectResolution> {
+	private async ensureAntigravityProject(
+		blob: SubscriptionBlob,
+	): Promise<{ projectId: string; source: "managed" | "onboarded" | "fallback" | "persisted" }> {
 		const cacheKey = blob.refreshToken.length > 0 ? blob.refreshToken : blob.accessToken.slice(0, 32);
 		const cached = this.projectCache.get(cacheKey);
 		if (cached !== undefined) return cached;
 		// 之前引导成功过的项目已持久化在登录 blob 里,直接复用,不再走发现/引导。
 		if (blob.projectId !== undefined && blob.projectId.length > 0) {
-			const persisted: AntigravityProjectResolution = { projectId: blob.projectId, source: "persisted" };
+			const persisted = { projectId: blob.projectId, source: "persisted" as const };
 			this.projectCache.set(cacheKey, persisted);
 			return persisted;
 		}

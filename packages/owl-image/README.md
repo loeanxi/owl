@@ -57,6 +57,8 @@
 |---|---|---|
 | `google`(默认) | `GEMINI_API_KEY` | Gemini Interactions API,t2i + i2i,最高 4K |
 | `google-sub` | OAuth 登录 | 走 Antigravity 账号(Nano Banana 2),`/image-login` 即用;**实验性**,打的是 Google 内部接口,协议来自社区逆向,随时可能失效或被官方封堵,风险自担 |
+
+Google 订阅通道的项目解析分三阶段(补自参考实现):`loadCodeAssist` 取账号自己的托管项目 → 没有则 `onboardUser` 自动开通(探测 tier + 轮询)→ 都失败才回退上游硬编码的社区共享项目 `rising-fact-p41fc`。引导成功的项目 id 会持久化到登录 blob 跨会话复用;若生成错误附带"社区共享项目"诊断,说明引导未成功,该公共池配额耗尽可能导致与账号余量无关的 429——该内部接口对代理出口 IP 也挑剔,换节点是第一排查项。
 | `openai` | `OPENAI_API_KEY` | 官方 Images API(gpt-image-2) |
 | `openai-compat` | `OWL_IMAGE_OPENAI_COMPAT_KEY` | 任意 OpenAI 兼容中转;edits 支持 multipart / JSON image_url 数组 / form reference_images 三种形态 |
 | `seedream` | `ARK_API_KEY` | 火山方舟 Seedream(可去水印/透明底) |

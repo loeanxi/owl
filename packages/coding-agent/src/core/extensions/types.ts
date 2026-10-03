@@ -303,12 +303,26 @@ export interface ExtensionUIContext {
 // Extension Context
 // ============================================================================
 
+/** 上下文构成的分类估算（字符/4 启发式，与总 tokens 同口径按比例缩放）。 */
+export interface ContextUsageBreakdown {
+	/** 系统提示词（system content + sections）。 */
+	systemPrompt: number;
+	/** 注入的工具定义（system.toolsAdded）。 */
+	toolDefinitions: number;
+	/** 对话消息（user / assistant / 摘要等）。 */
+	messages: number;
+	/** 工具结果（toolResult 角色）。 */
+	toolResults: number;
+}
+
 export interface ContextUsage {
 	/** Estimated context tokens, or null if unknown (e.g. right after compaction, before next LLM response). */
 	tokens: number | null;
 	contextWindow: number;
 	/** Context usage as percentage of context window, or null if tokens is unknown. */
 	percent: number | null;
+	/** 上下文构成分类估算；tokens 未知（如压缩后等待下一次响应）时缺省。 */
+	breakdown?: ContextUsageBreakdown;
 }
 
 export interface CompactOptions {

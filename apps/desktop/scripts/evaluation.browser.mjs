@@ -122,10 +122,9 @@ const area = () => page.locator(".owl-eval:visible");
 const latestStart = () => result.requests.filter((request) => request.type === "evaluation.request" && request.request.action === "run.start").at(-1);
 const latestRun = async () => (await rpc({ action: "run.list" }))[0];
 const waitFinished = async (runId) => {
-  await area().locator('.eval-rating button:not(:disabled)').first().waitFor();
   for (let attempt = 0; attempt < 40; attempt++) {
     const run = await rpc({ action: "run.get", runId });
-    if (run.status !== "running") return run;
+    if (run.status !== "running") { await area().locator('[role="progressbar"]').waitFor({ state: "hidden" }); return run; }
     await page.waitForTimeout(50);
   }
   throw new Error("Offline run did not finish");
@@ -235,6 +234,14 @@ try {
     comparedRunId = await newRun("Browser comparison fixture", true);
     const before = await rpc({ action: "run.get", runId: comparedRunId });
     assert.equal(before.results.length, 2);
+    assert.equal(before.results.every((item) => !item.profile && !item.actualModel), true);
+    for (const group of await area().locator(".eval-rating").all()) await group.getByRole("button", { name: "4 分", exact: true }).click();
+    await area().getByRole("button", { name: "提交评分并揭晓", exact: true }).click();
+    await area().locator(".eval-result-name").filter({ hasText: "Fixture Alpha" }).waitFor();
+    const scored = await rpc({ action: "run.get", runId: comparedRunId });
+    assert.equal(scored.results.every((item) => item.profile && Object.keys(item.rating.scores).length === 3), true);
+    assert.deepEqual(scored.groups[0].resultIds, before.groups[0].resultIds);
+    await screenshot("04-two-model-revealed.png");
     await area().getByRole("button", { name: "追加到 3 次", exact: true }).click();
     await area().getByRole("combobox", { name: "每题运行次数", exact: true }).locator('option[value="3"]').waitFor({ state: "attached" });
     await waitFinished(comparedRunId);
