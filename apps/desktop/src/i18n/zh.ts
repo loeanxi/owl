@@ -832,6 +832,25 @@ export const zh = {
 	"question.next": "下一题",
 	"question.submit": "提交回答",
 
+	// ---- 会话回退（owl-rewind）----
+	"rewind.buttonTitle": "回退到这条消息",
+	"rewind.title": "回退到这条消息？",
+	"rewind.modeConversation": "仅回退对话",
+	"rewind.modeConversationHint": "撤回这条消息及其之后的对话，文件保持原样",
+	"rewind.modeCode": "回退对话和代码",
+	"rewind.modeCodeHint": "同时把被追踪的文件还原到这条消息发送之前（先看影响清单）",
+	"rewind.loadingImpact": "正在对照磁盘计算影响…",
+	"rewind.impactEmpty": "没有需要还原的文件改动，文件将保持原样。",
+	"rewind.impactFailed": "影响清单计算失败。",
+	"rewind.unchangedNote": "另有 {n} 个被追踪文件与目标状态一致，不会改动。",
+	"rewind.actionRestore": "还原",
+	"rewind.actionDelete": "删除",
+	"rewind.confirmCode": "还原并回退",
+	"rewind.back": "返回",
+	"rewind.executing": "正在回退…",
+	"rewind.failed": "回退失败。",
+	"rewind.auditNote": "被撤回的内容保留在会话日志中，可审计；快照存于 rewind-snapshots/。",
+
 	// ---- 任务清单常驻条 ----
 	"todo.title": "任务清单",
 	"todo.allDone": " 全部完成",

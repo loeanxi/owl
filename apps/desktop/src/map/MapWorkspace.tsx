@@ -1,6 +1,7 @@
 import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
 import { MapIcon, type MapIconName } from "./Icons.tsx";
+import { mapWorldLayout } from "./geometry.ts";
 import {
 	addSearchHistory,
 	DEFAULT_SEARCH,
@@ -81,6 +82,8 @@ export function MapWorkspace({
 	const [zoom, setZoom] = useState(1);
 	const [toast, setToast] = useState("");
 	const workspaceRef = useRef<HTMLDivElement>(null);
+	const mapViewportRef = useRef<HTMLElement>(null);
+	const [mapViewport, setMapViewport] = useState({ width: 0, height: 0 });
 	const panelScrollRef = useRef<HTMLDivElement>(null);
 	const followInputRef = useRef<HTMLInputElement>(null);
 	const locationRef = useRef<HTMLDivElement>(null);
@@ -108,6 +111,22 @@ export function MapWorkspace({
 	const contextPlace = DEMO_PLACES.find((p) => p.id === followContext);
 	const answerPlace = DEMO_PLACES.find((p) => p.id === followAnswerId);
 	const hasDetail = Boolean(detailPlace);
+	const availableMapWidth = Math.max(0, mapViewport.width - (hasDetail ? Math.min(336, mapViewport.width) : 0));
+	const mapLayout = mapWorldLayout(availableMapWidth, mapViewport.height, zoom, selectedPlace ?? { x: 54, y: 50 });
+	const searchCenter = scope.region === "武林" ? { x: 78, y: 26 }
+		: scope.region === "西湖区" ? { x: 37, y: 45 } : { x: 71, y: 48 };
+
+	useEffect(() => {
+		const viewport = mapViewportRef.current;
+		if (!active || !viewport) return;
+		const observer = new ResizeObserver(([entry]) => {
+			if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+				setMapViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
+			}
+		});
+		observer.observe(viewport);
+		return () => observer.disconnect();
+	}, [active]);
 
 	function showToast(message: string): void {
 		setToast(message);
@@ -895,11 +914,12 @@ export function MapWorkspace({
 						</section>
 						<section
 							className={`map-stage map-surface${hasDetail ? " has-detail" : ""}`}
+							ref={mapViewportRef}
 							aria-label={m("mapLabel")}
 						>
 							<div
 								className="map-art map-world"
-								style={{ transform: `scale(${zoom})`, transformOrigin: "50% 50%" }}
+								style={{ inset: "auto", ...mapLayout, transform: "none" }}
 							>
 								<img className="map-art-dark" src="/maps/hangzhou.svg" alt="" draggable={false} />
 								<img className="map-art-light" src="/maps/hangzhou-light.svg" alt="" draggable={false} />
@@ -923,7 +943,7 @@ export function MapWorkspace({
 								))}
 								<div
 									className="map-dot"
-									style={{ left: "71%", top: "48%" }}
+									style={{ left: `${searchCenter.x}%`, top: `${searchCenter.y}%` }}
 									title={m("searchCenter")}
 									aria-hidden="true"
 								/>

@@ -798,7 +798,7 @@ function participants(story: NewsStory, start: number, end: number): Map<string,
 			report.backfill ||
 			Date.parse(report.discoveredAt) - at > 2 * DAY_MS ||
 			report.participation === "isolated" ||
-			report.status === "blocked" ||
+			report.status !== "ready" ||
 			report.contentKind === "composite" ||
 			at <= start ||
 			at > end
@@ -916,7 +916,7 @@ function dailyCandidates(
 	start: number,
 	end: number,
 ): DailyCandidate[] {
-	const memorySince = start - 7 * DAY_MS;
+	const memorySince = end - 7 * DAY_MS;
 	const previous = previousReports.filter(
 		(report) =>
 			report.kind === "daily" && report.key < key && Date.parse(`${report.key}T08:00:00+08:00`) >= memorySince,
@@ -1052,6 +1052,15 @@ export function groundedNewsText(text: string, corpus: string): boolean {
 	);
 }
 
+function fittedNewsText(text: string, max: number): string {
+	let fitted = "";
+	for (const sentence of text.trim().match(/[^。！？]+(?:[。！？]+[」”’）]*|$)/g) ?? []) {
+		if (Array.from(fitted + sentence).length > max) break;
+		fitted += sentence;
+	}
+	return fitted.trim();
+}
+
 export async function composeNewsReport(
 	kind: NewsReportKind,
 	key: string,
@@ -1170,11 +1179,12 @@ export async function composeNewsReport(
 				0.3,
 			);
 			const corpus = main.map((item) => `${item.title}\n${item.summary}`).join("\n");
-			if (result.overview.trim() && groundedNewsText(result.overview, corpus)) lead = result.overview.trim();
+			const overview = fittedNewsText(result.overview, kind === "weekly" ? 250 : 350);
+			if (overview && groundedNewsText(overview, corpus)) lead = overview;
 			intros = Object.fromEntries(
-				Object.entries(result.sections).filter(
-					([label, text]) => introduced.includes(label) && text.trim() && groundedNewsText(text, corpus),
-				),
+				Object.entries(result.sections)
+					.map(([label, text]) => [label, fittedNewsText(text, 90)] as const)
+					.filter(([label, text]) => introduced.includes(label) && text.trim() && groundedNewsText(text, corpus)),
 			);
 		}
 	}

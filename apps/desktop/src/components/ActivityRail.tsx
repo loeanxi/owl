@@ -1,9 +1,9 @@
 import { useT } from "../i18n/index.ts";
-import { IconChat, IconMore, IconSettings } from "./icons.tsx";
+import { IconChat, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map";
+export type RailView = "chat" | "map" | "news";
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
@@ -45,6 +45,10 @@ export function ActivityRail({
 				onClick={() => onSelect("chat")}
 			>
 				<IconChat className="h-[18px] w-[18px]" />
+			</button>
+
+			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
+				<IconNews className="h-[18px] w-[18px]" />
 			</button>
 
 			<button

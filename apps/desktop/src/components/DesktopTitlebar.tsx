@@ -8,7 +8,7 @@ type MenuKey = "file" | "edit" | "view" | "help";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map";
+	sidebarView?: "chat" | "map" | "news";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
@@ -23,7 +23,9 @@ interface DesktopTitlebarProps {
 /** Desktop chrome owns app actions; conversation controls stay in the frame below. */
 export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element {
 	const t = useT();
-	const sidebarLabel = props.sidebarView === "map"
+	const sidebarLabel = props.sidebarView === "news"
+		? t("news.navigation")
+		: props.sidebarView === "map"
 		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
 		: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");
 	const [menu, setMenu] = useState<MenuKey | undefined>();

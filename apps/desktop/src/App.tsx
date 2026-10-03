@@ -4,6 +4,7 @@ import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModel
 import { applyEvent, rebuild, type ChatEntry } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
+import { NewsPage } from "./features/news/NewsPage.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
@@ -76,6 +77,7 @@ export default function App(): React.JSX.Element {
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
+	const [newsTarget, setNewsTarget] = useState<{ kind: "item" | "story"; id: string; revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() =>
 		new URLSearchParams(window.location.search).get("view") === "map" ? "map" : "chat",
 	);
@@ -221,7 +223,53 @@ export default function App(): React.JSX.Element {
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
+	useEffect(() => client.onNewsOpen((message) => {
+		if (sessionIdRef.current && message.sessionId !== sessionIdRef.current) return;
+		setShowSettings(false);
+		setRailView("news");
+		setNewsTarget({ kind: message.kind, id: message.id, revision: Date.now() });
+	}), [client]);
+	useEffect(() => {
+		const openNewsHash = (): void => {
+			const match = /^#news\/(item|story)\/([^/]+)$/.exec(window.location.hash.replace(/^#\//, "#"));
+			if (!match) return;
+			let id: string;
+			try { id = decodeURIComponent(match[2]); } catch { return; }
+			setShowSettings(false); setRailView("news");
+			setNewsTarget({ kind: match[1] as "item" | "story", id, revision: Date.now() });
+		};
+		openNewsHash();
+		window.addEventListener("hashchange", openNewsHash);
+		return () => window.removeEventListener("hashchange", openNewsHash);
+	}, []);
 	useEffect(() => setQuestionNavOpen(false), [sessionId, workspaceDir]);
+	useEffect(() => setRewindTarget(undefined), [sessionId, workspaceDir]);
+
+	// -- 会话回退（owl-rewind）--------------------------------------------------
+	// 点用户消息旁的 ↶：找到带 entryId 的行弹确认弹层；执行成功后按快照重建
+	// 转录、把被回退的目标消息文本回填输入框（replace 语义，替换现有草稿）。
+	const handleRewindClick = (entryId: string): void => {
+		if (!sessionIdRef.current) return;
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index]!;
+			if (entry.kind !== "user") continue;
+			if (entry.entryId !== entryId) return;
+			setRewindTarget({ entryId, text: entry.text });
+			return;
+		}
+	};
+
+	const handleRewindDone = (result: {
+		editorText?: string;
+		snapshot: { messages: Record<string, unknown>[]; messageEntryIds: (string | undefined)[] };
+	}): void => {
+		setRewindTarget(undefined);
+		setEntries(rebuild(result.snapshot.messages, result.snapshot.messageEntryIds));
+		if (typeof result.editorText === "string") {
+			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
+		}
+		void refreshStats();
+	};
 
 	useEffect(() => {
 		client.connect();
@@ -796,7 +844,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={sessionId ?? ""}
 				revision={sidebarRev}
 				focus={railView}
-				minimized={sidebarMinimized || showSettings || railView === "map"}
+				minimized={sidebarMinimized || showSettings || railView !== "chat"}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
 				onNewChat={() => {
@@ -809,6 +857,12 @@ export default function App(): React.JSX.Element {
 			/>
 			<div className="owl-map-view" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MapWorkspace active={railView === "map" && !showSettings} sidebarCollapsed={sidebarMinimized} />
+			</div>
+			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+				<NewsPage client={client} active={railView === "news" && !showSettings} initialTarget={newsTarget} onToChat={(text) => {
+					setRailView("chat"); setShowSettings(false); setConversationViewPersisted("chat");
+					setDraftRequest({ id: ++draftSequence.current, text });
+				}} />
 			</div>
 			<div className="owl-main-frame" style={{ display: railView === "chat" || showSettings ? undefined : "none" }}>
 				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
@@ -842,7 +896,7 @@ export default function App(): React.JSX.Element {
 							<ContextView client={client} cwd={workspaceDir} />
 						) : (
 							<>
-								<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} />
+								<ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<Artifacts artifacts={artifacts} onOpenFile={openTaskFile} />} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} onRewind={handleRewindClick} />
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 						)}
@@ -922,6 +976,16 @@ export default function App(): React.JSX.Element {
 						client.respondQuestion(questions[0].requestId, answers, cancelled);
 						setQuestions((current) => current.slice(1));
 					}}
+				/>
+			)}
+			{rewindTarget && sessionId && (
+				<RewindDialog
+					key={rewindTarget.entryId}
+					client={client}
+					sessionId={sessionId}
+					target={rewindTarget}
+					onDone={handleRewindDone}
+					onClose={() => setRewindTarget(undefined)}
 				/>
 			)}
 		</div>

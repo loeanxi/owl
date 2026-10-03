@@ -17,8 +17,8 @@ import {
 	existsSync,
 	lstatSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -307,7 +307,15 @@ export function captureFileState(absolutePath: string, maxFileBytes: number): St
 			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, content: null, skipped: "link" };
 		}
 		if (!stats.isFile()) {
-			return { path: absolutePath, dirRealPath, existed: true, hash: null, size: 0, content: null, skipped: "not-file" };
+			return {
+				path: absolutePath,
+				dirRealPath,
+				existed: true,
+				hash: null,
+				size: 0,
+				content: null,
+				skipped: "not-file",
+			};
 		}
 		if (stats.size > maxFileBytes) {
 			return {

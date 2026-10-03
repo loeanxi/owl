@@ -19,6 +19,11 @@ function Svg({ children, className }: { children: React.ReactNode; className?: s
 	);
 }
 
+/** Primary navigation: news and briefings. */
+export function IconNews({ className }: { className?: string }): React.JSX.Element {
+	return <Svg className={className}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 11h3v4H8zM14 11h2M14 15h2M8 18h8" /></Svg>;
+}
+
 /** rail：聊天（主页） */
 export function IconHome({ className }: { className?: string }): React.JSX.Element {
 	return (

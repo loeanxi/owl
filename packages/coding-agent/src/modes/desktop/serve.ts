@@ -677,7 +677,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const normalizedCwd = resolve(cwd);
 		const normalizedPath = resolve(absolutePath);
 		if (normalizedPath.toLowerCase().startsWith(normalizedCwd.toLowerCase() + sep)) {
-			return normalizedPath.slice(normalizedCwd.length + 1).split(sep).join("/");
+			return normalizedPath
+				.slice(normalizedCwd.length + 1)
+				.split(sep)
+				.join("/");
 		}
 		return absolutePath;
 	}
@@ -1210,7 +1213,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				const sessionManager = session.runtime.session.sessionManager;
-				const targets = listRewindTargets(sessionManager.buildSessionProjection().entries.map((entry) => entry.sourceEntry));
+				const targets = listRewindTargets(
+					sessionManager.buildSessionProjection().entries.map((entry) => entry.sourceEntry),
+				);
 				reply(ws, request.id, { ok: true, result: { targets } satisfies RewindTargetsResult });
 				return;
 			}
@@ -1230,7 +1235,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const tracker = getSessionRewindTracker(defaultAgentDir(), request.sessionId, {
 						maxFileBytes: await rewindMaxFileBytes(sessionManager.getCwd()),
 					});
-					const plan = tracker.planRestore({ entryId: request.entryId, time: targetEntry.timestamp }, sessionManager);
+					const plan = tracker.planRestore(
+						{ entryId: request.entryId, time: targetEntry.timestamp },
+						sessionManager,
+					);
 					const cwd = sessionManager.getCwd();
 					const files: RewindImpactFile[] = plan.actions.map((item) => ({
 						path: item.path,
@@ -1238,7 +1246,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						action: item.action,
 						size: item.size,
 					}));
-					reply(ws, request.id, { ok: true, result: { files, unchanged: plan.unchanged } satisfies RewindImpactResult });
+					reply(ws, request.id, {
+						ok: true,
+						result: { files, unchanged: plan.unchanged } satisfies RewindImpactResult,
+					});
 				} catch (error) {
 					reply(ws, request.id, {
 						ok: false,
@@ -1273,7 +1284,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					let skipped: Array<{ path: string; reason: string }> = [];
 					if (request.mode === "both") {
 						// 先还原文件再移动 leaf：还原失败时原地报错，会话保持原状
-						const plan = tracker.planRestore({ entryId: request.entryId, time: targetEntry.timestamp }, sessionManager);
+						const plan = tracker.planRestore(
+							{ entryId: request.entryId, time: targetEntry.timestamp },
+							sessionManager,
+						);
 						const result = tracker.applyRestore(plan);
 						restored = result.restored;
 						deleted = result.deleted;

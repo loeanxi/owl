@@ -568,7 +568,10 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-row { margin: 12px 0; min-width: 0; }
 .owl-chat-question { margin: 28px 0 24px; scroll-margin-top: 16px; }
 .owl-chat-question:first-child { margin-top: 0; }
-.owl-user-row { display: flex; justify-content: flex-end; }
+.owl-user-row { display: flex; justify-content: flex-end; align-items: flex-start; gap: 6px; }
+.owl-rewind-trigger { flex: none; width: 24px; height: 24px; margin-top: 6px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease, color .12s ease; }
+.owl-user-row:hover .owl-rewind-trigger, .owl-rewind-trigger:focus-visible { opacity: 1; }
+.owl-rewind-trigger:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
 .owl-user-bubble { max-width: 85%; border-radius: 16px; background: var(--color-owl-bubble); padding: 10px 16px; font-size: calc(var(--owl-chat-font-size, 16px) - 2px); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.7); color: var(--owl-reading-text); overflow-wrap: anywhere; }
 .owl-answer > :first-child { margin-top: 0; }

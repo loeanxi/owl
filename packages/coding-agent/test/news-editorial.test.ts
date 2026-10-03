@@ -239,6 +239,42 @@ describe("news editorial selection", () => {
 		expect(trace.indexOf("structure-finished")).toBeLessThan(trace.indexOf("understand"));
 	});
 
+	it("does not return a score failure while a concurrent structure response is still in flight", async () => {
+		const fixture = caller();
+		let release: (() => void) | undefined;
+		let scoreSeen: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const scoreStarted = new Promise<void>((resolve) => {
+			scoreSeen = resolve;
+		});
+		let completed = false;
+		const call: NewsModelCaller = async (request) => {
+			if (request.capability === "structure") await gate;
+			if (request.capability === "score") {
+				scoreSeen?.();
+				throw new Error("fake score rejection");
+			}
+			return fixture.call(request);
+		};
+		const pending = analyzeMaterial(material, source, configuration(), call).then(
+			() => {
+				completed = true;
+				return "unexpected success";
+			},
+			(error: unknown) => {
+				completed = true;
+				return error instanceof Error ? error.message : "unknown";
+			},
+		);
+		await scoreStarted;
+		await Promise.resolve();
+		expect(completed).toBe(false);
+		release?.();
+		expect(await pending).toBe("fake score rejection");
+	});
+
 	it("blocks unrelated material before purchasing score, structure, or writing", async () => {
 		const fixture = caller({ label: "BLOCK" });
 		const result = await analyzeMaterial(
@@ -497,6 +533,35 @@ describe("news heat and reports", () => {
 		expect(result?.sections.flatMap((section) => section.items).map((entry) => entry.id)).toEqual(["progress"]);
 		const next = await composeNewsReport("daily", "2026-10-04", [late], [], [past]);
 		expect(next?.sections[0]?.items[0]?.id).toBe("late");
+	});
+
+	it("limits daily memory to exactly seven prior editions and tracks folded developments", async () => {
+		const current = item("repeated");
+		const atBoundary = daily("2026-09-26", [current]);
+		const outside = daily("2026-09-25", [current]);
+		expect(await composeNewsReport("daily", "2026-10-03", [current], [], [atBoundary])).toBeNull();
+		expect(await composeNewsReport("daily", "2026-10-03", [current], [], [outside])).not.toBeNull();
+		const prior = daily("2026-10-02", [item("other")]);
+		prior.relatedItems = { other: [current] };
+		expect(await composeNewsReport("daily", "2026-10-03", [current], [], [prior])).toBeNull();
+	});
+
+	it("folds different developments and a selected roundup under one event without losing their report memory", async () => {
+		const root = item("root");
+		const progress = item("progress", { storyId: root.storyId, sourceTier: "T1", score: 95 });
+		const roundup = item("roundup", {
+			storyId: null,
+			factId: null,
+			contentKind: "composite",
+			fact: null,
+			mentionedStoryIds: [root.storyId!],
+		});
+		const result = await composeNewsReport("daily", "2026-10-03", [root, progress, roundup], [], []);
+		const main = result?.sections.flatMap((section) => section.items) ?? [];
+		expect(main).toHaveLength(1);
+		expect(result?.relatedItems?.[main[0]!.id]?.map((entry) => entry.id).sort()).toEqual(
+			["roundup", main[0]!.id === "root" ? "progress" : "root"].sort(),
+		);
 	});
 
 	it("keeps low-authority follow-ups as flashes when fresh events exist", async () => {

@@ -834,6 +834,25 @@ export const en: Dict = {
 	"question.next": "Next",
 	"question.submit": "Submit answers",
 
+	// ---- Session rewind (owl-rewind) ----
+	"rewind.buttonTitle": "Rewind to this message",
+	"rewind.title": "Rewind to this message?",
+	"rewind.modeConversation": "Conversation only",
+	"rewind.modeConversationHint": "Withdraw this message and everything after it; files stay as they are",
+	"rewind.modeCode": "Conversation and code",
+	"rewind.modeCodeHint": "Also restore tracked files to their state before this message (review the impact list first)",
+	"rewind.loadingImpact": "Computing impact against the disk…",
+	"rewind.impactEmpty": "No tracked file changes to restore; files stay as they are.",
+	"rewind.impactFailed": "Failed to compute the impact list.",
+	"rewind.unchangedNote": "{n} tracked file(s) already match the target state and will be left alone.",
+	"rewind.actionRestore": "Restore",
+	"rewind.actionDelete": "Delete",
+	"rewind.confirmCode": "Restore and rewind",
+	"rewind.back": "Back",
+	"rewind.executing": "Rewinding…",
+	"rewind.failed": "Rewind failed.",
+	"rewind.auditNote": "Withdrawn content stays in the session log for audit; snapshots live in rewind-snapshots/.",
+
 	// ---- Todo pin ----
 	"todo.title": "Tasks",
 	"todo.allDone": " all done",
