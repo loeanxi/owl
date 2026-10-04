@@ -1,7 +1,7 @@
 /** 消息操作栏调试页（仅 dev 用）：mock 转录渲染 ChatStream，检查回答操作栏、
  * 工具输出的时间+复制、用户消息的编辑/复制/回退。打开
  * http://localhost:5188/msg-actions-debug.html。排查完可整体移除。 */
-import { StrictMode, createElement } from "react";
+import { StrictMode, Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatStream } from "../components/ChatStream.tsx";
 import { GenuiSessionProvider } from "../components/Genui.tsx";
@@ -63,6 +63,7 @@ const entries: ChatEntry[] = [
 		segments: [{ kind: "text", text: "## 结论\n最常见的单包 **类型检查失败**……" }],
 		timestamp: at(8, 42),
 		usage: { input: 984500, output: 42300, cacheRead: 1920400, cacheWrite: 0 },
+		tools: [],
 	},
 	{ kind: "user", text: "好，按方案一修，修完把两个包都重新类型检查一遍", entryId: "entry-2", timestamp: at(8, 43) },
 	{
@@ -71,6 +72,7 @@ const entries: ChatEntry[] = [
 		segments: [{ kind: "text", text: "全绿了，两个包都严格类型检查通过。" }],
 		timestamp: at(8, 45),
 		usage: { input: 81200, output: 310, cacheRead: 640000, cacheWrite: 0 },
+		tools: [],
 	},
 ];
 
@@ -92,8 +94,22 @@ function App(): React.JSX.Element {
 	);
 }
 
+/** 临时排查用边界：渲染错误直接显示在页面上。 */
+class DebugBoundary extends Component<{ children: ReactNode }, { error?: string }> {
+	state = { error: undefined };
+	static getDerivedStateFromError(error: unknown) {
+		return { error: String((error as Error)?.stack ?? error) };
+	}
+	render() {
+		if (this.state.error) return <pre id="debug-error" style={{ color: "#f87171", padding: 20, whiteSpace: "pre-wrap" }}>{this.state.error}</pre>;
+		return this.props.children;
+	}
+}
+
 createRoot(document.getElementById("app")!).render(
 	<StrictMode>
-		<div style={{ color: "#fff", padding: 20 }}>PROBE OK</div>
+		<DebugBoundary>
+			<App />
+		</DebugBoundary>
 	</StrictMode>,
 );
