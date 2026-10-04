@@ -12,7 +12,7 @@
 # UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed')]
+  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin')]
   [string]$Command,
 
   [long]$Hwnd = 0,
@@ -69,6 +69,8 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref PT point);
+    public struct PT { public int X; public int Y; }
 
     public static bool IsCloaked(IntPtr hwnd) {
         int cloaked;
@@ -340,6 +342,15 @@ switch ($Command) {
     }
   }
 
+  'clientorigin' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    $hwndPtr = [IntPtr]$Hwnd
+    $pt = New-Object OwlMirrorWin32+PT
+    $pt.X = 0; $pt.Y = 0
+    [OwlMirrorWin32]::ClientToScreen($hwndPtr, [ref]$pt) | Out-Null
+    Write-JsonLine ('{"event":"clientorigin","x":' + $pt.X + ',"y":' + $pt.Y + '}')
+    Write-JsonLine '{"event":"ready"}'
+  }
   'probe' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd
