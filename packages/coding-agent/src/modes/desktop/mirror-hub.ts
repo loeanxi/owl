@@ -10,6 +10,7 @@ import { type ChildProcessByStdio, spawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { MirrorWindowInfo } from "./protocol.ts";
+import { hideRect } from "./mirror/embed-layout.ts";
 
 const WORKER_URL = new URL("./mirror/windows-capture.ps1", import.meta.url);
 
@@ -41,6 +42,8 @@ export function isHongguoWindow(win: { process: string; title: string }): boolea
 export class MirrorHub {
 	private readonly options: MirrorHubOptions;
 	private readonly workers = new Map<string, MirrorWorker>();
+	/** 已嵌入窗口的还原元数据（原始样式/原父），unembed 时带回。 */
+	private readonly embedMeta = new Map<string, { originalStyle: number; originalParent: number }>();
 	private windows: MirrorWindowInfo[] = [];
 	private supported = true;
 	private disposed = false;
@@ -145,8 +148,79 @@ export class MirrorHub {
 		}
 	}
 
+	/**
+	 * 嵌入：目标窗口 SetParent 到 parentHwnd 并去头，按 rect 摆放。
+	 * worker 返回的原始样式/原父缓存下来，unembed 时带回还原。
+	 */
+	async embedWindow(
+		windowId: string,
+		parentHwnd: number,
+		rect: { x: number; y: number; width: number; height: number },
+	): Promise<void> {
+		const hwnd = Number(windowId);
+		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		if (!Number.isFinite(parentHwnd) || parentHwnd <= 0) throw new Error("invalid parentHwnd");
+		const lines = await this.runWorkerLines([
+			"embed",
+			"-Hwnd", String(hwnd),
+			"-ParentHwnd", String(parentHwnd),
+			"-X", String(Math.round(rect.x)),
+			"-Y", String(Math.round(rect.y)),
+			"-W", String(Math.round(rect.width)),
+			"-H", String(Math.round(rect.height)),
+		]);
+		for (const line of lines) {
+			if (!line.includes('"event":"embedded"')) continue;
+			try {
+				const obj = JSON.parse(line) as { originalStyle?: number; originalParent?: number };
+				this.embedMeta.set(windowId, {
+					originalStyle: obj.originalStyle ?? 0x00cf0000,
+					originalParent: obj.originalParent ?? 0,
+				});
+			} catch { }
+		}
+	}
+
+	/** 布局同步：移动/缩放嵌入窗口；visible=false 时移到屏外隐藏矩形。 */
+	async layoutWindow(
+		windowId: string,
+		rect: { x: number; y: number; width: number; height: number },
+		visible: boolean,
+	): Promise<void> {
+		const hwnd = Number(windowId);
+		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		const applied = visible ? rect : hideRect();
+		await this.runWorkerLines([
+			"move",
+			"-Hwnd", String(hwnd),
+			"-X", String(Math.round(applied.x)),
+			"-Y", String(Math.round(applied.y)),
+			"-W", String(Math.round(applied.width)),
+			"-H", String(Math.round(applied.height)),
+		]);
+	}
+
+	/** 解除嵌入：脱离父窗口、还原标题栏样式，变回独立顶层窗口。 */
+	async unembedWindow(windowId: string): Promise<void> {
+		const hwnd = Number(windowId);
+		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		const meta = this.embedMeta.get(windowId);
+		this.embedMeta.delete(windowId);
+		await this.runWorkerLines([
+			"unembed",
+			"-Hwnd", String(hwnd),
+			"-Style", String(meta?.originalStyle ?? -1),
+			"-ParentHwnd", String(meta?.originalParent ?? 0),
+		]);
+	}
+
 	dispose(): void {
 		this.disposed = true;
+		// 解除全部嵌入（还原窗口），再收 worker
+		for (const windowId of [...this.embedMeta.keys()]) {
+			this.unembedWindow(windowId).catch(() => {});
+		}
+		this.embedMeta.clear();
 		for (const [windowId, worker] of this.workers) {
 			if (worker.detachTimer) clearTimeout(worker.detachTimer);
 			this.killWorker(worker);

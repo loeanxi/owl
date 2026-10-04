@@ -2841,6 +2841,33 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "mirror.embed": {
+				try {
+					await mirror.embedWindow(request.windowId, request.parentHwnd, request.rect);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "mirror.layout": {
+				try {
+					await mirror.layoutWindow(request.windowId, request.rect, request.visible);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "mirror.unembed": {
+				try {
+					await mirror.unembedWindow(request.windowId);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。

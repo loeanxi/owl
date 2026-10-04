@@ -1494,12 +1494,44 @@ export interface MirrorLaunchRequest {
 	id: string;
 }
 
+/**
+ * 嵌入：把目标窗口 SetParent 成指定父窗口（owl 主窗口的 webview HWND）的
+ * 子窗口并去头（隐藏系统标题栏）。rect 为父客户区物理像素。worker 返回的
+ * 原始样式/原父由桥缓存，unembed 时带回还原。
+ */
+export interface MirrorEmbedRequest {
+	type: "mirror.embed";
+	id: string;
+	windowId: string;
+	parentHwnd: number;
+	rect: { x: number; y: number; width: number; height: number };
+}
+
+/** 布局同步：移动/缩放嵌入窗口；visible=false 时移出父客户区隐藏。 */
+export interface MirrorLayoutRequest {
+	type: "mirror.layout";
+	id: string;
+	windowId: string;
+	rect: { x: number; y: number; width: number; height: number };
+	visible: boolean;
+}
+
+/** 解除嵌入：脱离父窗口、还原标题栏样式，变回独立顶层窗口。 */
+export interface MirrorUnembedRequest {
+	type: "mirror.unembed";
+	id: string;
+	windowId: string;
+}
+
 export type MirrorClientRequest =
 	| MirrorListRequest
 	| MirrorAttachRequest
 	| MirrorDetachRequest
 	| MirrorRestoreRequest
-	| MirrorLaunchRequest;
+	| MirrorLaunchRequest
+	| MirrorEmbedRequest
+	| MirrorLayoutRequest
+	| MirrorUnembedRequest;
 
 /** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
 export interface FsChangedEvent {
