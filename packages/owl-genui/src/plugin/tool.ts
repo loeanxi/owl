@@ -23,8 +23,8 @@ const RenderUiParams = Type.Object({
 		{
 			additionalProperties: true,
 			description: [
-				"Render structured UI for the user (tool-row card). USE THIS whenever the answer contains ≥3 parallel points, a comparison, numbers/metrics, a step sequence, a flow, or a status/report — do NOT write those as markdown bullets or a markdown table.",
-				"Same white-listed vocabulary as the ```owl-ui fence (see the GenUI system-prompt section). Pick the fence when the UI belongs in the message body; pick this tool when the deliverable is a self-contained card.",
+				"A self-contained interactive card, when requested or when interaction clearly helps the task. Ordinary text, lists, comparisons, code, and status reports can use Markdown without this tool.",
+				"Read the genui skill for component fields. Use an owl-ui fence for inline UI without a tool call; use this tool for a separate interactive card.",
 				"Deep-validated and repaired by the renderer. Pass the spec as a JSON OBJECT — never as a serialized JSON string.",
 			].join(" "),
 		},
@@ -118,6 +118,7 @@ export function createRenderUiTool(): ToolDefinition<typeof RenderUiParams> {
 			const processed = processGenuiSpec(specOf(rawParams));
 			if (!isRenderableProcess(processed) || processed.spec === null) {
 				return {
+					isError: true,
 					content: [
 						{
 							type: "text",

@@ -1,6 +1,6 @@
 ---
 name: genui
-description: "Render structured interactive UI inline through the owl-ui fence. Use for key points, emphasis, comparisons, flows, steps, status, data, demos, and interactions whenever structured presentation would be clearer than prose. Preserve conversation language for all user-visible text."
+description: "Render optional interactive views through owl-ui when requested or when charts, spatial diagrams, forms, or filters clearly help the task. Ordinary answers and reports can use Markdown. Preserve conversation language for all user-visible text."
 ---
 
 # GenUI — 生成式 UI 输出规范
@@ -98,11 +98,11 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 
 **判断口诀**：这段内容换成结构化组件，会不会比纯文字更好扫、更好懂、更好操作？会 → 就用，**不需要等用户开口要 UI**。
 
-**硬触发（出现就至少出一个围栏，不要退回纯文字段落）**：
-- ≥3 条并列要点 → `list`；≥2 组数字对比 → `table`；指标/进度/状态 → `stat`/`progress`/`badge`
-- 步骤/时间线 → `steps`/`timeline`/`mermaid`；架构/流程 → `diagram`/`mermaid`；风险/结论 → `callout`；代码/改动 → `code`/`diff`/`json`
-- 趋势/占比 → `chart`（≤8 点）或 `echart`（多序列/要交互/数据量大）
-- 收尾自检：回答超过约 10 行时确认至少有一个围栏；同一份信息不要既写文字又重复出组件；纯问答不套 UI。
+**先判断展示收益，再选组件**：
+- 普通问答、能力介绍、要点、数字对比、进度汇报和代码说明可以直接用 Markdown；条目数量、数字和回答长度都不是 UI 触发条件。
+- 用户要求交互界面，或图表、空间关系、筛选、表单明显比文字有用时，再按下表选择组件。
+- 趋势/占比可用 `chart`（≤8 点）或 `echart`（多序列/需要交互/数据量大）；普通数据表不必为了外观调用工具。
+- 内联 UI 优先使用围栏，不产生额外工具往返；独立交互卡片才使用 `render_ui`。同一份信息不要在文字和组件中重复呈现。
 
 | 你要呈现的内容 | 用这些组件 |
 |---|---|
@@ -241,17 +241,17 @@ description: "Render structured interactive UI inline through the owl-ui fence. 
 
 ## 使用规则
 
-1. **围栏放哪，组件就出现在哪** —— 文字在前后自然流动，不要用工具、不要解释"这是一个围栏"。**围栏一闭合就立即渲染**（不等整条回答结束），所以可以边写文字边出组件
+1. **围栏放哪，组件就出现在哪** —— 文字在前后自然流动；内联围栏无需调用 `render_ui`，独立交互卡片才用该工具。不要解释"这是一个围栏"。**围栏一闭合就立即渲染**（不等整条回答结束），所以可以边写文字边出组件
 2. **组合优先**：复杂界面用 `grid`+`card`+`stat`+`table` 拼，不要追求单一巨型组件
 3. **JSON 必须严格合法，发出前完成 4 步自检**：不要依赖自动修复。渲染器会尝试确定性的标点修复，并在回复结束后尝试受限结构补全；无法恢复时显示提示，并保留可展开的诊断与原文。模型仍须输出合法 JSON，发现错误就按规范重发。**最容易犯的错：字符串值里用了半角引号 `"`**——中文引语一律写 `“”` 或 `「」`。发出围栏前自检 4 条：① 括号配对：`{` 与 `}`、`[` 与 `]` 数量相等，**收尾序列逐个核对**（长表格最易在最后几行错位：把 `]]}]}` 写成 `]}]}]}`）② 无尾随逗号 ③ 值内引号用中文引号 ④ 最后一个字符必须是 `}`（**`}` 之后不要再写任何字符**——实测常见错误是习惯性追加 `</p>` 或一句解释，整条围栏就解析不了）。不要在 JSON 字符串里放 markdown；超长表格/列表拆成多个组件分开发，宁短勿长
 3.5. **字段名逐个核对，不依赖别名猜测**：只有明确的确定性别名和结构可以恢复；必填字段缺失、类型错误或安全检查失败时仍可能不可渲染。可保留的组件按校验结果渲染，坏内容保留诊断与原文，不保证任意误写都能修复。规范字段：`list` 要 `items` 数组（不是 content/text），列表整体标题属于根 `title` 或外层 `card.title`；`callout` 正文是 `content`；`table` 要 `columns` + `rows`；`keyvalue` 要 `pairs:[{key,value}]`；`diff` 是 `diffs`；图片/音视频是 `src`；`code` 是 `code`、`copy` 是 `text`。拿不准就使用手册中的最小合法形态，不要凭直觉命名
 4. **不要嵌套围栏**：owl-ui 里不要再包 ``` 代码围栏
 5. **深色主题友好**：配色选深底亮色；UI 主题跟随应用
-6. **场景判断**：先查上面的映射表 —— 内容类型命中就上对应组件；只有纯文字问答、一句话能说清时才不用
+6. **场景判断**：先判断 UI 是否确有展示或交互收益，再查映射表选组件；普通 Markdown 列表、表格和代码围栏始终可以用在 UI 外的正文中
 7. **图表范围**：`plot` 给合理 xMin/xMax（如 -3.14 到 3.14）；3D 场景 mesh 少而精
 8. **规格要紧凑**：整棵组件树 ≤200 节点、≤8 层嵌套（超出部分会被渲染器裁掉），避免巨型 spec
 9. **一个主题选一个主组件**：命中映射表后选**一种**组件承载，同一信息不要用两种组件重复表达（同一批数据又画 bars 又画 donut = 冗余）
-10. **数量纪律**：一条回答 3–8 个组件为宜，宁缺毋滥。反例：该用 `table` 对比时写三段 `text`；一个 `stat` 能说清的事套 `card`+`grid`；与内容无关的 `scene3d` 炫技——3D 只在内容本身就是几何/空间时才用
+10. **数量纪律**：没有最少组件数，只保留承载必要信息的组件；一个组件足够就不要扩成多个。一个 `stat` 能说清的事不套 `card`+`grid`；3D 只在内容本身就是几何/空间时才用
 12. **给命令就给能直接粘的**：多行 python 一律写成 heredoc 包装的**一整段** shell 代码块（`python - <<'PY'` … `PY`），不要用 `python -c "…"` 配反斜杠续行——续行在复制/粘贴里最容易碎成多行，用户还得自己拼回 heredoc。单行表达式才用 `-c`，且必须真的在一行内写完。示例：
 
     ````text
