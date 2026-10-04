@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added per-turn token usage to assistant answers, accumulating every model call recorded in the turn (including retries and thinking continuations) with un-cached input, output, cache reads, and cache writes broken out, and kept the context panel's per-request input total separate from the turn total.
 - Added Chinese and English tool discovery and bounded skill discovery for desktop conversations, with native tool results and recorded tool sets preserved on resume and branch navigation.
 - Added capability/action discovery steps with metadata evidence, explicit unresolved requirements, and a shared tool-loading budget for compound tasks.
 - Added explicit implementation acceptance checklists with observed evidence, one bounded completion reminder, and recovery guidance for repeated identical tool errors.
@@ -18,6 +19,7 @@
 
 ### Changed
 
+- Narrowed when the GenUI `render_ui` tool is used: only for a self-contained interactive card that was requested or that clearly helps, instead of whenever an answer contained several parallel points, a comparison, numbers, a step sequence, or a status report. Ordinary answers, lists, comparisons, code, and status reports use Markdown, and inline UI still goes through the `owl-ui` fence without a tool call.
 - Desktop conversations now start with a small tool set and a compact skill index; specialized capabilities are loaded when needed. Ordinary answers can use Markdown without generating UI cards.
 - Compacted the model evaluation navigation and current-run summary, and removed redundant sidebar help.
 - Replaced task-library illustration cards with a compact list of IDs, task summaries, categories, versions, sources, and detail actions.
