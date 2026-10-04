@@ -15,7 +15,7 @@ import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { t, useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
-import { IconChevronDown, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
+import { IconCheck, IconChevronDown, IconChevronRight, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
 
 export interface ReviewChangesCardProps {
 	/** 本轮 write/edit 产物（工作区相对 POSIX 路径）。 */
@@ -29,6 +29,23 @@ export interface ReviewChangesCardProps {
 
 function statsOf(entry: DiffApprovalFileSummary): { added: number; removed: number } {
 	return { added: entry.added ?? 0, removed: entry.removed ?? 0 };
+}
+
+/** 双色 diff 比例条（GitHub 式）+ 加减行数；added/removed 全 0 时不渲染。 */
+function DiffStat({ added, removed, mini = false }: { added: number; removed: number; mini?: boolean }): React.JSX.Element | null {
+	if (added <= 0 && removed <= 0) return null;
+	return (
+		<span className={`owl-changes-sum${mini ? " is-mini" : ""}`}>
+			<span className="owl-changes-bar" aria-hidden="true">
+				{added > 0 && <span className="owl-changes-bar-add" style={{ flexGrow: added }} />}
+				{removed > 0 && <span className="owl-changes-bar-del" style={{ flexGrow: removed }} />}
+			</span>
+			<span className="owl-changes-num">
+				{added > 0 && <span className="add">+{added}</span>}
+				{removed > 0 && <span className="del">−{removed}</span>}
+			</span>
+		</span>
+	);
 }
 
 export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview }: ReviewChangesCardProps): React.JSX.Element {
@@ -120,115 +137,89 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 	};
 
 	return (
-		<section className="owl-artifacts" aria-label={t("chat.changesCount", { n: files.length })}>
-			<header className="flex items-center gap-2 px-1 pb-1">
+		<section className={`owl-artifacts owl-changes-card${collapsed ? " is-collapsed" : ""}`} aria-label={t("chat.changesCount", { n: files.length })}>
+			<header className="owl-changes-head">
 				<button
 					type="button"
-					className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-owl-hover/60"
+					className="owl-changes-toggle"
 					title={collapsed ? t("common.expand") : t("common.collapse")}
 					aria-expanded={!collapsed}
 					onClick={() => setCollapsed((value) => !value)}
 				>
-					<IconChevronDown size={12} className={`shrink-0 text-owl-faint transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-					<IconPencil size={12} className="shrink-0 text-owl-faint" />
-					<strong className="text-xs font-semibold text-owl-text">{t("chat.changesCount", { n: files.length })}</strong>
-					{(totals.added > 0 || totals.removed > 0) && (
-						<span className="font-mono text-[11px]">
-							{totals.added > 0 && <span className="text-emerald-300/90">+{totals.added}</span>}
-							{totals.added > 0 && totals.removed > 0 && <span className="text-owl-faint"> </span>}
-							{totals.removed > 0 && <span className="text-red-300/90">−{totals.removed}</span>}
-						</span>
-					)}
+					<IconChevronDown size={12} className="owl-changes-caret" />
+					<span className="owl-changes-head-icon" aria-hidden="true">
+						<IconPencil size={11} />
+					</span>
+					<strong className="owl-changes-title">{t("chat.changesCount", { n: files.length })}</strong>
+					<DiffStat added={totals.added} removed={totals.removed} />
 				</button>
 				{tracked.length > 0 && (
-					<button
-						type="button"
-						className="flex items-center gap-0.5 rounded px-1 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-						onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}
-					>
-						{t("chat.reviewInWorkbench")} →
+					<button type="button" className="owl-changes-workbench" onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}>
+						{t("chat.reviewInWorkbench")}
+						<IconChevronRight size={11} />
 					</button>
 				)}
 			</header>
 			{!collapsed && (
-				<ul className="owl-artifacts-list owl-changes-list">
+				<ul className="owl-changes-list">
 					{files.map((file) => {
 						const entry = entryFor(file);
 						const name = file.path.split("/").at(-1) ?? file.path;
 						const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
 						const stats = entry ? statsOf(entry) : undefined;
 						const isExpanded = entry !== undefined && expanded.has(entry.id);
+						const status = entry?.status;
 						return (
-							<li key={file.path}>
-								<div className={`rounded-lg border ${isExpanded ? "border-owl-border/60 bg-owl-panel/70" : "border-transparent"}`}>
-									<div className="flex items-center gap-1.5 rounded-lg px-1 py-0.5 hover:bg-owl-hover/60">
-										{entry === undefined ? (
-											<span className="w-3 shrink-0 text-center text-[10px] text-owl-faint">·</span>
-										) : entry.status === "pending" ? (
-											<span className="w-3 shrink-0 text-center text-[10px] text-amber-300">•</span>
-										) : entry.status === "kept" ? (
-											<span className="w-3 shrink-0 text-center text-[10px] text-emerald-300/80">✓</span>
-										) : (
-											<span className="w-3 shrink-0 text-center text-[10px] text-owl-faint">↩</span>
+							<li key={file.path} className={`owl-changes-item is-${status ?? "untracked"}${isExpanded ? " is-open" : ""}`}>
+								<div className="owl-changes-row">
+									<span className="owl-changes-status" aria-hidden="true">
+										{status === "kept" && <IconCheck size={11} />}
+										{status === "reverted" && <IconUndo size={10} />}
+									</span>
+									<button type="button" className="owl-changes-file" title={entry?.path ?? file.path} onClick={() => onOpenFile(file.path)}>
+										<span className="owl-changes-name">{name}</span>
+										{entry !== undefined && status === "pending" && entry.originalExisted === false && (
+											<span className="owl-changes-badge-new">{t("review.created")}</span>
 										)}
-										<button
-											type="button"
-											className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded text-left"
-											title={entry?.path ?? file.path}
-											onClick={() => onOpenFile(file.path)}
-										>
-											<span className="shrink-0 text-xs text-owl-text">{name}</span>
-											{dir !== "" && <span className="min-w-0 truncate text-[10px] text-owl-faint">{dir}</span>}
-										</button>
-										{stats !== undefined && (stats.added > 0 || stats.removed > 0) && (
-											<span className="shrink-0 font-mono text-[10px]">
-												{stats.added > 0 && <span className="text-emerald-300/90">+{stats.added}</span>}
-												{stats.added > 0 && stats.removed > 0 && <span className="text-owl-faint"> </span>}
-												{stats.removed > 0 && <span className="text-red-300/90">−{stats.removed}</span>}
-											</span>
-										)}
-										{entry !== undefined && entry.status !== "pending" && (
-											<span className="shrink-0 text-[10px] text-owl-faint">{entry.status === "kept" ? t("review.keptBadge") : t("review.revertedBadge")}</span>
-										)}
-										{entry !== undefined && entry.status === "pending" && (
-											<span className="flex shrink-0 items-center gap-0.5">
-												<button
-													type="button"
-													className="rounded px-1.5 py-0.5 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-													onClick={() => toggleDiff(entry.id)}
-												>
-													{isExpanded ? t("common.collapse") : t("chat.reviewCta")}
-												</button>
-												<button
-													type="button"
-													disabled={busy}
-													title={t("review.revert")}
-													className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-red-300 disabled:opacity-40"
-													onClick={() => revert(entry.id)}
-												>
-													<IconUndo size={11} />
-													{t("chat.revertEdit")}
-												</button>
-											</span>
-										)}
-									</div>
-									{isExpanded && entry !== undefined && (
-										<div className="max-h-72 overflow-auto border-t border-owl-border/40 px-1 py-1">
-											{diffLoading.has(entry.id) && (
-												<div className="flex items-center gap-2 px-2 py-1 text-xs text-owl-faint">
-													<IconLoader size={12} className="animate-spin" /> {t("changes.readingDiff")}
-												</div>
-											)}
-											{!diffLoading.has(entry.id) && diffText.get(entry.id) !== undefined && <DiffView text={diffText.get(entry.id)!} />}
-										</div>
+										{dir !== "" && <span className="owl-changes-dir">{dir}</span>}
+									</button>
+									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
+									{status === "kept" && <span className="owl-changes-state">{t("review.keptBadge")}</span>}
+									{status === "reverted" && <span className="owl-changes-state">{t("review.revertedBadge")}</span>}
+									{entry !== undefined && status === "pending" && (
+										<span className="owl-changes-actions">
+											<button type="button" className="owl-changes-act is-review" onClick={() => toggleDiff(entry.id)}>
+												{isExpanded ? t("common.collapse") : t("chat.reviewCta")}
+											</button>
+											<button
+												type="button"
+												className="owl-changes-act is-revert"
+												disabled={busy}
+												title={t("review.revert")}
+												onClick={() => revert(entry.id)}
+											>
+												<IconUndo size={10} />
+												{t("chat.revertEdit")}
+											</button>
+										</span>
 									)}
 								</div>
+								{isExpanded && entry !== undefined && (
+									<div className="owl-changes-diff">
+										{diffLoading.has(entry.id) && (
+											<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
+												<IconLoader size={12} className="animate-spin" /> {t("changes.readingDiff")}
+											</div>
+										)}
+										{!diffLoading.has(entry.id) && diffText.get(entry.id) !== undefined && <DiffView text={diffText.get(entry.id)!} />}
+									</div>
+								)}
 							</li>
-							);
-						})}
+						);
+					})}
 				</ul>
-				)}
-			</section>
+			)}
+		</section>
 	);
 }
 

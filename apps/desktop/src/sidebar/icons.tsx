@@ -55,6 +55,8 @@ export const IconX = (p: IconProps): ReactNode =>
 			<path d="m6 6 12 12" />
 		</>
 	));
+export const IconCheck = (p: IconProps): ReactNode =>
+	base(p.size, p.className, <path d="M20 6 9 17l-5-5" />);
 export const IconSearch = (p: IconProps): ReactNode =>
 	base(p.size, p.className, (
 		<>

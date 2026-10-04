@@ -33,10 +33,345 @@
 	min-width: 0;
 }
 
-/* 改动审批卡（ReviewChangesCard）：文件清单单列自上而下，不参与成果文件卡的多列网格 */
-.owl-changes-list {
-	grid-template-columns: 1fr;
+/* ── 改动审批卡（ReviewChangesCard）：面板化容器 + GitHub 式 diff 比例条 ──
+	 状态色走组件级变量：深浅主题分别取 emerald/red/amber 的 300 / 600 档，
+	 保证浅色面板上加减数字与比例条仍有对比度。 */
+.owl-changes-card {
+	--owl-changes-add: #6ee7b7;
+	--owl-changes-del: #fca5a5;
+	--owl-changes-pending: #fbbf24;
+
+	overflow: hidden;
+	border: 1px solid color-mix(in srgb, var(--color-owl-border) 72%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--color-owl-panel) 42%, transparent);
+}
+
+html[data-owl-theme="light"] .owl-changes-card {
+	--owl-changes-add: #059669;
+	--owl-changes-del: #dc2626;
+	--owl-changes-pending: #d97706;
+}
+
+.owl-changes-card button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 1px;
+}
+
+/* 头部：折叠开关（几乎全宽）+ 工作台入口 */
+.owl-changes-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 8px;
+}
+
+.owl-changes-toggle {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	gap: 7px;
+	padding: 3px 5px;
+	margin: -3px -5px;
+	border-radius: 7px;
+	text-align: left;
+	transition: background-color 120ms;
+}
+
+.owl-changes-toggle:hover {
+	background: color-mix(in srgb, var(--color-owl-hover) 62%, transparent);
+}
+
+.owl-changes-caret {
+	flex: 0 0 auto;
+	color: var(--color-owl-faint);
+	transition: transform 140ms ease;
+}
+
+.owl-changes-card.is-collapsed .owl-changes-caret {
+	transform: rotate(-90deg);
+}
+
+.owl-changes-head-icon {
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: 22px;
+	height: 22px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--color-owl-accent) 13%, transparent);
+	color: var(--color-owl-accent);
+}
+
+.owl-changes-title {
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--color-owl-text);
+}
+
+.owl-changes-workbench {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
 	gap: 2px;
+	padding: 3px 7px;
+	border-radius: 6px;
+	font-size: 11px;
+	color: var(--color-owl-muted);
+	transition: background-color 120ms, color 120ms;
+}
+
+.owl-changes-workbench:hover {
+	background: color-mix(in srgb, var(--color-owl-hover) 62%, transparent);
+	color: var(--color-owl-accent);
+}
+
+/* diff 比例条：段宽按 +/− 行数比例伸缩；迷你档用于文件行 */
+.owl-changes-sum {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 7px;
+}
+
+.owl-changes-bar {
+	display: inline-flex;
+	gap: 2px;
+	overflow: hidden;
+	width: 42px;
+	height: 3px;
+}
+
+.is-mini .owl-changes-bar {
+	width: 26px;
+}
+
+.owl-changes-bar > span {
+	flex-basis: 0;
+	min-width: 2px;
+	border-radius: 2px;
+}
+
+.owl-changes-bar-add {
+	background: var(--owl-changes-add);
+}
+
+.owl-changes-bar-del {
+	background: var(--owl-changes-del);
+}
+
+.owl-changes-num {
+	display: inline-flex;
+	gap: 5px;
+	font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
+.is-mini .owl-changes-num {
+	font-size: 10px;
+}
+
+.owl-changes-num .add {
+	color: var(--owl-changes-add);
+}
+
+.owl-changes-num .del {
+	color: var(--owl-changes-del);
+}
+
+/* 文件行：状态格 → 文件名 → 统计 → 动作；已决行整体降不透明度让待审行浮上来 */
+.owl-changes-list {
+	display: grid;
+	gap: 1px;
+	margin: 0;
+	padding: 0 5px 6px;
+	list-style: none;
+}
+
+.owl-changes-row {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 7px;
+	padding: 4px 6px;
+	border-radius: 8px;
+	transition: background-color 120ms;
+}
+
+.owl-changes-row:hover {
+	background: color-mix(in srgb, var(--color-owl-hover) 62%, transparent);
+}
+
+.owl-changes-item.is-open > .owl-changes-row {
+	background: color-mix(in srgb, var(--color-owl-hover) 55%, transparent);
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.owl-changes-item.is-kept,
+.owl-changes-item.is-reverted {
+	opacity: 0.62;
+}
+
+.owl-changes-item.is-kept:hover,
+.owl-changes-item.is-reverted:hover {
+	opacity: 0.9;
+}
+
+.owl-changes-status {
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+}
+
+.owl-changes-item.is-pending .owl-changes-status::before,
+.owl-changes-item.is-untracked .owl-changes-status::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+}
+
+.owl-changes-item.is-pending .owl-changes-status::before {
+	background: var(--owl-changes-pending);
+}
+
+.owl-changes-item.is-untracked .owl-changes-status::before {
+	background: var(--color-owl-faint);
+	opacity: 0.7;
+	scale: 0.85;
+}
+
+.owl-changes-item.is-kept .owl-changes-status {
+	color: var(--owl-changes-add);
+}
+
+.owl-changes-item.is-reverted .owl-changes-status {
+	color: var(--color-owl-faint);
+}
+
+.owl-changes-file {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: baseline;
+	gap: 6px;
+	border-radius: 4px;
+	text-align: left;
+}
+
+.owl-changes-name {
+	flex: 0 0 auto;
+	font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+	font-size: 12px;
+	color: var(--color-owl-text);
+}
+
+.owl-changes-row:hover .owl-changes-name {
+	color: var(--color-owl-accent);
+}
+
+.owl-changes-badge-new {
+	flex: 0 0 auto;
+	align-self: center;
+	padding: 0 4px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--owl-changes-add) 14%, transparent);
+	color: var(--owl-changes-add);
+	font-size: 9.5px;
+	line-height: 14px;
+}
+
+.owl-changes-dir {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 10px;
+	color: var(--color-owl-faint);
+}
+
+.owl-changes-state {
+	flex: 0 0 auto;
+	font-size: 10px;
+	color: var(--color-owl-faint);
+}
+
+/* 行内动作：细边框小胶囊；审查偏 accent、撤销偏红 */
+.owl-changes-actions {
+	display: inline-flex;
+	flex: 0 0 auto;
+	gap: 4px;
+}
+
+.owl-changes-act {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2.5px 8px;
+	border: 1px solid color-mix(in srgb, var(--color-owl-border) 66%, transparent);
+	border-radius: 6px;
+	font-size: 11px;
+	line-height: 1.2;
+	color: var(--color-owl-muted);
+	transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+
+.owl-changes-act:hover {
+	background: color-mix(in srgb, var(--color-owl-hover) 75%, transparent);
+	color: var(--color-owl-text);
+}
+
+.owl-changes-act.is-review:hover {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 45%, transparent);
+	color: var(--color-owl-accent);
+}
+
+.owl-changes-act.is-revert:hover {
+	border-color: color-mix(in srgb, var(--owl-changes-del) 40%, transparent);
+	color: var(--owl-changes-del);
+}
+
+.owl-changes-act:disabled {
+	opacity: 0.4;
+}
+
+/* 行内 diff：内嵌暗盒，随展开淡入 */
+.owl-changes-diff {
+	max-height: 18rem;
+	margin: 0 5px 5px;
+	padding: 6px 4px;
+	overflow: auto;
+	border: 1px solid color-mix(in srgb, var(--color-owl-border) 45%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--color-owl-bg) 55%, transparent);
+	animation: owl-changes-reveal 140ms ease;
+}
+
+@keyframes owl-changes-reveal {
+	from {
+		opacity: 0;
+		transform: translateY(-2px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-changes-diff {
+		animation: none;
+	}
+
+	.owl-changes-caret {
+		transition: none;
+	}
 }
 
 .owl-artifact-file {
