@@ -466,11 +466,12 @@ function CopyButton({ text, label, className = "owl-msg-action" }: { text: strin
  * 重新生成 + 用量与时间元信息。一轮回答含多次 LLM 调用时只在最后一条下挂一条，
  * usage 传整轮聚合值。
  */
-function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerate, onRegenerate, canBranch, onBranch }: {
+function AssistantFooter({ entry, storageKey, usage: usageOverride, requestCount, canRegenerate, onRegenerate, canBranch, onBranch }: {
 	entry: Extract<ChatEntry, { kind: "assistant" }>;
 	storageKey: string;
 	/** 整轮聚合用量；缺省退回本条消息自己的用量 */
 	usage?: MessageUsage;
+	requestCount: number;
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
 	canBranch: boolean;
@@ -493,6 +494,7 @@ function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerat
 	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
 	const usageTitle = usage
 		? t("chat.msgUsageTitle", {
+				calls: requestCount,
 				input: formatTokenCount(usage.input),
 				output: formatTokenCount(usage.output),
 				cacheRead: formatTokenCount(usage.cacheRead),
@@ -500,7 +502,7 @@ function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerat
 			})
 		: undefined;
 	return (
-		<div className="owl-msg-actions">
+		<div className="owl-msg-actions flex-wrap">
 			<CopyButton text={entry.text} label={t("chat.msgCopy")} />
 			<button
 				type="button"
@@ -546,7 +548,7 @@ function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerat
 			)}
 			{usage && totalTokens > 0 && (
 				<span className="owl-msg-meta" title={usageTitle}>
-					{t("chat.msgUsage", { n: formatTokenCount(totalTokens) })}
+					{t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })}
 				</span>
 			)}
 			{entry.timestamp !== undefined && <span className="owl-msg-meta">{formatClock(entry.timestamp)}</span>}
@@ -711,11 +713,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		}
 	}
 	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
-	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }>; usage?: MessageUsage } | undefined;
+	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }>; usage?: MessageUsage; requestCount: number } | undefined;
 	// 轮内操作栏收集：一轮（两条用户消息之间）可能含多次 LLM 调用（中间说明 + 最终回答），
 	// 操作栏只保留轮内最后一条有正文的调用并把整轮用量聚到它身上，其余从行列表剔除
 	let turnFooters: Array<{ row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> }> = [];
 	let turnUsage: MessageUsage | undefined;
+	let turnRequestCount = 0;
 	// 流式中的进行轮（最后一条用户消息之后的条目）还没定型，整轮操作栏等 agent_end 重建后再出现
 	let lastUserIndex = -1;
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -725,10 +728,11 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		}
 	}
 	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
-	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage?: MessageUsage): React.JSX.Element => (
+	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
 		<AssistantFooter
 			entry={entry}
 			usage={usage}
+			requestCount={requestCount}
 			storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`}
 			canRegenerate={allowRegenerate}
 			onRegenerate={allowRegenerate ? onRegenerate : undefined}
@@ -738,7 +742,9 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	);
 	const finishTurnFooters = (): void => {
 		const totalUsage = turnUsage;
+		const requestCount = turnRequestCount;
 		turnUsage = undefined;
+		turnRequestCount = 0;
 		if (turnFooters.length === 0) return;
 		const keep = turnFooters[turnFooters.length - 1]!;
 		for (const item of turnFooters) {
@@ -747,8 +753,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			if (position >= 0) rows.splice(position, 1);
 		}
 		// 幸存的操作栏按整轮聚合用量重渲染（push 时的值可能缺其后纯工具调用的用量）
-		keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage);
-		lastFooter = { ...keep, usage: totalUsage };
+		keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage, requestCount);
+		lastFooter = { ...keep, usage: totalUsage, requestCount };
 		turnFooters = [];
 	};
 	// 每轮处理耗时：键 = 该轮第一条 assistant 的下标（Owl 标题行的位置）
@@ -793,6 +799,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const seenTools = new Set<string>();
 		// 整轮用量累计：纯工具调用的 LLM 轮没有正文、不上屏操作栏，但同样是整轮成本
 		turnUsage = addUsage(turnUsage, entry.usage);
+		turnRequestCount += 1;
 		const segments: AssistantSegment[] = entry.segments ?? [
 			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
 			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
@@ -865,7 +872,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
-				content: assistantFooter(entry, index, false, turnUsage),
+				content: assistantFooter(entry, index, false, turnUsage, turnRequestCount),
 			};
 			rows.push(row);
 			turnFooters.push({ row, index, entry });
@@ -875,7 +882,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	finishTurnFooters();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
 	if (lastFooter && canRegenerate && onRegenerate) {
-		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage);
+		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage, lastFooter.requestCount);
 	}
 	return rows;
 }

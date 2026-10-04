@@ -59,6 +59,15 @@ function compositionOf(row: ContextRequestRow): Composition {
 	};
 }
 
+export function ContextRequestUsage({ usage }: { usage: NonNullable<ContextRequestRow["usage"]> }): React.JSX.Element {
+	const totalInput = usage.input + usage.cacheRead + usage.cacheWrite;
+	return (
+		<span className="ml-auto text-xs text-owl-faint">
+			本次输入 {fmtTokens(totalInput)}（含缓存；未缓存 {fmtTokens(usage.input)} · 缓存读 {fmtTokens(usage.cacheRead)} · 缓存写 {fmtTokens(usage.cacheWrite)}）· 本次输出 {fmtTokens(usage.output)}
+		</span>
+	);
+}
+
 /** 每请求趋势：堆叠柱 + 压缩分界线。宽度自适应（viewBox 拉伸，只用矩形）。 */
 function TrendChart({ requests, events }: { requests: ContextRequestRow[]; events: ContextEventRow[] }): React.JSX.Element {
 	const W = 600;
@@ -89,7 +98,7 @@ function TrendChart({ requests, events }: { requests: ContextRequestRow[]; event
 										? `\n实测 ${fmtTokens(
 												row.usage.totalTokens ||
 													row.usage.input + row.usage.output + row.usage.cacheRead + row.usage.cacheWrite,
-											)} tok（计费输入 ${fmtTokens(row.usage.input)} · 缓存读 ${fmtTokens(row.usage.cacheRead)}）`
+											)} tok（输入含缓存 ${fmtTokens(row.usage.input + row.usage.cacheRead + row.usage.cacheWrite)} · 输出 ${fmtTokens(row.usage.output)}）`
 										: ""
 								}`}</title>
 							</rect>
@@ -204,25 +213,26 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 			{/* 总览条 */}
 			<div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
 				<span className="text-2xl font-semibold text-owl-text">
+					<span className="mr-2 text-xs font-normal text-owl-faint">本次合计</span>
 					{fmtTokens(headline)}
 					<span className="ml-1 text-xs font-normal text-owl-faint">tok</span>
 					<span
 						className={`ml-1.5 rounded px-1 py-0.5 align-middle text-[10px] font-normal ${
 							measured !== undefined ? "bg-emerald-500/15 text-emerald-400" : "bg-owl-hover text-owl-faint"
 						}`}
-						title={measured !== undefined ? "provider 实测计费，与输入栏状态一致" : "chars/4 估算，等响应回来后显示实测值"}
+						title={measured !== undefined ? "本次模型调用返回的输入、输出及缓存 token 总量；不是整轮多次调用的累计用量" : "chars/4 估算，等响应回来后显示上游用量"}
 					>
 						{measured !== undefined ? "实测" : "估算"}
 					</span>
 				</span>
 				{measured !== undefined && Math.abs(measured - total) > 500 && (
-					<span className="text-xs text-owl-faint" title="chars/4 估算对中文/JSON 明显偏低，构成占比仍可参考">
+					<span className="text-xs text-owl-faint" title="按字符数估算，中文、JSON 和模型分词会影响误差；包含 transcript 中的完整工具声明，不能视为精确计费分摊">
 						估算构成 {fmtTokens(total)}
 					</span>
 				)}
 				{latest.contextWindow && (
 					<span className="text-xs text-owl-faint">
-						上下文窗口 {fmtTokens(latest.contextWindow)} · 已用 {percent?.toFixed(1)}%
+						上下文窗口 {fmtTokens(latest.contextWindow)} · 本次输入及输出占 {percent?.toFixed(1)}%
 					</span>
 				)}
 				{latest.model && (
@@ -236,20 +246,17 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 				{data.reconstructed && (
 					<span
 						className="rounded bg-owl-hover px-1 py-0.5 align-middle text-[10px] text-owl-faint"
-						title="本进程还没有该会话的实采数据：构成与趋势按会话转录回放估算（工具 schema 未计入），发一条消息后转为插件现采"
+						title="本进程还没有该会话的实采数据：按会话转录回放估算，包含转录中已保存的工具声明；旧记录未保存声明时无法补算"
 					>
 						历史重建
 					</span>
 				)}
-				{usage && (
-					<span className="ml-auto text-xs text-owl-faint">
-						计费：输入 {fmtTokens(usage.input)}（缓存读 {fmtTokens(usage.cacheRead)} · 写 {fmtTokens(usage.cacheWrite)}）· 输出 {fmtTokens(usage.output)}
-					</span>
-				)}
+				{usage && <ContextRequestUsage usage={usage} />}
 			</div>
 
 			{/* 当前构成：堆叠条 + 图例（估算口径） */}
 			<section className="mt-4">
+				<p className="mb-2 text-[11px] text-owl-faint">以下为请求构成估算；缓存命中的内容仍占上下文窗口。</p>
 				<div className="flex h-3.5 w-full overflow-hidden rounded-full bg-owl-hover">
 					{CATEGORIES.map((category) => {
 						const tokens = composition?.[category.key] ?? 0;

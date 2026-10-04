@@ -243,6 +243,40 @@ test("agent_end 权威重建保留用户消息行的 entryId（会话回退按�
 	);
 });
 
+test("assistant 行经 entry_appended 补 entryId（新对话中分支按钮依赖），agent_end 重建后保留", () => {
+	// 新会话第一轮：乐观 user 行经 entry_appended 补 id；回答含两次 LLM 调用时，
+	// 每次落盘各发一条 entry_appended，按序逐条对号
+	let entries: ChatEntry[] = [{ kind: "user", text: "你好" }];
+	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-user-1", message: { role: "user" } } });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "第一段" }] } });
+	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-1", message: { role: "assistant" } } });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "收尾" }] } });
+	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-2", message: { role: "assistant" } } });
+	const assistantIds = () => entries.filter((entry) => entry.kind === "assistant").map((entry) => (entry.kind === "assistant" ? entry.entryId : undefined));
+	assert.deepEqual(assistantIds(), ["e-asst-1", "e-asst-2"]);
+
+	// agent_end 权威重建：assistant 行的 id 按尾部对齐取回——回答一结束分支按钮不再消失
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "你好" },
+			{ role: "assistant", content: [{ type: "text", text: "第一段" }] },
+			{ role: "assistant", content: [{ type: "text", text: "收尾" }] },
+		],
+	});
+	assert.deepEqual(assistantIds(), ["e-asst-1", "e-asst-2"]);
+
+	// 过期/乱序的重复落盘事件（最近一条 assistant 已有 id）不动转录，React 可跳过重渲染
+	const before = entries;
+	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-stale", message: { role: "assistant" } } });
+	assert.equal(entries, before);
+	// toolResult 不单独成行：其落盘事件与转录无关
+	entries = event(before, { type: "entry_appended", entry: { type: "message", id: "e-tool-1", message: { role: "toolResult" } } });
+	assert.equal(entries, before);
+});
+
 test("assistant 轮耗时取 message_end 的真实结束时刻，并穿越 agent_end 权威重建", () => {
 	// wire 的 assistant timestamp 是响应「开始」时刻；不含生成耗时
 	const startedAt = Date.now() - 5_000;

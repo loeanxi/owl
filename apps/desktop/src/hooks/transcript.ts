@@ -294,14 +294,29 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 		}
 		case "entry_appended": {
 			// 会话日志条目落盘事件：给乐观追加、还没有 entryId 的用户消息行补上条目 id
-			// （owl-rewind 的回退按钮靠它定位目标）。其余条目类型与转录无关。
+			// （owl-rewind 的回退按钮靠它定位目标）；assistant 行同理补 id——
+			// 「在新对话中分支」按钮要求回答行带条目 id。其余条目类型与转录无关。
 			const entry = (event as { entry?: { type?: string; message?: { role?: string } } }).entry;
-			if (entry?.type !== "message" || entry.message?.role !== "user") return entries;
+			if (entry?.type !== "message") return entries;
+			const role = entry.message?.role;
+			const appendedId = (entry as { id?: string }).id;
+			if (role === "user") {
+				for (let index = entries.length - 1; index >= 0; index--) {
+					const candidate = entries[index]!;
+					if (candidate.kind !== "user") break;
+					if (candidate.entryId) break; // 已有 id 的更早用户消息：本轮的乐观行还没到
+					return [...entries.slice(0, index), { ...candidate, entryId: appendedId }, ...entries.slice(index + 1)];
+				}
+				return entries;
+			}
+			if (role !== "assistant" || typeof appendedId !== "string") return entries;
+			// 回答行按落盘顺序逐条对号（一轮多次 LLM 调用各有一次落盘事件）：
+			// 从尾部找最近一条还没拿到 id 的 assistant 行；已有 id 说明事件过期/乱序，不动。
 			for (let index = entries.length - 1; index >= 0; index--) {
 				const candidate = entries[index]!;
-				if (candidate.kind !== "user") break;
-				if (candidate.entryId) break; // 已有 id 的更早用户消息：本轮的乐观行还没到
-				return [...entries.slice(0, index), { ...candidate, entryId: (entry as { id?: string }).id }, ...entries.slice(index + 1)];
+				if (candidate.kind !== "assistant") continue;
+				if (candidate.entryId) break;
+				return [...entries.slice(0, index), { ...candidate, entryId: appendedId }, ...entries.slice(index + 1)];
 			}
 			return entries;
 		}

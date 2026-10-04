@@ -277,6 +277,8 @@ export function Composer({
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
 	const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+	// 点击缩略图查看完整大图（与 ChatStream 的看图体验一致），点遮罩关闭。
+	const [zoomedImage, setZoomedImage] = useState<PendingImage | null>(null);
 	const [pasteHint, setPasteHint] = useState<string | undefined>(undefined);
 	const [dragOver, setDragOver] = useState(false);
 	const hintTimerRef = useRef<number | undefined>(undefined);
@@ -656,7 +658,14 @@ export function Composer({
 						<div className="flex flex-wrap gap-2 px-3 pt-2.5">
 							{pendingImages.map((image) => (
 								<div key={image.id} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-owl-border bg-owl-sidebar">
-									<img src={`data:${image.mimeType};base64,${image.data}`} alt="" className="h-full w-full object-cover" />
+								<img
+									src={`data:${image.mimeType};base64,${image.data}`}
+									alt=""
+									className="h-full w-full cursor-zoom-in object-cover"
+									title={t("chat.viewFullImage")}
+									aria-label={t("chat.viewFullImage")}
+									onClick={() => setZoomedImage(image)}
+								/>
 									<button
 										type="button"
 										aria-label={t("composer.removeImage")}
@@ -670,8 +679,7 @@ export function Composer({
 							))}
 						</div>
 					)}
-					{pasteHint && <p className="px-3 pt-1.5 text-[11px] text-amber-400">{pasteHint}</p>}
-					<div className="flex items-end gap-2 px-2 py-2">
+					{pasteHint && <p className="px-3 pt-1.5 text-[11px] text-amber-400">{pasteHint}</p>}					<div className="flex items-end gap-2 px-2 py-2">
 						<textarea
 							ref={textareaRef}
 							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
@@ -904,6 +912,18 @@ export function Composer({
 					</Menu>
 				</div>
 			</div>
+			{zoomedImage && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+					onClick={() => setZoomedImage(null)}
+				>
+					<img
+						src={`data:${zoomedImage.mimeType};base64,${zoomedImage.data}`}
+						alt={t("chat.viewFullImage")}
+						className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl"
+					/>
+				</div>
+			)}
 			{showNewProject && (
 				<NewProjectDialog
 					client={client}
