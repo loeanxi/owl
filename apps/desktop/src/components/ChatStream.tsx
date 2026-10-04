@@ -155,9 +155,9 @@ function saveFeedback(): void {
  * 阅读宽度居中）。公开说明、工具调用与答案保留消息中的先后顺序。
  *
  * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
- * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），点击按原顺序逐级
- * 展开；失败自动展开标红。提问卡、渲染卡与错误是里程碑，原位可见并把工作段切成数段。
- * 答案正文与其操作栏永远展开，是主角。
+ * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），所有层级统一默认
+ * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡与错误是里程碑，原位可见
+ * 并把工作段切成数段。答案正文与其操作栏永远展开，是主角。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -230,18 +230,17 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
 
 /**
  * 单个工具调用行：一行人话摘要（状态图标 + 摘要 + 展开箭头），展开看参数细节与
- * 输出（默认末 10 行，可看全文）；失败自动展开标红。
+ * 输出（默认末 10 行，可看全文）。autoOpen=false（工作过程折叠区内）时不因失败/带图
+ * 自动弹开——所有层级统一默认收起，用户点击才展开。
  */
-function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: boolean }): React.JSX.Element {
+function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCard; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
 	const [fullOutput, setFullOutput] = useState(false);
 	const [zoomed, setZoomed] = useState(false);
-	// 有图的结果(生图产物、浏览器截图)默认展开——图是这条工具调用的主要内容,
-	// 折叠成一行摘要等于把产物藏起来;失败时也弹开(含流式中 running→error 转变)。
 	const hasImages = (card.output?.images?.length ?? 0) > 0;
-	const [open, setOpen] = useState(expanded || card.status === "error" || hasImages);
+	const [open, setOpen] = useState(expanded || (autoOpen && (card.status === "error" || hasImages)));
 	useEffect(
-		() => setOpen(expanded || card.status === "error" || (card.output?.images?.length ?? 0) > 0),
-		[expanded, card.status, card.output?.images],
+		() => setOpen(expanded || (autoOpen && (card.status === "error" || (card.output?.images?.length ?? 0) > 0))),
+		[expanded, autoOpen, card.status, card.output?.images],
 	);
 
 	const output = card.output;
@@ -335,15 +334,15 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 	);
 }
 
-/** 连续工具调用的合组（名称可不同）：失败自动展开，展开后每行再各自展开。 */
-function ToolGroupView({ label, cards, expanded = false }: { label: string; cards: ToolCard[]; expanded?: boolean }): React.JSX.Element {
-	const [open, setOpen] = useState(() => expanded || cards.some((card) => card.status === "error"));
+/** 连续工具调用的合组（名称可不同）：失败只标红计数；autoOpen=false 时不自动弹开。 */
+function ToolGroupView({ label, cards, expanded = false, autoOpen = true }: { label: string; cards: ToolCard[]; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
+	const [open, setOpen] = useState(() => expanded || (autoOpen && cards.some((card) => card.status === "error")));
 	useEffect(() => setOpen(expanded), [expanded]);
 	const errorCount = cards.filter((card) => card.status === "error").length;
 	const running = cards.some((card) => card.status === "running");
 	useEffect(() => {
-		if (errorCount > 0) setOpen(true);
-	}, [errorCount]);
+		if (autoOpen && errorCount > 0) setOpen(true);
+	}, [autoOpen, errorCount]);
 
 	return (
 		<div className={`owl-tool-group ${open ? "is-open" : ""}`}>
@@ -381,8 +380,8 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 
 /**
  * 整轮工作过程折叠行：一次提问到该轮最终回答之间的思考、工具调用与中间说明收进
- * 一条「工作过程 · N 步」，默认收起，点开按原顺序逐级展开；有失败自动展开标红，
- * 回合进行中显示转圈与实时步数。
+ * 一条「工作过程 · N 步」，永远默认收起，用户点击才展开（失败也不例外，只在摘要行
+ * 标红计数）；回合进行中显示转圈与实时步数。
  */
 function WorkProcessRow({ items, steps, failed, running }: {
 	items: Array<{ key: string; content: React.JSX.Element }>;
@@ -391,9 +390,6 @@ function WorkProcessRow({ items, steps, failed, running }: {
 	running: boolean;
 }): React.JSX.Element {
 	const [open, setOpen] = useState(false);
-	useEffect(() => {
-		if (failed > 0) setOpen(true);
-	}, [failed]);
 	return (
 		<div className="owl-work-process">
 			<button
@@ -846,8 +842,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		workRows.push({
 			key: "tools-" + cards[0]!.id,
 			content: cards.length === 1
-				? <ToolRowView card={cards[0]!} expanded={expandedTools} />
-				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
+				? <ToolRowView card={cards[0]!} expanded={expandedTools} autoOpen={false} />
+				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} autoOpen={false} />,
 		});
 	};
 	// 收口当前工作段；live 表示回合仍在进行（摘要行转圈并显示「正在工作」）
