@@ -1,9 +1,37 @@
 import { createHash } from "node:crypto";
+import * as files from "node:fs/promises";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import type * as NodeModule from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import type { TransformResult } from "esbuild";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { recoverJavascriptSources } from "../src/core/research/javascript-recovery.ts";
+
+const adapterOverride = vi.hoisted(() => ({
+	transform: undefined as ((source: string) => Promise<TransformResult>) | undefined,
+}));
+
+vi.mock("node:fs/promises", { spy: true });
+
+// Use the real installed transformer by default; only the output-limit fixture
+// replaces its response. No additional runtime override is exposed by the tool.
+vi.mock("node:module", async () => {
+	const actual = await vi.importActual<typeof NodeModule>("node:module");
+	return {
+		...actual,
+		createRequire: (url: Parameters<typeof NodeModule.createRequire>[0]) => {
+			const original = actual.createRequire(url);
+			const intercepted = ((id: string): unknown => {
+				if (id === "esbuild" && adapterOverride.transform) {
+					return { version: "0.28.2", transform: adapterOverride.transform };
+				}
+				return original(id);
+			}) as NodeJS.Require;
+			return Object.assign(intercepted, original);
+		},
+	};
+});
 
 const temporary: string[] = [];
 
@@ -17,6 +45,9 @@ async function workspace(): Promise<{ root: string; inputRoot: string; outputCwd
 }
 
 afterEach(async () => {
+	adapterOverride.transform = undefined;
+	vi.clearAllMocks();
+	vi.restoreAllMocks();
 	for (const root of temporary.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
@@ -116,6 +147,66 @@ describe("static JavaScript source recovery", () => {
 			recoverJavascriptSources({ inputRoot, outputCwd, names: ["0.js", "1.js", "2.js", "3.js"] }),
 		).rejects.toThrow("总大小");
 		expect(await readdir(outputCwd)).toEqual([]);
+	});
+
+	it("checks the 64 MiB cumulative output budget before copying another original even if its transform would fail", async () => {
+		const { inputRoot, outputCwd } = await workspace();
+		await writeFile(join(inputRoot, "first.js"), ";");
+		await writeFile(join(inputRoot, "bad.js"), "const broken = (");
+		const outputLimit = 64 * 1024 * 1024;
+		const transform = vi.fn(async (source: string): Promise<TransformResult> => {
+			if (source === ";") {
+				return {
+					code: " ".repeat(outputLimit - 1),
+					map: "",
+					warnings: [],
+					mangleCache: undefined,
+					legalComments: undefined,
+				};
+			}
+			throw new Error("Synthetic parse failure, not real source execution");
+		});
+		adapterOverride.transform = transform;
+		const writes = vi.mocked(files.writeFile);
+		writes.mockClear();
+		await expect(recoverJavascriptSources({ inputRoot, outputCwd, names: ["first.js", "bad.js"] })).rejects.toThrow(
+			"64 MiB",
+		);
+		expect(transform).toHaveBeenCalledTimes(1);
+		const artifactWrites = writes.mock.calls.filter(
+			([path]) => typeof path === "string" && path.startsWith(outputCwd),
+		);
+		expect(artifactWrites.some(([path]) => String(path).endsWith("bad.js"))).toBe(false);
+		const writtenBytes = artifactWrites.reduce((total, [, data]) => {
+			if (typeof data === "string") return total + Buffer.byteLength(data);
+			if (ArrayBuffer.isView(data)) return total + data.byteLength;
+			throw new Error("Unexpected fixture artifact encoding");
+		}, 0);
+		expect(writtenBytes).toBe(outputLimit);
+		expect(await readdir(join(outputCwd, ".owl", "research", "recovered"))).toEqual([]);
+		expect(await readFile(join(inputRoot, "first.js"), "utf8")).toBe(";");
+		expect(await readFile(join(inputRoot, "bad.js"), "utf8")).toBe("const broken = (");
+	});
+
+	it("rejects a single normalized response at the 64 MiB limit before writing that readable file", async () => {
+		const { inputRoot, outputCwd } = await workspace();
+		await writeFile(join(inputRoot, "source.js"), ";");
+		adapterOverride.transform = async () => ({
+			code: " ".repeat(64 * 1024 * 1024),
+			map: "",
+			warnings: [],
+			mangleCache: undefined,
+			legalComments: undefined,
+		});
+		const writes = vi.mocked(files.writeFile);
+		writes.mockClear();
+		await expect(recoverJavascriptSources({ inputRoot, outputCwd, names: ["source.js"] })).rejects.toThrow("64 MiB");
+		const artifactWrites = writes.mock.calls.filter(
+			([path]) => typeof path === "string" && path.startsWith(outputCwd),
+		);
+		expect(artifactWrites).toHaveLength(1);
+		expect(String(artifactWrites[0][0])).toContain("original");
+		expect(await readdir(join(outputCwd, ".owl", "research", "recovered"))).toEqual([]);
 	});
 
 	it("rejects binary or invalid UTF-8 disguised as JavaScript and rejects directories", async () => {

@@ -16,7 +16,7 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
 const MAX_SCRIPT_BYTES = 32 * 1024 * 1024;
 const HEADER_SIZE = 32;
 const WARNINGS = [
-	"输出是从 V8 字节码重建的近似 JavaScript，不保证原变量名、注释、完整源码或语义等价。",
+	"输出是 JavaScript 式近似反编译伪代码，不可直接运行；控制流、异常、闭包和数据流可能未恢复，不保证原始源码或语义等价。",
 	"匹配版本的第三方 d8 补丁会绕过部分 V8 缓存校验，并可能以 Hole 或 undefined 替代无法恢复的对象；成功退出不证明无信息丢失。",
 	"只调用固定反序列化与反汇编入口，未执行样本 EXE、加载器或重建代码；独立子进程不是操作系统沙箱。",
 ];
@@ -80,15 +80,41 @@ export interface BytecodeDecompilerTestRuntime {
 }
 
 export interface BytecodeDecompilerArtifact {
-	kind: "inputCopy" | "disassembly" | "reconstruction" | "diagnostics";
+	kind: "inputCopy" | "disassembly" | "normalizedDisassembly" | "reconstruction" | "diagnostics";
 	path: string;
 	bytes: number;
 	sha256: string;
 }
 
+export interface BytecodeTranslationCoverage {
+	status: "measured" | "unavailable";
+	totalInstructions: number;
+	unmappedBefore: number;
+	unmappedAfter: number;
+	emptyMapped: number;
+	unmappedOpcodesBefore: Record<string, number>;
+	unmappedOpcodesAfter: Record<string, number>;
+	emptyMappedOpcodes: Record<string, number>;
+	tablePath?: string;
+	tableSha256?: string;
+	instructionSemanticsVerified: false;
+}
+
+export interface BytecodeDisassemblyNormalization {
+	text: string;
+	changedInstructions: number;
+	wideInstructions: number;
+	extraWideInstructions: number;
+	rawPreserved: true;
+	opcodeCountsBefore: Record<string, number>;
+	opcodeCountsAfter: Record<string, number>;
+}
+
 export interface BytecodeDecompilerReport {
 	status: "completed" | "partial" | "unsupported" | "toolMissing" | "failed" | "cancelled";
 	approximate: true;
+	outputKind: "javascriptLikePseudocode";
+	sourceRecoveryVerified: false;
 	targetExecuted: false;
 	osSandbox: false;
 	inputPath?: string;
@@ -107,11 +133,116 @@ export interface BytecodeDecompilerReport {
 	outputDirectory?: string;
 	functionCount: number;
 	opcodeCount: number;
+	normalization?: Omit<BytecodeDisassemblyNormalization, "text" | "opcodeCountsBefore" | "opcodeCountsAfter">;
+	translationCoverage?: BytecodeTranslationCoverage;
 	artifacts: BytecodeDecompilerArtifact[];
 	toolchain?: BytecodeDecompilerAvailability;
 	warnings: string[];
 	errors: string[];
 	limits: { inputBytes: number; outputBytes: number; timeoutMs: number };
+}
+
+/** Normalize width metadata only in actual BytecodeArray instruction rows. */
+export function normalizeV8BytecodeDisassembly(text: string): BytecodeDisassemblyNormalization {
+	const result: BytecodeDisassemblyNormalization = {
+		text,
+		changedInstructions: 0,
+		wideInstructions: 0,
+		extraWideInstructions: 0,
+		rawPreserved: true,
+		opcodeCountsBefore: {},
+		opcodeCountsAfter: {},
+	};
+	const phases: boolean[] = [];
+	const parts = text.split(/(\r?\n)/);
+	const row =
+		/^([ \t]*(?:\d+[ \t]+[SE]>[ \t]+)?(?:0x)?[a-f0-9]+[ \t]+@[ \t]+\d+[ \t]+:[ \t]+(?:[a-f0-9]{2}[ \t]+)+)([A-Z][A-Za-z0-9_]*(?:\.(?:Wide|ExtraWide))?)([ \t]+.*|)$/i;
+	for (let index = 0; index < parts.length; index += 2) {
+		const line = parts[index];
+		if (line.trim() === "Start BytecodeArray") {
+			phases.push(true);
+			continue;
+		}
+		if (line.trim() === "End BytecodeArray") {
+			phases.pop();
+			continue;
+		}
+		if (/^\s*(?:Constant pool|Handler Table|Source Position Table)\b/.test(line)) {
+			if (phases.length) phases[phases.length - 1] = false;
+			continue;
+		}
+		if (!phases.at(-1)) continue;
+		const match = row.exec(line);
+		if (!match) continue;
+		const original = match[2];
+		const normalized = original.replace(/\.(Wide|ExtraWide)$/, "");
+		result.opcodeCountsBefore[original] = (result.opcodeCountsBefore[original] ?? 0) + 1;
+		result.opcodeCountsAfter[normalized] = (result.opcodeCountsAfter[normalized] ?? 0) + 1;
+		if (normalized === original) continue;
+		result.changedInstructions++;
+		if (original.endsWith(".ExtraWide")) result.extraWideInstructions++;
+		else result.wideInstructions++;
+		parts[index] = `${match[1]}${normalized}${match[3]}`;
+	}
+	result.text = parts.join("");
+	return result;
+}
+
+async function translationCoverage(
+	normalized: BytecodeDisassemblyNormalization,
+	availability: BytecodeDecompilerAvailability,
+	signal?: AbortSignal,
+): Promise<BytecodeTranslationCoverage> {
+	const result: BytecodeTranslationCoverage = {
+		status: "unavailable",
+		totalInstructions: Object.values(normalized.opcodeCountsBefore).reduce((total, count) => total + count, 0),
+		unmappedBefore: 0,
+		unmappedAfter: 0,
+		emptyMapped: 0,
+		unmappedOpcodesBefore: {},
+		unmappedOpcodesAfter: {},
+		emptyMappedOpcodes: {},
+		instructionSemanticsVerified: false,
+	};
+	const table = availability.manifest?.files.find((file) =>
+		/(?:^|\/)Translate\/translate_table\.py$/.test(file.path.replaceAll("\\", "/")),
+	);
+	if (!table) return result;
+	const home = await realpath(availability.toolchainHome);
+	const path = await fencedFile(home, table.path);
+	const source = await readFile(path, { encoding: "utf8", signal });
+	if (sha256(source) !== table.sha256) throw new Error("指令翻译表在校验后变化");
+	const supported = new Set<string>();
+	const empty = new Set<string>();
+	// Read the reviewed literal lambda dispatch table without importing/evaluating Python.
+	for (const line of source.split(/\r?\n/)) {
+		const match = /^\s*(["'])([A-Z][A-Za-z0-9_. ]*)\1\s*:\s*lambda\s+[^:]+:\s*(.*)$/.exec(line);
+		if (!match) continue;
+		supported.add(match[2]);
+		if (/^(?:f)?(["'])\1\s*,?(?:\s*#.*)?$/.test(match[3])) empty.add(match[2]);
+		else empty.delete(match[2]);
+	}
+	if (supported.size === 0) return result;
+	result.status = "measured";
+	result.tablePath = path;
+	result.tableSha256 = table.sha256;
+	for (const [opcode, count] of Object.entries(normalized.opcodeCountsBefore)) {
+		if (!supported.has(opcode)) {
+			result.unmappedBefore += count;
+			result.unmappedOpcodesBefore[opcode] = count;
+		}
+	}
+	for (const [opcode, count] of Object.entries(normalized.opcodeCountsAfter)) {
+		if (!supported.has(opcode)) {
+			result.unmappedAfter += count;
+			result.unmappedOpcodesAfter[opcode] = count;
+		}
+		if (empty.has(opcode)) {
+			result.emptyMapped += count;
+			result.emptyMappedOpcodes[opcode] = count;
+		}
+	}
+	return result;
 }
 
 function within(root: string, path: string): boolean {
@@ -325,6 +456,8 @@ export async function runBytecodeDecompiler(
 	const report: BytecodeDecompilerReport = {
 		status: "failed",
 		approximate: true,
+		outputKind: "javascriptLikePseudocode",
+		sourceRecoveryVerified: false,
 		targetExecuted: false,
 		osSandbox: false,
 		engine: ENGINE,
@@ -410,11 +543,28 @@ export async function runBytecodeDecompiler(
 		const dumpPath = join(output, "disasm.txt");
 		await writeFile(dumpPath, d8Result.stdout, { flag: "wx", signal });
 		report.artifacts.push(await artifact(outputRoot, dumpPath, "disassembly", signal));
+		const normalized = normalizeV8BytecodeDisassembly(d8Result.stdout);
+		const normalizedPath = join(output, "normalized-disasm.txt");
+		await writeFile(normalizedPath, normalized.text, { flag: "wx", signal });
+		report.artifacts.push(await artifact(outputRoot, normalizedPath, "normalizedDisassembly", signal));
+		report.normalization = {
+			changedInstructions: normalized.changedInstructions,
+			wideInstructions: normalized.wideInstructions,
+			extraWideInstructions: normalized.extraWideInstructions,
+			rawPreserved: true,
+		};
+		report.translationCoverage = await translationCoverage(normalized, available, signal);
+		if (report.translationCoverage.status === "unavailable")
+			report.warnings.push("没有可静态核验的指令映射表，不能确认翻译覆盖");
+		else if (report.translationCoverage.unmappedAfter > 0 || report.translationCoverage.emptyMapped > 0)
+			report.warnings.push(
+				`归一化后仍有 ${report.translationCoverage.unmappedAfter} 条指令没有翻译映射，${report.translationCoverage.emptyMapped} 条映射为空；相关语义未恢复`,
+			);
 		const functions = new Set(
 			Array.from(d8Result.stdout.matchAll(/(?:0x)?([a-f0-9]+):\s*\[SharedFunctionInfo\]/gi), (match) => match[1]),
 		);
 		report.functionCount = functions.size;
-		report.opcodeCount = Array.from(d8Result.stdout.matchAll(/@\s+\d+\s*:\s*[a-f0-9 ]+\s+[A-Z][A-Za-z0-9]+/g)).length;
+		report.opcodeCount = report.translationCoverage.totalInstructions;
 		if (functions.size === 0 || report.opcodeCount === 0) throw new Error("工具未产出可验证的函数和字节码指令");
 		const startCount = d8Result.stdout.match(/Start SharedFunctionInfo/g)?.length ?? 0;
 		const endCount = d8Result.stdout.match(/End SharedFunctionInfo/g)?.length ?? 0;
@@ -425,7 +575,7 @@ export async function runBytecodeDecompiler(
 		const python = await realpath(manifest.python.path);
 		const viewResult = await runner(
 			python,
-			["-E", "-s", "-S", "-B", view8, "--disassembled", dumpPath, reconstructed],
+			["-E", "-s", "-S", "-B", view8, "--disassembled", normalizedPath, reconstructed],
 			options,
 		);
 		if (Buffer.byteLength(viewResult.stdout) > MAX_OUTPUT || Buffer.byteLength(viewResult.stderr) > MAX_OUTPUT)
@@ -445,7 +595,7 @@ export async function runBytecodeDecompiler(
 		report.warnings.push(...errors);
 		const recoveryText = await readFile(reconstructed, { encoding: "utf8", signal });
 		if (
-			/unknown bytecode|unsupported opcode|placeholder|func_unknown|stopped after|<unknown>|<Hole>/i.test(
+			/unknown bytecode|unsupported opcode|placeholder|func_unknown|stopped after|<unknown>|<Hole>|Scope\[|new\s+\{\}/i.test(
 				recoveryText,
 			)
 		)

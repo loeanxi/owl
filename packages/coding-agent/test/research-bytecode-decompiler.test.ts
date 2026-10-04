@@ -7,6 +7,7 @@ import {
 	type BytecodeDecompilerManifest,
 	type BytecodeDecompilerRunner,
 	inspectBytecodeDecompilerAvailability,
+	normalizeV8BytecodeDisassembly,
 	runBytecodeDecompiler,
 } from "../src/core/research/bytecode-decompiler.ts";
 
@@ -53,12 +54,15 @@ async function fixture(): Promise<{
 	const home = join(root, "tools");
 	await Promise.all([mkdir(input), mkdir(output), mkdir(home)]);
 	await mkdir(join(home, "view8"));
+	await mkdir(join(home, "view8", "Translate"));
 	await writeFile(join(input, "sample.jsc"), jsc());
 	const contents = {
 		"d8.exe": "fixture decoder executable; only fake runner called",
 		"snapshot_blob.bin": "fixture snapshot",
 		"view8/view8.py": "fixture reviewed script",
 		"view8/parse.py": "fixture reviewed dependency",
+		"view8/Translate/translate_table.py":
+			'operands = {\n "LdaSmi": lambda obj: f"ACCU = value",\n "Return": lambda obj: "return ACCU",\n "Throw": lambda obj: "",\n}\n',
 	};
 	for (const [path, content] of Object.entries(contents)) await writeFile(join(home, path), content);
 	const python = join(root, "python.exe");
@@ -75,7 +79,10 @@ async function fixture(): Promise<{
 		snapshot: { path: "snapshot_blob.bin", sha256: hash(contents["snapshot_blob.bin"]) },
 		view8: { path: "view8/view8.py", sha256: hash(contents["view8/view8.py"]) },
 		python: { path: python, sha256: hash("fixture runtime") },
-		files: [{ path: "view8/parse.py", sha256: hash(contents["view8/parse.py"]) }],
+		files: [
+			{ path: "view8/parse.py", sha256: hash(contents["view8/parse.py"]) },
+			{ path: "view8/Translate/translate_table.py", sha256: hash(contents["view8/Translate/translate_table.py"]) },
+		],
 	};
 	await writeFile(join(home, "toolchain.json"), JSON.stringify(manifest));
 	return { root, input, output, home, manifest };
@@ -90,7 +97,7 @@ describe("pinned V8 bytecode decompiler", () => {
 		const { home } = await fixture();
 		const result = await inspectBytecodeDecompilerAvailability(undefined, { toolchainHome: home, platform: "win32" });
 		expect(result.status).toBe("available");
-		expect(result.verifiedFiles).toHaveLength(5);
+		expect(result.verifiedFiles).toHaveLength(6);
 		expect(
 			await inspectBytecodeDecompilerAvailability(undefined, { toolchainHome: home, platform: "linux" }),
 		).toMatchObject({ status: "unsupported" });
@@ -115,6 +122,7 @@ describe("pinned V8 bytecode decompiler", () => {
 			expect(args.slice(0, 4)).toEqual(["-E", "-s", "-S", "-B"]);
 			expect(args[4]).toBe(join(home, "view8", "view8.py"));
 			expect(args[5]).toBe("--disassembled");
+			expect(args[6]).toBe(join(options.cwd, "normalized-disasm.txt"));
 			await writeFile(args[7], "function recovered() { return 42; }\n");
 			return { stdout: "Decompiling 1 functions.\nDone.", stderr: "" };
 		};
@@ -131,11 +139,83 @@ describe("pinned V8 bytecode decompiler", () => {
 			functionCount: 1,
 			opcodeCount: 2,
 		});
-		expect(result.artifacts).toHaveLength(4);
+		expect(result.artifacts).toHaveLength(5);
 		expect(calls).toHaveLength(2);
 		expect(calls.every((call) => !call.file.endsWith(".jsc") && !call.file.endsWith("reconstructed.js"))).toBe(true);
 		expect(await readFile(join(input, "sample.jsc"))).toEqual(jsc());
 		expect(await readdir(input)).toEqual(["sample.jsc"]);
+	});
+
+	it("normalizes only width suffixes in opcode columns, preserving PC, hex, operands, literals, and CRLF", () => {
+		const raw = [
+			"untrusted filename.Wide and text.ExtraWide",
+			"Start BytecodeArray",
+			"406007 S> 0000018600090EC3 @    3 : 00 17 19 03       LdaSmi.Wide [793], r2",
+			"0000018600090ED1 @   17 : 01 73 19 01 00 00       LdaSmi.ExtraWide [66073]",
+			"0000018600090ED4 @   24 : af       Return",
+			"Constant pool (size = 2)",
+			"0: 0x123 <String[30]: #method.Wide and text.ExtraWide>",
+			"0000018600090EC3 @    3 : 00 17 19 03       LdaSmi.Wide [793], r2",
+			"End BytecodeArray",
+			"0000018600090EC3 @    3 : 00 17 19 03       LdaSmi.Wide [793], r2",
+		].join("\r\n");
+		const result = normalizeV8BytecodeDisassembly(raw);
+		expect(result.text).toBe(
+			raw.replace("LdaSmi.Wide [793], r2", "LdaSmi [793], r2").replace("LdaSmi.ExtraWide [66073]", "LdaSmi [66073]"),
+		);
+		expect(result).toMatchObject({
+			changedInstructions: 2,
+			wideInstructions: 1,
+			extraWideInstructions: 1,
+			rawPreserved: true,
+		});
+		expect(result.opcodeCountsBefore).toEqual({ "LdaSmi.Wide": 1, "LdaSmi.ExtraWide": 1, Return: 1 });
+		expect(result.opcodeCountsAfter).toEqual({ LdaSmi: 2, Return: 1 });
+	});
+
+	it("persists original disassembly unchanged, feeds the normalized copy, and reports unmapped and empty translations", async () => {
+		const { input, output, home } = await fixture();
+		const raw = disassembly
+			.replace("LdaSmi [42]", "LdaSmi.Wide [42]")
+			.replace(
+				"End BytecodeArray",
+				"0x127 @    3 : aa MysteryOpcode.ExtraWide r1\n0x129 @    4 : ab Throw\nConstant pool (size = 1)\n0: <String[20]: #foo.Wide>\nEnd BytecodeArray",
+			);
+		const runner: BytecodeDecompilerRunner = async (file, args, options) => {
+			if (file.endsWith("d8.exe")) return { stdout: raw, stderr: "" };
+			expect(await readFile(join(options.cwd, "disasm.txt"), "utf8")).toBe(raw);
+			expect(await readFile(args[6], "utf8")).toBe(
+				raw.replace("LdaSmi.Wide", "LdaSmi").replace("MysteryOpcode.ExtraWide", "MysteryOpcode"),
+			);
+			await writeFile(args[7], "function recovered() { return 42; }\n");
+			return { stdout: "Done.", stderr: "" };
+		};
+		const result = await runBytecodeDecompiler({ cwd: input, path: "sample.jsc", outputCwd: output }, undefined, {
+			toolchainHome: home,
+			platform: "win32",
+			run: runner,
+		});
+		expect(result.status).toBe("partial");
+		expect(result.normalization).toMatchObject({
+			changedInstructions: 2,
+			wideInstructions: 1,
+			extraWideInstructions: 1,
+		});
+		expect(result.translationCoverage).toMatchObject({
+			status: "measured",
+			totalInstructions: 4,
+			unmappedBefore: 2,
+			unmappedAfter: 1,
+			emptyMapped: 1,
+			unmappedOpcodesAfter: { MysteryOpcode: 1 },
+			emptyMappedOpcodes: { Throw: 1 },
+			instructionSemanticsVerified: false,
+		});
+		const original = result.artifacts.find((file) => file.kind === "disassembly");
+		const normalized = result.artifacts.find((file) => file.kind === "normalizedDisassembly");
+		expect(original?.sha256).toBe(hash(raw));
+		expect(normalized?.sha256).not.toBe(original?.sha256);
+		expect(result).toMatchObject({ outputKind: "javascriptLikePseudocode", sourceRecoveryVerified: false });
 	});
 
 	it("refuses incompatible magic or version, truncated payload, and non-JSC files before starting any process", async () => {

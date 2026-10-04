@@ -245,9 +245,10 @@ export async function recoverJavascriptSources(
 		for (const source of sources) {
 			signal?.throwIfAborted();
 			const originalPath = join(outputDirectory, "original", ...source.path.split("/"));
+			outputBytes += source.buffer.length;
+			if (outputBytes > MAX_OUTPUT_BYTES) throw new Error("恢复输出超出 64 MiB 总大小上限");
 			await makeDirectory(outputRoot, dirname(originalPath));
 			await writeFile(originalPath, source.buffer, { flag: "wx", signal });
-			outputBytes += source.buffer.length;
 			const lexical = lexicalClues(source.text);
 			const file: RecoveredJavascriptFile = {
 				path: source.path,

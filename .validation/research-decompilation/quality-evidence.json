@@ -1,0 +1,272 @@
+[
+  {
+    "name": "_isLifecycleVersionCurrent",
+    "address": "0x1ae001bd79d",
+    "reconstructedStart": 48183,
+    "reconstructedEnd": 48187,
+    "rawStart": 215939,
+    "rawEnd": 215993,
+    "body": [
+      {
+        "line": 48183,
+        "text": "function func__isLifecycleVersionCurrent_000001AE001BD79D(a0, a1)"
+      },
+      {
+        "line": 48184,
+        "text": "{"
+      },
+      {
+        "line": 48185,
+        "text": "\tr0 = <this>[\"_getDeviceLifecycleVersion\"](a0)"
+      },
+      {
+        "line": 48186,
+        "text": "\treturn r0 === a1"
+      },
+      {
+        "line": 48187,
+        "text": "}"
+      }
+    ],
+    "rawOpcodes": [
+      {
+        "line": 215975,
+        "text": "137626 S> 000001860005DE9C @    0 : 2f 02 00 00       GetNamedProperty <this>, [0], [0]"
+      },
+      {
+        "line": 215976,
+        "text": "000001860005DEA0 @    4 : ca                Star0"
+      },
+      {
+        "line": 215977,
+        "text": "137626 E> 000001860005DEA1 @    5 : 61 f9 02 03 02    CallProperty1 r0, <this>, a0, [2]"
+      },
+      {
+        "line": 215978,
+        "text": "000001860005DEA6 @   10 : ca                Star0"
+      },
+      {
+        "line": 215979,
+        "text": "000001860005DEA7 @   11 : 0b 04             Ldar a1"
+      },
+      {
+        "line": 215980,
+        "text": "137663 E> 000001860005DEA9 @   13 : 70 f9 04          TestEqualStrict r0, [4]"
+      },
+      {
+        "line": 215981,
+        "text": "137684 S> 000001860005DEAC @   16 : af                Return"
+      }
+    ],
+    "selectedPropertyConstants": [
+      {
+        "line": 215986,
+        "index": 0,
+        "name": "_getDeviceLifecycleVersion"
+      }
+    ],
+    "unresolvedMarkers": 0,
+    "verifiedSemantics": false
+  },
+  {
+    "name": "updateTooltip",
+    "address": "0x1ae001b0f29",
+    "reconstructedStart": 44368,
+    "reconstructedEnd": 44375,
+    "rawStart": 196569,
+    "rawEnd": 196627,
+    "body": [
+      {
+        "line": 44368,
+        "text": "function func_updateTooltip_000001AE001B0F29(a0)"
+      },
+      {
+        "line": 44369,
+        "text": "{"
+      },
+      {
+        "line": 44370,
+        "text": "\tif (<this>[\"tray\"])"
+      },
+      {
+        "line": 44371,
+        "text": "\t{"
+      },
+      {
+        "line": 44372,
+        "text": "\t\tACCU = <this>[\"tray\"][\"setToolTip\"](a0)"
+      },
+      {
+        "line": 44373,
+        "text": "\t}"
+      },
+      {
+        "line": 44374,
+        "text": "\treturn undefined"
+      },
+      {
+        "line": 44375,
+        "text": "}"
+      }
+    ],
+    "rawOpcodes": [
+      {
+        "line": 196606,
+        "text": "54424 S> 0000018600051114 @    0 : 2f 02 00 00       GetNamedProperty <this>, [0], [0]"
+      },
+      {
+        "line": 196607,
+        "text": "0000018600051118 @    4 : 9d 11             JumpIfToBooleanFalse [17] (0000018600051129 @ 21)"
+      },
+      {
+        "line": 196608,
+        "text": "54443 S> 000001860005111A @    6 : 2f 02 00 02       GetNamedProperty <this>, [0], [2]"
+      },
+      {
+        "line": 196609,
+        "text": "000001860005111E @   10 : c9                Star1"
+      },
+      {
+        "line": 196610,
+        "text": "54448 E> 000001860005111F @   11 : 2f f8 01 04       GetNamedProperty r1, [1], [4]"
+      },
+      {
+        "line": 196611,
+        "text": "0000018600051123 @   15 : ca                Star0"
+      },
+      {
+        "line": 196612,
+        "text": "54448 E> 0000018600051124 @   16 : 61 f9 f8 03 06    CallProperty1 r0, r1, a0, [6]"
+      },
+      {
+        "line": 196613,
+        "text": "0000018600051129 @   21 : 0e                LdaUndefined"
+      },
+      {
+        "line": 196614,
+        "text": "54477 S> 000001860005112A @   22 : af                Return"
+      }
+    ],
+    "selectedPropertyConstants": [
+      {
+        "line": 196619,
+        "index": 0,
+        "name": "tray"
+      },
+      {
+        "line": 196620,
+        "index": 1,
+        "name": "setToolTip"
+      }
+    ],
+    "unresolvedMarkers": 0,
+    "verifiedSemantics": false
+  },
+  {
+    "name": "resolveTargetUpdaterProtocol",
+    "address": "0x1ae001e8e59",
+    "reconstructedStart": 25510,
+    "reconstructedEnd": 25518,
+    "rawStart": 114748,
+    "rawEnd": 114810,
+    "body": [
+      {
+        "line": 25510,
+        "text": "function func_resolveTargetUpdaterProtocol_000001AE001E8E59(a0)"
+      },
+      {
+        "line": 25511,
+        "text": "{"
+      },
+      {
+        "line": 25512,
+        "text": "\tr0 = Scope[1][141](a0, Scope[1][141])"
+      },
+      {
+        "line": 25513,
+        "text": "\tif (r0 <= 0)"
+      },
+      {
+        "line": 25514,
+        "text": "\t{"
+      },
+      {
+        "line": 25515,
+        "text": "\t\tACCU = \"[literal redacted]\""
+      },
+      {
+        "line": 25516,
+        "text": "\t}"
+      },
+      {
+        "line": 25517,
+        "text": "\treturn \"[literal redacted]\""
+      },
+      {
+        "line": 25518,
+        "text": "}"
+      }
+    ],
+    "rawOpcodes": [
+      {
+        "line": 114783,
+        "text": "406007 S> 0000018600090EC0 @    0 : 17 8d             LdaImmutableCurrentContextSlot [141]"
+      },
+      {
+        "line": 114784,
+        "text": "0000018600090EC2 @    2 : ca                Star0"
+      },
+      {
+        "line": 114785,
+        "text": "0000018600090EC3 @    3 : 00 17 19 03       LdaImmutableCurrentContextSlot.Wide [793]"
+      },
+      {
+        "line": 114786,
+        "text": "406040 E> 0000018600090EC7 @    7 : b0 00             ThrowReferenceErrorIfHole [0]"
+      },
+      {
+        "line": 114787,
+        "text": "0000018600090EC9 @    9 : c8                Star2"
+      },
+      {
+        "line": 114788,
+        "text": "406014 E> 0000018600090ECA @   10 : 66 f9 03 f7 00    CallUndefinedReceiver2 r0, a0, r2, [0]"
+      },
+      {
+        "line": 114789,
+        "text": "0000018600090ECF @   15 : ca                Star0"
+      },
+      {
+        "line": 114790,
+        "text": "0000018600090ED0 @   16 : 0c                LdaZero"
+      },
+      {
+        "line": 114791,
+        "text": "406084 E> 0000018600090ED1 @   17 : 73 f9 02          TestLessThanOrEqual r0, [2]"
+      },
+      {
+        "line": 114792,
+        "text": "0000018600090ED4 @   20 : 9f 06             JumpIfFalse [6] (0000018600090EDA @ 26)"
+      },
+      {
+        "line": 114793,
+        "text": "0000018600090ED6 @   22 : 13 01             LdaConstant [1]"
+      },
+      {
+        "line": 114794,
+        "text": "0000018600090ED8 @   24 : 8f 04             Jump [4] (0000018600090EDC @ 28)"
+      },
+      {
+        "line": 114795,
+        "text": "0000018600090EDA @   26 : 13 02             LdaConstant [2]"
+      },
+      {
+        "line": 114796,
+        "text": "406107 S> 0000018600090EDC @   28 : af                Return"
+      }
+    ],
+    "selectedPropertyConstants": [],
+    "unresolvedMarkers": 1,
+    "verifiedSemantics": false
+  }
+]

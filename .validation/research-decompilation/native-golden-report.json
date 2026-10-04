@@ -1,0 +1,90 @@
+{
+  "status": "complete",
+  "engine": "ghidra",
+  "outputKind": "decompiled-pseudocode",
+  "selectedPath": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-decompilation\\native-fixture\\return-seven.exe",
+  "inputSha256": "50742f985d51e3fbf3ab1ec976ffa6402599b8707fa81220480a0cee247c04d2",
+  "inputBytes": 1024,
+  "tool": {
+    "status": "available",
+    "engine": "ghidra",
+    "configuredBy": "native-toolchain.json",
+    "installationPath": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\ghidra\\ghidra_12.1.4_PUBLIC",
+    "launcherPath": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\ghidra\\ghidra_12.1.4_PUBLIC\\support\\analyzeHeadless.bat",
+    "launcherSha256": "dd7b9d17d32ed70a71df82a43a21cdaed6c4ce67064e30f8642c149f81c2ae07",
+    "version": "12.1.4",
+    "javaHome": "D:\\developTool\\java21",
+    "message": "已定位宿主配置的 Ghidra 头部分析器；运行时 Java 或分析器错误会单独报告。"
+  },
+  "functions": [
+    {
+      "address": "140001000",
+      "name": "entry",
+      "signature": "undefined8 entry(void)",
+      "decompiled": true,
+      "truncated": false,
+      "pseudocode": "\r\nundefined8 entry(void)\r\n\r\n{\r\n  return 7;\r\n}\r\n\r\n",
+      "error": ""
+    }
+  ],
+  "strings": [],
+  "crossReferences": [
+    {
+      "from": "1400000a8",
+      "to": "140001000",
+      "type": "DATA"
+    },
+    {
+      "from": "1400000ac",
+      "to": "140001000",
+      "type": "DATA"
+    },
+    {
+      "from": "140000194",
+      "to": "140001000",
+      "type": "DATA"
+    },
+    {
+      "from": "Entry Point",
+      "to": "140001000",
+      "type": "EXTERNAL"
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "report",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\native\\62dfc68f-68f2-4b0a-9f10-9b6cd3d0e9a0\\native-export.json",
+      "bytes": 695,
+      "sha256": "1eacb3868312efe15858b47a4df01f6603c2e08a9863088b41193510e91d6f25"
+    },
+    {
+      "kind": "pseudocode",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\native\\62dfc68f-68f2-4b0a-9f10-9b6cd3d0e9a0\\pseudocode.c",
+      "bytes": 104,
+      "sha256": "5f2633e855fd50d6247af428448b34c476923e0eec1c25a30fd8d4b6b8375ccd"
+    },
+    {
+      "kind": "log",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\native\\62dfc68f-68f2-4b0a-9f10-9b6cd3d0e9a0\\process.log",
+      "bytes": 11804,
+      "sha256": "90bd6db4c3508cfc0d3674e8befd139f8cee95d475a941edadce5f7172db6d4f"
+    },
+    {
+      "kind": "exporter",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\native\\62dfc68f-68f2-4b0a-9f10-9b6cd3d0e9a0\\scripts\\OwlNativeExport.java",
+      "bytes": 6103,
+      "sha256": "9af32e979539dd10aa2a54b4352f8515f71aa298810af9ccc969a99503d3a004"
+    }
+  ],
+  "analysisTimedOut": false,
+  "truncated": false,
+  "originalUnchanged": true,
+  "durationMs": 11001,
+  "warnings": [
+    "输出为反编译伪代码，原始变量名、注释、类型和工程结构可能已被编译器丢弃；不得称为精确恢复的原始源码。"
+  ],
+  "message": "Ghidra 实际导出 1/1 个函数的反编译伪代码、0 条已定义字符串和 4 条交叉引用。",
+  "outputDirectory": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\native\\62dfc68f-68f2-4b0a-9f10-9b6cd3d0e9a0",
+  "snapshotUnchanged": true,
+  "languageId": "x86:LE:64:default"
+}

@@ -14,7 +14,7 @@ export const RESEARCH_PUBLISH_TOOL = "research_publish";
 
 const MODES = new Set<ResearchMode>(["auto", "crawl", "web", "binary", "model", "osint"]);
 const MODE_GUIDANCE: Record<ResearchMode, string> = {
-	auto: "自动识别：根据目标选择网页采集、Web / JS 分析、EXE / 应用解析、模型实验或公开资产研究；可以组合方法，并用一句话说明选择。出现本地 EXE / DLL 路径时优先启动静态解析流程。",
+	auto: "自动识别：根据目标选择网页采集、Web / JS 分析、EXE / 应用解析、模型实验或公开资产研究；可以组合方法，并用一句话说明选择。出现本地程序路径时先获取静态证据；用户要求逆向、解析业务、字节码或代码恢复时，继续调用 research_decompile，不能用文件信息代替代码分析。",
 	crawl: "网页采集：先确认起始地址、所需字段与页数范围；观察真实列表、分页和详情，先整理小样本，去重并保留来源；遇到登录或访问限制说明现状，不擅自扩大范围。",
 	web: "Web / JS 分析：使用实际可用的浏览器、网络和源码工具追踪请求与参数来源，关联页面动作、请求与调用链；需要访问凭据或目标权限时先澄清，不把推测当作已复现的机制。",
 	binary:

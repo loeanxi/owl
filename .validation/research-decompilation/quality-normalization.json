@@ -1,0 +1,14 @@
+{
+  "changedInstructions": 5790,
+  "wideInstructions": 5777,
+  "extraWideInstructions": 13,
+  "totalInstructions": 99994,
+  "remainingUnmapped": 8,
+  "remainingUnmappedOpcodes": {
+    "ToBoolean": 6,
+    "FindNonDefaultConstructorOrConstruct": 2
+  },
+  "rawPreserved": true,
+  "thirdPartySourceModified": false,
+  "outputExecuted": false
+}

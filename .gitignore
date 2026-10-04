@@ -27,6 +27,8 @@ packages/ai/src/providers/.model-generation-*/
 # Package specific
 .npm/
 coverage/
+.owl/research/
+.validation/research-decompilation/native-fixture/
 .nyc_output/
 .pi_config/
 tui-debug.log

@@ -17,6 +17,7 @@ import {
 	researchResultSchema,
 	updateResearchMode,
 } from "../src/core/research/agent.ts";
+import { RESEARCH_DECOMPILE_TOOL } from "../src/core/research/decompile-tools.ts";
 import { RESEARCH_EXECUTABLE_TOOL } from "../src/core/research/executable-tools.ts";
 import { RESEARCH_MODEL_LAB_TOOL, type ResearchModelLabDetails } from "../src/core/research/model-lab.ts";
 import type { ResearchResultDetails, ResearchResultInput } from "../src/core/research/types.ts";
@@ -83,13 +84,18 @@ describe("research conversation and result contract", () => {
 		harness.setResponses([fauxAssistantMessage("普通回答")]);
 		await harness.session.prompt("你好");
 		const names = harness.session.getAllTools().map((tool) => tool.name);
-		for (const name of [RESEARCH_PUBLISH_TOOL, RESEARCH_EXECUTABLE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
+		for (const name of [
+			RESEARCH_PUBLISH_TOOL,
+			RESEARCH_EXECUTABLE_TOOL,
+			RESEARCH_DECOMPILE_TOOL,
+			RESEARCH_MODEL_LAB_TOOL,
+		]) {
 			expect(names).not.toContain(name);
 		}
 		expect(getCurrentSystemPrompt(harness.session.messages)).not.toContain("Owl 研究助手");
 	});
 
-	it("registers executable and lab tools only in research, runs a zero-call lab plan and persists its card", async () => {
+	it("registers all four research tools only in research, runs a zero-call lab plan and persists its card", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "owl-research-lab-plan-"));
 		tempDirs.push(dir);
 		const manager = SessionManager.create(dir, dir);
@@ -100,7 +106,12 @@ describe("research conversation and result contract", () => {
 		});
 		harnesses.push(harness);
 		const names = harness.session.getAllTools().map((tool) => tool.name);
-		for (const name of [RESEARCH_PUBLISH_TOOL, RESEARCH_EXECUTABLE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
+		for (const name of [
+			RESEARCH_PUBLISH_TOOL,
+			RESEARCH_EXECUTABLE_TOOL,
+			RESEARCH_DECOMPILE_TOOL,
+			RESEARCH_MODEL_LAB_TOOL,
+		]) {
 			expect(names).toContain(name);
 		}
 		harness.setResponses([
@@ -129,6 +140,7 @@ describe("research conversation and result contract", () => {
 		const prompt = getCurrentSystemPrompt(harness.session.messages);
 		expect(prompt).toContain("当前研究方向：EXE / 应用解析");
 		expect(prompt).toContain("research_executable inspect");
+		expect(prompt).toContain("research_decompile");
 		expect(prompt).not.toContain("当前研究方向：模型安全实验");
 		expect(harness.faux.state.callCount).toBe(3);
 		const file = manager.getSessionFile();

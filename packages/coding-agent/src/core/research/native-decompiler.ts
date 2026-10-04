@@ -1,8 +1,9 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getToolsDir } from "../../config.ts";
 
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
@@ -19,7 +20,7 @@ export interface NativeDecompilerInput {
 	/** Boundary of the explicitly selected application. */
 	cwd: string;
 	path: string;
-	/** All snapshots, project data and exported artifacts stay in this user workspace. */
+	/** Snapshots and artifacts stay here; Ghidra's transient project uses a checked OS temp directory. */
 	outputCwd: string;
 	maxFunctions?: number;
 	maxStrings?: number;
@@ -85,7 +86,7 @@ export interface NativeDecompilerReport {
 	languageId?: string;
 	analysisTimedOut: boolean;
 	truncated: boolean;
-	originalUnchanged: boolean;
+	originalUnchanged: boolean | null;
 	snapshotUnchanged?: boolean;
 	durationMs: number;
 	warnings: string[];
@@ -184,8 +185,8 @@ export async function inspectNativeDecompilerAvailability(): Promise<NativeDecom
 	let javaHome: string | undefined;
 	try {
 		if (!configured) {
-			const toolsRoot = await realpath(getToolsDir());
-			const configurationPath = await fencedPath(toolsRoot, join("research-decompilers", "native-toolchain.json"));
+			const toolsRoot = await realpath(join(getToolsDir(), "research-decompilers"));
+			const configurationPath = await fencedPath(toolsRoot, "native-toolchain.json");
 			const configurationStat = await lstat(configurationPath);
 			if (!configurationStat.isFile() || configurationStat.size > 16_384)
 				throw new Error("原生工具链宿主配置无效或过大");
@@ -366,6 +367,12 @@ async function runAnalyzer(
 		env.JDK_HOME = options.javaHome;
 		env.PATH = `${join(options.javaHome, "bin")}${process.platform === "win32" ? ";" : ":"}${env.PATH ?? ""}`;
 	}
+	const profile = join(options.cwd, "analyzer-profile");
+	await mkdir(profile);
+	env.APPDATA = profile;
+	env.LOCALAPPDATA = profile;
+	env.USERPROFILE = profile;
+	env.HOME = profile;
 	let executable = launcherPath;
 	let arguments_ = args;
 	if (process.platform === "win32") {
@@ -448,8 +455,9 @@ function booleanField(value: unknown): boolean {
 	return value;
 }
 
-function address(value: unknown): string {
+function address(value: unknown, externalSymbol = false): string {
 	const result = textField(value, 100);
+	if (externalSymbol && result === "Entry Point") return result;
 	if (!/^(?:[A-Za-z0-9_.-]+:)?[a-fA-F0-9]{1,32}$/.test(result)) throw new Error("分析器地址字段无效");
 	return result;
 }
@@ -507,7 +515,7 @@ function validateExport(
 	});
 	const crossReferences = array(item.crossReferences, limits.references).map((value) => {
 		const ref = record(value, ["from", "to", "type"]);
-		return { from: address(ref.from), to: address(ref.to), type: textField(ref.type, 100) };
+		return { from: address(ref.from, ref.type === "EXTERNAL"), to: address(ref.to), type: textField(ref.type, 100) };
 	});
 	return {
 		functions,
@@ -571,9 +579,11 @@ export async function runNativeDecompiler(
 	result.outputDirectory = outputDirectory;
 	const snapshot = join(outputDirectory, "input.exe");
 	const scripts = join(outputDirectory, "scripts");
-	const project = join(outputDirectory, "project");
+	// Ghidra rejects any absolute project-path component starting with '.', including .owl.
+	const temporaryRoot = await realpath(tmpdir());
+	const project = await mkdtemp(join(temporaryRoot, "owl-ghidra-"));
 	const exportPath = join(outputDirectory, "native-export.json");
-	await Promise.all([mkdir(scripts), mkdir(project)]);
+	await mkdir(scripts);
 	await copySnapshot(selectedPath, snapshot, maxFileBytes, signal);
 	if ((await fingerprint(snapshot, maxFileBytes, signal)).sha256 !== original.sha256)
 		throw new Error("输入在复制快照期间发生变化");
@@ -612,6 +622,7 @@ export async function runNativeDecompiler(
 	try {
 		if ((await fingerprint(tool.launcherPath, 1024 * 1024, signal)).sha256 !== tool.launcherSha256)
 			throw new Error("Ghidra 启动器在发现后发生变化");
+		result.originalUnchanged = null;
 		const processResult = await (runtime.run ?? runAnalyzer)(tool.launcherPath, args, {
 			cwd: outputDirectory,
 			timeoutMs,
@@ -690,11 +701,25 @@ export async function runNativeDecompiler(
 	} catch (error) {
 		signal?.throwIfAborted();
 		result.status = "failed";
+		if (result.originalUnchanged === null) result.warnings.push("原件的运行后哈希校验未完成，未确认原件保持不变");
 		result.functions = [];
 		result.strings = [];
 		result.crossReferences = [];
 		result.artifacts = [];
 		result.message = error instanceof Error ? error.message : String(error);
+	} finally {
+		try {
+			const canonicalProject = await realpath(project);
+			if (
+				dirname(canonicalProject) === temporaryRoot &&
+				basename(canonicalProject).startsWith("owl-ghidra-") &&
+				!(await lstat(project)).isSymbolicLink()
+			) {
+				await rm(canonicalProject, { recursive: true, force: true });
+			} else result.warnings.push("临时分析项目路径不匹配，未进行清理");
+		} catch {
+			result.warnings.push("临时分析项目清理未完成，分析状态和已生成证据保持原样");
+		}
 	}
 	result.durationMs = Date.now() - started;
 	return result;
@@ -800,7 +825,7 @@ public class OwlNativeExport extends HeadlessScript {
         } finally { decompiler.dispose(); }
         String report = "{\"schemaVersion\":1,\"inputSha256\":" + quote(currentProgram.getExecutableSHA256()) +
             ",\"languageId\":" + quote(currentProgram.getLanguageID().toString()) +
-            ",\"analysisTimedOut\":" + getHeadlessAnalysisTimeoutStatus() +
+            ",\"analysisTimedOut\":" + analysisTimeoutOccurred() +
             ",\"truncated\":" + truncated + ",\"functions\":[" + String.join(",", functions) +
             "],\"strings\":[" + String.join(",", strings) + "],\"crossReferences\":[" + String.join(",", references) + "]}";
         byte[] bytes = report.getBytes(StandardCharsets.UTF_8);

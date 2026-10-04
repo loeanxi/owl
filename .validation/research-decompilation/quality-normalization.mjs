@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import { normalizeV8BytecodeDisassembly } from '../../packages/coding-agent/src/core/research/bytecode-decompiler.ts';
+const dir='D:/owl/owl-re-v1/owl-mono/.validation/research-decompilation';
+const raw=fs.readFileSync('D:/owl/owl-re-v1/owl-mono/.owl/research/decompiled/jsc-oc3xNN/disasm.txt','utf8');
+const result=normalizeV8BytecodeDisassembly(raw);
+const table=fs.readFileSync('D:/owl/owl-re-v1/data/owl/tools/research-decompilers/view8/Translate/translate_table.py','utf8');
+const supported=new Set(Array.from(table.matchAll(/^\s*(["'])([A-Z][A-Za-z0-9_. ]*)\1\s*:\s*lambda\s+[^:]+:/gm),match=>match[2]));
+const after=Object.fromEntries(Object.entries(result.opcodeCountsAfter).filter(([name])=>!supported.has(name)));
+const summary={changedInstructions:result.changedInstructions,wideInstructions:result.wideInstructions,extraWideInstructions:result.extraWideInstructions,totalInstructions:Object.values(result.opcodeCountsBefore).reduce((a,b)=>a+b,0),remainingUnmapped:Object.values(after).reduce((a,b)=>a+b,0),remainingUnmappedOpcodes:after,rawPreserved:true,thirdPartySourceModified:false,outputExecuted:false};
+fs.writeFileSync(dir+'/quality-normalization.json',JSON.stringify(summary,null,2));
+console.log(JSON.stringify(summary,null,2));

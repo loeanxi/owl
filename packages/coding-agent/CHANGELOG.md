@@ -7,6 +7,7 @@
 - Added Chinese and English tool discovery and bounded skill discovery for desktop conversations, with native tool results and recorded tool sets preserved on resume and branch navigation.
 - Added capability/action discovery steps with metadata evidence, explicit unresolved requirements, and a shared tool-loading budget for compound tasks.
 - Added explicit implementation acceptance checklists with observed evidence, one bounded completion reminder, and recovery guidance for repeated identical tool errors.
+- Added research Agent code recovery with a pinned V8 JSC decoder, width-aware disassembly normalization, approximate JavaScript reconstruction, readable source copies and configured Ghidra native pseudocode exports, including hashes, coverage and unresolved instructions.
 - Added research-only PE inspection, bounded Electron resource analysis, explicit ASAR extraction and an optional installed UPX adapter, with source-linked result cards and no target execution. Added fixed synthetic model boundary experiments with explicit model and call budgets.
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.

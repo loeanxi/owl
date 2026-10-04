@@ -134,6 +134,7 @@ export async function runResearchDecompile(
 	if (requested !== "native")
 		report.container = await inspectApplicationContainer({ cwd: dirname(path), path }, signal);
 	const app = report.container;
+	if (app?.entriesTruncated) report.warnings.push("应用资源列表达到读取上限，本轮不能声明覆盖全部资源");
 	if (requested === "native" || !app?.containerPath) {
 		if (requested !== "auto" && requested !== "native")
 			throw new Error("未发现该应用的 Electron 资源；不能凭路径编造字节码或 JavaScript");
@@ -194,6 +195,13 @@ export async function runResearchDecompile(
 	for (const name of [...bytecodeNames, ...jsNames])
 		total += app.entries.find((entry) => entry.path === name)?.size ?? 0;
 	if (total > 64 * 1024 * 1024) throw new Error("本轮所选资源超出 64MiB 总输入上限，请缩小 names");
+	let javascriptBytes = 0;
+	for (const name of jsNames) {
+		const bytes = app.entries.find((entry) => entry.path === name)?.size ?? 0;
+		if (bytes > 8 * 1024 * 1024) throw new Error("所选 JavaScript 单文件超出 8MiB 上限");
+		javascriptBytes += bytes;
+	}
+	if (javascriptBytes > 24 * 1024 * 1024) throw new Error("所选 JavaScript 总输入超出 24MiB 上限");
 	let inputRoot = app.containerPath;
 	if (app.container === "asar") {
 		report.extraction = await extractApplicationContainer(
@@ -217,9 +225,25 @@ export async function runResearchDecompile(
 			),
 		);
 	}
-	if (jsNames.length)
-		report.javascript = await recoverJavascriptSources({ inputRoot, names: jsNames, outputCwd: workspace }, signal);
-	if (!bytecodeNames.length && report.javascript?.status === "recovered" && !report.pendingPaths.length)
+	if (jsNames.length) {
+		try {
+			report.javascript = await recoverJavascriptSources(
+				{ inputRoot, names: jsNames, outputCwd: workspace },
+				signal,
+			);
+		} catch (error) {
+			signal?.throwIfAborted();
+			report.warnings.push(
+				`JavaScript 恢复未完成，已生成的字节码产物保留：${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+	if (
+		!bytecodeNames.length &&
+		report.javascript?.status === "recovered" &&
+		!report.pendingPaths.length &&
+		!app.entriesTruncated
+	)
 		report.status = "complete";
 	return report;
 }
@@ -246,7 +270,7 @@ export function buildResearchDecompileResult(report: ResearchDecompileReport): R
 				name: basename(record.inputPath ?? report.selectedPath),
 				state: record.status,
 				path: artifact.path.slice(0, 2000),
-				evidence: `${artifact.kind}；${artifact.bytes} bytes；SHA256 ${artifact.sha256}`,
+				evidence: `${artifact.kind === "reconstruction" ? "近似伪代码，不可直接运行" : artifact.kind}；${artifact.bytes} bytes；SHA256 ${artifact.sha256}`,
 			});
 		findings.push({
 			kind: "fact",
@@ -295,7 +319,7 @@ export function buildResearchDecompileResult(report: ResearchDecompileReport): R
 		});
 		findings.push({
 			kind: "fact",
-			text: `原生静态反编译状态 ${report.native.status}；产物为工具生成的近似伪代码，不能称为完整原工程。`,
+			text: `原生静态反编译状态 ${report.native.status}；${report.native.artifacts.length ? "已生成近似伪代码及执行证据，不能称为完整原工程。" : "本次未生成可核验的伪代码文件。"}`,
 			sourceIds: ["native"],
 		});
 		for (const artifact of report.native.artifacts)
@@ -310,9 +334,11 @@ export function buildResearchDecompileResult(report: ResearchDecompileReport): R
 	if (report.pendingPaths.length)
 		findings.push({
 			kind: "unverified",
-			text: `本轮剩余 ${report.pendingPaths.length} 个字节码文件未处理，继续时用明确 names 分批执行。`,
+			text: `本轮剩余 ${report.pendingPaths.length} 个资源文件未处理，继续时用明确 names 分批执行。`,
 			sourceIds: [],
 		});
+	for (const warning of report.warnings)
+		findings.push({ kind: "unverified", text: warning.slice(0, 4000), sourceIds: [] });
 	return {
 		id: randomUUID(),
 		createdAt: report.createdAt,
@@ -357,7 +383,51 @@ export function createResearchDecompileTool(): ToolDefinition<typeof researchDec
 			if (!ctx?.cwd) throw new Error("代码恢复需要当前会话工作区");
 			const report = await runResearchDecompile(input, ctx.cwd, signal);
 			const researchResult = buildResearchDecompileResult(report);
-			const serialized = JSON.stringify({ researchResult, report });
+			// The Agent needs every outcome and remaining path, not repeated toolchain manifests.
+			const serialized = JSON.stringify({
+				summary: researchResult.summary,
+				status: report.status,
+				selectedPath: report.selectedPath,
+				pendingPaths: report.pendingPaths,
+				targetExecuted: false,
+				bytecode: report.bytecode.map((record) => ({
+					inputPath: record.inputPath,
+					status: record.status,
+					engine: record.engine,
+					outputKind: record.outputKind,
+					sourceRecoveryVerified: false,
+					functionCount: record.functionCount,
+					opcodeCount: record.opcodeCount,
+					normalization: record.normalization,
+					translationCoverage: record.translationCoverage
+						? {
+								unmappedAfter: record.translationCoverage.unmappedAfter,
+								emptyMapped: record.translationCoverage.emptyMapped,
+								instructionSemanticsVerified: false,
+							}
+						: undefined,
+					artifacts: record.artifacts,
+					warnings: record.warnings.slice(0, 6),
+					errors: record.errors,
+				})),
+				javascript: report.javascript?.files.map((file) => ({
+					path: file.path,
+					sourceSha256: file.sha256,
+					readablePath: file.readablePath,
+					normalization: file.normalization,
+					clues: file.clues.filter((clue) => clue.kind === "ipc" || clue.kind === "feature").slice(0, 20),
+				})),
+				native: report.native
+					? {
+							status: report.native.status,
+							message: report.native.message,
+							functions: report.native.functions.length,
+							artifacts: report.native.artifacts,
+							warnings: report.native.warnings,
+						}
+					: undefined,
+				warnings: report.warnings,
+			});
 			return {
 				content: [
 					{
