@@ -33,6 +33,18 @@ function formatTokenCount(count: number): string {
 	return String(count);
 }
 
+/** 用量聚合：一轮多次 LLM 调用的成本相加（操作栏的「用量」展示整轮总量）。 */
+function addUsage(base: MessageUsage | undefined, add: MessageUsage | undefined): MessageUsage | undefined {
+	if (!add) return base;
+	if (!base) return { ...add };
+	return {
+		input: base.input + add.input,
+		output: base.output + add.output,
+		cacheRead: base.cacheRead + add.cacheRead,
+		cacheWrite: base.cacheWrite + add.cacheWrite,
+	};
+}
+
 /** 消息时间戳的 HH:MM 展示（当天与否都不带日期，与参考实现一致保持轻量）。 */
 function formatClock(timestamp: number): string {
 	const date = new Date(timestamp);
@@ -451,11 +463,14 @@ function CopyButton({ text, label, className = "owl-msg-action" }: { text: strin
 
 /**
  * 回答底部操作栏（对照参考实现）：复制 / 赞 / 踩 / 在新对话中分支 /（仅最新一轮）
- * 重新生成 + 用量与时间元信息。
+ * 重新生成 + 用量与时间元信息。一轮回答含多次 LLM 调用时只在最后一条下挂一条，
+ * usage 传整轮聚合值。
  */
-function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate, canBranch, onBranch }: {
+function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerate, onRegenerate, canBranch, onBranch }: {
 	entry: Extract<ChatEntry, { kind: "assistant" }>;
 	storageKey: string;
+	/** 整轮聚合用量；缺省退回本条消息自己的用量 */
+	usage?: MessageUsage;
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
 	canBranch: boolean;
@@ -474,7 +489,7 @@ function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate, canBr
 		saveFeedback();
 		setFeedback(next);
 	};
-	const usage = entry.usage;
+	const usage = usageOverride ?? entry.usage;
 	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
 	const usageTitle = usage
 		? t("chat.msgUsageTitle", {
@@ -696,11 +711,24 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		}
 	}
 	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
-	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> } | undefined;
+	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }>; usage?: MessageUsage } | undefined;
+	// 轮内操作栏收集：一轮（两条用户消息之间）可能含多次 LLM 调用（中间说明 + 最终回答），
+	// 操作栏只保留轮内最后一条有正文的调用并把整轮用量聚到它身上，其余从行列表剔除
+	let turnFooters: Array<{ row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> }> = [];
+	let turnUsage: MessageUsage | undefined;
+	// 流式中的进行轮（最后一条用户消息之后的条目）还没定型，整轮操作栏等 agent_end 重建后再出现
+	let lastUserIndex = -1;
+	for (let i = entries.length - 1; i >= 0; i--) {
+		if (entries[i]!.kind === "user") {
+			lastUserIndex = i;
+			break;
+		}
+	}
 	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
-	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean): React.JSX.Element => (
+	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage?: MessageUsage): React.JSX.Element => (
 		<AssistantFooter
 			entry={entry}
+			usage={usage}
 			storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`}
 			canRegenerate={allowRegenerate}
 			onRegenerate={allowRegenerate ? onRegenerate : undefined}
@@ -708,6 +736,21 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			onBranch={entry.entryId !== undefined && onBranch ? () => onBranch(entry.entryId!) : undefined}
 		/>
 	);
+	const finishTurnFooters = (): void => {
+		const totalUsage = turnUsage;
+		turnUsage = undefined;
+		if (turnFooters.length === 0) return;
+		const keep = turnFooters[turnFooters.length - 1]!;
+		for (const item of turnFooters) {
+			if (item === keep) continue;
+			const position = rows.indexOf(item.row);
+			if (position >= 0) rows.splice(position, 1);
+		}
+		// 幸存的操作栏按整轮聚合用量重渲染（push 时的值可能缺其后纯工具调用的用量）
+		keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage);
+		lastFooter = { ...keep, usage: totalUsage };
+		turnFooters = [];
+	};
 	// 每轮处理耗时：键 = 该轮第一条 assistant 的下标（Owl 标题行的位置）
 	const turnDurations = turnDurationsOf(entries, streaming);
 	let turn = 0;
@@ -726,6 +769,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	};
 		entries.forEach((entry, index) => {
 			if (entry.kind === "user") {
+				finishTurnFooters();
 				flushTools();
 				assistantStarted = false;
 				const artifacts = historicalArtifacts?.get(index);
@@ -747,6 +791,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			return;
 		}
 		const seenTools = new Set<string>();
+		// 整轮用量累计：纯工具调用的 LLM 轮没有正文、不上屏操作栏，但同样是整轮成本
+		turnUsage = addUsage(turnUsage, entry.usage);
 		const segments: AssistantSegment[] = entry.segments ?? [
 			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
 			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),

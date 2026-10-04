@@ -420,18 +420,15 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	// 在新对话中分支：以某条回答为末梢复制新会话（原会话原封不动），桥端全新挂载
-	// 后返回与 session.resume 同构的快照——走同一条回放切换路径，再刷新侧边栏。
+	// 在新对话中分支：以某条回答为末梢复制新会话（原会话原封不动），桥端全新挂载。
+	// 成功后必须直接跳进新会话：走与点击侧边栏会话完全相同的 openSession 通道切换
+	// （工作区/标题后缀/转录回放/统计全部同源），再在尾部补一行反馈让跳转肉眼可见。
 	const handleBranch = async (entryId: string): Promise<void> => {
 		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return;
 		try {
 			const response = await client.request<{
 				sessionId: string;
-				cwd: string;
-				messages: Record<string, unknown>[];
-				messageEntryIds?: (string | undefined)[];
 				researchMode?: ResearchMode;
-				header?: { parentSession?: string };
 			}>({
 				type: "session.fork",
 				sessionId: sessionIdRef.current,
@@ -446,20 +443,16 @@ export default function App(): React.JSX.Element {
 				]);
 				return;
 			}
-			const { sessionId: forkedId, cwd, messages, messageEntryIds, researchMode } = response.result;
+			const { sessionId: forkedId, researchMode } = response.result;
 			if (researchMode !== undefined || !forkedId) return;
-			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
-			setSessionId(forkedId);
-			sessionIdRef.current = forkedId;
-			// 分支成功要肉眼可见：切过去的新会话内容和原来一模一样，不提示一行
-			// 用户只会觉得"点了没反应"
-			setEntries([
-				...rebuild(messages, messageEntryIds),
-				{ kind: "toolResult", toolName: t("app.branchTool"), ok: true, brief: t("app.branchDone") },
-			]);
-			setRetryStatus(null);
-			setSessionBranched(true);
-			void refreshStats(forkedId);
+			await openSession(forkedId);
+			// openSession 失败时会把转录换成错误行，此时不再补成功反馈
+			if (sessionIdRef.current === forkedId) {
+				setEntries((current) => [
+					...current,
+					{ kind: "toolResult", toolName: t("app.branchTool"), ok: true, brief: t("app.branchDone") },
+				]);
+			}
 			setSidebarRev((current) => current + 1);
 		} catch (error) {
 			setEntries((current) => [

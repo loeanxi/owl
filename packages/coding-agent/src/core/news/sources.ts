@@ -4,6 +4,7 @@ import { isIP, type LookupFunction } from "node:net";
 import { Readability } from "@mozilla/readability";
 import { DOMParser } from "linkedom";
 import { Agent, fetch as transportFetch } from "undici";
+import { resolvePublicNewsHost } from "./dns.ts";
 import type { NewsMaterial, NewsSourceInput } from "./types.ts";
 
 export const NEWS_SECRET_KEYS = [
@@ -16,6 +17,7 @@ export const NEWS_SECRET_KEYS = [
 export interface NewsFetchOptions {
 	fetch?: typeof fetch;
 	resolveHost?: (host: string) => Promise<string[]>;
+	resolvePublicHost?: (host: string, signal: AbortSignal) => Promise<string[]>;
 	allowPrivateNetwork?: boolean;
 	timeoutMs?: number;
 	maxBytes?: number;
@@ -88,6 +90,26 @@ export function isPrivateNewsAddress(address: string): boolean {
 	return true;
 }
 
+function isFakeNewsAddress(address: string): boolean {
+	if (isIP(address) !== 4) return false;
+	const [a, b] = address.split(".").map(Number);
+	return a === 198 && (b === 18 || b === 19);
+}
+
+async function resolveNewsHost(run: () => Promise<string[]>, signal: AbortSignal): Promise<string[]> {
+	signal.throwIfAborted();
+	let onAbort = (): void => {};
+	const aborted = new Promise<never>((_resolve, reject) => {
+		onAbort = () => reject(signal.reason);
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+	try {
+		return await Promise.race([run(), aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 /** Bound DNS, transport, redirects and streamed bytes; pin the validated DNS answer to prevent rebinding. */
 export async function fetchNewsText(
 	urlValue: string,
@@ -104,21 +126,22 @@ export async function fetchNewsText(
 		for (let redirects = 0; redirects <= 5; redirects++) {
 			if (!/^https?:$/.test(url.protocol) || url.username || url.password)
 				throw new Error("只允许无凭据的 HTTP(S) 地址");
-			const host = url.hostname.replace(/^\[|\]$/g, "");
+			const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
 			if (!options.allowPrivateNetwork && /(^localhost$|\.localhost$|\.local$|\.internal$)/i.test(host))
 				throw new Error("不允许采集本机或内网地址");
 			const resolver =
 				options.resolveHost ??
 				(async (hostname: string) => (await lookup(hostname, { all: true })).map((entry) => entry.address));
-			const addresses = isIP(host)
+			let addresses = isIP(host)
 				? [host]
-				: await Promise.race([
-						resolver(host),
-						new Promise<never>((_resolve, reject) => {
-							if (signal.aborted) reject(signal.reason);
-							else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-						}),
-					]);
+				: await resolveNewsHost(() => resolver(host), signal);
+			if (!options.allowPrivateNetwork && !isIP(host) && addresses.some(isFakeNewsAddress)) {
+				if (addresses.some((address) => isPrivateNewsAddress(address) && !isFakeNewsAddress(address)))
+					throw new Error("信源解析到不允许的内网地址");
+				const resolvePublicHost = options.resolvePublicHost ?? (options.resolveHost ? undefined : resolvePublicNewsHost);
+				if (!resolvePublicHost) throw new Error("信源解析到不允许的内网地址");
+				addresses = await resolveNewsHost(() => resolvePublicHost(host, signal), signal);
+			}
 			if (!addresses.length || (!options.allowPrivateNetwork && addresses.some(isPrivateNewsAddress)))
 				throw new Error("信源解析到不允许的内网地址");
 			const pinnedLookup: LookupFunction = (_hostname, lookupOptions, callback) => {

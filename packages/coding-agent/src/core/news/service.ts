@@ -51,7 +51,7 @@ import type {
 	NewsStory,
 } from "./types.ts";
 
-export interface NewsServiceOptions extends Pick<NewsFetchOptions, "fetch" | "resolveHost"> {
+export interface NewsServiceOptions extends Pick<NewsFetchOptions, "fetch" | "resolveHost" | "resolvePublicHost"> {
 	agentDir: string;
 	callModel: NewsModelCaller;
 	resolveModel?: (capability: NewsCapability, configured?: NewsModelRef) => Promise<NewsModelRef>;
@@ -352,6 +352,7 @@ export class NewsService {
 		return {
 			fetch: this.options.fetch,
 			resolveHost: this.options.resolveHost,
+			resolvePublicHost: this.options.resolvePublicHost,
 			allowPrivateNetwork: this.configuration.allowPrivateNetwork,
 			signal: this.controller.signal,
 		};

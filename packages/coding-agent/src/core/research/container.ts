@@ -1,14 +1,14 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rm, type FileHandle } from "node:fs/promises";
+import { type FileHandle, lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const MAX_HEADER_BYTES = 16 * 1024 * 1024;
 const MAX_INDEX_ENTRIES = 30_000;
 const MAX_LIST_ENTRIES = 1_500;
 const MAX_DEPTH = 32;
-const MAX_PREVIEW_BYTES = 4_096;
+const MAX_PREVIEW_BYTES = 256 * 1024;
 const MAX_PACKAGE_BYTES = 65_536;
 const MAX_EXTRACT_FILES = 512;
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
@@ -44,9 +44,11 @@ export interface ContainerPackage {
 
 export interface ContainerJavascript {
 	path: string;
-	source: string;
 	bytesRead: number;
 	truncated: boolean;
+	/** Fingerprint of exactly the bytes read, not necessarily of the complete file. */
+	sha256Read: string;
+	signals: { kind: "module" | "ipc" | "window" | "navigation" | "process"; offset: number; snippet: string }[];
 }
 
 export interface ApplicationContainerInspection {
@@ -235,7 +237,15 @@ async function archiveFile(
 	if (!entry || entry.type !== "file" || entry.size === undefined) throw new Error("容器条目不是普通文件");
 	const file = entry as ArchiveFile;
 	if (!file.unpacked) {
-		return { buffer: await readBytes(index.handle, index.dataOffset + (file.offset ?? 0), Math.min(file.size, limit), signal), size: file.size };
+		return {
+			buffer: await readBytes(
+				index.handle,
+				index.dataOffset + (file.offset ?? 0),
+				Math.min(file.size, limit),
+				signal,
+			),
+			size: file.size,
+		};
 	}
 	const path = await sourcePath(root, join(`${index.archivePath}.unpacked`, ...name.split("/")));
 	const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -273,7 +283,10 @@ async function directoryEntries(root: string, path: string, signal?: AbortSignal
 		signal?.throwIfAborted();
 		const current = queue.shift()!;
 		const children = await readdir(await sourcePath(root, current.path), { withFileTypes: true });
-		children.sort((a, b) => Number(a.name === "node_modules") - Number(b.name === "node_modules") || a.name.localeCompare(b.name));
+		children.sort(
+			(a, b) =>
+				Number(a.name === "node_modules") - Number(b.name === "node_modules") || a.name.localeCompare(b.name),
+		);
 		for (const child of children) {
 			if (entries.length >= MAX_LIST_ENTRIES) break;
 			const name = current.parent ? `${current.parent}/${child.name}` : child.name;
@@ -283,11 +296,36 @@ async function directoryEntries(root: string, path: string, signal?: AbortSignal
 			if (stat.isSymbolicLink()) entries.push({ path: name, type: "link" });
 			else if (stat.isDirectory()) {
 				entries.push({ path: name, type: "directory" });
-				if (current.depth < MAX_DEPTH) queue.push({ path: childPath, parent: name, depth: current.depth + 1 });
+				if (current.depth < MAX_DEPTH && child.name !== "node_modules")
+					queue.push({ path: childPath, parent: name, depth: current.depth + 1 });
 			} else if (stat.isFile()) entries.push({ path: name, type: "file", size: stat.size });
 		}
 	}
 	return entries;
+}
+
+function javascriptSignals(buffer: Buffer): ContainerJavascript["signals"] {
+	const text = buffer.toString("utf8");
+	const signals: ContainerJavascript["signals"] = [];
+	// These are lexical tokens, not a JavaScript parser or a semantic call graph.
+	// Return only the matched operation/module name, never whole source lines.
+	const patterns: { kind: ContainerJavascript["signals"][number]["kind"]; pattern: RegExp }[] = [
+		{ kind: "module", pattern: /(?:\brequire\s*\(\s*|\bfrom\s+|\bimport\s*)["']([^"'\r\n]{1,180})["']/g },
+		{ kind: "ipc", pattern: /\bipc(?:Main|Renderer)\s*\.\s*(?:handle|on|invoke|send)\s*\(/g },
+		{ kind: "window", pattern: /\b(?:new\s+)?BrowserWindow\s*\(/g },
+		{ kind: "navigation", pattern: /\b(?:loadFile|loadURL|preload)\b/g },
+		{ kind: "process", pattern: /\b(?:spawn|execFile|exec|spawnSync|execSync)\s*\(/g },
+	];
+	for (const { kind, pattern } of patterns) {
+		let count = 0;
+		for (const match of text.matchAll(pattern)) {
+			if (count++ >= 8) break;
+			let snippet = kind === "module" ? match[1] : match[0];
+			if (/(?:token|secret|password|api.?key|bearer|\?|#)/i.test(snippet)) snippet = "[sensitive value omitted]";
+			signals.push({ kind, offset: Buffer.byteLength(text.slice(0, match.index), "utf8"), snippet });
+		}
+	}
+	return signals.sort((a, b) => a.offset - b.offset);
 }
 
 /** Static Electron container inspection. It neither loads application code nor unpacks a PE. */
@@ -302,8 +340,15 @@ export async function inspectApplicationContainer(
 	const selectedPath = await sourcePath(root, selected);
 	if (!(await lstat(selectedPath)).isFile()) throw new Error("选中的应用或 ASAR 必须是普通文件");
 	const result: ApplicationContainerInspection = {
-		status: "unsupported", container: "none", selectedPath, entries: [], entriesTruncated: false,
-		javascript: [], evidence: [], warnings: [], capabilities: { list: false, readJavascript: false, extract: false, peUnpack: false },
+		status: "unsupported",
+		container: "none",
+		selectedPath,
+		entries: [],
+		entriesTruncated: false,
+		javascript: [],
+		evidence: [],
+		warnings: [],
+		capabilities: { list: false, readJavascript: false, extract: false, peUnpack: false },
 	};
 	let index: ArchiveIndex | undefined;
 	let containerPath: string;
@@ -323,7 +368,8 @@ export async function inspectApplicationContainer(
 				containerPath = await sourcePath(root, join(resources, "app"));
 				if (!(await lstat(containerPath)).isDirectory()) throw new Error("resources/app 不是目录");
 			} catch (directoryError) {
-				if (!(directoryError instanceof Error && "code" in directoryError && directoryError.code === "ENOENT")) throw directoryError;
+				if (!(directoryError instanceof Error && "code" in directoryError && directoryError.code === "ENOENT"))
+					throw directoryError;
 				result.warnings.push("未发现 Electron 应用容器；这不能证明 PE 已脱壳或没有加密。");
 				return result;
 			}
@@ -334,11 +380,19 @@ export async function inspectApplicationContainer(
 		result.container = index ? "asar" : "directory";
 		result.containerPath = containerPath;
 		const entries = index ? [...index.entries.values()] : await directoryEntries(root, containerPath, signal);
-		result.entries = entries.slice(0, MAX_LIST_ENTRIES).map(({ path, type, size, unpacked }) => ({ path, type, size, unpacked }));
+		result.entries = entries
+			.slice(0, MAX_LIST_ENTRIES)
+			.map(({ path, type, size, unpacked }) => ({ path, type, size, unpacked }));
 		result.entriesTruncated = entries.length >= MAX_LIST_ENTRIES;
 		result.capabilities = { list: true, readJavascript: true, extract: !!index, peUnpack: false };
-		result.evidence.push({ path: containerPath, note: index ? "已按 Electron ASAR Pickle 格式验证索引及文件边界" : "发现已展开的 Electron resources/app 目录" });
-		const read = (name: string, limit: number) => index ? archiveFile(index, root, name, limit, signal) : directoryFile(root, containerPath, name, limit, signal);
+		result.evidence.push({
+			path: containerPath,
+			note: index ? "已按 Electron ASAR Pickle 格式验证索引及文件边界" : "发现已展开的 Electron resources/app 目录",
+		});
+		const read = (name: string, limit: number) =>
+			index
+				? archiveFile(index, root, name, limit, signal)
+				: directoryFile(root, containerPath, name, limit, signal);
 		try {
 			const data = await read("package.json", MAX_PACKAGE_BYTES);
 			if (data.size > MAX_PACKAGE_BYTES) throw new Error("package.json 超出读取上限");
@@ -347,27 +401,53 @@ export async function inspectApplicationContainer(
 			for (const key of ["name", "version", "main"] as const) {
 				if (typeof metadata[key] === "string") result.package[key] = metadata[key].slice(0, 1_024);
 			}
-			result.evidence.push({ path: `${containerPath}/package.json`, note: "读取包名称、版本和入口字段", bytesRead: data.buffer.length });
+			result.evidence.push({
+				path: `${containerPath}/package.json`,
+				note: "读取包名称、版本和入口字段",
+				bytesRead: data.buffer.length,
+			});
 		} catch (error) {
 			signal?.throwIfAborted();
 			result.warnings.push(`包信息不可用：${error instanceof Error ? error.message : String(error)}`);
 		}
 		const main = result.package?.main?.replace(/^\.\//, "");
-		const candidates = [...new Set([
-			...(main ? [main] : []),
-			...entries.filter((entry) => entry.type === "file" && /\.(?:js|cjs|mjs)$/i.test(entry.path) && !entry.path.startsWith("node_modules/")).map((entry) => entry.path),
-		])].slice(0, 3);
+		const candidates = [
+			...new Set([
+				...(main ? [main] : []),
+				...entries
+					.filter(
+						(entry) =>
+							entry.type === "file" &&
+							/\.(?:js|cjs|mjs)$/i.test(entry.path) &&
+							!entry.path.startsWith("node_modules/"),
+					)
+					.map((entry) => entry.path),
+			]),
+		].slice(0, 3);
 		for (const name of candidates) {
 			try {
 				const data = await read(name, MAX_PREVIEW_BYTES);
-				result.javascript.push({ path: name, source: data.buffer.toString("utf8"), bytesRead: data.buffer.length, truncated: data.size > data.buffer.length });
-				result.evidence.push({ path: `${containerPath}/${name}`, note: "仅读取限长入口代码，未执行", bytesRead: data.buffer.length });
+				result.javascript.push({
+					path: name,
+					bytesRead: data.buffer.length,
+					truncated: data.size > data.buffer.length,
+					sha256Read: createHash("sha256").update(data.buffer).digest("hex"),
+					signals: javascriptSignals(data.buffer),
+				});
+				result.evidence.push({
+					path: `${containerPath}/${name}`,
+					note: "仅读取限长入口代码，未执行",
+					bytesRead: data.buffer.length,
+				});
 			} catch (error) {
 				signal?.throwIfAborted();
 				result.warnings.push(`入口 ${name} 不可读：${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 		if (result.entriesTruncated) result.warnings.push(`目录列表限制为 ${MAX_LIST_ENTRIES} 个条目`);
+		result.warnings.push(
+			"JS 线索来自限长静态词法匹配，可能出现在注释或字符串中，不保证完整语义调用链；未遍历 node_modules。",
+		);
 		result.warnings.push("应用资源展开不等于破解加密，也不证明 PE 已脱壳。");
 		return result;
 	} finally {
@@ -381,7 +461,9 @@ async function outputDirectory(outputCwd: string, signal?: AbortSignal): Promise
 	let current = root;
 	for (const part of [".owl", "research", "extracted"]) {
 		current = join(current, part);
-		try { await mkdir(current); } catch (error) {
+		try {
+			await mkdir(current);
+		} catch (error) {
 			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
 		}
 		const stat = await lstat(current);
@@ -391,6 +473,14 @@ async function outputDirectory(outputCwd: string, signal?: AbortSignal): Promise
 	const output = join(current, randomUUID());
 	await mkdir(output);
 	return output;
+}
+
+async function removeOutput(root: string, output: string): Promise<void> {
+	const canonical = await sourcePath(root, output);
+	if (!isWithin(root, canonical) || !(await lstat(canonical)).isDirectory()) {
+		throw new Error("拒绝清理工作区之外的输出目录");
+	}
+	await rm(canonical, { recursive: true, force: true });
 }
 
 /** Extract only explicit regular-file names to a fresh workspace directory; preserve the archive. */
@@ -403,38 +493,58 @@ export async function extractApplicationContainer(
 	if (!input.names.length || input.names.length > MAX_EXTRACT_FILES) throw new Error("提取文件数量超出安全上限");
 	const names = [...new Set(input.names.map(archiveName))];
 	const root = await realpath(resolve(input.cwd));
+	const outputRoot = await realpath(resolve(input.outputCwd));
 	const index = await readArchive(root, input.archivePath, signal);
 	let output: string | undefined;
 	try {
 		let totalBytes = 0;
 		for (const name of names) {
 			const entry = index.entries.get(name);
-			if (!entry || entry.type !== "file" || entry.size === undefined) throw new Error("拒绝提取目录、链接或不存在的条目");
+			if (!entry || entry.type !== "file" || entry.size === undefined)
+				throw new Error("拒绝提取目录、链接或不存在的条目");
 			if (entry.size > MAX_FILE_BYTES) throw new Error("单个提取文件超出安全上限");
 			totalBytes += entry.size;
 			if (totalBytes > MAX_EXTRACT_BYTES) throw new Error("提取总大小超出安全上限");
 		}
-		output = await outputDirectory(input.outputCwd, signal);
-		const result: ContainerExtraction = { archivePath: index.archivePath, outputDirectory: output, files: [], totalBytes };
+		output = await outputDirectory(outputRoot, signal);
+		const result: ContainerExtraction = {
+			archivePath: index.archivePath,
+			outputDirectory: output,
+			files: [],
+			totalBytes,
+		};
 		for (const name of names) {
 			signal?.throwIfAborted();
 			const data = await archiveFile(index, root, name, MAX_FILE_BYTES, signal);
 			const outputPath = join(output, ...name.split("/"));
 			await mkdir(dirname(outputPath), { recursive: true });
 			const target = await open(outputPath, "wx", 0o600);
-			try { await target.writeFile(data.buffer, { signal }); } finally { await target.close(); }
-			result.files.push({ path: name, outputPath, bytes: data.buffer.length, sha256: createHash("sha256").update(data.buffer).digest("hex") });
+			try {
+				await target.writeFile(data.buffer, { signal });
+			} finally {
+				await target.close();
+			}
+			result.files.push({
+				path: name,
+				outputPath,
+				bytes: data.buffer.length,
+				sha256: createHash("sha256").update(data.buffer).digest("hex"),
+			});
 		}
 		return result;
 	} catch (error) {
-		if (output) await rm(output, { recursive: true, force: true });
+		if (output) await removeOutput(outputRoot, output);
 		throw error;
 	} finally {
 		await index.handle.close();
 	}
 }
 
-export interface UpxInput { cwd: string; path: string; outputCwd: string }
+export interface UpxInput {
+	cwd: string;
+	path: string;
+	outputCwd: string;
+}
 export interface UpxResult {
 	status: "toolMissing" | "unsupported" | "decompressed";
 	inputPath: string;
@@ -452,16 +562,26 @@ export interface UpxRunOptions {
 	env: NodeJS.ProcessEnv;
 }
 /** Dependency injection is for tests; tool inputs never supply a command or tool path. */
-export type UpxRunner = (file: string, args: string[], options: UpxRunOptions) => Promise<{ stdout: string; stderr: string }>;
+export type UpxRunner = (
+	file: string,
+	args: string[],
+	options: UpxRunOptions,
+) => Promise<{ stdout: string; stderr: string }>;
 
-const runUpx: UpxRunner = (file, args, options) => new Promise((resolveRun, reject) => {
-	execFile(file, args, { ...options, encoding: "utf8" }, (error, stdout, stderr) => {
-		if (error) reject(error); else resolveRun({ stdout, stderr });
+const runUpx: UpxRunner = (file, args, options) =>
+	new Promise((resolveRun, reject) => {
+		execFile(file, args, { ...options, encoding: "utf8" }, (error, stdout, stderr) => {
+			if (error) reject(error);
+			else resolveRun({ stdout, stderr });
+		});
 	});
-});
 
 /** Only the installed UPX tool runs. The selected executable is always a data argument. */
-export async function decompressUpx(input: UpxInput, signal?: AbortSignal, runner: UpxRunner = runUpx): Promise<UpxResult> {
+export async function decompressUpx(
+	input: UpxInput,
+	signal?: AbortSignal,
+	runner: UpxRunner = runUpx,
+): Promise<UpxResult> {
 	signal?.throwIfAborted();
 	const root = await realpath(resolve(input.cwd));
 	const inputPath = await sourcePath(root, input.path);
@@ -470,16 +590,38 @@ export async function decompressUpx(input: UpxInput, signal?: AbortSignal, runne
 	const outputRoot = await realpath(resolve(input.outputCwd));
 	// UPX's environment variable can inject default options; remove it.
 	const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "UPX"));
-	const options: UpxRunOptions = { timeout: 20_000, maxBuffer: 65_536, signal, windowsHide: true, cwd: outputRoot, env };
+	const options: UpxRunOptions = {
+		timeout: 20_000,
+		maxBuffer: 65_536,
+		signal,
+		windowsHide: true,
+		cwd: outputRoot,
+		env,
+	};
 	const result: UpxResult = { status: "toolMissing", inputPath, evidence: [] };
-	const locator = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "where.exe") : "/usr/bin/which";
+	const locator =
+		process.platform === "win32"
+			? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "where.exe")
+			: "/usr/bin/which";
 	let toolPath: string;
 	try {
 		const located = await runner(locator, [process.platform === "win32" ? "upx.exe" : "upx"], options);
-		const candidates = located.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-		const candidate = candidates.find((path) => isAbsolute(path) && /^(?:upx|upx\.exe)$/i.test(basename(path)) && !isWithin(root, path) && !isWithin(outputRoot, path));
-		if (!candidate || (await lstat(candidate)).isSymbolicLink()) throw new Error("未发现应用或工作区以外的已安装 UPX 工具");
+		const candidates = located.stdout
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean);
+		const candidate = candidates.find(
+			(path) =>
+				isAbsolute(path) &&
+				/^(?:upx|upx\.exe)$/i.test(basename(path)) &&
+				!isWithin(root, path) &&
+				!isWithin(outputRoot, path),
+		);
+		if (!candidate || (await lstat(candidate)).isSymbolicLink())
+			throw new Error("未发现应用或工作区以外的已安装 UPX 工具");
 		toolPath = await realpath(candidate);
+		if (isWithin(root, toolPath) || isWithin(outputRoot, toolPath))
+			throw new Error("拒绝执行应用或工作区内提供的 UPX");
 		if (!(await lstat(toolPath)).isFile()) throw new Error("UPX 工具路径不是普通文件");
 	} catch (error) {
 		signal?.throwIfAborted();
@@ -496,7 +638,7 @@ export async function decompressUpx(input: UpxInput, signal?: AbortSignal, runne
 		result.evidence.push(`UPX -t 未确认可解压：${error instanceof Error ? error.message : String(error)}`);
 		return result;
 	}
-	const output = await outputDirectory(input.outputCwd, signal);
+	const output = await outputDirectory(outputRoot, signal);
 	const outputPath = join(output, "unpacked.exe");
 	try {
 		// Official UPX documents -t (integrity test), -d (decompress), and -o file.
@@ -504,7 +646,8 @@ export async function decompressUpx(input: UpxInput, signal?: AbortSignal, runne
 		const unpacked = await runner(toolPath, ["-d", "-o", outputPath, inputPath], options);
 		const safeOutput = await sourcePath(outputRoot, outputPath);
 		const stat = await lstat(safeOutput);
-		if (!stat.isFile() || stat.size === 0 || stat.size > MAX_UPX_OUTPUT_BYTES) throw new Error("UPX 输出为空或超出安全上限");
+		if (!stat.isFile() || stat.size === 0 || stat.size > MAX_UPX_OUTPUT_BYTES)
+			throw new Error("UPX 输出为空或超出安全上限");
 		result.status = "decompressed";
 		result.outputPath = safeOutput;
 		result.bytes = stat.size;
@@ -512,7 +655,7 @@ export async function decompressUpx(input: UpxInput, signal?: AbortSignal, runne
 		result.evidence.push("已创建新输出并保留原文件；未运行样本。UPX 不能处理所有壳或破解加密。");
 		return result;
 	} catch (error) {
-		await rm(output, { recursive: true, force: true });
+		await removeOutput(outputRoot, output);
 		signal?.throwIfAborted();
 		result.evidence.push(`UPX 解压未完成：${error instanceof Error ? error.message : String(error)}`);
 		return result;

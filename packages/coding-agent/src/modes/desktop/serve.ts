@@ -325,7 +325,9 @@ export interface DesktopServerOptions {
 	/** Local mail dependencies for offline bridge regression tests. */
 	mail?: Partial<Pick<MailServiceOptions, "fetch" | "now" | "seal" | "unseal">>;
 	/** Local dependencies for isolated news integration tests; production uses the Owl model runtime. */
-	news?: Partial<Pick<NewsServiceOptions, "callModel" | "listModels" | "fetch" | "resolveHost" | "resolveModel">>;
+	news?: Partial<
+		Pick<NewsServiceOptions, "callModel" | "listModels" | "fetch" | "resolveHost" | "resolvePublicHost" | "resolveModel">
+	>;
 	/** Real geographic sources, injectable for offline map regression checks. */
 	maps?: RealMapServiceOptions;
 	/** Fake evaluation dependencies for isolated local tests; never use paid models in tests. */

@@ -522,6 +522,16 @@ export function SessionSidebar({
 		if (focus === "chat" || focus === "research") scrollRef.current?.scrollTo({ top: 0 });
 	}, [focus]);
 
+	// 活动会话变化（点行、分支跳转、快捷键循环）：把当前行滚进可视区，长列表里也能
+	// 一眼看到跳到了哪条。行不在 DOM（所在分组折叠/被过滤）时静默跳过。
+	useEffect(() => {
+		if (!activeId || minimized) return;
+		const frame = requestAnimationFrame(() => {
+			scrollRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [activeId, minimized, allSessions]);
+
 	const togglePin = (id: string): void => {
 		setPinned((current) => {
 			const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];

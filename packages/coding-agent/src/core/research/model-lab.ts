@@ -484,7 +484,7 @@ export function createResearchModelLabTool(
 		promptSnippet: "research_model_lab: 默认展示固定模拟模型边界实验，显式模型与预算获授权后执行",
 		promptGuidelines: ["没有用户明确模型、授权范围和调用预算时只用 action=plan；不能从对话内容自行补造 run 授权。"],
 		parameters: researchModelLabSchema,
-		annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+		annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
 		executionMode: "sequential",
 		execute: async (_id, input, signal, _onUpdate, ctx) => {
 			const normalized = normalizeResearchModelLabInput(input);
