@@ -142,7 +142,11 @@ async function groupByRepo(cwd: string, paths: string[]): Promise<Map<string, st
 /** 仓库相对条目 → workspace 相对条目（path 与 origPath 都要跨过仓库根前缀）。 */
 function entryAt(cwd: string, root: string, entry: GitStatusEntry): GitStatusEntry {
 	const map = (raw: string): string => toWirePath(cwd, resolve(root, raw));
-	return { ...entry, path: map(entry.path), ...(entry.origPath !== undefined ? { origPath: map(entry.origPath) } : {}) };
+	return {
+		...entry,
+		path: map(entry.path),
+		...(entry.origPath !== undefined ? { origPath: map(entry.origPath) } : {}),
+	};
 }
 
 /** 某仓库内单个路径的 porcelain 状态（pathspec 限定，供 untracked 判定）。 */
@@ -237,7 +241,15 @@ export async function gitDiff(cwd: string, path?: string, staged = false): Promi
 					return untrackedDiff(cwd, path);
 				}
 			}
-			return await git(cwd, ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "-U3", "--", path]);
+			return await git(cwd, [
+				"diff",
+				...(staged ? ["--cached"] : []),
+				"--no-color",
+				"--no-ext-diff",
+				"-U3",
+				"--",
+				path,
+			]);
 		}
 		return await git(cwd, ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "-U3"]);
 	}
@@ -256,7 +268,15 @@ export async function gitDiff(cwd: string, path?: string, staged = false): Promi
 			return untrackedDiff(cwd, path);
 		}
 	}
-	return await git(root, ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "-U3", "--", repoRel]);
+	return await git(root, [
+		"diff",
+		...(staged ? ["--cached"] : []),
+		"--no-color",
+		"--no-ext-diff",
+		"-U3",
+		"--",
+		repoRel,
+	]);
 }
 
 /** 把一个未跟踪文件合成 unified diff（新增文件全绿）。 */

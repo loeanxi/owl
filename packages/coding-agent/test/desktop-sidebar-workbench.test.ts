@@ -18,7 +18,15 @@ import {
 	searchWorkspaceFiles,
 	writeWorkspaceFile,
 } from "../src/modes/desktop/sidebar-fs.ts";
-import { gitCommit, gitDiff, gitDiscard, gitStage, gitStatus, parseLog, parseStatusZ } from "../src/modes/desktop/sidebar-git.ts";
+import {
+	gitCommit,
+	gitDiff,
+	gitDiscard,
+	gitStage,
+	gitStatus,
+	parseLog,
+	parseStatusZ,
+} from "../src/modes/desktop/sidebar-git.ts";
 
 async function makeTempDir(): Promise<string> {
 	return await mkdtemp(join(tmpdir(), "owl-sidebar-test-"));
@@ -237,11 +245,7 @@ describe("git 子仓库聚合（workspace 根不是仓库）", () => {
 				"group/pkg-b/b.txt",
 				"pkg-a/a.txt",
 			]);
-			expect(status.repos?.map((repo) => repo.root).sort()).toEqual([
-				"deep/nest/pkg-c",
-				"group/pkg-b",
-				"pkg-a",
-			]);
+			expect(status.repos?.map((repo) => repo.root).sort()).toEqual(["deep/nest/pkg-c", "group/pkg-b", "pkg-a"]);
 			// 多仓库：不标榜单一分支
 			expect(status.branch).toBeUndefined();
 

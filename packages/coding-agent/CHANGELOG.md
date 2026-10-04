@@ -33,6 +33,7 @@
 - Exposed safe output-limit, timeout, and cancellation reasons during anonymous evaluation so unchanged retries are understandable.
 - Fixed the shrinkwrap shipping vulnerable `brace-expansion` 5.0.9 by pinning `brace-expansion` 5.0.12 as a direct dependency (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) ([#10288](https://github.com/earendil-works/pi/issues/10288))
 - Fixed a trailing comma in `--models` adding an extra model to the model cycle ([#10334](https://github.com/earendil-works/pi/issues/10334))
+- Explained `grep`/`rg` exit code 1 in shell results as "no lines matched" instead of a bare failure for pipelines ending in grep, and taught the bash prompt the `|| true` convention for exploratory searches where an empty result is valid.
 
 ## [1.0.0] - 2026-10-01
 
