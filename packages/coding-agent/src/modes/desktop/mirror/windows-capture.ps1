@@ -372,10 +372,24 @@ switch ($Command) {
     }
     $hwndPtr = [IntPtr]$Hwnd
     $parentPtr = [IntPtr]$ParentHwnd
+    # 恢复轮询：BitDock 类工具会把窗口重新收纳，SC_RESTORE 拉回直到稳定（最多 5s）
+    $stable = $false
+    for ($i = 0; $i -lt 16; $i++) {
+      if (-not [OwlMirrorWin32]::IsIconic($hwndPtr)) { $stable = $true; break }
+      [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
+      Start-Sleep -Milliseconds 300
+    }
+    if (-not $stable) {
+      Write-JsonLine '{"event":"error","message":"window is minimized and could not be restored"}'; exit 1
+    }
     $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
     $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
     [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
-    [void][OwlMirrorWin32]::SetParent($hwndPtr, $parentPtr)
+    $setParentOk = [OwlMirrorWin32]::SetParent($hwndPtr, $parentPtr)
+    if (-not $setParentOk -or [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64() -ne $ParentHwnd) {
+      [OwlMirrorWin32]::SetStyle($hwndPtr, $originalStyle)
+      Write-JsonLine '{"event":"error","message":"SetParent failed (parent hwnd invalid or UIPI blocked)"}'; exit 1
+    }
     [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
     [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
     Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')

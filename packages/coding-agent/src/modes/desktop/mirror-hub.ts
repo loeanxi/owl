@@ -408,7 +408,19 @@ export class MirrorHub {
 			proc.on("exit", (code) => {
 				if (code !== 0 && code !== null) {
 					clearTimeout(timer);
-					finish(new Error(`mirror worker exited ${code}: ${stderr.slice(0, 300)}`));
+					// 等 stdout 数据事件落地后再取错误详情（exit 事件可能先于最后的数据事件）
+					setTimeout(() => {
+						const errorLine = out.find((l) => l.includes('"event":"error"'));
+						let detail = stderr.slice(0, 300);
+						if (errorLine) {
+							try {
+								detail = (JSON.parse(errorLine) as { message?: string }).message ?? detail;
+							} catch {
+								detail = errorLine.slice(0, 300);
+							}
+						}
+						finish(new Error(`mirror worker exited ${code}: ${detail}`));
+					}, 300);
 				}
 			});
 		});

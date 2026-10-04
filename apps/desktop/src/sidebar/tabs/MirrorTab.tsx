@@ -191,15 +191,20 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		const windowId = hongguo.windowId;
 		if (embedTried.current === windowId) return;
 		embedTried.current = windowId;
-		const stage = stageForMode("sidebar");
-		const rect = computeLayout("sidebar", stage, window.devicePixelRatio || 1, HONGGUO_REF);
-		void client
-			.request({ type: "mirror.embed", windowId, rect })
-			.then(() => {
+		// 嵌入失败可能只是 BitDock 收纳竞态：1.5s 后重试一次再放弃
+		const attempt = (delayMs: number): Promise<void> =>
+			new Promise((resolve) => setTimeout(resolve, delayMs)).then(() => {
+				const stage = stageForMode("sidebar");
+				const rect = computeLayout("sidebar", stage, window.devicePixelRatio || 1, HONGGUO_REF);
+				return client.request({ type: "mirror.embed", windowId, rect });
+			}).then((response) => {
+				if (!response.ok) throw new Error(response.error ?? "embed failed");
 				dispatch({ type: "embed", mode: "sidebar" });
-			})
+			});
+		void attempt(0)
+			.catch(() => attempt(1500))
 			.catch(() => {
-				setFallback(true); // 嵌入失败 → 帧流兜底
+				setFallback(true); // 两次都失败 → 帧流兜底
 				void client.request({ type: "mirror.attach", windowId }).catch(() => {});
 			});
 	}, [hongguo, embedded, fallback, client, stageForMode]);
