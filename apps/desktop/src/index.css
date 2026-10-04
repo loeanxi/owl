@@ -139,7 +139,6 @@ html[data-owl-theme="light"] {
 }
 
 .owl-rail-button,
-.owl-sidebar-icon-button,
 .owl-chrome-button {
 	display: inline-flex;
 	width: 28px;
@@ -159,14 +158,12 @@ html[data-owl-theme="light"] {
 }
 
 .owl-rail-button:hover:not(:disabled),
-.owl-sidebar-icon-button:hover,
 .owl-chrome-button:hover {
 	background: var(--color-owl-sidebar-hover);
 	color: var(--color-owl-sidebar-text);
 }
 
 .owl-rail-button.is-active,
-.owl-sidebar-icon-button.is-active,
 .owl-chrome-button.is-active {
 	background: var(--color-owl-sidebar-selected);
 	color: var(--color-owl-sidebar-text);
@@ -230,13 +227,6 @@ html[data-owl-theme="light"] {
 	font-size: 16px;
 	font-weight: 600;
 	letter-spacing: -0.3px;
-}
-
-.owl-sidebar-header-actions {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	margin-left: auto;
 }
 
 .owl-sidebar-search {

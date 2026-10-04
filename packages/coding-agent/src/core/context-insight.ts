@@ -196,7 +196,7 @@ export function classifyRequestMessages(messages: readonly AgentMessage[]): Cont
 				composition.user += toTokens(blocksToChars(contentBlocks(message.content)));
 				break;
 			case "assistant":
-				composition.assistant += toTokens(blocksToChars(message.content));
+				composition.assistant += toTokens(blocksToChars(contentBlocks(message.content)));
 				break;
 			case "toolResult":
 				composition.toolResult += toTokens(blocksToChars(contentBlocks(message.content)));

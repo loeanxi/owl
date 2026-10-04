@@ -151,4 +151,28 @@ describe("foreground memory write intent", () => {
 			expect(readMemoryEntries(agentDir)).toHaveLength(allowed ? 1 : 0);
 		},
 	);
+
+	it("does not borrow permission from a follow-up that has not been delivered yet", async () => {
+		harness = await createHarness({ extensionFactories: [createOwlMemoryExtension()] });
+		const agentDir = join(harness.tempDir, "agent");
+		vi.stubEnv(ENV_AGENT_DIR, agentDir);
+		const session = harness.session;
+		harness.setResponses([
+			async () => {
+				await session.followUp("请记住：我偏好中文回复。");
+				return fauxAssistantMessage(fauxToolCall("remember", { content: mistakenFact }), { stopReason: "toolUse" });
+			},
+			fauxAssistantMessage("当前需求继续按界面修改处理。"),
+			fauxAssistantMessage(fauxToolCall("remember", { content: "用户偏好中文回复" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("已保存明确要求的偏好。"),
+		]);
+
+		await session.prompt(request);
+
+		const results = session.messages.filter(
+			(message) => message.role === "toolResult" && message.toolName === "remember",
+		);
+		expect(results.map((result) => result.isError)).toEqual([true, false]);
+		expect(readMemoryEntries(agentDir).map((entry) => entry.content)).toEqual(["用户偏好中文回复"]);
+	});
 });

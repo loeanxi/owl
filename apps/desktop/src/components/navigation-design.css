@@ -166,21 +166,6 @@
 	line-height: 1.4;
 }
 
-.owl-desktop-shell .owl-sidebar .owl-sidebar-header-actions {
-	margin-left: 0;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-icon-button {
-	width: 26px;
-	height: 28px;
-	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-icon-button:hover {
-	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
-	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
-}
-
 .owl-desktop-shell .owl-sidebar .owl-sidebar-search {
 	min-height: 34px;
 	flex: 0 0 auto;

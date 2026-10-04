@@ -81,7 +81,7 @@ export function NewProjectDialog({
 		const target = path.trim();
 		const displayName = name.trim();
 		if (busyRef.current || !target || !displayName) return;
-		if (!editing && !/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(target)) {
+		if (!editing && !/^(?:[a-z]:[\\/]|\\\\|\/|~[\\/])/i.test(target)) {
 			setError(t("newproject.invalidPath"));
 			return;
 		}

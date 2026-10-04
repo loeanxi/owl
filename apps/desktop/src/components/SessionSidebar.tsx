@@ -16,7 +16,6 @@ import {
 	IconCompose,
 	IconFolder,
 	IconMore,
-	IconPanelLeft,
 	IconPlus,
 	IconSearch,
 } from "./icons.tsx";
@@ -231,11 +230,6 @@ function MenuRow({
 /** 分组菜单里的小节标题（如「排序方式」）。 */
 function MenuLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
 	return <p className="px-3 pb-1 pt-2 text-[10px] text-owl-sidebar-faint/80">{children}</p>;
-}
-
-/** 分组菜单分隔线。 */
-function MenuDivider(): React.JSX.Element {
-	return <div className="my-1 border-t border-owl-sidebar-border/70" />;
 }
 
 export function SessionSidebar({
@@ -790,18 +784,6 @@ export function SessionSidebar({
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>
-				<div className="owl-sidebar-header-actions">
-					<button
-						type="button"
-						className="owl-sidebar-icon-button"
-						title={t("sidebar.collapseSidebar")}
-						aria-label={t("sidebar.collapseSidebar")}
-						aria-expanded
-						onClick={onToggleMinimized}
-					>
-						<IconPanelLeft className="h-4 w-4" />
-					</button>
-				</div>
 			</div>
 
 			<div className="owl-sidebar-search">

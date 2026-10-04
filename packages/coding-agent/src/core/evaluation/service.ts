@@ -6,8 +6,9 @@ import {
 	type EvaluationConversation,
 	type EvaluationInvocationResult,
 	type EvaluationInvoker,
-	validateEvaluationConversation,
+	evaluationRequestPolicy,
 } from "./model.ts";
+import { EVALUATION_IDLE_TIMEOUT_MS, EvaluationIdleWatchdog } from "./policy.ts";
 import { EvaluationStore } from "./store.ts";
 import { BUILTIN_EVALUATION_TASKS } from "./tasks.ts";
 import type {
@@ -20,6 +21,7 @@ import type {
 	EvaluationProfile,
 	EvaluationRating,
 	EvaluationRequest,
+	EvaluationRequestPolicy,
 	EvaluationResult,
 	EvaluationResultView,
 	EvaluationRun,
@@ -40,7 +42,7 @@ export interface EvaluationServiceOptions {
 	) => Promise<{ artifact: EvaluationArtifact | null; checks: EvaluationCheck[] }>;
 	/** The production limit is two simultaneous model calls. */
 	concurrency?: number;
-	timeoutMs?: number;
+	idleTimeoutMs?: number;
 }
 
 function runSummary(run: EvaluationRun): EvaluationRunSummary {
@@ -82,9 +84,12 @@ function evaluationErrorView(error: string | null, revealed: boolean, fallback: 
 	// Only exact application errors are public; arbitrary supplier errors can contain identities or secrets.
 	switch (error) {
 		case "输出达到长度限制，答案可能不完整":
-			return "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。";
+			return "已达到该次请求的输出额度，回答未完成；新尝试将使用当前完成优先规则。";
 		case "模型测评请求超时":
-			return "请求超过时间上限，已停止；按原配置重试可能再次超时。";
+			return "该次请求达到时间上限，已停止；新尝试将使用当前完成优先规则。";
+		case "模型测评首包等待超时":
+		case "模型测评内容空闲超时":
+			return "等待期间没有收到新的思考或正文，连接等待已结束；已有内容已保留。";
 		case "用户取消测评":
 		case "用户停止追问":
 			return "已取消";
@@ -94,7 +99,7 @@ function evaluationErrorView(error: string | null, revealed: boolean, fallback: 
 }
 
 function followupView(turn: EvaluationFollowup, revealed: boolean, now: number): EvaluationFollowupView {
-	const { startedAt, finishedAt, durationMs, usage, costUsd, actualModel, generationPhase, ...publicTurn } = turn;
+	const { startedAt, finishedAt, durationMs, usage, costUsd, actualModel, generationPhase, requestPolicy, ...publicTurn } = turn;
 	return {
 		...structuredClone(publicTurn),
 		thinking: turn.thinking ?? "",
@@ -111,6 +116,7 @@ function followupView(turn: EvaluationFollowup, revealed: boolean, now: number):
 					usage: structuredClone(usage),
 					costUsd,
 					...(actualModel ? { actualModel: structuredClone(actualModel) } : {}),
+					...(requestPolicy ? { requestPolicy: structuredClone(requestPolicy) } : {}),
 				}
 			: {}),
 	};
@@ -139,6 +145,7 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 				costUsd,
 				actualModel,
 				followups,
+				requestPolicy,
 				...anonymous
 			} = result;
 			results.push({
@@ -165,6 +172,7 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 							usage: structuredClone(usage),
 							costUsd,
 							...(actualModel ? { actualModel: structuredClone(actualModel) } : {}),
+							...(requestPolicy ? { requestPolicy: structuredClone(requestPolicy) } : {}),
 						}
 					: {}),
 			});
@@ -228,7 +236,7 @@ export class EvaluationService {
 	private readonly invoke: EvaluationInvoker;
 	private readonly check: NonNullable<EvaluationServiceOptions["check"]>;
 	private readonly concurrency: number;
-	private readonly timeoutMs: number;
+	private readonly idleTimeoutMs: number;
 	private readonly active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
 	private closing = false;
 
@@ -241,7 +249,8 @@ export class EvaluationService {
 		this.invoke = options.invoke ?? access.invoke;
 		this.check = options.check ?? checkEvaluationArtifact;
 		this.concurrency = Math.max(1, Math.min(options.concurrency ?? 2, 2));
-		this.timeoutMs = options.timeoutMs ?? 600_000;
+		this.idleTimeoutMs = options.idleTimeoutMs ?? EVALUATION_IDLE_TIMEOUT_MS;
+		if (!Number.isSafeInteger(this.idleTimeoutMs) || this.idleTimeoutMs < 1 || this.idleTimeoutMs > 2_147_483_647) throw new Error("内容空闲等待时间必须是有效正整数");
 	}
 
 	async handle(request: EvaluationRequest): Promise<unknown> {
@@ -309,7 +318,8 @@ export class EvaluationService {
 				const run = this.store.getRun(request.runId);
 				if (![3, 5].includes(request.samples) || request.samples <= run.samples)
 					throw new Error("追加次数必须为 3 或 5，且大于当前次数");
-				for (let sample = run.samples + 1; sample <= request.samples; sample++) this.addSample(run, sample);
+				const policies = this.requestPolicies(run, await this.listModels());
+				for (let sample = run.samples + 1; sample <= request.samples; sample++) this.addSample(run, sample, policies);
 				run.samples = request.samples;
 				run.status = "running";
 				this.persist(run);
@@ -325,12 +335,17 @@ export class EvaluationService {
 					(entry) => entry.taskId === previous.taskId && entry.sample === previous.sample,
 				);
 				if (!group) throw new Error("结果分组不存在");
+				const profile = run.profiles.find((entry) => entry.id === previous.profileId);
+				const task = run.tasks.find((entry) => entry.id === previous.taskId);
+				if (!profile || !task) throw new Error("题目或模型快照丢失");
+				const policy = this.currentRequestPolicy(profile, task, await this.listModels());
 				const result = this.newResult(
 					previous.taskId,
 					previous.profileId,
 					previous.sample,
 					previous.attempt + 1,
 					previous.id,
+					policy,
 				);
 				run.results.push(result);
 				// Keep earlier anonymous labels and order stable when an attempt is added.
@@ -406,8 +421,9 @@ export class EvaluationService {
 				modelId: input.modelId,
 				thinkingLevel: input.thinkingLevel,
 				model: structuredClone(model),
-				maxTokens: Math.min(model.maxTokens, 32_768),
-				timeoutMs: this.timeoutMs,
+				maxTokens: model.maxTokens,
+				timeoutMs: 0,
+				idleTimeoutMs: this.idleTimeoutMs,
 			};
 		});
 		const now = new Date().toISOString();
@@ -423,7 +439,8 @@ export class EvaluationService {
 			results: [],
 			groups: [],
 		};
-		for (let sample = 1; sample <= request.samples; sample++) this.addSample(run, sample);
+		const policies = this.requestPolicies(run, models);
+		for (let sample = 1; sample <= request.samples; sample++) this.addSample(run, sample, policies);
 		this.store.saveRun(run);
 		queueMicrotask(() => this.pump());
 		return evaluationRunView(run);
@@ -435,6 +452,7 @@ export class EvaluationService {
 		sample: number,
 		attempt: number,
 		retryOf: string | null,
+		requestPolicy: EvaluationRequestPolicy,
 	): EvaluationResult {
 		return {
 			id: randomUUID(),
@@ -443,6 +461,7 @@ export class EvaluationService {
 			sample,
 			attempt,
 			retryOf,
+			requestPolicy: structuredClone(requestPolicy),
 			status: "queued",
 			output: "",
 			thinking: "",
@@ -459,11 +478,25 @@ export class EvaluationService {
 		};
 	}
 
-	private addSample(run: EvaluationRun, sample: number): void {
+	private currentRequestPolicy(profile: EvaluationProfile, task: EvaluationTask, models: EvaluationModel[], conversation?: EvaluationConversation): EvaluationRequestPolicy {
+		const model = models.find((entry) => entry.provider === profile.provider && entry.modelId === profile.modelId);
+		if (!model || !model.supportedThinkingLevels.includes(profile.thinkingLevel)) throw new Error("原模型不可用或原思考档位不再支持，请检查模型配置");
+		return evaluationRequestPolicy({ ...profile, model, maxTokens: model.maxTokens, timeoutMs: 0 }, task, this.idleTimeoutMs, conversation);
+	}
+
+	private requestPolicies(run: EvaluationRun, models: EvaluationModel[]): Map<string, EvaluationRequestPolicy> {
+		const policies = new Map<string, EvaluationRequestPolicy>();
+		for (const task of run.tasks) for (const profile of run.profiles) policies.set(JSON.stringify([task.id, profile.id]), this.currentRequestPolicy(profile, task, models));
+		return policies;
+	}
+
+	private addSample(run: EvaluationRun, sample: number, policies: Map<string, EvaluationRequestPolicy>): void {
 		for (const task of run.tasks) {
 			const group: EvaluationGroup = { taskId: task.id, sample, resultIds: [], revealed: false };
 			for (const profile of run.profiles) {
-				const result = this.newResult(task.id, profile.id, sample, 1, null);
+				const policy = policies.get(JSON.stringify([task.id, profile.id]));
+				if (!policy) throw new Error("请求参数快照丢失");
+				const result = this.newResult(task.id, profile.id, sample, 1, null, policy);
 				run.results.push(result);
 				group.resultIds.push(result.id);
 			}
@@ -528,9 +561,10 @@ export class EvaluationService {
 		};
 	}
 
-	private sendFollowup(request: Extract<EvaluationRequest, { action: "conversation.send" }>): EvaluationRunView {
+	private async sendFollowup(request: Extract<EvaluationRequest, { action: "conversation.send" }>): Promise<EvaluationRunView> {
 		if (typeof request.prompt !== "string" || !request.prompt.trim() || request.prompt.length > 10_000)
 			throw new Error("追问不能为空且最多 10000 字");
+		const models = await this.listModels();
 		const run = this.store.getRun(request.runId);
 		const result = run.results.find((entry) => entry.id === request.resultId);
 		if (!result || result.status === "queued" || result.status === "running" || !result.output.trim())
@@ -565,7 +599,7 @@ export class EvaluationService {
 				.map((entry) => ({ prompt: entry.prompt, output: entry.output })),
 			prompt: turn.prompt,
 		};
-		validateEvaluationConversation(profile, task, conversation);
+		turn.requestPolicy = this.currentRequestPolicy(profile, task, models, conversation);
 		result.followups = [...previous, turn];
 		this.persist(run);
 		queueMicrotask(() => this.pump());
@@ -624,13 +658,8 @@ export class EvaluationService {
 		let timedOut = false;
 		let acceptingPartials = true;
 		let generationEnded: number | undefined;
-		const timeout = setTimeout(
-			() => {
-				timedOut = true;
-				controller.abort(new Error("模型测评请求超时"));
-			},
-			run.profiles.find((profile) => profile.id === original.profileId)?.timeoutMs ?? this.timeoutMs,
-		);
+		let idle: EvaluationIdleWatchdog | undefined;
+		let idleError = "";
 		let onAbort: (() => void) | undefined;
 		const aborted = new Promise<never>((_resolve, reject) => {
 			onAbort = () => reject(controller.signal.reason);
@@ -640,14 +669,23 @@ export class EvaluationService {
 			const task = run.tasks.find((entry) => entry.id === original.taskId);
 			const profile = run.profiles.find((entry) => entry.id === original.profileId);
 			if (!task || !profile) throw new Error("题目或模型快照丢失");
+			const policy = structuredClone(result.requestPolicy ?? evaluationRequestPolicy(profile, task, this.idleTimeoutMs, followup ? this.conversation(original, followup) : undefined));
+			idle = new EvaluationIdleWatchdog(policy.idleTimeoutMs, (receivedContent) => {
+				timedOut = true;
+				idleError = receivedContent ? "模型测评内容空闲超时" : "模型测评首包等待超时";
+				controller.abort(new Error(idleError));
+			});
+			const requestProfile: EvaluationProfile = { ...profile, model: { ...profile.model, contextWindow: policy.contextWindow }, maxTokens: policy.maxTokens, timeoutMs: 0, idleTimeoutMs: policy.idleTimeoutMs };
 			const invoked: EvaluationInvocationResult = await Promise.race([
 				this.invoke({
 					task: structuredClone(task),
-					profile: structuredClone(profile),
+					profile: structuredClone(requestProfile),
+					requestPolicy: structuredClone(policy),
 					...(followup ? { conversation: this.conversation(original, followup) } : {}),
 					signal: controller.signal,
 					onPartial: (text, thinking) => {
 						if (controller.signal.aborted || !acceptingPartials) return;
+						idle?.observe(text, thinking);
 						result.output = text;
 						result.thinking = thinking;
 						result.generationPhase = text ? "answering" : thinking ? "thinking" : "waiting";
@@ -660,6 +698,7 @@ export class EvaluationService {
 				aborted,
 			]);
 			acceptingPartials = false;
+			idle.stop();
 			generationEnded = Date.now();
 			controller.signal.throwIfAborted();
 			result.output = invoked.text;
@@ -711,10 +750,10 @@ export class EvaluationService {
 		} catch (error) {
 			result.status =
 				controller.signal.aborted && !timedOut ? (this.closing ? "interrupted" : "cancelled") : "failed";
-			result.error = timedOut ? "模型测评请求超时" : error instanceof Error ? error.message : String(error);
+			result.error = timedOut ? idleError : error instanceof Error ? error.message : String(error);
 		} finally {
 			acceptingPartials = false;
-			clearTimeout(timeout);
+			idle?.stop();
 			if (onAbort) controller.signal.removeEventListener("abort", onAbort);
 			result.finishedAt = new Date().toISOString();
 			result.durationMs = (generationEnded ?? Date.now()) - started;
