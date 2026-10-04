@@ -56,13 +56,13 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	const untracked = entries.filter((entry) => entry.y === "?");
 
 	useEffect(() => {
-		// 项目切换后清掉已不存在的选中
+		// 项目切换或仓库筛选变化后，清掉已不在列表里的选中（连同其 diff）
 		if (selected !== undefined && !entries.some((entry) => entry.path === selected.path)) {
 			setSelected(undefined);
 			setDiff(undefined);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [gitStatus]);
+	}, [gitStatus, repoFilter]);
 
 	useEffect(() => {
 		// 项目切换：仓库筛选复位
@@ -70,9 +70,9 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	}, [cwd]);
 
 	useEffect(() => {
-		// 所选仓库不再存在（子仓库被发现/移除）时复位为全部仓库
-		if (repoFilter !== "" && !multiRepo) setRepoFilter("");
-	}, [multiRepo, repoFilter]);
+		// 所选仓库不再存在（子仓库被移除但其他仓库还在，或退化回单仓）时复位为全部仓库
+		if (repoFilter !== "" && (!multiRepo || selectedRepo === undefined)) setRepoFilter("");
+	}, [multiRepo, repoFilter, selectedRepo]);
 
 	const openDiff = (path: string, stagedView: boolean): void => {
 		setSelected({ path, staged: stagedView });

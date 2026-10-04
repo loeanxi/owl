@@ -189,14 +189,64 @@ export function parseStatusZ(out: string): { branch?: string; upstream?: string;
 }
 
 /**
+ * workspace 开在仓库子目录里时，porcelain 条目是仓库根相对的，而侧边栏全链路
+ * 约定 workspace（= cwd）相对路径——把落在 cwd 之下的条目重定基为 cwd 相对，
+ * 仓库其他部分的改动不显示。prefix = cwd 相对仓库根的 POSIX 路径；prefix 为空
+ * （cwd 就是仓库根）时原样返回。cwd 目录自身整体未跟踪的 `?? <prefix>/` 条目
+ * 重定基为 `.`，暂存/提交仍能用 `--` pathspec 命中整个目录。重命名的旧路径落
+ * 在 cwd 之外时保留仓库根相对原值（仅作展示）。
+ */
+export function rebaseStatusEntriesToCwd(
+	prefix: string,
+	parsed: { branch?: string; upstream?: string; entries: GitStatusResult["entries"] },
+): { branch?: string; upstream?: string; entries: GitStatusResult["entries"] } {
+	if (prefix === "" || prefix.startsWith("..") || isAbsolute(prefix)) return parsed;
+	const strip = (raw: string): string | undefined => {
+		if (raw === prefix) return ".";
+		if (raw.startsWith(`${prefix}/`)) {
+			const rest = raw.slice(prefix.length + 1);
+			return rest === "" ? "." : rest;
+		}
+		return undefined;
+	};
+	const entries: GitStatusResult["entries"] = [];
+	for (const entry of parsed.entries) {
+		const path = strip(entry.path);
+		if (path === undefined) continue;
+		const origPath = entry.origPath !== undefined ? strip(entry.origPath) : undefined;
+		entries.push({
+			...entry,
+			path,
+			...(entry.origPath !== undefined ? { origPath: origPath ?? entry.origPath } : {}),
+		});
+	}
+	return { ...parsed, entries };
+}
+
+/** 取 cwd 所属仓库根；porcelain 的仓库根相对条目靠它重定基到 cwd 相对。 */
+async function repoToplevel(cwd: string): Promise<string | undefined> {
+	try {
+		const root = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim();
+		return root === "" ? undefined : root;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * `git.status`：非仓库返回 repo:false（前端空态），仓库返回解析后的状态。
  * workspace 根不是仓库时扫描子仓库并聚合各仓库条目（path 归一到 workspace
  * 相对）；单仓库回填 branch/upstream，多仓库由前端展示"N 个仓库"。
+ * workspace 在仓库内部（子目录打开）时，条目从仓库根相对重定基为 cwd 相对，
+ * 只保留 cwd 之下的改动——下游 stage/diff/discard 的 pathspec 都是 cwd 相对。
  */
 export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 	if (await isRepo(cwd)) {
 		const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b"]);
-		return { repo: true, ...parseStatusZ(out) };
+		const parsed = parseStatusZ(out);
+		const root = await repoToplevel(cwd);
+		if (root === undefined) return { repo: true, ...parsed };
+		return { repo: true, ...rebaseStatusEntriesToCwd(relative(root, resolve(cwd)).split(sep).join("/"), parsed) };
 	}
 	const roots = await scanWorkspaceRepos(cwd);
 	if (roots.length === 0) {

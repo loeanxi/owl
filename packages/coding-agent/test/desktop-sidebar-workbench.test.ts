@@ -26,6 +26,7 @@ import {
 	gitStatus,
 	parseLog,
 	parseStatusZ,
+	rebaseStatusEntriesToCwd,
 } from "../src/modes/desktop/sidebar-git.ts";
 
 async function makeTempDir(): Promise<string> {
@@ -187,6 +188,37 @@ describe("git porcelain / log 解析（纯函数）", () => {
 	});
 });
 
+describe("rebaseStatusEntriesToCwd（workspace 在仓库子目录内的重定基）", () => {
+	it("cwd 之下剥离前缀，cwd 之外丢弃，目录自身映射为 .，cwd 外旧路径保留原值", () => {
+		const parsed = {
+			branch: "main",
+			upstream: "origin/main",
+			entries: [
+				{ path: "sub/a.txt", x: " ", y: "M" },
+				{ path: "sub/", x: "?", y: "?" },
+				{ path: "elsewhere/b.txt", x: " ", y: "M" },
+				{ path: "sub/new.ts", x: "R", y: " ", origPath: "sub/old.ts" },
+				{ path: "sub/moved-in.ts", x: "R", y: " ", origPath: "outside/old.ts" },
+			],
+		};
+		const result = rebaseStatusEntriesToCwd("sub", parsed);
+		expect(result.entries).toEqual([
+			{ path: "a.txt", x: " ", y: "M" },
+			{ path: ".", x: "?", y: "?" },
+			{ path: "new.ts", x: "R", y: " ", origPath: "old.ts" },
+			{ path: "moved-in.ts", x: "R", y: " ", origPath: "outside/old.ts" },
+		]);
+		expect(result.branch).toBe("main");
+		expect(result.upstream).toBe("origin/main");
+	});
+
+	it("prefix 为空或越界时原样返回", () => {
+		const parsed = { entries: [{ path: "a.txt", x: "?", y: "?" }] };
+		expect(rebaseStatusEntriesToCwd("", parsed)).toBe(parsed);
+		expect(rebaseStatusEntriesToCwd("../up", parsed)).toBe(parsed);
+	});
+});
+
 describe("git 真实仓库冒烟", () => {
 	it("status / untracked diff / stage 全链路", async () => {
 		const repo = await makeTempDir();
@@ -211,11 +243,40 @@ describe("git 真实仓库冒烟", () => {
 			const stagedDiff = await gitDiff(repo, "hello.txt", true);
 			expect(stagedDiff).toContain("+line2");
 
-			// 非仓库目录：repo:false 而不是抛错
-			expect((await gitStatus(plain)).repo).toBe(false);
+		it("workspace 开在仓库子目录：条目重定基为 cwd 相对，仓库外部改动不显示", async () => {
+		const repo = await makeTempDir();
+		try {
+			run("git", ["init", "-q"], { cwd: repo });
+			run("git", ["config", "user.email", "t@owl.local"], { cwd: repo });
+			run("git", ["config", "user.name", "owl"], { cwd: repo });
+			await writeFile(join(repo, "root.txt"), "r1\n");
+			run("git", ["add", "."], { cwd: repo });
+			run("git", ["commit", "-q", "-m", "init"], { cwd: repo });
+
+			const sub = join(repo, "sub");
+			await mkdir(sub);
+			await writeFile(join(sub, "new.txt"), "n1\n");
+			await writeFile(join(repo, "root.txt"), "r2\n");
+
+			// 只显示 cwd 之下的条目，且路径已剥离仓库根前缀
+			const status = await gitStatus(sub);
+			expect(status.repo).toBe(true);
+			expect(status.entries.map((entry) => entry.path)).toEqual(["new.txt"]);
+
+			// diff / discard / stage 都按 cwd 相对 pathspec 工作
+			const diff = await gitDiff(sub, "new.txt");
+			expect(diff).toContain("+n1");
+			await gitDiscard(sub, "new.txt");
+			expect((await gitStatus(sub)).entries).toHaveLength(0);
+
+			await writeFile(join(sub, "new.txt"), "n1\n");
+			await gitStage(sub, ["new.txt"]);
+			const staged = await gitStatus(sub);
+			expect(staged.entries[0]).toMatchObject({ path: "new.txt", x: "A", y: " " });
+			const stagedDiff = await gitDiff(sub, "new.txt", true);
+			expect(stagedDiff).toContain("+n1");
 		} finally {
 			await rm(repo, { recursive: true, force: true });
-			await rm(plain, { recursive: true, force: true });
 		}
 	});
 });
