@@ -141,9 +141,10 @@ export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JS
 							ref={syncNatural}
 							src={src}
 							alt={path}
-							width={display?.width}
-							height={display?.height}
 							onLoad={(event) => syncNatural(event.currentTarget)}
+							// 内联尺寸并关掉 max-width：Tailwind Preflight 给 img 的
+							// max-width:100%/height:auto 会把放大尺寸压回容器宽
+							style={display === undefined ? undefined : { width: display.width, height: display.height, maxWidth: "none" }}
 							className="block select-none"
 						/>
 					</div>
