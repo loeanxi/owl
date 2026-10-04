@@ -320,15 +320,27 @@ export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
 	await git(cwd, ["reset", "-q", "HEAD", "--", ...paths]);
 }
 
-export async function gitCommit(cwd: string, message: string): Promise<void> {
+/**
+ * 提交已暂存的内容。子仓库模式下默认对每个有暂存条目的仓库各提交一次
+ * （同一提交信息）；`repoRoot`（workspace 相对根）把提交限定到单个仓库，
+ * 与变动页的仓库筛选器联动。
+ */
+export async function gitCommit(cwd: string, message: string, repoRoot?: string): Promise<void> {
 	if (message.trim() === "") {
 		throw new SidebarError("bad-request", "提交信息不能为空");
 	}
 	if (!(await isRepo(cwd))) {
-		// 子仓库模式：对每个有已暂存条目的仓库各提交一次（同一提交信息）。
-		const roots = await scanWorkspaceRepos(cwd);
+		let roots = await scanWorkspaceRepos(cwd);
 		if (roots.length === 0) {
 			throw new SidebarError("git-error", "当前目录不是 Git 仓库");
+		}
+		if (repoRoot !== undefined) {
+			const absolute = resolve(cwd, repoRoot);
+			// relative() 在 Windows 上大小写不敏感，盘符/目录大小写差异不影响匹配
+			roots = roots.filter((root) => relative(root, absolute) === "");
+			if (roots.length === 0) {
+				throw new SidebarError("bad-request", `"${repoRoot}" 不是已识别的子仓库，请刷新后重试`);
+			}
 		}
 		let committed = 0;
 		for (const root of roots) {

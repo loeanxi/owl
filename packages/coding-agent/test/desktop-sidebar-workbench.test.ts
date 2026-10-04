@@ -278,6 +278,44 @@ describe("git 子仓库聚合（workspace 根不是仓库）", () => {
 		}
 	});
 
+	it("限定仓库提交：只提交所选仓库，其余仓库的暂存保持不动", async () => {
+		const ws = await makeTempDir();
+		const repoA = join(ws, "pkg-a");
+		const repoB = join(ws, "pkg-b");
+		try {
+			for (const dir of [repoA, repoB]) {
+				await mkdir(dir, { recursive: true });
+				run("git", ["init", "-q"], { cwd: dir });
+				run("git", ["config", "user.email", "t@owl.local"], { cwd: dir });
+				run("git", ["config", "user.name", "owl"], { cwd: dir });
+			}
+			await writeFile(join(repoA, "a.txt"), "a1\n");
+			await writeFile(join(repoB, "b.txt"), "b1\n");
+			await gitStage(ws, ["pkg-a/a.txt", "pkg-b/b.txt"]);
+
+			// 不带 repo：两个有暂存的仓库都提交
+			await gitCommit(ws, "feat: all");
+			expect(run("git", ["log", "--pretty=%s"], { cwd: repoA }).trim()).toBe("feat: all");
+			expect(run("git", ["log", "--pretty=%s"], { cwd: repoB }).trim()).toBe("feat: all");
+
+			// 带 repo：只提交指定仓库
+			await writeFile(join(repoA, "a2.txt"), "a2\n");
+			await writeFile(join(repoB, "b2.txt"), "b2\n");
+			await gitStage(ws, ["pkg-a/a2.txt", "pkg-b/b2.txt"]);
+			await gitCommit(ws, "feat: b only", "pkg-b");
+			// git log 最新提交在第一行
+			expect(run("git", ["log", "--pretty=%s"], { cwd: repoB }).split("\n")[0]?.trim()).toBe("feat: b only");
+			const status = await gitStatus(ws);
+			// pkg-a 的 a2.txt 仍是暂存态（A）未被波及
+			expect(status.entries.find((entry) => entry.path === "pkg-a/a2.txt")).toMatchObject({ x: "A", y: " " });
+
+			// 未识别的仓库名拒绝
+			await expect(gitCommit(ws, "feat: x", "nope")).rejects.toThrow("不是已识别的子仓库");
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
+
 	it("单个损坏的 .git 候选不拖垮聚合", async () => {
 		const ws = await makeTempDir();
 		try {

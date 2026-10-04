@@ -1190,6 +1190,8 @@ export interface GitCommitRequest {
 	id: string;
 	cwd: string;
 	message: string;
+	/** 子仓库模式下限定只提交该仓库（workspace 相对根）；缺省 = 所有有暂存的仓库。 */
+	repo?: string;
 }
 
 export interface GitDiscardRequest {

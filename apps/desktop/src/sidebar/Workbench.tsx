@@ -506,12 +506,17 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 				</div>
 			)}
 
-			{/* 状态条：git 分支 + 桥状态占位 */}
+			{/* 状态条：git 分支/仓库 + 桥状态占位（点击打开文件变动页切换仓库） */}
 			<div className="owl-workbench-status">
 				{gitStatus === undefined ? (
 					<IconLoader size={10} className="animate-spin" />
 				) : gitStatus.repo ? (
-					<>
+					<button
+						type="button"
+						title={t("dev.changes")}
+						className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
+						onClick={() => openQuickAction(store, "changes")}
+					>
 						<IconGitBranch size={10} />
 						<span className="truncate">
 							{gitStatus.repos !== undefined && gitStatus.repos.length > 1
@@ -519,7 +524,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 								: gitStatus.branch ?? "HEAD"}
 						</span>
 						<span className="ml-auto shrink-0">{t("wb.gitChanges", { n: gitStatus.entries.length })}</span>
-					</>
+					</button>
 				) : (
 					<span>{t("wb.notGitRepo")}</span>
 				)}

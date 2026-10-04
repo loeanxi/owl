@@ -1532,6 +1532,8 @@ export const zh = {
 	"changes.renamed": "重命名",
 	"changes.notGit": "此目录不是 Git 仓库",
 	"changes.notGitHint": "在项目根目录执行 git init 后，这里会显示文件变动",
+	"changes.repoFilter": "按仓库筛选",
+	"changes.allRepos": "全部仓库（{n}）",
 	"changes.unstageAll": "全部取消暂存",
 	"changes.stageAll": "全部暂存",
 	"changes.discard": "丢弃修改",

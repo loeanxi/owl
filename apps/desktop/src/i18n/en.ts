@@ -1533,6 +1533,8 @@ export const en: Dict = {
 	"changes.renamed": "renamed",
 	"changes.notGit": "This directory is not a Git repository",
 	"changes.notGitHint": "Run git init at the project root and file changes will show up here",
+	"changes.repoFilter": "Filter by repository",
+	"changes.allRepos": "All repos ({n})",
 	"changes.unstageAll": "Unstage all",
 	"changes.stageAll": "Stage all",
 	"changes.discard": "Discard changes",

@@ -78,8 +78,10 @@ export function createSidebarApi(client: BridgeClient) {
 			client.request({ type: "git.stage", cwd, paths }).then((r) => unwrap(r, t("api.opGitStage"))),
 		gitUnstage: (cwd: string, paths: string[]) =>
 			client.request({ type: "git.unstage", cwd, paths }).then((r) => unwrap(r, t("api.opGitUnstage"))),
-		gitCommit: (cwd: string, message: string) =>
-			client.request({ type: "git.commit", cwd, message }).then((r) => unwrap(r, t("api.opGitCommit"))),
+		gitCommit: (cwd: string, message: string, repo?: string) =>
+			client
+				.request({ type: "git.commit", cwd, message, ...(repo !== undefined ? { repo } : {}) })
+				.then((r) => unwrap(r, t("api.opGitCommit"))),
 		gitDiscard: (cwd: string, path: string) =>
 			client.request({ type: "git.discard", cwd, path }).then((r) => unwrap(r, t("api.opGitDiscard"))),
 		gitLog: (cwd: string, count = 50) =>

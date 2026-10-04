@@ -39,8 +39,18 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>(undefined);
 	const [expandedDiff, setExpandedDiff] = useState(false);
+	// 仓库筛选器："" = 全部仓库；非空 = 所选仓库的 workspace 相对根
+	const [repoFilter, setRepoFilter] = useState<string>("");
 
-	const entries = gitStatus?.entries ?? [];
+	const repos = gitStatus?.repos ?? [];
+	const multiRepo = repos.length > 1;
+	const selectedRepo = multiRepo ? repos.find((repo) => repo.root === repoFilter) : undefined;
+	// 条目路径 = 仓库根前缀 + "/"，前缀匹配即完成按仓库过滤
+	const entries = (gitStatus?.entries ?? []).filter(
+		(entry) => !multiRepo || repoFilter === "" || entry.path.startsWith(`${repoFilter}/`),
+	);
+	const branchLabel = multiRepo ? selectedRepo?.branch : gitStatus?.branch;
+	const upstreamLabel = multiRepo ? selectedRepo?.upstream : gitStatus?.upstream;
 	const staged = entries.filter((entry) => entry.x !== " " && entry.x !== "?");
 	const worktree = entries.filter((entry) => entry.x === " " && entry.y !== " " && entry.y !== "?");
 	const untracked = entries.filter((entry) => entry.y === "?");
@@ -53,6 +63,16 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [gitStatus]);
+
+	useEffect(() => {
+		// 项目切换：仓库筛选复位
+		setRepoFilter("");
+	}, [cwd]);
+
+	useEffect(() => {
+		// 所选仓库不再存在（子仓库被发现/移除）时复位为全部仓库
+		if (repoFilter !== "" && !multiRepo) setRepoFilter("");
+	}, [multiRepo, repoFilter]);
 
 	const openDiff = (path: string, stagedView: boolean): void => {
 		setSelected({ path, staged: stagedView });
@@ -82,7 +102,8 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 		if (message.trim() === "") return;
 		setBusy(true);
 		try {
-			await api.gitCommit(cwd, message.trim());
+			// 选定了仓库时只提交该仓库；全部仓库视图则提交所有有暂存的仓库
+			await api.gitCommit(cwd, message.trim(), multiRepo && repoFilter !== "" ? repoFilter : undefined);
 			setMessage("");
 			onGitRefresh();
 		} catch (err) {
@@ -184,17 +205,28 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
+				{multiRepo && (
+					<select
+						aria-label={t("changes.repoFilter")}
+						className="max-w-[60%] shrink rounded-md border border-owl-border/60 bg-owl-panel px-1.5 py-0.5 text-[11px] text-owl-text outline-none focus:border-owl-accent"
+						value={repoFilter}
+						onChange={(event) => setRepoFilter(event.target.value)}
+					>
+						<option value="">{t("changes.allRepos", { n: repos.length })}</option>
+						{repos.map((repo) => (
+							<option key={repo.root} value={repo.root}>
+								{repo.root}
+								{repo.branch !== undefined ? ` ─ ${repo.branch}` : ""}
+							</option>
+						))}
+					</select>
+				)}
 				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint">
-					{gitStatus?.repos !== undefined && gitStatus.repos.length > 1 ? (
+					{branchLabel !== undefined && (
 						<>
 							<IconGitBranch size={11} className="mr-1 inline align-[-1px]" />
-							{t("wb.gitRepos", { n: gitStatus.repos.length })}
-						</>
-					) : gitStatus?.branch !== undefined && (
-						<>
-							<IconGitBranch size={11} className="mr-1 inline align-[-1px]" />
-							{gitStatus.branch}
-							{gitStatus.upstream !== undefined && <span className="text-owl-faint/70"> ⟂ {gitStatus.upstream}</span>}
+							{branchLabel}
+							{upstreamLabel !== undefined && <span className="text-owl-faint/70"> ⟂ {upstreamLabel}</span>}
 						</>
 					)}
 				</span>

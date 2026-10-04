@@ -2585,7 +2585,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "git.commit": {
-				await gitCommit(request.cwd, request.message);
+				await gitCommit(request.cwd, request.message, request.repo);
 				reply(ws, request.id, { ok: true });
 				return;
 			}
