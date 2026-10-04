@@ -148,13 +148,23 @@ export function getPowerShellConfig(): ShellConfig {
 	return { shell, args: [...POWERSHELL_ARGS] };
 }
 
+/**
+ * Windows 目录名禁止含 '?'，所以带 '?' 的 PATH 条目不可能是真实目录——
+ * 那是进程环境在某条启动链上被 ANSI 转码的残骸（如中文用户名变 '????'）。
+ * 原样传给子 shell 只会留下永远搜不到命令的死条目，直接丢弃。
+ */
+function dropMojibakePathEntries(entries: string[]): string[] {
+	if (process.platform !== "win32") return entries;
+	return entries.filter((entry) => !entry.includes("?"));
+}
+
 export function getShellEnv(): NodeJS.ProcessEnv {
 	const binDir = getBinDir();
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 	const currentPath = process.env[pathKey] ?? "";
-	const pathEntries = currentPath.split(delimiter).filter(Boolean);
+	const pathEntries = dropMojibakePathEntries(currentPath.split(delimiter).filter(Boolean));
 	const hasBinDir = pathEntries.includes(binDir);
-	const updatedPath = hasBinDir ? currentPath : [binDir, currentPath].filter(Boolean).join(delimiter);
+	const updatedPath = (hasBinDir ? pathEntries : [binDir, ...pathEntries]).join(delimiter);
 
 	return {
 		...process.env,

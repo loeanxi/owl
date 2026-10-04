@@ -88,6 +88,7 @@ import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { listWorkspaceViewers, openWorkspaceViewer, subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
+import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
@@ -422,6 +423,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		onDiagnostic(`settings load failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 	configureHttpDispatcher();
+	// 预热 rg/fd：二进制装进 ~/.owl/agent/bin 后 getShellEnv 会把它拼在 bash PATH 最前，
+	// 模型在 bash 里直接敲 rg 就不再依赖用户 PATH 的好坏（中文用户名被转码毁掉的机器照样可用）。
+	// 只在本进程跑一次，fire-and-forget：装不上只记诊断，不拦桥启动。
+	void Promise.all([ensureTool("rg"), ensureTool("fd")])
+		.then(([rgPath, fdPath]) => {
+			if (rgPath) onDiagnostic(`rg ready: ${rgPath}`);
+			if (fdPath) onDiagnostic(`fd ready: ${fdPath}`);
+		})
+		.catch((error) => onDiagnostic(`tool warmup failed: ${error instanceof Error ? error.message : String(error)}`));
 	/** sessionId → live runtime + event subscription（approvalMode 为运行时可变的审批模式 holder）。 */
 	const sessions = new Map<
 		string,

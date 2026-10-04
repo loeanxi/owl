@@ -560,8 +560,14 @@ export function createShellToolDefinition(
 					wall_time_seconds: wallTimeSeconds,
 				};
 				if (exitCode !== 0) {
+					// 127 = shell 里找不到命令（stderr 可能已被命令自己的 2>/dev/null 吞掉）。
+					// 明说原因并给出替代路径，否则模型只看到空输出加退出码，会反复换姿势重试。
+					const status =
+						exitCode === 127
+							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
+							: `Command exited with code ${exitCode}`;
 					return {
-						content: [{ type: "text", text: appendStatus(outputText, `Command exited with code ${exitCode}`) }],
+						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,
 						structuredContent,
 						isError: true,
