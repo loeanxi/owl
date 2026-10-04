@@ -1055,6 +1055,7 @@ export const en: Dict = {
 	"rail.updateFailed": "Update check failed: {message}",
 	"rail.debugUpdateFailed": "Debug update could not start: {message}",
 	"rail.about": "About Owl",
+	"rail.aboutText": "Owl is your desktop AI assistant: chat, read the news, explore maps, and run tools — making everyday work smoother.",
 	"rail.owlSessionsTitle": "OWL · sessions",
 	"rail.owlSessions": "OWL sessions",
 	"rail.chat": "Chat",

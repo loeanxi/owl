@@ -156,9 +156,9 @@ function saveFeedback(): void {
  *
  * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
  * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），所有层级统一默认
- * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡、错误与每轮最新一份
- * 任务清单是里程碑，原位可见并把工作段切成数段（清单的历史快照不渲染）。
- * 答案正文与其操作栏永远展开，是主角。
+ * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡与错误是里程碑，原位可见
+ * 并把工作段切成数段；任务清单的实时状态由输入区上方的常驻组件展示，时间轴折叠区内
+ * 只留每轮最新一份快照（ TodoPin 与时间轴不重复上屏）。答案正文与其操作栏永远展开。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -934,11 +934,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
 			if (card.name === "todo") {
-				// 任务清单只上屏每轮最新一份（原位可见，充当实时进度卡），历史快照直接
-				// 跳过；否则每次状态更新都会往时间轴上再叠一整份清单
+				// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）展示，时间轴不再
+				// 单独上屏卡片；折叠区里只保留每轮最新一份快照作历史，旧快照直接跳过
 				if (!latestTodoIds.has(card.id)) return;
-				flushWork();
-				rows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
+				flushWorkTools();
+				workSteps += 1;
+				workRows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
 			} else if (card.name === "ask_user_question") {
 				// 提问必须原位可见：先收口当前工作段，再把问题卡挂上时间轴
 				flushWork();

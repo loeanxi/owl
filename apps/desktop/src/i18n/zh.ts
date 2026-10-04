@@ -1054,6 +1054,7 @@ export const zh = {
 	"rail.updateFailed": "检查失败：{message}",
 	"rail.debugUpdateFailed": "调试更新未能启动：{message}",
 	"rail.about": "关于 Owl",
+	"rail.aboutText": "Owl 是你的桌面 AI 助手：陪聊天、读资讯、查地图、用工具，让日常工作更顺手。",
 	"rail.owlSessionsTitle": "OWL · 会话",
 	"rail.owlSessions": "OWL 会话",
 	"rail.chat": "聊天",
