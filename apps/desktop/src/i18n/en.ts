@@ -1042,6 +1042,7 @@ export const en: Dict = {
 	"rail.debugUpdating": "Starting debug update…",
 	"rail.debugUpdateConfirm": "Owl will exit and run a full rebuild (usually several minutes; Owl will be unavailable during the build). Proceed?",
 	"rail.checkUpdate": "Check for updates",
+	"rail.checkUpdateConfirm": "This will connect to the network to check the remote source for updates (usually a few seconds). Proceed?",
 	"rail.updateStatus": "Update status",
 	"rail.updateChecking": "Checking remote source…",
 	"rail.debugUpdateStarting": "Preparing a full rebuild…",

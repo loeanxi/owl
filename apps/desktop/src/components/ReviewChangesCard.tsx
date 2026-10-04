@@ -233,6 +233,7 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 										)}
 										{dir !== "" && <span className="owl-changes-dir">{dir}</span>}
 									</button>
+									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
 									{status === "kept" && <span className="owl-changes-state">{t("review.keptBadge")}</span>}
 									{status === "reverted" && <span className="owl-changes-state">{t("review.revertedBadge")}</span>}
 									{entry !== undefined && status === "pending" && (
@@ -252,7 +253,6 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 											</button>
 										</span>
 									)}
-									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
 								</div>
 								{isExpanded && entry !== undefined && (
 									<div className="owl-changes-diff">

@@ -1041,6 +1041,7 @@ export const zh = {
 	"rail.debugUpdating": "正在启动调试更新…",
 	"rail.debugUpdateConfirm": "Owl 即将退出并启动一次全量重建（通常需要几分钟到十几分钟，期间无法使用 Owl）。确认继续？",
 	"rail.checkUpdate": "检查更新",
+	"rail.checkUpdateConfirm": "将联网检查远端源码是否有更新（需要几秒到十几秒）。确认继续？",
 	"rail.updateStatus": "更新状态",
 	"rail.updateChecking": "正在检查远端源码…",
 	"rail.debugUpdateStarting": "正在准备全量重建…",

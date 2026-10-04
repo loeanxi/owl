@@ -213,6 +213,8 @@ export function ActivityRail({
 
 	const checkUpdates = async (): Promise<void> => {
 		if (updateBusyRef.current) return;
+		// 「检查更新」会联网拉远端源码比较，先让用户确认，避免误触。
+		if (!window.confirm(t("rail.checkUpdateConfirm"))) return;
 		updateBusyRef.current = true;
 		setUpdateAction("check");
 		setUpdateNotice({ tone: "info", key: "rail.updateChecking" });
