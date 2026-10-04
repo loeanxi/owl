@@ -1,0 +1,19 @@
+{
+  "objective": "Completion-first model evaluation",
+  "backendTests": { "files": 5, "passed": 50 },
+  "bridgeTests": { "passed": 1 },
+  "contextHelperTests": { "passed": 2 },
+  "sdkFakeFetchTests": { "passed": 5, "realNetworkRequests": 0 },
+  "browserTests": { "baseline": 11, "stream": 8, "miniChat": 20, "paidCalls": 0 },
+  "repositoryCheck": { "exitCode": 0, "filesChecked": 928, "fixesApplied": 0 },
+  "desktopBuild": { "exitCode": 0 },
+  "actualUi": { "success": true, "viewportWidths": [1280, 1024], "paidCalls": 0 },
+  "runtime": {
+    "completionPolicyLoaded": true,
+    "ordinaryRunningSessionsAtLastCheck": 1,
+    "pendingEvaluations": 0,
+    "pendingFollowups": 0,
+    "serviceRestartedByThisTask": false,
+    "latestFollowupContextChangeNeedsNextServiceReload": true
+  }
+}

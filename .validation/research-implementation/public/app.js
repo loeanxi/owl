@@ -16357,6 +16357,7 @@
         "settings.general.shellPathPlaceholder": "\u5982 D:\\developTool\\git\\Git\\bin\\bash.exe",
         "settings.general.uiLanguage": "\u754C\u9762\u8BED\u8A00",
         "settings.general.uiLanguageDesc": "\u5207\u6362\u684C\u9762\u7AEF\u754C\u9762\u6587\u5B57\uFF1B\u5BF9\u8BDD\u56DE\u590D\u8BED\u8A00\u4E0D\u53D7\u5F71\u54CD\u3002",
+        "settings.general.uiLanguageSystem": "\u7CFB\u7EDF\u9ED8\u8BA4",
         "settings.general.uiLanguageZh": "\u4E2D\u6587",
         "settings.general.uiLanguageEn": "English",
         "settings.general.readingTitle": "\u804A\u5929\u9605\u8BFB",
@@ -17015,7 +17016,7 @@
         "rail.home": "\u9996\u9875",
         "rail.homeTitle": "\u8FD4\u56DE\u4E3B\u754C\u9762",
         "rail.appMenu": "Owl \u83DC\u5355",
-        "rail.language": "\u8BED\u8A00",
+        "rail.language": "\u754C\u9762\u8BED\u8A00",
         "rail.models": "\u6A21\u578B\u914D\u7F6E",
         "rail.about": "\u5173\u4E8E Owl",
         "rail.owlSessionsTitle": "OWL \xB7 \u4F1A\u8BDD",
@@ -17901,6 +17902,7 @@
         "settings.general.shellPathPlaceholder": "e.g. D:\\developTool\\git\\Git\\bin\\bash.exe",
         "settings.general.uiLanguage": "Interface language",
         "settings.general.uiLanguageDesc": "Switch the desktop UI text; the language of chat replies is not affected.",
+        "settings.general.uiLanguageSystem": "System default",
         "settings.general.uiLanguageZh": "\u4E2D\u6587",
         "settings.general.uiLanguageEn": "English",
         "settings.general.readingTitle": "Chat reading",
@@ -18559,7 +18561,7 @@
         "rail.home": "Home",
         "rail.homeTitle": "Return to the main view",
         "rail.appMenu": "Owl menu",
-        "rail.language": "Language",
+        "rail.language": "Interface language",
         "rail.models": "Model configuration",
         "rail.about": "About Owl",
         "rail.owlSessionsTitle": "OWL \xB7 sessions",
@@ -19099,10 +19101,25 @@
   function getUiLanguage() {
     return language;
   }
-  function setUiLanguage(next3) {
-    if (next3 === language) return;
-    language = next3;
+  function getUiLanguageSetting() {
+    return languageSetting;
+  }
+  function resolveSystemLanguage() {
+    if (typeof navigator === "undefined") return "en";
+    return (navigator.language ?? "").toLowerCase().startsWith("zh") ? "zh" : "en";
+  }
+  function resolveLanguage(value2) {
+    return value2 === "system" ? resolveSystemLanguage() : value2;
+  }
+  function notifyLanguageListeners() {
     for (const notify3 of listeners) notify3();
+  }
+  function setUiLanguageSetting(next3) {
+    const resolved2 = resolveLanguage(next3);
+    if (next3 === languageSetting && resolved2 === language) return;
+    languageSetting = next3;
+    language = resolved2;
+    notifyLanguageListeners();
   }
   function subscribeUiLanguage(notify3) {
     listeners.add(notify3);
@@ -19118,10 +19135,13 @@
   function isUiLanguage(value2) {
     return value2 === "zh" || value2 === "en";
   }
-  function parseUiLanguage(value2) {
-    return isUiLanguage(value2) ? value2 : "zh";
+  function isUiLanguageSetting(value2) {
+    return value2 === "system" || isUiLanguage(value2);
   }
-  var import_react, DICTS, PLACEHOLDER, language, listeners;
+  function parseUiLanguageSetting(value2) {
+    return isUiLanguageSetting(value2) ? value2 : "zh";
+  }
+  var import_react, DICTS, PLACEHOLDER, languageSetting, language, listeners;
   var init_i18n = __esm({
     "apps/desktop/src/i18n/index.ts"() {
       "use strict";
@@ -19130,6 +19150,7 @@
       init_en();
       DICTS = { zh, en };
       PLACEHOLDER = /\{(\w+)\}/g;
+      languageSetting = "zh";
       language = "zh";
       listeners = /* @__PURE__ */ new Set();
     }
@@ -376277,7 +376298,13 @@ ${content2}` : path4;
         current5.error = message3.stopReason === "error" || message3.stopReason === "aborted" ? formatProviderError(message3.errorMessage) : void 0;
         return [
           ...entries2.slice(0, index),
-          { ...current5, text: text5 || current5.text },
+          {
+            ...current5,
+            text: text5 || current5.text,
+            timestamp: timestampOf(message3) ?? current5.timestamp,
+            usage: usageOf(message3) ?? current5.usage,
+            model: modelOf(message3) ?? current5.model
+          },
           ...entries2.slice(index + 1)
         ];
       }
@@ -376318,7 +376345,8 @@ ${content2}` : path4;
           kind: "user",
           text: textOf(message2.content),
           ...typeof entryId === "string" ? { entryId } : {},
-          ...images.length > 0 ? { images } : {}
+          ...images.length > 0 ? { images } : {},
+          ...timestampOf(message2) !== void 0 ? { timestamp: timestampOf(message2) } : {}
         });
       } else if (message2.role === "assistant") {
         const tools = (message2.content ?? []).filter((part) => part.type === "toolCall").map((part) => ({
@@ -376334,7 +376362,10 @@ ${content2}` : path4;
           thinking: (message2.content ?? []).filter((part) => part.type === "thinking").map((part) => part.thinking ?? "").join("\n"),
           tools,
           segments: segmentsOf(message2.content),
-          error: message2.stopReason === "error" || message2.stopReason === "aborted" ? formatProviderError(message2.errorMessage) : void 0
+          error: message2.stopReason === "error" || message2.stopReason === "aborted" ? formatProviderError(message2.errorMessage) : void 0,
+          ...timestampOf(message2) !== void 0 ? { timestamp: timestampOf(message2) } : {},
+          ...usageOf(message2) !== void 0 ? { usage: usageOf(message2) } : {},
+          ...modelOf(message2) !== void 0 ? { model: modelOf(message2) } : {}
         });
       } else if (message2.role === "toolResult") {
         const output2 = toolOutputOf(message2);
@@ -376395,6 +376426,25 @@ ${content2}` : path4;
     if (typeof content2 === "string") return content2;
     if (!Array.isArray(content2)) return "";
     return content2.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n");
+  }
+  function usageOf(message2) {
+    const usage = message2.usage;
+    if (typeof usage !== "object" || usage === null) return void 0;
+    const num2 = (value2) => typeof value2 === "number" && Number.isFinite(value2) && value2 > 0 ? value2 : 0;
+    const parsed = {
+      input: num2(usage.input),
+      output: num2(usage.output),
+      cacheRead: num2(usage.cacheRead),
+      cacheWrite: num2(usage.cacheWrite)
+    };
+    const total = parsed.input + parsed.output + parsed.cacheRead + parsed.cacheWrite;
+    return total > 0 ? parsed : void 0;
+  }
+  function timestampOf(message2) {
+    return typeof message2.timestamp === "number" && Number.isFinite(message2.timestamp) && message2.timestamp > 0 ? message2.timestamp : void 0;
+  }
+  function modelOf(message2) {
+    return typeof message2.model === "string" && message2.model !== "" ? message2.model : void 0;
   }
   function contentImagesOf(content2) {
     if (!Array.isArray(content2)) return [];
@@ -376751,6 +376801,139 @@ ${content2}` : path4;
 
   // apps/desktop/src/components/ActivityRail.tsx
   var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+  function LanguageMenuItem({ onPick }) {
+    const t21 = useT();
+    const [open3, setOpen] = (0, import_react3.useState)(false);
+    const [pos, setPos] = (0, import_react3.useState)({ left: 0, bottom: 0 });
+    const triggerRef = (0, import_react3.useRef)(null);
+    const selectedRef = (0, import_react3.useRef)(null);
+    const closeTimer = (0, import_react3.useRef)(void 0);
+    const current5 = getUiLanguageSetting();
+    const options2 = [
+      { value: "system", labelKey: "settings.general.uiLanguageSystem" },
+      { value: "en", labelKey: "settings.general.uiLanguageEn" },
+      { value: "zh", labelKey: "settings.general.uiLanguageZh" }
+    ];
+    const clearCloseTimer = () => {
+      window.clearTimeout(closeTimer.current);
+    };
+    const syncPos = () => {
+      const rect3 = triggerRef.current?.getBoundingClientRect();
+      if (rect3) setPos({ left: rect3.right + 6, bottom: Math.max(8, window.innerHeight - rect3.bottom) });
+    };
+    const openNow = () => {
+      clearCloseTimer();
+      syncPos();
+      setOpen(true);
+    };
+    const scheduleClose = () => {
+      clearCloseTimer();
+      closeTimer.current = setTimeout(() => setOpen(false), 160);
+    };
+    (0, import_react3.useEffect)(() => () => clearCloseTimer(), []);
+    (0, import_react3.useEffect)(() => {
+      if (open3) selectedRef.current?.focus();
+    }, [open3]);
+    const moveFocus = (event3, step3) => {
+      const items = Array.from(event3.currentTarget.querySelectorAll('button[role="menuitemradio"]'));
+      if (items.length === 0) return;
+      const idx = items.indexOf(document.activeElement);
+      const next3 = step3 === "first" ? 0 : step3 === "last" ? items.length - 1 : idx === -1 ? step3 > 0 ? 0 : items.length - 1 : (idx + step3 + items.length) % items.length;
+      items[next3]?.focus();
+    };
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+      "div",
+      {
+        className: "owl-rail-menu-submenu",
+        onMouseEnter: openNow,
+        onMouseLeave: scheduleClose,
+        onKeyDown: (event3) => {
+          if (open3 && event3.key === "Escape") {
+            event3.preventDefault();
+            event3.stopPropagation();
+            setOpen(false);
+          }
+        },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+            "button",
+            {
+              ref: triggerRef,
+              type: "button",
+              role: "menuitem",
+              "aria-haspopup": "menu",
+              "aria-expanded": open3,
+              onClick: () => {
+                if (open3) {
+                  clearCloseTimer();
+                  setOpen(false);
+                } else openNow();
+              },
+              onKeyDown: (event3) => {
+                if (event3.key === "ArrowRight") {
+                  event3.preventDefault();
+                  event3.stopPropagation();
+                  openNow();
+                }
+              },
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "12", cy: "12", r: "9" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: t21("rail.language") }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "owl-rail-menu-current", children: t21(options2.find((option2) => option2.value === current5)?.labelKey ?? "settings.general.uiLanguageZh") }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "owl-rail-menu-arrow", "aria-hidden": "true", children: "\u203A" })
+              ]
+            }
+          ),
+          open3 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "div",
+            {
+              className: "owl-rail-menu-flyout",
+              role: "menu",
+              "aria-label": t21("rail.language"),
+              style: { left: pos.left, bottom: pos.bottom },
+              onMouseEnter: clearCloseTimer,
+              onMouseLeave: scheduleClose,
+              onKeyDown: (event3) => {
+                if (event3.key === "Escape") {
+                  event3.preventDefault();
+                  event3.stopPropagation();
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                  return;
+                }
+                const step3 = event3.key === "ArrowDown" ? 1 : event3.key === "ArrowUp" ? -1 : event3.key === "Home" ? "first" : event3.key === "End" ? "last" : void 0;
+                if (step3 === void 0) return;
+                event3.preventDefault();
+                event3.stopPropagation();
+                moveFocus(event3, step3);
+              },
+              children: options2.map((option2) => {
+                const active2 = option2.value === current5;
+                return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+                  "button",
+                  {
+                    ref: active2 ? selectedRef : void 0,
+                    type: "button",
+                    role: "menuitemradio",
+                    "aria-checked": active2,
+                    onClick: () => onPick(option2.value),
+                    children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "owl-rail-menu-check", "aria-hidden": "true", children: active2 ? "\u2713" : "" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: t21(option2.labelKey) })
+                    ]
+                  },
+                  option2.value
+                );
+              })
+            }
+          )
+        ]
+      }
+    );
+  }
   function ActivityRail({
     view,
     settingsOpen = false,
@@ -376758,7 +376941,8 @@ ${content2}` : path4;
     onHome,
     onOpenSettings,
     onOpenGuide,
-    onShowShortcuts
+    onShowShortcuts,
+    onPersistUiLanguage
   }) {
     const t21 = useT();
     const researchTitle = useResearchEntryText();
@@ -376791,10 +376975,7 @@ ${content2}` : path4;
     const menuGroups = [
       [
         { label: "rail.settings", icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconSettings, { className: "h-4 w-4" }), action: () => onOpenSettings("general") },
-        { label: "rail.language", icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "12", cy: "12", r: "9" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z" })
-        ] }), action: () => onOpenSettings("general") },
+        { kind: "language" },
         { label: "rail.models", icon: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M4 7h16M4 17h16" }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "9", cy: "7", r: "3" }),
@@ -376943,7 +377124,17 @@ ${content2}` : path4;
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "owl-rail-menu-header", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: "Owl" }) }),
               menuGroups.map((group2, index) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { role: "group", children: [
                 index > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "owl-rail-menu-separator", role: "separator" }),
-                group2.map((item) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", role: "menuitem", onClick: () => {
+                group2.map((item) => "kind" in item ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                  LanguageMenuItem,
+                  {
+                    onPick: (next3) => {
+                      setUiLanguageSetting(next3);
+                      onPersistUiLanguage?.(next3);
+                      setMenuOpen(false);
+                    }
+                  },
+                  "language"
+                ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", role: "menuitem", onClick: () => {
                   setMenuOpen(false);
                   item.action();
                 }, children: [
@@ -403919,7 +404110,7 @@ ${citations}` : ""}`
     const hidden = [...new Set((Array.isArray(value2.hidden) ? value2.hidden : []).filter((path4) => typeof path4 === "string" && normPath(path4) !== "").map(normPath))];
     const readThrough = {};
     for (const [id40, time4] of Object.entries(object3(value2.readThrough))) if (id40 && typeof time4 === "string") readThrough[id40] = time4;
-    return { view: value2.view === "merged" ? "merged" : "projects", sections: sections6, assignments, hidden, readInitialized: value2.readInitialized === true, readThrough };
+    return { view: value2.view === "merged" ? "merged" : "projects", recentView: value2.recentView === "projects" ? "projects" : "merged", sections: sections6, assignments, hidden, readInitialized: value2.readInitialized === true, readThrough };
   }
   function getProjectSidebarPreferences(scope) {
     return parseProjectSidebarPreferences(stored(preferencesKey(scope)));
@@ -405122,7 +405313,7 @@ ${draftRequest.text}` : draftRequest.text);
             "aria-label": open3 ? t21("todo.collapse") : t21("todo.expand"),
             onClick: () => setOpen((v6) => !v6),
             className: "flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text",
-            children: /* @__PURE__ */ (0, import_jsx_runtime55.jsx)(IconChevron, { className: `h-3.5 w-3.5 transition-transform ${open3 ? "" : "rotate-180"}` })
+            children: /* @__PURE__ */ (0, import_jsx_runtime55.jsx)(IconChevron, { className: `h-3.5 w-3.5 transition-transform ${open3 ? "-rotate-90" : "rotate-90"}` })
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime55.jsx)(
@@ -405887,7 +406078,7 @@ ${draftRequest.text}` : draftRequest.text);
     const error5 = localError ?? state5.error;
     return /* @__PURE__ */ (0, import_jsx_runtime56.jsx)("section", { className: "research-page", "aria-label": text5("title"), children: /* @__PURE__ */ (0, import_jsx_runtime56.jsxs)("div", { className: "research-content", children: [
       /* @__PURE__ */ (0, import_jsx_runtime56.jsxs)("div", { className: "research-conversation", children: [
-        props.conversationView === "context" ? /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ContextView, { client, cwd, sessionId: state5.sessionId, requireSession: true, active: active2 && connected }, state5.sessionId ?? cwd) : state5.entries.length ? /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(GenuiSessionProvider, { client, sessionId: state5.sessionId, children: /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ChatStream, { entries: state5.entries, activity, client, cwd, onOpenFile: props.onOpenFile, onOpenReview: props.onOpenReview, artifacts: /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ResultCards, { results: state5.results, text: text5, onOpen: openResult, onDraft: fillDraft }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime56.jsxs)("div", { className: "research-welcome", children: [
+        props.conversationView === "context" ? /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ContextView, { client, cwd, sessionId: state5.sessionId, requireSession: true, active: active2 && connected }, `research-context:${state5.sessionId ?? cwd}`) : state5.entries.length ? /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(GenuiSessionProvider, { client, sessionId: state5.sessionId, children: /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ChatStream, { entries: state5.entries, activity, client, cwd, onOpenFile: props.onOpenFile, onOpenReview: props.onOpenReview, artifacts: /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(ResultCards, { results: state5.results, text: text5, onOpen: openResult, onDraft: fillDraft }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime56.jsxs)("div", { className: "research-welcome", children: [
           /* @__PURE__ */ (0, import_jsx_runtime56.jsx)("img", { src: "/owl.svg", alt: "" }),
           /* @__PURE__ */ (0, import_jsx_runtime56.jsx)("h2", { children: text5("emptyTitle") }),
           /* @__PURE__ */ (0, import_jsx_runtime56.jsxs)("p", { children: [
@@ -405910,7 +406101,7 @@ ${draftRequest.text}` : draftRequest.text);
           }, children: text5("retrySend") })
         ] }) : !connected ? text5("disconnected") : text5("restoring") }),
         /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(RetryPin, { status: state5.retryStatus, onDismiss: () => controller.dismissRetry() }),
-        /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(TodoPin, { entries: state5.entries }, state5.sessionId ?? cwd),
+        /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(TodoPin, { entries: state5.entries }, `research-todos:${state5.sessionId ?? cwd}`),
         /* @__PURE__ */ (0, import_jsx_runtime56.jsx)(QuestionDock, { requests: pendingQuestions, activeRequest: pendingQuestions[0], onAnswer: (requestId, answers, cancelled) => {
           client.respondQuestion(requestId, answers, cancelled);
           props.onQuestionDone?.(requestId);
@@ -406906,6 +407097,90 @@ ${draftRequest.text}` : draftRequest.text);
     }
   }
 
+  // apps/desktop/src/sidebar/pointer-drag.ts
+  function startPointerDrag(target, event3, handlers4) {
+    const document2 = target.ownerDocument;
+    const view = document2.defaultView;
+    if (!view || event3.button !== 0 || !event3.isPrimary) return () => {
+    };
+    event3.preventDefault();
+    const pointerId = event3.pointerId;
+    const shield = document2.createElement("div");
+    shield.dataset.workbenchDragShield = "";
+    shield.setAttribute("data-tauri-drag-region", "false");
+    shield.setAttribute("aria-hidden", "true");
+    Object.assign(shield.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "2147483647",
+      cursor: handlers4.cursor,
+      touchAction: "none",
+      userSelect: "none"
+    });
+    const previousCursor = document2.body.style.cursor;
+    const previousSelection = document2.body.style.userSelect;
+    document2.body.style.cursor = handlers4.cursor;
+    document2.body.style.userSelect = "none";
+    document2.body.append(shield);
+    let finished = false;
+    const finish = (cancelled, finalEvent) => {
+      if (finished) return;
+      finished = true;
+      try {
+        if (!cancelled && finalEvent) handlers4.onMove(finalEvent);
+      } finally {
+        view.removeEventListener("pointermove", move, true);
+        view.removeEventListener("pointerup", up, true);
+        view.removeEventListener("pointercancel", cancel, true);
+        view.removeEventListener("blur", blur);
+        target.removeEventListener("lostpointercapture", lost);
+        shield.remove();
+        document2.body.style.cursor = previousCursor;
+        document2.body.style.userSelect = previousSelection;
+        try {
+          if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
+        } catch {
+        } finally {
+          handlers4.onFinish(cancelled);
+        }
+      }
+    };
+    const move = (next3) => {
+      if (next3.pointerId !== pointerId) return;
+      if (next3.pointerType === "mouse" && (next3.buttons & 1) === 0) {
+        finish(true);
+        return;
+      }
+      next3.preventDefault();
+      try {
+        handlers4.onMove(next3);
+      } catch (error5) {
+        finish(true);
+        throw error5;
+      }
+    };
+    const up = (next3) => {
+      if (next3.pointerId === pointerId) finish(false, next3);
+    };
+    const cancel = (next3) => {
+      if (next3.pointerId === pointerId) finish(true);
+    };
+    const blur = () => finish(true);
+    const lost = (next3) => {
+      if (next3.pointerId === pointerId) finish(true);
+    };
+    view.addEventListener("pointermove", move, { capture: true, passive: false });
+    view.addEventListener("pointerup", up, true);
+    view.addEventListener("pointercancel", cancel, true);
+    view.addEventListener("blur", blur);
+    target.addEventListener("lostpointercapture", lost);
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+    }
+    return () => finish(true);
+  }
+
   // apps/desktop/src/components/SessionSidebar.tsx
   init_i18n();
 
@@ -407052,6 +407327,7 @@ ${draftRequest.text}` : draftRequest.text);
     recent: "\u6700\u8FD1\u6D3B\u52A8",
     name: "\u540D\u79F0",
     oldest: "\u6700\u65E9\u521B\u5EFA",
+    standalone: "\u672A\u5173\u8054\u9879\u76EE",
     sectionName: "\u5206\u533A\u540D\u79F0",
     createSection: "\u521B\u5EFA\u5206\u533A",
     renameSection: "\u91CD\u547D\u540D\u5206\u533A",
@@ -407089,6 +407365,7 @@ ${draftRequest.text}` : draftRequest.text);
     recent: "Recent activity",
     name: "Name",
     oldest: "Oldest created",
+    standalone: "No project",
     sectionName: "Section name",
     createSection: "Create section",
     renameSection: "Rename section",
@@ -407362,6 +407639,18 @@ ${draftRequest.text}` : draftRequest.text);
   var PINNED_KEY = "owl.pinnedSessions";
   var PINNED_PROJECTS_KEY = "owl.pinnedProjects";
   var COLLAPSED_KEY = "owl.sidebar.collapsed";
+  var WIDTH_KEY = "owl.sidebar.width";
+  var SIDEBAR_MIN_WIDTH = 200;
+  var SIDEBAR_MAX_WIDTH = 720;
+  function loadSidebarWidth() {
+    const raw = localStorage.getItem(WIDTH_KEY);
+    const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(Math.max(parsed, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+  }
+  function clampSidebarWidth(width3) {
+    return Math.min(Math.max(width3, SIDEBAR_MIN_WIDTH), Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - 320)));
+  }
   var RECENT_LIMIT = 30;
   var PROJECT_ROW_MENU_PREFIX = "project-row:";
   var PINNED_PROJECT_ROW_MENU_PREFIX = "pinned-project-row:";
@@ -407506,9 +407795,6 @@ ${draftRequest.text}` : draftRequest.text);
       }
     );
   }
-  function MenuLabel({ children: children2 }) {
-    return /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "px-3 pb-1 pt-2 text-[10px] text-owl-sidebar-faint/80", children: children2 });
-  }
   function SessionSidebar({
     client,
     sessionScope,
@@ -407519,6 +407805,7 @@ ${draftRequest.text}` : draftRequest.text);
     refreshKey,
     revision: revision3,
     focus,
+    conversationVisible = true,
     minimized,
     onToggleMinimized,
     onNewChat,
@@ -407573,6 +407860,41 @@ ${draftRequest.text}` : draftRequest.text);
     const [knownProjects, setKnownProjects] = (0, import_react71.useState)(() => loadSidebarStrings(localStorage, keys4.projects));
     const [openProjects, setOpenProjects] = (0, import_react71.useState)(null);
     const scrollRef = (0, import_react71.useRef)(null);
+    const asideRef = (0, import_react71.useRef)(null);
+    const [sidebarWidth, setSidebarWidth] = (0, import_react71.useState)(() => loadSidebarWidth());
+    const [resizing, setResizing] = (0, import_react71.useState)(false);
+    const activeDrag = (0, import_react71.useRef)(void 0);
+    const resizeAria = getUiLanguage() === "en" ? "Drag to resize sidebar, double-click to reset" : "\u62D6\u62FD\u8C03\u6574\u4FA7\u680F\u5BBD\u5EA6\uFF0C\u53CC\u51FB\u590D\u4F4D";
+    const beginSidebarResize = (0, import_react71.useCallback)((event3) => {
+      if (event3.button !== 0 || !event3.isPrimary) return;
+      const aside = asideRef.current;
+      if (!aside) return;
+      const startWidth = aside.getBoundingClientRect().width;
+      const startX2 = event3.clientX;
+      let latest = startWidth;
+      event3.preventDefault();
+      setResizing(true);
+      activeDrag.current = startPointerDrag(event3.currentTarget, event3.nativeEvent, {
+        cursor: "col-resize",
+        onMove: (moveEvent) => {
+          latest = clampSidebarWidth(startWidth + (moveEvent.clientX - startX2));
+          setSidebarWidth(latest);
+        },
+        onFinish: (cancelled) => {
+          activeDrag.current = void 0;
+          setResizing(false);
+          if (cancelled) {
+            setSidebarWidth(loadSidebarWidth());
+            return;
+          }
+          localStorage.setItem(WIDTH_KEY, String(latest));
+        }
+      });
+    }, []);
+    (0, import_react71.useEffect)(() => () => {
+      activeDrag.current?.();
+      activeDrag.current = void 0;
+    }, []);
     const mounted = (0, import_react71.useRef)(true);
     const refreshVersion = (0, import_react71.useRef)(0);
     (0, import_react71.useEffect)(() => {
@@ -407604,7 +407926,7 @@ ${draftRequest.text}` : draftRequest.text);
     }, [openMenu, projectPopup, closeProjectPopup, allSessions, projectRevision]);
     (0, import_react71.useEffect)(() => {
       setProjectPopup(null);
-      setOpenMenu((current5) => current5 === "projects" || current5?.startsWith(PROJECT_ROW_MENU_PREFIX) || current5?.startsWith(PINNED_PROJECT_ROW_MENU_PREFIX) || current5?.startsWith("partition:") ? null : current5);
+      setOpenMenu((current5) => current5 === "projects" || current5 === "recent" || current5?.startsWith(PROJECT_ROW_MENU_PREFIX) || current5?.startsWith(PINNED_PROJECT_ROW_MENU_PREFIX) || current5?.startsWith("partition:") ? null : current5);
     }, [minimized, activeId, activeProject, sessionScope, focus, allSessions, query, collapsed, openProjects, projectRevision, recentSort]);
     (0, import_react71.useEffect)(() => {
       if (sessionMenu === null) return;
@@ -407646,9 +407968,10 @@ ${draftRequest.text}` : draftRequest.text);
       if (client && connected) void refresh();
     }, [client, connected, refreshKey, revision3]);
     (0, import_react71.useEffect)(() => {
+      if (!conversationVisible) return;
       const row = allSessions.find((entry) => entry.id === activeId && matchesSessionScope(entry, sessionScope));
       if (row) markSessionsRead(sessionScope, [row]);
-    }, [activeId, allSessions, sessionScope]);
+    }, [activeId, allSessions, sessionScope, conversationVisible]);
     (0, import_react71.useEffect)(() => {
       if (allSessions.length === 0) return;
       const alive = new Set(allSessions.map((row) => row.id).filter(Boolean));
@@ -407746,7 +408069,7 @@ ${draftRequest.text}` : draftRequest.text);
     };
     const search = query.trim().toLowerCase();
     const isArchivedRow = (row) => typeof row.archivedAt === "string" && row.archivedAt !== "";
-    const sessionMatches = (row) => !search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search);
+    const sessionMatches = (row) => !search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search) || (row.cwd ? getProjectDisplayName(row.cwd).toLowerCase().includes(search) : false);
     const byLatest = (a3, b4) => sessionTime(a3) < sessionTime(b4) ? 1 : -1;
     const pinnedSessions = (0, import_react71.useMemo)(() => {
       const rows = sessions.filter((row) => row.id !== void 0 && pinned.includes(row.id) && !isArchivedRow(row));
@@ -407793,7 +408116,7 @@ ${draftRequest.text}` : draftRequest.text);
       } else if (recentSort === "oldest") rows.sort((a3, b4) => String(a3.created ?? sessionTime(a3)).localeCompare(String(b4.created ?? sessionTime(b4))));
       else rows.sort(byLatest);
       return rows.slice(0, RECENT_LIMIT);
-    }, [sessions, search, recentSort]);
+    }, [sessions, search, recentSort, projectRevision]);
     const rowBtn = "owl-sidebar-action";
     const sessionRowTip = (row) => {
       const time4 = relativeTime(sessionTime(row));
@@ -407909,6 +408232,29 @@ ${time4}${row.cwd ? ` \xB7 ${row.cwd}` : ""}`;
       return rows.length ? rows.map((row, index) => sessionRow(row, index, false, location2)) : /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-empty", children: t21("sidebar.none") });
     };
     const defaultProjects = visibleProjects.filter((path4) => projectPreferences.assignments[normPath(path4)] === void 0);
+    const renderRecentContents = () => {
+      if (projectPreferences.recentView === "merged") return recentSessions.map((row, index) => sessionRow(row, index, false, "recent"));
+      const groups = /* @__PURE__ */ new Map();
+      for (const row of recentSessions) {
+        const key = normPath(row.cwd);
+        const group2 = groups.get(key);
+        if (group2) group2.rows.push(row);
+        else groups.set(key, { path: row.cwd, rows: [row] });
+      }
+      return [...groups].map(([pathKey, group2]) => {
+        const key = `recent-project:${pathKey || "standalone"}`;
+        const expanded = isOpen(key);
+        const name2 = group2.path ? getProjectDisplayName(group2.path) : pt4("standalone");
+        return /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "owl-sidebar-project-group", "data-recent-project": pathKey || "standalone", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "owl-sidebar-row", children: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("button", { type: "button", className: "owl-sidebar-row-main", title: group2.path ?? name2, "aria-expanded": expanded, "aria-label": t21("sidebar.projectToggleAria", { project: name2 }), onClick: () => toggleSection(key), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconChevron, { className: `h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}` }),
+            group2.path ? /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconFolder, { className: "h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" }) : /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconChat, { className: "h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { className: "owl-sidebar-row-label", children: name2 })
+          ] }) }),
+          expanded && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "owl-sidebar-project-sessions", children: group2.rows.map((row, index) => sessionRow(row, index, false, key)) })
+        ] }, key);
+      });
+    };
     const savePreferences = (next3) => saveProjectSidebarPreferences(sessionScope, next3);
     const confirmProjectAction = async () => {
       if (!projectConfirm || projectBusyRef.current) return;
@@ -407974,303 +408320,325 @@ ${time4}${row.cwd ? ` \xB7 ${row.cwd}` : ""}`;
       setShowNewProject(true);
       setOpenMenu(null);
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("aside", { id: "owl-session-sidebar", className: "owl-sidebar", "aria-label": t21("sidebar.aria"), hidden: minimized, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "owl-sidebar-header", "data-tauri-drag-region": "deep", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-          "button",
-          {
-            type: "button",
-            className: "owl-sidebar-brand",
-            title: t21("sidebar.collapseSidebar"),
-            "aria-label": t21("sidebar.collapseSidebar"),
-            "aria-expanded": !minimized,
-            onClick: onToggleMinimized,
-            children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { children: sessionScope === "research" ? researchText2.title : "owl" })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "flex-1", "data-tauri-drag-region": "deep" }),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { className: "owl-sidebar-local-badge", title: t21("sidebar.localBadgeTitle"), children: "LOCAL" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "owl-sidebar-search", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconSearch, { className: "h-3.5 w-3.5 shrink-0" }),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-          "input",
-          {
-            type: "text",
-            className: "owl-sidebar-search-input",
-            placeholder: sessionScope === "research" ? researchText2.search : t21("sidebar.searchPlaceholder"),
-            "aria-label": sessionScope === "research" ? researchText2.search : t21("sidebar.searchPlaceholder"),
-            value: query,
-            onChange: (event3) => setQuery(event3.target.value),
-            onKeyDown: (event3) => {
-              if (event3.key === "Escape") setQuery("");
-            }
-          }
-        ),
-        query && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: "owl-sidebar-search-clear", "aria-label": t21("sidebar.clearSearch"), onClick: () => setQuery(""), children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { "aria-hidden": "true", children: "\xD7" }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "owl-sidebar-shortcuts", children: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("button", { type: "button", className: "owl-sidebar-new-chat", "aria-label": sessionScope === "research" ? researchText2.newChat : t21("sidebar.newChat"), onClick: onNewChat, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconPlus, { className: "h-4 w-4 shrink-0" }),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { children: sessionScope === "research" ? researchText2.newChat : t21("sidebar.newChat") })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { ref: scrollRef, className: "owl-sidebar-list", children: [
-        (pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(
-          Section2,
-          {
-            id: "pinned",
-            label: t21("sidebar.sectionPinned"),
-            open: isOpen("pinned"),
-            onToggle: () => toggleSection("pinned"),
-            showMenu: openMenu === "pinned",
-            actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(
+      "aside",
+      {
+        ref: asideRef,
+        id: "owl-session-sidebar",
+        className: "owl-sidebar",
+        "aria-label": t21("sidebar.aria"),
+        hidden: minimized,
+        style: sidebarWidth === null ? void 0 : { width: sidebarWidth, flexBasis: sidebarWidth, maxWidth: "calc(100vw - 320px)" },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "owl-sidebar-header", "data-tauri-drag-region": "deep", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
               "button",
               {
                 type: "button",
-                className: actionBtn,
-                title: t21("sidebar.pinnedOptions"),
-                "aria-label": t21("sidebar.pinnedOptions"),
-                "aria-expanded": openMenu === "pinned",
-                onClick: () => setOpenMenu(openMenu === "pinned" ? null : "pinned"),
-                children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
+                className: "owl-sidebar-brand",
+                title: t21("sidebar.collapseSidebar"),
+                "aria-label": t21("sidebar.collapseSidebar"),
+                "aria-expanded": !minimized,
+                onClick: onToggleMinimized,
+                children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { children: sessionScope === "research" ? researchText2.title : "owl" })
               }
             ),
-            menu: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                MenuRow,
-                {
-                  label: t21("sidebar.sortByUpdated"),
-                  checked: pinnedSort === "recent",
-                  onClick: () => switchPinnedSort("recent")
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "flex-1", "data-tauri-drag-region": "deep" }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { className: "owl-sidebar-local-badge", title: t21("sidebar.localBadgeTitle"), children: "LOCAL" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "owl-sidebar-search", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconSearch, { className: "h-3.5 w-3.5 shrink-0" }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+              "input",
+              {
+                type: "text",
+                className: "owl-sidebar-search-input",
+                placeholder: sessionScope === "research" ? researchText2.search : t21("sidebar.searchPlaceholder"),
+                "aria-label": sessionScope === "research" ? researchText2.search : t21("sidebar.searchPlaceholder"),
+                value: query,
+                onChange: (event3) => setQuery(event3.target.value),
+                onKeyDown: (event3) => {
+                  if (event3.key === "Escape") setQuery("");
                 }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                MenuRow,
-                {
-                  label: t21("sidebar.sortManual"),
-                  checked: pinnedSort === "manual",
-                  hint: t21("sidebar.sortManualHint"),
-                  onClick: () => switchPinnedSort("manual")
-                }
-              )
-            ] }),
-            children: [
-              pinnedProjectRows.map((path4) => pinnedProjectRow(path4)),
-              pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true, "pinned"))
-            ]
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-          Section2,
-          {
-            id: "projects",
-            label: t21("sidebar.sectionProjects"),
-            open: isOpen("projects"),
-            onToggle: () => toggleSection("projects"),
-            showMenu: openMenu === "projects",
-            actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                "button",
-                {
-                  type: "button",
-                  className: actionBtn,
-                  title: t21("sidebar.projectOptions"),
-                  "aria-label": t21("sidebar.projectOptions"),
-                  "aria-expanded": openMenu === "projects",
-                  onClick: (event3) => {
-                    if (openMenu === "projects") closeProjectPopup();
-                    else {
-                      setProjectPopup({ key: "projects", kind: "projects", anchor: event3.currentTarget });
-                      setOpenMenu("projects");
+              }
+            ),
+            query && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: "owl-sidebar-search-clear", "aria-label": t21("sidebar.clearSearch"), onClick: () => setQuery(""), children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { "aria-hidden": "true", children: "\xD7" }) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "owl-sidebar-shortcuts", children: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("button", { type: "button", className: "owl-sidebar-new-chat", "aria-label": sessionScope === "research" ? researchText2.newChat : t21("sidebar.newChat"), onClick: onNewChat, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconPlus, { className: "h-4 w-4 shrink-0" }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("span", { children: sessionScope === "research" ? researchText2.newChat : t21("sidebar.newChat") })
+          ] }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { ref: scrollRef, className: "owl-sidebar-list", children: [
+            (pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(
+              Section2,
+              {
+                id: "pinned",
+                label: t21("sidebar.sectionPinned"),
+                open: isOpen("pinned"),
+                onToggle: () => toggleSection("pinned"),
+                showMenu: openMenu === "pinned",
+                actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: actionBtn,
+                    title: t21("sidebar.pinnedOptions"),
+                    "aria-label": t21("sidebar.pinnedOptions"),
+                    "aria-expanded": openMenu === "pinned",
+                    onClick: () => setOpenMenu(openMenu === "pinned" ? null : "pinned"),
+                    children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
+                  }
+                ),
+                menu: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                    MenuRow,
+                    {
+                      label: t21("sidebar.sortByUpdated"),
+                      checked: pinnedSort === "recent",
+                      onClick: () => switchPinnedSort("recent")
                     }
-                  },
-                  "aria-haspopup": "menu",
-                  "aria-controls": openMenu === "projects" ? projectMenuId : void 0,
-                  children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                "button",
-                {
-                  type: "button",
-                  className: actionBtn,
-                  title: t21("sidebar.newProject"),
-                  "aria-label": t21("sidebar.newProject"),
-                  onClick: openNewProject,
-                  children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconPlus, { className: "h-3.5 w-3.5" })
-                }
-              )
-            ] }),
-            children: renderProjectContents(defaultProjects, "merged-default")
-          }
-        ),
-        projectPreferences.sections.map((section) => /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(Section2, { id: `partition-${section.id}`, label: section.name, open: isOpen(`partition-${section.id}`), onToggle: () => toggleSection(`partition-${section.id}`), showMenu: openMenu === `partition:${section.id}`, actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: actionBtn, "aria-label": `${pt4("section")}\uFF1A${section.name}`, "aria-haspopup": "menu", "aria-expanded": openMenu === `partition:${section.id}`, onClick: (event3) => {
-          const key = `partition:${section.id}`;
-          if (openMenu === key) closeProjectPopup();
-          else {
-            setProjectPopup({ key, kind: "section", sectionId: section.id, anchor: event3.currentTarget });
-            setOpenMenu(key);
-          }
-        }, children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" }) }), children: renderProjectContents(visibleProjects.filter((path4) => projectPreferences.assignments[normPath(path4)] === section.id), `merged-${section.id}`) }, section.id)),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(
-          Section2,
-          {
-            id: "recent",
-            label: sessionScope === "research" ? researchText2.recent : t21("sidebar.sectionRecent"),
-            open: isOpen("recent"),
-            onToggle: () => toggleSection("recent"),
-            showMenu: openMenu === "recent",
-            actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                "button",
-                {
-                  type: "button",
-                  className: actionBtn,
-                  title: t21("sidebar.recentOptions"),
-                  "aria-label": t21("sidebar.recentOptions"),
-                  "aria-expanded": openMenu === "recent",
-                  onClick: () => setOpenMenu(openMenu === "recent" ? null : "recent"),
-                  children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: actionBtn, title: t21("sidebar.newChatBtn"), "aria-label": t21("sidebar.newChatBtn"), onClick: onNewChat, children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconCompose, { className: "h-3.5 w-3.5" }) })
-            ] }),
-            menu: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(MenuLabel, { children: t21("sidebar.sortLabel") }),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-                MenuRow,
-                {
-                  label: t21("sidebar.sortRecent"),
-                  checked: recentSort === "recent",
-                  onClick: () => switchRecentSort("recent")
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(MenuRow, { label: t21("sidebar.sortName"), checked: recentSort === "name", onClick: () => switchRecentSort("name") }),
-              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(MenuRow, { label: pt4("oldest"), checked: recentSort === "oldest", onClick: () => switchRecentSort("oldest") })
-            ] }),
-            children: [
-              recentSessions.map((row, index) => sessionRow(row, index, false, "recent")),
-              recentSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-empty", children: search ? t21("sidebar.noMatch") : t21("sidebar.none") })
-            ]
-          }
-        ),
-        noMatch && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-empty", children: t21("sidebar.emptyResults") }),
-        projectNotice && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-notice", role: "status", children: projectNotice })
-      ] }),
-      !minimized && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-        ProjectActionsMenu,
-        {
-          anchor: projectPopup.anchor,
-          menuId: projectMenuId,
-          label: t21("sidebar.projectActionsAria", { project: getProjectDisplayName(projectPopup.path) }),
-          pinned: isProjectPinned(projectPopup.path),
-          sections: projectPreferences.sections,
-          sectionId: projectPreferences.assignments[normPath(projectPopup.path)] ?? null,
-          onClose: closeProjectPopup,
-          onPin: () => {
-            if (projectPopup.path) toggleProjectPin(projectPopup.path);
-          },
-          onEdit: () => setEditingProject(projectPopup.path ?? null),
-          onSection: (id40) => {
-            if (projectPopup.path) savePreferences(moveProjectToSection(projectPreferences, projectPopup.path, id40));
-          },
-          onNewSection: () => {
-            setSectionError("");
-            setSectionDialog({ path: projectPopup.path });
-          },
-          onReveal: () => {
-            if (projectPopup.path) void revealProject(projectPopup.path);
-          },
-          onMarkRead: () => {
-            markSessionsRead(sessionScope, sessions.filter((row) => samePath2(row.cwd, projectPopup.path)));
-            setProjectNotice(pt4("allRead"));
-          },
-          onArchive: () => setProjectConfirm({ type: "archive", path: projectPopup.path }),
-          onRemove: () => setProjectConfirm({ type: "remove", path: projectPopup.path })
-        }
-      ) : projectPopup.kind === "projects" ? /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectsSectionMenu, { anchor: projectPopup.anchor, menuId: projectMenuId, label: t21("sidebar.projectOptions"), organize: projectPreferences.view, sort: recentSort, onClose: closeProjectPopup, onOrganize: (view) => savePreferences({ ...projectPreferences, view }), onSort: switchRecentSort }) : /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(SectionActionsMenu, { anchor: projectPopup.anchor, menuId: projectMenuId, label: pt4("section"), onClose: closeProjectPopup, onEdit: () => {
-        setSectionError("");
-        setSectionDialog({ id: projectPopup.sectionId });
-      }, onRemove: () => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId }) })),
-      !minimized && sessionMenu !== null && openMenu === sessionMenu.key && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-        SessionActionsMenu,
-        {
-          anchor: sessionMenu.anchor,
-          menuId: sessionMenuId,
-          label: t21("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) }),
-          pinned: sessionMenu.row.id !== void 0 && pinned.includes(sessionMenu.row.id),
-          onClose: closeSessionMenu,
-          onPin: () => {
-            if (sessionMenu.row.id) togglePin(sessionMenu.row.id);
-          },
-          onArchive: () => void archiveSession(sessionMenu.row),
-          onDelete: () => {
-            setConfirmDelete(sessionMenu.row);
-            setDeleteError("");
-          }
-        },
-        sessionMenu.key
-      ),
-      showNewProject && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-        NewProjectDialog,
-        {
-          client,
-          onClose: () => setShowNewProject(false),
-          onCreated: (path4) => {
-            setShowNewProject(false);
-            restoreProject(path4, sessionScope);
-            setKnownProjects((current5) => {
-              const next3 = current5.some((entry) => samePath2(entry, path4)) ? current5 : [...current5, path4];
-              localStorage.setItem(keys4.projects, JSON.stringify(next3));
-              return next3;
-            });
-            onSelectProject(path4);
-          }
-        }
-      ),
-      editingProject !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(NewProjectDialog, { client, initialProject: { path: editingProject, name: getProjectDisplayName(editingProject) }, onClose: () => setEditingProject(null), onCreated: () => setEditingProject(null) }),
-      sectionDialog !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectSidebarDialog, { title: pt4(sectionDialog.id ? "renameSection" : "createSection"), fieldLabel: pt4("sectionName"), initialValue: projectPreferences.sections.find((section) => section.id === sectionDialog.id)?.name ?? "", error: sectionError, confirmLabel: pt4("save"), onClose: () => setSectionDialog(null), onSubmit: (name2) => {
-        if (projectPreferences.sections.some((section) => section.id !== sectionDialog.id && section.name.toLowerCase() === name2.toLowerCase())) {
-          setSectionError(pt4("sectionDuplicate"));
-          return;
-        }
-        const id40 = sectionDialog.id ?? crypto.randomUUID();
-        let next3 = { ...projectPreferences, sections: sectionDialog.id ? projectPreferences.sections.map((section) => section.id === id40 ? { ...section, name: name2 } : section) : [...projectPreferences.sections, { id: id40, name: name2 }] };
-        if (sectionDialog.path) next3 = moveProjectToSection(next3, sectionDialog.path, id40);
-        savePreferences(next3);
-        setSectionDialog(null);
-      } }, sectionDialog.id ?? `new:${sectionDialog.path}`),
-      projectConfirm !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectSidebarDialog, { title: pt4(projectConfirm.type === "archive" ? "archiveTitle" : projectConfirm.type === "remove" ? "removeTitle" : "removeSection"), description: (projectConfirm.path ? `${getProjectDisplayName(projectConfirm.path)}
-` : "") + pt4(projectConfirm.type === "archive" ? "archiveHint" : projectConfirm.type === "remove" ? "removeHint" : "removeSectionHint"), busy: projectBusy, confirmLabel: pt4("confirm"), onClose: () => {
-        if (!projectBusyRef.current) setProjectConfirm(null);
-      }, onSubmit: () => void confirmProjectAction() }),
-      confirmDelete && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/50", role: "dialog", children: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("h2", { className: "mb-1 text-sm font-semibold text-owl-text", children: t21("sidebar.deleteSessionTitle") }),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "mb-3 break-all text-xs text-owl-muted", children: t21("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) }) }),
-        deleteError && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "mt-2 text-xs text-red-400", children: deleteError }),
-        /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "mt-4 flex justify-end gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-            "button",
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                    MenuRow,
+                    {
+                      label: t21("sidebar.sortManual"),
+                      checked: pinnedSort === "manual",
+                      hint: t21("sidebar.sortManualHint"),
+                      onClick: () => switchPinnedSort("manual")
+                    }
+                  )
+                ] }),
+                children: [
+                  pinnedProjectRows.map((path4) => pinnedProjectRow(path4)),
+                  pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true, "pinned"))
+                ]
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+              Section2,
+              {
+                id: "projects",
+                label: t21("sidebar.sectionProjects"),
+                open: isOpen("projects"),
+                onToggle: () => toggleSection("projects"),
+                showMenu: openMenu === "projects",
+                actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                    "button",
+                    {
+                      type: "button",
+                      className: actionBtn,
+                      title: t21("sidebar.projectOptions"),
+                      "aria-label": t21("sidebar.projectOptions"),
+                      "aria-expanded": openMenu === "projects",
+                      onClick: (event3) => {
+                        if (openMenu === "projects") closeProjectPopup();
+                        else {
+                          setProjectPopup({ key: "projects", kind: "projects", anchor: event3.currentTarget });
+                          setOpenMenu("projects");
+                        }
+                      },
+                      "aria-haspopup": "menu",
+                      "aria-controls": openMenu === "projects" ? projectMenuId : void 0,
+                      children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                    "button",
+                    {
+                      type: "button",
+                      className: actionBtn,
+                      title: t21("sidebar.newProject"),
+                      "aria-label": t21("sidebar.newProject"),
+                      onClick: openNewProject,
+                      children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconPlus, { className: "h-3.5 w-3.5" })
+                    }
+                  )
+                ] }),
+                children: renderProjectContents(defaultProjects, "merged-default")
+              }
+            ),
+            projectPreferences.sections.map((section) => /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(Section2, { id: `partition-${section.id}`, label: section.name, open: isOpen(`partition-${section.id}`), onToggle: () => toggleSection(`partition-${section.id}`), showMenu: openMenu === `partition:${section.id}`, actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: actionBtn, "aria-label": `${pt4("section")}\uFF1A${section.name}`, "aria-haspopup": "menu", "aria-expanded": openMenu === `partition:${section.id}`, onClick: (event3) => {
+              const key = `partition:${section.id}`;
+              if (openMenu === key) closeProjectPopup();
+              else {
+                setProjectPopup({ key, kind: "section", sectionId: section.id, anchor: event3.currentTarget });
+                setOpenMenu(key);
+              }
+            }, children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" }) }), children: renderProjectContents(visibleProjects.filter((path4) => projectPreferences.assignments[normPath(path4)] === section.id), `merged-${section.id}`) }, section.id)),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(
+              Section2,
+              {
+                id: "recent",
+                label: sessionScope === "research" ? researchText2.recent : t21("sidebar.sectionRecent"),
+                open: isOpen("recent"),
+                onToggle: () => toggleSection("recent"),
+                showMenu: openMenu === "recent",
+                actions: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)(import_jsx_runtime68.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                    "button",
+                    {
+                      type: "button",
+                      className: actionBtn,
+                      title: t21("sidebar.recentOptions"),
+                      "aria-label": t21("sidebar.recentOptions"),
+                      "aria-expanded": openMenu === "recent",
+                      "aria-haspopup": "menu",
+                      "aria-controls": openMenu === "recent" ? projectMenuId : void 0,
+                      onClick: (event3) => {
+                        if (openMenu === "recent") closeProjectPopup();
+                        else {
+                          setProjectPopup({ key: "recent", kind: "recent", anchor: event3.currentTarget });
+                          setOpenMenu("recent");
+                        }
+                      },
+                      children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconMore, { className: "h-3.5 w-3.5" })
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("button", { type: "button", className: actionBtn, title: t21("sidebar.newChatBtn"), "aria-label": t21("sidebar.newChatBtn"), onClick: onNewChat, children: /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(IconCompose, { className: "h-3.5 w-3.5" }) })
+                ] }),
+                children: [
+                  renderRecentContents(),
+                  recentSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-empty", children: search ? t21("sidebar.noMatch") : t21("sidebar.none") })
+                ]
+              }
+            ),
+            noMatch && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-empty", children: t21("sidebar.emptyResults") }),
+            projectNotice && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "owl-sidebar-notice", role: "status", children: projectNotice })
+          ] }),
+          !minimized && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+            ProjectActionsMenu,
             {
-              type: "button",
-              className: "rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text",
-              onClick: () => setConfirmDelete(null),
-              disabled: deleting,
-              children: t21("common.cancel")
+              anchor: projectPopup.anchor,
+              menuId: projectMenuId,
+              label: t21("sidebar.projectActionsAria", { project: getProjectDisplayName(projectPopup.path) }),
+              pinned: isProjectPinned(projectPopup.path),
+              sections: projectPreferences.sections,
+              sectionId: projectPreferences.assignments[normPath(projectPopup.path)] ?? null,
+              onClose: closeProjectPopup,
+              onPin: () => {
+                if (projectPopup.path) toggleProjectPin(projectPopup.path);
+              },
+              onEdit: () => setEditingProject(projectPopup.path ?? null),
+              onSection: (id40) => {
+                if (projectPopup.path) savePreferences(moveProjectToSection(projectPreferences, projectPopup.path, id40));
+              },
+              onNewSection: () => {
+                setSectionError("");
+                setSectionDialog({ path: projectPopup.path });
+              },
+              onReveal: () => {
+                if (projectPopup.path) void revealProject(projectPopup.path);
+              },
+              onMarkRead: () => {
+                markSessionsRead(sessionScope, sessions.filter((row) => samePath2(row.cwd, projectPopup.path)));
+                setProjectNotice(pt4("allRead"));
+              },
+              onArchive: () => setProjectConfirm({ type: "archive", path: projectPopup.path }),
+              onRemove: () => setProjectConfirm({ type: "remove", path: projectPopup.path })
+            }
+          ) : projectPopup.kind === "projects" || projectPopup.kind === "recent" ? /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectsSectionMenu, { anchor: projectPopup.anchor, menuId: projectMenuId, label: t21(projectPopup.kind === "recent" ? "sidebar.recentOptions" : "sidebar.projectOptions"), organize: projectPopup.kind === "recent" ? projectPreferences.recentView : projectPreferences.view, sort: recentSort, onClose: closeProjectPopup, onOrganize: (view) => savePreferences(projectPopup.kind === "recent" ? { ...projectPreferences, recentView: view } : { ...projectPreferences, view }), onSort: switchRecentSort }) : /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(SectionActionsMenu, { anchor: projectPopup.anchor, menuId: projectMenuId, label: pt4("section"), onClose: closeProjectPopup, onEdit: () => {
+            setSectionError("");
+            setSectionDialog({ id: projectPopup.sectionId });
+          }, onRemove: () => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId }) })),
+          !minimized && sessionMenu !== null && openMenu === sessionMenu.key && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+            SessionActionsMenu,
+            {
+              anchor: sessionMenu.anchor,
+              menuId: sessionMenuId,
+              label: t21("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) }),
+              pinned: sessionMenu.row.id !== void 0 && pinned.includes(sessionMenu.row.id),
+              onClose: closeSessionMenu,
+              onPin: () => {
+                if (sessionMenu.row.id) togglePin(sessionMenu.row.id);
+              },
+              onArchive: () => void archiveSession(sessionMenu.row),
+              onDelete: () => {
+                setConfirmDelete(sessionMenu.row);
+                setDeleteError("");
+              }
+            },
+            sessionMenu.key
+          ),
+          showNewProject && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+            NewProjectDialog,
+            {
+              client,
+              onClose: () => setShowNewProject(false),
+              onCreated: (path4) => {
+                setShowNewProject(false);
+                restoreProject(path4, sessionScope);
+                setKnownProjects((current5) => {
+                  const next3 = current5.some((entry) => samePath2(entry, path4)) ? current5 : [...current5, path4];
+                  localStorage.setItem(keys4.projects, JSON.stringify(next3));
+                  return next3;
+                });
+                onSelectProject(path4);
+              }
             }
           ),
+          editingProject !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(NewProjectDialog, { client, initialProject: { path: editingProject, name: getProjectDisplayName(editingProject) }, onClose: () => setEditingProject(null), onCreated: () => setEditingProject(null) }),
+          sectionDialog !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectSidebarDialog, { title: pt4(sectionDialog.id ? "renameSection" : "createSection"), fieldLabel: pt4("sectionName"), initialValue: projectPreferences.sections.find((section) => section.id === sectionDialog.id)?.name ?? "", error: sectionError, confirmLabel: pt4("save"), onClose: () => setSectionDialog(null), onSubmit: (name2) => {
+            if (projectPreferences.sections.some((section) => section.id !== sectionDialog.id && section.name.toLowerCase() === name2.toLowerCase())) {
+              setSectionError(pt4("sectionDuplicate"));
+              return;
+            }
+            const id40 = sectionDialog.id ?? crypto.randomUUID();
+            let next3 = { ...projectPreferences, sections: sectionDialog.id ? projectPreferences.sections.map((section) => section.id === id40 ? { ...section, name: name2 } : section) : [...projectPreferences.sections, { id: id40, name: name2 }] };
+            if (sectionDialog.path) next3 = moveProjectToSection(next3, sectionDialog.path, id40);
+            savePreferences(next3);
+            setSectionDialog(null);
+          } }, sectionDialog.id ?? `new:${sectionDialog.path}`),
+          projectConfirm !== null && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(ProjectSidebarDialog, { title: pt4(projectConfirm.type === "archive" ? "archiveTitle" : projectConfirm.type === "remove" ? "removeTitle" : "removeSection"), description: (projectConfirm.path ? `${getProjectDisplayName(projectConfirm.path)}
+` : "") + pt4(projectConfirm.type === "archive" ? "archiveHint" : projectConfirm.type === "remove" ? "removeHint" : "removeSectionHint"), busy: projectBusy, confirmLabel: pt4("confirm"), onClose: () => {
+            if (!projectBusyRef.current) setProjectConfirm(null);
+          }, onSubmit: () => void confirmProjectAction() }),
+          confirmDelete && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/50", role: "dialog", children: /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("h2", { className: "mb-1 text-sm font-semibold text-owl-text", children: t21("sidebar.deleteSessionTitle") }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "mb-3 break-all text-xs text-owl-muted", children: t21("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) }) }),
+            deleteError && /* @__PURE__ */ (0, import_jsx_runtime68.jsx)("p", { className: "mt-2 text-xs text-red-400", children: deleteError }),
+            /* @__PURE__ */ (0, import_jsx_runtime68.jsxs)("div", { className: "mt-4 flex justify-end gap-2", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text",
+                  onClick: () => setConfirmDelete(null),
+                  disabled: deleting,
+                  children: t21("common.cancel")
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-50",
+                  onClick: () => void deleteSession(confirmDelete),
+                  disabled: deleting,
+                  children: deleting ? t21("sidebar.deleting") : t21("common.delete")
+                }
+              )
+            ] })
+          ] }) }),
           /* @__PURE__ */ (0, import_jsx_runtime68.jsx)(
-            "button",
+            "div",
             {
-              type: "button",
-              className: "rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-50",
-              onClick: () => void deleteSession(confirmDelete),
-              disabled: deleting,
-              children: deleting ? t21("sidebar.deleting") : t21("common.delete")
+              className: `owl-sidebar-resizer${resizing ? " is-active" : ""}`,
+              "data-tauri-drag-region": "false",
+              role: "separator",
+              "aria-orientation": "vertical",
+              "aria-label": resizeAria,
+              title: resizeAria,
+              onPointerDown: beginSidebarResize,
+              onDoubleClick: () => {
+                localStorage.removeItem(WIDTH_KEY);
+                setSidebarWidth(null);
+              }
             }
           )
-        ] })
-      ] }) })
-    ] });
+        ]
+      }
+    );
   }
 
   // apps/desktop/src/components/DesktopTitlebar.tsx
@@ -410869,7 +411237,7 @@ ${time4}${row.cwd ? ` \xB7 ${row.cwd}` : ""}`;
           if (typeof obj2.shellPath === "string") setShellPath(obj2.shellPath);
           if (typeof obj2.owlCustomPrompt === "string") setCustomPrompt(obj2.owlCustomPrompt);
           if (typeof obj2.owlUserImpression === "string") setUserImpression(obj2.owlUserImpression);
-          setUiLanguage(parseUiLanguage(obj2.uiLanguage));
+          setUiLanguageSetting(parseUiLanguageSetting(obj2.uiLanguage));
           const notif = parseNotificationPrefs(obj2.owlNotifications);
           setNotifPrefs(notif);
           setNotificationPrefs(notif);
@@ -411654,14 +412022,15 @@ ${response.result.url}` : ""}`);
                     {
                       "aria-label": t21("settings.general.uiLanguage"),
                       className: "rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent",
-                      value: getUiLanguage(),
+                      value: getUiLanguageSetting(),
                       disabled: busy,
                       onChange: (event3) => {
-                        const next3 = parseUiLanguage(event3.target.value);
-                        setUiLanguage(next3);
+                        const next3 = parseUiLanguageSetting(event3.target.value);
+                        setUiLanguageSetting(next3);
                         void saveSettings({ uiLanguage: next3 });
                       },
                       children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime75.jsx)("option", { value: "system", children: t21("settings.general.uiLanguageSystem") }),
                         /* @__PURE__ */ (0, import_jsx_runtime75.jsx)("option", { value: "zh", children: t21("settings.general.uiLanguageZh") }),
                         /* @__PURE__ */ (0, import_jsx_runtime75.jsx)("option", { value: "en", children: t21("settings.general.uiLanguageEn") })
                       ]
@@ -417328,93 +417697,9 @@ ${response.result.url}` : ""}`);
     ] });
   }
 
-  // apps/desktop/src/sidebar/pointer-drag.ts
-  function startPointerDrag(target, event3, handlers4) {
-    const document2 = target.ownerDocument;
-    const view = document2.defaultView;
-    if (!view || event3.button !== 0 || !event3.isPrimary) return () => {
-    };
-    event3.preventDefault();
-    const pointerId = event3.pointerId;
-    const shield = document2.createElement("div");
-    shield.dataset.workbenchDragShield = "";
-    shield.setAttribute("data-tauri-drag-region", "false");
-    shield.setAttribute("aria-hidden", "true");
-    Object.assign(shield.style, {
-      position: "fixed",
-      inset: "0",
-      zIndex: "2147483647",
-      cursor: handlers4.cursor,
-      touchAction: "none",
-      userSelect: "none"
-    });
-    const previousCursor = document2.body.style.cursor;
-    const previousSelection = document2.body.style.userSelect;
-    document2.body.style.cursor = handlers4.cursor;
-    document2.body.style.userSelect = "none";
-    document2.body.append(shield);
-    let finished = false;
-    const finish = (cancelled, finalEvent) => {
-      if (finished) return;
-      finished = true;
-      try {
-        if (!cancelled && finalEvent) handlers4.onMove(finalEvent);
-      } finally {
-        view.removeEventListener("pointermove", move, true);
-        view.removeEventListener("pointerup", up, true);
-        view.removeEventListener("pointercancel", cancel, true);
-        view.removeEventListener("blur", blur);
-        target.removeEventListener("lostpointercapture", lost);
-        shield.remove();
-        document2.body.style.cursor = previousCursor;
-        document2.body.style.userSelect = previousSelection;
-        try {
-          if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-        } catch {
-        } finally {
-          handlers4.onFinish(cancelled);
-        }
-      }
-    };
-    const move = (next3) => {
-      if (next3.pointerId !== pointerId) return;
-      if (next3.pointerType === "mouse" && (next3.buttons & 1) === 0) {
-        finish(true);
-        return;
-      }
-      next3.preventDefault();
-      try {
-        handlers4.onMove(next3);
-      } catch (error5) {
-        finish(true);
-        throw error5;
-      }
-    };
-    const up = (next3) => {
-      if (next3.pointerId === pointerId) finish(false, next3);
-    };
-    const cancel = (next3) => {
-      if (next3.pointerId === pointerId) finish(true);
-    };
-    const blur = () => finish(true);
-    const lost = (next3) => {
-      if (next3.pointerId === pointerId) finish(true);
-    };
-    view.addEventListener("pointermove", move, { capture: true, passive: false });
-    view.addEventListener("pointerup", up, true);
-    view.addEventListener("pointercancel", cancel, true);
-    view.addEventListener("blur", blur);
-    target.addEventListener("lostpointercapture", lost);
-    try {
-      target.setPointerCapture(pointerId);
-    } catch {
-    }
-    return () => finish(true);
-  }
-
   // apps/desktop/src/sidebar/Workbench.tsx
   var import_jsx_runtime89 = __toESM(require_jsx_runtime(), 1);
-  var WIDTH_KEY = "owl.workbench.width";
+  var WIDTH_KEY2 = "owl.workbench.width";
   var HEIGHT_KEY = "owl.workbench.height";
   var HEIGHT_MIN = 140;
   var WIDTH_MIN = 280;
@@ -417436,7 +417721,7 @@ ${response.result.url}` : ""}`);
     const cfg = useSidebarConfig();
     const [gitStatus, setGitStatus] = (0, import_react94.useState)(void 0);
     const [width3, setWidth2] = (0, import_react94.useState)(() => {
-      const saved = Number(localStorage.getItem(WIDTH_KEY));
+      const saved = Number(localStorage.getItem(WIDTH_KEY2));
       return saved >= WIDTH_MIN ? saved : 380;
     });
     const [height2, setHeight2] = (0, import_react94.useState)(() => {
@@ -417613,7 +417898,7 @@ ${response.result.url}` : ""}`);
         setHeight2(next3);
       };
       const onUp = () => {
-        localStorage.setItem(dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(currentSize));
+        localStorage.setItem(dock === "right" ? WIDTH_KEY2 : HEIGHT_KEY, String(currentSize));
       };
       beginPointerDrag(e4, { cursor: dock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
     };
@@ -418431,7 +418716,7 @@ ${response.result.url}` : ""}`);
         setWallpaper(wallpaperSettings);
         setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
         applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
-        setUiLanguage(parseUiLanguage(settings?.uiLanguage));
+        setUiLanguageSetting(parseUiLanguageSetting(settings?.uiLanguage));
         setNotificationPrefs(parseNotificationPrefs(settings?.owlNotifications));
       }).catch(() => {
       });
@@ -418944,6 +419229,10 @@ ${response.result.url}` : ""}`);
             onOpenSettings: openSettings,
             onOpenGuide: shortcuts.openGuide,
             onShowShortcuts: shortcuts.showShortcuts,
+            onPersistUiLanguage: (next3) => {
+              void client.request({ type: "settings.set", values: { uiLanguage: next3 } }).catch(() => {
+              });
+            },
             onSelect: (view) => {
               setShowSettings(false);
               setRailView(view);
@@ -418964,6 +419253,7 @@ ${response.result.url}` : ""}`);
             refreshKey: (railView === "research" ? researchSessionId : sessionId) ?? "",
             revision: sidebarRev,
             focus: railView,
+            conversationVisible: !showSettings && (railView === "chat" ? conversationView === "chat" : railView === "research" && researchConversationView === "chat"),
             minimized: sidebarMinimized || showSettings || railView !== "chat" && railView !== "research",
             onToggleMinimized: toggleSessionSidebar,
             runningSessions,

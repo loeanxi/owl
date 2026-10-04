@@ -48,9 +48,33 @@ export type ToolCard = {
 	parentToolCallId?: string;
 };
 
+/** 单条 LLM 回复的 token 用量（消息操作栏的「用量」展示）。 */
+export type MessageUsage = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
 export type ChatEntry =
-	| { kind: "user"; text: string; images?: ToolResultImage[]; /** 所属会话日志条目 id（会话回退按钮用；乐观追加的行等 entry_appended 事件补上） */ entryId?: string }
-	| { kind: "assistant"; text: string; thinking: string; tools: ToolCard[]; error?: string; segments?: AssistantSegment[] }
+	| {
+			kind: "user";
+			text: string;
+			images?: ToolResultImage[];
+			/** 所属会话日志条目 id（会话回退按钮用；乐观追加的行等 entry_appended 事件补上） */
+			entryId?: string;
+			/** 消息时间戳（ms；乐观追加行取本地时钟，快照重建取会话文件里的值） */
+			timestamp?: number;
+	  }
+	| {
+			kind: "assistant";
+			text: string;
+			thinking: string;
+			tools: ToolCard[];
+			error?: string;
+			segments?: AssistantSegment[];
+			/** 消息时间戳（ms，操作栏展示用） */
+			timestamp?: number;
+			/** 本条回复的 token 用量（message_end / 快照重建时带上） */
+			usage?: MessageUsage;
+			/** 产生本条回复的模型 id */
+			model?: string;
+	  }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
 	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
 
@@ -327,7 +351,13 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			current.error = message.stopReason === "error" || message.stopReason === "aborted" ? formatProviderError(message.errorMessage) : undefined;
 			return [
 				...entries.slice(0, index),
-				{ ...current, text: text || current.text },
+				{
+					...current,
+					text: text || current.text,
+					timestamp: timestampOf(message) ?? current.timestamp,
+					usage: usageOf(message) ?? current.usage,
+					model: modelOf(message) ?? current.model,
+				},
 				...entries.slice(index + 1),
 			];
 		}
@@ -381,6 +411,7 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 				text: textOf(message.content),
 				...(typeof entryId === "string" ? { entryId } : {}),
 				...(images.length > 0 ? { images } : {}),
+				...(timestampOf(message) !== undefined ? { timestamp: timestampOf(message) } : {}),
 			});
 		} else if (message.role === "assistant") {
 			const tools: ToolCard[] = (message.content ?? [])
@@ -405,6 +436,9 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 					message.stopReason === "error" || message.stopReason === "aborted"
 						? formatProviderError(message.errorMessage)
 						: undefined,
+				...(timestampOf(message) !== undefined ? { timestamp: timestampOf(message) } : {}),
+				...(usageOf(message) !== undefined ? { usage: usageOf(message) } : {}),
+				...(modelOf(message) !== undefined ? { model: modelOf(message) } : {}),
 			});
 		} else if (message.role === "toolResult") {
 			// 结果不再单独成行：挂回对应工具卡（时间轴按「工具」组织，成败随之）
@@ -413,6 +447,8 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 			if (card) {
 				card.status = resultStatus(message, message.isError === true);
 				card.output = output;
+				// 结果消息自带时间戳：历史轮工具卡的「完成时间」从这里来
+				if (timestampOf(message) !== undefined) card.finishedAt ??= timestampOf(message);
 				const owner = entries.findLast((entry) => entry.kind === "assistant" && entry.tools.includes(card));
 				if (owner?.kind === "assistant") applyNestedCallRecords(owner, card.id, message);
 			} else {
@@ -480,6 +516,31 @@ function textOf(content: unknown): string {
 		.filter((part) => part.type === "text")
 		.map((part) => part.text ?? "")
 		.join("\n");
+}
+
+/** 从 assistant 消息上取 token 用量；没有或全 0 视为无（旧会话/异常流不上屏用量）。 */
+function usageOf(message: AnyEvent): MessageUsage | undefined {
+	const usage = message.usage;
+	if (typeof usage !== "object" || usage === null) return undefined;
+	const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+	const parsed: MessageUsage = {
+		input: num(usage.input),
+		output: num(usage.output),
+		cacheRead: num(usage.cacheRead),
+		cacheWrite: num(usage.cacheWrite),
+	};
+	const total = parsed.input + parsed.output + parsed.cacheRead + parsed.cacheWrite;
+	return total > 0 ? parsed : undefined;
+}
+
+/** 消息时间戳（wire 上 AgentMessage 自带；旧桥/异常流可能缺）。 */
+function timestampOf(message: AnyEvent): number | undefined {
+	return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) && message.timestamp > 0 ? message.timestamp : undefined;
+}
+
+/** 消息上的模型 id（仅 assistant）。 */
+function modelOf(message: AnyEvent): string | undefined {
+	return typeof message.model === "string" && message.model !== "" ? message.model : undefined;
 }
 
 /** 消息 content 里的图片块（用户随 prompt 附图、会话恢复后重建转录都要带出来）。 */

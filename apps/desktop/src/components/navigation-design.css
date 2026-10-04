@@ -195,6 +195,34 @@
 	font-size: 12px;
 }
 
+/* 右缘拖拽调宽手柄：骑在边框上（7px 命中区，一半在侧栏外），hover/拖动时亮线提示 */
+.owl-sidebar-resizer {
+	position: absolute;
+	top: 0;
+	right: -3px;
+	width: 7px;
+	height: 100%;
+	z-index: 40;
+	cursor: col-resize;
+	touch-action: none;
+}
+
+.owl-sidebar-resizer::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	right: 3px;
+	width: 1px;
+	height: 100%;
+	background: transparent;
+	pointer-events: none;
+}
+
+.owl-sidebar-resizer:hover::after,
+.owl-sidebar-resizer.is-active::after {
+	background: var(--color-owl-sidebar-selected);
+}
+
 .owl-desktop-shell .owl-sidebar .owl-sidebar-header {
 	height: 60px;
 	flex-basis: 60px;

@@ -5,6 +5,7 @@ import type { SessionScope } from "./components/sidebar-scope.ts";
 export interface ProjectSection { id: string; name: string }
 export interface ProjectSidebarPreferences {
 	view: "projects" | "merged";
+	recentView: "projects" | "merged";
 	sections: ProjectSection[];
 	assignments: Record<string, string>;
 	hidden: string[];
@@ -52,7 +53,7 @@ export function parseProjectSidebarPreferences(raw: unknown): ProjectSidebarPref
 	const hidden = [...new Set((Array.isArray(value.hidden) ? value.hidden : []).filter((path): path is string => typeof path === "string" && normPath(path) !== "").map(normPath))];
 	const readThrough: Record<string, string> = {};
 	for (const [id, time] of Object.entries(object(value.readThrough))) if (id && typeof time === "string") readThrough[id] = time;
-	return { view: value.view === "merged" ? "merged" : "projects", sections, assignments, hidden, readInitialized: value.readInitialized === true, readThrough };
+	return { view: value.view === "merged" ? "merged" : "projects", recentView: value.recentView === "projects" ? "projects" : "merged", sections, assignments, hidden, readInitialized: value.readInitialized === true, readThrough };
 }
 export function getProjectSidebarPreferences(scope: SessionScope): ProjectSidebarPreferences { return parseProjectSidebarPreferences(stored(preferencesKey(scope))); }
 export function saveProjectSidebarPreferences(scope: SessionScope, value: ProjectSidebarPreferences): void {

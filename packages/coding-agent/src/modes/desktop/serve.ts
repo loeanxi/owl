@@ -2223,10 +2223,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "usage.get": {
-				// owl 使用统计：设置页「使用统计」卡片的数据面。纯文件聚合（见 ./usage-stats.ts），
-				// 不挂载会话；进行中的会话落盘即计入，前端短轮询即为实时。
+				// owl 使用统计：设置页「使用统计」卡片 + 开始页「使用概览」面板的数据面。
+				// 纯文件聚合（见 ./usage-stats.ts），不挂载会话；进行中的会话落盘即计入，
+				// 前端短轮询即为实时。mtime+size 增量缓存 + 删除不回吐的累积口径。
 				const usageStats = await import("./usage-stats.ts");
-				reply(ws, request.id, { ok: true, result: await usageStats.collectUsageStats() });
+				const filter =
+					request.days !== undefined || request.cwd !== undefined
+						? { days: request.days, cwd: request.cwd }
+						: undefined;
+				reply(ws, request.id, { ok: true, result: await usageStats.collectUsageStats(filter) });
 				return;
 			}
 			case "imageConfig.get":

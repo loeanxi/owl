@@ -6,6 +6,7 @@ import {
 	parseUiLanguageSetting,
 	resolveSystemLanguage,
 	setUiLanguageSetting,
+	subscribeUiLanguage,
 } from "./index.ts";
 
 function stubNavigatorLanguage(value: string | undefined): () => void {
@@ -68,27 +69,33 @@ test("setUiLanguageSetting applies system resolution and keeps the raw setting",
 	}
 });
 
-test("setUiLanguageSetting notifies when only the setting value changes", () => {
+test("setUiLanguageSetting notifies on setting-only change and skips identical repeats", () => {
 	const restore = stubNavigatorLanguage("zh-CN");
 	let notifications = 0;
-	const listener = (): void => {
+	const unsubscribe = subscribeUiLanguage(() => {
 		notifications += 1;
-	};
+	});
 	try {
+		setUiLanguageSetting("zh");
+		assert.equal(notifications, 0, "重复设置同一值是空操作");
+
+		// system 解析结果同为 zh：实际语言没变，但 ✓ 位置要从「系统默认」移走，必须通知
 		setUiLanguageSetting("system");
+		assert.equal(getUiLanguageSetting(), "system");
 		assert.equal(getUiLanguage(), "zh");
-		globalThis.addEventListener("owl-language-test", listener);
-		// 直接用内部 listeners 不可行，这里以再设置一次显式 zh 验证通知行为：
+		assert.equal(notifications, 1);
+
 		setUiLanguageSetting("zh");
 		assert.equal(getUiLanguageSetting(), "zh");
 		assert.equal(getUiLanguage(), "zh");
-		// system→zh：解析结果相同也必须通知（✓ 位置要从「系统默认」移到「中文」）
-		setUiLanguageSetting("system");
-		setUiLanguageSetting("zh");
+		assert.equal(notifications, 2);
+
+		setUiLanguageSetting("en");
+		assert.equal(getUiLanguage(), "en");
+		assert.equal(notifications, 3);
 	} finally {
+		unsubscribe();
 		restore();
-		globalThis.removeEventListener("owl-language-test", listener);
 		setUiLanguageSetting("zh");
 	}
-	assert.ok(notifications >= 0); // 通知机制由 useSyncExternalStore 订阅路径覆盖，此处仅保证无异常
 });

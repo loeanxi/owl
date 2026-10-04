@@ -490,12 +490,6 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 					})}
 				</div>
 				<div className="owl-workbench-dock-actions">
-					<button type="button" title={t("wb.dockToRight")} aria-label={t("wb.dockToRight")} className={dockButtonClass(dock === "right")} onClick={() => onSetDock("right")}>
-						<IconPanelRight size={14} />
-					</button>
-					<button type="button" title={t("wb.dockToBottom")} aria-label={t("wb.dockToBottom")} className={dockButtonClass(dock === "bottom")} onClick={() => onSetDock("bottom")}>
-						<IconPanelBottom size={14} />
-					</button>
 					<button type="button" title={t("wb.closeWorkbench")} aria-label={t("wb.closeWorkbench")} className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
 						<IconX size={14} />
 					</button>

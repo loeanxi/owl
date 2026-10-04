@@ -155,6 +155,7 @@ export function ActivityRail({
 	onOpenSettings,
 	onOpenGuide,
 	onShowShortcuts,
+	onPersistUiLanguage,
 }: {
 	view: RailView;
 	settingsOpen?: boolean;
@@ -170,7 +171,6 @@ export function ActivityRail({
 	const t = useT();
 	const researchTitle = useResearchEntryText();
 	const mediaPlaying = useMediaPlayingDot();
-	const onPersistUiLanguage = props.onPersistUiLanguage;
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 	const [menuOpen, setMenuOpen] = useState(false);
 	const menuRootRef = useRef<HTMLDivElement>(null);

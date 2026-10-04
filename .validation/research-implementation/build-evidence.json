@@ -11,7 +11,7 @@
     "apps/desktop/src/features/research/research-copy.ts": "ce95c8223389c93c6a24ea7ac7df37e40cbdc01f77e208073544feb6321b923e",
     "apps/desktop/src/features/research/research-session.ts": "0e795da46e8642b9c9772866479a07f1896c0bc6227bd638b19acf80d49c528f",
     "apps/desktop/src/features/research/research.css": "f10742460ef6f905630c0f4b06b2f060ba38b2007df8988247dc05b3fe5cab81",
-    "apps/desktop/src/features/research/ResearchPage.tsx": "b7ee39e6093fd275892776a3795e2c366fbbf1b54b80c395a557f0c76e1c3783",
-    "apps/desktop/src/App.tsx": "4a7f5d0bcf07db9aa689f0d65e5a8de70cc8b3aac7a9546d7f186e5d400badd7"
+    "apps/desktop/src/features/research/ResearchPage.tsx": "48239dfbeb81a70c958f4891d4b01c625c81603f5a54fdbdfd52456cd6756095",
+    "apps/desktop/src/App.tsx": "94fd17a3ea3ff345665904db957170ae22e7fd708295dc58cd8f706fd8ff65fd"
   }
 }

@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "actualApp": true,
+  "errors": [],
+  "actions": [
+    "bootstrap",
+    "run.get",
+    "run.list"
+  ],
+  "paidCalls": 0,
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 860,
+      "bounds": {
+        "x": 990,
+        "y": 592.375,
+        "width": 241,
+        "height": 36
+      },
+      "note": "持续收到思考或正文就继续运行，连续 2 分钟没有新内容才停止。输出额度按所选模型配置。"
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "bounds": {
+        "x": 766,
+        "y": 589.375,
+        "width": 213,
+        "height": 36
+      },
+      "note": "持续收到思考或正文就继续运行，连续 2 分钟没有新内容才停止。输出额度按所选模型配置。"
+    }
+  ]
+}

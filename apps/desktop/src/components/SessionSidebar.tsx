@@ -3,6 +3,7 @@ import type { BridgeClient } from "../bridge/client.ts";
 import { normPath, samePath } from "../utils/paths.ts";
 import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
+import { startPointerDrag } from "../sidebar/pointer-drag.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
@@ -41,6 +42,22 @@ const PINNED_KEY = "owl.pinnedSessions";
 /** 置顶项目（localStorage）：置顶栏里的项目快捷入口，项目本身仍留在「项目」分组。 */
 const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
+/** 侧栏宽度（localStorage）：右缘拖拽调整，双击手柄复位为 CSS 默认值。 */
+const WIDTH_KEY = "owl.sidebar.width";
+/** 侧栏宽度下限；上限同时受「聊天区至少保留 320px」约束。 */
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 720;
+/** 非法/越界存储值按 CSS 默认宽度渲染（返回 null = 不写内联样式）。 */
+function loadSidebarWidth(): number | null {
+	const raw = localStorage.getItem(WIDTH_KEY);
+	const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed)) return null;
+	return Math.min(Math.max(parsed, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+}
+/** 拖拽时的实时钳制：上限不超过视口宽度减去聊天区最小保留宽度。 */
+function clampSidebarWidth(width: number): number {
+	return Math.min(Math.max(width, SIDEBAR_MIN_WIDTH), Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - 320)));
+}
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
 const RECENT_LIMIT = 30;
@@ -227,11 +244,6 @@ function MenuRow({
 	);
 }
 
-/** 分组菜单里的小节标题（如「排序方式」）。 */
-function MenuLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-	return <p className="px-3 pb-1 pt-2 text-[10px] text-owl-sidebar-faint/80">{children}</p>;
-}
-
 export function SessionSidebar({
 	client,
 	sessionScope,
@@ -301,7 +313,7 @@ export function SessionSidebar({
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	const projectMenuId = useId();
-	const [projectPopup, setProjectPopup] = useState<{ key: string; kind: "project" | "projects" | "section"; path?: string; sectionId?: string; anchor: HTMLButtonElement } | null>(null);
+	const [projectPopup, setProjectPopup] = useState<{ key: string; kind: "project" | "projects" | "recent" | "section"; path?: string; sectionId?: string; anchor: HTMLButtonElement } | null>(null);
 	const closeProjectPopup = useCallback((restoreFocus = true): void => {
 		if (restoreFocus && projectPopup?.anchor.isConnected) projectPopup.anchor.focus({ preventScroll: true });
 		setProjectPopup(null);
@@ -329,6 +341,40 @@ export function SessionSidebar({
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const asideRef = useRef<HTMLElement>(null);
+	/** 右缘拖拽调宽：null = 未拖过，走 CSS 默认宽度。 */
+	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
+	const [resizing, setResizing] = useState(false);
+	const activeDrag = useRef<(() => void) | undefined>(undefined);
+	const resizeAria = getUiLanguage() === "en" ? "Drag to resize sidebar, double-click to reset" : "拖拽调整侧栏宽度，双击复位";
+	const beginSidebarResize = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
+		if (event.button !== 0 || !event.isPrimary) return;
+		const aside = asideRef.current;
+		if (!aside) return;
+		const startWidth = aside.getBoundingClientRect().width;
+		const startX = event.clientX;
+		let latest = startWidth;
+		event.preventDefault();
+		setResizing(true);
+		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
+			cursor: "col-resize",
+			onMove: (moveEvent) => {
+				latest = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
+				setSidebarWidth(latest);
+			},
+			onFinish: (cancelled) => {
+				activeDrag.current = undefined;
+				setResizing(false);
+				// 取消（失焦/pointercancel）时回到已保存宽度；正常结束才落盘。
+				if (cancelled) { setSidebarWidth(loadSidebarWidth()); return; }
+				localStorage.setItem(WIDTH_KEY, String(latest));
+			},
+		});
+	}, []);
+	useEffect(() => () => {
+		activeDrag.current?.();
+		activeDrag.current = undefined;
+	}, []);
 	const mounted = useRef(true);
 	const refreshVersion = useRef(0);
 	useEffect(() => {
@@ -359,7 +405,7 @@ export function SessionSidebar({
 	}, [openMenu, projectPopup, closeProjectPopup, allSessions, projectRevision]);
 	useEffect(() => {
 		setProjectPopup(null);
-		setOpenMenu((current) => current === "projects" || current?.startsWith(PROJECT_ROW_MENU_PREFIX) || current?.startsWith(PINNED_PROJECT_ROW_MENU_PREFIX) || current?.startsWith("partition:") ? null : current);
+		setOpenMenu((current) => current === "projects" || current === "recent" || current?.startsWith(PROJECT_ROW_MENU_PREFIX) || current?.startsWith(PINNED_PROJECT_ROW_MENU_PREFIX) || current?.startsWith("partition:") ? null : current);
 	}, [minimized, activeId, activeProject, sessionScope, focus, allSessions, query, collapsed, openProjects, projectRevision, recentSort]);
 
 	// A menu belongs to a specific rendered row, not every copy of that session.
@@ -718,6 +764,28 @@ export function SessionSidebar({
 		return rows.length ? rows.map((row, index) => sessionRow(row, index, false, location)) : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
 	};
 	const defaultProjects = visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === undefined);
+	const renderRecentContents = (): React.ReactNode => {
+		if (projectPreferences.recentView === "merged") return recentSessions.map((row, index) => sessionRow(row, index, false, "recent"));
+		const groups = new Map<string, { path?: string; rows: SessionRow[] }>();
+		for (const row of recentSessions) {
+			const key = normPath(row.cwd);
+			const group = groups.get(key);
+			if (group) group.rows.push(row); else groups.set(key, { path: row.cwd, rows: [row] });
+		}
+		return [...groups].map(([pathKey, group]) => {
+			const key = `recent-project:${pathKey || "standalone"}`;
+			const expanded = isOpen(key);
+			const name = group.path ? projectLabel(group.path) : pt("standalone");
+			return <div key={key} className="owl-sidebar-project-group" data-recent-project={pathKey || "standalone"}>
+				<div className="owl-sidebar-row"><button type="button" className="owl-sidebar-row-main" title={group.path ?? name} aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} onClick={() => toggleSection(key)}>
+					<IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} />
+					{group.path ? <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}
+					<span className="owl-sidebar-row-label">{name}</span>
+				</button></div>
+				{expanded && <div className="owl-sidebar-project-sessions">{group.rows.map((row, index) => sessionRow(row, index, false, key))}</div>}
+			</div>;
+		});
+	};
 	const savePreferences = (next: ProjectSidebarPreferences): void => saveProjectSidebarPreferences(sessionScope, next);
 	const confirmProjectAction = async (): Promise<void> => {
 		if (!projectConfirm || projectBusyRef.current) return;
@@ -774,7 +842,14 @@ export function SessionSidebar({
 	};
 
 	return (
-		<aside id="owl-session-sidebar" className="owl-sidebar" aria-label={t("sidebar.aria")} hidden={minimized}>
+		<aside
+			ref={asideRef}
+			id="owl-session-sidebar"
+			className="owl-sidebar"
+			aria-label={t("sidebar.aria")}
+			hidden={minimized}
+			style={sidebarWidth === null ? undefined : { width: sidebarWidth, flexBasis: sidebarWidth, maxWidth: "calc(100vw - 320px)" }}
+		>
 			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button
 					type="button"
@@ -911,7 +986,9 @@ export function SessionSidebar({
 								title={t("sidebar.recentOptions")}
 								aria-label={t("sidebar.recentOptions")}
 								aria-expanded={openMenu === "recent"}
-								onClick={() => setOpenMenu(openMenu === "recent" ? null : "recent")}
+								aria-haspopup="menu"
+								aria-controls={openMenu === "recent" ? projectMenuId : undefined}
+								onClick={(event) => { if (openMenu === "recent") closeProjectPopup(); else { setProjectPopup({ key: "recent", kind: "recent", anchor: event.currentTarget }); setOpenMenu("recent"); } }}
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
@@ -920,20 +997,8 @@ export function SessionSidebar({
 							</button>
 						</>
 					}
-					menu={
-						<>
-							<MenuLabel>{t("sidebar.sortLabel")}</MenuLabel>
-							<MenuRow
-								label={t("sidebar.sortRecent")}
-								checked={recentSort === "recent"}
-								onClick={() => switchRecentSort("recent")}
-							/>
-							<MenuRow label={t("sidebar.sortName")} checked={recentSort === "name"} onClick={() => switchRecentSort("name")} />
-							<MenuRow label={pt("oldest")} checked={recentSort === "oldest"} onClick={() => switchRecentSort("oldest")} />
-						</>
-					}
 				>
-					{recentSessions.map((row, index) => sessionRow(row, index, false, "recent"))}
+					{renderRecentContents()}
 					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 				</Section>
 
@@ -950,7 +1015,7 @@ export function SessionSidebar({
 				onMarkRead={() => { markSessionsRead(sessionScope, sessions.filter((row) => samePath(row.cwd, projectPopup.path))); setProjectNotice(pt("allRead")); }}
 				onArchive={() => setProjectConfirm({ type: "archive", path: projectPopup.path })}
 				onRemove={() => setProjectConfirm({ type: "remove", path: projectPopup.path })}
-			/> : projectPopup.kind === "projects" ? <ProjectsSectionMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={t("sidebar.projectOptions")} organize={projectPreferences.view} sort={recentSort} onClose={closeProjectPopup} onOrganize={(view) => savePreferences({ ...projectPreferences, view })} onSort={switchRecentSort} /> : <SectionActionsMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={pt("section")} onClose={closeProjectPopup} onEdit={() => { setSectionError(""); setSectionDialog({ id: projectPopup.sectionId }); }} onRemove={() => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId })} />)}
+			/> : projectPopup.kind === "projects" || projectPopup.kind === "recent" ? <ProjectsSectionMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={t(projectPopup.kind === "recent" ? "sidebar.recentOptions" : "sidebar.projectOptions")} organize={projectPopup.kind === "recent" ? projectPreferences.recentView : projectPreferences.view} sort={recentSort} onClose={closeProjectPopup} onOrganize={(view) => savePreferences(projectPopup.kind === "recent" ? { ...projectPreferences, recentView: view } : { ...projectPreferences, view })} onSort={switchRecentSort} /> : <SectionActionsMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={pt("section")} onClose={closeProjectPopup} onEdit={() => { setSectionError(""); setSectionDialog({ id: projectPopup.sectionId }); }} onRemove={() => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId })} />)}
 			{!minimized && sessionMenu !== null && openMenu === sessionMenu.key && (
 				<SessionActionsMenu
 					key={sessionMenu.key}
@@ -1016,6 +1081,17 @@ export function SessionSidebar({
 					</div>
 				</div>
 			)}
+
+			<div
+				className={`owl-sidebar-resizer${resizing ? " is-active" : ""}`}
+				data-tauri-drag-region="false"
+				role="separator"
+				aria-orientation="vertical"
+				aria-label={resizeAria}
+				title={resizeAria}
+				onPointerDown={beginSidebarResize}
+				onDoubleClick={() => { localStorage.removeItem(WIDTH_KEY); setSidebarWidth(null); }}
+			/>
 		</aside>
 	);
 }

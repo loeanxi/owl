@@ -795,15 +795,26 @@ export interface UsageStatsSession {
 export interface UsageGetRequest {
 	type: "usage.get";
 	id: string;
+	/** 时间范围（开始页概览面板用）；缺省 = 全量口径（totals 全史，byDay 最近 30 天）。 */
+	days?: "all" | "30d" | "7d";
+	/** 项目过滤（会话 cwd）；缺省 = 全部项目。 */
+	cwd?: string;
+}
+
+/** usage.get 的按日模型趋势行（与 byDay 同序同窗，totalTokens 按模型拆分）。 */
+export interface UsageStatsDayModel {
+	date: string;
+	/** model key（provider/model）→ 当日 totalTokens。 */
+	models: Record<string, number>;
 }
 
 export interface UsageGetResult {
 	totals: UsageStatsTotals;
 	/** 本机时区的「今天」。 */
 	today: { totalTokens: number; cost: number; requests: number };
-	/** 升序的最近 30 天（无记录的日期也占位，方便直接画柱状图）。 */
+	/** 升序的最近 30 天（无记录的日期也占位，方便直接画柱状图）；带 days 过滤时为对应窗口（all = 全史，封顶 366 天）。 */
 	byDay: UsageStatsDay[];
-	/** 按累计费用降序，费用相同按 Token 降序。 */
+	/** 按累计费用降序，费用相同按 Token 降序（带 days 过滤时为区间口径）。 */
 	byModel: UsageStatsModel[];
 	/** 按 Token 降序。 */
 	byProject: UsageStatsProject[];
@@ -813,6 +824,22 @@ export interface UsageGetResult {
 	firstRecordedAt?: string;
 	/** 本次统计的生成时间（ISO），前端据此显示「更新于」。 */
 	generatedAt: string;
+	// ---- 开始页「使用概览」面板的增量字段（随 days/cwd 过滤折叠；无过滤参数时为全史口径）----
+
+	/** 用户 + 助手消息数（不含压缩/摘要条目）。 */
+	messages: number;
+	/** 有消息或用量发生的天数（本机时区）。 */
+	activeDays: number;
+	/** 消息最密集的小时（0-23，本机时区）。 */
+	peakHour?: number;
+	/** 用量最大的模型 key（provider/model，不含压缩/摘要伪模型）。 */
+	favoriteModel?: string;
+	/** 全时间全项目口径的项目用量（项目下拉框数据源，不受过滤影响）。 */
+	allProjects: UsageStatsProject[];
+	/** 按日模型趋势（与 byDay 同序同窗）。 */
+	byDayModel: UsageStatsDayModel[];
+	/** byDay 超出 366 天被截断（丢的是最老的天）。 */
+	byDayTruncated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

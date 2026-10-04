@@ -69,7 +69,8 @@ export function setUiLanguageSetting(next: UiLanguageSetting): void {
 	notifyLanguageListeners();
 }
 
-function subscribeUiLanguage(notify: () => void): () => void {
+/** 订阅语言变化（useSyncExternalStore 用；设置值或实际语言任一变化都会触发）。 */
+export function subscribeUiLanguage(notify: () => void): () => void {
 	listeners.add(notify);
 	return () => listeners.delete(notify);
 }
