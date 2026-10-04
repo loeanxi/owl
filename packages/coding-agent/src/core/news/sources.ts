@@ -38,6 +38,15 @@ export class NewsHttpRejectedError extends Error {
 		this.response = response;
 	}
 }
+export class NewsArticleContentRequiredError extends Error {
+	readonly code = "article-content-required";
+	readonly status: number;
+	constructor(status: number) {
+		super(`原文站点拒绝自动读取，请补充正文后重新处理（HTTP ${status}）`);
+		this.name = "NewsArticleContentRequiredError";
+		this.status = status;
+	}
+}
 export class NewsPaidOutputError extends Error {
 	response: unknown;
 	constructor(message: string, response: unknown) {
@@ -397,6 +406,34 @@ export function extractNewsBody(html: string, url: string): { title: string; bod
 		body: body.slice(0, 500000),
 		publishedAt: result?.publishedTime || undefined,
 	};
+}
+
+/** Require the combined Cloudflare interstitial markers; mentioning the service in a document is harmless. */
+export function isNewsChallengeContent(text: string, headers: Record<string, string> = {}): boolean {
+	if (headers["cf-mitigated"]?.trim().toLowerCase() === "challenge") return true;
+	const html =
+		/text\/html|application\/xhtml\+xml/i.test(headers["content-type"] ?? "") ||
+		/^\s*(?:<!doctype\s+html[^>]*>\s*)?<html(?:\s|>)/i.test(text);
+	return (
+		html &&
+		/<title>\s*Just a moment\.\.\.\s*<\/title>/i.test(text) &&
+		text.includes("window._cf_chl_opt") &&
+		text.includes("/cdn-cgi/challenge-platform/")
+	);
+}
+
+export function extractNewsArticleResponse(response: NewsFetchedText): {
+	title: string;
+	body: string;
+	publishedAt?: string;
+} {
+	if (
+		[401, 403, 404, 410].includes(response.status) ||
+		(response.status === 200 && isNewsChallengeContent(response.text, response.headers))
+	)
+		throw new NewsArticleContentRequiredError(response.status);
+	if (response.status < 200 || response.status >= 300) throw new NewsHttpRejectedError(response.status);
+	return extractNewsBody(response.text, response.url);
 }
 
 export interface NewsCollectorOptions extends NewsFetchOptions {

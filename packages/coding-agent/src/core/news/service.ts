@@ -19,15 +19,24 @@ import { DEFAULT_NEWS_CONFIGURATION, DEMO_NEWS_SOURCES, NEWS_CATEGORIES, NEWS_TO
 import { newsModelFailureMessage } from "./model-error.ts";
 import {
 	collectNewsSource,
-	extractNewsBody,
+	extractNewsArticleResponse,
 	fetchNewsText,
+	isNewsChallengeContent,
 	NEWS_SECRET_KEYS,
+	NewsArticleContentRequiredError,
 	type NewsFetchOptions,
 	NewsHttpRejectedError,
 	NewsPaidOutputError,
 	publicNewsSource,
 } from "./sources.ts";
-import { NewsBudgetError, NewsStore, NewsUnknownReceiptError, newsHash, type StoredNewsJob } from "./store.ts";
+import {
+	canonicalNewsUrl,
+	NewsBudgetError,
+	NewsStore,
+	NewsUnknownReceiptError,
+	newsHash,
+	type StoredNewsJob,
+} from "./store.ts";
 import type {
 	NewsAssistantResult,
 	NewsCapability,
@@ -259,6 +268,7 @@ export class NewsService {
 					(!(error instanceof NewsUnknownReceiptError) &&
 						!(error instanceof NewsOutputError) &&
 						!(error instanceof NewsPaidOutputError) &&
+						!(error instanceof NewsArticleContentRequiredError) &&
 						job.attempts < 3);
 				job.status = delayed ? "pending" : "failed";
 				job.nextAttemptAt = new Date(
@@ -266,7 +276,8 @@ export class NewsService {
 				).toISOString();
 				if (["analyze", "group", "translate"].includes(job.kind)) {
 					const item = this.store.item(job.subject);
-					if (item) this.store.editItem(item.id, { status: delayed ? "pending" : "failed", error: job.error });
+					if (item && item.revision === Number(job.data.revision))
+						this.store.editItem(item.id, { status: delayed ? "pending" : "failed", error: job.error });
 				}
 			}
 			job.updatedAt = new Date().toISOString();
@@ -631,8 +642,7 @@ export class NewsService {
 			if (!material) return;
 			if (!item.originalBody && source.kind !== "external" && source.kind !== "x_search") {
 				const response = await fetchNewsText(item.url, {}, this.fetchOptions());
-				if (response.status < 200 || response.status >= 300) throw new NewsHttpRejectedError(response.status);
-				const extracted = extractNewsBody(response.text, response.url);
+				const extracted = extractNewsArticleResponse(response);
 				this.ensureLease();
 				if (this.store.item(item.id)?.revision !== item.revision) return;
 				item = this.store.editItem(item.id, { originalBody: extracted.body });
@@ -892,6 +902,7 @@ export class NewsService {
 		return {
 			...item,
 			fulltextAllowed: allowed,
+			originalBodyAvailable: !!item.originalBody?.trim(),
 			originalBody: allowed ? item.originalBody : null,
 			body: allowed ? item.body : null,
 		};
@@ -1279,12 +1290,36 @@ export class NewsService {
 				if (!source) throw new Error("信源不存在");
 				if (!Array.isArray(request.items) || request.items.length > 1000)
 					throw new Error("一次最多导入 1000 条资讯");
+				let materials = request.items;
+				if (request.expectedRevision !== undefined && request.itemId === undefined)
+					throw new Error("校验正文版本时需要指定原资讯。");
+				if (request.itemId !== undefined) {
+					if (typeof request.itemId !== "string" || !request.itemId || materials.length !== 1)
+						throw new Error("补充正文需要指定一条原资讯。");
+					const target = this.store.item(request.itemId);
+					if (!target) throw new Error("原资讯不存在，请刷新后重新选择。");
+					if (target.sourceId !== source.id || target.url !== canonicalNewsUrl(materials[0]!.url))
+						throw new Error("补充正文的信源或地址与原资讯不一致。");
+					if (
+						request.expectedRevision !== undefined &&
+						(!Number.isInteger(request.expectedRevision) || request.expectedRevision !== target.revision)
+					)
+						throw new Error("资讯已更新，请刷新后再补充正文。");
+					const body = materials[0]!.body;
+					if (typeof body !== "string" || !body.trim() || body.length > 500000)
+						throw new Error("补充正文不能为空或超过大小限制，请粘贴实际原文内容。");
+					const original = this.store.material(target.id);
+					if (!original) throw new Error("原资讯材料不存在，请重新采集。");
+					materials = [{ ...original, body }];
+				}
 				let created = 0;
 				let updated = 0;
 				let ignored = 0;
-				for (const material of request.items) {
+				for (const material of materials) {
 					if (!material.title?.trim() || material.title.length > 2000 || (material.body?.length ?? 0) > 500000)
 						throw new Error("导入标题或正文不合法");
+					if (material.body && isNewsChallengeContent(material.body))
+						throw new Error("这段内容是站点校验页面，请粘贴实际原文正文。");
 					const result = this.store.ingest(source, material);
 					if (!result.changed) ignored++;
 					else if (result.item.revision === 1) created++;

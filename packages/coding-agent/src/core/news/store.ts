@@ -203,14 +203,29 @@ export class NewsStore {
 				body: input.body?.trim(),
 			};
 			const identity = newsHash([source.id, material.externalId || material.url]);
+			const oldRow = this.db
+				.prepare("SELECT data,fingerprint,material FROM news_items WHERE identity_key=?")
+				.get(identity);
+			const old = oldRow ? (JSON.parse(String(oldRow.data)) as NewsItem) : null;
+			const previous = oldRow ? (JSON.parse(String(oldRow.material)) as NewsMaterial) : null;
+			// A feed omitting article text has not retracted a saved body. Reuse it only while
+			// the publisher identity and source metadata still describe the same version.
+			if (
+				source.kind === "rss" &&
+				input.body === undefined &&
+				typeof previous?.body === "string" &&
+				previous.body.trim() &&
+				material.title === previous.title &&
+				(material.publishedAt ?? null) === (previous.publishedAt ?? null) &&
+				(material.author ?? null) === (previous.author ?? null)
+			)
+				material.body = previous.body;
 			const fingerprint = newsHash([
 				material.title,
 				material.body ?? null,
 				material.publishedAt ?? null,
 				material.author ?? null,
 			]);
-			const oldRow = this.db.prepare("SELECT data,fingerprint FROM news_items WHERE identity_key=?").get(identity);
-			const old = oldRow ? (JSON.parse(String(oldRow.data)) as NewsItem) : null;
 			if (old && oldRow?.fingerprint === fingerprint) return { item: old, changed: false };
 			const now = new Date().toISOString();
 			const revision = (old?.revision ?? 0) + 1;

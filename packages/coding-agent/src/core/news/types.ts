@@ -86,6 +86,8 @@ export interface NewsItem extends NewsAnalysis {
 	url: string;
 	body: string | null;
 	originalBody: string | null;
+	/** Whether original text exists locally, independent of its publication permission. */
+	originalBodyAvailable?: boolean;
 	author: string | null;
 	publishedAt: string;
 	discoveredAt: string;
@@ -321,7 +323,7 @@ export type NewsRequest =
 	| { action: "configure"; patch: Partial<NewsConfiguration>; secrets?: Record<string, string> }
 	| { action: "run"; sourceId?: string }
 	| { action: "retry"; itemId?: string; jobId?: string; receiptId?: string }
-	| { action: "ingest"; sourceId: string; items: NewsMaterial[] }
+	| { action: "ingest"; sourceId: string; items: NewsMaterial[]; itemId?: string; expectedRevision?: number }
 	| { action: "bookmark"; id: string; saved: boolean }
 	| { action: "read"; id: string; read: boolean }
 	| { action: "withdraw"; id: string; withdrawn: boolean }

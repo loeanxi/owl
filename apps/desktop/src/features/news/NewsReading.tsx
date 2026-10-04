@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
 	NewsItem,
 	NewsReportKind,
 	NewsSnapshot,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
-import { useT } from "../../i18n/index.ts";
+import { getUiLanguage, useT } from "../../i18n/index.ts";
+import { newsBodyCopy } from "./body-copy.ts";
 import type { NewsContext } from "./NewsAssistant.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
@@ -13,6 +14,7 @@ export type NewsTarget =
 	| { kind: "item"; id: string; management?: boolean }
 	| { kind: "story"; id: string }
 	| { kind: NewsReportKind; key: string };
+const MAX_NEWS_BODY_CHARS = 500000;
 interface ReadingProps {
 	api: NewsClient;
 	revision: number;
@@ -29,12 +31,29 @@ export function NewsItemReader({
 	...props
 }: ReadingProps & { id: string; management?: boolean }): React.JSX.Element {
 	const t = useT();
+	const bodyCopy = newsBodyCopy[getUiLanguage()];
 	const result = useNewsQuery(props.api, { action: management ? "adminItem" : "item", id }, props.revision);
 	const [original, setOriginal] = useState(false);
 	const [quote, setQuote] = useState("");
 	const [editing, setEditing] = useState(management);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const [bodyImportOpen, setBodyImportOpen] = useState(false);
+	const [bodyDraft, setBodyDraft] = useState("");
+	const [bodyError, setBodyError] = useState("");
+	const [bodyNotice, setBodyNotice] = useState("");
+	const bodyInputRef = useRef<HTMLTextAreaElement>(null);
+	const bodyTriggerRef = useRef<HTMLButtonElement>(null);
+	const bodyFeedbackRef = useRef<HTMLParagraphElement>(null);
+	useEffect(() => {
+		if (!bodyImportOpen) return;
+		bodyInputRef.current?.scrollIntoView({ block: "center" });
+		bodyInputRef.current?.focus({ preventScroll: true });
+	}, [bodyImportOpen]);
+	useEffect(() => {
+		if (!result.loading && (bodyError || bodyNotice))
+			bodyFeedbackRef.current?.scrollIntoView({ block: "nearest" });
+	}, [bodyError, bodyNotice, result.loading]);
 	async function mutate(operation: () => Promise<unknown>): Promise<void> {
 		setBusy(true);
 		setError("");
@@ -43,6 +62,57 @@ export function NewsItemReader({
 			props.onChanged();
 		} catch (failure) {
 			setError(errorText(failure));
+		} finally {
+			setBusy(false);
+		}
+	}
+	async function saveBody(): Promise<void> {
+		if (busy) return;
+		const current = result.data;
+		const body = bodyDraft.trim();
+		setBodyError("");
+		setBodyNotice("");
+		if (
+			!management ||
+			!current ||
+			(current.originalBodyAvailable ?? !!current.originalBody) ||
+			(current.status !== "pending" && current.status !== "failed")
+		) {
+			setBodyError(bodyCopy.unavailable);
+			return;
+		}
+		if (!body) {
+			setBodyError(bodyCopy.empty);
+			bodyInputRef.current?.focus();
+			return;
+		}
+		if (body.length > MAX_NEWS_BODY_CHARS) {
+			setBodyError(bodyCopy.tooLong);
+			return;
+		}
+		setBusy(true);
+		try {
+			await props.api.query({
+				action: "ingest",
+				sourceId: current.sourceId,
+				itemId: current.id,
+				expectedRevision: current.revision,
+				items: [
+					{
+						title: current.originalTitle,
+						url: current.url,
+						body,
+						publishedAt: current.publishedAt,
+						...(current.author ? { author: current.author } : {}),
+					},
+				],
+			});
+			setBodyDraft("");
+			setBodyImportOpen(false);
+			setBodyNotice(bodyCopy.saved);
+			props.onChanged();
+		} catch (failure) {
+			setBodyError(errorText(failure));
 		} finally {
 			setBusy(false);
 		}
@@ -56,6 +126,10 @@ export function NewsItemReader({
 		);
 	const item = result.data;
 	if (!item) return <div className="owl-news-empty">{t("news.itemUnavailable")}</div>;
+	const originalBodyAvailable = item.originalBodyAvailable ?? !!item.originalBody;
+	const bodyCanWrite =
+		management && !originalBodyAvailable && (item.status === "pending" || item.status === "failed");
+	const bodyCanOpen = bodyCanWrite || (management && !originalBodyAvailable && item.status === "processing");
 	const categoryLabel = props.snapshot?.categories.find((category) => category.id === item.category)?.label;
 	return (
 		<article
@@ -107,9 +181,39 @@ export function NewsItemReader({
 						{t("news.eventContext")}
 					</button>
 				)}
-				<button type="button" onClick={() => setEditing(!editing)}>
-					{t("news.editContent")}
-				</button>
+				{management && (
+					<button
+						type="button"
+						disabled={busy}
+						onClick={() => {
+							setBodyImportOpen(false);
+							setBodyDraft("");
+							setBodyError("");
+							setEditing(!editing);
+						}}
+					>
+						{t("news.editContent")}
+					</button>
+				)}
+				{bodyCanOpen && (
+					<button
+						ref={bodyTriggerRef}
+						type="button"
+						data-testid="news-body-import"
+						aria-expanded={bodyImportOpen}
+						aria-controls="owl-news-body-import-form"
+						disabled={busy || !bodyCanWrite}
+						onClick={() => {
+							setEditing(false);
+							setQuote("");
+							setBodyError("");
+							setBodyNotice("");
+							setBodyImportOpen(true);
+						}}
+					>
+						{bodyCopy.action}
+					</button>
+				)}
 				{management && (
 					<button
 						type="button"
@@ -120,6 +224,72 @@ export function NewsItemReader({
 					</button>
 				)}
 			</div>
+			{(bodyError || bodyNotice) && (
+				<p
+					ref={bodyFeedbackRef}
+					className={bodyError ? "owl-news-error" : "owl-news-notice"}
+					role={bodyError ? "alert" : "status"}
+				>
+					{bodyError || bodyNotice}
+				</p>
+			)}
+			{management && bodyImportOpen && (
+				<form
+					id="owl-news-body-import-form"
+					className="owl-news-form owl-news-source-editor owl-news-body-import"
+					onMouseUp={(event) => event.stopPropagation()}
+					onSubmit={(event) => {
+						event.preventDefault();
+						void saveBody();
+					}}
+				>
+					<fieldset className="owl-news-source-fields" disabled={busy || item.status === "processing"}>
+						<legend>{bodyCopy.action}</legend>
+						<p className="owl-news-muted" id="owl-news-body-import-hint">
+							{bodyCopy.hint}
+						</p>
+						<label>
+							{bodyCopy.label}
+							<textarea
+								ref={bodyInputRef}
+								data-testid="news-body-input"
+								aria-describedby="owl-news-body-import-hint owl-news-body-import-limit"
+								rows={12}
+								required
+								maxLength={MAX_NEWS_BODY_CHARS}
+								value={bodyDraft}
+								placeholder={bodyCopy.placeholder}
+								onChange={(event) => setBodyDraft(event.target.value)}
+							/>
+						</label>
+						<p className="owl-news-muted" id="owl-news-body-import-limit">
+							{bodyCopy.limit}
+						</p>
+						<div className="owl-news-actions">
+							<button
+								type="submit"
+								data-testid="news-body-save"
+								className="owl-news-primary"
+								disabled={!bodyCanWrite}
+							>
+								{busy ? bodyCopy.saving : bodyCopy.save}
+							</button>
+							<button
+								type="button"
+								data-testid="news-body-cancel"
+								onClick={() => {
+									setBodyDraft("");
+									setBodyError("");
+									setBodyImportOpen(false);
+									bodyTriggerRef.current?.focus({ preventScroll: true });
+								}}
+							>
+								{t("common.cancel")}
+							</button>
+						</div>
+					</fieldset>
+				</form>
+			)}
 			{quote && (
 				<div className="owl-news-quote-selection">
 					<span>{quote.length > 100 ? `${quote.slice(0, 100)}…` : quote}</span>
@@ -196,7 +366,7 @@ export function NewsItemReader({
 					)}
 				</details>
 			)}
-			{editing && (
+			{management && editing && (
 				<NewsItemEditor
 					key={item.id}
 					item={item}

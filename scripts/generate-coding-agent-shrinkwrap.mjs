@@ -10,6 +10,7 @@ const codingAgentDir = join(repoRoot, "packages/coding-agent");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const shrinkwrapPath = join(codingAgentDir, "npm-shrinkwrap.json");
 const allowedInstallScriptPackages = new Map([
+	["esbuild@0.28.2", "reviewed postinstall selects and verifies the matching platform binary, may download its pinned npm package, and validates --version; repository installs use --ignore-scripts"],
 	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
 	["node-pty@1.1.0", "install checks bundled prebuilds or builds with node-gyp; postinstall cleans this package's build/Release and copies bundled Windows ConPTY files"],
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
