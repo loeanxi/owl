@@ -323,3 +323,43 @@ export function IconActivity({ className }: { className?: string }): React.JSX.E
 		</Svg>
 	);
 }
+
+/** 消息操作栏：复制（双叠卡片） */
+export function IconCopy({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<rect x="9" y="9" width="12" height="12" rx="2" />
+			<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+		</Svg>
+	);
+}
+
+/** 消息操作栏：赞（竖大拇指） */
+export function IconThumbUp({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M7 10v12" />
+			<path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+		</Svg>
+	);
+}
+
+/** 消息操作栏：踩（竖大拇指朝下） */
+export function IconThumbDown({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M17 14V2" />
+			<path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
+		</Svg>
+	);
+}
+
+/** 消息操作栏：重新生成（顺时针旋转箭头） */
+export function IconRefresh({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+			<path d="M21 3v5h-5" />
+		</Svg>
+	);
+}

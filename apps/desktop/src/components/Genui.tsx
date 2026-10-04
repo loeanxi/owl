@@ -24,7 +24,8 @@ type GenuiSessionValue = {
 
 const GenuiSessionContext = createContext<GenuiSessionValue>({ sessionId: undefined, sendAction: () => {} });
 
-function useGenuiSession(): GenuiSessionValue {
+/** 会话上下文读取：ChatStream 也用它做消息反馈的命名空间（无 Provider 时 sessionId 为 undefined）。 */
+export function useGenuiSession(): GenuiSessionValue {
 	return useContext(GenuiSessionContext);
 }
 

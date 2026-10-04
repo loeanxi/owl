@@ -13,7 +13,7 @@ import type { GitStatusResult } from "../bridge/protocol.ts";
 import { useT } from "../i18n/index.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
-import { IconFile, IconGitBranch, IconLoader, IconPanelBottom, IconPanelRight, IconX } from "./icons.tsx";
+import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconX } from "./icons.tsx";
 import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
 import { useTabRegistry, type TabComponentProps } from "./registry.ts";
 import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
@@ -38,7 +38,6 @@ export interface WorkbenchProps {
 	open: boolean;
 	onSetOpen: (open: boolean) => void;
 	dock: WorkbenchDock;
-	onSetDock: (dock: WorkbenchDock) => void;
 	/** Presentation preference only; the conversation and tool permissions stay in App. */
 	developerLayout?: boolean;
 }
@@ -68,7 +67,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock, developerLayout = false }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, store, open, onSetOpen, dock, developerLayout = false }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
@@ -446,8 +445,6 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, onSetDock
 			</section>
 		);
 	};
-
-	const dockButtonClass = (active: boolean): string => `owl-workbench-icon-button ${active ? "is-active" : ""}`;
 
 	return (
 		<aside

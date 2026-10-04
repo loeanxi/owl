@@ -1,0 +1,46 @@
+/* 开始页「使用概览」面板（UsageOverview）：Claude Desktop 同款的用量卡片。
+   嵌在 .owl-chat-empty（720px 聊天列）里，配色走 index.css 的 owl 变量。 */
+
+.owl-usage { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 560px; margin-top: 4px; padding: 14px 16px; border: 1px solid var(--color-owl-border); border-radius: 14px; background: var(--color-owl-panel); text-align: left; }
+
+.owl-usage-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.owl-usage-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--color-owl-bubble); }
+.owl-usage-tab { border: none; border-radius: 6px; background: transparent; color: var(--color-owl-muted); font-size: 12px; line-height: 1; padding: 6px 10px; cursor: pointer; }
+.owl-usage-tab:hover { color: var(--color-owl-text); }
+.owl-usage-tab.is-active { background: var(--color-owl-hover); color: var(--color-owl-text); }
+
+.owl-usage-controls { display: inline-flex; align-items: center; gap: 6px; }
+.owl-usage-project { max-width: 140px; border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-bubble); color: var(--color-owl-muted); font-size: 12px; padding: 5px 6px; cursor: pointer; }
+.owl-usage-ranges { display: inline-flex; gap: 2px; }
+.owl-usage-range { border: none; border-radius: 6px; background: transparent; color: var(--color-owl-faint); font-size: 12px; line-height: 1; padding: 6px 8px; cursor: pointer; }
+.owl-usage-range:hover { color: var(--color-owl-text); }
+.owl-usage-range.is-active { background: var(--color-owl-hover); color: var(--color-owl-text); }
+
+.owl-usage-empty { margin: 0; color: var(--color-owl-faint); font-size: 12px; text-align: center; }
+
+.owl-usage-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.owl-usage-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--color-owl-bubble); min-width: 0; }
+.owl-usage-tile-label { color: var(--color-owl-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owl-usage-tile-value { color: var(--color-owl-text); font-size: 18px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.owl-usage-tile-model { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.owl-usage-heatmap { display: flex; gap: 3px; overflow-x: auto; padding: 2px; }
+.owl-usage-heatmap-col { display: flex; flex-direction: column; gap: 3px; flex: none; }
+.owl-usage-heat-cell { width: 11px; height: 11px; border-radius: 3px; background: var(--color-owl-hover); }
+.owl-usage-heat-cell.is-pad { visibility: hidden; }
+.owl-usage-heat-cell.is-l1 { background: color-mix(in srgb, var(--color-owl-accent) 30%, var(--color-owl-hover)); }
+.owl-usage-heat-cell.is-l2 { background: color-mix(in srgb, var(--color-owl-accent) 50%, var(--color-owl-hover)); }
+.owl-usage-heat-cell.is-l3 { background: color-mix(in srgb, var(--color-owl-accent) 72%, var(--color-owl-hover)); }
+.owl-usage-heat-cell.is-l4 { background: var(--color-owl-accent); }
+
+.owl-usage-fact { margin: 0; color: var(--color-owl-faint); font-size: 12px; text-align: center; }
+
+.owl-usage-models { display: flex; flex-direction: column; gap: 12px; }
+.owl-usage-chart { width: 100%; height: 120px; display: block; }
+.owl-usage-model-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.owl-usage-model-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+.owl-usage-model-row:hover { background: var(--color-owl-hover); }
+.owl-usage-model-dot { width: 8px; height: 8px; border-radius: 2px; }
+.owl-usage-model-name { color: var(--color-owl-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owl-usage-model-io { color: var(--color-owl-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.owl-usage-model-pct { color: var(--color-owl-muted); font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }

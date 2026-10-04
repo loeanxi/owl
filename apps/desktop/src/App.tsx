@@ -1339,7 +1339,6 @@ export default function App(): React.JSX.Element {
 							open={workbenchOpen}
 							onSetOpen={setWorkbenchOpenPersisted}
 							dock={workbenchDock}
-							onSetDock={setDockPersisted}
 							developerLayout={developerLayout}
 						/>
 					</BrowserSessionContext.Provider>

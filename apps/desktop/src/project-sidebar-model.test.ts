@@ -8,6 +8,14 @@ test("malformed preferences cannot leave projects in nonexistent partitions", ()
 	assert.deepEqual(prefs.assignments, { "d:/owl": "work" });
 	assert.deepEqual(prefs.hidden, ["d:/owl"]);
 });
+test("recent display mode is independent and survives read and partition updates", () => {
+	assert.equal(parseProjectSidebarPreferences({ view: "projects" }).recentView, "merged");
+	assert.equal(parseProjectSidebarPreferences({ recentView: "unknown" }).recentView, "merged");
+	const prefs = parseProjectSidebarPreferences({ view: "merged", recentView: "projects", sections: [{ id: "work", name: "工作" }] });
+	assert.equal(prefs.view, "merged");
+	assert.equal(parseProjectSidebarPreferences(withSessionsRead(prefs, [{ id: "a", modified: "2026-10-04T01:00:00Z" }])).recentView, "projects");
+	assert.equal(removeProjectSection(prefs, "work").recentView, "projects");
+});
 test("moving and removing a partition preserves projects and returns their assignment to default", () => {
 	const prefs = parseProjectSidebarPreferences({ sections: [{ id: "work", name: "工作" }] });
 	const assigned = moveProjectToSection(prefs, "D:\\owl", "work");

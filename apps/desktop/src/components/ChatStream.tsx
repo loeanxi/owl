@@ -1,14 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import type { AssistantSegment, ChatEntry, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
+import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { IconAlert, IconCheck, IconChevron, IconClock, IconLightbulb, IconTerminal } from "./icons.tsx";
-import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
+import { IconAlert, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal, IconThumbDown, IconThumbUp } from "./icons.tsx";
+import { GenuiAnswerCard, GenuiToolCardView, useGenuiSession } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
+import { UsageOverview } from "./UsageOverview.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
@@ -18,6 +19,62 @@ const OUTPUT_PREVIEW_LINES = 10;
 
 export function renderMarkdown(text: string): string {
 	return md.render(text);
+}
+
+/** token 计数的紧凑展示：832 / 45.3k / 2.9M（对话操作栏「用量」用）。 */
+function compactNumber(value: number): string {
+	if (value >= 100) return String(Math.round(value));
+	return value.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatTokenCount(count: number): string {
+	if (count >= 1_000_000) return `${compactNumber(count / 1_000_000)}M`;
+	if (count >= 1_000) return `${compactNumber(count / 1_000)}k`;
+	return String(count);
+}
+
+/** 消息时间戳的 HH:MM 展示（当天与否都不带日期，与参考实现一致保持轻量）。 */
+function formatClock(timestamp: number): string {
+	const date = new Date(timestamp);
+	return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * 消息反馈（赞/踩）的本地记忆：键 = `<会话>:msg<消息时间戳|下标>`，写 localStorage
+ * 重启保留。没有任何服务端回传通道，纯 UI 态；写失败（配额/隐私模式）可接受。
+ */
+const FEEDBACK_STORAGE_KEY = "owl-chat-feedback";
+const FEEDBACK_MAX_ENTRIES = 2000;
+type FeedbackValue = "up" | "down";
+const feedbackByMessage = new Map<string, FeedbackValue>();
+let feedbackLoaded = false;
+
+function loadFeedback(): void {
+	if (feedbackLoaded) return;
+	feedbackLoaded = true;
+	try {
+		const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY);
+		if (!raw) return;
+		for (const [key, value] of Object.entries(JSON.parse(raw) as Record<string, unknown>)) {
+			if (value === "up" || value === "down") feedbackByMessage.set(key, value);
+		}
+	} catch {
+		// 损坏的本地数据直接当没有
+	}
+}
+
+function saveFeedback(): void {
+	// 只留最近的一批，避免长年累月无限膨胀
+	while (feedbackByMessage.size > FEEDBACK_MAX_ENTRIES) {
+		const oldest = feedbackByMessage.keys().next().value;
+		if (oldest === undefined) break;
+		feedbackByMessage.delete(oldest);
+	}
+	try {
+		localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(Object.fromEntries(feedbackByMessage)));
+	} catch {
+		// 写失败可接受：反馈只是界面态
+	}
 }
 
 /**
