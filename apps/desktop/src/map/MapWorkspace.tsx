@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { type JSX, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+	type JSX,
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import { hasTauri } from "../bridge/native.ts";
 import type {
@@ -13,6 +22,7 @@ import type {
 	RealPlace,
 } from "../bridge/protocol.ts";
 import { QuestionDialog } from "../components/QuestionDialog.tsx";
+import { renderMarkdown } from "../components/ChatStream.tsx";
 import { MapConversation, type MapConversationContext } from "./conversation.ts";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
 import { type DeviceLocation, DeviceLocator } from "./device-location.ts";
@@ -41,6 +51,7 @@ import { RealMapCanvas, type RealMapLabels } from "./RealMapCanvas.tsx";
 import "./map-workspace.css";
 
 type MapView = "home" | "results" | "saved";
+type WorkspaceView = "explore" | "conversation";
 const categories: readonly MapCategory[] = ["all", "cafe", "restaurant", "park", "museum"];
 const categoryLabels: Record<RealPlace["category"] | "all", MapCopyKey> = {
 	all: "categoryAll",
@@ -98,7 +109,11 @@ export function MapWorkspace({
 			),
 		[client],
 	);
-	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
+	const conversationState = useSyncExternalStore(
+		conversation.subscribe,
+		conversation.getState,
+		conversation.getState,
+	);
 	const deviceLocator = useMemo(
 		() => new DeviceLocator({ readGps: hasTauri() ? () => invoke<unknown>("gps_location") : undefined }),
 		[],
@@ -133,6 +148,14 @@ export function MapWorkspace({
 	const [places, setPlaces] = useState<RealPlace[]>([]);
 	const [sources, setSources] = useState<MapSourceStatus[]>([]);
 	const [view, setView] = useState<MapView>("home");
+	const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("explore");
+	const workspaceViewRef = useRef<WorkspaceView>(workspaceView);
+	workspaceViewRef.current = workspaceView;
+	const viewScrollPositions = useRef<Record<WorkspaceView, number>>({ explore: 0, conversation: 0 });
+	const viewTabsRef = useRef<HTMLDivElement>(null);
+	const mapStageRef = useRef<HTMLElement>(null);
+	const knownPlacesRef = useRef(new Map<string, RealPlace>());
+	const stripRefs = useRef(new Map<string, HTMLElement>());
 	const [resultKind, setResultKind] = useState<"search" | "nearby">("search");
 	const [resultQuery, setResultQuery] = useState("");
 	const [sort, setSort] = useState<"distance" | "name">("distance");
@@ -159,7 +182,6 @@ export function MapWorkspace({
 	const settingsAbort = useRef<AbortController | undefined>(undefined);
 	const settingsEpoch = useRef(0);
 	const initialPositionApplied = useRef(false);
-	const [homeInput, setHomeInput] = useState("");
 	const [sideInput, setSideInput] = useState("");
 	const [followInput, setFollowInput] = useState("");
 	const [followContext, setFollowContext] = useState<RealPlace>();
@@ -170,7 +192,7 @@ export function MapWorkspace({
 	const [toast, setToast] = useState("");
 	const workspaceRef = useRef<HTMLDivElement>(null);
 	const panelScrollRef = useRef<HTMLDivElement>(null);
-	const followInputRef = useRef<HTMLInputElement>(null);
+	const followInputRef = useRef<HTMLTextAreaElement>(null);
 	const locationRef = useRef<HTMLDivElement>(null);
 	const locationTriggerRef = useRef<HTMLButtonElement>(null);
 	const locationInputRef = useRef<HTMLInputElement>(null);
@@ -209,15 +231,23 @@ export function MapWorkspace({
 	const unavailable = !connected ? m("chatDisconnected") : undefined;
 	const sendDisabled = !active || Boolean(unavailable) || busy;
 	const displayedModel = modelName || modelId || m("defaultModel");
-	const rows = [...(view === "saved" ? savedState.favorites : places)].sort((a, b) =>
-		sort === "name"
-			? a.name.localeCompare(b.name, copy.language)
-			: straightLineDistance(center, a) - straightLineDistance(center, b),
+	const rows = useMemo(
+		() =>
+			[...(view === "saved" ? savedState.favorites : places)].sort((a, b) =>
+				sort === "name"
+					? a.name.localeCompare(b.name, copy.language)
+					: straightLineDistance(center, a) - straightLineDistance(center, b),
+			),
+		[view, savedState.favorites, places, sort, copy.language, center.lat, center.lng],
 	);
 	const selectedPlace = rows.find((place) => place.id === selectedId);
 	const detailPlace = rows.find((place) => place.id === detailId);
 	const hasDetail = Boolean(detailPlace);
 	const centerLabel = locationName || m("mapCenter");
+	const latestReply = conversationState.entries.findLast(
+		(entry) => entry.kind === "assistant" && entry.text.trim(),
+	);
+	const latestReplyText = latestReply?.kind === "assistant" ? latestReply.text : "";
 	const partialResults =
 		sources.some((source) => source.status === "error") &&
 		sources.some((source) => source.status === "ok") &&
@@ -291,6 +321,7 @@ export function MapWorkspace({
 	}, [conversation, connected]);
 	useEffect(() => {
 		if (!active || !activeMapQuestion) return;
+		switchWorkspaceView("conversation");
 		setView((current) => (current === "home" ? "results" : current));
 		setDetailId(undefined);
 		setComparisonOpen(false);
@@ -322,8 +353,12 @@ export function MapWorkspace({
 			setMapError(update.result.sources.find((source) => source.error)?.error || m("mapUnavailable"));
 			return;
 		}
-		const data = update.result.data.map(normalizeRealPlace).filter((place): place is RealPlace => Boolean(place));
-		const nextCenter = update.center ?? (update.action !== "nearby" ? data[0] : undefined) ?? centerRef.current;
+		const data = update.result.data
+			.map(normalizeRealPlace)
+			.filter((place): place is RealPlace => Boolean(place));
+		rememberPlaces(data);
+		const nextCenter =
+			update.center ?? (update.action !== "nearby" ? data[0] : undefined) ?? centerRef.current;
 		const nextName =
 			update.action !== "nearby" && data[0]
 				? placeName(data[0])
@@ -357,9 +392,19 @@ export function MapWorkspace({
 		);
 	}, [conversation, conversationState.mapUpdate]);
 	useEffect(() => {
-		if (active && conversationPinned.current && conversationScrollRef.current)
+		if (
+			active &&
+			workspaceView === "conversation" &&
+			conversationPinned.current &&
+			conversationScrollRef.current
+		)
 			conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight;
 	}, [active, conversationState.entries, conversationState.busy]);
+	useLayoutEffect(() => {
+		if (!active) return;
+		const scroller = workspaceView === "explore" ? panelScrollRef.current : conversationScrollRef.current;
+		if (scroller) scroller.scrollTop = viewScrollPositions.current[workspaceView];
+	}, [active, workspaceView]);
 	useEffect(
 		() => () => {
 			clearTimeout(toastTimer.current);
@@ -446,6 +491,38 @@ export function MapWorkspace({
 		setToast(message);
 		clearTimeout(toastTimer.current);
 		toastTimer.current = setTimeout(() => setToast(""), 4000);
+	}
+	function rememberPlaces(items: readonly RealPlace[]): void {
+		for (const place of items) knownPlacesRef.current.set(place.id, place);
+	}
+	function switchWorkspaceView(next: WorkspaceView, focusComposer = false): void {
+		const previous = workspaceViewRef.current;
+		if (previous !== next) {
+			const scroller = previous === "explore" ? panelScrollRef.current : conversationScrollRef.current;
+			if (scroller) viewScrollPositions.current[previous] = scroller.scrollTop;
+			workspaceViewRef.current = next;
+			setWorkspaceView(next);
+			setLocationOpen(false);
+			setDetailId(undefined);
+		}
+		if (focusComposer) requestAnimationFrame(() => followInputRef.current?.focus());
+	}
+	function showPlaceOnMap(place: RealPlace): void {
+		queryEpoch.current++;
+		queryAbort.current?.abort();
+		setMapLoading(false);
+		setView("results");
+		setPlaces((current) => (current.some((item) => item.id === place.id) ? current : [place, ...current]));
+		centerOn(place, placeName(place));
+		setSelectedId(place.id);
+		setFollowContext(place);
+		switchWorkspaceView("explore");
+		requestAnimationFrame(() => {
+			viewTabsRef.current
+				?.querySelector<HTMLButtonElement>('[data-view="explore"]')
+				?.focus({ preventScroll: true });
+			mapStageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+		});
 	}
 	function restoreFocus(target: HTMLElement | null): void {
 		requestAnimationFrame(() => {
@@ -606,12 +683,14 @@ export function MapWorkspace({
 			return false;
 		}
 		setMapError(undefined);
+		rememberPlaces(result.data);
 		setPlaces(result.data);
 		setSelectedId(undefined);
 		setResultKind(kind);
 		setResultQuery(query);
 		setView("results");
 		setCenterChanged(origin ? straightLineDistance(origin, centerRef.current) > 1 : false);
+		viewScrollPositions.current.explore = 0;
 		requestAnimationFrame(() => {
 			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
 		});
@@ -697,7 +776,9 @@ export function MapWorkspace({
 		const startingCenter = { ...centerRef.current };
 		const lookupLocationName =
 			locationLabel ??
-			(straightLineDistance(point, startingCenter) > 100 ? pointLabel(point) : locationName || pointLabel(point));
+			(straightLineDistance(point, startingCenter) > 100
+				? pointLabel(point)
+				: locationName || pointLabel(point));
 		const request = beginQuery();
 		setCategory(selectedCategory);
 		setRadius(selectedRadius);
@@ -760,7 +841,10 @@ export function MapWorkspace({
 			if (request.epoch !== queryEpoch.current) return false;
 			if (
 				!applyResult(
-					{ data: [manual, ...result.data.filter((place) => place.id !== manual.id)], sources: result.sources },
+					{
+						data: [manual, ...result.data.filter((place) => place.id !== manual.id)],
+						sources: result.sources,
+					},
 					pointLabel(point),
 					"search",
 				)
@@ -788,7 +872,11 @@ export function MapWorkspace({
 		if (!request) return;
 		if (request.action === "search") void searchPlaces(request.query ?? "", request.locationPanel);
 		else if (request.action === "nearby")
-			void nearbyPlaces(request.point ?? centerRef.current, request.category ?? category, request.radius ?? radius);
+			void nearbyPlaces(
+				request.point ?? centerRef.current,
+				request.category ?? category,
+				request.radius ?? radius,
+			);
 		else if (request.point) void selectCoordinate(request.point, request.searchNearby);
 	}
 	function chooseLocation(place: RealPlace): void {
@@ -809,6 +897,7 @@ export function MapWorkspace({
 		setCenterChanged(true);
 	}
 	function replaySearch(entry: LiveSearchRecord): void {
+		switchWorkspaceView("explore");
 		deviceLocator.cancel(true);
 		centerOn(entry.center, entry.locationName);
 		setCategory(entry.category);
@@ -867,8 +956,12 @@ export function MapWorkspace({
 				visiblePlaces,
 				comparisonPlaces,
 			};
+			rememberPlaces([
+				...visiblePlaces,
+				...comparisonPlaces,
+				...(context.selectedPlace ? [context.selectedPlace] : []),
+			]);
 			requestAnimationFrame(() => {
-				if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
 				followInputRef.current?.focus();
 			});
 			const sent = await conversation.send(text, context);
@@ -877,13 +970,12 @@ export function MapWorkspace({
 				setFollowInput(text);
 				return;
 			}
-			setHomeInput((current) => (current === text ? "" : current));
 			setFollowInput((current) => (current === text ? "" : current));
 			pendingMessage.current = "";
 		} catch (error) {
 			if (epoch === sendEpoch.current) {
 				setConversationError(error instanceof Error ? error.message : m("chatError"));
-				setFollowInput(text);
+				setFollowInput((current) => current || text);
 			}
 		} finally {
 			if (epoch === sendEpoch.current) {
@@ -903,7 +995,7 @@ export function MapWorkspace({
 				queryAbort.current?.abort();
 				setPreparingMessage(false);
 				setMapLoading(false);
-				setFollowInput(pendingMessage.current);
+				setFollowInput((current) => current || pendingMessage.current);
 				setStopped(true);
 			} else if (await conversation.abort()) setStopped(true);
 		} catch (error) {
@@ -912,12 +1004,17 @@ export function MapWorkspace({
 			setAborting(false);
 		}
 	}
-	function newExploration(): void {
-		if (conversation.getState().busy || sendPending.current || mapQuestions.length > 0) return;
+	async function newExploration(): Promise<void> {
+		if (aborting || mapQuestions.length > 0) return;
+		if (conversation.getState().busy || sendPending.current) {
+			await stopReply();
+			if (conversation.getState().busy || sendPending.current) return;
+		}
 		sendEpoch.current++;
 		queryEpoch.current++;
 		queryAbort.current?.abort();
 		conversation.newThread();
+		knownPlacesRef.current.clear();
 		setStopped(false);
 		setConversationError(undefined);
 		setView("home");
@@ -926,6 +1023,7 @@ export function MapWorkspace({
 		setSelectedId(undefined);
 		setDetailId(undefined);
 		setComparisonOpen(false);
+		setComparisonPlaces([]);
 		setLocationOpen(false);
 		setLocationCandidates([]);
 		setLocationInput("");
@@ -933,10 +1031,15 @@ export function MapWorkspace({
 		setMapError(undefined);
 		setMapLoading(false);
 		setHasSearched(false);
-		setHomeInput("");
 		setFollowInput("");
 		setFollowContext(undefined);
 		setCenterChanged(false);
+		switchWorkspaceView("explore");
+		viewScrollPositions.current = { explore: 0, conversation: 0 };
+		requestAnimationFrame(() => {
+			if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
+			if (conversationScrollRef.current) conversationScrollRef.current.scrollTop = 0;
+		});
 	}
 	function savePlace(place: RealPlace): void {
 		const removing = savedState.favorites.some((entry) => entry.id === place.id);
@@ -961,13 +1064,16 @@ export function MapWorkspace({
 		setSelectedId(id);
 		setDetailId(undefined);
 		requestAnimationFrame(() => {
-			const panel = panelScrollRef.current,
-				card = cardRefs.current.get(id);
-			if (panel && card)
-				panel.scrollTo({
-					top: Math.max(
+			const card = stripRefs.current.get(id),
+				strip = card?.parentElement;
+			if (strip && card)
+				strip.scrollTo({
+					left: Math.max(
 						0,
-						card.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop - 10,
+						card.getBoundingClientRect().left -
+							strip.getBoundingClientRect().left +
+							strip.scrollLeft -
+							(strip.clientWidth - card.clientWidth) / 2,
 					),
 					behavior: "smooth",
 				});
@@ -983,9 +1089,10 @@ export function MapWorkspace({
 		setSelectedId(place.id);
 		setDetailId(undefined);
 		setFollowContext(place);
-		setFollowInput(m("placePrompt"));
+		setFollowInput((current) => current || m("placePrompt"));
 		if (view === "home") setView("results");
-		requestAnimationFrame(() => followInputRef.current?.focus());
+		rememberPlaces([place]);
+		switchWorkspaceView("conversation", true);
 	}
 	function providedFields(place: RealPlace): { key: MapCopyKey; value: string }[] {
 		return (
@@ -1000,8 +1107,10 @@ export function MapWorkspace({
 			.filter(
 				(
 					entry,
-				): entry is readonly ["openingHours" | "phone" | "wheelchair" | "internetAccess" | "cuisine", string] =>
-					Boolean(entry[1]),
+				): entry is readonly [
+					"openingHours" | "phone" | "wheelchair" | "internetAccess" | "cuisine",
+					string,
+				] => Boolean(entry[1]),
 			)
 			.map(([key, value]) => ({ key, value }));
 	}
@@ -1096,25 +1205,6 @@ export function MapWorkspace({
 	function locationControl(): JSX.Element {
 		return (
 			<div className="location-control" ref={locationRef}>
-				<div className="map-current-location">
-					<span>
-						<MapIcon name="pin" />
-						{configuredLocation.name}
-					</span>
-					<button
-						type="button"
-						className="map-location-config-button"
-						ref={positionSettingsButtonRef}
-						aria-label={m("positionSettings")}
-						title={m("positionSettings")}
-						onClick={openPositionSettings}
-					>
-						<MapIcon name="settings" />
-					</button>
-				</div>
-				<p className="map-device-location-status">
-					{m(configuredLocation.precision === "area" ? "positionAreaNote" : "positionPointNote")}
-				</p>
 				<button
 					type="button"
 					className="location-pill"
@@ -1237,110 +1327,127 @@ export function MapWorkspace({
 			</section>
 		);
 	}
-	function followupPanel(): JSX.Element {
+	function composerPanel(): JSX.Element {
 		return (
-			<section className="followup-box">
-				<div className="followup-context">
-					<MapIcon name="pin" />
-					<span>
-						{followContext
-							? m("discussing", { name: placeName(followContext) })
-							: m("followContext", { name: centerLabel })}
-					</span>
-					{followContext && (
+			<form
+				className="map-composer"
+				aria-label={m("queryLabel")}
+				onSubmit={(event) => {
+					event.preventDefault();
+					void submitQuery(followInput);
+				}}
+			>
+				{followContext && (
+					<div className="map-composer-context">
+						<MapIcon name="pin" />
+						<span>{m("discussing", { name: placeName(followContext) })}</span>
 						<button
 							type="button"
 							aria-label={m("cancel")}
 							onClick={() => {
 								setFollowContext(undefined);
-								setFollowInput("");
+								setSelectedId(undefined);
 							}}
 						>
 							<MapIcon name="close" />
 						</button>
-					)}
-				</div>
-				<form
-					className="followup-input"
-					onSubmit={(event) => {
-						event.preventDefault();
-						void submitQuery(followInput);
+					</div>
+				)}
+				<textarea
+					ref={followInputRef}
+					aria-label={m("queryLabel")}
+					placeholder={m(workspaceView === "explore" ? "homePlaceholder" : "followPlaceholder")}
+					value={followInput}
+					rows={workspaceView === "explore" ? 2 : 1}
+					onChange={(event) => setFollowInput(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+							event.preventDefault();
+							void submitQuery(followInput);
+						}
 					}}
-				>
-					<input
-						ref={followInputRef}
-						aria-label={m("followLabel")}
-						placeholder={m("followPlaceholder")}
-						value={followInput}
-						onChange={(event) => setFollowInput(event.target.value)}
-					/>
-					{busy ? (
+				/>
+				<div className="map-composer-tools">
+					<button
+						type="button"
+						className="map-composer-add"
+						aria-label={m("location")}
+						title={m("location")}
+						onClick={() => {
+							switchWorkspaceView("explore");
+							setLocationOpen(true);
+							requestAnimationFrame(() => locationInputRef.current?.focus());
+						}}
+					>
+						<MapIcon name="plus" />
+					</button>
+					<div
+						className="map-composer-location"
+						title={m(configuredLocation.precision === "area" ? "positionAreaNote" : "positionPointNote")}
+					>
+						<MapIcon name="pin" />
+						<span>{configuredLocation.name}</span>
 						<button
 							type="button"
-							className="map-stop-btn"
-							disabled={aborting}
-							aria-label={m("chatStop")}
-							onClick={() => void stopReply()}
+							ref={positionSettingsButtonRef}
+							className="map-location-config-button"
+							aria-label={m("positionSettings")}
+							title={m("positionSettings")}
+							onClick={openPositionSettings}
 						>
-							<MapIcon name="close" />
+							<MapIcon name="settings" />
 						</button>
-					) : (
-						<button
-							type="submit"
-							className="send-btn"
-							disabled={sendDisabled || !followInput.trim()}
-							aria-label={m("sendFollowup")}
-						>
-							<MapIcon name="arrow" />
-						</button>
-					)}
-				</form>
-				{composerStatus()}
-				<div className="followup-footer">
-					<span>{m("chatFooter")}</span>
-					<span>{m("enterSend")}</span>
+					</div>
+					<div className="map-composer-right">
+						<span className="map-composer-model" title={m("currentModel")}>
+							{displayedModel}
+						</span>
+						<span className="map-thinking-level" title={m("currentThinking", { level: thinkingLevel })}>
+							{thinkingLevel}
+						</span>
+						{busy ? (
+							<button
+								type="button"
+								className="map-stop-btn"
+								disabled={aborting}
+								aria-label={m("chatStop")}
+								onClick={() => void stopReply()}
+							>
+								<MapIcon name="close" />
+							</button>
+						) : (
+							<button
+								type="submit"
+								className="send-btn"
+								aria-label={m("start")}
+								disabled={sendDisabled || !followInput.trim()}
+							>
+								<MapIcon name="arrow" />
+							</button>
+						)}
+					</div>
 				</div>
-			</section>
-		);
-	}
-	function composerStatus(): JSX.Element {
-		return (
-			<div className="map-composer-model">
-				<span>{modelName || modelId ? `${m("currentModel")} · ${displayedModel}` : displayedModel}</span>
-				<span className="map-thinking-level">{m("currentThinking", { level: thinkingLevel })}</span>
-				{unavailable && <p className="map-composer-status">{unavailable}</p>}
-				{busy && (
-					<p className="map-composer-status" aria-live="polite">
-						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
+				{unavailable && (
+					<p className="map-composer-status" role="status">
+						{unavailable}
 					</p>
 				)}
-			</div>
+			</form>
 		);
 	}
 
 	function conversationPanel(): JSX.Element {
 		return (
 			<section className="map-conversation" aria-label={m("conversation")}>
-				<div className="map-conversation-head">
-					<h2>{m("conversation")}</h2>
-					<span className="map-conversation-model" title={model}>
-						{displayedModel}
-					</span>
-				</div>
-				<p className="map-model-reuse">{m("currentModel")}</p>
-				<div
-					className="map-conversation-messages"
-					ref={conversationScrollRef}
-					role="log"
-					aria-live="polite"
-					aria-busy={busy}
-					onScroll={(event) => {
-						const el = event.currentTarget;
-						conversationPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
-					}}
-				>
+				<div className="map-conversation-messages" role="log" aria-live="polite" aria-busy={busy}>
 					{conversationState.entries.map((entry, index) => {
 						const messageId = `${index}:${entry.kind}`;
+						const mentionedPlaces =
+							entry.kind === "assistant"
+								? [...knownPlacesRef.current.values()]
+										.filter((place) => place.name.length > 1 && entry.text.includes(place.name))
+										.slice(0, 3)
+								: [];
 						return (
 							<article
 								key={messageId}
@@ -1361,7 +1468,47 @@ export function MapWorkspace({
 												<div className="map-message-text">{entry.thinking}</div>
 											</details>
 										)}
-										{entry.text && <div className="map-message-text">{entry.text}</div>}
+										{entry.text &&
+											(entry.kind === "assistant" ? (
+												<div
+													className="map-message-text map-message-markdown"
+													dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.text) }}
+													onClick={(event) => {
+														if (!(event.target instanceof Element)) return;
+														const anchor = event.target.closest("a");
+														if (!anchor) return;
+														event.preventDefault();
+														const target = safeExternalUrl(anchor.getAttribute("href"));
+														if (target)
+															void client
+																.request({ type: "open.external", action: "url", target })
+																.then((reply) => {
+																	if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
+																})
+																.catch((error: unknown) =>
+																	showToast(error instanceof Error ? error.message : m("mapUnavailable")),
+																);
+													}}
+												/>
+											) : (
+												<div className="map-message-text">{entry.text}</div>
+											))}
+										{mentionedPlaces.length > 0 && (
+											<div className="map-message-place-links">
+												{mentionedPlaces.map((place) => (
+													<button
+														key={place.id}
+														type="button"
+														className="map-message-place-link"
+														onClick={() => showPlaceOnMap(place)}
+													>
+														<MapIcon name={categoryIcons[place.category]} />
+														<span>{placeName(place)}</span>
+														<MapIcon name="chevron" />
+													</button>
+												))}
+											</div>
+										)}
 										{entry.kind === "assistant" && entry.tools.length > 0 && (
 											<div className="map-message-tools">
 												{entry.tools.map((tool) => (
@@ -1388,16 +1535,37 @@ export function MapWorkspace({
 							</article>
 						);
 					})}
-					{conversationState.entries.length === 0 && (
-						<p className="map-conversation-empty">{m("conversationEmpty")}</p>
+					{conversationState.entries.length === 0 && !busy && (
+						<div className="map-conversation-empty">
+							<h2>{m("conversationEmptyTitle")}</h2>
+							<p>{m("conversationEmpty")}</p>
+							<div className="map-conversation-suggestions">
+								{(["conversationSuggestion", "conversationPlanSuggestion"] as const).map((key) => (
+									<button
+										key={key}
+										type="button"
+										onClick={() => {
+											setFollowInput(m(key));
+											requestAnimationFrame(() => followInputRef.current?.focus());
+										}}
+									>
+										{m(key)}
+									</button>
+								))}
+							</div>
+						</div>
 					)}
 				</div>
 				{busy && (
 					<output className="map-conversation-status is-generating">
-						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
+						{m(
+							aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating",
+						)}
 					</output>
 				)}
-				{stopped && !busy && <output className="map-conversation-status is-stopped">{m("chatStopped")}</output>}
+				{stopped && !busy && (
+					<output className="map-conversation-status is-stopped">{m("chatStopped")}</output>
+				)}
 				{(conversationState.error || conversationError) && (
 					<div className="map-conversation-error" role="alert">
 						<strong>{m("chatError")}</strong>
@@ -1419,7 +1587,10 @@ export function MapWorkspace({
 		{ label: "source", value: sourceLinks },
 	];
 	return (
-		<div className={`owl-map-workspace${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`} ref={workspaceRef}>
+		<div
+			className={`owl-map-workspace has-main-views${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
+			ref={workspaceRef}
+		>
 			{positionSettingsOpen && (
 				<dialog
 					className="map-position-settings"
@@ -1495,7 +1666,9 @@ export function MapWorkspace({
 						<p className="map-position-selection">
 							<MapIcon name="check" />
 							{settingsDraft.name}
-							<small>{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}</small>
+							<small>
+								{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}
+							</small>
 						</p>
 					)}
 					<footer>
@@ -1522,6 +1695,7 @@ export function MapWorkspace({
 					className="sidebar-search"
 					onSubmit={(event) => {
 						event.preventDefault();
+						switchWorkspaceView("explore");
 						void searchPlaces(sideInput);
 					}}
 				>
@@ -1533,16 +1707,23 @@ export function MapWorkspace({
 						onChange={(event) => setSideInput(event.target.value)}
 					/>
 				</form>
-				<button type="button" className="side-new" disabled={busy} onClick={newExploration}>
+				<button
+					type="button"
+					className="side-new"
+					disabled={aborting || mapQuestions.length > 0}
+					onClick={() => void newExploration()}
+				>
 					<MapIcon name="plus" />
 					{m("newExplore")}
 				</button>
 				<button
 					type="button"
 					className={`side-item${view !== "saved" ? " active" : ""}`}
-					disabled={busy}
 					aria-current={view !== "saved" ? "page" : undefined}
-					onClick={newExploration}
+					onClick={() => {
+						setView((current) => (current === "saved" ? "results" : current));
+						switchWorkspaceView("explore");
+					}}
 				>
 					<MapIcon name="compass" />
 					{m("explore")}
@@ -1553,6 +1734,7 @@ export function MapWorkspace({
 					aria-current={view === "saved" ? "page" : undefined}
 					onClick={() => {
 						setView("saved");
+						switchWorkspaceView("explore");
 						setDetailId(undefined);
 						setSelectedId(undefined);
 						setFollowContext(undefined);
@@ -1576,7 +1758,12 @@ export function MapWorkspace({
 					</p>
 					{savedState.history.length ? (
 						savedState.history.slice(0, 8).map((entry) => (
-							<button key={entry.id} type="button" className="recent-entry" onClick={() => replaySearch(entry)}>
+							<button
+								key={entry.id}
+								type="button"
+								className="recent-entry"
+								onClick={() => replaySearch(entry)}
+							>
 								<MapIcon name="clock" />
 								<span>
 									{entry.query || entry.locationName}
@@ -1605,22 +1792,57 @@ export function MapWorkspace({
 				</div>
 			</aside>
 			<main className="owl-map-frame">
-				<div className="map-workspace-body" style={{ display: "contents" }} inert={comparisonOpen}>
+				<div className="map-workspace-body" inert={comparisonOpen}>
 					<header className="map-header">
-						<h1>
-							<MapIcon name="map" />
-							{m("map")}
-						</h1>
-						<span className="header-divider" aria-hidden="true" />
-						<span className="subtitle">{m("subtitle")}</span>
-						<span className="map-source-badge">{m("mapBadge")}</span>
+						<div className="map-workspace-heading">
+							<h1>
+								<MapIcon name="map" />
+								{m("map")}
+							</h1>
+							<div
+								className="map-view-tabs"
+								ref={viewTabsRef}
+								role="tablist"
+								aria-label={m("workspaceViews")}
+								onKeyDown={(event) => {
+									if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+									event.preventDefault();
+									const next: WorkspaceView =
+										event.key === "Home"
+											? "explore"
+											: event.key === "End"
+												? "conversation"
+												: workspaceView === "explore"
+													? "conversation"
+													: "explore";
+									switchWorkspaceView(next);
+									viewTabsRef.current?.querySelector<HTMLButtonElement>(`[data-view="${next}"]`)?.focus();
+								}}
+							>
+								{(["explore", "conversation"] as const).map((value) => (
+									<button
+										key={value}
+										type="button"
+										role="tab"
+										id={`owl-map-tab-${value}`}
+										aria-controls={`owl-map-view-${value}`}
+										aria-selected={workspaceView === value}
+										tabIndex={workspaceView === value ? 0 : -1}
+										data-view={value}
+										onClick={() => switchWorkspaceView(value)}
+									>
+										{m(value === "explore" ? "explore" : "conversationTab")}
+									</button>
+								))}
+							</div>
+						</div>
 						<div className="spacer" />
 						<button
 							type="button"
 							className="header-action"
 							ref={newExploreRef}
-							disabled={busy}
-							onClick={newExploration}
+							disabled={aborting || mapQuestions.length > 0}
+							onClick={() => void newExploration()}
 						>
 							<MapIcon name="plus" />
 							{m("newExplore")}
@@ -1630,9 +1852,8 @@ export function MapWorkspace({
 							className="header-action"
 							onClick={() => {
 								setView("saved");
+								switchWorkspaceView("explore");
 								setDetailId(undefined);
-								setSelectedId(undefined);
-								setFollowContext(undefined);
 							}}
 						>
 							<MapIcon name="bookmark" />
@@ -1640,69 +1861,311 @@ export function MapWorkspace({
 							{savedState.favorites.length ? ` · ${savedState.favorites.length}` : ""}
 						</button>
 					</header>
-					<div className={`map-content${hasDetail ? " has-detail" : ""}`}>
-						<section className="explore-panel" aria-label={m(view === "saved" ? "favorites" : "explore")}>
-							<div className="panel-scroll" ref={panelScrollRef}>
-								{view !== "home" && conversationPanel()}
-								{locationControl()}
-								{view === "home" && mapError && (
-									<p className="map-conversation-error" role="alert">
-										{mapError}
-									</p>
-								)}
-								{view === "home" ? (
-									<>
-										<h2 className="home-heading" style={{ whiteSpace: "pre-line" }}>
-											{m("homeTitle")}
-										</h2>
-										<p className="home-description" style={{ whiteSpace: "pre-line" }}>
-											{m("homeDescription")}
-										</p>
-										<button
-											type="button"
-											className="live-choose-location"
-											onClick={() => setLocationOpen(true)}
-										>
-											<MapIcon name="search" />
-											{m("location")}
-										</button>
-										<form
-											className="home-query"
-											onSubmit={(event) => {
-												event.preventDefault();
-												void submitQuery(homeInput);
-											}}
-										>
-											<textarea
-												aria-label={m("queryLabel")}
-												placeholder={m("homePlaceholder")}
-												value={homeInput}
-												onChange={(event) => setHomeInput(event.target.value)}
+					<div className="map-main-views">
+						<section
+							className="map-explore-view"
+							id="owl-map-view-explore"
+							role="tabpanel"
+							aria-labelledby="owl-map-tab-explore"
+							hidden={workspaceView !== "explore"}
+						>
+							<div
+								className="map-explore-scroll"
+								ref={panelScrollRef}
+								onScroll={(event) => {
+									if (workspaceViewRef.current === "explore" && activeRef.current)
+										viewScrollPositions.current.explore = event.currentTarget.scrollTop;
+								}}
+							>
+								<div className="map-reading-column">
+									{workspaceView === "explore" && composerPanel()}
+									{(latestReplyText ||
+										busy ||
+										activeMapQuestion ||
+										conversationState.error ||
+										conversationError) && (
+										<section className="map-explore-answer" aria-label={m("latestAnswer")}>
+											<strong>{m("conversationOwl")}</strong>
+											<div
+												className="map-message-text map-message-markdown"
+												dangerouslySetInnerHTML={{
+													__html: renderMarkdown(
+														activeMapQuestion
+															? m("conversationNeedsAnswer")
+															: busy
+																? m(conversationState.submitting ? "chatSubmitting" : "chatGenerating")
+																: latestReplyText,
+													),
+												}}
 											/>
-											<div className="query-bottom">
-												<MapIcon name="sparkle" />
-												{m("idea")}
-												<button
-													type="submit"
-													className="send-btn"
-													aria-label={m("start")}
-													disabled={sendDisabled || !homeInput.trim()}
-												>
-													<MapIcon name="arrow" />
+											{(conversationState.error || conversationError) && (
+												<p className="map-conversation-error" role="alert">
+													{conversationState.error || conversationError}
+												</p>
+											)}
+											<div className="map-explore-answer-actions">
+												<button type="button" onClick={() => switchWorkspaceView("conversation", true)}>
+													{m("continueChat")}
+													<MapIcon name="chevron" />
 												</button>
 											</div>
-										</form>
-										{composerStatus()}
-										<p className="example-label">{m("exampleLabel")}</p>
-										{nearbyControls()}
-										<p className="home-foot">
-											<MapIcon name="info" />
-											{m("sourceNote")}
-										</p>
-									</>
-								) : (
-									<>
-										<h2 className="results-title">
+										</section>
+									)}
+									<section
+										ref={mapStageRef}
+										className={`map-stage live-map-stage map-explore-stage${hasDetail ? " has-detail" : ""}`}
+										aria-label={m("mapLabel")}
+									>
+										<RealMapCanvas
+											active={active && workspaceView === "explore"}
+											center={center}
+											places={rows}
+											selectedId={selectedId}
+											detailOpen={hasDetail}
+											loading={mapLoading}
+											locationState={deviceLocationState}
+											labels={labels}
+											onPlaceSelect={selectPin}
+											onCenterChange={movedCenter}
+											onPointSelect={(point) => void selectCoordinate(point)}
+											onSearchHere={(point) => {
+												deviceLocator.cancel(true);
+												void nearbyPlaces(point);
+											}}
+											onLocate={() => locateDevice()}
+											onError={(message) => setMapError(message)}
+										/>
+										{!hasDetail && rows.length > 0 && (
+											<div
+												className="map-place-strip"
+												aria-label={m(view === "saved" ? "favorites" : "nearby")}
+											>
+												{rows.map((place) => {
+													const favorite = savedState.favorites.some((item) => item.id === place.id);
+													return (
+														<article
+															key={place.id}
+															className={`map-strip-place${selectedId === place.id ? " selected" : ""}`}
+															data-place={place.id}
+															ref={(node) => {
+																if (node) stripRefs.current.set(place.id, node);
+																else stripRefs.current.delete(place.id);
+															}}
+														>
+															<button
+																type="button"
+																className="map-strip-open"
+																aria-label={m("viewDetail", { name: placeName(place) })}
+																onClick={(event) => openDetail(place, event.currentTarget)}
+															>
+																<span className="map-strip-art">
+																	<MapIcon name={categoryIcons[place.category]} />
+																</span>
+																<span className="map-strip-copy">
+																	<strong>{placeName(place)}</strong>
+																	<small>
+																		{m(categoryLabels[place.category])} · {distance(place)}
+																	</small>
+																</span>
+															</button>
+															<button
+																type="button"
+																className={`map-strip-save${favorite ? " saved" : ""}`}
+																aria-pressed={favorite}
+																aria-label={m(favorite ? "unfavoritePlace" : "favoritePlace", {
+																	name: placeName(place),
+																})}
+																onClick={() => savePlace(place)}
+															>
+																<MapIcon name="bookmark" />
+															</button>
+														</article>
+													);
+												})}
+											</div>
+										)}
+
+										{comparisonPlaces.length > 0 && !hasDetail && (
+											<div className="compare-tray">
+												<MapIcon name="compare" />
+												<small>{m("comparePlaces")}</small>
+												{comparisonPlaces.map((place, index) => (
+													<button
+														key={place.id}
+														type="button"
+														className="compare-slot"
+														title={placeName(place)}
+														aria-label={m("removeComparePlace", { name: placeName(place) })}
+														onClick={() => comparePlace(place)}
+													>
+														{index + 1}
+													</button>
+												))}
+												<small>
+													{comparisonPlaces.length} / {MAX_LIVE_COMPARISON}
+												</small>
+												<button
+													type="button"
+													className="compare-btn"
+													disabled={comparisonPlaces.length < 2}
+													title={comparisonPlaces.length < 2 ? m("compareNeedTwo") : undefined}
+													onClick={(event) => {
+														comparisonReturnRef.current = event.currentTarget;
+														setComparisonOpen(true);
+													}}
+												>
+													{m("startCompare")}
+												</button>
+											</div>
+										)}
+										{detailPlace && (
+											<aside
+												className="detail-drawer map-drawer"
+												aria-label={m("detailLabel", { name: placeName(detailPlace) })}
+											>
+												<div className="detail-scroll">
+													<div className="live-detail-hero">
+														<MapIcon name={categoryIcons[detailPlace.category]} />
+														<button
+															type="button"
+															className="detail-close"
+															ref={detailCloseRef}
+															aria-label={m("closeDetail")}
+															onClick={closeDetail}
+														>
+															<MapIcon name="close" />
+														</button>
+													</div>
+													<div className="detail-content">
+														<h2 className="detail-title">{placeName(detailPlace)}</h2>
+														<p className="detail-sub">
+															{m(categoryLabels[detailPlace.category])} · {distance(detailPlace)}
+														</p>
+														<div className="detail-section">
+															<h3>{m("information")}</h3>
+															<div className="detail-info">
+																<MapIcon name="pin" />
+																<span>
+																	<b>{detailPlace.address || m("notProvided")}</b>
+																	{pointLabel(detailPlace)}
+																</span>
+															</div>
+															{providedFields(detailPlace).map((field) => (
+																<div className="detail-info" key={field.key}>
+																	<MapIcon
+																		name={
+																			field.key === "phone"
+																				? "info"
+																				: field.key === "openingHours"
+																					? "clock"
+																					: "check"
+																		}
+																	/>
+																	<span>
+																		<b>{m(field.key)}</b>
+																		{field.value}
+																	</span>
+																</div>
+															))}
+															{!providedFields(detailPlace).length && (
+																<p className="detail-note">{m("noExtraInformation")}</p>
+															)}
+														</div>
+														<div className="detail-section">
+															<h3>{m("sourceDetails")}</h3>
+															<p className="detail-note">
+																{m(detailPlace.source.provider === "user" ? "sourceUser" : "sourceMap")} ·{" "}
+																{m("fetched")}: {fetched(detailPlace)}
+															</p>
+															{sourceLinks(detailPlace)}
+															<p className="detail-note">{m("sourceNote")}</p>
+														</div>
+														<button
+															type="button"
+															className="detail-ask"
+															onClick={() => askPlace(detailPlace)}
+														>
+															<MapIcon name="chat" />
+															{m("detailAsk")}
+															<span className="spacer" />
+															<MapIcon name="chevron" />
+														</button>
+														<a
+															className="detail-ask"
+															href={mapDirectionsUrl(center, detailPlace)}
+															target="_blank"
+															rel="noopener noreferrer"
+															onClick={(event) => {
+																event.preventDefault();
+																void client
+																	.request({
+																		type: "open.external",
+																		action: "url",
+																		target: mapDirectionsUrl(center, detailPlace),
+																	})
+																	.then((reply) => {
+																		if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
+																	})
+																	.catch((error: unknown) =>
+																		showToast(error instanceof Error ? error.message : m("mapUnavailable")),
+																	);
+															}}
+														>
+															<MapIcon name="compass" />
+															{m("viewRoute")}
+															<span className="spacer" />
+															<MapIcon name="chevron" />
+														</a>
+														<p className="detail-note">{m("routeOrigin", { name: centerLabel })}</p>
+													</div>
+												</div>
+												<div className="detail-actions">
+													<button
+														type="button"
+														aria-pressed={savedState.favorites.some((place) => place.id === detailPlace.id)}
+														onClick={() => savePlace(detailPlace)}
+													>
+														<MapIcon name="bookmark" />
+														{m(
+															savedState.favorites.some((place) => place.id === detailPlace.id)
+																? "saved"
+																: "save",
+														)}
+													</button>
+													<button
+														type="button"
+														className="primary"
+														aria-pressed={comparisonPlaces.some((place) => place.id === detailPlace.id)}
+														onClick={() => comparePlace(detailPlace)}
+													>
+														<MapIcon name="compare" />
+														{m(
+															comparisonPlaces.some((place) => place.id === detailPlace.id)
+																? "removeCompare"
+																: "addCompare",
+														)}
+													</button>
+												</div>
+											</aside>
+										)}
+									</section>
+									<div className="map-gallery-toolbar">
+										{locationControl()}
+										{view !== "saved" && nearbyControls()}
+									</div>
+									{centerChanged && <p className="live-map-notice">{m("centerChanged")}</p>}
+									{mapLoading && <output className="live-map-status">{m("searching")}</output>}
+									{mapError && (
+										<div className="map-conversation-error" role="alert">
+											<p>{mapError}</p>
+											<button type="button" onClick={retryLookup}>
+												{m("retry")}
+											</button>
+										</div>
+									)}
+									{partialResults && <p className="live-map-notice">{m("partialResults")}</p>}
+									<div className="map-gallery-heading">
+										<h2>
 											{m(
 												view === "saved"
 													? "savedTitle"
@@ -1711,22 +2174,6 @@ export function MapWorkspace({
 														: "searchTitle",
 											)}
 										</h2>
-										<p className="ai-summary">{m("selectedCenter", { name: centerLabel })}</p>
-										{resultQuery && view !== "saved" && (
-											<p className="search-query-label">{m("searchQuery", { query: resultQuery })}</p>
-										)}
-										{view !== "saved" && nearbyControls()}
-										{centerChanged && <p className="live-map-notice">{m("centerChanged")}</p>}
-										{mapLoading && <output className="live-map-status">{m("searching")}</output>}
-										{mapError && (
-											<div className="map-conversation-error" role="alert">
-												<p>{mapError}</p>
-												<button type="button" onClick={retryLookup}>
-													{m("retry")}
-												</button>
-											</div>
-										)}
-										{partialResults && <p className="live-map-notice">{m("partialResults")}</p>}
 										<div className="result-meta">
 											<span aria-live="polite">
 												{m(view === "saved" ? "savedCount" : "resultsCount", { n: rows.length })}
@@ -1740,24 +2187,92 @@ export function MapWorkspace({
 												<option value="name">{m("nameSort")}</option>
 											</select>
 										</div>
-										<div className="place-list">
-											{rows.length
-												? rows.map(renderPlaceCard)
-												: !mapLoading &&
-													!mapError &&
-													(hasSearched || view === "saved") && (
-														<div className="empty-results">
-															<MapIcon name={view === "saved" ? "bookmark" : "search"} />
-															<strong>{m(view === "saved" ? "noSaved" : "noResults")}</strong>
-															<p>{m(view === "saved" ? "noSavedHint" : "noResultsHint")}</p>
-															<button type="button" onClick={() => setLocationOpen(true)}>
-																{m("location")}
-															</button>
-														</div>
-													)}
+									</div>
+									{resultQuery && view !== "saved" && (
+										<p className="search-query-label">{m("searchQuery", { query: resultQuery })}</p>
+									)}
+									<div className="map-place-gallery">
+										{rows.map(renderPlaceCard)}
+										{!rows.length && !mapLoading && !mapError && (hasSearched || view === "saved") && (
+											<div className="empty-results">
+												<MapIcon name={view === "saved" ? "bookmark" : "search"} />
+												<strong>{m(view === "saved" ? "noSaved" : "noResults")}</strong>
+												<p>{m(view === "saved" ? "noSavedHint" : "noResultsHint")}</p>
+												<button type="button" onClick={() => setLocationOpen(true)}>
+													{m("location")}
+												</button>
+											</div>
+										)}
+									</div>
+									<p className="home-foot">
+										<MapIcon name="info" />
+										{m("sourceNote")}
+									</p>
+								</div>
+							</div>
+						</section>
+						<section
+							className="map-conversation-view"
+							id="owl-map-view-conversation"
+							role="tabpanel"
+							aria-labelledby="owl-map-tab-conversation"
+							hidden={workspaceView !== "conversation"}
+						>
+							<div className="map-conversation-top">
+								<div className="map-reading-column">
+									<div className="map-conversation-context">
+										<MapIcon name="pin" />
+										<div className="map-context-copy">
+											<small className="map-context-caption">
+												{m(
+													followContext
+														? "currentDiscussion"
+														: configuredLocation.precision === "area"
+															? "positionAreaNote"
+															: "positionPointNote",
+												)}
+											</small>
+											<strong className="map-context-place">
+												{followContext ? placeName(followContext) : configuredLocation.name}
+											</strong>
 										</div>
-									</>
-								)}
+										<button
+											type="button"
+											className="return-map-btn"
+											onClick={() => {
+												if (followContext) showPlaceOnMap(followContext);
+												else {
+													switchWorkspaceView("explore");
+													viewTabsRef.current
+														?.querySelector<HTMLButtonElement>('[data-view="explore"]')
+														?.focus({ preventScroll: true });
+												}
+											}}
+										>
+											<MapIcon name="map" />
+											{m(followContext ? "viewPlaceOnMap" : "returnToMap")}
+										</button>
+									</div>
+								</div>
+							</div>
+							<div
+								className="map-conversation-scroll"
+								ref={conversationScrollRef}
+								tabIndex={0}
+								aria-label={m("conversation")}
+								onScroll={(event) => {
+									const el = event.currentTarget;
+									if (
+										workspaceViewRef.current !== "conversation" ||
+										!activeRef.current ||
+										el.clientHeight === 0
+									)
+										return;
+									viewScrollPositions.current.conversation = el.scrollTop;
+									conversationPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+								}}
+							>
+								<div className="map-reading-column">{conversationPanel()}</div>
 							</div>
 							<div className="map-question-dock" ref={mapQuestionDockRef} hidden={!activeMapQuestion}>
 								{mapQuestions.map((request) => (
@@ -1775,210 +2290,15 @@ export function MapWorkspace({
 									</div>
 								))}
 							</div>
-							{view !== "home" && followupPanel()}
-						</section>
-						<section
-							className={`map-stage live-map-stage${hasDetail ? " has-detail" : ""}`}
-							aria-label={m("mapLabel")}
-						>
-							<RealMapCanvas
-								active={active}
-								center={center}
-								places={rows}
-								selectedId={selectedId}
-								detailOpen={hasDetail}
-								loading={mapLoading}
-								locationState={deviceLocationState}
-								labels={labels}
-								onPlaceSelect={selectPin}
-								onCenterChange={movedCenter}
-								onPointSelect={(point) => void selectCoordinate(point)}
-								onSearchHere={(point) => {
-									deviceLocator.cancel(true);
-									void nearbyPlaces(point);
-								}}
-								onLocate={() => locateDevice()}
-								onError={(message) => setMapError(message)}
-							/>
-							{selectedPlace && !hasDetail && (
-								<div className="map-floating-place live-floating-place">
-									<MapIcon name={categoryIcons[selectedPlace.category]} />
-									<div>
-										<strong>{placeName(selectedPlace)}</strong>
-										<small>
-											{m(categoryLabels[selectedPlace.category])} · {distance(selectedPlace)}
-										</small>
+							<div className="map-conversation-dock">
+								<div className="map-reading-column">
+									{workspaceView === "conversation" && composerPanel()}
+									<div className="followup-footer">
+										<span>{m("chatFooter")}</span>
+										<span>{m("enterSend")}</span>
 									</div>
-									<button
-										type="button"
-										className="open-floating"
-										aria-label={m("viewDetail", { name: placeName(selectedPlace) })}
-										onClick={(event) => openDetail(selectedPlace, event.currentTarget)}
-									>
-										{m("detail")}
-										<MapIcon name="chevron" />
-									</button>
 								</div>
-							)}
-							{comparisonPlaces.length > 0 && !hasDetail && (
-								<div className="compare-tray">
-									<MapIcon name="compare" />
-									<small>{m("comparePlaces")}</small>
-									{comparisonPlaces.map((place, index) => (
-										<button
-											key={place.id}
-											type="button"
-											className="compare-slot"
-											title={placeName(place)}
-											aria-label={m("removeComparePlace", { name: placeName(place) })}
-											onClick={() => comparePlace(place)}
-										>
-											{index + 1}
-										</button>
-									))}
-									<small>
-										{comparisonPlaces.length} / {MAX_LIVE_COMPARISON}
-									</small>
-									<button
-										type="button"
-										className="compare-btn"
-										disabled={comparisonPlaces.length < 2}
-										title={comparisonPlaces.length < 2 ? m("compareNeedTwo") : undefined}
-										onClick={(event) => {
-											comparisonReturnRef.current = event.currentTarget;
-											setComparisonOpen(true);
-										}}
-									>
-										{m("startCompare")}
-									</button>
-								</div>
-							)}
-							{detailPlace && (
-								<aside
-									className="detail-drawer map-drawer"
-									aria-label={m("detailLabel", { name: placeName(detailPlace) })}
-								>
-									<div className="detail-scroll">
-										<div className="live-detail-hero">
-											<MapIcon name={categoryIcons[detailPlace.category]} />
-											<button
-												type="button"
-												className="detail-close"
-												ref={detailCloseRef}
-												aria-label={m("closeDetail")}
-												onClick={closeDetail}
-											>
-												<MapIcon name="close" />
-											</button>
-										</div>
-										<div className="detail-content">
-											<h2 className="detail-title">{placeName(detailPlace)}</h2>
-											<p className="detail-sub">
-												{m(categoryLabels[detailPlace.category])} · {distance(detailPlace)}
-											</p>
-											<div className="detail-section">
-												<h3>{m("information")}</h3>
-												<div className="detail-info">
-													<MapIcon name="pin" />
-													<span>
-														<b>{detailPlace.address || m("notProvided")}</b>
-														{pointLabel(detailPlace)}
-													</span>
-												</div>
-												{providedFields(detailPlace).map((field) => (
-													<div className="detail-info" key={field.key}>
-														<MapIcon
-															name={
-																field.key === "phone"
-																	? "info"
-																	: field.key === "openingHours"
-																		? "clock"
-																		: "check"
-															}
-														/>
-														<span>
-															<b>{m(field.key)}</b>
-															{field.value}
-														</span>
-													</div>
-												))}
-												{!providedFields(detailPlace).length && (
-													<p className="detail-note">{m("noExtraInformation")}</p>
-												)}
-											</div>
-											<div className="detail-section">
-												<h3>{m("sourceDetails")}</h3>
-												<p className="detail-note">
-													{m(detailPlace.source.provider === "user" ? "sourceUser" : "sourceMap")} ·{" "}
-													{m("fetched")}: {fetched(detailPlace)}
-												</p>
-												{sourceLinks(detailPlace)}
-												<p className="detail-note">{m("sourceNote")}</p>
-											</div>
-											<button type="button" className="detail-ask" onClick={() => askPlace(detailPlace)}>
-												<MapIcon name="chat" />
-												{m("detailAsk")}
-												<span className="spacer" />
-												<MapIcon name="chevron" />
-											</button>
-											<a
-												className="detail-ask"
-												href={mapDirectionsUrl(center, detailPlace)}
-												target="_blank"
-												rel="noopener noreferrer"
-												onClick={(event) => {
-													event.preventDefault();
-													void client
-														.request({
-															type: "open.external",
-															action: "url",
-															target: mapDirectionsUrl(center, detailPlace),
-														})
-														.then((reply) => {
-															if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
-														})
-														.catch((error: unknown) =>
-															showToast(error instanceof Error ? error.message : m("mapUnavailable")),
-														);
-												}}
-											>
-												<MapIcon name="compass" />
-												{m("viewRoute")}
-												<span className="spacer" />
-												<MapIcon name="chevron" />
-											</a>
-											<p className="detail-note">{m("routeOrigin", { name: centerLabel })}</p>
-										</div>
-									</div>
-									<div className="detail-actions">
-										<button
-											type="button"
-											aria-pressed={savedState.favorites.some((place) => place.id === detailPlace.id)}
-											onClick={() => savePlace(detailPlace)}
-										>
-											<MapIcon name="bookmark" />
-											{m(
-												savedState.favorites.some((place) => place.id === detailPlace.id)
-													? "saved"
-													: "save",
-											)}
-										</button>
-										<button
-											type="button"
-											className="primary"
-											aria-pressed={comparisonPlaces.some((place) => place.id === detailPlace.id)}
-											onClick={() => comparePlace(detailPlace)}
-										>
-											<MapIcon name="compare" />
-											{m(
-												comparisonPlaces.some((place) => place.id === detailPlace.id)
-													? "removeCompare"
-													: "addCompare",
-											)}
-										</button>
-									</div>
-								</aside>
-							)}
+							</div>
 						</section>
 					</div>
 				</div>
@@ -2037,6 +2357,7 @@ export function MapWorkspace({
 									disabled={sendDisabled}
 									onClick={() => {
 										closeComparison();
+										switchWorkspaceView("conversation");
 										void submitQuery(m("comparePrompt"));
 									}}
 								>
@@ -2047,6 +2368,7 @@ export function MapWorkspace({
 					</div>
 				)}
 			</main>
+
 			{toast && active && <output className="owl-product-toast">{toast}</output>}
 		</div>
 	);
