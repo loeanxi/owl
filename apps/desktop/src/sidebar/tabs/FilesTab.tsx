@@ -365,8 +365,11 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 					title={t("common.refresh")}
 					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 					onClick={() => {
+						// 只清缓存重列根目录不够：展开层的补拉 effect 不因刷新重跑，这里要一起重列
 						cacheRef.current.clear();
-						void reload("", false);
+						void (async () => {
+							for (const dir of ["", ...state.expanded]) await reload(dir);
+						})();
 					}}
 				>
 					<IconRefresh size={14} />

@@ -2785,6 +2785,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "mirror.list": {
+				console.error("[diag] mirror.list entered");
 				if (!mirror.isSupported()) {
 					reply(ws, request.id, {
 						ok: true,
@@ -2793,7 +2794,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				try {
+					console.error("[diag] listWindows starting");
 					const windows = await mirror.listWindows();
+					console.error("[diag] listWindows done:", windows.length);
 					reply(ws, request.id, { ok: true, result: { windows, supported: true } satisfies MirrorListResult });
 				} catch (error) {
 					reply(ws, request.id, {
@@ -2804,10 +2807,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "mirror.attach": {
-				// 先记账再 attach：帧一到就按订阅表定向投递
+				// 先记账再 attach：帧一到就按订阅表定向投递。同一连接重复 attach（前端
+				// 3s 无帧重试）只在首次真正 hub.attach——hub 的 refs 是计数器，重复加
+				// 而清理只有一份 detach，捕获进程就永远等不到回收。
 				const owned = mirrorSubscriptions.get(ws) ?? new Set<string>();
+				const firstClaim = !owned.has(request.windowId);
 				owned.add(request.windowId);
 				mirrorSubscriptions.set(ws, owned);
+				if (!firstClaim) {
+					reply(ws, request.id, { ok: true });
+					return;
+				}
 				try {
 					mirror.attach(request.windowId);
 					reply(ws, request.id, { ok: true });

@@ -73,8 +73,9 @@ function normalizeUrl(raw: string): string {
 	const text = raw.trim();
 	if (!text) return "";
 	if (/^https?:\/\//i.test(text)) return text;
-	if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return text;
+	// 必须先于 scheme 判断：`localhost:5188` 的 host:port 会被通用 scheme 正则当成 `localhost` 协议原样放行
 	if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?/i.test(text)) return `http://${text}`;
+	if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return text;
 	return `https://${text}`;
 }
 

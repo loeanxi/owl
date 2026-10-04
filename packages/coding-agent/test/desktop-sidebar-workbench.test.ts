@@ -243,7 +243,15 @@ describe("git 真实仓库冒烟", () => {
 			const stagedDiff = await gitDiff(repo, "hello.txt", true);
 			expect(stagedDiff).toContain("+line2");
 
-		it("workspace 开在仓库子目录：条目重定基为 cwd 相对，仓库外部改动不显示", async () => {
+			// 非仓库目录：repo:false 而不是抛错
+			expect((await gitStatus(plain)).repo).toBe(false);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+			await rm(plain, { recursive: true, force: true });
+		}
+	});
+
+	it("workspace 开在仓库子目录：条目重定基为 cwd 相对，仓库外部改动不显示", async () => {
 		const repo = await makeTempDir();
 		try {
 			run("git", ["init", "-q"], { cwd: repo });
@@ -270,6 +278,13 @@ describe("git 真实仓库冒烟", () => {
 			expect((await gitStatus(sub)).entries).toHaveLength(0);
 
 			await writeFile(join(sub, "new.txt"), "n1\n");
+			await mkdir(join(sub, "newdir"), { recursive: true });
+			await writeFile(join(sub, "newdir", "deep.txt"), "d1\n");
+			// -uall：整目录未跟踪展开成单文件条目，不再折叠成 `?? dir/`
+			const expanded = await gitStatus(sub);
+			expect(expanded.entries.map((entry) => entry.path).sort()).toEqual(["new.txt", "newdir/deep.txt"]);
+			await rm(join(sub, "newdir"), { recursive: true, force: true });
+
 			await gitStage(sub, ["new.txt"]);
 			const staged = await gitStatus(sub);
 			expect(staged.entries[0]).toMatchObject({ path: "new.txt", x: "A", y: " " });

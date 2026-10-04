@@ -115,11 +115,15 @@ function languageFor(path: string): LanguageSupport | undefined {
 	}
 }
 
+/** 自己保存的写盘也会触发 watcher 推送（sidebar-watch 防抖 150ms + 回路余量），宽限掉。 */
+const SELF_SAVE_GRACE_MS = 1500;
+
 export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
 	const saveRef = useRef<(() => void) | null>(null);
+	const lastSaveAtRef = useRef(0);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | undefined>(undefined);
 	const [truncated, setTruncated] = useState(false);
@@ -142,6 +146,7 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 				try {
 					await api.fsWrite(cwd, path, view.state.doc.toString());
 					store.setDirty(tab.id, false);
+					lastSaveAtRef.current = Date.now();
 					setStale(false);
 					setSavedAt(Date.now());
 				} catch (err) {
@@ -232,6 +237,7 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 	useEffect(() => {
 		const dir = path.split("/").slice(0, -1).join("/");
 		return store.onFsChanged((dirs) => {
+			if (Date.now() - lastSaveAtRef.current < SELF_SAVE_GRACE_MS) return;
 			if (dirs.includes(path) || dirs.includes(dir)) setStale(true);
 		});
 	}, [store, path]);

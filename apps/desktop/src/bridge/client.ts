@@ -323,6 +323,20 @@ export class BridgeClient {
 					reject(new Error("Review request timed out"));
 				}, 15_000);
 			}
+			// 其余门控 UI 的快请求统一兜底：session.prompt 的应答是立即 ack（真正的
+			// 回答走事件流），session.resume 要回放整份转录所以放宽到 30s。桥假死时
+			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
+			const fallbackTimeout =
+				request.type === "session.resume" ? 30_000
+				: ["session.create", "session.prompt", "session.stats", "session.running", "models.list"].includes(request.type)
+					? 15_000
+					: undefined;
+			if (fallbackTimeout !== undefined) {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error("请求超时，请重试（桥可能无响应）"));
+				}, fallbackTimeout);
+			}
 			this.pending.set(id, pending);
 			this.ws.send(JSON.stringify({ ...request, id }));
 		});

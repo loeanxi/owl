@@ -325,6 +325,12 @@ export default function App(): React.JSX.Element {
 	workspaceRef.current = workspaceDir;
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
+	// 会话视图序号：openSession 的响应落地前用户可能又点了别的会话/新会话/切项目，
+	// 序号对不上的过期响应直接丢弃，否则旧会话（连同 workspace、localStorage）
+	// 会被后到的响应画回屏幕
+	const sessionViewSeq = useRef(0);
+	// session.create 在途标记：连点「新会话」时只放行第一笔创建，免得侧栏多出空会话
+	const creatingSessionRef = useRef(false);
 	const panelSessionIdRef = useRef<string | undefined>(undefined);
 	panelSessionIdRef.current = railView === "research" ? researchSessionId : sessionId;
 	useEffect(() => client.onNewsOpen((message) => {
@@ -735,7 +741,8 @@ export default function App(): React.JSX.Element {
 		if (!target) return;
 		try {
 			const response = await client.request<SessionStatsResult>({ type: "session.stats", sessionId: target });
-			if (response.ok) setSessionInfo(response.result ?? undefined);
+			// 落地时会话可能已切走：过期统计画进当前会话就是用量环/模型名串话
+			if (response.ok && target === sessionIdRef.current) setSessionInfo(response.result ?? undefined);
 		} catch {
 			// 桥断开时静默跳过，重连后下一轮会重新拉取
 		}
@@ -778,32 +785,39 @@ export default function App(): React.JSX.Element {
 
 	async function ensureSession(): Promise<string | undefined> {
 		if (sessionIdRef.current) return sessionIdRef.current;
-		const response = await client.request<{ sessionId: string }>({
-			type: "session.create",
-			cwd: workspaceRef.current,
-			...selectedModel(),
-			thinkingLevel,
-			approvalMode,
-		});
-		if (!response.ok || !response.result) {
-			console.error("session.create failed:", response.error);
-			setEntries([
-				{ kind: "toolResult", toolName: t("app.sessionCreateFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
-			]);
-			return undefined;
+		if (creatingSessionRef.current) return undefined;
+		creatingSessionRef.current = true;
+		try {
+			const response = await client.request<{ sessionId: string }>({
+				type: "session.create",
+				cwd: workspaceRef.current,
+				...selectedModel(),
+				thinkingLevel,
+				approvalMode,
+			});
+			if (!response.ok || !response.result) {
+				console.error("session.create failed:", response.error);
+				setEntries([
+					{ kind: "toolResult", toolName: t("app.sessionCreateFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
+				]);
+				return undefined;
+			}
+			const id = response.result.sessionId;
+			sessionIdRef.current = id;
+			setSessionId(id);
+			setEntries([]);
+			setRetryStatus(null);
+			setSessionBranched(false);
+			setSessionName(undefined);
+			void refreshStats(id);
+			return id;
+		} finally {
+			creatingSessionRef.current = false;
 		}
-		const id = response.result.sessionId;
-		sessionIdRef.current = id;
-		setSessionId(id);
-		setEntries([]);
-		setRetryStatus(null);
-		setSessionBranched(false);
-		setSessionName(undefined);
-		void refreshStats(id);
-		return id;
 	}
 
 	const newChat = (): void => {
+		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
 		setSessionId(undefined);
 		setEntries([]);
@@ -817,6 +831,7 @@ export default function App(): React.JSX.Element {
 	// 切换项目 = 换工作目录并从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在当前项目下创建会话。
 	const switchProject = (path: string): void => {
+		sessionViewSeq.current += 1;
 		setResearchConversationTitle(undefined);
 		setResearchResumeRequest(undefined);
 		setResearchSessionId(undefined);
@@ -834,6 +849,7 @@ export default function App(): React.JSX.Element {
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
 	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
 	const openSession = async (targetSessionId: string, options?: { silent?: boolean }): Promise<void> => {
+		const requestSeq = ++sessionViewSeq.current;
 		const response = await client.request<{
 			sessionId: string;
 			cwd: string;
@@ -850,6 +866,9 @@ export default function App(): React.JSX.Element {
 			approvalMode,
 			...selectedModel(),
 		});
+		// 响应落地前用户又做了新的会话切换：这份过期响应整体丢弃（含错误横幅，
+		// 免得旧会话的失败盖在别的会话视图上）
+		if (requestSeq !== sessionViewSeq.current) return;
 		if (!response.ok || !response.result) {
 			console.error("session.resume failed:", response.error);
 			if (!options?.silent) {
@@ -986,7 +1005,8 @@ export default function App(): React.JSX.Element {
 		void client
 			.request<SessionStatsResult>({ type: "session.setModel", sessionId: current, ...spec })
 			.then((response) => {
-				if (response.ok && response.result) setSessionInfo(response.result);
+				// 落地时会话可能已切走，过期统计不画
+				if (response.ok && response.result && current === sessionIdRef.current) setSessionInfo(response.result);
 			})
 			.catch(() => {});
 	};
@@ -999,7 +1019,7 @@ export default function App(): React.JSX.Element {
 		void client
 			.request<SessionStatsResult>({ type: "session.setThinkingLevel", sessionId: current, level })
 			.then((response) => {
-				if (response.ok && response.result) setSessionInfo(response.result);
+				if (response.ok && response.result && current === sessionIdRef.current) setSessionInfo(response.result);
 			})
 			.catch(() => {});
 	};

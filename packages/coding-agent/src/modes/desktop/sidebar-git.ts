@@ -151,7 +151,8 @@ function entryAt(cwd: string, root: string, entry: GitStatusEntry): GitStatusEnt
 
 /** 某仓库内单个路径的 porcelain 状态（pathspec 限定，供 untracked 判定）。 */
 async function statusOfOne(root: string, repoRel: string): Promise<GitStatusEntry | undefined> {
-	const out = await git(root, ["status", "--porcelain=v1", "-z", "--", repoRel]);
+	// -uall：未跟踪文件若整个目录都是新的，默认会折叠成 `?? dir/`，单文件查不到
+	const out = await git(root, ["status", "--porcelain=v1", "-z", "-uall", "--", repoRel]);
 	return parseStatusZ(out).entries.find((row) => row.path === repoRel);
 }
 
@@ -241,8 +242,10 @@ async function repoToplevel(cwd: string): Promise<string | undefined> {
  * 只保留 cwd 之下的改动——下游 stage/diff/discard 的 pathspec 都是 cwd 相对。
  */
 export async function gitStatus(cwd: string): Promise<GitStatusResult> {
+	// -uall：把整目录未跟踪展开成单文件条目。默认的目录折叠（`?? dir/`）在
+	// 子仓库聚合里没法重定基，点开也是合成不出内容的空 diff。
 	if (await isRepo(cwd)) {
-		const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b"]);
+		const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b", "-uall"]);
 		const parsed = parseStatusZ(out);
 		const root = await repoToplevel(cwd);
 		if (root === undefined) return { repo: true, ...parsed };
@@ -257,7 +260,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 	let firstError: unknown;
 	for (const root of roots) {
 		try {
-			const parsed = parseStatusZ(await git(root, ["status", "--porcelain=v1", "-z", "-b"]));
+			const parsed = parseStatusZ(await git(root, ["status", "--porcelain=v1", "-z", "-b", "-uall"]));
 			repos.push({ root: toWirePath(cwd, root), branch: parsed.branch, upstream: parsed.upstream });
 			for (const entry of parsed.entries) {
 				entries.push(entryAt(cwd, root, entry));

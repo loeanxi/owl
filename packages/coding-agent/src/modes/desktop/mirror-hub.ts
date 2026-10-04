@@ -9,8 +9,8 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import type { MirrorWindowInfo } from "./protocol.ts";
 import { hideRect } from "./mirror/embed-layout.ts";
+import type { MirrorWindowInfo } from "./protocol.ts";
 
 const WORKER_URL = new URL("./mirror/windows-capture.ps1", import.meta.url);
 
@@ -162,12 +162,18 @@ export class MirrorHub {
 		if (!Number.isFinite(parentHwnd) || parentHwnd <= 0) throw new Error("invalid parentHwnd");
 		const lines = await this.runWorkerLines([
 			"embed",
-			"-Hwnd", String(hwnd),
-			"-ParentHwnd", String(parentHwnd),
-			"-X", String(Math.round(rect.x)),
-			"-Y", String(Math.round(rect.y)),
-			"-W", String(Math.round(rect.width)),
-			"-H", String(Math.round(rect.height)),
+			"-Hwnd",
+			String(hwnd),
+			"-ParentHwnd",
+			String(parentHwnd),
+			"-X",
+			String(Math.round(rect.x)),
+			"-Y",
+			String(Math.round(rect.y)),
+			"-W",
+			String(Math.round(rect.width)),
+			"-H",
+			String(Math.round(rect.height)),
 		]);
 		for (const line of lines) {
 			if (!line.includes('"event":"embedded"')) continue;
@@ -177,7 +183,7 @@ export class MirrorHub {
 					originalStyle: obj.originalStyle ?? 0x00cf0000,
 					originalParent: obj.originalParent ?? 0,
 				});
-			} catch { }
+			} catch {}
 		}
 	}
 
@@ -192,11 +198,16 @@ export class MirrorHub {
 		const applied = visible ? rect : hideRect();
 		await this.runWorkerLines([
 			"move",
-			"-Hwnd", String(hwnd),
-			"-X", String(Math.round(applied.x)),
-			"-Y", String(Math.round(applied.y)),
-			"-W", String(Math.round(applied.width)),
-			"-H", String(Math.round(applied.height)),
+			"-Hwnd",
+			String(hwnd),
+			"-X",
+			String(Math.round(applied.x)),
+			"-Y",
+			String(Math.round(applied.y)),
+			"-W",
+			String(Math.round(applied.width)),
+			"-H",
+			String(Math.round(applied.height)),
 		]);
 	}
 
@@ -208,9 +219,12 @@ export class MirrorHub {
 		this.embedMeta.delete(windowId);
 		await this.runWorkerLines([
 			"unembed",
-			"-Hwnd", String(hwnd),
-			"-Style", String(meta?.originalStyle ?? -1),
-			"-ParentHwnd", String(meta?.originalParent ?? 0),
+			"-Hwnd",
+			String(hwnd),
+			"-Style",
+			String(meta?.originalStyle ?? -1),
+			"-ParentHwnd",
+			String(meta?.originalParent ?? 0),
 		]);
 	}
 
@@ -281,12 +295,22 @@ export class MirrorHub {
 			const text = chunk.toString("utf8").trim();
 			if (text) this.options.onDiagnostic?.(`mirror[${windowId}] stderr: ${text.slice(0, 300)}`);
 		});
-		const exitHandler = (): void => {
-			// worker 意外退出（窗口消失 / 捕获报错）：清账并广播清单刷新
+		let reaped = false;
+		const reap = (): void => {
+			// worker 意外退出（窗口消失 / 捕获报错 / spawn 失败）：清账并广播清单刷新。
+			// 已 disposed 不再拉新清单——否则 dispose 里逐个 kill 会催生一批新 worker。
+			if (reaped || this.disposed) return;
+			reaped = true;
 			if (this.workers.get(windowId) === worker) this.workers.delete(windowId);
 			void this.listWindows().catch(() => {});
 		};
-		worker.proc.on("exit", exitHandler);
+		worker.proc.on("exit", reap);
+		// spawn 失败（EMFILE / 被安全软件拦截等）只发 error 不发 exit：没有监听就是
+		// 未捕获异常，整个桥跟着崩——与 runWorkerLines 的 error 处理同款。
+		worker.proc.on("error", (error: Error) => {
+			this.options.onDiagnostic?.(`mirror[${windowId}] ${error.message}`);
+			reap();
+		});
 		return worker;
 	}
 
