@@ -1270,7 +1270,7 @@ export const en: Dict = {
 	"chat.msgBranch": "Branch into a new conversation",
 	"chat.msgUsage": "Usage {n} tok",
 	"chat.msgUsageTitle": "Input {input} · Output {output} · Cache read {cacheRead} · Cache write {cacheWrite}",
-	"chat.turnDuration": "Took {n}",
+	"chat.turnDuration": "Elapsed {n}",
 	"chat.msgEdit": "Edit",
 	"chat.msgEditAria": "Edit this message and resend",
 	"chat.msgEditSend": "Send",

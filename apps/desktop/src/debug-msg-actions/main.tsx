@@ -81,14 +81,33 @@ const entries: ChatEntry[] = [
 	},
 ];
 
+// 实时视图的转录：在已完成对话上追加一条 1 分钟前发出的用户消息，activity=working
+// 观察「正在生成回答 · 已耗时 …」的秒级跳动
+const liveEntries: ChatEntry[] = [
+	...entries,
+	{ kind: "user", text: "帮我盯着构建日志，有报错就喊我", timestamp: Date.now() - 65_000 },
+];
+
 function App(): React.JSX.Element {
 	return (
-		<div style={{ display: "flex", height: "100vh", background: "#171717" }}>
-			<div style={{ flex: 1, minWidth: 0 }}>
+		<div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#171717" }}>
+			<div style={{ flex: 1, minHeight: 0 }}>
 				<GenuiSessionProvider client={stubClient} sessionId="debug-session">
 					<ChatStream
 						entries={entries}
 						activity="idle"
+						onRewind={noop}
+						onRegenerate={noop}
+						onEditMessage={noop}
+						onBranch={noop}
+					/>
+				</GenuiSessionProvider>
+			</div>
+			<div style={{ flex: 1, minHeight: 0, borderTop: "1px solid #333" }}>
+				<GenuiSessionProvider client={stubClient} sessionId="debug-session-live">
+					<ChatStream
+						entries={liveEntries}
+						activity="working"
 						onRewind={noop}
 						onRegenerate={noop}
 						onEditMessage={noop}

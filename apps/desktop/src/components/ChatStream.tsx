@@ -901,15 +901,33 @@ function QuestionMinimap({ questions, active, onJump }: {
 export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 
 function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
+	// 实时已耗时：从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示）。
+	// 每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, []);
 	if (activity === "idle") return null;
 	let executing = false;
+	let userTs: number | undefined;
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index]!;
-		if (entry.kind === "user") break;
+		if (entry.kind === "user") {
+			userTs = entry.timestamp;
+			break;
+		}
 		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
 	}
 	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
-	return <div className="owl-response-activity" data-state={activity} role="status"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" /><span>{label}</span></div>;
+	const elapsed = userTs !== undefined ? formatDuration(Math.max(0, now - userTs)) : undefined;
+	return (
+		<div className="owl-response-activity" data-state={activity} role="status">
+			<img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" />
+			<span>{label}</span>
+			{elapsed && <span className="owl-turn-duration">{t("chat.turnDuration", { n: elapsed })}</span>}
+		</div>
+	);
 }
 
 /**
