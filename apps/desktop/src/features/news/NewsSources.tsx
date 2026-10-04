@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
 	NewsMaterial,
 	NewsParticipation,
@@ -84,10 +84,49 @@ export function NewsSources({
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const [deleting, setDeleting] = useState<string>();
+	const root = useRef<HTMLElement>(null);
+	const nameInput = useRef<HTMLInputElement>(null);
+	const feedback = useRef<HTMLDivElement>(null);
+	const inFlight = useRef(false);
+	const returnFocusId = useRef("");
+	const listScrollTop = useRef(0);
+	const restorePending = useRef(false);
+	const waitForRefresh = useRef(false);
+	const refreshStarted = useRef(false);
+	const editorOpen = !!draft;
+	useEffect(() => {
+		if (!editorOpen) return;
+		root.current?.closest<HTMLElement>(".owl-news-content")?.scrollTo({ top: 0 });
+		nameInput.current?.focus({ preventScroll: true });
+	}, [editorOpen]);
+	useEffect(() => {
+		if (editorOpen || !restorePending.current) return;
+		if (sources.loading) {
+			refreshStarted.current = true;
+			return;
+		}
+		if (waitForRefresh.current && !refreshStarted.current) return;
+		if (!sources.data && !sources.error) return;
+		const target = document.getElementById(returnFocusId.current) ?? document.getElementById("owl-news-add-source");
+		root.current?.closest<HTMLElement>(".owl-news-content")?.scrollTo({ top: listScrollTop.current });
+		target?.focus({ preventScroll: true });
+		restorePending.current = false;
+	}, [editorOpen, sources.loading, sources.data, sources.error]);
+	useEffect(() => {
+		if (editorOpen && (error || notice || preview)) feedback.current?.scrollIntoView({ block: "nearest" });
+	}, [editorOpen, error, notice, preview]);
 	function edit(source?: NewsSource): void {
+		if (inFlight.current) return;
+		returnFocusId.current = source ? `owl-news-edit-source-${source.id}` : "owl-news-add-source";
+		listScrollTop.current = root.current?.closest<HTMLElement>(".owl-news-content")?.scrollTop ?? 0;
+		waitForRefresh.current = false;
+		refreshStarted.current = false;
 		setEditingId(source?.id);
 		setPreview(undefined);
 		setError("");
+		setNotice("");
+		setIngestText("");
+		setDeleting(undefined);
 		setConfigText({});
 		setDraft(
 			source
@@ -143,7 +182,8 @@ export function NewsSources({
 		return { ...draft, id: draft.id.trim(), name: draft.name.trim(), config };
 	}
 	async function perform(operation: () => Promise<unknown>, message: string, refresh = true): Promise<void> {
-		if (busy) return;
+		if (inFlight.current) return;
+		inFlight.current = true;
 		setBusy(true);
 		setError("");
 		setNotice("");
@@ -154,26 +194,27 @@ export function NewsSources({
 		} catch (failure) {
 			setError(errorText(failure));
 		} finally {
+			inFlight.current = false;
 			setBusy(false);
 		}
 	}
 	return (
-		<section>
+		<section ref={root}>
 			<div className="owl-news-heading">
 				<div>
 					<h1>{t("news.sources")}</h1>
 					<p>{t("news.sourcesHint")}</p>
 				</div>
-				<button type="button" className="owl-news-primary" onClick={() => edit()}>
+				{!draft && <button id="owl-news-add-source" type="button" className="owl-news-primary" disabled={busy} onClick={() => edit()}>
 					{t("news.addSource")}
-				</button>
+				</button>}
 			</div>
-			{(error || sources.error) && (
+			{((!draft && error) || sources.error) && (
 				<p role="alert" className="owl-news-error">
 					{error || sources.error}
 				</p>
 			)}
-			{notice && (
+			{notice && !draft && (
 				<p aria-live="polite" className="owl-news-notice">
 					{notice}
 				</p>
@@ -185,7 +226,7 @@ export function NewsSources({
 					<p>{t("news.noSourcesHint")}</p>
 				</div>
 			)}
-			<div className="owl-news-source-list">
+			{!draft && <div className="owl-news-source-list">
 				{sources.data?.map((source) => (
 					<article key={source.id} className="owl-news-source-row">
 						<div>
@@ -217,10 +258,10 @@ export function NewsSources({
 						>
 							{t("news.collectNow")}
 						</button>
-						<button type="button" onClick={() => edit(source)}>
+						<button id={`owl-news-edit-source-${source.id}`} type="button" disabled={busy} onClick={() => edit(source)}>
 							{t("common.edit")}
 						</button>
-						<button type="button" onClick={() => setDeleting(source.id)}>
+						<button type="button" disabled={busy} onClick={() => setDeleting(source.id)}>
 							{t("common.delete")}
 						</button>
 						{deleting === source.id && (
@@ -245,22 +286,39 @@ export function NewsSources({
 						)}
 					</article>
 				))}
-			</div>
+			</div>}
 			{draft && (
 				<form
 					className="owl-news-form owl-news-source-editor"
+					aria-busy={busy}
 					onSubmit={(event) => {
 						event.preventDefault();
 						void perform(async () => {
 							const saved = await api.query({ action: "saveSource", source: input() });
 							setEditingId(saved.id);
+							if (draft.kind === "external") {
+								setDraft({ ...draft, id: saved.id, name: saved.name });
+							} else {
+								restorePending.current = true;
+								waitForRefresh.current = true;
+								refreshStarted.current = false;
+								setDraft(undefined);
+							}
 						}, t("common.saved"));
 					}}
 				>
+					<fieldset className="owl-news-source-fields" disabled={busy}>
 					<div className="owl-news-heading">
-						<h2>{editingId ? t("common.edit") : t("news.addSource")}</h2>
-						<button type="button" onClick={() => setDraft(undefined)}>
-							{t("common.collapse")}
+						<h2>{editingId ? `${t("common.edit")} · ${draft.name}` : t("news.addSource")}</h2>
+						<button type="button" disabled={busy} onClick={() => {
+							restorePending.current = true;
+							waitForRefresh.current = false;
+							setDraft(undefined);
+							setPreview(undefined);
+							setError("");
+							setNotice("");
+						}}>
+							{t("common.cancel")}
 						</button>
 					</div>
 					<div className="owl-news-grid">
@@ -276,6 +334,7 @@ export function NewsSources({
 						<label>
 							{t("news.sourceName")}
 							<input
+								ref={nameInput}
 								required
 								value={draft.name}
 								onChange={(event) => setDraft({ ...draft, name: event.target.value })}
@@ -404,13 +463,13 @@ export function NewsSources({
 											id={`owl-news-source-${field.key}`}
 											rows={3}
 											value={value}
-											onChange={(event) => setConfigText({ ...configText, [field.key]: event.target.value })}
+											onChange={(event) => { setConfigText({ ...configText, [field.key]: event.target.value }); setPreview(undefined); setNotice(""); }}
 										/>
 									) : (
 										<input
 											id={`owl-news-source-${field.key}`}
 											value={value}
-											onChange={(event) => setConfigText({ ...configText, [field.key]: event.target.value })}
+											onChange={(event) => { setConfigText({ ...configText, [field.key]: event.target.value }); setPreview(undefined); setNotice(""); }}
 										/>
 									)}
 								</label>
@@ -455,17 +514,22 @@ export function NewsSources({
 						<button
 							type="button"
 							disabled={busy || draft.kind === "external"}
-							onClick={() =>
+							onClick={() => {
+								setPreview(undefined);
 								void perform(
 									async () => setPreview(await api.query({ action: "previewSource", source: input() })),
 									t("news.previewDone"),
 									false,
-								)
-							}
+								);
+							}}
 						>
 							{t("news.preview")}
 						</button>
 					</div>
+					<div ref={feedback}>
+						{busy && <p aria-live="polite">{t("common.processing")}</p>}
+						{error && <p className="owl-news-error" role="alert">{error}</p>}
+						{notice && <p className="owl-news-notice" role="status">{notice}</p>}
 					{preview && (
 						<div>
 							<h3>{t("news.previewCount", { n: preview.length })}</h3>
@@ -478,6 +542,8 @@ export function NewsSources({
 							))}
 						</div>
 					)}
+					</div>
+					</fieldset>
 				</form>
 			)}
 		</section>

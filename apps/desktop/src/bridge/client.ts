@@ -289,6 +289,13 @@ export class BridgeClient {
 					reject(new Error("邮箱请求超时，请重试"));
 				}, 120_000);
 			}
+			// 分支是快操作：旧桥不认识 session.fork 也不回包，不设超时 UI 就永远没反应
+			if (request.type === "session.fork") {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error('分支请求超时：桥可能是旧版本，请重启应用后重试'));
+				}, 15_000);
+			}
 			if (request.type === "evaluation.request") {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);

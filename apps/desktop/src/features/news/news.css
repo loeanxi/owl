@@ -942,6 +942,13 @@
 	border-radius: 9px;
 	padding: 20px;
 }
+.owl-news-source-editor > .owl-news-source-fields {
+	display: grid;
+	gap: 15px;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+}
 .owl-news-confirm {
 	width: 100%;
 	padding: 12px;

@@ -448,7 +448,12 @@ export default function App(): React.JSX.Element {
 			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
 			setSessionId(forkedId);
 			sessionIdRef.current = forkedId;
-			setEntries(rebuild(messages, messageEntryIds));
+			// 分支成功要肉眼可见：切过去的新会话内容和原来一模一样，不提示一行
+			// 用户只会觉得"点了没反应"
+			setEntries([
+				...rebuild(messages, messageEntryIds),
+				{ kind: "toolResult", toolName: t("app.branchTool"), ok: true, brief: t("app.branchDone") },
+			]);
 			setRetryStatus(null);
 			void refreshStats(forkedId);
 			setSidebarRev((current) => current + 1);

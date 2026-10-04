@@ -1361,6 +1361,8 @@ export const en: Dict = {
 	"app.compactFailed": "Compaction failed",
 	"app.sendFailed": "Send failed",
 	"app.branchFailed": "Branch failed",
+	"app.branchTool": "Branch into a new conversation",
+	"app.branchDone": "Branched from the original session; the history above is preserved and the original session is untouched (switch back anytime from the sidebar).",
 	"app.sendFailedMsg": "Failed to send message",
 	"app.newConversation": "New conversation",
 	"app.connectionOffline": "Local connection unavailable",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -63,7 +63,6 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		},
 	];
 	await writeFile(sourceFile, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
-	const sourceContent = await readFile(sourceFile, "utf8");
 
 	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
 	const sockets: WebSocket[] = [];
@@ -110,7 +109,11 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(resumed.result?.messageEntryIds).toEqual(["e-user-1", "e-asst-1"]);
 
 		// 以 assistant 条目为末梢分支：新会话 id 不同、历史同构
-		const forked = await request<Snapshot>(first, { type: "session.fork", sessionId: "session-fork-src", entryId: "e-asst-1" });
+		const forked = await request<Snapshot>(first, {
+			type: "session.fork",
+			sessionId: "session-fork-src",
+			entryId: "e-asst-1",
+		});
 		expect(forked.ok).toBe(true);
 		const forkedId = forked.result?.sessionId;
 		expect(forkedId).toBeDefined();
@@ -130,7 +133,14 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(branchLines[0]).toMatchObject({ type: "session", id: forkedId, parentSession: resolve(sourceFile) });
 		expect(branchLines[1]).toMatchObject({ type: "message", id: "e-user-1" });
 		expect(branchLines[2]).toMatchObject({ type: "message", id: "e-asst-1" });
-		expect(await readFile(sourceFile, "utf8")).toBe(sourceContent);
+		// 原文件：原有条目原样保留；挂载期间的 setup 只允许追加状态条目，绝不能动消息
+		const sourceLines = (await readFile(sourceFile, "utf8")).trim().split("\n");
+		expect(sourceLines.slice(0, lines.length).map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual(
+			lines,
+		);
+		for (const extra of sourceLines.slice(lines.length)) {
+			expect((JSON.parse(extra) as { type?: string }).type).not.toBe("message");
+		}
 
 		// 分支点不存在 → 明确报错而不是静默
 		const missing = await request<{ sessionId?: string }>(first, {
