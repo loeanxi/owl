@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { type FileHandle, lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 const MAX_HEADER_BYTES = 16 * 1024 * 1024;
 const MAX_INDEX_ENTRIES = 30_000;
@@ -411,29 +411,47 @@ export async function inspectApplicationContainer(
 			result.warnings.push(`包信息不可用：${error instanceof Error ? error.message : String(error)}`);
 		}
 		const main = result.package?.main?.replace(/^\.\//, "");
-		const candidates = [
-			...new Set([
-				...(main ? [main] : []),
-				...entries
-					.filter(
-						(entry) =>
-							entry.type === "file" &&
-							/\.(?:js|cjs|mjs)$/i.test(entry.path) &&
-							!entry.path.startsWith("node_modules/"),
-					)
-					.map((entry) => entry.path),
-			]),
-		].slice(0, 3);
-		for (const name of candidates) {
+		const scriptEntries = entries
+			.filter(
+				(entry) =>
+					entry.type === "file" &&
+					/\.(?:js|cjs|mjs)$/i.test(entry.path) &&
+					!entry.path.startsWith("node_modules/"),
+			)
+			.sort((a, b) => {
+				const priority = (path: string) =>
+					path.includes("preload/") ? 0 : main && posix.dirname(path) === posix.dirname(main) ? 1 : 2;
+				return priority(a.path) - priority(b.path);
+			});
+		const candidates = [...new Set([...(main ? [main] : []), ...scriptEntries.map((entry) => entry.path)])];
+		for (let candidateIndex = 0; candidateIndex < Math.min(candidates.length, 3); candidateIndex++) {
+			const name = candidates[candidateIndex];
 			try {
 				const data = await read(name, MAX_PREVIEW_BYTES);
+				const signals = javascriptSignals(data.buffer);
 				result.javascript.push({
 					path: name,
 					bytesRead: data.buffer.length,
 					truncated: data.size > data.buffer.length,
 					sha256Read: createHash("sha256").update(data.buffer).digest("hex"),
-					signals: javascriptSignals(data.buffer),
+					signals,
 				});
+				if (candidateIndex === 0) {
+					for (const match of signals
+						.filter(
+							(item) =>
+								item.kind === "module" &&
+								item.snippet.startsWith(".") &&
+								/\.(?:js|cjs|mjs)$/i.test(item.snippet),
+						)
+						.reverse()) {
+						const dependency = posix.join(posix.dirname(name), match.snippet);
+						if (!entries.some((entry) => entry.path === dependency && entry.type === "file")) continue;
+						const previous = candidates.indexOf(dependency);
+						if (previous >= 0) candidates.splice(previous, 1);
+						candidates.splice(1, 0, dependency);
+					}
+				}
 				result.evidence.push({
 					path: `${containerPath}/${name}`,
 					note: "仅读取限长入口代码，未执行",
@@ -445,6 +463,9 @@ export async function inspectApplicationContainer(
 			}
 		}
 		if (result.entriesTruncated) result.warnings.push(`目录列表限制为 ${MAX_LIST_ENTRIES} 个条目`);
+		if (entries.some((entry) => entry.type === "file" && entry.path.endsWith(".jsc"))) {
+			result.warnings.push("发现 .jsc 字节码文件；本工具没有解码或执行字节码，不能声称已恢复其中的源码。");
+		}
 		result.warnings.push(
 			"JS 线索来自限长静态词法匹配，可能出现在注释或字符串中，不保证完整语义调用链；未遍历 node_modules。",
 		);

@@ -28,7 +28,10 @@ beforeEach(() => {
 describe("news Fake-IP DNS boundary", () => {
 	it("re-resolves synthetic answers independently and pins only the validated real public addresses", async () => {
 		const resolveHost = vi.fn(async () => ["198.18.0.106", "8.8.8.8"]);
-		const resolvePublicHost = vi.fn(async (_host: string, _signal: AbortSignal) => ["104.18.33.45", "2606:4700:4700::1111"]);
+		const resolvePublicHost = vi.fn(async (_host: string, _signal: AbortSignal) => [
+			"104.18.33.45",
+			"2606:4700:4700::1111",
+		]);
 		const result = await fetchNewsText("https://openai.com/news/rss.xml", {}, { resolveHost, resolvePublicHost });
 		expect(result.status).toBe(200);
 		expect(resolvePublicHost).toHaveBeenCalledOnce();
@@ -45,8 +48,17 @@ describe("news Fake-IP DNS boundary", () => {
 	});
 
 	it("does not silently use external DNS when a custom resolver has no explicit fallback", async () => {
-		await expect(fetchNewsText("https://example.com", {}, { resolveHost: async () => ["198.18.0.106"] }))
-			.rejects.toThrow("内网");
+		await expect(
+			fetchNewsText("https://example.com", {}, { resolveHost: async () => ["198.18.0.106"] }),
+		).rejects.toThrow("内网");
+		expect(transport.fetch).not.toHaveBeenCalled();
+	});
+
+	it("does not silently use external DNS when only a custom fetch is injected", async () => {
+		transport.lookup.mockResolvedValue([{ address: "198.18.0.106", family: 4 }]);
+		const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response("<rss/>"));
+		await expect(fetchNewsText("https://example.com", {}, { fetch })).rejects.toThrow("内网");
+		expect(fetch).not.toHaveBeenCalled();
 		expect(transport.fetch).not.toHaveBeenCalled();
 	});
 
@@ -57,18 +69,27 @@ describe("news Fake-IP DNS boundary", () => {
 	});
 
 	it.each(["127.0.0.1", "10.0.0.1", "192.168.1.1", "::1", "fd00::1", "::ffff:10.0.0.1"])(
-		"rejects a mixed synthetic/private DNS reply before any fallback or transport: %s", async (privateAddress) => {
+		"rejects a mixed synthetic/private DNS reply before any fallback or transport: %s",
+		async (privateAddress) => {
 			const resolvePublicHost = vi.fn(async () => ["8.8.8.8"]);
-			await expect(fetchNewsText("https://example.com", {}, {
-				resolveHost: async () => ["198.18.0.106", privateAddress], resolvePublicHost,
-			})).rejects.toThrow("内网");
+			await expect(
+				fetchNewsText(
+					"https://example.com",
+					{},
+					{
+						resolveHost: async () => ["198.18.0.106", privateAddress],
+						resolvePublicHost,
+					},
+				),
+			).rejects.toThrow("内网");
 			expect(resolvePublicHost).not.toHaveBeenCalled();
 			expect(transport.fetch).not.toHaveBeenCalled();
 		},
 	);
 
 	it.each(["198.18.0.106", "198.19.255.255", "127.0.0.1", "localhost"])(
-		"never reinterprets a literal private target as a public hostname: %s", async (host) => {
+		"never reinterprets a literal private target as a public hostname: %s",
+		async (host) => {
 			const resolvePublicHost = vi.fn(async () => ["8.8.8.8"]);
 			await expect(fetchNewsText(`https://${host}/`, {}, { resolvePublicHost })).rejects.toThrow("内网");
 			expect(resolvePublicHost).not.toHaveBeenCalled();
@@ -76,44 +97,72 @@ describe("news Fake-IP DNS boundary", () => {
 		},
 	);
 
-	it.each([[], ["198.18.0.1"], ["8.8.8.8", "10.0.0.1"], ["2606:4700::1111", "fd00::1"], ["not-an-ip"]].map((addresses) => ({ addresses })))(
-		"validates every independent DNS result before creating a dispatcher: $addresses", async ({ addresses }) => {
-			const resolvePublicHost = vi.fn(async () => addresses);
-			await expect(fetchNewsText("https://example.com", {}, {
-				resolveHost: async () => ["198.18.0.106"], resolvePublicHost,
-			})).rejects.toThrow();
-			expect(resolvePublicHost).toHaveBeenCalledOnce();
-			expect(transport.pinnedLookups).toHaveLength(0);
-			expect(transport.fetch).not.toHaveBeenCalled();
-		},
-	);
+	it.each(
+		[[], ["198.18.0.1"], ["8.8.8.8", "10.0.0.1"], ["2606:4700::1111", "fd00::1"], ["not-an-ip"]].map((addresses) => ({
+			addresses,
+		})),
+	)("validates every independent DNS result before creating a dispatcher: $addresses", async ({ addresses }) => {
+		const resolvePublicHost = vi.fn(async () => addresses);
+		await expect(
+			fetchNewsText(
+				"https://example.com",
+				{},
+				{
+					resolveHost: async () => ["198.18.0.106"],
+					resolvePublicHost,
+				},
+			),
+		).rejects.toThrow();
+		expect(resolvePublicHost).toHaveBeenCalledOnce();
+		expect(transport.pinnedLookups).toHaveLength(0);
+		expect(transport.fetch).not.toHaveBeenCalled();
+	});
 
 	it("revalidates a redirect and stops before contacting an internal target", async () => {
 		const resolvePublicHost = vi.fn(async () => ["8.8.8.8"]);
-		transport.fetch.mockResolvedValue(new Response("", { status: 302, headers: { location: "http://10.0.0.1/secret" } }));
-		await expect(fetchNewsText("https://example.com", {}, {
-			resolveHost: async () => ["198.18.0.106"], resolvePublicHost,
-		})).rejects.toThrow("内网");
+		transport.fetch.mockResolvedValue(
+			new Response("", { status: 302, headers: { location: "http://10.0.0.1/secret" } }),
+		);
+		await expect(
+			fetchNewsText(
+				"https://example.com",
+				{},
+				{
+					resolveHost: async () => ["198.18.0.106"],
+					resolvePublicHost,
+				},
+			),
+		).rejects.toThrow("内网");
 		expect(transport.fetch).toHaveBeenCalledOnce();
 	});
 
 	it("bounds a hung independent resolver with the original request timeout", async () => {
 		const resolvePublicHost = vi.fn(() => new Promise<string[]>(() => undefined));
-		await expect(fetchNewsText("https://example.com", {}, {
-			resolveHost: async () => ["198.18.0.106"], resolvePublicHost, timeoutMs: 20,
-		})).rejects.toThrow("超时");
+		await expect(
+			fetchNewsText(
+				"https://example.com",
+				{},
+				{
+					resolveHost: async () => ["198.18.0.106"],
+					resolvePublicHost,
+					timeoutMs: 20,
+				},
+			),
+		).rejects.toThrow("超时");
 		expect(resolvePublicHost).toHaveBeenCalledOnce();
 		expect(transport.fetch).not.toHaveBeenCalled();
 	});
 });
 
 function dnsAnswer(type: number, patch: Record<string, unknown> = {}): Response {
-	return new Response(JSON.stringify({
-		Status: 0,
-		Question: [{ name: "example.com.", type }],
-		Answer: type === 1 ? [{ type: 1, data: "8.8.8.8" }] : [],
-		...patch,
-	}));
+	return new Response(
+		JSON.stringify({
+			Status: 0,
+			Question: [{ name: "example.com.", type }],
+			Answer: type === 1 ? [{ type: 1, data: "8.8.8.8" }] : [],
+			...patch,
+		}),
+	);
 }
 
 function defaultDnsTransport(reply: (type: number) => Response) {
@@ -156,29 +205,44 @@ describe("news independent public DNS transport", () => {
 		{ label: "invalid answer shape", patch: { Answer: "8.8.8.8" } },
 		{ label: "no answers", patch: { Answer: [] } },
 	])("rejects malformed or unrelated DoH replies before source transport: $label", async ({ patch }) => {
-		defaultDnsTransport((type) => type === 1 ? dnsAnswer(type, patch) : dnsAnswer(type));
+		defaultDnsTransport((type) => (type === 1 ? dnsAnswer(type, patch) : dnsAnswer(type)));
 		await expect(fetchNewsText("https://example.com")).rejects.toThrow("真实公网地址");
 		expect(transport.pinnedLookups).toHaveLength(0);
 		expect(transport.fetch.mock.calls.every(([input]) => String(input).startsWith("https://1.1.1.1/"))).toBe(true);
 	});
 
 	it("rejects a valid AAAA reply containing a private address even when the A answer is public", async () => {
-		defaultDnsTransport((type) => type === 28 ? dnsAnswer(type, { Answer: [{ type: 28, data: "fd00::1" }] }) : dnsAnswer(type));
+		defaultDnsTransport((type) =>
+			type === 28 ? dnsAnswer(type, { Answer: [{ type: 28, data: "fd00::1" }] }) : dnsAnswer(type),
+		);
 		await expect(fetchNewsText("https://example.com")).rejects.toThrow("内网");
 		expect(transport.pinnedLookups).toHaveLength(0);
 	});
 
 	it("allows CNAME metadata only alongside validated actual address records", async () => {
-		defaultDnsTransport((type) => type === 1 ? dnsAnswer(type, { Answer: [
-			{ type: 5, data: "cdn.example.com." }, { type: 1, data: "8.8.8.8" },
-		] }) : dnsAnswer(type));
+		defaultDnsTransport((type) =>
+			type === 1
+				? dnsAnswer(type, {
+						Answer: [
+							{ type: 5, data: "cdn.example.com." },
+							{ type: 1, data: "8.8.8.8" },
+						],
+					})
+				: dnsAnswer(type),
+		);
 		expect((await fetchNewsText("https://example.com")).status).toBe(200);
 	});
 
 	it.each([
-		{ label: "declared oversized reply", response: () => new Response("{}", { headers: { "content-length": String(17 * 1024) } }) },
+		{
+			label: "declared oversized reply",
+			response: () => new Response("{}", { headers: { "content-length": String(17 * 1024) } }),
+		},
 		{ label: "streamed oversized reply", response: () => new Response(" ".repeat(17 * 1024)) },
-		{ label: "redirect", response: () => new Response("", { status: 302, headers: { location: "http://127.0.0.1/" } }) },
+		{
+			label: "redirect",
+			response: () => new Response("", { status: 302, headers: { location: "http://127.0.0.1/" } }),
+		},
 		{ label: "invalid JSON", response: () => new Response("not-json") },
 	])("bounds and rejects provider transport errors without following them: $label", async ({ response }) => {
 		defaultDnsTransport(() => response());
@@ -189,9 +253,12 @@ describe("news independent public DNS transport", () => {
 
 	it("shares the original source deadline with both DoH requests", async () => {
 		transport.lookup.mockResolvedValue([{ address: "198.18.0.106", family: 4 }]);
-		transport.fetch.mockImplementation(async (_input, init) => new Promise((_resolve, reject) => {
-			init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-		}));
+		transport.fetch.mockImplementation(
+			async (_input, init) =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+				}),
+		);
 		await expect(fetchNewsText("https://example.com", {}, { timeoutMs: 20 })).rejects.toThrow("超时");
 		expect(transport.fetch).toHaveBeenCalledTimes(2);
 		expect(transport.pinnedLookups).toHaveLength(0);

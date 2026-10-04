@@ -126,19 +126,21 @@ export async function fetchNewsText(
 		for (let redirects = 0; redirects <= 5; redirects++) {
 			if (!/^https?:$/.test(url.protocol) || url.username || url.password)
 				throw new Error("只允许无凭据的 HTTP(S) 地址");
-			const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+			const host = url.hostname
+				.replace(/^\[|\]$/g, "")
+				.replace(/\.$/, "")
+				.toLowerCase();
 			if (!options.allowPrivateNetwork && /(^localhost$|\.localhost$|\.local$|\.internal$)/i.test(host))
 				throw new Error("不允许采集本机或内网地址");
 			const resolver =
 				options.resolveHost ??
 				(async (hostname: string) => (await lookup(hostname, { all: true })).map((entry) => entry.address));
-			let addresses = isIP(host)
-				? [host]
-				: await resolveNewsHost(() => resolver(host), signal);
+			let addresses = isIP(host) ? [host] : await resolveNewsHost(() => resolver(host), signal);
 			if (!options.allowPrivateNetwork && !isIP(host) && addresses.some(isFakeNewsAddress)) {
 				if (addresses.some((address) => isPrivateNewsAddress(address) && !isFakeNewsAddress(address)))
 					throw new Error("信源解析到不允许的内网地址");
-				const resolvePublicHost = options.resolvePublicHost ?? (options.resolveHost ? undefined : resolvePublicNewsHost);
+				const resolvePublicHost =
+					options.resolvePublicHost ?? (options.resolveHost || options.fetch ? undefined : resolvePublicNewsHost);
 				if (!resolvePublicHost) throw new Error("信源解析到不允许的内网地址");
 				addresses = await resolveNewsHost(() => resolvePublicHost(host, signal), signal);
 			}

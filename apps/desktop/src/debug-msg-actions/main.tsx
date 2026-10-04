@@ -79,6 +79,30 @@ const entries: ChatEntry[] = [
 		usage: { input: 81200, output: 310, cacheRead: 640000, cacheWrite: 0 },
 		tools: [],
 	},
+	// 多次 LLM 调用的一轮：操作栏只在轮尾出现一次，用量聚合成整轮总量
+	{ kind: "user", text: "再帮我看看另一个项目的结构", entryId: "entry-3", timestamp: at(9, 2, 0) },
+	{
+		kind: "assistant",
+		text: "好的，我先看一下目录结构。",
+		segments: [{ kind: "text", text: "好的，我先看一下目录结构。" }],
+		thinking: "",
+		entryId: "entry-6",
+		timestamp: at(9, 2, 20),
+		endedAt: at(9, 2, 25),
+		usage: { input: 40000, output: 120, cacheRead: 100000, cacheWrite: 0 },
+		tools: [],
+	},
+	{
+		kind: "assistant",
+		text: "看完了，结构很清晰，入口在 `src/main.tsx`。",
+		segments: [{ kind: "text", text: "看完了，结构很清晰，入口在 `src/main.tsx`。" }],
+		thinking: "",
+		entryId: "entry-7",
+		timestamp: at(9, 3, 10),
+		endedAt: at(9, 3, 40),
+		usage: { input: 51000, output: 200, cacheRead: 150000, cacheWrite: 0 },
+		tools: [],
+	},
 ];
 
 // 实时视图的转录：在已完成对话上追加一条 1 分钟前发出的用户消息，activity=working

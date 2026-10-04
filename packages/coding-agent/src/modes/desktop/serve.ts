@@ -326,7 +326,10 @@ export interface DesktopServerOptions {
 	mail?: Partial<Pick<MailServiceOptions, "fetch" | "now" | "seal" | "unseal">>;
 	/** Local dependencies for isolated news integration tests; production uses the Owl model runtime. */
 	news?: Partial<
-		Pick<NewsServiceOptions, "callModel" | "listModels" | "fetch" | "resolveHost" | "resolvePublicHost" | "resolveModel">
+		Pick<
+			NewsServiceOptions,
+			"callModel" | "listModels" | "fetch" | "resolveHost" | "resolvePublicHost" | "resolveModel"
+		>
 	>;
 	/** Real geographic sources, injectable for offline map regression checks. */
 	maps?: RealMapServiceOptions;

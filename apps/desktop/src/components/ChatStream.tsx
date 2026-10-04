@@ -853,26 +853,29 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			flushTools();
 			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		}
-		// 回答底部操作栏：只挂在有正文的 assistant 上（纯工具调用轮不上屏操作栏）；
-		// 流式中的最后一条尚未定型，等 settled 后的重建再出现。
+		// 回答底部操作栏：只挂在有正文的 assistant 上（纯工具调用不上屏）。一轮多次调用
+		// 时先各自挂上，轮结束时 finishTurnFooters 只留最后一条；流式中的进行轮整轮不上屏
+		// （等 agent_end 重建后一次性出现，避免中途闪现又消失）。
 		if (
 			segments.some((segment) => segment.kind === "text" && segment.text.trim() !== "") &&
-			(lastAssistantIndex === -1 || index !== lastAssistantIndex)
+			(lastAssistantIndex === -1 || index !== lastAssistantIndex) &&
+			!(streaming && lastUserIndex !== -1 && index > lastUserIndex)
 		) {
 			flushTools();
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
-				content: assistantFooter(entry, index, false),
+				content: assistantFooter(entry, index, false, turnUsage),
 			};
 			rows.push(row);
-			lastFooter = { row, index, entry };
+			turnFooters.push({ row, index, entry });
 		}
 	});
 	flushTools();
+	finishTurnFooters();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
 	if (lastFooter && canRegenerate && onRegenerate) {
-		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true);
+		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage);
 	}
 	return rows;
 }

@@ -24,6 +24,8 @@ const READ_ONLY_TOOLS = new Set([
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {
 	if (READ_ONLY_TOOLS.has(toolName)) return true;
 	const action = input !== null && typeof input === "object" && "action" in input ? input.action : undefined;
+	if (toolName === "research_executable") return action === undefined || action === "inspect";
+	if (toolName === "research_model_lab") return action === undefined || action === "plan";
 	if (toolName === "browser_tabs") return action === "list" || action === "select";
 	if (toolName === "browser_console") return action === undefined || action === "list";
 	if (toolName === "browser_network") return action === undefined || action === "list" || action === "detail";

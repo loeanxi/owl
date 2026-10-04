@@ -14,6 +14,10 @@ describe("desktop browser plan permissions", () => {
 		expect(isReadOnlyDesktopTool("browser_console", { action: "list" })).toBe(true);
 		expect(isReadOnlyDesktopTool("browser_network", {})).toBe(true);
 		expect(isReadOnlyDesktopTool("browser_network", { action: "detail", requestId: "request" })).toBe(true);
+		expect(isReadOnlyDesktopTool("research_executable", {})).toBe(true);
+		expect(isReadOnlyDesktopTool("research_executable", { action: "inspect" })).toBe(true);
+		expect(isReadOnlyDesktopTool("research_model_lab", {})).toBe(true);
+		expect(isReadOnlyDesktopTool("research_model_lab", { action: "plan" })).toBe(true);
 	});
 
 	it("blocks mutations inside composite tools and unknown actions", () => {
@@ -24,6 +28,11 @@ describe("desktop browser plan permissions", () => {
 			["browser_console", "clear"],
 			["browser_network", "clear"],
 			["browser_network", "replay"],
+			["research_executable", "extract"],
+			["research_executable", "unpack"],
+			["research_executable", "future-action"],
+			["research_model_lab", "run"],
+			["research_model_lab", "future-action"],
 		])
 			expect(isReadOnlyDesktopTool(toolName, { action })).toBe(false);
 		expect(isReadOnlyDesktopTool("browser_tabs", undefined)).toBe(false);

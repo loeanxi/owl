@@ -88,6 +88,7 @@ describe("static Electron container research", () => {
 		await writeFile(exe, "not executed");
 		const app = join(root, "resources", "app");
 		await mkdir(join(app, "out", "main"), { recursive: true });
+		await mkdir(join(app, "out", "preload"), { recursive: true });
 		await mkdir(join(app, "node_modules", "hidden"), { recursive: true });
 		await writeFile(
 			join(app, "package.json"),
@@ -95,7 +96,16 @@ describe("static Electron container research", () => {
 		);
 		await writeFile(
 			join(app, "out", "main", "index.js"),
+			'require("./bytecode-loader.cjs"); require("./index.jsc");',
+		);
+		await writeFile(
+			join(app, "out", "main", "bytecode-loader.cjs"),
 			'const child = require("node:child_process"); child.spawn("never-run");',
+		);
+		await writeFile(join(app, "out", "main", "index.jsc"), "never execute bytecode");
+		await writeFile(
+			join(app, "out", "preload", "index.js"),
+			'const { ipcRenderer } = require("electron"); ipcRenderer.invoke("settings");',
 		);
 		await writeFile(join(app, "node_modules", "hidden", "secret.js"), "do not read");
 		const result = await inspectApplicationContainer({ cwd: root, exePath: exe });
@@ -103,7 +113,13 @@ describe("static Electron container research", () => {
 		expect(result.package?.name).toBe("directory-app");
 		expect(result.javascript[0].path).toBe("out/main/index.js");
 		expect(result.entries.some((entry) => entry.path.startsWith("node_modules/"))).toBe(false);
-		expect(result.javascript[0].signals.some((signal) => signal.kind === "process")).toBe(true);
+		expect(result.javascript.map((file) => file.path)).toEqual([
+			"out/main/index.js",
+			"out/main/bytecode-loader.cjs",
+			"out/preload/index.js",
+		]);
+		expect(result.javascript[1].signals.some((signal) => signal.kind === "process")).toBe(true);
+		expect(result.warnings.some((warning) => warning.includes(".jsc"))).toBe(true);
 		expect(result.capabilities.extract).toBe(false);
 	});
 
@@ -116,6 +132,33 @@ describe("static Electron container research", () => {
 		const outside = await workspace();
 		const archive = await sampleArchive(outside);
 		await expect(inspectApplicationContainer({ cwd: root, archivePath: archive })).rejects.toThrow("超出");
+	});
+
+	it("bounds entry reads and never searches or exposes the unread suffix", async () => {
+		const root = await workspace();
+		const metadata = Buffer.from(JSON.stringify({ main: "main.js" }));
+		const code = Buffer.concat([
+			Buffer.alloc(256 * 1024, 32),
+			Buffer.from('require("private-module-in-unread-suffix");'),
+		]);
+		const path = join(root, "large.asar");
+		await writeFile(
+			path,
+			asar(
+				{
+					files: {
+						"package.json": { size: metadata.length, offset: "0" },
+						"main.js": { size: code.length, offset: String(metadata.length) },
+					},
+				},
+				Buffer.concat([metadata, code]),
+			),
+		);
+		const result = await inspectApplicationContainer({ cwd: root, archivePath: path });
+		expect(result.javascript[0].bytesRead).toBe(256 * 1024);
+		expect(result.javascript[0].truncated).toBe(true);
+		expect(result.javascript[0].signals).toEqual([]);
+		expect(JSON.stringify(result)).not.toContain("private-module-in-unread-suffix");
 	});
 
 	it("rejects malformed Pickles, malicious entry names, and out-of-bounds file offsets", async () => {
