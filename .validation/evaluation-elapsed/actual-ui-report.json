@@ -1,0 +1,57 @@
+{
+  "success": true,
+  "actualApp": true,
+  "paidCalls": 0,
+  "errors": [],
+  "actions": [
+    "bootstrap",
+    "run.get",
+    "run.list"
+  ],
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 860,
+      "timers": [
+        {
+          "width": 51.125,
+          "left": 387.375,
+          "right": 438.5,
+          "text": "耗时 01:23"
+        },
+        {
+          "width": 51.125,
+          "left": 869.375,
+          "right": 920.5,
+          "text": "耗时 01:31"
+        }
+      ]
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "timers": [
+        {
+          "width": 51.125,
+          "left": 342.375,
+          "right": 393.5,
+          "text": "耗时 01:23"
+        },
+        {
+          "width": 51.125,
+          "left": 717.375,
+          "right": 768.5,
+          "text": "耗时 01:31"
+        }
+      ]
+    }
+  ],
+  "currentAttempts": [
+    "耗时 01:23",
+    "耗时 01:31"
+  ],
+  "originalAttempts": [
+    "耗时 10:00",
+    "耗时 02:27"
+  ]
+}

@@ -117,15 +117,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 .owl-desktop-menu-separator { height: 1px; margin: 5px 8px; background: var(--owl-ui-border); }
 .owl-desktop-menu-panel button:disabled { opacity: 0.4; cursor: default; }
 .owl-desktop-menu-row button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
-.owl-desktop-app-name {
-	position: absolute;
-	left: 50%;
-	transform: translateX(-50%);
-	font-size: 10px;
-	letter-spacing: 0.14em;
-	opacity: 0.75;
-	pointer-events: none;
-}
 .owl-desktop-copy-error { margin-left: 20px; font-size: 11px; color: var(--color-owl-muted); }
 .owl-desktop-window-controls { display: flex; height: 100%; margin-left: auto; }
 .owl-desktop-window-controls > div { height: 100%; margin-left: 0; gap: 0; }

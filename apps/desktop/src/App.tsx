@@ -25,7 +25,6 @@ import { QuestionDock } from "./components/QuestionDock.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
-import { IconList } from "./components/icons.tsx";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { ShortcutsDialog, type HelpSection } from "./components/ShortcutsDialog.tsx";
 import { FindBar } from "./components/FindBar.tsx";
@@ -150,7 +149,6 @@ export default function App(): React.JSX.Element {
 	runningSessionsRef.current = runningSessions;
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
-	const [questionNavOpen, setQuestionNavOpen] = useState(false);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
 	const permission = permissions.find((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ?? permissions[0];
 	/** agent 提问队列：按到达顺序在所属会话的输入框上方显示。 */
@@ -332,7 +330,6 @@ export default function App(): React.JSX.Element {
 		window.addEventListener("hashchange", openNewsHash);
 		return () => window.removeEventListener("hashchange", openNewsHash);
 	}, []);
-	useEffect(() => setQuestionNavOpen(false), [sessionId, workspaceDir]);
 	useEffect(() => setRewindTarget(undefined), [sessionId, workspaceDir]);
 
 	// -- 会话回退（owl-rewind）--------------------------------------------------
@@ -1039,7 +1036,6 @@ export default function App(): React.JSX.Element {
 	const mapModelSeparator = mapModelValue.indexOf("/");
 	const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))
 		?.models.find((model) => model.id === mapModelValue.slice(mapModelSeparator + 1))?.name;
-	const questionCount = entries.filter((entry) => entry.kind === "user").length;
 	const waitingForUser = Boolean(sessionId && (permissions.some((request) => request.sessionId === sessionId) || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
 
@@ -1265,7 +1261,6 @@ export default function App(): React.JSX.Element {
 							<span className="owl-shell-connection-dot" />
 							{connected ? t("composer.runLocation.local") : everConnected ? t("app.reconnecting") : t("app.connecting")}
 						</span>
-						{questionCount > 0 && <button type="button" className="owl-chat-directory-trigger" aria-controls="owl-chat-directory" aria-expanded={questionNavOpen} onClick={() => setQuestionNavOpen((open) => !open)}><IconList className="h-3.5 w-3.5" /><span>{t("chat.directoryTitle", { n: questionCount })}</span></button>}
 						<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
 						<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
 					</div>
@@ -1290,7 +1285,7 @@ export default function App(): React.JSX.Element {
 							<ContextView client={client} cwd={workspaceDir} />
 						) : (
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} navigationOpen={questionNavOpen} onNavigationClose={() => setQuestionNavOpen(false)} onRewind={handleRewindClick} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>

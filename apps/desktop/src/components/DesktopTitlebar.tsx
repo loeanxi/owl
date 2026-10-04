@@ -314,7 +314,6 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					{researchTitle}
 				</button>
 			</div>
-			<span className="owl-desktop-app-name" data-tauri-drag-region="deep">OWL</span>
 			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
 				<WindowControls />

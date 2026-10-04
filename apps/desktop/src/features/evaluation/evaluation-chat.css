@@ -44,6 +44,8 @@
 .eval-thinking summary::before{content:'›';font-size:17px;line-height:1}
 .eval-thinking[open] summary::before{transform:rotate(90deg)}
 .eval-thinking summary small{margin-left:auto;font-size:10px;opacity:.7}
+.eval-reply-elapsed{font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--owl-ui-muted)}
+.eval-reply-timing{margin-bottom:12px}
 .eval-thinking-body{margin:9px 0 11px;padding:10px 12px;border-left:2px solid color-mix(in srgb,var(--color-owl-accent) 35%,transparent);background:color-mix(in srgb,var(--owl-ui-panel) 50%,transparent);border-radius:0 6px 6px 0;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow:visible}
 .eval-chat-answer{font-size:14px;line-height:1.85;overflow-wrap:anywhere}
 .eval-chat-answer p{margin:0 0 11px}

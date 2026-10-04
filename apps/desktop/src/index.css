@@ -644,22 +644,11 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-minimap-preview p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 5px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll { padding-left: 48px; }
 .owl-chat-surface:has(.owl-chat-minimap) .owl-screenshot-dock { left: 48px; max-width: calc(100% - 60px); }
-.owl-chat-directory { flex: 0 0 232px; width: 232px; min-height: 0; overflow-y: auto; border-left: 1px solid var(--owl-reading-border); background: var(--color-owl-sidebar-bg); padding: 12px 10px; }
-.owl-chat-directory header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 5px 12px; color: var(--color-owl-sidebar-muted); font-size: 12px; }
-.owl-chat-directory nav { display: flex; flex-direction: column; gap: 3px; }
-.owl-chat-directory nav button { display: flex; gap: 10px; width: 100%; padding: 9px 8px; text-align: left; border-radius: 6px; color: var(--color-owl-sidebar-text); font-size: 12px; }
-.owl-chat-directory nav button:hover { background: var(--color-owl-sidebar-hover); }
-.owl-chat-directory nav button[aria-current] { background: var(--color-owl-sidebar-selected); }
-.owl-chat-directory nav button span:first-child { color: var(--color-owl-sidebar-muted); flex-shrink: 0; }
-.owl-chat-directory nav button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owl-chat-directory-trigger { display: inline-flex; gap: 6px; align-items: center; border-radius: 6px; padding: 5px 7px; color: var(--color-owl-sidebar-muted); font-size: 12px; white-space: nowrap; }
-.owl-chat-directory-trigger:hover, .owl-chat-directory-trigger[aria-expanded="true"] { background: var(--color-owl-sidebar-selected); color: var(--color-owl-sidebar-text); }
 .owl-chat-latest { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--owl-reading-border); border-radius: 20px; background: var(--owl-reading-panel); color: var(--owl-reading-text); font-size: 12px; box-shadow: 0 3px 14px #0002; }
-.owl-chat-directory button:focus-visible, .owl-chat-directory-trigger:focus-visible, .owl-tool-summary:focus-visible, .owl-chat-latest:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-tool-summary:focus-visible, .owl-chat-latest:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
 
 @container owl-chat (max-width: 700px) {
 	.owl-chat-scroll { padding: 24px 20px; }
-	.owl-chat-directory { position: absolute; z-index: 25; inset: 0 0 0 auto; box-shadow: -6px 0 24px #0003; }
 }
 @keyframes owl-tool-spin { to { transform: rotate(360deg); } }
 @keyframes owl-response-breathe { 50% { opacity: .45; transform: rotate(12deg) scale(.92); } }

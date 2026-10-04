@@ -101,6 +101,8 @@ export interface EvaluationFollowup {
 }
 export interface EvaluationFollowupView
 	extends Omit<EvaluationFollowup, "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"> {
+	/** Relative elapsed runtime is visible during anonymous evaluation; queued or unknown timings are null. */
+	elapsedMs?: number | null;
 	startedAt?: string | null;
 	finishedAt?: string | null;
 	durationMs?: number | null;
@@ -160,6 +162,8 @@ export interface EvaluationResultView
 	followups: EvaluationFollowupView[];
 	anonymousLabel: string;
 	revealed: boolean;
+	/** Relative elapsed runtime is visible during anonymous evaluation; queued or unknown timings are null. */
+	elapsedMs?: number | null;
 	profile?: EvaluationProfile;
 	startedAt?: string | null;
 	finishedAt?: string | null;

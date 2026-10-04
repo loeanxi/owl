@@ -7,6 +7,7 @@
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.
 - Added independent model evaluation conversations with persistent follow-up turns, inline artifacts, attempt selection, and first-answer scoring drawers.
+- Added per-answer live runtime beside evaluation thinking, including anonymous answers, retained attempts, and independent follow-ups.
 - Added a desktop Gmail workspace with independently authorized accounts, a unified inbox, scoped mailbox Agent conversations, editable reply drafts, and confirmation of the exact message before sending.
 - Added a copy key (`app.message.copy`, default `ctrl+x`) to OAuth sign-in screens in `/login`, `/mcp`, and `/mcp login`, which copies the sign-in URL when the browser cannot be opened or the wrapped link cannot be selected.
 
@@ -17,6 +18,7 @@
 
 ### Fixed
 
+- Exposed safe output-limit, timeout, and cancellation reasons during anonymous evaluation so unchanged retries are understandable.
 - Fixed the shrinkwrap shipping vulnerable `brace-expansion` 5.0.9 by pinning `brace-expansion` 5.0.12 as a direct dependency (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) ([#10288](https://github.com/earendil-works/pi/issues/10288))
 - Fixed a trailing comma in `--models` adding an extra model to the model cycle ([#10334](https://github.com/earendil-works/pi/issues/10334))
 

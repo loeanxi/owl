@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import { normPath, projectLabel, samePath } from "../utils/paths.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
+import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
 import {
-	IconArchive,
 	IconChat,
 	IconCheck,
 	IconChevron,
@@ -16,7 +16,6 @@ import {
 	IconPin,
 	IconPlus,
 	IconSearch,
-	IconTrash,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 import "./navigation-design.css";
@@ -47,6 +46,7 @@ const RECENT_LIMIT = 30;
 const PROJECT_ROW_MENU_PREFIX = "project-row:";
 /** 置顶栏项目行操作菜单的 id 前缀：与「项目」分组的行菜单互不干扰。 */
 const PINNED_PROJECT_ROW_MENU_PREFIX = "pinned-project-row:";
+const SESSION_ROW_MENU_PREFIX = "session-row:";
 
 type PinnedSort = "recent" | "manual";
 type ListSort = "recent" | "name";
@@ -290,6 +290,13 @@ export function SessionSidebar({
 	const [query, setQuery] = useState("");
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
+	const sessionMenuId = useId();
+	const [sessionMenu, setSessionMenu] = useState<{ key: string; row: SessionRow; anchor: HTMLButtonElement } | null>(null);
+	const closeSessionMenu = useCallback((restoreFocus = true): void => {
+		if (restoreFocus && sessionMenu?.anchor.isConnected) sessionMenu.anchor.focus({ preventScroll: true });
+		setSessionMenu(null);
+		setOpenMenu((current) => current === sessionMenu?.key ? null : current);
+	}, [sessionMenu]);
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
 		loadChoice(keys.pinnedSort, ["recent", "manual"] as const, "manual"),
 	);
@@ -314,7 +321,7 @@ export function SessionSidebar({
 
 	// 菜单打开时：点击菜单外或按 Esc 关闭
 	useEffect(() => {
-		if (!openMenu) return;
+		if (!openMenu || openMenu.startsWith(SESSION_ROW_MENU_PREFIX)) return;
 		const onDown = (event: MouseEvent): void => {
 			const target = event.target as HTMLElement | null;
 			if (target?.closest("[data-menu-root]")) return;
@@ -330,6 +337,16 @@ export function SessionSidebar({
 			document.removeEventListener("keydown", onKey);
 		};
 	}, [openMenu]);
+
+	// A menu belongs to a specific rendered row, not every copy of that session.
+	useEffect(() => {
+		if (sessionMenu === null) return;
+		if (openMenu !== sessionMenu.key || !sessionMenu.anchor.isConnected) closeSessionMenu(false);
+	}, [openMenu, sessionMenu, closeSessionMenu, allSessions, query, collapsed, openProjects, pinned]);
+	useEffect(() => {
+		setSessionMenu(null);
+		setOpenMenu((current) => current?.startsWith(SESSION_ROW_MENU_PREFIX) ? null : current);
+	}, [minimized, activeId, activeProject, sessionScope, focus]);
 
 	// 当前项目变化时登记进项目列表：新建项目、切项目、恢复历史会话都会走到这里。
 	// 不登记的话，没有会话的项目会在切走后从「项目」分组消失。
@@ -575,18 +592,19 @@ export function SessionSidebar({
 
 	/**
 	 * 会话行（单行紧凑式）：聊天图标 + 标题，运行中的会话显示绿色状态，
-	 * 悬停露出置顶/归档/删除按钮。
+	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean): React.JSX.Element => {
+	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string): React.JSX.Element => {
 		const id = row.id;
-		const isPinned = id !== undefined && pinned.includes(id);
 		const isRunning = id !== undefined && runningSessions.has(id);
+		const menuKey = `${SESSION_ROW_MENU_PREFIX}${location}:${id ?? index}`;
+		const menuOpen = openMenu === menuKey && sessionMenu?.key === menuKey;
 		return (
 			<div
 				key={id ?? index}
 				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
-					pinnedRow ? "owl-sidebar-row--has-marker" : ""
-				}`}
+					id ? "owl-sidebar-row--has-marker" : ""
+				} ${menuOpen ? "is-open" : ""}`}
 			>
 				<button
 					type="button"
@@ -605,37 +623,25 @@ export function SessionSidebar({
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
 				{id && (
-					<div className="owl-sidebar-row-actions" data-persistent={pinnedRow}>
+					<div data-menu-root className="owl-sidebar-row-actions" data-persistent={pinnedRow}>
 						<button
 							type="button"
-							className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent order-last" : ""}`}
-							title={isPinned ? t("sidebar.unpin") : t("sidebar.pin")}
-							aria-label={isPinned ? t("sidebar.unpinSession") : t("sidebar.pinSession")}
-							aria-pressed={isPinned}
-							onClick={() => togglePin(id)}
-						>
-							<IconPin className="h-3.5 w-3.5" filled={isPinned} />
-						</button>
-						<button
-							type="button"
-							className={rowBtn}
-							title={t("sidebar.archive")}
-							aria-label={t("sidebar.archiveSessionAria")}
-							onClick={() => void archiveSession(row)}
-						>
-							<IconArchive className="h-3.5 w-3.5" />
-						</button>
-						<button
-							type="button"
-							className={`${rowBtn} owl-sidebar-action--danger`}
-							title={t("sidebar.deleteSessionTitle")}
-							aria-label={t("sidebar.deleteSessionTitle")}
-							onClick={() => {
-								setConfirmDelete(row);
-								setDeleteError("");
+							className={`${rowBtn} ${pinnedRow ? "owl-sidebar-action--persistent" : ""}`}
+							title={t("sidebar.sessionActions")}
+							aria-label={t("sidebar.sessionActionsAria", { name: sessionTitle(row) })}
+							aria-haspopup="menu"
+							aria-expanded={menuOpen}
+							aria-controls={menuOpen ? sessionMenuId : undefined}
+							onClick={(event) => {
+								event.stopPropagation();
+								if (menuOpen) closeSessionMenu();
+								else {
+									setSessionMenu({ key: menuKey, row, anchor: event.currentTarget });
+									setOpenMenu(menuKey);
+								}
 							}}
 						>
-							<IconTrash className="h-3.5 w-3.5" />
+							<IconMore className="h-3.5 w-3.5 rotate-90" />
 						</button>
 					</div>
 				)}
@@ -755,7 +761,7 @@ export function SessionSidebar({
 				</div>
 				{expanded && (
 					<div className="owl-sidebar-project-sessions">
-						{rows.map((row, index) => sessionRow(row, index, false))}
+						{rows.map((row, index) => sessionRow(row, index, false, menuId))}
 						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 					</div>
 				)}
@@ -866,7 +872,7 @@ export function SessionSidebar({
 				</div>
 				{expanded && (
 					<div className="owl-sidebar-project-sessions">
-						{rows.map((row, index) => sessionRow(row, index, false))}
+						{rows.map((row, index) => sessionRow(row, index, false, menuId))}
 						{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 					</div>
 				)}
@@ -991,7 +997,7 @@ export function SessionSidebar({
 						}
 					>
 						{pinnedProjectRows.map((path) => pinnedProjectRow(path))}
-						{pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true))}
+						{pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true, "pinned"))}
 					</Section>
 				)}
 
@@ -1071,12 +1077,25 @@ export function SessionSidebar({
 						</>
 					}
 				>
-					{recentSessions.map((row, index) => sessionRow(row, index, false))}
+					{recentSessions.map((row, index) => sessionRow(row, index, false, "recent"))}
 					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
 				</Section>
 
 				{noMatch && <p className="owl-sidebar-empty">{t("sidebar.emptyResults")}</p>}
 			</div>
+			{!minimized && sessionMenu !== null && openMenu === sessionMenu.key && (
+				<SessionActionsMenu
+					key={sessionMenu.key}
+					anchor={sessionMenu.anchor}
+					menuId={sessionMenuId}
+					label={t("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) })}
+					pinned={sessionMenu.row.id !== undefined && pinned.includes(sessionMenu.row.id)}
+					onClose={closeSessionMenu}
+					onPin={() => { if (sessionMenu.row.id) togglePin(sessionMenu.row.id); }}
+					onArchive={() => void archiveSession(sessionMenu.row)}
+					onDelete={() => { setConfirmDelete(sessionMenu.row); setDeleteError(""); }}
+				/>
+			)}
 
 			{showNewProject && (
 				<NewProjectDialog

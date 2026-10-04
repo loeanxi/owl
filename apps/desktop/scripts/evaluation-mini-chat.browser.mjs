@@ -52,7 +52,7 @@ const loader = createJiti(import.meta.url, { alias: {
   "@earendil-works/pi-codemode": join(repo, "packages/codemode/src/index.ts"),
 } });
 const report = { success: false, actualApp: true, actualDesktopWebSocket: true, actualEvaluationService: true, manualStageGates: true, fakeModelAndChecks: true, paidCalls: 0, cases: [], errors: [], requests: [], modelCalls: [], screenshots: [], sourceSha256: {} };
-for (const path of ["apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx", "apps/desktop/src/features/evaluation/useEvaluation.ts", "packages/coding-agent/src/core/evaluation/service.ts"])
+for (const path of ["apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx", "apps/desktop/src/features/evaluation/EvaluationElapsed.tsx", "apps/desktop/src/features/evaluation/useEvaluation.ts", "packages/coding-agent/src/core/evaluation/service.ts"])
   if (existsSync(join(repo, path))) report.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, path))).digest("hex");
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260" viewBox="0 0 400 260"><rect width="400" height="260" fill="#d0efff"/><g><circle cx="110" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><circle cx="280" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><path d="M110 190 160 110 210 190 110 190M210 190 260 100 280 190" fill="none" stroke="#e45555" stroke-width="6"/><ellipse cx="170" cy="90" rx="46" ry="23" fill="white"/><path d="M200 90Q220 24 247 43L300 55 247 67" fill="white" stroke="#263a32"/><circle cx="244" cy="45" r="3" fill="#263a32"/><path d="m248 48 52 7-51 11" fill="#e6ae60"/><animateTransform attributeName="transform" type="translate" values="0 0;2 0;0 0" dur="4s" repeatCount="indefinite"/></g></svg>';
 const originalBody = `我会先建立车架和轮子，再让脚蹬围绕曲柄转动。\n\n**首次回答的作品**\n\n\`\`\`svg\n${svg}\n\`\`\``;
@@ -78,6 +78,7 @@ const options = {
       if (!request.conversation && autoOriginals) {
         const failure = failNextOriginal;
         failNextOriginal = false;
+        if (failure) { await new Promise((done) => setTimeout(done, 1250)); request.signal.throwIfAborted(); }
         request.onPartial(failure ? "已收到部分正文，但这次生成失败。" : originalBody, originalThinking);
         return finishedResponse(request, failure ? "已收到部分正文，但这次生成失败。" : originalBody, originalThinking, failure ? "Offline intentional provider failure" : null);
       }
@@ -98,6 +99,7 @@ const cards = () => area().locator(".eval-result-card");
 const card = (index) => cards().nth(index);
 const stream = (index) => card(index).locator(".eval-messages");
 const composer = (index) => card(index).locator(".eval-composer textarea");
+const replyTimer = (index, replyId) => card(index).locator(`.eval-assistant-message[data-message-id="${replyId}"] .eval-reply-elapsed`);
 const entry = () => page.locator('[data-fd-id="model-evaluation-entry"]');
 async function connectRpc() {
   rpcSocket = new WebSocket(`ws://127.0.0.1:${bridge.port}/ws`);
@@ -132,6 +134,23 @@ function originalSnapshot(value) {
 }
 async function closeDrawer() { await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click(); }
 async function expandThinking(details) { if ((await details.getAttribute("open")) === null) await details.locator("summary").click(); }
+async function timerSnapshot(timer) {
+  await timer.waitFor();
+  return await timer.evaluate((element) => ({ ms: element.dataset.elapsedMs === undefined ? null : Number(element.dataset.elapsedMs), state: element.dataset.elapsedState, text: element.textContent.trim() }));
+}
+async function frozenTimer(timer, expectedMs) {
+  const before = await until(async () => { const value = await timerSnapshot(timer); return value.state === "finished" ? value : null; }, "Terminal elapsed state must be finished");
+  assert.equal(before.ms, Math.floor(expectedMs)); assert.match(before.text, /^耗时 (?:\d+:)?\d{2}:\d{2}$/);
+  await page.waitForTimeout(1150);
+  assert.deepEqual(await timerSnapshot(timer), before, "A terminal timer must stop advancing");
+  return before;
+}
+async function historyRun(name) {
+  await area().locator(".eval-main-head").getByRole("button", { name: "刷新", exact: true }).click();
+  await area().locator(".eval-nav").getByRole("button", { name: /运行记录/ }).click();
+  const row = area().locator("tr").filter({ hasText: name }); await row.waitFor(); await row.getByRole("button").first().click();
+  await card(0).waitFor();
+}
 async function availablePort() {
   const server = createNetServer();
   await new Promise((done, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", done); });
@@ -176,7 +195,30 @@ try {
     for (const model of models) assert.equal(await cards().filter({ hasText: model.name }).count(), 0);
     await screenshot("01-independent-waiting.png");
   });
+  await check("queued requests show queue status without a fabricated runtime", async () => {
+    const queued = await rpc({ action: "run.start", name: "Elapsed queued fixture", taskIds: ["G08"], profiles: [{ id: "queued-profile", provider: models[0].provider, modelId: models[0].modelId, thinkingLevel: "default" }], samples: 1 });
+    assert.equal(queued.results[0].status, "queued"); assert.equal(queued.results[0].elapsedMs, null);
+    await historyRun("Elapsed queued fixture");
+    const timer = await timerSnapshot(replyTimer(0, queued.results[0].id)); assert.equal(timer.state, "queued"); assert.equal(timer.ms, null); assert.match(timer.text, /排队|待运行/); assert.doesNotMatch(timer.text, /\d{2}:\d{2}/);
+    await screenshot("11-queued-no-runtime.png");
+    await rpc({ action: "run.cancel", runId: queued.id });
+    await historyRun("Mini-chat isolated fixture");
+    assert.equal(await cards().count(), 2); assert.equal(pendingOriginals.length, 2);
+    return { queuedTimer: timer };
+  });
   await check("provider thinking and Markdown reply appear while the original run is unfinished", async () => {
+    for (const pending of pendingOriginals) pending.publish("", originalThinking);
+    for (let index = 0; index < 2; index++) await card(index).locator(".eval-thinking-body").filter({ hasText: originalThinking }).waitFor({ state: "attached" });
+    await check("anonymous thinking timers advance without revealing identity or usage", async () => {
+      const run = await snapshot(); const ids = await cards().evaluateAll((elements) => elements.map((element) => element.dataset.resultId));
+      assert.ok(run.results.every((value) => value.generationPhase === "thinking" && value.output === "" && typeof value.elapsedMs === "number"));
+      const before = await Promise.all(ids.map((id, index) => timerSnapshot(replyTimer(index, id))));
+      await page.waitForTimeout(1250);
+      const after = await Promise.all(ids.map((id, index) => timerSnapshot(replyTimer(index, id))));
+      for (const [index, value] of after.entries()) { assert.equal(value.state, "running"); assert.ok(value.ms >= before[index].ms + 800); assert.match(value.text, /^已运行 (?:\d+:)?\d{2}:\d{2}$/); }
+      for (const value of (await snapshot()).results) for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, field), false);
+      await screenshot("12-anonymous-thinking-runtime.png"); return { before, after };
+    });
     const growingThinking = `${longText("第一批模型思考", 70)}\n\n思考最新尾段`;
     const thinkingTailGeometry = [];
     for (const pending of pendingOriginals) pending.publish("", growingThinking);
@@ -223,6 +265,12 @@ try {
     for (const pending of pendingOriginals) pending.finish(originalBody, originalThinking);
     await until(async () => (await snapshot()).status === "completed", "Original run must complete");
     await cards().locator("iframe").first().waitFor();
+    await check("completed anonymous timers freeze at their own server runtime", async () => {
+      const run = await snapshot(); const timers = [];
+      for (let index = 0; index < 2; index++) { const id = await card(index).getAttribute("data-result-id"); const value = run.results.find((item) => item.id === id); timers.push(await frozenTimer(replyTimer(index, id), value.elapsedMs)); }
+      assert.ok(run.results.every((value) => !value.revealed && !Object.hasOwn(value, "usage")));
+      await screenshot("13-completed-runtime-frozen.png"); return { timers };
+    });
     for (let index = 0; index < 2; index++) {
       assert.equal(await composer(index).isDisabled(), false);
       await card(index).locator('[data-action="checks"]').click();
@@ -257,6 +305,14 @@ try {
     await card(0).locator(".eval-thinking-body").filter({ hasText: "追问思考：解释圆周运动。" }).waitFor({ state: "attached" });
     await expandThinking(card(0).locator(".eval-thinking").last());
     await card(0).locator(".eval-thinking-body").filter({ hasText: "追问思考：解释圆周运动。" }).waitFor();
+    await check("a follow-up has its own advancing clock while the first answer stays frozen", async () => {
+      const run = await snapshot(); const followup = run.results.find((item) => item.id === aId).followups[0];
+      const first = await timerSnapshot(replyTimer(0, aId)); const before = await timerSnapshot(replyTimer(0, followup.id));
+      assert.equal(before.state, "running"); assert.ok(before.ms < first.ms);
+      await page.waitForTimeout(1250); const after = await timerSnapshot(replyTimer(0, followup.id)); assert.ok(after.ms >= before.ms + 800);
+      assert.deepEqual(await timerSnapshot(replyTimer(0, aId)), first); assert.equal((await snapshot()).status, "completed");
+      await screenshot("14-independent-followup-runtime.png"); return { original: first, before, after };
+    });
     pending.publish("追问第一段：脚蹬沿圆周运动。", "追问思考：解释圆周运动。");
     await card(0).locator(".eval-chat-answer").filter({ hasText: "追问第一段" }).waitFor();
     const during = await snapshot(); assert.equal(during.status, "completed"); assert.deepEqual(during.results.find((value) => value.id === bId), b);
@@ -278,6 +334,12 @@ try {
     await until(async () => (await snapshot()).results.find((value) => value.id === aId).followups[1].status === "cancelled", "Only current follow-up must cancel");
     await card(0).locator(".eval-chat-status").filter({ hasText: "已取消" }).waitFor();
     assert.equal(pending.request.signal.aborted, true);
+    await check("cancelled follow-up timers freeze without changing the original rating", async () => {
+      const run = await snapshot(); const value = run.results.find((item) => item.id === aId); const cancelled = value.followups[1];
+      const timer = await frozenTimer(replyTimer(0, cancelled.id), cancelled.elapsedMs);
+      assert.deepEqual(originalSnapshot(value), originalSnapshot(initialSnapshot.results.find((item) => item.id === aId)));
+      await screenshot("15-cancelled-runtime-frozen.png"); return { timer };
+    });
     pending.publish("迟到内容不应出现", "迟到思考");
     const cancelled = (await snapshot()).results.find((value) => value.id === aId).followups[1]; assert.equal(cancelled.output, "取消前已经收到的内容。");
     assert.equal(await card(0).getByText("迟到内容不应出现").count(), 0);
@@ -323,6 +385,13 @@ try {
     await retry.waitFor(); assert.equal(await cards().filter({ hasText: "已收到部分正文，但这次生成失败。" }).count(), 1);
     await retry.click(); await until(async () => (await snapshot()).status === "completed" && (await snapshot()).results.length === 8, "Retry must append and finish");
     const after = await snapshot(); assert.equal(after.results.find((value) => value.id === failed.id).status, "failed"); assert.equal(after.results.filter((value) => value.retryOf === failed.id).length, 1);
+    await check("switching retained attempts selects the runtime of that exact answer", async () => {
+      const success = after.results.find((value) => value.retryOf === failed.id); const original = after.results.find((value) => value.id === source);
+      assert.ok(failed.elapsedMs >= 1000, "Intentional failure fixture should have a distinguishable runtime");
+      const picker = area().locator(".eval-attempt-bar select").filter({ has: page.locator(`option[value="${failed.id}"]`) }); const selected = [];
+      for (const value of [original, failed, success]) { await picker.selectOption(value.id); const active = cards().filter({ has: page.locator(`.eval-assistant-message[data-message-id="${value.id}"][data-benchmark-answer]`) }); const timer = await timerSnapshot(active.locator(".eval-reply-elapsed")); assert.equal(timer.state, "finished"); assert.equal(timer.ms, value.elapsedMs); selected.push({ id: value.id, runtime: timer }); }
+      assert.notEqual(selected[0].runtime.ms, selected[1].runtime.ms); await screenshot("16-corresponding-attempt-runtime.png"); return { selected };
+    });
     await screenshot("08-retained-retry-attempts.png");
   });
   await check("at 1280 by 860 both mini-chat composers stay inside the visible viewport", async () => {
@@ -340,6 +409,18 @@ try {
     const row = area().locator("tr").filter({ hasText: "Mini-chat isolated fixture" }); await row.waitFor(); await row.getByRole("button").first().click();
     await card(0).waitFor(); await card(0).locator(".eval-chat-answer").filter({ hasText: "第三次追问完成。" }).waitFor();
     await screenshot("10-restored-conversations.png");
+  });
+  await check("legacy results with unknown timestamps display unknown runtime honestly", async () => {
+    const path = join(agentDir, "model-evaluations", "runs", `${runId}.json`); const stored = JSON.parse(await readFile(path, "utf8"));
+    const original = stored.results.find((value) => value.id === aId); original.startedAt = null; original.finishedAt = null; original.durationMs = null;
+    const port = bridge.port; rpcSocket.terminate(); rpcSocket = undefined; await bridge.close(); bridge = undefined;
+    await writeFile(path, JSON.stringify(stored));
+    bridge = await startDesktopServer({ ...options, port }); await connectRpc();
+    await page.reload(); await entry().click(); await historyRun("Mini-chat isolated fixture");
+    const index = await card(0).getAttribute("data-result-id") === aId ? 0 : 1;
+    const timer = await timerSnapshot(replyTimer(index, aId)); assert.equal(timer.state, "unknown"); assert.equal(timer.ms, null); assert.equal(timer.text, "耗时未知"); assert.doesNotMatch(timer.text, /\d{2}:\d{2}/);
+    assert.deepEqual((await snapshot()).results.find((value) => value.id === aId).rating, initialSnapshot.results.find((value) => value.id === aId).rating);
+    await screenshot("17-unknown-runtime.png"); return { timer };
   });
   assert.equal(report.errors.length, 0, report.errors.join("\n")); report.success = report.cases.every((value) => value.success);
 } catch (error) {

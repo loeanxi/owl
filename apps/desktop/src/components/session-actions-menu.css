@@ -1,0 +1,63 @@
+.owl-session-actions-menu {
+	--owl-session-menu-danger: #f87171;
+	position: fixed;
+	z-index: 60;
+	width: 180px;
+	max-width: calc(100vw - 16px);
+	max-height: calc(100dvh - 16px);
+	overflow-y: auto;
+	padding: 4px;
+	border: 1px solid var(--color-owl-sidebar-border);
+	border-radius: 10px;
+	background: var(--color-owl-sidebar-surface);
+	color: var(--color-owl-sidebar-text);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+	font-family: var(--font-sans);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+html[data-owl-theme="light"] .owl-session-actions-menu {
+	--owl-session-menu-danger: #b42318;
+}
+
+.owl-session-actions-menu-item {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: 30px;
+	padding: 6px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+}
+
+.owl-session-actions-menu-item:hover,
+.owl-session-actions-menu-item:focus-visible {
+	background: var(--color-owl-sidebar-hover);
+}
+
+.owl-session-actions-menu-item:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: -2px;
+}
+
+.owl-session-actions-menu-item.is-danger {
+	color: var(--owl-session-menu-danger);
+}
+
+.owl-session-actions-menu-item.is-danger:hover,
+.owl-session-actions-menu-item.is-danger:focus-visible {
+	background: color-mix(in srgb, var(--owl-session-menu-danger) 10%, var(--color-owl-sidebar-surface));
+}
+
+.owl-session-actions-menu-separator {
+	height: 1px;
+	margin: 4px 6px;
+	background: var(--color-owl-sidebar-border);
+}

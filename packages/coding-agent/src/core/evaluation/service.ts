@@ -62,12 +62,44 @@ function runSummary(run: EvaluationRun): EvaluationRunSummary {
 	};
 }
 
-function followupView(turn: EvaluationFollowup, revealed: boolean): EvaluationFollowupView {
+function evaluationElapsedMs(
+	result: Pick<EvaluationFollowup, "status" | "startedAt" | "finishedAt" | "durationMs">,
+	now: number,
+): number | null {
+	if (result.status === "queued" || !result.startedAt) return null;
+	const started = Date.parse(result.startedAt);
+	if (!Number.isFinite(started)) return null;
+	if (result.status === "running") return Math.max(0, now - started);
+	if (typeof result.durationMs === "number" && Number.isFinite(result.durationMs) && result.durationMs >= 0)
+		return result.durationMs;
+	if (!result.finishedAt) return null;
+	const finished = Date.parse(result.finishedAt);
+	return Number.isFinite(finished) ? Math.max(0, finished - started) : null;
+}
+
+function evaluationErrorView(error: string | null, revealed: boolean, fallback: string): string | null {
+	if (!error || revealed) return error;
+	// Only exact application errors are public; arbitrary supplier errors can contain identities or secrets.
+	switch (error) {
+		case "输出达到长度限制，答案可能不完整":
+			return "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。";
+		case "模型测评请求超时":
+			return "请求超过时间上限，已停止；按原配置重试可能再次超时。";
+		case "用户取消测评":
+		case "用户停止追问":
+			return "已取消";
+		default:
+			return fallback;
+	}
+}
+
+function followupView(turn: EvaluationFollowup, revealed: boolean, now: number): EvaluationFollowupView {
 	const { startedAt, finishedAt, durationMs, usage, costUsd, actualModel, generationPhase, ...publicTurn } = turn;
 	return {
 		...structuredClone(publicTurn),
 		thinking: turn.thinking ?? "",
-		error: !revealed && turn.error ? "本次追问未完成；揭晓后可查看详细原因" : turn.error,
+		elapsedMs: evaluationElapsedMs(turn, now),
+		error: evaluationErrorView(turn.error, revealed, "本次追问未完成；揭晓后可查看详细原因"),
 		...(turn.status === "queued" || turn.status === "running"
 			? { generationPhase: generationPhase ?? (turn.output ? "answering" : turn.thinking ? "thinking" : "waiting") }
 			: {}),
@@ -86,6 +118,7 @@ function followupView(turn: EvaluationFollowup, revealed: boolean): EvaluationFo
 
 /** The stored run contains identities; every browser response goes through this projection. */
 export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
+	const now = Date.now();
 	const results: EvaluationResultView[] = [];
 	for (const group of run.groups) {
 		for (const [index, id] of group.resultIds.entries()) {
@@ -112,14 +145,15 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 				...structuredClone(anonymous),
 				// The user requested live supplier reasoning as well as live answer text.
 				thinking: thinking ?? "",
-				followups: (followups ?? []).map((turn) => followupView(turn, group.revealed)),
+				elapsedMs: evaluationElapsedMs(result, now),
+				followups: (followups ?? []).map((turn) => followupView(turn, group.revealed, now)),
 				...(result.status === "queued" || result.status === "running"
 					? {
 							generationPhase:
 								generationPhase ?? (result.output ? "answering" : thinking ? "thinking" : "waiting"),
 						}
 					: {}),
-				error: !group.revealed && result.error ? "本次生成未完成；揭晓后可查看详细原因" : result.error,
+				error: evaluationErrorView(result.error, group.revealed, "本次生成未完成；揭晓后可查看详细原因"),
 				anonymousLabel,
 				revealed: group.revealed,
 				...(group.revealed

@@ -538,22 +538,6 @@ function QuestionMinimap({ questions, active, onJump }: {
 	);
 }
 
-function QuestionNavigator({ questions, active, onJump, onClose }: {
-	questions: QuestionMark[];
-	active: number;
-	onJump: (n: number) => void;
-	onClose: () => void;
-}): React.JSX.Element {
-	return (
-		<aside id="owl-chat-directory" className="owl-chat-directory" aria-label={t("chat.directoryAria")}>
-			<header><span>{t("chat.directoryTitle", { n: questions.length })}</span><button type="button" className="owl-chrome-button" aria-label={t("chat.directoryCollapse")} onClick={onClose}><IconChevron className="h-4 w-4" /></button></header>
-			<nav>
-				{questions.map((question) => <button key={question.n} type="button" aria-current={active === question.n ? "location" : undefined} onClick={() => onJump(question.n)}><span>{question.n}</span><span title={question.text}>{question.text}</span></button>)}
-			</nav>
-		</aside>
-	);
-}
-
 export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 
 function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
@@ -617,16 +601,12 @@ export function ChatStream({
 	cwd,
 	onOpenFile,
 	activity = "idle",
-	navigationOpen = false,
-	onNavigationClose,
 	onRewind,
 	client,
 	onOpenReview,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
-	navigationOpen?: boolean;
-	onNavigationClose?: () => void;
 	/** 空会话开始页的菜单卡回调（打开工作台对应面板）。 */
 	onQuickAction?: (kind: string) => void;
 	onPromptExample?: (text: string) => void;
@@ -750,7 +730,6 @@ export function ChatStream({
 		if (navigationTarget.current === null) stick.current = maxTop - top < 24;
 		el.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
 		setShowLatest(maxTop - top >= 24);
-		if ((el.parentElement?.clientWidth ?? 1000) < 700) onNavigationClose?.();
 	};
 
 	// 会话切换/恢复后立即校准高亮，不等首次滚动
@@ -809,7 +788,6 @@ export function ChatStream({
 						{artifacts}
 					</div>
 				</main>
-				{navigationOpen && questions.length > 0 && <QuestionNavigator questions={questions} active={activeQuestion} onJump={jumpToQuestion} onClose={() => onNavigationClose?.()} />}
 			</div>
 			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { navigationTarget.current = null; stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>{t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
 			{showShotDock && latestShot && <ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />}

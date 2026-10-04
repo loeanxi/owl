@@ -1,0 +1,51 @@
+{
+  "runningSessionCount": 0,
+  "pendingEvaluations": 0,
+  "pendingFollowups": 0,
+  "timerContract": true,
+  "errors": [],
+  "runtimes": [
+    {
+      "label": "A",
+      "status": "failed",
+      "elapsedMs": 600001,
+      "error": "请求超过时间上限，已停止；按原配置重试可能再次超时。"
+    },
+    {
+      "label": "B",
+      "status": "failed",
+      "elapsedMs": 147184,
+      "error": "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。"
+    },
+    {
+      "label": "C",
+      "status": "failed",
+      "elapsedMs": 144352,
+      "error": "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。"
+    },
+    {
+      "label": "D",
+      "status": "failed",
+      "elapsedMs": 126486,
+      "error": "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。"
+    },
+    {
+      "label": "E",
+      "status": "failed",
+      "elapsedMs": 140710,
+      "error": "输出已达到本次 token 上限，回答未完成；重试会使用相同上限。"
+    },
+    {
+      "label": "F",
+      "status": "cancelled",
+      "elapsedMs": 91343,
+      "error": "已取消"
+    },
+    {
+      "label": "G",
+      "status": "cancelled",
+      "elapsedMs": 83555,
+      "error": "已取消"
+    }
+  ]
+}

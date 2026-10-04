@@ -1,0 +1,81 @@
+{
+  "success": true,
+  "actualApp": true,
+  "paidCalls": 0,
+  "errors": [],
+  "actions": [
+    "bootstrap",
+    "run.get",
+    "run.list"
+  ],
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 860,
+      "wrapperWidth": 946,
+      "tableWidth": 944,
+      "rowHeight": 61,
+      "headerCells": [
+        {
+          "text": "编号",
+          "width": 68
+        },
+        {
+          "text": "题目名称",
+          "width": 554
+        },
+        {
+          "text": "题型",
+          "width": 76
+        },
+        {
+          "text": "版本 / 来源",
+          "width": 150
+        },
+        {
+          "text": "操作",
+          "width": 96
+        }
+      ],
+      "rowCount": 24,
+      "bodyOverflow": false
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "wrapperWidth": 728,
+      "tableWidth": 726,
+      "rowHeight": 61,
+      "headerCells": [
+        {
+          "text": "编号",
+          "width": 68
+        },
+        {
+          "text": "题目名称",
+          "width": 336
+        },
+        {
+          "text": "题型",
+          "width": 76
+        },
+        {
+          "text": "版本 / 来源",
+          "width": 150
+        },
+        {
+          "text": "操作",
+          "width": 96
+        }
+      ],
+      "rowCount": 24,
+      "bodyOverflow": false
+    }
+  ],
+  "cases": [
+    "24 task rows with semantic headers and no decorative images",
+    "1280 and 1024 layouts fit without page overflow",
+    "Category filters, ID/title/prompt search, and empty results",
+    "Correct detail dialog and custom editor open/close without saving"
+  ]
+}
