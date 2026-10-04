@@ -4,7 +4,7 @@ import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultIma
 import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { IconAlert, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal, IconThumbDown, IconThumbUp } from "./icons.tsx";
+import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal, IconThumbDown, IconThumbUp } from "./icons.tsx";
 import { GenuiAnswerCard, GenuiToolCardView, useGenuiSession } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
@@ -446,12 +446,17 @@ function CopyButton({ text, label, className = "owl-msg-action" }: { text: strin
 	);
 }
 
-/** 回答底部操作栏（对照参考实现）：复制 / 赞 / 踩 /（仅最新一轮）重新生成 + 用量与时间元信息。 */
-function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate }: {
+/**
+ * 回答底部操作栏（对照参考实现）：复制 / 赞 / 踩 / 在新对话中分支 /（仅最新一轮）
+ * 重新生成 + 用量与时间元信息。
+ */
+function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate, canBranch, onBranch }: {
 	entry: Extract<ChatEntry, { kind: "assistant" }>;
 	storageKey: string;
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
+	canBranch: boolean;
+	onBranch?: () => void;
 }): React.JSX.Element {
 	const [feedback, setFeedback] = useState<FeedbackValue | undefined>(() => {
 		loadFeedback();
@@ -499,6 +504,17 @@ function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate }: {
 			>
 				<IconThumbDown className="h-3.5 w-3.5" />
 			</button>
+			{canBranch && onBranch && (
+				<button
+					type="button"
+					className="owl-msg-action"
+					title={t("chat.msgBranch")}
+					aria-label={t("chat.msgBranch")}
+					onClick={onBranch}
+				>
+					<IconBranch className="h-3.5 w-3.5" />
+				</button>
+			)}
 			{canRegenerate && onRegenerate && (
 				<button
 					type="button"
@@ -639,7 +655,7 @@ function UserRowView({
 	);
 }
 
-/** buildRows 的上下文：渲染回调 + 消息操作（编辑/重新生成）的可用性。 */
+/** buildRows 的上下文：渲染回调 + 消息操作（编辑/分支/重新生成）的可用性。 */
 type RowOptions = {
 	entries: ChatEntry[];
 	expandedTools: boolean;
@@ -655,12 +671,14 @@ type RowOptions = {
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
 	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
+	/** 「在新对话中分支」：以该条回答为末梢复制新会话并切换。 */
+	onBranch?: (entryId: string) => void;
 	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
 	busy: boolean;
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, onBranch, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -676,6 +694,17 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	}
 	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
 	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> } | undefined;
+	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
+	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean): React.JSX.Element => (
+		<AssistantFooter
+			entry={entry}
+			storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`}
+			canRegenerate={allowRegenerate}
+			onRegenerate={allowRegenerate ? onRegenerate : undefined}
+			canBranch={!busy && entry.entryId !== undefined && onBranch !== undefined}
+			onBranch={entry.entryId !== undefined && onBranch ? () => onBranch(entry.entryId!) : undefined}
+		/>
+	);
 	// 每轮处理耗时：键 = 该轮第一条 assistant 的下标（Owl 标题行的位置）
 	const turnDurations = turnDurationsOf(entries, streaming);
 	let turn = 0;
@@ -785,7 +814,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
-				content: <AssistantFooter entry={entry} storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`} canRegenerate={false} />,
+				content: assistantFooter(entry, index, false),
 			};
 			rows.push(row);
 			lastFooter = { row, index, entry };
@@ -794,14 +823,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	flushTools();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
 	if (lastFooter && canRegenerate && onRegenerate) {
-		lastFooter.row.content = (
-			<AssistantFooter
-				entry={lastFooter.entry}
-				storageKey={`${sessionKey}:msg${lastFooter.entry.timestamp ?? lastFooter.index}`}
-				canRegenerate
-				onRegenerate={onRegenerate}
-			/>
-		);
+		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true);
 	}
 	return rows;
 }
@@ -944,6 +966,7 @@ export function ChatStream({
 	onOpenReview,
 	onRegenerate,
 	onEditMessage,
+	onBranch,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -964,6 +987,8 @@ export function ChatStream({
 	onRegenerate?: () => void;
 	/** 用户消息的「编辑重发」：回退到该条消息（仅对话）后发送新文本。 */
 	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
+	/** 回答操作栏的「在新对话中分支」：以该条回答为末梢复制新会话并切换。 */
+	onBranch?: (entryId: string) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const emptyHeadingId = useId();
@@ -1032,9 +1057,10 @@ export function ChatStream({
 				canRegenerate,
 				onRegenerate,
 				onEditMessage,
+				onBranch,
 				busy,
 			}),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, busy],
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, onBranch, busy],
 	);
 
 	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----

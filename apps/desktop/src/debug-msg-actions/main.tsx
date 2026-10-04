@@ -37,6 +37,7 @@ const entries: ChatEntry[] = [
 	{
 		kind: "assistant",
 		text: "明白，我先复现一次构建，看看报错到底卡在哪一步。",
+		entryId: "entry-3",
 		thinking: "用户遇到 npm error code 2。常见原因是 tsc 类型检查失败……先跑一次 build 拿到完整报错。",
 		tools: [buildTool],
 		segments: [
@@ -62,6 +63,7 @@ const entries: ChatEntry[] = [
 		].join("\n"),
 		segments: [{ kind: "text", text: "## 结论\n最常见的单包 **类型检查失败**……" }],
 		thinking: "",
+		entryId: "entry-4",
 		timestamp: at(8, 42, 36),
 		usage: { input: 984500, output: 42300, cacheRead: 1920400, cacheWrite: 0 },
 		tools: [],
@@ -72,6 +74,7 @@ const entries: ChatEntry[] = [
 		text: "全绿了，两个包都严格类型检查通过。",
 		segments: [{ kind: "text", text: "全绿了，两个包都严格类型检查通过。" }],
 		thinking: "",
+		entryId: "entry-5",
 		timestamp: at(8, 45, 27),
 		usage: { input: 81200, output: 310, cacheRead: 640000, cacheWrite: 0 },
 		tools: [],
@@ -89,6 +92,7 @@ function App(): React.JSX.Element {
 						onRewind={noop}
 						onRegenerate={noop}
 						onEditMessage={noop}
+						onBranch={noop}
 					/>
 				</GenuiSessionProvider>
 			</div>

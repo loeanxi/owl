@@ -418,6 +418,53 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
+	// 在新对话中分支：以某条回答为末梢复制新会话（原会话原封不动），桥端全新挂载
+	// 后返回与 session.resume 同构的快照——走同一条回放切换路径，再刷新侧边栏。
+	const handleBranch = async (entryId: string): Promise<void> => {
+		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return;
+		try {
+			const response = await client.request<{
+				sessionId: string;
+				cwd: string;
+				messages: Record<string, unknown>[];
+				messageEntryIds?: (string | undefined)[];
+				researchMode?: ResearchMode;
+			}>({
+				type: "session.fork",
+				sessionId: sessionIdRef.current,
+				entryId,
+				approvalMode,
+				...selectedModel(),
+			});
+			if (!response.ok || !response.result) {
+				setEntries((current) => [
+					...current,
+					{ kind: "toolResult", toolName: t("app.branchFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
+				]);
+				return;
+			}
+			const { sessionId: forkedId, cwd, messages, messageEntryIds, researchMode } = response.result;
+			if (researchMode !== undefined || !forkedId) return;
+			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
+			setSessionId(forkedId);
+			sessionIdRef.current = forkedId;
+			setEntries(rebuild(messages, messageEntryIds));
+			setRetryStatus(null);
+			void refreshStats(forkedId);
+			setSidebarRev((current) => current + 1);
+		} catch (error) {
+			setEntries((current) => [
+				...current,
+				{
+					kind: "toolResult",
+					toolName: t("app.branchFailed"),
+					ok: false,
+					brief: error instanceof Error ? error.message : String(error),
+				},
+			]);
+		}
+	};
+
 	useEffect(() => {
 		// A replaced bridge client must report its own connection before mailbox queries resume.
 		setConnected(false);
@@ -1333,7 +1380,7 @@ export default function App(): React.JSX.Element {
 							<ContextView key={sessionId ?? workspaceDir} client={client} cwd={workspaceDir} sessionId={sessionId} requireSession active={railView === "chat" && !showSettings && connected} />
 						) : (
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
