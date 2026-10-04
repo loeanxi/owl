@@ -101,6 +101,17 @@ export const IconUserStar = (p: IconProps): ReactNode =>
 		</>,
 	);
 
+/** 播放屏+摄像机（短剧：窗口镜像观看面）。 */
+export const IconDrama = (p: IconProps): ReactNode =>
+	stroked(
+		p.size,
+		p.className,
+		<>
+			<rect x="2" y="4" width="15" height="16" rx="2" />
+			<path d="m22 8-5 4 5 4V8Z" fill="currentColor" stroke="none" />
+		</>,
+	);
+
 /** 文件+加减行（改动审批：AI 编辑的保留/回滚）。 */
 export const IconDiffApproval = (p: IconProps): ReactNode =>
 	stroked(
@@ -140,6 +151,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
 	{ kind: "changes", get label() { return t("dev.changes"); }, color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
 	{ kind: "review", get label() { return t("wb.review"); }, color: "#e0708a", icon: (s) => <IconDiffApproval size={s} /> },
 	{ kind: "browser", get label() { return t("app.browserTab"); }, color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
+	{ kind: "mirror", get label() { return t("wb.drama"); }, color: "#e8554d", icon: (s) => <IconDrama size={s} /> },
 	{ kind: "tasks", get label() { return t("wb.tasks"); }, color: "#d29922", icon: (s) => <IconLayers size={s} /> },
 	{ kind: "impression", get label() { return t("wb.impression"); }, color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
 	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },

@@ -538,6 +538,28 @@ describe("Coding Agent Tools", () => {
 			},
 		);
 
+		it.skipIf(!BASH_AVAILABLE)(
+			"should explain exit code 1 from a trailing grep as no-match, not a generic failure",
+			async () => {
+				const piped = await bashTool.execute("test-call-grep-nomatch", {
+					command: "echo nothing relevant | grep -i tsx",
+				});
+				expect(piped.isError).toBe(true);
+				expect(getTextOutput(piped)).toContain("no lines matched");
+
+				const bare = await bashTool.execute("test-call-grep-nomatch-file", {
+					command: "grep -i zz-no-such-token-zz package.json",
+				});
+				expect(bare.isError).toBe(true);
+				expect(getTextOutput(bare)).toContain("no lines matched");
+
+				// 复合命令（; && 等）的退出码不一定来自 grep，保持通用消息
+				const compound = await bashTool.execute("test-call-compound-exit-1", { command: "echo boom; exit 1" });
+				expect(compound.isError).toBe(true);
+				expect(getTextOutput(compound)).toBe("boom\n\n\nCommand exited with code 1");
+			},
+		);
+
 		it.skipIf(!BASH_AVAILABLE)("should return up to 1 MiB of output in structured content", async () => {
 			// 3000 lines exceed the model-facing 2000 line limit but not 1 MiB.
 			const medium = await bashTool.execute("test-call-9d", { command: "seq 1 3000" });

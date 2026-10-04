@@ -18,7 +18,7 @@ import {
 	searchWorkspaceFiles,
 	writeWorkspaceFile,
 } from "../src/modes/desktop/sidebar-fs.ts";
-import { gitDiff, gitStage, gitStatus, parseLog, parseStatusZ } from "../src/modes/desktop/sidebar-git.ts";
+import { gitCommit, gitDiff, gitDiscard, gitStage, gitStatus, parseLog, parseStatusZ } from "../src/modes/desktop/sidebar-git.ts";
 
 async function makeTempDir(): Promise<string> {
 	return await mkdtemp(join(tmpdir(), "owl-sidebar-test-"));
@@ -208,6 +208,85 @@ describe("git 真实仓库冒烟", () => {
 		} finally {
 			await rm(repo, { recursive: true, force: true });
 			await rm(plain, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("git 子仓库聚合（workspace 根不是仓库）", () => {
+	it("发现子仓库、聚合 status、按仓库路由 stage/diff/commit/discard", async () => {
+		const ws = await makeTempDir();
+		const repoA = join(ws, "pkg-a");
+		const repoB = join(ws, "group", "pkg-b");
+		const repoC = join(ws, "deep", "nest", "pkg-c");
+		const fake = join(ws, "node_modules", "fake-repo");
+		try {
+			for (const dir of [repoA, repoB, repoC, fake]) {
+				await mkdir(dir, { recursive: true });
+				run("git", ["init", "-q"], { cwd: dir });
+			}
+			await writeFile(join(repoA, "a.txt"), "a1\na2\n");
+			await writeFile(join(repoB, "b.txt"), "b1\n");
+			await writeFile(join(repoC, "c.txt"), "c1\n");
+			await writeFile(join(fake, "z.txt"), "z");
+
+			// 聚合 status：深度 1/2/3 的仓库都命中，node_modules 里的跳过
+			const status = await gitStatus(ws);
+			expect(status.repo).toBe(true);
+			expect(status.entries.map((entry) => entry.path).sort()).toEqual([
+				"deep/nest/pkg-c/c.txt",
+				"group/pkg-b/b.txt",
+				"pkg-a/a.txt",
+			]);
+			expect(status.repos?.map((repo) => repo.root).sort()).toEqual([
+				"deep/nest/pkg-c",
+				"group/pkg-b",
+				"pkg-a",
+			]);
+			// 多仓库：不标榜单一分支
+			expect(status.branch).toBeUndefined();
+
+			// stage：workspace 相对路径路由到所属仓库
+			await gitStage(ws, ["pkg-a/a.txt"]);
+			const staged = await gitStatus(ws);
+			expect(staged.entries.find((entry) => entry.path === "pkg-a/a.txt")).toMatchObject({ x: "A", y: " " });
+
+			// staged diff：按路径路由后取到 pkg-a 的内容
+			const diff = await gitDiff(ws, "pkg-a/a.txt", true);
+			expect(diff).toContain("+a1");
+
+			// commit：只提交有暂存条目的仓库（pkg-a），其余仓库不受影响
+			run("git", ["config", "user.email", "t@owl.local"], { cwd: repoA });
+			run("git", ["config", "user.name", "owl"], { cwd: repoA });
+			await gitCommit(ws, "feat: a");
+			expect(run("git", ["log", "--pretty=%s"], { cwd: repoA }).trim()).toBe("feat: a");
+			const after = await gitStatus(ws);
+			expect(after.entries.map((entry) => entry.path).sort()).toEqual([
+				"deep/nest/pkg-c/c.txt",
+				"group/pkg-b/b.txt",
+			]);
+
+			// discard untracked：删除文件后该仓库变干净
+			await gitDiscard(ws, "group/pkg-b/b.txt");
+			const clean = await gitStatus(ws);
+			expect(clean.entries.map((entry) => entry.path)).toEqual(["deep/nest/pkg-c/c.txt"]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
+
+	it("单个损坏的 .git 候选不拖垮聚合", async () => {
+		const ws = await makeTempDir();
+		try {
+			const good = join(ws, "good");
+			await mkdir(good);
+			run("git", ["init", "-q"], { cwd: good });
+			await mkdir(join(ws, "broken", ".git"), { recursive: true });
+			await writeFile(join(good, "g.txt"), "g");
+			const status = await gitStatus(ws);
+			expect(status.repo).toBe(true);
+			expect(status.entries.map((entry) => entry.path)).toEqual(["good/g.txt"]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
 		}
 	});
 });

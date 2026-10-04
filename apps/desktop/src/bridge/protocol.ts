@@ -149,6 +149,8 @@ export type {
 	IabOpenResult,
 	IabStateResult,
 	IabInputPayload,
+	MirrorWindowInfo,
+	MirrorServerMessage,
 	SidebarOpenMessage,
 	ViewerChangedMessage,
 	ViewerListRequest,

@@ -513,7 +513,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 				) : gitStatus.repo ? (
 					<>
 						<IconGitBranch size={10} />
-						<span className="truncate">{gitStatus.branch ?? "HEAD"}</span>
+						<span className="truncate">
+							{gitStatus.repos !== undefined && gitStatus.repos.length > 1
+								? t("wb.gitRepos", { n: gitStatus.repos.length })
+								: gitStatus.branch ?? "HEAD"}
+						</span>
 						<span className="ml-auto shrink-0">{t("wb.gitChanges", { n: gitStatus.entries.length })}</span>
 					</>
 				) : (

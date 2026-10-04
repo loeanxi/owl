@@ -67,6 +67,21 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	return timeoutMs;
 }
 
+/**
+ * grep/rg 的退出码语义：1 = 没有匹配行（正常的空结果），2 = 真正的执行错误。
+ * 探查命令 `... | grep foo` 的退出码由末端的 grep 决定，空结果加退出码 1
+ * 会让模型误以为命令故障而反复重试，因此明说原因（对齐 exit 127 的处理方式）。
+ * 只对纯管道判定（不含 ; & 命令替换、换行）：只有此时退出码必然来自最后一段命令。
+ */
+function grepNoMatchStatus(command: string): string | undefined {
+	const trimmed = command.trim();
+	if (/[\n;&`$]/.test(trimmed)) return undefined;
+	const segments = trimmed.split("|");
+	const lastSegment = segments[segments.length - 1].trim();
+	if (!/^(grep|rg)(\s|$)/.test(lastSegment)) return undefined;
+	return 'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
+}
+
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
 	timeout: Type.Optional(
@@ -87,7 +102,10 @@ const bashSchema = Type.Object({
 
 export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
-	guidelines: ["You can inspect PI_* environment variables for current model and session details."],
+	guidelines: [
+		"You can inspect PI_* environment variables for current model and session details.",
+		"grep/rg exit with code 1 when no lines match (code 2 on real errors). In exploratory searches where an empty result is a valid answer, append `|| true` (e.g. `... | grep -i foo || true`) so 'no match' is not reported as a failed command.",
+	],
 } as const;
 
 export type BashToolInput = Static<typeof bashSchema>;
@@ -572,7 +590,7 @@ export function createShellToolDefinition(
 					const status =
 						exitCode === 127
 							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
-							: `Command exited with code ${exitCode}`;
+							: (exitCode === 1 ? grepNoMatchStatus(command) : undefined) ?? `Command exited with code ${exitCode}`;
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,

@@ -15,6 +15,7 @@ import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
 import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
+import { MirrorTab } from "./tabs/MirrorTab.tsx";
 import { ReviewTab } from "./tabs/ReviewTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { SideChatTab } from "./tabs/SideChatTab.tsx";
@@ -71,6 +72,12 @@ const DEFINITIONS: TabDefinition[] = [
 		get title() { return t("app.browserTab"); },
 		icon: quickIcon("browser"),
 		component: BrowserTab,
+	},
+	{
+		kind: "mirror",
+		get title() { return t("wb.drama"); },
+		icon: quickIcon("mirror"),
+		component: MirrorTab,
 	},
 	{
 		kind: "tasks",

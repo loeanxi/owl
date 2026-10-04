@@ -185,7 +185,12 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 		<div className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint">
-					{gitStatus?.branch !== undefined && (
+					{gitStatus?.repos !== undefined && gitStatus.repos.length > 1 ? (
+						<>
+							<IconGitBranch size={11} className="mr-1 inline align-[-1px]" />
+							{t("wb.gitRepos", { n: gitStatus.repos.length })}
+						</>
+					) : gitStatus?.branch !== undefined && (
 						<>
 							<IconGitBranch size={11} className="mr-1 inline align-[-1px]" />
 							{gitStatus.branch}

@@ -1054,12 +1054,25 @@ export interface GitStatusEntry {
 	origPath?: string;
 }
 
+/** 子仓库模式（workspace 根不是仓库、其子目录是仓库）下的单个仓库信息。 */
+export interface GitWorkspaceRepo {
+	/** 仓库根，workspace 相对 POSIX 路径。 */
+	root: string;
+	branch?: string;
+	upstream?: string;
+}
+
 export interface GitStatusResult {
 	branch?: string;
 	upstream?: string;
 	entries: GitStatusEntry[];
-	/** cwd 不是 git 仓库时为 false，entries 为空（前端显示"非 Git 仓库"空态）。 */
+	/** cwd 与其子目录下都没有 git 仓库时为 false，entries 为空（前端显示"非 Git 仓库"空态）。 */
 	repo: boolean;
+	/**
+	 * 子仓库模式的逐仓库信息（多仓库时前端以"N 个仓库"代替分支名）。
+	 * 单仓库（cwd 在仓库内）缺省；恰好发现一个子仓库时也填，root 标明仓库位置。
+	 */
+	repos?: GitWorkspaceRepo[];
 }
 
 export interface GitLogEntry {
@@ -1068,6 +1081,8 @@ export interface GitLogEntry {
 	subject: string;
 	author: string;
 	time: number;
+	/** 子仓库模式下标明提交来自哪个仓库（workspace 相对根）；单仓库缺省。 */
+	repo?: string;
 }
 
 /** 全局文件名搜索的命中行。 */
