@@ -4,7 +4,7 @@
 
 - The project root moved from `D:\pire\pi-re-v1` to `D:\owl\owl-re-v1`. `D:\pire\pi-re-v1` NO LONGER EXISTS; only `D:\owl\owl-re-v1\owl-mono` is real.
 - Do not trust the shell's cwd between commands (it may reset to an unrelated default such as `D:\mycode\Magiccode`). Use absolute paths under `D:\owl\owl-re-v1\owl-mono\...`, or `cd` within the same command, and `ls` to verify before writing.
-- The launcher scripts at the project root are STALE and broken: `owl-dev.cmd`, `owl-dev.sh`, `owl-desktop.cmd`, and `DEV-README.md` still hardcode `D:\pire\pi-re-v1` (e.g. `OWL_HOME`). Do not run them as-is; invoke npm/npx directly inside `D:\owl\owl-re-v1\owl-mono`.
+- The launcher scripts now live in `D:\owl\owl-re-v1\scripts\` (`owl-dev.cmd`, `owl-dev.sh`, `owl-start.cmd`, `owl-start.ps1`, `owl-desktop.cmd`, `owl-tauri-dev.cmd`, `owl-native-dev.ps1`, plus the `make-shortcut.ps1` / `make-tauri-shortcut.ps1` builders). They no longer reference `D:\pire`: `owl-dev.cmd` sets `OWL_HOME=D:\owl\owl-re-v1` and `OWL_CODING_AGENT_DIR` to `data\owl`, then runs the built `cli.js`. `DEV-README.md` is at `D:\owl\owl-re-v1\DEV-README.md` and is current. Run these directly instead of invoking npm/npx by hand.
 - The isolated agent data dir is now `D:\owl\owl-re-v1\data\owl` (auth.json, models.json). Point `OWL_CODING_AGENT_DIR` there if you set it.
 - Never recreate files or directories under `D:\pire` to "fix" a missing path — fix the path reference instead.
 
