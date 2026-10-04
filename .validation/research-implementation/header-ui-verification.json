@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-10-04T01:08:44.281Z",
+  "header": {
+    "actions": {
+      "height": 31.988636016845703,
+      "width": 110.96590423583984,
+      "x": 1023.76416015625,
+      "y": 50.45454406738281
+    },
+    "count": 1,
+    "frame": {
+      "height": 610.5397338867188,
+      "width": 877.6561889648438,
+      "x": 277.9829406738281,
+      "y": 35.99431610107422
+    },
+    "header": {
+      "height": 59.999996185302734,
+      "width": 875.8380126953125,
+      "x": 278.89202880859375,
+      "y": 36.90340805053711
+    },
+    "tabs": {
+      "height": 30.269886016845703,
+      "width": 102.7982940673828,
+      "x": 633.3948364257812,
+      "y": 51.30681610107422
+    }
+  },
+  "headerDeltas": {
+    "width": 0,
+    "height": 0,
+    "left": 0,
+    "rightActions": 0
+  },
+  "verified": [
+    "one shared header spans the full main frame",
+    "tabs retain the research composer draft",
+    "research and ordinary context requests carry their own session IDs",
+    "empty research context makes no request",
+    "context shortcut stays in research",
+    "restore/view toggle/new chat leave one visible empty state"
+  ],
+  "desktopTypes": "passed",
+  "repositoryCheck": "blocked by concurrent usage-stats lint errors and warning",
+  "modelCalls": 0
+}

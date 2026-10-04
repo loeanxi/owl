@@ -573,6 +573,35 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-row:hover .owl-rewind-trigger, .owl-rewind-trigger:focus-visible { opacity: 1; }
 .owl-rewind-trigger:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
 .owl-user-bubble { max-width: 85%; border-radius: 16px; background: var(--color-owl-bubble); padding: 10px 16px; font-size: max(14px, calc(var(--owl-chat-font-size, 14px) - 2px)); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* -- 消息操作栏（回答底部：复制/赞/踩/重新生成 + 用量与时间） ---------------- */
+.owl-chat-row-compact { margin: 2px 0 10px; }
+.owl-msg-actions { display: flex; align-items: center; gap: 2px; margin: 2px 0 0; }
+.owl-msg-action { display: inline-flex; align-items: center; justify-content: center; height: 24px; min-width: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 11px; line-height: 1; cursor: pointer; transition: background-color .12s ease, color .12s ease, border-color .12s ease, opacity .12s ease; }
+.owl-msg-action:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
+.owl-msg-action[aria-pressed="true"] { color: var(--color-owl-accent); }
+.owl-msg-action:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 1px; }
+.owl-msg-meta { margin-left: 8px; font-size: 11px; color: var(--owl-reading-muted); opacity: .85; user-select: none; }
+.owl-tool-meta { display: flex; align-items: center; gap: 2px; margin-top: 4px; color: var(--owl-reading-muted); font-size: 11px; user-select: none; }
+.owl-tool-meta-copy { opacity: .75; }
+.owl-tool-meta-copy:hover { opacity: 1; }
+
+/* -- 用户消息的悬停快捷操作（编辑/复制），与 ↶ 回退同款浮现规则 -------------- */
+.owl-user-quick { flex: none; width: 24px; height: 24px; margin-top: 6px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); cursor: pointer; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease, color .12s ease; }
+.owl-user-row:hover .owl-user-quick, .owl-user-quick:focus-visible { opacity: 1; }
+.owl-user-quick:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
+.owl-user-quick:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 1px; }
+
+/* -- 用户消息内联编辑器（编辑=仅回退对话到该条再重发） ----------------------- */
+.owl-user-editor { display: flex; flex-direction: column; gap: 8px; width: min(85%, 560px); }
+.owl-user-editor-input { resize: vertical; min-height: 56px; padding: 10px 14px; border: 1px solid var(--color-owl-accent); border-radius: 16px; background: var(--color-owl-bubble); color: inherit; font-family: inherit; font-size: max(14px, calc(var(--owl-chat-font-size, 14px) - 2px)); line-height: 1.6; }
+.owl-user-editor-input:focus { outline: none; }
+.owl-user-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.owl-user-editor-button { padding: 5px 12px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: transparent; color: var(--owl-reading-muted); font-size: 12px; cursor: pointer; transition: background-color .12s ease, color .12s ease; }
+.owl-user-editor-button:hover { background: var(--owl-reading-panel); color: var(--owl-reading-text); }
+.owl-user-editor-button.is-primary { border-color: transparent; background: var(--color-owl-accent); color: #fff; }
+.owl-user-editor-button.is-primary:hover { background: var(--color-owl-accent-hover); color: #fff; }
+.owl-user-editor-button:disabled { opacity: .5; cursor: default; }
 .owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 14px); line-height: var(--owl-chat-line-height, 1.5); color: var(--owl-reading-text); overflow-wrap: anywhere; }
 .owl-answer > :first-child { margin-top: 0; }
 .owl-answer > :last-child { margin-bottom: 0; }

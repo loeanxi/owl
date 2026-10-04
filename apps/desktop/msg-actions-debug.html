@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>owl 消息操作栏 debug</title>
+</head>
+<body>
+	<div id="app"></div>
+	<script>
+		// 调试辅助：把渲染错误留到 sessionStorage，供自动化检查（仅 dev 页）
+		sessionStorage.setItem("owlerr", "[]");
+		const __origErr = console.error;
+		console.error = (...args) => {
+			try {
+				const list = JSON.parse(sessionStorage.getItem("owlerr") || "[]");
+				list.push(args.map((a) => String((a && a.stack) || a)).join(" | "));
+				sessionStorage.setItem("owlerr", JSON.stringify(list.slice(-8)));
+			} catch {}
+			__origErr.apply(console, args);
+		};
+	</script>
+	<script type="module" src="/src/debug-msg-actions/main.tsx"></script>
+</body>
+</html>

@@ -602,6 +602,8 @@ export async function collectUsageStats(filter?: UsageFilter, dirs?: UsageDirs):
 				modelRow.totalTokens += bucket.total;
 				modelRow.cost += bucket.cost;
 				modelRow.requests += bucket.requests;
+				modelRow.input = (modelRow.input ?? 0) + bucket.input;
+				modelRow.output = (modelRow.output ?? 0) + bucket.output;
 				byModel.set(modelKey, modelRow);
 				if (dayBucket && modelMap) {
 					dayBucket.totalTokens += bucket.total;

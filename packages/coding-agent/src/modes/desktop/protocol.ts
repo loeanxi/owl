@@ -766,6 +766,9 @@ export interface UsageStatsModel {
 	totalTokens: number;
 	cost: number;
 	requests: number;
+	/** 输入/输出 token（开始页 Models 页 in/out 展示用）。 */
+	input?: number;
+	output?: number;
 }
 
 /** 单项目用量（cwd 为会话所属工作区）。 */

@@ -209,7 +209,7 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 								<span className="owl-usage-model-dot" style={{ background: chartPalette.get(model.key) ?? "#5a5a5a" }} />
 								<span className="owl-usage-model-name">{modelShortName(model.key)}</span>
 								<span className="owl-usage-model-io">
-									{t("usage.modelIo", { input: formatTokens(model.input), output: formatTokens(model.output) })}
+									{t("usage.modelIo", { input: formatTokens(model.input ?? 0), output: formatTokens(model.output ?? 0) })}
 								</span>
 								<span className="owl-usage-model-pct">
 									{modelTotal > 0 ? `${Math.round((model.totalTokens / modelTotal) * 100)}%` : "0%"}

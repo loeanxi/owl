@@ -355,13 +355,10 @@ export default function App(): React.JSX.Element {
 		if (clicked?.kind === "user") setRewindTarget({ entryId, text: clicked.text });
 	};
 
-	const handleRewindDone = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
-		setRewindTarget(undefined);
+	/** 回退成功后的公共收尾：按快照重建转录 + 清理受影响文件的工作台过期缓冲。 */
+	const applyRewindSnapshot = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
 		const messages = result.snapshot.messages as Record<string, unknown>[];
 		setEntries(rebuild(messages, result.snapshot.messageEntryIds));
-		if (typeof result.editorText === "string") {
-			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
-		}
 		// 收尾工作台：被还原/删除的文件在编辑器里的旧缓冲不会自己感知磁盘变化，
 		// 关掉无未保存改动的匹配 tab（脏 tab 留给用户自己决定），重开即是新内容。
 		const affected = new Set(affectedFiles.map((file) => file.displayPath));
@@ -372,6 +369,53 @@ export default function App(): React.JSX.Element {
 			}
 		}
 		void refreshStats();
+	};
+
+	const handleRewindDone = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
+		setRewindTarget(undefined);
+		applyRewindSnapshot(result, affectedFiles);
+		if (typeof result.editorText === "string") {
+			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
+		}
+	};
+
+	// -- 消息操作：编辑重发 / 重新生成 ------------------------------------------
+	// 两者都是「仅回退对话」到目标用户消息再重发：不动文件，模型看到的历史回到该条之前。
+	const rewindConversation = async (entryId: string): Promise<RewindExecuteResult | undefined> => {
+		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return undefined;
+		try {
+			const response = await client.request<RewindExecuteResult>({
+				type: "rewind.execute",
+				sessionId: sessionIdRef.current,
+				entryId,
+				mode: "conversation",
+			});
+			if (response.ok && response.result) return response.result;
+		} catch {
+			// 回退失败（会话已卸载等）：放弃本次操作，转录保持原样
+		}
+		return undefined;
+	};
+
+	const handleEditMessage = async (entryId: string, text: string, images?: { data: string; mimeType: string }[]): Promise<void> => {
+		const result = await rewindConversation(entryId);
+		if (!result) return;
+		applyRewindSnapshot(result);
+		await sendPrompt(text, images?.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })));
+	};
+
+	const handleRegenerate = async (): Promise<void> => {
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index]!;
+			if (entry.kind !== "user") continue;
+			// 目标用户消息没有 entryId（旧桥/异常流）就无从回退，直接放弃
+			if (!entry.entryId) return;
+			const result = await rewindConversation(entry.entryId);
+			if (!result) return;
+			applyRewindSnapshot(result);
+			await sendPrompt(result.editorText ?? entry.text);
+			return;
+		}
 	};
 
 	useEffect(() => {
@@ -995,7 +1039,8 @@ export default function App(): React.JSX.Element {
 		if (!target) return;
 		setEntries((current) => [
 			...current,
-			{ kind: "user", text: message, ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
+			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId
+			{ kind: "user", text: message, timestamp: Date.now(), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
 		]);
 		// 用户亲自发言：旧的"重试中/重试失败"横幅已过时（会话由新消息接管）
 		setRetryStatus(null);
@@ -1288,7 +1333,7 @@ export default function App(): React.JSX.Element {
 							<ContextView key={sessionId ?? workspaceDir} client={client} cwd={workspaceDir} sessionId={sessionId} requireSession active={railView === "chat" && !showSettings && connected} />
 						) : (
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>

@@ -86,11 +86,12 @@ function saveFeedback(): void {
  * 参数与输出；失败行自动展开标红。答案正文永远是主角，思考过程整轮合并成一条轻量折叠行。
  */
 
-/** 内容流的一行；提问行带 questionIndex 作跳转锚点。 */
+/** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
 type TimelineRow = {
 	key: string;
 	content: React.JSX.Element;
 	questionIndex?: number;
+	compact?: boolean;
 };
 
 /** 渲染含 `code` 反引号的摘要行（工具摘要里的命令/路径/模式）。 */
@@ -242,6 +243,18 @@ function ToolRowView({ card, expanded = false }: { card: ToolCard; expanded?: bo
 							</button>
 						</div>
 					)}
+					{(output?.text || card.detail) && (
+						<div className="owl-tool-meta">
+							{(card.finishedAt ?? card.startedAt) !== undefined && (
+								<span>{formatClock(card.finishedAt ?? card.startedAt!)}</span>
+							)}
+							<CopyButton
+								text={output?.text || card.detail || ""}
+								label={t("chat.toolCopy")}
+								className="owl-msg-action owl-tool-meta-copy"
+							/>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
@@ -350,19 +363,178 @@ function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolRes
 	);
 }
 
-/** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡 + 悬停浮现的 ↶ 回退按钮。 */
+/** 小型复制按钮：成功后短暂变 ✓；剪贴板不可用（权限/失焦）时静默。 */
+function CopyButton({ text, label, className = "owl-msg-action" }: { text: string; label: string; className?: string }): React.JSX.Element {
+	const [copied, setCopied] = useState(false);
+	return (
+		<button
+			type="button"
+			className={className}
+			title={copied ? t("chat.msgCopied") : label}
+			aria-label={copied ? t("chat.msgCopied") : label}
+			onClick={async (event) => {
+				event.stopPropagation();
+				try {
+					await navigator.clipboard.writeText(text);
+					setCopied(true);
+					window.setTimeout(() => setCopied(false), 1500);
+				} catch {
+					// 打不开剪贴板就算了：不打断阅读
+				}
+			}}
+		>
+			{copied ? <IconCheck className="h-3.5 w-3.5" /> : <IconCopy className="h-3.5 w-3.5" />}
+		</button>
+	);
+}
+
+/** 回答底部操作栏（对照参考实现）：复制 / 赞 / 踩 /（仅最新一轮）重新生成 + 用量与时间元信息。 */
+function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate }: {
+	entry: Extract<ChatEntry, { kind: "assistant" }>;
+	storageKey: string;
+	canRegenerate: boolean;
+	onRegenerate?: () => void;
+}): React.JSX.Element {
+	const [feedback, setFeedback] = useState<FeedbackValue | undefined>(() => {
+		loadFeedback();
+		return feedbackByMessage.get(storageKey);
+	});
+	useEffect(() => setFeedback(feedbackByMessage.get(storageKey)), [storageKey]);
+	const toggle = (value: FeedbackValue): void => {
+		loadFeedback();
+		const next = feedbackByMessage.get(storageKey) === value ? undefined : value;
+		if (next) feedbackByMessage.set(storageKey, next);
+		else feedbackByMessage.delete(storageKey);
+		saveFeedback();
+		setFeedback(next);
+	};
+	const usage = entry.usage;
+	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
+	const usageTitle = usage
+		? t("chat.msgUsageTitle", {
+				input: formatTokenCount(usage.input),
+				output: formatTokenCount(usage.output),
+				cacheRead: formatTokenCount(usage.cacheRead),
+				cacheWrite: formatTokenCount(usage.cacheWrite),
+			})
+		: undefined;
+	return (
+		<div className="owl-msg-actions">
+			<CopyButton text={entry.text} label={t("chat.msgCopy")} />
+			<button
+				type="button"
+				className="owl-msg-action"
+				aria-pressed={feedback === "up"}
+				title={t("chat.msgLike")}
+				aria-label={t("chat.msgLike")}
+				onClick={() => toggle("up")}
+			>
+				<IconThumbUp className="h-3.5 w-3.5" />
+			</button>
+			<button
+				type="button"
+				className="owl-msg-action"
+				aria-pressed={feedback === "down"}
+				title={t("chat.msgDislike")}
+				aria-label={t("chat.msgDislike")}
+				onClick={() => toggle("down")}
+			>
+				<IconThumbDown className="h-3.5 w-3.5" />
+			</button>
+			{canRegenerate && onRegenerate && (
+				<button
+					type="button"
+					className="owl-msg-action"
+					title={t("chat.msgRegenerate")}
+					aria-label={t("chat.msgRegenerate")}
+					onClick={onRegenerate}
+				>
+					<IconRefresh className="h-3.5 w-3.5" />
+				</button>
+			)}
+			{usage && totalTokens > 0 && (
+				<span className="owl-msg-meta" title={usageTitle}>
+					{t("chat.msgUsage", { n: formatTokenCount(totalTokens) })}
+				</span>
+			)}
+			{entry.timestamp !== undefined && <span className="owl-msg-meta">{formatClock(entry.timestamp)}</span>}
+		</div>
+	);
+}
+
+/** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡 + 悬停浮现的 编辑/复制/回退 按钮。 */
 function UserRowView({
 	entry,
+	busy,
 	onRewind,
+	onEditMessage,
 }: {
 	entry: Extract<ChatEntry, { kind: "user" }>;
+	busy: boolean;
 	onRewind?: (entryId: string) => void;
+	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
 }): React.JSX.Element {
 	const [zoomed, setZoomed] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(entry.text);
 	const images = entry.images ?? [];
 	const canRewind = Boolean(entry.entryId && onRewind);
+	// 编辑=重发：回退到这条消息再发新文本（会截断其后对话），必须带 entryId 且会话空闲
+	const canEdit = Boolean(entry.entryId && onEditMessage) && !busy;
+	if (editing) {
+		const submit = (): void => {
+			const text = draft.trim();
+			setEditing(false);
+			if (!text || text === entry.text.trim() || !entry.entryId) return;
+			onEditMessage?.(entry.entryId, text, images.length > 0 ? images : undefined);
+		};
+		return (
+			<div className="owl-user-row">
+				<div className="owl-user-editor">
+					<textarea
+						className="owl-user-editor-input"
+						value={draft}
+						rows={Math.min(12, Math.max(2, draft.split("\n").length))}
+						autoFocus
+						aria-label={t("chat.msgEditAria")}
+						onChange={(event) => setDraft(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Escape") {
+								event.stopPropagation();
+								setEditing(false);
+							} else if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								submit();
+							}
+						}}
+					/>
+					<div className="owl-user-editor-actions">
+						<button type="button" className="owl-user-editor-button" onClick={() => setEditing(false)}>{t("common.cancel")}</button>
+						<button type="button" className="owl-user-editor-button is-primary" disabled={draft.trim() === ""} onClick={submit}>
+							{t("chat.msgEditSend")}
+						</button>
+					</div>
+				</div>
+			</div>
+		);
+	}
 	return (
 		<div className="owl-user-row">
+			{canEdit && (
+				<button
+					type="button"
+					className="owl-user-quick"
+					title={t("chat.msgEdit")}
+					aria-label={t("chat.msgEdit")}
+					onClick={() => {
+						setDraft(entry.text);
+						setEditing(true);
+					}}
+				>
+					<IconCompose className="h-3.5 w-3.5" />
+				</button>
+			)}
+			<CopyButton text={entry.text} label={t("chat.msgCopy")} className="owl-user-quick" />
 			{canRewind && (
 				<button
 					type="button"
@@ -409,16 +581,28 @@ function UserRowView({
 	);
 }
 
+/** buildRows 的上下文：渲染回调 + 消息操作（编辑/重新生成）的可用性。 */
+type RowOptions = {
+	entries: ChatEntry[];
+	expandedTools: boolean;
+	onRewind?: (entryId: string) => void;
+	cwd?: string;
+	onOpenFile?: (path: string) => void;
+	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null;
+	/** 最新一轮回答还在流式：最后一条 assistant 不渲染操作栏。 */
+	streaming: boolean;
+	/** 赞/踩反馈的命名空间（sessionId；无会话上下文用固定值）。 */
+	sessionKey: string;
+	/** 会话空闲且最后一条用户消息带 entryId：最后一条回答可「重新生成」。 */
+	canRegenerate: boolean;
+	onRegenerate?: () => void;
+	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
+	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
+	busy: boolean;
+};
+
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows(
-	entries: ChatEntry[],
-	expandedTools: boolean,
-	onRewind: ((entryId: string) => void) | undefined,
-	cwd: string | undefined,
-	onOpenFile: ((path: string) => void) | undefined,
-	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null,
-	streaming = false,
-): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -432,6 +616,8 @@ function buildRows(
 			}
 		}
 	}
+	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
+	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> } | undefined;
 	let turn = 0;
 	let assistantStarted = false;
 	let pendingTools: ToolCard[] = [];
@@ -446,23 +632,23 @@ function buildRows(
 				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
 		});
 	};
-	entries.forEach((entry, index) => {
-		if (entry.kind === "user") {
-			flushTools();
-			assistantStarted = false;
-			const artifacts = historicalArtifacts?.get(index);
-			if (artifacts && onOpenFile) {
-				const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
-				if (node) rows.push({ key: "artifacts-" + index, content: node });
+		entries.forEach((entry, index) => {
+			if (entry.kind === "user") {
+				flushTools();
+				assistantStarted = false;
+				const artifacts = historicalArtifacts?.get(index);
+				if (artifacts && onOpenFile) {
+					const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
+					if (node) rows.push({ key: "artifacts-" + index, content: node });
+				}
+				turn += 1;
+				rows.push({
+					key: "q" + turn,
+					questionIndex: turn,
+					content: <UserRowView entry={entry} busy={busy} onRewind={onRewind} onEditMessage={onEditMessage} />,
+				});
+				return;
 			}
-			turn += 1;
-			rows.push({
-				key: "q" + turn,
-				questionIndex: turn,
-				content: <UserRowView entry={entry} onRewind={onRewind} />,
-			});
-			return;
-		}
 		if (entry.kind === "toolResult") {
 			flushTools();
 			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
@@ -520,8 +706,34 @@ function buildRows(
 			flushTools();
 			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		}
+		// 回答底部操作栏：只挂在有正文的 assistant 上（纯工具调用轮不上屏操作栏）；
+		// 流式中的最后一条尚未定型，等 settled 后的重建再出现。
+		if (
+			segments.some((segment) => segment.kind === "text" && segment.text.trim() !== "") &&
+			(lastAssistantIndex === -1 || index !== lastAssistantIndex)
+		) {
+			flushTools();
+			const row: TimelineRow = {
+				key: "footer-" + index,
+				compact: true,
+				content: <AssistantFooter entry={entry} storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`} canRegenerate={false} />,
+			};
+			rows.push(row);
+			lastFooter = { row, index, entry };
+		}
 	});
 	flushTools();
+	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
+	if (lastFooter && canRegenerate && onRegenerate) {
+		lastFooter.row.content = (
+			<AssistantFooter
+				entry={lastFooter.entry}
+				storageKey={`${sessionKey}:msg${lastFooter.entry.timestamp ?? lastFooter.index}`}
+				canRegenerate
+				onRegenerate={onRegenerate}
+			/>
+		);
+	}
 	return rows;
 }
 
@@ -661,6 +873,8 @@ export function ChatStream({
 	onRewind,
 	client,
 	onOpenReview,
+	onRegenerate,
+	onEditMessage,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -677,6 +891,10 @@ export function ChatStream({
 	client?: BridgeClient;
 	/** 历史轮改动卡的「工作台审查」跳转（带聚焦路径）。 */
 	onOpenReview?: (focusPath: string) => void;
+	/** 回答操作栏的「重新生成」：对最后一条用户消息整轮仅回退对话后重发。 */
+	onRegenerate?: () => void;
+	/** 用户消息的「编辑重发」：回退到该条消息（仅对话）后发送新文本。 */
+	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const emptyHeadingId = useId();
@@ -719,9 +937,35 @@ export function ChatStream({
 			<TurnArtifacts artifacts={turnArtifacts} cwd={cwd} client={client} onOpenFile={onOpenFile ?? (() => undefined)} onOpenReview={onOpenReview} />
 		);
 	}, [cwd, client, onOpenFile, onOpenReview]);
+	// 会话忙（生成/工具执行/提交中）：暂停重新生成与用户消息编辑，避免与运行中的轮次互相踩
+	const busy = activity !== "idle";
+	// 重新生成的目标 = 最后一条用户消息；它还没有 entryId（乐观行未确认）时无从回退，先不挂按钮
+	const canRegenerate = useMemo(() => {
+		if (busy || !onRegenerate) return false;
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index]!;
+			if (entry.kind === "user") return Boolean(entry.entryId);
+		}
+		return false;
+	}, [busy, onRegenerate, entries]);
+	const { sessionId } = useGenuiSession();
 	const rows = useMemo(
-		() => buildRows(entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity === "working"),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity],
+		() =>
+			buildRows({
+				entries,
+				expandedTools,
+				onRewind,
+				cwd,
+				onOpenFile,
+				turnCard,
+				streaming: activity === "working",
+				sessionKey: sessionId ?? "shared",
+				canRegenerate,
+				onRegenerate,
+				onEditMessage,
+				busy,
+			}),
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, busy],
 	);
 
 	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----
@@ -821,6 +1065,11 @@ export function ChatStream({
 			onScrollWithTracking();
 		});
 		observer.observe(el);
+		// 内容列也要观察：面板/卡片异步加载改变内容高度时容器自身并不 resize，
+		// 不补这个观察，「回到最新」会停在内容变化前的过期状态（如空态面板加载完
+		// 成后按钮误显示并盖住面板底部）。
+		const content = el.firstElementChild;
+		if (content) observer.observe(content);
 		return () => observer.disconnect();
 	}, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -839,8 +1088,9 @@ export function ChatStream({
 					onOpenFile(path);
 				}}>
 					<div className="owl-chat-column">
-						{entries.length === 0 && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1></section>}
-						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : "owl-chat-row"}>{row.content}</div>)}
+						{/* 空会话开始页：问候语 + 使用概览面板（Claude Desktop 同款，桥的 usage.get 供数） */}
+						{entries.length === 0 && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1>{client && <UsageOverview client={client} />}</section>}
+						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
 						<ResponseActivity entries={entries} activity={activity} />
 						{artifacts}
 					</div>
