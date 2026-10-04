@@ -18,6 +18,7 @@ describe("desktop browser plan permissions", () => {
 		expect(isReadOnlyDesktopTool("research_executable", { action: "inspect" })).toBe(true);
 		expect(isReadOnlyDesktopTool("research_model_lab", {})).toBe(true);
 		expect(isReadOnlyDesktopTool("research_model_lab", { action: "plan" })).toBe(true);
+		expect(isReadOnlyDesktopTool("research_decompile", { action: "inventory" })).toBe(true);
 	});
 
 	it("blocks mutations inside composite tools and unknown actions", () => {
@@ -33,9 +34,12 @@ describe("desktop browser plan permissions", () => {
 			["research_executable", "future-action"],
 			["research_model_lab", "run"],
 			["research_model_lab", "future-action"],
+			["research_decompile", "decompile"],
+			["research_decompile", "future-action"],
 		])
 			expect(isReadOnlyDesktopTool(toolName, { action })).toBe(false);
 		expect(isReadOnlyDesktopTool("browser_tabs", undefined)).toBe(false);
+		expect(isReadOnlyDesktopTool("research_decompile", undefined)).toBe(false);
 		for (const toolName of [
 			"browser_navigate",
 			"browser_type",

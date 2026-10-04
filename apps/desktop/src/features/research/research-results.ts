@@ -1,6 +1,6 @@
 import type { ResearchResult } from "../../bridge/protocol.ts";
 
-const RESULT_TOOLS = new Set(["research_publish", "research_executable", "research_model_lab"]);
+const RESULT_TOOLS = new Set(["research_publish", "research_executable", "research_decompile", "research_model_lab"]);
 
 function objectOf(value: unknown): Record<string, unknown> | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;

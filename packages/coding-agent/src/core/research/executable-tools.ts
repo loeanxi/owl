@@ -104,7 +104,7 @@ export async function runResearchExecutable(
 		warnings: [],
 		limitations: [
 			"静态解析不能恢复所有原生源码，也不证明程序安全。",
-			"只支持已展开 Electron 资源、ASAR 条目提取和已安装 UPX；没有通用脱壳、原生反编译或动态沙箱。",
+			"本工具检查 PE 与应用资源，不恢复业务源码；继续调用 research_decompile 使用匹配字节码工具、源码规范化或配置的原生反编译器。没有通用脱壳或动态沙箱。",
 		],
 	};
 	const isArchive = extname(selected.path).toLowerCase() === ".asar";

@@ -7,12 +7,13 @@ import type {
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { IconNews, IconSearch } from "../../components/icons.tsx";
-import { type TextKey, useT } from "../../i18n/index.ts";
+import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import { NewsAssistant, type NewsContext } from "./NewsAssistant.tsx";
 import { NewsContentManagement } from "./NewsContentManagement.tsx";
 import { NewsManagement } from "./NewsManagement.tsx";
 import { NewsItemReader, NewsReportReader, NewsStoryReader, type NewsTarget } from "./NewsReading.tsx";
 import { NewsSources } from "./NewsSources.tsx";
+import { newsEmptyCopy } from "./empty-copy.ts";
 import { errorText, NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 import "./news.css";
@@ -400,6 +401,8 @@ export function NewsPage({
 											onToggleContext={toggleContext}
 											onDiscuss={discuss}
 											onChanged={refreshed}
+											itemCount={snapshot?.status.itemCount}
+											onViewAll={() => selectSection("all")}
 											onSetupSources={() => selectSection("sources")}
 											onSetupModels={() => selectSection("configuration")}
 										/>
@@ -519,11 +522,16 @@ interface FeedProps {
 	onToggleContext: (item: NewsItem) => void;
 	onDiscuss: (context: NewsContext) => void;
 	onChanged: () => void;
+	itemCount?: number;
+	onViewAll?: () => void;
 	onSetupSources?: () => void;
 	onSetupModels?: () => void;
 }
 function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): React.JSX.Element {
 	const t = useT();
+	const emptyCopy = newsEmptyCopy[getUiLanguage()];
+	const isUnfilteredSelected = query.mode === "selected" && !query.query && !query.category && !query.topic;
+	const hasCollectedNews = (props.itemCount ?? 0) > 0;
 	const [offset, setOffset] = useState(0);
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState<string>();
@@ -562,13 +570,13 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 				</div>
 			)}
 			{result.data?.items.length === 0 && (
-				<div className={`owl-news-empty${query.mode === "selected" && !query.query && !query.category && !query.topic ? " owl-news-first-run" : ""}`}>
+				<div className={`owl-news-empty${isUnfilteredSelected ? " owl-news-first-run" : ""}`}>
 					<div>
-						{query.mode === "selected" && !query.query && !query.category && !query.topic ? (
+						{isUnfilteredSelected ? (
 							<>
 								<div className="owl-news-eyebrow">AIHOT · OWL NEWS</div>
-								<h2>{t("news.firstRunTitle")}</h2>
-								<p>{t("news.firstRunHint")}</p>
+								<h2>{hasCollectedNews ? emptyCopy.collectedTitle : t("news.firstRunTitle")}</h2>
+								<p>{hasCollectedNews ? emptyCopy.collectedHint : t("news.firstRunHint")}</p>
 							</>
 						) : (
 							<>
@@ -577,14 +585,22 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 							</>
 						)}
 					</div>
-					{query.mode === "selected" && !query.query && !query.category && !query.topic && (
+					{isUnfilteredSelected && (
 						<div className="owl-news-first-run-actions">
-							<button type="button" className="owl-news-primary" onClick={props.onSetupSources}>
-								{t("news.setupSources")}
-							</button>
-							<button type="button" onClick={props.onSetupModels}>
-								{t("news.setupModels")}
-							</button>
+							{hasCollectedNews ? (
+								<button type="button" className="owl-news-primary" onClick={props.onViewAll}>
+									{emptyCopy.viewAll}
+								</button>
+							) : (
+								<>
+									<button type="button" className="owl-news-primary" onClick={props.onSetupSources}>
+										{t("news.setupSources")}
+									</button>
+									<button type="button" onClick={props.onSetupModels}>
+										{t("news.setupModels")}
+									</button>
+								</>
+							)}
 						</div>
 					)}
 				</div>

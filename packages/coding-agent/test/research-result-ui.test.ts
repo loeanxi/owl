@@ -20,7 +20,7 @@ const result: ResearchResult = {
 
 describe("research capability cards in the desktop", () => {
 	it("restores dedicated executable and model cards from persisted tool results without inferring prose", () => {
-		for (const toolName of ["research_publish", "research_executable", "research_model_lab"]) {
+		for (const toolName of ["research_publish", "research_executable", "research_decompile", "research_model_lab"]) {
 			const card = toolName === "research_model_lab" ? { ...result, mode: "model" as const } : result;
 			const message = { role: "toolResult", toolName, details: { researchResult: card }, isError: false };
 			expect(publishedResults([message, message])).toEqual([card]);
