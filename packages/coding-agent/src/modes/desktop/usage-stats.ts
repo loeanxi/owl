@@ -331,7 +331,9 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 				const usage = entry.message.usage;
 				if (usage && typeof usage === "object" && usageHasInfo(usage)) {
 					const modelKey = `${entry.message.provider ?? "?"}/${entry.message.responseModel ?? entry.message.model ?? "?"}`;
-					addToModelBucket((dayBucket(ts).models[modelKey] ??= emptyModelBucket()), usage);
+					const models = dayBucket(ts).models;
+					if (!models[modelKey]) models[modelKey] = emptyModelBucket();
+					addToModelBucket(models[modelKey], usage);
 				}
 				continue;
 			}
@@ -349,10 +351,9 @@ async function scanSessionFile(path: string): Promise<SessionScan | null> {
 				found = { usage: entry.usage, modelKey: TOOLS_MODEL_KEY };
 			}
 			if (!found || !usageHasInfo(found.usage)) continue;
-			addToModelBucket(
-				(dayBucket(entry.timestamp ?? lastTimestamp).models[found.modelKey] ??= emptyModelBucket()),
-				found.usage,
-			);
+			const models = dayBucket(entry.timestamp ?? lastTimestamp).models;
+			if (!models[found.modelKey]) models[found.modelKey] = emptyModelBucket();
+			addToModelBucket(models[found.modelKey], found.usage);
 		}
 	} catch {
 		// 单个文件读失败（正在被写入/权限）不影响整体统计

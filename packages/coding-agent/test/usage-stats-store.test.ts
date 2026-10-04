@@ -121,7 +121,7 @@ describe("usage-stats 增量存储与聚合", () => {
 
 	it("mtime+size 未变的文件不重扫，变了的重扫替换", async () => {
 		const { dirs } = makeRoot();
-		const { projA } = seedStandard(dirs.sessionsDir!);
+		seedStandard(dirs.sessionsDir!);
 		await collectUsageStats(undefined, dirs);
 
 		const storePath = dirs.storePath!;
