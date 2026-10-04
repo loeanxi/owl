@@ -76,6 +76,8 @@ export interface CreateAgentSessionOptions {
 	excludeTools?: string[];
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
+	/** Register all permitted tools, but only activate defaults until tool_search loads more. */
+	toolActivation?: "eager" | "on-demand";
 
 	/** Resource loader. When omitted, DefaultResourceLoader is used. */
 	resourceLoader?: ResourceLoader;
@@ -262,12 +264,32 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const configuredDefaultToolNames = settingsManager.getDefaultTools();
+	const rawDefaultToolNames = settingsManager.getDefaultToolsRaw();
+	const replacesDefaultTools =
+		rawDefaultToolNames !== undefined &&
+		(rawDefaultToolNames.length === 0 ||
+			rawDefaultToolNames.some((name) => !name.startsWith("+") && !name.startsWith("-")));
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
 	const initialActiveToolNames = (
 		options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))
 	).filter((name) => !excludedToolNameSet?.has(name));
+	if (
+		options.toolActivation === "on-demand" &&
+		options.tools === undefined &&
+		!options.noTools &&
+		!replacesDefaultTools
+	) {
+		for (const name of ["tool_search", "skill_search", "ask_user_question"]) {
+			if (
+				!initialActiveToolNames.includes(name) &&
+				!excludedToolNameSet?.has(name) &&
+				(configuredDefaultToolNames?.includes(name) || !settingsManager.getDefaultToolsRaw()?.includes(`-${name}`))
+			)
+				initialActiveToolNames.push(name);
+		}
+	}
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
 	const convertToLlmWithBlockImages = (messages: AgentMessage[]): Message[] => {
@@ -445,6 +467,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		modelRuntime,
 		cacheWarmer,
 		initialActiveToolNames,
+		toolActivation: options.toolActivation,
 		usesDefaultTools: options.tools === undefined && !options.noTools,
 		allowedToolNames,
 		excludedToolNames,

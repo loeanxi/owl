@@ -255,8 +255,15 @@ describe("AgentSession actionable boundaries", () => {
 			],
 		});
 		harnesses.push(harness);
+		// 只看边界条目通知（custom/custom_message）；assistant 消息落盘也会发
+		// entry_appended，但它先于边界提交，与“上下文已刷新”的断言无关
 		harness.session.subscribe((event) => {
-			if (event.type === "entry_appended") snapshots.push(JSON.stringify(harness.session.messages));
+			if (
+				event.type === "entry_appended" &&
+				(event.entry.type === "custom" || event.entry.type === "custom_message")
+			) {
+				snapshots.push(JSON.stringify(harness.session.messages));
+			}
 		});
 		harness.setResponses([fauxAssistantMessage("done")]);
 

@@ -113,6 +113,7 @@ export interface HarnessOptions {
 	settings?: Partial<Settings>;
 	tools?: AgentTool[];
 	initialActiveToolNames?: string[];
+	toolActivation?: "eager" | "on-demand";
 	allowedToolNames?: string[];
 	excludedToolNames?: string[];
 	resourceLoader?: ResourceLoader;
@@ -238,6 +239,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		resourceLoader,
 		baseToolsOverride: toolMap,
 		initialActiveToolNames: options.initialActiveToolNames,
+		toolActivation: options.toolActivation,
 		allowedToolNames: options.allowedToolNames,
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,

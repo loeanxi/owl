@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added Chinese and English tool discovery and bounded skill discovery for desktop conversations, with native tool results and recorded tool sets preserved on resume and branch navigation.
+- Added capability/action discovery steps with metadata evidence, explicit unresolved requirements, and a shared tool-loading budget for compound tasks.
+- Added explicit implementation acceptance checklists with observed evidence, one bounded completion reminder, and recovery guidance for repeated identical tool errors.
 - Added research-only PE inspection, bounded Electron resource analysis, explicit ASAR extraction and an optional installed UPX adapter, with source-linked result cards and no target execution. Added fixed synthetic model boundary experiments with explicit model and call budgets.
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.
@@ -14,12 +17,14 @@
 
 ### Changed
 
+- Desktop conversations now start with a small tool set and a compact skill index; specialized capabilities are loaded when needed. Ordinary answers can use Markdown without generating UI cards.
 - Compacted the model evaluation navigation and current-run summary, and removed redundant sidebar help.
 - Replaced task-library illustration cards with a compact list of IDs, task summaries, categories, versions, sources, and detail actions.
 - Switched model evaluations to completion-first generation: configured model output capacity, no fixed total runtime cutoff, and a two-minute guard for streams without new thinking or answer text. New attempts freeze their own request policy while retaining earlier records.
 
 ### Fixed
 
+- Fixed tool discovery loading weak keyword collisions or unrelated alternatives for an already active exact match; action validation now distinguishes unsupported operations from a depleted loading budget.
 - Exposed safe output-limit, timeout, and cancellation reasons during anonymous evaluation so unchanged retries are understandable.
 - Fixed the shrinkwrap shipping vulnerable `brace-expansion` 5.0.9 by pinning `brace-expansion` 5.0.12 as a direct dependency (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) ([#10288](https://github.com/earendil-works/pi/issues/10288))
 - Fixed a trailing comma in `--models` adding an extra model to the model cycle ([#10334](https://github.com/earendil-works/pi/issues/10334))

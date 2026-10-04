@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { latestTodoState } from "../hooks/todo.ts";
 import { useT } from "../i18n/index.ts";
@@ -15,19 +15,20 @@ const TODO_PIN_KEY = "owl.todopin.open";
 export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Element | null {
 	const t = useT();
 	const todos = latestTodoState(entries);
-	const dismissedRef = useRef<string | null>(null);
+	const [dismissed, setDismissed] = useState<string | null>(null);
 	const [open, setOpen] = useState(() => localStorage.getItem(TODO_PIN_KEY) !== "0");
 
-	// 用户收起 → 记下当前清单快照；清单再变化（模型更新了任务）→ 重新弹出
+	// 用户收下 → 记下当前清单快照并整条隐藏；清单再变化（模型更新了任务）→ 重新弹出
 	const snapshot = todos ? JSON.stringify(todos) : "";
 	useEffect(() => {
-		if (snapshot && dismissedRef.current !== null && dismissedRef.current !== snapshot) {
-			dismissedRef.current = null;
+		if (snapshot && dismissed !== null && dismissed !== snapshot) {
+			setDismissed(null);
 			setOpen(true);
 		}
-	}, [snapshot]);
+	}, [snapshot, dismissed]);
 
 	if (!todos || todos.length === 0) return null;
+	if (dismissed !== null) return null;
 
 	const done = todos.filter((item) => item.status === "completed").length;
 	const pct = Math.round((done / todos.length) * 100);
@@ -35,8 +36,7 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 	const current = todos.find((item) => item.status === "in_progress");
 
 	const dismiss = (): void => {
-		dismissedRef.current = snapshot;
-		setOpen(false);
+		setDismissed(snapshot);
 	};
 
 	return (

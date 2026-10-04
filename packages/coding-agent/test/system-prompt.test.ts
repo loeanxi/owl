@@ -177,6 +177,36 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("skills", () => {
+		test("keeps a large skill catalog compact when skill discovery is available", () => {
+			const skills = Array.from({ length: 60 }, (_, index) => ({
+				...testSkill,
+				name: `workflow-${index}`,
+				description: "Detailed instructions only needed after discovery. ".repeat(20),
+				filePath: `/skills/workflow-${index}/SKILL.md`,
+			}));
+			const prompt = buildSystemPrompt({
+				customPrompt: "Assistant",
+				cwd: "/tmp",
+				selectedTools: ["read", "skill_search"],
+				skills,
+			});
+			expect(prompt.length).toBeLessThan(4096);
+			expect(prompt).toContain("skill_search");
+			expect(prompt).toContain("workflow-59");
+			expect(prompt).not.toContain("Detailed instructions only needed after discovery.");
+			expect(prompt).not.toContain("/skills/workflow-0/SKILL.md");
+		});
+
+		test("does not advertise disabled skills in the discovery index", () => {
+			const prompt = buildSystemPrompt({
+				cwd: "/tmp",
+				selectedTools: ["skill_search"],
+				skills: [testSkill, { ...testSkill, name: "manual-only", disableModelInvocation: true }],
+			});
+			expect(prompt).toContain("test-skill");
+			expect(prompt).not.toContain("manual-only");
+		});
+
 		test.each([
 			{ name: "default prompt", customPrompt: undefined },
 			{ name: "custom prompt", customPrompt: "Custom system prompt" },

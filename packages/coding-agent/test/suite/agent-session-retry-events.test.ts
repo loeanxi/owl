@@ -285,6 +285,8 @@ describe("AgentSession retry and event characterization", () => {
 			"message_start:assistant",
 			"message_update",
 			"message_end:assistant",
+			// owl:assistant 消息条目落盘事件（「在新对话中分支」给回答行补 entryId 用）
+			"entry_appended",
 			"turn_end",
 			"agent_end",
 			"agent_settled",
@@ -325,6 +327,9 @@ describe("AgentSession retry and event characterization", () => {
 			"message_start:assistant",
 			"message_update",
 			"message_end:assistant",
+			// owl:assistant 消息条目落盘事件（「在新对话中分支」给回答行补 entryId 用），
+			// toolResult 不单独成行不发，两次 LLM 调用各发一条
+			"entry_appended",
 			"tool_execution_start:echo",
 			"tool_execution_end:echo",
 			"message_start:toolResult",
@@ -334,6 +339,8 @@ describe("AgentSession retry and event characterization", () => {
 			"message_start:assistant",
 			"message_update",
 			"message_end:assistant",
+			// owl:assistant 消息条目落盘事件（同上）
+			"entry_appended",
 			"turn_end",
 			"agent_end",
 			"agent_settled",

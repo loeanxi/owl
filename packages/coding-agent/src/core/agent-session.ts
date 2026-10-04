@@ -260,6 +260,8 @@ export interface AgentSessionConfig {
 	cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
 	/** Initial active built-in tool names. Default: [read, bash, edit, write] */
 	initialActiveToolNames?: string[];
+	/** On-demand keeps registered tools discoverable without declaring them at startup. */
+	toolActivation?: "eager" | "on-demand";
 	/**
 	 * Whether the initial tools come from the `defaultTools` setting. When true, reload activates
 	 * tools newly added to the setting. Tools removed from it stay active.
@@ -421,6 +423,9 @@ export class AgentSession {
 	private _cwd: string;
 	private _extensionRunnerRef?: { current?: ExtensionRunner };
 	private _initialActiveToolNames?: string[];
+	private readonly _toolActivation: "eager" | "on-demand";
+	/** Lifecycle hooks may remove tools; discovery and tool execution activate additional capabilities. */
+	private _startupToolNames?: ReadonlySet<string>;
 	/**
 	 * Tools of the restored or reloaded loadout that are not registered yet, such as tools of MCP
 	 * servers that are still connecting. They are activated when they are registered, and dropped when
@@ -472,6 +477,7 @@ export class AgentSession {
 		}
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
+		this._toolActivation = config.toolActivation ?? "eager";
 		this._usesDefaultTools = config.usesDefaultTools ?? false;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
@@ -499,7 +505,9 @@ export class AgentSession {
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
-		if (this._initialActiveToolNames === undefined) this._restoreToolsFromTranscript();
+		if (this._initialActiveToolNames === undefined || this._toolActivation === "on-demand") {
+			this._restoreToolsFromTranscript();
+		}
 	}
 
 	get modelRuntime(): ModelRuntime {
@@ -1121,10 +1129,10 @@ export class AgentSession {
 			}
 			if (entryId) {
 				this._entryIdsByMessage.set(event.message, entryId);
-				// owl:用户消息的条目落盘事件——桌面转录靠它给乐观追加的用户行补
-				// entryId（回退按钮定位目标用）。只对 user 发：assistant/toolResult
-				// 的行不需要 id，避免事件流翻倍。
-				if (event.message.role === "user") {
+				// owl:消息条目落盘事件——桌面转录靠它给乐观追加的行补 entryId：
+				// user 行（回退按钮定位目标）与 assistant 行（「在新对话中分支」按钮）
+				// 都需要。toolResult 不单独成行，仍不发，避免事件流翻倍。
+				if (event.message.role === "user" || event.message.role === "assistant") {
 					const persistedEntry = this.sessionManager.getEntry(entryId);
 					if (persistedEntry) this._emit({ type: "entry_appended", entry: persistedEntry });
 				}
@@ -1472,7 +1480,9 @@ export class AgentSession {
 	}
 
 	private _setActiveTools(toolNames: string[]): void {
-		const tools = this._applyToolLoadout(toolNames);
+		const tools = this._applyToolLoadout(
+			this._startupToolNames ? toolNames.filter((name) => this._startupToolNames?.has(name)) : toolNames,
+		);
 		for (const tool of tools) this._pendingToolNames.delete(tool.name);
 		this._rebuildSystemPrompt(tools.map((tool) => tool.name));
 	}
@@ -1986,11 +1996,13 @@ export class AgentSession {
 		// Emit before_agent_start before normalizing images so extension-driven model
 		// selection determines the resize profile used for the request and history.
 		const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;
-		const result = await this._extensionRunner.emitBeforeAgentStart(
-			expandedText,
-			currentImages,
-			this._baseSystemPromptOptions,
-		);
+		const selectionCeiling = this._toolActivation === "on-demand" ? new Set(this.getActiveToolNames()) : undefined;
+		this._startupToolNames = selectionCeiling;
+		const result = await this._extensionRunner
+			.emitBeforeAgentStart(expandedText, currentImages, this._baseSystemPromptOptions)
+			.finally(() => {
+				this._startupToolNames = undefined;
+			});
 		// Handlers may edit event.systemPromptOptions.selectedTools or call setActiveTools(),
 		// which updates the live loadout instead. An explicit edit wins; otherwise the live
 		// loadout is authoritative, so a setActiveTools() call is not undone here.
@@ -1998,6 +2010,12 @@ export class AgentSession {
 			result.systemPromptOptions.selectedTools.length !== selectedToolsBefore.length ||
 			result.systemPromptOptions.selectedTools.some((name, index) => name !== selectedToolsBefore[index]);
 		if (!handlerEditedTools) result.systemPromptOptions.selectedTools = this.getActiveToolNames();
+		if (selectionCeiling) {
+			const activeAfterHooks = new Set(this.getActiveToolNames());
+			result.systemPromptOptions.selectedTools = result.systemPromptOptions.selectedTools.filter(
+				(name) => selectionCeiling.has(name) && activeAfterHooks.has(name),
+			);
+		}
 
 		const normalized = await this._normalizePromptImages(currentImages);
 		const userText = normalized.hints.length > 0 ? `${expandedText}\n\n${normalized.hints.join("\n")}` : expandedText;
@@ -3196,9 +3214,26 @@ export class AgentSession {
 		}
 
 		this._applyExtensionBindings(this._extensionRunner);
-		await this._extensionRunner.emit(this._sessionStartEvent);
-		this._extensionRunner.reportUnhandledMcpServers();
-		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
+		await this._startExtensions(this._sessionStartEvent);
+	}
+
+	private async _startExtensions(event: SessionStartEvent): Promise<void> {
+		if (this._toolActivation === "on-demand") {
+			this._startupToolNames = new Set([
+				...this.getActiveToolNames(),
+				...this._pendingToolNames,
+				...(this.sessionManager.buildSessionContext().messages.length === 0
+					? (this._initialActiveToolNames ?? [])
+					: []),
+			]);
+		}
+		try {
+			await this._extensionRunner.emit(event);
+			this._extensionRunner.reportUnhandledMcpServers();
+			await this.extendResourcesFromExtensions(event.reason === "reload" ? "reload" : "startup");
+		} finally {
+			this._startupToolNames = undefined;
+		}
 	}
 
 	private async extendResourcesFromExtensions(reason: "startup" | "reload"): Promise<void> {
@@ -3515,6 +3550,7 @@ export class AgentSession {
 			this._toolRegistry.has(CODEMODE_TOOL_NAME) &&
 			!nextActiveToolNames.includes(CODEMODE_TOOL_NAME) &&
 			this._isAllowedTool(CODEMODE_TOOL_NAME) &&
+			this._toolActivation !== "on-demand" &&
 			!this.settingsManager.getDefaultToolsRaw()?.includes("-codemode") &&
 			[...this._toolRegistry.keys()].some((name) => {
 				if (name === CODEMODE_TOOL_NAME) return false;
@@ -3536,6 +3572,9 @@ export class AgentSession {
 
 	/** Whether registering the tool activates it, which declares it to the model. */
 	private _isActivatedOnRegistration(name: string): boolean {
+		if (this._toolActivation === "on-demand") {
+			return this._isDeclarable(name) && (this._initialActiveToolNames ?? DEFAULT_TOOL_NAMES).includes(name);
+		}
 		return this._isDeclarable(name) && this._toolDefinitions.get(name)?.definition.defaultActive !== false;
 	}
 
@@ -3627,9 +3666,7 @@ export class AgentSession {
 			this._extensionErrorListener;
 		if (hasBindings) {
 			await options?.beforeSessionStart?.();
-			await this._extensionRunner.emit({ type: "session_start", reason: "reload" });
-			this._extensionRunner.reportUnhandledMcpServers();
-			await this.extendResourcesFromExtensions("reload");
+			await this._startExtensions({ type: "session_start", reason: "reload" });
 		}
 	}
 

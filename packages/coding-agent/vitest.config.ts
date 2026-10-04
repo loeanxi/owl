@@ -11,6 +11,8 @@ export default mergeConfig(
 			// Tests run offline by default; opt in with allowNetwork() from test/test-network-env.ts.
 			env: { PI_OFFLINE: "1" },
 			unstubEnvs: true,
+			// 把 agent 目录隔离到临时目录，防止测试会话写进真实 Owl-history（见 setup-agent-env.ts 头注释）。
+			setupFiles: ["./test/setup-agent-env.ts"],
 			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
 			silent: "passed-only",
 			server: {
