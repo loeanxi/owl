@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import { checkDesktopUpdates, hasTauri, startDebugRebuild } from "../bridge/native.ts";
 import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
 import { IconChat, IconHome, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
+import { describeSourceUpdate, readableUpdateError, type UpdateNotice } from "./update-menu-state.ts";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
 export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research";
 
 /** 菜单条目：普通动作项，或界面语言子菜单占位。 */
-type RailMenuItem = { label: TextKey; icon: React.ReactNode; action: () => void } | { kind: "language" };
+type RailMenuItem = {
+	label: TextKey;
+	icon: React.ReactNode;
+	action: () => void;
+	closeOnSelect?: boolean;
+	disabled?: boolean;
+	busy?: boolean;
+	disabledTitle?: TextKey;
+} | { kind: "language" };
 
 /** 「界面语言」子菜单项：悬停/点击向右弹出 选项，✓ 标当前；选择即切换并交给上层持久化。 */
 function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => void }): React.JSX.Element {
@@ -174,10 +184,14 @@ export function ActivityRail({
 	const menuRootRef = useRef<HTMLDivElement>(null);
 	const menuPanelRef = useRef<HTMLDivElement>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement>(null);
+	const updateBusyRef = useRef(false);
+	const [updateAction, setUpdateAction] = useState<"check" | "debug">();
+	const [updateNotice, setUpdateNotice] = useState<UpdateNotice>();
+	const nativeAvailable = hasTauri();
 
 	useEffect(() => {
 		if (!menuOpen) return;
-		menuPanelRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus();
+		menuPanelRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus();
 		const dismiss = (event: PointerEvent): void => {
 			if (!menuRootRef.current?.contains(event.target as Node)) setMenuOpen(false);
 		};
@@ -197,11 +211,69 @@ export function ActivityRail({
 
 	useEffect(() => setMenuOpen(false), [view, settingsOpen]);
 
+	const checkUpdates = async (): Promise<void> => {
+		if (updateBusyRef.current) return;
+		updateBusyRef.current = true;
+		setUpdateAction("check");
+		setUpdateNotice({ tone: "info", key: "rail.updateChecking" });
+		try {
+			const result = await checkDesktopUpdates();
+			setUpdateNotice(result ? describeSourceUpdate(result) : { tone: "warning", key: "rail.updateDesktopOnly" });
+		} catch (error) {
+			setUpdateNotice({ tone: "error", key: "rail.updateFailed", vars: { message: readableUpdateError(error) } });
+		} finally {
+			updateBusyRef.current = false;
+			setUpdateAction(undefined);
+		}
+	};
+
+	const debugUpdate = async (): Promise<void> => {
+		if (updateBusyRef.current) return;
+		// 「调试更新」会退出当前 Owl 并启动一次全量构建，先让用户确认。
+		if (!window.confirm(t("rail.debugUpdateConfirm"))) return;
+		updateBusyRef.current = true;
+		setUpdateAction("debug");
+		setUpdateNotice({ tone: "info", key: "rail.debugUpdateStarting" });
+		try {
+			if (!(await startDebugRebuild())) {
+				setUpdateNotice({ tone: "warning", key: "rail.updateDesktopOnly" });
+				updateBusyRef.current = false;
+				setUpdateAction(undefined);
+				return;
+			}
+			setUpdateNotice({ tone: "success", key: "rail.debugUpdateStarted" });
+		} catch (error) {
+			setUpdateNotice({ tone: "error", key: "rail.debugUpdateFailed", vars: { message: readableUpdateError(error) } });
+			updateBusyRef.current = false;
+			setUpdateAction(undefined);
+		}
+	};
+
 	const menuGroups: RailMenuItem[][] = [
 		[
 			{ label: "rail.settings", icon: <IconSettings className="h-4 w-4" />, action: () => onOpenSettings("general") },
 			{ kind: "language" },
 			{ label: "rail.models", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" /><circle cx="15" cy="17" r="3" /></svg>, action: () => onOpenSettings("models") },
+		],
+		[
+			{
+				label: updateAction === "debug" ? "rail.debugUpdating" : "rail.debugUpdate",
+				icon: <svg className={updateAction === "debug" ? "owl-rail-menu-spinner" : undefined} viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /><path d="m15 17 2 2 4-4" /></svg>,
+				action: () => { void debugUpdate(); },
+				closeOnSelect: false,
+				disabled: !nativeAvailable || updateAction !== undefined,
+				busy: updateAction === "debug",
+				disabledTitle: !nativeAvailable ? "rail.updateDesktopOnly" : undefined,
+			},
+			{
+				label: updateAction === "check" ? "rail.updateChecking" : "rail.checkUpdate",
+				icon: <svg className={updateAction === "check" ? "owl-rail-menu-spinner" : undefined} viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 5v7h-7" /></svg>,
+				action: () => { void checkUpdates(); },
+				closeOnSelect: false,
+				disabled: !nativeAvailable || updateAction !== undefined,
+				busy: updateAction === "check",
+				disabledTitle: !nativeAvailable ? "rail.updateDesktopOnly" : undefined,
+			},
 		],
 		[
 			{ label: "help.guide", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15" /></svg>, action: onOpenGuide },
@@ -321,7 +393,7 @@ export function ActivityRail({
 							if (step === undefined) return;
 							event.preventDefault();
 							event.stopPropagation();
-							const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
+							const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'));
 							const current = items.indexOf(document.activeElement as HTMLButtonElement);
 							const next = step === "first" ? 0 : step === "last" ? items.length - 1 : (current + step + items.length) % items.length;
 							items[next]?.focus();
@@ -342,7 +414,18 @@ export function ActivityRail({
 											}}
 										/>
 									) : (
-										<button key={item.label} type="button" role="menuitem" onClick={() => { setMenuOpen(false); item.action(); }}>
+										<button
+											key={item.label}
+											type="button"
+											role="menuitem"
+											disabled={item.disabled}
+											aria-busy={item.busy || undefined}
+											title={item.disabledTitle ? t(item.disabledTitle) : undefined}
+											onClick={() => {
+												if (item.closeOnSelect !== false) setMenuOpen(false);
+												item.action();
+											}}
+										>
 											{item.icon}
 											<span>{t(item.label)}</span>
 										</button>
@@ -350,6 +433,13 @@ export function ActivityRail({
 								))}
 							</div>
 						))}
+						{updateNotice && (
+							<div role="group" aria-label={t("rail.updateStatus")}>
+								<div className={`owl-rail-update-status is-${updateNotice.tone}`} role="status" aria-live="polite">
+									{t(updateNotice.key, updateNotice.vars)}
+								</div>
+							</div>
+						)}
 					</div>
 				)}
 			</div>

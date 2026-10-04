@@ -87,6 +87,15 @@
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
+.owl-rail-menu-panel button:disabled {
+	cursor: not-allowed;
+	opacity: 0.48;
+}
+
+.owl-rail-menu-panel button:disabled:hover {
+	background: transparent;
+}
+
 .owl-rail-menu-panel svg {
 	width: 15px;
 	height: 15px;
@@ -102,6 +111,43 @@
 	height: 1px;
 	margin: 5px 4px;
 	background: var(--owl-ui-border, var(--color-owl-sidebar-border));
+}
+
+.owl-rail-update-status {
+	margin: 5px 4px 2px;
+	padding: 8px 5px 4px;
+	border-top: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.owl-rail-update-status.is-success {
+	color: var(--color-owl-accent);
+}
+
+.owl-rail-update-status.is-warning {
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+}
+
+.owl-rail-update-status.is-error {
+	color: var(--color-owl-danger, #f87171);
+}
+
+.owl-rail-menu-spinner {
+	animation: owl-rail-menu-spin 900ms linear infinite;
+}
+
+@keyframes owl-rail-menu-spin {
+	to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-rail-menu-spinner {
+		animation: none;
+	}
 }
 
 /* 「界面语言」子菜单：触发项右侧飞出（fixed 定位，不受面板 overflow 裁剪）。 */

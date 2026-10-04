@@ -13,9 +13,11 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
@@ -38,12 +40,238 @@ mod toast {
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+static DEBUG_UPDATE_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// 前端「退出 Owl」入口（帮助/文件菜单的 Ctrl+Q）：
 /// RunEvent::Exit 钩子会顺带走 bridge.kill()，桥子进程不残留。
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
 	app.exit(0);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceUpdateCheck {
+	status: &'static str,
+	app_version: &'static str,
+	local_commit: String,
+	remote_commit: String,
+	upstream: String,
+	behind: u32,
+	ahead: u32,
+	update_available: bool,
+}
+
+fn is_source_repo_root(path: &Path) -> bool {
+	path.join(".git").exists()
+		&& path.join("package.json").is_file()
+		&& path.join("apps/desktop/src-tauri/Cargo.toml").is_file()
+}
+
+fn find_source_repo_root(mut path: PathBuf) -> Option<PathBuf> {
+	for _ in 0..10 {
+		if is_source_repo_root(&path) {
+			return Some(path);
+		}
+		if !path.pop() {
+			break;
+		}
+	}
+	None
+}
+
+fn resolve_source_repo_root() -> Option<PathBuf> {
+	if let Ok(path) = std::env::var("OWL_SOURCE_ROOT") {
+		let root = PathBuf::from(path);
+		if is_source_repo_root(&root) {
+			return Some(root);
+		}
+	}
+	if let Ok(path) = std::env::current_dir() {
+		if let Some(root) = find_source_repo_root(path) {
+			return Some(root);
+		}
+	}
+	if let Ok(path) = std::env::current_exe() {
+		if let Some(parent) = path.parent() {
+			if let Some(root) = find_source_repo_root(parent.to_path_buf()) {
+				return Some(root);
+			}
+		}
+	}
+	let fallback = PathBuf::from("D:/owl/owl-re-v1/owl-mono");
+	is_source_repo_root(&fallback).then_some(fallback)
+}
+
+fn hide_command_window(command: &mut Command) {
+	#[cfg(windows)]
+	command.creation_flags(CREATE_NO_WINDOW);
+}
+
+fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
+	let mut command = Command::new("git");
+	command
+		.args(args)
+		.current_dir(repo)
+		.env("GIT_TERMINAL_PROMPT", "0")
+		.env("GCM_INTERACTIVE", "Never")
+		.stdin(Stdio::null())
+		.stdout(Stdio::piped())
+		.stderr(Stdio::piped());
+	hide_command_window(&mut command);
+	let output = command.output().map_err(|error| format!("无法启动 Git：{error}"))?;
+	if !output.status.success() {
+		let detail = String::from_utf8_lossy(&output.stderr).trim().replace(['\r', '\n'], " ");
+		let detail = if detail.is_empty() {
+			format!("退出码 {}", output.status.code().unwrap_or(-1))
+		} else {
+			detail.chars().take(240).collect()
+		};
+		let operation = args
+			.iter()
+			.copied()
+			.find(|arg| matches!(*arg, "fetch" | "rev-parse" | "rev-list"))
+			.unwrap_or("命令");
+		return Err(format!("Git {operation} 失败：{detail}"));
+	}
+	Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn parse_git_count(value: String, label: &str) -> Result<u32, String> {
+	value
+		.parse::<u32>()
+		.map_err(|_| format!("Git 返回了无效的{label}计数：{value}"))
+}
+
+fn source_update_status(behind: u32, ahead: u32) -> &'static str {
+	match (behind, ahead) {
+		(0, 0) => "upToDate",
+		(0, _) => "localAhead",
+		(_, 0) => "updateAvailable",
+		(_, _) => "diverged",
+	}
+}
+
+fn check_source_updates() -> Result<SourceUpdateCheck, String> {
+	let repo = resolve_source_repo_root().ok_or_else(|| "找不到 Owl 源码仓库，无法检查更新。".to_owned())?;
+	let upstream = run_git(&repo, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+		.unwrap_or_else(|_| "origin/main".to_owned());
+	let remote = upstream
+		.split_once('/')
+		.map(|(name, _)| name)
+		.filter(|name| !name.is_empty())
+		.unwrap_or("origin");
+	run_git(
+		&repo,
+		&[
+			"-c",
+			"http.lowSpeedLimit=1",
+			"-c",
+			"http.lowSpeedTime=15",
+			"fetch",
+			"--quiet",
+			"--no-tags",
+			remote,
+		],
+	)?;
+
+	let local_commit = run_git(&repo, &["rev-parse", "--short=10", "HEAD"])?;
+	let remote_commit = run_git(&repo, &["rev-parse", "--short=10", &upstream])?;
+	let behind_range = format!("HEAD..{upstream}");
+	let ahead_range = format!("{upstream}..HEAD");
+	let behind = parse_git_count(run_git(&repo, &["rev-list", "--count", &behind_range])?, "落后")?;
+	let ahead = parse_git_count(run_git(&repo, &["rev-list", "--count", &ahead_range])?, "领先")?;
+
+	Ok(SourceUpdateCheck {
+		status: source_update_status(behind, ahead),
+		app_version: env!("CARGO_PKG_VERSION"),
+		local_commit,
+		remote_commit,
+		upstream,
+		behind,
+		ahead,
+		update_available: behind > 0,
+	})
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<SourceUpdateCheck, String> {
+	tauri::async_runtime::spawn_blocking(check_source_updates)
+		.await
+		.map_err(|error| format!("更新检查任务失败：{error}"))?
+}
+
+#[cfg(windows)]
+fn spawn_debug_update_helper(repo: &Path, helper: &Path) -> Result<(), String> {
+	let powershell = std::env::var_os("SystemRoot")
+		.map(PathBuf::from)
+		.map(|root| root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
+		.filter(|path| path.is_file())
+		.unwrap_or_else(|| PathBuf::from("powershell.exe"));
+	let mut command = Command::new(powershell);
+	command
+		.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+		.arg(helper)
+		.arg("-ParentProcessId")
+		.arg(std::process::id().to_string())
+		.current_dir(repo)
+		.creation_flags(CREATE_NEW_CONSOLE);
+	let mut child = command.spawn().map_err(|error| format!("无法启动调试更新窗口：{error}"))?;
+	// The helper must still be waiting on this process after startup. An early exit means
+	// another updater owns the mutex or PowerShell rejected the script; keep Owl open.
+	for _ in 0..8 {
+		std::thread::sleep(Duration::from_millis(100));
+		if let Some(status) = child
+			.try_wait()
+			.map_err(|error| format!("无法确认调试更新进程状态：{error}"))?
+		{
+			return Err(format!(
+				"调试更新进程提前退出（退出码 {}），当前 Owl 将保持运行。",
+				status.code().unwrap_or(-1)
+			));
+		}
+	}
+	Ok(())
+}
+
+#[cfg(not(windows))]
+fn spawn_debug_update_helper(_repo: &Path, _helper: &Path) -> Result<(), String> {
+	Err("调试更新目前只支持 Windows。".to_owned())
+}
+
+#[tauri::command]
+fn debug_rebuild_and_restart(app: tauri::AppHandle) -> Result<(), String> {
+	if DEBUG_UPDATE_STARTED.swap(true, Ordering::SeqCst) {
+		return Err("调试更新已经启动，请查看构建窗口。".to_owned());
+	}
+	let result = (|| {
+		let repo = resolve_source_repo_root().ok_or_else(|| "找不到 Owl 源码仓库，调试更新只支持源码构建。".to_owned())?;
+		let helper = repo.join("scripts/owl-debug-update.ps1");
+		if !helper.is_file() {
+			return Err(format!("找不到调试更新脚本：{}", helper.display()));
+		}
+		let build_script = repo
+			.parent()
+			.map(|parent| parent.join("scripts/owl-native-dev.ps1"))
+			.ok_or_else(|| "无法定位 Owl 全量构建脚本。".to_owned())?;
+		if !build_script.is_file() {
+			return Err(format!("找不到全量构建脚本：{}", build_script.display()));
+		}
+		spawn_debug_update_helper(&repo, &helper)
+	})();
+	if let Err(error) = result {
+		DEBUG_UPDATE_STARTED.store(false, Ordering::SeqCst);
+		return Err(error);
+	}
+
+	std::thread::spawn(move || {
+		std::thread::sleep(Duration::from_millis(450));
+		app.exit(0);
+	});
+	Ok(())
 }
 
 const DEFAULT_PORT: u16 = 18901;
@@ -320,7 +548,13 @@ fn main() {
 
 	tauri::Builder::default()
 		.plugin(tauri_plugin_dialog::init())
-		.invoke_handler(tauri::generate_handler![toast::show_approval_toast, quit_app, gps::gps_location])
+		.invoke_handler(tauri::generate_handler![
+			toast::show_approval_toast,
+			quit_app,
+			gps::gps_location,
+			check_for_updates,
+			debug_rebuild_and_restart
+		])
 		.setup(move |app| {
 			let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
 				.title("owl")

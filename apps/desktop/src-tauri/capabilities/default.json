@@ -17,6 +17,8 @@
 		"core:webview:allow-set-webview-zoom",
 		"allow-quit-app",
 		"allow-gps-location",
+		"allow-check-for-updates",
+		"allow-debug-rebuild-and-restart",
 		"dialog:allow-open",
 		"allow-show-approval-toast"
 	]

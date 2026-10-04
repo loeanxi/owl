@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 /**
  * Tauri 原生能力封装（桌面壳独有，浏览器模式优雅降级）。
  *
@@ -10,6 +12,30 @@
 /** 当前页面是否跑在 Tauri 桌面壳里（决定原生按钮显隐）。 */
 export function hasTauri(): boolean {
 	return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export type SourceUpdateCheck = {
+	status: "upToDate" | "updateAvailable" | "localAhead" | "diverged";
+	appVersion: string;
+	localCommit: string;
+	remoteCommit: string;
+	upstream: string;
+	behind: number;
+	ahead: number;
+	updateAvailable: boolean;
+};
+
+/** 拉取远端引用并比较当前源码提交；不会合并、覆盖或暂存工作区文件。 */
+export async function checkDesktopUpdates(): Promise<SourceUpdateCheck | null> {
+	if (!hasTauri()) return null;
+	return invoke<SourceUpdateCheck>("check_for_updates");
+}
+
+/** 启动独立构建窗口；Rust 会随后安全退出当前进程，helper 完整重建并启动新版本。 */
+export async function startDebugRebuild(): Promise<boolean> {
+	if (!hasTauri()) return false;
+	await invoke("debug_rebuild_and_restart");
+	return true;
 }
 
 /** 打开系统文件夹选择对话框（资源管理器），取消返回 null。 */
@@ -77,7 +103,6 @@ export async function closeMainWindow(): Promise<boolean> {
 export async function quitDesktopApp(): Promise<boolean> {
 	if (!hasTauri()) return false;
 	try {
-		const { invoke } = await import("@tauri-apps/api/core");
 		await invoke("quit_app");
 		return true;
 	} catch {
