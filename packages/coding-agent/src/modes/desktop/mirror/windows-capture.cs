@@ -1,16 +1,16 @@
-// owl 窗口镜像捕获内核：Windows.Graphics.Capture 会话 + JPEG 编帧。
+// owl 窗口镜像捕获内核：Windows.Graphics.Capture 会话 + WinRT JPEG 编帧。
 //
 // 编译：由 windows-capture.ps1 用进程外 csc（net48 in-box，C#5）带系统 winmd
-// 引用编成 DLL 后加载。保持 C#5 语法（无字符串内插 / 无 unsafe / 无 null 条件）。
+// 引用编成 DLL 后字节加载。保持 C#5 语法（无字符串内插 / 无 unsafe / 无 null
+// 条件）。
 //
-// 注意：net48 的 System32\WinMetadata\Windows.Graphics.winmd 没有
-// GraphicsCaptureItem.IsSupported，取 item 用 Win11 的
-// TryCreateFromWindowId(Windows.UI.WindowId) —— 不要用 IGraphicsCaptureItemInterop
-// （net48 的 IInspectable vtable 处理不可靠，实测打不对槽位）。
+// 本机（build 26200）System32\WinMetadata 里的 winmd 是精简版，若干常规成员
+// 不存在（GraphicsCaptureItem.IsSupported / SoftwareBitmap.GetPixelDataAsync /
+// GraphicsCaptureSession.Close），框架的 WindowsRuntimeBufferExtensions 又绑定
+// 旧聚合 Windows.winmd —— 因此取 item 用 Win11 的 TryCreateFromWindowId，像素
+// 出口用 BitmapEncoder（WinRT 自带 JPEG 编码 + BitmapTransform 缩放），全程只
+// 依赖投影成员，不做任何 COM 接口强转。
 using System;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Windows.Foundation;
@@ -19,18 +19,10 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
 
 namespace OwlMirror
 {
-    // IBuffer 字节读取：net48 的 WindowsRuntimeBufferExtensions.ToArray 绑定旧聚合
-    // Windows.winmd（本机没有），改走 IMemoryBufferByteAccess（IUnknown 型 COM，
-    // net48 编组可靠）。IMemoryBufferReference 的 RCW 对它 QI 一定能成功。
-    [ComImport, Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD0BD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IMemoryBufferByteAccess
-    {
-        void GetBuffer(out IntPtr value, out uint capacity);
-    }
-
     public sealed class CaptureSession : IDisposable
     {
         private Direct3D11CaptureFramePool _framePool;
@@ -129,6 +121,7 @@ namespace OwlMirror
                 Interlocked.Increment(ref _frameSeq);
                 int fw = frame.ContentSize.Width;
                 int fh = frame.ContentSize.Height;
+                if (fw <= 0 || fh <= 0) return null;
                 var software = CopyToSoftwareBitmap(frame.Surface);
                 try
                 {
@@ -142,80 +135,90 @@ namespace OwlMirror
         private static SoftwareBitmap CopyToSoftwareBitmap(IDirect3DSurface surface)
         {
             var op = SoftwareBitmap.CreateCopyFromSurfaceAsync(surface);
-            var deadline = Environment.TickCount + 3000;
+            return AwaitSoft(op);
+        }
+
+        private static byte[] EncodeJpeg(SoftwareBitmap software, int quality, int maxWidth, ref int width, ref int height)
+        {
+            int sw = software.PixelWidth, sh = software.PixelHeight;
+            double scale = maxWidth > 0 && sw > maxWidth ? (double)maxWidth / sw : 1.0;
+            int dw = Math.Max(1, (int)Math.Round(sw * scale));
+            int dh = Math.Max(1, (int)Math.Round(sh * scale));
+            width = dw; height = dh;
+
+            var stream = new InMemoryRandomAccessStream();
+            try
+            {
+                var createOp = BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, stream);
+                var encoder = AwaitEncoder(createOp);
+                encoder.SetSoftwareBitmap(software);
+                // 本投影的 BitmapTransform 只读（缩放走不了），按原尺寸编码；
+                // 红果窗口是 560x959 竖屏小窗，native 尺寸可接受
+                width = sw; height = sh;
+                AwaitAction(encoder.FlushAsync());
+
+                ulong size = stream.Size;
+                if (size == 0) throw new Exception("encoder produced empty stream");
+                var reader = new DataReader(stream.GetInputStreamAt(0));
+                try
+                {
+                    var loadOp = reader.LoadAsync((uint)size);
+                    uint read = AwaitLoad(loadOp);
+                    if (read != (uint)size) throw new Exception("stream read incomplete");
+                    var bytes = new byte[(int)size];
+                    reader.ReadBytes(bytes);
+                    return bytes;
+                }
+                finally { ((IDisposable)reader).Dispose(); }
+            }
+            finally { stream.Dispose(); }
+        }
+
+        private static SoftwareBitmap AwaitSoft(IAsyncOperation<SoftwareBitmap> op)
+        {
+            var deadline = Environment.TickCount + 5000;
             while (op.Status == AsyncStatus.Started)
             {
-                if (Environment.TickCount > deadline) throw new Exception("SoftwareBitmap copy timed out");
+                if (Environment.TickCount > deadline) throw new Exception("async op timed out (SoftwareBitmap)");
                 Thread.Sleep(2);
             }
             if (op.Status != AsyncStatus.Completed) throw new Exception("SoftwareBitmap copy failed: " + op.Status);
             return op.GetResults();
         }
 
-        private static byte[] EncodeJpeg(SoftwareBitmap software, int quality, int maxWidth, ref int width, ref int height)
+        private static BitmapEncoder AwaitEncoder(IAsyncOperation<BitmapEncoder> op)
         {
-            // Bgra8 像素直接搬进 32bppArgb 位图（内存序一致：B,G,R,A；JPEG 无 alpha）
-            int sw = software.PixelWidth, sh = software.PixelHeight;
-            byte[] pixels;
-            var buffer = software.LockBuffer(BitmapBufferAccessMode.Read);
-            try
+            var deadline = Environment.TickCount + 5000;
+            while (op.Status == AsyncStatus.Started)
             {
-                var reference = buffer.CreateReference();
-                try
-                {
-                    var byteAccess = (IMemoryBufferByteAccess)reference;
-                    IntPtr dataPtr;
-                    uint capacity;
-                    byteAccess.GetBuffer(out dataPtr, out capacity);
-                    pixels = new byte[capacity];
-                    Marshal.Copy(dataPtr, pixels, 0, (int)capacity);
-                }
-                finally { ((IDisposable)reference).Dispose(); }
+                if (Environment.TickCount > deadline) throw new Exception("async op timed out (BitmapEncoder)");
+                Thread.Sleep(2);
             }
-            finally { buffer.Dispose(); }
-
-            double scale = maxWidth > 0 && sw > maxWidth ? (double)maxWidth / sw : 1.0;
-            int dw = Math.Max(1, (int)Math.Round(sw * scale));
-            int dh = Math.Max(1, (int)Math.Round(sh * scale));
-            width = dw; height = dh;
-
-            using (var full = new Bitmap(sw, sh, sw * 4, PixelFormat.Format32bppArgb,
-                Marshal.UnsafeAddrOfPinnedArrayElement(pixels, 0)))
-            {
-                Bitmap source = full;
-                try
-                {
-                    if (scale < 1.0)
-                    {
-                        var scaled = new Bitmap(dw, dh);
-                        using (var g = Graphics.FromImage(scaled))
-                        {
-                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-                            g.DrawImage(full, 0, 0, dw, dh);
-                        }
-                        source = scaled;
-                    }
-                    using (var stream = new MemoryStream())
-                    {
-                        var encoderParams = new EncoderParameters(1);
-                        encoderParams.Param[0] = new EncoderParameter(Encoder.Quality,
-                            (long)Math.Max(1, Math.Min(100, quality)));
-                        stream.Position = 0;
-                        source.Save(stream, GetJpegEncoder(), encoderParams);
-                        return stream.ToArray();
-                    }
-                }
-                finally { if (!ReferenceEquals(source, full)) source.Dispose(); }
-            }
+            if (op.Status != AsyncStatus.Completed) throw new Exception("BitmapEncoder create failed: " + op.Status);
+            return op.GetResults();
         }
 
-        private static ImageCodecInfo GetJpegEncoder()
+        private static void AwaitAction(IAsyncAction action)
         {
-            foreach (var codec in ImageCodecInfo.GetImageEncoders())
+            var deadline = Environment.TickCount + 5000;
+            while (action.Status == AsyncStatus.Started)
             {
-                if (codec.MimeType == "image/jpeg") return codec;
+                if (Environment.TickCount > deadline) throw new Exception("async op timed out (Flush)");
+                Thread.Sleep(2);
             }
-            throw new Exception("jpeg codec not found");
+            if (action.Status != AsyncStatus.Completed) throw new Exception("Flush failed: " + action.Status);
+        }
+
+        private static uint AwaitLoad(IAsyncOperation<uint> op)
+        {
+            var deadline = Environment.TickCount + 5000;
+            while (op.Status == AsyncStatus.Started)
+            {
+                if (Environment.TickCount > deadline) throw new Exception("async op timed out (Load)");
+                Thread.Sleep(2);
+            }
+            if (op.Status != AsyncStatus.Completed) throw new Exception("Load failed: " + op.Status);
+            return op.GetResults();
         }
 
         public void Dispose()

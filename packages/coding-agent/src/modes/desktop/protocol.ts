@@ -1403,6 +1403,87 @@ export interface IabStateResult {
 	pages: IabPageInfo[];
 }
 
+// ---------------------------------------------------------------------------
+// 窗口镜像（owl Mirror）—— 把本机一个顶层窗口（典型：应用宝容器里的红果短剧）
+// 经 Windows.Graphics.Capture 抓成 JPEG 帧流推给侧边卡片。纯观看：无输入转发、
+// 无 agent 工具。帧流与 iab 同策略：只推给订阅它的那条连接；窗口清单变化才广播。
+// worker 与协议见 modes/desktop/mirror/windows-capture.ps1。
+// ---------------------------------------------------------------------------
+
+/** 可镜像的候选窗口（一次枚举的快照）。 */
+export interface MirrorWindowInfo {
+	windowId: string;
+	title: string;
+	process: string;
+	/** 是否为已识别的红果短剧窗口（进程 Androws + 标题命中）。 */
+	hongguo: boolean;
+	minimized: boolean;
+	width: number;
+	height: number;
+}
+
+/** 窗口清单广播（枚举刷新 / 目标窗口最小化状态变化时推）。 */
+export interface MirrorWindowsMessage {
+	type: "mirror.windows";
+	windows: MirrorWindowInfo[];
+}
+
+/** 镜像帧（JPEG base64，尺寸 = 编码帧尺寸）。 */
+export interface MirrorFrameMessage {
+	type: "mirror.frame";
+	windowId: string;
+	data: string;
+	width: number;
+	height: number;
+}
+
+export type MirrorServerMessage = MirrorWindowsMessage | MirrorFrameMessage;
+
+/** 枚举候选窗口（UI 打开卡片 / 空态重新检测时拉一次）。 */
+export interface MirrorListRequest {
+	type: "mirror.list";
+	id: string;
+}
+
+export interface MirrorListResult {
+	windows: MirrorWindowInfo[];
+	/** 系统不支持 Windows.Graphics.Capture（Win10 1803 之前）时为 false。 */
+	supported: boolean;
+}
+
+/** 订阅某窗口的帧流（首个订阅者拉起捕获 worker，末个退订延迟关闭）。 */
+export interface MirrorAttachRequest {
+	type: "mirror.attach";
+	id: string;
+	windowId: string;
+}
+
+export interface MirrorDetachRequest {
+	type: "mirror.detach";
+	id: string;
+	windowId: string;
+}
+
+/** 把最小化/被收纳的目标窗口拉回来（SC_RESTORE，对 BitDock 类停靠工具有效）。 */
+export interface MirrorRestoreRequest {
+	type: "mirror.restore";
+	id: string;
+	windowId: string;
+}
+
+/** 启动应用宝电脑版（空态引导用；找不到安装时返回错误文本）。 */
+export interface MirrorLaunchRequest {
+	type: "mirror.launch";
+	id: string;
+}
+
+export type MirrorClientRequest =
+	| MirrorListRequest
+	| MirrorAttachRequest
+	| MirrorDetachRequest
+	| MirrorRestoreRequest
+	| MirrorLaunchRequest;
+
 /** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
 export interface FsChangedEvent {
 	type: "fs_changed";
@@ -1588,6 +1669,7 @@ export type DesktopClientRequest =
 	| IabCloseRequest
 	| IabFileResponseRequest
 	| IabStateRequest
+	| MirrorClientRequest
 	| QuestionResponseRequest;
 
 /** 内置厂商目录（供桌面端下拉选择，非模型列表）。 */
@@ -1687,6 +1769,7 @@ export type DesktopServerMessage =
 	| TermDataMessage
 	| TermExitMessage
 	| IabServerMessage
+	| MirrorServerMessage
 	| ViewerChangedMessage
 	| SidebarOpenMessage
 	| DiffApprovalChangedMessage;

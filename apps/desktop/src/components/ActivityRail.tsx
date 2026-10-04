@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { checkDesktopUpdates, hasTauri, startDebugRebuild } from "../bridge/native.ts";
+import { hasTauri, startDebugRebuild } from "../bridge/native.ts";
 import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
 import { IconChat, IconHome, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
-import { describeSourceUpdate, readableUpdateError, type UpdateNotice } from "./update-menu-state.ts";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
 export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research";
+
+/** 菜单底部通知条：调试更新流程的进度 / 结果。 */
+type UpdateNotice = {
+	tone: "info" | "success" | "warning" | "error";
+	key: TextKey;
+	vars?: Record<string, string | number>;
+};
 
 /** 菜单条目：普通动作项，或界面语言子菜单占位。 */
 type RailMenuItem = {
@@ -185,7 +191,7 @@ export function ActivityRail({
 	const menuPanelRef = useRef<HTMLDivElement>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement>(null);
 	const updateBusyRef = useRef(false);
-	const [updateAction, setUpdateAction] = useState<"check" | "debug">();
+	const [updateAction, setUpdateAction] = useState<"debug">();
 	const [updateNotice, setUpdateNotice] = useState<UpdateNotice>();
 	const nativeAvailable = hasTauri();
 
@@ -211,24 +217,6 @@ export function ActivityRail({
 
 	useEffect(() => setMenuOpen(false), [view, settingsOpen]);
 
-	const checkUpdates = async (): Promise<void> => {
-		if (updateBusyRef.current) return;
-		// 「检查更新」会联网拉远端源码比较，先让用户确认，避免误触。
-		if (!window.confirm(t("rail.checkUpdateConfirm"))) return;
-		updateBusyRef.current = true;
-		setUpdateAction("check");
-		setUpdateNotice({ tone: "info", key: "rail.updateChecking" });
-		try {
-			const result = await checkDesktopUpdates();
-			setUpdateNotice(result ? describeSourceUpdate(result) : { tone: "warning", key: "rail.updateDesktopOnly" });
-		} catch (error) {
-			setUpdateNotice({ tone: "error", key: "rail.updateFailed", vars: { message: readableUpdateError(error) } });
-		} finally {
-			updateBusyRef.current = false;
-			setUpdateAction(undefined);
-		}
-	};
-
 	const debugUpdate = async (): Promise<void> => {
 		if (updateBusyRef.current) return;
 		// 「调试更新」会退出当前 Owl 并启动一次全量构建，先让用户确认。
@@ -245,7 +233,12 @@ export function ActivityRail({
 			}
 			setUpdateNotice({ tone: "success", key: "rail.debugUpdateStarted" });
 		} catch (error) {
-			setUpdateNotice({ tone: "error", key: "rail.debugUpdateFailed", vars: { message: readableUpdateError(error) } });
+			const message = error instanceof Error && error.message.trim()
+				? error.message.trim()
+				: typeof error === "string" && error.trim()
+					? error.trim()
+					: String(error || "unknown");
+			setUpdateNotice({ tone: "error", key: "rail.debugUpdateFailed", vars: { message } });
 			updateBusyRef.current = false;
 			setUpdateAction(undefined);
 		}
@@ -266,15 +259,6 @@ export function ActivityRail({
 				closeOnSelect: false,
 				disabled: !nativeAvailable || updateAction !== undefined,
 				busy: updateAction === "debug",
-				disabledTitle: !nativeAvailable ? "rail.updateDesktopOnly" : undefined,
-			},
-			{
-				label: updateAction === "check" ? "rail.updateChecking" : "rail.checkUpdate",
-				icon: <svg className={updateAction === "check" ? "owl-rail-menu-spinner" : undefined} viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 5v7h-7" /></svg>,
-				action: () => { void checkUpdates(); },
-				closeOnSelect: false,
-				disabled: !nativeAvailable || updateAction !== undefined,
-				busy: updateAction === "check",
 				disabledTitle: !nativeAvailable ? "rail.updateDesktopOnly" : undefined,
 			},
 		],

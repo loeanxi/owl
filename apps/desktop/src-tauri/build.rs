@@ -10,7 +10,6 @@ fn main() {
 				"show_approval_toast",
 				"quit_app",
 				"gps_location",
-				"check_for_updates",
 				"debug_rebuild_and_restart",
 			])),
 	)

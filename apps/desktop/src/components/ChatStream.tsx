@@ -1,7 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
-import { parseTodoArgs } from "../hooks/todo.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal, IconThumbDown, IconThumbUp } from "./icons.tsx";
@@ -157,8 +156,8 @@ function saveFeedback(): void {
  * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
  * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），所有层级统一默认
  * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡与错误是里程碑，原位可见
- * 并把工作段切成数段；任务清单的实时状态由输入区上方的常驻组件展示，时间轴折叠区内
- * 只留每轮最新一份快照（ TodoPin 与时间轴不重复上屏）。答案正文与其操作栏永远展开。
+ * 并把工作段切成数段；任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示，
+ * 时间轴不再重复上屏。答案正文与其操作栏永远展开。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -415,53 +414,6 @@ function WorkProcessRow({ items, steps, failed, running }: {
 					))}
 				</div>
 			)}
-		</div>
-	);
-}
-
-/** todo 工具专属卡片：勾选态清单 + 完成进度条；解析不了参数时退回通用工具行。 */
-function TodoCardView({ card }: { card: ToolCard }): React.JSX.Element {
-	const items = parseTodoArgs(card.args);
-	if (!items) return <ToolRowView card={card} />;
-	const done = items.filter((item) => item.status === "completed").length;
-	const pct = items.length === 0 ? 0 : Math.round((done / items.length) * 100);
-	return (
-		<div className="rounded-lg border border-owl-border bg-owl-sidebar/70 p-2.5 text-xs">
-			<div className="flex items-center justify-between gap-2">
-				<span className="font-medium text-owl-text">{t("todo.title")}</span>
-				<span className="text-owl-faint">
-					{t("todo.progress", { done, total: items.length })}{card.status === "running" ? t("todo.updating") : ""}
-				</span>
-			</div>
-			<div className="mt-2 h-1 overflow-hidden rounded-full bg-owl-hover">
-				<div className="h-full rounded-full bg-owl-accent transition-all duration-300" style={{ width: `${pct}%` }} />
-			</div>
-			<ul className="mt-2 space-y-1">
-				{items.map((item, index) => (
-					<li key={index} className="flex items-start gap-1.5">
-						<span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-							{item.status === "completed" ? (
-								<IconCheck className="h-3 w-3 text-emerald-500" />
-							) : item.status === "in_progress" ? (
-								<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-accent" />
-							) : (
-								<span className="h-2.5 w-2.5 rounded-full border border-owl-border" />
-							)}
-						</span>
-						<span
-							className={`min-w-0 break-words ${
-								item.status === "completed"
-									? "text-owl-faint line-through"
-									: item.status === "in_progress"
-										? "text-owl-text font-medium"
-										: "text-owl-muted"
-							}`}
-						>
-							{item.content}
-						</span>
-					</li>
-				))}
-			</ul>
 		</div>
 	);
 }
@@ -790,24 +742,6 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		if (assistantHasText(entry)) turnAnswerIndex = index;
 	});
 	if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
-	// 每轮任务清单只上屏最新一份快照：todo 每次状态更新都是一次独立工具调用，全部
-	// 渲染的话 0/3→1/3→2/3→3/3 会同屏叠四份几乎相同的卡片，只有勾选态不同
-	const latestTodoIds = new Set<string>();
-	{
-		let turnLatestTodoId: string | undefined;
-		entries.forEach((entry) => {
-			if (entry.kind === "user") {
-				if (turnLatestTodoId !== undefined) latestTodoIds.add(turnLatestTodoId);
-				turnLatestTodoId = undefined;
-				return;
-			}
-			if (entry.kind !== "assistant") return;
-			for (const tool of entry.tools) {
-				if (tool.name === "todo") turnLatestTodoId = tool.id;
-			}
-		});
-		if (turnLatestTodoId !== undefined) latestTodoIds.add(turnLatestTodoId);
-	}
 	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
 	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
 		<AssistantFooter
@@ -933,14 +867,10 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		}
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
-			if (card.name === "todo") {
-				// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）展示，时间轴不再
-				// 单独上屏卡片；折叠区里只保留每轮最新一份快照作历史，旧快照直接跳过
-				if (!latestTodoIds.has(card.id)) return;
-				flushWorkTools();
-				workSteps += 1;
-				workRows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
-			} else if (card.name === "ask_user_question") {
+			// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示：时间轴不再
+			// 上屏 todo 卡片（更新频繁，且与常驻条内容完全重复），也不计入折叠区步数
+			if (card.name === "todo") return;
+			if (card.name === "ask_user_question") {
 				// 提问必须原位可见：先收口当前工作段，再把问题卡挂上时间轴
 				flushWork();
 				rows.push({ key: "question-tool-" + card.id, content: <ToolRowView card={card} expanded={expandedTools} /> });

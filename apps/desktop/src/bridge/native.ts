@@ -14,23 +14,6 @@ export function hasTauri(): boolean {
 	return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export type SourceUpdateCheck = {
-	status: "upToDate" | "updateAvailable" | "localAhead" | "diverged";
-	appVersion: string;
-	localCommit: string;
-	remoteCommit: string;
-	upstream: string;
-	behind: number;
-	ahead: number;
-	updateAvailable: boolean;
-};
-
-/** 拉取远端引用并比较当前源码提交；不会合并、覆盖或暂存工作区文件。 */
-export async function checkDesktopUpdates(): Promise<SourceUpdateCheck | null> {
-	if (!hasTauri()) return null;
-	return invoke<SourceUpdateCheck>("check_for_updates");
-}
-
 /** 启动独立构建窗口；Rust 会随后安全退出当前进程，helper 完整重建并启动新版本。 */
 export async function startDebugRebuild(): Promise<boolean> {
 	if (!hasTauri()) return false;

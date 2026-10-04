@@ -259,7 +259,7 @@ switch ($Command) {
     }
 
     $asmBytes = Get-CaptureAssembly
-    [void][System.Reflection.Assembly]::Load($asmBytes)
+    [void][System.Reflection.Assembly]::Load([byte[]]$asmBytes)
     $session = [OwlMirror.CaptureSession]::Start($hwndPtr)
     Write-JsonLine '{"event":"status","iconic":false,"autoRestored":0,"frameSeq":0}'
 
