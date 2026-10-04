@@ -1503,7 +1503,8 @@ export interface MirrorEmbedRequest {
 	type: "mirror.embed";
 	id: string;
 	windowId: string;
-	parentHwnd: number;
+	/** 父窗口 HWND；缺省时桥自动发现 owl-desktop 主窗口（冒烟可显式传）。 */
+	parentHwnd?: number;
 	rect: { x: number; y: number; width: number; height: number };
 }
 

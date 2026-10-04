@@ -131,6 +131,14 @@ export class MirrorHub {
 		await this.runWorkerLines(["restore", "-Hwnd", String(hwnd)]);
 	}
 
+	/** 发现 owl 桌面主窗口 HWND（嵌入的父窗口）；桥由 Tauri 壳拉起时进程名固定为 owl-desktop。 */
+	async findOwlParentHwnd(): Promise<number> {
+		const windows = this.windows.length ? this.windows : await this.listWindows();
+		const owl = windows.find((win) => win.process.toLowerCase() === "owl-desktop" && !win.minimized);
+		if (!owl) throw new Error("owl desktop window not found");
+		return Number(owl.windowId);
+	}
+
 	/** 启动应用宝电脑版（空态引导）。 */
 	async launchApp(): Promise<void> {
 		const lines = await this.runWorkerLines(["launch"]);
