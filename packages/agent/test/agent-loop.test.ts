@@ -2156,10 +2156,14 @@ describe("runToolCall", () => {
 			result: { content: [{ type: "text", text: "nope" }] },
 			isError: true,
 		});
-		expect(await runToolCall(call("d", "missing", {}), options)).toMatchObject({
-			result: { content: [{ type: "text", text: "Tool missing not found" }] },
-			isError: true,
-		});
+		const missingToolOutcome = await runToolCall(call("d", "missing", {}), options);
+		expect(missingToolOutcome.isError).toBe(true);
+		// The error names the missing tool, lists the registered tools and points at bash search.
+		expect(missingToolOutcome.result.content).toMatchObject([
+			{ type: "text", text: expect.stringContaining("Tool missing not found. Available tools:") },
+		]);
+		const missingToolText = missingToolOutcome.result.content.find((c) => c.type === "text");
+		expect(missingToolText && "text" in missingToolText && missingToolText.text.includes("grep/rg")).toBe(true);
 		// Error results keep their details.
 		expect(await runToolCall(call("e", "failing", {}), options)).toMatchObject({
 			result: { details: { partial: true } },

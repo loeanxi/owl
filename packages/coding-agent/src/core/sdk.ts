@@ -281,7 +281,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		!options.noTools &&
 		!replacesDefaultTools
 	) {
-		for (const name of ["tool_search", "skill_search", "ask_user_question"]) {
+		// 发现/提问工具在 on-demand 下必须保持可达；只读搜索工具 grep/find 也默认声明——
+		// 模型高频凭习惯直接调用它们，未声明只会得到 not found 并浪费调用。
+		// 用户仍可用 defaultTools 里的 -grep / -find 显式关掉。
+		for (const name of ["tool_search", "skill_search", "ask_user_question", "grep", "find"]) {
 			if (
 				!initialActiveToolNames.includes(name) &&
 				!excludedToolNameSet?.has(name) &&

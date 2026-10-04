@@ -337,10 +337,17 @@ export function createShellToolDefinition(
 	const commandPrefix = options?.commandPrefix;
 	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const spawnHook = options?.spawnHook;
+	// bash 语法提示只给 bash 工具：模型常把 CMD/PowerShell 姿势（cd /d、dir）带进 bash，
+	// 第一条命令就失败。powershell 工具共用本函数，不能注入这条提示。
+	const syntaxNote =
+		config.shellName === "bash"
+			? "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. "
+			: "";
 	return {
 		name: config.name,
 		label: config.label,
 		description:
+			syntaxNote +
 			`Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. ` +
 			`By default the command runs in unified-exec mode: if it is still running after ${DEFAULT_YIELD_TIME_MS / 1000}s, it keeps running in the background and you get a session_id — use the process tool to poll for output, write stdin ('\\u0003' = Ctrl-C), or kill it. ` +
 			`Pass timeout (seconds) for classic block-until-done semantics with a hard kill at the timeout.`,
