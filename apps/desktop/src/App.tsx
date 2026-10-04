@@ -1144,7 +1144,31 @@ export default function App(): React.JSX.Element {
 	};
 
 	const abort = async (): Promise<void> => {
-		if (sessionId) await client.request({ type: "session.abort", sessionId });
+		const target = sessionId;
+		if (!target) return;
+		// 停止请求失败必须可见：桥重启后旧会话不再挂载（Unknown session）或桥断开时，
+		// 服务端不会再有 agent_settled 事件来解开运行态——本地同步清掉，按钮恢复可用。
+		const fail = (brief: string): void => {
+			setRunningSessions((current) => {
+				if (!current.has(target)) return current;
+				const next = new Set(current);
+				next.delete(target);
+				return next;
+			});
+			setPendingPrompts((current) => {
+				if (!current.has(target)) return current;
+				const next = new Set(current);
+				next.delete(target);
+				return next;
+			});
+			setEntries((current) => [...current, { kind: "toolResult", toolName: t("app.abortFailed"), ok: false, brief }]);
+		};
+		try {
+			const response = await client.request({ type: "session.abort", sessionId: target });
+			if (!response.ok) fail(response.error ?? t("app.unknownError"));
+		} catch (error) {
+			fail(error instanceof Error ? error.message : String(error));
+		}
 	};
 
 	// -- 顶栏（对照 DSH 会话头：标题 + 元信息 chips + 右侧功能簇） --------------

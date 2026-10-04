@@ -1369,6 +1369,7 @@ export const en: Dict = {
 	"app.compactDone": "Compaction finished.",
 	"app.compactFailed": "Compaction failed",
 	"app.sendFailed": "Send failed",
+	"app.abortFailed": "Stop failed",
 	"app.branchFailed": "Branch failed",
 	"app.branchSuffix": "branch",
 	"app.branchTool": "Branch into a new conversation",

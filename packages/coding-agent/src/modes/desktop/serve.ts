@@ -1440,7 +1440,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
-				await session.runtime.session.abort();
+				// 已经空闲的会话不会再有 agent_settled（上一次的可能在断线窗口丢了）：
+				// 补发一条合成事件，前端运行态才能解开，否则停止按钮永远"点了没反应"。
+				// 非空闲时触发中止后立即回包，不等全量 settle——流式请求挂死时 settle
+				// 可能迟迟不来；真正停下由订阅里的 agent_settled 事件收尾。
+				if (session.runtime.session.isIdle) {
+					reply(ws, request.id, { ok: true });
+					broadcast({ type: "event", sessionId: request.sessionId, event: { type: "agent_settled" } });
+					return;
+				}
+				void session.runtime.session.abort().catch((error: unknown) => {
+					onDiagnostic(`session.abort: ${error instanceof Error ? error.message : String(error)}`);
+				});
 				reply(ws, request.id, { ok: true });
 				return;
 			}

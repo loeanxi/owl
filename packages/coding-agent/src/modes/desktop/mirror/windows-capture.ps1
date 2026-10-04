@@ -12,10 +12,16 @@
 # UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('list', 'capture', 'restore', 'launch')]
+  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed')]
   [string]$Command,
 
   [long]$Hwnd = 0,
+  [long]$ParentHwnd = 0,
+  [long]$Style = -1,
+  [int]$X = 0,
+  [int]$Y = 0,
+  [int]$W = 400,
+  [int]$H = 300,
   [int]$Fps = 20,
   [int]$Quality = 70,
   [int]$MaxWidth = 1280,
@@ -86,7 +92,40 @@ public static class OwlMirrorWin32 {
         return sb.ToString();
     }
 
-    public static bool RestoreByScRestore(IntPtr hwnd) {
+    [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int index, IntPtr value);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] public static extern int SetWindowLong32(IntPtr hWnd, int index, int value);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int index);
+    [DllImport("user32.dll")] public static extern int GetWindowLong32(IntPtr hWnd, int index);
+
+    public static readonly int GWL_STYLE = -16;
+    public static readonly long WS_CHILD = 0x40000000L;
+    public static readonly long WS_CAPTION = 0x00C00000L;
+    public static readonly long WS_THICKFRAME = 0x00040000L;
+
+    public static long GetStyle(IntPtr hwnd) {
+        return IntPtr.Size == 8 ? GetWindowLongPtr64(hwnd, GWL_STYLE).ToInt64() : GetWindowLong32(hwnd, GWL_STYLE);
+    }
+
+    public static void SetStyle(IntPtr hwnd, long style) {
+        if (IntPtr.Size == 8) SetWindowLongPtr64(hwnd, GWL_STYLE, new IntPtr(style));
+        else SetWindowLong32(hwnd, GWL_STYLE, (int)style);
+    }
+
+    // 去头：清 caption/thickframe，补 WS_CHILD（SetParent 不会自动设，缺位有焦点怪癖）
+    public static long EmbedStyle(long style) {
+        return (style & ~(WS_CAPTION | WS_THICKFRAME)) | WS_CHILD;
+    }
+
+    public static void ApplyBounds(IntPtr hwnd, int x, int y, int w, int h) {
+        // SWP_NOZORDER(0x4) | SWP_FRAMECHANGED(0x20)（样式变更后必须发）
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h, 0x4 | 0x20);
+    }
+
+        public static bool RestoreByScRestore(IntPtr hwnd) {
         // BitDock 类 Dock 工具会吞掉 ShowWindow/SW_RESTORE；系统的 SC_RESTORE
         // 命令能穿透。
         return PostMessage(hwnd, 0x0112, (IntPtr)0xF120, IntPtr.Zero);
@@ -299,5 +338,66 @@ switch ($Command) {
         exit 1
       }
     }
+  }
+
+  'probe' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    $hwndPtr = [IntPtr]$Hwnd
+    $rect = New-Object OwlMirrorWin32+RECT
+    [OwlMirrorWin32]::GetWindowRect($hwndPtr, [ref]$rect) | Out-Null
+    $json = '{"event":"probe","parent":' + [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64() +
+      ',"style":' + [OwlMirrorWin32]::GetStyle($hwndPtr) +
+      ',"x":' + $rect.Left + ',"y":' + $rect.Top +
+      ',"w":' + ($rect.Right - $rect.Left) + ',"h":' + ($rect.Bottom - $rect.Top) +
+      ',"visible":' + ([OwlMirrorWin32]::IsWindowVisible($hwndPtr)).ToString().ToLower() + '}'
+    Write-JsonLine $json
+    Write-JsonLine '{"event":"ready"}'
+  }
+
+  'embed' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    if (-not $PSBoundParameters.ContainsKey('ParentHwnd') -or $ParentHwnd -le 0) {
+      Write-JsonLine '{"event":"error","message":"missing -ParentHwnd"}'; exit 1
+    }
+    $hwndPtr = [IntPtr]$Hwnd
+    $parentPtr = [IntPtr]$ParentHwnd
+    $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
+    $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
+    [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
+    [void][OwlMirrorWin32]::SetParent($hwndPtr, $parentPtr)
+    [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
+    [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
+    Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')
+    Write-JsonLine '{"event":"ready"}'
+  }
+
+  'move' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    $hwndPtr = [IntPtr]$Hwnd
+    [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
+    [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
+    Write-JsonLine '{"event":"moved"}'
+    Write-JsonLine '{"event":"ready"}'
+  }
+
+  'unembed' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    $hwndPtr = [IntPtr]$Hwnd
+    # 还原顺序：先脱离父窗口，再还原样式，最后通知框架重算并显示
+    if ($ParentHwnd -gt 0) {
+      [void][OwlMirrorWin32]::SetParent($hwndPtr, [IntPtr]$ParentHwnd)
+    } else {
+      [void][OwlMirrorWin32]::SetParent($hwndPtr, [IntPtr]::Zero)
+    }
+    if ($Style -ge 0) {
+      [OwlMirrorWin32]::SetStyle($hwndPtr, $Style)
+    } else {
+      # 丢过元数据（桥重启）的兜底：恢复标准可调窗口样式
+      [OwlMirrorWin32]::SetStyle($hwndPtr, 0x00CF0000L)
+    }
+    [OwlMirrorWin32]::SetWindowPos($hwndPtr, [IntPtr]::Zero, 0, 0, 0, 0, 0x4 -bor 0x1 -bor 0x2 -bor 0x20)  # NOZORDER|NOMOVE|NOSIZE|FRAMECHANGED
+    [OwlMirrorWin32]::ShowWindow($hwndPtr, 9) | Out-Null   # SW_RESTORE
+    Write-JsonLine '{"event":"unembedded"}'
+    Write-JsonLine '{"event":"ready"}'
   }
 }

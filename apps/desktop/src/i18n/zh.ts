@@ -1368,6 +1368,7 @@ export const zh = {
 	"app.compactDone": "压缩完成。",
 	"app.compactFailed": "压缩失败",
 	"app.sendFailed": "发送失败",
+	"app.abortFailed": "停止失败",
 	"app.branchFailed": "分支失败",
 	"app.branchSuffix": "分支",
 	"app.branchTool": "在新对话中分支",
