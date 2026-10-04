@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createEmbedReducer, type EmbedAction, type EmbedState } from "../src/modes/desktop/mirror/embed-state.ts";
 
-function run(state: EmbedState, ...actions: EmbedAction[]): { state: EmbedState; effects: ReturnType<ReturnType<typeof createEmbedReducer>["effectsOf"]> } {
+function run(
+	state: EmbedState,
+	...actions: EmbedAction[]
+): { state: EmbedState; effects: ReturnType<ReturnType<typeof createEmbedReducer>["effectsOf"]> } {
 	const reducer = createEmbedReducer();
 	let current = state;
 	let effects: ReturnType<ReturnType<typeof createEmbedReducer>["effectsOf"]> = [];
@@ -23,7 +26,10 @@ describe("嵌入状态机", () => {
 	});
 
 	it("同模式重复 embed → 无效果", () => {
-		const { effects } = run({ phase: "embedded", mode: "sidebar", visible: true }, { type: "embed", mode: "sidebar" });
+		const { effects } = run(
+			{ phase: "embedded", mode: "sidebar", visible: true },
+			{ type: "embed", mode: "sidebar" },
+		);
 		expect(effects).toEqual([]);
 	});
 
@@ -32,7 +38,8 @@ describe("嵌入状态机", () => {
 			{ phase: "embedded", mode: "sidebar", visible: true },
 			{ type: "setMode", mode: "expand" },
 		);
-		expect(state.mode).toBe("expand");
+		// 判别联合不做收窄访问不了 mode/visible，整对象断言等价且更强
+		expect(state).toEqual({ phase: "embedded", mode: "expand", visible: true });
 		expect(effects).toEqual([{ kind: "relayout", mode: "expand" }]);
 	});
 
@@ -41,13 +48,13 @@ describe("嵌入状态机", () => {
 		let state: EmbedState = { phase: "embedded", mode: "sidebar", visible: true };
 		let result = reducer(state, { type: "setVisible", visible: false });
 		state = result.state;
-		expect(state.visible).toBe(false);
+		expect(state).toEqual({ phase: "embedded", mode: "sidebar", visible: false });
 		expect(result.effects).toEqual([{ kind: "hide" }]);
 		result = reducer(state, { type: "setVisible", visible: false });
 		expect(result.effects).toEqual([]);
 		result = reducer(state, { type: "setVisible", visible: true });
 		state = result.state;
-		expect(state.visible).toBe(true);
+		expect(state).toEqual({ phase: "embedded", mode: "sidebar", visible: true });
 		expect(result.effects).toEqual([{ kind: "show" }]);
 	});
 
@@ -66,7 +73,7 @@ describe("嵌入状态机", () => {
 		const rect = { x: 40, y: 60, width: 300, height: 500 };
 		const r1 = reducer(visible, { type: "setFloatRect", rect });
 		expect(r1.effects).toEqual([{ kind: "relayout", mode: "float" }]);
-		expect(r1.state.floatRect).toEqual(rect);
+		expect(r1.state).toEqual({ phase: "embedded", mode: "float", visible: true, floatRect: rect });
 
 		const hidden = { phase: "embedded", mode: "float", visible: false } as EmbedState;
 		const r2 = reducer(hidden, { type: "setFloatRect", rect });
@@ -74,10 +81,7 @@ describe("嵌入状态机", () => {
 	});
 
 	it("embedded + restore → 发出 restore 效果回到 restored", () => {
-		const { state, effects } = run(
-			{ phase: "embedded", mode: "sidebar", visible: true },
-			{ type: "restore" },
-		);
+		const { state, effects } = run({ phase: "embedded", mode: "sidebar", visible: true }, { type: "restore" });
 		expect(state.phase).toBe("restored");
 		expect(effects).toEqual([{ kind: "restore" }]);
 	});
@@ -90,10 +94,7 @@ describe("嵌入状态机", () => {
 	});
 
 	it("窗口消失 → 直接回 restored，无还原效果（窗口已不存在）", () => {
-		const { state, effects } = run(
-			{ phase: "embedded", mode: "float", visible: true },
-			{ type: "windowGone" },
-		);
+		const { state, effects } = run({ phase: "embedded", mode: "float", visible: true }, { type: "windowGone" });
 		expect(state.phase).toBe("restored");
 		expect(effects).toEqual([]);
 	});

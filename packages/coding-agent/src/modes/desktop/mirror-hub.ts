@@ -7,12 +7,20 @@
  * mirror/windows-capture.ps1），末个订阅者退订后延迟关闭，避免 tab 切换抖动。
  */
 import { type ChildProcessByStdio, spawn } from "node:child_process";
+import { release } from "node:os";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { hideRect } from "./mirror/embed-layout.ts";
 import type { MirrorWindowInfo } from "./protocol.ts";
 
 const WORKER_URL = new URL("./mirror/windows-capture.ps1", import.meta.url);
+
+/**
+ * WGC（Windows Graphics Capture）需要 Windows 10 1803（build 17134）及以上；
+ * 非 Windows 一律不支持。os.release() 走 RtlGetVersion，返回真实构建号
+ * （如 "10.0.22631"）。解析不出来按不支持处理，前端会落到 designed 空态。
+ */
+const MIRROR_SUPPORTED = process.platform === "win32" && Number(release().split(".")[2] ?? 0) >= 17134;
 
 /** 末个订阅者退订后 worker 的延迟关闭时间。 */
 const DETACH_GRACE_MS = 5_000;
@@ -45,7 +53,7 @@ export class MirrorHub {
 	/** 已嵌入窗口的还原元数据（原始样式/原父），unembed 时带回。 */
 	private readonly embedMeta = new Map<string, { originalStyle: number; originalParent: number }>();
 	private windows: MirrorWindowInfo[] = [];
-	private supported = true;
+	private supported = MIRROR_SUPPORTED;
 	private disposed = false;
 
 	constructor(options: MirrorHubOptions) {

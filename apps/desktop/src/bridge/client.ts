@@ -342,12 +342,19 @@ export class BridgeClient {
 		});
 	}
 
-	respondPermission(requestId: string, approved: boolean): void {
-		void this.request({ type: "permission.response", requestId, approved });
+	respondPermission(requestId: string, approved: boolean): Promise<{ ok: boolean; error?: string }> {
+		// 先挂 no-op catch 标记拒绝已处理（断线时 ResearchPage 这类不观察结果的
+		// 调用点不会冒 unhandled rejection），再返回原 promise 给需要做失败恢复
+		// （回滚出队）的调用方
+		const pending = this.request({ type: "permission.response", requestId, approved });
+		pending.catch(() => {});
+		return pending;
 	}
 
-	/** 应答 agent 的提问；cancelled=true 表示用户放弃整份问卷。 */
-	respondQuestion(requestId: string, answers: QuestionAnswerPayload[], cancelled = false): void {
-		void this.request({ type: "question.response", requestId, answers, ...(cancelled ? { cancelled: true } : {}) });
+	/** 应答 agent 的提问；cancelled=true 表示用户放弃整份问卷。失败恢复同 respondPermission。 */
+	respondQuestion(requestId: string, answers: QuestionAnswerPayload[], cancelled = false): Promise<{ ok: boolean; error?: string }> {
+		const pending = this.request({ type: "question.response", requestId, answers, ...(cancelled ? { cancelled: true } : {}) });
+		pending.catch(() => {});
+		return pending;
 	}
 }

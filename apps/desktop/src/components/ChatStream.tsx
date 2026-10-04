@@ -238,10 +238,10 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 	const [zoomed, setZoomed] = useState(false);
 	const hasImages = (card.output?.images?.length ?? 0) > 0;
 	const [open, setOpen] = useState(expanded || (autoOpen && (card.status === "error" || hasImages)));
-	useEffect(
-		() => setOpen(expanded || (autoOpen && (card.status === "error" || (card.output?.images?.length ?? 0) > 0))),
-		[expanded, autoOpen, card.status, card.output?.images],
-	);
+	useEffect(() => {
+		// 只自动弹开、不自动收起：状态迁移时重算 open 会把用户手动点开的行 snap 关上
+		if (expanded || (autoOpen && (card.status === "error" || (card.output?.images?.length ?? 0) > 0))) setOpen(true);
+	}, [expanded, autoOpen, card.status, card.output?.images]);
 
 	const output = card.output;
 	const { preview, dropped } = output ? tailLines(output.text, OUTPUT_PREVIEW_LINES) : { preview: "", dropped: 0 };

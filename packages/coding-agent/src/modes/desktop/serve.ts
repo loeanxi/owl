@@ -2850,9 +2850,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.embed": {
 				try {
-					const parentHwnd = request.parentHwnd && request.parentHwnd > 0
-						? request.parentHwnd
-						: await mirror.findOwlParentHwnd();
+					const parentHwnd =
+						request.parentHwnd && request.parentHwnd > 0 ? request.parentHwnd : await mirror.findOwlParentHwnd();
 					await mirror.embedWindow(request.windowId, parentHwnd, request.rect);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {

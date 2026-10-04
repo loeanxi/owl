@@ -159,6 +159,25 @@ export default function App(): React.JSX.Element {
 	/** agent 提问队列：按到达顺序在所属会话的输入框上方显示。 */
 	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
 	const activeQuestion = questions.find((question) => question.sessionId === sessionId);
+	// 应答审批/提问用的实时镜像：Toast 监听器等一次性注册的闭包拿不到新 state
+	const permissionsRef = useRef(permissions);
+	permissionsRef.current = permissions;
+	const questionsRef = useRef(questions);
+	questionsRef.current = questions;
+	// 审批/提问应答统一走这里：先乐观出队；失败（断线窗口、桥重启中）把请求放回
+	// 队列——否则 agent 永远停在等待应答，而 UI 上已经没有任何可点的东西
+	const answerAndRestore = <T extends { requestId: string }>(
+		requestId: string,
+		listRef: { current: T[] },
+		setList: (update: (current: T[]) => T[]) => void,
+		respond: () => Promise<unknown>,
+	): void => {
+		const entry = listRef.current.find((item) => item.requestId === requestId);
+		setList((current) => current.filter((item) => item.requestId !== requestId));
+		respond().catch(() => {
+			setList((current) => (entry !== undefined && !current.some((item) => item.requestId === requestId) ? [...current, entry] : current));
+		});
+	};
 	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
 	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
@@ -568,8 +587,7 @@ export default function App(): React.JSX.Element {
 		void listen<{ kind?: string; requestId?: string; approved?: boolean }>("owl-toast-action", (event) => {
 			const payload = event.payload;
 			if (payload?.kind !== "decision" || typeof payload.requestId !== "string" || typeof payload.approved !== "boolean") return;
-			client.respondPermission(payload.requestId, payload.approved);
-			setPermissions((current) => current.filter((request) => request.requestId !== payload.requestId));
+			answerAndRestore(payload.requestId, permissionsRef, setPermissions, () => client.respondPermission(payload.requestId!, payload.approved!));
 		}).then((off) => {
 			if (disposed) off();
 			else unlisten = off;
@@ -1389,8 +1407,7 @@ export default function App(): React.JSX.Element {
 					approvalMode={approvalMode}
 					questions={questions}
 					onAnswerQuestion={(requestId, answers, cancelled) => {
-						client.respondQuestion(requestId, answers, cancelled);
-						setQuestions((current) => current.filter((question) => question.requestId !== requestId));
+						answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
 					}}
 				/>
 			</div>
@@ -1455,8 +1472,7 @@ export default function App(): React.JSX.Element {
 							requests={questions}
 							activeRequest={activeQuestion}
 							onAnswer={(requestId, answers, cancelled) => {
-								client.respondQuestion(requestId, answers, cancelled);
-								setQuestions((current) => current.filter((question) => question.requestId !== requestId));
+								answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
 							}}
 						>
 							<Composer
@@ -1531,8 +1547,7 @@ export default function App(): React.JSX.Element {
 					request={permission}
 					contextLabel={permission.sessionId === researchSessionId ? researchTitle : permission.sessionId === sessionId ? sessionTitle : permission.sessionId.slice(0, 8)}
 					onDecide={(approved) => {
-						client.respondPermission(permission.requestId, approved);
-						setPermissions((current) => current.filter((request) => request.requestId !== permission.requestId));
+						answerAndRestore(permission.requestId, permissionsRef, setPermissions, () => client.respondPermission(permission.requestId, approved));
 					}}
 				/>
 			)}

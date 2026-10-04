@@ -332,6 +332,13 @@ export class BrowserHub {
 	}
 
 	/** 绑定/打开：pageId 优先（只绑定），url 其次（按 URL 复用或新建），双给 = 导航既有页。 */
+	/** open 的收尾取数：页面在队列执行期间被并发关闭时给明确错误，别让 undefined 冒充成功应答。 */
+	private pageOrThrow(pageId: string): IabPageInfo {
+		const info = this.listPages().find((candidate) => candidate.pageId === pageId);
+		if (!info) throw new Error(`页面不存在或已关闭: ${pageId}`);
+		return info;
+	}
+
 	async open(options: { pageId?: string; url?: string; sessionId?: string }): Promise<IabPageInfo> {
 		const owner = options.sessionId ?? (options.pageId ? this.pages.get(options.pageId)?.info.sessionId : undefined);
 		return this.operations.run(owner ? `session:${owner}` : "ui:open", async () => {
@@ -347,7 +354,7 @@ export class BrowserHub {
 				}
 				await this.refreshPageMeta(found);
 				this.emitPages();
-				return this.listPages().find((info) => info.pageId === found.info.pageId)!;
+				return this.pageOrThrow(found.info.pageId);
 			}
 			if (options.url) {
 				const existing = [...this.pages.values()].find(
@@ -356,13 +363,13 @@ export class BrowserHub {
 				if (existing) {
 					if (options.sessionId) await this.claimPage(existing, options.sessionId);
 					this.emitPages();
-					return this.listPages().find((info) => info.pageId === existing.info.pageId)!;
+					return this.pageOrThrow(existing.info.pageId);
 				}
 			}
 			const entry = await this.newPage(options.url, options.sessionId);
 			if (options.sessionId) this.activePages.set(options.sessionId, entry.info.pageId);
 			this.emitPages();
-			return this.listPages().find((info) => info.pageId === entry.info.pageId)!;
+			return this.pageOrThrow(entry.info.pageId);
 		});
 	}
 
