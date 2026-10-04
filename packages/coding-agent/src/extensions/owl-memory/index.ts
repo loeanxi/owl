@@ -21,6 +21,7 @@ import {
 	appendMemoryEntries,
 	clearMemoryEntries,
 	deleteMemoryEntry,
+	normalizeCwd,
 	readMemoryEntries,
 	renderMemorySection,
 	searchMemoryEntries,
@@ -106,8 +107,14 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 					);
 				}
 				if (strengthened > 0) {
+					const scope = params.scope ?? (ctx?.cwd ? "project" : "global");
 					const proof =
-						readMemoryEntries(agentDir).find((entry) => entry.content === params.content.trim())?.proofCount ?? 1;
+						readMemoryEntries(agentDir).find(
+							(entry) =>
+								entry.content === params.content.trim() &&
+								(entry.scope ?? (entry.sourceCwd ? "project" : "global")) === scope &&
+								(scope === "global" || normalizeCwd(entry.sourceCwd) === normalizeCwd(ctx?.cwd)),
+						)?.proofCount ?? 1;
 					parts.push(`与已有记忆重复，已把其证据计数提升到 ×${proof}`);
 				}
 				if (parts.length === 0) {

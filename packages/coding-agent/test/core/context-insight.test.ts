@@ -1,3 +1,6 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
 	type ContextRequestRow,
@@ -13,6 +16,7 @@ import {
 	recordContextTools,
 	recordContextUsage,
 } from "../../src/core/context-insight.ts";
+import type { ProjectedSessionEntry } from "../../src/core/session-manager.ts";
 
 const cwd0 = "D:\\tmp\\caps";
 const emptyComposition = () => ({
@@ -88,6 +92,52 @@ describe("classifyRequestMessages", () => {
 });
 
 describe("estimateToolDeclarations", () => {
+	it("uses transcript declarations including model-only tools and augmented descriptions", () => {
+		const registry = [
+			{ name: "read", description: "short", parameters: {}, sourceInfo: { source: "builtin" } },
+			{ name: "subagent", description: "base", parameters: {}, sourceInfo: { source: "subagents" } },
+			{ name: "hidden", description: "not sent", parameters: {} },
+		];
+		const declared = [
+			{
+				name: "read",
+				description: "actual description with appended execution guidance",
+				parameters: { type: "object" },
+			},
+			{ name: "subagent", description: "actual model-only subagent declaration", parameters: { type: "object" } },
+			{ name: "codemode", description: "all discovered tools are callable here", parameters: {} },
+		];
+		const transcript = [{ role: "system", toolsAdded: declared }];
+		const estimate = estimateToolDeclarations(registry, transcript);
+		expect(estimate.total).toBe(estimateToolDeclarations(declared).total);
+		expect(estimate.refs).toEqual([
+			{ name: "read", source: "builtin" },
+			{ name: "subagent", source: "subagents" },
+			{ name: "codemode", source: "transcript" },
+		]);
+	});
+
+	it("applies tool removals and redefinitions without counting stale schemas", () => {
+		const transcript = [
+			{
+				role: "system",
+				toolsAdded: [
+					{ name: "read", description: "stale", parameters: {} },
+					{ name: "removed", description: "old", parameters: {} },
+				],
+			},
+			{
+				role: "system",
+				toolsRemoved: [{ name: "removed" }],
+				toolsAdded: [{ name: "read", description: "current", parameters: {} }],
+			},
+		];
+		expect(estimateToolDeclarations([], transcript)).toEqual({
+			total: Math.ceil((4 + 7 + 2) / 4),
+			refs: [{ name: "read", source: "transcript" }],
+		});
+	});
+
 	it("按 name+description+schema 估算并记录来源", () => {
 		const estimate = estimateToolDeclarations([
 			{
@@ -204,6 +254,47 @@ describe("reconstructContextInsight（历史会话回放）", () => {
 	const entry = (type: string, id: string, messages: unknown[] = []) => ({
 		sourceEntry: { type, id, timestamp: "2026-10-04T08:00:00.000Z" },
 		messages,
+	});
+
+	it("reconstructs model-only tools from persisted transcript and respects later removals", () => {
+		const tools = [{ name: "codemode", description: "execution instructions", parameters: Type.Object({}) }];
+		const response: AssistantMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "answer" }],
+			api: "openai-completions",
+			provider: "stub",
+			model: "stub",
+			timestamp: 0,
+			stopReason: "stop",
+			usage: {
+				input: 10,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 11,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+		};
+		const messages: AgentMessage[] = [
+			{ role: "system", content: "", toolsAdded: tools, timestamp: 0 },
+			response,
+			{ role: "system", content: "", toolsRemoved: [{ name: "codemode" }], timestamp: 1 },
+			{ ...response, timestamp: 1 },
+		];
+		const projected: ProjectedSessionEntry[] = messages.map((message, index) => ({
+			sourceEntry: {
+				type: "message",
+				id: String(index),
+				parentId: index > 0 ? String(index - 1) : null,
+				timestamp: "2026-10-04T08:00:00.000Z",
+				message,
+			},
+			messages: [message],
+		}));
+		const rows = reconstructContextInsight(projected);
+		expect(rows.requests[0].composition.toolSchemas).toBe(estimateToolDeclarations(tools).total);
+		expect(rows.requests[1].composition.toolSchemas).toBe(0);
+		expect(rows.tools).toEqual([]);
 	});
 
 	it("按 assistant 分界切请求：请求构成不含本条 assistant，usage 归属产生它的那一行", () => {

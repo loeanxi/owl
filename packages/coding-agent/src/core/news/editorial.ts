@@ -253,18 +253,25 @@ export function normalizeNewsTags(tags: string[]): string[] {
 function normalizeFrame(structure: Static<typeof StructureSchema>, material: NewsMaterial): NewsFactFrame | null {
 	if (structure.scope !== "single" || !structure.fact || !material.body?.trim()) return null;
 	const body = collapse(material.body.slice(0, MAX_BODY_CHARS));
+	// Chinese paragraph layout can disappear in a quote; preserve Latin and numeric separators.
+	const evidenceText = (value: string) =>
+		collapse(value).replace(
+			/(?<=[\p{Script=Han}，。！？；：、（）《》〈〉「」『』【】〔〕“”‘’…—])\s+(?=[\p{Script=Han}，。！？；：、（）《》〈〉「」『』【】〔〕“”‘’…—])/gu,
+			"",
+		);
+	const comparableBody = evidenceText(body);
 	const frame = structure.fact;
 	const evidence = [
 		...new Set(
 			[frame.evidence ?? "", ...(frame.conditions ?? []).map((condition) => condition.quote)]
 				.map(collapse)
-				.filter((quote) => quote.length > 0 && body.includes(quote)),
+				.filter((quote) => quote.length > 0 && comparableBody.includes(evidenceText(quote))),
 		),
 	];
 	// The fact's main evidence must occur in the actual body, not its title or a translation.
 	if (
 		!frame.evidence?.trim() ||
-		!body.includes(collapse(frame.evidence)) ||
+		!comparableBody.includes(evidenceText(frame.evidence)) ||
 		!frame.subject?.trim() ||
 		!frame.action?.trim() ||
 		!frame.object?.trim()

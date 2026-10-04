@@ -42,10 +42,9 @@ export default function (pi: ExtensionAPI): void {
 			if (!sessionId) return;
 			const composition = classifyRequestMessages(event.messages);
 
-			// 声明给模型的工具（direct 且激活）的 schema 占用与来源
-			const active = new Set(pi.getActiveTools());
-			const declared = pi.getAllTools().filter((tool) => tool.exposure === "direct" && active.has(tool.name));
-			const tools = estimateToolDeclarations(declared);
+			// 使用模型实际收到的声明：包含 model-only、codemode 以及增强后的描述。
+			// 工具注册表只用于来源标注，不能决定请求的工具集合。
+			const tools = estimateToolDeclarations(pi.getAllTools(), event.messages);
 			composition.toolSchemas = tools.total;
 
 			// 上一条响应的真实计费（本请求 transcript 的最后一条 assistant 消息），

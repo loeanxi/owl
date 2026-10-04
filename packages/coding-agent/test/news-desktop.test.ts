@@ -189,4 +189,42 @@ describe("Owl news desktop seams", () => {
 			expect((error as NewsOutputError).response?.text).toBe('{"attentionScore":');
 		}
 	});
+	it.each(["https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4/"])(
+		"keeps mandatory thinking enabled for standard GLM Flash at %s",
+		async (baseUrl) => {
+			const flash = { ...model, id: "glm-5.3-flash", baseUrl, reasoning: true, maxTokens: 65_536 };
+			const streamSimple = vi.fn((_model: Model<Api>, _context: unknown, _options?: SimpleStreamOptions) => {
+				const stream = new AssistantMessageEventStream();
+				stream.end(fauxAssistantMessage("OK"));
+				return stream;
+			});
+			await callNewsModel(
+				{ registry: { find: () => flash, getAvailable: () => [flash], streamSimple } },
+				{ capability: "assistant", system: "Reply OK", user: "test", maxTokens: 64, temperature: 0 },
+			);
+			expect(streamSimple.mock.calls[0]?.[2]).toMatchObject({
+				reasoning: "low",
+				temperature: 1,
+				maxTokens: 1024,
+				maxRetries: 0,
+			});
+		},
+	);
+	it.each(["https://open.bigmodel.cn/api/coding/paas/v4", "https://example.com/v1"])(
+		"preserves request limits and temperature for other connections at %s",
+		async (baseUrl) => {
+			const flash = { ...model, id: "glm-5.3-flash", baseUrl, reasoning: true };
+			const streamSimple = vi.fn((_model: Model<Api>, _context: unknown, _options?: SimpleStreamOptions) => {
+				const stream = new AssistantMessageEventStream();
+				stream.end(fauxAssistantMessage("OK"));
+				return stream;
+			});
+			await callNewsModel(
+				{ registry: { find: () => flash, getAvailable: () => [flash], streamSimple } },
+				{ capability: "assistant", system: "Reply OK", user: "test", maxTokens: 64, temperature: 0 },
+			);
+			expect(streamSimple.mock.calls[0]?.[2]).toMatchObject({ temperature: 0, maxTokens: 64, maxRetries: 0 });
+			expect(streamSimple.mock.calls[0]?.[2]?.reasoning).toBeUndefined();
+		},
+	);
 });

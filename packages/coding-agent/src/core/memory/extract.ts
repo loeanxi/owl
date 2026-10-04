@@ -342,9 +342,10 @@ export function parseMemoryPayload(text: string): ExtractedMemory[] {
 const CONSOLIDATE_SYSTEM_PROMPT = `你是一个记忆归并器。输入是一个记忆库的编号条目列表，每条格式：
 [i] (scope, 证据×n) 内容
 
-任务：找出**表达同一件事**的近似重复条目（例如"用户偏好 pnpm"和"该项目用 pnpm 管理依赖"），
+任务：找出**表达同一件事**的近似重复条目（例如"该项目采用 pnpm"和"该项目用 pnpm 管理依赖"），
 输出合并方案。规则：
 - 只合并确实表达同一事实的条目；语义相近但事实不同的不要合并
+- 只合并相同作用域和相同项目的条目；不同项目之间、项目与全局之间不可合并
 - 合并后的内容要综合各条信息，保留具体细节（命令、路径、名称），不超过 80 字
 - 每组指定一个条目号作为并入目标（into，优先选内容最完整/证据最多的）
 - 最多输出 10 组；没有可合并的就输出空数组
@@ -376,8 +377,7 @@ export async function consolidateMemories(options: ConsolidateMemoriesOptions): 
 	const entries = readMemoryEntries(agentDir);
 	if (entries.length < CONSOLIDATE_MIN_ENTRIES) return { mergesApplied: 0 };
 
-	const byIndex = new Map(entries.map((entry, index) => [index, entry]));
-	// 按注入排序的思路挑前 N 条参与归并：全局在后、证据多优先（复用排序但不过滤项目）
+	// 按记录次数、新近度挑前 N 条；保留项目身份供模型判断，落库时再次校验作用域。
 	const ordered = [...entries]
 		.sort((a, b) => {
 			const proofA = a.proofCount ?? 1;
@@ -386,11 +386,14 @@ export async function consolidateMemories(options: ConsolidateMemoriesOptions): 
 			return b.createdAt.localeCompare(a.createdAt);
 		})
 		.slice(0, CONSOLIDATE_MAX_ENTRIES);
+	// Indexes must refer to the exact ordered candidate list shown to the model.
+	const byIndex = new Map(ordered.map((entry, index) => [index, entry]));
 	const listing = ordered
 		.map((entry, index) => {
-			const scope = entry.scope === "global" ? "global" : "project";
+			const scope = entry.scope ?? (entry.sourceCwd ? "project" : "global");
 			const proofs = entry.proofCount ?? 1;
-			return `[${index}] (${scope}, 证据×${proofs}) ${entry.content}`;
+			const project = scope === "project" ? `, 项目=${JSON.stringify(entry.sourceCwd ?? "")}` : "";
+			return `[${index}] (${scope}${project}, 证据×${proofs}) ${entry.content}`;
 		})
 		.join("\n");
 

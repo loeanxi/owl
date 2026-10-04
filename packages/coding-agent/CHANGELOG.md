@@ -25,6 +25,8 @@
 
 ### Fixed
 
+- Fixed memory consolidation applying sorted candidate indexes to unrelated entries, and isolated duplicate detection and merging by project and scope.
+- Fixed context breakdowns omitting model-only tools and augmented descriptions, and distinguished per-request usage from per-turn cumulative usage including cache reads.
 - Fixed tool discovery loading weak keyword collisions or unrelated alternatives for an already active exact match; action validation now distinguishes unsupported operations from a depleted loading budget.
 - Exposed safe output-limit, timeout, and cancellation reasons during anonymous evaluation so unchanged retries are understandable.
 - Fixed the shrinkwrap shipping vulnerable `brace-expansion` 5.0.9 by pinning `brace-expansion` 5.0.12 as a direct dependency (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) ([#10288](https://github.com/earendil-works/pi/issues/10288))

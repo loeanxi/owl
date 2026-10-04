@@ -63,6 +63,11 @@ export function normalizeCwd(path: string | undefined): string {
 		.toLowerCase();
 }
 
+function memoryScopeKey(entry: Partial<OwlMemoryEntry>): string {
+	const scope = entry.scope ?? (entry.sourceCwd ? "project" : "global");
+	return scope === "global" ? "global" : `project:${normalizeCwd(entry.sourceCwd)}`;
+}
+
 let cache: { path: string; mtimeMs: number; data: MemoryFile } | undefined;
 
 function readMemoryFile(agentDir: string): MemoryFile {
@@ -129,7 +134,10 @@ export function appendMemoryEntries(
 	for (const entry of entries) {
 		const content = entry.content.trim();
 		if (!content) continue;
-		const existing = data.entries.find((candidate) => candidate.content === content);
+		const scopeKey = memoryScopeKey(entry);
+		const existing = data.entries.find(
+			(candidate) => candidate.content === content && memoryScopeKey(candidate) === scopeKey,
+		);
 		if (existing) {
 			existing.proofCount = (existing.proofCount ?? 1) + 1;
 			strengthened++;
@@ -187,12 +195,12 @@ export function applyMemoryMerges(agentDir: string, merges: MemoryMerge[]): numb
 			.map((id) => data.entries.find((entry) => entry.id === id))
 			.filter((entry): entry is OwlMemoryEntry => Boolean(entry));
 		if (sources.length === 0) continue;
+		// A model-suggested merge must never transfer facts between projects or widen scope.
+		if (sources.some((entry) => memoryScopeKey(entry) !== memoryScopeKey(target))) continue;
 		const content = merge.content.trim();
 		if (!content) continue;
 		target.content = content;
 		target.proofCount = (target.proofCount ?? 1) + sources.reduce((sum, entry) => sum + (entry.proofCount ?? 1), 0);
-		// 合并后的作用域取更宽的一档：出现过 global 语义的证据就按 global 对待
-		if (sources.some((entry) => entry.scope === "global") || target.scope === "global") target.scope = "global";
 		const mergedIds = new Set(sources.map((entry) => entry.id));
 		data.entries = data.entries.filter((entry) => !mergedIds.has(entry.id));
 		applied++;

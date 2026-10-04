@@ -10,7 +10,10 @@ owl 的上下文洞察插件：让「当前上下文里到底装了什么、toke
 - **呈现**：owl 桌面端侧边工作台新增「上下文」卡片（`context` tab）：
   当前构成堆叠条、每请求趋势（压缩分界线标记）、上下文事件流、声明工具的来源分组。
 - **口径**：token 估算与 owl 内部一致（chars/4 启发式、图片按 4800 字符折算）；
-  provider 计费数字（usage.input/cacheRead/cacheWrite/output）在下一轮请求时补填到上一行，估算与计费两列并存。
+  工具取最终 transcript 声明，包含 model-only、codemode、动态加载与增强后的描述，注册表仅标注来源。
+  provider 用量（usage.input/cacheRead/cacheWrite/output）在响应结束时回填到本次请求；
+  本次输入总量包含缓存读写，构成估算与上游用量分别展示。对话底部另显示整轮累计及调用次数。
+  历史回放会恢复转录已保存的工具声明；旧转录未保存声明时不能补算。
 
 ## 启用
 

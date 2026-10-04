@@ -68,7 +68,7 @@ describe("memory store", () => {
 		]);
 		expect(added).toHaveLength(2);
 		// 重复内容 = 证据强化，不新增条目
-		const second = appendMemoryEntries(agentDir, [{ content: "用户偏好 TypeScript" }]);
+		const second = appendMemoryEntries(agentDir, [{ content: "用户偏好 TypeScript", sourceCwd: cwd }]);
 		expect(second.added).toHaveLength(0);
 		expect(second.strengthened).toBe(1);
 		const entries = readMemoryEntries(agentDir);
@@ -120,6 +120,67 @@ describe("memory store", () => {
 		);
 		const bigSection = renderMemorySection(agentDir, cwd);
 		expect(bigSection).toContain("未注入");
+	});
+
+	it("keeps identical facts separate across projects and global scope", () => {
+		const content = "构建命令是 pnpm build";
+		appendMemoryEntries(agentDir, [
+			{ content, sourceCwd: "D:\\project-a", scope: "project" },
+			{ content, sourceCwd: "D:\\project-b", scope: "project" },
+			{ content, scope: "global" },
+		]);
+		expect(readMemoryEntries(agentDir)).toHaveLength(3);
+		expect(searchMemoryEntries(agentDir, "D:\\project-b", "pnpm")).toHaveLength(2);
+		const duplicate = appendMemoryEntries(agentDir, [{ content, sourceCwd: "d:/PROJECT-B/", scope: "project" }]);
+		expect(duplicate.strengthened).toBe(1);
+		expect(readMemoryEntries(agentDir).find((entry) => entry.sourceCwd === "D:\\project-b")?.proofCount).toBe(2);
+		expect(
+			readMemoryEntries(agentDir).find((entry) => entry.sourceCwd === "D:\\project-a")?.proofCount,
+		).toBeUndefined();
+	});
+
+	it("deduplicates legacy entries with inferred scope without transferring project ownership", () => {
+		mkdirSync(getMemoryDir(agentDir), { recursive: true });
+		writeFileSync(
+			join(getMemoryDir(agentDir), "entries.json"),
+			JSON.stringify({
+				version: 1,
+				entries: [
+					{
+						id: "legacy-global",
+						content: "Prefers Chinese",
+						sourceCwd: "",
+						createdAt: "2026-01-01T00:00:00.000Z",
+					},
+					{ id: "legacy-project", content: "Uses pnpm", sourceCwd: "D:/a", createdAt: "2026-01-01T00:00:00.000Z" },
+				],
+			}),
+		);
+		expect(
+			appendMemoryEntries(agentDir, [{ content: "Prefers Chinese", scope: "global", sourceCwd: "D:/b" }])
+				.strengthened,
+		).toBe(1);
+		expect(appendMemoryEntries(agentDir, [{ content: "Uses pnpm", sourceCwd: "d:\\A\\" }]).strengthened).toBe(1);
+		expect(appendMemoryEntries(agentDir, [{ content: "Uses pnpm", sourceCwd: "D:/b" }]).added).toHaveLength(1);
+		expect(readMemoryEntries(agentDir).find((entry) => entry.id === "legacy-project")?.sourceCwd).toBe("D:/a");
+	});
+
+	it("rejects memory merges across project or global boundaries", () => {
+		const { added } = appendMemoryEntries(agentDir, [
+			{ content: "A uses pnpm", sourceCwd: "D:/a" },
+			{ content: "B uses pnpm", sourceCwd: "D:/b" },
+			{ content: "Prefers pnpm", scope: "global" },
+		]);
+		for (const source of added.slice(1)) {
+			expect(applyMemoryMerges(agentDir, [{ intoId: added[0].id, mergeIds: [source.id], content: "merged" }])).toBe(
+				0,
+			);
+		}
+		expect(readMemoryEntries(agentDir).map((entry) => entry.content)).toEqual([
+			"A uses pnpm",
+			"B uses pnpm",
+			"Prefers pnpm",
+		]);
 	});
 
 	it("searches entries for recall (term scoring, scope filtering)", () => {
@@ -273,6 +334,56 @@ describe("owl-memory built-in extension", () => {
 });
 
 describe("extraction pipeline", () => {
+	it("resolves consolidation indexes against the sorted candidates sent to the model", async () => {
+		const contents = [
+			"Unrelated A",
+			"Unrelated B",
+			"Unrelated C",
+			"Unrelated D",
+			"Project uses pnpm",
+			"Project uses pnpm for dependencies",
+		];
+		const { added } = appendMemoryEntries(
+			agentDir,
+			contents.map((content, index) => ({
+				content,
+				sourceCwd: cwd,
+				createdAt: `2026-01-0${index + 1}T00:00:00.000Z`,
+			})),
+		);
+		let listing = "";
+		const stubRegistry = {
+			streamSimple: (_model: unknown, context: { messages: { content: { text: string }[] }[] }) => {
+				listing = context.messages[0].content[0].text;
+				return {
+					result: async () => ({
+						role: "assistant",
+						timestamp: Date.now(),
+						stopReason: "stop",
+						usage: {},
+						content: [
+							{
+								type: "text",
+								text: '{"merges":[{"into":0,"merge":[1],"content":"Project uses pnpm (merged)"}]}',
+							},
+						],
+					}),
+				};
+			},
+		} as never as Parameters<typeof consolidateMemories>[0]["modelRegistry"];
+		await consolidateMemories({
+			agentDir,
+			model: { id: "stub", provider: "stub" } as never,
+			modelRegistry: stubRegistry,
+		});
+		expect(listing).toMatch(/\[0\].*Project uses pnpm for dependencies/);
+		const entries = readMemoryEntries(agentDir);
+		expect(entries.find((entry) => entry.id === added[5].id)?.content).toBe("Project uses pnpm (merged)");
+		expect(entries.find((entry) => entry.id === added[4].id)).toBeUndefined();
+		for (const unrelated of added.slice(0, 4))
+			expect(entries.find((entry) => entry.id === unrelated.id)?.content).toBe(unrelated.content);
+	});
+
 	it("extracts from unextracted sessions, marks them, and skips on the next run", async () => {
 		writeSessionFile("old1.jsonl", [
 			sessionLine("user", "这个项目用 pnpm，不要用 npm"),

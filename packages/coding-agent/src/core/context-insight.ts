@@ -16,6 +16,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { getCurrentTools, type TranscriptMessages } from "@earendil-works/pi-ai";
 
 import type { ProjectedSessionEntry } from "./session-manager.ts";
 
@@ -222,8 +223,9 @@ export interface ToolDeclarationEstimate {
 }
 
 /**
- * 估算声明给模型的工具 schema 占用。ToolInfo 从插件侧传入
- * （pi.getAllTools() + pi.getActiveTools() 过滤出 direct 且激活的集合）。
+ * 估算最终 transcript 中的工具声明。注册表仅提供来源元数据；模型专用工具、
+ * codemode 和执行提示增补均以 transcript 为准，与 provider 的工具状态回放一致。
+ * 未传 transcript 时直接估算提供的声明列表。
  */
 export function estimateToolDeclarations(
 	tools: ReadonlyArray<{
@@ -233,12 +235,16 @@ export function estimateToolDeclarations(
 		namespace?: { name?: string };
 		sourceInfo?: { source?: string };
 	}>,
+	messages?: TranscriptMessages,
 ): ToolDeclarationEstimate {
 	let chars = 0;
 	const refs: ContextToolRef[] = [];
-	for (const tool of tools) {
+	const sourceByName = new Map(
+		tools.map((tool) => [tool.name, tool.namespace?.name ?? tool.sourceInfo?.source ?? "builtin"]),
+	);
+	for (const tool of messages ? getCurrentTools(messages) : tools) {
 		chars += tool.name.length + tool.description.length + JSON.stringify(tool.parameters ?? {}).length;
-		refs.push({ name: tool.name, source: tool.namespace?.name ?? tool.sourceInfo?.source ?? "builtin" });
+		refs.push({ name: tool.name, source: sourceByName.get(tool.name) ?? "transcript" });
 	}
 	return { total: toTokens(chars), refs };
 }
@@ -296,7 +302,7 @@ function classifyInto(accumulator: ContextComposition, message: AgentMessage, st
  * 「上下文」页会一直空着；这里按「一条 assistant 消息 = 一次 LLM 请求」把
  * 投影转录切行：请求 k 的构成 = 第 k 条 assistant 之前的全部可见消息（含
  * leading system），实测口径直接取该 assistant 消息自带的 usage。工具 schema
- * 与模型信息转录里没有，留空（构成柱相应偏低）。投影已按压缩边界裁剪，
+ * 从持久化的 system 工具变更回放；旧转录没有声明时无法补算。投影已按压缩边界裁剪，
  * 压缩后的前缀自动回落；compaction 条目顺手记一条 compact 事件。
  */
 export function reconstructContextInsight(
@@ -304,7 +310,8 @@ export function reconstructContextInsight(
 ): Pick<ContextInsightState, "requests" | "events" | "tools"> {
 	const requests: ContextRequestRow[] = [];
 	const events: ContextEventRow[] = [];
-	const tools: ContextToolRef[] = [];
+	let tools: ContextToolRef[] = [];
+	const systemMessages: AgentMessage[] = [];
 	const accumulator: ContextComposition = {
 		system: 0,
 		inject: 0,
@@ -323,6 +330,12 @@ export function reconstructContextInsight(
 			}
 			for (const message of entry.messages) {
 				const role = (message as { role?: string }).role;
+				if (role === "system") {
+					systemMessages.push(message);
+					const declared = estimateToolDeclarations([], systemMessages);
+					accumulator.toolSchemas = declared.total;
+					tools = declared.refs;
+				}
 				if (role === "assistant") {
 					// 这条 assistant 回应了一次请求：请求上下文 = 此前累计（不含本条）
 					const usage = toUsageInfo((message as { usage?: Partial<ContextUsageInfo> }).usage);
