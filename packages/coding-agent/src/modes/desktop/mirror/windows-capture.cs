@@ -7,6 +7,7 @@
 // 类型用 Type.GetType("..., ContentType=WindowsRuntime") 惰性解析即可拿到。
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace OwlMirror
 {

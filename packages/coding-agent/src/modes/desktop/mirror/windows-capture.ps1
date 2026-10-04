@@ -139,7 +139,10 @@ function Get-WindowRows {
 # ---------------------------------------------------------------------------
 function Start-MirrorCapture([IntPtr]$hwndPtr) {
   if (-not ('OwlMirror.CaptureInterop' -as [type])) {
-    Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @('System.Runtime.WindowsRuntime')
+    if (-not $script:SwrPath) {
+        $script:SwrPath = [Reflection.Assembly]::Load('System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089').Location
+      }
+      Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @($script:SwrPath)
   }
   $deviceObj = [OwlMirror.CaptureInterop]::CreateDirect3DDevice()
   $itemPtr = [OwlMirror.CaptureInterop]::CreateItemForWindow($hwndPtr)
@@ -276,7 +279,10 @@ switch ($Command) {
     Add-Type -AssemblyName System.Drawing
 
     if (-not ('OwlMirror.CaptureInterop' -as [type])) {
-      Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @('System.Runtime.WindowsRuntime')
+      if (-not $script:SwrPath) {
+        $script:SwrPath = [Reflection.Assembly]::Load('System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089').Location
+      }
+      Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @($script:SwrPath)
     }
 
     if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
