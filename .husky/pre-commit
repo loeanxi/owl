@@ -20,7 +20,7 @@ fi
 # which no root script defines, and the underlying scripts/check-browser-smoke.mjs targets
 # upstream packages this fork does not ship (@earendil-works/pi-client, pi-protocol,
 # packages/durable). Any commit touching packages/ai would fail unconditionally.
-# `npm run check` below already covers formatting, linting, and type checking.
+# The `npm run check` above already covers formatting, linting, and type checking.
 
 # Restage files that were previously staged and may have been modified by formatting
 for file in $STAGED_FILES; do
