@@ -6,13 +6,16 @@ import {
 	getSupportedThinkingLevels,
 	hasApi,
 	type Model,
+	normalizeContext,
 } from "@earendil-works/pi-ai";
+import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
 import { ModelRuntime } from "../model-runtime.ts";
 import { isVirtualModel } from "../virtual-models.ts";
 import type {
 	EvaluationActualModel,
 	EvaluationModel,
 	EvaluationProfile,
+	EvaluationRequestPolicy,
 	EvaluationTask,
 	EvaluationThinkingLevel,
 	EvaluationUsage,
@@ -24,6 +27,7 @@ export interface EvaluationInvocation {
 	signal: AbortSignal;
 	onPartial: (text: string, thinking: string) => void;
 	conversation?: EvaluationConversation;
+	requestPolicy?: EvaluationRequestPolicy;
 }
 export interface EvaluationConversation {
 	originalAnswer: string;
@@ -41,7 +45,7 @@ export interface EvaluationInvocationResult {
 }
 export type EvaluationInvoker = (request: EvaluationInvocation) => Promise<EvaluationInvocationResult>;
 
-/** Byte bounds intentionally reserve output space without silently truncating prior answers. */
+/** Input bounds reserve modest headroom, rather than subtracting the entire advertised output capacity. */
 export function validateEvaluationConversation(
 	profile: EvaluationProfile,
 	task: EvaluationTask,
@@ -50,12 +54,16 @@ export function validateEvaluationConversation(
 	const text = [task.prompt, task.input ?? "", conversation.originalAnswer, conversation.prompt];
 	for (const turn of conversation.turns) text.push(turn.prompt, turn.output);
 	const bytes = text.reduce((total, value) => total + Buffer.byteLength(value, "utf8"), 0);
-	const available = Math.min(200_000, Math.max(0, profile.model.contextWindow - profile.maxTokens - 1024));
+	const available =
+		profile.model.contextWindow > 0 ? Math.min(200_000, Math.max(0, profile.model.contextWindow - 1024)) : 200_000;
 	if (bytes > available) throw new Error("这段会话已达到上下文长度上限，请新建测评继续");
 }
 
 /** Replays text only; provider reasoning signatures and global chat state are never synthesized. */
-export function buildEvaluationContext(request: EvaluationInvocation, model: Model<Api>): Context {
+export function buildEvaluationContext(
+	request: EvaluationInvocation,
+	model: Pick<Model<Api>, "api" | "provider" | "id">,
+): Context {
 	const context: Context = {
 		messages: [
 			{
@@ -94,6 +102,31 @@ export function buildEvaluationContext(request: EvaluationInvocation, model: Mod
 	}
 	context.messages.push({ role: "user", content: conversation.prompt, timestamp: Date.now() });
 	return context;
+}
+
+/** Use the exact SDK context clamp when freezing the effective request, without a local output ceiling. */
+export function evaluationRequestPolicy(
+	profile: EvaluationProfile,
+	task: EvaluationTask,
+	idleTimeoutMs: number,
+	conversation?: EvaluationConversation,
+): EvaluationRequestPolicy {
+	if (!Number.isSafeInteger(profile.model.maxTokens) || profile.model.maxTokens < 1)
+		throw new Error("模型输出额度必须是有效正整数，请检查模型配置");
+	const context = buildEvaluationContext(
+		{ profile, task, conversation, signal: new AbortController().signal, onPartial: () => {} },
+		{
+			api: profile.model.api ?? "openai-completions",
+			provider: profile.provider,
+			id: profile.modelId,
+		},
+	);
+	return {
+		maxTokens: clampMaxTokensToContext(profile.model, normalizeContext(context), profile.model.maxTokens),
+		idleTimeoutMs,
+		timeoutMs: 0,
+		contextWindow: profile.model.contextWindow,
+	};
 }
 
 /** Only expose off when the existing adapter sends an explicit disable switch or mapped effort. */
@@ -137,6 +170,7 @@ export function createEvaluationModelAccess(agentDir: string): {
 				.getAvailableSnapshot()
 				.filter((model) => !isVirtualModel(model))
 				.map((model) => ({
+					api: model.api,
 					provider: String(model.provider),
 					modelId: model.id,
 					name: model.name,
@@ -165,11 +199,20 @@ export function createEvaluationModelAccess(agentDir: string): {
 				throw new Error("该模型不支持选定思考档位");
 			}
 			const context = buildEvaluationContext(request, model);
+			const maxTokens = request.requestPolicy?.maxTokens ?? request.profile.maxTokens;
+			if (
+				!Number.isSafeInteger(maxTokens) ||
+				maxTokens < 1 ||
+				maxTokens > model.maxTokens ||
+				clampMaxTokensToContext(model, normalizeContext(context), maxTokens) !== maxTokens
+			)
+				throw new Error("模型输出或上下文配置已改变，请重新运行以采用当前额度");
 			const stream = models.streamSimple(model, context, {
 				signal: request.signal,
 				maxRetries: 0,
-				timeoutMs: request.profile.timeoutMs,
-				maxTokens: request.profile.maxTokens,
+				// SDK zero means immediate abort. Its default streaming timeout only covers headers;
+				// the content idle watchdog supplies connection protection, with no generation deadline.
+				maxTokens,
 				...(level !== "default" && level !== "off" ? { reasoning: level } : {}),
 			});
 			let final: AssistantMessage | undefined;

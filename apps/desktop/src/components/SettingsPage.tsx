@@ -28,6 +28,7 @@ import { IconPanelRight } from "../sidebar/icons.tsx";
 import { IconActivity, IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
+import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import "./settings-redesign.css";
 
 const API_OPTIONS = [
@@ -193,12 +194,6 @@ function formatClock(iso: string): string {
 	return Number.isFinite(d.getTime())
 		? d.toLocaleTimeString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
 		: iso;
-}
-
-/** 项目显示名：路径末段（与侧边栏同规则）。 */
-function projectLabel(cwd: string): string {
-	const parts = cwd.replace(/\\/g, "/").replace(/\/+$/, "").split("/");
-	return parts[parts.length - 1] || cwd;
 }
 
 function pluginSourceLabel(entry: PluginEntry): string {
@@ -542,6 +537,7 @@ export function SettingsPage({
 	onWallpaperChange: (next: OwlWallpaperSettings) => void;
 }): React.JSX.Element {
 	const t = useT();
+	useProjectSidebarRevision();
 	const [section, setSection] = useState<SettingsSection>(initialTab);
 	const [agentDir, setAgentDir] = useState("");
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
@@ -3627,7 +3623,7 @@ export function SettingsPage({
 														{usageData.byProject.map((p) => (
 															<div key={p.cwd} className="owl-usage-dist-row" title={`${p.cwd} · ${t("settings.usage.requestsLabel", { n: p.requests })}`}>
 																<div className="owl-usage-dist-top">
-																	<span className="owl-usage-dist-key">{projectLabel(p.cwd)}</span>
+																	<span className="owl-usage-dist-key">{getProjectDisplayName(p.cwd)}</span>
 																	<span className="owl-usage-dist-nums">
 																		<span className="owl-usage-dist-tokens">{formatTokens(p.totalTokens)}</span>
 																		<span className="owl-usage-dist-cost">{formatCost(p.cost)}</span>
@@ -3654,7 +3650,7 @@ export function SettingsPage({
 															<div className="owl-usage-session-main">
 																<div className="owl-usage-session-name">{s.name ?? s.firstMessage ?? t("settings.sessionFallback", { id: s.sessionId.slice(0, 8) })}</div>
 																<div className="owl-usage-session-sub">
-																	{projectLabel(s.cwd || "")} · {t("settings.usage.sessionActive", { time: formatDateTime(s.lastActiveAt) })}
+																	{getProjectDisplayName(s.cwd || "")} · {t("settings.usage.sessionActive", { time: formatDateTime(s.lastActiveAt) })}
 																</div>
 															</div>
 															<div className="owl-usage-session-nums">
@@ -3712,7 +3708,7 @@ export function SettingsPage({
 													const left = daysLeft(entry.archivedAt, archiveCfg.retentionDays);
 													const row = sessionTitles[entry.sessionId];
 													const title = sessionDisplayName(row ?? { id: entry.sessionId });
-													const origin = row?.cwd ? projectLabel(row.cwd) : "";
+													const origin = row?.cwd ? getProjectDisplayName(row.cwd) : "";
 													return (
 														<div
 															key={entry.sessionId}

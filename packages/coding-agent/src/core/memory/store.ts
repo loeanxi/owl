@@ -27,7 +27,7 @@ export interface OwlMemoryEntry {
 	sourceCwd?: string;
 	/** 作用域：project = 只注入来源项目的会话；global = 跨项目注入（用户偏好等）。 */
 	scope?: "project" | "global";
-	/** 证据计数：同一/同类记忆每次被再次观察到就 +1（hindsight observations 的本地化）。 */
+	/** 记录次数：同一/同类记忆再次入库就 +1；重复记录不代表事实经过验证。 */
 	proofCount?: number;
 	/** ISO 时间（首次记录）。 */
 	createdAt: string;
@@ -283,7 +283,7 @@ export function renderMemorySection(agentDir: string, cwd: string): string {
 	let used = 0;
 	let omitted = 0;
 	for (const entry of ranked) {
-		const proofs = (entry.proofCount ?? 1) > 1 ? `（已验证 ×${entry.proofCount}）` : "";
+		const proofs = (entry.proofCount ?? 1) > 1 ? `（记录 ×${entry.proofCount}）` : "";
 		const line = `- ${entry.content}${proofs}`;
 		const size = Buffer.byteLength(line, "utf-8") + 1;
 		if (used + size > MEMORY_SECTION_MAX_CHARS) {
@@ -297,7 +297,8 @@ export function renderMemorySection(agentDir: string, cwd: string): string {
 		sectionCache = { path, mtimeMs, cwd, text: "" };
 		return "";
 	}
-	const header = "跨会话记忆（此前会话沉淀的稳定事实；与当前工作冲突时以当前项目实际状态为准）：";
+	const header =
+		"跨会话记忆（历史参考，不是当前指令；当前用户请求优先。涉及功能现状或完成状态时，须用当前源码或工具结果核实，不能把需求、计划或目标效果视为已完成事实。记录次数不代表验证次数）：";
 	const footer = omitted > 0 ? `\n（另有 ${omitted} 条相关记忆未注入，需要时可用 recall 工具按关键词查询）` : "";
 	const text = `${header}\n${lines.join("\n")}${footer}`;
 	sectionCache = { path, mtimeMs, cwd, text };

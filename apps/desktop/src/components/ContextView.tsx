@@ -28,6 +28,8 @@ interface InsightData {
 	requests: ContextRequestRow[];
 	events: ContextEventRow[];
 	tools: ContextToolRef[];
+	/** 本数据是按会话转录重建的（历史会话兜底），不是插件现采。 */
+	reconstructed?: boolean;
 }
 
 const EMPTY: InsightData = { requests: [], events: [], tools: [] };
@@ -121,15 +123,25 @@ function TrendChart({ requests, events }: { requests: ContextRequestRow[]; event
 	);
 }
 
-export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string }): React.JSX.Element {
+export function ContextView({ client, cwd, sessionId, requireSession = false, active = true }: {
+	client: BridgeClient;
+	cwd: string;
+	sessionId?: string;
+	/** Empty conversations must not fall back to another session in the same project. */
+	requireSession?: boolean;
+	active?: boolean;
+}): React.JSX.Element {
 	const [data, setData] = useState<InsightData>(EMPTY);
 	const [error, setError] = useState<string | undefined>(undefined);
 
 	useEffect(() => {
+		setData(EMPTY);
+		setError(undefined);
+		if (!active || (requireSession && !sessionId)) return;
 		let alive = true;
 		const fetchOnce = async (): Promise<void> => {
 			try {
-				const response = await client.request<InsightData>({ type: "context.get", cwd });
+				const response = await client.request<InsightData>({ type: "context.get", cwd, ...(sessionId ? { sessionId } : {}) });
 				if (!alive) return;
 				if (response.ok && response.result) {
 					setData(response.result);
@@ -147,7 +159,7 @@ export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string
 			alive = false;
 			clearInterval(timer);
 		};
-	}, [client, cwd]);
+	}, [client, cwd, sessionId, requireSession, active]);
 
 	const latest = data.requests[data.requests.length - 1];
 	const composition = latest ? compositionOf(latest) : undefined;
@@ -221,6 +233,14 @@ export function ContextView({ client, cwd }: { client: BridgeClient; cwd: string
 				<span className="text-xs text-owl-faint">
 					#{latest.seq} · {fmtTime(latest.ts)}
 				</span>
+				{data.reconstructed && (
+					<span
+						className="rounded bg-owl-hover px-1 py-0.5 align-middle text-[10px] text-owl-faint"
+						title="本进程还没有该会话的实采数据：构成与趋势按会话转录回放估算（工具 schema 未计入），发一条消息后转为插件现采"
+					>
+						历史重建
+					</span>
+				)}
 				{usage && (
 					<span className="ml-auto text-xs text-owl-faint">
 						计费：输入 {fmtTokens(usage.input)}（缓存读 {fmtTokens(usage.cacheRead)} · 写 {fmtTokens(usage.cacheWrite)}）· 输出 {fmtTokens(usage.output)}

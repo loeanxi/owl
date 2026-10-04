@@ -591,6 +591,8 @@ export interface ContextGetResult {
 	requests: ContextRequestRow[];
 	events: ContextEventRow[];
 	tools: ContextToolRef[];
+	/** 注册表没有现采数据、本结果是按会话转录重建的（历史会话兜底展示）。 */
+	reconstructed?: boolean;
 }
 
 export interface ProjectCreateRequest {

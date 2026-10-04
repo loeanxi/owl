@@ -7,6 +7,7 @@ import {
 	findContextInsightByCwd,
 	getContextInsight,
 	measuredContextTokens,
+	reconstructContextInsight,
 	recordContextEvent,
 	recordContextRequest,
 	recordContextTools,
@@ -196,5 +197,86 @@ describe("context-insight 注册表", () => {
 		expect(measuredContextTokens({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4 })).toBe(10);
 		expect(measuredContextTokens({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 50 })).toBe(50);
 		dropContextInsight(sessionId);
+	});
+});
+
+describe("reconstructContextInsight（历史会话回放）", () => {
+	const entry = (type: string, id: string, messages: unknown[] = []) => ({
+		sourceEntry: { type, id, timestamp: "2026-10-04T08:00:00.000Z" },
+		messages,
+	});
+
+	it("按 assistant 分界切请求：请求构成不含本条 assistant，usage 归属产生它的那一行", () => {
+		const rows = reconstructContextInsight([
+			entry("message", "e1", [
+				// leading system：content 4 chars + 基础 section 8 chars → system 3
+				{ role: "system", content: "base", sections: { preamble: "12345678" } },
+				{ role: "user", content: "hello" }, // 5 chars → 2
+			]),
+			entry("message", "e2", [
+				// 第 1 次请求的响应：row1 = system 3 + user 2，实测 usage 归 row1
+				{
+					role: "assistant",
+					content: "hi there!",
+					usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12 },
+				},
+			]),
+			entry("message", "e3", [
+				{ role: "toolResult", content: [{ type: "text", text: "12345678" }] }, // 8 chars → 2
+			]),
+			entry("message", "e4", [
+				{ role: "system", content: "extra" }, // 后置系统消息 → inject 2
+				{ role: "assistant", content: "done" }, // 无 usage（中止）：row2 不带实测
+			]),
+		] as any);
+
+		expect(rows.requests).toHaveLength(2);
+		expect(rows.requests[0].seq).toBe(1);
+		expect(rows.requests[0].composition).toEqual({
+			system: 3,
+			inject: 0,
+			user: 2,
+			assistant: 0,
+			toolResult: 0,
+			toolSchemas: 0,
+			other: 0,
+		});
+		expect(rows.requests[0].totalTokens).toBe(5);
+		expect(rows.requests[0].usage).toEqual({ input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12 });
+
+		// row2 = 此前累计（system 3 + user 2 + assistant 3 + toolResult 2 + inject 2）
+		expect(rows.requests[1].seq).toBe(2);
+		expect(rows.requests[1].composition).toEqual({
+			system: 3,
+			inject: 2,
+			user: 2,
+			assistant: 3,
+			toolResult: 2,
+			toolSchemas: 0,
+			other: 0,
+		});
+		expect(rows.requests[1].totalTokens).toBe(12);
+		expect(rows.requests[1].usage).toBeUndefined();
+		expect(rows.events).toHaveLength(0);
+	});
+
+	it("compaction 条目记一条 compact 事件，全零 usage 不回填", () => {
+		const rows = reconstructContextInsight([
+			entry("compaction", "c1", [{ role: "user", content: "summarized" }]),
+			entry("message", "m1", [
+				{ role: "assistant", content: "ok", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+			]),
+		] as any);
+
+		expect(rows.events).toHaveLength(1);
+		expect(rows.events[0].kind).toBe("compact");
+		expect(rows.requests[0].usage).toBeUndefined();
+	});
+
+	it("空投影回空数据，不抛错", () => {
+		const rows = reconstructContextInsight([] as any);
+		expect(rows.requests).toHaveLength(0);
+		expect(rows.events).toHaveLength(0);
+		expect(rows.tools).toHaveLength(0);
 	});
 });

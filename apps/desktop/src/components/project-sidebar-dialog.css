@@ -1,0 +1,8 @@
+.owl-project-dialog-description { margin: 0 0 18px; color: var(--color-owl-muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.owl-project-section-name { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.owl-project-section-name input { width: 100%; padding: 10px 12px; border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel); color: var(--color-owl-text); font: inherit; outline: none; }
+.owl-project-section-name input:focus { border-color: var(--color-owl-accent); }
+.owl-project-section-name input:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-sidebar-notice { margin: 8px 0; padding: 8px; border: 1px solid var(--owl-ui-border,var(--color-owl-border)); border-radius: 7px; color: var(--owl-ui-muted,var(--color-owl-muted)); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.owl-sidebar-unread-dot { width: 5px; height: 5px; flex: none; border-radius: 50%; background: var(--color-owl-accent); }
+.owl-sidebar-project-row .owl-sidebar-row-main { padding-right: 46px; }

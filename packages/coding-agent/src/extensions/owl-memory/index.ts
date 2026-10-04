@@ -1,7 +1,7 @@
 /**
  * owl 跨会话记忆扩展（内置）。
  *
- * - `remember` 工具：模型在了解到值得长期记住的信息时显式写入一条记忆（可标 scope）；
+ * - `remember` 工具：用户明确要求时写入一条长期记忆（可标 scope）；
  * - `recall` 工具：模型按关键词按需检索记忆（hindsight recall 的理念、词面匹配实现）；
  * - `before_agent_start`：把记忆投影注入 system prompt 的 `owl_memory` 分区——按项目
  *   过滤 + 证据/新近排序 + 预算化装填，用户在桌面设置页「跨会话记忆」或 `/memory`
@@ -25,6 +25,7 @@ import {
 	renderMemorySection,
 	searchMemoryEntries,
 } from "../../core/memory/store.ts";
+import { MEMORY_WRITE_GUIDANCE, memoryWriteDenial } from "../../core/memory/write-policy.ts";
 
 function memoryEnabled(pi: Parameters<ExtensionFactory>[0]): boolean {
 	return pi.getSettings().owlMemory?.enabled !== false;
@@ -49,14 +50,35 @@ function renderEntryList(agentDir: string, cwd: string): string {
 
 export function createOwlMemoryExtension(): ExtensionFactory {
 	return (pi) => {
+		let currentPrompt = "";
+		// Steering/follow-up messages do not start a new run. Only delivered user messages
+		// may change authorization; merely queued messages must not grant it early.
+		pi.on("message_start", (event) => {
+			if (event.message.role !== "user") return;
+			const content = event.message.content;
+			currentPrompt =
+				typeof content === "string"
+					? content
+					: content
+							.filter((part) => part.type === "text")
+							.map((part) => part.text)
+							.join("\n");
+		});
+		pi.on("tool_call", (event) => {
+			if (event.toolName !== "remember" && event.toolName !== "update_user_impression") return;
+			const reason = memoryWriteDenial(currentPrompt, memoryEnabled(pi));
+			if (reason) return { block: true, reason };
+		});
 		pi.registerTool({
 			name: "remember",
 			label: "记住",
 			description:
-				"把一条值得跨会话长期记住的稳定事实写入 Owl 跨会话记忆。" +
+				"仅在用户本轮明确要求记住或保存长期记忆时，保存一条已确认的稳定事实。" +
 				'scope 选 "global" 表示跨项目有效的用户偏好/环境特点；"project" 表示只对当前项目有效的事实（默认）。' +
-				"不要保存一次性任务细节、调试过程或任何密钥。用户可以在设置页「跨会话记忆」或 /memory 中查看和删除这些记忆。",
-			promptSnippet: "remember: 把稳定事实写入跨会话记忆",
+				"功能需求、截图目标和待办不是现有事实；先完成当前任务，不要用记忆操作替代交付。" +
+				"不要保存一次性任务细节、调试过程或任何密钥。记忆在设置页或 /memory 中管理。",
+			promptSnippet: "remember: 应用户明确要求保存一条长期记忆",
+			promptGuidelines: [MEMORY_WRITE_GUIDANCE],
 			parameters: Type.Object({
 				content: Type.String({ description: "一条独立、具体、简短的记忆（第三人称，不超过 80 字）" }),
 				scope: Type.Optional(
@@ -72,6 +94,9 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 						content: params.content,
 						...(params.scope ? { scope: params.scope } : {}),
 						...(ctx?.cwd ? { sourceCwd: ctx.cwd } : {}),
+						...(ctx?.sessionManager.getSessionFile()
+							? { sourceSession: ctx.sessionManager.getSessionFile() }
+							: {}),
 					},
 				]);
 				const parts: string[] = [];
@@ -209,6 +234,8 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 		});
 
 		pi.on("before_agent_start", (event) => {
+			currentPrompt = event.prompt;
+			event.systemPromptOptions.sections.owl_memory_usage = MEMORY_WRITE_GUIDANCE;
 			if (!memoryEnabled(pi)) return;
 			const section = renderMemorySection(getAgentDir(), event.systemPromptOptions.cwd);
 			if (section) event.systemPromptOptions.sections.owl_memory = section;

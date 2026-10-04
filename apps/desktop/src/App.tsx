@@ -17,6 +17,8 @@ import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
+import { ConversationHeader, type ConversationView } from "./components/ConversationHeader.tsx";
+import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
@@ -39,6 +41,7 @@ import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from 
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
 import { normPath, samePath } from "./utils/paths.ts";
+import { isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "./project-sidebar-model.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
@@ -47,7 +50,6 @@ import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarCon
 import { fileUrlOf } from "./sidebar/api.ts";
 import { isIabPageBound, boundTabIdFor, encodeIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
 import { BrowserSessionContext } from "./sidebar/registry.ts";
-import { IconFolder, IconPanelBottom, IconPanelRight } from "./sidebar/icons.tsx";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -71,6 +73,7 @@ const WORKBENCH_OPEN_KEY = "owl.workbench.open";
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
+const RESEARCH_CONVERSATION_VIEW_KEY = "owl.research.conversation.view";
 const ZOOM_KEY = "owl.ui.zoom";
 /** 缩放挡位（对照浏览器 Ctrl+- / Ctrl+Shift+= / Ctrl+0），实际大小 = 1。 */
 const ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
@@ -92,6 +95,7 @@ function rowTime(row: SessionRowLite): string {
 
 export default function App(): React.JSX.Element {
 	const t = useT();
+	const projectSidebarRevision = useProjectSidebarRevision();
 	const researchTitle = useResearchEntryText();
 	const client = useMemo(() => new BridgeClient(), []);
 	const [connected, setConnected] = useState(false);
@@ -113,6 +117,7 @@ export default function App(): React.JSX.Element {
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
 	const [researchSessionId, setResearchSessionId] = useState<string>();
+	const [researchConversationTitle, setResearchConversationTitle] = useState<string>();
 	const [researchResumeRequest, setResearchResumeRequest] = useState<{ id: string; revision: number }>();
 	const [researchNewConversationRequest, setResearchNewConversationRequest] = useState(0);
 	const researchActionSequence = useRef(0);
@@ -171,6 +176,8 @@ export default function App(): React.JSX.Element {
 	// 输入框项目选择器的候选列表：与侧边栏同源（当前 ∪ 有会话 ∪ 到访过），切换项目/侧边栏变更时刷新。
 	const [projects, setProjects] = useState<string[]>([]);
 	const [researchProjects, setResearchProjects] = useState<string[]>([]);
+	const visibleProjects = useMemo(() => projects.filter((path) => !isProjectHidden(path, "chat")), [projects, projectSidebarRevision]);
+	const visibleResearchProjects = useMemo(() => researchProjects.filter((path) => !isProjectHidden(path, "research")), [researchProjects, projectSidebarRevision]);
 	// 斜杠命令清单（桥端 commands.list）：连接后、切项目、建/恢复会话时刷新（扩展命令随会话出现）。
 	const [slashCommands, setSlashCommands] = useState<SlashCommandEntry[]>([]);
 	// 侧边栏工作台（文件树 / 编辑器 / Git 变动 / 任务 / 侧聊）：开合与停靠位置持久化。
@@ -184,10 +191,17 @@ export default function App(): React.JSX.Element {
 		() => localStorage.getItem(WORKBENCH_LAYOUT_KEY) === "developer",
 	);
 	// 主区视图（顶栏 tab 切换）：对话 / 上下文（owl-context 插件供数）
-	const [conversationView, setConversationView] = useState<"chat" | "context">(() =>
+	const [conversationView, setConversationView] = useState<ConversationView>(() =>
 		localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
-	const setConversationViewPersisted = (view: "chat" | "context"): void => {
+	const [researchConversationView, setResearchConversationView] = useState<ConversationView>(() =>
+		localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
+	);
+	const setResearchConversationViewPersisted = (view: ConversationView): void => {
+		setResearchConversationView(view);
+		localStorage.setItem(RESEARCH_CONVERSATION_VIEW_KEY, view);
+	};
+	const setConversationViewPersisted = (view: ConversationView): void => {
 		setConversationView(view);
 		localStorage.setItem(CONVERSATION_VIEW_KEY, view);
 	};
@@ -704,6 +718,7 @@ export default function App(): React.JSX.Element {
 	// 切换项目 = 换工作目录并从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在当前项目下创建会话。
 	const switchProject = (path: string): void => {
+		setResearchConversationTitle(undefined);
 		setResearchResumeRequest(undefined);
 		setResearchSessionId(undefined);
 		sessionIdRef.current = undefined;
@@ -1025,13 +1040,7 @@ export default function App(): React.JSX.Element {
 	};
 
 	// -- 顶栏（对照 DSH 会话头：标题 + 元信息 chips + 右侧功能簇） --------------
-	const sessionTitle = useMemo(() => {
-		const first = entries.find((entry) => entry.kind === "user");
-		if (!first) return t("app.newConversation");
-		const line = first.text.split("\n").find((part) => part.trim() !== "") ?? "";
-		return line.length > 42 ? `${line.slice(0, 42)}…` : line || t("app.newConversation");
-	}, [entries]);
-	const projectBasename = workspaceDir.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceDir;
+	const sessionTitle = conversationTitleOf(entries, t("app.newConversation"));
 	const mapModelValue = modelValue || (sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : "");
 	const mapModelSeparator = mapModelValue.indexOf("/");
 	const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))
@@ -1039,8 +1048,6 @@ export default function App(): React.JSX.Element {
 	const waitingForUser = Boolean(sessionId && (permissions.some((request) => request.sessionId === sessionId) || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
 
-	const headerButtonClass = (active: boolean): string =>
-		`owl-chrome-button${active ? " is-active" : ""}`;
 	const openSettings = (tab: SettingsInitialTab): void => {
 		setSettingsInitialTab(tab);
 		setShowSettings(true);
@@ -1100,8 +1107,11 @@ export default function App(): React.JSX.Element {
 		openDeveloper,
 		toggleChatContext: (): void => {
 			setShowSettings(false);
-			setRailView("chat");
-			setConversationViewPersisted(conversationView === "chat" ? "context" : "chat");
+			if (railView === "research") setResearchConversationViewPersisted(researchConversationView === "chat" ? "context" : "chat");
+			else {
+				setRailView("chat");
+				setConversationViewPersisted(conversationView === "chat" ? "context" : "chat");
+			}
 		},
 		prevSession: (): void => { void cycleSession(-1); },
 		nextSession: (): void => { void cycleSession(1); },
@@ -1246,25 +1256,13 @@ export default function App(): React.JSX.Element {
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
 			<div className="owl-main-frame" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
-				<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep" style={{ display: railView === "research" && !showSettings ? "none" : undefined }}>
-					<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={sessionTitle}>{sessionTitle}</h1>
-					<span className="owl-shell-project" title={workspaceDir}>
-						<IconFolder size={12} /><span className="owl-shell-project-label">{projectBasename}</span>
-					</span>
-					{/* 会话视图 tab：对话 / 上下文（owl-context 插件供数，主区随 tab 切换） */}
-					<div className="owl-view-tabs" role="tablist" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false">
-						<button type="button" role="tab" aria-selected={conversationView === "chat"} title={t("app.viewChat")} onClick={() => setConversationViewPersisted("chat")}>{t("app.viewChat")}</button>
-						<button type="button" role="tab" aria-selected={conversationView === "context"} title={t("composer.context")} onClick={() => setConversationViewPersisted("context")}>{t("composer.context")}</button>
-					</div>
-					<div className="owl-shell-header-actions" data-tauri-drag-region="false">
-						<span className={"owl-shell-connection" + (connected ? "" : " is-offline")} role="status" title={connected ? t("composer.connected") : t("app.connectionOffline")}>
-							<span className="owl-shell-connection-dot" />
-							{connected ? t("composer.runLocation.local") : everConnected ? t("app.reconnecting") : t("app.connecting")}
-						</span>
-						<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={workbenchOpen && workbenchDock === "bottom"} className={headerButtonClass(workbenchOpen && workbenchDock === "bottom")} onClick={() => togglePanelAt("bottom")}><IconPanelBottom size={16} /></button>
-						<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={workbenchOpen && workbenchDock === "right"} className={headerButtonClass(workbenchOpen && workbenchDock === "right")} onClick={() => togglePanelAt("right")}><IconPanelRight size={16} /></button>
-					</div>
-				</header>
+				<ConversationHeader
+					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
+					workspaceDir={workspaceDir} connected={connected} everConnected={everConnected}
+					view={railView === "research" ? researchConversationView : conversationView}
+					onViewChange={railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
+					workbenchOpen={workbenchOpen} workbenchDock={workbenchDock} onToggleDock={togglePanelAt}
+				/>
 				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
 				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "") + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
 					<div className="owl-shell-conversation">
@@ -1272,8 +1270,9 @@ export default function App(): React.JSX.Element {
 							<ResearchPage
 								client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
 								providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
-								projects={researchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
+								projects={visibleResearchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
+								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
 								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
 								onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} onOpenBrowser={() => openInPanel("browser")}
@@ -1282,7 +1281,7 @@ export default function App(): React.JSX.Element {
 						</div>}
 						<div style={{ display: railView === "research" && !showSettings ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
 						{conversationView === "context" ? (
-							<ContextView client={client} cwd={workspaceDir} />
+							<ContextView key={sessionId ?? workspaceDir} client={client} cwd={workspaceDir} sessionId={sessionId} requireSession active={railView === "chat" && !showSettings && connected} />
 						) : (
 							<>
 								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} />
@@ -1304,6 +1303,7 @@ export default function App(): React.JSX.Element {
 						>
 							<Composer
 								client={client}
+								sessionScope="chat"
 								connected={connected}
 								disabled={running || submitting || !connected}
 								running={running}
@@ -1319,7 +1319,7 @@ export default function App(): React.JSX.Element {
 								onApprovalMode={handleApprovalModeChange}
 								sessionInfo={sessionInfo}
 								workspaceDir={workspaceDir}
-								projects={projects}
+								projects={visibleProjects}
 								onSwitchProject={switchProject}
 								commands={slashCommands}
 								draftRequest={draftRequest}
@@ -1361,7 +1361,9 @@ export default function App(): React.JSX.Element {
 			</div>
 			</div>
 			{showProjectDialog && (
-				<NewProjectDialog client={client} onClose={() => setShowProjectDialog(false)} onCreated={(path) => {
+				<NewProjectDialog client={client} onClose={() => setShowProjectDialog(false)} onCreated={(path, name) => {
+					restoreProject(path, sessionScope);
+					if (name !== undefined) setProjectAlias(path, name);
 					setShowProjectDialog(false);
 					setShowSettings(false);
 					switchProject(path);

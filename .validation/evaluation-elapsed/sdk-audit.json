@@ -1,0 +1,57 @@
+{
+  "auditedAt": "2026-10-04T00:22:42.889Z",
+  "paidCalls": 0,
+  "realNetworkRequests": 0,
+  "adapter": "packages/ai/dist/api/openai-completions.js",
+  "cases": [
+    {
+      "name": "deepseek full catalog maxTokens / stream exceeds SDK header timeout",
+      "passed": true,
+      "maxTokens": 384000,
+      "timeoutMs": 20,
+      "events": [
+        "start",
+        "thinking_start",
+        "thinking_delta",
+        "text_start",
+        "text_delta",
+        "thinking_end",
+        "text_end",
+        "done"
+      ]
+    },
+    {
+      "name": "zai-coding-cn full catalog maxTokens / stream exceeds SDK header timeout",
+      "passed": true,
+      "maxTokens": 131072,
+      "timeoutMs": 20,
+      "events": [
+        "start",
+        "thinking_start",
+        "thinking_delta",
+        "text_start",
+        "text_delta",
+        "thinking_end",
+        "text_end",
+        "done"
+      ]
+    },
+    {
+      "name": "timeoutMs 0 does not disable SDK timeout",
+      "passed": true,
+      "stopReason": "error",
+      "error": "Request timed out."
+    },
+    {
+      "name": "omitted timeout still allows caller cancellation while reasoning streams",
+      "passed": true,
+      "stopReason": "aborted",
+      "transportAborted": true
+    },
+    {
+      "name": "downstream token bound is remaining context only; timeout 0 is preserved",
+      "passed": true,
+      "maxTokens": 5897
+    }
+  ]
+}

@@ -27,6 +27,7 @@ export interface EvaluationTask {
 	checks: EvaluationCheckSpec[];
 }
 export interface EvaluationModel {
+	api?: string;
 	provider: string;
 	modelId: string;
 	name: string;
@@ -47,6 +48,15 @@ export interface EvaluationProfile extends EvaluationProfileInput {
 	model: EvaluationModel;
 	maxTokens: number;
 	timeoutMs: number;
+	idleTimeoutMs?: number;
+}
+/** Frozen effective parameters for one new call; old profiles/attempts retain their original parameters. */
+export interface EvaluationRequestPolicy {
+	maxTokens: number;
+	idleTimeoutMs: number;
+	/** No application total deadline. Never forward this zero to an SDK timeout option. */
+	timeoutMs: 0;
+	contextWindow: number;
 }
 export interface EvaluationUsage {
 	input: number;
@@ -98,9 +108,13 @@ export interface EvaluationFollowup {
 	usage: EvaluationUsage | null;
 	costUsd: number | null;
 	actualModel?: EvaluationActualModel;
+	requestPolicy?: EvaluationRequestPolicy;
 }
 export interface EvaluationFollowupView
-	extends Omit<EvaluationFollowup, "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel"> {
+	extends Omit<
+		EvaluationFollowup,
+		"startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel" | "requestPolicy"
+	> {
 	/** Relative elapsed runtime is visible during anonymous evaluation; queued or unknown timings are null. */
 	elapsedMs?: number | null;
 	startedAt?: string | null;
@@ -109,6 +123,7 @@ export interface EvaluationFollowupView
 	usage?: EvaluationUsage | null;
 	costUsd?: number | null;
 	actualModel?: EvaluationActualModel;
+	requestPolicy?: EvaluationRequestPolicy;
 }
 export interface EvaluationResult {
 	id: string;
@@ -133,6 +148,7 @@ export interface EvaluationResult {
 	retryOf: string | null;
 	actualModel?: EvaluationActualModel;
 	followups?: EvaluationFollowup[];
+	requestPolicy?: EvaluationRequestPolicy;
 }
 export interface EvaluationGroup {
 	taskId: string;
@@ -157,7 +173,15 @@ export interface EvaluationRun {
 export interface EvaluationResultView
 	extends Omit<
 		EvaluationResult,
-		"profileId" | "startedAt" | "finishedAt" | "durationMs" | "usage" | "costUsd" | "actualModel" | "followups"
+		| "profileId"
+		| "startedAt"
+		| "finishedAt"
+		| "durationMs"
+		| "usage"
+		| "costUsd"
+		| "actualModel"
+		| "followups"
+		| "requestPolicy"
 	> {
 	followups: EvaluationFollowupView[];
 	anonymousLabel: string;
@@ -171,6 +195,7 @@ export interface EvaluationResultView
 	usage?: EvaluationUsage | null;
 	costUsd?: number | null;
 	actualModel?: EvaluationActualModel;
+	requestPolicy?: EvaluationRequestPolicy;
 }
 export interface EvaluationRunView extends Omit<EvaluationRun, "profiles" | "results"> {
 	profileCount: number;

@@ -35,7 +35,12 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
-import { findContextInsightByCwd, getContextInsight } from "../../core/context-insight.ts";
+import {
+	type ContextInsightState,
+	findContextInsightByCwd,
+	getContextInsight,
+	reconstructContextInsight,
+} from "../../core/context-insight.ts";
 import { getWorkspaceDiffApprovalStore, setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
 import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
@@ -52,6 +57,7 @@ import type { MailAgentContext } from "../../core/mail/types.ts";
 import { connectMcpServers, type McpConnections } from "../../core/mcp-lite.ts";
 import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { getMediaBridgeHttpHandler } from "../../core/media-bridge-channel.ts";
+import { MEMORY_WRITE_GUIDANCE } from "../../core/memory/write-policy.ts";
 import { ModelRegistry } from "../../core/model-registry.ts";
 import { NewsService, type NewsServiceOptions } from "../../core/news/service.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
@@ -418,6 +424,50 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	>();
 	const clients = new Set<WebSocket>();
 	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
+	/**
+	 * 历史会话的上下文重建缓存：sessionId → { key, rows }。key 取会话文件
+	 * mtime（磁盘）或投影末条 id+消息数（运行中），ContextView 2s 轮询时
+	 * 未变化的会话直接命中缓存，不重复读文件/分类。
+	 */
+	const contextRebuildCache = new Map<
+		string,
+		{ key: string; rows: Pick<ContextInsightState, "requests" | "events" | "tools"> }
+	>();
+	/** 注册表无数据时从会话转录重建上下文洞察；会话不存在或没有消息回 undefined。 */
+	const contextInsightFromHistory = async (
+		sessionId: string,
+	): Promise<Pick<ContextInsightState, "requests" | "events" | "tools"> | undefined> => {
+		try {
+			const running = sessions.get(sessionId)?.runtime.session.sessionManager;
+			if (running) {
+				const projection = running.buildSessionProjection();
+				const lastEntry = projection.entries[projection.entries.length - 1];
+				const key = `${lastEntry?.sourceEntry.id ?? ""}:${projection.messages.length}`;
+				const cached = contextRebuildCache.get(sessionId);
+				if (cached && cached.key === key) return cached.rows;
+				const rows = reconstructContextInsight(projection.entries);
+				contextRebuildCache.set(sessionId, { key, rows });
+				return rows;
+			}
+			const info = (await SessionManager.listAll()).find((row) => row.id === sessionId);
+			if (!info) return undefined;
+			let mtimeMs = 0;
+			try {
+				mtimeMs = statSync(info.path).mtimeMs;
+			} catch {
+				return undefined;
+			}
+			const key = String(mtimeMs);
+			const cached = contextRebuildCache.get(sessionId);
+			if (cached && cached.key === key) return cached.rows;
+			const rows = reconstructContextInsight(SessionManager.open(info.path).buildSessionProjection().entries);
+			contextRebuildCache.set(sessionId, { key, rows });
+			return rows;
+		} catch {
+			// 历史重建只是兜底展示：失败就回空，走注册表的正常空态
+			return undefined;
+		}
+	};
 	/** 终端会话表（term.* 路由的目标）；termId → 创建它的连接，断线时兜底回收 */
 	const terminals = new TerminalManager();
 	const wsTerms = new WeakMap<WebSocket, Set<string>>();
@@ -1070,7 +1120,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						impression,
 						"</user_impression>",
 						"",
-						"以上是当前记录的「对用户的印象」。当互动中了解到值得长期记住的新信息（偏好、习惯、背景等）时，用 update_user_impression 工具保存更新后的完整印象；没有值得记住的新信息就不要调用。",
+						"以上是此前记录的「对用户的印象」，仅作历史参考。",
+						MEMORY_WRITE_GUIDANCE,
 					].join("\n"),
 				);
 			}
@@ -1150,9 +1201,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					name: "update_user_impression",
 					label: "更新用户印象",
 					description:
-						"把对用户的长期印象（偏好、习惯、背景、沟通风格等）合并写入 Owl 的「用户印象」档案。" +
-						"参数传更新后的完整印象文本（保留仍有效的旧内容，不要清空）。只在了解到值得长期记住的新信息时调用。",
-					promptSnippet: "update_user_impression: 把对用户的长期印象保存到 Owl 的「用户印象」档案",
+						"仅在用户本轮明确要求更新长期用户印象时，把偏好、习惯、背景或沟通风格合并写入 Owl 的「用户印象」档案。" +
+						"参数传更新后的完整印象文本（保留仍有效的旧内容，不要清空）。不要把待办、功能需求或目标效果写成已完成的事实。",
+					promptSnippet: "update_user_impression: 按用户本轮明确要求更新长期用户印象",
+					promptGuidelines: [MEMORY_WRITE_GUIDANCE],
 					parameters: Type.Object({
 						impression: Type.String({ description: "更新后的完整用户印象（Markdown 文本）" }),
 					}),
@@ -1511,10 +1563,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			// 「上下文洞察」由插件 owl-context 经 context-insight 注册表供数：
-			// 按 sessionId 或（缺省）按 cwd 取最近活跃会话；无数据也照常回空
+			// 按 sessionId 或（缺省）按 cwd 取最近活跃会话。注册表只在插件现采后
+			// 才有数据，恢复历史会话时是空的——这时从会话转录重建一份（带
+			// reconstructed 标记），让「上下文」页不至于一直空着。
 			case "context.get": {
 				const sessionId = request.sessionId ?? findContextInsightByCwd(request.cwd)?.sessionId;
-				const state = sessionId ? getContextInsight(sessionId) : undefined;
+				let state = sessionId ? getContextInsight(sessionId) : undefined;
+				let reconstructed = false;
+				if (sessionId && (!state || state.requests.length === 0)) {
+					const rows = await contextInsightFromHistory(sessionId);
+					if (rows && rows.requests.length > 0) {
+						state = { sessionId, cwd: request.cwd, ...rows, lastTs: Date.now() } satisfies ContextInsightState;
+						reconstructed = true;
+					}
+				}
 				reply(ws, request.id, {
 					ok: true,
 					result: {
@@ -1522,6 +1584,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						requests: state ? [...state.requests] : [],
 						events: state ? [...state.events] : [],
 						tools: state ? [...state.tools] : [],
+						...(reconstructed ? { reconstructed: true } : {}),
 					},
 				});
 				return;
@@ -2216,6 +2279,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
 				);
 				const settings = settingsManager.applyGlobalOverridesAndSave(request.values as never);
+				if (Object.hasOwn(request.values, "owlMemory")) {
+					await settingsManager.flush();
+					await Promise.all([...sessions.values()].map(({ runtime }) => runtime.session.settingsManager.reload()));
+				}
 				reply(ws, request.id, { ok: true, result: settings });
 				return;
 			}

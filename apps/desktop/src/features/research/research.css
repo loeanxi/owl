@@ -1,12 +1,5 @@
 .research-page { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; container-type: inline-size; background: var(--owl-conversation-bg, var(--color-owl-bg)); }
-.research-header { height: 54px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-bottom: 1px solid var(--color-owl-border); background: var(--color-owl-bg); }
-.research-header > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.research-header svg, .research-result-card svg { width: 17px; height: 17px; flex: none; color: var(--color-owl-accent); }
-.research-header h1 { margin: 0; font-size: 14px; font-weight: 500; white-space: nowrap; }
-.research-header nav { display: flex; align-items: center; gap: 5px; margin-left: auto; }
-.research-header button { font-size: 11px; padding: 6px 9px; border-radius: 6px; color: var(--color-owl-muted); white-space: nowrap; }
-.research-header button:hover { background: var(--color-owl-hover); color: var(--color-owl-text); }
-.research-header button:disabled { opacity: .4; cursor: not-allowed; }
+.research-result-card svg { width: 17px; height: 17px; flex: none; color: var(--color-owl-accent); }
 .research-content { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; }
 .research-conversation { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .research-conversation .owl-chat-surface { min-height: 0; }
@@ -71,4 +64,4 @@
 .research-result-panel > footer button { color: var(--color-owl-accent); font-size: 11px; }
 .research-page button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 3px; }
 @container (max-width: 940px) { .research-result-panel { position: absolute; inset: 0 0 0 auto; width: 380px; max-width: 90%; z-index: 30; box-shadow: -8px 0 30px #0005; } }
-@container (max-width: 620px) { .research-header { padding: 0 13px; } .research-header h1 { font-size: 13px; } .research-header button { font-size: 10px; padding: 5px 6px; } .research-welcome h2 { font-size: 24px; } .research-examples { margin-top: 18px; gap: 6px; } .research-examples button { font-size: 10px; } }
+@container (max-width: 620px) { .research-welcome h2 { font-size: 24px; } .research-examples { margin-top: 18px; gap: 6px; } .research-examples button { font-size: 10px; } }

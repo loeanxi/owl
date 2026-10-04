@@ -17,6 +17,8 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
+import type { ProjectedSessionEntry } from "./session-manager.ts";
+
 // ---------------------------------------------------------------------------
 // wire 类型（桌面桥 protocol.ts 原样转发给 UI）
 // ---------------------------------------------------------------------------
@@ -239,6 +241,107 @@ export function estimateToolDeclarations(
 		refs.push({ name: tool.name, source: tool.namespace?.name ?? tool.sourceInfo?.source ?? "builtin" });
 	}
 	return { total: toTokens(chars), refs };
+}
+
+// ---------------------------------------------------------------------------
+// 历史会话重建（注册表无数据时从会话转录回放）
+// ---------------------------------------------------------------------------
+
+/** 零值 usage（中止/出错响应）不回填，避免「实测 0 tok」误导。 */
+function toUsageInfo(usage: Partial<ContextUsageInfo> | undefined): ContextUsageInfo | undefined {
+	if (!usage) return undefined;
+	const filled: ContextUsageInfo = {
+		input: usage.input ?? 0,
+		output: usage.output ?? 0,
+		cacheRead: usage.cacheRead ?? 0,
+		cacheWrite: usage.cacheWrite ?? 0,
+		...(typeof usage.totalTokens === "number" ? { totalTokens: usage.totalTokens } : {}),
+	};
+	if (filled.input + filled.output + filled.cacheRead + filled.cacheWrite === 0) return undefined;
+	return filled;
+}
+
+/** 单条消息分类进累加器：保留 leading system 口径（首条拆 system/inject，后置归 inject）。 */
+function classifyInto(accumulator: ContextComposition, message: AgentMessage, state: { leadingSeen: boolean }): void {
+	const part = classifyRequestMessages([message]);
+	const role = (message as { role?: string }).role;
+	switch (role) {
+		case "system":
+			if (!state.leadingSeen) {
+				state.leadingSeen = true;
+				accumulator.system += part.system;
+				accumulator.inject += part.inject;
+			} else {
+				accumulator.inject += part.system + part.inject;
+			}
+			return;
+		case "user":
+			accumulator.user += part.user;
+			return;
+		case "assistant":
+			accumulator.assistant += part.assistant;
+			return;
+		case "toolResult":
+			accumulator.toolResult += part.toolResult;
+			return;
+		default:
+			accumulator.other += part.other;
+	}
+}
+
+/**
+ * 从会话投影（compaction 感知的模型可见转录）重建每请求的上下文构成与压缩事件。
+ *
+ * 桌面端恢复历史会话时，owl-context 只在本进程发起过请求后才有点位数据，
+ * 「上下文」页会一直空着；这里按「一条 assistant 消息 = 一次 LLM 请求」把
+ * 投影转录切行：请求 k 的构成 = 第 k 条 assistant 之前的全部可见消息（含
+ * leading system），实测口径直接取该 assistant 消息自带的 usage。工具 schema
+ * 与模型信息转录里没有，留空（构成柱相应偏低）。投影已按压缩边界裁剪，
+ * 压缩后的前缀自动回落；compaction 条目顺手记一条 compact 事件。
+ */
+export function reconstructContextInsight(
+	projected: ReadonlyArray<ProjectedSessionEntry>,
+): Pick<ContextInsightState, "requests" | "events" | "tools"> {
+	const requests: ContextRequestRow[] = [];
+	const events: ContextEventRow[] = [];
+	const tools: ContextToolRef[] = [];
+	const accumulator: ContextComposition = {
+		system: 0,
+		inject: 0,
+		user: 0,
+		assistant: 0,
+		toolResult: 0,
+		toolSchemas: 0,
+		other: 0,
+	};
+	const leading = { leadingSeen: false };
+	try {
+		for (const entry of projected) {
+			const ts = entry.sourceEntry.timestamp ? Date.parse(entry.sourceEntry.timestamp) : Date.now();
+			if (entry.sourceEntry.type === "compaction") {
+				events.push({ ts, kind: "compact", label: "上下文压缩（历史）" });
+			}
+			for (const message of entry.messages) {
+				const role = (message as { role?: string }).role;
+				if (role === "assistant") {
+					// 这条 assistant 回应了一次请求：请求上下文 = 此前累计（不含本条）
+					const usage = toUsageInfo((message as { usage?: Partial<ContextUsageInfo> }).usage);
+					requests.push({
+						seq: requests.length + 1,
+						ts,
+						composition: { ...accumulator },
+						totalTokens: Object.values(accumulator).reduce((sum, value) => sum + value, 0),
+						...(usage ? { usage } : {}),
+					});
+					if (requests.length > MAX_REQUESTS) requests.splice(0, requests.length - MAX_REQUESTS);
+				}
+				classifyInto(accumulator, message, leading);
+			}
+		}
+	} catch {
+		// 重建是只读旁路：任何异常都回已有部分，绝不影响正常请求
+	}
+	return { requests, events, tools };
 }
 
 // ---------------------------------------------------------------------------

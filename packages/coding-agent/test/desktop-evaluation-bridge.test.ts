@@ -42,7 +42,7 @@ it("routes evaluation RPCs over the real bridge and leaves background work alive
 		onDiagnostic: () => {},
 		evaluation: {
 			builtinTasks: [task],
-			timeoutMs: 2000,
+			idleTimeoutMs: 2000,
 			listModels: async () => [
 				{
 					provider: "fake",

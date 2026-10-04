@@ -15,6 +15,7 @@
 
 - Compacted the model evaluation navigation and current-run summary, and removed redundant sidebar help.
 - Replaced task-library illustration cards with a compact list of IDs, task summaries, categories, versions, sources, and detail actions.
+- Switched model evaluations to completion-first generation: configured model output capacity, no fixed total runtime cutoff, and a two-minute guard for streams without new thinking or answer text. New attempts freeze their own request policy while retaining earlier records.
 
 ### Fixed
 

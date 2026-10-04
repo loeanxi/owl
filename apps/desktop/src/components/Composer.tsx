@@ -4,7 +4,8 @@ import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashComm
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
-import { projectLabel, samePath } from "../utils/paths.ts";
+import { samePath } from "../utils/paths.ts";
+import { getProjectDisplayName, isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -232,6 +233,7 @@ export function Composer({
 	sessionInfo,
 	workspaceDir,
 	projects,
+	sessionScope = "chat",
 	onSwitchProject,
 	commands,
 	draftRequest,
@@ -259,6 +261,8 @@ export function Composer({
 	workspaceDir: string;
 	/** 候选项目列表（与侧边栏同源：当前 ∪ 有会话 ∪ 到访过）。 */
 	projects: string[];
+	/** Project visibility preferences belong to the current conversation type. */
+	sessionScope?: "chat" | "research";
 	/** 切换项目 = 换工作目录并从新会话开始（与侧边栏点击项目同语义）。 */
 	onSwitchProject: (path: string) => void;
 	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
@@ -268,6 +272,7 @@ export function Composer({
 	draftRequest?: { id: number; text: string; replace?: boolean };
 }): React.JSX.Element {
 	const t = useT();
+	useProjectSidebarRevision();
 	const [value, setValue] = useState("");
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
@@ -441,12 +446,12 @@ export function Composer({
 		return denominator > 0 ? (tokens.cacheRead / denominator) * 100 : null;
 	})();
 
-	// 项目选择器排序：当前项目置顶，其余按名称；显示名取路径末段。
-	const sortedProjects = [...projects].sort((a, b) => {
+	// 项目选择器排序：当前项目置顶，其余按显示名；移除的项目不再出现在候选列表。
+	const sortedProjects = projects.filter((path) => !isProjectHidden(path, sessionScope)).sort((a, b) => {
 		const aCurrent = samePath(a, workspaceDir);
 		const bCurrent = samePath(b, workspaceDir);
 		if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
-		return projectLabel(a).localeCompare(projectLabel(b), getUiLanguage() === "en" ? "en" : "zh-CN");
+		return getProjectDisplayName(a).localeCompare(getProjectDisplayName(b), getUiLanguage() === "en" ? "en" : "zh-CN");
 	});
 
 	const activeMode = APPROVAL_MODES.find((entry) => entry.value === approvalMode);
@@ -537,7 +542,7 @@ export function Composer({
 						trigger={
 							<>
 								<FolderIcon />
-								<span className="max-w-40 truncate">{projectLabel(workspaceDir)}</span>
+								<span className="max-w-40 truncate">{getProjectDisplayName(workspaceDir)}</span>
 								<Chevron />
 							</>
 						}
@@ -560,7 +565,7 @@ export function Composer({
 												}}
 											>
 												<FolderIcon tone={active ? "text-owl-text" : "text-owl-faint"} />
-												<span className="flex-1 truncate">{projectLabel(path)}</span>
+												<span className="flex-1 truncate">{getProjectDisplayName(path)}</span>
 												{active && <span className="text-owl-accent">✓</span>}
 											</button>
 										);
@@ -903,7 +908,9 @@ export function Composer({
 				<NewProjectDialog
 					client={client}
 					onClose={() => setShowNewProject(false)}
-					onCreated={(path) => {
+					onCreated={(path, name) => {
+						restoreProject(path, sessionScope);
+						if (name !== undefined) setProjectAlias(path, name);
 						setShowNewProject(false);
 						onSwitchProject(path);
 					}}

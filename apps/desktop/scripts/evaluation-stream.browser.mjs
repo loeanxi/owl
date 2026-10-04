@@ -81,7 +81,7 @@ try {
   const { startDesktopServer } = await loader.import(join(repo, "packages/coding-agent/src/modes/desktop/serve.ts"));
   bridge = await startDesktopServer({ port: 0, host: "127.0.0.1", agentDir, cwd, mcpServers: {}, onDiagnostic: () => {},
     news: { fetch: forbiddenFetch, listModels: () => [], callModel: forbiddenFetch, resolveModel: forbiddenFetch },
-    evaluation: { timeoutMs: 120000, listModels: async () => structuredClone(models), invoke: async (request) => {
+    evaluation: { idleTimeoutMs: 120000, listModels: async () => structuredClone(models), invoke: async (request) => {
       pending.push(request); request.onPartial("", ""); if (pending.length === 2) readyResolve();
       return new Promise((done) => { finishes.set(request, done); });
     }, check: async () => { checkingCount++; if (checkingCount === 2) checkingResolve(); return new Promise(() => {}); } },
