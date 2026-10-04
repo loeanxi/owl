@@ -1269,6 +1269,7 @@ export const en: Dict = {
 	"chat.msgRegenerate": "Regenerate",
 	"chat.msgUsage": "Usage {n} tok",
 	"chat.msgUsageTitle": "Input {input} · Output {output} · Cache read {cacheRead} · Cache write {cacheWrite}",
+	"chat.turnDuration": "Took {n}",
 	"chat.msgEdit": "Edit",
 	"chat.msgEditAria": "Edit this message and resend",
 	"chat.msgEditSend": "Send",

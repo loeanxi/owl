@@ -39,6 +39,64 @@ function formatClock(timestamp: number): string {
 	return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+/** 时长的紧凑展示（对照参考实现的「耗时 46m 24s」）。 */
+function formatDuration(ms: number): string {
+	const totalSeconds = Math.max(1, Math.round(ms / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h ${minutes}m`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
+
+/**
+ * 每轮处理耗时（对照 Codex 的「耗时 …」）：用户消息时间戳 → 该轮最晚的
+ * assistant 消息/工具完成时间。旧会话缺时间戳的轮不产出；流式中的最后一轮
+ * 还在增长，也不产出（生成中有 ResponseActivity 兜底）。
+ */
+function turnDurationsOf(entries: ChatEntry[], streaming: boolean): Map<number, number> {
+	const durations = new Map<number, number>();
+	let lastAssistantIndex = -1;
+	if (streaming) {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			if (entries[i]!.kind === "assistant") {
+				lastAssistantIndex = i;
+				break;
+			}
+		}
+	}
+	let userTs: number | undefined;
+	let firstAssistant = -1;
+	let endTs = 0;
+	let turnLastIndex = -1;
+	const finalize = (): void => {
+		const inStreamingTurn = streaming && lastAssistantIndex !== -1 && turnLastIndex >= lastAssistantIndex;
+		if (userTs !== undefined && firstAssistant !== -1 && endTs > userTs && !inStreamingTurn) {
+			durations.set(firstAssistant, endTs - userTs);
+		}
+	};
+	entries.forEach((entry, index) => {
+		if (entry.kind === "user") {
+			finalize();
+			userTs = entry.timestamp;
+			firstAssistant = -1;
+			endTs = 0;
+			turnLastIndex = index;
+			return;
+		}
+		if (entry.kind !== "assistant") return;
+		if (firstAssistant === -1) firstAssistant = index;
+		turnLastIndex = index;
+		if (entry.timestamp !== undefined) endTs = Math.max(endTs, entry.timestamp);
+		for (const tool of entry.tools) {
+			if (tool.finishedAt !== undefined) endTs = Math.max(endTs, tool.finishedAt);
+		}
+	});
+	finalize();
+	return durations;
+}
+
 /**
  * 消息反馈（赞/踩）的本地记忆：键 = `<会话>:msg<消息时间戳|下标>`，写 localStorage
  * 重启保留。没有任何服务端回传通道，纯 UI 态；写失败（配额/隐私模式）可接受。
@@ -618,6 +676,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	}
 	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
 	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> } | undefined;
+	// 每轮处理耗时：键 = 该轮第一条 assistant 的下标（Owl 标题行的位置）
+	const turnDurations = turnDurationsOf(entries, streaming);
 	let turn = 0;
 	let assistantStarted = false;
 	let pendingTools: ToolCard[] = [];
@@ -662,9 +722,18 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		];
 		if (!assistantStarted && (entry.tools.length > 0 || entry.error || segments.some((segment) => segment.kind !== "tool" && segment.text.trim()))) {
 			assistantStarted = true;
+			const turnDuration = turnDurations.get(index);
 			rows.push({
 				key: "assistant-" + index,
-				content: <div className="owl-assistant-heading" data-fd-id="assistant-heading"><img src="/owl.svg" alt="" aria-hidden="true" className="owl-assistant-mark" draggable={false} /><span>Owl</span></div>,
+				content: (
+					<div className="owl-assistant-heading" data-fd-id="assistant-heading">
+						<img src="/owl.svg" alt="" aria-hidden="true" className="owl-assistant-mark" draggable={false} />
+						<span>Owl</span>
+						{turnDuration !== undefined && (
+							<span className="owl-turn-duration">{t("chat.turnDuration", { n: formatDuration(turnDuration) })}</span>
+						)}
+					</div>
+				),
 			});
 		}
 		const appendTool = (card: ToolCard): void => {

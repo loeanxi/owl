@@ -15,7 +15,7 @@ document.documentElement.dataset.owlToolRecords = "expanded";
 const noop = () => {};
 const stubClient = { request: async () => ({ ok: true }) } as unknown as BridgeClient;
 
-const at = (hours: number, minutes: number): number => new Date(2026, 9, 4, hours, minutes).getTime();
+const at = (hours: number, minutes: number, seconds = 0): number => new Date(2026, 9, 4, hours, minutes, seconds).getTime();
 
 const buildTool: ToolCard = {
 	id: "tool-1",
@@ -33,7 +33,7 @@ const buildTool: ToolCard = {
 };
 
 const entries: ChatEntry[] = [
-	{ kind: "user", text: "启动项目桌面端步骤，顺便看看构建日志里报的 npm error code 2 是怎么回事", entryId: "entry-1", timestamp: at(8, 39) },
+	{ kind: "user", text: "启动项目桌面端步骤，顺便看看构建日志里报的 npm error code 2 是怎么回事", entryId: "entry-1", timestamp: at(8, 39, 12) },
 	{
 		kind: "assistant",
 		text: "明白，我先复现一次构建，看看报错到底卡在哪一步。",
@@ -44,7 +44,7 @@ const entries: ChatEntry[] = [
 			{ kind: "text", text: "明白，我先复现一次构建，看看报错到底卡在哪一步。" },
 			{ kind: "tool", toolId: "tool-1" },
 		],
-		timestamp: at(8, 40),
+		timestamp: at(8, 40, 48),
 		usage: { input: 12000, output: 860, cacheRead: 152300, cacheWrite: 1450 },
 	},
 	{
@@ -61,16 +61,18 @@ const entries: ChatEntry[] = [
 			"```",
 		].join("\n"),
 		segments: [{ kind: "text", text: "## 结论\n最常见的单包 **类型检查失败**……" }],
-		timestamp: at(8, 42),
+		thinking: "",
+		timestamp: at(8, 42, 36),
 		usage: { input: 984500, output: 42300, cacheRead: 1920400, cacheWrite: 0 },
 		tools: [],
 	},
-	{ kind: "user", text: "好，按方案一修，修完把两个包都重新类型检查一遍", entryId: "entry-2", timestamp: at(8, 43) },
+	{ kind: "user", text: "好，按方案一修，修完把两个包都重新类型检查一遍", entryId: "entry-2", timestamp: at(8, 43, 5) },
 	{
 		kind: "assistant",
 		text: "全绿了，两个包都严格类型检查通过。",
 		segments: [{ kind: "text", text: "全绿了，两个包都严格类型检查通过。" }],
-		timestamp: at(8, 45),
+		thinking: "",
+		timestamp: at(8, 45, 27),
 		usage: { input: 81200, output: 310, cacheRead: 640000, cacheWrite: 0 },
 		tools: [],
 	},

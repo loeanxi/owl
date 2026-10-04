@@ -2838,6 +2838,146 @@ html[data-owl-theme="light"] .owl-chat-surface {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.owl-chat-row-compact {
+  margin: 2px 0 10px;
+}
+.owl-msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0 0;
+}
+.owl-msg-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--owl-reading-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, border-color .12s ease, opacity .12s ease;
+}
+.owl-msg-action:hover {
+  background: var(--owl-reading-panel);
+  border-color: var(--owl-reading-border);
+  color: var(--owl-reading-text);
+}
+.owl-msg-action[aria-pressed="true"] {
+  color: var(--color-owl-accent);
+}
+.owl-msg-action:focus-visible {
+  outline: 2px solid var(--color-owl-accent);
+  outline-offset: 1px;
+}
+.owl-msg-meta {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--owl-reading-muted);
+  opacity: .85;
+  user-select: none;
+}
+.owl-tool-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  color: var(--owl-reading-muted);
+  font-size: 11px;
+  user-select: none;
+}
+.owl-tool-meta-copy {
+  opacity: .75;
+}
+.owl-tool-meta-copy:hover {
+  opacity: 1;
+}
+.owl-user-quick {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--owl-reading-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s ease, background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.owl-user-row:hover .owl-user-quick, .owl-user-quick:focus-visible {
+  opacity: 1;
+}
+.owl-user-quick:hover {
+  background: var(--owl-reading-panel);
+  border-color: var(--owl-reading-border);
+  color: var(--owl-reading-text);
+}
+.owl-user-quick:focus-visible {
+  outline: 2px solid var(--color-owl-accent);
+  outline-offset: 1px;
+}
+.owl-user-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(85%, 560px);
+}
+.owl-user-editor-input {
+  resize: vertical;
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-owl-accent);
+  border-radius: 16px;
+  background: var(--color-owl-bubble);
+  color: inherit;
+  font-family: inherit;
+  font-size: max(14px, calc(var(--owl-chat-font-size, 14px) - 2px));
+  line-height: 1.6;
+}
+.owl-user-editor-input:focus {
+  outline: none;
+}
+.owl-user-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.owl-user-editor-button {
+  padding: 5px 12px;
+  border: 1px solid var(--owl-reading-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--owl-reading-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+.owl-user-editor-button:hover {
+  background: var(--owl-reading-panel);
+  color: var(--owl-reading-text);
+}
+.owl-user-editor-button.is-primary {
+  border-color: transparent;
+  background: var(--color-owl-accent);
+  color: #fff;
+}
+.owl-user-editor-button.is-primary:hover {
+  background: var(--color-owl-accent-hover);
+  color: #fff;
+}
+.owl-user-editor-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
 .owl-answer {
   font-family: var(--font-sans);
   font-size: var(--owl-chat-font-size, 14px);
@@ -8541,6 +8681,220 @@ button.GenuiBlock_ftNameBtn[aria-expanded] {
   height: 12px;
   flex: 0 0 auto;
   color: var(--color-owl-muted);
+}
+
+/* apps/desktop/src/components/usage-overview.css */
+.owl-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 560px;
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-owl-border);
+  border-radius: 14px;
+  background: var(--color-owl-panel);
+  text-align: left;
+}
+.owl-usage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.owl-usage-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--color-owl-bubble);
+}
+.owl-usage-tab {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-owl-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.owl-usage-tab:hover {
+  color: var(--color-owl-text);
+}
+.owl-usage-tab.is-active {
+  background: var(--color-owl-hover);
+  color: var(--color-owl-text);
+}
+.owl-usage-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.owl-usage-project {
+  max-width: 140px;
+  border: 1px solid var(--color-owl-border);
+  border-radius: 8px;
+  background: var(--color-owl-bubble);
+  color: var(--color-owl-muted);
+  font-size: 12px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.owl-usage-ranges {
+  display: inline-flex;
+  gap: 2px;
+}
+.owl-usage-range {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-owl-faint);
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.owl-usage-range:hover {
+  color: var(--color-owl-text);
+}
+.owl-usage-range.is-active {
+  background: var(--color-owl-hover);
+  color: var(--color-owl-text);
+}
+.owl-usage-empty {
+  margin: 0;
+  color: var(--color-owl-faint);
+  font-size: 12px;
+  text-align: center;
+}
+.owl-usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.owl-usage-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-owl-bubble);
+  min-width: 0;
+}
+.owl-usage-tile-label {
+  color: var(--color-owl-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.owl-usage-tile-value {
+  color: var(--color-owl-text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.owl-usage-tile-model {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.owl-usage-heatmap {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 2px;
+}
+.owl-usage-heatmap-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: none;
+}
+.owl-usage-heat-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--color-owl-hover);
+}
+.owl-usage-heat-cell.is-pad {
+  visibility: hidden;
+}
+.owl-usage-heat-cell.is-l1 {
+  background: color-mix(in srgb, var(--color-owl-accent) 30%, var(--color-owl-hover));
+}
+.owl-usage-heat-cell.is-l2 {
+  background: color-mix(in srgb, var(--color-owl-accent) 50%, var(--color-owl-hover));
+}
+.owl-usage-heat-cell.is-l3 {
+  background: color-mix(in srgb, var(--color-owl-accent) 72%, var(--color-owl-hover));
+}
+.owl-usage-heat-cell.is-l4 {
+  background: var(--color-owl-accent);
+}
+.owl-usage-fact {
+  margin: 0;
+  color: var(--color-owl-faint);
+  font-size: 12px;
+  text-align: center;
+}
+.owl-usage-models {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.owl-usage-chart {
+  width: 100%;
+  height: 120px;
+  display: block;
+}
+.owl-usage-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.owl-usage-model-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.owl-usage-model-row:hover {
+  background: var(--color-owl-hover);
+}
+.owl-usage-model-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.owl-usage-model-name {
+  color: var(--color-owl-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.owl-usage-model-io {
+  color: var(--color-owl-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.owl-usage-model-pct {
+  color: var(--color-owl-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
 }
 
 /* apps/desktop/src/components/question-card.css */

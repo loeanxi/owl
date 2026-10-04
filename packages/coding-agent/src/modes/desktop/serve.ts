@@ -1903,6 +1903,55 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				await resumeSession(ws, request);
 				return;
 			}
+			case "session.fork": {
+				// 在新对话中分支：以目标条目为末梢复制新会话文件（createBranchedSession，
+				// 头部 parentSession 指回原会话），原会话原封不动；然后按恢复流程全新
+				// 挂载分支会话——不复用运行时，权限/事件订阅等闭包里的 sessionId 才不会过期。
+				// 响应复用挂载快照（与 session.resume 同构），前端走同一条回放切换路径。
+				const existing = sessions.get(request.sessionId);
+				if (!existing) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const sourceManager = existing.runtime.session.sessionManager;
+				if (existing.runtime.session.isStreaming) {
+					reply(ws, request.id, { ok: false, error: "会话正在运行，等回答完成后再分支" });
+					return;
+				}
+				const sourceFile = sourceManager.getSessionFile();
+				if (!sourceFile || !existsSync(sourceFile)) {
+					reply(ws, request.id, { ok: false, error: "会话还没有落盘，先发一条消息再分支" });
+					return;
+				}
+				if (getMailAgentContext(sourceManager) || getResearchMode(sourceManager)) {
+					reply(ws, request.id, { ok: false, error: "邮箱/研究会话暂不支持在新对话中分支" });
+					return;
+				}
+				if (!sourceManager.getEntry(request.entryId)) {
+					reply(ws, request.id, { ok: false, error: "分支目标消息不存在" });
+					return;
+				}
+				try {
+					const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
+					const branchFile = branched.createBranchedSession(request.entryId);
+					if (!branchFile) throw new Error("分支会话创建失败");
+					await unmountSessionRuntime(request.sessionId);
+					await mountSession(ws, request.id, {
+						sessionManager: SessionManager.open(branchFile, sourceManager.getSessionDir()),
+						agentDir: defaultAgentDir(),
+						provider: request.provider,
+						model: request.model,
+						thinkingLevel: request.thinkingLevel,
+						approvalMode: request.approvalMode ?? existing.approvalMode.current,
+					});
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `分支失败：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
 			case "session.list": {
 				if (request.scope !== undefined && request.scope !== "chat" && request.scope !== "research") {
 					throw new Error("无效的会话目录类型");

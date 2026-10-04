@@ -564,6 +564,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-empty-mark { width: 48px; height: 48px; object-fit: contain; }
 .owl-chat-empty h1 { margin: 0; font-family: var(--font-sans); font-size: clamp(22px, 2vw, 28px); font-weight: 500; line-height: 1.4; color: var(--color-owl-text); }
 .owl-assistant-heading { display: flex; align-items: center; gap: 8px; margin: 20px 0 8px; color: var(--owl-reading-text); font-size: 12px; font-weight: 600; }
+.owl-turn-duration { color: var(--owl-reading-muted); font-size: 11px; font-weight: 400; opacity: .85; user-select: none; }
 .owl-assistant-mark { width: 24px; height: 24px; object-fit: contain; flex: none; }
 .owl-chat-row { margin: 12px 0; min-width: 0; }
 .owl-chat-question { margin: 28px 0 24px; scroll-margin-top: 16px; }

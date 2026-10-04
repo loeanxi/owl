@@ -154,6 +154,22 @@ export interface SessionResumeRequest {
 	thinkingLevel?: string;
 }
 
+/**
+ * 在新对话中分支：以目标会话条目为末梢复制出一条新会话（原会话原封不动），
+ * 并把分支会话按恢复流程挂载；响应即分支会话的挂载快照（与 session.resume 同构）。
+ */
+export interface SessionForkRequest {
+	type: "session.fork";
+	id: string;
+	sessionId: string;
+	/** 分支目标条目（会话日志条目 id）：新会话包含它及其之前的全部历史 */
+	entryId: string;
+	provider?: string;
+	model?: string;
+	approvalMode?: ApprovalMode;
+	thinkingLevel?: string;
+}
+
 export interface SessionListRequest {
 	type: "session.list";
 	id: string;
@@ -1489,6 +1505,7 @@ export type DesktopClientRequest =
 	| SessionUnarchiveRequest
 	| SessionArchiveConfigRequest
 	| SessionResumeRequest
+	| SessionForkRequest
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest
 	| SessionSetApprovalModeRequest

@@ -3,7 +3,6 @@ import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type Ui
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
 import { IconChat, IconHome, IconMore, IconNews, IconSettings } from "./icons.tsx";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
-import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
@@ -169,7 +168,6 @@ export function ActivityRail({
 	onPersistUiLanguage?: (next: UiLanguageSetting) => void;
 }): React.JSX.Element {
 	const t = useT();
-	const researchTitle = useResearchEntryText();
 	const mediaPlaying = useMediaPlayingDot();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -237,10 +235,6 @@ export function ActivityRail({
 
 			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
 				<IconNews className="h-[18px] w-[18px]" />
-			</button>
-
-			<button type="button" className={itemClass(view === "research" && !settingsOpen)} title={researchTitle} aria-label={researchTitle} aria-current={view === "research" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("research")} data-fd-id="research-rail-entry">
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m16 8-2.4 5.6L8 16l2.4-5.6Z" /></svg>
 			</button>
 
 			<button

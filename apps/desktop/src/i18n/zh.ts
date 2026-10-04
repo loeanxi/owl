@@ -1268,6 +1268,7 @@ export const zh = {
 	"chat.msgRegenerate": "重新生成",
 	"chat.msgUsage": "用量 {n} tok",
 	"chat.msgUsageTitle": "输入 {input} · 输出 {output} · 缓存读 {cacheRead} · 缓存写 {cacheWrite}",
+	"chat.turnDuration": "耗时 {n}",
 	"chat.msgEdit": "编辑",
 	"chat.msgEditAria": "编辑这条消息并重新发送",
 	"chat.msgEditSend": "发送",

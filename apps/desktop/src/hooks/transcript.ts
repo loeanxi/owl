@@ -68,6 +68,8 @@ export type ChatEntry =
 			tools: ToolCard[];
 			error?: string;
 			segments?: AssistantSegment[];
+			/** 所属会话日志条目 id（「在新对话中分支」用；快照重建/agent_end 对齐时带上） */
+			entryId?: string;
 			/** 消息时间戳（ms，操作栏展示用） */
 			timestamp?: number;
 			/** 本条回复的 token 用量（message_end / 快照重建时带上） */
@@ -198,21 +200,32 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 }
 
 /**
- * 为 agent_end 权威重建构造 entryIds 对齐数组：本轮 run 的用户消息对应原转录
- * 末尾的那几条用户行（普通轮 1 条；steering 多条也按序尾部对齐），把它们的
- * entryId 带回重建结果——否则回答一结束 ↶ 回退按钮就消失。
+ * 为 agent_end 权威重建构造 entryIds 对齐数组：本轮 run 的消息对应原转录末尾的
+ * 那几条同角色消息行（普通轮各 1 条；steering 多条也按序尾部对齐），把它们的
+ * entryId 带回重建结果——否则回答一结束，回退按钮（用户行）和「在新对话中分支」
+ * （assistant 行）都会因为拿不到条目 id 而消失。
  */
-function alignUserEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (string | undefined)[] | undefined {
-	const previousIds = previous
-		.filter((entry) => entry.kind === "user" && entry.entryId)
-		.map((entry) => (entry as { entryId: string }).entryId);
-	const userCount = messages.filter((message) => message.role === "user").length;
-	if (userCount === 0) return undefined;
-	const start = previousIds.length - userCount;
-	if (start < 0) return undefined; // 原转录里没有足够的带 id 用户行（老桥/异常流），不硬凑
-	const tail = previousIds.slice(start);
-	let index = 0;
-	return messages.map((message) => (message.role === "user" ? tail[index++] : undefined));
+function alignMessageEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (string | undefined)[] | undefined {
+	const queues: { user: string[]; assistant: string[] } = { user: [], assistant: [] };
+	for (const entry of previous) {
+		if ((entry.kind === "user" || entry.kind === "assistant") && entry.entryId) queues[entry.kind].push(entry.entryId);
+	}
+	const counts: { user: number; assistant: number } = { user: 0, assistant: 0 };
+	for (const message of messages) {
+		if (message.role === "user" || message.role === "assistant") counts[message.role as "user" | "assistant"] += 1;
+	}
+	if (counts.user === 0) return undefined;
+	// 尾部对齐：某角色原转录里没有足够的带 id 行（老桥/异常流）时，该角色拿不到 id 不硬凑
+	const cursors: { user: number; assistant: number } = {
+		user: queues.user.length - counts.user,
+		assistant: queues.assistant.length - counts.assistant,
+	};
+	return messages.map((message) => {
+		if (message.role !== "user" && message.role !== "assistant") return undefined;
+		const queue = queues[message.role as "user" | "assistant"];
+		const index = cursors[message.role as "user" | "assistant"]++;
+		return index >= 0 ? queue[index] : undefined;
+	});
 }
 
 /** 自动重试横幅状态：由 auto_retry_start / auto_retry_end 事件驱动，独立于转录条目——
@@ -367,9 +380,9 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// 整表替换会把历史覆盖掉（表现为"一回答完，前面的对话全没了"）。
 			// 因此只重建最后一条用户消息之后的部分，之前的转录原样保留。
 			const messages = (event.messages ?? []) as AnyEvent[];
-			// 重建出的用户行不带 entryId（会话回退按钮靠它）：按尾部对齐从现有转录的
-			// 用户行取回（本轮 run 的用户消息 = 原转录末尾的那 N 条用户行，steering 也对齐）。
-			const rebuilt = rebuild(messages, alignUserEntryIds(entries, messages));
+			// 重建出的消息行不带 entryId（回退按钮与分支按钮都靠它）：按尾部对齐从现有
+			// 转录的同角色消息行取回（本轮 run 的消息 = 原转录末尾的那 N 条，steering 也对齐）。
+			const rebuilt = rebuild(messages, alignMessageEntryIds(entries, messages));
 			const runBoundary = runBoundaries.get(entries);
 			if (runBoundary !== undefined) {
 				const prefix = entries.slice(0, runBoundary);
@@ -399,7 +412,7 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 
 /** Rebuild the transcript from a full AgentMessage[] snapshot.
  *  entryIds（可选）与 messages 按下标对齐：会话快照带条目 id 时，用户消息行
- *  就能带上 entryId（回退按钮用）。 */
+ *  与 assistant 消息行都能带上 entryId（回退/分支按钮用）。 */
 export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | undefined>): ChatEntry[] {	const entries: ChatEntry[] = [];
 	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
 		const message = messages[messageIndex]!;
@@ -436,6 +449,7 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 					message.stopReason === "error" || message.stopReason === "aborted"
 						? formatProviderError(message.errorMessage)
 						: undefined,
+				...(typeof entryId === "string" ? { entryId } : {}),
 				...(timestampOf(message) !== undefined ? { timestamp: timestampOf(message) } : {}),
 				...(usageOf(message) !== undefined ? { usage: usageOf(message) } : {}),
 				...(modelOf(message) !== undefined ? { model: modelOf(message) } : {}),
