@@ -6,7 +6,7 @@
  * 看 diff（parseUnifiedDiff + annotateCharDiff 字符级高亮，VS Code 同款视觉）。
  * "本轮 AI 改动"视角（会话事件折叠）依赖 owl 会话事件索引，后续接入。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
 import type { GitStatusEntry } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
@@ -41,6 +41,8 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	const [expandedDiff, setExpandedDiff] = useState(false);
 	// 仓库筛选器："" = 全部仓库；非空 = 所选仓库的 workspace 相对根
 	const [repoFilter, setRepoFilter] = useState<string>("");
+	// diff 请求序号：慢响应晚到时不得覆盖后点的文件（FilesTab searchSeq 同款守卫）
+	const diffSeq = useRef(0);
 
 	const repos = gitStatus?.repos ?? [];
 	const multiRepo = repos.length > 1;
@@ -75,14 +77,23 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	}, [multiRepo, repoFilter, selectedRepo]);
 
 	const openDiff = (path: string, stagedView: boolean): void => {
+		const seq = ++diffSeq.current;
 		setSelected({ path, staged: stagedView });
 		setDiffLoading(true);
 		setDiffError(undefined);
 		void api
 			.gitDiff(cwd, path, stagedView)
-			.then((text) => setDiff(text))
-			.catch((err: unknown) => setDiffError(err instanceof Error ? err.message : String(err)))
-			.finally(() => setDiffLoading(false));
+			.then((text) => {
+				if (diffSeq.current !== seq) return;
+				setDiff(text);
+			})
+			.catch((err: unknown) => {
+				if (diffSeq.current !== seq) return;
+				setDiffError(err instanceof Error ? err.message : String(err));
+			})
+			.finally(() => {
+				if (diffSeq.current === seq) setDiffLoading(false);
+			});
 	};
 
 	const act = async (action: () => Promise<unknown>): Promise<void> => {

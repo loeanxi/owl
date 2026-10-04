@@ -43,6 +43,8 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const [diffError, setDiffError] = useState<string | undefined>(undefined);
 	const [previewHeight, setPreviewHeight] = useState(DEFAULT_PREVIEW_PERCENT);
 	const rootRef = useRef<HTMLDivElement | null>(null);
+	// diff 请求序号：慢响应晚到时不得覆盖后点的文件（ChangesTab diffSeq 同款守卫）
+	const diffSeq = useRef(0);
 
 	const refresh = (): void => {
 		setLoading(true);
@@ -109,6 +111,7 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	};
 
 	const openDiff = (entryId: string): void => {
+		const seq = ++diffSeq.current;
 		setSelected(entryId);
 		setDiffLoading(true);
 		setDiffError(undefined);
@@ -116,11 +119,17 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 		void api
 			.diffApprovalDiff(cwd, entryId)
 			.then((result) => {
+				if (diffSeq.current !== seq) return;
 				setDiff(result.diff);
 				setDiffTruncated(result.truncated);
 			})
-			.catch((err: unknown) => setDiffError(err instanceof Error ? err.message : String(err)))
-			.finally(() => setDiffLoading(false));
+			.catch((err: unknown) => {
+				if (diffSeq.current !== seq) return;
+				setDiffError(err instanceof Error ? err.message : String(err));
+			})
+			.finally(() => {
+				if (diffSeq.current === seq) setDiffLoading(false);
+			});
 	};
 
 	/** 顶部拖拽条：按指针 Y 相对容器底边的距离实时改预览面板高度（拖动期间禁选中）。 */
