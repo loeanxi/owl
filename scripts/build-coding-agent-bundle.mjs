@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,6 +238,21 @@ createRequire(import.meta.url)("./cli-runtime.js");
 writeFileSync(join(bundleDir, "cli.js"), cliLauncher);
 chmodSync(join(bundleDir, "cli.js"), 0o755);
 chmodSync(join(bundleDir, "rpc-entry.js"), 0o755);
+
+// 窗口镜像 worker（Windows 专用，mirror-hub.ts 按 import.meta.url 相对定位）：
+// 同步拷到两处 —— dist/modes/desktop/mirror/（桌面桥 serve.js 用）与
+// dist/bundle/mirror/（bundle 形态兜底）。
+{
+	const mirrorSrc = join(codingAgentDir, "src", "modes", "desktop", "mirror");
+	if (existsSync(mirrorSrc)) {
+		const serveMirrorDir = join(codingAgentDistDir, "modes", "desktop", "mirror");
+		mkdirSync(serveMirrorDir, { recursive: true });
+		cpSync(mirrorSrc, serveMirrorDir, { recursive: true });
+		const bundleMirrorDir = join(bundleDir, "mirror");
+		mkdirSync(bundleMirrorDir, { recursive: true });
+		cpSync(mirrorSrc, bundleMirrorDir, { recursive: true });
+	}
+}
 
 const files =
 	new Set([...Object.keys(mainResult.metafile.outputs), ...Object.keys(lazyResult.metafile.outputs)]).size + 1;

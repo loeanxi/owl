@@ -6,7 +6,8 @@
  * 记账），窗口清单变化才广播。worker 是每窗口一个的 PowerShell 子进程（见
  * mirror/windows-capture.ps1），末个订阅者退订后延迟关闭，避免 tab 切换抖动。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessByStdio, spawn } from "node:child_process";
+import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { MirrorWindowInfo } from "./protocol.ts";
 
@@ -22,8 +23,11 @@ export interface MirrorHubOptions {
 	onDiagnostic?: (message: string) => void;
 }
 
+/** worker 子进程形态：stdio = ["ignore", "pipe", "pipe"]，stdin 关闭，stdout/stderr 为可读流。 */
+type MirrorProc = ChildProcessByStdio<null, Readable, Readable>;
+
 interface MirrorWorker {
-	proc: ChildProcessWithoutNullStreams;
+	proc: MirrorProc;
 	buffer: string;
 	refs: number;
 	detachTimer?: ReturnType<typeof setTimeout>;
@@ -155,8 +159,11 @@ export class MirrorHub {
 	private spawnCapture(windowId: string): MirrorWorker {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
-		const worker = this.spawnWorker(["capture", "-Hwnd", String(hwnd), "-Fps", "20"]);
-		worker.refs = 1;
+		const worker: MirrorWorker = {
+			proc: this.spawnWorker(["capture", "-Hwnd", String(hwnd), "-Fps", "20"]),
+			buffer: "",
+			refs: 1,
+		};
 		const onLine = (line: string): void => {
 			if (!line) return;
 			let obj: {
@@ -188,11 +195,12 @@ export class MirrorHub {
 		};
 		worker.proc.stdout.on("data", (chunk: Buffer) => {
 			worker.buffer += chunk.toString("utf8");
-			let index: number;
-			while ((index = worker.buffer.indexOf("\n")) >= 0) {
+			let index = worker.buffer.indexOf("\n");
+			while (index >= 0) {
 				const line = worker.buffer.slice(0, index).replace(/\r$/, "");
 				worker.buffer = worker.buffer.slice(index + 1);
 				onLine(line);
+				index = worker.buffer.indexOf("\n");
 			}
 		});
 		worker.proc.stderr.on("data", (chunk: Buffer) => {
@@ -229,19 +237,17 @@ export class MirrorHub {
 		}
 	}
 
-	private spawnWorker(args: string[]): ChildProcessWithoutNullStreams {
+	private spawnWorker(args: string[]): MirrorProc {
 		const script = fileURLToPath(WORKER_URL);
-		const proc = spawn(
-			"powershell.exe",
-			["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args],
-			{ stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
-		) as ChildProcessWithoutNullStreams;
-		return proc;
+		return spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args], {
+			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
+		});
 	}
 
 	private runWorkerLines(args: string[]): Promise<string[]> {
 		return new Promise((resolve, reject) => {
-			let proc: ChildProcessWithoutNullStreams;
+			let proc: MirrorProc;
 			try {
 				proc = this.spawnWorker(args);
 			} catch (error) {
@@ -257,15 +263,15 @@ export class MirrorHub {
 				proc.removeAllListeners();
 				try {
 					if (!proc.killed) proc.kill();
-				} catch { }
+				} catch {}
 				if (error) reject(error);
 				else resolve(out);
 			};
 			const timer = setTimeout(() => finish(new Error("mirror worker timeout")), 20_000);
 			proc.stdout.on("data", (chunk: Buffer) => {
 				buffer += chunk.toString("utf8");
-				let index: number;
-				while ((index = buffer.indexOf("\n")) >= 0) {
+				let index = buffer.indexOf("\n");
+				while (index >= 0) {
 					const line = buffer.slice(0, index).replace(/\r$/, "");
 					buffer = buffer.slice(index + 1);
 					if (!line) continue;
@@ -275,6 +281,7 @@ export class MirrorHub {
 						return;
 					}
 					out.push(line);
+					index = buffer.indexOf("\n");
 				}
 			});
 			proc.stderr.on("data", (chunk: Buffer) => {

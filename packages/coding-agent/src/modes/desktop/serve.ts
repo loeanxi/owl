@@ -109,6 +109,8 @@ import type {
 	IabOpenResult,
 	IabPageInfo,
 	IabStateResult,
+	MirrorFrameMessage,
+	MirrorListResult,
 	PermissionRequestMessage,
 	RewindExecuteResult,
 	RewindImpactFile,
@@ -117,6 +119,7 @@ import type {
 	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
+import { MirrorHub } from "./mirror-hub.ts";
 import {
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
@@ -489,6 +492,22 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const viewerRequests = new WeakMap<WebSocket, Set<AbortController>>();
 	/** IAB 帧流订阅：连接 → 它在看的 pageId 集合（断线兜底回收）。 */
 	const iabSubscriptions = new WeakMap<WebSocket, Set<string>>();
+	/** 镜像帧流订阅：连接 → 它在看的 windowId 集合（断线兜底回收）。 */
+	const mirrorSubscriptions = new WeakMap<WebSocket, Set<string>>();
+	/** 窗口镜像 hub：桥进程托管 WGC 捕获 worker（纯观看面，无输入转发）。 */
+	const mirror = new MirrorHub({
+		onFrame: (windowId, data, width, height) => {
+			const message: MirrorFrameMessage = { type: "mirror.frame", windowId, data, width, height };
+			const payload = JSON.stringify(message);
+			for (const client of clients) {
+				if (client.readyState === client.OPEN && mirrorSubscriptions.get(client)?.has(windowId)) {
+					client.send(payload);
+				}
+			}
+		},
+		onWindowsChanged: (windows) => broadcast({ type: "mirror.windows", windows }),
+		onDiagnostic,
+	});
 	/** 内嵌浏览器 hub：UI 面板与 agent 工具共用的无头浏览器。 */
 	const iab = new BrowserHub({
 		onFrame: (pageId, data, width, height) => {
@@ -2754,6 +2773,60 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "mirror.list": {
+				if (!mirror.isSupported()) {
+					reply(ws, request.id, { ok: true, result: { windows: [], supported: false } satisfies MirrorListResult });
+					return;
+				}
+				try {
+					const windows = await mirror.listWindows();
+					reply(ws, request.id, { ok: true, result: { windows, supported: true } satisfies MirrorListResult });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return;
+			}
+			case "mirror.attach": {
+				// 先记账再 attach：帧一到就按订阅表定向投递
+				const owned = mirrorSubscriptions.get(ws) ?? new Set<string>();
+				owned.add(request.windowId);
+				mirrorSubscriptions.set(ws, owned);
+				try {
+					mirror.attach(request.windowId);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					mirrorSubscriptions.get(ws)?.delete(request.windowId);
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "mirror.detach": {
+				mirrorSubscriptions.get(ws)?.delete(request.windowId);
+				mirror.detach(request.windowId);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "mirror.restore": {
+				try {
+					await mirror.restore(request.windowId);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "mirror.launch": {
+				try {
+					await mirror.launchApp();
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -2855,6 +2928,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				wsTerms.delete(ws);
 			}
 			iabSubscriptions.delete(ws);
+			const mirrorOwned = mirrorSubscriptions.get(ws);
+			if (mirrorOwned) {
+				for (const windowId of mirrorOwned) mirror.detach(windowId);
+				mirrorSubscriptions.delete(ws);
+			}
 		});
 	});
 
@@ -2894,6 +2972,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			sidebarWatchers.clear();
 			terminals.killAll();
 			await iab.dispose();
+			mirror.dispose();
 			for (const client of clients) client.close();
 			wss.close();
 			await mcp?.close();

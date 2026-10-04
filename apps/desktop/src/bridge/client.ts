@@ -3,6 +3,7 @@ import type {
 	DesktopServerMessage,
 	DiffApprovalChangedMessage,
 	IabServerMessage,
+	MirrorServerMessage,
 	MailAgentDraftMessage,
 	MapResultsMessage,
 	NewsOpenMessage,
@@ -24,6 +25,7 @@ export type QuestionHandler = (request: QuestionRequest) => void;
 export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
+export type MirrorMessageHandler = (message: MirrorServerMessage) => void;
 export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 export type NewsOpenHandler = (message: NewsOpenMessage) => void;
@@ -97,6 +99,7 @@ export class BridgeClient {
 	private questionHandlers = new Set<QuestionHandler>();
 	private termHandlers = new Set<TermMessageHandler>();
 	private iabHandlers = new Set<IabMessageHandler>();
+	private mirrorHandlers = new Set<MirrorMessageHandler>();
 	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private newsOpenHandlers = new Set<NewsOpenHandler>();
@@ -167,6 +170,10 @@ export class BridgeClient {
 				for (const handler of this.iabHandlers) handler(message);
 				return;
 			}
+			if (message.type === "mirror.frame" || message.type === "mirror.windows") {
+				for (const handler of this.mirrorHandlers) handler(message);
+				return;
+			}
 			if (message.type === "sidebar.open") {
 				for (const handler of this.sidebarOpenHandlers) handler(message);
 				return;
@@ -222,6 +229,12 @@ export class BridgeClient {
 	onIabMessage(handler: IabMessageHandler): () => void {
 		this.iabHandlers.add(handler);
 		return () => this.iabHandlers.delete(handler);
+	}
+
+	/** 窗口镜像帧流/清单（MirrorTab 按 windowId 过滤）。 */
+	onMirrorMessage(handler: MirrorMessageHandler): () => void {
+		this.mirrorHandlers.add(handler);
+		return () => this.mirrorHandlers.delete(handler);
 	}
 
 	/** sidebar_open 工具广播：模型请求在侧边工作台打开文件（App 决定开哪种 viewer）。 */
