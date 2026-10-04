@@ -186,6 +186,8 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	useEffect(() => {
 		const trimmed = query.trim();
 		if (trimmed === "") {
+			// 作废在途请求：否则清空后旧查询的响应落地，照样通过序号校验把结果塞回来
+			searchSeq.current += 1;
 			setHits(undefined);
 			setSearching(false);
 			return;
