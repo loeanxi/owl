@@ -714,9 +714,14 @@ async function prepareToolCall(
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
 	const tool = tools.find((t) => t.name === toolCall.name);
 	if (!tool) {
+		// 模型高频凭训练习惯猜工具名（grep/symbol_search 等）；只回一句 not found 会让它
+		// 换个名字继续猜。给出可用清单和搜索替代路径，让模型第一次失败就回到 bash。
+		const available = tools.map((t) => t.name).join(", ");
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
+			result: createErrorToolResult(
+				`Tool ${toolCall.name} not found. Available tools: ${available || "(none)"}. Don't guess other tool names; search file content with bash (grep/rg) and locate files with bash (find/ls).`,
+			),
 			isError: true,
 		};
 	}

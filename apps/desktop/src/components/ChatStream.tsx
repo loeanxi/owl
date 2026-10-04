@@ -156,8 +156,9 @@ function saveFeedback(): void {
  *
  * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
  * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），所有层级统一默认
- * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡与错误是里程碑，原位可见
- * 并把工作段切成数段。答案正文与其操作栏永远展开，是主角。
+ * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡、错误与每轮最新一份
+ * 任务清单是里程碑，原位可见并把工作段切成数段（清单的历史快照不渲染）。
+ * 答案正文与其操作栏永远展开，是主角。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -789,6 +790,24 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		if (assistantHasText(entry)) turnAnswerIndex = index;
 	});
 	if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
+	// 每轮任务清单只上屏最新一份快照：todo 每次状态更新都是一次独立工具调用，全部
+	// 渲染的话 0/3→1/3→2/3→3/3 会同屏叠四份几乎相同的卡片，只有勾选态不同
+	const latestTodoIds = new Set<string>();
+	{
+		let turnLatestTodoId: string | undefined;
+		entries.forEach((entry) => {
+			if (entry.kind === "user") {
+				if (turnLatestTodoId !== undefined) latestTodoIds.add(turnLatestTodoId);
+				turnLatestTodoId = undefined;
+				return;
+			}
+			if (entry.kind !== "assistant") return;
+			for (const tool of entry.tools) {
+				if (tool.name === "todo") turnLatestTodoId = tool.id;
+			}
+		});
+		if (turnLatestTodoId !== undefined) latestTodoIds.add(turnLatestTodoId);
+	}
 	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
 	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
 		<AssistantFooter
@@ -915,10 +934,11 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
 			if (card.name === "todo") {
-				// todo 清单属于过程：进折叠区，不把时间轴打成多段
-				flushWorkTools();
-				workSteps += 1;
-				workRows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
+				// 任务清单只上屏每轮最新一份（原位可见，充当实时进度卡），历史快照直接
+				// 跳过；否则每次状态更新都会往时间轴上再叠一整份清单
+				if (!latestTodoIds.has(card.id)) return;
+				flushWork();
+				rows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
 			} else if (card.name === "ask_user_question") {
 				// 提问必须原位可见：先收口当前工作段，再把问题卡挂上时间轴
 				flushWork();
