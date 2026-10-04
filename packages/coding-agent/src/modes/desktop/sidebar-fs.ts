@@ -384,17 +384,21 @@ export async function searchWorkspaceFiles(cwd: string, query: string): Promise<
 		} catch {
 			continue;
 		}
-		for (const dirent of dirents) {
-			if (hits.length >= SEARCH_HIT_LIMIT) break;
-			const name = dirent.name;
-			const isDir = dirent.isDirectory();
-			if (!name.startsWith(".") && name.toLowerCase().includes(needle)) {
-				hits.push({ path: toWirePath(cwd, join(dir, name)), isDir });
+			for (const dirent of dirents) {
+				if (hits.length >= SEARCH_HIT_LIMIT) break;
+				const name = dirent.name;
+				const isDir = dirent.isDirectory();
+				if (!name.startsWith(".") && name.toLowerCase().includes(needle)) {
+					// 以 realpath 根为基准出 wire 路径：cwd 是 junction/subst 时，用词法
+					// cwd 做基准会得到 `..\` 或跨盘绝对路径，过不了围栏校验。BFS 不会
+					// 下探 junction（dirent 对 reparse 点不算目录），命中都在 root 之下，
+					// 这个相对路径与 cwd 相对语义一致。
+					hits.push({ path: toWirePath(root, join(dir, name)), isDir });
+				}
+				if (isDir && !SKIP.has(name) && !name.startsWith(".")) {
+					queue.push(join(dir, name));
+				}
 			}
-			if (isDir && !SKIP.has(name) && !name.startsWith(".")) {
-				queue.push(join(dir, name));
-			}
-		}
 	}
 	return hits;
 }

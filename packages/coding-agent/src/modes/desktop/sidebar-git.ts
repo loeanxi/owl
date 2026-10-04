@@ -395,15 +395,26 @@ export async function gitCommit(cwd: string, message: string, repoRoot?: string)
 				throw new SidebarError("bad-request", `"${repoRoot}" 不是已识别的子仓库，请刷新后重试`);
 			}
 		}
-		let committed = 0;
+		// 先筛出有暂存条目的仓库：全都为空时才报「没有已暂存的改动」，
+		// 避免中途失败被误报成空暂存
+		const pending: string[] = [];
 		for (const root of roots) {
 			const status = parseStatusZ(await git(root, ["status", "--porcelain=v1", "-z"]));
-			if (!status.entries.some((row) => row.x !== " " && row.x !== "?")) continue;
-			await git(root, ["commit", "-m", message]);
-			committed += 1;
+			if (status.entries.some((row) => row.x !== " " && row.x !== "?")) pending.push(root);
 		}
-		if (committed === 0) {
+		if (pending.length === 0) {
 			throw new SidebarError("bad-request", "没有已暂存的改动");
+		}
+		// 逐仓提交：中途失败要说明哪些仓已经提了，不然重试时误以为整批都没成功
+		const committed: string[] = [];
+		for (const root of pending) {
+			try {
+				await git(root, ["commit", "-m", message]);
+				committed.push(toWirePath(cwd, root));
+			} catch (error) {
+				const done = committed.length > 0 ? `已提交 ${committed.join("、")}；` : "";
+				throw new SidebarError("git-error", `${done}「${toWirePath(cwd, root)}」提交失败：${messageOf(error)}`);
+			}
 		}
 		return;
 	}

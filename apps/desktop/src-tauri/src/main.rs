@@ -3,7 +3,8 @@
 //! owl desktop shell (Phase 3).
 //!
 //! One-click desktop entry:
-//! - Auto-discovers serve.js and data directory without hardcoded machine paths
+//! - Auto-discovers serve.js and data directory (upward search + OWL_* env
+//!   overrides; a dev-machine absolute path remains only as last-ditch fallback)
 //! - Spawns the bridge (node serve.js) as a hidden child process
 //! - Allocates an available port dynamically to prevent conflicts
 //! - System tray support (show/hide window, restart bridge, exit)
@@ -249,7 +250,8 @@ fn resolve_serve_script() -> PathBuf {
         }
     }
 
-    // 4. Fallback to known default dev path
+    // 4. Fallback to known default dev path（开发机路径，仅兜底：上方自上而下
+    //    的发现链全落空才走到这里；换机器/改名后真正的解析靠第 1-3 步）
     PathBuf::from("D:/owl/owl-re-v1/owl-mono/packages/coding-agent/dist/modes/desktop/serve.js")
 }
 
@@ -277,7 +279,7 @@ fn resolve_agent_dir() -> PathBuf {
         }
     }
 
-    // 3. Fallback to dev path
+    // 3. Fallback to dev path（同上：开发机兜底，别在打包产物上依赖它）
     PathBuf::from("D:/owl/owl-re-v1/data/owl")
 }
 
