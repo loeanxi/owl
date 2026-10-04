@@ -1,0 +1,1650 @@
+{
+  "status": "recovered",
+  "inputRoot": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app",
+  "outputDirectory": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a",
+  "manifestPath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\manifest.json",
+  "createdAt": "2026-10-04T09:44:02.540Z",
+  "method": "static-source-normalization",
+  "normalizer": {
+    "name": "esbuild",
+    "available": true,
+    "version": "0.28.2"
+  },
+  "files": [
+    {
+      "path": "out/main/index.js",
+      "sourcePath": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app\\out\\main\\index.js",
+      "originalPath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\original\\out\\main\\index.js",
+      "bytes": 72,
+      "sha256": "9a0e2c5478d7c4b8188f0f9e27b5776453db3b6748d7a3ef735ee37132205046",
+      "normalization": "readable",
+      "clues": [
+        {
+          "kind": "module",
+          "value": "./bytecode-loader.cjs",
+          "offset": 14
+        },
+        {
+          "kind": "module",
+          "value": "./index.jsc",
+          "offset": 48
+        }
+      ],
+      "cluesTruncated": false,
+      "warnings": [],
+      "readablePath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\readable\\out\\main\\index.js",
+      "readableBytes": 72,
+      "readableSha256": "9a0e2c5478d7c4b8188f0f9e27b5776453db3b6748d7a3ef735ee37132205046"
+    },
+    {
+      "path": "out/main/bytecode-loader.cjs",
+      "sourcePath": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app\\out\\main\\bytecode-loader.cjs",
+      "originalPath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\original\\out\\main\\bytecode-loader.cjs",
+      "bytes": 2308,
+      "sha256": "cdcfbe2ab18e7ce3fd8c143e6183fafbcf802508465003549de0075833224c22",
+      "normalization": "readable",
+      "clues": [
+        {
+          "kind": "module",
+          "value": "fs",
+          "offset": 25
+        },
+        {
+          "kind": "module",
+          "value": "path",
+          "offset": 53
+        },
+        {
+          "kind": "module",
+          "value": "vm",
+          "offset": 81
+        },
+        {
+          "kind": "module",
+          "value": "v8",
+          "offset": 107
+        },
+        {
+          "kind": "module",
+          "value": "module",
+          "offset": 137
+        }
+      ],
+      "cluesTruncated": false,
+      "warnings": [],
+      "readablePath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\readable\\out\\main\\bytecode-loader.cjs",
+      "readableBytes": 2289,
+      "readableSha256": "d642a1709047fffd0b46c88f9a158aec9bd71e25fa5a555681b8565f88cacdbe"
+    },
+    {
+      "path": "out/preload/index.js",
+      "sourcePath": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app\\out\\preload\\index.js",
+      "originalPath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\original\\out\\preload\\index.js",
+      "bytes": 26830,
+      "sha256": "601a63fb6f3f801a24c2e36c1eea415689f2b4c223c2346e28e634a332b09c78",
+      "normalization": "readable",
+      "clues": [
+        {
+          "kind": "module",
+          "value": "electron",
+          "offset": 31
+        },
+        {
+          "kind": "ipc",
+          "value": "getVersion",
+          "offset": 951
+        },
+        {
+          "kind": "ipc",
+          "value": "logInfo",
+          "offset": 1018
+        },
+        {
+          "kind": "ipc",
+          "value": "logWarn",
+          "offset": 1087
+        },
+        {
+          "kind": "ipc",
+          "value": "logError",
+          "offset": 1157
+        },
+        {
+          "kind": "feature",
+          "value": "getConfig",
+          "offset": 1200
+        },
+        {
+          "kind": "ipc",
+          "value": "getConfig",
+          "offset": 1230
+        },
+        {
+          "kind": "feature",
+          "value": "setConfig",
+          "offset": 1275
+        },
+        {
+          "kind": "ipc",
+          "value": "setConfig",
+          "offset": 1311
+        },
+        {
+          "kind": "feature",
+          "value": "setMainLang",
+          "offset": 1362
+        },
+        {
+          "kind": "ipc",
+          "value": "setMainLang",
+          "offset": 1394
+        },
+        {
+          "kind": "feature",
+          "value": "getLang",
+          "offset": 1441
+        },
+        {
+          "kind": "ipc",
+          "value": "getLang",
+          "offset": 1465
+        },
+        {
+          "kind": "ipc",
+          "value": "getScreenInfo",
+          "offset": 1532
+        },
+        {
+          "kind": "feature",
+          "value": "getWindowsTheme",
+          "offset": 1575
+        },
+        {
+          "kind": "ipc",
+          "value": "getWindowsTheme",
+          "offset": 1607
+        },
+        {
+          "kind": "feature",
+          "value": "getThemeValue",
+          "offset": 1652
+        },
+        {
+          "kind": "ipc",
+          "value": "getThemeValue",
+          "offset": 1682
+        },
+        {
+          "kind": "ipc",
+          "value": "setAutoStart",
+          "offset": 1759
+        },
+        {
+          "kind": "ipc",
+          "value": "getAutoStartStatus",
+          "offset": 1843
+        },
+        {
+          "kind": "feature",
+          "value": "closeWindow",
+          "offset": 1891
+        },
+        {
+          "kind": "ipc",
+          "value": "closeWindow",
+          "offset": 1919
+        },
+        {
+          "kind": "feature",
+          "value": "hideWindow",
+          "offset": 1960
+        },
+        {
+          "kind": "ipc",
+          "value": "hideWindow",
+          "offset": 1987
+        },
+        {
+          "kind": "feature",
+          "value": "minimizeWindow",
+          "offset": 2027
+        },
+        {
+          "kind": "ipc",
+          "value": "minimizeWindow",
+          "offset": 2058
+        },
+        {
+          "kind": "feature",
+          "value": "maximizeWindow",
+          "offset": 2102
+        },
+        {
+          "kind": "ipc",
+          "value": "maximizeWindow",
+          "offset": 2133
+        },
+        {
+          "kind": "ipc",
+          "value": "unmaximize",
+          "offset": 2204
+        },
+        {
+          "kind": "ipc",
+          "value": "toggleMax",
+          "offset": 2270
+        },
+        {
+          "kind": "ipc",
+          "value": "isMaximized",
+          "offset": 2337
+        },
+        {
+          "kind": "feature",
+          "value": "isWindowVisible",
+          "offset": 2378
+        },
+        {
+          "kind": "ipc",
+          "value": "isWindowVisible",
+          "offset": 2412
+        },
+        {
+          "kind": "feature",
+          "value": "getWindowStateSnapshot",
+          "offset": 2461
+        },
+        {
+          "kind": "ipc",
+          "value": "getWindowStateSnapshot",
+          "offset": 2502
+        },
+        {
+          "kind": "feature",
+          "value": "getWindowSize",
+          "offset": 2558
+        },
+        {
+          "kind": "ipc",
+          "value": "getWindowSize",
+          "offset": 2588
+        },
+        {
+          "kind": "feature",
+          "value": "setWindowSize",
+          "offset": 2631
+        },
+        {
+          "kind": "ipc",
+          "value": "setWindowSize",
+          "offset": 2665
+        },
+        {
+          "kind": "feature",
+          "value": "setWindowMInSize",
+          "offset": 2714
+        },
+        {
+          "kind": "ipc",
+          "value": "setWindowMInSize",
+          "offset": 2751
+        },
+        {
+          "kind": "ipc",
+          "value": "setZoomFactor",
+          "offset": 2839
+        },
+        {
+          "kind": "ipc",
+          "value": "setBounds",
+          "offset": 2926
+        },
+        {
+          "kind": "feature",
+          "value": "getDragBoundsAndRestoreIfMaximized",
+          "offset": 2977
+        },
+        {
+          "kind": "ipc",
+          "value": "getDragBoundsAndRestoreIfMaximized",
+          "offset": 3046
+        },
+        {
+          "kind": "ipc",
+          "value": "setPosition",
+          "offset": 3162
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnv",
+          "offset": 3232
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:report-ready",
+          "offset": 3304
+        },
+        {
+          "kind": "feature",
+          "value": "syncDeviceConfigToMainProcess",
+          "offset": 3355
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:sync-device-config",
+          "offset": 3416
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:get-url",
+          "offset": 3521
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:get-fallback-context",
+          "offset": 3605
+        },
+        {
+          "kind": "feature",
+          "value": "refreshGlobalConfig",
+          "offset": 3664
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:refresh-global",
+          "offset": 3707
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:probe-reachable",
+          "offset": 3823
+        },
+        {
+          "kind": "ipc",
+          "value": "renderer:retry-load",
+          "offset": 3935
+        },
+        {
+          "kind": "ipc",
+          "value": "vc-redist:check-x64",
+          "offset": 4033
+        },
+        {
+          "kind": "feature",
+          "value": "getAllStore",
+          "offset": 4091
+        },
+        {
+          "kind": "ipc",
+          "value": "getAllStore",
+          "offset": 4119
+        },
+        {
+          "kind": "feature",
+          "value": "watchAllStore",
+          "offset": 4160
+        },
+        {
+          "kind": "ipc",
+          "value": "watchAllStore",
+          "offset": 4190
+        },
+        {
+          "kind": "feature",
+          "value": "unwatchAllStore",
+          "offset": 4233
+        },
+        {
+          "kind": "ipc",
+          "value": "unwatchAllStore",
+          "offset": 4275
+        },
+        {
+          "kind": "feature",
+          "value": "setStore",
+          "offset": 4360
+        },
+        {
+          "kind": "ipc",
+          "value": "setStore",
+          "offset": 4415
+        },
+        {
+          "kind": "feature",
+          "value": "getStore",
+          "offset": 4477
+        },
+        {
+          "kind": "ipc",
+          "value": "getStore",
+          "offset": 4526
+        },
+        {
+          "kind": "feature",
+          "value": "hasStore",
+          "offset": 4583
+        },
+        {
+          "kind": "ipc",
+          "value": "hasStore",
+          "offset": 4611
+        },
+        {
+          "kind": "feature",
+          "value": "deleteStore",
+          "offset": 4654
+        },
+        {
+          "kind": "ipc",
+          "value": "deleteStore",
+          "offset": 4685
+        },
+        {
+          "kind": "feature",
+          "value": "clearStore",
+          "offset": 4731
+        },
+        {
+          "kind": "ipc",
+          "value": "clearStore",
+          "offset": 4758
+        },
+        {
+          "kind": "feature",
+          "value": "getUserConfig",
+          "offset": 4852
+        },
+        {
+          "kind": "ipc",
+          "value": "getUserConfig",
+          "offset": 4882
+        },
+        {
+          "kind": "feature",
+          "value": "setUserConfig",
+          "offset": 4925
+        },
+        {
+          "kind": "ipc",
+          "value": "setUserConfig",
+          "offset": 4961
+        },
+        {
+          "kind": "ipc",
+          "value": "getLegacyRendererLocalStorage",
+          "offset": 5058
+        },
+        {
+          "kind": "ipc",
+          "value": "getLegacyHttpsLocalStorage",
+          "offset": 5160
+        },
+        {
+          "kind": "ipc",
+          "value": "getLegacyHttpsIndexedDB",
+          "offset": 5256
+        },
+        {
+          "kind": "ipc",
+          "value": "migrateLegacyUrlIndexIframeStorage",
+          "offset": 5360
+        },
+        {
+          "kind": "ipc",
+          "value": "getLegacyK20GtCustomImageHistory",
+          "offset": 5473
+        },
+        {
+          "kind": "feature",
+          "value": "windowManager",
+          "offset": 5606
+        },
+        {
+          "kind": "ipc",
+          "value": "windowManager",
+          "offset": 5642
+        },
+        {
+          "kind": "ipc",
+          "value": "customTray",
+          "offset": 5797
+        },
+        {
+          "kind": "feature",
+          "value": "createTrayWindow",
+          "offset": 5873
+        },
+        {
+          "kind": "ipc",
+          "value": "createTrayWindow",
+          "offset": 5932
+        },
+        {
+          "kind": "feature",
+          "value": "installDriver",
+          "offset": 5998
+        },
+        {
+          "kind": "ipc",
+          "value": "installDriver",
+          "offset": 6029
+        },
+        {
+          "kind": "ipc",
+          "value": "quit",
+          "offset": 6096
+        },
+        {
+          "kind": "feature",
+          "value": "uninstallDriver",
+          "offset": 6130
+        },
+        {
+          "kind": "ipc",
+          "value": "uninstallDriver",
+          "offset": 6162
+        },
+        {
+          "kind": "feature",
+          "value": "AudioSDKGetState",
+          "offset": 6278
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-sdk:get-state",
+          "offset": 6311
+        },
+        {
+          "kind": "feature",
+          "value": "AudioSDKInstallDriver",
+          "offset": 6360
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-sdk:install-driver",
+          "offset": 6405
+        },
+        {
+          "kind": "feature",
+          "value": "AudioSDKReleaseDevice",
+          "offset": 6468
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-sdk:release-device",
+          "offset": 6514
+        },
+        {
+          "kind": "feature",
+          "value": "AudioSDKEnsureReady",
+          "offset": 6578
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-sdk:ensure-ready",
+          "offset": 6626
+        },
+        {
+          "kind": "feature",
+          "value": "AudioSDKCall",
+          "offset": 6692
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-sdk:call",
+          "offset": 6738
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXGetState",
+          "offset": 6871
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:get-state",
+          "offset": 6904
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXGetInstallState",
+          "offset": 6953
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:get-install-state",
+          "offset": 7000
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXGet7TestVideoInfo",
+          "offset": 7066
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:get-7-test-video-info",
+          "offset": 7115
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXListAudioPlayerProducts",
+          "offset": 7185
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:list-audio-player-products",
+          "offset": 7240
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXListAudioPlayerEndpoints",
+          "offset": 7315
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:list-audio-player-endpoints",
+          "offset": 7371
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXResolveAudioPlayerEndpointGuid",
+          "offset": 7447
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:resolve-audio-player-endpoint-guid",
+          "offset": 7509
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXAudioPlayerControl",
+          "offset": 7592
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:audio-player-control",
+          "offset": 7642
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXDownloadInstaller",
+          "offset": 7711
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:download-installer",
+          "offset": 7760
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXGetDownloadInstallerState",
+          "offset": 7827
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:get-download-installer-state",
+          "offset": 7884
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXInstallInstaller",
+          "offset": 7961
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:install-installer",
+          "offset": 8009
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXUninstallBundle",
+          "offset": 8075
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:uninstall-bundle",
+          "offset": 8122
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXGetRecoveryState",
+          "offset": 8187
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:get-recovery-state",
+          "offset": 8228
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXCheckAfunix",
+          "offset": 8286
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:check-afunix",
+          "offset": 8329
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXRunServiceRepair",
+          "offset": 8390
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:run-service-repair",
+          "offset": 8431
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXEnsureReady",
+          "offset": 8489
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:ensure-ready",
+          "offset": 8532
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXCall",
+          "offset": 8593
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:call",
+          "offset": 8629
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXReleaseDevice",
+          "offset": 8682
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:release-device",
+          "offset": 8727
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXReleaseClientShellByHwid",
+          "offset": 8790
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:release-client-shell-by-hwid",
+          "offset": 8846
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXClearAudioPlayerEndpointByHwid",
+          "offset": 8923
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:clear-audio-player-endpoint-by-hwid",
+          "offset": 8985
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXSubscribePropertyChanges",
+          "offset": 9069
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:subscribe-property-changes",
+          "offset": 9125
+        },
+        {
+          "kind": "feature",
+          "value": "AudioTHXUnsubscribePropertyChanges",
+          "offset": 9200
+        },
+        {
+          "kind": "ipc",
+          "value": "audio-thx:unsubscribe-property-changes",
+          "offset": 9258
+        },
+        {
+          "kind": "ipc",
+          "value": "initDll",
+          "offset": 9363
+        },
+        {
+          "kind": "ipc",
+          "value": "setToDefault",
+          "offset": 9435
+        },
+        {
+          "kind": "ipc",
+          "value": "getVolumeScalarControl",
+          "offset": 9529
+        },
+        {
+          "kind": "ipc",
+          "value": "setVolumeScalarControl",
+          "offset": 9653
+        },
+        {
+          "kind": "ipc",
+          "value": "getMuteControl",
+          "offset": 9760
+        },
+        {
+          "kind": "ipc",
+          "value": "setMuteControl",
+          "offset": 9852
+        },
+        {
+          "kind": "ipc",
+          "value": "getAINREnable",
+          "offset": 9939
+        },
+        {
+          "kind": "ipc",
+          "value": "setAINREnable",
+          "offset": 10018
+        },
+        {
+          "kind": "ipc",
+          "value": "getNR_Enable",
+          "offset": 10098
+        },
+        {
+          "kind": "ipc",
+          "value": "setNR_Enable",
+          "offset": 10175
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_MAGICVOICE",
+          "offset": 10262
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_MAGICVOICE",
+          "offset": 10355
+        },
+        {
+          "kind": "ipc",
+          "value": "getMagicVoice_Selection",
+          "offset": 10453
+        },
+        {
+          "kind": "ipc",
+          "value": "setMagicVoice_Selection",
+          "offset": 10550
+        },
+        {
+          "kind": "ipc",
+          "value": "openSoundSetting",
+          "offset": 10642
+        },
+        {
+          "kind": "ipc",
+          "value": "openScreenSetting",
+          "offset": 10722
+        },
+        {
+          "kind": "feature",
+          "value": "openWindowsMouseSetting",
+          "offset": 10769
+        },
+        {
+          "kind": "ipc",
+          "value": "openWindowsMouseSetting",
+          "offset": 10809
+        },
+        {
+          "kind": "ipc",
+          "value": "openBrowser",
+          "offset": 10893
+        },
+        {
+          "kind": "ipc",
+          "value": "saveBgImg",
+          "offset": 10969
+        },
+        {
+          "kind": "ipc",
+          "value": "getBgImg",
+          "offset": 11039
+        },
+        {
+          "kind": "ipc",
+          "value": "deleteFile",
+          "offset": 11105
+        },
+        {
+          "kind": "ipc",
+          "value": "saveGifImg",
+          "offset": 11176
+        },
+        {
+          "kind": "ipc",
+          "value": "getGifImgList",
+          "offset": 11249
+        },
+        {
+          "kind": "ipc",
+          "value": "openDevTools",
+          "offset": 11321
+        },
+        {
+          "kind": "feature",
+          "value": "getEnable_AUDIOBRILLIANT_LFX",
+          "offset": 11388
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_AUDIOBRILLIANT_LFX",
+          "offset": 11433
+        },
+        {
+          "kind": "feature",
+          "value": "setEnable_AUDIOBRILLIANT_LFX",
+          "offset": 11491
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_AUDIOBRILLIANT_LFX",
+          "offset": 11542
+        },
+        {
+          "kind": "feature",
+          "value": "getAUDIOBRILLIANT_LEVEL",
+          "offset": 11608
+        },
+        {
+          "kind": "ipc",
+          "value": "getAUDIOBRILLIANT_LEVEL",
+          "offset": 11648
+        },
+        {
+          "kind": "feature",
+          "value": "setAUDIOBRILLIANT_LEVEL",
+          "offset": 11701
+        },
+        {
+          "kind": "ipc",
+          "value": "setAUDIOBRILLIANT_LEVEL",
+          "offset": 11746
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_Channel_COPY_LFX",
+          "offset": 11871
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_Channel_COPY_LFX",
+          "offset": 11976
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_VIRTUALBASS_LFX",
+          "offset": 12104
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_VIRTUALBASS_LFX",
+          "offset": 12207
+        },
+        {
+          "kind": "ipc",
+          "value": "getVIRTUALBASS_Level",
+          "offset": 12307
+        },
+        {
+          "kind": "ipc",
+          "value": "setVIRTUALBASS_Level",
+          "offset": 12399
+        },
+        {
+          "kind": "ipc",
+          "value": "getVIRTUALBASS_CutOffFrequency",
+          "offset": 12503
+        },
+        {
+          "kind": "ipc",
+          "value": "setVIRTUALBASS_CutOffFrequency",
+          "offset": 12615
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_ADAPTIVEVOLUME_GFX",
+          "offset": 12749
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_ADAPTIVEVOLUME_GFX",
+          "offset": 12858
+        },
+        {
+          "kind": "ipc",
+          "value": "getADAPTIVEVOLUME_LEVEL",
+          "offset": 12964
+        },
+        {
+          "kind": "ipc",
+          "value": "setADAPTIVEVOLUME_LEVEL",
+          "offset": 13062
+        },
+        {
+          "kind": "ipc",
+          "value": "getADAPTIVEVOLUME_MODE",
+          "offset": 13161
+        },
+        {
+          "kind": "ipc",
+          "value": "setADAPTIVEVOLUME_MODE",
+          "offset": 13256
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnable_VOICECLARITY_LFX",
+          "offset": 13379
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_VOICECLARITY_LFX",
+          "offset": 13484
+        },
+        {
+          "kind": "ipc",
+          "value": "getVOICECLARITY_LEVEL",
+          "offset": 13586
+        },
+        {
+          "kind": "ipc",
+          "value": "setVOICECLARITY_LEVEL",
+          "offset": 13680
+        },
+        {
+          "kind": "ipc",
+          "value": "getVOICECLARITY_NOISESUPP_LEVEL",
+          "offset": 13786
+        },
+        {
+          "kind": "ipc",
+          "value": "setVOICECLARITY_NOISESUPP_LEVEL",
+          "offset": 13900
+        },
+        {
+          "kind": "ipc",
+          "value": "getXearSurroundEnable",
+          "offset": 14006
+        },
+        {
+          "kind": "ipc",
+          "value": "getXearSurroundRoom",
+          "offset": 14093
+        },
+        {
+          "kind": "ipc",
+          "value": "getXearSurroundMode",
+          "offset": 14178
+        },
+        {
+          "kind": "ipc",
+          "value": "setXearSurroundEnable",
+          "offset": 14270
+        },
+        {
+          "kind": "ipc",
+          "value": "setXearSurroundRoom",
+          "offset": 14369
+        },
+        {
+          "kind": "ipc",
+          "value": "setXearSurroundMode",
+          "offset": 14466
+        },
+        {
+          "kind": "ipc",
+          "value": "playTestSound",
+          "offset": 14557
+        },
+        {
+          "kind": "ipc",
+          "value": "stopTestSound",
+          "offset": 14637
+        },
+        {
+          "kind": "ipc",
+          "value": "GetEnable_EQ_GFX",
+          "offset": 14713
+        },
+        {
+          "kind": "ipc",
+          "value": "setEnable_EQ_GFX",
+          "offset": 14798
+        },
+        {
+          "kind": "ipc",
+          "value": "getEQ_Slider",
+          "offset": 14886
+        },
+        {
+          "kind": "ipc",
+          "value": "setEQ_Slider",
+          "offset": 14976
+        },
+        {
+          "kind": "ipc",
+          "value": "importData",
+          "offset": 15059
+        },
+        {
+          "kind": "ipc",
+          "value": "exportData",
+          "offset": 15143
+        },
+        {
+          "kind": "ipc",
+          "value": "download",
+          "offset": 15245
+        },
+        {
+          "kind": "ipc",
+          "value": "updater:getState",
+          "offset": 15347
+        },
+        {
+          "kind": "ipc",
+          "value": "updater:startSilentDownload",
+          "offset": 15437
+        },
+        {
+          "kind": "feature",
+          "value": "startManualUpdate",
+          "offset": 15504
+        },
+        {
+          "kind": "ipc",
+          "value": "updater:startManualUpdate",
+          "offset": 15544
+        },
+        {
+          "kind": "feature",
+          "value": "applyDownloadedUpdateNow",
+          "offset": 15609
+        },
+        {
+          "kind": "ipc",
+          "value": "updater:applyDownloadedUpdateNow",
+          "offset": 15650
+        },
+        {
+          "kind": "ipc",
+          "value": "updater:stateChanged",
+          "offset": 15828
+        },
+        {
+          "kind": "ipc",
+          "value": "getArgv",
+          "offset": 16021
+        },
+        {
+          "kind": "feature",
+          "value": "getFirmwareVer",
+          "offset": 16058
+        },
+        {
+          "kind": "ipc",
+          "value": "getFirmwareVer",
+          "offset": 16089
+        },
+        {
+          "kind": "feature",
+          "value": "getDeviceFriendlyName",
+          "offset": 16133
+        },
+        {
+          "kind": "ipc",
+          "value": "getDeviceFriendlyName",
+          "offset": 16175
+        },
+        {
+          "kind": "ipc",
+          "value": "isInstalledInSystemDrive",
+          "offset": 16273
+        },
+        {
+          "kind": "ipc",
+          "value": "getIsAdminRunning",
+          "offset": 16361
+        },
+        {
+          "kind": "ipc",
+          "value": "getMainFlags",
+          "offset": 16437
+        },
+        {
+          "kind": "ipc",
+          "value": "setMainFlags",
+          "offset": 16511
+        },
+        {
+          "kind": "ipc",
+          "value": "restartComputer",
+          "offset": 16590
+        },
+        {
+          "kind": "feature",
+          "value": "getUsbDeviceDescriptor",
+          "offset": 16635
+        },
+        {
+          "kind": "ipc",
+          "value": "getUsbDeviceDescriptor",
+          "offset": 16675
+        },
+        {
+          "kind": "feature",
+          "value": "getFWVersionFromUsbDescriptor",
+          "offset": 16730
+        },
+        {
+          "kind": "ipc",
+          "value": "getFWVersionFromUsbDescriptor",
+          "offset": 16777
+        },
+        {
+          "kind": "feature",
+          "value": "getUsbStringDescriptor",
+          "offset": 16839
+        },
+        {
+          "kind": "ipc",
+          "value": "getUsbStringDescriptor",
+          "offset": 16879
+        },
+        {
+          "kind": "ipc",
+          "value": "recorderCall",
+          "offset": 16980
+        },
+        {
+          "kind": "feature",
+          "value": "getFirmwareBinData",
+          "offset": 17041
+        },
+        {
+          "kind": "ipc",
+          "value": "getFirmwareBinData",
+          "offset": 17077
+        },
+        {
+          "kind": "feature",
+          "value": "getDefaultLang",
+          "offset": 17128
+        },
+        {
+          "kind": "ipc",
+          "value": "getDefaultLang",
+          "offset": 17159
+        },
+        {
+          "kind": "feature",
+          "value": "startWatchAudioVolume",
+          "offset": 17203
+        },
+        {
+          "kind": "ipc",
+          "value": "startWatchAudioVolume",
+          "offset": 17241
+        },
+        {
+          "kind": "feature",
+          "value": "stopWatchAudioVolume",
+          "offset": 17292
+        },
+        {
+          "kind": "ipc",
+          "value": "stopWatchAudioVolume",
+          "offset": 17329
+        },
+        {
+          "kind": "feature",
+          "value": "getAudioVolume",
+          "offset": 17379
+        },
+        {
+          "kind": "ipc",
+          "value": "getAudioVolume",
+          "offset": 17411
+        },
+        {
+          "kind": "feature",
+          "value": "setAudioVolume",
+          "offset": 17458
+        },
+        {
+          "kind": "ipc",
+          "value": "setAudioVolume",
+          "offset": 17490
+        },
+        {
+          "kind": "feature",
+          "value": "getAudioMute",
+          "offset": 17537
+        },
+        {
+          "kind": "ipc",
+          "value": "getAudioMute",
+          "offset": 17567
+        },
+        {
+          "kind": "feature",
+          "value": "setAudioMute",
+          "offset": 17612
+        },
+        {
+          "kind": "ipc",
+          "value": "setAudioMute",
+          "offset": 17642
+        },
+        {
+          "kind": "feature",
+          "value": "otaDevice",
+          "offset": 17706
+        },
+        {
+          "kind": "ipc",
+          "value": "otaDevice",
+          "offset": 17733
+        },
+        {
+          "kind": "ipc",
+          "value": "showWinToast",
+          "offset": 17856
+        },
+        {
+          "kind": "feature",
+          "value": "getSharedConfig",
+          "offset": 17938
+        },
+        {
+          "kind": "ipc",
+          "value": "getSharedConfig",
+          "offset": 17970
+        },
+        {
+          "kind": "feature",
+          "value": "setSharedConfig",
+          "offset": 18015
+        },
+        {
+          "kind": "ipc",
+          "value": "setSharedConfig",
+          "offset": 18048
+        },
+        {
+          "kind": "ipc",
+          "value": "getMicListenStatus",
+          "offset": 18177
+        },
+        {
+          "kind": "ipc",
+          "value": "setMicListenStatus",
+          "offset": 18261
+        },
+        {
+          "kind": "ipc",
+          "value": "getAppMetrics",
+          "offset": 18382
+        },
+        {
+          "kind": "ipc",
+          "value": "scanAppList",
+          "offset": 18492
+        },
+        {
+          "kind": "ipc",
+          "value": "scanGameList",
+          "offset": 18562
+        },
+        {
+          "kind": "ipc",
+          "value": "getExeDetailInfo",
+          "offset": 18638
+        },
+        {
+          "kind": "ipc",
+          "value": "startListenActiveAppChange",
+          "offset": 18731
+        },
+        {
+          "kind": "ipc",
+          "value": "stopListenActiveAppChange",
+          "offset": 18832
+        },
+        {
+          "kind": "ipc",
+          "value": "startLyricsMonitor",
+          "offset": 18922
+        },
+        {
+          "kind": "ipc",
+          "value": "stopLyricsMonitor",
+          "offset": 19004
+        },
+        {
+          "kind": "ipc",
+          "value": "isLyricsMonitorRunning",
+          "offset": 19090
+        },
+        {
+          "kind": "ipc",
+          "value": "readQQMusicQrc",
+          "offset": 19179
+        },
+        {
+          "kind": "ipc",
+          "value": "resolveQQMusicLyricPaths",
+          "offset": 19279
+        },
+        {
+          "kind": "ipc",
+          "value": "readKuGouKrc",
+          "offset": 19377
+        },
+        {
+          "kind": "ipc",
+          "value": "resolveKuGouLyricPath",
+          "offset": 19472
+        },
+        {
+          "kind": "ipc",
+          "value": "getKuGouPlaybackState",
+          "offset": 19576
+        },
+        {
+          "kind": "ipc",
+          "value": "getNcmInstallPath",
+          "offset": 19669
+        },
+        {
+          "kind": "ipc",
+          "value": "isBetterNcmInstalled",
+          "offset": 19747
+        },
+        {
+          "kind": "ipc",
+          "value": "installBetterNcm",
+          "offset": 19830
+        },
+        {
+          "kind": "ipc",
+          "value": "uninstallBetterNcm",
+          "offset": 19911
+        },
+        {
+          "kind": "ipc",
+          "value": "removeInfLinkPlugin",
+          "offset": 19995
+        },
+        {
+          "kind": "ipc",
+          "value": "showOpenFileDialog",
+          "offset": 20108
+        },
+        {
+          "kind": "ipc",
+          "value": "setCurEnv",
+          "offset": 20223
+        },
+        {
+          "kind": "ipc",
+          "value": "getCurEnv",
+          "offset": 20291
+        },
+        {
+          "kind": "ipc",
+          "value": "getRendererBuildInfo",
+          "offset": 20367
+        },
+        {
+          "kind": "feature",
+          "value": "getTargetEnvConfig",
+          "offset": 20451
+        },
+        {
+          "kind": "ipc",
+          "value": "getTargetEnvConfig",
+          "offset": 20487
+        },
+        {
+          "kind": "feature",
+          "value": "getEnvConfigs",
+          "offset": 20572
+        },
+        {
+          "kind": "ipc",
+          "value": "getEnvConfigs",
+          "offset": 20602
+        },
+        {
+          "kind": "ipc",
+          "value": "battery_info",
+          "offset": 20716
+        },
+        {
+          "kind": "feature",
+          "value": "getUsbVersion",
+          "offset": 20783
+        },
+        {
+          "kind": "ipc",
+          "value": "getUsbVersion",
+          "offset": 20814
+        },
+        {
+          "kind": "ipc",
+          "value": "readLocalFile",
+          "offset": 20894
+        },
+        {
+          "kind": "ipc",
+          "value": "openUserFilesDir",
+          "offset": 20976
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:getRoot",
+          "offset": 21136
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:read",
+          "offset": 21228
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:write",
+          "offset": 21350
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:delete",
+          "offset": 21465
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:exists",
+          "offset": 21563
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:mkdir",
+          "offset": 21660
+        },
+        {
+          "kind": "ipc",
+          "value": "localFiles:list",
+          "offset": 21755
+        }
+      ],
+      "cluesTruncated": true,
+      "warnings": [],
+      "readablePath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\readable\\out\\preload\\index.js",
+      "readableBytes": 26830,
+      "readableSha256": "601a63fb6f3f801a24c2e36c1eea415689f2b4c223c2346e28e634a332b09c78"
+    },
+    {
+      "path": "out/renderer/tips-assets/tips-8dRZxa9O.js",
+      "sourcePath": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app\\out\\renderer\\tips-assets\\tips-8dRZxa9O.js",
+      "originalPath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\original\\out\\renderer\\tips-assets\\tips-8dRZxa9O.js",
+      "bytes": 738784,
+      "sha256": "21a7e2310d8e9e9d1ca203cecdb0fab1da93bf3a16eb75f0ee61487524fdc9ee",
+      "normalization": "readable",
+      "clues": [
+        {
+          "kind": "feature",
+          "value": "watchKey",
+          "offset": 35955
+        },
+        {
+          "kind": "feature",
+          "value": "forceUpdate",
+          "offset": 68079
+        },
+        {
+          "kind": "module",
+          "value": "util",
+          "offset": 159128
+        },
+        {
+          "kind": "feature",
+          "value": "onCacheKey",
+          "offset": 227158
+        },
+        {
+          "kind": "feature",
+          "value": "beforeUpdate",
+          "offset": 244289
+        },
+        {
+          "kind": "module",
+          "value": ",默认:",
+          "offset": 298171
+        },
+        {
+          "kind": "module",
+          "value": "util",
+          "offset": 669954
+        }
+      ],
+      "cluesTruncated": false,
+      "warnings": [],
+      "readablePath": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\recovered\\8143f1ea-9191-440a-8b47-cb40b834d20a\\readable\\out\\renderer\\tips-assets\\tips-8dRZxa9O.js",
+      "readableBytes": 899230,
+      "readableSha256": "d6b285509f83982b72979c5286ba900dc122a8a79947653c06bfb8facc328846"
+    }
+  ],
+  "totalBytes": 767994,
+  "warnings": [
+    "输出为已存在的源文件副本与静态语法规范化结果；不代表原始工程、注释、变量名或混淆已全部恢复。",
+    "模块、IPC、导出和功能名称仅为词法线索，不证明对应业务处理实现或运行行为。"
+  ]
+}

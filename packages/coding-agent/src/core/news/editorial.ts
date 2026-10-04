@@ -774,20 +774,25 @@ export async function composeStoryDigest(
 		.filter((item) => publicItem(item) && item.contentKind === "single" && item.participation === "editorial")
 		.sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt));
 	if (!reports.length) return { title: story.title, summary: "" };
+	const views = reports.map(reportView);
 	const result = await requestJson(
 		call,
 		config,
 		"digest",
 		"digest",
 		newsPrompt("story-digest"),
-		JSON.stringify({ title: story.title, reports: reports.map(reportView) }),
+		JSON.stringify({ title: story.title, reports: views }),
 		DigestSchema,
 		1400,
 		0.3,
 	);
 	guardCopy(
 		{ title: result.title, summary: result.digest },
-		reports.map((report) => `${report.title} ${report.summary} ${report.originalBody ?? ""}`).join("\n"),
+		// Validate against the source text and publication metadata actually supplied to the model.
+		// Derived frames, tags and scores cannot establish a new identity or number.
+		views
+			.map((report) => [report.title, report.summary, report.source, report.at, report.sourceText].join("\n"))
+			.join("\n"),
 		{ origin: result },
 	);
 	return { title: story.manual ? story.title : collapse(result.title), summary: result.digest.trim() };

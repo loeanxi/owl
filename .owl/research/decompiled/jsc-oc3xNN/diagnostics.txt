@@ -1,0 +1,7 @@
+
+Parsing disassembled file.
+Parsing completed successfully.
+Decompiling 1749 functions.
+Exporting to file D:\owl\owl-re-v1\owl-mono\.owl\research\decompiled\jsc-oc3xNN\reconstructed.js.
+Done.
+

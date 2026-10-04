@@ -31,7 +31,7 @@ import {
 	runToolCall,
 	type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
+import { contentText, getCurrentSystemMessage } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -49,16 +49,13 @@ import {
 	getSupportedThinkingLevels,
 	isContextOverflow,
 	isRecoverableLength,
-	isRetryableAssistantError,
 	modelsAreEqual,
-	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { CODEMODE_TOOL_NAME } from "../extensions/codemode/tool.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
-import { sleep } from "../utils/sleep.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
@@ -129,6 +126,7 @@ import {
 	SessionManager,
 	type SessionProjection,
 } from "./session-manager.ts";
+import { SessionRetryController } from "./session-retry.ts";
 import { type CacheWarmingMode, DEFAULT_TOOL_NAMES, type SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
@@ -392,9 +390,9 @@ export class AgentSession {
 	// Branch summarization state
 	private _branchSummaryAbortController: AbortController | undefined = undefined;
 
-	// Retry state
-	private _retryAbortController: AbortController | undefined = undefined;
-	private _retryAttempt = 0;
+	// Retry state: policy/attempt counter live in the controller; `_failedResponse` is
+	// shared between auto-retry and overflow recovery, so it stays here.
+	private readonly _retry: SessionRetryController;
 	/**
 	 * Failed response that the next request repeats, set by auto-retry and overflow recovery. The
 	 * retry is routed with it as `failed`, since the context no longer contains it.
@@ -480,6 +478,12 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this._retry = new SessionRetryController({
+			getSettings: () => this.settingsManager.getRetrySettings(),
+			getErrorPatterns: () => this.settingsManager.getRetryableErrorPatterns(),
+			emit: (event) => this._emit(event),
+			resolveContextWindow: (message) => (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0,
+		});
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -1110,7 +1114,11 @@ export class AgentSession {
 
 		// Emit to extensions first, then notify public listeners.
 		await this._emitExtensionEvent(event);
-		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+		this._emit(
+			event.type === "agent_end"
+				? { ...event, willRetry: this._retry.willRetryAfterAgentEnd(this._agentRunAbortRequested, event.messages) }
+				: event,
+		);
 
 		// Handle session persistence
 		if (event.type === "message_end") {
@@ -1154,13 +1162,8 @@ export class AgentSession {
 
 				// Reset retry counter immediately on successful assistant response
 				// This prevents accumulation across multiple LLM calls within a turn
-				if (assistantMsg.stopReason !== "error" && this._retryAttempt > 0) {
-					this._emit({
-						type: "auto_retry_end",
-						success: true,
-						attempt: this._retryAttempt,
-					});
-					this._retryAttempt = 0;
+				if (assistantMsg.stopReason !== "error") {
+					this._retry.finishSucceeded();
 				}
 			}
 		}
@@ -1175,22 +1178,6 @@ export class AgentSession {
 			this._flushPendingCustomMessages();
 		}
 	};
-
-	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
-		if (this._agentRunAbortRequested) return false;
-		const settings = this.settingsManager.getRetrySettings();
-		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
-			return false;
-		}
-
-		for (let i = event.messages.length - 1; i >= 0; i--) {
-			const message = event.messages[i];
-			if (message.role === "assistant") {
-				return this._isRetryableError(message as AssistantMessage);
-			}
-		}
-		return false;
-	}
 
 	private _findPersistedMessageEntryId(message: AgentMessage): string | undefined {
 		const mapped = this._entryIdsByMessage.get(message);
@@ -1455,7 +1442,7 @@ export class AgentSession {
 
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
-		return this._retryAttempt;
+		return this._retry.attempt;
 	}
 
 	/**
@@ -1806,7 +1793,7 @@ export class AgentSession {
 				await this.agent.continue();
 			}
 		} finally {
-			if (this._agentRunAbortRequested) this._finishCancelledRetry();
+			if (this._agentRunAbortRequested) this._retry.finishCancelled();
 			this._failedResponse = undefined;
 			this._runSystemPromptOptions = undefined;
 			this._flushPendingBashMessages();
@@ -1821,29 +1808,26 @@ export class AgentSession {
 		this._lastAssistantMessage = undefined;
 		this._lastAssistantToolResults = [];
 		if (this._agentRunAbortRequested) {
-			this._finishCancelledRetry();
+			this._retry.finishCancelled();
 			return false;
 		}
 		if (!message) return this.agent.hasQueuedMessages();
 
-		if (this._isRetryableError(message) && (await this._prepareRetry(message))) {
-			if (this._agentRunAbortRequested) this._finishCancelledRetry();
+		if (
+			this._retry.isRetryableError(message) &&
+			(await this._retry.scheduleRetry(message, () => this._omitRecoveryAttempt(message)))
+		) {
+			if (this._agentRunAbortRequested) this._retry.finishCancelled();
 			this._failedResponse = message;
 			return !this._agentRunAbortRequested;
 		}
 		if (this._agentRunAbortRequested) {
-			this._finishCancelledRetry();
+			this._retry.finishCancelled();
 			return false;
 		}
 
-		if (message.stopReason === "error" && this._retryAttempt > 0) {
-			this._emit({
-				type: "auto_retry_end",
-				success: false,
-				attempt: this._retryAttempt,
-				finalError: message.errorMessage,
-			});
-			this._retryAttempt = 0;
+		if (message.stopReason === "error") {
+			this._retry.finishFailed(message.errorMessage);
 		}
 
 		if (await this._checkCompaction(message, true, toolResults)) {
@@ -2701,7 +2685,7 @@ export class AgentSession {
 			this.agent.streamFunction,
 			request.env,
 			this.settingsManager.getRetrySettings(),
-			this._summarizationRetryCallbacks({ source: "compaction", reason }),
+			this._retry.summarizationCallbacks({ source: "compaction", reason }),
 			undefined, // sessionId
 		);
 	}
@@ -3681,118 +3665,20 @@ export class AgentSession {
 	// =========================================================================
 	// Auto-Retry
 	// =========================================================================
-
-	/**
-	 * Check if an error is retryable (overloaded, rate limit, server errors).
-	 * Context overflow errors are NOT retryable (handled by compaction instead).
-	 * User-configured `retry.retryableErrorPatterns` take precedence over the
-	 * built-in non-retryable rules.
-	 */
-	private _isRetryableError(message: AssistantMessage): boolean {
-		// Context overflow is handled by compaction, not retry.
-		if (isContextOverflow(message, (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0)) return false;
-		return isRetryableAssistantError(message, this.settingsManager.getRetryableErrorPatterns());
-	}
-
-	/**
-	 * Retry policy + callbacks shared by compaction and branch-summary summarization calls.
-	 * Uses the same `settings.retry` budget/backoff as agent-turn retries so a single transient
-	 * stream drop no longer fails the whole operation. `source` carries the context
-	 * the TUI needs to render the retry and recreate the underlying indicator.
-	 */
-	private _summarizationRetryCallbacks(
-		source: { source: "branchSummary" } | { source: "compaction"; reason: "manual" | "threshold" | "overflow" },
-	): RetryCallbacks {
-		return {
-			onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
-				this._emit({
-					type: "summarization_retry_scheduled",
-					attempt,
-					maxAttempts,
-					delayMs,
-					errorMessage,
-				});
-			},
-			onRetryAttemptStart: () => {
-				this._emit({
-					type: "summarization_retry_attempt_start",
-					...source,
-				});
-			},
-			onRetryFinished: () => {
-				this._emit({ type: "summarization_retry_finished" });
-			},
-		};
-	}
-
-	private _finishCancelledRetry(): void {
-		if (this._retryAttempt === 0) return;
-		const attempt = this._retryAttempt;
-		this._retryAttempt = 0;
-		this._emit({
-			type: "auto_retry_end",
-			success: false,
-			attempt,
-			finalError: "Retry cancelled",
-		});
-	}
-
-	/**
-	 * Prepare a retryable error for continuation with exponential backoff.
-	 * @returns true if the caller should continue the agent, false otherwise
-	 */
-	private async _prepareRetry(message: AssistantMessage): Promise<boolean> {
-		const settings = this.settingsManager.getRetrySettings();
-		if (!settings.enabled) {
-			return false;
-		}
-
-		this._retryAttempt++;
-
-		if (this._retryAttempt > settings.maxRetries) {
-			// Preserve the completed attempt count so post-run handling can emit the final failure.
-			this._retryAttempt--;
-			return false;
-		}
-
-		const delayMs = retryDelayMs(settings, this._retryAttempt);
-
-		this._emit({
-			type: "auto_retry_start",
-			attempt: this._retryAttempt,
-			maxAttempts: settings.maxRetries,
-			delayMs,
-			errorMessage: message.errorMessage || "Unknown error",
-		});
-
-		// Keep the failed attempt in raw history while durably omitting it from model projection.
-		this._omitRecoveryAttempt(message);
-
-		// Wait with exponential backoff (abortable)
-		this._retryAbortController = new AbortController();
-		try {
-			await sleep(delayMs, this._retryAbortController.signal);
-		} catch {
-			// Aborted during sleep - emit end event so UI can clean up
-			this._finishCancelledRetry();
-			return false;
-		} finally {
-			this._retryAbortController = undefined;
-		}
-
-		return true;
-	}
+	// Policy, classification, attempt counting, and the abortable backoff wait live
+	// in SessionRetryController (core/session-retry.ts). These are thin delegations;
+	// the omission of the failed attempt from the projection is injected per call.
 
 	/**
 	 * Cancel in-progress retry.
 	 */
 	abortRetry(): void {
-		this._retryAbortController?.abort();
+		this._retry.abort();
 	}
 
 	/** Whether auto-retry is currently in progress */
 	get isRetrying(): boolean {
-		return this._retryAbortController !== undefined;
+		return this._retry.isWaiting;
 	}
 
 	/** Whether auto-retry is enabled */
@@ -4047,7 +3933,7 @@ export class AgentSession {
 					reserveTokens: branchSummarySettings.reserveTokens,
 					streamFn: this.agent.streamFunction,
 					retry: this.settingsManager.getRetrySettings(),
-					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
+					callbacks: this._retry.summarizationCallbacks({ source: "branchSummary" }),
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };

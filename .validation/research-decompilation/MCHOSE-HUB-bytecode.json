@@ -1,0 +1,218 @@
+{
+  "status": "partial",
+  "approximate": true,
+  "targetExecuted": false,
+  "osSandbox": false,
+  "engine": "12.6.228.30",
+  "functionCount": 1749,
+  "opcodeCount": 99994,
+  "artifacts": [
+    {
+      "kind": "inputCopy",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\decompiled\\jsc-oc3xNN\\input.jsc",
+      "bytes": 929096,
+      "sha256": "a1c0569a6583cbbc6f60a0ffcf0370d3867458b1a4fd7034c1529ba22f393270"
+    },
+    {
+      "kind": "disassembly",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\decompiled\\jsc-oc3xNN\\disasm.txt",
+      "bytes": 11779130,
+      "sha256": "061b8d3622538e9ba542e0fdd7b6f8399a4f1d99ae2a0e2e640c7797a9c7096c"
+    },
+    {
+      "kind": "reconstruction",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\decompiled\\jsc-oc3xNN\\reconstructed.js",
+      "bytes": 1115525,
+      "sha256": "8d05dd4ff1cd059bbb11aaa6eac7c348d4396643888ce07899036d49972f1d68"
+    },
+    {
+      "kind": "diagnostics",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\decompiled\\jsc-oc3xNN\\diagnostics.txt",
+      "bytes": 198,
+      "sha256": "77b573e91bba99b2e78c384bc367257f790d2212e2d4ab56ad3b5ff8cb023d69"
+    }
+  ],
+  "warnings": [
+    "输出是从 V8 字节码重建的近似 JavaScript，不保证原变量名、注释、完整源码或语义等价。",
+    "匹配版本的第三方 d8 补丁会绕过部分 V8 缓存校验，并可能以 Hole 或 undefined 替代无法恢复的对象；成功退出不证明无信息丢失。",
+    "只调用固定反序列化与反汇编入口，未执行样本 EXE、加载器或重建代码；独立子进程不是操作系统沙箱。",
+    "近似代码含未知对象、占位或不支持的指令，需结合原始反汇编审阅"
+  ],
+  "errors": [],
+  "limits": {
+    "inputBytes": 8388608,
+    "outputBytes": 67108864,
+    "timeoutMs": 120000
+  },
+  "inputPath": "D:\\tool\\mhub\\MCHOSE HUB\\resources\\app\\out\\main\\index.jsc",
+  "inputBytes": 929096,
+  "inputSha256": "a1c0569a6583cbbc6f60a0ffcf0370d3867458b1a4fd7034c1529ba22f393270",
+  "header": {
+    "magic": "0xc0de063a",
+    "versionHash": "0xa5e2d63c",
+    "sourceLength": 670692,
+    "flagsHash": "0xa4d1e4ef",
+    "readOnlySnapshotChecksum": "0x998d4f48",
+    "payloadLength": 929064,
+    "payloadChecksum": "0x00000000"
+  },
+  "toolchain": {
+    "status": "available",
+    "toolchainHome": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers",
+    "engine": "12.6.228.30",
+    "manifest": {
+      "schemaVersion": 1,
+      "engine": "12.6.228.30",
+      "adapter": "jsc2js-view8",
+      "releaseUrl": "https://github.com/xqy2006/jsc2js/releases/download/12.6.228.30/d8-12.6.228.30-windows.zip",
+      "releaseArchiveSha256": "b8c87c661ebb561db4363ebf48eb9e92288961d233b947f465e1d0303854a6b4",
+      "sourceCommit": "d240cec90dd3ea371504c24bb1fb1ea5aad4e81a",
+      "decoderSourceCommit": "87a35e1e186bd1d86fca6ba500e203a273a6e1bb",
+      "d8": {
+        "path": "d8-12.6.228.30-windows/d8.exe",
+        "sha256": "52fa42d1e890597f8bb6d45c41fb5a845435c9f0605bd5c875d3bd2890c2b9bc"
+      },
+      "snapshot": {
+        "path": "d8-12.6.228.30-windows/snapshot_blob.bin",
+        "sha256": "301c08168fc84cfec5285ee990060839b6c36f268df994155f801ffadaecd1f5"
+      },
+      "python": {
+        "path": "C:\\Users\\李现\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+        "sha256": "dd5f8d19f6755d6491ee7c4bef2fe35ddd521334cc3ca3ed8fc93ebcadf135d0"
+      },
+      "view8": {
+        "path": "view8/view8.py",
+        "sha256": "b3123e4a4651cbd7d810e14c6ac3ec45380e1b50580a4d194eb321e37171918c"
+      },
+      "files": [
+        {
+          "path": "view8/parse-LICENSE.txt",
+          "sha256": "2cc9942fe3f52a669c1fbb4e0bae9a27300d56564a382e954845c3256c4cabe2"
+        },
+        {
+          "path": "view8/parse.py",
+          "sha256": "e1d17931cb7949647d0ffc57b270a051cc5af42c7e4d003b2c061e776f5b0965"
+        },
+        {
+          "path": "view8/Parser/parse_v8cache.py",
+          "sha256": "98ffc4b5b638f955f45fb219b1934a03a03a921fc4c18fcea6f08d495dcc3bc5"
+        },
+        {
+          "path": "view8/Parser/sfi_file_parser.py",
+          "sha256": "7ce34163cace6e818f405d0177400c0d24fab36e35644c893e8437dccae444a1"
+        },
+        {
+          "path": "view8/Parser/shared_function_info.py",
+          "sha256": "b5c79cdd27fdc2a2480a7b34a5142bd83b92ddda9f563f99d34a5f987d1aae2e"
+        },
+        {
+          "path": "view8/README.md",
+          "sha256": "557d14a20a622d42f620547b19c41d2f7224bc264f6fc22f64bedb4164efcf50"
+        },
+        {
+          "path": "view8/Simplify/function_context_stack.py",
+          "sha256": "51b6f4f50c45741626ad3a9ad4ddc199ff0288d51c662d18001fd2d2f4f9a810"
+        },
+        {
+          "path": "view8/Simplify/global_scope_replace.py",
+          "sha256": "0f217057142f07503780265d1d13488bfa26ac24ee97a4a1438565017d2fe16e"
+        },
+        {
+          "path": "view8/Simplify/simplify.py",
+          "sha256": "9603ff0fc837720cbb39cc3b27ba1a7e707dba76d3f05203bfb623f746402cf7"
+        },
+        {
+          "path": "view8/Translate/jump_blocks.py",
+          "sha256": "ab0acbff954a1424f3c0804b0942ad84372c5d510b8ae299ae0621cdbf33f044"
+        },
+        {
+          "path": "view8/Translate/translate.py",
+          "sha256": "0e07589374ad38541c2edaf9867e7dc8ad4636eb6dff3532ea62503a01ff9f78"
+        },
+        {
+          "path": "view8/Translate/translate_table.py",
+          "sha256": "717e2a67c3792b09160082efa50f0553f35ef197293e625bf653dedb382cf4a3"
+        },
+        {
+          "path": "view8/view8.py",
+          "sha256": "b3123e4a4651cbd7d810e14c6ac3ec45380e1b50580a4d194eb321e37171918c"
+        },
+        {
+          "path": "d8-12.6.228.30-windows/d8.exe",
+          "sha256": "52fa42d1e890597f8bb6d45c41fb5a845435c9f0605bd5c875d3bd2890c2b9bc"
+        },
+        {
+          "path": "d8-12.6.228.30-windows/snapshot_blob.bin",
+          "sha256": "301c08168fc84cfec5285ee990060839b6c36f268df994155f801ffadaecd1f5"
+        }
+      ]
+    },
+    "verifiedFiles": [
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\d8-12.6.228.30-windows\\d8.exe",
+        "sha256": "52fa42d1e890597f8bb6d45c41fb5a845435c9f0605bd5c875d3bd2890c2b9bc"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\d8-12.6.228.30-windows\\snapshot_blob.bin",
+        "sha256": "301c08168fc84cfec5285ee990060839b6c36f268df994155f801ffadaecd1f5"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\view8.py",
+        "sha256": "b3123e4a4651cbd7d810e14c6ac3ec45380e1b50580a4d194eb321e37171918c"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\parse-LICENSE.txt",
+        "sha256": "2cc9942fe3f52a669c1fbb4e0bae9a27300d56564a382e954845c3256c4cabe2"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\parse.py",
+        "sha256": "e1d17931cb7949647d0ffc57b270a051cc5af42c7e4d003b2c061e776f5b0965"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Parser\\parse_v8cache.py",
+        "sha256": "98ffc4b5b638f955f45fb219b1934a03a03a921fc4c18fcea6f08d495dcc3bc5"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Parser\\sfi_file_parser.py",
+        "sha256": "7ce34163cace6e818f405d0177400c0d24fab36e35644c893e8437dccae444a1"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Parser\\shared_function_info.py",
+        "sha256": "b5c79cdd27fdc2a2480a7b34a5142bd83b92ddda9f563f99d34a5f987d1aae2e"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\README.md",
+        "sha256": "557d14a20a622d42f620547b19c41d2f7224bc264f6fc22f64bedb4164efcf50"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Simplify\\function_context_stack.py",
+        "sha256": "51b6f4f50c45741626ad3a9ad4ddc199ff0288d51c662d18001fd2d2f4f9a810"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Simplify\\global_scope_replace.py",
+        "sha256": "0f217057142f07503780265d1d13488bfa26ac24ee97a4a1438565017d2fe16e"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Simplify\\simplify.py",
+        "sha256": "9603ff0fc837720cbb39cc3b27ba1a7e707dba76d3f05203bfb623f746402cf7"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Translate\\jump_blocks.py",
+        "sha256": "ab0acbff954a1424f3c0804b0942ad84372c5d510b8ae299ae0621cdbf33f044"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Translate\\translate.py",
+        "sha256": "0e07589374ad38541c2edaf9867e7dc8ad4636eb6dff3532ea62503a01ff9f78"
+      },
+      {
+        "path": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\view8\\Translate\\translate_table.py",
+        "sha256": "717e2a67c3792b09160082efa50f0553f35ef197293e625bf653dedb382cf4a3"
+      },
+      {
+        "path": "C:\\Users\\李现\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+        "sha256": "dd5f8d19f6755d6491ee7c4bef2fe35ddd521334cc3ca3ed8fc93ebcadf135d0"
+      }
+    ]
+  },
+  "outputDirectory": "D:\\owl\\owl-re-v1\\owl-mono\\.owl\\research\\decompiled\\jsc-oc3xNN"
+}

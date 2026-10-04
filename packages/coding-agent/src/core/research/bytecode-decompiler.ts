@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getToolsDir } from "../../config.ts";
 
 const ENGINE = "12.6.228.30";
-const RELEASE_URL = "https://github.com/xqy2006/jsc2js/releases/tag/12.6.228.30";
+const RELEASE_URL = "https://github.com/xqy2006/jsc2js/releases/download/12.6.228.30/d8-12.6.228.30-windows.zip";
 const RELEASE_SHA256 = "b8c87c661ebb561db4363ebf48eb9e92288961d233b947f465e1d0303854a6b4";
 const SOURCE_COMMITS = new Set([
 	"d240cec90dd3ea371504c24bb1fb1ea5aad4e81a",
@@ -33,6 +33,7 @@ export interface BytecodeDecompilerManifest {
 	releaseUrl: string;
 	releaseArchiveSha256: string;
 	sourceCommit: string;
+	decoderSourceCommit: string;
 	d8: BytecodeDecompilerFile;
 	snapshot: BytecodeDecompilerFile;
 	python: BytecodeDecompilerFile;
@@ -162,6 +163,7 @@ function parseManifest(value: unknown): BytecodeDecompilerManifest {
 		value.releaseArchiveSha256 !== RELEASE_SHA256 ||
 		typeof value.sourceCommit !== "string" ||
 		!SOURCE_COMMITS.has(value.sourceCommit) ||
+		value.decoderSourceCommit !== "87a35e1e186bd1d86fca6ba500e203a273a6e1bb" ||
 		!manifestFile(value.d8) ||
 		!manifestFile(value.snapshot) ||
 		!manifestFile(value.python) ||
@@ -187,8 +189,10 @@ async function pythonFiles(root: string, signal?: AbortSignal): Promise<string[]
 			if (++entries > 1_024) throw new Error("View8 目录条目超出上限");
 			const path = join(dir, entry.name);
 			if (entry.isSymbolicLink()) throw new Error("View8 目录包含链接");
+			if (entry.name === "__pycache__" || /\.(?:pyc|pyo)$/i.test(entry.name))
+				throw new Error("View8 目录包含未经允许的 Python 缓存");
 			if (entry.isDirectory()) queue.push(path);
-			else if (/\.(?:py|pyc|pyd)$/i.test(entry.name)) files.push(path);
+			else if (/\.(?:py|pyd)$/i.test(entry.name)) files.push(path);
 		}
 	}
 	return files;
@@ -201,7 +205,9 @@ export async function inspectBytecodeDecompilerAvailability(
 ): Promise<BytecodeDecompilerAvailability> {
 	signal?.throwIfAborted();
 	const home = resolve(
-		testRuntime.toolchainHome ?? process.env.OWL_RESEARCH_BYTECODE_HOME ?? join(getToolsDir(), "research-decompilers"),
+		testRuntime.toolchainHome ??
+			process.env.OWL_RESEARCH_BYTECODE_HOME ??
+			join(getToolsDir(), "research-decompilers"),
 	);
 	const result: BytecodeDecompilerAvailability = { status: "toolMissing", toolchainHome: home, engine: ENGINE };
 	if ((testRuntime.platform ?? process.platform) !== "win32") {
@@ -245,7 +251,8 @@ export async function inspectBytecodeDecompilerAvailability(
 			throw new Error("Python 运行时不是普通文件");
 		const pythonStat = await lstat(python);
 		if (pythonStat.size > MAX_OUTPUT) throw new Error("Python 运行时超出读取上限");
-		if (sha256(await readFile(python, { signal })) !== manifest.python.sha256) throw new Error("Python 运行时哈希不匹配");
+		if (sha256(await readFile(python, { signal })) !== manifest.python.sha256)
+			throw new Error("Python 运行时哈希不匹配");
 		verified.push({ path: python, sha256: manifest.python.sha256 });
 		result.status = "available";
 		result.verifiedFiles = verified;
@@ -437,9 +444,16 @@ export async function runBytecodeDecompiler(
 			.map((line) => line.slice(0, 1_024));
 		report.warnings.push(...errors);
 		const recoveryText = await readFile(reconstructed, { encoding: "utf8", signal });
-		if (/unknown bytecode|unsupported opcode|placeholder|func_unknown|stopped after|<unknown>|<Hole>/i.test(recoveryText))
+		if (
+			/unknown bytecode|unsupported opcode|placeholder|func_unknown|stopped after|<unknown>|<Hole>/i.test(
+				recoveryText,
+			)
+		)
 			report.warnings.push("近似代码含未知对象、占位或不支持的指令，需结合原始反汇编审阅");
-		report.status = errors.length > 0 || startCount !== endCount || report.warnings.length > WARNINGS.length ? "partial" : "completed";
+		report.status =
+			errors.length > 0 || startCount !== endCount || report.warnings.length > WARNINGS.length
+				? "partial"
+				: "completed";
 		return report;
 	} catch (error) {
 		report.status = signal?.aborted ? "cancelled" : "failed";

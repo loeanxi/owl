@@ -740,6 +740,103 @@ describe("news translation, prompts and calibration", () => {
 	});
 });
 
+describe("digest report metadata grounding", () => {
+	const reportedAt = "2026-09-30T19:04:37.000Z";
+	const title = "OpenAI 发布小企业 AI 智能体报告并与 ASBDC 合作";
+	const sourceText =
+		"OpenAI released a report about small businesses and AI agents. OpenAI announced a partnership with ASBDC for AI training.";
+	const report = item("report-metadata", {
+		sourceName: "OpenAI · X",
+		sourceKind: "x_search",
+		sourceTier: "T1",
+		title,
+		originalTitle: title,
+		summary: "OpenAI 发布小企业 AI 智能体报告，并与 ASBDC 合作提供 AI 培训。",
+		body: sourceText,
+		originalBody: sourceText,
+		publishedAt: reportedAt,
+		fact: {
+			subject: "OpenAI",
+			action: "released",
+			object: "a report about small businesses and AI agents",
+			occurredAt: null,
+			evidence: ["OpenAI released a report about small businesses and AI agents."],
+		},
+	});
+
+	it.each([
+		{
+			label: "publication date from metadata",
+			digest:
+				"据 2026年9月30日发布的报道，OpenAI 发布小企业 AI 智能体报告，并与 ASBDC 合作提供 AI 培训。资料没有说明这些动作的实际发生日期。",
+		},
+		{
+			label: "platform name from source metadata",
+			digest:
+				"OpenAI 在 X 上发布小企业 AI 智能体报告，并与 ASBDC 合作提供 AI 培训。资料没有说明这些动作的实际发生日期。",
+		},
+	])("accepts a grounded $label without assigning an occurrence date", async (testCase) => {
+		const requests: NewsModelCall[] = [];
+		const call: NewsModelCaller = async (request) => {
+			requests.push(request);
+			return response({ title, digest: testCase.digest });
+		};
+		const result = await composeStoryDigest(story([report], { title }), configuration(), call);
+		expect(result.summary).toBe(testCase.digest);
+		const input = JSON.parse(requests[0]!.user) as {
+			reports: { at: string; source: string; frame: NewsItem["fact"] }[];
+		};
+		expect(input.reports[0]).toMatchObject({ at: reportedAt, source: "OpenAI · X" });
+		expect(input.reports[0]?.frame?.occurredAt).toBeNull();
+		expect(report.fact?.occurredAt).toBeNull();
+	});
+
+	it.each([
+		{ label: "an unsupported institution", digest: "Anthropic 发布小企业 AI 智能体报告。" },
+		{ label: "an unsupported factual number", digest: "OpenAI 的小企业 AI 智能体业务增长 999%。" },
+	])("rejects $label even when it appears in derived analysis metadata", async (testCase) => {
+		const derived = {
+			...report,
+			score: 999,
+			tags: ["Anthropic"],
+			entities: ["anthropic"],
+			fact: {
+				subject: "Anthropic",
+				action: "reported",
+				object: "999% growth",
+				occurredAt: null,
+				evidence: ["An ungrounded analysis annotation claims 999% growth."],
+			},
+		};
+		const received = response({ title, digest: testCase.digest });
+		const call: NewsModelCaller = async () => received;
+		const error = await outputError(composeStoryDigest(story([derived], { title }), configuration(), call));
+		expect(error.purpose).toBe("digest");
+		expect(error.response).toBe(received);
+	});
+
+	it("labels publication time as report metadata rather than an event date or an acronym expansion", async () => {
+		const requests: NewsModelCall[] = [];
+		const call: NewsModelCaller = async (request) => {
+			requests.push(request);
+			return response({ title, digest: report.summary });
+		};
+		await composeStoryDigest(story([report], { title }), configuration(), call);
+		expect(requests[0]?.system).toMatch(/at[\s\S]*报道发布时间/);
+		expect(requests[0]?.system).toMatch(/(?:不能|不得|不要|不允许)[^\n]*(?:事件|发生)/);
+		expect(requests[0]?.system).toMatch(/缩写[\s\S]*(?:扩译|扩展|全称)/);
+	});
+
+	it("does not globally permit a platform name absent from the selected report", async () => {
+		const withoutPlatform = { ...report, sourceKind: "rss" as const, sourceName: "OpenAI 官方发布" };
+		const received = response({ title, digest: "OpenAI 在 X 上发布小企业 AI 智能体报告。" });
+		const call: NewsModelCaller = async () => received;
+		await expect(composeStoryDigest(story([withoutPlatform], { title }), configuration(), call)).rejects.toThrow(
+			NewsOutputError,
+		);
+	});
+});
+
 describe("news paid-output provenance", () => {
 	it.each([
 		{ purpose: "score-1", value: { attentionScore: 101 }, scores: [80, 80], malformed: false },
