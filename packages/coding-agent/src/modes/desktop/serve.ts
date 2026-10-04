@@ -96,6 +96,7 @@ import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import { handleMapHttp } from "./map-http.ts";
 import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
 import { createMapTools } from "./map-tools.ts";
+import { MirrorHub } from "./mirror-hub.ts";
 import { handleNewsHttp } from "./news-http.ts";
 import { callNewsModel } from "./news-model.ts";
 import { createNewsTools } from "./news-tools.ts";
@@ -119,7 +120,6 @@ import type {
 	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
-import { MirrorHub } from "./mirror-hub.ts";
 import {
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
@@ -2775,7 +2775,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.list": {
 				if (!mirror.isSupported()) {
-					reply(ws, request.id, { ok: true, result: { windows: [], supported: false } satisfies MirrorListResult });
+					reply(ws, request.id, {
+						ok: true,
+						result: { windows: [], supported: false } satisfies MirrorListResult,
+					});
 					return;
 				}
 				try {

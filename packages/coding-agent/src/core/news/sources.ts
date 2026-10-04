@@ -253,8 +253,7 @@ function safeArticleUrl(value: string, base: string): string | null {
 export function parseNewsFeed(text: string, base: string, summaryIsBody = false): NewsMaterial[] {
 	// XXE 的载体是实体声明与 DOCTYPE 内部子集；裸的 <!DOCTYPE rss PUBLIC "..."> 只是合法且无害的
 	// RSS 头，过去一并拒绝会让 GitHub Blog 这类正规信源整条采不到。
-	if (/<!\s*ENTITY/i.test(text) || /<!DOCTYPE\s+[^\[>]{0,200}\[/i.test(text))
-		throw new Error("不允许 XML 外部实体");
+	if (/<!\s*ENTITY/i.test(text) || /<!DOCTYPE\s+[^[>]{0,200}\[/i.test(text)) throw new Error("不允许 XML 外部实体");
 	const doc = new DOMParser().parseFromString(text, "text/xml");
 	const entries = [...doc.querySelectorAll("item,entry")];
 	if (!entries.length && !doc.querySelector("rss,feed,RDF")) throw new Error("信源不是 RSS/Atom 文档");

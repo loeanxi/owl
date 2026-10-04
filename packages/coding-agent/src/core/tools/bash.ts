@@ -590,7 +590,8 @@ export function createShellToolDefinition(
 					const status =
 						exitCode === 127
 							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
-							: (exitCode === 1 ? grepNoMatchStatus(command) : undefined) ?? `Command exited with code ${exitCode}`;
+							: ((exitCode === 1 ? grepNoMatchStatus(command) : undefined) ??
+								`Command exited with code ${exitCode}`);
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,

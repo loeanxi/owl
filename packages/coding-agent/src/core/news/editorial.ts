@@ -1116,11 +1116,7 @@ export function groundedNewsText(text: string, corpus: string): boolean {
 	const mentioned = companyNames.filter((names) =>
 		names.some((name) => /\p{Script=Han}/u.test(name) && lower.includes(name)),
 	);
-	return (
-		words.every(named) &&
-		figures.every(figureKnown) &&
-		mentioned.every((names) => companies.includes(names))
-	);
+	return words.every(named) && figures.every(figureKnown) && mentioned.every((names) => companies.includes(names));
 }
 
 function fittedNewsText(text: string, max: number): string {
