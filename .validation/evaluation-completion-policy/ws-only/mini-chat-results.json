@@ -1,0 +1,114 @@
+{
+  "success": true,
+  "actualApp": false,
+  "actualDesktopWebSocket": true,
+  "actualEvaluationService": true,
+  "manualStageGates": true,
+  "fakeModelAndChecks": true,
+  "paidCalls": 0,
+  "cases": [
+    {
+      "name": "new requests use the full model budget and completion-first policy",
+      "success": true,
+      "fullPolicy": {
+        "maxTokens": 65536,
+        "contextWindow": 1000000,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0
+      },
+      "initialStatus": "completed"
+    },
+    {
+      "name": "retry of a legacy capped run adopts current policy and retains the original record",
+      "success": true,
+      "oldProfile": {
+        "maxTokens": 32768,
+        "timeoutMs": 600000
+      },
+      "retryPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "originalRating": {
+        "scores": {
+          "structure": 5,
+          "action": 3,
+          "clarity": 4
+        },
+        "note": "Original offline answer rating"
+      }
+    },
+    {
+      "name": "new content keeps streams alive while identical callbacks still hit the idle watchdog",
+      "success": true,
+      "fixtureIdleTimeoutMs": 1000,
+      "identicalCallbacks": 9,
+      "activeRuntimeMs": 2307,
+      "stalledError": "等待期间没有收到新的思考或正文，连接等待已结束；已有内容已保留。",
+      "activePolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      }
+    }
+  ],
+  "errors": [],
+  "requests": [],
+  "modelCalls": [
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    }
+  ],
+  "screenshots": [],
+  "sourceSha256": {
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "eed16f066144fd6fa00c9ccc44e72f46a42f25d1caeabe5cbd3f1f81233d68f6",
+    "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx": "ad91f0abacce8b45edb1e306ee6079a5041a571940b106c02cacbadc48d4b69e",
+    "apps/desktop/src/features/evaluation/EvaluationElapsed.tsx": "7a285351eb3c81c22eff7b5943cfb268d8a25321b2d40aa6bfb3be7809dc060f",
+    "apps/desktop/src/features/evaluation/useEvaluation.ts": "18b9c25bd2dcc9d2203582270766baeca266573edc3480eddcdac1a8752dcc0c",
+    "packages/coding-agent/src/core/evaluation/service.ts": "5b8f62f2af699367f9cff6768cbab07556379d161ab2357ccbe5c78716aa694a"
+  }
+}

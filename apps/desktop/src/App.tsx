@@ -39,7 +39,7 @@ import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
-import { parseUiLanguage, setUiLanguage, t, useT } from "./i18n/index.ts";
+import { parseUiLanguageSetting, setUiLanguageSetting, t, useT, type UiLanguageSetting } from "./i18n/index.ts";
 import { normPath, samePath } from "./utils/paths.ts";
 import { isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "./project-sidebar-model.ts";
 import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
@@ -610,8 +610,8 @@ export default function App(): React.JSX.Element {
 				setWallpaper(wallpaperSettings);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
-				// 界面语言随 settings.json 启动加载；设置页切换后经 settings.set 持久化。
-				setUiLanguage(parseUiLanguage(settings?.uiLanguage));
+				// 界面语言随 settings.json 启动加载；设置页/左下角菜单切换后经 settings.set 持久化。
+				setUiLanguageSetting(parseUiLanguageSetting(settings?.uiLanguage));
 				// 通知偏好（owlNotifications）：启动时同步进模块级缓存，notifyAgentStatus 据此门控
 				setNotificationPrefs(parseNotificationPrefs(settings?.owlNotifications));
 			})
@@ -1189,9 +1189,12 @@ export default function App(): React.JSX.Element {
 					setConversationViewPersisted("chat");
 					setHelpSection(undefined);
 				}}
-				onOpenSettings={openSettings}
-				onOpenGuide={shortcuts.openGuide}
-				onShowShortcuts={shortcuts.showShortcuts}
+						onOpenSettings={openSettings}
+						onOpenGuide={shortcuts.openGuide}
+						onShowShortcuts={shortcuts.showShortcuts}
+						onPersistUiLanguage={(next: UiLanguageSetting) => {
+							void client.request({ type: "settings.set", values: { uiLanguage: next } }).catch(() => {});
+						}}
 				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); if (view === "research") setResearchMounted(true); }}
 			/>
 			<SessionSidebar
@@ -1204,6 +1207,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={(railView === "research" ? researchSessionId : sessionId) ?? ""}
 				revision={sidebarRev}
 				focus={railView}
+				conversationVisible={!showSettings && (railView === "chat" ? conversationView === "chat" : railView === "research" && researchConversationView === "chat")}
 				minimized={sidebarMinimized || showSettings || (railView !== "chat" && railView !== "research")}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}

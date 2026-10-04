@@ -50,7 +50,10 @@ function SidebarPopup({ anchor, menuId, label, onClose, entries }: BaseProps & {
 		document.addEventListener("mousedown", outside, true); document.addEventListener("keydown", key, true); window.addEventListener("scroll", scroll, true); window.addEventListener("resize", resize);
 		return () => { document.removeEventListener("mousedown", outside, true); document.removeEventListener("keydown", key, true); window.removeEventListener("scroll", scroll, true); window.removeEventListener("resize", resize); };
 	}, [anchor]);
-	const openSub = (index: number, keyboard: boolean): void => { focusChild.current = keyboard; setSubPosition(null); setSub(index); };
+	const openSub = (index: number, keyboard: boolean): void => {
+		if (sub === index && subPosition !== null) { if (keyboard) child.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus({ preventScroll: true }); return; }
+		focusChild.current = keyboard; setSubPosition(null); setSub(index);
+	};
 	const navigate = (event: React.KeyboardEvent<HTMLDivElement>, nested: boolean): void => {
 		const active = document.activeElement as HTMLButtonElement;
 		if (event.key === "ArrowRight" && !nested) {
@@ -69,7 +72,7 @@ function SidebarPopup({ anchor, menuId, label, onClose, entries }: BaseProps & {
 	};
 	const rows = (items: Entry[], nested: boolean): ReactNode => items.map((entry, index) => entry === "separator" ? <div className="owl-project-menu-divider" role="separator" key={`s-${index}`} /> : <button key={index} type="button" role="menuitem" tabIndex={-1} data-entry={index} className={`owl-project-menu-item ${entry.danger ? "is-danger" : ""}`} aria-haspopup={entry.children ? "menu" : undefined} aria-expanded={entry.children ? sub === index : undefined}
 		onMouseEnter={() => { if (!nested) { if (entry.children && sub !== index) openSub(index, false); else if (!entry.children) setSub(null); } }}
-		onClick={() => { if (entry.children) openSub(index, true); else { onClose(false); entry.action?.(); } }}>
+		onClick={() => { if (entry.children) openSub(index, true); else { onClose(true); entry.action?.(); } }}>
 		<span className="owl-project-menu-icon">{entry.icon}</span><span>{entry.label}</span><span className="owl-project-menu-trailing">{entry.children ? <IconChevron /> : entry.selected ? <IconCheck /> : null}</span>
 	</button>);
 	return createPortal(<div className="owl-project-menu-layer" ref={root} data-menu-root>

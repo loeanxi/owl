@@ -104,6 +104,59 @@
 	background: var(--owl-ui-border, var(--color-owl-sidebar-border));
 }
 
+/* 「界面语言」子菜单：触发项右侧飞出（fixed 定位，不受面板 overflow 裁剪）。 */
+.owl-rail-menu-submenu {
+	position: relative;
+}
+
+.owl-rail-menu-submenu > button .owl-rail-menu-current {
+	margin-left: auto;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	font-size: 11px;
+}
+
+.owl-rail-menu-submenu > button .owl-rail-menu-arrow {
+	margin-left: 2px;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+}
+
+.owl-rail-menu-flyout {
+	position: fixed;
+	z-index: 70;
+	min-width: 148px;
+	padding: 5px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	border-radius: 8px;
+	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+	font-size: 12px;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+}
+
+.owl-rail-menu-flyout button {
+	display: flex;
+	width: 100%;
+	min-height: 30px;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 9px;
+	border-radius: 4px;
+	text-align: left;
+	font-size: 12px;
+}
+
+.owl-rail-menu-flyout button:hover,
+.owl-rail-menu-flyout button:focus-visible {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-rail-menu-check {
+	width: 13px;
+	flex: 0 0 13px;
+	text-align: center;
+	font-weight: 600;
+}
+
 .owl-desktop-shell .owl-activity-rail .owl-rail-button {
 	position: relative;
 	width: 32px;

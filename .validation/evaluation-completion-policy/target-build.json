@@ -1,0 +1,20 @@
+[
+  {
+    "module": "model",
+    "sourceSha256": "a5aaaad84179a284a5d471cf9fb210502699db8c352c29b487ea38339d3ee0e7",
+    "outputSha256": "3f7c87c53d45afe9d6e1f4013e2d68f5625be79a83ec61e0bfc7168899cf8efb",
+    "warnings": []
+  },
+  {
+    "module": "policy",
+    "sourceSha256": "2c4a48f1e6288faec442970c6506dcb3b15c1b8636a3d2f6ae6fb78d2c3f958d",
+    "outputSha256": "11d878885c6d23362810318d857dc2c02358652fc096d6c34aec0684b38c4e64",
+    "warnings": []
+  },
+  {
+    "module": "service",
+    "sourceSha256": "5b8f62f2af699367f9cff6768cbab07556379d161ab2357ccbe5c78716aa694a",
+    "outputSha256": "bf8a600bbaa6e8fc8e7a18d5f3ecaef9813dfc3b9599eb3f860b56da70870e7b",
+    "warnings": []
+  }
+]

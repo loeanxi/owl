@@ -21,7 +21,7 @@ import { entryDirPrefix, parseUserPropDefs, weColorToHex, weEvalCondition, weHex
 import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
 import { pickFile, pickFolder } from "../bridge/native.ts";
 import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
-import { getUiLanguage, parseUiLanguage, setUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
+import { getUiLanguage, getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, t, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
@@ -799,7 +799,7 @@ export function SettingsPage({
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
 				if (typeof obj.owlUserImpression === "string") setUserImpression(obj.owlUserImpression);
 				// 设置页打开时同步界面语言（App 启动已拉过一次；JSON 分区手改 settings.json 后以此为准）
-				setUiLanguage(parseUiLanguage(obj.uiLanguage));
+				setUiLanguageSetting(parseUiLanguageSetting(obj.uiLanguage));
 				// 通知偏好同步（App 模块级缓存也一并更新，立即生效）
 				const notif = parseNotificationPrefs(obj.owlNotifications);
 				setNotifPrefs(notif);
@@ -1725,15 +1725,16 @@ export function SettingsPage({
 									<select
 										aria-label={t("settings.general.uiLanguage")}
 										className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
-										value={getUiLanguage()}
+										value={getUiLanguageSetting()}
 										disabled={busy}
 										onChange={(event) => {
-											const next = parseUiLanguage(event.target.value);
-											// 先切语言（全界面即时生效），再落盘 settings.json
-											setUiLanguage(next);
+											const next = parseUiLanguageSetting(event.target.value);
+											// 先切语言（全界面即时生效；system 跟随系统 locale），再落盘 settings.json
+											setUiLanguageSetting(next);
 											void saveSettings({ uiLanguage: next });
 										}}
 									>
+									<option value="system">{t("settings.general.uiLanguageSystem")}</option>
 									<option value="zh">{t("settings.general.uiLanguageZh")}</option>
 									<option value="en">{t("settings.general.uiLanguageEn")}</option>
 								</select>

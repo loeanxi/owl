@@ -45,18 +45,22 @@ export interface EvaluationInvocationResult {
 }
 export type EvaluationInvoker = (request: EvaluationInvocation) => Promise<EvaluationInvocationResult>;
 
-/** Input bounds reserve modest headroom, rather than subtracting the entire advertised output capacity. */
+/** Validate actual replayed input against the shared SDK context protection, without reserving a full output ceiling. */
 export function validateEvaluationConversation(
 	profile: EvaluationProfile,
 	task: EvaluationTask,
 	conversation: EvaluationConversation,
 ): void {
-	const text = [task.prompt, task.input ?? "", conversation.originalAnswer, conversation.prompt];
-	for (const turn of conversation.turns) text.push(turn.prompt, turn.output);
-	const bytes = text.reduce((total, value) => total + Buffer.byteLength(value, "utf8"), 0);
-	const available =
-		profile.model.contextWindow > 0 ? Math.min(200_000, Math.max(0, profile.model.contextWindow - 1024)) : 200_000;
-	if (bytes > available) throw new Error("这段会话已达到上下文长度上限，请新建测评继续");
+	const context = buildEvaluationContext(
+		{ profile, task, conversation, signal: new AbortController().signal, onPartial: () => {} },
+		{
+			api: profile.model.api ?? "openai-completions",
+			provider: profile.provider,
+			id: profile.modelId,
+		},
+	);
+	if (clampMaxTokensToContext(profile.model, normalizeContext(context), 2) < 2)
+		throw new Error("这段会话已达到上下文长度上限，请新建测评继续");
 }
 
 /** Replays text only; provider reasoning signatures and global chat state are never synthesized. */
@@ -75,7 +79,6 @@ export function buildEvaluationContext(
 	};
 	const conversation = request.conversation;
 	if (!conversation) return context;
-	validateEvaluationConversation(request.profile, request.task, conversation);
 	const appendAnswer = (text: string) => {
 		context.messages.push({
 			role: "assistant",
@@ -113,6 +116,7 @@ export function evaluationRequestPolicy(
 ): EvaluationRequestPolicy {
 	if (!Number.isSafeInteger(profile.model.maxTokens) || profile.model.maxTokens < 1)
 		throw new Error("模型输出额度必须是有效正整数，请检查模型配置");
+	if (conversation) validateEvaluationConversation(profile, task, conversation);
 	const context = buildEvaluationContext(
 		{ profile, task, conversation, signal: new AbortController().signal, onPartial: () => {} },
 		{
@@ -199,6 +203,7 @@ export function createEvaluationModelAccess(agentDir: string): {
 				throw new Error("该模型不支持选定思考档位");
 			}
 			const context = buildEvaluationContext(request, model);
+			if (request.conversation) validateEvaluationConversation(request.profile, request.task, request.conversation);
 			const maxTokens = request.requestPolicy?.maxTokens ?? request.profile.maxTokens;
 			if (
 				!Number.isSafeInteger(maxTokens) ||

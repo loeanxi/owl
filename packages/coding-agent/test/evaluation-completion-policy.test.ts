@@ -220,6 +220,7 @@ describe("completion-prioritized evaluation requests", () => {
 		const legacy = store.getRun(initial.id);
 		legacy.profiles[0].maxTokens = 32_768;
 		legacy.profiles[0].timeoutMs = 600_000;
+		delete legacy.results[0].requestPolicy;
 		const original = structuredClone(legacy.results[0]);
 		const frozenProfile = structuredClone(legacy.profiles[0]);
 		store.saveRun(legacy);
@@ -247,5 +248,90 @@ describe("completion-prioritized evaluation requests", () => {
 		expect(saved.results[1]).toMatchObject({
 			requestPolicy: { maxTokens: 131_072, idleTimeoutMs: 120_000, timeoutMs: 0 },
 		});
+	});
+
+	it("does not reserve an entire model output window before a legal followup and records its effective context clamp", async () => {
+		const calls: EvaluationInvocation[] = [];
+		const { service, directory } = await fixture(
+			async (request) => {
+				calls.push(request);
+				return response;
+			},
+			async () => [{ ...model, contextWindow: 64_000, maxTokens: 64_000 }],
+		);
+		const initial = await start(service);
+		await flush();
+		await service.handle({
+			action: "conversation.send",
+			runId: initial.id,
+			resultId: initial.results[0].id,
+			prompt: "Please improve the completed artifact.",
+		});
+		await flush();
+		expect(calls).toHaveLength(2);
+		expect(calls[1].profile.maxTokens).toBeGreaterThan(32_768);
+		expect(calls[1].profile.maxTokens).toBeLessThan(64_000);
+		const saved = JSON.parse(
+			await readFile(join(directory, "model-evaluations", "runs", `${initial.id}.json`), "utf8"),
+		) as EvaluationRun;
+		expect(saved.results[0].followups?.[0].requestPolicy?.maxTokens).toBe(calls[1].profile.maxTokens);
+		expect(saved.profiles[0].maxTokens).toBe(64_000);
+	});
+
+	it("uses the same content idle policy for followups and lets growing thinking complete beyond ten minutes", async () => {
+		vi.useFakeTimers();
+		let request: EvaluationInvocation | undefined;
+		let finish: ((value: EvaluationInvocationResult) => void) | undefined;
+		const { service } = await fixture(async (invocation) => {
+			if (!invocation.conversation) return response;
+			request = invocation;
+			invocation.onPartial("", "thought");
+			return new Promise((done) => {
+				finish = done;
+			});
+		});
+		const initial = await start(service);
+		await flush();
+		await service.handle({
+			action: "conversation.send",
+			runId: initial.id,
+			resultId: initial.results[0].id,
+			prompt: "Please improve it",
+		});
+		await flush();
+		for (let minute = 1; minute <= 12; minute++) {
+			await vi.advanceTimersByTimeAsync(60_000);
+			request?.onPartial("", "thought".repeat(minute + 1));
+			expect((await read(service, initial.id)).results[0].followups[0].status).toBe("running");
+		}
+		finish?.({ ...response, text: "final followup answer" });
+		await flush();
+		expect((await read(service, initial.id)).results[0].followups[0]).toMatchObject({
+			status: "completed",
+			output: "final followup answer",
+		});
+	});
+
+	it("freezes active call policy even when configured capacity changes before a later request", async () => {
+		let current = structuredClone(model);
+		let invoked: EvaluationInvocation | undefined;
+		const { service, directory } = await fixture(
+			async (request) => {
+				invoked = request;
+				return new Promise(() => {});
+			},
+			async () => [structuredClone(current)],
+		);
+		const run = await start(service);
+		await flush();
+		current = { ...current, maxTokens: 131_072 };
+		invoked?.onPartial("still using frozen request", "collected thinking");
+		expect(invoked?.profile.maxTokens).toBe(384_000);
+		await service.handle({ action: "run.cancel", runId: run.id });
+		await flush();
+		const saved = JSON.parse(
+			await readFile(join(directory, "model-evaluations", "runs", `${run.id}.json`), "utf8"),
+		) as EvaluationRun;
+		expect(saved.results[0].requestPolicy?.maxTokens).toBe(384_000);
 	});
 });

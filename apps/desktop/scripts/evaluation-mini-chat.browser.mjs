@@ -16,9 +16,10 @@ import { WebSocket } from "ws";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const desktop = join(repo, "apps/desktop");
 const output = resolve(process.argv[2] ?? join(repo, ".validation/model-evaluation-mini-chat"));
+const policyOnly = process.argv.includes("--policy-only");
 await mkdir(output, { recursive: true });
 const browserPath = [process.env.OWL_BROWSER_TEST_EXECUTABLE, "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Google/Chrome/Application/chrome.exe", "/usr/bin/chromium"].find((path) => path && existsSync(path));
-assert.ok(browserPath, "An installed Chromium browser is required; no browser downloads.");
+if (!policyOnly) assert.ok(browserPath, "An installed Chromium browser is required; no browser downloads.");
 const temporary = await mkdtemp(join(tmpdir(), "owl-evaluation-mini-chat-"));
 assert.equal(dirname(resolve(temporary)), resolve(tmpdir()));
 assert.ok(basename(temporary).startsWith("owl-evaluation-mini-chat-"));
@@ -45,13 +46,14 @@ const loader = createJiti(import.meta.url, { alias: {
   "@earendil-works/pi-ai/providers/radius-config": join(repo, "packages/ai/src/providers/radius-config.ts"),
   "@earendil-works/pi-ai/utils/model-operations": join(repo, "packages/ai/src/utils/model-operations.ts"),
   "@earendil-works/pi-ai/utils/provider-env": join(repo, "packages/ai/src/utils/provider-env.ts"),
+  "@earendil-works/pi-ai/api/simple-options": join(repo, "packages/ai/src/api/simple-options.ts"),
   "@earendil-works/pi-ai": join(repo, "packages/ai/src/index.ts"),
   "@earendil-works/pi-agent-core": join(repo, "packages/agent/src/index.ts"),
   "@earendil-works/pi-codemode/declarations": join(repo, "packages/codemode/src/declarations.ts"),
   "@earendil-works/pi-codemode/source": join(repo, "packages/codemode/src/source.ts"),
   "@earendil-works/pi-codemode": join(repo, "packages/codemode/src/index.ts"),
 } });
-const report = { success: false, actualApp: true, actualDesktopWebSocket: true, actualEvaluationService: true, manualStageGates: true, fakeModelAndChecks: true, paidCalls: 0, cases: [], errors: [], requests: [], modelCalls: [], screenshots: [], sourceSha256: {} };
+const report = { success: false, actualApp: !policyOnly, actualDesktopWebSocket: true, actualEvaluationService: true, manualStageGates: true, fakeModelAndChecks: true, paidCalls: 0, cases: [], errors: [], requests: [], modelCalls: [], screenshots: [], sourceSha256: {} };
 for (const path of ["apps/desktop/src/features/evaluation/EvaluationResults.tsx", "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx", "apps/desktop/src/features/evaluation/EvaluationElapsed.tsx", "apps/desktop/src/features/evaluation/useEvaluation.ts", "packages/coding-agent/src/core/evaluation/service.ts"])
   if (existsSync(join(repo, path))) report.sourceSha256[path] = createHash("sha256").update(await readFile(join(repo, path))).digest("hex");
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260" viewBox="0 0 400 260"><rect width="400" height="260" fill="#d0efff"/><g><circle cx="110" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><circle cx="280" cy="190" r="45" fill="none" stroke="#263a32" stroke-width="4"/><path d="M110 190 160 110 210 190 110 190M210 190 260 100 280 190" fill="none" stroke="#e45555" stroke-width="6"/><ellipse cx="170" cy="90" rx="46" ry="23" fill="white"/><path d="M200 90Q220 24 247 43L300 55 247 67" fill="white" stroke="#263a32"/><circle cx="244" cy="45" r="3" fill="#263a32"/><path d="m248 48 52 7-51 11" fill="#e6ae60"/><animateTransform attributeName="transform" type="translate" values="0 0;2 0;0 0" dur="4s" repeatCount="indefinite"/></g></svg>';
@@ -62,7 +64,7 @@ const pendingFollowups = [];
 let autoOriginals = false;
 let failNextOriginal = false;
 let bridge, vite, browser, page, rpcSocket, runId, startDesktopServer;
-const models = ["alpha", "beta"].map((modelId) => ({ provider: "offline-mini-chat", modelId, name: `Offline ${modelId}`, sourceName: "Offline fixture", supportedThinkingLevels: ["default"], contextWindow: 1000000, maxTokens: 4096, pricing: null }));
+const models = ["alpha", "beta"].map((modelId) => ({ provider: "offline-mini-chat", modelId, name: `Offline ${modelId}`, sourceName: "Offline fixture", supportedThinkingLevels: ["default"], contextWindow: 1000000, maxTokens: 65536, pricing: null }));
 const forbiddenFetch = async () => { throw new Error("Remote calls are forbidden in mini-chat validation"); };
 function finishedResponse(request, text, thinking = originalThinking, error = null) {
   return { text, thinking, stopReason: error ? "error" : "stop", error, usage: null, costUsd: null, actualModel: { provider: request.profile.provider, modelId: request.profile.modelId, responseModel: null, forwardedThinkingLevel: null, providerThinkingLevel: null } };
@@ -71,10 +73,10 @@ const options = {
   port: 0, host: "127.0.0.1", agentDir, cwd, mcpServers: {}, onDiagnostic: () => {},
   news: { fetch: forbiddenFetch, listModels: () => [], callModel: forbiddenFetch, resolveModel: forbiddenFetch },
   evaluation: {
-    timeoutMs: 120000,
+    idleTimeoutMs: 120000,
     listModels: async () => structuredClone(models),
     invoke: async (request) => {
-      report.modelCalls.push({ taskId: request.task.id, modelId: request.profile.modelId, conversation: request.conversation ? structuredClone(request.conversation) : null });
+      report.modelCalls.push({ taskId: request.task.id, modelId: request.profile.modelId, requestPolicy: structuredClone(request.requestPolicy ?? null), conversation: request.conversation ? structuredClone(request.conversation) : null });
       if (!request.conversation && autoOriginals) {
         const failure = failNextOriginal;
         failNextOriginal = false;
@@ -116,7 +118,7 @@ async function rpc(request) {
 }
 async function until(operation, message) {
   const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) { const value = await operation(); if (value) return value; await page.waitForTimeout(50); }
+  while (Date.now() < deadline) { const value = await operation(); if (value) return value; if (page) await page.waitForTimeout(50); else await new Promise((done) => setTimeout(done, 50)); }
   throw new Error(message);
 }
 async function snapshot() { return await rpc({ action: "run.get", runId }); }
@@ -125,7 +127,7 @@ async function check(name, operation) {
   try { Object.assign(item, await operation()); item.success = true; console.log(`PASS ${name}`); }
   catch (error) { item.failure = error.message; console.error(`FAIL ${name}: ${error.message}`); throw error; }
 }
-async function screenshot(name) { await page.screenshot({ path: join(output, name) }); report.screenshots.push(name); }
+async function screenshot(name) { if (!page) return; await page.screenshot({ path: join(output, name) }); report.screenshots.push(name); }
 async function scrollState(index) { return await stream(index).evaluate((element) => ({ top: element.scrollTop, gap: element.scrollHeight - element.scrollTop - element.clientHeight, height: element.clientHeight })); }
 function longText(marker, count) { return `${marker}\n\n${Array.from({ length: count }, (_, index) => `段落 ${index + 1}：这是真实页面里的离线流式验收文字，用来检查独立阅读位置。`).join("\n\n")}`; }
 function originalSnapshot(value) {
@@ -158,14 +160,80 @@ async function availablePort() {
   await new Promise((done, reject) => server.close((error) => error ? reject(error) : done()));
   return address.port;
 }
+async function completionPolicyCases() {
+  autoOriginals = true;
+  const fullPolicy = { maxTokens: models[0].maxTokens, contextWindow: models[0].contextWindow, idleTimeoutMs: 120000, timeoutMs: 0 };
+  let budgetRunId, budgetResultId;
+  await check("new requests use the full model budget and completion-first policy", async () => {
+    const callsBefore = report.modelCalls.length;
+    const started = await rpc({ action: "run.start", name: "Completion budget fixture", taskIds: ["G08"], profiles: [{ id: "budget-profile", provider: models[0].provider, modelId: models[0].modelId, thinkingLevel: "default" }], samples: 1 });
+    budgetRunId = started.id; budgetResultId = started.results[0].id;
+    const run = await until(async () => { const value = await rpc({ action: "run.get", runId: budgetRunId }); return value.status === "completed" ? value : null; }, "Budget fixture must finish naturally");
+    assert.equal(report.modelCalls.length, callsBefore + 1); assert.deepEqual(report.modelCalls.at(-1).requestPolicy, fullPolicy);
+    for (const field of ["requestPolicy", "profile", "usage", "costUsd", "actualModel"]) assert.equal(Object.hasOwn(run.results[0], field), false, `Anonymous policy leaked ${field}`);
+    const stored = JSON.parse(await readFile(join(agentDir, "model-evaluations", "runs", `${budgetRunId}.json`), "utf8"));
+    assert.equal(stored.profiles[0].maxTokens, models[0].maxTokens); assert.equal(stored.profiles[0].timeoutMs, 0); assert.deepEqual(stored.results[0].requestPolicy, fullPolicy);
+    const scores = Object.fromEntries(run.tasks[0].rubric.map((item, index) => [item.id, [5, 3, 4][index]]));
+    await rpc({ action: "run.reveal", runId: budgetRunId, taskId: "G08", sample: 1, mode: "score", ratings: { [budgetResultId]: { scores, note: "Original offline answer rating" } } });
+    return { fullPolicy, initialStatus: run.results[0].status };
+  });
+  await check("retry of a legacy capped run adopts current policy and retains the original record", async () => {
+    const path = join(agentDir, "model-evaluations", "runs", `${budgetRunId}.json`); const legacy = JSON.parse(await readFile(path, "utf8"));
+    legacy.profiles[0].maxTokens = 32768; legacy.profiles[0].timeoutMs = 600000; delete legacy.profiles[0].idleTimeoutMs; delete legacy.results[0].requestPolicy;
+    const oldProfile = structuredClone(legacy.profiles[0]); const oldResult = structuredClone(legacy.results[0]);
+    const port = bridge.port; rpcSocket.terminate(); rpcSocket = undefined; await bridge.close(); bridge = undefined; await writeFile(path, JSON.stringify(legacy));
+    bridge = await startDesktopServer({ ...options, port }); await connectRpc();
+    await rpc({ action: "run.retry", runId: budgetRunId, resultId: budgetResultId });
+    const retried = await until(async () => { const value = await rpc({ action: "run.get", runId: budgetRunId }); return value.status === "completed" && value.results.length === 2 ? value : null; }, "Legacy retry must finish");
+    const added = retried.results.find((value) => value.retryOf === budgetResultId); assert.ok(added); assert.deepEqual(added.requestPolicy, fullPolicy); assert.deepEqual(report.modelCalls.at(-1).requestPolicy, fullPolicy);
+    const stored = JSON.parse(await readFile(path, "utf8")); assert.deepEqual(stored.profiles[0], oldProfile); assert.deepEqual(stored.results.find((value) => value.id === budgetResultId), oldResult);
+    assert.deepEqual(retried.results.find((value) => value.id === budgetResultId).rating, oldResult.rating);
+    if (page) { await page.reload(); await entry().click(); await historyRun("Completion budget fixture"); await area().locator(".eval-attempt-bar select").selectOption(added.id); await screenshot("18-legacy-retry-current-policy.png"); }
+    return { oldProfile: { maxTokens: oldProfile.maxTokens, timeoutMs: oldProfile.timeoutMs }, retryPolicy: added.requestPolicy, originalRating: oldResult.rating };
+  });
+  await check("new content keeps streams alive while identical callbacks still hit the idle watchdog", async () => {
+    let finishActive;
+    let identicalCallbacks = 0;
+    const idleTimeoutMs = 1000;
+    const invoke = async (request) => {
+      report.modelCalls.push({ taskId: request.task.id, modelId: request.profile.modelId, requestPolicy: structuredClone(request.requestPolicy ?? null), conversation: null });
+      return new Promise((done, reject) => {
+        let thinking = request.profile.id === "active-policy" ? "开始持续思考" : "重复思考";
+        const body = request.profile.id === "active-policy" ? "" : "已收到但不再增长的正文";
+        request.onPartial(body, thinking);
+        const interval = setInterval(() => { if (request.profile.id === "active-policy") thinking += "，新增内容"; else identicalCallbacks++; request.onPartial(body, thinking); }, request.profile.id === "active-policy" ? 200 : 100);
+        if (request.profile.id === "active-policy") finishActive = () => { clearInterval(interval); done(finishedResponse(request, originalBody, thinking)); };
+        request.signal.addEventListener("abort", () => { clearInterval(interval); reject(request.signal.reason ?? new Error("Policy fixture aborted")); }, { once: true });
+      });
+    };
+    const port = bridge.port; rpcSocket.terminate(); rpcSocket = undefined; await bridge.close(); bridge = undefined;
+    bridge = await startDesktopServer({ ...options, port, evaluation: { ...options.evaluation, idleTimeoutMs, invoke } }); await connectRpc();
+    const active = await rpc({ action: "run.start", name: "Completion active fixture", taskIds: ["G08"], profiles: [{ id: "active-policy", provider: models[0].provider, modelId: models[0].modelId, thinkingLevel: "default" }], samples: 1 });
+    const duplicate = await rpc({ action: "run.start", name: "Completion duplicate fixture", taskIds: ["G08"], profiles: [{ id: "identical-policy", provider: models[0].provider, modelId: models[0].modelId, thinkingLevel: "default" }], samples: 1 });
+    if (page) await page.waitForTimeout(2300); else await new Promise((done) => setTimeout(done, 2300));
+    const stillActive = await rpc({ action: "run.get", runId: active.id }); const stalled = await rpc({ action: "run.get", runId: duplicate.id });
+    assert.equal(stillActive.results[0].status, "running"); assert.ok(stillActive.results[0].thinking.length > "开始持续思考".length); assert.equal(stalled.results[0].status, "failed"); assert.equal(stalled.results[0].output, "已收到但不再增长的正文"); assert.ok(identicalCallbacks > 1);
+    assert.match(stalled.results[0].error, /没有新增|没有收到新|无新增|空闲|idle|超时/); assert.equal(Object.hasOwn(stillActive.results[0], "requestPolicy"), false);
+    if (page) { await page.reload(); await entry().click(); await historyRun("Completion active fixture"); await card(0).locator(".eval-thinking-body").filter({ hasText: "新增内容" }).waitFor(); await screenshot("19-active-beyond-idle-window.png"); }
+    assert.ok(finishActive); finishActive();
+    const final = await until(async () => { const value = await rpc({ action: "run.get", runId: active.id }); return value.status === "completed" ? value : null; }, "Active stream must finish after producer completion");
+    assert.equal(final.results[0].status, "completed"); assert.equal(final.results[0].error, null); assert.equal(final.results[0].output, originalBody);
+    await rpc({ action: "run.reveal", runId: duplicate.id, taskId: "G08", sample: 1, mode: "skip" });
+    if (page) { await historyRun("Completion duplicate fixture"); await card(0).locator(".eval-chat-failure").waitFor(); await screenshot("20-identical-callback-idle-failure.png"); }
+    const activeStored = JSON.parse(await readFile(join(agentDir, "model-evaluations", "runs", `${active.id}.json`), "utf8")); assert.equal(activeStored.results[0].requestPolicy.idleTimeoutMs, idleTimeoutMs); assert.equal(activeStored.results[0].requestPolicy.maxTokens, models[0].maxTokens); assert.equal(activeStored.results[0].requestPolicy.timeoutMs, 0);
+    return { fixtureIdleTimeoutMs: idleTimeoutMs, identicalCallbacks, activeRuntimeMs: final.results[0].elapsedMs, stalledError: stalled.results[0].error, activePolicy: activeStored.results[0].requestPolicy };
+  });
+}
 try {
   ({ startDesktopServer } = await loader.import(join(repo, "packages/coding-agent/src/modes/desktop/serve.ts")));
   bridge = await startDesktopServer(options);
   process.env.PI_RE_BRIDGE = `ws://127.0.0.1:${bridge.port}`;
+  await connectRpc();
+  if (policyOnly) await completionPolicyCases();
+  else {
   vite = await createViteServer({ root: desktop, configFile: join(desktop, "vite.config.ts"), server: { host: "127.0.0.1", port: await availablePort(), strictPort: true } });
   await vite.listen();
   const origin = vite.resolvedUrls.local[0]; report.origin = origin; report.bridgePort = bridge.port;
-  await connectRpc();
   browser = await pw.chromium.launch({ executablePath: browserPath, headless: true });
   page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   page.setDefaultTimeout(10000);
@@ -181,6 +249,7 @@ try {
   await area().locator("#eval-select-G08").check();
   for (const model of models) await area().locator(".eval-model-choice").filter({ hasText: model.name }).getByText("默认", { exact: true }).click();
   await area().getByRole("textbox", { name: "测评名称", exact: true }).fill("Mini-chat isolated fixture");
+  await area().getByText("完成优先", { exact: true }).waitFor(); await area().locator('[data-run-policy="completion"]').filter({ hasText: "连续 2 分钟没有新内容" }).waitFor();
   await area().getByRole("button", { name: "开始测评", exact: true }).click();
   await until(() => pendingOriginals.length === 2, "Both fake original calls must start");
   runId = (await rpc({ action: "run.list" }))[0].id;
@@ -191,7 +260,7 @@ try {
       assert.ok((await card(index).locator(".eval-user-bubble").textContent()).includes(run.tasks[0].prompt));
       assert.equal(await stream(index).count(), 1); assert.equal(await composer(index).isDisabled(), true);
     }
-    for (const value of run.results) for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, field), false, `Anonymous wire leaked ${field}`);
+    for (const value of run.results) for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel", "requestPolicy"]) assert.equal(Object.hasOwn(value, field), false, `Anonymous wire leaked ${field}`);
     for (const model of models) assert.equal(await cards().filter({ hasText: model.name }).count(), 0);
     await screenshot("01-independent-waiting.png");
   });
@@ -216,7 +285,7 @@ try {
       await page.waitForTimeout(1250);
       const after = await Promise.all(ids.map((id, index) => timerSnapshot(replyTimer(index, id))));
       for (const [index, value] of after.entries()) { assert.equal(value.state, "running"); assert.ok(value.ms >= before[index].ms + 800); assert.match(value.text, /^已运行 (?:\d+:)?\d{2}:\d{2}$/); }
-      for (const value of (await snapshot()).results) for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel"]) assert.equal(Object.hasOwn(value, field), false);
+      for (const value of (await snapshot()).results) for (const field of ["profile", "profileId", "usage", "costUsd", "durationMs", "actualModel", "requestPolicy"]) assert.equal(Object.hasOwn(value, field), false);
       await screenshot("12-anonymous-thinking-runtime.png"); return { before, after };
     });
     const growingThinking = `${longText("第一批模型思考", 70)}\n\n思考最新尾段`;
@@ -422,6 +491,8 @@ try {
     assert.deepEqual((await snapshot()).results.find((value) => value.id === aId).rating, initialSnapshot.results.find((value) => value.id === aId).rating);
     await screenshot("17-unknown-runtime.png"); return { timer };
   });
+  await completionPolicyCases();
+  }
   assert.equal(report.errors.length, 0, report.errors.join("\n")); report.success = report.cases.every((value) => value.success);
 } catch (error) {
   report.failure = error.stack ?? error.message; process.exitCode = 1;
@@ -431,5 +502,5 @@ try {
   for (const [key, value] of Object.entries(previousEnvironment)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   await rm(temporary, { recursive: true, force: true });
   await writeFile(join(output, "mini-chat-results.json"), `${JSON.stringify(report, null, 2)}\n`);
-  await writeFile(join(output, "mini-chat-report.md"), `# Mini-chat evaluation browser validation\n\nSuccess: ${report.success}\n\nActual App, desktop WebSocket, EvaluationService and store. Manually gated offline provider; checks are fake UI/RPC boundaries. Zero paid calls, no real user data/auth, and no production server was restarted.\n\n${report.cases.map((value) => `- ${value.success ? "PASS" : "FAIL"}: ${value.name}${value.failure ? ` — ${value.failure}` : ""}`).join("\n")}\n\n${report.failure ?? ""}\n`);
+  await writeFile(join(output, "mini-chat-report.md"), `# Mini-chat evaluation browser validation\n\nSuccess: ${report.success}\n\n${policyOnly ? "Actual desktop WebSocket, EvaluationService and store; App was not started." : "Actual App, desktop WebSocket, EvaluationService and store."} Manually gated offline provider; checks are fake UI/RPC boundaries. Zero paid calls, no real user data/auth, and no production server was restarted.\n\n${report.cases.map((value) => `- ${value.success ? "PASS" : "FAIL"}: ${value.name}${value.failure ? ` — ${value.failure}` : ""}`).join("\n")}\n\n${report.failure ?? ""}\n`);
 }

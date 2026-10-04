@@ -1,0 +1,1414 @@
+{
+  "success": true,
+  "actualApp": true,
+  "actualDesktopWebSocket": true,
+  "actualEvaluationService": true,
+  "manualStageGates": true,
+  "fakeModelAndChecks": true,
+  "paidCalls": 0,
+  "cases": [
+    {
+      "name": "each anonymous model has its own original prompt, stream and composer",
+      "success": true
+    },
+    {
+      "name": "queued requests show queue status without a fabricated runtime",
+      "success": true,
+      "queuedTimer": {
+        "ms": null,
+        "state": "queued",
+        "text": "待运行"
+      }
+    },
+    {
+      "name": "provider thinking and Markdown reply appear while the original run is unfinished",
+      "success": true,
+      "thinkingTailGeometry": [
+        {
+          "top": 577.890625,
+          "bottom": 593.890625,
+          "viewportTop": 317.578125,
+          "viewportBottom": 682,
+          "height": 3108,
+          "scrollHeight": 3108,
+          "overflowY": "visible"
+        },
+        {
+          "top": 577.890625,
+          "bottom": 593.890625,
+          "viewportTop": 317.578125,
+          "viewportBottom": 682,
+          "height": 3108,
+          "scrollHeight": 3108,
+          "overflowY": "visible"
+        }
+      ]
+    },
+    {
+      "name": "anonymous thinking timers advance without revealing identity or usage",
+      "success": true,
+      "before": [
+        {
+          "ms": 769,
+          "state": "running",
+          "text": "已运行 00:00"
+        },
+        {
+          "ms": 771,
+          "state": "running",
+          "text": "已运行 00:00"
+        }
+      ],
+      "after": [
+        {
+          "ms": 2272,
+          "state": "running",
+          "text": "已运行 00:02"
+        },
+        {
+          "ms": 2274,
+          "state": "running",
+          "text": "已运行 00:02"
+        }
+      ]
+    },
+    {
+      "name": "one reader can pause scrolling without affecting the other conversation",
+      "success": true
+    },
+    {
+      "name": "completed inline artifacts and drawers grade only the first answer",
+      "success": true,
+      "previewGeometry": {
+        "x": 0,
+        "y": 0,
+        "right": 420,
+        "bottom": 190,
+        "width": 420,
+        "height": 190
+      }
+    },
+    {
+      "name": "completed anonymous timers freeze at their own server runtime",
+      "success": true,
+      "timers": [
+        {
+          "ms": 4409,
+          "state": "finished",
+          "text": "耗时 00:04"
+        },
+        {
+          "ms": 4409,
+          "state": "finished",
+          "text": "耗时 00:04"
+        }
+      ]
+    },
+    {
+      "name": "A sends a real follow-up request, streams in its chat, and leaves B unchanged",
+      "success": true
+    },
+    {
+      "name": "a follow-up has its own advancing clock while the first answer stays frozen",
+      "success": true,
+      "original": {
+        "ms": 4409,
+        "state": "finished",
+        "text": "耗时 00:04"
+      },
+      "before": {
+        "ms": 14,
+        "state": "running",
+        "text": "已运行 00:00"
+      },
+      "after": {
+        "ms": 1021,
+        "state": "running",
+        "text": "已运行 00:01"
+      }
+    },
+    {
+      "name": "follow-up cancellation retains text and the next request forwards completed history only",
+      "success": true
+    },
+    {
+      "name": "cancelled follow-up timers freeze without changing the original rating",
+      "success": true,
+      "timer": {
+        "ms": 58,
+        "state": "finished",
+        "text": "耗时 00:00"
+      }
+    },
+    {
+      "name": "sample and chat navigation preserve the unsent message and first-answer summary",
+      "success": true
+    },
+    {
+      "name": "a failed attempt keeps its partial answer and retry appends a separate attempt",
+      "success": true
+    },
+    {
+      "name": "switching retained attempts selects the runtime of that exact answer",
+      "success": true,
+      "selected": [
+        {
+          "id": "3cee9bc4-bad5-4a68-bb8a-c066fd700c38",
+          "runtime": {
+            "ms": 3,
+            "state": "finished",
+            "text": "耗时 00:00"
+          }
+        },
+        {
+          "id": "685e327e-8dc2-4387-a645-0b67dd83c21f",
+          "runtime": {
+            "ms": 1253,
+            "state": "finished",
+            "text": "耗时 00:01"
+          }
+        },
+        {
+          "id": "83537a89-cb70-4f52-894d-803215a2b995",
+          "runtime": {
+            "ms": 2,
+            "state": "finished",
+            "text": "耗时 00:00"
+          }
+        }
+      ]
+    },
+    {
+      "name": "at 1280 by 860 both mini-chat composers stay inside the visible viewport",
+      "success": true,
+      "composerGeometry": [
+        {
+          "top": 682,
+          "bottom": 793,
+          "height": 111,
+          "viewport": 860
+        },
+        {
+          "top": 682,
+          "bottom": 793,
+          "height": 111,
+          "viewport": 860
+        }
+      ]
+    },
+    {
+      "name": "isolated server restart restores followups, original scores, samples and attempt order",
+      "success": true
+    },
+    {
+      "name": "legacy results with unknown timestamps display unknown runtime honestly",
+      "success": true,
+      "timer": {
+        "ms": null,
+        "state": "unknown",
+        "text": "耗时未知"
+      }
+    },
+    {
+      "name": "new requests use the full model budget and completion-first policy",
+      "success": true,
+      "fullPolicy": {
+        "maxTokens": 65536,
+        "contextWindow": 1000000,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0
+      },
+      "initialStatus": "completed"
+    },
+    {
+      "name": "retry of a legacy capped run adopts current policy and retains the original record",
+      "success": true,
+      "oldProfile": {
+        "maxTokens": 32768,
+        "timeoutMs": 600000
+      },
+      "retryPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "originalRating": {
+        "scores": {
+          "structure": 5,
+          "action": 3,
+          "clarity": 4
+        },
+        "note": "Original offline answer rating"
+      }
+    },
+    {
+      "name": "new content keeps streams alive while identical callbacks still hit the idle watchdog",
+      "success": true,
+      "fixtureIdleTimeoutMs": 1000,
+      "identicalCallbacks": 9,
+      "activeRuntimeMs": 2992,
+      "stalledError": "等待期间没有收到新的思考或正文，连接等待已结束；已有内容已保留。",
+      "activePolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      }
+    }
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.start",
+        "name": "Mini-chat isolated fixture",
+        "taskIds": [
+          "G08"
+        ],
+        "profiles": [
+          {
+            "id": "[\"offline-mini-chat\",\"alpha\",\"default\"]",
+            "provider": "offline-mini-chat",
+            "modelId": "alpha",
+            "thinkingLevel": "default"
+          },
+          {
+            "id": "[\"offline-mini-chat\",\"beta\",\"default\"]",
+            "provider": "offline-mini-chat",
+            "modelId": "beta",
+            "thinkingLevel": "default"
+          }
+        ],
+        "samples": 1
+      },
+      "id": "req-31"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-32"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-33"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-34"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-35"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-36"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-37"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-38"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-39"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-40"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-41"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-42"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-43"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-44"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-45"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-46"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-47"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-48"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-49"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-50"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-51"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-52"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-54"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-55"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-57"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-58"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.reveal",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "taskId": "G08",
+        "sample": 1,
+        "mode": "score",
+        "ratings": {
+          "39f8a24a-93fe-40d5-b246-706425cf959b": {
+            "scores": {
+              "structure": 5,
+              "action": 3,
+              "clarity": 4
+            },
+            "note": "首次回答 0 的评价"
+          },
+          "e4efba1b-405a-41a7-be08-6c07fd232abd": {
+            "scores": {
+              "structure": 5,
+              "action": 3,
+              "clarity": 4
+            },
+            "note": "首次回答 1 的评价"
+          }
+        }
+      },
+      "id": "req-59"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-60"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-61"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-62"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "conversation.send",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "resultId": "39f8a24a-93fe-40d5-b246-706425cf959b",
+        "prompt": "只解释脚蹬如何绕曲柄转动。"
+      },
+      "id": "req-63"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-64"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-65"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-66"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-67"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-68"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-69"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-70"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "conversation.send",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "resultId": "39f8a24a-93fe-40d5-b246-706425cf959b",
+        "prompt": "第二次追问，稍后取消。"
+      },
+      "id": "req-71"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-72"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-73"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "conversation.cancel",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "resultId": "39f8a24a-93fe-40d5-b246-706425cf959b",
+        "followupId": "b18fd635-32a8-43f2-8255-6f924fb7277c"
+      },
+      "id": "req-74"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-75"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-76"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-77"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "conversation.send",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "resultId": "39f8a24a-93fe-40d5-b246-706425cf959b",
+        "prompt": "第三次追问，接着第一次完成的回答。"
+      },
+      "id": "req-78"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-79"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-80"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-81"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.append",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "samples": 3
+      },
+      "id": "req-82"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-83"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-84"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-85"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-87"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-88"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-90"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-91"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-92"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-93"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.retry",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75",
+        "resultId": "685e327e-8dc2-4387-a645-0b67dd83c21f"
+      },
+      "id": "req-94"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-95"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-96"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-97"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-31"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-32"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-33"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-34"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-35"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-36"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-37"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-31"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-32"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-33"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-34"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-35"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-36"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "36d0e39c-389f-45a4-b372-a7ac4cf74c06"
+      },
+      "id": "req-37"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-38"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "f7082773-bc4a-435d-b2fa-35224fde0f75"
+      },
+      "id": "req-39"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-40"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "29ea1a22-e16e-421a-ba5a-6dd471d110e7"
+      },
+      "id": "req-31"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-32"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-33"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "29ea1a22-e16e-421a-ba5a-6dd471d110e7"
+      },
+      "id": "req-34"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-35"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-36"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "29ea1a22-e16e-421a-ba5a-6dd471d110e7"
+      },
+      "id": "req-37"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-38"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-45"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "29ea1a22-e16e-421a-ba5a-6dd471d110e7"
+      },
+      "id": "req-46"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-53"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "d70b829f-401c-4953-ad23-0f3424edc6bb"
+      },
+      "id": "req-31"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-32"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-33"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "d70b829f-401c-4953-ad23-0f3424edc6bb"
+      },
+      "id": "req-34"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-35"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-36"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "d70b829f-401c-4953-ad23-0f3424edc6bb"
+      },
+      "id": "req-37"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-38"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "8f9f7f9f-b3d3-46d9-8e4b-16bd790c803a"
+      },
+      "id": "req-39"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-40"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "8f9f7f9f-b3d3-46d9-8e4b-16bd790c803a"
+      },
+      "id": "req-41"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-42"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-43"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "8f9f7f9f-b3d3-46d9-8e4b-16bd790c803a"
+      },
+      "id": "req-44"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-45"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "d70b829f-401c-4953-ad23-0f3424edc6bb"
+      },
+      "id": "req-46"
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-47"
+    }
+  ],
+  "modelCalls": [
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": {
+        "originalAnswer": "我会先建立车架和轮子，再让脚蹬围绕曲柄转动。\n\n**首次回答的作品**\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"260\" viewBox=\"0 0 400 260\"><rect width=\"400\" height=\"260\" fill=\"#d0efff\"/><g><circle cx=\"110\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><circle cx=\"280\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><path d=\"M110 190 160 110 210 190 110 190M210 190 260 100 280 190\" fill=\"none\" stroke=\"#e45555\" stroke-width=\"6\"/><ellipse cx=\"170\" cy=\"90\" rx=\"46\" ry=\"23\" fill=\"white\"/><path d=\"M200 90Q220 24 247 43L300 55 247 67\" fill=\"white\" stroke=\"#263a32\"/><circle cx=\"244\" cy=\"45\" r=\"3\" fill=\"#263a32\"/><path d=\"m248 48 52 7-51 11\" fill=\"#e6ae60\"/><animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;2 0;0 0\" dur=\"4s\" repeatCount=\"indefinite\"/></g></svg>\n```",
+        "turns": [],
+        "prompt": "只解释脚蹬如何绕曲柄转动。"
+      }
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": {
+        "originalAnswer": "我会先建立车架和轮子，再让脚蹬围绕曲柄转动。\n\n**首次回答的作品**\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"260\" viewBox=\"0 0 400 260\"><rect width=\"400\" height=\"260\" fill=\"#d0efff\"/><g><circle cx=\"110\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><circle cx=\"280\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><path d=\"M110 190 160 110 210 190 110 190M210 190 260 100 280 190\" fill=\"none\" stroke=\"#e45555\" stroke-width=\"6\"/><ellipse cx=\"170\" cy=\"90\" rx=\"46\" ry=\"23\" fill=\"white\"/><path d=\"M200 90Q220 24 247 43L300 55 247 67\" fill=\"white\" stroke=\"#263a32\"/><circle cx=\"244\" cy=\"45\" r=\"3\" fill=\"#263a32\"/><path d=\"m248 48 52 7-51 11\" fill=\"#e6ae60\"/><animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;2 0;0 0\" dur=\"4s\" repeatCount=\"indefinite\"/></g></svg>\n```",
+        "turns": [
+          {
+            "prompt": "只解释脚蹬如何绕曲柄转动。",
+            "output": "**脚蹬运动**：曲柄中心固定，脚蹬绕中心转动。"
+          }
+        ],
+        "prompt": "第二次追问，稍后取消。"
+      }
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": {
+        "originalAnswer": "我会先建立车架和轮子，再让脚蹬围绕曲柄转动。\n\n**首次回答的作品**\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"260\" viewBox=\"0 0 400 260\"><rect width=\"400\" height=\"260\" fill=\"#d0efff\"/><g><circle cx=\"110\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><circle cx=\"280\" cy=\"190\" r=\"45\" fill=\"none\" stroke=\"#263a32\" stroke-width=\"4\"/><path d=\"M110 190 160 110 210 190 110 190M210 190 260 100 280 190\" fill=\"none\" stroke=\"#e45555\" stroke-width=\"6\"/><ellipse cx=\"170\" cy=\"90\" rx=\"46\" ry=\"23\" fill=\"white\"/><path d=\"M200 90Q220 24 247 43L300 55 247 67\" fill=\"white\" stroke=\"#263a32\"/><circle cx=\"244\" cy=\"45\" r=\"3\" fill=\"#263a32\"/><path d=\"m248 48 52 7-51 11\" fill=\"#e6ae60\"/><animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;2 0;0 0\" dur=\"4s\" repeatCount=\"indefinite\"/></g></svg>\n```",
+        "turns": [
+          {
+            "prompt": "只解释脚蹬如何绕曲柄转动。",
+            "output": "**脚蹬运动**：曲柄中心固定，脚蹬绕中心转动。"
+          }
+        ],
+        "prompt": "第三次追问，接着第一次完成的回答。"
+      }
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "beta",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 120000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    },
+    {
+      "taskId": "G08",
+      "modelId": "alpha",
+      "requestPolicy": {
+        "maxTokens": 65536,
+        "idleTimeoutMs": 1000,
+        "timeoutMs": 0,
+        "contextWindow": 1000000
+      },
+      "conversation": null
+    }
+  ],
+  "screenshots": [
+    "01-independent-waiting.png",
+    "11-queued-no-runtime.png",
+    "12-anonymous-thinking-runtime.png",
+    "02a-visible-thinking-tail.png",
+    "02-thinking-and-answer.png",
+    "03-independent-scroll.png",
+    "13-completed-runtime-frozen.png",
+    "04-final-mini-conversations.png",
+    "14-independent-followup-runtime.png",
+    "05-followup-a-only.png",
+    "15-cancelled-runtime-frozen.png",
+    "06-cancelled-and-completed-followups.png",
+    "07-first-answer-summary.png",
+    "16-corresponding-attempt-runtime.png",
+    "08-retained-retry-attempts.png",
+    "09-1280-composers.png",
+    "10-restored-conversations.png",
+    "17-unknown-runtime.png",
+    "18-legacy-retry-current-policy.png",
+    "19-active-beyond-idle-window.png",
+    "20-identical-callback-idle-failure.png"
+  ],
+  "sourceSha256": {
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "eed16f066144fd6fa00c9ccc44e72f46a42f25d1caeabe5cbd3f1f81233d68f6",
+    "apps/desktop/src/features/evaluation/EvaluationResultCard.tsx": "ad91f0abacce8b45edb1e306ee6079a5041a571940b106c02cacbadc48d4b69e",
+    "apps/desktop/src/features/evaluation/EvaluationElapsed.tsx": "7a285351eb3c81c22eff7b5943cfb268d8a25321b2d40aa6bfb3be7809dc060f",
+    "apps/desktop/src/features/evaluation/useEvaluation.ts": "18b9c25bd2dcc9d2203582270766baeca266573edc3480eddcdac1a8752dcc0c",
+    "packages/coding-agent/src/core/evaluation/service.ts": "5b8f62f2af699367f9cff6768cbab07556379d161ab2357ccbe5c78716aa694a"
+  },
+  "origin": "http://127.0.0.1:55013/",
+  "bridgePort": 55011
+}

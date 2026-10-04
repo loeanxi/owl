@@ -70,7 +70,7 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 						onClick={() => setOpen((v) => !v)}
 						className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
 					>
-						<IconChevron className={`h-3.5 w-3.5 transition-transform ${open ? "" : "rotate-180"}`} />
+						<IconChevron className={`h-3.5 w-3.5 transition-transform ${open ? "-rotate-90" : "rotate-90"}`} />
 					</button>
 					<button
 						type="button"

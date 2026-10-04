@@ -242,6 +242,7 @@ export function SessionSidebar({
 	refreshKey,
 	revision,
 	focus,
+	conversationVisible = true,
 	minimized,
 	onToggleMinimized,
 	onNewChat,
@@ -265,6 +266,8 @@ export function SessionSidebar({
 	revision: number;
 	/** rail 当前视图；变化时把会话列表滚回顶部。 */
 	focus: RailView;
+	/** Background answers remain unread until their conversation is visible. */
+	conversationVisible?: boolean;
 	/** 收起时完全隐藏侧栏，展开入口由 App 顶栏提供。 */
 	minimized: boolean;
 	onToggleMinimized: () => void;
@@ -406,9 +409,10 @@ export function SessionSidebar({
 		if (client && connected) void refresh();
 	}, [client, connected, refreshKey, revision]); // eslint-disable-line react-hooks/exhaustive-deps
 	useEffect(() => {
+		if (!conversationVisible) return;
 		const row = allSessions.find((entry) => entry.id === activeId && matchesSessionScope(entry, sessionScope));
 		if (row) markSessionsRead(sessionScope, [row]);
-	}, [activeId, allSessions, sessionScope]);
+	}, [activeId, allSessions, sessionScope, conversationVisible]);
 
 	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；
@@ -543,7 +547,7 @@ export function SessionSidebar({
 
 	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
 	const sessionMatches = (row: SessionRow): boolean =>
-		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search);
+		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search) || (row.cwd ? projectLabel(row.cwd).toLowerCase().includes(search) : false);
 
 	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
 
@@ -606,7 +610,7 @@ export function SessionSidebar({
 		} else if (recentSort === "oldest") rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
 		else rows.sort(byLatest);
 		return rows.slice(0, RECENT_LIMIT);
-	}, [sessions, search, recentSort]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [sessions, search, recentSort, projectRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	/** 行内操作保留键盘入口，样式统一在侧边栏内控制。 */
 	const rowBtn = "owl-sidebar-action";
