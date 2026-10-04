@@ -2785,7 +2785,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "mirror.list": {
-				console.error("[diag] mirror.list entered");
+				console.error("[diag]", Date.now(), "mirror.list entered");
 				if (!mirror.isSupported()) {
 					reply(ws, request.id, {
 						ok: true,
@@ -2794,9 +2794,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				try {
-					console.error("[diag] listWindows starting");
+					console.error("[diag]", Date.now(), "starting");
 					const windows = await mirror.listWindows();
-					console.error("[diag] listWindows done:", windows.length);
+					console.error("[diag]", Date.now(), "done:", windows.length);
 					reply(ws, request.id, { ok: true, result: { windows, supported: true } satisfies MirrorListResult });
 				} catch (error) {
 					reply(ws, request.id, {
