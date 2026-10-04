@@ -17,6 +17,7 @@ type Snapshot = {
 	cwd: string;
 	messages: Array<{ role: string }>;
 	messageEntryIds?: Array<string | undefined>;
+	name?: string;
 };
 
 /** 真桥上的 session.fork：以目标条目为末梢复制新会话文件并挂载，原文件一字不动。 */
@@ -108,7 +109,7 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(resumed.result?.messages).toHaveLength(2);
 		expect(resumed.result?.messageEntryIds).toEqual(["e-user-1", "e-asst-1"]);
 
-		// 以 assistant 条目为末梢分支：新会话 id 不同、历史同构
+		// 以 assistant 条目为末梢分支：新会话 id 不同、历史同构、名字 = fork1 · 来自「源会话全名」
 		const forked = await request<Snapshot>(first, {
 			type: "session.fork",
 			sessionId: "session-fork-src",
@@ -120,6 +121,7 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(forkedId).not.toBe("session-fork-src");
 		expect(forked.result?.messages).toHaveLength(2);
 		expect(forked.result?.messageEntryIds).toEqual(["e-user-1", "e-asst-1"]);
+		expect(forked.result?.name).toBe("fork1 · 来自「你好」");
 
 		// 磁盘：恰好多一个会话文件；头部 parentSession 指回原文件、消息按序拷贝；原文件一字未动
 		const files = (await readdir(sessionDir)).filter((file) => file.endsWith(".jsonl")).sort();
@@ -133,6 +135,8 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(branchLines[0]).toMatchObject({ type: "session", id: forkedId, parentSession: resolve(sourceFile) });
 		expect(branchLines[1]).toMatchObject({ type: "message", id: "e-user-1" });
 		expect(branchLines[2]).toMatchObject({ type: "message", id: "e-asst-1" });
+		// 名字落在 session_info 条目里（持久化，重启后仍在）
+		expect(branchLines[3]).toMatchObject({ type: "session_info", name: "fork1 · 来自「你好」" });
 		// 原文件：原有条目原样保留；挂载期间的 setup 只允许追加状态条目，绝不能动消息
 		const sourceLines = (await readFile(sourceFile, "utf8")).trim().split("\n");
 		expect(sourceLines.slice(0, lines.length).map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual(
@@ -142,20 +146,34 @@ it("session.fork branches at the target entry into a new mounted session and lea
 			expect((JSON.parse(extra) as { type?: string }).type).not.toBe("message");
 		}
 
+		// 同源再分支一次：像真实使用那样先从侧边栏重新打开源会话（fork 时源运行时已卸载），
+		// 再分支 → 序号自然递增（fork2），不会与 fork1 撞号
+		const remounted = await request<Snapshot>(first, { type: "session.resume", sessionId: "session-fork-src" });
+		expect(remounted.ok).toBe(true);
+		const forkedAgain = await request<Snapshot>(first, {
+			type: "session.fork",
+			sessionId: "session-fork-src",
+			entryId: "e-asst-1",
+		});
+		expect(forkedAgain.ok).toBe(true);
+		expect(forkedAgain.result?.name).toBe("fork2 · 来自「你好」");
+		expect(forkedAgain.result?.sessionId).not.toBe(forkedId);
+
 		// 分支点不存在 → 明确报错而不是静默
 		const missing = await request<{ sessionId?: string }>(first, {
 			type: "session.fork",
-			sessionId: forkedId!,
+			sessionId: forkedAgain.result!.sessionId,
 			entryId: "e-missing",
 		});
 		expect(missing.ok).toBe(false);
 		expect(missing.error).toContain("分支目标消息不存在");
 
-		// 原会话仍可恢复（分支时旧运行时已卸载，文件未动）
+		// 原会话仍可恢复（分支时旧运行时已卸载，文件未动）；源会话没有自定义名
 		const resumedAgain = await request<Snapshot>(first, { type: "session.resume", sessionId: "session-fork-src" });
 		expect(resumedAgain.ok).toBe(true);
 		expect(resumedAgain.result?.sessionId).toBe("session-fork-src");
 		expect(resumedAgain.result?.messages).toHaveLength(2);
+		expect(resumedAgain.result?.name).toBeUndefined();
 	} finally {
 		for (const socket of sockets.splice(0)) socket.close();
 		await bridge.close();

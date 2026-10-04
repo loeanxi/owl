@@ -374,6 +374,8 @@ export interface SessionSnapshotPayload {
 	messageEntryIds: (string | undefined)[];
 	thinkingLevel?: unknown;
 	header: unknown;
+	/** 会话显示名（session_info，如分支会话的「fork2 · 来自「你好」」）；无自定义名时缺省 */
+	name?: string;
 	/** Persisted mailbox scope; these sessions keep only mailbox tools when resumed. */
 	mailContext?: MailAgentContext;
 	/** Persisted research scope, restored from JSONL rather than inferred from UI state. */

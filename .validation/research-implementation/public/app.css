@@ -2779,6 +2779,13 @@ html[data-owl-theme="light"] .owl-chat-surface {
   font-size: 12px;
   font-weight: 600;
 }
+.owl-turn-duration {
+  color: var(--owl-reading-muted);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: .85;
+  user-select: none;
+}
 .owl-assistant-mark {
   width: 24px;
   height: 24px;
@@ -13628,6 +13635,13 @@ html[data-owl-theme=light] .owl-map-workspace .map-conversation-error {
   border-radius: 9px;
   padding: 20px;
 }
+.owl-news-source-editor > .owl-news-source-fields {
+  display: grid;
+  gap: 15px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
 .owl-news-confirm {
   width: 100%;
   padding: 12px;
@@ -18175,6 +18189,7 @@ html[data-owl-theme=light] .owl-project-error {
   line-height: 1.8;
   margin: 6px 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .research-findings button,
 .research-sources button {

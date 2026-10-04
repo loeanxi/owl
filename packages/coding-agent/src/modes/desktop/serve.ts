@@ -952,6 +952,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			messageEntryIds,
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
+			name: sessionManager.getSessionName(),
 			...(mailContext ? { mailContext } : {}),
 			...(researchMode ? { researchMode, approvalMode: getResearchApprovalMode(sessionManager) } : {}),
 		};
@@ -1936,20 +1937,36 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: "分支目标消息不存在" });
 					return;
 				}
-				try {
-					const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
-					const branchFile = branched.createBranchedSession(request.entryId);
-					if (!branchFile) throw new Error("分支会话创建失败");
-					await unmountSessionRuntime(request.sessionId);
-					await mountSession(ws, request.id, {
-						sessionManager: SessionManager.open(branchFile, sourceManager.getSessionDir()),
-						agentDir: defaultAgentDir(),
-						provider: request.provider,
-						model: request.model,
-						thinkingLevel: request.thinkingLevel,
-						approvalMode: request.approvalMode ?? existing.approvalMode.current,
-					});
-				} catch (error) {
+			try {
+				const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
+				const branchFile = branched.createBranchedSession(request.entryId);
+				if (!branchFile) throw new Error("分支会话创建失败");
+				// 分支命名：fork<N> · 来自「<源会话全名>」。N 取同源分支现有序号的最大值 +1
+				//（删过中间分支也不会撞号）；源会话全名 = 它的显示名，没有则用首条用户消息。
+				const sourceRows = await SessionManager.listAll(sourceManager.getSessionDir());
+				const sourcePath = resolve(sourceFile);
+				const siblings = sourceRows.filter(
+					(row) => row.parentSessionPath && resolve(row.parentSessionPath) === sourcePath,
+				);
+				let lastForkNumber = 0;
+				for (const sibling of siblings) {
+					const match = /^fork(\d+) · /.exec(sibling.name ?? "");
+					if (match) lastForkNumber = Math.max(lastForkNumber, Number(match[1]));
+				}
+				const parent = sourceRows.find((row) => resolve(row.path) === sourcePath);
+				const parentTitle =
+					(parent?.name ?? parent?.firstMessage ?? "").trim().replace(/\s+/g, " ").slice(0, 80) || "原会话";
+				branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${parentTitle}」`);
+				await unmountSessionRuntime(request.sessionId);
+				await mountSession(ws, request.id, {
+					sessionManager: branched,
+					agentDir: defaultAgentDir(),
+					provider: request.provider,
+					model: request.model,
+					thinkingLevel: request.thinkingLevel,
+					approvalMode: request.approvalMode ?? existing.approvalMode.current,
+				});
+			} catch (error) {
 					reply(ws, request.id, {
 						ok: false,
 						error: `分支失败：${error instanceof Error ? error.message : String(error)}`,

@@ -55,7 +55,7 @@
 .research-findings article, .research-sources article { padding: 12px; margin-top: 10px; border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel); }
 .research-findings article > span { font-size: 10px; color: var(--color-owl-accent); }
 .research-findings article > span[data-kind=inference], .research-findings article > span[data-kind=unverified] { color: #bfa270; }
-.research-findings p, .research-sources p { font-size: 12px; color: var(--color-owl-muted); line-height: 1.8; margin: 6px 0; white-space: pre-wrap; }
+.research-findings p, .research-sources p { font-size: 12px; color: var(--color-owl-muted); line-height: 1.8; margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .research-findings button, .research-sources button { font-size: 10px; color: var(--color-owl-accent); margin-top: 6px; }
 .research-sources h3 { font-size: 12px; font-weight: 500; line-height: 1.7; margin: 0 0 6px; overflow-wrap: anywhere; }
 .research-sources small { display: block; font-size: 10px; line-height: 1.8; color: var(--color-owl-faint); overflow-wrap: anywhere; }

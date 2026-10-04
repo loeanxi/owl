@@ -148,22 +148,17 @@ const BUILTIN_SECTION_TITLES: Record<string, TextKey> = {
 	cwd: "settings.prompts.secCwd",
 };
 
-/** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀；分支会话加「· 分支」后缀。 */
+/** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。无名分支会话
+ * 追加「· 分支」（fork 时已持久化「forkN · 来自「…」」名字的不重复加）。 */
 function sessionDisplayName(row: SessionListRow): string {
 	const named = row.name?.trim();
+	if (named) return named;
+	const first = row.firstMessage?.trim().replace(/\s+/g, " ");
 	let base: string;
-	if (named) {
-		base = named;
-	} else {
-		const first = row.firstMessage?.trim().replace(/\s+/g, " ");
-		if (first) {
-			base = first.length > 48 ? `${first.slice(0, 48)}…` : first;
-		} else {
-			base = row.id ? t("settings.sessionFallback", { id: row.id.slice(0, 8) }) : t("settings.sessionUnnamed");
-		}
-	}
-	const suffix = ` · ${t("app.branchSuffix")}`;
-	return row.parentSessionPath && !base.endsWith(suffix) ? `${base}${suffix}` : base;
+	if (first) base = first.length > 48 ? `${first.slice(0, 48)}…` : first;
+	else if (row.id) base = t("settings.sessionFallback", { id: row.id.slice(0, 8) });
+	else base = t("settings.sessionUnnamed");
+	return row.parentSessionPath ? `${base} · ${t("app.branchSuffix")}` : base;
 }
 
 /** 距自动删除还剩几天（保留期 - 已归档天数）。 */

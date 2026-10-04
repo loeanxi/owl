@@ -17237,8 +17237,10 @@
         "chat.msgLike": "\u8D5E",
         "chat.msgDislike": "\u8E29",
         "chat.msgRegenerate": "\u91CD\u65B0\u751F\u6210",
+        "chat.msgBranch": "\u5728\u65B0\u5BF9\u8BDD\u4E2D\u5206\u652F",
         "chat.msgUsage": "\u7528\u91CF {n} tok",
         "chat.msgUsageTitle": "\u8F93\u5165 {input} \xB7 \u8F93\u51FA {output} \xB7 \u7F13\u5B58\u8BFB {cacheRead} \xB7 \u7F13\u5B58\u5199 {cacheWrite}",
+        "chat.turnDuration": "\u5DF2\u8017\u65F6 {n}",
         "chat.msgEdit": "\u7F16\u8F91",
         "chat.msgEditAria": "\u7F16\u8F91\u8FD9\u6761\u6D88\u606F\u5E76\u91CD\u65B0\u53D1\u9001",
         "chat.msgEditSend": "\u53D1\u9001",
@@ -17328,6 +17330,10 @@
         "app.compactDone": "\u538B\u7F29\u5B8C\u6210\u3002",
         "app.compactFailed": "\u538B\u7F29\u5931\u8D25",
         "app.sendFailed": "\u53D1\u9001\u5931\u8D25",
+        "app.branchFailed": "\u5206\u652F\u5931\u8D25",
+        "app.branchSuffix": "\u5206\u652F",
+        "app.branchTool": "\u5728\u65B0\u5BF9\u8BDD\u4E2D\u5206\u652F",
+        "app.branchDone": "\u5DF2\u4ECE\u539F\u4F1A\u8BDD\u5206\u652F\u51FA\u65B0\u5BF9\u8BDD\uFF0C\u4EE5\u4E0A\u5386\u53F2\u539F\u6837\u4FDD\u7559\uFF1B\u539F\u4F1A\u8BDD\u4E0D\u53D7\u5F71\u54CD\uFF0C\u53EF\u968F\u65F6\u4ECE\u4FA7\u8FB9\u680F\u5207\u56DE\u3002",
         "app.sendFailedMsg": "\u6D88\u606F\u53D1\u9001\u5931\u8D25",
         "app.newConversation": "\u65B0\u5BF9\u8BDD",
         "app.connectionOffline": "\u672C\u5730\u8FDE\u63A5\u4E0D\u53EF\u7528",
@@ -18815,8 +18821,10 @@
         "chat.msgLike": "Good response",
         "chat.msgDislike": "Bad response",
         "chat.msgRegenerate": "Regenerate",
+        "chat.msgBranch": "Branch into a new conversation",
         "chat.msgUsage": "Usage {n} tok",
         "chat.msgUsageTitle": "Input {input} \xB7 Output {output} \xB7 Cache read {cacheRead} \xB7 Cache write {cacheWrite}",
+        "chat.turnDuration": "Elapsed {n}",
         "chat.msgEdit": "Edit",
         "chat.msgEditAria": "Edit this message and resend",
         "chat.msgEditSend": "Send",
@@ -18906,6 +18914,10 @@
         "app.compactDone": "Compaction finished.",
         "app.compactFailed": "Compaction failed",
         "app.sendFailed": "Send failed",
+        "app.branchFailed": "Branch failed",
+        "app.branchSuffix": "branch",
+        "app.branchTool": "Branch into a new conversation",
+        "app.branchDone": "Branched from the original session; the history above is preserved and the original session is untouched (switch back anytime from the sidebar).",
         "app.sendFailedMsg": "Failed to send message",
         "app.newConversation": "New conversation",
         "app.connectionOffline": "Local connection unavailable",
@@ -375821,6 +375833,12 @@ ${h3.join(`
             reject3(new Error("\u90AE\u7BB1\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u91CD\u8BD5"));
           }, 12e4);
         }
+        if (request.type === "session.fork") {
+          pending.timer = setTimeout(() => {
+            this.pending.delete(id40);
+            reject3(new Error("\u5206\u652F\u8BF7\u6C42\u8D85\u65F6\uFF1A\u6865\u53EF\u80FD\u662F\u65E7\u7248\u672C\uFF0C\u8BF7\u91CD\u542F\u5E94\u7528\u540E\u91CD\u8BD5"));
+          }, 15e3);
+        }
         if (request.type === "evaluation.request") {
           pending.timer = setTimeout(() => {
             this.pending.delete(id40);
@@ -375913,12 +375931,13 @@ ${h3.join(`
   }
 
   // apps/desktop/src/features/research/research-results.ts
+  var RESULT_TOOLS = /* @__PURE__ */ new Set(["research_publish", "research_executable", "research_model_lab"]);
   function objectOf(value2) {
     return value2 !== null && typeof value2 === "object" && !Array.isArray(value2) ? value2 : void 0;
   }
   function researchResultOf(value2) {
     const result = objectOf(value2);
-    if (!result || typeof result.id !== "string" || !result.id.trim() || typeof result.createdAt !== "string" || typeof result.title !== "string" || !result.title.trim() || typeof result.summary !== "string" || !result.summary.trim() || !["crawl", "web", "model", "osint"].includes(String(result.mode)) || !["sample", "partial", "complete"].includes(String(result.status)) || !Array.isArray(result.columns) || !Array.isArray(result.rows) || !Array.isArray(result.sources) || !Array.isArray(result.findings)) return void 0;
+    if (!result || typeof result.id !== "string" || !result.id.trim() || typeof result.createdAt !== "string" || typeof result.title !== "string" || !result.title.trim() || typeof result.summary !== "string" || !result.summary.trim() || !["crawl", "web", "binary", "model", "osint"].includes(String(result.mode)) || !["sample", "partial", "complete"].includes(String(result.status)) || !Array.isArray(result.columns) || !Array.isArray(result.rows) || !Array.isArray(result.sources) || !Array.isArray(result.findings)) return void 0;
     const keys4 = /* @__PURE__ */ new Set();
     for (const item of result.columns) {
       const column2 = objectOf(item);
@@ -375946,7 +375965,7 @@ ${h3.join(`
     const results = [];
     for (const item of messages) {
       const message2 = objectOf(item);
-      if (message2?.role !== "toolResult" || message2.toolName !== "research_publish" || message2.isError === true) continue;
+      if (message2?.role !== "toolResult" || !RESULT_TOOLS.has(String(message2.toolName)) || message2.isError === true) continue;
       const result = researchResultOf(objectOf(message2.details)?.researchResult);
       if (result) results.push(result);
     }
@@ -375957,7 +375976,7 @@ ${h3.join(`
     if (!event3) return [];
     if (event3.type === "agent_end" && Array.isArray(event3.messages)) return publishedResults(event3.messages);
     if (event3.type === "message_end") return publishedResults([event3.message]);
-    if (event3.type !== "tool_execution_end" || event3.toolName !== "research_publish" || event3.isError === true) return [];
+    if (event3.type !== "tool_execution_end" || !RESULT_TOOLS.has(String(event3.toolName)) || event3.isError === true) return [];
     const result = researchResultOf(objectOf(objectOf(event3.result)?.details)?.researchResult);
     return result ? [result] : [];
   }
@@ -376144,6 +376163,16 @@ ${content2}` : path4;
 
   // apps/desktop/src/hooks/transcript.ts
   var runBoundaries = /* @__PURE__ */ new WeakMap();
+  var assistantEndedAt = /* @__PURE__ */ new Map();
+  var ASSISTANT_ENDED_AT_MAX = 1e3;
+  function rememberAssistantEndedAt(startedAt, endedAt) {
+    while (assistantEndedAt.size >= ASSISTANT_ENDED_AT_MAX) {
+      const oldest = assistantEndedAt.keys().next().value;
+      if (oldest === void 0) break;
+      assistantEndedAt.delete(oldest);
+    }
+    assistantEndedAt.set(startedAt, Math.max(endedAt, assistantEndedAt.get(startedAt) ?? 0));
+  }
   function formatProviderError(raw) {
     if (!raw) return void 0;
     const match4 = raw.match(/^\s*(\d{3})\s*[:\-]\s*(\{[\s\S]*\})\s*$/);
@@ -376237,15 +376266,26 @@ ${content2}` : path4;
     if (boundary !== void 0 && next3 !== entries2 && !runBoundaries.has(next3)) runBoundaries.set(next3, boundary);
     return next3;
   }
-  function alignUserEntryIds(previous, messages) {
-    const previousIds = previous.filter((entry) => entry.kind === "user" && entry.entryId).map((entry) => entry.entryId);
-    const userCount = messages.filter((message2) => message2.role === "user").length;
-    if (userCount === 0) return void 0;
-    const start4 = previousIds.length - userCount;
-    if (start4 < 0) return void 0;
-    const tail = previousIds.slice(start4);
-    let index = 0;
-    return messages.map((message2) => message2.role === "user" ? tail[index++] : void 0);
+  function alignMessageEntryIds(previous, messages) {
+    const queues = { user: [], assistant: [] };
+    for (const entry of previous) {
+      if ((entry.kind === "user" || entry.kind === "assistant") && entry.entryId) queues[entry.kind].push(entry.entryId);
+    }
+    const counts = { user: 0, assistant: 0 };
+    for (const message2 of messages) {
+      if (message2.role === "user" || message2.role === "assistant") counts[message2.role] += 1;
+    }
+    if (counts.user === 0) return void 0;
+    const cursors = {
+      user: queues.user.length - counts.user,
+      assistant: queues.assistant.length - counts.assistant
+    };
+    return messages.map((message2) => {
+      if (message2.role !== "user" && message2.role !== "assistant") return void 0;
+      const queue = queues[message2.role];
+      const index = cursors[message2.role]++;
+      return index >= 0 ? queue[index] : void 0;
+    });
   }
   function applyRetryEvent(state5, message2) {
     const event3 = message2.event ?? {};
@@ -376362,12 +376402,16 @@ ${content2}` : path4;
         current5.segments = segmentsOf(message3.content);
         current5.thinking = (message3.content ?? []).filter((part) => part.type === "thinking").map((part) => part.thinking ?? "").join("\n") || current5.thinking;
         current5.error = message3.stopReason === "error" || message3.stopReason === "aborted" ? formatProviderError(message3.errorMessage) : void 0;
+        const endedAt = Date.now();
+        const startedAt = timestampOf(message3);
+        if (startedAt !== void 0) rememberAssistantEndedAt(startedAt, endedAt);
         return [
           ...entries2.slice(0, index),
           {
             ...current5,
             text: text5 || current5.text,
-            timestamp: timestampOf(message3) ?? current5.timestamp,
+            timestamp: startedAt ?? current5.timestamp,
+            ...startedAt !== void 0 ? { endedAt } : {},
             usage: usageOf(message3) ?? current5.usage,
             model: modelOf(message3) ?? current5.model
           },
@@ -376376,7 +376420,7 @@ ${content2}` : path4;
       }
       case "agent_end": {
         const messages = event3.messages ?? [];
-        const rebuilt = rebuild(messages, alignUserEntryIds(entries2, messages));
+        const rebuilt = rebuild(messages, alignMessageEntryIds(entries2, messages));
         const runBoundary = runBoundaries.get(entries2);
         if (runBoundary !== void 0) {
           const prefix = entries2.slice(0, runBoundary);
@@ -376422,6 +376466,8 @@ ${content2}` : path4;
           ...summarizeToolCall(part.name, part.arguments),
           status: message2.stopReason === "aborted" ? "cancelled" : message2.stopReason === "error" ? "error" : "pending"
         }));
+        const startedAt = timestampOf(message2);
+        const endedAt = startedAt !== void 0 ? assistantEndedAt.get(startedAt) : void 0;
         entries2.push({
           kind: "assistant",
           text: textOf(message2.content),
@@ -376429,7 +376475,9 @@ ${content2}` : path4;
           tools,
           segments: segmentsOf(message2.content),
           error: message2.stopReason === "error" || message2.stopReason === "aborted" ? formatProviderError(message2.errorMessage) : void 0,
-          ...timestampOf(message2) !== void 0 ? { timestamp: timestampOf(message2) } : {},
+          ...typeof entryId === "string" ? { entryId } : {},
+          ...startedAt !== void 0 ? { timestamp: startedAt } : {},
+          ...endedAt !== void 0 ? { endedAt } : {},
           ...usageOf(message2) !== void 0 ? { usage: usageOf(message2) } : {},
           ...modelOf(message2) !== void 0 ? { model: modelOf(message2) } : {}
         });
@@ -376880,6 +376928,14 @@ ${content2}` : path4;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Svg, { className, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M21 3v5h-5" })
+    ] });
+  }
+  function IconBranch({ className }) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Svg, { className, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "6", x2: "6", y1: "3", y2: "15" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "18", cy: "6", r: "3" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "6", cy: "18", r: "3" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M18 9a9 9 0 0 1-9 9" })
     ] });
   }
 
@@ -392981,6 +393037,16 @@ ${file.lines.map((line2) => `${line2.kind === "add" ? "+" : line2.kind === "del"
     if (count4 >= 1e3) return `${compactNumber(count4 / 1e3)}k`;
     return String(count4);
   }
+  function addUsage(base5, add5) {
+    if (!add5) return base5;
+    if (!base5) return { ...add5 };
+    return {
+      input: base5.input + add5.input,
+      output: base5.output + add5.output,
+      cacheRead: base5.cacheRead + add5.cacheRead,
+      cacheWrite: base5.cacheWrite + add5.cacheWrite
+    };
+  }
   function formatClock(timestamp2) {
     const date2 = new Date(timestamp2);
     return `${String(date2.getHours()).padStart(2, "0")}:${String(date2.getMinutes()).padStart(2, "0")}`;
@@ -393028,6 +393094,7 @@ ${file.lines.map((line2) => `${line2.kind === "add" ? "+" : line2.kind === "del"
       if (firstAssistant === -1) firstAssistant = index;
       turnLastIndex = index;
       if (entry.timestamp !== void 0) endTs = Math.max(endTs, entry.timestamp);
+      if (entry.endedAt !== void 0) endTs = Math.max(endTs, entry.endedAt);
       for (const tool of entry.tools) {
         if (tool.finishedAt !== void 0) endTs = Math.max(endTs, tool.finishedAt);
       }
@@ -393280,7 +393347,7 @@ ${preview}` }),
       }
     );
   }
-  function AssistantFooter({ entry, storageKey, canRegenerate, onRegenerate }) {
+  function AssistantFooter({ entry, storageKey, usage: usageOverride, canRegenerate, onRegenerate, canBranch, onBranch }) {
     const [feedback, setFeedback] = (0, import_react26.useState)(() => {
       loadFeedback();
       return feedbackByMessage.get(storageKey);
@@ -393294,7 +393361,7 @@ ${preview}` }),
       saveFeedback();
       setFeedback(next3);
     };
-    const usage = entry.usage;
+    const usage = usageOverride ?? entry.usage;
     const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
     const usageTitle = usage ? t("chat.msgUsageTitle", {
       input: formatTokenCount(usage.input),
@@ -393326,6 +393393,17 @@ ${preview}` }),
           "aria-label": t("chat.msgDislike"),
           onClick: () => toggle("down"),
           children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(IconThumbDown, { className: "h-3.5 w-3.5" })
+        }
+      ),
+      canBranch && onBranch && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "owl-msg-action",
+          title: t("chat.msgBranch"),
+          "aria-label": t("chat.msgBranch"),
+          onClick: onBranch,
+          children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(IconBranch, { className: "h-3.5 w-3.5" })
         }
       ),
       canRegenerate && onRegenerate && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
@@ -393447,7 +393525,7 @@ ${preview}` }),
       )
     ] });
   }
-  function buildRows({ entries: entries2, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, busy }) {
+  function buildRows({ entries: entries2, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, onBranch, busy }) {
     const rows = [];
     const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries2, cwd, { includeCode: true }) : void 0;
     let lastAssistantIndex = -1;
@@ -393460,6 +393538,41 @@ ${preview}` }),
       }
     }
     let lastFooter;
+    let turnFooters = [];
+    let turnUsage;
+    let lastUserIndex = -1;
+    for (let i7 = entries2.length - 1; i7 >= 0; i7--) {
+      if (entries2[i7].kind === "user") {
+        lastUserIndex = i7;
+        break;
+      }
+    }
+    const assistantFooter = (entry, index, allowRegenerate, usage) => /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+      AssistantFooter,
+      {
+        entry,
+        usage,
+        storageKey: `${sessionKey}:msg${entry.timestamp ?? index}`,
+        canRegenerate: allowRegenerate,
+        onRegenerate: allowRegenerate ? onRegenerate : void 0,
+        canBranch: !busy && entry.entryId !== void 0 && onBranch !== void 0,
+        onBranch: entry.entryId !== void 0 && onBranch ? () => onBranch(entry.entryId) : void 0
+      }
+    );
+    const finishTurnFooters = () => {
+      const totalUsage = turnUsage;
+      turnUsage = void 0;
+      if (turnFooters.length === 0) return;
+      const keep = turnFooters[turnFooters.length - 1];
+      for (const item of turnFooters) {
+        if (item === keep) continue;
+        const position6 = rows.indexOf(item.row);
+        if (position6 >= 0) rows.splice(position6, 1);
+      }
+      keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage);
+      lastFooter = { ...keep, usage: totalUsage };
+      turnFooters = [];
+    };
     const turnDurations = turnDurationsOf(entries2, streaming);
     let turn = 0;
     let assistantStarted = false;
@@ -393475,6 +393588,7 @@ ${preview}` }),
     };
     entries2.forEach((entry, index) => {
       if (entry.kind === "user") {
+        finishTurnFooters();
         flushTools();
         assistantStarted = false;
         const artifacts = historicalArtifacts?.get(index);
@@ -393496,6 +393610,7 @@ ${preview}` }),
         return;
       }
       const seenTools = /* @__PURE__ */ new Set();
+      turnUsage = addUsage(turnUsage, entry.usage);
       const segments = entry.segments ?? [
         ...entry.thinking ? [{ kind: "thinking", text: entry.thinking }] : [],
         ...entry.text ? [{ kind: "text", text: entry.text }] : [],
@@ -393552,28 +393667,21 @@ ${preview}` }),
         flushTools();
         rows.push({ key: "error-" + index, content: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("div", { className: "owl-chat-error", role: "alert", children: entry.error }) });
       }
-      if (segments.some((segment2) => segment2.kind === "text" && segment2.text.trim() !== "") && (lastAssistantIndex === -1 || index !== lastAssistantIndex)) {
+      if (segments.some((segment2) => segment2.kind === "text" && segment2.text.trim() !== "") && (lastAssistantIndex === -1 || index !== lastAssistantIndex) && !(streaming && lastUserIndex !== -1 && index > lastUserIndex)) {
         flushTools();
         const row = {
           key: "footer-" + index,
           compact: true,
-          content: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(AssistantFooter, { entry, storageKey: `${sessionKey}:msg${entry.timestamp ?? index}`, canRegenerate: false })
+          content: assistantFooter(entry, index, false, turnUsage)
         };
         rows.push(row);
-        lastFooter = { row, index, entry };
+        turnFooters.push({ row, index, entry });
       }
     });
     flushTools();
+    finishTurnFooters();
     if (lastFooter && canRegenerate && onRegenerate) {
-      lastFooter.row.content = /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
-        AssistantFooter,
-        {
-          entry: lastFooter.entry,
-          storageKey: `${sessionKey}:msg${lastFooter.entry.timestamp ?? lastFooter.index}`,
-          canRegenerate: true,
-          onRegenerate
-        }
-      );
+      lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage);
     }
     return rows;
   }
@@ -393637,17 +393745,28 @@ ${preview}` }),
     ] });
   }
   function ResponseActivity({ entries: entries2, activity }) {
+    const [now3, setNow] = (0, import_react26.useState)(() => Date.now());
+    (0, import_react26.useEffect)(() => {
+      const timer5 = window.setInterval(() => setNow(Date.now()), 1e3);
+      return () => window.clearInterval(timer5);
+    }, []);
     if (activity === "idle") return null;
     let executing = false;
+    let userTs;
     for (let index = entries2.length - 1; index >= 0; index--) {
       const entry = entries2[index];
-      if (entry.kind === "user") break;
+      if (entry.kind === "user") {
+        userTs = entry.timestamp;
+        break;
+      }
       if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
     }
     const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
+    const elapsed = userTs !== void 0 ? formatDuration(Math.max(0, now3 - userTs)) : void 0;
     return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("div", { className: "owl-response-activity", "data-state": activity, role: "status", children: [
       /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("img", { src: "/owl.svg", alt: "", "aria-hidden": "true", className: "owl-response-mark" }),
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: label })
+      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: label }),
+      elapsed && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { className: "owl-turn-duration", children: t("chat.turnDuration", { n: elapsed }) })
     ] });
   }
   function ScreenshotDock({
@@ -393694,7 +393813,8 @@ ${preview}` }),
     client,
     onOpenReview,
     onRegenerate,
-    onEditMessage
+    onEditMessage,
+    onBranch
   }) {
     const t21 = useT();
     const emptyHeadingId = (0, import_react26.useId)();
@@ -393750,9 +393870,10 @@ ${preview}` }),
         canRegenerate,
         onRegenerate,
         onEditMessage,
+        onBranch,
         busy
       }),
-      [entries2, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, busy]
+      [entries2, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, onBranch, busy]
     );
     const SCREENSHOT_TOOL_PATTERN = /^(browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
     const latestShot = (0, import_react26.useMemo)(() => {
@@ -399205,10 +399326,45 @@ ${citations}` : ""}`
     const [error5, setError] = (0, import_react36.useState)("");
     const [notice, setNotice] = (0, import_react36.useState)("");
     const [deleting, setDeleting] = (0, import_react36.useState)();
+    const root4 = (0, import_react36.useRef)(null);
+    const nameInput = (0, import_react36.useRef)(null);
+    const feedback = (0, import_react36.useRef)(null);
+    const inFlight2 = (0, import_react36.useRef)(false);
+    const returnFocusId = (0, import_react36.useRef)("");
+    const listScrollTop = (0, import_react36.useRef)(0);
+    const restorePending = (0, import_react36.useRef)(false);
+    const waitForRefresh = (0, import_react36.useRef)(false);
+    const dataBeforeSave = (0, import_react36.useRef)(void 0);
+    const editorOpen = !!draft;
+    (0, import_react36.useEffect)(() => {
+      if (!editorOpen) return;
+      root4.current?.closest(".owl-news-content")?.scrollTo({ top: 0 });
+      nameInput.current?.focus({ preventScroll: true });
+    }, [editorOpen]);
+    (0, import_react36.useEffect)(() => {
+      if (editorOpen || !restorePending.current) return;
+      if (sources.loading) return;
+      if (waitForRefresh.current && sources.data === dataBeforeSave.current && !sources.error) return;
+      if (!sources.data && !sources.error) return;
+      const target = document.getElementById(returnFocusId.current) ?? document.getElementById("owl-news-add-source");
+      root4.current?.closest(".owl-news-content")?.scrollTo({ top: listScrollTop.current });
+      target?.focus({ preventScroll: true });
+      restorePending.current = false;
+    }, [editorOpen, sources.loading, sources.data, sources.error]);
+    (0, import_react36.useEffect)(() => {
+      if (editorOpen && (error5 || notice || preview)) feedback.current?.scrollIntoView({ block: "nearest" });
+    }, [editorOpen, error5, notice, preview]);
     function edit(source) {
+      if (inFlight2.current) return;
+      returnFocusId.current = source ? `owl-news-edit-source-${source.id}` : "owl-news-add-source";
+      listScrollTop.current = root4.current?.closest(".owl-news-content")?.scrollTop ?? 0;
+      waitForRefresh.current = false;
       setEditingId(source?.id);
       setPreview(void 0);
       setError("");
+      setNotice("");
+      setIngestText("");
+      setDeleting(void 0);
       setConfigText({});
       setDraft(
         source ? {
@@ -399254,7 +399410,8 @@ ${citations}` : ""}`
       return { ...draft, id: draft.id.trim(), name: draft.name.trim(), config: config4 };
     }
     async function perform(operation, message2, refresh = true) {
-      if (busy) return;
+      if (inFlight2.current) return;
+      inFlight2.current = true;
       setBusy(true);
       setError("");
       setNotice("");
@@ -399265,33 +399422,44 @@ ${citations}` : ""}`
       } catch (failure) {
         setError(errorText(failure));
       } finally {
+        inFlight2.current = false;
         setBusy(false);
       }
     }
-    return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("section", { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("section", { ref: root4, children: [
       /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "owl-news-heading", children: [
         /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h1", { children: t21("news.sources") }),
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: t21("news.sourcesHint") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", className: "owl-news-primary", onClick: () => edit(), children: t21("news.addSource") })
+        !draft && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+          "button",
+          {
+            id: "owl-news-add-source",
+            type: "button",
+            className: "owl-news-primary",
+            disabled: busy,
+            onClick: () => edit(),
+            children: t21("news.addSource")
+          }
+        )
       ] }),
-      (error5 || sources.error) && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { role: "alert", className: "owl-news-error", children: error5 || sources.error }),
-      notice && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { "aria-live": "polite", className: "owl-news-notice", children: notice }),
+      (!draft && error5 || sources.error) && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { role: "alert", className: "owl-news-error", children: error5 || sources.error }),
+      notice && !draft && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { "aria-live": "polite", className: "owl-news-notice", children: notice }),
       sources.loading && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { "aria-live": "polite", children: t21("news.loading") }),
       !sources.loading && sources.data?.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "owl-news-empty", children: [
         /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h2", { children: t21("news.noSources") }),
         /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: t21("news.noSourcesHint") })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("div", { className: "owl-news-source-list", children: sources.data?.map((source) => /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("article", { className: "owl-news-source-row", children: [
+      !draft && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("div", { className: "owl-news-source-list", children: sources.data?.map((source) => /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("article", { className: "owl-news-source-row", children: [
         /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("strong", { children: source.name }),
           /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("small", { children: [
             t21(KINDS.find((kind) => kind.id === source.kind)?.label ?? "news.kindExternal"),
-            " \xB7 ",
-            source.tier,
+            " \xB7",
             " ",
-            "\xB7 ",
+            source.tier,
+            " \xB7 ",
             source.intervalMinutes,
             " ",
             t21("news.minutes")
@@ -399319,8 +399487,17 @@ ${citations}` : ""}`
             children: t21("news.collectNow")
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", onClick: () => edit(source), children: t21("common.edit") }),
-        /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", onClick: () => setDeleting(source.id), children: t21("common.delete") }),
+        /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+          "button",
+          {
+            id: `owl-news-edit-source-${source.id}`,
+            type: "button",
+            disabled: busy,
+            onClick: () => edit(source),
+            children: t21("common.edit")
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", disabled: busy, onClick: () => setDeleting(source.id), children: t21("common.delete") }),
         deleting === source.id && /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "owl-news-confirm", children: [
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("span", { children: t21("news.deleteSourceConfirm") }),
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
@@ -399338,21 +399515,45 @@ ${citations}` : ""}`
           /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", onClick: () => setDeleting(void 0), children: t21("common.cancel") })
         ] })
       ] }, source.id)) }),
-      draft && /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(
+      draft && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
         "form",
         {
           className: "owl-news-form owl-news-source-editor",
+          "aria-busy": busy,
           onSubmit: (event3) => {
             event3.preventDefault();
             void perform(async () => {
+              dataBeforeSave.current = sources.data;
               const saved = await api2.query({ action: "saveSource", source: input() });
               setEditingId(saved.id);
+              if (draft.kind === "external") {
+                setDraft({ ...draft, id: saved.id, name: saved.name });
+              } else {
+                restorePending.current = true;
+                waitForRefresh.current = true;
+                setDraft(void 0);
+              }
             }, t21("common.saved"));
           },
-          children: [
+          children: /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("fieldset", { className: "owl-news-source-fields", disabled: busy, children: [
             /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "owl-news-heading", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h2", { children: editingId ? t21("common.edit") : t21("news.addSource") }),
-              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("button", { type: "button", onClick: () => setDraft(void 0), children: t21("common.collapse") })
+              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h2", { children: editingId ? `${t21("common.edit")} \xB7 ${draft.name}` : t21("news.addSource") }),
+              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+                "button",
+                {
+                  type: "button",
+                  disabled: busy,
+                  onClick: () => {
+                    restorePending.current = true;
+                    waitForRefresh.current = false;
+                    setDraft(void 0);
+                    setPreview(void 0);
+                    setError("");
+                    setNotice("");
+                  },
+                  children: t21("common.cancel")
+                }
+              )
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { className: "owl-news-grid", children: [
               /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("label", { children: [
@@ -399372,6 +399573,7 @@ ${citations}` : ""}`
                 /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
                   "input",
                   {
+                    ref: nameInput,
                     required: true,
                     value: draft.name,
                     onChange: (event3) => setDraft({ ...draft, name: event3.target.value })
@@ -399388,6 +399590,7 @@ ${citations}` : ""}`
                       setDraft({ ...draft, kind: event3.target.value, config: {} });
                       setConfigText({});
                       setPreview(void 0);
+                      setNotice("");
                     },
                     children: KINDS.map((kind) => /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("option", { value: kind.id, children: t21(kind.label) }, kind.id))
                   }
@@ -399500,10 +399703,14 @@ ${citations}` : ""}`
                     id: `owl-news-source-${field.key}`,
                     type: "checkbox",
                     checked: stored2 === true,
-                    onChange: (event3) => setDraft({
-                      ...draft,
-                      config: { ...draft.config, [field.key]: event3.target.checked }
-                    })
+                    onChange: (event3) => {
+                      setDraft({
+                        ...draft,
+                        config: { ...draft.config, [field.key]: event3.target.checked }
+                      });
+                      setPreview(void 0);
+                      setNotice("");
+                    }
                   }
                 ) : field.type === "list" || field.type === "json" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
                   "textarea",
@@ -399511,14 +399718,22 @@ ${citations}` : ""}`
                     id: `owl-news-source-${field.key}`,
                     rows: 3,
                     value: value2,
-                    onChange: (event3) => setConfigText({ ...configText, [field.key]: event3.target.value })
+                    onChange: (event3) => {
+                      setConfigText({ ...configText, [field.key]: event3.target.value });
+                      setPreview(void 0);
+                      setNotice("");
+                    }
                   }
                 ) : /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
                   "input",
                   {
                     id: `owl-news-source-${field.key}`,
                     value: value2,
-                    onChange: (event3) => setConfigText({ ...configText, [field.key]: event3.target.value })
+                    onChange: (event3) => {
+                      setConfigText({ ...configText, [field.key]: event3.target.value });
+                      setPreview(void 0);
+                      setNotice("");
+                    }
                   }
                 )
               ] }, field.key);
@@ -399561,24 +399776,32 @@ ${citations}` : ""}`
                 {
                   type: "button",
                   disabled: busy || draft.kind === "external",
-                  onClick: () => void perform(
-                    async () => setPreview(await api2.query({ action: "previewSource", source: input() })),
-                    t21("news.previewDone"),
-                    false
-                  ),
+                  onClick: () => {
+                    setPreview(void 0);
+                    void perform(
+                      async () => setPreview(await api2.query({ action: "previewSource", source: input() })),
+                      t21("news.previewDone"),
+                      false
+                    );
+                  },
                   children: t21("news.preview")
                 }
               )
             ] }),
-            preview && /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h3", { children: t21("news.previewCount", { n: preview.length }) }),
-              preview.map((material) => /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("article", { className: "owl-news-card", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("strong", { children: material.title }),
-                /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: material.url }),
-                /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: material.body?.slice(0, 600) })
-              ] }, material.url))
+            /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { ref: feedback, children: [
+              busy && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { "aria-live": "polite", children: t21("common.processing") }),
+              error5 && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { className: "owl-news-error", role: "alert", children: error5 }),
+              notice && /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { className: "owl-news-notice", role: "status", children: notice }),
+              preview && /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("h3", { children: t21("news.previewCount", { n: preview.length }) }),
+                preview.map((material) => /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)("article", { className: "owl-news-card", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("strong", { children: material.title }),
+                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: material.url }),
+                  /* @__PURE__ */ (0, import_jsx_runtime33.jsx)("p", { children: material.body?.slice(0, 600) })
+                ] }, material.url))
+              ] })
             ] })
-          ]
+          ] })
         }
       )
     ] });
@@ -399633,6 +399856,16 @@ ${citations}` : ""}`
     const snapshotRevision = (0, import_react37.useRef)(0);
     const contentRef = (0, import_react37.useRef)(null);
     const refreshed = () => setRevision((current5) => current5 + 1);
+    (0, import_react37.useEffect)(() => {
+      if (!MANAGEMENT.some((entry) => entry.id === section)) return;
+      const compact2 = window.matchMedia("(max-width: 1100px)");
+      const closeAssistantForManagement = () => {
+        if (compact2.matches) setAssistantOpen(false);
+      };
+      closeAssistantForManagement();
+      compact2.addEventListener("change", closeAssistantForManagement);
+      return () => compact2.removeEventListener("change", closeAssistantForManagement);
+    }, [section]);
     (0, import_react37.useEffect)(
       () => client.onStatus((up) => {
         setConnected(up);
@@ -405896,19 +406129,22 @@ ${draftRequest.text}` : draftRequest.text);
     results: "\u67E5\u770B\u7ED3\u679C",
     closeResults: "\u6536\u8D77\u7ED3\u679C",
     emptyTitle: "\u4F60\u60F3\u7814\u7A76\u4EC0\u4E48\uFF1F",
-    emptyHint: "\u53D1\u4E00\u4E2A\u7F51\u5740\uFF0C\u6216\u8005\u8BF4\u8BF4\u4F60\u60F3\u5F97\u5230\u4EC0\u4E48\u3002",
+    emptyHint: "\u53D1\u4E00\u4E2A\u7F51\u5740\u3001\u7A0B\u5E8F\u8DEF\u5F84\uFF0C\u6216\u8005\u8BF4\u8BF4\u4F60\u60F3\u5F97\u5230\u4EC0\u4E48\u3002",
     emptyDetail: "\u6211\u6765\u5E2E\u4F60\u5206\u6790\uFF0C\u5177\u4F53\u505A\u6CD5\u4EA4\u7ED9\u6211\u3002",
     exampleCrawl: "\u6574\u7406\u7F51\u9875\u8D44\u6599",
     exampleWeb: "\u627E\u5230\u9875\u9762\u6570\u636E\u6765\u6E90",
+    exampleBinary: "\u89E3\u6790 EXE \u7A0B\u5E8F",
     exampleModel: "\u6D4B\u8BD5\u6A21\u578B\u8FB9\u754C",
     crawlDraft: "\u5E2E\u6211\u6574\u7406\u8FD9\u4E2A\u7F51\u7AD9\u7684\u8D44\u6599\uFF0C\u5148\u7ED9\u6211\u770B\u4E00\u4EFD\u5C11\u91CF\u6837\u672C\uFF0C\u4FDD\u7559\u6BCF\u6761\u8BB0\u5F55\u7684\u6765\u6E90\uFF1A",
     webDraft: "\u5E2E\u6211\u5206\u6790\u8FD9\u4E2A\u7F51\u9875\u7684\u6570\u636E\u4ECE\u54EA\u91CC\u6765\uFF0C\u7528\u6211\u80FD\u7406\u89E3\u7684\u65B9\u5F0F\u89E3\u91CA\u8BF7\u6C42\u4E0E\u53C2\u6570\uFF1A",
     modelDraft: "\u5E2E\u6211\u8BBE\u8BA1\u4E00\u7EC4\u6A21\u578B\u4E0E Agent \u89C4\u5219\u8FB9\u754C\u6D4B\u8BD5\u3002\u5148\u660E\u786E\u6D4B\u8BD5\u76EE\u6807\u548C\u5224\u5B9A\u4F9D\u636E\uFF0C\u7ED9\u6211\u770B\u65B9\u6848\uFF0C\u518D\u6267\u884C\u3002",
+    binaryDraft: "\u5E2E\u6211\u9759\u6001\u89E3\u6790\u8FD9\u4E2A\u5DF2\u83B7\u6388\u6743\u7684\u7A0B\u5E8F\uFF0C\u8BC6\u522B PE\u3001\u5E94\u7528\u8D44\u6E90\u548C\u58F3\u8FF9\u8C61\uFF0C\u5B9A\u4F4D\u4E1A\u52A1\u4EE3\u7801\u5165\u53E3\uFF0C\u8BF4\u660E\u5B9E\u9645\u80FD\u89E3\u6790\u7684\u5185\u5BB9\u548C\u7F3A\u53E3\uFF0C\u4E0D\u8FD0\u884C\u5B83\uFF1A",
     modePrefix: "\u7814\u7A76",
     modeAuto: "\u81EA\u52A8\u8BC6\u522B",
     modeCrawl: "\u7F51\u9875\u91C7\u96C6",
     modeWeb: "Web / JS \u9006\u5411",
-    modeModel: "\u6A21\u578B\u5BF9\u6297",
+    modeBinary: "EXE / \u5E94\u7528\u89E3\u6790",
+    modeModel: "\u6A21\u578B\u8FB9\u754C\u5B9E\u9A8C",
     modeOsint: "\u516C\u5F00\u60C5\u62A5",
     modeHint: "\u544A\u8BC9\u6211\u76EE\u6807\u5C31\u597D",
     modeLabel: "\u7814\u7A76\u65B9\u5411",
@@ -405960,19 +406196,22 @@ ${draftRequest.text}` : draftRequest.text);
     results: "View results",
     closeResults: "Close results",
     emptyTitle: "What would you like to research?",
-    emptyHint: "Share a URL or describe the outcome you want.",
+    emptyHint: "Share a URL, a program path, or describe the outcome you want.",
     emptyDetail: "I will help analyze it and handle the details.",
     exampleCrawl: "Organize web information",
     exampleWeb: "Find the page's data source",
+    exampleBinary: "Analyze an EXE",
     exampleModel: "Test model boundaries",
     crawlDraft: "Help organize information from this website. Show a small sample first and keep a source for every record: ",
     webDraft: "Help find where this webpage gets its data. Explain the requests and parameters in plain language: ",
     modelDraft: "Help design tests of model and Agent rule boundaries. First define the goals and decision criteria and show the plan before executing it.",
+    binaryDraft: "Statically analyze this authorized program. Inspect the PE, app resources and packer clues, locate the business entry point and explain the observed coverage and gaps without running it: ",
     modePrefix: "Research",
     modeAuto: "Auto detect",
     modeCrawl: "Web collection",
     modeWeb: "Web / JS analysis",
-    modeModel: "Model adversarial testing",
+    modeBinary: "EXE / app analysis",
+    modeModel: "Model boundary experiments",
     modeOsint: "Public intelligence",
     modeHint: "Just describe your goal",
     modeLabel: "Research direction",
@@ -406065,7 +406304,7 @@ ${draftRequest.text}` : draftRequest.text);
             model: typeof value2.model === "string" ? value2.model : defaults7.model,
             thinkingLevel: typeof value2.thinkingLevel === "string" ? value2.thinkingLevel : defaults7.thinkingLevel,
             approvalMode: ["confirm", "plan", "auto"].includes(String(value2.approvalMode)) ? value2.approvalMode : defaults7.approvalMode,
-            mode: ["auto", "crawl", "web", "model", "osint"].includes(String(value2.mode)) ? value2.mode : "auto"
+            mode: ["auto", "crawl", "web", "binary", "model", "osint"].includes(String(value2.mode)) ? value2.mode : "auto"
           };
         }
       } catch {
@@ -406374,7 +406613,7 @@ ${draftRequest.text}` : draftRequest.text);
 
   // apps/desktop/src/features/research/ResearchPage.tsx
   var import_jsx_runtime57 = __toESM(require_jsx_runtime(), 1);
-  var modeKeys = { auto: "modeAuto", crawl: "modeCrawl", web: "modeWeb", model: "modeModel", osint: "modeOsint" };
+  var modeKeys = { auto: "modeAuto", crawl: "modeCrawl", web: "modeWeb", binary: "modeBinary", model: "modeModel", osint: "modeOsint" };
   function ResearchMark() {
     return /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: "1.4", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("path", { d: "m10 2 2.2 5.8L18 10l-5.8 2.2L10 18l-2.2-5.8L2 10l5.8-2.2L10 2Z" }) });
   }
@@ -406611,6 +406850,7 @@ ${draftRequest.text}` : draftRequest.text);
           /* @__PURE__ */ (0, import_jsx_runtime57.jsxs)("div", { className: "research-examples", children: [
             /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("button", { type: "button", onClick: () => fillDraft(text5("crawlDraft")), children: text5("exampleCrawl") }),
             /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("button", { type: "button", onClick: () => fillDraft(text5("webDraft")), children: text5("exampleWeb") }),
+            /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("button", { type: "button", onClick: () => fillDraft(text5("binaryDraft")), children: text5("exampleBinary") }),
             /* @__PURE__ */ (0, import_jsx_runtime57.jsx)("button", { type: "button", onClick: () => fillDraft(text5("modelDraft")), children: text5("exampleModel") })
           ] })
         ] }),
@@ -408205,11 +408445,14 @@ ${draftRequest.text}` : draftRequest.text);
     const named2 = row.name?.trim();
     if (named2) return named2;
     const first3 = row.firstMessage?.trim();
+    let base5;
     if (first3) {
       const flat = flatText(first3);
-      return flat.length > 48 ? `${flat.slice(0, 48)}\u2026` : flat;
+      base5 = flat.length > 48 ? `${flat.slice(0, 48)}\u2026` : flat;
+    } else {
+      base5 = row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
     }
-    return row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
+    return row.parentSessionPath ? `${base5} \xB7 ${t("app.branchSuffix")}` : base5;
   }
   function flatText(text5) {
     return text5.replace(/\s+/g, " ").trim();
@@ -408537,6 +408780,13 @@ ${draftRequest.text}` : draftRequest.text);
     (0, import_react72.useEffect)(() => {
       if (focus === "chat" || focus === "research") scrollRef.current?.scrollTo({ top: 0 });
     }, [focus]);
+    (0, import_react72.useEffect)(() => {
+      if (!activeId || minimized) return;
+      const frame2 = requestAnimationFrame(() => {
+        scrollRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+      });
+      return () => cancelAnimationFrame(frame2);
+    }, [activeId, minimized, allSessions]);
     const togglePin = (id40) => {
       setPinned((current5) => {
         const next3 = current5.includes(id40) ? current5.filter((v6) => v6 !== id40) : [...current5, id40];
@@ -411271,8 +411521,11 @@ ${time4}${row.cwd ? ` \xB7 ${row.cwd}` : ""}`;
     const named2 = row.name?.trim();
     if (named2) return named2;
     const first3 = row.firstMessage?.trim().replace(/\s+/g, " ");
-    if (first3) return first3.length > 48 ? `${first3.slice(0, 48)}\u2026` : first3;
-    return row.id ? t("settings.sessionFallback", { id: row.id.slice(0, 8) }) : t("settings.sessionUnnamed");
+    let base5;
+    if (first3) base5 = first3.length > 48 ? `${first3.slice(0, 48)}\u2026` : first3;
+    else if (row.id) base5 = t("settings.sessionFallback", { id: row.id.slice(0, 8) });
+    else base5 = t("settings.sessionUnnamed");
+    return row.parentSessionPath ? `${base5} \xB7 ${t("app.branchSuffix")}` : base5;
   }
   function daysLeft(archivedAt, retentionDays) {
     const t21 = Date.parse(archivedAt);
@@ -418800,6 +419053,8 @@ ${response.result.url}` : ""}`);
       return isApprovalMode(stored2) ? stored2 : "confirm";
     });
     const [sessionInfo, setSessionInfo] = (0, import_react96.useState)(void 0);
+    const [sessionBranched, setSessionBranched] = (0, import_react96.useState)(false);
+    const [sessionName, setSessionName] = (0, import_react96.useState)(void 0);
     const [workspaceDir, setWorkspaceDir] = (0, import_react96.useState)(
       () => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR
     );
@@ -419007,6 +419262,45 @@ ${response.result.url}` : ""}`);
         applyRewindSnapshot(result);
         await sendPrompt(result.editorText ?? entry.text);
         return;
+      }
+    };
+    const handleBranch = async (entryId) => {
+      if (!sessionIdRef.current || !connected || running || submitInFlight.current) return;
+      try {
+        const response = await client.request({
+          type: "session.fork",
+          sessionId: sessionIdRef.current,
+          entryId,
+          approvalMode,
+          ...selectedModel()
+        });
+        if (!response.ok || !response.result) {
+          setEntries((current5) => [
+            ...current5,
+            { kind: "toolResult", toolName: t21("app.branchFailed"), ok: false, brief: response.error ?? t21("app.unknownError") }
+          ]);
+          return;
+        }
+        const { sessionId: forkedId, researchMode } = response.result;
+        if (researchMode !== void 0 || !forkedId) return;
+        await openSession(forkedId);
+        if (sessionIdRef.current === forkedId) {
+          setEntries((current5) => [
+            ...current5,
+            { kind: "toolResult", toolName: t21("app.branchTool"), ok: true, brief: t21("app.branchDone") }
+          ]);
+        }
+        setSidebarRev((current5) => current5 + 1);
+      } catch (error5) {
+        setEntries((current5) => [
+          ...current5,
+          {
+            kind: "toolResult",
+            toolName: t21("app.branchFailed"),
+            ok: false,
+            brief: error5 instanceof Error ? error5.message : String(error5)
+          }
+        ]);
       }
     };
     (0, import_react96.useEffect)(() => {
@@ -419349,6 +419643,8 @@ ${response.result.url}` : ""}`);
       setSessionId(id40);
       setEntries([]);
       setRetryStatus(null);
+      setSessionBranched(false);
+      setSessionName(void 0);
       void refreshStats(id40);
       return id40;
     }
@@ -419358,6 +419654,8 @@ ${response.result.url}` : ""}`);
       setEntries([]);
       setRetryStatus(null);
       setSessionInfo(void 0);
+      setSessionBranched(false);
+      setSessionName(void 0);
       void ensureSession();
     };
     const switchProject = (path4) => {
@@ -419371,6 +419669,8 @@ ${response.result.url}` : ""}`);
       setEntries([]);
       setRetryStatus(null);
       setSessionInfo(void 0);
+      setSessionBranched(false);
+      setSessionName(void 0);
     };
     const openSession = async (targetSessionId, options2) => {
       const response = await client.request({
@@ -419405,6 +419705,8 @@ ${response.result.url}` : ""}`);
       sessionIdRef.current = resumedId;
       setEntries(rebuild(messages, messageEntryIds));
       setRetryStatus(null);
+      setSessionBranched(Boolean(response.result.header?.parentSession));
+      setSessionName(response.result.name);
       void refreshStats(resumedId);
     };
     const cycleSession = async (direction2) => {
@@ -419634,7 +419936,8 @@ ${response.result.url}` : ""}`);
     const abort = async () => {
       if (sessionId) await client.request({ type: "session.abort", sessionId });
     };
-    const sessionTitle2 = conversationTitleOf(entries2, t21("app.newConversation"));
+    const conversationBaseTitle = conversationTitleOf(entries2, t21("app.newConversation"));
+    const sessionTitle2 = sessionName ?? (sessionBranched ? `${conversationBaseTitle} \xB7 ${t21("app.branchSuffix")}` : conversationBaseTitle);
     const mapModelValue = modelValue || (sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : "");
     const mapModelSeparator = mapModelValue.indexOf("/");
     const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))?.models.find((model) => model.id === mapModelValue.slice(mapModelSeparator + 1))?.name;
@@ -419908,7 +420211,7 @@ ${response.result.url}` : ""}`);
               ) }),
               /* @__PURE__ */ (0, import_jsx_runtime91.jsxs)("div", { style: { display: railView === "research" && !showSettings ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }, children: [
                 conversationView === "context" ? /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(ContextView, { client, cwd: workspaceDir, sessionId, requireSession: true, active: railView === "chat" && !showSettings && connected }, sessionId ?? workspaceDir) : /* @__PURE__ */ (0, import_jsx_runtime91.jsxs)(import_jsx_runtime91.Fragment, { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(GenuiSessionProvider, { client, sessionId, children: /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(ChatStream, { entries: entries2, cwd: workspaceDir, onOpenFile: openTaskFile, onQuickAction: requestOpenKind, onPromptExample: (text5) => setDraftRequest({ id: ++draftSequence.current, text: text5 }), onOpenDeveloper: openDeveloper, artifacts: /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(TurnArtifacts, { artifacts, cwd: workspaceDir, client, onOpenFile: openTaskFile, onOpenReview: openWorkbenchReview }), client, onOpenReview: openWorkbenchReview, activity: chatActivity, onRewind: handleRewindClick, onRegenerate: () => void handleRegenerate(), onEditMessage: (entryId, text5, images) => void handleEditMessage(entryId, text5, images) }, sessionId ?? workspaceDir) }),
+                  /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(GenuiSessionProvider, { client, sessionId, children: /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(ChatStream, { entries: entries2, cwd: workspaceDir, onOpenFile: openTaskFile, onQuickAction: requestOpenKind, onPromptExample: (text5) => setDraftRequest({ id: ++draftSequence.current, text: text5 }), onOpenDeveloper: openDeveloper, artifacts: /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(TurnArtifacts, { artifacts, cwd: workspaceDir, client, onOpenFile: openTaskFile, onOpenReview: openWorkbenchReview }), client, onOpenReview: openWorkbenchReview, activity: chatActivity, onRewind: handleRewindClick, onRegenerate: () => void handleRegenerate(), onEditMessage: (entryId, text5, images) => void handleEditMessage(entryId, text5, images), onBranch: (entryId) => void handleBranch(entryId) }, sessionId ?? workspaceDir) }),
                   fileOpenError && /* @__PURE__ */ (0, import_jsx_runtime91.jsx)("p", { className: "px-4 py-1 text-xs text-red-400", role: "alert", children: fileOpenError })
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime91.jsx)(TodoPin, { entries: entries2 }),

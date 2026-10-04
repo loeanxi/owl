@@ -13,7 +13,7 @@ import {
 	inspectApplicationContainer,
 	type UpxResult,
 } from "./container.ts";
-import { type ExecutableInspectionReport, inspectExecutable } from "./executable.ts";
+import { EXECUTABLE_INSPECTION_LIMITS, type ExecutableInspectionReport, inspectExecutable } from "./executable.ts";
 import type { ResearchResult, ResearchResultInput } from "./types.ts";
 
 export const RESEARCH_EXECUTABLE_TOOL = "research_executable";
@@ -76,6 +76,7 @@ async function selectedApplication(path: string, workspace: string): Promise<{ p
 	const candidate = resolve(workspace, selected);
 	const entry = await lstat(candidate);
 	if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("选中的输入必须是普通文件，不能是目录或符号链接");
+	if (entry.size > EXECUTABLE_INSPECTION_LIMITS.maxFileBytes) throw new Error("选中的文件超过 256MiB 读取上限");
 	const canonical = await realpath(candidate);
 	return { path: canonical, directory: dirname(canonical) };
 }
@@ -152,7 +153,9 @@ export async function runResearchExecutable(
 		if (report.upx.status === "decompressed" && report.upx.outputPath) {
 			try {
 				report.outputInspection = await inspect(report.upx.outputPath, workspace);
-				report.status = "decompressed";
+				if (report.outputInspection.file.sha256 === report.executable?.file.sha256)
+					report.warnings.push("UPX 输出与输入哈希相同，不能确认已完成解压");
+				else report.status = "decompressed";
 			} catch (error) {
 				signal?.throwIfAborted();
 				report.warnings.push(
@@ -234,11 +237,35 @@ export function buildResearchExecutableResult(report: ResearchExecutableReport):
 				value: `${js.bytesRead} bytes 已读`,
 				note: `${js.truncated ? "部分" : "完整文件"}静态读取，未执行；SHA256Read ${js.sha256Read}`,
 			});
-			for (const clue of js.signals.slice(0, 12)) rows.push({ type: "词法线索", name: `${js.path} @ ${clue.offset}`.slice(0, 2000), value: clue.kind, note: clue.snippet.slice(0, 2000) });
+			for (const clue of js.signals.slice(0, 12))
+				rows.push({
+					type: "词法线索",
+					name: `${js.path} @ ${clue.offset}`.slice(0, 2000),
+					value: clue.kind,
+					note: clue.snippet.slice(0, 2000),
+				});
 		}
 		const bytecode = app.entries.filter((entry) => entry.type === "file" && /\.jsc$/i.test(entry.path));
-		for (const entry of bytecode.slice(0, 4)) rows.push({ type: "字节码", name: entry.path.slice(0, 2000), value: entry.size ?? null, note: "仅观测文件条目；未解码、未执行、未恢复源码" });
-		if (bytecode.length) findings.push({ kind: "fact", text: `应用资源中观测到 ${bytecode.length} 个 .jsc 字节码条目，JS 静态入口不包含全部业务源码。本次未解码字节码。`, sourceIds: ["app_resources"] });
+		for (const entry of bytecode.slice(0, 4))
+			rows.push({
+				type: "JSC 文件",
+				name: entry.path.slice(0, 2000),
+				value: entry.size ?? null,
+				note: "仅观测文件条目；未解码、未执行、未恢复源码",
+			});
+		if (bytecode.length)
+			findings.push({
+				kind: "fact",
+				text: `应用资源中观测到 ${bytecode.length} 个 .jsc 扩展名文件条目；未验证文件内容或运行时关联，未解码。`,
+				sourceIds: ["app_resources"],
+			});
+		const mainScript = app.javascript.find((script) => script.path === app.package?.main?.replace(/^\.\//, ""));
+		if (mainScript?.signals.some((signal) => signal.kind === "module" && /\.jsc$/i.test(signal.snippet)))
+			findings.push({
+				kind: "inference",
+				text: "主入口的限长词法记录出现 .jsc 模块引用，结合字节码加载器可进一步调查 V8 字节码；本次未运行加载器、未证明所有业务逻辑都在其中。",
+				sourceIds: ["app_resources"],
+			});
 	}
 	if (report.extraction) {
 		sources.push({
@@ -251,7 +278,10 @@ export function buildResearchExecutableResult(report: ResearchExecutableReport):
 		});
 		findings.push({
 			kind: "fact",
-			text: `已提取 ${report.extraction.files.length} 个明确条目，共 ${report.extraction.totalBytes} bytes；输出 ${report.extraction.outputDirectory}。原容器未覆盖。`,
+			text: `已提取 ${report.extraction.files.length} 个明确条目，共 ${report.extraction.totalBytes} bytes；输出 ${report.extraction.outputDirectory}。原容器未覆盖。`.slice(
+				0,
+				4000,
+			),
 			sourceIds: ["selected_file", "extracted_files"],
 		});
 	}
@@ -259,11 +289,20 @@ export function buildResearchExecutableResult(report: ResearchExecutableReport):
 		sources.push({
 			id: "upx_adapter",
 			title: "UPX 固定适配器执行记录",
-			note: report.upx.evidence.join("\n").slice(0, 2000),
+			note: [
+				`适配器状态 ${report.upx.status}；输出再解析 ${report.status === "decompressed" ? "已通过且哈希不同" : "未确认完成"}。`,
+				`输入 SHA256 ${pe?.file.sha256 ?? "未读取"}；输出 SHA256 ${report.outputInspection?.file.sha256 ?? "未读取"}。`,
+				...report.upx.evidence.map((item) => item.slice(0, 400)),
+			]
+				.join("\n")
+				.slice(0, 2000),
 		});
 		findings.push({
 			kind: "fact",
-			text: `UPX 适配器状态：${report.upx.status}。${report.status === "decompressed" ? `输出通过 PE 再解析，SHA256 ${report.outputInspection?.file.sha256}，路径 ${report.upx.outputPath}` : "本次未确认完成脱壳。"}`,
+			text: `UPX 适配器状态：${report.upx.status}。${report.status === "decompressed" ? `输出通过 PE 再解析，SHA256 ${report.outputInspection?.file.sha256}，路径 ${report.upx.outputPath}` : "本次未确认完成脱壳。"}`.slice(
+				0,
+				4000,
+			),
 			sourceIds: ["selected_file", "upx_adapter"],
 		});
 	}

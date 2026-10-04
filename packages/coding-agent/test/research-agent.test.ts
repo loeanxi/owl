@@ -17,6 +17,8 @@ import {
 	researchResultSchema,
 	updateResearchMode,
 } from "../src/core/research/agent.ts";
+import { RESEARCH_EXECUTABLE_TOOL } from "../src/core/research/executable-tools.ts";
+import { RESEARCH_MODEL_LAB_TOOL, type ResearchModelLabDetails } from "../src/core/research/model-lab.ts";
 import type { ResearchResultDetails, ResearchResultInput } from "../src/core/research/types.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createHarness, getToolResult, type Harness } from "./suite/harness.ts";
@@ -80,8 +82,64 @@ describe("research conversation and result contract", () => {
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("普通回答")]);
 		await harness.session.prompt("你好");
-		expect(harness.session.getAllTools().some((tool) => tool.name === RESEARCH_PUBLISH_TOOL)).toBe(false);
+		const names = harness.session.getAllTools().map((tool) => tool.name);
+		for (const name of [RESEARCH_PUBLISH_TOOL, RESEARCH_EXECUTABLE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
+			expect(names).not.toContain(name);
+		}
 		expect(getCurrentSystemPrompt(harness.session.messages)).not.toContain("Owl 研究助手");
+	});
+
+	it("registers executable and lab tools only in research, runs a zero-call lab plan and persists its card", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "owl-research-lab-plan-"));
+		tempDirs.push(dir);
+		const manager = SessionManager.create(dir, dir);
+		manager.appendCustomEntry(RESEARCH_MODE_ENTRY, { mode: "model" });
+		const harness = await createHarness({
+			sessionManager: manager,
+			extensionFactories: [createResearchExtension(manager)],
+		});
+		harnesses.push(harness);
+		const names = harness.session.getAllTools().map((tool) => tool.name);
+		for (const name of [RESEARCH_PUBLISH_TOOL, RESEARCH_EXECUTABLE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
+			expect(names).toContain(name);
+		}
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall(RESEARCH_MODEL_LAB_TOOL, { action: "plan" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("仅展示模拟实验方案，未调用被测模型。"),
+		]);
+		await harness.session.prompt("先展示固定模型实验方案，没有模型调用预算。");
+		const output = getToolResult(harness, RESEARCH_MODEL_LAB_TOOL);
+		expect(output.isError).toBe(false);
+		const details = output.details as unknown as ResearchModelLabDetails;
+		expect(details.researchModelLab).toMatchObject({ action: "plan", status: "plan", budget: { callsUsed: 0 } });
+		expect(details.researchModelLab.cases.every((item) => !item.executed)).toBe(true);
+		expect(details.researchResult).toMatchObject({ mode: "model", status: "sample" });
+		expect(details.researchResult.summary).toContain("未调用模型");
+		const { id, createdAt, ...card } = details.researchResult;
+		expect(id).toMatch(/^[0-9a-f-]{36}$/);
+		expect(Number.isFinite(Date.parse(createdAt))).toBe(true);
+		expect(normalizeResearchResult(card).findings.every((item) => item.kind === "unverified")).toBe(true);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(manager.buildSessionProjection().entries.flatMap((entry) => entry.messages)).toContainEqual(output);
+		expect(getCurrentSystemPrompt(harness.session.messages)).toContain("当前研究方向：模型安全实验");
+
+		updateResearchMode(manager, "binary");
+		harness.setResponses([fauxAssistantMessage("下一步静态解析用户选中的程序。")]);
+		await harness.session.prompt("切到 EXE 静态分析，先解释工具范围。");
+		const prompt = getCurrentSystemPrompt(harness.session.messages);
+		expect(prompt).toContain("当前研究方向：EXE / 应用解析");
+		expect(prompt).toContain("research_executable inspect");
+		expect(prompt).not.toContain("当前研究方向：模型安全实验");
+		expect(harness.faux.state.callCount).toBe(3);
+		const file = manager.getSessionFile();
+		if (!file) throw new Error("Missing persisted research lab session");
+		const reopened = SessionManager.open(file);
+		expect(getResearchMode(reopened)).toBe("binary");
+		expect(
+			reopened
+				.buildSessionContext()
+				.messages.find((message) => message.role === "toolResult" && message.toolName === RESEARCH_MODEL_LAB_TOOL),
+		).toMatchObject({ details: output.details });
 	});
 
 	it("uses the current direction every turn and stores an executed result in the real Agent transcript", async () => {

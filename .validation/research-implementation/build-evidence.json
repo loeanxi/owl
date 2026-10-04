@@ -4,14 +4,14 @@
   "paidCalls": 0,
   "excludedFeatures": [],
   "sources": {
-    "apps/desktop/src/features/research/research-results.ts": "21fc13b6051a2cd9a60c8b80984fa797036ac56fd15deb6c3c855a45cad889a6",
-    "apps/desktop/src/components/ChatStream.tsx": "1506f30af52456210bb87b386ec95b72927ea7e85c488c88dfb125af74806960",
+    "apps/desktop/src/features/research/research-results.ts": "5744fec17991ce03b80fa6c20bac32a7c1584509e4389887a20457ac21605eb8",
+    "apps/desktop/src/components/ChatStream.tsx": "d4681883a4d35c1c9f112826033637103db9954cad74194af25cfb169883ce16",
     "apps/desktop/src/components/Composer.tsx": "e2eaa81e499dedc487dc274286962ebdc2eeb8978dc72ba7eaef62bf3dde6ee8",
-    "apps/desktop/src/features/research/research-copy.ts": "ce95c8223389c93c6a24ea7ac7df37e40cbdc01f77e208073544feb6321b923e",
-    "apps/desktop/src/features/research/research-session.ts": "0e795da46e8642b9c9772866479a07f1896c0bc6227bd638b19acf80d49c528f",
-    "apps/desktop/src/features/research/research.css": "f10742460ef6f905630c0f4b06b2f060ba38b2007df8988247dc05b3fe5cab81",
-    "apps/desktop/src/features/research/ResearchPage.tsx": "48239dfbeb81a70c958f4891d4b01c625c81603f5a54fdbdfd52456cd6756095",
+    "apps/desktop/src/features/research/research-copy.ts": "4175068b3b6380d28a1ea37194b4256973f01310c8ac3e33efa3d0cd731cc2f4",
+    "apps/desktop/src/features/research/research-session.ts": "ab82d604ffbcad872d4d8590f34d44b9d68ab0291985cc54f06fb550f5a881e0",
+    "apps/desktop/src/features/research/research.css": "fccda178439716057b9ce0e3ecb551335169a567596882211b8ac70537ee9816",
+    "apps/desktop/src/features/research/ResearchPage.tsx": "a0e0f5ee2b3810073668e6239643f066e37a5b061ed58343057b0d5c02e48eab",
     "apps/desktop/src/features/research/research-entry-copy.ts": "9ac45c96967509a10ef525038c0c4b26406475fe77af1b870641c3a70b80d0d1",
-    "apps/desktop/src/App.tsx": "909d2033f8b54c22a0509ad0fb6908064688e9a84b52c2dcb26583c884d82c08"
+    "apps/desktop/src/App.tsx": "9781d3abf80cf0de24b2fc68f4a78a2dadec8ade8f37e6808b569e59c40a647f"
   }
 }

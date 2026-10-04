@@ -93,23 +93,20 @@ function sessionTime(row: SessionRow): string {
 	return String(row.modified ?? row.timestamp ?? row.created ?? "");
 }
 
-/** 会话显示名：自定义名 > 首条用户消息 > id 前缀；分支会话追加「· 分支」便于在同名会话里区分。 */
+/** 会话显示名：自定义名 > 首条用户消息 > id 前缀。无名分支会话追加「· 分支」便于区分
+ * （fork 时已持久化「forkN · 来自「…」」名字的不重复加）。 */
 function sessionTitle(row: SessionRow): string {
 	const named = row.name?.trim();
+	if (named) return named;
+	const first = row.firstMessage?.trim();
 	let base: string;
-	if (named) {
-		base = named;
+	if (first) {
+		const flat = flatText(first);
+		base = flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
 	} else {
-		const first = row.firstMessage?.trim();
-		if (first) {
-			const flat = flatText(first);
-			base = flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
-		} else {
-			base = row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
-		}
+		base = row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
 	}
-	const suffix = ` · ${t("app.branchSuffix")}`;
-	return row.parentSessionPath && !base.endsWith(suffix) ? `${base}${suffix}` : base;
+	return row.parentSessionPath ? `${base} · ${t("app.branchSuffix")}` : base;
 }
 
 function flatText(text: string): string {

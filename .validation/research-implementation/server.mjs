@@ -26,7 +26,12 @@ const pages = new Map();
 const pendingQuestions = new Map();
 const pendingPermissions = new Map();
 const unsupported = new Set();
-const modes = new Set(["auto", "crawl", "web", "model", "osint"]);
+const modes = new Set(["auto", "crawl", "web", "binary", "model", "osint"]);
+// The optional binary card comes from a real read-only core-tool run saved on disk.
+// Agent prose/events remain an offline fixture; this never launches the target or calls an LLM.
+const binaryRecord = process.argv.includes("--binary-record")
+  ? JSON.parse(await readFile(join(repo, ".validation/research-capabilities/MCHOSE-HUB-report.json"), "utf8"))
+  : undefined;
 const settings = { theme: "dark", uiLanguage: "zh-CN", owlNotifications: { enabled: false }, plugins: [], owlWallpaper: { enabled: false } };
 const model = { id: "offline", name: "隔离验证模型", contextWindow: 100000, maxTokens: 4000, reasoning: true, supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"] };
 const providers = [{ id: "local-fixture", name: "本地验证", authSource: "offline_fixture", models: [model] }];
@@ -80,30 +85,32 @@ async function completePrompt(session, request) {
   running.add(session.id); session.cancelled = false; session.slow = /慢速|slow/i.test(request.message);
   const user = { role: "user", content: [{ type: "text", text: request.message }, ...(request.images ?? [])], timestamp: Date.now() };
   const userId = append(session, user); const turn = [user];
+  const binary = binaryRecord && request.message.includes("MCHOSE HUB.exe") ? binaryRecord : undefined;
   event(session.id, { type: "agent_start" });
   event(session.id, { type: "entry_appended", entry: { type: "message", id: userId, message: user } });
   try {
     await step(session);
     if (session.researchMode) {
-      const result = publishResult(session);
+      const result = binary ? { ...binary.result, id: randomUUID() } : publishResult(session);
+      const toolName = binary ? "research_executable" : "research_publish";
       const { id, createdAt, ...input } = result;
       const callId = `publish-${randomUUID()}`;
-      const introduction = "我先整理一份样本，并把来源与待确认的内容列出来。";
-      const toolCall = { type: "toolCall", id: callId, name: "research_publish", arguments: input };
+      const introduction = binary ? "我已读取本地工具真实生成的 MCHOSE HUB 静态验收记录，下面展示实际发现。这次页面回放未调用模型。" : "我先整理一份样本，并把来源与待确认的内容列出来。";
+      const toolCall = { type: "toolCall", id: callId, name: toolName, arguments: binary ? { action: "inspect", path: binary.report.selectedPath } : input };
       const first = assistant([{ type: "text", text: introduction }, toolCall], "toolUse");
       event(session.id, { type: "message_start", message: assistant([]) });
       event(session.id, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: introduction } });
       event(session.id, { type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 1, toolCall } });
       event(session.id, { type: "message_end", message: first }); append(session, first); turn.push(first);
-      event(session.id, { type: "tool_execution_start", toolCallId: callId, toolName: "research_publish", args: input });
+      event(session.id, { type: "tool_execution_start", toolCallId: callId, toolName, args: toolCall.arguments });
       await step(session);
-      const toolResult = { role: "toolResult", toolCallId: callId, toolName: "research_publish", content: [{ type: "text", text: "已发布本地研究样本。" }], details: { researchResult: result }, isError: false, timestamp: Date.now() };
+      const toolResult = { role: "toolResult", toolCallId: callId, toolName, content: [{ type: "text", text: binary ? "回放本地真实静态检查记录；没有重新运行目标或调用模型。" : "已发布本地研究样本。" }], details: { researchResult: result, ...(binary ? { researchExecutable: binary.report } : {}) }, isError: false, timestamp: Date.now() };
       append(session, toolResult); turn.push(toolResult);
-      event(session.id, { type: "tool_execution_end", toolCallId: callId, toolName: "research_publish", result: toolResult, isError: false });
+      event(session.id, { type: "tool_execution_end", toolCallId: callId, toolName, result: toolResult, isError: false });
       event(session.id, { type: "message_end", message: toolResult });
       await step(session);
     }
-    const text = session.researchMode ? "样本已经整理好了。可以点结果卡查看数据和来源，也可以继续告诉我需要增加哪些字段。当前为隔离验证，未调用真实大模型。" : "这是普通聊天的隔离验证回复；它应留在普通聊天里，与研究会话分开。";
+    const text = session.researchMode ? binary ? "真实记录显示：x64 PE32+，资源位于已展开的 resources/app，主入口加载 bytecode-loader.cjs 和 index.jsc。已定位业务入口；本次未解码 JSC，也未进行 PE 脱壳或运行程序。结果卡可查看节区、入口线索和来源。当前 Agent 对话为离线回放，未调用真实大模型。" : "样本已经整理好了。可以点结果卡查看数据和来源，也可以继续告诉我需要增加哪些字段。当前为隔离验证，未调用真实大模型。" : "这是普通聊天的隔离验证回复；它应留在普通聊天里，与研究会话分开。";
     const final = assistant([{ type: "text", text }]);
     event(session.id, { type: "message_start", message: assistant([]) });
     event(session.id, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text } });
