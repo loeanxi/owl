@@ -864,6 +864,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
+				toolActivation: "on-demand",
 				customTools: [
 					...(await getMcpTools()),
 					...iab.tools(sessionId),
@@ -2063,6 +2064,28 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const credentialed: ProviderModelsMessage[] = [];
 				try {
 					const services = await getListingServices();
+					// owl:动态目录厂商（loean 等，凭据已存但基线目录为空）读表前补一次联网刷新——
+					// 启动刷新是 offline，若登录时网关不可达或目录是旧版本登录的，重启后这里自愈，
+					// 不用重新登录。PI_OFFLINE 时与全局一致不联网。
+					if (!process.env.PI_OFFLINE) {
+						const runtime = services.modelRuntime;
+						const staleDynamic = runtime
+							.getProviders()
+							.filter(
+								(provider) =>
+									provider.refreshModels &&
+									provider.getModels().length === 0 &&
+									runtime.getProviderAuthStatus(provider.id).source === "stored",
+							)
+							.map((provider) => provider.id);
+						for (const providerId of staleDynamic) {
+							try {
+								await runtime.refresh({ providers: [providerId], allowNetwork: true });
+							} catch {
+								// 单个厂商拉取失败不挡列表（内部已捕获到 errors）
+							}
+						}
+					}
 					const byProvider = new Map<string, ProviderModelsMessage>();
 					const available = services.modelRuntime
 						.getAvailableSnapshot()

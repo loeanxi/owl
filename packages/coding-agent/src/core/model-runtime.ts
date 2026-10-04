@@ -223,13 +223,12 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
-		const providers = builtinProviderCatalog
-			.builtinProviders()
-			.map((provider) =>
-				provider.id === "radius"
-					? provider
-					: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
-			);
+		const providers = builtinProviderCatalog.builtinProviders().map((provider) =>
+			// radius/loean 自带动态目录刷新（各自网关拉取），不叠加 pi.dev 远程目录
+			provider.id === "radius" || provider.id === "loean"
+				? provider
+				: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
+		);
 		const runtime = new ModelRuntime(
 			credentials,
 			config,
@@ -603,6 +602,22 @@ export class ModelRuntime implements Models {
 			if (result.aborted) signal.throwIfAborted();
 			const refreshError = result.errors.get(providerId);
 			if (refreshError) throw refreshError;
+			// owl:登录（凭据刚落盘）后，对没有本地基线目录的动态厂商（loean 这类从
+			// 网关 /v1/models 拉目录的）追加一次联网刷新——启动与桥端其余刷新都是
+			// offline，这里是唯一联网时机；不刷的话登录完目录仍是空，新会话无模型可选。
+			// 拉取失败不反向判定登录失败（Key 已落盘）：记录后照常收尾，重登或重试可再拉。
+			if (operation === "login" && this.modelNetworkEnabled) {
+				const provider = this.models.getProviders().find((entry) => entry.id === providerId);
+				if (provider?.refreshModels && provider.getModels().length === 0) {
+					const networkResult = await this.models.refresh({
+						allowNetwork: true,
+						providers: [providerId],
+						signal,
+					});
+					const networkError = networkResult.errors.get(providerId);
+					if (networkError) console.warn(`[model-runtime] ${providerId} 目录联网刷新失败:`, networkError);
+				}
+			}
 			this.updateModelSnapshot();
 			await this.refreshProviderAvailability(providerId, signal);
 		} catch (cause) {

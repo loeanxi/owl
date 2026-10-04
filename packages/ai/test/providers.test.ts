@@ -66,6 +66,8 @@ describe("builtin providers", () => {
 		expect(all.length).toBeGreaterThan(500);
 
 		for (const provider of providers) {
+			// loean 目录纯动态（刷新时从网关 /v1/models 拉取，见 providers/loean.ts），基线为空
+			if (provider.id === "loean") continue;
 			const list = models.getAllModels(provider.id);
 			expect(list.length).toBeGreaterThan(0);
 			expect(list.every((m) => m.provider === provider.id)).toBe(true);
@@ -74,6 +76,11 @@ describe("builtin providers", () => {
 			api: "pi-messages",
 			provider: "radius",
 		});
+		// loean：动态目录厂商，未刷新前目录为空但具备刷新能力
+		const loean = providers.find((p) => p.id === "loean");
+		expect(loean).toBeDefined();
+		expect(loean?.refreshModels).toBeDefined();
+		expect(models.getAllModels("loean")).toEqual([]);
 	});
 
 	it("returns empty results for unknown provider ids", () => {
