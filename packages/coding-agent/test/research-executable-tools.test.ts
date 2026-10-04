@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionToolContext } from "../src/core/extensions/types.ts";
 import { normalizeResearchResult } from "../src/core/research/agent.ts";
+import * as containers from "../src/core/research/container.ts";
 import {
 	buildResearchExecutableResult,
 	createResearchExecutableTool,
@@ -93,6 +94,7 @@ async function syntheticArchive(root: string): Promise<{ path: string; code: Buf
 
 afterEach(async () => {
 	expect(execFile).not.toHaveBeenCalled();
+	vi.restoreAllMocks();
 	for (const root of temporary.splice(0)) {
 		const absolute = resolve(root);
 		if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-research-wrapper-")) {
@@ -253,6 +255,63 @@ describe("research executable tool wrapper", () => {
 		}
 		expect(await readFile(archive.path)).toEqual(original);
 		expect(await readdir(output)).toEqual([]);
+	});
+
+	it("verifies a mocked UPX output as a different valid PE and retains both fingerprints", async () => {
+		const input = await workspace();
+		const output = await workspace();
+		const path = join(input, "toy.exe");
+		const outputPath = join(output, "unpacked.exe");
+		const original = syntheticPe();
+		const unpacked = Buffer.from(original);
+		unpacked.write("public unpacked fixture", 0x300, "ascii");
+		await writeFile(path, original);
+		await writeFile(outputPath, unpacked);
+		const adapter = vi.spyOn(containers, "decompressUpx").mockResolvedValue({
+			status: "decompressed",
+			inputPath: path,
+			outputPath,
+			bytes: unpacked.length,
+			evidence: ["Synthetic adapter only; no process."],
+		});
+		const report = await runResearchExecutable({ action: "unpack", path }, output);
+		expect(adapter).toHaveBeenCalledWith(
+			{ cwd: await realpath(input), path: await realpath(path), outputCwd: output },
+			undefined,
+		);
+		expect(report.status).toBe("decompressed");
+		expect(report.outputInspection?.file.sha256).toBe(createHash("sha256").update(unpacked).digest("hex"));
+		expect(report.executable?.file.sha256).toBe(createHash("sha256").update(original).digest("hex"));
+		expect(await readFile(path)).toEqual(original);
+	});
+
+	it("does not certify unchanged or malformed UPX output just because an adapter reports success", async () => {
+		const input = await workspace();
+		const output = await workspace();
+		const path = join(input, "toy.exe");
+		const outputPath = join(output, "unpacked.exe");
+		const original = syntheticPe();
+		await writeFile(path, original);
+		vi.spyOn(containers, "decompressUpx").mockResolvedValue({
+			status: "decompressed",
+			inputPath: path,
+			outputPath,
+			evidence: ["Synthetic adapter only; no process."],
+		});
+		for (const [bytes, warning] of [
+			[original, "哈希相同"],
+			[Buffer.from("MZ"), "未通过 PE 再解析"],
+		] as const) {
+			await writeFile(outputPath, bytes);
+			const report = await runResearchExecutable({ action: "unpack", path }, output);
+			expect(report.status).toBe("unsupported");
+			expect(report.warnings.join(" ")).toContain(warning);
+			expect(
+				buildResearchExecutableResult(report).findings.some((finding) =>
+					finding.text.includes("本次未确认完成脱壳"),
+				),
+			).toBe(true);
+		}
 	});
 
 	it("returns a standard source-linked binary research card through ToolDefinition execution", async () => {

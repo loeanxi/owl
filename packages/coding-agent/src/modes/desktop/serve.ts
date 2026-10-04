@@ -1937,36 +1937,68 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: "分支目标消息不存在" });
 					return;
 				}
-			try {
-				const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
-				const branchFile = branched.createBranchedSession(request.entryId);
-				if (!branchFile) throw new Error("分支会话创建失败");
-				// 分支命名：fork<N> · 来自「<源会话全名>」。N 取同源分支现有序号的最大值 +1
-				//（删过中间分支也不会撞号）；源会话全名 = 它的显示名，没有则用首条用户消息。
-				const sourceRows = await SessionManager.listAll(sourceManager.getSessionDir());
-				const sourcePath = resolve(sourceFile);
-				const siblings = sourceRows.filter(
-					(row) => row.parentSessionPath && resolve(row.parentSessionPath) === sourcePath,
-				);
-				let lastForkNumber = 0;
-				for (const sibling of siblings) {
-					const match = /^fork(\d+) · /.exec(sibling.name ?? "");
-					if (match) lastForkNumber = Math.max(lastForkNumber, Number(match[1]));
-				}
-				const parent = sourceRows.find((row) => resolve(row.path) === sourcePath);
-				const parentTitle =
-					(parent?.name ?? parent?.firstMessage ?? "").trim().replace(/\s+/g, " ").slice(0, 80) || "原会话";
-				branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${parentTitle}」`);
-				await unmountSessionRuntime(request.sessionId);
-				await mountSession(ws, request.id, {
-					sessionManager: branched,
-					agentDir: defaultAgentDir(),
-					provider: request.provider,
-					model: request.model,
-					thinkingLevel: request.thinkingLevel,
-					approvalMode: request.approvalMode ?? existing.approvalMode.current,
-				});
-			} catch (error) {
+				try {
+					const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
+					const branchFile = branched.createBranchedSession(request.entryId);
+					if (!branchFile) throw new Error("分支会话创建失败");
+					// 分支命名：fork<N> · 来自「<根会话名>」。名字沿 parentSession 链追溯到最初
+					// 的来源（fork 链再深也不会越叠越长）；N 取整个家族（根的全部后代）现有
+					// 序号的最大值 +1——同一来源的分支按分支时间自然递增、互不撞号。
+					const sourceRows = await SessionManager.listAll(sourceManager.getSessionDir());
+					const byPath = new Map(sourceRows.map((row) => [resolve(row.path), row]));
+					const sourcePath = resolve(sourceFile);
+					const visited = new Set<string>([sourcePath]);
+					let rootPath = sourcePath;
+					for (;;) {
+						const row = byPath.get(rootPath);
+						const parent = row?.parentSessionPath ? resolve(row.parentSessionPath) : undefined;
+						if (!parent || visited.has(parent) || !byPath.has(parent)) break;
+						visited.add(rootPath);
+						rootPath = parent;
+					}
+					const children = new Map<string, string[]>();
+					for (const row of sourceRows) {
+						if (!row.parentSessionPath) continue;
+						const parent = resolve(row.parentSessionPath);
+						const list = children.get(parent);
+						if (list) list.push(resolve(row.path));
+						else children.set(parent, [resolve(row.path)]);
+					}
+					let lastForkNumber = 0;
+					const familyQueue = [rootPath];
+					const seenFamily = new Set<string>([rootPath]);
+					while (familyQueue.length > 0) {
+						const current = familyQueue.shift()!;
+						for (const child of children.get(current) ?? []) {
+							if (seenFamily.has(child)) continue;
+							seenFamily.add(child);
+							const match = /^fork(\d+) · /.exec(byPath.get(child)?.name ?? "");
+							if (match) lastForkNumber = Math.max(lastForkNumber, Number(match[1]));
+							familyQueue.push(child);
+						}
+					}
+					// 根会话名：显示名或首条用户消息；万一追溯断在半路（父文件被删），
+					// 把残留的 fork 包装层剥掉， nesting 也不会渗回来
+					let rootTitle = (byPath.get(rootPath)?.name ?? byPath.get(rootPath)?.firstMessage ?? "")
+						.trim()
+						.replace(/\s+/g, " ");
+					for (;;) {
+						const unwrap = /^fork\d+ · 来自「(.+)」$/.exec(rootTitle);
+						if (!unwrap) break;
+						rootTitle = unwrap[1]!;
+					}
+					rootTitle = rootTitle.slice(0, 80) || "原会话";
+					branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${rootTitle}」`);
+					await unmountSessionRuntime(request.sessionId);
+					await mountSession(ws, request.id, {
+						sessionManager: branched,
+						agentDir: defaultAgentDir(),
+						provider: request.provider,
+						model: request.model,
+						thinkingLevel: request.thinkingLevel,
+						approvalMode: request.approvalMode ?? existing.approvalMode.current,
+					});
+				} catch (error) {
 					reply(ws, request.id, {
 						ok: false,
 						error: `分支失败：${error instanceof Error ? error.message : String(error)}`,

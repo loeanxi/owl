@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added research-only PE inspection, bounded Electron resource analysis, explicit ASAR extraction and an optional installed UPX adapter, with source-linked result cards and no target execution. Added fixed synthetic model boundary experiments with explicit model and call budgets.
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.
 - Added independent model evaluation conversations with persistent follow-up turns, inline artifacts, attempt selection, and first-answer scoring drawers.

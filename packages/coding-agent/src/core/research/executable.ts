@@ -607,7 +607,6 @@ class PeReader {
 			}
 			if (!thunkTerminated && functionCount >= this.limits.maxImports) {
 				this.truncated.imports = true;
-				break;
 			}
 		}
 		if (!terminated) {

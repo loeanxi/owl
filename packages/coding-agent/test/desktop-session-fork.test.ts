@@ -159,6 +159,17 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(forkedAgain.result?.name).toBe("fork2 · 来自「你好」");
 		expect(forkedAgain.result?.sessionId).not.toBe(forkedId);
 
+		// 分支的分支：名字折叠到根（不会嵌套成「来自「来自…」」），序号全家族递增
+		const remountedFork = await request<Snapshot>(first, { type: "session.resume", sessionId: forkedId! });
+		expect(remountedFork.ok).toBe(true);
+		const forkedChild = await request<Snapshot>(first, {
+			type: "session.fork",
+			sessionId: forkedId!,
+			entryId: "e-asst-1",
+		});
+		expect(forkedChild.ok).toBe(true);
+		expect(forkedChild.result?.name).toBe("fork3 · 来自「你好」");
+
 		// 分支点不存在 → 明确报错而不是静默
 		const missing = await request<{ sessionId?: string }>(first, {
 			type: "session.fork",

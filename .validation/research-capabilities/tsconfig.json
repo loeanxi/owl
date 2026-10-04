@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.json",
+	"include": [
+		"../../packages/coding-agent/src/core/research/**/*.ts",
+		"../../packages/coding-agent/src/modes/desktop/browser-permissions.ts",
+		"../../packages/coding-agent/test/research-*.test.ts",
+		"../../packages/coding-agent/test/desktop-research-bridge.test.ts",
+		"../../packages/coding-agent/test/desktop-browser-session.test.ts"
+	]
+}
