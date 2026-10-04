@@ -38,6 +38,11 @@ import type {
 
 const MAX_BODY_CHARS = 60_000;
 const DAY_MS = 86_400_000;
+/**
+ * 正常采集允许的滞后上限。原先只有 2 天，但首次启用的信源只能取到 feed 里已有的最新几条，
+ * 低频信源（DeepMind 约 5 天一篇）于是永远达不到标准、被判为历史资料而无法进入精选。
+ */
+const FRESH_DISCOVERY_MS = 7 * DAY_MS;
 const PrefilterSchema = Type.Object({
 	label: Type.Union([Type.Literal("PASS"), Type.Literal("BLOCK"), Type.Literal("UNKNOWN")]),
 	reason: Type.String({ maxLength: 200 }),
@@ -588,7 +593,7 @@ export async function judgeRelation(
 		reason: "没有已精选的相关报道",
 		mentions: [],
 	};
-	if (item.backfill || Date.parse(item.discoveredAt) - Date.parse(item.publishedAt) > 2 * DAY_MS)
+	if (item.backfill || Date.parse(item.discoveredAt) - Date.parse(item.publishedAt) > FRESH_DISCOVERY_MS)
 		return { ...empty, novel: false, reason: "历史资料按原文时间归档" };
 	if (
 		item.participation === "editorial" &&
@@ -1102,14 +1107,18 @@ export function groundedNewsText(text: string, corpus: string): boolean {
 	const words = (text.match(/[A-Za-z][A-Za-z0-9.+-]*/g) ?? [])
 		.filter((word) => /[A-Z0-9]/.test(word))
 		.map((word) => word.replace(/[.+-]+$/, "").toLowerCase());
+	// Numbers are matched on their digits, not on the unit glyph: the source may write
+	// "+23.7 percent" where the summary writes "23.7%", and a different unit rendering is
+	// not a fabricated figure. A number that never appears in any rendering is still rejected.
 	const figures = (text.match(/\d+(?:\.\d+)?%?/g) ?? []).filter((figure) => figure.length >= 3 || /[.%]/.test(figure));
+	const figureKnown = (figure: string) => known.includes(figure.replace(/%/g, ""));
 	const lower = text.toLowerCase();
 	const mentioned = companyNames.filter((names) =>
 		names.some((name) => /\p{Script=Han}/u.test(name) && lower.includes(name)),
 	);
 	return (
 		words.every(named) &&
-		figures.every((figure) => known.includes(figure)) &&
+		figures.every(figureKnown) &&
 		mentioned.every((names) => companies.includes(names))
 	);
 }

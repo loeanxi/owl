@@ -948,4 +948,16 @@ describe("news paid-output provenance", () => {
 		await evaluateSelection(samples.slice(0, 1), configuration(), disconnected, (error) => networkErrors.push(error));
 		expect(networkErrors).toEqual([]);
 	});
+
+	it("accepts equivalent unit renderings and generic titles but still rejects invented facts", () => {
+		// Source writes the figure with a word unit; the summary writes it with a percent sign.
+		const source = "The largest gains came on BrowseComp-Plus (+23.7 percent nDCG@10) and WixQA (+18.4 percent).";
+		expect(groundedNewsText("BrowseComp-Plus 提升 23.7%", source)).toBe(true);
+		// A figure that appears in no rendering is still a fabrication.
+		expect(groundedNewsText("BrowseComp-Plus 提升 99.9%", source)).toBe(false);
+		// Generic role titles carry no claim, so they do not need a source spelling.
+		expect(groundedNewsText("NVIDIA CTO 表示 Blackwell 架构已上线", "NVIDIA Blackwell is available now.")).toBe(true);
+		// A real person or model name that is absent is still rejected.
+		expect(groundedNewsText("NVIDIA CEO DeepSeek-R9 已上线", "NVIDIA Blackwell is available now.")).toBe(false);
+	});
 });

@@ -88,7 +88,31 @@ export const RELEASE: { category: string; tag: string; unit: string } | null = {
 };
 
 /** 周报月报的总述可以直接写、不必在报道里找到出处的行业通用词（小写）。站名会自动算进去。 */
-export const PLAIN_TERMS: readonly string[] = ["ai", "api", "llm", "gpu", "agi", "ceo", "ipo"];
+export const PLAIN_TERMS: readonly string[] = [
+	"ai",
+	"api",
+	"llm",
+	"gpu",
+	"agi",
+	"ceo",
+	"cto",
+	"cfo",
+	"coo",
+	"cio",
+	"vp",
+	"svp",
+	"evp",
+	"ipo",
+	"oem",
+	"oss",
+	"sdk",
+	"cli",
+	"cpu",
+	"ram",
+	"hbm",
+	"tpu",
+	"ssd",
+];
 
 /**
  * 内容理解一步给每篇资料判的“内容类型”（写在 prompts/content-understanding.md 里，改了类型要同步改那份提示词）。
