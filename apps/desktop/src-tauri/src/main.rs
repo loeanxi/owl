@@ -255,10 +255,10 @@ fn debug_rebuild_and_restart(app: tauri::AppHandle) -> Result<(), String> {
 		}
 		let build_script = repo
 			.parent()
-			.map(|parent| parent.join("scripts/owl-native-dev.ps1"))
-			.ok_or_else(|| "无法定位 Owl 全量构建脚本。".to_owned())?;
+			.map(|parent| parent.join("scripts/owl-start.ps1"))
+			.ok_or_else(|| "无法定位 Owl 一键启动脚本。".to_owned())?;
 		if !build_script.is_file() {
-			return Err(format!("找不到全量构建脚本：{}", build_script.display()));
+			return Err(format!("找不到一键启动脚本：{}", build_script.display()));
 		}
 		spawn_debug_update_helper(&repo, &helper)
 	})();

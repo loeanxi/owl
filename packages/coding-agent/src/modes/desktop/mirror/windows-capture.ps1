@@ -6,9 +6,10 @@
 #   {"event":"error","message":"..."}
 #   {"event":"ready"}
 #
-# 捕获走 Windows.Graphics.Capture：C# 侧（windows-capture.cs）只做工厂 interop
-# （Type.GetType 惰性解析 + WindowsRuntimeMarshal，无需 winmd 引用），WinRT 会话
-# 在本文件用惰性类型字面量编排，COM 对象全部不透明透传、不做 PS 侧强转。
+# 捕获内核（windows-capture.cs）由本脚本用进程外 csc 带系统 winmd 引用编译成
+# DLL 并缓存（%TEMP% 按 cs 内容哈希），再字节加载 —— 进程内 Add-Type 既没有
+# winmd 引用能力，net48 的 IInspectable vtable 互操作也不可靠。文件必须保存为
+# UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
   [ValidateSet('list', 'capture', 'restore', 'launch')]
@@ -135,81 +136,54 @@ function Get-WindowRows {
 }
 
 # ---------------------------------------------------------------------------
-# WGC capture (lazy WinRT literals + opaque COM objects)
+# capture kernel: compile windows-capture.cs via out-of-proc csc (winmd refs),
+# cache by content hash, load bytes.
 # ---------------------------------------------------------------------------
-function Start-MirrorCapture([IntPtr]$hwndPtr) {
-  if (-not ('OwlMirror.CaptureInterop' -as [type])) {
-    if (-not $script:SwrPath) {
-        $script:SwrPath = [Reflection.Assembly]::Load('System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089').Location
-      }
-      Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @($script:SwrPath)
-  }
-  $deviceObj = [OwlMirror.CaptureInterop]::CreateDirect3DDevice()
-  $itemPtr = [OwlMirror.CaptureInterop]::CreateItemForWindow($hwndPtr)
-  $item = [System.Runtime.InteropServices.Marshal]::GetObjectForIUnknown($itemPtr)
-
-  $rect = New-Object OwlMirrorWin32+RECT
-  [OwlMirrorWin32]::GetClientRect($hwndPtr, [ref]$rect) | Out-Null
-  $size = New-Object Windows.Graphics.SizeInt32
-  $size.Width = $rect.Right - $rect.Left
-  $size.Height = $rect.Bottom - $rect.Top
-  if ($size.Width -le 0 -or $size.Height -le 0) { throw "window client size is empty" }
-
-  $fmt = [Windows.Graphics.DirectX.DirectXPixelFormat]::B8G8R8A8UIntNormalized
-  $framePool = [Windows.Graphics.Capture.Direct3D11CaptureFramePool]::CreateFreeThreaded($deviceObj, $fmt, 2, $size)
-  $session = $framePool.CreateCaptureSession($item)
-  try { $session.IsCursorCaptureEnabled = $false } catch { }
-  try { $session.IsBorderRequired = $false } catch { }
-  $session.StartCapture()
-  return @{ pool = $framePool; session = $session }
-}
-
-function Get-FrameJpeg($framePool, [int]$quality, [int]$maxWidth, [int]$timeoutMs, [ref]$outW, [ref]$outH) {
-  $deadline = [Environment]::TickCount + $timeoutMs
-  $frame = $null
-  while ([Environment]::TickCount -lt $deadline) {
-    $frame = $framePool.TryGetNextFrame()
-    if ($frame) { break }
-    Start-Sleep -Milliseconds 4
-  }
-  if (-not $frame) { return $null }
+function Get-CaptureAssembly {
+  $csPath = Join-Path $PSScriptRoot 'windows-capture.cs'
+  $csBytes = [IO.File]::ReadAllBytes($csPath)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
   try {
-    $softOp = [Windows.Graphics.Imaging.SoftwareBitmap]::CreateCopyFromSurfaceAsync($frame.Surface)
-    $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-    $asTask = $asTaskGeneric.MakeGenericMethod([Windows.Graphics.Imaging.SoftwareBitmap])
-    $netTask = $asTask.Invoke($null, @($softOp))
-    $netTask.Wait(-1) | Out-Null
-    $soft = $netTask.Result
-    try {
-      $sw = $soft.PixelWidth; $sh = $soft.PixelHeight
-      $scale = 1.0
-      if ($maxWidth -gt 0 -and $sw -gt $maxWidth) { $scale = $maxWidth / $sw }
-      $dw = [Math]::Max(1, [int][Math]::Round($sw * $scale))
-      $dh = [Math]::Max(1, [int][Math]::Round($sh * $scale))
-      $outW.Value = $dw; $outH.Value = $dh
+    $hashBytes = $sha.ComputeHash($csBytes)
+    $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 16).ToLower()
+  } finally { $sha.Dispose() }
 
-      $buffer = $soft.LockBuffer([Windows.Graphics.Imaging.BitmapBufferAccessMode]::Read)
-      try {
-        $pixels = [System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions]::ToArray($buffer)
-      } finally { $buffer.Dispose() }
+  $cacheDir = Join-Path ([IO.Path]::GetTempPath()) ('owl-mirror-' + $hash)
+  $dllPath = Join-Path $cacheDir 'OwlMirror.Capture.dll'
+  if (Test-Path $dllPath) {
+    return [IO.File]::ReadAllBytes($dllPath)
+  }
 
-      $bmp = New-Object System.Drawing.Bitmap($dw, $dh, ($dw * 4), [System.Drawing.Imaging.PixelFormat]::Format32bppArgb, [System.Runtime.InteropServices.Marshal]::UnsafeAddrOfPinnedArrayElement($pixels, 0))
-      try {
-        $stream = New-Object System.IO.MemoryStream
-        try {
-          $jpegCodec = $null
-          foreach ($codec in [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders()) {
-            if ($codec.MimeType -eq 'image/jpeg') { $jpegCodec = $codec; break }
-          }
-          $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
-          $q = [Math]::Max(1, [Math]::Min(100, $quality))
-          $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]$q)
-          $bmp.Save($stream, $jpegCodec, $encParams)
-          return $stream.ToArray()
-        } finally { $stream.Dispose() }
-      } finally { $bmp.Dispose() }
-    } finally { $soft.Dispose() }
-  } finally { $frame.Dispose() }
+  $cscCandidates = @(
+    (Join-Path $env:windir 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+    (Join-Path $env:windir 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+  )
+  $csc = $cscCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $csc) { throw 'csc.exe (net48) not found' }
+
+  $winmd = Join-Path $env:windir 'System32\WinMetadata'
+  $gac = 'C:\Windows\Microsoft.Net\assembly\GAC_MSIL'
+  $refs = @(
+    (Join-Path $winmd 'Windows.Foundation.winmd'),
+    (Join-Path $winmd 'Windows.Graphics.winmd'),
+    (Join-Path $winmd 'Windows.UI.winmd'),
+    (Join-Path $winmd 'Windows.Storage.winmd'),
+    'System.Runtime.WindowsRuntime.dll'
+  )
+  foreach ($name in @('System.Runtime', 'System.ObjectModel', 'System.Collections')) {
+    $dir = Get-ChildItem (Join-Path $gac $name) -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($dir) { $refs += (Join-Path $dir.FullName ($name + '.dll')) }
+  }
+
+  New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+  $argList = @('-nologo', '-target:library', ('-out:' + $dllPath), $csPath)
+  foreach ($ref in $refs) { $argList += ('-r:' + $ref) }
+  $stdout = & $csc @argList 2>&1
+  if (-not (Test-Path $dllPath)) {
+    $detail = ($stdout | Out-String)
+    throw ('capture kernel compile failed: ' + $detail.Substring(0, [Math]::Min(600, $detail.Length)))
+  }
+  return [IO.File]::ReadAllBytes($dllPath)
 }
 
 # ---------------------------------------------------------------------------
@@ -218,7 +192,6 @@ function Get-FrameJpeg($framePool, [int]$quality, [int]$maxWidth, [int]$timeoutM
 switch ($Command) {
 
   'list' {
-    Add-Type -AssemblyName System.Drawing
     foreach ($row in (Get-WindowRows)) {
       $json = '{"event":"window","hwnd":' + $row.hwnd +
         ',"title":"' + (Escape-Json $row.title) +
@@ -275,15 +248,6 @@ switch ($Command) {
   'capture' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd
-    Add-Type -AssemblyName System.Runtime.WindowsRuntime
-    Add-Type -AssemblyName System.Drawing
-
-    if (-not ('OwlMirror.CaptureInterop' -as [type])) {
-      if (-not $script:SwrPath) {
-        $script:SwrPath = [Reflection.Assembly]::Load('System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089').Location
-      }
-      Add-Type -Path (Join-Path $PSScriptRoot 'windows-capture.cs') -ReferencedAssemblies @($script:SwrPath)
-    }
 
     if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
       [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
@@ -294,13 +258,13 @@ switch ($Command) {
       exit 1
     }
 
-    $capture = Start-MirrorCapture $hwndPtr
-    $framePool = $capture.pool
+    $asmBytes = Get-CaptureAssembly
+    [void][System.Reflection.Assembly]::Load($asmBytes)
+    $session = [OwlMirror.CaptureSession]::Start($hwndPtr)
     Write-JsonLine '{"event":"status","iconic":false,"autoRestored":0,"frameSeq":0}'
 
     $lastIconic = $false
     $lastStatusTick = [System.Diagnostics.Stopwatch]::StartNew()
-    $seq = 0
 
     while ($true) {
       try {
@@ -308,31 +272,30 @@ switch ($Command) {
         if ($iconic -ne $lastIconic -or $lastStatusTick.ElapsedMilliseconds -gt 5000) {
           $lastIconic = $iconic
           $lastStatusTick.Restart()
-          Write-JsonLine ('{"event":"status","iconic":' + ($iconic.ToString().ToLower()) + ',"autoRestored":' + $script:AutoRestored + ',"frameSeq":' + $seq + '}')
+          Write-JsonLine ('{"event":"status","iconic":' + ($iconic.ToString().ToLower()) + ',"autoRestored":' + $script:AutoRestored + ',"frameSeq":' + $session.FrameSeq + '}')
         }
         if ($iconic) {
           if (-not $NoAutoRestore) {
             # BitDock 等停靠工具会把后台窗口收纳成最小化；SC_RESTORE 拉回来继续抓
             [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
             $script:AutoRestored++
-            Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $script:AutoRestored + ',"frameSeq":' + $seq + ',"autoRestore":true}')
+            Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $script:AutoRestored + ',"frameSeq":' + $session.FrameSeq + ',"autoRestore":true}')
           }
           Start-Sleep -Milliseconds 600
           continue
         }
 
         $w = 0; $h = 0
-        $jpeg = Get-FrameJpeg $framePool $Quality $MaxWidth $FrameTimeoutMs ([ref]$w) ([ref]$h)
+        $jpeg = $session.GrabFrameJpeg($FrameTimeoutMs, $Quality, $MaxWidth, [ref]$w, [ref]$h)
         if ($jpeg) {
-          $seq++
           $b64 = [Convert]::ToBase64String($jpeg)
-          Write-JsonLine ('{"event":"frame","seq":' + $seq + ',"w":' + $w + ',"h":' + $h + ',"data":"' + $b64 + '"}')
+          Write-JsonLine ('{"event":"frame","seq":' + $session.FrameSeq + ',"w":' + $w + ',"h":' + $h + ',"data":"' + $b64 + '"}')
         }
-        Start-Sleep -Milliseconds 1
+        # GrabFrameJpeg 内部已按超时等帧，这里只防硬自旋
+        Start-Sleep -Milliseconds 2
       } catch {
         Write-JsonLine ('{"event":"error","message":"' + (Escape-Json $_.Exception.Message) + '"}')
-        try { $capture.session.Close() } catch { }
-        try { $framePool.Dispose() } catch { }
+        try { $session.Dispose() } catch { }
         exit 1
       }
     }
