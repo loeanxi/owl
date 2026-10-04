@@ -45,7 +45,7 @@ export type ResearchPageProps = {
 	onTitleChange?: (title: string) => void;
 };
 
-const modeKeys = { auto: "modeAuto", crawl: "modeCrawl", web: "modeWeb", model: "modeModel", osint: "modeOsint" } as const;
+const modeKeys = { auto: "modeAuto", crawl: "modeCrawl", web: "modeWeb", binary: "modeBinary", model: "modeModel", osint: "modeOsint" } as const;
 
 function ResearchMark(): React.JSX.Element {
 	return <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m10 2 2.2 5.8L18 10l-5.8 2.2L10 18l-2.2-5.8L2 10l5.8-2.2L10 2Z" /></svg>;

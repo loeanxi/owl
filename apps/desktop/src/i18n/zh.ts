@@ -1360,6 +1360,7 @@ export const zh = {
 	"app.compactFailed": "压缩失败",
 	"app.sendFailed": "发送失败",
 	"app.branchFailed": "分支失败",
+	"app.branchSuffix": "分支",
 	"app.branchTool": "在新对话中分支",
 	"app.branchDone": "已从原会话分支出新对话，以上历史原样保留；原会话不受影响，可随时从侧边栏切回。",
 	"app.sendFailedMsg": "消息发送失败",

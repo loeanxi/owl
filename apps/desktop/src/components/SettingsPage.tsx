@@ -134,7 +134,7 @@ type ArchiveEntry = { sessionId: string; archivedAt: string };
 
 type ArchiveConfigResult = { retentionDays: number; sessions: ArchiveEntry[] };
 
-type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string };
+type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string; parentSessionPath?: string };
 
 /** 内置提示词分区的展示名（顺序即渲染顺序）。 */
 const BUILTIN_SECTION_TITLES: Record<string, TextKey> = {
@@ -148,13 +148,22 @@ const BUILTIN_SECTION_TITLES: Record<string, TextKey> = {
 	cwd: "settings.prompts.secCwd",
 };
 
-/** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。 */
+/** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀；分支会话加「· 分支」后缀。 */
 function sessionDisplayName(row: SessionListRow): string {
 	const named = row.name?.trim();
-	if (named) return named;
-	const first = row.firstMessage?.trim().replace(/\s+/g, " ");
-	if (first) return first.length > 48 ? `${first.slice(0, 48)}…` : first;
-	return row.id ? t("settings.sessionFallback", { id: row.id.slice(0, 8) }) : t("settings.sessionUnnamed");
+	let base: string;
+	if (named) {
+		base = named;
+	} else {
+		const first = row.firstMessage?.trim().replace(/\s+/g, " ");
+		if (first) {
+			base = first.length > 48 ? `${first.slice(0, 48)}…` : first;
+		} else {
+			base = row.id ? t("settings.sessionFallback", { id: row.id.slice(0, 8) }) : t("settings.sessionUnnamed");
+		}
+	}
+	const suffix = ` · ${t("app.branchSuffix")}`;
+	return row.parentSessionPath && !base.endsWith(suffix) ? `${base}${suffix}` : base;
 }
 
 /** 距自动删除还剩几天（保留期 - 已归档天数）。 */

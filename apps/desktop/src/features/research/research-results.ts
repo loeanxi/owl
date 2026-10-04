@@ -1,5 +1,7 @@
 import type { ResearchResult } from "../../bridge/protocol.ts";
 
+const RESULT_TOOLS = new Set(["research_publish", "research_executable", "research_model_lab"]);
+
 function objectOf(value: unknown): Record<string, unknown> | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
@@ -9,7 +11,7 @@ export function researchResultOf(value: unknown): ResearchResult | undefined {
 	const result = objectOf(value);
 	if (!result || typeof result.id !== "string" || !result.id.trim() || typeof result.createdAt !== "string" ||
 		typeof result.title !== "string" || !result.title.trim() || typeof result.summary !== "string" || !result.summary.trim() ||
-		!["crawl", "web", "model", "osint"].includes(String(result.mode)) ||
+		!["crawl", "web", "binary", "model", "osint"].includes(String(result.mode)) ||
 		!["sample", "partial", "complete"].includes(String(result.status)) ||
 		!Array.isArray(result.columns) || !Array.isArray(result.rows) || !Array.isArray(result.sources) || !Array.isArray(result.findings)) return undefined;
 	const keys = new Set<string>();
@@ -42,7 +44,7 @@ export function publishedResults(messages: unknown[]): ResearchResult[] {
 	const results: ResearchResult[] = [];
 	for (const item of messages) {
 		const message = objectOf(item);
-		if (message?.role !== "toolResult" || message.toolName !== "research_publish" || message.isError === true) continue;
+		if (message?.role !== "toolResult" || !RESULT_TOOLS.has(String(message.toolName)) || message.isError === true) continue;
 		const result = researchResultOf(objectOf(message.details)?.researchResult);
 		if (result) results.push(result);
 	}
@@ -54,7 +56,7 @@ export function researchResultsFromEvent(payload: unknown): ResearchResult[] {
 	if (!event) return [];
 	if (event.type === "agent_end" && Array.isArray(event.messages)) return publishedResults(event.messages);
 	if (event.type === "message_end") return publishedResults([event.message]);
-	if (event.type !== "tool_execution_end" || event.toolName !== "research_publish" || event.isError === true) return [];
+	if (event.type !== "tool_execution_end" || !RESULT_TOOLS.has(String(event.toolName)) || event.isError === true) return [];
 	const result = researchResultOf(objectOf(objectOf(event.result)?.details)?.researchResult);
 	return result ? [result] : [];
 }

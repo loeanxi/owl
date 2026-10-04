@@ -32,6 +32,8 @@ type SessionRow = {
 	timestamp?: string;
 	created?: string;
 	firstMessage?: string;
+	/** 父会话文件路径。存在 = 由别的会话分支而来，标题要加「· 分支」后缀区分。 */
+	parentSessionPath?: string;
 	/** 归档时间（ISO）。存在 = 已归档；由桥端 archive.json 下发。 */
 	archivedAt?: string;
 	scope?: SessionScope;
@@ -91,16 +93,23 @@ function sessionTime(row: SessionRow): string {
 	return String(row.modified ?? row.timestamp ?? row.created ?? "");
 }
 
-/** 会话显示名：自定义名 > 首条用户消息 > id 前缀。 */
+/** 会话显示名：自定义名 > 首条用户消息 > id 前缀；分支会话追加「· 分支」便于在同名会话里区分。 */
 function sessionTitle(row: SessionRow): string {
 	const named = row.name?.trim();
-	if (named) return named;
-	const first = row.firstMessage?.trim();
-	if (first) {
-		const flat = flatText(first);
-		return flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
+	let base: string;
+	if (named) {
+		base = named;
+	} else {
+		const first = row.firstMessage?.trim();
+		if (first) {
+			const flat = flatText(first);
+			base = flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
+		} else {
+			base = row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
+		}
 	}
-	return row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
+	const suffix = ` · ${t("app.branchSuffix")}`;
+	return row.parentSessionPath && !base.endsWith(suffix) ? `${base}${suffix}` : base;
 }
 
 function flatText(text: string): string {

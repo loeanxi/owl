@@ -85,6 +85,16 @@ export function NewsPage({
 	const snapshotRevision = useRef(0);
 	const contentRef = useRef<HTMLElement>(null);
 	const refreshed = (): void => setRevision((current) => current + 1);
+	useEffect(() => {
+		if (!MANAGEMENT.some((entry) => entry.id === section)) return;
+		const compact = window.matchMedia("(max-width: 1100px)");
+		const closeAssistantForManagement = (): void => {
+			if (compact.matches) setAssistantOpen(false);
+		};
+		closeAssistantForManagement();
+		compact.addEventListener("change", closeAssistantForManagement);
+		return () => compact.removeEventListener("change", closeAssistantForManagement);
+	}, [section]);
 	useEffect(
 		() =>
 			client.onStatus((up) => {

@@ -1,5 +1,5 @@
 /** Research is a persistent conversation scope, separate from ordinary and mailbox sessions. */
-export type ResearchMode = "auto" | "crawl" | "web" | "model" | "osint";
+export type ResearchMode = "auto" | "crawl" | "web" | "binary" | "model" | "osint";
 
 export type ResearchCell = string | number | boolean | null;
 

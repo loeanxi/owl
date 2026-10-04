@@ -170,6 +170,8 @@ export default function App(): React.JSX.Element {
 		return isApprovalMode(stored) ? stored : "confirm";
 	});
 	const [sessionInfo, setSessionInfo] = useState<SessionStatsResult | undefined>(undefined);
+	/** 当前会话是否由别的会话分支而来（快照 header.parentSession）：顶栏标题加「· 分支」后缀。 */
+	const [sessionBranched, setSessionBranched] = useState(false);
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
 	);
@@ -429,6 +431,7 @@ export default function App(): React.JSX.Element {
 				messages: Record<string, unknown>[];
 				messageEntryIds?: (string | undefined)[];
 				researchMode?: ResearchMode;
+				header?: { parentSession?: string };
 			}>({
 				type: "session.fork",
 				sessionId: sessionIdRef.current,
@@ -455,6 +458,7 @@ export default function App(): React.JSX.Element {
 				{ kind: "toolResult", toolName: t("app.branchTool"), ok: true, brief: t("app.branchDone") },
 			]);
 			setRetryStatus(null);
+			setSessionBranched(true);
 			void refreshStats(forkedId);
 			setSidebarRev((current) => current + 1);
 		} catch (error) {
@@ -798,6 +802,7 @@ export default function App(): React.JSX.Element {
 		setSessionId(id);
 		setEntries([]);
 		setRetryStatus(null);
+		setSessionBranched(false);
 		void refreshStats(id);
 		return id;
 	}
@@ -808,6 +813,7 @@ export default function App(): React.JSX.Element {
 		setEntries([]);
 		setRetryStatus(null);
 		setSessionInfo(undefined);
+		setSessionBranched(false);
 		void ensureSession();
 	};
 
@@ -824,6 +830,7 @@ export default function App(): React.JSX.Element {
 		setEntries([]);
 		setRetryStatus(null);
 		setSessionInfo(undefined);
+		setSessionBranched(false);
 	};
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
@@ -835,6 +842,8 @@ export default function App(): React.JSX.Element {
 			messages: Record<string, unknown>[];
 			messageEntryIds?: (string | undefined)[];
 			researchMode?: ResearchMode;
+			/** 会话头（含 parentSession）：分支出来的会话顶栏标题要加「· 分支」后缀 */
+			header?: { parentSession?: string };
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
@@ -867,6 +876,7 @@ export default function App(): React.JSX.Element {
 		sessionIdRef.current = resumedId;
 		setEntries(rebuild(messages, messageEntryIds));
 		setRetryStatus(null);
+		setSessionBranched(Boolean(response.result.header?.parentSession));
 		void refreshStats(resumedId);
 	};
 
@@ -1137,7 +1147,9 @@ export default function App(): React.JSX.Element {
 	};
 
 	// -- 顶栏（对照 DSH 会话头：标题 + 元信息 chips + 右侧功能簇） --------------
-	const sessionTitle = conversationTitleOf(entries, t("app.newConversation"));
+	const conversationBaseTitle = conversationTitleOf(entries, t("app.newConversation"));
+	// 分支出来的会话顶栏标题加「· 分支」，和侧边栏的后缀规则一致
+	const sessionTitle = sessionBranched ? `${conversationBaseTitle} · ${t("app.branchSuffix")}` : conversationBaseTitle;
 	const mapModelValue = modelValue || (sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : "");
 	const mapModelSeparator = mapModelValue.indexOf("/");
 	const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))

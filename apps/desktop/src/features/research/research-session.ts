@@ -72,7 +72,7 @@ export class ResearchSessionController {
 					model: typeof value.model === "string" ? value.model : defaults.model,
 					thinkingLevel: typeof value.thinkingLevel === "string" ? value.thinkingLevel : defaults.thinkingLevel,
 					approvalMode: ["confirm", "plan", "auto"].includes(String(value.approvalMode)) ? value.approvalMode as ApprovalMode : defaults.approvalMode,
-					mode: ["auto", "crawl", "web", "model", "osint"].includes(String(value.mode)) ? value.mode as ResearchMode : "auto",
+					mode: ["auto", "crawl", "web", "binary", "model", "osint"].includes(String(value.mode)) ? value.mode as ResearchMode : "auto",
 				};
 			}
 		} catch { /* Storage can be unavailable in restricted webviews. */ }
