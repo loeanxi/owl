@@ -1276,6 +1276,8 @@ export const zh = {
 	"chat.cancelled": "已中断",
 	"chat.runningAria": "运行中",
 	"chat.thinkingLines": "思考过程 · {n} 行",
+	"chat.workProcess": "工作过程 · {n} 步",
+	"chat.workRunning": "正在工作 · {n} 步",
 	"chat.msgCopy": "复制",
 	"chat.msgCopied": "已复制",
 	"chat.msgLike": "赞",

@@ -33,24 +33,22 @@
 	min-width: 0;
 }
 
-/* ── 改动审批卡（ReviewChangesCard）：面板化容器 + GitHub 式 diff 比例条 ──
+/* ── 改动审批卡（ReviewChangesCard）：实心面板容器 + 类型色芯片行 ──
 	 状态色走组件级变量：深浅主题分别取 emerald/red/amber 的 300 / 600 档，
 	 保证浅色面板上加减数字与比例条仍有对比度。 */
 .owl-changes-card {
 	--owl-changes-add: #6ee7b7;
 	--owl-changes-del: #fca5a5;
-	--owl-changes-pending: #fbbf24;
 
 	overflow: hidden;
-	border: 1px solid color-mix(in srgb, var(--color-owl-border) 72%, transparent);
+	border: 1px solid var(--color-owl-border);
 	border-radius: 12px;
-	background: color-mix(in srgb, var(--color-owl-panel) 42%, transparent);
+	background: color-mix(in srgb, var(--color-owl-panel) 72%, transparent);
 }
 
 html[data-owl-theme="light"] .owl-changes-card {
 	--owl-changes-add: #059669;
 	--owl-changes-del: #dc2626;
-	--owl-changes-pending: #d97706;
 }
 
 .owl-changes-card button:focus-visible {
@@ -58,12 +56,16 @@ html[data-owl-theme="light"] .owl-changes-card {
 	outline-offset: 1px;
 }
 
-/* 头部：折叠开关（几乎全宽）+ 工作台入口 */
+/* 头部：折叠开关（几乎全宽）+ 批量回滚 + 工作台入口 */
 .owl-changes-head {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	padding: 7px 8px;
+	padding: 9px 10px;
+}
+
+.owl-changes-card:not(.is-collapsed) .owl-changes-head {
+	border-bottom: 1px solid color-mix(in srgb, var(--color-owl-border) 45%, transparent);
 }
 
 .owl-changes-toggle {
@@ -71,7 +73,7 @@ html[data-owl-theme="light"] .owl-changes-card {
 	flex: 1;
 	min-width: 0;
 	align-items: center;
-	gap: 7px;
+	gap: 8px;
 	padding: 3px 5px;
 	margin: -3px -5px;
 	border-radius: 7px;
@@ -97,15 +99,22 @@ html[data-owl-theme="light"] .owl-changes-card {
 	display: grid;
 	place-items: center;
 	flex: 0 0 auto;
-	width: 22px;
-	height: 22px;
-	border-radius: 6px;
+	width: 26px;
+	height: 26px;
+	border-radius: 7px;
 	background: color-mix(in srgb, var(--color-owl-accent) 13%, transparent);
 	color: var(--color-owl-accent);
 }
 
-.owl-changes-title {
+.owl-changes-head-text {
+	display: flex;
 	flex: 0 1 auto;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.owl-changes-title {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -114,11 +123,12 @@ html[data-owl-theme="light"] .owl-changes-card {
 	color: var(--color-owl-text);
 }
 
-.owl-changes-workbench {
+/* 批量回滚：幽灵按钮；工作台入口：实心浅底胶囊（Codex-X 同款层级） */
+.owl-changes-revert-all {
 	display: inline-flex;
 	flex: 0 0 auto;
 	align-items: center;
-	gap: 2px;
+	gap: 4px;
 	padding: 3px 7px;
 	border-radius: 6px;
 	font-size: 11px;
@@ -126,8 +136,30 @@ html[data-owl-theme="light"] .owl-changes-card {
 	transition: background-color 120ms, color 120ms;
 }
 
-.owl-changes-workbench:hover {
+.owl-changes-revert-all:hover {
 	background: color-mix(in srgb, var(--color-owl-hover) 62%, transparent);
+	color: var(--owl-changes-del);
+}
+
+.owl-changes-revert-all:disabled {
+	opacity: 0.4;
+}
+
+.owl-changes-workbench {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 2px;
+	padding: 4px 9px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--color-owl-hover) 70%, transparent);
+	font-size: 11px;
+	color: var(--color-owl-text);
+	transition: background-color 120ms, color 120ms;
+}
+
+.owl-changes-workbench:hover {
+	background: var(--color-owl-hover);
 	color: var(--color-owl-accent);
 }
 
@@ -143,7 +175,7 @@ html[data-owl-theme="light"] .owl-changes-card {
 	display: inline-flex;
 	gap: 2px;
 	overflow: hidden;
-	width: 42px;
+	width: 46px;
 	height: 3px;
 }
 
@@ -186,12 +218,12 @@ html[data-owl-theme="light"] .owl-changes-card {
 	color: var(--owl-changes-del);
 }
 
-/* 文件行：状态格 → 文件名 → 统计 → 动作；已决行整体降不透明度让待审行浮上来 */
+/* 文件行：类型芯片 → 文件名 → 统计 → 动作；已决行整体降不透明度让待审行浮上来 */
 .owl-changes-list {
 	display: grid;
 	gap: 1px;
 	margin: 0;
-	padding: 0 5px 6px;
+	padding: 5px 6px 7px;
 	list-style: none;
 }
 
@@ -199,8 +231,8 @@ html[data-owl-theme="light"] .owl-changes-card {
 	display: flex;
 	min-width: 0;
 	align-items: center;
-	gap: 7px;
-	padding: 4px 6px;
+	gap: 8px;
+	padding: 5px 6px;
 	border-radius: 8px;
 	transition: background-color 120ms;
 }
@@ -225,39 +257,30 @@ html[data-owl-theme="light"] .owl-changes-card {
 	opacity: 0.9;
 }
 
-.owl-changes-status {
+/* 类型芯片：两三个字母的扩展名缩写，色相按语言家族 */
+.owl-changes-type {
 	display: grid;
 	place-items: center;
 	flex: 0 0 auto;
-	width: 14px;
-	height: 14px;
+	width: 24px;
+	height: 19px;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--chip-c, var(--color-owl-muted)) 13%, transparent);
+	color: var(--chip-c, var(--color-owl-muted));
+	font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+	font-size: 8.5px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
 }
 
-.owl-changes-item.is-pending .owl-changes-status::before,
-.owl-changes-item.is-untracked .owl-changes-status::before {
-	content: "";
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-}
-
-.owl-changes-item.is-pending .owl-changes-status::before {
-	background: var(--owl-changes-pending);
-}
-
-.owl-changes-item.is-untracked .owl-changes-status::before {
-	background: var(--color-owl-faint);
-	opacity: 0.7;
-	scale: 0.85;
-}
-
-.owl-changes-item.is-kept .owl-changes-status {
-	color: var(--owl-changes-add);
-}
-
-.owl-changes-item.is-reverted .owl-changes-status {
-	color: var(--color-owl-faint);
-}
+.owl-changes-type.t-blue { --chip-c: #4e8fd9; }
+.owl-changes-type.t-green { --chip-c: #43a374; }
+.owl-changes-type.t-amber { --chip-c: #c9963c; }
+.owl-changes-type.t-red { --chip-c: #d06b60; }
+.owl-changes-type.t-purple { --chip-c: #a07fd0; }
+.owl-changes-type.t-cyan { --chip-c: #4fb3c4; }
+.owl-changes-type.t-orange { --chip-c: #c87e4f; }
+.owl-changes-type.t-grey { --chip-c: var(--color-owl-muted); }
 
 .owl-changes-file {
 	display: flex;

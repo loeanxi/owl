@@ -154,9 +154,10 @@ function saveFeedback(): void {
  * 聊天流 —— 用户提问与 agent 回答收进同一条居中内容列（响应式：窄窗满宽、宽窗封顶
  * 阅读宽度居中）。公开说明、工具调用与答案保留消息中的先后顺序。
  *
- * 过程采用「渐进披露」：工具调用默认收成一行人话摘要，连续的工具调用（名称可不同，
- * 如浏览器套件）合并成一组（「运行了 4 条命令」「浏览器操作 × 3」），点击逐级展开
- * 参数与输出；失败行自动展开标红。答案正文永远是主角，思考过程整轮合并成一条轻量折叠行。
+ * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
+ * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），点击按原顺序逐级
+ * 展开；失败自动展开标红。提问卡、渲染卡与错误是里程碑，原位可见并把工作段切成数段。
+ * 答案正文与其操作栏永远展开，是主角。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -371,6 +372,49 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 				<div className="owl-tool-group-body">
 					{cards.map((card) => (
 						<ToolRowView key={card.id} card={card} />
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/**
+ * 整轮工作过程折叠行：一次提问到该轮最终回答之间的思考、工具调用与中间说明收进
+ * 一条「工作过程 · N 步」，默认收起，点开按原顺序逐级展开；有失败自动展开标红，
+ * 回合进行中显示转圈与实时步数。
+ */
+function WorkProcessRow({ items, steps, failed, running }: {
+	items: Array<{ key: string; content: React.JSX.Element }>;
+	steps: number;
+	failed: number;
+	running: boolean;
+}): React.JSX.Element {
+	const [open, setOpen] = useState(false);
+	useEffect(() => {
+		if (failed > 0) setOpen(true);
+	}, [failed]);
+	return (
+		<div className="owl-work-process">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="owl-tool-summary owl-tool-group-summary"
+			>
+				{running
+					? <span className="owl-tool-spinner" aria-label={t("chat.runningAria")} />
+					: <IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />}
+				<IconChevron className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`} />
+				<span className="min-w-0 flex-1 truncate text-owl-muted">
+					{running ? t("chat.workRunning", { n: steps }) : t("chat.workProcess", { n: steps })}
+				</span>
+				{failed > 0 && <span className="shrink-0 text-red-400">{t("chat.groupFailed", { n: failed })}</span>}
+			</button>
+			{open && (
+				<div className="owl-tool-group-body owl-work-process-body">
+					{items.map((item) => (
+						<div key={item.key} className="owl-work-process-item">{item.content}</div>
 					))}
 				</div>
 			)}
@@ -727,6 +771,28 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			break;
 		}
 	}
+	// 每轮（两条用户消息之间）的「最终回答」= 该轮最后一条带正文的 assistant：正文展开
+	// 并挂操作栏；其余 LLM 调用（思考/中间说明/工具）全部收进整轮折叠行。轮内没有正文
+	// （被停止/还在生成）时不标回答，工作段在轮末或里程碑处收口。
+	const assistantHasText = (entry: ChatEntry): boolean => {
+		if (entry.kind !== "assistant") return false;
+		const segments: AssistantSegment[] = entry.segments ?? [
+			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
+			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
+		];
+		return segments.some((segment) => segment.kind === "text" && segment.text.trim() !== "");
+	};
+	const answerEntries = new Set<number>();
+	let turnAnswerIndex = -1;
+	entries.forEach((entry, index) => {
+		if (entry.kind === "user") {
+			if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
+			turnAnswerIndex = -1;
+			return;
+		}
+		if (assistantHasText(entry)) turnAnswerIndex = index;
+	});
+	if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
 	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
 	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
 		<AssistantFooter
@@ -761,22 +827,51 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	const turnDurations = turnDurationsOf(entries, streaming);
 	let turn = 0;
 	let assistantStarted = false;
-	let pendingTools: ToolCard[] = [];
-	const flushTools = (): void => {
-		if (pendingTools.length === 0) return;
-		const cards = pendingTools;
-		pendingTools = [];
-		rows.push({
+	// ── 整轮工作过程收纳（叠叠乐治理）：跨 LLM 调用累积思考/中间说明/普通工具调用，
+	// 在里程碑（最终回答/提问卡/渲染卡/错误/下一问）处收成一条折叠行；todo 属过程，
+	// 跟着进折叠区，不再把时间轴打成多段。
+	let workRows: Array<{ key: string; content: React.JSX.Element }> = [];
+	let workSteps = 0;
+	let workFailed = 0;
+	let workRunning = false;
+	let workPendingTools: ToolCard[] = [];
+	let workSeq = 0;
+	const flushWorkTools = (): void => {
+		if (workPendingTools.length === 0) return;
+		const cards = workPendingTools;
+		workPendingTools = [];
+		workSteps += cards.length;
+		workFailed += cards.filter((card) => card.status === "error").length;
+		if (cards.some((card) => card.status === "running")) workRunning = true;
+		workRows.push({
 			key: "tools-" + cards[0]!.id,
 			content: cards.length === 1
 				? <ToolRowView card={cards[0]!} expanded={expandedTools} />
 				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
 		});
 	};
+	// 收口当前工作段；live 表示回合仍在进行（摘要行转圈并显示「正在工作」）
+	const flushWork = (live = false): void => {
+		flushWorkTools();
+		if (workRows.length === 0) return;
+		const items = workRows;
+		const steps = workSteps;
+		const failed = workFailed;
+		const running = workRunning || live;
+		workRows = [];
+		workSteps = 0;
+		workFailed = 0;
+		workRunning = false;
+		workSeq += 1;
+		rows.push({
+			key: "work-" + workSeq,
+			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} />,
+		});
+	};
 		entries.forEach((entry, index) => {
 			if (entry.kind === "user") {
 				finishTurnFooters();
-				flushTools();
+				flushWork();
 				assistantStarted = false;
 				const artifacts = historicalArtifacts?.get(index);
 				if (artifacts && onOpenFile) {
@@ -792,7 +887,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				return;
 			}
 		if (entry.kind === "toolResult") {
-			flushTools();
+			flushWork();
 			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
 			return;
 		}
@@ -824,17 +919,32 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
 			if (card.name === "todo") {
-				flushTools();
-				rows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
+				// todo 清单属于过程：进折叠区，不把时间轴打成多段
+				flushWorkTools();
+				workSteps += 1;
+				workRows.push({ key: "todo-" + card.id, content: <TodoCardView card={card} /> });
 			} else if (card.name === "ask_user_question") {
-				flushTools();
+				// 提问必须原位可见：先收口当前工作段，再把问题卡挂上时间轴
+				flushWork();
 				rows.push({ key: "question-tool-" + card.id, content: <ToolRowView card={card} expanded={expandedTools} /> });
 			} else if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
 				// owl-genui：render_ui 完成后渲染为工具行交互卡片（运行中先走普通工具行）
-				flushTools();
+				flushWork();
 				rows.push({ key: "genui-" + card.id, content: <GenuiToolCardView card={card} /> });
-			} else pendingTools.push(card);
+			} else {
+				workPendingTools.push(card);
+				if (card.status === "running") workRunning = true;
+			}
 		};
+		const answerTextRow = (segmentIndex: number, text: string): TimelineRow => ({
+			key: "message-" + index + "-" + segmentIndex,
+			content: <GenuiAnswerCard
+				text={text}
+				identity={`msg${index}-seg${segmentIndex}`}
+				settled={index !== lastAssistantIndex}
+				renderMarkdown={renderMarkdown}
+			/>,
+		});
 		segments.forEach((segment, segmentIndex) => {
 			if (segment.kind === "tool") {
 				const card = entry.tools.find((tool) => tool.id === segment.toolId);
@@ -842,33 +952,37 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				return;
 			}
 			if (!segment.text.trim()) return;
-			flushTools();
-			rows.push({
-				key: "message-" + index + "-" + segmentIndex,
-				content: segment.kind === "thinking"
-					? <ThinkingRow thinking={segment.text} />
-					: <GenuiAnswerCard
-							text={segment.text}
-							identity={`msg${index}-seg${segmentIndex}`}
-							settled={index !== lastAssistantIndex}
-							renderMarkdown={renderMarkdown}
-						/>,
-			});
+			if (segment.kind === "thinking") {
+				// 思考进折叠区：不再打断工具聚合，也不再占独立整行
+				flushWorkTools();
+				workSteps += 1;
+				workRows.push({ key: "think-" + index + "-" + segmentIndex, content: <ThinkingRow thinking={segment.text} /> });
+				return;
+			}
+			if (!answerEntries.has(index)) {
+				// 中间说明（轮内非最终回答的正文）进折叠区
+				flushWorkTools();
+				workSteps += 1;
+				workRows.push(answerTextRow(segmentIndex, segment.text));
+				return;
+			}
+			// 最终回答：先把工作过程收成一条折叠行，再展开正文
+			flushWork();
+			rows.push(answerTextRow(segmentIndex, segment.text));
 		});
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
 		if (entry.error) {
-			flushTools();
+			flushWork();
 			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		}
-		// 回答底部操作栏：只挂在有正文的 assistant 上（纯工具调用不上屏）。一轮多次调用
-		// 时先各自挂上，轮结束时 finishTurnFooters 只留最后一条；流式中的进行轮整轮不上屏
-		// （等 agent_end 重建后一次性出现，避免中途闪现又消失）。
+		// 回答底部操作栏：只挂在每轮最终回答上（纯工具调用与中间说明不上屏）。流式中的
+		// 进行轮整轮不上屏（等 agent_end 重建后一次性出现，避免中途闪现又消失）。
 		if (
-			segments.some((segment) => segment.kind === "text" && segment.text.trim() !== "") &&
+			answerEntries.has(index) &&
 			(lastAssistantIndex === -1 || index !== lastAssistantIndex) &&
 			!(streaming && lastUserIndex !== -1 && index > lastUserIndex)
 		) {
-			flushTools();
+			flushWork();
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
@@ -877,8 +991,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			rows.push(row);
 			turnFooters.push({ row, index, entry });
 		}
-	});
-	flushTools();
+		});
+	flushWork(streaming && lastUserIndex !== -1);
 	finishTurnFooters();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
 	if (lastFooter && canRegenerate && onRegenerate) {

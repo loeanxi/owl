@@ -15,7 +15,7 @@ import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { t, useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
-import { IconCheck, IconChevronDown, IconChevronRight, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
+import { IconChevronDown, IconChevronRight, IconFile, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
 
 export interface ReviewChangesCardProps {
 	/** 本轮 write/edit 产物（工作区相对 POSIX 路径）。 */
@@ -29,6 +29,26 @@ export interface ReviewChangesCardProps {
 
 function statsOf(entry: DiffApprovalFileSummary): { added: number; removed: number } {
 	return { added: entry.added ?? 0, removed: entry.removed ?? 0 };
+}
+
+/** 扩展名 → 类型色系（.t-* 类，取中饱和度色相，深浅主题都落在 13% 底上）。 */
+const TYPE_FAMILIES: Record<string, string> = {
+	ts: "blue", tsx: "blue", mts: "blue", cts: "blue", ps1: "blue",
+	js: "amber", jsx: "amber", mjs: "amber", cjs: "amber", json: "amber",
+	vue: "green", xml: "green",
+	html: "orange", htm: "orange", rs: "orange",
+	css: "purple", scss: "purple", less: "purple", kt: "purple",
+	java: "red", c: "red", h: "red", cpp: "red", hpp: "red", cs: "red",
+	py: "cyan", go: "cyan", swift: "cyan", sql: "cyan",
+	md: "grey", txt: "grey", sh: "grey", yml: "grey", yaml: "grey", toml: "grey",
+};
+
+function fileTypeOf(path: string): { label: string; family: string } {
+	const name = path.split("/").at(-1) ?? path;
+	const dot = name.lastIndexOf(".");
+	const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+	if (ext === "" || ext.length > 5) return { label: "", family: "grey" };
+	return { label: ext.slice(0, 4).toUpperCase(), family: TYPE_FAMILIES[ext] ?? "grey" };
 }
 
 /** 双色 diff 比例条（GitHub 式）+ 加减行数；added/removed 全 0 时不渲染。 */
@@ -136,6 +156,24 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 			});
 	};
 
+	/** 头部批量撤销：只收本轮待审的条目（工作台里的「全部回滚」是全工作区口径）。 */
+	const revertAll = (): void => {
+		const ids = tracked.filter((row) => row.entry.status === "pending").map((row) => row.entry.id);
+		if (ids.length === 0) return;
+		if (!window.confirm(t("review.revertAllConfirm", { n: ids.length }))) return;
+		setBusy(true);
+		const next = new Set(expanded);
+		for (const id of ids) next.delete(id);
+		setExpanded(next);
+		void api
+			.diffApprovalResolve(cwd, ids, "revert")
+			.catch(() => undefined)
+			.finally(() => {
+				setBusy(false);
+				refresh();
+			});
+	};
+
 	return (
 		<section className={`owl-artifacts owl-changes-card${collapsed ? " is-collapsed" : ""}`} aria-label={t("chat.changesCount", { n: files.length })}>
 			<header className="owl-changes-head">
@@ -148,11 +186,19 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 				>
 					<IconChevronDown size={12} className="owl-changes-caret" />
 					<span className="owl-changes-head-icon" aria-hidden="true">
-						<IconPencil size={11} />
+						<IconPencil size={13} />
 					</span>
-					<strong className="owl-changes-title">{t("chat.changesCount", { n: files.length })}</strong>
-					<DiffStat added={totals.added} removed={totals.removed} />
+					<span className="owl-changes-head-text">
+						<strong className="owl-changes-title">{t("chat.changesCount", { n: files.length })}</strong>
+						<DiffStat added={totals.added} removed={totals.removed} />
+					</span>
 				</button>
+				{tracked.some((row) => row.entry.status === "pending") && (
+					<button type="button" className="owl-changes-revert-all" disabled={busy} title={t("review.revertAll")} onClick={revertAll}>
+						{t("review.revertAll")}
+						<IconUndo size={11} />
+					</button>
+				)}
 				{tracked.length > 0 && (
 					<button type="button" className="owl-changes-workbench" onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}>
 						{t("chat.reviewInWorkbench")}
@@ -172,10 +218,14 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 						return (
 							<li key={file.path} className={`owl-changes-item is-${status ?? "untracked"}${isExpanded ? " is-open" : ""}`}>
 								<div className="owl-changes-row">
-									<span className="owl-changes-status" aria-hidden="true">
-										{status === "kept" && <IconCheck size={11} />}
-										{status === "reverted" && <IconUndo size={10} />}
-									</span>
+									{(() => {
+										const type = fileTypeOf(file.path);
+										return (
+											<span className={`owl-changes-type t-${type.family}`} aria-hidden="true">
+												{type.label === "" ? <IconFile size={10} /> : type.label}
+											</span>
+										);
+									})()}
 									<button type="button" className="owl-changes-file" title={entry?.path ?? file.path} onClick={() => onOpenFile(file.path)}>
 										<span className="owl-changes-name">{name}</span>
 										{entry !== undefined && status === "pending" && entry.originalExisted === false && (
@@ -183,7 +233,6 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 										)}
 										{dir !== "" && <span className="owl-changes-dir">{dir}</span>}
 									</button>
-									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
 									{status === "kept" && <span className="owl-changes-state">{t("review.keptBadge")}</span>}
 									{status === "reverted" && <span className="owl-changes-state">{t("review.revertedBadge")}</span>}
 									{entry !== undefined && status === "pending" && (
@@ -203,6 +252,7 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 											</button>
 										</span>
 									)}
+									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
 								</div>
 								{isExpanded && entry !== undefined && (
 									<div className="owl-changes-diff">

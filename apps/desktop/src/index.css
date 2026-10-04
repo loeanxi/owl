@@ -641,6 +641,9 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-group-body .owl-tool-summary { padding: 7px 10px; }
 .owl-tool-detail { margin: 6px 0 12px 22px; overflow: hidden; border: 1px solid var(--owl-reading-border); border-radius: 7px; }
 .owl-tool-group-body .owl-tool-detail { margin: 0; border: 0; border-top: 1px solid var(--owl-reading-border); border-radius: 0; }
+.owl-work-process { margin: 2px 0; }
+.owl-work-process-body { padding: 8px 10px; }
+.owl-work-process-body > .owl-work-process-item + .owl-work-process-item { margin-top: 8px; }
 .owl-tool-command { padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
 .owl-tool-output { max-height: 360px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-text); font: var(--owl-chat-code-font-size, 12px)/1.65 ui-monospace, Consolas, monospace; }
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }

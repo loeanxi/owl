@@ -1277,6 +1277,8 @@ export const en: Dict = {
 	"chat.cancelled": "Interrupted",
 	"chat.runningAria": "Running",
 	"chat.thinkingLines": "Thinking · {n} lines",
+	"chat.workProcess": "Work · {n} steps",
+	"chat.workRunning": "Working · {n} steps",
 	"chat.msgCopy": "Copy",
 	"chat.msgCopied": "Copied",
 	"chat.msgLike": "Good response",
