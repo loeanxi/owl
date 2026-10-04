@@ -133,7 +133,8 @@ describe("direct evaluation model adapter", () => {
 		});
 		expect(context.messages[4]).toMatchObject({ role: "user", content: "next question" });
 		expect(JSON.stringify(context)).not.toMatch(/thinking|signature|responseId|tool/);
-		expect(options).toMatchObject({ maxRetries: 0, timeoutMs: 1234, maxTokens: 500, reasoning: "high" });
+		expect(options).toMatchObject({ maxRetries: 0, maxTokens: 500, reasoning: "high" });
+		expect(options).not.toHaveProperty("timeoutMs");
 	});
 
 	it("sends only the fixed user input, no system/skills/tools/history, with retries disabled and the requested supported effort", async () => {
@@ -165,9 +166,9 @@ describe("direct evaluation model adapter", () => {
 			role: "user",
 			content: "Repair exactly this code\n\nconst result = 1;",
 		});
+		expect(options).not.toHaveProperty("timeoutMs");
 		expect(options).toMatchObject({
 			maxRetries: 0,
-			timeoutMs: 1234,
 			maxTokens: 500,
 			reasoning: "high",
 			signal: controller.signal,

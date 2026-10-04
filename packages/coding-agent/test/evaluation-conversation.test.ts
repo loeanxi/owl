@@ -101,7 +101,7 @@ async function setup(invoke: EvaluationInvoker = async () => reply(), options: P
 		builtinTasks: [task],
 		listModels: async () => [model],
 		invoke,
-		timeoutMs: 3000,
+		idleTimeoutMs: 3000,
 		check: async (tested, output) => ({
 			artifact: { type: tested.outputType, content: output, previewAllowed: true },
 			checks: [{ id: "format", label: "Format", status: "passed", detail: "Offline fixture" }],
@@ -480,13 +480,13 @@ describe("independent evaluation mini-conversations", () => {
 		store.saveRun(snapshot);
 		const replacement = new EvaluationService({
 			agentDir: directory,
-			listModels: async () => [model],
+			listModels: async () => [{ ...model, contextWindow: 1200 }],
 			invoke: async () => reply(),
 			check: async () => ({ artifact: null, checks: [] }),
 		});
 		services.push(replacement);
 		await expect(
-			replacement.handle({ action: "conversation.send", runId: run.id, resultId, prompt: "small question" }),
+			replacement.handle({ action: "conversation.send", runId: run.id, resultId, prompt: "x".repeat(1000) }),
 		).rejects.toThrow("上下文");
 		expect((await get(replacement, run.id)).results[0].followups).toEqual([]);
 		await service.handle({ action: "conversation.send", runId: run.id, resultId, prompt: "active question" });

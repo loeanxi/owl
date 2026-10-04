@@ -38,7 +38,6 @@ export type ResearchPageProps = {
 	newConversationRequest?: number;
 	onOpenFile?: (path: string) => void;
 	onOpenReview?: (path: string) => void;
-	onOpenBrowser?: () => void;
 	onOpenResults?: () => void;
 	onOpenSettings?: () => void;
 	workbenchOpen?: boolean;

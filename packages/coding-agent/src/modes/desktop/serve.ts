@@ -330,7 +330,7 @@ export interface DesktopServerOptions {
 	maps?: RealMapServiceOptions;
 	/** Fake evaluation dependencies for isolated local tests; never use paid models in tests. */
 	evaluation?: Partial<
-		Pick<EvaluationServiceOptions, "listModels" | "invoke" | "check" | "builtinTasks" | "timeoutMs">
+		Pick<EvaluationServiceOptions, "listModels" | "invoke" | "check" | "builtinTasks" | "idleTimeoutMs">
 	>;
 }
 

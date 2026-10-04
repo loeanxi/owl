@@ -99,7 +99,17 @@ function evaluationErrorView(error: string | null, revealed: boolean, fallback: 
 }
 
 function followupView(turn: EvaluationFollowup, revealed: boolean, now: number): EvaluationFollowupView {
-	const { startedAt, finishedAt, durationMs, usage, costUsd, actualModel, generationPhase, requestPolicy, ...publicTurn } = turn;
+	const {
+		startedAt,
+		finishedAt,
+		durationMs,
+		usage,
+		costUsd,
+		actualModel,
+		generationPhase,
+		requestPolicy,
+		...publicTurn
+	} = turn;
 	return {
 		...structuredClone(publicTurn),
 		thinking: turn.thinking ?? "",
@@ -250,7 +260,8 @@ export class EvaluationService {
 		this.check = options.check ?? checkEvaluationArtifact;
 		this.concurrency = Math.max(1, Math.min(options.concurrency ?? 2, 2));
 		this.idleTimeoutMs = options.idleTimeoutMs ?? EVALUATION_IDLE_TIMEOUT_MS;
-		if (!Number.isSafeInteger(this.idleTimeoutMs) || this.idleTimeoutMs < 1 || this.idleTimeoutMs > 2_147_483_647) throw new Error("内容空闲等待时间必须是有效正整数");
+		if (!Number.isSafeInteger(this.idleTimeoutMs) || this.idleTimeoutMs < 1 || this.idleTimeoutMs > 2_147_483_647)
+			throw new Error("内容空闲等待时间必须是有效正整数");
 	}
 
 	async handle(request: EvaluationRequest): Promise<unknown> {
@@ -319,7 +330,8 @@ export class EvaluationService {
 				if (![3, 5].includes(request.samples) || request.samples <= run.samples)
 					throw new Error("追加次数必须为 3 或 5，且大于当前次数");
 				const policies = this.requestPolicies(run, await this.listModels());
-				for (let sample = run.samples + 1; sample <= request.samples; sample++) this.addSample(run, sample, policies);
+				for (let sample = run.samples + 1; sample <= request.samples; sample++)
+					this.addSample(run, sample, policies);
 				run.samples = request.samples;
 				run.status = "running";
 				this.persist(run);
@@ -478,15 +490,28 @@ export class EvaluationService {
 		};
 	}
 
-	private currentRequestPolicy(profile: EvaluationProfile, task: EvaluationTask, models: EvaluationModel[], conversation?: EvaluationConversation): EvaluationRequestPolicy {
+	private currentRequestPolicy(
+		profile: EvaluationProfile,
+		task: EvaluationTask,
+		models: EvaluationModel[],
+		conversation?: EvaluationConversation,
+	): EvaluationRequestPolicy {
 		const model = models.find((entry) => entry.provider === profile.provider && entry.modelId === profile.modelId);
-		if (!model || !model.supportedThinkingLevels.includes(profile.thinkingLevel)) throw new Error("原模型不可用或原思考档位不再支持，请检查模型配置");
-		return evaluationRequestPolicy({ ...profile, model, maxTokens: model.maxTokens, timeoutMs: 0 }, task, this.idleTimeoutMs, conversation);
+		if (!model || !model.supportedThinkingLevels.includes(profile.thinkingLevel))
+			throw new Error("原模型不可用或原思考档位不再支持，请检查模型配置");
+		return evaluationRequestPolicy(
+			{ ...profile, model, maxTokens: model.maxTokens, timeoutMs: 0 },
+			task,
+			this.idleTimeoutMs,
+			conversation,
+		);
 	}
 
 	private requestPolicies(run: EvaluationRun, models: EvaluationModel[]): Map<string, EvaluationRequestPolicy> {
 		const policies = new Map<string, EvaluationRequestPolicy>();
-		for (const task of run.tasks) for (const profile of run.profiles) policies.set(JSON.stringify([task.id, profile.id]), this.currentRequestPolicy(profile, task, models));
+		for (const task of run.tasks)
+			for (const profile of run.profiles)
+				policies.set(JSON.stringify([task.id, profile.id]), this.currentRequestPolicy(profile, task, models));
 		return policies;
 	}
 
@@ -561,7 +586,9 @@ export class EvaluationService {
 		};
 	}
 
-	private async sendFollowup(request: Extract<EvaluationRequest, { action: "conversation.send" }>): Promise<EvaluationRunView> {
+	private async sendFollowup(
+		request: Extract<EvaluationRequest, { action: "conversation.send" }>,
+	): Promise<EvaluationRunView> {
 		if (typeof request.prompt !== "string" || !request.prompt.trim() || request.prompt.length > 10_000)
 			throw new Error("追问不能为空且最多 10000 字");
 		const models = await this.listModels();
@@ -669,13 +696,27 @@ export class EvaluationService {
 			const task = run.tasks.find((entry) => entry.id === original.taskId);
 			const profile = run.profiles.find((entry) => entry.id === original.profileId);
 			if (!task || !profile) throw new Error("题目或模型快照丢失");
-			const policy = structuredClone(result.requestPolicy ?? evaluationRequestPolicy(profile, task, this.idleTimeoutMs, followup ? this.conversation(original, followup) : undefined));
+			const policy = structuredClone(
+				result.requestPolicy ??
+					evaluationRequestPolicy(
+						profile,
+						task,
+						this.idleTimeoutMs,
+						followup ? this.conversation(original, followup) : undefined,
+					),
+			);
 			idle = new EvaluationIdleWatchdog(policy.idleTimeoutMs, (receivedContent) => {
 				timedOut = true;
 				idleError = receivedContent ? "模型测评内容空闲超时" : "模型测评首包等待超时";
 				controller.abort(new Error(idleError));
 			});
-			const requestProfile: EvaluationProfile = { ...profile, model: { ...profile.model, contextWindow: policy.contextWindow }, maxTokens: policy.maxTokens, timeoutMs: 0, idleTimeoutMs: policy.idleTimeoutMs };
+			const requestProfile: EvaluationProfile = {
+				...profile,
+				model: { ...profile.model, contextWindow: policy.contextWindow },
+				maxTokens: policy.maxTokens,
+				timeoutMs: 0,
+				idleTimeoutMs: policy.idleTimeoutMs,
+			};
 			const invoked: EvaluationInvocationResult = await Promise.race([
 				this.invoke({
 					task: structuredClone(task),

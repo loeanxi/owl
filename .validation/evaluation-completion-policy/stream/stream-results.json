@@ -1,0 +1,743 @@
+{
+  "success": true,
+  "actualApp": true,
+  "actualDesktopWebSocket": true,
+  "actualEvaluationService": true,
+  "manualStageGates": true,
+  "paidCalls": 0,
+  "cases": [
+    {
+      "name": "waiting stage uses separate conversation streams and still hides model identity",
+      "success": true
+    },
+    {
+      "name": "provider thinking grows visibly before either model produces an answer",
+      "success": true
+    },
+    {
+      "name": "two cards receive growing body while their real service run is unfinished",
+      "success": true
+    },
+    {
+      "name": "scrolling upward pauses only that card; continuing follows the next output",
+      "success": true
+    },
+    {
+      "name": "explicitly collapsed thinking remains collapsed as the body grows",
+      "success": true
+    },
+    {
+      "name": "chat navigation preserves background stream and catches up on return",
+      "success": true
+    },
+    {
+      "name": "the process reports artifact checking after the producer finishes",
+      "success": true
+    },
+    {
+      "name": "cancelling retains every received body paragraph and ignores late producer callbacks",
+      "success": true
+    }
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-28",
+      "sentAt": 1791074480039
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-30",
+      "sentAt": 1791074480039
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.start",
+        "name": "Streaming isolated fixture",
+        "taskIds": [
+          "G08"
+        ],
+        "profiles": [
+          {
+            "id": "[\"offline-stream\",\"one\",\"default\"]",
+            "provider": "offline-stream",
+            "modelId": "one",
+            "thinkingLevel": "default"
+          },
+          {
+            "id": "[\"offline-stream\",\"two\",\"default\"]",
+            "provider": "offline-stream",
+            "modelId": "two",
+            "thinkingLevel": "default"
+          }
+        ],
+        "samples": 1
+      },
+      "id": "req-31",
+      "sentAt": 1791074480290
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-32",
+      "sentAt": 1791074480331
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-33",
+      "sentAt": 1791074480331
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-34",
+      "sentAt": 1791074480837
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-35",
+      "sentAt": 1791074481340
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-36",
+      "sentAt": 1791074481842
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-37",
+      "sentAt": 1791074482345
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-38",
+      "sentAt": 1791074482849
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-39",
+      "sentAt": 1791074483351
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-41",
+      "sentAt": 1791074483553
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-42",
+      "sentAt": 1791074483553
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-44",
+      "sentAt": 1791074484060
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.cancel",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-45",
+      "sentAt": 1791074484465
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "bootstrap"
+      },
+      "id": "req-46",
+      "sentAt": 1791074484482
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.get",
+        "runId": "b19a2f7d-0dcd-48fb-9f20-b38f79e82614"
+      },
+      "id": "req-47",
+      "sentAt": 1791074484482
+    },
+    {
+      "type": "evaluation.request",
+      "request": {
+        "action": "run.list"
+      },
+      "id": "req-48",
+      "sentAt": 1791074484486
+    }
+  ],
+  "snapshots": [
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "waiting",
+          "outputChars": 0,
+          "thinkingChars": 0,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "waiting",
+          "outputChars": 0,
+          "thinkingChars": 0,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "thinking",
+          "outputChars": 0,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "thinking",
+          "outputChars": 0,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 2273,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 2273,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 3674,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 3674,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 4375,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 4375,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "answering",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "running",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "running",
+          "phase": "checking",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "running",
+          "phase": "checking",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "generationPhase",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "cancelled",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    },
+    {
+      "status": "cancelled",
+      "results": [
+        {
+          "id": "d3cf904e-d8c8-4715-a99e-976a42dd5859",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "anonymousLabel",
+            "revealed"
+          ]
+        },
+        {
+          "id": "0fd9ffaf-6f51-4ae1-b2ce-29b87b4a0dd4",
+          "status": "cancelled",
+          "outputChars": 4726,
+          "thinkingChars": 3676,
+          "keys": [
+            "id",
+            "taskId",
+            "sample",
+            "attempt",
+            "retryOf",
+            "status",
+            "output",
+            "artifact",
+            "checks",
+            "error",
+            "rating",
+            "thinking",
+            "elapsedMs",
+            "followups",
+            "anonymousLabel",
+            "revealed"
+          ]
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "01-waiting.png",
+    "01-thinking-live.png",
+    "02-growing-body.png",
+    "03-paused-reading.png",
+    "04-checking-stage.png",
+    "04-cancelled-retained.png"
+  ],
+  "sourceSha256": {
+    "apps/desktop/src/App.tsx": "4a7f5d0bcf07db9aa689f0d65e5a8de70cc8b3aac7a9546d7f186e5d400badd7",
+    "apps/desktop/src/features/evaluation/EvaluationResults.tsx": "eed16f066144fd6fa00c9ccc44e72f46a42f25d1caeabe5cbd3f1f81233d68f6",
+    "apps/desktop/src/features/evaluation/useEvaluation.ts": "18b9c25bd2dcc9d2203582270766baeca266573edc3480eddcdac1a8752dcc0c",
+    "apps/desktop/src/features/evaluation/evaluation-copy.ts": "589ccbde734e4283628360b729c87757536887b32bce40eebfbae8bc37889fe4",
+    "packages/coding-agent/src/core/evaluation/service.ts": "5b8f62f2af699367f9cff6768cbab07556379d161ab2357ccbe5c78716aa694a"
+  },
+  "origin": "http://127.0.0.1:5189/",
+  "bridgePort": 56358
+}

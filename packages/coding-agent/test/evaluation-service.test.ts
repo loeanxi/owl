@@ -77,7 +77,7 @@ afterEach(async () => {
 
 async function setup(
 	invoke: EvaluationInvoker = async () => structuredClone(reply),
-	timeoutMs = 1000,
+	idleTimeoutMs = 1000,
 	check?: EvaluationServiceOptions["check"],
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "owl-evaluation-test-"));
@@ -87,7 +87,7 @@ async function setup(
 		builtinTasks: [structuredClone(task)],
 		listModels: async () => structuredClone(models),
 		invoke,
-		timeoutMs,
+		idleTimeoutMs,
 		check:
 			check ??
 			(async (tested, text) => ({

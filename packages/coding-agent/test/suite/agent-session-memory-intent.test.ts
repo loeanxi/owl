@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ENV_AGENT_DIR } from "../../src/config.ts";
@@ -170,7 +170,7 @@ describe("foreground memory write intent", () => {
 		await session.prompt(request);
 
 		const results = session.messages.filter(
-			(message) => message.role === "toolResult" && message.toolName === "remember",
+			(message): message is ToolResultMessage => message.role === "toolResult" && message.toolName === "remember",
 		);
 		expect(results.map((result) => result.isError)).toEqual([true, false]);
 		expect(readMemoryEntries(agentDir).map((entry) => entry.content)).toEqual(["用户偏好中文回复"]);

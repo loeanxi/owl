@@ -29,6 +29,7 @@ const previousEnvironment = Object.fromEntries(["OWL_CODING_AGENT_DIR", "PI_OFFL
 for (const key of Object.keys(process.env)) if (/(?:API_KEY|TOKEN|SECRET|OPENAI|ANTHROPIC|AWS_|GOOGLE_|GEMINI|AZURE_|COPILOT)/i.test(key)) { previousEnvironment[key] = process.env[key]; delete process.env[key]; }
 process.env.OWL_CODING_AGENT_DIR = agentDir; process.env.PI_OFFLINE = "1";
 const loader = createJiti(import.meta.url, { alias: {
+  "@earendil-works/pi-ai/api/simple-options": join(repo, "packages/ai/src/api/simple-options.ts"),
   "@earendil-works/pi-ai/compat": join(repo, "packages/ai/src/compat.ts"), "@earendil-works/pi-ai/oauth": join(repo, "packages/ai/src/oauth.ts"),
   "@earendil-works/pi-ai/bedrock-provider": join(repo, "packages/ai/src/bedrock-provider.ts"), "@earendil-works/pi-ai/bun-oauth": join(repo, "packages/ai/src/bun-oauth.ts"),
   "@earendil-works/pi-ai/providers/all": join(repo, "packages/ai/src/providers/all.ts"), "@earendil-works/pi-ai/providers/radius-config": join(repo, "packages/ai/src/providers/radius-config.ts"),

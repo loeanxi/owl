@@ -46,6 +46,7 @@ const loader = createJiti(import.meta.url, {
     "@earendil-works/pi-ai/providers/radius-config": join(repo, "packages/ai/src/providers/radius-config.ts"),
     "@earendil-works/pi-ai/utils/model-operations": join(repo, "packages/ai/src/utils/model-operations.ts"),
     "@earendil-works/pi-ai/utils/provider-env": join(repo, "packages/ai/src/utils/provider-env.ts"),
+    "@earendil-works/pi-ai/api/simple-options": join(repo, "packages/ai/src/api/simple-options.ts"),
     "@earendil-works/pi-ai": join(repo, "packages/ai/src/index.ts"),
     "@earendil-works/pi-agent-core": join(repo, "packages/agent/src/index.ts"),
     "@earendil-works/pi-codemode/declarations": join(repo, "packages/codemode/src/declarations.ts"),

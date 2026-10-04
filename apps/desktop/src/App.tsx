@@ -1275,7 +1275,7 @@ export default function App(): React.JSX.Element {
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
 								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
-								onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} onOpenBrowser={() => openInPanel("browser")}
+								onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview}
 								workbenchOpen={workbenchOpen} onOpenResults={() => setWorkbenchOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
