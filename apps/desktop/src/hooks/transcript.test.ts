@@ -242,3 +242,31 @@ test("agent_end 权威重建保留用户消息行的 entryId（会话回退按�
 		["e-user-1", "e-user-2"],
 	);
 });
+
+test("assistant 轮耗时取 message_end 的真实结束时刻，并穿越 agent_end 权威重建", () => {
+	// wire 的 assistant timestamp 是响应「开始」时刻；不含生成耗时
+	const startedAt = Date.now() - 5_000;
+	let entries: ChatEntry[] = [{ kind: "user", text: "你好", timestamp: startedAt - 1_000 }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "你好！" } });
+	entries = event(entries, {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "你好！" }], stopReason: "stop", timestamp: startedAt },
+	});
+	const settled = current(entries);
+	assert.ok(settled.endedAt !== undefined);
+	assert.ok(settled.endedAt >= startedAt + 1_000, "结束时刻应明显晚于响应开始时刻");
+	assert.ok(settled.endedAt <= Date.now() + 5);
+
+	// agent_end 权威重建按开始时间戳找回结束时刻：轮耗时标注不因重建缩水成 1s
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "你好", timestamp: startedAt - 1_000 },
+			{ role: "assistant", content: [{ type: "text", text: "你好！" }], stopReason: "stop", timestamp: startedAt },
+		],
+	});
+	const rebuilt = current(entries);
+	assert.equal(rebuilt.timestamp, startedAt);
+	assert.equal(rebuilt.endedAt, settled.endedAt);
+});

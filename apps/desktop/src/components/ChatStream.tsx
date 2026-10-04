@@ -88,7 +88,10 @@ function turnDurationsOf(entries: ChatEntry[], streaming: boolean): Map<number, 
 		if (entry.kind !== "assistant") return;
 		if (firstAssistant === -1) firstAssistant = index;
 		turnLastIndex = index;
+		// endedAt 是 message_end 的本地时刻（真实结束点）；timestamp 只是响应开始时刻，
+		// 缺 endedAt 的旧会话（重启后）才回退用它，此时耗时会偏短
 		if (entry.timestamp !== undefined) endTs = Math.max(endTs, entry.timestamp);
+		if (entry.endedAt !== undefined) endTs = Math.max(endTs, entry.endedAt);
 		for (const tool of entry.tools) {
 			if (tool.finishedAt !== undefined) endTs = Math.max(endTs, tool.finishedAt);
 		}

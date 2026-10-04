@@ -70,8 +70,10 @@ export type ChatEntry =
 			segments?: AssistantSegment[];
 			/** 所属会话日志条目 id（「在新对话中分支」用；快照重建/agent_end 对齐时带上） */
 			entryId?: string;
-			/** 消息时间戳（ms，操作栏展示用） */
+			/** 消息时间戳（ms，操作栏展示用；wire 上是响应「开始」时刻） */
 			timestamp?: number;
+			/** 回复真实结束时刻（message_end 到达的本地时钟；快照重建时按开始时间戳找回） */
+			endedAt?: number;
 			/** 本条回复的 token 用量（message_end / 快照重建时带上） */
 			usage?: MessageUsage;
 			/** 产生本条回复的模型 id */
@@ -84,6 +86,25 @@ type AnyEvent = Record<string, any>; // wire events are forward-compat; render d
 
 /** Run boundaries belong to UI snapshots, never to messages or model-visible text. */
 const runBoundaries = new WeakMap<ChatEntry[], number>();
+
+/**
+ * assistant 消息的真实结束时刻（message_end 到达的本地时钟）。wire 上的
+ * message.timestamp 是响应「开始」时刻（pi-ai 构造消息时取 Date.now()），
+ * 不含生成耗时——轮耗时标注靠这张表找回结束点。键 = 消息开始时间戳
+ * （快照重建时消息仍带着同一个值，agent_end 权威重建因此不丢）；应用重启后
+ * 的历史会话找不到回退为开始时刻。键冲突概率可忽略（单会话同时只有一条流）。
+ */
+const assistantEndedAt = new Map<number, number>();
+const ASSISTANT_ENDED_AT_MAX = 1000;
+
+function rememberAssistantEndedAt(startedAt: number, endedAt: number): void {
+	while (assistantEndedAt.size >= ASSISTANT_ENDED_AT_MAX) {
+		const oldest = assistantEndedAt.keys().next().value;
+		if (oldest === undefined) break;
+		assistantEndedAt.delete(oldest);
+	}
+	assistantEndedAt.set(startedAt, Math.max(endedAt, assistantEndedAt.get(startedAt) ?? 0));
+}
 
 /**
  * 把供应商错误整理成可读中文。OpenAI 兼容 SDK 的报错形如
@@ -362,12 +383,17 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			current.segments = segmentsOf(message.content);
 			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
 			current.error = message.stopReason === "error" || message.stopReason === "aborted" ? formatProviderError(message.errorMessage) : undefined;
+			// wire 时间戳是响应开始时刻；此刻（本地）才是真实结束点，记下来供轮耗时用
+			const endedAt = Date.now();
+			const startedAt = timestampOf(message);
+			if (startedAt !== undefined) rememberAssistantEndedAt(startedAt, endedAt);
 			return [
 				...entries.slice(0, index),
 				{
 					...current,
 					text: text || current.text,
-					timestamp: timestampOf(message) ?? current.timestamp,
+					timestamp: startedAt ?? current.timestamp,
+					...(startedAt !== undefined ? { endedAt } : {}),
 					usage: usageOf(message) ?? current.usage,
 					model: modelOf(message) ?? current.model,
 				},
@@ -436,6 +462,8 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 					...summarizeToolCall(part.name, part.arguments),
 					status: message.stopReason === "aborted" ? "cancelled" as const : message.stopReason === "error" ? "error" as const : "pending" as const,
 				}));
+			const startedAt = timestampOf(message);
+			const endedAt = startedAt !== undefined ? assistantEndedAt.get(startedAt) : undefined;
 			entries.push({
 				kind: "assistant",
 				text: textOf(message.content),
@@ -450,7 +478,8 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 						? formatProviderError(message.errorMessage)
 						: undefined,
 				...(typeof entryId === "string" ? { entryId } : {}),
-				...(timestampOf(message) !== undefined ? { timestamp: timestampOf(message) } : {}),
+				...(startedAt !== undefined ? { timestamp: startedAt } : {}),
+				...(endedAt !== undefined ? { endedAt } : {}),
 				...(usageOf(message) !== undefined ? { usage: usageOf(message) } : {}),
 				...(modelOf(message) !== undefined ? { model: modelOf(message) } : {}),
 			});
