@@ -43,7 +43,7 @@ it("session.abort replies immediately, synthesizes agent_settled for idle sessio
 			message: { role: "user", content: "你好", timestamp: 1 },
 		},
 	];
-	await writeFile(sourceFile, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+	await writeFile(sourceFile, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
 
 	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
 	const sockets: WebSocket[] = [];
