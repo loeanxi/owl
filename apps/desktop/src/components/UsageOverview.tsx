@@ -3,6 +3,7 @@ import type { BridgeClient } from "../bridge/client.ts";
 import type { UsageGetResult } from "../bridge/protocol.ts";
 import { useT } from "../i18n/index.ts";
 import { projectLabel } from "../utils/paths.ts";
+import { heatmapCells } from "./usage-heatmap.ts";
 import "./usage-overview.css";
 
 // 开始页「使用概览」面板（Claude Desktop 同款）：新会话还没开始时展示全局用量。
@@ -13,8 +14,6 @@ type RangeKey = "all" | "30d" | "7d";
 type TabKey = "overview" | "models";
 
 const MODEL_COLORS = ["#4d9fd8", "#c77dff", "#e0a33e", "#41c463", "#e06c75", "#56b6c2", "#d19a66", "#7aa2f7"];
-/** 热力图最多渲染的周数（Claude 同款半年量级）。 */
-const HEATMAP_WEEKS = 26;
 /** 一本《霍比特人》的近似 token 量（趣味对比的分母）。 */
 const HOBBIT_TOKENS = 120_000;
 
@@ -27,29 +26,6 @@ function formatTokens(value: number): string {
 function modelShortName(key: string): string {
 	const at = key.lastIndexOf("/");
 	return at >= 0 ? key.slice(at + 1) : key;
-}
-
-interface HeatCell {
-	date: string;
-	tokens: number;
-	level: number;
-}
-
-/** byDay 尾部 → 按周对齐的热力格（列=周，行=周一..周日），level 0-4 相对于窗口最大值。 */
-function heatmapCells(byDay: UsageGetResult["byDay"]): { cells: HeatCell[][]; weeks: number } {
-	const window = byDay.slice(-HEATMAP_WEEKS * 7);
-	if (window.length === 0) return { cells: [], weeks: 0 };
-	const max = Math.max(...window.map((day) => day.totalTokens), 1);
-	const leading = (new Date(`${window[0]!.date}T00:00:00`).getDay() + 6) % 7; // 周一=0
-	const flat: HeatCell[] = Array.from({ length: leading }, () => ({ date: "", tokens: 0, level: -1 }));
-	for (const day of window) {
-		const level = day.totalTokens <= 0 ? 0 : Math.min(4, 1 + Math.floor((day.totalTokens / max) * 4));
-		flat.push({ date: day.date, tokens: day.totalTokens, level });
-	}
-	while (flat.length % 7 !== 0) flat.push({ date: "", tokens: 0, level: -1 });
-	const cells: HeatCell[][] = [];
-	for (let i = 0; i < flat.length; i += 7) cells.push(flat.slice(i, i + 7) as HeatCell[]);
-	return { cells, weeks: cells.length };
 }
 
 export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.Element {
@@ -72,7 +48,7 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 		};
 	}, [client, range, project]);
 
-	const heat = useMemo(() => heatmapCells(data?.byDay ?? []), [data]);
+	const heat = useMemo(() => heatmapCells(data?.byDay ?? [], range), [data, range]);
 	const models = useMemo(() => (data ? [...data.byModel].sort((a, b) => b.totalTokens - a.totalTokens) : []), [data]);
 	const modelTotal = useMemo(() => models.reduce((sum, model) => sum + model.totalTokens, 0), [models]);
 	// Models 页柱状图：趋势窗的最近 30 天
@@ -159,7 +135,7 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 							</span>
 						</div>
 					</div>
-					<div className="owl-usage-heatmap" role="img" aria-label={t("usage.heatmapAria")}>
+					<div className={"owl-usage-heatmap" + (heat.fill ? " is-fill" : "")} role="img" aria-label={t("usage.heatmapAria")}>
 						{heat.cells.map((week, weekIndex) => (
 							<div key={weekIndex} className="owl-usage-heatmap-col">
 								{week.map((cell, dayIndex) => (

@@ -24,13 +24,18 @@
 .owl-usage-tile-value { color: var(--color-owl-text); font-size: 18px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .owl-usage-tile-model { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.owl-usage-heatmap { display: flex; gap: 3px; overflow-x: auto; padding: 2px; }
+/* 7 天 / 30 天只有几列，格子固定 11px，避免 flex 把它们拉成巨人块。
+   「全部」固定 26 周，列均分卡片宽度，空日也是可见灰块。 */
+.owl-usage-heatmap { display: flex; gap: 3px; width: 100%; overflow-x: auto; }
 .owl-usage-heatmap-col { display: flex; flex-direction: column; gap: 3px; flex: none; }
-.owl-usage-heat-cell { width: 11px; height: 11px; border-radius: 3px; background: var(--color-owl-hover); }
+.owl-usage-heat-cell { display: block; width: 11px; height: 11px; flex: none; border-radius: 2px; background: color-mix(in srgb, var(--color-owl-border) 72%, var(--color-owl-panel)); }
+.owl-usage-heatmap.is-fill { overflow: hidden; }
+.owl-usage-heatmap.is-fill .owl-usage-heatmap-col { flex: 1 1 0; min-width: 0; }
+.owl-usage-heatmap.is-fill .owl-usage-heat-cell { width: 100%; height: auto; aspect-ratio: 1; }
 .owl-usage-heat-cell.is-pad { visibility: hidden; }
-.owl-usage-heat-cell.is-l1 { background: color-mix(in srgb, var(--color-owl-accent) 30%, var(--color-owl-hover)); }
-.owl-usage-heat-cell.is-l2 { background: color-mix(in srgb, var(--color-owl-accent) 50%, var(--color-owl-hover)); }
-.owl-usage-heat-cell.is-l3 { background: color-mix(in srgb, var(--color-owl-accent) 72%, var(--color-owl-hover)); }
+.owl-usage-heat-cell.is-l1 { background: color-mix(in srgb, var(--color-owl-accent) 35%, var(--color-owl-panel)); }
+.owl-usage-heat-cell.is-l2 { background: color-mix(in srgb, var(--color-owl-accent) 55%, var(--color-owl-panel)); }
+.owl-usage-heat-cell.is-l3 { background: color-mix(in srgb, var(--color-owl-accent) 78%, var(--color-owl-panel)); }
 .owl-usage-heat-cell.is-l4 { background: var(--color-owl-accent); }
 
 .owl-usage-fact { margin: 0; color: var(--color-owl-faint); font-size: 12px; text-align: center; }
