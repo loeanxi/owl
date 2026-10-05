@@ -61,6 +61,21 @@ describe("hideRect", () => {
 	});
 });
 
+
+describe('超高窗口的顶对齐', () => {
+	it('窗口高于舞台：y 顶对齐 0（不遮上方工具条），向下溢出', () => {
+		const rect = containRect(418, 630, 568, 963);
+		expect(rect.y).toBe(0);
+		expect(rect.x).toBeGreaterThanOrEqual(0);
+	});
+	it('computeLayout sidebar 同样顶对齐（高度下发 contain 值，容器自行钳制）', () => {
+		const rect = computeLayout('sidebar', { width: 418, height: 630 }, 1, { width: 568, height: 963 });
+		expect(rect.y).toBe(0);
+		expect(rect.height).toBe(630);
+		expect(rect.width).toBeLessThanOrEqual(418);
+	});
+});
+
 describe("clampFloatRect", () => {
 	it("矩形完全在界内时原样保留", () => {
 		const rect = { x: 50, y: 60, width: 300, height: 400 };

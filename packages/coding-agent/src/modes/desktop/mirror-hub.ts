@@ -42,6 +42,12 @@ interface MirrorWorker {
 	detachTimer?: ReturnType<typeof setTimeout>;
 }
 
+/** 嵌入 watchdog 进程（常驻，每 600ms 检查窗口是否被收纳）。 */
+interface EmbedWatchdog {
+	proc: MirrorProc;
+	buffer: string;
+}
+
 export function isHongguoWindow(win: { process: string; title: string }): boolean {
 	// 应用宝容器里红果的宿主进程是 Androws（实测），标题即「红果免费短剧」。
 	return win.process.toLowerCase() === "androws" && win.title.includes("红果");
@@ -50,6 +56,7 @@ export function isHongguoWindow(win: { process: string; title: string }): boolea
 export class MirrorHub {
 	private readonly options: MirrorHubOptions;
 	private readonly workers = new Map<string, MirrorWorker>();
+	private readonly embedWatchdogs = new Map<string, EmbedWatchdog>();
 	/** 已嵌入窗口的还原元数据（原始样式/原父），unembed 时带回。 */
 	private readonly embedMeta = new Map<string, { originalStyle: number; originalParent: number }>();
 	private windows: MirrorWindowInfo[] = [];
@@ -167,6 +174,8 @@ export class MirrorHub {
 	/**
 	 * 嵌入：目标窗口 SetParent 到 parentHwnd 并去头，按 rect 摆放。
 	 * worker 返回的原始样式/原父缓存下来，unembed 时带回还原。
+	 * embed worker 是常驻 watchdog（每 600ms 检查，被 Dock 收纳即拉回重摆）——
+	 * 形态/布局变化时由 layoutWindow 重生成。
 	 */
 	async embedWindow(
 		windowId: string,
@@ -176,31 +185,78 @@ export class MirrorHub {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
 		if (!Number.isFinite(parentHwnd) || parentHwnd <= 0) throw new Error("invalid parentHwnd");
-		const lines = await this.runWorkerLines([
+		this.killEmbedWatchdog(windowId);
+		const args = [
 			"embed",
-			"-Hwnd",
-			String(hwnd),
-			"-ParentHwnd",
-			String(parentHwnd),
-			"-X",
-			String(Math.round(rect.x)),
-			"-Y",
-			String(Math.round(rect.y)),
-			"-W",
-			String(Math.round(rect.width)),
-			"-H",
-			String(Math.round(rect.height)),
-		]);
-		for (const line of lines) {
-			if (!line.includes('"event":"embedded"')) continue;
-			try {
-				const obj = JSON.parse(line) as { originalStyle?: number; originalParent?: number };
-				this.embedMeta.set(windowId, {
-					originalStyle: obj.originalStyle ?? 0x00cf0000,
-					originalParent: obj.originalParent ?? 0,
-				});
-			} catch {}
-		}
+			"-Hwnd", String(hwnd),
+			"-ParentHwnd", String(parentHwnd),
+			"-X", String(Math.round(rect.x)),
+			"-Y", String(Math.round(rect.y)),
+			"-W", String(Math.round(rect.width)),
+			"-H", String(Math.round(rect.height)),
+		];
+		const proc = this.spawnWorker(args);
+		const watchdog: EmbedWatchdog = { proc, buffer: "" };
+		this.embedWatchdogs.set(windowId, watchdog);
+
+		await new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.killEmbedWatchdog(windowId);
+				this.embedWatchdogs.delete(windowId);
+				reject(new Error("embed worker timeout"));
+			}, 20_000);
+			const cleanup = (): void => {
+				clearTimeout(timer);
+				proc.stdout.removeAllListeners();
+				proc.stderr.removeAllListeners();
+				proc.removeAllListeners();
+			};
+			proc.stdout.on("data", (chunk: Buffer) => {
+				watchdog.buffer += chunk.toString("utf8");
+				let index = watchdog.buffer.indexOf("\n");
+				while (index >= 0) {
+					const line = watchdog.buffer.slice(0, index).replace(/\r$/, "");
+					watchdog.buffer = watchdog.buffer.slice(index + 1);
+					if (line.includes('"event":"embedded"')) {
+						try {
+							const obj = JSON.parse(line) as { originalStyle?: number; originalParent?: number };
+							this.embedMeta.set(windowId, {
+								originalStyle: obj.originalStyle ?? 0x00cf0000,
+								originalParent: obj.originalParent ?? 0,
+							});
+						} catch {}
+						clearTimeout(timer);
+						cleanup();
+						resolve();
+						return;
+					}
+					if (line.includes('"event":"error"')) {
+						let detail = line.slice(0, 300);
+						try {
+							detail = (JSON.parse(line) as { message?: string }).message ?? detail;
+						} catch {}
+						clearTimeout(timer);
+						cleanup();
+						this.killEmbedWatchdog(windowId);
+						this.embedWatchdogs.delete(windowId);
+						reject(new Error(detail));
+						return;
+					}
+					index = watchdog.buffer.indexOf("\n");
+				}
+			});
+			proc.stderr.on("data", (chunk: Buffer) => {
+				const text = chunk.toString("utf8").trim();
+				if (text) this.options.onDiagnostic?.(`mirror-embed[${windowId}] stderr: ${text.slice(0, 300)}`);
+			});
+			proc.on("exit", (code) => {
+				if (this.embedWatchdogs.get(windowId) !== watchdog) return;
+				clearTimeout(timer);
+				this.embedWatchdogs.delete(windowId);
+				cleanup();
+				reject(new Error(`embed worker exited unexpectedly (code ${code})`));
+			});
+		});
 	}
 
 	/** 布局同步：移动/缩放嵌入窗口；visible=false 时移到屏外隐藏矩形。 */
@@ -211,19 +267,32 @@ export class MirrorHub {
 	): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		// 已有 watchdog：重生成（SetParent 对同父幂等），visible=false 时改为屏外隐藏并停 watchdog
+		if (this.embedWatchdogs.has(windowId)) {
+			if (!visible) {
+				this.killEmbedWatchdog(windowId);
+				const applied = hideRect();
+				await this.runWorkerLines([
+					"move",
+					"-Hwnd", String(hwnd),
+					"-X", String(Math.round(applied.x)),
+					"-Y", String(Math.round(applied.y)),
+					"-W", String(Math.max(1, Math.round(applied.width))),
+					"-H", String(Math.max(1, Math.round(applied.height))),
+				]);
+				return;
+			}
+			await this.embedWindow(windowId, await this.findOwlParentHwnd(), rect);
+			return;
+		}
 		const applied = visible ? rect : hideRect();
 		await this.runWorkerLines([
 			"move",
-			"-Hwnd",
-			String(hwnd),
-			"-X",
-			String(Math.round(applied.x)),
-			"-Y",
-			String(Math.round(applied.y)),
-			"-W",
-			String(Math.round(applied.width)),
-			"-H",
-			String(Math.round(applied.height)),
+			"-Hwnd", String(hwnd),
+			"-X", String(Math.round(applied.x)),
+			"-Y", String(Math.round(applied.y)),
+			"-W", String(Math.round(applied.width)),
+			"-H", String(Math.round(applied.height)),
 		]);
 	}
 
@@ -231,6 +300,7 @@ export class MirrorHub {
 	async unembedWindow(windowId: string): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		this.killEmbedWatchdog(windowId);
 		const meta = this.embedMeta.get(windowId);
 		this.embedMeta.delete(windowId);
 		await this.runWorkerLines([
@@ -247,6 +317,9 @@ export class MirrorHub {
 	dispose(): void {
 		this.disposed = true;
 		// 解除全部嵌入（还原窗口），再收 worker
+		for (const windowId of [...this.embedWatchdogs.keys()]) {
+			this.killEmbedWatchdog(windowId);
+		}
 		for (const windowId of [...this.embedMeta.keys()]) {
 			this.unembedWindow(windowId).catch(() => {});
 		}
@@ -255,6 +328,20 @@ export class MirrorHub {
 			if (worker.detachTimer) clearTimeout(worker.detachTimer);
 			this.killWorker(worker);
 			this.workers.delete(windowId);
+		}
+	}
+
+	private killEmbedWatchdog(windowId: string): void {
+		const watchdog = this.embedWatchdogs.get(windowId);
+		if (!watchdog) return;
+		this.embedWatchdogs.delete(windowId);
+		try {
+			watchdog.proc.stdout.removeAllListeners();
+			watchdog.proc.stderr.removeAllListeners();
+			watchdog.proc.removeAllListeners();
+			if (!watchdog.proc.killed) watchdog.proc.kill();
+		} catch {
+			// 进程已死即达成目的
 		}
 	}
 

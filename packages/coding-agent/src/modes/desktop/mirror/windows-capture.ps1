@@ -1,4 +1,4 @@
-﻿# owl mirror worker: enumerate windows / WGC capture loop / restore / launch.
+﻿﻿# owl mirror worker: enumerate windows / WGC capture loop / restore / launch.
 # JSON lines on stdout (UTF-8), one event per line:
 #   {"event":"window","hwnd":N,"title":"...","process":"...","w":N,"h":N,"minimized":bool,"class":"..."}
 #   {"event":"frame","seq":N,"w":N,"h":N,"data":"<base64 jpeg>"}
@@ -372,6 +372,7 @@ switch ($Command) {
     }
     $hwndPtr = [IntPtr]$Hwnd
     $parentPtr = [IntPtr]$ParentHwnd
+
     # 恢复轮询：BitDock 类工具会把窗口重新收纳，SC_RESTORE 拉回直到稳定（最多 5s）
     $stable = $false
     for ($i = 0; $i -lt 16; $i++) {
@@ -382,6 +383,7 @@ switch ($Command) {
     if (-not $stable) {
       Write-JsonLine '{"event":"error","message":"window is minimized and could not be restored"}'; exit 1
     }
+
     $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
     $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
     [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
@@ -393,7 +395,31 @@ switch ($Command) {
     [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
     [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
     Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')
-    Write-JsonLine '{"event":"ready"}'
+
+    # ---- watchdog：嵌入态常驻，被收纳就拉回并重新摆位 ----
+    $lastRect = @{ X = $X; Y = $Y; W = $W; H = $H }
+    $autoRestored = 0
+    $lastStatusTick = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+      Start-Sleep -Milliseconds 600
+      try {
+        if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
+          [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
+          Start-Sleep -Milliseconds 350
+          if ([OwlMirrorWin32]::IsIconic($hwndPtr)) { continue }   # 拉不回就下一轮再试
+          $autoRestored++
+          [OwlMirrorWin32]::ApplyBounds($hwndPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
+          [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null
+          Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $autoRestored + ',"frameSeq":0}')
+        } elseif ($lastStatusTick.ElapsedMilliseconds -gt 5000) {
+          $lastStatusTick.Restart()
+          Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $script:AutoRestored + ',"frameSeq":0}')
+        }
+      } catch {
+        Write-JsonLine ('{"event":"error","message":"' + (Escape-Json $_.Exception.Message) + '"}')
+        exit 1
+      }
+    }
   }
 
   'move' {
