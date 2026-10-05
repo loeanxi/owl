@@ -67,7 +67,7 @@ Committing:
 - Stage explicit paths (`git add <path1> <path2>`); never `git add -A` / `git add .`.
 - Before committing, run `git status` and verify you are only staging your files.
 - `packages/ai/src/models.generated.ts` may always be included alongside your files.
-- Message format: `{feat,fix,docs}[(ai,tui,agent,coding-agent)]: <commit message> (optionally multiple lines)`. Message is informative and concise.
+- Message format: follow `COMMIT_SPEC.md` in the repo root — `type(scope): subject` (Conventional Commits). Types: feat/fix/docs/refactor/perf/test/build/ci/chore/style/revert; scope = package/app directory (`coding-agent`, `desktop`, `ai`, `owl-*`, ...). Chinese subject, informative and concise. Never paste a conversational reply as the commit message; auto-commit hooks must follow the same spec.
 
 Never run (destroys other agents' work or bypasses checks):
 
