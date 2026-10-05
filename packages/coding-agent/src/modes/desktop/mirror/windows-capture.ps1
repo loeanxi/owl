@@ -96,6 +96,19 @@ public static class OwlMirrorWin32 {
 
     [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetParentRaw(IntPtr child, IntPtr parent);
+    [DllImport("kernel32.dll")] public static extern void SetLastError(uint e);
+
+    // SetParent + GetLastError 原子化：PowerShell 会在两次 P/Invoke 之间插入自己的
+    // interop 调用污染 GetLastWin32Error（成功被误判为失败）。返回 0 = 成功。
+    public static int TrySetParent(IntPtr child, IntPtr parent) {
+        SetLastError(0);
+        IntPtr prev = SetParentRaw(child, parent);
+        int err = Marshal.GetLastWin32Error();
+        if (prev == IntPtr.Zero && err == 0) return 0;      // 无旧父且无错误：成功
+        return err;
+    }
+
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int index, IntPtr value);
@@ -402,10 +415,12 @@ switch ($Command) {
     $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
     $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
     [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
-    $setParentOk = [OwlMirrorWin32]::SetParent($hwndPtr, $parentPtr)
-    if (-not $setParentOk -or [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64() -ne $ParentHwnd) {
+    # SetParent + GetLastError 原子化：PowerShell 会在两次 P/Invoke 之间插入自己的
+    # interop 调用污染 GetLastWin32Error（成功被误判为失败），因此包进 C# 单次调用。
+    $spErr = [OwlMirrorWin32]::TrySetParent($hwndPtr, $parentPtr)
+    if ($spErr -ne 0) {
       [OwlMirrorWin32]::SetStyle($hwndPtr, $originalStyle)
-      Write-JsonLine '{"event":"error","message":"SetParent failed (parent hwnd invalid or UIPI blocked)"}'; exit 1
+      Write-JsonLine ('{"event":"error","message":"SetParent failed (Win32 " + $spErr + ")"}'); exit 1
     }
     [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
     [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
