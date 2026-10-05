@@ -50,6 +50,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	const [supported, setSupported] = useState(true);
 	const [fallback, setFallback] = useState(false); // 嵌入失败 → 帧流兜底
 	const [launching, setLaunching] = useState(false);
+	const [listed, setListed] = useState(false);
 	const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>(undefined);
 	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 	const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -84,6 +85,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 				if (!response.ok || !response.result) return;
 				setSupported(response.result.supported);
 				setWindows(response.result.windows);
+				setListed(true);
 			})
 			.catch(() => {});
 	}, [client]);
@@ -330,6 +332,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 			.then(() => refreshList())
 			.catch(() => {});
 	};
+	const autoLaunched = useRef(false);
 	const launchApp = (): void => {
 		setLaunching(true);
 		void client
@@ -341,6 +344,14 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 				refreshList();
 			});
 	};
+
+	// 首次扫描没找到红果窗口 → 自动拉起红果（每次挂载只试一次，失败回落到手动按钮）
+	useEffect(() => {
+		if (!listed || !supported || hongguo || autoLaunched.current) return;
+		autoLaunched.current = true;
+		launchApp();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [listed, supported, hongguo]);
 
 	// float 拖拽条：按住拖动（owl 前台时在拖拽条上拖，坐标差应用到 floatPos）
 	const gripRef = useRef<HTMLDivElement>(null);

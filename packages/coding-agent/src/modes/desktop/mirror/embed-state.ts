@@ -11,8 +11,7 @@
  * - 还原（restore）只对已嵌入状态有意义，其余情况无效果；
  * - 窗口消失（windowGone）直接回 restored 且不发还原效果 —— 窗口已不存在。
  */
-import type { Rect } from "./embed-layout.ts";
-import type { EmbedMode } from "./embed-layout.ts";
+import type { EmbedMode, Rect } from "./embed-layout.ts";
 
 export type EmbedState =
 	| { phase: "restored" }

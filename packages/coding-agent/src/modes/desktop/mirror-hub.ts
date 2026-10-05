@@ -188,18 +188,25 @@ export class MirrorHub {
 		this.killEmbedWatchdog(windowId);
 		const args = [
 			"embed",
-			"-Hwnd", String(hwnd),
-			"-ParentHwnd", String(parentHwnd),
-			"-X", String(Math.round(rect.x)),
-			"-Y", String(Math.round(rect.y)),
-			"-W", String(Math.round(rect.width)),
-			"-H", String(Math.round(rect.height)),
+			"-Hwnd",
+			String(hwnd),
+			"-ParentHwnd",
+			String(parentHwnd),
+			"-X",
+			String(Math.round(rect.x)),
+			"-Y",
+			String(Math.round(rect.y)),
+			"-W",
+			String(Math.round(rect.width)),
+			"-H",
+			String(Math.round(rect.height)),
 		];
 		const proc = this.spawnWorker(args);
 		const watchdog: EmbedWatchdog = { proc, buffer: "" };
 		this.embedWatchdogs.set(windowId, watchdog);
 
 		await new Promise<void>((resolve, reject) => {
+			let stderrTail = "";
 			const timer = setTimeout(() => {
 				this.killEmbedWatchdog(windowId);
 				this.embedWatchdogs.delete(windowId);
@@ -247,14 +254,16 @@ export class MirrorHub {
 			});
 			proc.stderr.on("data", (chunk: Buffer) => {
 				const text = chunk.toString("utf8").trim();
-				if (text) this.options.onDiagnostic?.(`mirror-embed[${windowId}] stderr: ${text.slice(0, 300)}`);
+				if (!text) return;
+				stderrTail = `${stderrTail} ${text}`.slice(-400);
+				this.options.onDiagnostic?.(`mirror-embed[${windowId}] stderr: ${text.slice(0, 300)}`);
 			});
 			proc.on("exit", (code) => {
 				if (this.embedWatchdogs.get(windowId) !== watchdog) return;
 				clearTimeout(timer);
 				this.embedWatchdogs.delete(windowId);
 				cleanup();
-				reject(new Error(`embed worker exited unexpectedly (code ${code})`));
+				reject(new Error(`embed worker exited unexpectedly (code ${code})${stderrTail ? `: ${stderrTail}` : ""}`));
 			});
 		});
 	}
@@ -274,11 +283,16 @@ export class MirrorHub {
 				const applied = hideRect();
 				await this.runWorkerLines([
 					"move",
-					"-Hwnd", String(hwnd),
-					"-X", String(Math.round(applied.x)),
-					"-Y", String(Math.round(applied.y)),
-					"-W", String(Math.max(1, Math.round(applied.width))),
-					"-H", String(Math.max(1, Math.round(applied.height))),
+					"-Hwnd",
+					String(hwnd),
+					"-X",
+					String(Math.round(applied.x)),
+					"-Y",
+					String(Math.round(applied.y)),
+					"-W",
+					String(Math.max(1, Math.round(applied.width))),
+					"-H",
+					String(Math.max(1, Math.round(applied.height))),
 				]);
 				return;
 			}
@@ -288,11 +302,16 @@ export class MirrorHub {
 		const applied = visible ? rect : hideRect();
 		await this.runWorkerLines([
 			"move",
-			"-Hwnd", String(hwnd),
-			"-X", String(Math.round(applied.x)),
-			"-Y", String(Math.round(applied.y)),
-			"-W", String(Math.round(applied.width)),
-			"-H", String(Math.round(applied.height)),
+			"-Hwnd",
+			String(hwnd),
+			"-X",
+			String(Math.round(applied.x)),
+			"-Y",
+			String(Math.round(applied.y)),
+			"-W",
+			String(Math.round(applied.width)),
+			"-H",
+			String(Math.round(applied.height)),
 		]);
 	}
 
@@ -302,11 +321,16 @@ export class MirrorHub {
 		void windowId;
 		await this.runWorkerLines([
 			"movewin",
-			"-Hwnd", String(hwnd),
-			"-X", String(Math.round(x)),
-			"-Y", String(Math.round(y)),
-			"-W", String(Math.round(width)),
-			"-H", String(Math.round(height)),
+			"-Hwnd",
+			String(hwnd),
+			"-X",
+			String(Math.round(x)),
+			"-Y",
+			String(Math.round(y)),
+			"-W",
+			String(Math.round(width)),
+			"-H",
+			String(Math.round(height)),
 		]);
 	}
 

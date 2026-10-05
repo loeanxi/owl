@@ -96,7 +96,7 @@ public static class OwlMirrorWin32 {
 
     [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
-    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetParentRaw(IntPtr child, IntPtr parent);
+    [DllImport("user32.dll", EntryPoint = "SetParent", SetLastError = true)] public static extern IntPtr SetParentRaw(IntPtr child, IntPtr parent);
     [DllImport("kernel32.dll")] public static extern void SetLastError(uint e);
 
     // SetParent + GetLastError 原子化：PowerShell 会在两次 P/Invoke 之间插入自己的
@@ -287,7 +287,8 @@ switch ($Command) {
     $dir = Split-Path -Parent $iconPath
     $launcher = Join-Path $dir 'AndrowsLauncher.exe'
     if (Test-Path $launcher) {
-      Start-Process -FilePath $launcher -WorkingDirectory $dir
+      # 与红果桌面快捷方式一致：直接按包名拉起红果，跳过应用宝商店。
+      Start-Process -FilePath $launcher -WorkingDirectory $dir -ArgumentList @('--from', '2', '--launch-pkg-name', 'com.phoenix.read', '--launch-proc-name', 'Androws.exe')
       Write-JsonLine '{"event":"launched","how":"launcher"}'
     } elseif (Test-Path $iconPath) {
       Start-Process -FilePath $iconPath -WorkingDirectory $dir
@@ -420,7 +421,7 @@ switch ($Command) {
     $spErr = [OwlMirrorWin32]::TrySetParent($hwndPtr, $parentPtr)
     if ($spErr -ne 0) {
       [OwlMirrorWin32]::SetStyle($hwndPtr, $originalStyle)
-      Write-JsonLine ('{"event":"error","message":"SetParent failed (Win32 " + $spErr + ")"}'); exit 1
+      Write-JsonLine ('{"event":"error","message":"SetParent failed (Win32 ' + $spErr + ')"}'); exit 1
     }
     [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
     [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW

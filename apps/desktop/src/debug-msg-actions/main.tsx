@@ -106,7 +106,7 @@ const entries: ChatEntry[] = [
 ];
 
 // 实时视图的转录：在已完成对话上追加一条 1 分钟前发出的用户消息，activity=working
-// 观察「正在生成回答 · 已耗时 …」的秒级跳动
+// 观察「1m 5s · … tokens · 正在生成回答」的秒级跳动
 const liveEntries: ChatEntry[] = [
 	...entries,
 	{ kind: "user", text: "帮我盯着构建日志，有报错就喊我", timestamp: Date.now() - 65_000 },

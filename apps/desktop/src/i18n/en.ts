@@ -1281,7 +1281,7 @@ export const en: Dict = {
 	"chat.msgBranch": "Branch into a new conversation",
 	"chat.msgUsage": "Turn total {n} tok (including cache) · {calls} calls",
 	"chat.msgUsageTitle": "Cumulative usage across {calls} recorded model responses, including repeated context; not current context occupancy. Transport retries are not listed separately. Uncached input {input} · Output {output} · Cache read {cacheRead} · Cache write {cacheWrite}",
-	"chat.turnDuration": "Elapsed {n}",
+	"chat.activityTokens": "{n} tokens",
 	"chat.msgEdit": "Edit",
 	"chat.msgEditAria": "Edit this message and resend",
 	"chat.msgEditSend": "Send",

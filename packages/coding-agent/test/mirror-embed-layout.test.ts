@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	clampFloatRect,
-	containRect,
 	computeLayout,
+	containRect,
+	type EmbedMode,
 	embedStyle,
 	hideRect,
 	restoreStyle,
@@ -10,7 +11,6 @@ import {
 	WS_CAPTION,
 	WS_CHILD,
 	WS_THICKFRAME,
-	type EmbedMode,
 } from "../src/modes/desktop/mirror/embed-layout.ts";
 
 describe("containRect", () => {
@@ -22,7 +22,7 @@ describe("containRect", () => {
 		const scaleW = rect.width / 568;
 		const scaleH = rect.height / 920;
 		expect(Math.abs(scaleW - scaleH)).toBeLessThan(0.01);
-		expect(Math.abs((rect.y + rect.height / 2) - 704 / 2)).toBeLessThanOrEqual(1);
+		expect(Math.abs(rect.y + rect.height / 2 - 704 / 2)).toBeLessThanOrEqual(1);
 		expect(rect.x).toBeGreaterThanOrEqual(0);
 	});
 
@@ -61,15 +61,14 @@ describe("hideRect", () => {
 	});
 });
 
-
-describe('超高窗口的顶对齐', () => {
-	it('窗口高于舞台：y 顶对齐 0（不遮上方工具条），向下溢出', () => {
+describe("超高窗口的顶对齐", () => {
+	it("窗口高于舞台：y 顶对齐 0（不遮上方工具条），向下溢出", () => {
 		const rect = containRect(418, 630, 568, 963);
 		expect(rect.y).toBe(0);
 		expect(rect.x).toBeGreaterThanOrEqual(0);
 	});
-	it('computeLayout sidebar 同样顶对齐（高度下发 contain 值，容器自行钳制）', () => {
-		const rect = computeLayout('sidebar', { width: 418, height: 630 }, 1, { width: 568, height: 963 });
+	it("computeLayout sidebar 同样顶对齐（高度下发 contain 值，容器自行钳制）", () => {
+		const rect = computeLayout("sidebar", { width: 418, height: 630 }, 1, { width: 568, height: 963 });
 		expect(rect.y).toBe(0);
 		expect(rect.height).toBe(630);
 		expect(rect.width).toBeLessThanOrEqual(418);
@@ -129,13 +128,7 @@ describe("computeLayout（三形态）", () => {
 	});
 
 	it("float：使用用户给的悬浮矩形并夹取到界内", () => {
-		const rect = computeLayout(
-			"float",
-			stage,
-			dpr,
-			win,
-			{ x: 4000, y: 5000, width: 260, height: 420 },
-		);
+		const rect = computeLayout("float", stage, dpr, win, { x: 4000, y: 5000, width: 260, height: 420 });
 		expect(rect.x).toBeLessThanOrEqual(stage.width - 260);
 		expect(rect.y).toBeLessThanOrEqual(stage.height - 420);
 		expect(rect.width).toBe(260);

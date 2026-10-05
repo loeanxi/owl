@@ -62,56 +62,6 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * 每轮处理耗时（对照 Codex 的「耗时 …」）：用户消息时间戳 → 该轮最晚的
- * assistant 消息/工具完成时间。旧会话缺时间戳的轮不产出；流式中的最后一轮
- * 还在增长，也不产出（生成中有 ResponseActivity 兜底）。
- */
-function turnDurationsOf(entries: ChatEntry[], streaming: boolean): Map<number, number> {
-	const durations = new Map<number, number>();
-	let lastAssistantIndex = -1;
-	if (streaming) {
-		for (let i = entries.length - 1; i >= 0; i--) {
-			if (entries[i]!.kind === "assistant") {
-				lastAssistantIndex = i;
-				break;
-			}
-		}
-	}
-	let userTs: number | undefined;
-	let firstAssistant = -1;
-	let endTs = 0;
-	let turnLastIndex = -1;
-	const finalize = (): void => {
-		const inStreamingTurn = streaming && lastAssistantIndex !== -1 && turnLastIndex >= lastAssistantIndex;
-		if (userTs !== undefined && firstAssistant !== -1 && endTs > userTs && !inStreamingTurn) {
-			durations.set(firstAssistant, endTs - userTs);
-		}
-	};
-	entries.forEach((entry, index) => {
-		if (entry.kind === "user") {
-			finalize();
-			userTs = entry.timestamp;
-			firstAssistant = -1;
-			endTs = 0;
-			turnLastIndex = index;
-			return;
-		}
-		if (entry.kind !== "assistant") return;
-		if (firstAssistant === -1) firstAssistant = index;
-		turnLastIndex = index;
-		// endedAt 是 message_end 的本地时刻（真实结束点）；timestamp 只是响应开始时刻，
-		// 缺 endedAt 的旧会话（重启后）才回退用它，此时耗时会偏短
-		if (entry.timestamp !== undefined) endTs = Math.max(endTs, entry.timestamp);
-		if (entry.endedAt !== undefined) endTs = Math.max(endTs, entry.endedAt);
-		for (const tool of entry.tools) {
-			if (tool.finishedAt !== undefined) endTs = Math.max(endTs, tool.finishedAt);
-		}
-	});
-	finalize();
-	return durations;
-}
-
-/**
  * 消息反馈（赞/踩）的本地记忆：键 = `<会话>:msg<消息时间戳|下标>`，写 localStorage
  * 重启保留。没有任何服务端回传通道，纯 UI 态；写失败（配额/隐私模式）可接受。
  */
@@ -772,10 +722,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		lastFooter = { ...keep, usage: totalUsage, requestCount };
 		turnFooters = [];
 	};
-	// 每轮处理耗时：键 = 该轮第一条 assistant 的下标（Owl 标题行的位置）
-	const turnDurations = turnDurationsOf(entries, streaming);
 	let turn = 0;
-	let assistantStarted = false;
 	// ── 整轮工作过程收纳（叠叠乐治理）：跨 LLM 调用累积思考/中间说明/普通工具调用，
 	// 在里程碑（最终回答/提问卡/渲染卡/错误/下一问）处收成一条折叠行；todo 属过程，
 	// 跟着进折叠区，不再把时间轴打成多段。
@@ -821,7 +768,6 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			if (entry.kind === "user") {
 				finishTurnFooters();
 				flushWork();
-				assistantStarted = false;
 				const artifacts = historicalArtifacts?.get(index);
 				if (artifacts && onOpenFile) {
 					const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
@@ -849,22 +795,6 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
 			...entry.tools.map((tool) => ({ kind: "tool" as const, toolId: tool.id })),
 		];
-		if (!assistantStarted && (entry.tools.length > 0 || entry.error || segments.some((segment) => segment.kind !== "tool" && segment.text.trim()))) {
-			assistantStarted = true;
-			const turnDuration = turnDurations.get(index);
-			rows.push({
-				key: "assistant-" + index,
-				content: (
-					<div className="owl-assistant-heading" data-fd-id="assistant-heading">
-						<img src="/owl.svg" alt="" aria-hidden="true" className="owl-assistant-mark" draggable={false} />
-						<span>Owl</span>
-						{turnDuration !== undefined && (
-							<span className="owl-turn-duration">{t("chat.turnDuration", { n: formatDuration(turnDuration) })}</span>
-						)}
-					</div>
-				),
-			});
-		}
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
 			// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示：时间轴不再
@@ -1021,8 +951,9 @@ function QuestionMinimap({ questions, active, onJump }: {
 export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 
 function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
-	// 实时已耗时：从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示）。
-	// 每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
+	// 实时状态行（Claude Desktop 同款排版）：图标 + 「时长 · 本轮 tokens · 状态」。
+	// 时长从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示），tokens 为本轮
+	// 已回传用量之和。每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -1031,21 +962,30 @@ function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activit
 	if (activity === "idle") return null;
 	let executing = false;
 	let userTs: number | undefined;
+	let usage: MessageUsage | undefined;
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index]!;
 		if (entry.kind === "user") {
 			userTs = entry.timestamp;
 			break;
 		}
-		if (entry.kind === "assistant" && entry.tools.some((tool) => tool.status === "running")) executing = true;
+		if (entry.kind === "assistant") {
+			usage = addUsage(entry.usage, usage);
+			if (entry.tools.some((tool) => tool.status === "running")) executing = true;
+		}
 	}
 	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
 	const elapsed = userTs !== undefined ? formatDuration(Math.max(0, now - userTs)) : undefined;
+	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
+	const parts = [
+		elapsed,
+		totalTokens > 0 ? t("chat.activityTokens", { n: formatTokenCount(totalTokens) }) : undefined,
+		label,
+	].filter((part): part is string => part !== undefined);
 	return (
 		<div className="owl-response-activity" data-state={activity} role="status">
 			<img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" />
-			<span>{label}</span>
-			{elapsed && <span className="owl-turn-duration">{t("chat.turnDuration", { n: elapsed })}</span>}
+			<span>{parts.join(" · ")}</span>
 		</div>
 	);
 }

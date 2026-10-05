@@ -1280,7 +1280,7 @@ export const zh = {
 	"chat.msgBranch": "在新对话中分支",
 	"chat.msgUsage": "本轮累计 {n} tok（含缓存） · {calls} 次调用",
 	"chat.msgUsageTitle": "本轮 {calls} 次已记录模型响应的累计用量，含重复发送的上下文；不是当前窗口占用，底层重试未单列。未缓存输入 {input} · 输出 {output} · 缓存读 {cacheRead} · 缓存写 {cacheWrite}",
-	"chat.turnDuration": "已耗时 {n}",
+	"chat.activityTokens": "{n} tokens",
 	"chat.msgEdit": "编辑",
 	"chat.msgEditAria": "编辑这条消息并重新发送",
 	"chat.msgEditSend": "发送",
