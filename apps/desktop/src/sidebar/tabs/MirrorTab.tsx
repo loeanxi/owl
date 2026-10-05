@@ -287,6 +287,29 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	const switchMode = (target: EmbedMode): void => {
 		const windowId = windowIdRef.current;
 		if (!windowId) return;
+		// 放大形态：先把 owl 主窗口长到贴合红果（消除黑边/裁切），再摆子窗口
+		if (target === "expand") {
+			const dramaW = HONGGUO_REF.width;
+			const dramaH = HONGGUO_REF.height;
+			const owlH = Math.min(1030, dramaH + TOOLBAR_H + 40 + 31); // 963+28工具条+31标题栏+余量
+			void client
+				.request({ type: "mirror.fitowl", windowId, x: 200, y: 8, width: Math.max(viewport.width, dramaW + 80), height: owlH })
+				.then(() => new Promise((resolve) => setTimeout(resolve, 350)))
+				.then(() => {
+					const rect = { x: Math.round((viewport.width - dramaW) / 2), y: TOOLBAR_H, width: dramaW, height: HONGGUO_REF.height };
+					return client.request({ type: "mirror.embed", windowId, rect });
+				})
+				.then(() => dispatch({ type: "embed", mode: "expand" }))
+				.catch(() => {});
+			return;
+		}
+		// 从放大切回：先还原 owl 尺寸
+		if (state.phase === "embedded" && state.mode === "expand") {
+			void client
+				.request({ type: "mirror.fitowl", windowId, x: 200, y: 8, width: 1296, height: 900 })
+				.then(() => new Promise((resolve) => setTimeout(resolve, 350)))
+				.catch(() => {});
+		}
 		const stage = stageForMode(target);
 		const rect = computeLayout(target, stage, window.devicePixelRatio || 1, HONGGUO_REF);
 		void client

@@ -1,4 +1,4 @@
-﻿﻿# owl mirror worker: enumerate windows / WGC capture loop / restore / launch.
+﻿# owl mirror worker: enumerate windows / WGC capture loop / restore / launch.
 # JSON lines on stdout (UTF-8), one event per line:
 #   {"event":"window","hwnd":N,"title":"...","process":"...","w":N,"h":N,"minimized":bool,"class":"..."}
 #   {"event":"frame","seq":N,"w":N,"h":N,"data":"<base64 jpeg>"}
@@ -12,7 +12,7 @@
 # UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin')]
+  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin', 'movewin')]
   [string]$Command,
 
   [long]$Hwnd = 0,
@@ -342,6 +342,21 @@ switch ($Command) {
     }
   }
 
+  'movewin' {
+    if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
+    $hwndPtr = [IntPtr]$Hwnd
+    # X/Y 传 -99999 表示保持原位（只调尺寸）；W/H 同理传 -99999 保持原值
+    $rect = New-Object OwlMirrorWin32+RECT
+    [OwlMirrorWin32]::GetWindowRect($hwndPtr, [ref]$rect) | Out-Null
+    $nx = if ($X -le -99999) { $rect.Left } else { $X }
+    $ny = if ($Y -le -99999) { $rect.Top } else { $Y }
+    $nw = if ($W -le -99999) { $rect.Right - $rect.Left } else { $W }
+    $nh = if ($H -le -99999) { $rect.Bottom - $rect.Top } else { $H }
+    # SWP_NOZORDER(0x4)
+    [OwlMirrorWin32]::SetWindowPos($hwndPtr, [IntPtr]::Zero, $nx, $ny, $nw, $nh, 0x4) | Out-Null
+    Write-JsonLine '{"event":"moved"}'
+    Write-JsonLine '{"event":"ready"}'
+  }
   'clientorigin' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd

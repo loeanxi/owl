@@ -2868,6 +2868,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "mirror.fitowl": {
+				try {
+					await mirror.fitOwl(request.windowId, request.x, request.y, request.width, request.height);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			case "mirror.unembed": {
 				try {
 					await mirror.unembedWindow(request.windowId);

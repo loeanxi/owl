@@ -296,6 +296,20 @@ export class MirrorHub {
 		]);
 	}
 
+	/** 放大形态：把 owl 主窗口移动/缩放到指定矩形（物理像素）。 */
+	async fitOwl(windowId: string, x: number, y: number, width: number, height: number): Promise<void> {
+		const hwnd = await this.findOwlParentHwnd();
+		void windowId;
+		await this.runWorkerLines([
+			"movewin",
+			"-Hwnd", String(hwnd),
+			"-X", String(Math.round(x)),
+			"-Y", String(Math.round(y)),
+			"-W", String(Math.round(width)),
+			"-H", String(Math.round(height)),
+		]);
+	}
+
 	/** 解除嵌入：脱离父窗口、还原标题栏样式，变回独立顶层窗口。 */
 	async unembedWindow(windowId: string): Promise<void> {
 		const hwnd = Number(windowId);

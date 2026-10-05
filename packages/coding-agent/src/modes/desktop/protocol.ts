@@ -1524,6 +1524,17 @@ export interface MirrorUnembedRequest {
 	windowId: string;
 }
 
+/** 放大形态：把 owl 主窗口缩放到贴合红果窗口（保持子窗口原生交互，无黑边无裁切）。 */
+export interface MirrorFitOwlRequest {
+	type: "mirror.fitowl";
+	id: string;
+	windowId: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
 export type MirrorClientRequest =
 	| MirrorListRequest
 	| MirrorAttachRequest
@@ -1532,7 +1543,8 @@ export type MirrorClientRequest =
 	| MirrorLaunchRequest
 	| MirrorEmbedRequest
 	| MirrorLayoutRequest
-	| MirrorUnembedRequest;
+	| MirrorUnembedRequest
+	| MirrorFitOwlRequest;
 
 /** 服务端广播：被 watch 的目录内容变了（客户端按 cwd 过滤、增量重列）。 */
 export interface FsChangedEvent {
