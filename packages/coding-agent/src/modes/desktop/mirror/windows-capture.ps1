@@ -61,6 +61,7 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
@@ -132,12 +133,26 @@ public static class OwlMirrorWin32 {
 
     // 去头：清 caption/thickframe，补 WS_CHILD（SetParent 不会自动设，缺位有焦点怪癖）
     public static long EmbedStyle(long style) {
-        return (style & ~(WS_CAPTION | WS_THICKFRAME)) | WS_CHILD;
+        return style & ~(WS_CAPTION | WS_THICKFRAME);
     }
 
     public static void ApplyBounds(IntPtr hwnd, int x, int y, int w, int h) {
         // SWP_NOZORDER(0x4) | SWP_FRAMECHANGED(0x20)（样式变更后必须发）
         SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h, 0x4 | 0x20);
+    }
+
+    // 附属窗口模式：红果保持独立顶层窗口，GWLP_HWNDPARENT(-8) 设为 owl 作 owner
+    // （随 owl 最小化/置顶，不被 WebView 子窗口遮挡），位置按 owl 客户区原点换算成屏幕坐标。
+    public static void SetOwner(IntPtr hwnd, IntPtr owner) {
+        if (IntPtr.Size == 8) SetWindowLongPtr64(hwnd, -8, owner);
+        else SetWindowLong32(hwnd, -8, (int)owner);
+    }
+
+    public static void ApplyOwned(IntPtr hwnd, IntPtr owner, int x, int y, int w, int h) {
+        PT origin = new PT(); origin.X = 0; origin.Y = 0;
+        ClientToScreen(owner, ref origin);
+        // SWP_NOACTIVATE(0x10) | SWP_FRAMECHANGED(0x20) | SWP_SHOWWINDOW(0x40)
+        SetWindowPos(hwnd, IntPtr.Zero, origin.X + x, origin.Y + y, w, h, 0x10 | 0x20 | 0x40 | 0x4);
     }
 
         public static bool RestoreByScRestore(IntPtr hwnd) {
@@ -416,35 +431,39 @@ switch ($Command) {
     $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
     $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
     [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
-    # SetParent + GetLastError 原子化：PowerShell 会在两次 P/Invoke 之间插入自己的
-    # interop 调用污染 GetLastWin32Error（成功被误判为失败），因此包进 C# 单次调用。
-    $spErr = [OwlMirrorWin32]::TrySetParent($hwndPtr, $parentPtr)
-    if ($spErr -ne 0) {
-      [OwlMirrorWin32]::SetStyle($hwndPtr, $originalStyle)
-      Write-JsonLine ('{"event":"error","message":"SetParent failed (Win32 ' + $spErr + ')"}'); exit 1
-    }
-    [OwlMirrorWin32]::ApplyBounds($hwndPtr, $X, $Y, $W, $H)
+    [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
+    [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $X, $Y, $W, $H)
     [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
     Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')
 
-    # ---- watchdog：嵌入态常驻，被收纳就拉回并重新摆位 ----
+    # ---- watchdog：常驻，被收纳就拉回；owl 移动/缩放时红果跟随；owl 最小化则隐藏 ----
     $lastRect = @{ X = $X; Y = $Y; W = $W; H = $H }
     $autoRestored = 0
     $lastStatusTick = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastOrigin = ''
     while ($true) {
-      Start-Sleep -Milliseconds 600
+      Start-Sleep -Milliseconds 120
       try {
+        if (-not [OwlMirrorWin32]::IsWindow($parentPtr) -or -not [OwlMirrorWin32]::IsWindow($hwndPtr)) { exit 0 }
+        if ([OwlMirrorWin32]::IsIconic($parentPtr)) { continue }
         if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
           [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
           Start-Sleep -Milliseconds 350
           if ([OwlMirrorWin32]::IsIconic($hwndPtr)) { continue }   # 拉不回就下一轮再试
           $autoRestored++
-          [OwlMirrorWin32]::ApplyBounds($hwndPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
-          [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null
+          [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
           Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $autoRestored + ',"frameSeq":0}')
-        } elseif ($lastStatusTick.ElapsedMilliseconds -gt 5000) {
+        }
+        $pt = New-Object OwlMirrorWin32+PT
+        [OwlMirrorWin32]::ClientToScreen($parentPtr, [ref]$pt) | Out-Null
+        $originKey = "$($pt.X),$($pt.Y)"
+        if ($originKey -ne $lastOrigin) {
+          $lastOrigin = $originKey
+          [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
+        }
+        if ($lastStatusTick.ElapsedMilliseconds -gt 5000) {
           $lastStatusTick.Restart()
-          Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $script:AutoRestored + ',"frameSeq":0}')
+          Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $autoRestored + ',"frameSeq":0}')
         }
       } catch {
         Write-JsonLine ('{"event":"error","message":"' + (Escape-Json $_.Exception.Message) + '"}')
@@ -465,12 +484,8 @@ switch ($Command) {
   'unembed' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd
-    # 还原顺序：先脱离父窗口，再还原样式，最后通知框架重算并显示
-    if ($ParentHwnd -gt 0) {
-      [void][OwlMirrorWin32]::SetParent($hwndPtr, [IntPtr]$ParentHwnd)
-    } else {
-      [void][OwlMirrorWin32]::SetParent($hwndPtr, [IntPtr]::Zero)
-    }
+    # 还原顺序：先解除 owner，再还原样式，最后通知框架重算并显示
+    [OwlMirrorWin32]::SetOwner($hwndPtr, [IntPtr]::Zero)
     if ($Style -ge 0) {
       [OwlMirrorWin32]::SetStyle($hwndPtr, $Style)
     } else {
