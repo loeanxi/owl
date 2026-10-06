@@ -43,6 +43,7 @@ import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import type { ToolDefinition } from "./core/extensions/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
+import { installHtmlPlanSkill } from "./core/html-plan-skill.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { connectMcpServers, type McpConnections } from "./core/mcp-lite.ts";
 import type { McpServerConfig } from "./core/mcp-servers.ts";
@@ -622,6 +623,8 @@ export async function main(args: string[], options?: MainOptions) {
 		console.error(chalk.red("owl: session HTML export is removed"));
 		process.exit(1);
 	}
+
+	installHtmlPlanSkill(agentDir);
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
 	const shouldTakeOverStdout = appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);
