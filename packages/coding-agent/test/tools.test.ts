@@ -544,13 +544,13 @@ describe("Coding Agent Tools", () => {
 				const piped = await bashTool.execute("test-call-grep-nomatch", {
 					command: "echo nothing relevant | grep -i tsx",
 				});
-				expect(piped.isError).toBe(true);
+				expect(piped.isError).toBe(false);
 				expect(getTextOutput(piped)).toContain("no lines matched");
 
 				const bare = await bashTool.execute("test-call-grep-nomatch-file", {
 					command: "grep -i zz-no-such-token-zz package.json",
 				});
-				expect(bare.isError).toBe(true);
+				expect(bare.isError).toBe(false);
 				expect(getTextOutput(bare)).toContain("no lines matched");
 
 				// 复合命令（; && 等）的退出码不一定来自 grep，保持通用消息
@@ -559,6 +559,34 @@ describe("Coding Agent Tools", () => {
 				expect(getTextOutput(compound)).toBe("boom\n\n\nCommand exited with code 1");
 			},
 		);
+
+		it.skipIf(!BASH_AVAILABLE)("should treat probe-like non-zero exits as answers, not errors", async () => {
+			// stderr 被主动压掉的探测：不命中是有效答案（对齐 UI 上的探测命令场景）
+			const lsProbe = await bashTool.execute("test-call-probe-ls", {
+				command: "ls src/core/tools 2>/dev/null && echo --- && ls src/core/built-in 2>/dev/null",
+			});
+			expect(lsProbe.isError).toBe(false);
+			expect(getTextOutput(lsProbe)).toContain("Command exited with code 2");
+
+			const catProbe = await bashTool.execute("test-call-probe-cat", { command: "cat no-such-file 2>/dev/null" });
+			expect(catProbe.isError).toBe(false);
+
+			// 退出码即判断结果的命令：1 = 未找到/条件为假
+			const whichProbe = await bashTool.execute("test-call-probe-which", {
+				command: "command -v def-not-exist-cmd",
+			});
+			expect(whichProbe.isError).toBe(false);
+
+			const testProbe = await bashTool.execute("test-call-probe-test", { command: "test -f no-such-file" });
+			expect(testProbe.isError).toBe(false);
+
+			// 命令缺失（127）、无压制的普通失败仍是错误
+			const notFound = await bashTool.execute("test-call-probe-127", { command: "def-not-exist-cmd 2>/dev/null" });
+			expect(notFound.isError).toBe(true);
+
+			const plainFailure = await bashTool.execute("test-call-probe-plain", { command: "ls no-such-dir" });
+			expect(plainFailure.isError).toBe(true);
+		});
 
 		it.skipIf(!BASH_AVAILABLE)("should return up to 1 MiB of output in structured content", async () => {
 			// 3000 lines exceed the model-facing 2000 line limit but not 1 MiB.

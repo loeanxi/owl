@@ -20,6 +20,7 @@
 	margin-inline: auto;
 }
 
-.owl-shell-content.is-bottom.has-pending-question > .owl-workbench-shell {
+/* 有待回答的问题时压低终端底栏（在 owl-shell-content-main 纵列里），给对话让位 */
+.owl-shell-content.has-pending-question .owl-shell-content-main > .owl-workbench-shell {
 	max-height: max(0px, calc(100% - var(--owl-question-chat-min-height, 0px)));
 }

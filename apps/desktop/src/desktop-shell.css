@@ -50,14 +50,19 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	height: 36px;
 	flex: 0 0 36px;
 	align-items: center;
-	padding-left: 9px;
+	overflow: visible;
 	color: var(--owl-ui-muted);
 	user-select: none;
 	z-index: 40;
 }
 
-.owl-desktop-menu-row { display: flex; align-items: center; gap: 1px; }
-.owl-desktop-sidebar-toggle { width: 32px; height: 28px; margin-right: 4px; }
+.owl-desktop-menu-row { display: flex; position: relative; z-index: 2; align-items: center; gap: 1px; }
+.owl-desktop-sidebar-toggle { width: 32px; height: 28px; margin-right: 2px; }
+.owl-desktop-history-nav { display: flex; align-items: center; margin-right: 6px; }
+.owl-desktop-history-nav .owl-chrome-button { width: 28px; height: 28px; color: var(--owl-ui-muted); }
+.owl-desktop-history-nav .owl-chrome-button:hover:not(:disabled) { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
+.owl-desktop-history-nav .owl-chrome-button:disabled { opacity: 0.35; cursor: default; }
+.owl-desktop-history-nav .owl-chrome-button:disabled:hover { background: transparent; color: var(--owl-ui-muted); }
 .owl-desktop-menu { position: relative; }
 .owl-desktop-menu-trigger {
 	padding: 4px 10px;
@@ -118,7 +123,223 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 .owl-desktop-menu-panel button:disabled { opacity: 0.4; cursor: default; }
 .owl-desktop-menu-row button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-desktop-copy-error { margin-left: 20px; font-size: 11px; color: var(--color-owl-muted); }
-.owl-desktop-window-controls { display: flex; height: 100%; margin-left: auto; }
+.owl-desktop-window-controls { display: flex; position: relative; z-index: 2; height: 100%; margin-left: auto; }
+
+/* 灵动岛：底边贴着会话栏顶边，水平中心由组件写成 left。 */
+.owl-island {
+	position: absolute;
+	top: auto;
+	bottom: 0;
+	align-self: flex-end;
+	z-index: 1;
+	display: flex;
+	width: max-content;
+	min-width: 150px;
+	max-width: var(--owl-island-max, 360px);
+	flex-direction: column;
+	transform: translateX(-50%);
+	overflow: visible;
+	border-radius: 15px;
+	background: #17191a;
+	color: #f4f1ea;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+}
+.owl-island.is-idle {
+	width: 150px;
+	border-radius: 999px;
+	box-shadow: none;
+	pointer-events: none;
+}
+.owl-island.is-open { width: min(320px, var(--owl-island-max, 360px)); border-radius: 15px 15px 0 0; }
+.owl-island-face {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	height: 30px;
+	min-width: 0;
+	padding: 0 14px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+.owl-island.is-idle .owl-island-face { height: 30px; padding: 0; justify-content: center; }
+.owl-island.is-idle .owl-island-face::after {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: #f4f1ea;
+	opacity: 0.8;
+	animation: owl-island-blink 7s ease-in-out infinite;
+}
+.owl-island.is-landing { animation: owl-island-land 720ms cubic-bezier(0.22, 1.45, 0.36, 1); }
+@keyframes owl-island-blink {
+	0%, 88%, 100% { transform: scaleY(1); }
+	92% { transform: scaleY(0.12); }
+}
+@keyframes owl-island-land {
+	0% { transform: translateX(-50%) scale(0.86); filter: brightness(1.4); }
+	100% { transform: translateX(-50%) scale(1); filter: brightness(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.owl-island.is-idle .owl-island-face::after,
+	.owl-island.is-landing { animation: none; }
+}
+.owl-island-face-main,
+.owl-island-row-main {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	flex: 1;
+	height: 100%;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+.owl-island-check {
+	display: grid;
+	width: 18px;
+	height: 18px;
+	flex: none;
+	place-items: center;
+	border: 1px solid #c8c4bc;
+	border-radius: 999px;
+	background: transparent;
+	color: #f4f1ea;
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
+}
+.owl-island-check:hover,
+.owl-island-check:focus-visible { background: rgb(255 255 255 / 14%); }
+.owl-island.is-done .owl-island-face,
+.owl-island-row:has(.owl-island-check) { padding-right: 8px; }
+.owl-island-title {
+	overflow: hidden;
+	min-width: 0;
+	flex: 1 1 auto;
+	font-size: 13px;
+	line-height: 1.2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.owl-island-dot {
+	width: 8px;
+	height: 8px;
+	flex: none;
+	border-radius: 999px;
+	background: var(--color-owl-accent);
+}
+.owl-island-pips { display: flex; gap: 3px; flex: none; align-items: center; }
+.owl-island-pips span {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: rgb(244 241 234 / 32%);
+}
+.owl-island-pips span.is-lead { width: 8px; height: 8px; background: var(--color-owl-accent); }
+.owl-island-pips span.is-wait { background: transparent; box-shadow: inset 0 0 0 1.5px #f4f1ea; }
+.owl-island-whisper {
+	flex: none;
+	max-width: 9em;
+	overflow: hidden;
+	color: #f4f1ea;
+	font-size: 12px;
+	font-style: italic;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	opacity: 0.86;
+}
+.owl-island-count {
+	flex: none;
+	color: var(--color-owl-accent);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.owl-island-wait,
+.owl-island-status,
+.owl-island-clock,
+.owl-island-step { flex: none; color: #c8c4bc; font-size: 12px; }
+.owl-island-clock { font-variant-numeric: tabular-nums; }
+.owl-island-step { max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-island-drawer {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	left: 0;
+	display: grid;
+	grid-template-rows: 0fr;
+	overflow: hidden;
+	border-radius: 0 0 15px 15px;
+	background: #17191a;
+	transition: grid-template-rows 460ms cubic-bezier(0.22, 1.25, 0.36, 1);
+}
+.owl-island.is-open .owl-island-drawer { grid-template-rows: 1fr; box-shadow: 0 16px 28px rgb(0 0 0 / 28%); }
+.owl-island-drawer-inner { min-height: 0; overflow: hidden; }
+.owl-island.is-open .owl-island-drawer-inner { max-height: 280px; overflow: auto; }
+.owl-island-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 10px 14px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+.owl-island-row:hover,
+.owl-island-row:focus-visible { background: rgb(255 255 255 / 8%); }
+.owl-island-block { display: flex; flex-direction: column; }
+.owl-island-actions,
+.owl-island-reply { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 14px 10px; }
+.owl-island-chip {
+	max-width: 12em;
+	flex: none;
+	overflow: hidden;
+	border: 1px solid #c8c4bc;
+	border-radius: 999px;
+	background: transparent;
+	padding: 2px 8px;
+	color: #f4f1ea;
+	font-size: 12px;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.owl-island-chip.is-allow { color: var(--color-owl-accent); border-color: var(--color-owl-accent); }
+.owl-island-chip:hover,
+.owl-island-chip:focus-visible { background: rgb(255 255 255 / 14%); }
+.owl-island-reply input {
+	min-width: 0;
+	flex: 1;
+	border: 0;
+	border-bottom: 1px solid #c8c4bc;
+	background: transparent;
+	color: inherit;
+	font-size: 12px;
+	outline: none;
+}
+.owl-island-face:focus-visible,
+.owl-island-face-main:focus-visible,
+.owl-island-row-main:focus-visible,
+.owl-island-check:focus-visible,
+.owl-island-row:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-island-drawer { transition: none; }
+}
+/* 深色外壳（默认档与绿预设）里岛体和标题栏几乎同色，加一圈 hairline 保住胶囊轮廓；浅色靠亮底衬形，不加。 */
+html:not([data-owl-theme="light"]) .owl-island {
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%), 0 10px 28px rgb(0 0 0 / 28%);
+}
+html:not([data-owl-theme="light"]) .owl-island.is-idle { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%); }
+html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
+	box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%), 0 16px 28px rgb(0 0 0 / 28%);
+}
 .owl-desktop-window-controls > div { height: 100%; margin-left: 0; gap: 0; }
 .owl-desktop-window-controls .owl-chrome-button { width: 45px; height: 100%; border-radius: 0; }
 
@@ -134,32 +355,30 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	border: 1px solid var(--owl-ui-border);
 	border-radius: 13px;
 	overflow: hidden;
-	/* Conversation region retains the original theme surface. */
-	background: var(--color-owl-bg);
+	/* Same surface as the conversation so the header sits in the page, not on a separate bar. */
+	background: var(--owl-conversation-bg, var(--color-owl-bg));
 }
 .owl-main-frame .owl-chat-header {
-	height: 60px;
-	flex: 0 0 60px;
-	gap: 11px;
-	padding-right: 20px;
-	padding-left: 20px;
-	border-bottom: 1px solid color-mix(in srgb, var(--owl-ui-border) 65%, transparent);
-	background: var(--owl-ui-canvas);
+	height: 40px;
+	flex: 0 0 40px;
+	gap: 8px;
+	padding-right: 8px;
+	padding-left: 8px;
+	border-bottom: 0;
+	background: transparent;
 }
 .owl-shell-session-title { min-width: 0; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owl-shell-project { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: 12px; color: var(--owl-ui-muted); }
 .owl-shell-project-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owl-shell-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 3px; margin-left: auto; }
-.owl-shell-connection { display: flex; align-items: center; gap: 6px; margin-right: 8px; font-size: 11px; color: var(--owl-ui-muted); }
-.owl-shell-connection.is-offline { color: #d48080; }
-.owl-shell-connection-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-owl-accent); }
-.owl-shell-connection.is-offline .owl-shell-connection-dot { background: currentColor; }
-.owl-shell-header-actions .owl-chrome-button { width: 32px; height: 32px; color: var(--owl-ui-muted); }
+.owl-shell-header-actions .owl-chrome-button { width: 28px; height: 28px; color: var(--owl-ui-muted); }
 .owl-shell-header-actions .owl-chrome-button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
 .owl-shell-header-actions .owl-chrome-button.is-active { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
 .owl-shell-header-actions .owl-chrome-button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-shell-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.owl-shell-content.is-bottom { flex-direction: column; }
+/* 主列 = 对话 + 终端底栏（底栏开着就在对话之下占一截高度）；工具侧栏是
+   owl-shell-content 的右列兄弟节点，两块面板互不依赖、可同时展开。 */
+.owl-shell-content-main { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
 .owl-shell-conversation { display: flex; min-height: 0; min-width: 0; flex: 1; flex-direction: column; }
 
 /* 顶栏「对话/上下文」视图 tab（主区随 tab 切换，见 App.tsx conversationView） */
@@ -185,7 +404,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 
 @media (max-width: 700px) {
 	.owl-shell-header-actions { gap: 1px; }
-	.owl-shell-connection { display: none; }
 	.owl-shell-session-title { flex: 1; }
 }
 
@@ -193,7 +411,6 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	.owl-main-frame .owl-chat-header { gap: 8px; padding-right: 16px; padding-left: 16px; }
 	.owl-shell-project { display: none; }
 	.owl-shell-session-title { max-width: 50%; }
-	.owl-shell-connection { max-width: 160px; }
 }
 
 /* ---------------------------------------------------------------- 动态壁纸 ----
@@ -225,7 +442,7 @@ html[data-owl-wallpaper="on"] .owl-main-frame {
 	backdrop-filter: blur(16px);
 }
 html[data-owl-wallpaper="on"] .owl-main-frame .owl-chat-header {
-	background: color-mix(in srgb, var(--owl-ui-canvas) var(--owl-wp-panel-mix, 36%), transparent);
+	background: transparent;
 }
 html[data-owl-wallpaper="on"] .owl-sidebar {
 	background: color-mix(in srgb, var(--color-owl-sidebar-bg) var(--owl-wp-panel-mix, 36%), transparent);
@@ -292,7 +509,7 @@ html[data-owl-wallpaper="on"] .owl-answer code,
 html[data-owl-wallpaper="on"] .owl-answer pre {
 	background: color-mix(in srgb, var(--owl-reading-panel) 88%, transparent);
 }
-html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-2xl {
+html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-xl {
 	background: color-mix(in srgb, var(--color-owl-panel) var(--owl-wp-read-mix, 52%), transparent);
 	backdrop-filter: blur(14px);
 }

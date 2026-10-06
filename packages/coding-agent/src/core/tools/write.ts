@@ -3,8 +3,9 @@ import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { assertFullFileReadThisTurn } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
-import { resolveToCwd } from "./path-utils.ts";
+import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const writeSchema = Type.Object({
@@ -14,7 +15,10 @@ const writeSchema = Type.Object({
 
 export const writeToolSystemPromptContribution = {
 	snippet: "Create or overwrite files",
-	guidelines: ["Use write only for new files or complete rewrites."],
+	guidelines: [
+		"Use write only for new files or complete rewrites.",
+		"Overwriting an existing file requires a read of the whole file in the current turn. A partial read, or a read from before an edit or write of that file, does not count. New files can be written directly.",
+	],
 } as const;
 
 export type WriteToolInput = Static<typeof writeSchema>;
@@ -28,6 +32,8 @@ export interface WriteOperations {
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
 	/** Create directory recursively */
 	mkdir: (dir: string) => Promise<void>;
+	/** Whether the target file already exists. Default: local filesystem. */
+	exists?: (absolutePath: string) => Promise<boolean>;
 }
 
 const defaultWriteOperations: WriteOperations = {
@@ -45,11 +51,12 @@ export function createWriteToolDefinition(
 	options?: WriteToolOptions,
 ): ToolDefinition<typeof writeSchema, undefined> {
 	const ops = options?.operations ?? defaultWriteOperations;
+	const exists = ops.exists ?? pathExists;
 	return {
 		name: "write",
 		label: "write",
 		description:
-			"Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+			"Write content to a file. Creates the file if it doesn't exist. Overwriting an existing file fails unless the read tool returned the whole file in the current turn. Automatically creates parent directories.",
 		promptSnippet: writeToolSystemPromptContribution.snippet,
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		parameters: writeSchema,
@@ -72,6 +79,11 @@ export function createWriteToolDefinition(
 					if (signal?.aborted) throw new Error("Operation aborted");
 				};
 
+				throwIfAborted();
+				if (ctx?.sessionManager && (await exists(absolutePath))) {
+					throwIfAborted();
+					assertFullFileReadThisTurn(ctx.sessionManager, absolutePath, ctx.cwd || cwd, path);
+				}
 				throwIfAborted();
 				// Create parent directories if needed.
 				await ops.mkdir(dir);

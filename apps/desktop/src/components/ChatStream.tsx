@@ -3,8 +3,8 @@ import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
 import { toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal, IconThumbDown, IconThumbUp } from "./icons.tsx";
-import { GenuiAnswerCard, GenuiToolCardView, useGenuiSession } from "./Genui.tsx";
+import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal } from "./icons.tsx";
+import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
@@ -59,44 +59,6 @@ function formatDuration(ms: number): string {
 	if (hours > 0) return `${hours}h ${minutes}m`;
 	if (minutes > 0) return `${minutes}m ${seconds}s`;
 	return `${seconds}s`;
-}
-
-/**
- * 消息反馈（赞/踩）的本地记忆：键 = `<会话>:msg<消息时间戳|下标>`，写 localStorage
- * 重启保留。没有任何服务端回传通道，纯 UI 态；写失败（配额/隐私模式）可接受。
- */
-const FEEDBACK_STORAGE_KEY = "owl-chat-feedback";
-const FEEDBACK_MAX_ENTRIES = 2000;
-type FeedbackValue = "up" | "down";
-const feedbackByMessage = new Map<string, FeedbackValue>();
-let feedbackLoaded = false;
-
-function loadFeedback(): void {
-	if (feedbackLoaded) return;
-	feedbackLoaded = true;
-	try {
-		const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY);
-		if (!raw) return;
-		for (const [key, value] of Object.entries(JSON.parse(raw) as Record<string, unknown>)) {
-			if (value === "up" || value === "down") feedbackByMessage.set(key, value);
-		}
-	} catch {
-		// 损坏的本地数据直接当没有
-	}
-}
-
-function saveFeedback(): void {
-	// 只留最近的一批，避免长年累月无限膨胀
-	while (feedbackByMessage.size > FEEDBACK_MAX_ENTRIES) {
-		const oldest = feedbackByMessage.keys().next().value;
-		if (oldest === undefined) break;
-		feedbackByMessage.delete(oldest);
-	}
-	try {
-		localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(Object.fromEntries(feedbackByMessage)));
-	} catch {
-		// 写失败可接受：反馈只是界面态
-	}
 }
 
 /**
@@ -180,18 +142,18 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
 
 /**
  * 单个工具调用行：一行人话摘要（状态图标 + 摘要 + 展开箭头），展开看参数细节与
- * 输出（默认末 10 行，可看全文）。autoOpen=false（工作过程折叠区内）时不因失败/带图
- * 自动弹开——所有层级统一默认收起，用户点击才展开。
+ * 输出（默认末 10 行，可看全文）。autoOpen=false（工作过程折叠区内）时不因带图
+ * 自动弹开。失败只标红、不自动展开：自动弹开会抢走用户当前注意力，展开交给用户。
  */
 function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCard; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
 	const [fullOutput, setFullOutput] = useState(false);
 	const [zoomed, setZoomed] = useState(false);
 	const hasImages = (card.output?.images?.length ?? 0) > 0;
-	const [open, setOpen] = useState(expanded || (autoOpen && (card.status === "error" || hasImages)));
+	const [open, setOpen] = useState(expanded || (autoOpen && hasImages));
 	useEffect(() => {
 		// 只自动弹开、不自动收起：状态迁移时重算 open 会把用户手动点开的行 snap 关上
-		if (expanded || (autoOpen && (card.status === "error" || (card.output?.images?.length ?? 0) > 0))) setOpen(true);
-	}, [expanded, autoOpen, card.status, card.output?.images]);
+		if (expanded || (autoOpen && (card.output?.images?.length ?? 0) > 0)) setOpen(true);
+	}, [expanded, autoOpen, card.output?.images]);
 
 	const output = card.output;
 	const { preview, dropped } = output ? tailLines(output.text, OUTPUT_PREVIEW_LINES) : { preview: "", dropped: 0 };
@@ -284,15 +246,12 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 	);
 }
 
-/** 连续工具调用的合组（名称可不同）：失败只标红计数；autoOpen=false 时不自动弹开。 */
-function ToolGroupView({ label, cards, expanded = false, autoOpen = true }: { label: string; cards: ToolCard[]; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
-	const [open, setOpen] = useState(() => expanded || (autoOpen && cards.some((card) => card.status === "error")));
+/** 连续工具调用的合组（名称可不同）：失败只标红计数，不自动弹开。 */
+function ToolGroupView({ label, cards, expanded = false }: { label: string; cards: ToolCard[]; expanded?: boolean }): React.JSX.Element {
+	const [open, setOpen] = useState(expanded);
 	useEffect(() => setOpen(expanded), [expanded]);
 	const errorCount = cards.filter((card) => card.status === "error").length;
 	const running = cards.some((card) => card.status === "running");
-	useEffect(() => {
-		if (autoOpen && errorCount > 0) setOpen(true);
-	}, [autoOpen, errorCount]);
 
 	return (
 		<div className={`owl-tool-group ${open ? "is-open" : ""}`}>
@@ -331,7 +290,7 @@ function ToolGroupView({ label, cards, expanded = false, autoOpen = true }: { la
 /**
  * 整轮工作过程折叠行：一次提问到该轮最终回答之间的思考、工具调用与中间说明收进
  * 一条「工作过程 · N 步」，永远默认收起，用户点击才展开（失败也不例外，只在摘要行
- * 标红计数）；回合进行中显示转圈与实时步数。
+ * 标红计数）；回合进行中显示实时步数。活动指示统一由底部 Owl 状态行承担，这里不再转圈。
  */
 function WorkProcessRow({ items, steps, failed, running }: {
 	items: Array<{ key: string; content: React.JSX.Element }>;
@@ -348,9 +307,7 @@ function WorkProcessRow({ items, steps, failed, running }: {
 				onClick={() => setOpen((value) => !value)}
 				className="owl-tool-summary owl-tool-group-summary"
 			>
-				{running
-					? <span className="owl-tool-spinner" aria-label={t("chat.runningAria")} />
-					: <IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />}
+				<IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />
 				<IconChevron className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`} />
 				<span className="min-w-0 flex-1 truncate text-owl-muted">
 					{running ? t("chat.workRunning", { n: steps }) : t("chat.workProcess", { n: steps })}
@@ -405,13 +362,12 @@ function CopyButton({ text, label, className = "owl-msg-action" }: { text: strin
 }
 
 /**
- * 回答底部操作栏（对照参考实现）：复制 / 赞 / 踩 / 在新对话中分支 /（仅最新一轮）
+ * 回答底部操作栏（对照参考实现）：复制 / 在新对话中分支 /（仅最新一轮）
  * 重新生成 + 用量与时间元信息。一轮回答含多次 LLM 调用时只在最后一条下挂一条，
  * usage 传整轮聚合值。
  */
-function AssistantFooter({ entry, storageKey, usage: usageOverride, requestCount, canRegenerate, onRegenerate, canBranch, onBranch }: {
+function AssistantFooter({ entry, usage: usageOverride, requestCount, canRegenerate, onRegenerate, canBranch, onBranch }: {
 	entry: Extract<ChatEntry, { kind: "assistant" }>;
-	storageKey: string;
 	/** 整轮聚合用量；缺省退回本条消息自己的用量 */
 	usage?: MessageUsage;
 	requestCount: number;
@@ -420,19 +376,6 @@ function AssistantFooter({ entry, storageKey, usage: usageOverride, requestCount
 	canBranch: boolean;
 	onBranch?: () => void;
 }): React.JSX.Element {
-	const [feedback, setFeedback] = useState<FeedbackValue | undefined>(() => {
-		loadFeedback();
-		return feedbackByMessage.get(storageKey);
-	});
-	useEffect(() => setFeedback(feedbackByMessage.get(storageKey)), [storageKey]);
-	const toggle = (value: FeedbackValue): void => {
-		loadFeedback();
-		const next = feedbackByMessage.get(storageKey) === value ? undefined : value;
-		if (next) feedbackByMessage.set(storageKey, next);
-		else feedbackByMessage.delete(storageKey);
-		saveFeedback();
-		setFeedback(next);
-	};
 	const usage = usageOverride ?? entry.usage;
 	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
 	const usageTitle = usage
@@ -447,26 +390,6 @@ function AssistantFooter({ entry, storageKey, usage: usageOverride, requestCount
 	return (
 		<div className="owl-msg-actions flex-wrap">
 			<CopyButton text={entry.text} label={t("chat.msgCopy")} />
-			<button
-				type="button"
-				className="owl-msg-action"
-				aria-pressed={feedback === "up"}
-				title={t("chat.msgLike")}
-				aria-label={t("chat.msgLike")}
-				onClick={() => toggle("up")}
-			>
-				<IconThumbUp className="h-3.5 w-3.5" />
-			</button>
-			<button
-				type="button"
-				className="owl-msg-action"
-				aria-pressed={feedback === "down"}
-				title={t("chat.msgDislike")}
-				aria-label={t("chat.msgDislike")}
-				onClick={() => toggle("down")}
-			>
-				<IconThumbDown className="h-3.5 w-3.5" />
-			</button>
 			{canBranch && onBranch && (
 				<button
 					type="button"
@@ -628,8 +551,6 @@ type RowOptions = {
 	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null;
 	/** 最新一轮回答还在流式：最后一条 assistant 不渲染操作栏。 */
 	streaming: boolean;
-	/** 赞/踩反馈的命名空间（sessionId；无会话上下文用固定值）。 */
-	sessionKey: string;
 	/** 会话空闲且最后一条用户消息带 entryId：最后一条回答可「重新生成」。 */
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
@@ -641,7 +562,7 @@ type RowOptions = {
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, sessionKey, canRegenerate, onRegenerate, onEditMessage, onBranch, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -692,16 +613,16 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		if (assistantHasText(entry)) turnAnswerIndex = index;
 	});
 	if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
-	// 操作栏工厂：分支按钮要求该条回答已带条目 id 且会话空闲；重新生成只在末条开启
+	// 操作栏工厂：已落盘的历史回答随时可分支（会话正在跑也不收按钮，进行中的这一轮
+	// 本来就没有操作栏）；重新生成只在末条、且会话空闲时开启。
 	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
 		<AssistantFooter
 			entry={entry}
 			usage={usage}
 			requestCount={requestCount}
-			storageKey={`${sessionKey}:msg${entry.timestamp ?? index}`}
 			canRegenerate={allowRegenerate}
 			onRegenerate={allowRegenerate ? onRegenerate : undefined}
-			canBranch={!busy && entry.entryId !== undefined && onBranch !== undefined}
+			canBranch={entry.entryId !== undefined && onBranch !== undefined}
 			onBranch={entry.entryId !== undefined && onBranch ? () => onBranch(entry.entryId!) : undefined}
 		/>
 	);
@@ -743,10 +664,10 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			key: "tools-" + cards[0]!.id,
 			content: cards.length === 1
 				? <ToolRowView card={cards[0]!} expanded={expandedTools} autoOpen={false} />
-				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} autoOpen={false} />,
+				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
 		});
 	};
-	// 收口当前工作段；live 表示回合仍在进行（摘要行转圈并显示「正在工作」）
+	// 收口当前工作段；live 表示回合仍在进行（摘要行显示「正在工作」）
 	const flushWork = (live = false): void => {
 		flushWorkTools();
 		if (workRows.length === 0) return;
@@ -851,6 +772,10 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		if (entry.error) {
 			flushWork();
 			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
+		} else if (entry.aborted) {
+			// 用户暂停：只留一行置灰小字（provider 的中止报错不上屏），继续入口在输入框按钮上。
+			flushWork();
+			rows.push({ key: "paused-" + index, content: <div className="owl-chat-paused">{t("chat.pausedHint")}</div> });
 		}
 		// 回答底部操作栏：只挂在每轮最终回答上（纯工具调用与中间说明不上屏）。流式中的
 		// 进行轮整轮不上屏（等 agent_end 重建后一次性出现，避免中途闪现又消失）。
@@ -1120,7 +1045,6 @@ export function ChatStream({
 		}
 		return false;
 	}, [busy, onRegenerate, entries]);
-	const { sessionId } = useGenuiSession();
 	const rows = useMemo(
 		() =>
 			buildRows({
@@ -1131,14 +1055,13 @@ export function ChatStream({
 				onOpenFile,
 				turnCard,
 				streaming: activity === "working",
-				sessionKey: sessionId ?? "shared",
 				canRegenerate,
 				onRegenerate,
 				onEditMessage,
 				onBranch,
 				busy,
 			}),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, sessionId, canRegenerate, onRegenerate, onEditMessage, onBranch, busy],
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, busy],
 	);
 
 	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----

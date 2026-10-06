@@ -8,6 +8,7 @@ import {
 	type CompactionSettings,
 	calculateContextTokens,
 	compact,
+	compactionContextWindow,
 	DEFAULT_COMPACTION_SETTINGS,
 	estimateContextBreakdown,
 	estimateContextTokens,
@@ -16,6 +17,7 @@ import {
 	getLastAssistantUsage,
 	prepareCompaction,
 	shouldCompact,
+	UNCONFIRMED_COMPACTION_WINDOW,
 } from "../src/core/compaction/index.ts";
 import {
 	buildSessionContext,
@@ -704,4 +706,15 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 		console.log("Original messages:", loaded.messages.length);
 		console.log("After compaction:", reloaded.messages.length);
 	}, 60000);
+});
+
+describe("unconfirmed context windows", () => {
+	it("compacts an unpublished window against the tighter fallback", () => {
+		expect(compactionContextWindow({ contextWindow: 128_000, contextWindowConfirmed: false })).toBe(
+			UNCONFIRMED_COMPACTION_WINDOW,
+		);
+		expect(compactionContextWindow({ contextWindow: 8_000, contextWindowConfirmed: false })).toBe(8_000);
+		expect(compactionContextWindow({ contextWindow: 200_000, contextWindowConfirmed: true })).toBe(200_000);
+		expect(compactionContextWindow({ contextWindow: 128_000 })).toBe(128_000);
+	});
 });

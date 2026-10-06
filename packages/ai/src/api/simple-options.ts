@@ -1,6 +1,7 @@
 import type {
 	Api,
 	Model,
+	ModelThinkingLevel,
 	SimpleStreamOptions,
 	StreamOptions,
 	ThinkingBudgets,
@@ -74,6 +75,35 @@ export function thinkingBudgetForLevel(reasoningLevel: ThinkingLevel, customBudg
 /** Cap a thinking budget so at least MIN_ANSWER_TOKENS remain under a shared response ceiling. */
 export function clampThinkingBudgetToAnswerRoom(thinkingBudget: number, ceiling: number): number {
 	return Math.min(thinkingBudget, Math.max(0, ceiling - MIN_ANSWER_TOKENS));
+}
+
+const OUTPUT_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/** Tokens of reasoning a level is expected to consume before the answer. xhigh/max share the high budget. */
+const OUTPUT_THINKING_BUDGET: Record<(typeof OUTPUT_THINKING_LEVELS)[number], number> = {
+	off: 0,
+	minimal: 1024,
+	low: 2048,
+	medium: 8192,
+	high: 16384,
+	xhigh: 16384,
+	max: 16384,
+};
+
+/**
+ * Lower a requested thinking level until the reasoning budget plus {@link MIN_ANSWER_TOKENS}
+ * fit in `maxTokens`. Never raises the level. Unknown or non-positive budgets are left unchanged.
+ */
+export function capThinkingLevelForOutput(level: ModelThinkingLevel, maxTokens: number): ModelThinkingLevel {
+	if (level === "off" || !Number.isFinite(maxTokens) || maxTokens <= 0) return level;
+	const index = OUTPUT_THINKING_LEVELS.indexOf(level);
+	if (index < 0) return level;
+	for (let cursor = index; cursor >= 0; cursor--) {
+		const candidate = OUTPUT_THINKING_LEVELS[cursor]!;
+		const answerFloor = candidate === "off" ? 0 : MIN_ANSWER_TOKENS;
+		if (OUTPUT_THINKING_BUDGET[candidate] + answerFloor <= maxTokens) return candidate;
+	}
+	return "off";
 }
 
 export function adjustMaxTokensForThinking(

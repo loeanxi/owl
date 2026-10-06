@@ -92,3 +92,14 @@ export async function quitDesktopApp(): Promise<boolean> {
 		return false;
 	}
 }
+
+/** 在资源管理器里定位一个已存在的文件；返回具体失败原因供 UI 展示（浏览器模式也返回原因）。 */
+export async function revealInFileManager(path: string): Promise<{ ok: boolean; error?: string }> {
+	if (!hasTauri()) return { ok: false, error: "not running inside the desktop shell" };
+	try {
+		await invoke("reveal_in_file_manager", { path });
+		return { ok: true };
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+}

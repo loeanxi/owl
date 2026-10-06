@@ -50,7 +50,11 @@ describe("regression #5109: exclude tools", () => {
 			expect(allToolNames).not.toContain("ask_question");
 			expect(allToolNames).toContain("bash");
 			expect(allToolNames).toContain("dynamic_tool");
-			expect(harness.session.getActiveToolNames().sort()).toEqual(["bash", "dynamic_tool", "edit", "write"]);
+			// todo was added to agent-session.ts's hard-coded `defaultActiveToolNames` after this
+			// regression was written, so eager-mode harness sessions activate it by default.
+			// process stays registered (in DEFAULT_TOOL_NAMES) but is only activated under
+			// toolActivation === "on-demand", which the harness does not set here.
+			expect(harness.session.getActiveToolNames().sort()).toEqual(["bash", "dynamic_tool", "edit", "todo", "write"]);
 			expect(harness.session.systemPrompt).not.toContain("- read:");
 			expect(harness.session.systemPrompt).not.toContain("ask_question");
 			expect(harness.session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");

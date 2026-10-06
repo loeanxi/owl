@@ -13,6 +13,7 @@ import { useProjectSidebarText } from "./project-sidebar-copy.ts";
 import {
 	IconChat,
 	IconCheck,
+	IconSessionMark,
 	IconChevron,
 	IconCompose,
 	IconFolder,
@@ -623,7 +624,8 @@ export function SessionSidebar({
 	}, [sessions, pinned, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 项目列表 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目，按路径去重。
-	// 排序：当前项目置顶，其余按最近会话活动时间降序（无会话的按名称垫底）。
+	// 排序：按最近会话活动时间降序（无会话的按名称垫底）；切项目不改变顺序，
+	// 避免点击的项目跳到列表顶部。
 	const projectPaths = useMemo(() => {
 		const map = new Map<string, { path: string; latest: string }>();
 		const track = (path: string | undefined, time?: string): void => {
@@ -638,9 +640,6 @@ export function SessionSidebar({
 		for (const path of knownProjects) track(path);
 		return [...map.values()]
 			.sort((a, b) => {
-				const aCurrent = samePath(a.path, activeProject);
-				const bCurrent = samePath(b.path, activeProject);
-				if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
 				if (a.latest !== b.latest) return a.latest > b.latest ? -1 : 1;
 				return projectLabel(a.path).localeCompare(projectLabel(b.path), "zh-CN");
 			})
@@ -684,7 +683,7 @@ export function SessionSidebar({
 	};
 
 	/**
-	 * 会话行（单行紧凑式）：聊天图标 + 标题，运行中的会话显示绿色状态，
+	 * 会话行（单行紧凑式）：空心圆 + 标题。没在跑是浅灰，运行中变绿。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string): React.JSX.Element => {
@@ -707,10 +706,10 @@ export function SessionSidebar({
 					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); } }}
 				>
 					<span
-						className={`owl-sidebar-session-icon ${isRunning ? "is-running animate-pulse text-emerald-500" : ""}`}
+						className={`owl-sidebar-session-icon${isRunning ? " is-running" : ""}`}
 						title={isRunning ? t("sidebar.runningTip") : undefined}
 					>
-						<IconChat className="h-3.5 w-3.5" />
+						<IconSessionMark className="h-3 w-3" />
 					</span>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
 					{isSessionUnread(projectPreferences, row) && <span className="owl-sidebar-unread-dot" title={getUiLanguage() === "en" ? "Unread" : "未读"} aria-label={getUiLanguage() === "en" ? "Unread" : "未读"} />}
@@ -981,7 +980,7 @@ export function SessionSidebar({
 						</>
 					}
 				>
-					{/* 项目列表：当前项目置顶，其余按最近活动排序；点击项目名切换，chevron 展开会话 */}
+					{/* 项目列表：按最近活动排序（切项目不重排）；点击项目名切换，chevron 展开会话 */}
 					{renderProjectContents(defaultProjects, "merged-default")}
 				</Section>
 				{projectPreferences.sections.map((section) => <Section key={section.id} id={`partition-${section.id}`} label={section.name} open={isOpen(`partition-${section.id}`)} onToggle={() => toggleSection(`partition-${section.id}`)} showMenu={openMenu === `partition:${section.id}`} actions={<button type="button" className={actionBtn} aria-label={`${pt("section")}：${section.name}`} aria-haspopup="menu" aria-expanded={openMenu === `partition:${section.id}`} onClick={(event) => { const key = `partition:${section.id}`; if (openMenu === key) closeProjectPopup(); else { setProjectPopup({ key, kind: "section", sectionId: section.id, anchor: event.currentTarget }); setOpenMenu(key); } }}><IconMore className="h-3.5 w-3.5" /></button>}>

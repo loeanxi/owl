@@ -131,7 +131,7 @@ describe("intent-aware tool discovery through a real agent session", () => {
 				return fauxAssistantMessage("已找到控制入口，执行前还需要检查当前播放器状态。");
 			},
 		]);
-		await harness.session.prompt("把歌暂停一下");
+		await harness.session.prompt("继续");
 		expect(result(harness).loaded).toEqual(["media_bridge_control"]);
 		expect(result(harness).steps[0].status).toBe("metadata_match");
 		expect(nextRequestTools).toContain("media_bridge_control");
@@ -155,7 +155,7 @@ describe("intent-aware tool discovery through a real agent session", () => {
 			),
 			fauxAssistantMessage("已分步找到工具。"),
 		]);
-		await harness.session.prompt("查行业资料，读取正文，再整理成 Excel");
+		await harness.session.prompt("继续");
 		const found = result(harness);
 		expect(found.loaded).toHaveLength(3);
 		expect(found.steps).toHaveLength(3);
@@ -176,7 +176,7 @@ describe("intent-aware tool discovery through a real agent session", () => {
 			),
 			fauxAssistantMessage("当前工具没有声明删除收藏能力。"),
 		]);
-		await harness.session.prompt("从播放器删除收藏歌曲");
+		await harness.session.prompt("继续");
 		const found = result(harness);
 		expect(found.loaded).toEqual([]);
 		expect(found.steps[0].status).not.toBe("metadata_match");
@@ -222,7 +222,7 @@ describe("intent-aware tool discovery through a real agent session", () => {
 			),
 			fauxAssistantMessage("已找到代码引用查询入口。"),
 		]);
-		await harness.session.prompt("这段代码谁在调用");
+		await harness.session.prompt("继续");
 		expect(result(harness).loaded).toEqual(["lsp_navigation"]);
 		expect(harness.session.getActiveToolNames()).not.toContain("news_hot");
 	});
@@ -257,10 +257,25 @@ describe("intent-aware tool discovery through a real agent session", () => {
 			),
 			fauxAssistantMessage("下一步再加载读取正文的工具。"),
 		]);
-		await harness.session.prompt("搜索并读取网页");
+		await harness.session.prompt("继续");
 		const found = result(harness);
 		expect(found.loaded).toHaveLength(1);
 		expect(found.steps[1].status).toBe("budget_limited");
+	});
+
+	it("preloads a metadata match onto the first model request", async () => {
+		const harness = await makeHarness();
+		let firstTools: string[] = [];
+		harness.setResponses([
+			(context) => {
+				firstTools = getCurrentTools(context.messages).map((entry) => entry.name);
+				return fauxAssistantMessage("已准备播放控制。");
+			},
+		]);
+		await harness.session.prompt("把歌暂停一下");
+		expect(firstTools).toContain("media_bridge_control");
+		expect(firstTools).not.toContain("media_bridge_memory");
+		expect(harness.session.messages.filter((message) => message.role === "toolResult")).toHaveLength(0);
 	});
 
 	it("returns an already active match so discovery does not falsely report a missing capability", async () => {

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
-import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
-import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
+import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -17,7 +17,7 @@ import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
-import { ConversationHeader, type ConversationView } from "./components/ConversationHeader.tsx";
+import { ConversationHeader, type ConversationView, type SessionExportFormat } from "./components/ConversationHeader.tsx";
 import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
@@ -28,6 +28,10 @@ import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
+import { DynamicIsland } from "./components/DynamicIsland.tsx";
+import { islandQuestionChoices, islandSessionTitle, islandWhisper, type IslandOutcome } from "./components/dynamic-island-model.ts";
+import { useAppHistory } from "./use-app-history.ts";
+import type { AppPlace } from "./app-history.ts";
 import { ShortcutsDialog, type HelpSection } from "./components/ShortcutsDialog.tsx";
 import { FindBar } from "./components/FindBar.tsx";
 import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
@@ -42,7 +46,7 @@ import { fetchInventory, passesRating, WallpaperLayer } from "./components/Wallp
 import { parseUiLanguageSetting, setUiLanguageSetting, t, useT, type UiLanguageSetting } from "./i18n/index.ts";
 import { normPath, samePath } from "./utils/paths.ts";
 import { isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "./project-sidebar-model.ts";
-import { Workbench, type WorkbenchDock } from "./sidebar/Workbench.tsx";
+import { Workbench } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
 import { openDeveloperWorkbench } from "./sidebar/developer.ts";
@@ -54,6 +58,7 @@ import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
 import { parseNotificationPrefs, setNotificationPrefs } from "./utils/notification-prefs.ts";
+import { downloadTextFile } from "./utils/download.ts";
 import "./desktop-shell.css";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
@@ -70,7 +75,9 @@ function isApprovalMode(value: string | null): value is ApprovalMode {
 	return value === "auto" || value === "confirm" || value === "plan";
 }
 const WORKBENCH_OPEN_KEY = "owl.workbench.open";
+/** 旧版「工作台停靠位」key：拆分后只读一次做迁移，不再写入。 */
 const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
+const TERMINAL_OPEN_KEY = "owl.terminal.open";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
 const RESEARCH_CONVERSATION_VIEW_KEY = "owl.research.conversation.view";
@@ -81,10 +88,14 @@ const ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 /** session.list 返回行的最小字段（完整形状见桥端 SessionInfo）。 */
 type SessionRowLite = {
 	id?: string;
+	name?: string;
+	firstMessage?: string;
+	parentSessionPath?: string;
 	cwd?: string;
 	modified?: string;
 	created?: string;
 	messageCount?: number;
+	archivedAt?: string;
 	scope?: "chat" | "research";
 	[key: string]: unknown;
 };
@@ -99,9 +110,9 @@ export default function App(): React.JSX.Element {
 	const researchTitle = useResearchEntryText();
 	const client = useMemo(() => new BridgeClient(), []);
 	const [connected, setConnected] = useState(false);
-	const [everConnected, setEverConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>("general");
+	const [settingsMountKey, setSettingsMountKey] = useState(0);
 	// 动态壁纸（owlWallpaper）：设置页保存时同步到这里，WallpaperLayer 随之重渲。
 	const [wallpaper, setWallpaper] = useState<OwlWallpaperSettings>(() => parseOwlWallpaper(undefined));
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
@@ -117,6 +128,8 @@ export default function App(): React.JSX.Element {
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
 	const [researchSessionId, setResearchSessionId] = useState<string>();
+	const researchSessionIdRef = useRef(researchSessionId);
+	researchSessionIdRef.current = researchSessionId;
 	const [researchConversationTitle, setResearchConversationTitle] = useState<string>();
 	const [researchResumeRequest, setResearchResumeRequest] = useState<{ id: string; revision: number }>();
 	const [researchNewConversationRequest, setResearchNewConversationRequest] = useState(0);
@@ -152,6 +165,33 @@ export default function App(): React.JSX.Element {
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const runningSessionsRef = useRef(runningSessions);
 	runningSessionsRef.current = runningSessions;
+	/** 每个正在跑的会话最近一次有动静的时间。只在「谁排第一」变化时写进 state。 */
+	const activityAtRef = useRef(new Map<string, number>());
+	const startedAtRef = useRef(new Map<string, number>());
+	const stepRef = useRef(new Map<string, string>());
+	const [stepRev, setStepRev] = useState(0);
+	const noteStepRef = useRef<(id: string, step: string) => void>(() => {});
+	noteStepRef.current = (id, step) => {
+		if (stepRef.current.get(id) === step) return;
+		stepRef.current.set(id, step);
+		setStepRev((current) => current + 1);
+	};
+	const activityLeaderRef = useRef<string | null>(null);
+	const [activityOrder, setActivityOrder] = useState<readonly string[]>([]);
+	const [doneNotice, setDoneNotice] = useState<{ seq: number; id: string; outcome: IslandOutcome } | null>(null);
+	const doneSeqRef = useRef(0);
+	const outcomeRef = useRef(new Map<string, IslandOutcome>());
+	const islandJumpRef = useRef<(() => void) | null>(null);
+	const [listedTitles, setListedTitles] = useState<ReadonlyMap<string, string>>(() => new Map());
+	const titleForRef = useRef<(id: string) => string>((id) => id);
+	const publishActivityRef = useRef<(ids: ReadonlySet<string>) => void>(() => {});
+	publishActivityRef.current = (ids) => {
+		const order = [...ids].sort((a, b) => (activityAtRef.current.get(b) ?? 0) - (activityAtRef.current.get(a) ?? 0) || a.localeCompare(b));
+		activityLeaderRef.current = order[0] ?? null;
+		setActivityOrder((current) => current.length === order.length && current.every((id, index) => id === order[index]) ? current : order);
+	};
+	/** 被用户主动暂停的会话：这些会话的输入框按钮显示「继续」，点击即从断点续跑。 */
+	const [pausedSessions, setPausedSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
@@ -203,13 +243,17 @@ export default function App(): React.JSX.Element {
 	const visibleResearchProjects = useMemo(() => researchProjects.filter((path) => !isProjectHidden(path, "research")), [researchProjects, projectSidebarRevision]);
 	// 斜杠命令清单（桥端 commands.list）：连接后、切项目、建/恢复会话时刷新（扩展命令随会话出现）。
 	const [slashCommands, setSlashCommands] = useState<SlashCommandEntry[]>([]);
-	// 侧边栏工作台（文件树 / 编辑器 / Git 变动 / 任务 / 侧聊）：开合与停靠位置持久化。
-	const [workbenchOpen, setWorkbenchOpen] = useState(
-		() => localStorage.getItem(WORKBENCH_OPEN_KEY) === "1",
+	// 两块独立面板：右侧工具侧栏（文件/编辑器/浏览器等，不含终端）与底部终端
+	// 栏，各自开合、可同时存在于界面上（底栏是底栏，侧栏是侧栏）。
+	const [sidebarOpen, setSidebarOpen] = useState(() =>
+		localStorage.getItem(WORKBENCH_OPEN_KEY) === "1" && localStorage.getItem(WORKBENCH_DOCK_KEY) !== "bottom",
 	);
-	const [workbenchDock, setWorkbenchDock] = useState<WorkbenchDock>(() =>
-		localStorage.getItem(WORKBENCH_DOCK_KEY) === "right" ? "right" : "bottom",
-	);
+	const [terminalOpen, setTerminalOpen] = useState(() => {
+		const stored = localStorage.getItem(TERMINAL_OPEN_KEY);
+		if (stored !== null) return stored === "1";
+		// 老版本迁移：原本停靠在底部且展开的工作台 → 迁成打开终端底栏
+		return localStorage.getItem(WORKBENCH_OPEN_KEY) === "1" && localStorage.getItem(WORKBENCH_DOCK_KEY) !== "right";
+	});
 	const [developerLayout, setDeveloperLayout] = useState(
 		() => localStorage.getItem(WORKBENCH_LAYOUT_KEY) === "developer",
 	);
@@ -232,13 +276,13 @@ export default function App(): React.JSX.Element {
 		setDeveloperLayout(developer);
 		localStorage.setItem(WORKBENCH_LAYOUT_KEY, developer ? "developer" : "tools");
 	};
-	const setWorkbenchOpenPersisted = (open: boolean): void => {
-		setWorkbenchOpen(open);
+	const setSidebarOpenPersisted = (open: boolean): void => {
+		setSidebarOpen(open);
 		localStorage.setItem(WORKBENCH_OPEN_KEY, open ? "1" : "0");
 	};
-	const setDockPersisted = (dock: WorkbenchDock): void => {
-		setWorkbenchDock(dock);
-		localStorage.setItem(WORKBENCH_DOCK_KEY, dock);
+	const setTerminalOpenPersisted = (open: boolean): void => {
+		setTerminalOpen(open);
+		localStorage.setItem(TERMINAL_OPEN_KEY, open ? "1" : "0");
 	};
 
 	// 「帮助」弹窗（使用指南 / 键盘快捷键）与页面内查找条（Ctrl+F）
@@ -274,11 +318,25 @@ export default function App(): React.JSX.Element {
 	}, []);
 
 	// 工作台 store 按项目提升到 App：Workbench 与快捷入口共用同一实例。
+	// 工具侧栏不再承载终端（归底栏专管），历史布局里的终端 tab 一次性清掉；
+	// 终端栏有自己独立的 store（独立持久化，互不掺和）。
 	const workbenchKey = normProjectKey(workspaceDir);
-	const workbenchStore = useMemo(() => new SidebarStore(workspaceDir), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	const workbenchStore = useMemo(() => {
+		const store = new SidebarStore(workspaceDir);
+		for (const tab of store.getState().tabs) {
+			if (tab.kind === "terminal") store.closeTab(tab.id);
+		}
+		return store;
+	}, [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	const terminalStore = useMemo(() => new SidebarStore(workspaceDir, "owl.terminal.state"), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "turn", includeCode: true }), [entries, workspaceDir]);
 	const [fileOpenError, setFileOpenError] = useState<string>();
 	useEffect(() => setFileOpenError(undefined), [sessionId, workspaceDir]);
+	// 会话日志导出：结果条（成功=保存路径，失败=具体原因）。不自动消失，切会话即清，
+	// 避免导出失败时点菜单「毫无反应」却看不到原因。
+	const [exportingLog, setExportingLog] = useState(false);
+	const [exportNotice, setExportNotice] = useState<{ text: string; tone: "info" | "error" }>();
+	useEffect(() => setExportNotice(undefined), [sessionId, researchSessionId]);
 	const openTaskFile = (path: string): void => {
 		const relative = workspaceArtifactPath(path, workspaceRef.current);
 		if (!relative) return;
@@ -292,30 +350,36 @@ export default function App(): React.JSX.Element {
 		}
 		workbenchStore.openFileTab(kind, relative, relative.split("/").pop() ?? relative);
 		setDeveloperLayoutPersisted(false);
-		if (!openRef.current) setDockPersisted(window.innerWidth < 1100 ? "bottom" : "right");
-		setWorkbenchOpenPersisted(true);
+		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
 	};
 
-	// 面板开合/停靠的 ref 镜像：快捷键与卡片回调里免 stale closure。
-	const dockRef = useRef(workbenchDock);
-	dockRef.current = workbenchDock;
-	const openRef = useRef(workbenchOpen);
-	openRef.current = workbenchOpen;
+	// 面板开合的 ref 镜像：快捷键与卡片回调里免 stale closure。
+	const sidebarOpenRef = useRef(sidebarOpen);
+	sidebarOpenRef.current = sidebarOpen;
+	const terminalOpenRef = useRef(terminalOpen);
+	terminalOpenRef.current = terminalOpen;
 
-	/** 在指定停靠位打开面板；再点一次同位按钮 = 收起（顶部两个按钮共用）。 */
-	const togglePanelAt = (target: WorkbenchDock): void => {
-		if (openRef.current && dockRef.current === target) {
-			setWorkbenchOpenPersisted(false);
+	/** 打开终端底栏；栏里一个终端都没有时顺手建一个（首次打开即能用）。 */
+	const openTerminalPanel = (): void => {
+		if (terminalStore.getState().tabs.length === 0) openQuickAction(terminalStore, "terminal");
+		setTerminalOpenPersisted(true);
+	};
+
+	const toggleTerminalPanel = (): void => {
+		if (terminalOpenRef.current) setTerminalOpenPersisted(false);
+		else openTerminalPanel();
+	};
+
+	const toggleSidebarPanel = (): void => setSidebarOpenPersisted(!sidebarOpenRef.current);
+
+	/** 打开一个快捷 tab：终端归底栏，其余工具归右侧栏。 */
+	const requestOpenKind = (kind: string): void => {
+		if (kind === "terminal") {
+			openTerminalPanel();
 			return;
 		}
-		setDockPersisted(target);
-		setWorkbenchOpenPersisted(true);
-	};
-
-	/** 打开一个快捷 tab（开始页卡片入口）：不动停靠位，只保证面板展开。 */
-	const requestOpenKind = (kind: string): void => {
 		openQuickAction(workbenchStore, kind);
-		setWorkbenchOpenPersisted(true);
+		setSidebarOpenPersisted(true);
 	};
 
 	/** 对话流改动卡「工作台审查」跳转：先记下要选中的文件，再打开改动审批卡片。 */
@@ -328,15 +392,19 @@ export default function App(): React.JSX.Element {
 		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
 		setRailView("chat");
 		setDeveloperLayoutPersisted(true);
-		setDockPersisted(window.innerWidth < 1100 ? "bottom" : "right");
-		setWorkbenchOpenPersisted(true);
+		setSidebarOpenPersisted(true);
+		openTerminalPanel();
 		setShowSettings(false);
 	};
 
-	/** 快捷键开终端 / 浏览器 tab：面板没开就先展开（不切停靠位）。 */
+	/** 快捷键开终端 / 浏览器 tab：所在面板没开就先展开。 */
 	const openInPanel = (kind: string): void => {
 		if (railView !== "research") setRailView("chat");
-		if (!openRef.current) setWorkbenchOpenPersisted(true);
+		if (kind === "terminal") {
+			openTerminalPanel();
+			return;
+		}
+		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
 		openQuickAction(workbenchStore, kind);
 	};
 
@@ -448,10 +516,11 @@ export default function App(): React.JSX.Element {
 	};
 
 	// 在新对话中分支：以某条回答为末梢复制新会话（原会话原封不动），桥端全新挂载。
+	// 会话正在跑也可以从历史回答分支：原会话留在后台继续，界面切到新会话。
 	// 成功后必须直接跳进新会话：走与点击侧边栏会话完全相同的 openSession 通道切换
 	// （工作区/标题后缀/转录回放/统计全部同源），再在尾部补一行反馈让跳转肉眼可见。
 	const handleBranch = async (entryId: string): Promise<void> => {
-		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return;
+		if (!sessionIdRef.current || !connected) return;
 		try {
 			const response = await client.request<{
 				sessionId: string;
@@ -500,8 +569,7 @@ export default function App(): React.JSX.Element {
 		client.connect();
 		const offStatus = client.onStatus((up) => {
 			setConnected(up);
-			if (up) setEverConnected(true);
-			else {
+			if (!up) {
 				submitInFlight.current = false;
 				setSubmitting(false);
 			}
@@ -510,18 +578,48 @@ export default function App(): React.JSX.Element {
 			// 全会话运行状态跟踪：agent_start / agent_settled 成对出现（abort、出错也走 settled），
 			// 必须在下面的当前会话过滤之前记录，否则后台会话的绿点状态丢失。
 			const eventType = (message.event as { type?: string }).type;
+			const now = Date.now();
+			activityAtRef.current.set(message.sessionId, now);
 			if (eventType === "agent_start") {
-				setRunningSessions((current) => new Set(current).add(message.sessionId));
+				outcomeRef.current.delete(message.sessionId);
+				startedAtRef.current.set(message.sessionId, now);
+				stepRef.current.delete(message.sessionId);
+				const next = new Set(runningSessionsRef.current);
+				next.add(message.sessionId);
+				runningSessionsRef.current = next;
+				setRunningSessions(next);
+				publishActivityRef.current(next);
 			} else if (eventType === "agent_settled") {
 				setSidebarRev((current) => current + 1);
 				setPermissions((current) => current.filter((request) => request.sessionId !== message.sessionId));
 				setQuestions((current) => current.filter((question) => question.sessionId !== message.sessionId));
-				setRunningSessions((current) => {
-					if (!current.has(message.sessionId)) return current;
-					const next = new Set(current);
-					next.delete(message.sessionId);
-					return next;
-				});
+				const next = new Set(runningSessionsRef.current);
+				if (next.delete(message.sessionId)) {
+					runningSessionsRef.current = next;
+					startedAtRef.current.delete(message.sessionId);
+					stepRef.current.delete(message.sessionId);
+					setRunningSessions(next);
+					publishActivityRef.current(next);
+					const outcome = outcomeRef.current.get(message.sessionId) ?? "done";
+					outcomeRef.current.delete(message.sessionId);
+					setDoneNotice({ seq: ++doneSeqRef.current, id: message.sessionId, outcome });
+				}
+			} else if (eventType === "agent_end") {
+				const end = message.event as { willRetry?: boolean; messages?: { role?: string; stopReason?: string }[] };
+				const assistant = !end.willRetry ? [...(end.messages ?? [])].reverse().find((item) => item.role === "assistant") : undefined;
+				if (assistant?.stopReason) {
+					const reason = assistant.stopReason;
+					outcomeRef.current.set(message.sessionId, reason === "aborted" ? "aborted" : reason === "error" ? "error" : "done");
+				}
+			} else if (eventType === "message_update" && runningSessionsRef.current.has(message.sessionId)) {
+				const update = (message.event as { assistantMessageEvent?: { type?: string; toolName?: string; toolCall?: { name?: string }; contentIndex?: number; partial?: { content?: { name?: string }[] } } }).assistantMessageEvent;
+				if (update?.type === "toolcall_start" || update?.type === "toolcall_end") {
+					const tool = update.toolName ?? update.toolCall?.name ?? update.partial?.content?.[update.contentIndex ?? -1]?.name;
+					if (tool) noteStepRef.current(message.sessionId, tool);
+				} else if (update?.type === "thinking_delta") noteStepRef.current(message.sessionId, "thinking");
+				else if (update?.type === "text_delta") noteStepRef.current(message.sessionId, "writing");
+			} else if (runningSessionsRef.current.has(message.sessionId) && activityLeaderRef.current !== message.sessionId) {
+				publishActivityRef.current(runningSessionsRef.current);
 			}
 			if (eventType === "agent_start" || eventType === "agent_settled") {
 				setPendingPrompts((current) => {
@@ -650,6 +748,7 @@ export default function App(): React.JSX.Element {
 					case "-": case "_": event.preventDefault(); actions.zoomOut(); return;
 					case "=": case "+": event.preventDefault(); actions.zoomIn(); return;
 					case "0": event.preventDefault(); actions.zoomReset(); return;
+					case ".": event.preventDefault(); actions.openIsland(); return;
 					default: return;
 				}
 			};
@@ -659,8 +758,7 @@ export default function App(): React.JSX.Element {
 
 		// IAB 联动（ZCode 同款）：agent 用 browser_* 工具开/切页面时，用户始终
 		// 看得见 agent 的浏览器操作。用户自己开的面板（origin=ui）不打扰。
-		// agent 拉起的停靠位固定为右列：浏览器需要纵向空间，底栏会压成一条
-		// 视觉效果很差；用户自己点的面板不改变它原本的停靠位。
+		// 浏览器 tab 固定落在右侧工具侧栏（纵向空间足），侧栏没开就顺手展开。
 		// 侧边卡片设置停用了「浏览器」卡片时不再自动弹面板（设置页「侧边卡片」）。
 		useEffect(() => {
 			return client.onIabMessage((message) => {
@@ -672,8 +770,7 @@ export default function App(): React.JSX.Element {
 				const boundTabId = isIabPageBound(target.pageId) ? boundTabIdFor(target.pageId) : undefined;
 				if (boundTabId) workbenchStore.activate(boundTabId);
 				else workbenchStore.openNew("browser", target.title || t("app.browserTab"), encodeIabPath(target.pageId, target.url, target.sessionId));
-				if (dockRef.current !== "right") setDockPersisted("right");
-				setWorkbenchOpenPersisted(true);
+				setSidebarOpenPersisted(true);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -709,7 +806,13 @@ export default function App(): React.JSX.Element {
 			.request<SessionRunningResult>({ type: "session.running" })
 			.then((response) => {
 				if (!response.ok) return;
-				setRunningSessions(new Set(response.result?.running ?? []));
+				const ids = response.result?.running ?? [];
+				const now = Date.now();
+				for (const id of ids) if (!activityAtRef.current.has(id)) activityAtRef.current.set(id, now);
+				const next = new Set(ids);
+				runningSessionsRef.current = next;
+				setRunningSessions(next);
+				publishActivityRef.current(next);
 				setPendingPrompts(new Set());
 			})
 			.catch(() => {});
@@ -745,6 +848,25 @@ export default function App(): React.JSX.Element {
 			.catch(() => {});
 	}, [connected, client]);
 
+	useEffect(() => {
+		if (!connected) return;
+		let cancelled = false;
+		void client.request<SessionRowLite[]>({ type: "session.list" }).then((response) => {
+			if (cancelled || !response.ok || !response.result) return;
+			const next = new Map<string, string>();
+			for (const row of response.result) {
+				if (!row.id) continue;
+				next.set(row.id, islandSessionTitle(row, {
+					unnamed: t("sidebar.sessionUnnamed"),
+					branch: t("app.branchSuffix"),
+					fallback: t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }),
+				}));
+			}
+			setListedTitles(next);
+		}).catch(() => {});
+		return () => { cancelled = true; };
+	}, [client, connected, sidebarRev, runningSessions, t]);
+
 	function selectedModel(): { provider: string; model: string } | undefined {
 		const value = modelValue;
 		if (!value) return undefined;
@@ -763,6 +885,43 @@ export default function App(): React.JSX.Element {
 			if (response.ok && target === sessionIdRef.current) setSessionInfo(response.result ?? undefined);
 		} catch {
 			// 桥断开时静默跳过，重连后下一轮会重新拉取
+		}
+	}
+
+	// 导出当前会话日志（头部下载菜单）：桥端把文件写进下载目录，前端唤起资源
+	// 管理器定位；每一步的结果都写进 exportNotice，绝不静默失败。
+	async function exportSessionLog(format: SessionExportFormat): Promise<void> {
+		// research 视图里导的是 research 会话；普通视图导当前会话
+		const target = railView === "research" ? researchSessionId : sessionIdRef.current;
+		if (!target || exportingLog) return;
+		setExportNotice(undefined);
+		setExportingLog(true);
+		try {
+			const response = await client.request<SessionExportLogResult>({ type: "session.exportLog", sessionId: target, format });
+			if (!response.ok || !response.result) {
+				throw new Error(response.error ?? t("api.opFailed", { what: t("app.downloadSessionLog") }));
+			}
+			const { filename, content, savedPath } = response.result;
+			if (!savedPath) {
+				// 旧桥不落盘：桌面壳里 blob 下载会被 WebView2 静默丢弃，必须提示重建；
+				// 纯浏览器（node serve 直开）blob 下载可用
+				if (hasTauri()) throw new Error(t("app.exportSessionStaleBridge"));
+				downloadTextFile(content, filename, format === "jsonl" ? "text/plain" : "text/markdown");
+				return;
+			}
+			const reveal = await revealInFileManager(savedPath);
+			if (reveal.ok) {
+				setExportNotice({ text: t("app.exportSessionSaved", { path: savedPath }), tone: "info" });
+			} else {
+				setExportNotice({
+					text: t("app.exportSessionSavedNoReveal", { path: savedPath, message: reveal.error ?? "" }),
+					tone: "error",
+				});
+			}
+		} catch (error) {
+			setExportNotice({ text: error instanceof Error ? error.message : String(error), tone: "error" });
+		} finally {
+			setExportingLog(false);
 		}
 	}
 
@@ -866,7 +1025,7 @@ export default function App(): React.JSX.Element {
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
 	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
-	const openSession = async (targetSessionId: string, options?: { silent?: boolean }): Promise<void> => {
+	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean }): Promise<void> => {
 		const requestSeq = ++sessionViewSeq.current;
 		const response = await client.request<{
 			sessionId: string;
@@ -898,6 +1057,7 @@ export default function App(): React.JSX.Element {
 		}
 		const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
 		if (researchMode !== undefined) {
+			if (options?.preserveRail) return;
 			if (options?.silent && railViewRef.current !== "chat") return;
 			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
 			setShowSettings(false);
@@ -906,7 +1066,7 @@ export default function App(): React.JSX.Element {
 			setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
 			return;
 		}
-		if (!options?.silent && railViewRef.current === "research") setRailView("chat");
+		if (!options?.preserveRail && !options?.silent && railViewRef.current === "research") setRailView("chat");
 		setWorkspaceDir(cwd);
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
@@ -1138,6 +1298,13 @@ export default function App(): React.JSX.Element {
 		}
 		target = await ensureSession();
 		if (!target) return;
+		// 新消息接管会话：若该会话此前被暂停，解除暂停态（按钮回到发送/暂停的常规轮转）。
+		setPausedSessions((current) => {
+			if (!current.has(target!)) return current;
+			const next = new Set(current);
+			next.delete(target!);
+			return next;
+		});
 		setEntries((current) => [
 			...current,
 			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId
@@ -1181,9 +1348,41 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
+	const replyToSession = (target: string, message: string): void => {
+		const text = message.trim();
+		if (!connected || !text) return;
+		setPausedSessions((current) => {
+			if (!current.has(target)) return current;
+			const next = new Set(current);
+			next.delete(target);
+			return next;
+		});
+		if (target === sessionIdRef.current) {
+			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now() }]);
+			setRetryStatus(null);
+		}
+		setPendingPrompts((current) => new Set(current).add(target));
+		void client.request({ type: "session.prompt", sessionId: target, message: text }).then((response) => {
+			if (!response.ok) throw new Error(response.error ?? t("app.sendFailedMsg"));
+		}).catch((error: unknown) => {
+			setPendingPrompts((current) => {
+				if (!current.has(target)) return current;
+				const next = new Set(current);
+				next.delete(target);
+				return next;
+			});
+			if (target === sessionIdRef.current) {
+				setEntries((current) => [...current, {
+					kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
+				}]);
+			}
+		});
+	};
+
 	const abort = async (): Promise<void> => {
 		const target = sessionId;
 		if (!target) return;
+		outcomeRef.current.set(target, "aborted");
 		// 停止请求失败必须可见：桥重启后旧会话不再挂载（Unknown session）或桥断开时，
 		// 服务端不会再有 agent_settled 事件来解开运行态——本地同步清掉，按钮恢复可用。
 		const fail = (brief: string): void => {
@@ -1199,6 +1398,13 @@ export default function App(): React.JSX.Element {
 				next.delete(target);
 				return next;
 			});
+			// 停止都没成功（多半会话已随桥重启消失），暂停态没有可恢复的对象，一并解开。
+			setPausedSessions((current) => {
+				if (!current.has(target)) return current;
+				const next = new Set(current);
+				next.delete(target);
+				return next;
+			});
 			setEntries((current) => [...current, { kind: "toolResult", toolName: t("app.abortFailed"), ok: false, brief }]);
 		};
 		try {
@@ -1206,6 +1412,64 @@ export default function App(): React.JSX.Element {
 			if (!response.ok) fail(response.error ?? t("app.unknownError"));
 		} catch (error) {
 			fail(error instanceof Error ? error.message : String(error));
+		}
+	};
+
+	// 暂停 = 先记住暂停态再中止当前回合；中止成功后按钮转为「继续」，等 agent_settled 解开运行态。
+	const pauseSession = (): void => {
+		const target = sessionId;
+		if (!target) return;
+		setPausedSessions((current) => new Set(current).add(target));
+		void abort();
+	};
+
+	// 继续 = 解开暂停态并以隐藏消息续跑（session.continue）：模型带着被中断的完整
+	// 上下文从断点接着做，转录里不出现伪造的「继续」用户消息，界面对此无感。
+	const resumePaused = async (): Promise<void> => {
+		const target = sessionId;
+		if (!target || !connected || running || submitInFlight.current) return;
+		submitInFlight.current = true;
+		setSubmitting(true);
+		// 乐观状态：暂停态解除 + 运行指示先挂起，按钮立即回到暂停图标，agent_start 随后接管
+		setPausedSessions((current) => {
+			if (!current.has(target)) return current;
+			const next = new Set(current);
+			next.delete(target);
+			return next;
+		});
+		setPendingPrompts((current) => new Set(current).add(target));
+		const reconcile = (): void => {
+			setPendingPrompts((current) => {
+				if (!current.has(target)) return current;
+				const next = new Set(current);
+				next.delete(target);
+				return next;
+			});
+		};
+		try {
+			const response = await client.request({
+				type: "session.continue",
+				sessionId: target,
+				message: t("app.resumePrompt"),
+			});
+			if (!response.ok) throw new Error(response.error ?? t("app.unknownError"));
+			// 与 sendPrompt 同款对账：续跑迟迟没有 agent_start 时靠 running 查询解开指示灯
+			setTimeout(() => {
+				void client.request<SessionRunningResult>({ type: "session.running" }).then((state) => {
+					if (!state.ok || state.result?.running.includes(target) || runningSessionsRef.current.has(target)) return;
+					reconcile();
+				}).catch(() => {});
+			}, 2000);
+		} catch (error) {
+			reconcile();
+			// 续跑失败（桥断开/会话消失）：恢复暂停态让「继续」按钮可重试，并把失败摆出来
+			setPausedSessions((current) => new Set(current).add(target));
+			setEntries((current) => [...current, {
+				kind: "toolResult", toolName: t("app.resumeFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
+			}]);
+		} finally {
+			submitInFlight.current = false;
+			setSubmitting(false);
 		}
 	};
 
@@ -1228,6 +1492,61 @@ export default function App(): React.JSX.Element {
 	// 菜单与全局快捷键共用的动作集：每次渲染重建并同步进 shortcutsRef，
 	// keydown 侧零依赖免 stale closure；语义与旧内联 props 保持一致
 	// （面板/新会话先回到对话主区，设置页打开时先收起）。
+	const navigation = useAppHistory({
+		rail: railView,
+		settings: showSettings,
+		settingsTab: settingsInitialTab,
+		chatSession: sessionId,
+		researchSession: researchSessionId,
+		workspace: workspaceDir,
+	});
+	const navigationSeq = useRef(0);
+	const restorePlace = async (place: AppPlace, seq: number): Promise<void> => {
+		// 作废还在飞的会话恢复，避免旧响应盖住这次回退。
+		sessionViewSeq.current += 1;
+		if (place.rail === "mail") setMailMounted(true);
+		if (place.rail === "media") setMediaMounted(true);
+		if (place.rail === "research") setResearchMounted(true);
+		if (place.rail === "evaluation") setEvaluationMounted(true);
+		const openingChat = place.rail !== "research" && Boolean(place.chatSession) && place.chatSession !== sessionIdRef.current;
+		if (openingChat && place.chatSession) {
+			await openSession(place.chatSession, { preserveRail: true });
+			if (seq !== navigationSeq.current) return;
+			if (sessionIdRef.current !== place.chatSession) {
+				navigation.abandon();
+				return;
+			}
+		} else if (place.rail !== "research" && !place.chatSession && sessionIdRef.current) {
+			sessionIdRef.current = undefined;
+			setSessionId(undefined);
+			setEntries([]);
+			setRetryStatus(null);
+			setSessionInfo(undefined);
+			setSessionBranched(false);
+			setSessionName(undefined);
+		}
+		if (seq !== navigationSeq.current) return;
+		if (place.researchSession && place.researchSession !== researchSessionIdRef.current) {
+			setResearchMounted(true);
+			setResearchSessionId(place.researchSession);
+			setResearchResumeRequest({ id: place.researchSession, revision: ++researchActionSequence.current });
+		} else if (place.rail === "research" && !place.researchSession && researchSessionIdRef.current) {
+			setResearchNewConversationRequest((current) => current + 1);
+		}
+		if (!openingChat && normPath(place.workspace) !== normPath(workspaceRef.current)) {
+			setWorkspaceDir(place.workspace);
+			localStorage.setItem(WORKSPACE_KEY, place.workspace);
+		}
+		setSettingsInitialTab(place.settingsTab);
+		if (place.settings) setSettingsMountKey((key) => key + 1);
+		setShowSettings(place.settings);
+		setRailView(place.rail);
+	};
+	const visitPlace = (place: AppPlace | undefined): void => {
+		if (!place) return;
+		const seq = ++navigationSeq.current;
+		void restorePlace(place, seq);
+	};
 	const shortcuts = {
 		newChat: (): void => {
 			setShowSettings(false);
@@ -1266,12 +1585,12 @@ export default function App(): React.JSX.Element {
 		toggleBottomPanel: (): void => {
 			setShowSettings(false);
 			if (railView !== "research") setRailView("chat");
-			togglePanelAt("bottom");
+			toggleTerminalPanel();
 		},
 		toggleRightPanel: (): void => {
 			setShowSettings(false);
 			if (railView !== "research") setRailView("chat");
-			togglePanelAt("right");
+			toggleSidebarPanel();
 		},
 		openTerminal: (): void => openInPanel("terminal"),
 		openBrowserTab: (): void => openInPanel("browser"),
@@ -1287,12 +1606,13 @@ export default function App(): React.JSX.Element {
 		},
 		prevSession: (): void => { void cycleSession(-1); },
 		nextSession: (): void => { void cycleSession(1); },
-		historyBack: (): void => history.back(),
-		historyForward: (): void => history.forward(),
+		historyBack: (): void => visitPlace(navigation.back()),
+		historyForward: (): void => visitPlace(navigation.forward()),
 		find: (): void => setFindOpen(true),
 		zoomIn: (): void => zoomStep(1),
 		zoomOut: (): void => zoomStep(-1),
 		zoomReset: (): void => setZoom(1),
+		openIsland: (): void => islandJumpRef.current?.(),
 		toggleFullscreen: (): void => {
 			const next = !fullscreenRef.current;
 			setFullscreen(next);
@@ -1301,6 +1621,28 @@ export default function App(): React.JSX.Element {
 	};
 	const shortcutsRef = useRef(shortcuts);
 	shortcutsRef.current = shortcuts;
+	titleForRef.current = (id: string) => {
+		if (id === sessionId) return sessionTitle;
+		if (id === researchSessionId && researchConversationTitle) return researchConversationTitle;
+		return listedTitles.get(id) ?? t("sidebar.sessionFallback", { id: id.slice(0, 8) });
+	};
+	const islandIds = activityOrder.filter((id) => runningSessions.has(id));
+	for (const id of runningSessions) if (!islandIds.includes(id)) islandIds.push(id);
+	const islandRunning = islandIds.map((id) => {
+		const needsPermission = permissions.some((request) => request.sessionId === id);
+		const asked = questions.find((request) => request.sessionId === id);
+		const needsQuestion = Boolean(asked);
+		return {
+			id,
+			title: titleForRef.current(id),
+			lastActivityAt: activityAtRef.current.get(id) ?? 0,
+			startedAt: startedAtRef.current.get(id) ?? activityAtRef.current.get(id) ?? 0,
+			step: stepRev >= 0 ? stepRef.current.get(id) ?? "" : "",
+			waiting: needsPermission || needsQuestion,
+			waitKind: needsPermission ? "permission" as const : needsQuestion ? "question" as const : "" as const,
+			whisper: islandWhisper(asked?.questions[0]?.header || asked?.questions[0]?.question || ""),
+		};
+	});
 
 	return (
 		<div className="owl-desktop-shell font-sans text-owl-text">
@@ -1312,8 +1654,8 @@ export default function App(): React.JSX.Element {
 				sidebarCollapsed={railView === "news" && !showSettings ? newsSidebarMinimized : sidebarMinimized || showSettings}
 				sidebarView={railView === "media" ? "chat" : railView}
 				sidebarToggleRef={sidebarToggleRef}
-				workbenchOpen={workbenchOpen}
-				workbenchDock={workbenchDock}
+				terminalOpen={terminalOpen}
+				sidebarOpen={sidebarOpen}
 				fullscreen={fullscreen}
 				onToggleSidebar={shortcuts.toggleSidebar}
 				onNewChat={shortcuts.newChat}
@@ -1331,8 +1673,11 @@ export default function App(): React.JSX.Element {
 				onToggleChatContext={shortcuts.toggleChatContext}
 				onPrevSession={shortcuts.prevSession}
 				onNextSession={shortcuts.nextSession}
+				onOpenIsland={shortcuts.openIsland}
 				onHistoryBack={shortcuts.historyBack}
 				onHistoryForward={shortcuts.historyForward}
+				canHistoryBack={navigation.canBack}
+				canHistoryForward={navigation.canForward}
 				onFind={shortcuts.find}
 				onZoomIn={shortcuts.zoomIn}
 				onZoomOut={shortcuts.zoomOut}
@@ -1350,6 +1695,39 @@ export default function App(): React.JSX.Element {
 					setResearchMounted(true);
 					setRailView("research");
 				}}
+				island={(
+					<DynamicIsland
+						running={islandRunning}
+						notice={doneNotice}
+						titleOf={(id) => titleForRef.current(id)}
+						jumpToFace={islandJumpRef}
+						permissionFor={(id) => {
+							const request = permissions.find((item) => item.sessionId === id);
+							return request ? { requestId: request.requestId } : undefined;
+						}}
+						choicesFor={(id) => {
+							const request = questions.find((item) => item.sessionId === id);
+							if (!request) return undefined;
+							const labels = islandQuestionChoices({
+								count: request.questions.length,
+								multi: request.questions[0]?.multiSelect ?? false,
+								labels: request.questions[0]?.options.map((option) => option.label) ?? [],
+							});
+							return labels.length > 0 ? { requestId: request.requestId, labels } : undefined;
+						}}
+						onPermission={(requestId, approved) => {
+							answerAndRestore(requestId, permissionsRef, setPermissions, () => client.respondPermission(requestId, approved));
+						}}
+						onChoose={(requestId, label) => {
+							answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, [{ index: 0, selectedLabels: [label] }], false));
+						}}
+						onReply={replyToSession}
+						onOpen={(id) => {
+							setShowSettings(false);
+							void openSession(id);
+						}}
+					/>
+				)}
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
@@ -1394,7 +1772,7 @@ export default function App(): React.JSX.Element {
 				onSelectProject={switchProject}
 				onOpenSession={(id) => void openSession(id)}
 			/>
-			<div className="owl-map-view" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+			<div className="owl-map-view" data-owl-island-anchor="" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MapWorkspace
 					active={railView === "map" && !showSettings}
 					sidebarCollapsed={sidebarMinimized}
@@ -1411,7 +1789,7 @@ export default function App(): React.JSX.Element {
 					}}
 				/>
 			</div>
-			<div style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+			<div data-owl-island-anchor="" style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={newsSidebarMinimized} initialTarget={newsTarget} onOpenModelSettings={() => {
 					setSettingsInitialTab("models");
 					setShowSettings(true);
@@ -1420,26 +1798,37 @@ export default function App(): React.JSX.Element {
 					setDraftRequest({ id: ++draftSequence.current, text });
 				}} />
 			</div>
-			{mailMounted && <div style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+			{mailMounted && <div data-owl-island-anchor="" style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} model={selectedModel()} thinkingLevel={thinkingLevel} />
 			</div>}
-			{evaluationMounted && <div style={{ display: railView === "evaluation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
+			{evaluationMounted && <div data-owl-island-anchor="" style={{ display: railView === "evaluation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<EvaluationPage client={client} active={railView === "evaluation" && !showSettings} sidebarCollapsed={sidebarMinimized} />
 			</div>}
 			{/* 媒体桥（owl-media-bridge 插件）：Rail 一等视图，纯新增入口。 */}
-			{mediaMounted && <div style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+			{mediaMounted && <div data-owl-island-anchor="" style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
-			<div className="owl-main-frame" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
+			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
 					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
-					workspaceDir={workspaceDir} connected={connected} everConnected={everConnected}
+					workspaceDir={workspaceDir}
 					view={railView === "research" ? researchConversationView : conversationView}
 					onViewChange={railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
-					workbenchOpen={workbenchOpen} workbenchDock={workbenchDock} onToggleDock={togglePanelAt}
+					terminalOpen={terminalOpen} sidebarOpen={sidebarOpen}
+					onToggleTerminal={toggleTerminalPanel} onToggleSidebar={toggleSidebarPanel}
+					sessionId={railView === "research" ? researchSessionId : sessionId}
+					exporting={exportingLog}
+					onExport={exportSessionLog}
 				/>
-				{/* 工作台常挂载：bottom 停靠时在聊天流之下，right 停靠时在右列（仅父容器换向） */}
-				<div className={"owl-shell-content" + (workbenchDock === "bottom" ? " is-bottom" : "") + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
+				{exportNotice && (
+					<p className={`px-5 py-1.5 text-xs ${exportNotice.tone === "error" ? "text-red-400" : "text-owl-faint"}`} role={exportNotice.tone === "error" ? "alert" : "status"}>
+						{exportNotice.text}
+					</p>
+				)}
+				{/* 双面板常挂载：owl-shell-content-main 是「对话 + 终端底栏」的纵列，
+				    工具侧栏是右列 —— 底栏与侧栏互不依赖，可同时展开。 */}
+				<div className={"owl-shell-content" + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
+					<div className="owl-shell-content-main">
 					<div className="owl-shell-conversation">
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
@@ -1451,7 +1840,7 @@ export default function App(): React.JSX.Element {
 								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
 								onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview}
-								workbenchOpen={workbenchOpen} onOpenResults={() => setWorkbenchOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
+								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
 						<div style={{ display: railView === "research" && !showSettings ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
@@ -1475,15 +1864,18 @@ export default function App(): React.JSX.Element {
 								answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
 							}}
 						>
-							<Composer
-								client={client}
-								sessionScope="chat"
-								connected={connected}
-								disabled={running || submitting || !connected}
-								running={running}
-								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
-								onSend={(text, images) => void sendPrompt(text, images)}
-								onAbort={() => void abort()}
+								<Composer
+									client={client}
+									sessionScope="chat"
+									connected={connected}
+									disabled={running || submitting || !connected}
+									running={running}
+									paused={Boolean(sessionId && pausedSessions.has(sessionId))}
+									hideEnvironment={connected && (Boolean(activeQuestion) || running)}
+									onSend={(text, images) => void sendPrompt(text, images)}
+									onAbort={() => void abort()}
+									onPause={pauseSession}
+									onResume={() => void resumePaused()}
 								providers={providers}
 								model={modelValue}
 								onModel={handleModelChange}
@@ -1501,20 +1893,35 @@ export default function App(): React.JSX.Element {
 						</QuestionDock>
 						</div>
 					</div>
+					{/* 终端底栏：挂在对话列之下（高度拖拽），与右侧栏互不相干 */}
+					<BrowserSessionContext.Provider value={railView === "research" ? researchSessionId : sessionId}>
+						<Workbench
+							client={client}
+							cwd={workspaceDir}
+							store={terminalStore}
+							open={terminalOpen}
+							onSetOpen={setTerminalOpenPersisted}
+							dock="bottom"
+							role="terminal"
+						/>
+					</BrowserSessionContext.Provider>
+					</div>
+					{/* 工具侧栏：右列（宽度拖拽），装除终端外的全部工作 tab */}
 					<BrowserSessionContext.Provider value={railView === "research" ? researchSessionId : sessionId}>
 						<Workbench
 							client={client}
 							cwd={workspaceDir}
 							store={workbenchStore}
-							open={workbenchOpen}
-							onSetOpen={setWorkbenchOpenPersisted}
-							dock={workbenchDock}
+							open={sidebarOpen}
+							onSetOpen={setSidebarOpenPersisted}
+							dock="right"
 							developerLayout={developerLayout}
 						/>
 					</BrowserSessionContext.Provider>
 				</div>
 			{showSettings && (
 				<SettingsPage
+					key={settingsMountKey}
 					client={client}
 					workspaceDir={workspaceDir}
 					initialTab={settingsInitialTab}

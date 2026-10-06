@@ -1122,6 +1122,11 @@ export interface Model<TApi extends Api> extends BaseModel<TApi> {
 	/** Prompt cache lifetimes per retention tier. Unset when the provider's cache behavior is unknown. */
 	promptCache?: ModelPromptCache;
 	contextWindow: number;
+	/**
+	 * False when `contextWindow` is a fallback because the catalog did not publish one.
+	 * Compaction then uses a tighter window so an unpublished smaller context cannot overflow first.
+	 */
+	contextWindowConfirmed?: boolean;
 	maxTokens: number;
 	/** Default sampling parameters for this model. See {@link StreamOptions.samplingParams}; per-request keys override these. */
 	samplingParams?: Record<string, unknown>;

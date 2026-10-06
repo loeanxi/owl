@@ -136,6 +136,71 @@ describe("explicit implementation acceptance", () => {
 		},
 	);
 
+	it("rejects a verified file the host did not write and cites the write it did see", async () => {
+		const harness = await createHarness({
+			initialActiveToolNames: ["task_check", "edit"],
+			settings: { retry: { enabled: false } },
+			extensionFactories: [
+				createTaskCheckExtension(),
+				(pi) => {
+					pi.registerTool({
+						name: "edit",
+						label: "Edit",
+						description: "Edit a file",
+						parameters: Type.Object({ path: Type.String() }),
+						execute: async (_id, params: { path: string }) => ({
+							content: [{ type: "text", text: `edited ${params.path}` }],
+							details: {},
+						}),
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("edit", { path: "src/foo.ts" }), { stopReason: "toolUse" }),
+			checklist("pending"),
+			fauxAssistantMessage("Ready."),
+			checklist("verified", "updated src/missing.ts and the boundary checks passed."),
+			fauxAssistantMessage("That file was not written."),
+		]);
+		await harness.session.prompt("Fix the boundary bug in the source file.");
+		expect(JSON.stringify(reminders(harness))).toContain("src/foo.ts");
+		expect(getToolResult(harness, "task_check").isError).toBe(true);
+		expect(getMessageText(getToolResult(harness, "task_check"))).toContain("src/missing.ts");
+	});
+
+	it("accepts verified evidence for a file this turn actually wrote", async () => {
+		const harness = await createHarness({
+			initialActiveToolNames: ["task_check", "edit"],
+			settings: { retry: { enabled: false } },
+			extensionFactories: [
+				createTaskCheckExtension(),
+				(pi) => {
+					pi.registerTool({
+						name: "edit",
+						label: "Edit",
+						description: "Edit a file",
+						parameters: Type.Object({ path: Type.String() }),
+						execute: async (_id, params: { path: string }) => ({
+							content: [{ type: "text", text: `edited ${params.path}` }],
+							details: {},
+						}),
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("edit", { path: "src/foo.ts" }), { stopReason: "toolUse" }),
+			checklist("verified", "updated src/foo.ts and the boundary checks passed."),
+			fauxAssistantMessage("The write is on disk."),
+		]);
+		await harness.session.prompt("Fix the boundary bug in the source file.");
+		expect(getToolResult(harness, "task_check").isError).toBe(false);
+		expect(reminders(harness)).toHaveLength(0);
+	});
+
 	it.each([false, true])("rejects a missing or failed proof call (failed=%s)", async (failed) => {
 		const harness = await setup(true);
 		harness.setResponses([

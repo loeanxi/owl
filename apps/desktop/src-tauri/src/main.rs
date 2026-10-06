@@ -52,6 +52,93 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// 在资源管理器里定位已导出的文件。用 shell 官方 API SHOpenFolderAndSelectItems
+/// （VSCode 同款）——本机实测 CreateProcess 拉起 explorer /select 会静默失败
+/// （进程退出 0 但窗口不出现）。失败兜底 ShellExecuteW 直接打开所在文件夹。
+#[tauri::command]
+fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = std::ffi::OsStr::new(&path).encode_wide().chain(Some(0)).collect();
+        #[link(name = "ole32")]
+        extern "system" {
+            fn CoInitializeEx(reserved: *const core::ffi::c_void, model: u32) -> i32;
+            fn CoUninitialize();
+        }
+        #[link(name = "shell32")]
+        extern "system" {
+            fn SHParseDisplayName(
+                name: *const u16,
+                ctx: *const core::ffi::c_void,
+                out: *mut *mut core::ffi::c_void,
+                attrs: u32,
+                attr_out: *mut u32,
+            ) -> i32;
+            fn SHOpenFolderAndSelectItems(
+                pidl: *const core::ffi::c_void,
+                cidl: u32,
+                children: *const *const core::ffi::c_void,
+                flags: u32,
+            ) -> i32;
+            fn ILFree(pidl: *mut core::ffi::c_void);
+            fn ShellExecuteW(
+                hwnd: isize,
+                op: *const u16,
+                file: *const u16,
+                params: *const u16,
+                dir: *const u16,
+                show: i32,
+            ) -> isize;
+        }
+        const COINIT_APARTMENTTHREADED: u32 = 0x2;
+        unsafe {
+            // shell 名字空间 API 要求调用线程初始化过 COM；invoke 处理线程不保证有
+            let com = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED);
+            let result = (|| {
+                let mut pidl: *mut core::ffi::c_void = std::ptr::null_mut();
+                let mut attrs: u32 = 0;
+                let parsed = SHParseDisplayName(wide.as_ptr(), std::ptr::null(), &mut pidl, 0, &mut attrs);
+                if parsed >= 0 && !pidl.is_null() {
+                    let opened = SHOpenFolderAndSelectItems(pidl, 0, std::ptr::null(), 0);
+                    ILFree(pidl);
+                    if opened >= 0 {
+                        return Ok(());
+                    }
+                }
+                // 兜底：ShellExecuteW 打开所在文件夹（与双击文件夹同语义）
+                let parent = std::path::Path::new(&path).parent().unwrap_or_else(|| std::path::Path::new(""));
+                let parent_wide: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
+                let open_wide: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+                let executed = ShellExecuteW(
+                    0,
+                    open_wide.as_ptr(),
+                    parent_wide.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    5,
+                );
+                if executed > 32 {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "SHOpenFolderAndSelectItems 失败且 ShellExecuteW 兜底也失败 (executed={executed})"
+                    ))
+                }
+            })();
+            if com == 0 || com == 1 {
+                CoUninitialize();
+            }
+            result
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Err("reveal_in_file_manager 仅支持 Windows".to_string())
+    }
+}
+
 fn is_source_repo_root(path: &Path) -> bool {
     path.join(".git").exists()
         && path.join("package.json").is_file()
@@ -117,17 +204,23 @@ fn spawn_debug_update_helper(repo: &Path, helper: &Path) -> Result<(), String> {
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动调试更新窗口：{error}"))?;
-    // The helper must still be waiting on this process after startup. An early exit means
-    // another updater owns the mutex or PowerShell rejected the script; keep Owl open.
-    for _ in 0..8 {
+    // PowerShell 冷启动一次失败的脚本实测大约 1.3s。健康的更新脚本会一直等当前进程退出，
+    // 所以观察窗口必须盖过冷启动；提前退出说明锁被占用或脚本被拒绝，这时不能关掉 Owl。
+    for _ in 0..40 {
         std::thread::sleep(Duration::from_millis(100));
         if let Some(status) = child
             .try_wait()
             .map_err(|error| format!("无法确认调试更新进程状态：{error}"))?
         {
+            let code = status.code().unwrap_or(-1);
+            if code == 2 {
+                return Err(
+                    "调试更新已经在运行。请先关闭上一次的构建窗口；如果窗口已经不在，结束残留的 PowerShell 后再试。"
+                        .to_owned(),
+                );
+            }
             return Err(format!(
-                "调试更新进程提前退出（退出码 {}），当前 Owl 将保持运行。",
-                status.code().unwrap_or(-1)
+                "调试更新进程提前退出（退出码 {code}），当前 Owl 将保持运行。"
             ));
         }
     }
@@ -463,6 +556,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toast::show_approval_toast,
             quit_app,
+            reveal_in_file_manager,
             gps::gps_location,
             debug_rebuild_and_restart
         ])

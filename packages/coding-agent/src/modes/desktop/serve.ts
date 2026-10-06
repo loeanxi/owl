@@ -16,7 +16,9 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -81,6 +83,7 @@ import {
 } from "../../core/research/agent.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
+import { buildSessionExportFilename, formatSessionMarkdown, sessionDisplayName } from "../../core/session-export.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
@@ -212,6 +215,16 @@ function readModelsFile(agentDir: string): ModelsFile {
 	} catch {
 		return {};
 	}
+}
+
+/** 导出落盘不覆盖同名文件：已存在时追加 " (2)"、" (3)" 序号。 */
+function uniqueExportPath(dir: string, filename: string): string {
+	const dot = filename.lastIndexOf(".");
+	const base = dot > 0 ? filename.slice(0, dot) : filename;
+	const ext = dot > 0 ? filename.slice(dot) : "";
+	let candidate = join(dir, filename);
+	for (let n = 2; existsSync(candidate); n += 1) candidate = join(dir, `${base} (${n})${ext}`);
+	return candidate;
 }
 
 function writeModelsFile(agentDir: string, models: ModelsFile): void {
@@ -1434,6 +1447,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+			case "session.continue": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				// 仍在运行/压缩中的会话没有可恢复的暂停态：幂等回 ok，由前端运行态自行收敛。
+				if (session.runtime.session.isStreaming || session.runtime.session.isCompacting) {
+					reply(ws, request.id, { ok: true });
+					return;
+				}
+				reply(ws, request.id, { ok: true });
+				try {
+					await session.runtime.session.resumeAfterPause(request.message);
+				} catch (error) {
+					onDiagnostic(error instanceof Error ? error.message : String(error));
+				}
+				return;
+			}
 			case "session.abort": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
@@ -1607,6 +1639,55 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				return;
+			}
+			// 导出会话日志：jsonl 原样回源文件全文（含全部分支）；markdown 只取当前分支排版成可读转录。
+			case "session.exportLog": {
+				const mounted = sessions.get(request.sessionId);
+				const mountedManager = mounted?.runtime.session.sessionManager;
+				try {
+					const sourcePath = mountedManager?.getSessionFile() ?? (await findSessionFile(request.sessionId));
+					if (!sourcePath || !existsSync(sourcePath)) {
+						reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+						return;
+					}
+					// 未挂载的会话只读不写：SessionManager.open 只解析文件，不产生追加
+					const sessionManager = mountedManager ?? SessionManager.open(sourcePath);
+					const branch = sessionManager.getBranch();
+					const header = sessionManager.getHeader();
+					const filename = buildSessionExportFilename({
+						sessionId: request.sessionId,
+						displayName: sessionDisplayName(branch),
+						startedAt: header?.timestamp,
+						ext: request.format === "jsonl" ? "jsonl" : "markdown",
+					});
+					const content =
+						request.format === "jsonl"
+							? await readFile(sourcePath, "utf8")
+							: formatSessionMarkdown(
+									header ?? { type: "session", id: request.sessionId, timestamp: "", cwd: "" },
+									branch,
+								);
+					// 直接落盘到下载目录（桌面端随后唤起资源管理器定位），不走 webview 的
+					// blob 下载——WebView2 会静默丢掉 <a download>，表现为点了没反应。
+					// OWL_EXPORT_DIR 仅供测试覆盖目标目录。
+					const exportDir = process.env.OWL_EXPORT_DIR ?? join(homedir(), "Downloads");
+					mkdirSync(exportDir, { recursive: true });
+					const savedPath = uniqueExportPath(exportDir, filename);
+					writeFileSync(savedPath, content, "utf8");
+					onDiagnostic(
+						`session export: ${request.sessionId} ${request.format} -> ${savedPath} (${content.length} bytes)`,
+					);
+					reply(ws, request.id, { ok: true, result: { filename, content, path: sourcePath, savedPath } });
+				} catch (error) {
+					onDiagnostic(
+						`session export failed (${request.sessionId}): ${error instanceof Error ? error.message : String(error)}`,
+					);
+					reply(ws, request.id, {
+						ok: false,
+						error: `导出会话日志失败: ${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
 				return;
 			}
 			// 「上下文洞察」由插件 owl-context 经 context-insight 注册表供数：
@@ -1961,10 +2042,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				const sourceManager = existing.runtime.session.sessionManager;
-				if (existing.runtime.session.isStreaming) {
-					reply(ws, request.id, { ok: false, error: "会话正在运行，等回答完成后再分支" });
+				// 压缩会整文件重写，读盘做副本会读到半截；流式输出只是往尾部追加，历史条目已经落盘。
+				if (existing.runtime.session.isCompacting) {
+					reply(ws, request.id, { ok: false, error: "会话正在压缩，等压缩完成后再分支" });
 					return;
 				}
+				// 运行中的会话留在后台继续：分支只复制到目标条目为止，不卸载、不中止原运行时。
+				const keepSourceRunning = existing.runtime.session.isStreaming;
 				const sourceFile = sourceManager.getSessionFile();
 				if (!sourceFile || !existsSync(sourceFile)) {
 					reply(ws, request.id, { ok: false, error: "会话还没有落盘，先发一条消息再分支" });
@@ -2030,7 +2114,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					}
 					rootTitle = rootTitle.slice(0, 80) || "原会话";
 					branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${rootTitle}」`);
-					await unmountSessionRuntime(request.sessionId);
+					if (!keepSourceRunning) await unmountSessionRuntime(request.sessionId);
 					await mountSession(ws, request.id, {
 						sessionManager: branched,
 						agentDir: defaultAgentDir(),
@@ -2852,7 +2936,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				try {
 					const parentHwnd =
 						request.parentHwnd && request.parentHwnd > 0 ? request.parentHwnd : await mirror.findOwlParentHwnd();
-					await mirror.embedWindow(request.windowId, parentHwnd, request.rect);
+					await mirror.embedWindow(request.windowId, parentHwnd, request.rect, {
+						swallowMinimize: request.swallowMinimize === true,
+					});
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -2861,7 +2947,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.layout": {
 				try {
-					await mirror.layoutWindow(request.windowId, request.rect, request.visible);
+					await mirror.layoutWindow(
+						request.windowId,
+						request.rect,
+						request.visible,
+						request.swallowMinimize === true,
+					);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });

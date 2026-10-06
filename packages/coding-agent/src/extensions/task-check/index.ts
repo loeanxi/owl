@@ -75,6 +75,50 @@ function restoreState(ctx: ExtensionContext): TaskState | null {
 	return null;
 }
 
+interface HostCommand {
+	command: string;
+	exitCode: number;
+}
+
+const FILE_PATH = /(?:^|[\s`'"])((?:[\w.@-]+[\\/])+[\w.@-]+\.[A-Za-z0-9]{1,8})/g;
+
+function mentionedPaths(text: string): string[] {
+	return [...text.matchAll(FILE_PATH)].map((match) => match[1]!.replaceAll("\\", "/"));
+}
+
+function samePath(written: string, mentioned: string): boolean {
+	const have = written.replaceAll("\\", "/").toLowerCase();
+	const wanted = mentioned.replaceAll("\\", "/").toLowerCase();
+	return have === wanted || have.endsWith(`/${wanted}`) || wanted.endsWith(`/${have}`);
+}
+
+function exitCodeOf(structured: unknown, isError: boolean): number {
+	if (typeof structured === "object" && structured !== null && "exit_code" in structured) {
+		const code = (structured as { exit_code?: unknown }).exit_code;
+		if (typeof code === "number" && Number.isFinite(code)) return code;
+	}
+	return isError ? 1 : 0;
+}
+
+/** What the host can prove from this turn's tool results, for the acceptance reminder. */
+export function formatHostObservations(writes: readonly string[], commands: readonly HostCommand[]): string {
+	const uniqueWrites = [...new Set(writes)];
+	const wrote = uniqueWrites.length > 0 ? `Wrote ${uniqueWrites.join(", ")}.` : "No successful edit or write.";
+	if (commands.length === 0) return `Host observations from this turn: ${wrote} No command exited 0.`;
+	const succeeded = commands.filter((command) => command.exitCode === 0);
+	const failed = commands.filter((command) => command.exitCode !== 0);
+	const parts = [
+		wrote,
+		succeeded.length > 0
+			? `Commands that exited 0: ${succeeded.map((command) => command.command).join("; ")}.`
+			: "No command exited 0.",
+		failed.length > 0
+			? `Commands that failed: ${failed.map((command) => `${command.command} (${command.exitCode})`).join("; ")}.`
+			: "",
+	].filter(Boolean);
+	return `Host observations from this turn: ${parts.join(" ")}`;
+}
+
 function stableValue(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(stableValue);
 	if (typeof value !== "object" || value === null) return value;
@@ -93,11 +137,15 @@ export function createTaskCheckExtension(): ExtensionFactory {
 		let reminded = false;
 		const successfulCalls = new Set<string>();
 		const failures = new Map<string, { result: string; count: number }>();
+		const writes: string[] = [];
+		const commands: HostCommand[] = [];
 		const reset = () => {
 			active = false;
 			reminded = false;
 			successfulCalls.clear();
 			failures.clear();
+			writes.length = 0;
+			commands.length = 0;
 		};
 		pi.on("before_agent_start", (_event, ctx) => {
 			reset();
@@ -159,6 +207,16 @@ export function createTaskCheckExtension(): ExtensionFactory {
 								"toolCallId must reference an existing successful tool result from this user turn and a verified criterion.",
 							);
 						}
+						if (item.status === "verified") {
+							const missing = mentionedPaths(`${item.criterion}\n${item.evidence ?? ""}`).filter(
+								(path) => !writes.some((written) => samePath(written, path)),
+							);
+							if (missing.length > 0) {
+								return fail(
+									`Host did not observe a successful edit or write for ${missing.join(", ")}. ${formatHostObservations(writes, commands)}`,
+								);
+							}
+						}
 					}
 					state = {
 						version: 1,
@@ -190,6 +248,19 @@ export function createTaskCheckExtension(): ExtensionFactory {
 			},
 		});
 		pi.on("tool_result", (event) => {
+			if ((event.toolName === "edit" || event.toolName === "write") && !event.isError) {
+				const path = event.input.path;
+				if (typeof path === "string" && path.trim()) writes.push(path.trim());
+			}
+			if (event.toolName === "bash" || event.toolName === "powershell") {
+				const command = event.input.command;
+				if (typeof command === "string" && command.trim()) {
+					commands.push({
+						command: command.trim().slice(0, 160),
+						exitCode: exitCodeOf(event.structuredContent, event.isError),
+					});
+				}
+			}
 			const call = createHash("sha256")
 				.update(JSON.stringify([event.toolName, stableValue(event.input)]))
 				.digest("hex");
@@ -238,7 +309,7 @@ export function createTaskCheckExtension(): ExtensionFactory {
 						type: "custom_message",
 						customType: "owl-task-check-reminder",
 						display: false,
-						content: `The implementation checklist you explicitly registered still has pending acceptance criteria for ${state.goal}:\n${pending.map((item) => `- ${item.criterion}`).join("\n")}\nContinue only the authorized work needed to check them. Record actual evidence with task_check; if blocked, record the reason and report the limitation. This is the only automatic reminder for this user request. Do not repeat checks that already have evidence, invent success, or expand permissions.`,
+						content: `The implementation checklist you explicitly registered still has pending acceptance criteria for ${state.goal}:\n${pending.map((item) => `- ${item.criterion}`).join("\n")}\n${formatHostObservations(writes, commands)}\nContinue only the authorized work needed to check them. Record actual evidence with task_check; a file named in verified evidence must have a successful edit or write this turn. If blocked, record the reason and report the limitation. This is the only automatic reminder for this user request. Do not repeat checks that already have evidence, invent success, or expand permissions.`,
 					},
 				],
 			};

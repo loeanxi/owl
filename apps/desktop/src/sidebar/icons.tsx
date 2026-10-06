@@ -48,6 +48,14 @@ export const IconFile = (p: IconProps): ReactNode =>
 			<path d="M14 2v4a2 2 0 0 0 2 2h4" />
 		</>
 	));
+export const IconDownload = (p: IconProps): ReactNode =>
+	base(p.size, p.className, (
+		<>
+			<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+			<path d="m7 10 5 5 5-5" />
+			<path d="M12 15V3" />
+		</>
+	));
 export const IconX = (p: IconProps): ReactNode =>
 	base(p.size, p.className, (
 		<>

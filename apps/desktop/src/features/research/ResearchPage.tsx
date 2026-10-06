@@ -40,7 +40,7 @@ export type ResearchPageProps = {
 	onOpenReview?: (path: string) => void;
 	onOpenResults?: () => void;
 	onOpenSettings?: () => void;
-	workbenchOpen?: boolean;
+	sidebarOpen?: boolean;
 	conversationView?: ConversationView;
 	onTitleChange?: (title: string) => void;
 };
@@ -130,7 +130,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 		else setLocalError(text("newWhileRunning"));
 	}, [controller, active, props.newConversationRequest]);
 	useEffect(() => { setSelectedResultId(undefined); setLocalError(undefined); setDraftRequest(undefined); setComposerKey((key) => key + 1); }, [controller]);
-	useEffect(() => { if (props.workbenchOpen) setSelectedResultId(undefined); }, [props.workbenchOpen]);
+	useEffect(() => { if (props.sidebarOpen) setSelectedResultId(undefined); }, [props.sidebarOpen]);
 	useEffect(() => { if (props.conversationView === "context") setSelectedResultId(undefined); }, [props.conversationView]);
 	useEffect(() => { if (active) setSessionFeed({ running: state.running, entries: state.entries }); }, [active, state.running, state.entries]);
 	useEffect(() => {

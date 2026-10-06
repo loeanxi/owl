@@ -22,11 +22,12 @@ function fixture(initial: SidebarTab[] = []) {
 	return { store, tabs, active: () => activeId };
 }
 
-test("opening and reopening the developer layout preserves drafts and reuses a terminal", () => {
+test("opening and reopening the developer layout preserves drafts and leaves terminals alone", () => {
 	const draft = { id: "editor:main.ts", kind: "editor", title: "main.ts", path: "main.ts" };
 	const { store, tabs, active } = fixture([draft, { id: "terminal:existing", kind: "terminal", title: "终端" }]);
 	assert.equal(openDeveloperWorkbench(store, () => true), true);
 	assert.equal(openDeveloperWorkbench(store, () => true), true);
+	// 终端归底栏专管：侧栏预设既不新建也不动已有终端 tab
 	assert.equal(tabs.length, 4);
 	assert.equal(tabs[0], draft);
 	assert.equal(tabs.filter((tab) => tab.kind === "terminal").length, 1);
@@ -36,7 +37,7 @@ test("opening and reopening the developer layout preserves drafts and reuses a t
 test("developer layout creates missing tools while respecting disabled panels", () => {
 	const { store, tabs, active } = fixture();
 	assert.equal(openDeveloperWorkbench(store, (kind) => kind !== "files"), true);
-	assert.deepEqual(tabs.map((tab) => tab.kind), ["changes", "terminal"]);
+	assert.deepEqual(tabs.map((tab) => tab.kind), ["changes"]);
 	assert.equal(active(), "changes");
 });
 

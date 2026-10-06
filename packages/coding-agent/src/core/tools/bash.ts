@@ -82,6 +82,23 @@ function grepNoMatchStatus(command: string): string | undefined {
 	return 'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
 }
 
+/**
+ * 探测型命令的非零退出是「答案」而不是故障，不标成错误：命令里出现 `2>/dev/null`
+ * 说明作者已预期可能不命中并主动压掉 stderr（如探测目录是否存在）；test/[、
+ * command -v、which、type 的退出码本身就是判断结果（1 = 未找到/条件为假）。
+ * 只认 1/2——127 起的命令缺失、137/139 的被杀崩溃仍是真失败。只按形态分类，
+ * 不改给模型看的状态文本；`|| true` 收尾的命令退出码本来就是 0，无需在此处理。
+ */
+function isProbeExit(command: string, exitCode: number): boolean {
+	if (exitCode !== 1 && exitCode !== 2) return false;
+	return command.split(/\n|&&|\|\||;|\||&/).some((segment) => {
+		const s = segment.trim();
+		if (!s) return false;
+		if (/2>\s*\/dev\/null/.test(s)) return true;
+		return exitCode === 1 && /^(?:command\s+-v|which|type|test|\[\[|\[)(?:\s|$)/.test(s);
+	});
+}
+
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
 	timeout: Type.Optional(
@@ -587,16 +604,18 @@ export function createShellToolDefinition(
 				if (exitCode !== 0) {
 					// 127 = shell 里找不到命令（stderr 可能已被命令自己的 2>/dev/null 吞掉）。
 					// 明说原因并给出替代路径，否则模型只看到空输出加退出码，会反复换姿势重试。
+					const grepStatus = exitCode === 1 ? grepNoMatchStatus(command) : undefined;
 					const status =
 						exitCode === 127
 							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
-							: ((exitCode === 1 ? grepNoMatchStatus(command) : undefined) ??
-								`Command exited with code ${exitCode}`);
+							: (grepStatus ?? `Command exited with code ${exitCode}`);
+					// 探测类非零退出（grep 无匹配、2>/dev/null 探测等）对模型仍附带状态行，
+					// 但不再标记为错误：它们是探测得到的答案，UI 不应计成失败。
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,
 						structuredContent,
-						isError: true,
+						isError: !(grepStatus !== undefined || isProbeExit(command, exitCode)),
 					};
 				}
 				return { content: [{ type: "text", text: outputText }], details, structuredContent };

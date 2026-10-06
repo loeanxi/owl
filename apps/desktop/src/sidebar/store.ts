@@ -196,8 +196,12 @@ export class SidebarStore {
 	private state: SidebarState;
 	private readonly key: string;
 
-	constructor(cwd: string) {
-		this.key = `owl.workbench.state.${projectKeyOf(cwd)}`;
+	/**
+	 * @param keyPrefix 持久化 key 前缀：工具侧栏用默认值；终端底栏传
+	 * "owl.terminal.state"，两套面板各存各的布局。
+	 */
+	constructor(cwd: string, keyPrefix = "owl.workbench.state") {
+		this.key = `${keyPrefix}.${projectKeyOf(cwd)}`;
 		this.state = this.load();
 	}
 

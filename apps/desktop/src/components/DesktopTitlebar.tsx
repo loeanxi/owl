@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
-import { IconPanelLeft } from "./icons.tsx";
+import { IconNavBack, IconNavForward, IconPanelLeft } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
@@ -25,8 +25,8 @@ interface DesktopTitlebarProps {
 	sidebarCollapsed: boolean;
 	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation" | "research";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
-	workbenchOpen: boolean;
-	workbenchDock: "right" | "bottom";
+	terminalOpen: boolean;
+	sidebarOpen: boolean;
 	fullscreen: boolean;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
@@ -43,8 +43,11 @@ interface DesktopTitlebarProps {
 	onToggleChatContext: () => void;
 	onPrevSession: () => void;
 	onNextSession: () => void;
+	onOpenIsland: () => void;
 	onHistoryBack: () => void;
 	onHistoryForward: () => void;
+	canHistoryBack: boolean;
+	canHistoryForward: boolean;
 	onFind: () => void;
 	onZoomIn: () => void;
 	onZoomOut: () => void;
@@ -55,6 +58,7 @@ interface DesktopTitlebarProps {
 	onOpenAbout: () => void;
 	onOpenEvaluation: () => void;
 	onOpenResearch: () => void;
+	island?: React.ReactNode;
 }
 
 /** 可编辑目标（含内层命中后的向上回溯）；CodeMirror 与内嵌浏览器自理键位，不归菜单管。 */
@@ -105,8 +109,8 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		};
 	}, [menu]);
 
-	const bottomOpen = props.workbenchOpen && props.workbenchDock === "bottom";
-	const rightOpen = props.workbenchOpen && props.workbenchDock === "right";
+	const bottomOpen = props.terminalOpen;
+	const rightOpen = props.sidebarOpen;
 	const editTarget = capturedEditableRef.current;
 	const selectionText = window.getSelection()?.toString() ?? "";
 
@@ -204,8 +208,9 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("view.find"), hint: "Ctrl+F", action: props.onFind },
 			{ label: t("view.prevSession"), hint: "Ctrl+Shift+[", disabled: !props.connected, action: props.onPrevSession },
 			{ label: t("view.nextSession"), hint: "Ctrl+Shift+]", disabled: !props.connected, action: props.onNextSession },
-			{ label: t("view.back"), hint: "Ctrl+[", action: props.onHistoryBack },
-			{ label: t("view.forward"), hint: "Ctrl+]", action: props.onHistoryForward },
+			{ label: t("view.openIsland"), hint: "Ctrl+.", action: props.onOpenIsland },
+			{ label: t("view.back"), hint: "Ctrl+[", disabled: !props.canHistoryBack, action: props.onHistoryBack },
+			{ label: t("view.forward"), hint: "Ctrl+]", disabled: !props.canHistoryForward, action: props.onHistoryForward },
 			"separator",
 			{ label: t("view.zoomIn"), hint: "Ctrl+Shift+=", action: props.onZoomIn },
 			{ label: t("view.zoomOut"), hint: "Ctrl+-", action: props.onZoomOut },
@@ -224,7 +229,8 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 
 	return (
 		<header className="owl-desktop-titlebar" ref={root} data-tauri-drag-region="deep">
-			<div className="owl-desktop-menu-row" data-tauri-drag-region="false">
+				{props.island}
+				<div className="owl-desktop-menu-row" data-tauri-drag-region="false">
 				<button
 					ref={props.sidebarToggleRef}
 					type="button"
@@ -237,6 +243,28 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 				>
 					<IconPanelLeft className="h-4 w-4" />
 				</button>
+				<div className="owl-desktop-history-nav">
+					<button
+						type="button"
+						className="owl-chrome-button"
+						aria-label={t("view.back")}
+						title={`${t("view.back")} (Ctrl+[)`}
+						disabled={!props.canHistoryBack}
+						onClick={props.onHistoryBack}
+					>
+						<IconNavBack className="h-4 w-4" />
+					</button>
+					<button
+						type="button"
+						className="owl-chrome-button"
+						aria-label={t("view.forward")}
+						title={`${t("view.forward")} (Ctrl+])`}
+						disabled={!props.canHistoryForward}
+						onClick={props.onHistoryForward}
+					>
+						<IconNavForward className="h-4 w-4" />
+					</button>
+				</div>
 				{([['file', 'titlebar.menuFile'], ['edit', 'titlebar.menuEdit'], ['view', 'titlebar.menuView'], ['help', 'titlebar.menuHelp']] as const).map(([key, labelKey]) => (
 					<div className="owl-desktop-menu" key={key}>
 						<button

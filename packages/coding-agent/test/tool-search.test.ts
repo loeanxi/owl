@@ -7,6 +7,7 @@ import {
 	createToolSearchDocument,
 	createToolSearchToolDefinition,
 	MAX_TOOL_SEARCH_LIMIT,
+	preloadToolsForUserText,
 	tokenize,
 } from "../src/extensions/tool-search/tool.ts";
 
@@ -66,17 +67,17 @@ describe("tool discovery intent validation", () => {
 			exposure: "direct",
 			sourceInfo: createSyntheticSourceInfo(tool.name, { source: "test" }),
 		}));
+		const api = {
+			getAllTools: () => tools,
+			getActiveTools: () => active,
+			setActiveTools: (names: string[]) => {
+				active = names;
+			},
+		};
 		return {
 			active: () => active,
-			search: createToolSearchToolDefinition({
-				tools: {
-					getAllTools: () => tools,
-					getActiveTools: () => active,
-					setActiveTools: (names) => {
-						active = names;
-					},
-				},
-			}),
+			api,
+			search: createToolSearchToolDefinition({ tools: api }),
 		};
 	}
 
@@ -89,6 +90,34 @@ describe("tool discovery intent validation", () => {
 			},
 		]);
 		await search.execute("probe", { query: "把背景变透明" }, undefined, undefined, undefined!);
+		expect(active()).toEqual([]);
+	});
+
+	it("preloads a matching tool from the user message and skips greetings", () => {
+		const { active, api } = discovery([
+			{ name: "media_status", description: "Read music playback status", parameters: Type.Object({}) },
+			{
+				name: "media_control",
+				description: "Control media playback",
+				parameters: Type.Object({ action: Type.Union([Type.Literal("play-pause"), Type.Literal("next")]) }),
+			},
+		]);
+		expect(preloadToolsForUserText(api, "你好")).toBeUndefined();
+		expect(active()).toEqual([]);
+		expect(preloadToolsForUserText(api, "把歌暂停一下")?.loaded).toEqual(["media_control"]);
+		expect(active()).toEqual(["media_control"]);
+		expect(preloadToolsForUserText(api, "把歌暂停一下")?.loaded).toEqual([]);
+	});
+
+	it("does not preload playback when the action word only occurs inside the capability word", () => {
+		const { active, api } = discovery([
+			{
+				name: "media_control",
+				description: "Control media playback",
+				parameters: Type.Object({ action: Type.Union([Type.Literal("play-pause"), Type.Literal("next")]) }),
+			},
+		]);
+		expect(preloadToolsForUserText(api, "从播放器删除收藏歌曲")?.loaded ?? []).toEqual([]);
 		expect(active()).toEqual([]);
 	});
 

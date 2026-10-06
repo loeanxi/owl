@@ -152,8 +152,45 @@ function conceptFor(value: string, concepts: readonly Concept[]): Concept | unde
 	);
 }
 
-/** Recognizes a small vocabulary. Unknown requests stay unknown for the model to decompose explicitly. */
-export function deriveIntentSteps(query: string): ToolIntentStep[] {
+interface Span {
+	start: number;
+	end: number;
+}
+
+function matchSpans(text: string, pattern: RegExp): Span[] {
+	const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+	const expression = new RegExp(pattern.source, flags);
+	const spans: Span[] = [];
+	for (const match of text.matchAll(expression)) {
+		if (match.index === undefined || match[0].length === 0) continue;
+		spans.push({ start: match.index, end: match.index + match[0].length });
+	}
+	return spans;
+}
+
+function overlaps(left: Span, right: Span): boolean {
+	return left.start < right.end && right.start < left.end;
+}
+
+/** First listed capability and every span it occupies, so an action can be required to fall outside those words. */
+function capabilityHit(text: string): { key: string; spans: Span[] } | undefined {
+	for (const concept of CAPABILITIES) {
+		const spans = matchSpans(text, concept.pattern);
+		if (spans.length > 0) return { key: concept.key, spans };
+	}
+	return undefined;
+}
+
+/** First listed action with at least one match that does not sit inside a capability word. */
+function actionOutside(text: string, blocked: readonly Span[]): string | undefined {
+	for (const concept of ACTIONS) {
+		const spans = matchSpans(text, concept.pattern);
+		if (spans.some((span) => blocked.every((block) => !overlaps(span, block)))) return concept.key;
+	}
+	return undefined;
+}
+
+function deriveSteps(query: string, actionOf: (normalized: string) => string): ToolIntentStep[] {
 	const clauses = query
 		.trim()
 		.split(
@@ -164,7 +201,7 @@ export function deriveIntentSteps(query: string): ToolIntentStep[] {
 	for (const clause of clauses) {
 		const normalized = normalize(clause);
 		const capability = conceptFor(normalized, CAPABILITIES)?.key ?? "unknown";
-		let action = conceptFor(normalized, ACTIONS)?.key ?? "unknown";
+		let action = actionOf(normalized);
 		if (capability === "spreadsheet" && /整理|制作|製作/.test(normalized)) action = "create";
 		if (capability === "news" && action === "unknown") action = "search";
 		if (capability === "map" && action === "unknown" && /找|查|搜|附近|\bnearby\b/i.test(normalized))
@@ -194,6 +231,22 @@ export function deriveIntentSteps(query: string): ToolIntentStep[] {
 		}
 	}
 	return steps.length > 0 ? steps : [{ capability: "unknown", action: "unknown", query }];
+}
+
+/** Recognizes a small vocabulary. Unknown requests stay unknown for the model to decompose explicitly. */
+export function deriveIntentSteps(query: string): ToolIntentStep[] {
+	return deriveSteps(query, (normalized) => conceptFor(normalized, ACTIONS)?.key ?? "unknown");
+}
+
+/**
+ * Preload vocabulary. An action that only matches inside a capability word (播放 inside 播放器)
+ * does not count; the model can still recover it through tool_search.
+ */
+export function derivePreloadSteps(query: string): ToolIntentStep[] {
+	return deriveSteps(
+		query,
+		(normalized) => actionOutside(normalized, capabilityHit(normalized)?.spans ?? []) ?? "unknown",
+	);
 }
 
 export function intentSearchQuery(step: ToolIntentStep): string {

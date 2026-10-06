@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { AgentSession } from "../src/core/agent-session.ts";
 import { getDefaultSessionDirPath } from "../src/core/session-manager.ts";
 import type { DesktopClientRequestWithoutId, ServerResponseMessage } from "../src/modes/desktop/protocol.ts";
 import { startDesktopServer } from "../src/modes/desktop/serve.ts";
@@ -63,7 +64,7 @@ it("session.fork branches at the target entry into a new mounted session and lea
 			},
 		},
 	];
-	await writeFile(sourceFile, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+	await writeFile(sourceFile, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
 
 	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
 	const sockets: WebSocket[] = [];
@@ -186,6 +187,112 @@ it("session.fork branches at the target entry into a new mounted session and lea
 		expect(resumedAgain.result?.messages).toHaveLength(2);
 		expect(resumedAgain.result?.name).toBeUndefined();
 	} finally {
+		for (const socket of sockets.splice(0)) socket.close();
+		await bridge.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/** 运行中的会话：历史条目仍可分支，且不能卸载/中止正在跑的原会话。 */
+it("session.fork while streaming keeps the source runtime and branches the historical entry", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "owl-session-fork-live-"));
+	const absolute = resolve(directory);
+	if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-session-fork-live-"))
+		throw new Error("Unsafe bridge cleanup target");
+	const agentDir = join(directory, "profile");
+	const cwd = join(directory, "workspace");
+	await mkdir(agentDir);
+	await mkdir(cwd);
+	vi.stubEnv("OWL_CODING_AGENT_DIR", agentDir);
+
+	const iso = new Date().toISOString();
+	const sessionDir = getDefaultSessionDirPath(cwd, agentDir);
+	await mkdir(sessionDir, { recursive: true });
+	const sourceFile = join(sessionDir, "2026-01-01-00-00-00_session-fork-live.jsonl");
+	const lines = [
+		{ type: "session", version: 3, id: "session-fork-live", timestamp: iso, cwd },
+		{
+			type: "message",
+			id: "e-user-1",
+			parentId: null,
+			timestamp: iso,
+			message: { role: "user", content: "先说完这句", timestamp: 1 },
+		},
+		{
+			type: "message",
+			id: "e-asst-1",
+			parentId: "e-user-1",
+			timestamp: iso,
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "历史回答" }],
+				api: "openai-completions",
+				provider: "fake",
+				model: "isolated",
+				usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "turnEnd",
+				timestamp: 2,
+			},
+		},
+	];
+	await writeFile(sourceFile, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
+	const sockets: WebSocket[] = [];
+	const streaming = vi.spyOn(AgentSession.prototype, "isStreaming", "get").mockReturnValue(true);
+	const abort = vi.spyOn(AgentSession.prototype, "abort");
+	try {
+		const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/ws`, {
+			headers: { Origin: `http://127.0.0.1:${bridge.port}` },
+		});
+		sockets.push(socket);
+		await new Promise<void>((done, reject) => {
+			socket.once("open", done);
+			socket.once("error", reject);
+		});
+		function request<T>(payload: DesktopClientRequestWithoutId): Promise<ServerResponseMessage & { result?: T }> {
+			const id = randomUUID();
+			return new Promise((done, reject) => {
+				const timer = setTimeout(() => {
+					socket.off("message", receive);
+					reject(new Error("Fake bridge request timed out"));
+				}, 8000);
+				const receive = (data: unknown) => {
+					const response = JSON.parse(String(data)) as ServerResponseMessage & { result?: T };
+					if (response.type !== "response" || response.id !== id) return;
+					clearTimeout(timer);
+					socket.off("message", receive);
+					done(response);
+				};
+				socket.on("message", receive);
+				socket.send(JSON.stringify({ ...payload, id }));
+			});
+		}
+
+		const resumed = await request<Snapshot>({ type: "session.resume", sessionId: "session-fork-live" });
+		expect(resumed.ok).toBe(true);
+
+		const forked = await request<Snapshot>({
+			type: "session.fork",
+			sessionId: "session-fork-live",
+			entryId: "e-asst-1",
+		});
+		expect(forked.ok).toBe(true);
+		expect(forked.result?.sessionId).not.toBe("session-fork-live");
+		expect(forked.result?.messages).toHaveLength(2);
+		expect(abort).not.toHaveBeenCalled();
+
+		const running = await request<{ running: string[] }>({ type: "session.running" });
+		expect(running.ok).toBe(true);
+		expect(running.result?.running).toContain("session-fork-live");
+
+		const sourceLines = (await readFile(sourceFile, "utf8")).trim().split("\n");
+		expect(sourceLines.slice(0, lines.length).map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual(
+			lines,
+		);
+	} finally {
+		streaming.mockRestore();
+		abort.mockRestore();
 		for (const socket of sockets.splice(0)) socket.close();
 		await bridge.close();
 		await rm(directory, { recursive: true, force: true });

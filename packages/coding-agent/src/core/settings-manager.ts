@@ -243,6 +243,11 @@ export interface Settings {
 	owlSkillExtras?: string[];
 	/** Owl 跨会话记忆：自动抽取历史会话中的稳定事实并注入系统提示词。条目在设置页与 /memory 可见可删。 */
 	owlMemory?: OwlMemorySettings;
+	/**
+	 * Owl 后台模型：压缩摘要和跨会话记忆抽取使用它，对话仍用当前会话模型。
+	 * 未配置或目录里找不到时，这两件事继续用会话模型。
+	 */
+	owlHarnessModel?: OwlHarnessModelSettings;
 	/** Owl 会话回退：写前备份工作区文件、消息气泡 ↶ 一键回退（owl-rewind 内置扩展）。 */
 	owlRewind?: OwlRewindSettings;
 	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
@@ -260,6 +265,12 @@ export interface OwlSkillGroup {
 export interface OwlMemorySettings {
 	/** 是否启用跨会话记忆（自动抽取 + 注入）。默认 true。 */
 	enabled?: boolean;
+}
+
+/** 压缩摘要与记忆抽取使用的模型。provider + modelId 必须能在当前模型目录里解析到。 */
+export interface OwlHarnessModelSettings {
+	provider: string;
+	modelId: string;
 }
 
 export interface OwlRewindSettings {
@@ -1605,6 +1616,15 @@ export class SettingsManager {
 	// =========================================================================
 	// owl 跨会话记忆
 	// =========================================================================
+
+	/** 压缩和记忆抽取用的模型。字段不完整时视为未配置。 */
+	getOwlHarnessModel(): OwlHarnessModelSettings | undefined {
+		const configured = this.settings.owlHarnessModel;
+		const provider = configured?.provider?.trim();
+		const modelId = configured?.modelId?.trim();
+		if (!provider || !modelId) return undefined;
+		return { provider, modelId };
+	}
 
 	/** 跨会话记忆是否启用。默认 true；`owlMemory.enabled: false` 关闭抽取与注入。 */
 	getOwlMemoryEnabled(): boolean {

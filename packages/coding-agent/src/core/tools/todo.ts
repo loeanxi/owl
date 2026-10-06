@@ -36,7 +36,9 @@ export const todoToolSystemPromptContribution = {
 	guidelines: [
 		"todo 工具是全量替换语义：每次调用传入完整清单，不是增量修改",
 		"任务开始前列出全部步骤；每完成一步立即把该任务标为 completed、下一任务标为 in_progress 后再继续工作",
-		"同一时刻最多一个任务处于 in_progress；全部完成后清点一遍再收尾汇报",
+		"同一时刻最多一个任务处于 in_progress",
+		"汇报、告知用户这类收尾任务的完成动作就是最终答复文本本身，文本之后没有机会再更新清单",
+		"写最终汇报前先做最后一次 todo 调用，把全部已完成事项（含收尾任务）标为 completed，再输出汇报",
 	],
 } as const;
 

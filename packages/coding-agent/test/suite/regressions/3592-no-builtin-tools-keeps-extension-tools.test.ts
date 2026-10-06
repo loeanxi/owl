@@ -73,12 +73,29 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 	it("keeps extension tools active when built-in defaults are disabled", async () => {
 		const session = await createSession({ noTools: "builtin" });
 
+		// todo + process were added to the default built-in toolset after this regression was
+		// written: process lives in settings-manager.DEFAULT_TOOL_NAMES and todo in
+		// agent-session.ts's hard-coded `defaultActiveToolNames` (and both are registered in
+		// createAllToolDefinitions). `noTools: "builtin"` only clears active names, not the
+		// registered base tool definitions, so they still show up via getAllTools().
 		expect(
 			session
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "dynamic_tool", "edit", "find", "grep", "ls", "powershell", "read", "write"]);
+		).toEqual([
+			"bash",
+			"dynamic_tool",
+			"edit",
+			"find",
+			"grep",
+			"ls",
+			"powershell",
+			"process",
+			"read",
+			"todo",
+			"write",
+		]);
 		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
 		expect(session.systemPrompt).not.toContain("- read:");

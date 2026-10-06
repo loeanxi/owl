@@ -17,25 +17,44 @@ try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false) } catch {
 $logPath = Join-Path $env:TEMP 'owl-debug-update.log'
 try { Start-Transcript -Path $logPath -Append | Out-Null } catch { }
 
-function Stop-Note([string]$Message, [int]$ExitCode) {
+$script:UpdateMutex = $null
+
+function Release-UpdateMutex {
+	if ($null -eq $script:UpdateMutex) { return }
+	try { [void]$script:UpdateMutex.ReleaseMutex() } catch { }
+	try { $script:UpdateMutex.Dispose() } catch { }
+	$script:UpdateMutex = $null
+}
+
+function Stop-Note([string]$Message, [int]$ExitCode, [switch]$KeepOpen) {
 	Write-Host $Message -ForegroundColor Red
+	# 先放锁再停下来给人看报错。锁占到按 Enter 为止时，下一次点击会被当成「已在更新」拒绝。
+	Release-UpdateMutex
 	try { Stop-Transcript | Out-Null } catch { }
-	if ($Host.Name -eq 'ConsoleHost') {
+	# 退出码 2 是锁冲突。桌面壳会观察启动后约 4 秒：这里若等 Enter，壳会以为更新已经启动并把 Owl 关掉。
+	if ($KeepOpen -and $ExitCode -ne 2 -and $Host.Name -eq 'ConsoleHost') {
 		[void](Read-Host 'Press Enter to close this window')
 	}
 	exit $ExitCode
 }
 
 $createdNew = $false
-$mutex = $null
 try {
-	$mutex = New-Object Threading.Mutex($true, 'Local\OwlDebugUpdate', [ref]$createdNew)
+	$script:UpdateMutex = New-Object Threading.Mutex($false, 'Local\OwlDebugUpdate', [ref]$createdNew)
+	$owned = $false
+	try {
+		$owned = $script:UpdateMutex.WaitOne(0)
+	} catch [System.Threading.AbandonedMutexException] {
+		# 上次更新进程被强杀后锁被标成遗弃；WaitOne 已经把所有权交给当前线程。
+		$owned = $true
+	}
+	if (-not $owned) {
+		try { $script:UpdateMutex.Dispose() } catch { }
+		$script:UpdateMutex = $null
+		Stop-Note 'An Owl debug update is already running (mutex Local\OwlDebugUpdate held). Close that build window, or end the leftover powershell if no window is open, then retry. This exit was logged to owl-debug-update.log.' 2
+	}
 } catch {
 	Stop-Note ("Cannot create update mutex: " + $_.Exception.Message) 3
-}
-if (-not $createdNew) {
-	$mutex.Dispose()
-	Stop-Note 'An Owl debug update is already running (mutex Local\OwlDebugUpdate held). If no update window is open, delete the stale holder or reboot; this exit was logged to owl-debug-update.log.' 2
 }
 
 try {
@@ -56,19 +75,14 @@ try {
 	$exitCode = $LASTEXITCODE
 	if ($null -eq $exitCode) { $exitCode = 0 }
 	if ($exitCode -ne 0) {
-		Write-Host "`nDebug update failed with exit code $exitCode. The full build error is shown above and in %TEMP%\owl-start-logs\." -ForegroundColor Red
-		[void](Read-Host 'Press Enter to close this window')
-		exit $exitCode
+		Stop-Note "Debug update failed with exit code $exitCode. The full build error is shown above and in %TEMP%\owl-start-logs\." $exitCode -KeepOpen
 	}
 
 	Write-Host "`nDebug update completed. Owl has been restarted." -ForegroundColor Green
 	Start-Sleep -Seconds 1
 } catch {
-	Write-Host ("`nDebug update failed: " + $_.Exception.Message) -ForegroundColor Red
-	[void](Read-Host 'Press Enter to close this window')
-	exit 1
+	Stop-Note ("Debug update failed: " + $_.Exception.Message) 1 -KeepOpen
 } finally {
-	try { $mutex.ReleaseMutex() } catch { }
-	$mutex.Dispose()
+	Release-UpdateMutex
 	try { Stop-Transcript | Out-Null } catch { }
 }

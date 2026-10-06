@@ -309,6 +309,13 @@ export class BridgeClient {
 					reject(new Error('分支请求超时：桥可能是旧版本，请重启应用后重试'));
 				}, 15_000);
 			}
+			// 导出同理：旧桥不认识 session.exportLog 也不回包，不设超时菜单点了就没任何反馈
+			if (request.type === "session.exportLog") {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					reject(new Error('导出请求超时：桥可能是旧版本，请重启应用后重试'));
+				}, 30_000);
+			}
 			if (request.type === "evaluation.request") {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);

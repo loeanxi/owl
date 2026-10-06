@@ -186,8 +186,9 @@ html[data-owl-theme="light"] {
 }
 
 .owl-chat-header {
-	height: 52px;
-	border-bottom: 1px solid var(--color-owl-sidebar-border);
+	height: 40px;
+	border-bottom: 0;
+	background: transparent;
 }
 
 .owl-sidebar {
@@ -459,17 +460,26 @@ html[data-owl-theme="light"] {
 }
 
 .owl-sidebar-project-sessions {
-	margin: 2px 0 4px 18px;
+	margin: 1px 0 2px;
+}
+
+.owl-sidebar-session-row {
+	height: 22px;
+	border-radius: 4px;
+}
+
+.owl-sidebar-session-row .owl-sidebar-row-main {
+	gap: 6px;
 }
 
 .owl-sidebar-session-icon {
 	display: inline-flex;
-	width: 14px;
-	height: 14px;
-	flex: 0 0 14px;
+	width: 12px;
+	height: 12px;
+	flex: 0 0 12px;
 	align-items: center;
 	justify-content: center;
-	color: var(--color-owl-sidebar-muted);
+	color: color-mix(in srgb, var(--color-owl-sidebar-text) 68%, transparent);
 }
 
 .owl-sidebar-session-icon.is-running {
@@ -536,7 +546,8 @@ html[data-owl-theme="light"] {
 	--owl-reading-muted: #999;
 	--owl-reading-border: #343434;
 	--owl-reading-panel: #202020;
-	--owl-reading-code: #ddbdad;
+	/* inline code 与项目强调色同色：跟随 --color-owl-accent 自动随主题档/自定义 accent 切换 */
+	--owl-reading-code: var(--color-owl-accent);
 	--owl-reading-link: #8bc4ed;
 	position: relative;
 	flex: 1;
@@ -552,7 +563,6 @@ html[data-owl-theme="light"] .owl-chat-surface {
 	--owl-reading-muted: #767166;
 	--owl-reading-border: #dedacf;
 	--owl-reading-panel: #f1efe9;
-	--owl-reading-code: #8c4f3a;
 	--owl-reading-link: #286b98;
 	background: var(--owl-conversation-bg);
 }
@@ -654,6 +664,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-detail img { margin: 8px 0; }
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }
 .owl-chat-error { color: #e78080; font-size: 13px; line-height: 1.7; }
+.owl-chat-paused { color: var(--owl-reading-muted); font-size: 12px; line-height: 1.7; }
 .owl-response-activity { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 18px 0 8px; color: var(--owl-reading-muted); font-size: 12px; }
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }
 .owl-response-activity[data-state="working"] .owl-response-mark { animation: owl-response-breathe 2s ease-in-out infinite; }

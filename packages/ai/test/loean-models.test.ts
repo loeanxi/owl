@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 import {
 	DEFAULT_LOEAN_BASE_URL,
+	loeanCompatFromCatalog,
 	loeanModelsFromCatalog,
 	loeanProvider,
 	normalizeLoeanBaseUrl,
@@ -79,19 +80,53 @@ describe("loean catalog mapping", () => {
 			type: "chat",
 		});
 		expect(qf.thinkingLevelMap?.high).toBe("xhigh");
-		// 最朴素的 OpenAI 请求：网关按 max_tokens 收顶，不发 store/developer 扩展
+		expect(qf.contextWindowConfirmed).toBe(true);
+		// 未公布方言时仍是最朴素的 OpenAI 请求：网关按 max_tokens 收顶，不发 store/developer 扩展
 		expect(qf.compat).toMatchObject({
 			maxTokensField: "max_tokens",
 			supportsStore: false,
 			supportsDeveloperRole: false,
+			supportsReasoningEffort: true,
 		});
+		expect(qf.compat?.thinkingFormat).toBeUndefined();
 
 		// 未公布思考档位的模型按非推理处理，pi 不会发 reasoning_effort
 		const step = models[1]!;
 		expect(step.reasoning).toBe(false);
 		expect(step.thinkingLevelMap).toBeUndefined();
 		expect(step.contextWindow).toBe(200_000);
+		expect(step.contextWindowConfirmed).toBe(true);
 		expect(step.maxTokens).toBe(32_768);
+		expect(step.compat?.supportsReasoningEffort).toBeUndefined();
+	});
+
+	it("keeps an unpublished context window marked unconfirmed and applies a published dialect", () => {
+		const models = loeanModelsFromCatalog("loean", DEFAULT_LOEAN_BASE_URL, {
+			data: [
+				{
+					id: "deepseek-v4",
+					reasoning_efforts: ["high", "low"],
+					compat: {
+						thinking_format: "deepseek",
+						requires_reasoning_content: true,
+						max_tokens_field: "max_tokens",
+					},
+				},
+				{ id: "hy3-window" },
+			],
+		});
+		const deepseek = models.find((model) => model.id === "deepseek-v4")!;
+		expect(deepseek.contextWindowConfirmed).toBe(false);
+		expect(deepseek.compat).toMatchObject({
+			thinkingFormat: "deepseek",
+			requiresReasoningContentOnAssistantMessages: true,
+			maxTokensField: "max_tokens",
+			supportsStore: false,
+			supportsDeveloperRole: false,
+			supportsReasoningEffort: true,
+		});
+		expect(models.find((model) => model.id === "hy3-window")?.contextWindowConfirmed).toBe(false);
+		expect(loeanCompatFromCatalog({ thinkingFormat: "not-a-format" }, false).thinkingFormat).toBeUndefined();
 	});
 
 	it("accepts a bare array payload and drops rows without ids", () => {

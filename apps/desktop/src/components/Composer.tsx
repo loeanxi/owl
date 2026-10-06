@@ -141,12 +141,12 @@ function Chevron(): React.JSX.Element {
  * 运行位置 / 项目 / 添加项目。
  */
 const envChipClass =
-	"flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-owl-hover/40 px-2.5 text-xs text-owl-muted " +
+	"flex h-6 items-center gap-1 whitespace-nowrap rounded-md bg-owl-hover/40 px-2 text-[11px] text-owl-muted " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40";
 
 /** 环境行的纯图标 chip（添加项目）。 */
 const envIconButtonClass =
-	"flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-owl-hover/40 text-owl-muted " +
+	"flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-owl-hover/40 text-owl-muted " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text";
 
 /**
@@ -154,7 +154,7 @@ const envIconButtonClass =
  * 审批模式 / 思考强度 / 模型 / 上下文。
  */
 const ghostPillClass =
-	"flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs text-owl-faint " +
+	"flex h-6 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-[11px] text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
@@ -219,10 +219,13 @@ export function Composer({
 	connected,
 	disabled,
 	running,
+	paused = false,
 	hideEnvironment = false,
 	environmentAccessory,
 	onSend,
 	onAbort,
+	onPause,
+	onResume,
 	providers,
 	model,
 	onModel,
@@ -243,12 +246,18 @@ export function Composer({
 	connected: boolean;
 	disabled: boolean;
 	running: boolean;
+	/** 当前会话处于「已暂停」态：按钮显示继续，点击可从中断处接着跑。 */
+	paused?: boolean;
 	/** Hide secondary environment controls while the active conversation needs attention. */
 	hideEnvironment?: boolean;
 	/** Optional mode control that shares the existing environment row's alignment. */
 	environmentAccessory?: ReactNode;
 	onSend: (text: string, images?: ComposerImage[]) => void;
 	onAbort: () => void;
+	/** 提供时运行中按钮显示「暂停」而不是直接中止。 */
+	onPause?: () => void;
+	/** 已暂停时点击按钮的恢复动作。 */
+	onResume?: () => void;
 	providers: ProviderModelsMessage[];
 	model: string;
 	onModel: (value: string) => void;
@@ -496,10 +505,10 @@ export function Composer({
 	);
 
 	return (
-		<div className="owl-composer-surface px-4 pt-2 pb-4">
+		<div className="owl-composer-surface px-3 pt-1 pb-2">
 			<div className="mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
-				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1.5 px-1 pb-2">
+				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1 px-0.5 pb-1">
 					<Menu
 						triggerClassName={envChipClass}
 						triggerTitle={connected ? t("composer.runLocationLocalConnected") : t("composer.runLocationLocalDisconnected")}
@@ -604,7 +613,7 @@ export function Composer({
 				</div>}
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div
-					className={"relative rounded-2xl border border-owl-border bg-owl-panel shadow-lg shadow-black/25 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
+					className={"relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
 					onDragOver={(event) => {
 						if (!event.dataTransfer.types.includes("Files")) return;
@@ -679,10 +688,10 @@ export function Composer({
 							))}
 						</div>
 					)}
-					{pasteHint && <p className="px-3 pt-1.5 text-[11px] text-amber-400">{pasteHint}</p>}					<div className="flex items-end gap-2 px-2 py-2">
+					{pasteHint && <p className="px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}					<div className="flex items-end gap-1.5 px-1.5 py-1">
 						<textarea
 							ref={textareaRef}
-							className="max-h-48 min-h-[32px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm text-owl-text outline-none placeholder:text-owl-faint"
+							className="max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-[13px] leading-5 text-owl-text outline-none placeholder:text-owl-faint"
 							aria-label={t("composer.inputAria")}
 							placeholder={t("composer.inputPlaceholder")}
 							value={value}
@@ -726,15 +735,43 @@ export function Composer({
 							}}
 						/>
 						{running ? (
+							onPause ? (
+								<button
+									type="button"
+									aria-label={t("composer.pause")}
+									title={t("composer.pause")}
+									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
+									onClick={onPause}
+								>
+									<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
+										<rect x="2.4" y="1.8" width="2.8" height="8.4" rx="1" />
+										<rect x="6.8" y="1.8" width="2.8" height="8.4" rx="1" />
+									</svg>
+								</button>
+							) : (
+								<button
+									type="button"
+									aria-label={t("composer.abort")}
+									title={t("composer.abort")}
+									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
+									onClick={onAbort}
+								>
+									<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
+										<rect x="2" y="2" width="8" height="8" rx="1" />
+									</svg>
+								</button>
+							)
+						) : paused && onResume ? (
 							<button
 								type="button"
-								aria-label={t("composer.abort")}
-								title={t("composer.abort")}
-								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
-								onClick={onAbort}
+								aria-label={t("composer.resume")}
+								title={t("composer.resume")}
+								className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+								disabled={disabled}
+								onClick={onResume}
 							>
 								<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-									<rect x="2" y="2" width="8" height="8" rx="1" />
+									<path d="M4 2.7v6.6c0 .4.45.65.79.42l5.1-3.3a.5.5 0 0 0 0-.84L4.79 2.28A.5.5 0 0 0 4 2.7Z" />
 								</svg>
 							</button>
 						) : (
@@ -742,7 +779,7 @@ export function Composer({
 								type="button"
 								aria-label={t("composer.send")}
 								title={t("composer.send")}
-								className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+								className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 								disabled={disabled}
 								onClick={submit}
 							>
@@ -754,7 +791,7 @@ export function Composer({
 					</div>
 				</div>
 				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
-				<div className="flex flex-wrap items-center gap-1 px-1 pt-2">
+				<div className="flex flex-wrap items-center gap-0.5 px-0.5 pt-1">
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={activeMode ? t(activeMode.titleKey) : undefined}

@@ -1,7 +1,7 @@
 import { openAICompletionsApi } from "../api/openai-completions.lazy.ts";
 import { envApiKeyAuth } from "../auth/helpers.ts";
 import { createProvider, type Provider, type RefreshModelsContext } from "../models.ts";
-import type { Model, ThinkingLevelMap } from "../types.ts";
+import type { Model, OpenAICompletionsCompat, ThinkingLevelMap } from "../types.ts";
 
 /**
  * owl:loean 厂商——对接自建 Manager 中转站（D:\manager，OpenAI 兼容网关：
@@ -60,13 +60,86 @@ export function resolveLoeanBaseUrl(): string {
 	return DEFAULT_LOEAN_BASE_URL;
 }
 
-/** /v1/models 行里我们关心的字段（OpenAI 基础形状 + Manager 公布的能力值）。 */
+/** /v1/models 行里我们关心的字段（OpenAI 基础形状 + Manager 公布的能力值与协议方言）。 */
 export interface LoeanCatalogRow {
 	id?: unknown;
 	context_window?: unknown;
 	max_output_tokens?: unknown;
 	reasoning_efforts?: unknown;
 	input_modalities?: unknown;
+	/** 该模型上游的 OpenAI 兼容方言。缺省时仍发最朴素的 completions 请求。 */
+	compat?: unknown;
+}
+
+const THINKING_FORMATS = [
+	"openai",
+	"openrouter",
+	"deepseek",
+	"together",
+	"baseten",
+	"zai",
+	"qwen",
+	"chat-template",
+	"qwen-chat-template",
+	"string-thinking",
+	"ant-ling",
+] as const satisfies readonly NonNullable<OpenAICompletionsCompat["thinkingFormat"]>[];
+
+function catalogField(record: Record<string, unknown>, ...keys: string[]): unknown {
+	for (const key of keys) {
+		if (record[key] !== undefined) return record[key];
+	}
+	return undefined;
+}
+
+function catalogBoolean(record: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+	const value = catalogField(record, ...keys);
+	return typeof value === "boolean" ? value : undefined;
+}
+
+/**
+ * 网关按模型公布的方言盖过「最朴素 OpenAI」缺省。未公布的字段留给 URL 自动探测。
+ * camelCase 与 snake_case 都认，避免目录序列化风格把回放格式丢掉。
+ */
+export function loeanCompatFromCatalog(value: unknown, reasoning: boolean): OpenAICompletionsCompat {
+	const compat: OpenAICompletionsCompat = {
+		supportsStore: false,
+		supportsDeveloperRole: false,
+		maxTokensField: "max_tokens",
+		...(reasoning ? { supportsReasoningEffort: true } : {}),
+	};
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return compat;
+	const record = value as Record<string, unknown>;
+	const assignBoolean = (key: keyof OpenAICompletionsCompat, ...names: string[]) => {
+		const parsed = catalogBoolean(record, ...names);
+		if (parsed !== undefined) (compat as Record<string, unknown>)[key] = parsed;
+	};
+	assignBoolean("supportsStore", "supportsStore", "supports_store");
+	assignBoolean("supportsDeveloperRole", "supportsDeveloperRole", "supports_developer_role");
+	assignBoolean("supportsReasoningEffort", "supportsReasoningEffort", "supports_reasoning_effort");
+	assignBoolean("supportsUsageInStreaming", "supportsUsageInStreaming", "supports_usage_in_streaming");
+	assignBoolean("supportsFinishReason", "supportsFinishReason", "supports_finish_reason");
+	assignBoolean("requiresToolResultName", "requiresToolResultName", "requires_tool_result_name");
+	assignBoolean(
+		"requiresAssistantAfterToolResult",
+		"requiresAssistantAfterToolResult",
+		"requires_assistant_after_tool_result",
+	);
+	assignBoolean("requiresThinkingAsText", "requiresThinkingAsText", "requires_thinking_as_text");
+	assignBoolean(
+		"requiresReasoningContentOnAssistantMessages",
+		"requiresReasoningContentOnAssistantMessages",
+		"requires_reasoning_content",
+	);
+	const maxTokensField = catalogField(record, "maxTokensField", "max_tokens_field");
+	if (maxTokensField === "max_tokens" || maxTokensField === "max_completion_tokens") {
+		compat.maxTokensField = maxTokensField;
+	}
+	const thinkingFormat = catalogField(record, "thinkingFormat", "thinking_format");
+	if (typeof thinkingFormat === "string" && THINKING_FORMATS.some((format) => format === thinkingFormat)) {
+		compat.thinkingFormat = thinkingFormat as (typeof THINKING_FORMATS)[number];
+	}
+	return compat;
 }
 
 function positiveInt(value: unknown): number | undefined {
@@ -134,6 +207,7 @@ export function loeanModelsFromCatalog(
 		const modalities = parseInputModalities(row.input_modalities);
 		const input: InputModality[] =
 			modalities.includes("image") || VISION_ID_PATTERN.test(row.id) ? ["text", "image"] : ["text"];
+		const publishedWindow = positiveInt(row.context_window);
 		models.push({
 			id: row.id,
 			name: row.id,
@@ -142,18 +216,14 @@ export function loeanModelsFromCatalog(
 			baseUrl,
 			input,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: positiveInt(row.context_window) ?? FALLBACK_CONTEXT_WINDOW,
+			contextWindow: publishedWindow ?? FALLBACK_CONTEXT_WINDOW,
+			contextWindowConfirmed: publishedWindow !== undefined,
 			maxTokens: positiveInt(row.max_output_tokens) ?? FALLBACK_MAX_TOKENS,
 			reasoning,
 			...(reasoning ? { thinkingLevelMap: thinkingLevelMapFromEfforts(efforts) } : {}),
 			type: "chat",
-			compat: {
-				// 中转站按 max_tokens 做收顶改写（manager《网关能力校验与Agent接入兼容方案》）；
-				// 显式关掉 store/developer 等扩展字段，向上游发最朴素的 OpenAI 请求。
-				supportsStore: false,
-				supportsDeveloperRole: false,
-				maxTokensField: "max_tokens",
-			},
+			// 缺省仍是最朴素的 completions 请求；网关若公布 thinking_format 等方言则按条覆盖。
+			compat: loeanCompatFromCatalog(row.compat, reasoning),
 		});
 	}
 	return models.sort((a, b) => a.id.localeCompare(b.id));

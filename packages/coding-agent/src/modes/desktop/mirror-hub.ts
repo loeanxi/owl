@@ -7,7 +7,9 @@
  * mirror/windows-capture.ps1），末个订阅者退订后延迟关闭，避免 tab 切换抖动。
  */
 import { type ChildProcessByStdio, spawn } from "node:child_process";
-import { release } from "node:os";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { release, tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { hideRect } from "./mirror/embed-layout.ts";
@@ -172,19 +174,20 @@ export class MirrorHub {
 	}
 
 	/**
-	 * 嵌入：目标窗口 SetParent 到 parentHwnd 并去头，按 rect 摆放。
+	 * 嵌入：目标窗口设为 owl 的 owned 窗口，按 rect 摆进侧栏。不改样式、不裁标题。
 	 * worker 返回的原始样式/原父缓存下来，unembed 时带回还原。
-	 * embed worker 是常驻 watchdog（每 600ms 检查，被 Dock 收纳即拉回重摆）——
-	 * 形态/布局变化时由 layoutWindow 重生成。
+	 * embed worker 常驻：侧栏尺寸变化时重摆；只有被最小化或明显离开矩形时才拉回。
 	 */
 	async embedWindow(
 		windowId: string,
 		parentHwnd: number,
 		rect: { x: number; y: number; width: number; height: number },
+		options?: { swallowMinimize?: boolean },
 	): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
 		if (!Number.isFinite(parentHwnd) || parentHwnd <= 0) throw new Error("invalid parentHwnd");
+		this.publishLayout(hwnd, rect);
 		this.killEmbedWatchdog(windowId);
 		const args = [
 			"embed",
@@ -201,6 +204,9 @@ export class MirrorHub {
 			"-H",
 			String(Math.round(rect.height)),
 		];
+		const saved = this.embedMeta.get(windowId);
+		if (saved) args.push("-HasBaseStyle", "-BaseStyle", String(saved.originalStyle));
+		if (options?.swallowMinimize) args.push("-SwallowMinimize");
 		const proc = this.spawnWorker(args);
 		const watchdog: EmbedWatchdog = { proc, buffer: "" };
 		this.embedWatchdogs.set(windowId, watchdog);
@@ -227,10 +233,13 @@ export class MirrorHub {
 					if (line.includes('"event":"embedded"')) {
 						try {
 							const obj = JSON.parse(line) as { originalStyle?: number; originalParent?: number };
-							this.embedMeta.set(windowId, {
-								originalStyle: obj.originalStyle ?? 0x00cf0000,
-								originalParent: obj.originalParent ?? 0,
-							});
+							// 只记第一次的原始样式。layout 会反复重开 worker，不能把已去头的样式写成「原始」。
+							if (!this.embedMeta.has(windowId)) {
+								this.embedMeta.set(windowId, {
+									originalStyle: obj.originalStyle ?? 0x00cf0000,
+									originalParent: obj.originalParent ?? 0,
+								});
+							}
 						} catch {}
 						clearTimeout(timer);
 						cleanup();
@@ -268,51 +277,46 @@ export class MirrorHub {
 		});
 	}
 
-	/** 布局同步：移动/缩放嵌入窗口；visible=false 时移到屏外隐藏矩形。 */
+	/** 布局同步：侧栏尺寸变化只更新矩形文件。舞台不可见时写入 0 矩形让看守隐藏，不杀掉看守。 */
 	async layoutWindow(
 		windowId: string,
 		rect: { x: number; y: number; width: number; height: number },
 		visible: boolean,
+		swallowMinimize = false,
 	): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
-		// 已有 watchdog：重生成（SetParent 对同父幂等），visible=false 时改为屏外隐藏并停 watchdog
-		if (this.embedWatchdogs.has(windowId)) {
-			if (!visible) {
-				this.killEmbedWatchdog(windowId);
-				const applied = hideRect();
-				await this.runWorkerLines([
-					"move",
-					"-Hwnd",
-					String(hwnd),
-					"-X",
-					String(Math.round(applied.x)),
-					"-Y",
-					String(Math.round(applied.y)),
-					"-W",
-					String(Math.max(1, Math.round(applied.width))),
-					"-H",
-					String(Math.max(1, Math.round(applied.height))),
-				]);
+		void swallowMinimize;
+		if (!visible) {
+			if (this.embedWatchdogs.has(windowId)) {
+				// 侧栏关掉或切走时只通知看守把窗口藏起来。杀掉看守的话，红果会按自己的尺寸弹回桌面。
+				this.publishLayout(hwnd, { x: 0, y: 0, width: 0, height: 0 });
 				return;
 			}
-			await this.embedWindow(windowId, await this.findOwlParentHwnd(), rect);
+			this.clearLayout(hwnd);
+			const applied = hideRect();
+			await this.runWorkerLines([
+				"move",
+				"-Hwnd",
+				String(hwnd),
+				"-X",
+				String(Math.round(applied.x)),
+				"-Y",
+				String(Math.round(applied.y)),
+				"-W",
+				String(Math.max(1, Math.round(applied.width))),
+				"-H",
+				String(Math.max(1, Math.round(applied.height))),
+			]);
 			return;
 		}
-		const applied = visible ? rect : hideRect();
-		await this.runWorkerLines([
-			"move",
-			"-Hwnd",
-			String(hwnd),
-			"-X",
-			String(Math.round(applied.x)),
-			"-Y",
-			String(Math.round(applied.y)),
-			"-W",
-			String(Math.round(applied.width)),
-			"-H",
-			String(Math.round(applied.height)),
-		]);
+		if (this.embedWatchdogs.has(windowId)) {
+			// 拖宽侧栏时连续写矩形。常驻进程读到变化再摆一次，不重启、不改样式。
+			this.publishLayout(hwnd, rect);
+			return;
+		}
+		const parentHwnd = await this.findOwlParentHwnd();
+		await this.embedWindow(windowId, parentHwnd, rect);
 	}
 
 	/** 放大形态：把 owl 主窗口移动/缩放到指定矩形（物理像素）。 */
@@ -338,6 +342,7 @@ export class MirrorHub {
 	async unembedWindow(windowId: string): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		this.clearLayout(hwnd);
 		this.killEmbedWatchdog(windowId);
 		const meta = this.embedMeta.get(windowId);
 		this.embedMeta.delete(windowId);
@@ -366,6 +371,27 @@ export class MirrorHub {
 			if (worker.detachTimer) clearTimeout(worker.detachTimer);
 			this.killWorker(worker);
 			this.workers.delete(windowId);
+		}
+	}
+
+	/** 侧栏舞台矩形。watchdog 每拍读这个文件，所以拖动侧栏不用重启嵌入进程。 */
+	private layoutFile(hwnd: number): string {
+		return join(tmpdir(), `owl-mirror-layout-${hwnd}.txt`);
+	}
+
+	private publishLayout(hwnd: number, rect: { x: number; y: number; width: number; height: number }): void {
+		writeFileSync(
+			this.layoutFile(hwnd),
+			`${Math.round(rect.x)},${Math.round(rect.y)},${Math.max(1, Math.round(rect.width))},${Math.max(1, Math.round(rect.height))}`,
+			"utf8",
+		);
+	}
+
+	private clearLayout(hwnd: number): void {
+		try {
+			unlinkSync(this.layoutFile(hwnd));
+		} catch {
+			// 文件不在即已清掉
 		}
 	}
 

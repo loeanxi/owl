@@ -104,6 +104,15 @@ export function computeLayout(
 	if (mode === "float" && floatRect) {
 		return clampFloatRect(floatRect, stage.width * scale, stage.height * scale);
 	}
+	// 侧栏：窗口铺满舞台。红果再按这个尺寸重排，拖动侧栏时外框跟着变。
+	if (mode === "sidebar") {
+		return {
+			x: 0,
+			y: 0,
+			width: Math.max(1, Math.round(stage.width * scale)),
+			height: Math.max(1, Math.round(stage.height * scale)),
+		};
+	}
 	const css = containRect(stage.width, stage.height, windowSize.width, windowSize.height);
 	return viewportToParentClient(css, scale);
 }

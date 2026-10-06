@@ -1,27 +1,18 @@
 /**
- * 短剧 tab v2 —— 窗口嵌入（owl Mirror embed）。
+ * 短剧 tab —— 侧栏嵌入。
  *
- * 按第二轮共识：把红果窗口跨进程 SetParent 成 owl 主窗口的子窗口并去头，
- * 真实嵌在卡片里直接刷剧。三种形态（顶部窄条切换）：
- * - sidebar：嵌在侧边卡片（等比 contain，画面外露黑底）
- * - expand：放大盖住 owl 主区
- * - float：owl 内悬浮（拖拽条拖动位置，± 按钮步进缩放）
+ * 红果窗口设成 owl 的 owned 窗口，摆在侧栏舞台上，点按由红果自己接收。
+ * 嵌进去之后不再改样式、不裁标题。侧栏尺寸变化时跟着摆；只有窗口被最小化
+ * 或明显离开舞台时才拉回来。放大和悬浮不做。
  *
- * 物理约束：原生窗口永远盖在 webview 内容之上 —— 所有控件都放在画面外的
- * 顶部窄条（webview 区域），「悬停浮层按钮」不成立。声音走红果进程自身。
- * 嵌入失败（协议报错）自动回退 WGC 帧流模式（v1 路径，保底可用）。
- *
- * 纪律与 BrowserTab 相同：帧走 canvas 直绘（frameRef + setTimeout 合并）、
- * 舞台测量「立即量一次 + RO + 1s 兜底轮询」。嵌入状态机（embed-state.ts，
- * 已单测）驱动形态与隐藏/显示规则；几何计算（embed-layout.ts，已单测）按
- * 形态舞台输出父客户区物理矩形。
+ * 嵌入失败时回退到帧流（只能看，不能点）。
  */
-import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useReducer, useRef, useState } from "react";
 import { useT } from "../../i18n/index.ts";
 import type { MirrorWindowInfo } from "../../bridge/protocol.ts";
 import { BrowserSessionContext, type TabComponentProps } from "../registry.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
-import { computeLayout, hideRect, type EmbedMode } from "../../../../../packages/coding-agent/src/modes/desktop/mirror/embed-layout.ts";
+import { hideRect, viewportToParentClient } from "../../../../../packages/coding-agent/src/modes/desktop/mirror/embed-layout.ts";
 import { createEmbedReducer, type EmbedAction, type EmbedState } from "../../../../../packages/coding-agent/src/modes/desktop/mirror/embed-state.ts";
 
 interface Frame {
@@ -31,8 +22,13 @@ interface Frame {
 }
 
 const TOOLBAR_H = 28;
-/** 红果窗口的参考尺寸（嵌入等比 contain 用；窗口实际尺寸以系统为准）。 */
-const HONGGUO_REF = { width: 568, height: 920 };
+
+interface StageBox {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
 
 function pickHongguo(windows: MirrorWindowInfo[]): MirrorWindowInfo | undefined {
 	const live = windows.filter((win) => !win.minimized);
@@ -48,24 +44,20 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 
 	const [windows, setWindows] = useState<MirrorWindowInfo[]>([]);
 	const [supported, setSupported] = useState(true);
-	const [fallback, setFallback] = useState(false); // 嵌入失败 → 帧流兜底
+	const [fallback, setFallback] = useState(false);
+	const [embedError, setEmbedError] = useState("");
 	const [launching, setLaunching] = useState(false);
 	const [listed, setListed] = useState(false);
 	const [frameSize, setFrameSize] = useState<{ width: number; height: number } | undefined>(undefined);
-	const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-	const [viewport, setViewport] = useState({ width: 0, height: 0 });
-	const [floatPos, setFloatPos] = useState({ x: 80, y: 80 });
-	const [floatSize, setFloatSize] = useState({ width: 420, height: 700 });
-	const [dragging, setDragging] = useState(false);
+	const [stageBox, setStageBox] = useState<StageBox>({ x: 0, y: 0, width: 0, height: 0 });
 
-	// 嵌入状态机（单测覆盖的纯 reducer）
 	const reducer = useCallback(
 		(state: EmbedState, action: EmbedAction) => createEmbedReducer()(state, action).state,
 		[],
 	);
 	const [state, dispatch] = useReducer(reducer, { phase: "restored" } as EmbedState);
-	const mode = state.phase === "embedded" ? state.mode : "sidebar";
 	const embedded = state.phase === "embedded";
+	const visible = state.phase === "embedded" && state.visible;
 
 	const stageRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,11 +65,11 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	const drawScheduled = useRef(false);
 	const windowIdRef = useRef<string | undefined>(undefined);
 	const embedTried = useRef<string | undefined>(undefined);
+	const readStageRectRef = useRef<() => ReturnType<typeof viewportToParentClient> | undefined>(() => undefined);
 
-	const hongguo = useMemo(() => pickHongguo(windows), [windows]);
+	const hongguo = pickHongguo(windows);
 	windowIdRef.current = hongguo?.windowId;
 
-	// -- 找红果窗口（未找到时 3s 轮询） ----------------------------------
 	const refreshList = useCallback((): void => {
 		void client
 			.request<{ windows: MirrorWindowInfo[]; supported: boolean }>({ type: "mirror.list" })
@@ -100,7 +92,6 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		return () => clearInterval(timer);
 	}, [refreshList, hongguo]);
 
-	// -- 帧绘制（兜底路径） ------------------------------------------------
 	const drawFrame = useCallback((): void => {
 		drawScheduled.current = false;
 		const canvas = canvasRef.current;
@@ -130,48 +121,24 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		setTimeout(drawFrame, 0);
 	}, [drawFrame]);
 
-	// -- 几何：当前形态的舞台与目标矩形 ------------------------------------
-	const stageForMode = useCallback(
-		(target: EmbedMode): { width: number; height: number } => {
-			const dpr = window.devicePixelRatio || 1;
-			if (target === "expand") return { width: viewport.width / dpr, height: (viewport.height - TOOLBAR_H) / dpr };
-			if (target === "float") return { width: viewport.width / dpr, height: (viewport.height - TOOLBAR_H) / dpr };
-			return { width: stageSize.width, height: Math.max(0, stageSize.height - TOOLBAR_H) };
-		},
-		[viewport.width, viewport.height, stageSize.width, stageSize.height],
-	);
-
-	const sendLayout = useCallback(
-		(target: EmbedMode, visible: boolean, sizeOverride?: { width: number; height: number }): void => {
-			const windowId = windowIdRef.current;
-			if (!windowId) return;
-			const dpr = window.devicePixelRatio || 1;
-			const stage = stageForMode(target);
-			const rect =
-				target === "float"
-					? { ...floatPos, ...floatSize }
-					: computeLayout(target, stage, dpr, HONGGUO_REF);
-			void client.request({ type: "mirror.layout", windowId, rect, visible }).catch(() => {});
-		},
-		[client, stageForMode, floatPos, floatSize],
-	);
-
-	// -- 舞台/视口测量（立即 + RO + 1s 轮询） ------------------------------
 	const measure = useCallback((): void => {
 		const element = stageRef.current;
-		if (element) {
-			setStageSize((current) => {
-				const width = element.clientWidth;
-				const height = element.clientHeight;
-				if (current.width === width && current.height === height) return current;
-				return { width, height };
-			});
-		}
-		setViewport((current) => {
-			const width = window.innerWidth;
-			const height = window.innerHeight;
-			if (current.width === width && current.height === height) return current;
-			return { width, height };
+		const shown = element !== null && element.getClientRects().length > 0;
+		const box = shown ? element.getBoundingClientRect() : undefined;
+		const next =
+			box && box.width >= 8 && box.height >= 8
+				? { x: box.left, y: box.top, width: box.width, height: box.height }
+				: { x: 0, y: 0, width: 0, height: 0 };
+		setStageBox((current) => {
+			if (
+				current.x === next.x &&
+				current.y === next.y &&
+				current.width === next.width &&
+				current.height === next.height
+			) {
+				return current;
+			}
+			return next;
 		});
 	}, []);
 	useEffect(() => {
@@ -179,83 +146,106 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		const observer = new ResizeObserver(measure);
 		if (stageRef.current) observer.observe(stageRef.current);
 		window.addEventListener("resize", measure);
-		const poll = setInterval(measure, 1_000);
+		const poll = setInterval(measure, 250);
 		return () => {
 			observer.disconnect();
 			window.removeEventListener("resize", measure);
 			clearInterval(poll);
 		};
-	}, [measure, mode]);
+	}, [measure, embedded, fallback, hongguo]);
 
-	// -- 嵌入：找到红果且未嵌入 → mirror.embed（sidebar 形态起） ------------
+	const readStageRect = useCallback(() => {
+		const element = stageRef.current;
+		// 侧栏关掉、切到别的页时祖先是 display:none，矩形是 0。
+		// 不能退回上一次的尺寸，否则红果会停在关掉之前的位置。
+		if (!element || element.getClientRects().length === 0) return undefined;
+		const box = element.getBoundingClientRect();
+		if (box.width < 8 || box.height < 8) return undefined;
+		return viewportToParentClient(
+			{ x: box.left, y: box.top, width: box.width, height: box.height },
+			window.devicePixelRatio || 1,
+		);
+	}, []);
+	readStageRectRef.current = readStageRect;
+
+	const sendLayout = useCallback(
+		(visible: boolean): void => {
+			const windowId = windowIdRef.current;
+			if (!windowId) return;
+			if (!visible) {
+				void client.request({ type: "mirror.layout", windowId, rect: hideRect(), visible: false }).catch(() => {});
+				return;
+			}
+			const rect = readStageRect();
+			if (!rect) return;
+			void client.request({ type: "mirror.layout", windowId, rect, visible: true }).catch(() => {});
+		},
+		[client, readStageRect],
+	);
+
 	useEffect(() => {
 		if (!hongguo || embedded || fallback) return;
 		const windowId = hongguo.windowId;
-		if (embedTried.current === windowId) return;
-		embedTried.current = windowId;
-		// 嵌入失败可能只是 BitDock 收纳竞态：1.5s 后重试一次再放弃
-		const attempt = (delayMs: number): Promise<void> =>
-			new Promise((resolve) => setTimeout(resolve, delayMs)).then(() => {
-				const stage = stageForMode("sidebar");
-				const rect = computeLayout("sidebar", stage, window.devicePixelRatio || 1, HONGGUO_REF);
-				return client.request({ type: "mirror.embed", windowId, rect });
-			}).then((response) => {
-				if (!response.ok) throw new Error(response.error ?? "embed failed");
-				dispatch({ type: "embed", mode: "sidebar" });
-			});
-		void attempt(0)
-			.catch(() => attempt(1500))
-			.catch(() => {
-				setFallback(true); // 两次都失败 → 帧流兜底
-				void client.request({ type: "mirror.attach", windowId }).catch(() => {});
-			});
-	}, [hongguo, embedded, fallback, client, stageForMode]);
+		let alive = true;
+		let attempts = 0;
+		const tryEmbed = (): void => {
+			if (!alive || embedTried.current === windowId) return;
+			const rect = readStageRectRef.current();
+			if (!rect) return;
+			embedTried.current = windowId;
+			attempts += 1;
+			void client
+				.request({ type: "mirror.embed", windowId, rect })
+				.then((response) => {
+					if (!alive) return;
+					if (!response.ok) throw new Error(response.error ?? "embed failed");
+					setEmbedError("");
+					dispatch({ type: "embed", mode: "sidebar" });
+				})
+				.catch((error: unknown) => {
+					if (!alive) return;
+					embedTried.current = undefined;
+					const message = error instanceof Error ? error.message : "embed failed";
+					setEmbedError(message);
+					if (attempts >= 4) {
+						setFallback(true);
+						void client.request({ type: "mirror.attach", windowId }).catch(() => {});
+					}
+				});
+		};
+		tryEmbed();
+		const timer = setInterval(tryEmbed, 700);
+		return () => {
+			alive = false;
+			clearInterval(timer);
+			// 舞台尺寸一变就会重跑这个效果。进行中的请求被丢掉时必须允许再嵌一次，
+			// 否则页面会一直停在「等待画面」，后面的位置更新也不会再发。
+			if (embedTried.current === windowId) embedTried.current = undefined;
+		};
+	}, [hongguo, embedded, fallback, client]);
 
-	// -- 形态/舞台变化 → 重新布局 ------------------------------------------
-	const visible = embedded && state.visible;
-	const layoutKey = `${mode}:${visible}:${stageSize.width}x${stageSize.height}:${viewport.width}x${viewport.height}`;
+	const layoutKey = `${stageBox.x},${stageBox.y},${stageBox.width}x${stageBox.height}`;
 	useEffect(() => {
-		if (!visible) return;
-		sendLayout(mode, true);
-	}, [layoutKey, visible, sendLayout, mode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-	// float 拖放/缩放 → relayout
-	useEffect(() => {
-		const floatVisible = embedded && state.visible;
-		if (!embedded || mode !== "float" || !floatVisible) return;
-		if (!dragging) {
-			const windowId = windowIdRef.current;
-			if (!windowId) return;
-			const dpr = window.devicePixelRatio || 1;
-			const stage = stageForMode("float");
-			const rect = computeLayout("float", stage, dpr, HONGGUO_REF, {
-				x: floatPos.x * dpr,
-				y: floatPos.y * dpr,
-				width: floatSize.width * dpr,
-				height: floatSize.height * dpr,
-			});
-			void client.request({ type: "mirror.layout", windowId, rect, visible: true }).catch(() => {});
+		if (!windowIdRef.current) return;
+		const rect = readStageRectRef.current();
+		if (!rect) {
+			sendLayout(false);
+			return;
 		}
-	}, [floatPos, floatSize, dragging, embedded, mode, visible, stageForMode, client]);
+		if (!visible) return;
+		sendLayout(true);
+	}, [layoutKey, visible, sendLayout]);
 
-	// owl 隐藏/显示 → 窗口屏外/恢复
 	useEffect(() => {
 		const onVisibility = (): void => {
 			if (!embedded) return;
-			if (document.visibilityState === "hidden") {
-				const windowId = windowIdRef.current;
-				if (windowId) {
-					void client.request({ type: "mirror.layout", windowId, rect: hideRect(), visible: false }).catch(() => {});
-				}
-			} else {
-				sendLayout(mode, true);
-			}
+			if (document.visibilityState === "hidden") sendLayout(false);
+			else sendLayout(true);
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 		return () => document.removeEventListener("visibilitychange", onVisibility);
-	}, [client, embedded, mode, sendLayout]);
+	}, [embedded, sendLayout]);
 
-	// 卸载：藏到屏外（不解除嵌入；重挂时按新舞台重新 embed 摆放）
 	useEffect(() => {
 		return () => {
 			const windowId = windowIdRef.current;
@@ -264,7 +254,6 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		};
 	}, [client]);
 
-	// 帧流兜底消息
 	useEffect(() => {
 		if (!fallback) return;
 		return client.onMirrorMessage((message) => {
@@ -282,43 +271,9 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	}, [client, fallback, scheduleDraw]);
 
 	useEffect(() => {
-		if (fallback && frameSize && stageSize.width > 0) scheduleDraw();
-	}, [fallback, frameSize, stageSize.width, scheduleDraw]);
+		if (fallback && frameSize && stageBox.width > 0) scheduleDraw();
+	}, [fallback, frameSize, stageBox.width, scheduleDraw]);
 
-	// -- 操作 ------------------------------------------------------------
-	const switchMode = (target: EmbedMode): void => {
-		const windowId = windowIdRef.current;
-		if (!windowId) return;
-		// 放大形态：先把 owl 主窗口长到贴合红果（消除黑边/裁切），再摆子窗口
-		if (target === "expand") {
-			const dramaW = HONGGUO_REF.width;
-			const dramaH = HONGGUO_REF.height;
-			const owlH = Math.min(1030, dramaH + TOOLBAR_H + 40 + 31); // 963+28工具条+31标题栏+余量
-			void client
-				.request({ type: "mirror.fitowl", windowId, x: 200, y: 8, width: Math.max(viewport.width, dramaW + 80), height: owlH })
-				.then(() => new Promise((resolve) => setTimeout(resolve, 350)))
-				.then(() => {
-					const rect = { x: Math.round((viewport.width - dramaW) / 2), y: TOOLBAR_H, width: dramaW, height: HONGGUO_REF.height };
-					return client.request({ type: "mirror.embed", windowId, rect });
-				})
-				.then(() => dispatch({ type: "embed", mode: "expand" }))
-				.catch(() => {});
-			return;
-		}
-		// 从放大切回：先还原 owl 尺寸
-		if (state.phase === "embedded" && state.mode === "expand") {
-			void client
-				.request({ type: "mirror.fitowl", windowId, x: 200, y: 8, width: 1296, height: 900 })
-				.then(() => new Promise((resolve) => setTimeout(resolve, 350)))
-				.catch(() => {});
-		}
-		const stage = stageForMode(target);
-		const rect = computeLayout(target, stage, window.devicePixelRatio || 1, HONGGUO_REF);
-		void client
-			.request({ type: "mirror.embed", windowId, rect })
-			.then(() => dispatch({ type: "embed", mode: target }))
-			.catch(() => {});
-	};
 	const restoreWindow = (): void => {
 		const windowId = windowIdRef.current;
 		if (!windowId) return;
@@ -345,7 +300,6 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 			});
 	};
 
-	// 首次扫描没找到红果窗口 → 自动拉起红果（每次挂载只试一次，失败回落到手动按钮）
 	useEffect(() => {
 		if (!listed || !supported || hongguo || autoLaunched.current) return;
 		autoLaunched.current = true;
@@ -353,57 +307,10 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [listed, supported, hongguo]);
 
-	// float 拖拽条：按住拖动（owl 前台时在拖拽条上拖，坐标差应用到 floatPos）
-	const gripRef = useRef<HTMLDivElement>(null);
-	const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | undefined>(
-		undefined,
-	);
-	const onGripDown = (event: React.PointerEvent): void => {
-		if (mode !== "float") return;
-		(event.target as HTMLElement).setPointerCapture(event.pointerId);
-		dragState.current = { startX: event.clientX, startY: event.clientY, baseX: floatPos.x, baseY: floatPos.y };
-		setDragging(true);
-	};
-	const onGripMove = (event: React.PointerEvent): void => {
-		const drag = dragState.current;
-		if (!drag) return;
-		setFloatPos({
-			x: drag.baseX + (event.clientX - drag.startX),
-			y: drag.baseY + (event.clientY - drag.startY),
-		});
-	};
-	const onGripUp = (): void => {
-		dragState.current = undefined;
-		setDragging(false);
-	};
-
-	// -- 渲染 ------------------------------------------------------------
 	const toolbar = (
-		<div
-			className="flex shrink-0 items-center gap-1.5 bg-owl-panel px-2"
-			style={{ height: TOOLBAR_H }}
-		>
+		<div className="flex shrink-0 items-center gap-1.5 bg-owl-panel px-2" style={{ height: TOOLBAR_H }}>
 			<span className="text-xs font-semibold text-owl-text">{t("mirror.title")}</span>
 			<span className="flex-1" />
-			{(
-				[
-					["sidebar", t("mirror.modeSidebar")],
-					["expand", t("mirror.modeExpand")],
-					["float", t("mirror.modeFloat")],
-				] as [EmbedMode, string][]
-			).map(([target, label]) => (
-				<button
-					key={target}
-					type="button"
-					className={`rounded px-1.5 py-0.5 text-[10px] ${
-						embedded && mode === target ? "bg-rose-500/20 text-rose-300" : "text-owl-muted hover:text-owl-text"
-					}`}
-					onClick={() => switchMode(target)}
-				>
-					{label}
-				</button>
-			))}
-			<span className="mx-0.5 h-3 w-px bg-owl-border" />
 			<button
 				type="button"
 				title={t("mirror.restore")}
@@ -416,71 +323,9 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		</div>
 	);
 
-	// 展开形态：整屏覆盖层（盖住对话区）
-	if (embedded && mode === "expand") {
-		return (
-			<div className="fixed inset-0 z-50 flex flex-col bg-black" data-mirror-overlay>
-				{toolbar}
-				<div ref={stageRef} className="min-h-0 flex-1 bg-black" />
-			</div>
-		);
-	}
-
-	// 悬浮形态：owl 内悬浮 —— 侧栏出控制卡，主区出拖拽条（原生窗口在拖拽条下方）
-	if (embedded && mode === "float") {
-		const gripTop = floatPos.y - 24;
-		return (
-			<>
-				<div className="flex h-full min-h-0 flex-col">
-					{toolbar}
-					<div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-						<div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-							{t("mirror.floatActive")}
-						</div>
-						<div className="flex items-center gap-2">
-							<button type="button" className="rounded-md border border-owl-border px-3 py-1.5 text-xs text-owl-muted hover:text-owl-text" onClick={() => switchMode("sidebar")}>
-								{t("mirror.modeSidebar")}
-							</button>
-							<button type="button" className="rounded-md border border-owl-border px-3 py-1.5 text-xs text-owl-muted hover:text-owl-text" onClick={restoreWindow}>
-								{t("mirror.restore")}
-							</button>
-						</div>
-						<p className="max-w-[260px] text-[11px] leading-relaxed text-owl-faint">{t("mirror.floatHint")}</p>
-					</div>
-				</div>
-				{/* 主区悬浮：拖拽条 + 缩放钮（webview 区；原生窗口在拖拽条正下方） */}
-				<div className="fixed inset-0 z-50 pointer-events-none">
-					<div
-						ref={gripRef}
-						className="pointer-events-auto absolute flex select-none items-center justify-between rounded-t-md bg-rose-500/90 px-2 text-[10px] text-white shadow-lg"
-						style={{ left: floatPos.x, top: Math.max(0, gripTop), width: floatSize.width, height: 24, cursor: dragging ? "grabbing" : "grab" }}
-						onPointerDown={onGripDown}
-						onPointerMove={onGripMove}
-						onPointerUp={onGripUp}
-					>
-						<span>{t("mirror.floatGrip")}</span>
-						<span className="flex items-center gap-1">
-							<button
-								type="button"
-								className="rounded bg-white/20 px-1.5 hover:bg-white/30"
-								onClick={() => setFloatSize((size) => ({ width: Math.max(280, size.width - 60), height: Math.max(480, size.height - 100) }))}
-							>−</button>
-							<button
-								type="button"
-								className="rounded bg-white/20 px-1.5 hover:bg-white/30"
-								onClick={() => setFloatSize((size) => ({ width: size.width + 60, height: size.height + 100 }))}
-							>+</button>
-						</span>
-					</div>
-				</div>
-			</>
-		);
-	}
-
-	// 空态：没找到红果
 	if (!hongguo) {
 		return (
-			<div className="flex h-full flex-col">
+			<div className="absolute inset-0 flex flex-col">
 				{toolbar}
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
 					<h3 className="text-sm font-semibold text-owl-text">{t("mirror.emptyTitle")}</h3>
@@ -506,16 +351,15 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 		);
 	}
 
-	// 侧栏形态 / 帧流兜底：画面舞台
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div className="absolute inset-0 flex min-h-0 flex-col">
 			{toolbar}
 			<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden bg-black">
 				{fallback ? (
 					<canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-				) : (
-					<div className="absolute inset-0 flex items-center justify-center">
-						<span className="text-[11px] text-owl-faint">{t("mirror.waitingFrame")}</span>
+				) : embedded ? null : (
+					<div className="absolute inset-0 flex items-center justify-center px-4 text-center">
+						<span className="text-[11px] text-owl-faint">{embedError || t("mirror.waitingFrame")}</span>
 					</div>
 				)}
 			</div>

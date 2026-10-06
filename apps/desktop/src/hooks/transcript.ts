@@ -67,6 +67,8 @@ export type ChatEntry =
 			thinking: string;
 			tools: ToolCard[];
 			error?: string;
+			/** 用户主动暂停导致的 aborted 收尾：不渲染红色报错，只留一行置灰「已暂停」。 */
+			aborted?: boolean;
 			segments?: AssistantSegment[];
 			/** 所属会话日志条目 id（「在新对话中分支」用；快照重建/agent_end 对齐时带上） */
 			entryId?: string;
@@ -235,8 +237,9 @@ function alignMessageEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (str
 	for (const message of messages) {
 		if (message.role === "user" || message.role === "assistant") counts[message.role as "user" | "assistant"] += 1;
 	}
-	if (counts.user === 0) return undefined;
-	// 尾部对齐：某角色原转录里没有足够的带 id 行（老桥/异常流）时，该角色拿不到 id 不硬凑
+		if (counts.user === 0 && counts.assistant === 0) return undefined;
+		// 尾部对齐：某角色原转录里没有足够的带 id 行（老桥/异常流）时，该角色拿不到 id 不硬凑
+		// （暂停后继续的 run 快照没有 user 消息，user 角色自然落空，assistant 照常对齐）。
 	const cursors: { user: number; assistant: number } = {
 		user: queues.user.length - counts.user,
 		assistant: queues.assistant.length - counts.assistant,
@@ -397,7 +400,10 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			}
 			current.segments = segmentsOf(message.content);
 			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
-			current.error = message.stopReason === "error" || message.stopReason === "aborted" ? formatProviderError(message.errorMessage) : undefined;
+			// 用户暂停（stopReason=aborted）不算错误：红色报错换成一个 aborted 标记，
+			// 由 ChatStream 渲染成置灰小字；只有真正的 error 才保留报错文案。
+			current.error = message.stopReason === "error" ? formatProviderError(message.errorMessage) : undefined;
+			current.aborted = message.stopReason === "aborted" ? true : undefined;
 			// wire 时间戳是响应开始时刻；此刻（本地）才是真实结束点，记下来供轮耗时用
 			const endedAt = Date.now();
 			const startedAt = timestampOf(message);
@@ -489,9 +495,10 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 				tools,
 				segments: segmentsOf(message.content),
 				error:
-					message.stopReason === "error" || message.stopReason === "aborted"
+					message.stopReason === "error"
 						? formatProviderError(message.errorMessage)
 						: undefined,
+				...(message.stopReason === "aborted" ? { aborted: true as const } : {}),
 				...(typeof entryId === "string" ? { entryId } : {}),
 				...(startedAt !== undefined ? { timestamp: startedAt } : {}),
 				...(endedAt !== undefined ? { endedAt } : {}),

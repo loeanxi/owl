@@ -1,8 +1,9 @@
 /**
- * 工作台外壳 —— 移植 dsh-better-sidebar 的双工作台布局：同一组 tab 可以停靠
- * 在右列（width 拖拽）或聊天列底部（height 拖拽，顶缘拉伸手柄）。内容区是
- * split tree（store.ts）：每个 leaf 一条 tab 条，tab 按住拖到另一个 leaf 的
- * 边缘 25% 区域切开 50/50、拖到中心合并（split-pane.tsx 的 zoneAt 同规则，
+ * 工作台外壳 —— 移植 dsh-better-sidebar 的双工作台布局：同一套外壳按 role
+ * 装两份实例。tools = 右列工具侧栏（width 拖拽），terminal = 底栏终端专用
+ * （height 拖拽，顶缘拉伸手柄）；两份实例各挂各的 store，可在界面上共存。
+ * 内容区是 split tree（store.ts）：每个 leaf 一条 tab 条，tab 按住拖到另一个
+ * leaf 的边缘 25% 区域切开 50/50、拖到中心合并（split-pane.tsx 的 zoneAt 同规则，
  * 用指针事件自绘拖拽而非 HTML5 DnD，WebView2 下更稳也更好测）；分隔条可拖
  * 调比例。所有 tab 保持挂载、非激活的隐藏（编辑器草稿不丢）；fs_changed 在
  * 这里统一接桥分发 + 防抖刷新 Git 快照。
@@ -13,11 +14,11 @@ import type { GitStatusResult } from "../bridge/protocol.ts";
 import { useT } from "../i18n/index.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
-import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconX } from "./icons.tsx";
+import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconPlus, IconX } from "./icons.tsx";
 import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
 import { useTabRegistry, type TabComponentProps } from "./registry.ts";
 import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
-import { QUICK_ACTIONS, openQuickAction } from "./quick.tsx";
+import { QUICK_ACTIONS, IconTerminal, openQuickAction } from "./quick.tsx";
 import { fileUrlOf } from "./api.ts";
 import { attachPluginViewers } from "./plugin-viewers.ts";
 import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
@@ -29,6 +30,9 @@ const HEIGHT_KEY = "owl.workbench.height";
 
 export type WorkbenchDock = "right" | "bottom";
 
+/** 面板角色：tools = 右侧工具侧栏（不含终端）；terminal = 底栏终端专用。 */
+export type WorkbenchRole = "tools" | "terminal";
+
 export interface WorkbenchProps {
 	client: BridgeClient;
 	/** 项目目录（App 显式跟踪的工作区）。 */
@@ -38,6 +42,8 @@ export interface WorkbenchProps {
 	open: boolean;
 	onSetOpen: (open: boolean) => void;
 	dock: WorkbenchDock;
+	/** 角色：底栏实例只装终端，侧栏实例装其余工具（App 保证 store 内容匹配）。 */
+	role?: WorkbenchRole;
 	/** Presentation preference only; the conversation and tool permissions stay in App. */
 	developerLayout?: boolean;
 }
@@ -67,15 +73,21 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, store, open, onSetOpen, dock, developerLayout = false }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "tools", developerLayout = false }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
+	const terminalOnly = role === "terminal";
 	const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
 	const activeDefinition = activeTab === undefined ? undefined : registry.byKind.get(activeTab.kind);
 	// 侧边卡片配置（设置页「侧边卡片」）：工具行/空态卡片的可见性与文件预览回退
 	const cfg = useSidebarConfig();
+	// 本实例可装的 tab kind：底栏只装终端，侧栏装其余工具（终端归底栏专管）。
+	const kindAllowed = useCallback(
+		(kind: string): boolean => (terminalOnly ? kind === "terminal" : kind !== "terminal") && isTabKindEnabled(kind, cfg),
+		[cfg, terminalOnly],
+	);
 	const [gitStatus, setGitStatus] = useState<GitStatusResult | undefined>(undefined);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(WIDTH_KEY));
@@ -89,7 +101,11 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 
 	registerBuiltins();
 
-	useEffect(() => attachPluginViewers(client, store, PluginViewerTab, (size) => <IconFile size={size ?? 14} />), [client, store]);
+	// 插件文件预览注册是全局注册表，两个面板实例只在工具侧栏这一份接线（终端底栏跳过）
+	useEffect(() => {
+		if (terminalOnly) return;
+		return attachPluginViewers(client, store, PluginViewerTab, (size) => <IconFile size={size ?? 14} />);
+	}, [client, store, terminalOnly]);
 
 	// -- 拖拽分屏：指针自绘（leaf rect 命中 → 25% 边缘分区） -------------------
 	const [dragTab, setDragTab] = useState<DragState | null>(null);
@@ -192,13 +208,14 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 		[beginPointerDrag, store],
 	);
 
-	// -- Git 状态快照：项目切换 / fs_changed（防抖）/ 主动刷新 ----------------
+	// -- Git 状态快照：项目切换 / fs_changed（防抖）/ 主动刷新（终端底栏用不到） -
 	const refreshGit = useCallback(() => {
+		if (terminalOnly) return;
 		void api
 			.gitStatus(cwd)
 			.then((result) => setGitStatus(result))
 			.catch(() => setGitStatus({ repo: false, entries: [] }));
-	}, [api, cwd]);
+	}, [api, cwd, terminalOnly]);
 
 	useEffect(() => {
 		const offStatus = client.onStatus((connected) => {
@@ -215,8 +232,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 		});
 	}, [store, refreshGit]);
 
-	// -- 桥事件 → store 总线 ---------------------------------------------------
+	// -- 桥事件 → store 总线（终端底栏的 tab 不订阅 fs 变更，跳过） ------------
 	useEffect(() => {
+		if (terminalOnly) return;
 		return client.onSessionEvent((message) => {
 			const event = message.event as { type?: string; cwd?: string; dirs?: unknown };
 			if (event.type !== "fs_changed") return;
@@ -224,7 +242,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 			const dirs = Array.isArray(event.dirs) ? event.dirs.map(String) : [];
 			store.fsChanged(dirs);
 		});
-	}, [client, store, cwd]);
+	}, [client, store, cwd, terminalOnly]);
 
 	// -- 打开文件（viewer 匹配 + 侧边卡片停用回退） ------------------------------
 	const openFile = useCallback(
@@ -242,12 +260,13 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 		[api, cfg, cwd, store, open, onSetOpen],
 	);
 
-	// -- 停用卡片即时收尾：关掉已打开的同类 tab（与 DSH 停用插件关 tab 同语义） -
+	// -- 停用卡片即时收尾：关掉已打开的同类 tab（与 DSH 停用插件关 tab 同语义）；
+	//    顺手清掉装错面板的 tab（旧布局遗留在侧栏里的终端等）
 	useEffect(() => {
 		for (const tab of state.tabs) {
-			if (!isTabKindEnabled(tab.kind, cfg)) store.closeTab(tab.id);
+			if (!kindAllowed(tab.kind)) store.closeTab(tab.id);
 		}
-	}, [cfg, state.tabs, store]);
+	}, [kindAllowed, state.tabs, store]);
 
 	const tabPropsOf = useCallback(
 		(tabId: string): TabComponentProps => ({
@@ -391,10 +410,10 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 						/* 空 leaf：DSH paneEmptyCards 同款卡片（放进当前 leaf） */
 						<div className="owl-workbench-empty grid h-full content-start gap-2.5 overflow-y-auto [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
 							<div className="owl-workbench-empty-heading">
-								<strong>{t("wb.emptyTitle")}</strong>
-								<p>{t("wb.emptyDesc")}</p>
+								<strong>{t(terminalOnly ? "wb.terminalEmptyTitle" : "wb.emptyTitle")}</strong>
+								<p>{t(terminalOnly ? "wb.terminalEmptyDesc" : "wb.emptyDesc")}</p>
 							</div>
-							{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => (
+							{QUICK_ACTIONS.filter((action) => !action.disabled && kindAllowed(action.kind)).map((action) => (
 								<button
 									key={action.kind}
 									type="button"
@@ -421,7 +440,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 								<div
 									key={tab.id}
 									data-tab-kind={tab.kind}
-									className={`owl-workbench-pane ${DESIGNED_TAB_KINDS.has(tab.kind) ? "owl-workbench-designed-pane" : ""} h-full ${isActive ? "" : "hidden"}`}
+									className={`owl-workbench-pane ${DESIGNED_TAB_KINDS.has(tab.kind) ? "owl-workbench-designed-pane" : ""} absolute inset-0 ${isActive ? "" : "hidden"}`}
 								>
 									<Suspense
 										fallback={
@@ -451,8 +470,8 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 			className={`owl-workbench-shell ${open ? "" : "hidden"} relative flex flex-col ${
 				dock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
 			}`}
-			aria-label={developerLayout ? t("app.developerTrigger") : t("wb.workbench")}
-			data-layout={developerLayout ? "developer" : "tools"}
+			aria-label={terminalOnly ? t("start.terminal") : developerLayout ? t("app.developerTrigger") : t("wb.workbench")}
+			data-layout={terminalOnly ? "terminal" : developerLayout ? "developer" : "tools"}
 			data-dock={dock}
 			style={dock === "right" ? { width } : { height }}
 		>
@@ -465,29 +484,38 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 
 			{/* 工作台标题、工具入口与固定停靠操作 */}
 			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
-				<div className="owl-workbench-heading" title={activeTab?.title ?? t("wb.workbench")}>
-					{activeDefinition?.icon(14) ?? <IconPanelRight size={14} />}
-					<span>{developerLayout ? t("app.developerTrigger") : activeTab?.title ?? t("wb.workbench")}</span>
+				<div className="owl-workbench-heading" title={activeTab?.title ?? (terminalOnly ? t("start.terminal") : t("wb.workbench"))}>
+					{activeDefinition?.icon(14) ?? (terminalOnly ? <IconTerminal size={14} /> : <IconPanelRight size={14} />)}
+					<span>{terminalOnly ? activeTab?.title ?? t("start.terminal") : developerLayout ? t("app.developerTrigger") : activeTab?.title ?? t("wb.workbench")}</span>
 				</div>
-				<div className="owl-workbench-shortcuts" aria-label={t("wb.toolsAria")}>
-					{QUICK_ACTIONS.filter((action) => !action.disabled && isTabKindEnabled(action.kind, cfg)).map((action) => {
-						const active = activeTab?.kind === action.kind;
-						return (
-							<button
-								key={action.kind}
-								type="button"
-								title={action.label}
-								aria-label={action.label}
-								className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
-								onClick={() => openQuickAction(store, action.kind)}
-							>
-								{action.icon(15)}
-							</button>
-						);
-					})}
-				</div>
+				{terminalOnly ? (
+					/* 终端底栏：唯一入口是「新建终端」（多实例，可拖拽分屏） */
+					<div className="owl-workbench-shortcuts" aria-label={t("wb.newTerminal")}>
+						<button type="button" title={t("wb.newTerminal")} aria-label={t("wb.newTerminal")} className="owl-workbench-icon-button" onClick={() => openQuickAction(store, "terminal")}>
+							<IconPlus size={15} />
+						</button>
+					</div>
+				) : (
+					<div className="owl-workbench-shortcuts" aria-label={t("wb.toolsAria")}>
+						{QUICK_ACTIONS.filter((action) => !action.disabled && kindAllowed(action.kind)).map((action) => {
+							const active = activeTab?.kind === action.kind;
+							return (
+								<button
+									key={action.kind}
+									type="button"
+									title={action.label}
+									aria-label={action.label}
+									className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
+									onClick={() => openQuickAction(store, action.kind)}
+								>
+									{action.icon(15)}
+								</button>
+							);
+						})}
+					</div>
+				)}
 				<div className="owl-workbench-dock-actions">
-					<button type="button" title={t("wb.closeWorkbench")} aria-label={t("wb.closeWorkbench")} className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
+					<button type="button" title={terminalOnly ? t("wb.closeTerminal") : t("wb.closeWorkbench")} aria-label={terminalOnly ? t("wb.closeTerminal") : t("wb.closeWorkbench")} className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
 						<IconX size={14} />
 					</button>
 				</div>
@@ -506,29 +534,31 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, developer
 				</div>
 			)}
 
-			{/* 状态条：git 分支/仓库 + 桥状态占位（点击打开文件变动页切换仓库） */}
-			<div className="owl-workbench-status">
-				{gitStatus === undefined ? (
-					<IconLoader size={10} className="animate-spin" />
-				) : gitStatus.repo ? (
-					<button
-						type="button"
-						title={t("dev.changes")}
-						className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
-						onClick={() => openQuickAction(store, "changes")}
-					>
-						<IconGitBranch size={10} />
-						<span className="truncate">
-							{gitStatus.repos !== undefined && gitStatus.repos.length > 1
-								? t("wb.gitRepos", { n: gitStatus.repos.length })
-								: gitStatus.branch ?? "HEAD"}
-						</span>
-						<span className="ml-auto shrink-0">{t("wb.gitChanges", { n: gitStatus.entries.length })}</span>
-					</button>
-				) : (
-					<span>{t("wb.notGitRepo")}</span>
-				)}
-			</div>
+			{/* 状态条：git 分支/仓库 + 桥状态占位（点击打开文件变动页切换仓库）；终端底栏不显示 */}
+			{!terminalOnly && (
+				<div className="owl-workbench-status">
+					{gitStatus === undefined ? (
+						<IconLoader size={10} className="animate-spin" />
+					) : gitStatus.repo ? (
+						<button
+							type="button"
+							title={t("dev.changes")}
+							className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
+							onClick={() => openQuickAction(store, "changes")}
+						>
+							<IconGitBranch size={10} />
+							<span className="truncate">
+								{gitStatus.repos !== undefined && gitStatus.repos.length > 1
+									? t("wb.gitRepos", { n: gitStatus.repos.length })
+									: gitStatus.branch ?? "HEAD"}
+							</span>
+							<span className="ml-auto shrink-0">{t("wb.gitChanges", { n: gitStatus.entries.length })}</span>
+						</button>
+					) : (
+						<span>{t("wb.notGitRepo")}</span>
+					)}
+				</div>
+			)}
 		</aside>
 	);
 }

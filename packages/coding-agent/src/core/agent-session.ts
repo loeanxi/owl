@@ -32,6 +32,7 @@ import {
 	type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import { contentText, getCurrentSystemMessage } from "@earendil-works/pi-ai";
+import { capThinkingLevelForOutput } from "@earendil-works/pi-ai/api/simple-options";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -54,6 +55,7 @@ import {
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { CODEMODE_TOOL_NAME } from "../extensions/codemode/tool.ts";
+import { preloadToolsForUserText } from "../extensions/tool-search/tool.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
@@ -67,6 +69,7 @@ import {
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
+	compactionContextWindow,
 	estimateContextBreakdown,
 	estimateContextTokens,
 	estimateProjectedContextTokens,
@@ -110,6 +113,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
+import { resolveHarnessModel } from "./harness-model.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
@@ -554,6 +558,43 @@ export class AgentSession {
 		throw new Error(formatNoApiKeyFoundMessage(model.provider));
 	}
 
+	/**
+	 * Auth for a compaction summary. Uses owlHarnessModel when it resolves, with low thinking
+	 * so the summary itself keeps room. Auth failure or an unknown id falls back to `sessionModel`.
+	 */
+	private async _compactionSummaryRequest(
+		sessionModel: Model<any>,
+		signal: AbortSignal,
+	): Promise<{
+		model: Model<any>;
+		apiKey?: string;
+		headers?: Record<string, string>;
+		env?: Record<string, string>;
+		thinkingLevel: ThinkingLevel;
+	}> {
+		const harness = resolveHarnessModel(
+			this.settingsManager.getOwlHarnessModel(),
+			(provider, modelId) => this._modelRuntime.getModel(provider, modelId),
+			sessionModel,
+		);
+		if (harness.provider === sessionModel.provider && harness.id === sessionModel.id) {
+			return this._getSummarizationRequestAuth(sessionModel, signal);
+		}
+		try {
+			const request = await this._getSummarizationRequestAuth(harness, signal);
+			return {
+				...request,
+				thinkingLevel: this._capRequestThinking(
+					clampThinkingLevel(request.model, "low") as ThinkingLevel,
+					request.model,
+				),
+			};
+		} catch (error) {
+			if (signal.aborted) throw error;
+			return this._getSummarizationRequestAuth(sessionModel, signal);
+		}
+	}
+
 	private async _getSummarizationRequestAuth(
 		selectedModel: Model<any>,
 		signal?: AbortSignal,
@@ -748,12 +789,18 @@ export class AgentSession {
 		return this._nestedToolCalls.execute(parentToolCallId, name, args, options);
 	}
 
+	/** Keep the user's thinking selection, but don't let it consume a small output budget. */
+	private _capRequestThinking(level: ThinkingLevel, model: Model<any>): ThinkingLevel {
+		return capThinkingLevelForOutput(level, model.maxTokens);
+	}
+
 	/** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
 	private _exceedsCompactionThreshold(model: Model<any>, projection: SessionProjection): boolean {
-		if (model.contextWindow <= 0) return false;
+		const contextWindow = compactionContextWindow(model);
+		if (contextWindow <= 0) return false;
 		return shouldCompact(
 			estimateProjectedContextTokens(projection, this.sessionManager.getBranch()).tokens,
-			model.contextWindow,
+			contextWindow,
 			this.settingsManager.getCompactionSettings(this.model),
 		);
 	}
@@ -796,7 +843,9 @@ export class AgentSession {
 			let { previous, context, projection } = await prepare();
 			const model = previous?.model ?? this.agent.state.model;
 			const thinkingLevel = previous?.thinkingLevel ?? this.agent.state.thinkingLevel;
-			if (!isVirtualModel(model)) return { ...previous, context, model, thinkingLevel };
+			if (!isVirtualModel(model)) {
+				return { ...previous, context, model, thinkingLevel: this._capRequestThinking(thinkingLevel, model) };
+			}
 
 			// The selection stays in agent state; only this request uses the routed model. A routing
 			// failure rejects, which ends the run with an error response. Only messages the user wrote
@@ -824,7 +873,12 @@ export class AgentSession {
 				await this._runAutoCompaction("threshold", false);
 				({ previous, context } = await prepare());
 			}
-			return { ...previous, context, model: route.model, thinkingLevel: route.thinkingLevel };
+			return {
+				...previous,
+				context,
+				model: route.model,
+				thinkingLevel: this._capRequestThinking(route.thinkingLevel ?? thinkingLevel, route.model),
+			};
 		};
 	}
 
@@ -2016,6 +2070,25 @@ export class AgentSession {
 				(name) => selectionCeiling.has(name) && activeAfterHooks.has(name),
 			);
 		}
+		// On-demand sessions keep the startup ceiling during hooks. After that, preload tools whose
+		// metadata matches this user message so the first request already declares them.
+		if (this._toolActivation === "on-demand") {
+			const preloaded = preloadToolsForUserText(
+				{
+					getAllTools: () => this.getAllTools(),
+					getActiveTools: () => this.getActiveToolNames(),
+					setActiveTools: (names) => this.setActiveToolsByName(names),
+				},
+				expandedText,
+			);
+			if (preloaded) {
+				for (const name of preloaded.loaded) {
+					if (!result.systemPromptOptions.selectedTools.includes(name)) {
+						result.systemPromptOptions.selectedTools.push(name);
+					}
+				}
+			}
+		}
 
 		const normalized = await this._normalizePromptImages(currentImages);
 		const userText = normalized.hints.length > 0 ? `${expandedText}\n\n${normalized.hints.join("\n")}` : expandedText;
@@ -2281,6 +2354,20 @@ export class AgentSession {
 		this._refreshFinalizedContext();
 		this._emit({ type: "message_start", message: appMessage });
 		this._emit({ type: "message_end", message: appMessage });
+	}
+
+	/**
+	 * 续跑被暂停的回合：注入一条隐藏 custom 消息（display:false）并触发新回合。
+	 * 模型按 user 角色收到续跑指令，带着被中断的完整上下文从断点接着做；转录里
+	 * 落的是 custom_message 条目而非用户消息，界面端不渲染它——继续对用户无感。
+	 * 相比 agent.continue()，这条路径不要求末条消息是 user/toolResult：中止后
+	 * 末条消息常是被中断的 assistant 回复，custom 消息补在它后面即合法序列。
+	 */
+	async resumeAfterPause(message: string): Promise<void> {
+		await this.sendCustomMessage(
+			{ customType: "owl.resume", content: message, display: false },
+			{ triggerTurn: true },
+		);
 	}
 
 	/**
@@ -2662,7 +2749,8 @@ export class AgentSession {
 		reason: "manual" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
 		// Resolve the request only when Pi summarizes itself: routing may call models or fail.
-		const request = await this._getSummarizationRequestAuth(model, signal);
+		// A configured harness model writes the summary; the session model still decides when to compact.
+		const request = await this._compactionSummaryRequest(model, signal);
 		return compact(
 			preparation,
 			request.model,

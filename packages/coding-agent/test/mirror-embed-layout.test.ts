@@ -3,7 +3,6 @@ import {
 	clampFloatRect,
 	computeLayout,
 	containRect,
-	type EmbedMode,
 	embedStyle,
 	hideRect,
 	restoreStyle,
@@ -67,11 +66,9 @@ describe("超高窗口的顶对齐", () => {
 		expect(rect.y).toBe(0);
 		expect(rect.x).toBeGreaterThanOrEqual(0);
 	});
-	it("computeLayout sidebar 同样顶对齐（高度下发 contain 值，容器自行钳制）", () => {
+	it("computeLayout sidebar 铺满舞台", () => {
 		const rect = computeLayout("sidebar", { width: 418, height: 630 }, 1, { width: 568, height: 963 });
-		expect(rect.y).toBe(0);
-		expect(rect.height).toBe(630);
-		expect(rect.width).toBeLessThanOrEqual(418);
+		expect(rect).toEqual({ x: 0, y: 0, width: 418, height: 630 });
 	});
 });
 
@@ -118,13 +115,13 @@ describe("computeLayout（三形态）", () => {
 	const dpr = 1;
 	const win = { width: 568, height: 920 };
 
-	it("sidebar/expand：contain 居中（物理坐标）", () => {
-		for (const mode of ["sidebar", "expand"] as EmbedMode[]) {
-			const rect = computeLayout(mode, stage, dpr, win);
-			const expected = containRect(stage.width, stage.height, win.width, win.height);
-			expect(rect.width).toBe(expected.width);
-			expect(rect.height).toBe(expected.height);
-		}
+	it("sidebar 铺满舞台，expand 仍然 contain", () => {
+		const sidebar = computeLayout("sidebar", stage, dpr, win);
+		expect(sidebar).toEqual({ x: 0, y: 0, width: stage.width, height: stage.height });
+		const expand = computeLayout("expand", stage, dpr, win);
+		const expected = containRect(stage.width, stage.height, win.width, win.height);
+		expect(expand.width).toBe(expected.width);
+		expect(expand.height).toBe(expected.height);
 	});
 
 	it("float：使用用户给的悬浮矩形并夹取到界内", () => {
@@ -141,9 +138,8 @@ describe("computeLayout（三形态）", () => {
 		expect(rect.height).toBe(expected.height);
 	});
 
-	it("dpr>1 时输出物理像素", () => {
+	it("dpr>1 时侧栏输出铺满的物理像素", () => {
 		const rect = computeLayout("sidebar", { width: 432, height: 704 }, 1.5, win);
-		const css = containRect(432, 704, win.width, win.height);
-		expect(rect.width).toBe(css.width * 1.5);
+		expect(rect).toEqual({ x: 0, y: 0, width: 648, height: 1056 });
 	});
 });

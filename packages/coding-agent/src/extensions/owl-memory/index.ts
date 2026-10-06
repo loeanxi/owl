@@ -16,6 +16,7 @@
 import { Type } from "typebox";
 import { getAgentDir } from "../../config.ts";
 import type { ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
+import { resolveHarnessModel } from "../../core/harness-model.ts";
 import { consolidateMemories, extractMemoriesFromPreviousSessions } from "../../core/memory/extract.ts";
 import {
 	appendMemoryEntries,
@@ -30,6 +31,18 @@ import { MEMORY_WRITE_GUIDANCE, memoryWriteDenial } from "../../core/memory/writ
 
 function memoryEnabled(pi: Parameters<ExtensionFactory>[0]): boolean {
 	return pi.getSettings().owlMemory?.enabled !== false;
+}
+
+function memoryModel<T>(
+	pi: Parameters<ExtensionFactory>[0],
+	registry: { find(provider: string, modelId: string): T | undefined },
+	fallback: T,
+): T {
+	return resolveHarnessModel(
+		pi.getSettings().owlHarnessModel,
+		(provider, modelId) => registry.find(provider, modelId),
+		fallback,
+	);
 }
 
 function renderEntryList(agentDir: string, cwd: string): string {
@@ -203,7 +216,7 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 					return;
 				}
 				if (sub === "merge" || sub === "归并") {
-					const model = ctx?.model;
+					const model = ctx?.model ? memoryModel(pi, ctx.modelRegistry, ctx.model) : undefined;
 					if (!model) {
 						pi.sendMessage(
 							{
@@ -251,8 +264,9 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 		let extractionStarted = false;
 		pi.on("agent_start", (_event, ctx) => {
 			if (extractionStarted || !memoryEnabled(pi)) return;
-			const model = ctx.model;
-			if (!model) return;
+			const sessionModel = ctx.model;
+			if (!sessionModel) return;
+			const model = memoryModel(pi, ctx.modelRegistry, sessionModel);
 			extractionStarted = true;
 			const agentDir = getAgentDir();
 			void extractMemoriesFromPreviousSessions({

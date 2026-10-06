@@ -12,7 +12,7 @@
 # UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin', 'movewin')]
+  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin', 'movewin', 'host')]
   [string]$Command,
 
   [long]$Hwnd = 0,
@@ -26,7 +26,12 @@ param(
   [int]$Quality = 70,
   [int]$MaxWidth = 1280,
   [int]$FrameTimeoutMs = 1500,
-  [switch]$NoAutoRestore
+  [switch]$NoAutoRestore,
+  # 侧栏形态：吃掉最小化（清 WS_MINIMIZEBOX）。放大/悬浮不传，保持「最小化后拉回」。
+  [switch]$SwallowMinimize,
+  # 再次 embed 时带回第一次读到的原始样式（含 WS_POPUP 高位），避免用已改过的样式覆盖。
+  [switch]$HasBaseStyle,
+  [long]$BaseStyle = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,6 +68,10 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern IntPtr GetSystemMenu(IntPtr hWnd, bool bRevert);
+    [DllImport("user32.dll")] public static extern bool DeleteMenu(IntPtr hMenu, uint uPosition, uint uFlags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
@@ -97,6 +106,7 @@ public static class OwlMirrorWin32 {
 
     [DllImport("user32.dll")] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
     [DllImport("user32.dll", EntryPoint = "SetParent", SetLastError = true)] public static extern IntPtr SetParentRaw(IntPtr child, IntPtr parent);
     [DllImport("kernel32.dll")] public static extern void SetLastError(uint e);
 
@@ -111,7 +121,481 @@ public static class OwlMirrorWin32 {
     }
 
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+    [DllImport("user32.dll")] public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool redraw);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+    public static bool LeftButtonDown() { return (GetAsyncKeyState(1) & 0x8000) != 0; }
+
+    // 侧栏里裁掉红果自己画的标题条（最小化/最大化在那一条上）。返回 0 表示不裁。
+    public const int SidebarChrome = 40;
+    public static void ClipSidebarChrome(IntPtr hwnd, int width, int height, bool redraw) {
+        if (width < 80 || height <= SidebarChrome) {
+            SetWindowRgn(hwnd, IntPtr.Zero, redraw);
+            return;
+        }
+        IntPtr rgn = CreateRectRgn(0, SidebarChrome, width, height);
+        SetWindowRgn(hwnd, rgn, redraw);
+    }
+    public static void ClearClip(IntPtr hwnd) {
+        SetWindowRgn(hwnd, IntPtr.Zero, true);
+    }
+
+    // 红果窗口里真正的画面。上面 40px 是「红果免费短剧」标题，左边 4px 是边，
+    // 右边 62px 是应用宝自己的按钮条。侧栏只露画面，这三块裁掉。
+    public const int ContentLeft = 4;
+    public const int ContentTop = 40;
+    public const int ContentRight = 62;
+    public const int ContentBottom = 0;
+
+    [DllImport("gdi32.dll")] public static extern int GetRgnBox(IntPtr rgn, out RECT rect);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll")] public static extern int GetWindowRgn(IntPtr hwnd, IntPtr rgn);
+
+    public static int ClipContent(IntPtr hwnd, int left, int top, int right, int bottom) {
+        if (right - left < 80 || bottom - top < 80) {
+            SetWindowRgn(hwnd, IntPtr.Zero, false);
+            return 0;
+        }
+        IntPtr rgn = CreateRectRgn(left, top, right, bottom);
+        return SetWindowRgn(hwnd, rgn, true);
+    }
+
+    public static bool ContentClipOk(IntPtr hwnd, int left, int top, int right, int bottom) {
+        IntPtr probe = CreateRectRgn(0, 0, 0, 0);
+        int kind = GetWindowRgn(hwnd, probe);
+        RECT box;
+        GetRgnBox(probe, out box);
+        DeleteObject(probe);
+        if (kind < 2) return false;
+        return Math.Abs(box.Left - left) <= 2 && Math.Abs(box.Top - top) <= 2
+            && Math.Abs(box.Right - right) <= 2 && Math.Abs(box.Bottom - bottom) <= 2;
+    }
+
+    // 铺满窗口的是容器。真正的画面是更小的那一块（播放器会在容器里居中，四周是空白）。
+    public static bool TrySurface(IntPtr hwnd, out int left, out int top, out int right, out int bottom) {
+        left = ContentLeft;
+        top = ContentTop;
+        right = 0;
+        bottom = 0;
+        RECT root;
+        if (!GetWindowRect(hwnd, out root)) return false;
+        int rw = root.Right - root.Left;
+        int rh = root.Bottom - root.Top;
+        int best = int.MaxValue;
+        int bl = 0, bt = 0, br = 0, bb = 0;
+        bool found = false;
+        EnumChildWindows(hwnd, (child, l) => {
+            RECT r;
+            if (!GetWindowRect(child, out r)) return true;
+            int x = r.Left - root.Left;
+            int y = r.Top - root.Top;
+            int w = r.Right - r.Left;
+            int h = r.Bottom - r.Top;
+            if (w < 200 || h < 120 || x < -10 || y < -10) return true;
+            int area = w * h;
+            if (area < best) { best = area; bl = x; bt = y; br = x + w; bb = y + h; found = true; }
+            return true;
+        }, IntPtr.Zero);
+        if (!found) return false;
+        if ((br - bl) > rw - 30 && (bb - bt) > rh - 30) {
+            left = ContentLeft;
+            top = ContentTop;
+            right = rw - ContentRight;
+            bottom = rh;
+            return right - left >= 80 && bottom - top >= 80;
+        }
+        left = bl;
+        top = bt;
+        right = br;
+        bottom = bb;
+        return true;
+    }
+
+    static int lastStageW = -1;
+    static int lastStageH = -1;
+
+    // 不再拉子窗口。Qt 自己排版，强行 SetWindowPos 会把底栏画成两层。
+    public static void StretchToContent(IntPtr root, int contentX, int contentY, int contentW, int contentH) {
+    }
+
+    // 舞台必须落在 Owl 窗口里面。Owl 藏起来、最小化，或舞台超出窗口时，
+    // 红果不能留在桌面壁纸上。
+    public static bool StageInsideOwner(IntPtr owner, int sx, int sy, int sw, int sh) {
+        if (owner == IntPtr.Zero || !IsWindow(owner) || !IsWindowVisible(owner) || IsIconic(owner)) return false;
+        if (sw < 80 || sh < 80) return false;
+        RECT o;
+        if (!GetWindowRect(owner, out o)) return false;
+        PT origin = new PT();
+        origin.X = 0;
+        origin.Y = 0;
+        if (!ClientToScreen(owner, ref origin)) return false;
+        int l = origin.X + sx;
+        int t = origin.Y + sy;
+        int r = l + sw;
+        int b = t + sh;
+        return l >= o.Left - 8 && t >= o.Top - 8 && r <= o.Right + 8 && b <= o.Bottom + 8;
+    }
+
+    // stage 是侧栏里要露出的区域。标题和右侧按钮条裁掉，画面拉满这块区域。
+    public static int PlaceStage(IntPtr hwnd, IntPtr owner, int sx, int sy, int sw, int sh) {
+        int sl = ContentLeft;
+        // 拖动 Owl 时先用上次的黑边立刻跟着走。停稳后再量，避免每一拍都卡住。
+        PT followOrigin = new PT();
+        followOrigin.X = 0;
+        followOrigin.Y = 0;
+        bool originOk = ClientToScreen(owner, ref followOrigin);
+        bool ownerMoved = !originOk || followOrigin.X != followOriginX || followOrigin.Y != followOriginY;
+        bool stageChanged = sw != lastStageW || sh != lastStageH;
+        if (ownerMoved) {
+            followOriginX = followOrigin.X;
+            followOriginY = followOrigin.Y;
+            // 只是 Owl 在动、侧栏尺寸没变：用上一拍的位置跟着走，不要重算。
+            if (hasApplied && !stageChanged) {
+                PlaceOwned(hwnd, owner, appliedX, appliedY, appliedW, appliedH, true);
+                return 0;
+            }
+        }
+        if (stageChanged) {
+            lastStageW = sw;
+            lastStageH = sh;
+        }
+        int ox = ContentLeft, oy = ContentTop, cw = sw, ch = sh;
+        IntPtr player = LargestChild(hwnd);
+        if (player != IntPtr.Zero) {
+            RECT rootNow, childNow;
+            if (GetWindowRect(hwnd, out rootNow) && GetWindowRect(player, out childNow)) {
+                ox = childNow.Left - rootNow.Left;
+                oy = childNow.Top - rootNow.Top;
+                cw = childNow.Right - childNow.Left;
+                ch = childNow.Bottom - childNow.Top;
+            }
+        }
+        // 父窗口不要再往子窗口底下画一遍，否则侧栏里会叠出两层画面。
+        if (!repairedChild && player != IntPtr.Zero && !LeftButtonDown()) {
+            long style = GetStyle(hwnd);
+            if ((style & 0x02000000L) == 0) SetStyle(hwnd, style | 0x02000000L);
+            RECT client;
+            if (GetClientRect(hwnd, out client) && client.Right > 200 && client.Bottom > 200) {
+                SetWindowPos(player, IntPtr.Zero, 0, 0, client.Right, client.Bottom, 0x10 | 0x4 | 0x400);
+            }
+            repairedChild = true;
+        }
+        if (cw < 160 || ch < 160) { cw = sw; ch = sh; ox = ContentLeft; oy = ContentTop; }
+        // 子窗口最上面一截是应用宝标题和最小化按钮，不放进侧栏。
+        if (ch > 200) { oy += 36; ch -= 36; }
+        int viewW = cw < sw ? cw : sw;
+        int viewH = ch < sh ? ch : sh;
+        int stagePadX = (sw - viewW) / 2;
+        int stagePadY = (sh - viewH) / 2;
+        int childPadX = (cw - viewW) / 2;
+        int childPadY = (ch - viewH) / 2;
+        int x = sx + stagePadX - childPadX - ox;
+        int y = sy + stagePadY - childPadY - oy;
+        sl = ox + childPadX;
+        int st = oy + childPadY;
+        int sr = sl + viewW;
+        int sb = st + viewH;
+        // 窗口只要露出来的那一块。再往下留一截，父窗口会把底栏再画一遍。
+        int w = sr;
+        int h = sb;
+        if (w < 80) w = 80;
+        if (h < 80) h = 80;
+        // 窗口矩形本身不能伸出 Owl。裁切区域外面的边框仍会画到壁纸上。
+        RECT ownerRect;
+        PT origin = new PT();
+        origin.X = 0;
+        origin.Y = 0;
+        if (GetWindowRect(owner, out ownerRect) && ClientToScreen(owner, ref origin)) {
+            int winL = origin.X + x;
+            int winT = origin.Y + y;
+            int winR = winL + w;
+            int winB = winT + h;
+            int cutL = Math.Max(0, (ownerRect.Left + 1) - winL);
+            int cutT = Math.Max(0, (ownerRect.Top + 1) - winT);
+            int cutR = Math.Max(0, winR - (ownerRect.Right - 1));
+            int cutB = Math.Max(0, winB - (ownerRect.Bottom - 1));
+            if (w - cutL - cutR >= 80 && h - cutT - cutB >= 80) {
+                x += cutL;
+                y += cutT;
+                w -= cutL + cutR;
+                h -= cutT + cutB;
+                sl -= cutL;
+                st -= cutT;
+                sr -= cutL;
+                sb -= cutT;
+                if (sl < 0) sl = 0;
+                if (st < 0) st = 0;
+                if (sr > w) sr = w;
+                if (sb > h) sb = h;
+            }
+        }
+        // 鼠标正按在画面上时先别动。这一拍如果挪窗口，按下和松开就对不上，按钮没反应。
+        if (!(LeftButtonDown() && CursorOver(hwnd))) {
+            if (!IsPlacedAt(hwnd, owner, x, y, w, h) || !ContentClipOk(hwnd, sl, st, sr, sb)) {
+                int err = PlaceOwned(hwnd, owner, x, y, w, h, true);
+                if (err != 0) return err;
+                ClipContent(hwnd, sl, st, sr, sb);
+                SuppressFrame(hwnd);
+            }
+            SyncQtSize(hwnd, w, h);
+            appliedX = x;
+            appliedY = y;
+            appliedW = w;
+            appliedH = h;
+            hasApplied = true;
+        }
+        return 0;
+    }
+
+    static bool repairedChild = false;
+
+    static IntPtr LargestChild(IntPtr root) {
+        IntPtr child = GetWindow(root, 5);
+        IntPtr best = IntPtr.Zero;
+        int bestArea = 0;
+        while (child != IntPtr.Zero) {
+            RECT r;
+            if (GetWindowRect(child, out r)) {
+                int w = r.Right - r.Left;
+                int h = r.Bottom - r.Top;
+                if (w >= 160 && h >= 120 && w * h > bestArea) {
+                    bestArea = w * h;
+                    best = child;
+                }
+            }
+            child = GetWindow(child, 2);
+        }
+        return best;
+    }
+
+    static bool cardOk = false;
+    static int cardL, cardT, cardR, cardB;
+    static int seenL, seenT, seenR, seenB, seenN;
+
+    static bool NearCard(int l, int t, int r, int b, int ll, int tt, int rr, int bb) {
+        return Math.Abs(l - ll) <= 12 && Math.Abs(t - tt) <= 12 && Math.Abs(r - rr) <= 12 && Math.Abs(b - bb) <= 12;
+    }
+
+    // 播放器卡片是一大块深色区域。应用宝的标题和工具条是旁边的白底，不放进这块。
+    static void ConsiderCard(IntPtr hwnd) {
+        RECT wr;
+        if (!GetWindowRect(hwnd, out wr)) return;
+        int w = wr.Right - wr.Left;
+        int h = wr.Bottom - wr.Top;
+        if (w < 200 || h < 200) return;
+        if (!PointIsOurs(hwnd, wr.Left + w / 2, wr.Top + h / 2)) return;
+        IntPtr dc = GetDC(IntPtr.Zero);
+        if (dc == IntPtr.Zero) return;
+        int top = -1, bot = -1, left = w, right = 0;
+        for (int y = 36; y < h - 8; y += 16) {
+            int bestL = -1, bestR = -1, best = 0;
+            int runL = -1, last = -1;
+            int sy = wr.Top + y;
+            for (int x = 8; x < w - 8; x += 16) {
+                uint px = GetPixel(dc, wr.Left + x, sy);
+                int lum = (int)((px & 0xFF) * 30 + ((px >> 8) & 0xFF) * 59 + ((px >> 16) & 0xFF) * 11) / 100;
+                // 白底是应用宝的标题和工具条。播放器本身不是这块白。
+                bool ink = lum < 210;
+                if (ink) {
+                    if (runL < 0) runL = x;
+                    last = x;
+                } else if (runL >= 0 && x - last > 28) {
+                    int len = last - runL;
+                    if (len > best) { best = len; bestL = runL; bestR = last; }
+                    runL = -1;
+                }
+            }
+            if (runL >= 0) {
+                int len = last - runL;
+                if (len > best) { best = len; bestL = runL; bestR = last; }
+            }
+            if (best >= 240) {
+                if (top < 0) top = y;
+                bot = y;
+                if (bestL < left) left = bestL;
+                if (bestR > right) right = bestR;
+            }
+        }
+        ReleaseDC(IntPtr.Zero, dc);
+        if (top < 0 || right - left < 220 || bot - top < 160) return;
+        if (right - left > w - 80 && bot - top > h - 80) return;
+        if (seenN > 0 && NearCard(left, top, right, bot, seenL, seenT, seenR, seenB)) seenN++;
+        else { seenL = left; seenT = top; seenR = right; seenB = bot; seenN = 1; }
+        if (seenN >= 2 && (!cardOk || !NearCard(left, top, right, bot, cardL, cardT, cardR, cardB))) {
+            cardL = left;
+            cardT = top;
+            cardR = right;
+            cardB = bot;
+            cardOk = true;
+            seenN = 0;
+        }
+    }
+
+    static int pendingSyncW = -1;
+    static int pendingSyncH = -1;
+    static int syncedW = -1;
+    static int syncedH = -1;
+    static int sizeStill = 0;
+
+    // 尺寸停稳后再告诉 Qt 一次。NOSENDCHANGING 让 Qt 还记着旧大小，按钮就点偏。
+    // 只发一次，不在每拍里发，否则画面会被重新居中。
+    static void SyncQtSize(IntPtr hwnd, int w, int h) {
+        if (w != pendingSyncW || h != pendingSyncH) {
+            pendingSyncW = w;
+            pendingSyncH = h;
+            sizeStill = 0;
+            return;
+        }
+        if (sizeStill < 40) sizeStill++;
+        if (sizeStill < 12 || (syncedW == w && syncedH == h) || LeftButtonDown()) return;
+        PostMessage(hwnd, 0x0232, IntPtr.Zero, IntPtr.Zero); // WM_EXITSIZEMOVE
+        IntPtr child = GetWindow(hwnd, 5); // GW_CHILD
+        if (child != IntPtr.Zero) {
+            RECT client;
+            if (GetClientRect(child, out client)) {
+                int packed = (client.Right & 0xFFFF) | ((client.Bottom & 0xFFFF) << 16);
+                PostMessage(child, 0x0005, IntPtr.Zero, new IntPtr(packed)); // WM_SIZE，让按钮按新尺寸重排
+            }
+        }
+        syncedW = w;
+        syncedH = h;
+    }
+
+    static bool CursorOver(IntPtr hwnd) {
+        PT cursor;
+        if (!GetCursorPos(out cursor)) return false;
+        return PointIsOurs(hwnd, cursor.X, cursor.Y);
+    }
+    [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    public static void SuppressFrame(IntPtr hwnd) {
+        int policy = 1; // DWMNCRP_DISABLED
+        DwmSetWindowAttribute(hwnd, 2, ref policy, 4);
+        int corner = 1; // DWMWCP_DONOTROUND
+        DwmSetWindowAttribute(hwnd, 33, ref corner, 4);
+        int none = -2; // DWMWA_COLOR_NONE
+        DwmSetWindowAttribute(hwnd, 34, ref none, 4);
+    }
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(PT point);
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr dc);
+    [DllImport("gdi32.dll")] public static extern uint GetPixel(IntPtr dc, int x, int y);
+    static int cachedLetterbox = 0;
+    static int pendingInset = -1;
+    static int pendingCount = 0;
+    static int followOriginX = int.MinValue;
+    static int followOriginY = int.MinValue;
+    static int appliedX, appliedY, appliedW, appliedH;
+    static bool hasApplied = false;
+
+    static bool PointIsOurs(IntPtr hwnd, int x, int y) {
+        PT hitAt = new PT();
+        hitAt.X = x;
+        hitAt.Y = y;
+        IntPtr hit = WindowFromPoint(hitAt);
+        for (int i = 0; i < 8 && hit != IntPtr.Zero; i++) {
+            if (hit == hwnd) return true;
+            hit = GetParent(hit);
+        }
+        return false;
+    }
+
+    // 鼠标停在红果上、并且当前正在用 Owl 时，先把红果激活。
+    // 不激活的话，应用宝会丢掉按下的那一下，按钮看起来就没反应。
+    static bool BelongsTo(IntPtr root, IntPtr hwnd) {
+        IntPtr walk = hwnd;
+        for (int i = 0; i < 10 && walk != IntPtr.Zero; i++) {
+            if (walk == root) return true;
+            IntPtr parent = GetParent(walk);
+            if (parent == walk) break;
+            walk = parent;
+        }
+        return false;
+    }
+
+    public static void ActivateIfPressed(IntPtr hwnd, IntPtr owner) {
+        // 按下的过程中再抢前台，这一下点击就丢了。
+        if (LeftButtonDown()) return;
+        PT cursor;
+        if (!GetCursorPos(out cursor)) return;
+        if (!PointIsOurs(hwnd, cursor.X, cursor.Y)) return;
+        IntPtr fg = GetForegroundWindow();
+        if (fg == hwnd || BelongsTo(hwnd, fg)) return;
+        bool owlFocused = fg == owner;
+        IntPtr walk = fg;
+        for (int i = 0; i < 8 && walk != IntPtr.Zero && !owlFocused; i++) {
+            if (walk == owner) owlFocused = true;
+            walk = GetParent(walk);
+        }
+        if (!owlFocused) return;
+        SetForegroundWindow(hwnd);
+    }
+
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out PT point);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    // 播放页会在画面上方留一大块纯黑。量到这块黑，后面把画面居中。
+    public static int LetterboxTop(IntPtr hwnd, IntPtr owner, int contentLeft, int contentTop, int contentW, int contentH) {
+        RECT wr;
+        if (!GetWindowRect(hwnd, out wr)) return cachedLetterbox;
+        IntPtr dc = GetDC(IntPtr.Zero);
+        if (dc == IntPtr.Zero) return cachedLetterbox;
+        int inset = 0;
+        bool sawOurs = false;
+        bool foundBright = false;
+        // 竖屏侧栏里，横屏播放页的黑边经常超过一半高度。最多裁到还剩 160 像素画面。
+        // 只抽三列、隔行取样。整屏逐点量会把跟随拖成一秒一跳。
+        int limit = contentH - 160;
+        if (limit < 80) limit = 80;
+        int xLeft = 24;
+        int xMid = contentW / 2;
+        int xRight = contentW - 24;
+        if (xRight < xLeft) xRight = xLeft;
+        for (int y = 0; y < limit; y += 8) {
+            int dark = 0;
+            int n = 0;
+            int sy = wr.Top + contentTop + y;
+            int[] xs = new int[] { xLeft, xMid, xRight };
+            for (int i = 0; i < xs.Length; i++) {
+                int sx = wr.Left + contentLeft + xs[i];
+                if (!PointIsOurs(hwnd, sx, sy)) continue;
+                sawOurs = true;
+                uint px = GetPixel(dc, sx, sy);
+                int lum = (int)((px & 0xFF) * 30 + ((px >> 8) & 0xFF) * 59 + ((px >> 16) & 0xFF) * 11) / 100;
+                if (lum < 14) dark++;
+                n++;
+            }
+            if (n == 0) continue;
+            if (dark * 100 / n < 85) { inset = y; foundBright = true; break; }
+        }
+        ReleaseDC(IntPtr.Zero, dc);
+        if (!sawOurs) return cachedLetterbox;
+        if (!foundBright) inset = limit;
+        int next = cachedLetterbox;
+        if (inset >= 80) next = inset;
+        else if (inset < 24) next = 0;
+        if (next == cachedLetterbox) {
+            pendingInset = -1;
+            pendingCount = 0;
+            return cachedLetterbox;
+        }
+        if (next == pendingInset) pendingCount++;
+        else { pendingInset = next; pendingCount = 1; }
+        // 连着几拍读数一样才改裁切。单次亮暗变化会把窗口从按钮底下挪走。
+        if (pendingCount >= 4) {
+            cachedLetterbox = next;
+            pendingInset = -1;
+            pendingCount = 0;
+        }
+        return cachedLetterbox;
+    }
+
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll", EntryPoint = "SetWindowPos", SetLastError = true)] public static extern bool SetWindowPosErr(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("advapi32.dll", SetLastError = true)] public static extern bool OpenProcessToken(IntPtr proc, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)] public static extern bool GetTokenInformation(IntPtr token, int cls, byte[] buf, int len, out int ret);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int index, IntPtr value);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] public static extern int SetWindowLong32(IntPtr hWnd, int index, int value);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int index);
@@ -121,9 +605,11 @@ public static class OwlMirrorWin32 {
     public static readonly long WS_CHILD = 0x40000000L;
     public static readonly long WS_CAPTION = 0x00C00000L;
     public static readonly long WS_THICKFRAME = 0x00040000L;
+    public static readonly long WS_MINIMIZEBOX = 0x00020000L;
 
     public static long GetStyle(IntPtr hwnd) {
-        return IntPtr.Size == 8 ? GetWindowLongPtr64(hwnd, GWL_STYLE).ToInt64() : GetWindowLong32(hwnd, GWL_STYLE);
+        long raw = IntPtr.Size == 8 ? GetWindowLongPtr64(hwnd, GWL_STYLE).ToInt64() : GetWindowLong32(hwnd, GWL_STYLE);
+        return raw & 0xFFFFFFFFL;
     }
 
     public static void SetStyle(IntPtr hwnd, long style) {
@@ -131,9 +617,24 @@ public static class OwlMirrorWin32 {
         else SetWindowLong32(hwnd, GWL_STYLE, (int)style);
     }
 
-    // 去头：清 caption/thickframe，补 WS_CHILD（SetParent 不会自动设，缺位有焦点怪癖）
-    public static long EmbedStyle(long style) {
-        return style & ~(WS_CAPTION | WS_THICKFRAME);
+    // 侧栏去掉标题栏和可调边框，窗口锁在侧栏框里。悬浮才留下边框，方便拉大小。
+    public static long EmbedStyle(long style, bool sidebar) {
+        long next = style & ~WS_CAPTION;
+        if (sidebar) return next & ~WS_THICKFRAME;
+        return next | WS_THICKFRAME;
+    }
+
+    public static long WithoutMinimizeBox(long style) {
+        return style & ~WS_MINIMIZEBOX;
+    }
+
+    public static void SuppressMinimize(IntPtr hwnd) {
+        IntPtr menu = GetSystemMenu(hwnd, false);
+        if (menu != IntPtr.Zero) DeleteMenu(menu, 0xF020, 0); // SC_MINIMIZE / MF_BYCOMMAND
+    }
+
+    public static void RestoreSystemMenu(IntPtr hwnd) {
+        GetSystemMenu(hwnd, true);
     }
 
     public static void ApplyBounds(IntPtr hwnd, int x, int y, int w, int h) {
@@ -149,10 +650,129 @@ public static class OwlMirrorWin32 {
     }
 
     public static void ApplyOwned(IntPtr hwnd, IntPtr owner, int x, int y, int w, int h) {
+        PlaceOwned(hwnd, owner, x, y, w, h, false);
+    }
+
+    public static void ReadClientRect(IntPtr hwnd, IntPtr owner, out int x, out int y, out int w, out int h) {
+        RECT rect = new RECT();
+        GetWindowRect(hwnd, out rect);
         PT origin = new PT(); origin.X = 0; origin.Y = 0;
         ClientToScreen(owner, ref origin);
-        // SWP_NOACTIVATE(0x10) | SWP_FRAMECHANGED(0x20) | SWP_SHOWWINDOW(0x40)
-        SetWindowPos(hwnd, IntPtr.Zero, origin.X + x, origin.Y + y, w, h, 0x10 | 0x20 | 0x40 | 0x4);
+        x = rect.Left - origin.X;
+        y = rect.Top - origin.Y;
+        w = rect.Right - rect.Left;
+        h = rect.Bottom - rect.Top;
+    }
+
+    // 返回 0 表示 SetWindowPos 成功。应用宝是高完整性，中完整性调用会得到 5（拒绝访问）。
+    // quiet：只改位置尺寸。拖动中不要带 FRAMECHANGED/SHOWWINDOW，否则每一拍都整帧重画，画面会闪。
+    public static int PlaceOwned(IntPtr hwnd, IntPtr owner, int x, int y, int w, int h, bool quiet) {
+        PT origin = new PT(); origin.X = 0; origin.Y = 0;
+        ClientToScreen(owner, ref origin);
+        SetLastError(0);
+        // SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSENDCHANGING。不发 WM_WINDOWPOSCHANGING，避免高度被改回 1000 多。
+        uint flags = 0x10 | 0x4 | 0x400;
+        if (!quiet) flags |= 0x20 | 0x40; // FRAMECHANGED | SHOWWINDOW，只在改样式时用
+        bool ok = SetWindowPosErr(hwnd, IntPtr.Zero, origin.X + x, origin.Y + y, w, h, flags);
+        if (!ok) {
+            int err = Marshal.GetLastWin32Error();
+            return err == 0 ? 5 : err;
+        }
+        FitChildren(hwnd);
+        return 0;
+    }
+
+    // 旧界面发来的是 568:920 的等比卡片，四周会留下黑边。把它还原成侧栏舞台：
+    // 卡片贴右就是按宽限制，贴底就是按高限制，取能盖住卡片、面积更大的那一个。
+    public static void ExpandCard(IntPtr owner, ref int x, ref int y, ref int w, ref int h) {
+        if (w < 80 || h < 80) return;
+        double aspect = (double)w / h;
+        if (Math.Abs(aspect - (568.0 / 920.0)) > 0.03) return;
+        RECT client;
+        if (!GetClientRect(owner, out client)) return;
+        int cw = client.Right - client.Left;
+        int ch = client.Bottom - client.Top;
+        int best = w * h;
+        int bx = x, by = y, bw = w, bh = h;
+        int stageBottom = ch - 36;
+        int spaceBelow = stageBottom - (y + h);
+        int stageTop = y - spaceBelow;
+        int stageH = stageBottom - stageTop;
+        if (spaceBelow >= -2 && stageTop >= 0 && stageH >= h && stageTop <= y && x >= 0 && x + w <= cw) {
+            int area = w * stageH;
+            if (area > best) { best = area; bx = x; by = stageTop; bw = w; bh = stageH; }
+        }
+        int stageRight = cw - 8;
+        int spaceRight = stageRight - (x + w);
+        int stageLeft = x - spaceRight;
+        int stageW = stageRight - stageLeft;
+        if (spaceRight >= -2 && stageLeft >= 0 && stageW >= w && stageLeft <= x && y >= 0 && y + h <= ch) {
+            int area = stageW * h;
+            if (area > best) { best = area; bx = stageLeft; by = y; bw = stageW; bh = h; }
+        }
+        x = bx; y = by; w = bw; h = bh;
+    }
+
+    // 子窗口的位置红果自己会改回去，这里不去动它们。外框跟着侧栏变，画面按手机原尺寸被外框裁切。
+    public static void FitChildren(IntPtr parent) {
+    }
+
+    public static void NotifyTree(IntPtr hwnd) {
+        NotifySize(hwnd);
+        EnumChildWindows(hwnd, (child, l) => { NotifySize(child); return true; }, IntPtr.Zero);
+    }
+
+    public static void NotifySize(IntPtr hwnd) {
+        RECT rect;
+        if (!GetClientRect(hwnd, out rect)) return;
+        int cw = rect.Right - rect.Left;
+        int ch = rect.Bottom - rect.Top;
+        if (cw < 1 || ch < 1) return;
+        int packed = (cw & 0xFFFF) | ((ch & 0xFFFF) << 16);
+        SendMessage(hwnd, 0x0005, IntPtr.Zero, new IntPtr(packed));
+    }
+
+    public static int IntegrityRid(uint pid) {
+        IntPtr proc = pid == 0 ? GetCurrentProcess() : OpenProcess(0x1000, false, pid);
+        if (proc == IntPtr.Zero) return -1;
+        IntPtr token;
+        if (!OpenProcessToken(proc, 8, out token)) return -1;
+        byte[] buf = new byte[256];
+        int ret;
+        if (!GetTokenInformation(token, 25, buf, buf.Length, out ret)) return -1;
+        IntPtr sid = new IntPtr(BitConverter.ToInt64(buf, 0));
+        int count = Marshal.ReadByte(sid, 1);
+        return Marshal.ReadInt32(sid, 8 + (count - 1) * 4);
+    }
+
+    // GW_OWNER = 4。红果是 Qt 顶层窗，会把自己的 owner / 标题栏 / 位置改回去。
+    public static bool OwnedBy(IntPtr hwnd, IntPtr owner) {
+        return GetWindow(hwnd, 4) == owner;
+    }
+
+    public static bool IsPlacedAt(IntPtr hwnd, IntPtr owner, int x, int y, int w, int h) {
+        PT origin = new PT(); origin.X = 0; origin.Y = 0;
+        ClientToScreen(owner, ref origin);
+        RECT rect = new RECT();
+        if (!GetWindowRect(hwnd, out rect)) return false;
+        int ax = origin.X + x;
+        int ay = origin.Y + y;
+        return Math.Abs(rect.Left - ax) <= 6 && Math.Abs(rect.Top - ay) <= 6
+            && Math.Abs((rect.Right - rect.Left) - w) <= 6
+            && Math.Abs((rect.Bottom - rect.Top) - h) <= 6;
+    }
+
+    // 明显离开：四边任一偏差超过 slack。小抖动不拉，避免和 Qt 对抢。
+    public static bool IsClearlyAway(IntPtr hwnd, IntPtr owner, int x, int y, int w, int h, int slack) {
+        PT origin = new PT(); origin.X = 0; origin.Y = 0;
+        ClientToScreen(owner, ref origin);
+        RECT rect = new RECT();
+        if (!GetWindowRect(hwnd, out rect)) return false;
+        int ax = origin.X + x;
+        int ay = origin.Y + y;
+        return Math.Abs(rect.Left - ax) > slack || Math.Abs(rect.Top - ay) > slack
+            || Math.Abs((rect.Right - rect.Left) - w) > slack
+            || Math.Abs((rect.Bottom - rect.Top) - h) > slack;
     }
 
         public static bool RestoreByScRestore(IntPtr hwnd) {
@@ -169,9 +789,12 @@ function Get-WindowRows {
   $cb = [OwlMirrorWin32+EnumWindowsProc] {
     param([IntPtr]$h, [IntPtr]$l)
     try {
-      if (-not [OwlMirrorWin32]::IsWindowVisible($h)) { return $true }
       $title = [OwlMirrorWin32]::GetTitle($h)
       if (-not $title) { return $true }
+      $visible = [OwlMirrorWin32]::IsWindowVisible($h)
+      # 侧栏不在时红果会被藏起来。藏着的红果也要列出来，否则再打开侧栏会显示「没有找到」。
+      $hiddenHongguo = (-not $visible) -and ($title -like '*红果*')
+      if (-not $visible -and -not $hiddenHongguo) { return $true }
       if ([OwlMirrorWin32]::IsCloaked($h)) { return $true }
       $procId = 0
       [OwlMirrorWin32]::GetWindowThreadProcessId($h, [ref]$procId) | Out-Null
@@ -182,9 +805,9 @@ function Get-WindowRows {
       } catch { }
       $iconic = [bool][OwlMirrorWin32]::IsIconic($h)
       # 最小化窗口的客户区是任务栏缩略尺寸，改报窗口矩形（仅作列表展示用；
-      # attach 后以实际帧尺寸为准）
+      # attach 后以实际帧尺寸为准）。藏起来的红果同样没有可用客户区。
       $rect = New-Object OwlMirrorWin32+RECT
-      if ($iconic) {
+      if ($iconic -or -not $visible) {
         [OwlMirrorWin32]::GetWindowRect($h, [ref]$rect) | Out-Null
       } else {
         [OwlMirrorWin32]::GetClientRect($h, [ref]$rect) | Out-Null
@@ -256,9 +879,232 @@ function Get-CaptureAssembly {
 }
 
 # ---------------------------------------------------------------------------
+# 应用宝 Androws.exe 的清单是 requireAdministrator，窗口在高完整性。
+# 桥是普通 node，SetWindowPos / SetWindowLong 会得到 ERROR_ACCESS_DENIED(5)，
+# 窗口看起来「嵌入成功」但位置、样式、owner 全部不变。
+# 这里留一个提权后的常驻 host（一次 UAC），中完整性 worker 把 embed/move/unembed
+# 转给它。host 再拉起的 powershell 继承高完整性，原有命令逻辑不用改。
+# ---------------------------------------------------------------------------
+$script:ElevatedStatePath = Join-Path ([IO.Path]::GetTempPath()) 'owl-mirror-elevated.json'
+
+function Quote-WinArg([string]$text) {
+  if ($text -notmatch '[\s"]') { return $text }
+  return '"' + $text.Replace('"', '""') + '"'
+}
+
+function Test-ForeignHigh([long]$TargetHwnd) {
+  $mine = [OwlMirrorWin32]::IntegrityRid(0)
+  if ($mine -ge 0x3000 -or $mine -lt 0) { return $false }
+  $procId = [uint32]0
+  [OwlMirrorWin32]::GetWindowThreadProcessId([IntPtr]$TargetHwnd, [ref]$procId) | Out-Null
+  $theirs = [OwlMirrorWin32]::IntegrityRid($procId)
+  return ($theirs -gt $mine)
+}
+
+function Read-ElevatedState {
+  if (-not (Test-Path $script:ElevatedStatePath)) { return $null }
+  try { return (Get-Content $script:ElevatedStatePath -Raw | ConvertFrom-Json) } catch { return $null }
+}
+
+function Test-ElevatedHostAlive($info) {
+  if (-not $info) { return $false }
+  $procId = [int]$info.pid
+  if ($procId -le 0) { return $false }
+  $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+  if (-not $proc) { return $false }
+  return ([OwlMirrorWin32]::IntegrityRid([uint32]$procId) -ge 0x3000)
+}
+
+function Ensure-ElevatedHost {
+  $info = Read-ElevatedState
+  if (Test-ElevatedHostAlive $info) { return [int]$info.port }
+  Remove-Item $script:ElevatedStatePath -ErrorAction SilentlyContinue
+  $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  try {
+    Start-Process -FilePath $ps -Verb RunAs -WindowStyle Hidden -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, 'host'
+    ) | Out-Null
+  } catch {
+    Write-JsonLine ('{"event":"error","message":"' + (Escape-Json ('应用宝以管理员运行，嵌入需要你在 UAC 点「是」: ' + $_.Exception.Message)) + '"}')
+    exit 1
+  }
+  $deadline = [DateTime]::UtcNow.AddSeconds(60)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+    $info = Read-ElevatedState
+    if (Test-ElevatedHostAlive $info) { return [int]$info.port }
+  }
+  Write-JsonLine '{"event":"error","message":"应用宝以管理员运行。请在 UAC 窗口点「是」，侧栏才能把红果嵌进来。"}'
+  exit 1
+}
+
+function Get-MirrorArgList {
+  $items = @($Command, '-Hwnd', "$Hwnd")
+  if ($Command -eq 'embed') {
+    $items += @('-ParentHwnd', "$ParentHwnd", '-X', "$X", '-Y', "$Y", '-W', "$W", '-H', "$H")
+    if ($SwallowMinimize) { $items += '-SwallowMinimize' }
+    if ($HasBaseStyle) { $items += @('-HasBaseStyle', '-BaseStyle', "$BaseStyle") }
+  } elseif ($Command -eq 'move') {
+    $items += @('-X', "$X", '-Y', "$Y", '-W', "$W", '-H', "$H")
+  } elseif ($Command -eq 'unembed') {
+    $items += @('-Style', "$Style", '-ParentHwnd', "$ParentHwnd")
+  }
+  return $items
+}
+
+function Test-TcpClosed($client) {
+  try {
+    if (-not $client.Connected) { return $true }
+    $socket = $client.Client
+    return ($socket.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and $socket.Available -eq 0)
+  } catch { return $true }
+}
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Net.Sockets;
+using System.Threading;
+public static class OwlMirrorPump {
+  public static void Drain(StreamReader reader) {
+    try {
+      while (reader.ReadLine() != null) {}
+    } catch {}
+  }
+
+  public static void CopyUntilDisconnect(Process proc, StreamWriter writer, TcpClient client) {
+    var pump = new Thread(() => {
+      try {
+        string line;
+        while ((line = proc.StandardOutput.ReadLine()) != null) {
+          lock (writer) writer.WriteLine(line);
+        }
+      } catch {}
+    });
+    pump.IsBackground = true;
+    pump.Start();
+    var err = new Thread(() => Drain(proc.StandardError));
+    err.IsBackground = true;
+    err.Start();
+    while (!proc.HasExited) {
+      try {
+        var socket = client.Client;
+        bool gone = !client.Connected || (socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0);
+        if (gone) {
+          try { proc.Kill(); } catch {}
+          break;
+        }
+      } catch {
+        try { proc.Kill(); } catch {}
+        break;
+      }
+      Thread.Sleep(40);
+    }
+    pump.Join(2000);
+  }
+}
+'@
+
+function Invoke-ViaElevatedHost {
+  $port = Ensure-ElevatedHost
+  $client = $null
+  foreach ($attempt in 1..25) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+      $client.Connect('127.0.0.1', $port)
+      break
+    } catch {
+      try { $client.Close() } catch {}
+      $client = $null
+      Start-Sleep -Milliseconds 200
+    }
+  }
+  if (-not $client) {
+    Write-JsonLine '{"event":"error","message":"提权宿主已起来，但连不上它。"}'
+    exit 1
+  }
+  $stream = $client.GetStream()
+  $utf8 = New-Object System.Text.UTF8Encoding($false)
+  $writer = New-Object System.IO.StreamWriter($stream, $utf8)
+  $writer.NewLine = "`n"
+  $writer.AutoFlush = $true
+  $payload = @{ cmd = 'run'; args = @(Get-MirrorArgList) } | ConvertTo-Json -Compress
+  $writer.WriteLine($payload)
+  $reader = New-Object System.IO.StreamReader($stream, $utf8)
+  while ($true) {
+    $line = $reader.ReadLine()
+    if ($null -eq $line -or $line -eq '') {
+      if (-not $client.Connected) { break }
+      continue
+    }
+    Write-JsonLine $line
+  }
+}
+
+function Serve-ElevatedClient($client) {
+  $stream = $client.GetStream()
+  $utf8 = New-Object System.Text.UTF8Encoding($false)
+  $reader = New-Object System.IO.StreamReader($stream, $utf8)
+  $writer = New-Object System.IO.StreamWriter($stream, $utf8)
+  $writer.NewLine = "`n"
+  $writer.AutoFlush = $true
+  $line = $reader.ReadLine()
+  if (-not $line) { return }
+  $req = $line | ConvertFrom-Json
+  if ($req.cmd -eq 'ping') {
+    $writer.WriteLine('{"event":"pong"}')
+    return
+  }
+  if ($req.cmd -ne 'run') {
+    $writer.WriteLine('{"event":"error","message":"bad host command"}')
+    return
+  }
+  $argItems = @($req.args | ForEach-Object { [string]$_ })
+  if (@('embed', 'move', 'unembed') -notcontains $argItems[0]) {
+    $writer.WriteLine('{"event":"error","message":"command not allowed"}')
+    return
+  }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $joined = ($argItems | ForEach-Object { Quote-WinArg $_ }) -join ' '
+  $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File ' + (Quote-WinArg $PSCommandPath) + ' ' + $joined
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $psi.StandardOutputEncoding = $utf8
+  $psi.StandardErrorEncoding = $utf8
+  $proc = New-Object System.Diagnostics.Process
+  $proc.StartInfo = $psi
+  [void]$proc.Start()
+  [OwlMirrorPump]::CopyUntilDisconnect($proc, $writer, $client)
+  try { if (-not $proc.HasExited) { $proc.WaitForExit(2000) } } catch {}
+}
+
+# ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
+if ($Command -in @('embed', 'move', 'unembed') -and $Hwnd -gt 0 -and (Test-ForeignHigh $Hwnd)) {
+  Invoke-ViaElevatedHost
+  exit 0
+}
+
 switch ($Command) {
+
+  'host' {
+    $mutex = New-Object System.Threading.Mutex($false, 'Local\OwlMirrorElevatedHost')
+    if (-not $mutex.WaitOne(0)) { exit 0 }
+    $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    @{ pid = $PID; port = $port } | ConvertTo-Json -Compress | Set-Content -Path $script:ElevatedStatePath -Encoding ASCII
+    while ($true) {
+      $client = $listener.AcceptTcpClient()
+      try { Serve-ElevatedClient $client } catch { }
+      try { $client.Close() } catch { }
+    }
+  }
 
   'list' {
     foreach ($row in (Get-WindowRows)) {
@@ -404,7 +1250,8 @@ switch ($Command) {
       ',"style":' + [OwlMirrorWin32]::GetStyle($hwndPtr) +
       ',"x":' + $rect.Left + ',"y":' + $rect.Top +
       ',"w":' + ($rect.Right - $rect.Left) + ',"h":' + ($rect.Bottom - $rect.Top) +
-      ',"visible":' + ([OwlMirrorWin32]::IsWindowVisible($hwndPtr)).ToString().ToLower() + '}'
+      ',"visible":' + ([OwlMirrorWin32]::IsWindowVisible($hwndPtr)).ToString().ToLower() +
+      ',"iconic":' + ([OwlMirrorWin32]::IsIconic($hwndPtr)).ToString().ToLower() + '}'
     Write-JsonLine $json
     Write-JsonLine '{"event":"ready"}'
   }
@@ -417,57 +1264,92 @@ switch ($Command) {
     $hwndPtr = [IntPtr]$Hwnd
     $parentPtr = [IntPtr]$ParentHwnd
 
-    # 恢复轮询：BitDock 类工具会把窗口重新收纳，SC_RESTORE 拉回直到稳定（最多 5s）
-    $stable = $false
-    for ($i = 0; $i -lt 16; $i++) {
-      if (-not [OwlMirrorWin32]::IsIconic($hwndPtr)) { $stable = $true; break }
+    # 被收起时先拉一次再摆。摆进去之后不改样式、不裁标题，标题栏留在窗口里。
+    if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
+      [OwlMirrorWin32]::ShowWindow($hwndPtr, 9) | Out-Null
       [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
-      Start-Sleep -Milliseconds 300
-    }
-    if (-not $stable) {
-      Write-JsonLine '{"event":"error","message":"window is minimized and could not be restored"}'; exit 1
+      Start-Sleep -Milliseconds 200
     }
 
-    $originalStyle = [OwlMirrorWin32]::GetStyle($hwndPtr)
+    $originalStyle = if ($HasBaseStyle) { $BaseStyle } else { [OwlMirrorWin32]::GetStyle($hwndPtr) }
     $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
-    [OwlMirrorWin32]::SetStyle($hwndPtr, [OwlMirrorWin32]::EmbedStyle($originalStyle))
+    [OwlMirrorWin32]::ClearClip($hwndPtr)
     [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
-    [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $X, $Y, $W, $H)
-    [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
+    $ownerShown = [OwlMirrorWin32]::StageInsideOwner($parentPtr, $X, $Y, $W, $H)
+    if ($ownerShown) {
+      $placeErr = [OwlMirrorWin32]::PlaceStage($hwndPtr, $parentPtr, $X, $Y, $W, $H)
+      if ($placeErr -ne 0) {
+        Write-JsonLine ('{"event":"error","message":"SetWindowPos failed (' + $placeErr + '). 红果窗口拒绝被移动。"}')
+        exit 1
+      }
+      [OwlMirrorWin32]::ShowWindow($hwndPtr, 5) | Out-Null   # SW_SHOW
+    } else {
+      [OwlMirrorWin32]::ShowWindow($hwndPtr, 0) | Out-Null   # SW_HIDE，Owl 不在屏幕上时不要摆到桌面
+    }
     Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')
 
-    # ---- watchdog：常驻，被收纳就拉回；owl 移动/缩放时红果跟随；owl 最小化则隐藏 ----
+    # 看守只做三件事：侧栏矩形变了就跟着摆；窗口被最小化就拉回再摆；
+    # 离开目标矩形就下一拍拉回。宽高为 0 表示舞台不可见，只隐藏，不拉回来。
+    # 已经对准舞台时这一拍什么都不做。owl 自己最小化时不拉。
     $lastRect = @{ X = $X; Y = $Y; W = $W; H = $H }
     $autoRestored = 0
     $lastStatusTick = [System.Diagnostics.Stopwatch]::StartNew()
-    $lastOrigin = ''
-    while ($true) {
-      Start-Sleep -Milliseconds 120
-      try {
-        if (-not [OwlMirrorWin32]::IsWindow($parentPtr) -or -not [OwlMirrorWin32]::IsWindow($hwndPtr)) { exit 0 }
-        if ([OwlMirrorWin32]::IsIconic($parentPtr)) { continue }
-        if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
-          [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
-          Start-Sleep -Milliseconds 350
-          if ([OwlMirrorWin32]::IsIconic($hwndPtr)) { continue }   # 拉不回就下一轮再试
+        $layoutSeen = ''
+        while ($true) {
+          # 16ms 一拍才能跟上手拖。已经对准时这一拍不 SetWindowPos，点击不会被拆开。
+          Start-Sleep -Milliseconds 16
+          try {
+            if (-not [OwlMirrorWin32]::IsWindow($parentPtr) -or -not [OwlMirrorWin32]::IsWindow($hwndPtr)) { exit 0 }
+            if ([OwlMirrorWin32]::IsIconic($parentPtr)) { continue }
+            $layoutFile = Join-Path ([IO.Path]::GetTempPath()) ("owl-mirror-layout-" + $Hwnd + ".txt")
+            if (Test-Path -LiteralPath $layoutFile) {
+              try {
+                $text = [IO.File]::ReadAllText($layoutFile).Trim()
+                if ($text -ne $layoutSeen) {
+                  $layoutSeen = $text
+                  $parts = $text.Split(',')
+                  if ($parts.Length -ge 4) {
+                    $lx = [int]$parts[0]; $ly = [int]$parts[1]; $lw = [int]$parts[2]; $lh = [int]$parts[3]
+                    # 宽或高小于 80 表示舞台不可见：藏起窗口，不要沿用上一次的矩形。
+                    if ($lw -lt 80 -or $lh -lt 80) {
+                      $lastRect.X = 0; $lastRect.Y = 0; $lastRect.W = 0; $lastRect.H = 0
+                    } else {
+                      $lastRect.X = $lx; $lastRect.Y = $ly; $lastRect.W = $lw; $lastRect.H = $lh
+                    }
+                  }
+                }
+              } catch {}
+            } elseif ($layoutSeen -ne 'missing') {
+              # 侧栏收起时界面会删掉这个文件。文件没了就不能继续用上一次的位置。
+              $layoutSeen = 'missing'
+              $lastRect.X = 0; $lastRect.Y = 0; $lastRect.W = 0; $lastRect.H = 0
+            }
+        if ($lastRect.W -lt 80 -or $lastRect.H -lt 80 -or -not [OwlMirrorWin32]::StageInsideOwner($parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)) {
+          if ([OwlMirrorWin32]::IsWindowVisible($hwndPtr)) {
+            [OwlMirrorWin32]::ShowWindow($hwndPtr, 0) | Out-Null # SW_HIDE
+          }
+          continue
+        }
+        $iconic = [OwlMirrorWin32]::IsIconic($hwndPtr) -or -not [OwlMirrorWin32]::IsWindowVisible($hwndPtr)
+        $ownerLost = -not [OwlMirrorWin32]::OwnedBy($hwndPtr, $parentPtr)
+        if ($iconic) {
+          [OwlMirrorWin32]::ShowWindow($hwndPtr, 9) | Out-Null
+          if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
+            [OwlMirrorWin32]::RestoreByScRestore($hwndPtr) | Out-Null
+          }
           $autoRestored++
-          [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
-          Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $autoRestored + ',"frameSeq":0}')
         }
-        $pt = New-Object OwlMirrorWin32+PT
-        [OwlMirrorWin32]::ClientToScreen($parentPtr, [ref]$pt) | Out-Null
-        $originKey = "$($pt.X),$($pt.Y)"
-        if ($originKey -ne $lastOrigin) {
-          $lastOrigin = $originKey
-          [OwlMirrorWin32]::ApplyOwned($hwndPtr, $parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H)
+        if ($ownerLost) {
+          [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
         }
+        [OwlMirrorWin32]::ActivateIfPressed($hwndPtr, $parentPtr)
+        [OwlMirrorWin32]::PlaceStage($hwndPtr, $parentPtr, $lastRect.X, $lastRect.Y, $lastRect.W, $lastRect.H) | Out-Null
         if ($lastStatusTick.ElapsedMilliseconds -gt 5000) {
           $lastStatusTick.Restart()
           Write-JsonLine ('{"event":"status","iconic":false,"autoRestored":' + $autoRestored + ',"frameSeq":0}')
         }
       } catch {
-        Write-JsonLine ('{"event":"error","message":"' + (Escape-Json $_.Exception.Message) + '"}')
-        exit 1
+        # 这一拍失败就等下一拍。退出的话侧栏再也不会把窗口拉回来。
       }
     }
   }
@@ -484,8 +1366,10 @@ switch ($Command) {
   'unembed' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd
-    # 还原顺序：先解除 owner，再还原样式，最后通知框架重算并显示
+    # 还原顺序：先解除 owner、恢复系统菜单，再还原样式，最后通知框架重算并显示
     [OwlMirrorWin32]::SetOwner($hwndPtr, [IntPtr]::Zero)
+    [OwlMirrorWin32]::ClearClip($hwndPtr)
+    [OwlMirrorWin32]::RestoreSystemMenu($hwndPtr)
     if ($Style -ge 0) {
       [OwlMirrorWin32]::SetStyle($hwndPtr, $Style)
     } else {

@@ -11,7 +11,9 @@
 	width: 52px;
 	flex-basis: 52px;
 	gap: 10px;
-	padding: 13px 0 14px;
+	padding: 8px 0 14px;
+	/* 上面的合并规则给图标栏清了边框；图标栏与侧边栏之间保留一条分隔线 */
+	border-right: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
 }
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-brand {
@@ -20,7 +22,7 @@
 	height: 34px;
 	flex: 0 0 34px;
 	place-items: center;
-	margin-bottom: 12px;
+	margin-bottom: 4px;
 	border-radius: 8px;
 	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
@@ -450,27 +452,36 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions {
-	position: relative;
-	margin: 3px 0 8px 16px;
-	padding-left: 7px;
+	margin: 1px 0 4px;
 }
 
-.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions::before {
-	position: absolute;
-	top: 3px;
-	bottom: 3px;
-	left: 0;
-	width: 1px;
-	background: var(--owl-ui-border, var(--color-owl-sidebar-border));
-	content: "";
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row {
+	height: 22px;
+	border-radius: 4px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-main {
+	gap: 6px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-actions {
+	top: 1px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-action {
+	width: 18px;
+	height: 20px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon {
-	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	width: 12px;
+	height: 12px;
+	flex-basis: 12px;
+	color: color-mix(in srgb, var(--owl-ui-text, var(--color-owl-sidebar-text)) 70%, transparent);
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon.is-running {
-	color: var(--color-owl-accent);
+	color: #22c55e;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-add-project {

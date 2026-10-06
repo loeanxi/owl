@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * 轻量下拉菜单：点击触发器开合，点击外部或 Esc 关闭。
- * 面板向上弹出（输入栏在窗口底部）。
+ * 面板默认向上弹出（输入栏在窗口底部）；窗口顶部用 direction="down" 向下弹。
  */
 export function Menu({
 	trigger,
@@ -10,6 +10,7 @@ export function Menu({
 	panelClassName,
 	children,
 	triggerTitle,
+	direction = "up",
 }: {
 	trigger: ReactNode;
 	triggerClassName: string;
@@ -17,6 +18,8 @@ export function Menu({
 	/** 静态内容，或 (close) => 内容（菜单项点击后自动收起）。 */
 	children: ReactNode | ((close: () => void) => ReactNode);
 	triggerTitle?: string;
+	/** 面板弹出方向：up=触发器上方（默认），down=触发器下方。 */
+	direction?: "up" | "down";
 }): React.JSX.Element {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -49,7 +52,7 @@ export function Menu({
 			</button>
 			{open && (
 				<div
-					className={`absolute bottom-full z-20 mb-2 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50 ${panelClassName ?? "left-0"}`}
+					className={`absolute z-20 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50 ${direction === "down" ? "top-full mt-2" : "bottom-full mb-2"} ${panelClassName ?? "left-0"}`}
 				>
 					{typeof children === "function" ? children(() => setOpen(false)) : children}
 				</div>

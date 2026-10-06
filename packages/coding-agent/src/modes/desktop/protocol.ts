@@ -87,6 +87,20 @@ export interface SessionAbortRequest {
 	sessionId: string;
 }
 
+/**
+ * 续跑被暂停的回合：以一条隐藏 custom 消息（display:false）触发新 LLM 回合。
+ * 模型按 user 角色收到续跑指令、从上次中断处接着做；转录里落的是 custom_message
+ * 条目而非用户消息，桌面转录映射不渲染它——暂停/继续对用户无感。
+ * （注意与 session.resume 区分：那是重新挂载历史会话。）
+ */
+export interface SessionContinueRequest {
+	type: "session.continue";
+	id: string;
+	sessionId: string;
+	/** 续跑指令正文（给模型看的提示，由 UI 侧本地化）。 */
+	message: string;
+}
+
 /** owl-genui：聊天流内交互组件的动作回传（组件 action → 会话消息 → 模型重发围栏）。 */
 export interface OwlUiActionRequest {
 	type: "owl-ui.action";
@@ -593,6 +607,25 @@ export interface SessionStatsResult {
 		tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 		cost: number;
 	};
+}
+
+/** 导出会话日志：jsonl 为原始日志文件原样内容（含全部分支），markdown 只取当前分支的可读转录。 */
+export interface SessionExportLogRequest {
+	type: "session.exportLog";
+	id: string;
+	sessionId: string;
+	format: "jsonl" | "markdown";
+}
+
+export interface SessionExportLogResult {
+	/** 已清洗非法字符的建议文件名（含扩展名）。 */
+	filename: string;
+	/** 文件全文（jsonl 或 markdown）。 */
+	content: string;
+	/** 服务端来源文件绝对路径（markdown 时为对应会话 JSONL 路径）。 */
+	path: string;
+	/** 桥端已落盘的副本绝对路径（下载目录）；前端据此唤起资源管理器定位。 */
+	savedPath?: string;
 }
 
 /** 查询上下文洞察（owl-context 插件经 core/context-insight 注册表供数）。 */
@@ -1506,6 +1539,10 @@ export interface MirrorEmbedRequest {
 	/** 父窗口 HWND；缺省时桥自动发现 owl-desktop 主窗口（冒烟可显式传）。 */
 	parentHwnd?: number;
 	rect: { x: number; y: number; width: number; height: number };
+	/**
+	 * 侧栏形态：吃掉任务栏最小化，窗口留在原位。放大/悬浮不传。
+	 */
+	swallowMinimize?: boolean;
 }
 
 /** 布局同步：移动/缩放嵌入窗口；visible=false 时移出父客户区隐藏。 */
@@ -1515,6 +1552,8 @@ export interface MirrorLayoutRequest {
 	windowId: string;
 	rect: { x: number; y: number; width: number; height: number };
 	visible: boolean;
+	/** 侧栏且可见时为 true，让重开的 watchdog 继续吃掉最小化。 */
+	swallowMinimize?: boolean;
 }
 
 /** 解除嵌入：脱离父窗口、还原标题栏样式，变回独立顶层窗口。 */
@@ -1645,6 +1684,7 @@ export type DesktopClientRequest =
 	| OwlUiActionRequest
 	| ContextGetRequest
 	| SessionAbortRequest
+	| SessionContinueRequest
 	| SessionDeleteRequest
 	| SessionArchiveRequest
 	| SessionUnarchiveRequest
@@ -1663,6 +1703,7 @@ export type DesktopClientRequest =
 	| DiffApprovalResolveRequest
 	| DiffApprovalClearRequest
 	| SessionStatsRequest
+	| SessionExportLogRequest
 	| CommandsListRequest
 	| SkillsListRequest
 	| SkillsReadRequest

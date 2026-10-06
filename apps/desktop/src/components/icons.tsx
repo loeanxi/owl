@@ -104,6 +104,24 @@ export function IconChevron({ className }: { className?: string }): React.JSX.El
 	);
 }
 
+/** 顶栏：回到上一步 */
+export function IconNavBack({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="m15 18-6-6 6-6" />
+		</Svg>
+	);
+}
+
+/** 顶栏：前往下一步 */
+export function IconNavForward({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="m9 18 6-6-6-6" />
+		</Svg>
+	);
+}
+
 /** 置顶图钉；filled 时实心表示已置顶 */
 export function IconPin({
 	className,
@@ -123,6 +141,15 @@ export function IconPin({
 				fill={filled ? "currentColor" : "none"}
 			/>
 		</Svg>
+	);
+}
+
+/** 会话列表状态：空心圆。颜色跟父级走，空闲浅灰，运行中变绿。 */
+export function IconSessionMark({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<svg viewBox="0 0 16 16" fill="none" className={className ?? "h-3 w-3"} aria-hidden="true">
+			<circle cx="8" cy="8" r="4.15" stroke="currentColor" strokeWidth="1.35" />
+		</svg>
 	);
 }
 
@@ -330,26 +357,6 @@ export function IconCopy({ className }: { className?: string }): React.JSX.Eleme
 		<Svg className={className}>
 			<rect x="9" y="9" width="12" height="12" rx="2" />
 			<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-		</Svg>
-	);
-}
-
-/** 消息操作栏：赞（竖大拇指） */
-export function IconThumbUp({ className }: { className?: string }): React.JSX.Element {
-	return (
-		<Svg className={className}>
-			<path d="M7 10v12" />
-			<path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
-		</Svg>
-	);
-}
-
-/** 消息操作栏：踩（竖大拇指朝下） */
-export function IconThumbDown({ className }: { className?: string }): React.JSX.Element {
-	return (
-		<Svg className={className}>
-			<path d="M17 14V2" />
-			<path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
 		</Svg>
 	);
 }

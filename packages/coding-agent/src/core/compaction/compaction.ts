@@ -269,6 +269,19 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 	return contextTokens > contextWindow - settings.reserveTokens;
 }
 
+/**
+ * Window used when the catalog did not publish `context_window`. Smaller than the 128k request
+ * fallback so compaction starts before a genuinely smaller upstream window overflows.
+ */
+export const UNCONFIRMED_COMPACTION_WINDOW = 32_768;
+
+/** Compaction window for `model`. Unpublished windows compact against {@link UNCONFIRMED_COMPACTION_WINDOW}. */
+export function compactionContextWindow(model: { contextWindow: number; contextWindowConfirmed?: boolean }): number {
+	if (model.contextWindow <= 0) return model.contextWindow;
+	if (model.contextWindowConfirmed === false) return Math.min(model.contextWindow, UNCONFIRMED_COMPACTION_WINDOW);
+	return model.contextWindow;
+}
+
 // ============================================================================
 // Cut point detection
 // ============================================================================

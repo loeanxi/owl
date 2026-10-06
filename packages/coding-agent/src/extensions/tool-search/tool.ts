@@ -17,7 +17,13 @@ import type {
 	ToolLoadout,
 	ToolNamespace,
 } from "../../core/extensions/types.ts";
-import { assessToolForIntent, deriveIntentSteps, intentSearchQuery, type ToolIntentStep } from "./intent.ts";
+import {
+	assessToolForIntent,
+	deriveIntentSteps,
+	derivePreloadSteps,
+	intentSearchQuery,
+	type ToolIntentStep,
+} from "./intent.ts";
 
 export const TOOL_SEARCH_TOOL_NAME = "tool_search";
 export const DEFAULT_TOOL_SEARCH_LIMIT = 4;
@@ -400,6 +406,23 @@ function searchAndLoad(
 		if (result.status === "metadata_match" && result.tools.length === 0) result.status = "refine";
 	}
 	return { loaded: [...pending].filter((name) => activated.has(name)), steps: results };
+}
+
+/**
+ * Activate tools whose metadata matches `text` before the model is asked to discover them.
+ * Both a capability and an action outside that capability word are required. Greetings,
+ * unrecognized text, and actions nested inside a capability word load nothing.
+ */
+export function preloadToolsForUserText(
+	tools: NonNullable<ToolSearchToolOptions["tools"]>,
+	text: string,
+	limit = DEFAULT_TOOL_SEARCH_LIMIT,
+): ToolSearchToolDetails | undefined {
+	const steps = derivePreloadSteps(text)
+		.filter((step) => step.capability !== "unknown" && step.action !== "unknown")
+		.slice(0, 4);
+	if (steps.length === 0) return undefined;
+	return searchAndLoad(tools, { steps }, Math.min(Math.max(1, limit), MAX_TOOL_SEARCH_LIMIT));
 }
 
 /** Base guidance; prepareLoadout adds a bounded directory of available capabilities. */

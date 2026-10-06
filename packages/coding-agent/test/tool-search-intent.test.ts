@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	assessToolForIntent,
 	deriveIntentSteps,
+	derivePreloadSteps,
 	type IntentToolMetadata,
 	intentSearchQuery,
 } from "../src/extensions/tool-search/intent.ts";
@@ -70,6 +71,14 @@ describe("intent decomposition", () => {
 
 	it("does not silently discard an oversized plan", () => {
 		expect(deriveIntentSteps("播放音乐；创建表格；编辑图片；查看新闻；打开网页")).toHaveLength(5);
+	});
+
+	it("does not treat an action nested inside a capability word as a preload action", () => {
+		expect(
+			derivePreloadSteps("从播放器删除收藏歌曲").map(({ capability, action }) => ({ capability, action })),
+		).toEqual([{ capability: "media", action: "delete" }]);
+		expect(derivePreloadSteps("把歌暂停一下")).toMatchObject([{ capability: "media", action: "pause" }]);
+		expect(derivePreloadSteps("暂停播放器")).toMatchObject([{ capability: "media", action: "pause" }]);
 	});
 
 	it("leaves an unfamiliar request unknown instead of inventing intent", () => {
