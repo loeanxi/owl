@@ -103,6 +103,10 @@ owl-mono/
 - 账号接口的凭证脱敏暂用「字符串值一律打码为 `***`」，PUT 时值为 `***` 的键视为保持原值；阶段 2 移植 manager `AccountResponse` 后替换为按平台精细脱敏。
 - `GET /api/checkin/records` 追加可选 `?limit=`（manager 固定 50）。
 - 错误码→HTTP 状态映射先按码后缀实现（`*notFound`→404 等），阶段 2 对照 GlobalExceptionHandler 校正。
+- 管理端 Cookie 名为 `owl_pool_admin`（manager 是 `loean_admin`）：客户端是全新的 owl 桌面端，无兼容负担；其余鉴权语义逐条对齐。
+- 环境变量统一 `OWL_POOL_*` 前缀（`OWL_POOL_ADMIN_*` 对应 `MANAGER_ADMIN_*`，`OWL_POOL_TRUSTED_PROXY_COUNT` 对应 `manager.security.trusted-proxy-count`）。
+- 限流三层（§8#7）在 manager 里本就挂在网关过滤器（`/v1/*`），故随阶段 3 网关交付，不在阶段 2。
+- 管理员凭据存储沿用 manager 的 `admin_credentials` 单行表（SQLite 实现），salt/派生值与 Java 版字节兼容，凭据可直搬。
 
 ## 7. 数据与迁移策略
 
@@ -115,13 +119,13 @@ owl-mono/
 
 | # | manager 机制 | 重写落点 | 阶段 |
 |---|---|---|---|
-| 1 | `AdminGuard` Controller 层兜底鉴权(过滤器失效仍拦截);自救模式仅回环 | `security/admin-guard`(每个管理 handler 调用) | 2 |
-| 2 | `AdminAuthFilter` 白名单仅 login/logout/setup/session;`X-Admin-Key` 常量时间比较 | 同上 | 2 |
-| 3 | 登录失败锁定(IP+用户名),计数写透磁盘 JSON,重启不重置;10 次/10 分钟 | `security/login-failure-store` | 2 |
-| 4 | 会话持久化(只存 SHA-256),重启不掉线;删文件强制下线;TTL 12h | `security/session-store` | 2 |
-| 5 | PBKDF2-HMAC-SHA256 加盐口令;`sourceFingerprint` 防凭据搬家 | `security/password` | 2 |
-| 6 | `ClientIpResolver` 全站唯一 IP 结论;`trusted-proxy-count=0` 不信 XFF | `security/client-ip` | 2 |
-| 7 | 限流三层:全局 600/min(可 Redis)→ 单 IP 300/min → 单 Key | `security/rate-limit` | 2(全局)/3(Key) |
+| 1 | `AdminGuard` Controller 层兜底鉴权(过滤器失效仍拦截);自救模式仅回环 | `security/admin-guard`(过滤器层 + requireSession 双层) | **2 已做** |
+| 2 | `AdminAuthFilter` 白名单仅 login/logout/setup/session;`X-Admin-Key` 常量时间比较 | `security/admin-guard`(ANONYMOUS_ADMIN_ENDPOINTS 精确匹配) | **2 已做** |
+| 3 | 登录失败锁定(IP+用户名),计数写透磁盘 JSON,重启不重置;10 次/10 分钟;用户名维度阈值 5 倍跨 IP 聚合 | `security/lockout` | **2 已做** |
+| 4 | 会话持久化(只存 SHA-256),重启不掉线;删文件强制下线;TTL 12h | `security/admin-service` + `security/snapshot-file` | **2 已做** |
+| 5 | PBKDF2-HMAC-SHA256 加盐口令(120k 迭代,与 Java 凭据字节兼容);`sourceFingerprint` 防凭据搬家 | `security/crypto` + `security/admin-service` | **2 已做** |
+| 6 | `ClientIpResolver` 全站唯一 IP 结论;`trusted-proxy-count=0` 不信 XFF | `security/client-ip` | **2 已做** |
+| 7 | 限流三层:全局 600/min(可 Redis)→ 单 IP 300/min → 单 Key | `security/rate-limit`(挂在网关过滤器,manager 亦然) | 3 |
 | 8 | Key 明文只出现一次、库存 SHA-256;吊销与停用分离;IP 白名单 CIDR | `owl-pool/src/apikey` | 3 |
 | 9 | 请求体按实际字节限 32MB(不信任 Content-Length) | `pool-server/src/http/body.ts` | **1 已做** |
 | 10 | `GatewayAdmission` 并发租约(有界排队) | `owl-pool/src/gateway` | 3 |
@@ -136,9 +140,9 @@ owl-mono/
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **0 骨架(本次)** | owl-pool 包 + pool-server 服务壳 + healthz + SQLite 建表 + 构建测试接线 | `npm run build / check / test` 全绿;`/healthz` 返回 db 状态 |
-| **1 账号+签到(本次)** | 账号 CRUD、WorkBuddy/Trae 签到 Provider(含 9074 风控换号)、签到服务(单号/全量/补签判定)、记录、每日定时 | Provider 测试覆盖成功/已签/未开启/鉴权失败/风控重试/HTML 拦截;REST 冒烟测试 |
-| 2 鉴权与安全 | §8 的 1-7 项;补签挂钩管理员登录 | 锁定/会话持久化/限流各有测试;非回环拒绝 |
+| **0 骨架（已交付）** | owl-pool 包 + pool-server 服务壳 + healthz + SQLite 建表 + 构建测试接线 | `npm run build / check / test` 全绿；`/healthz` 返回 db 状态 |
+| **1 账号+签到（已交付）** | 账号 CRUD、WorkBuddy/Trae 签到 Provider(含 9074 风控换号)、签到服务(单号/全量/补签判定)、记录、每日定时 | Provider 测试覆盖成功/已签/未开启/鉴权失败/风控重试/HTML 拦截;REST 冒烟测试 |
+| **2 鉴权与安全（已交付）** | §8 的 1-6 项（管理端全套：setup/login/logout/session/password、守卫接入 `/api/**`、补签挂钩登录） | 锁定（双维度+快照恢复）/会话持久化（TTL/重启）/口令强度各有测试；非回环绑定需鉴权就绪 |
 | 3 Key+模型+OpenAI 网关 | Key 域、模型目录、`/v1/chat/completions` 流式、号池路由(积分加权/冷却/sticky/换号≤3) | 录制 Java 版响应做回放对照;SSE 事件流对齐 |
 | 4 全上游+全协议 | Anthropic/Responses 协议、ZCode/Claude/Gemini/Grok/WorkBuddy/Trae chat 客户端、bridge/codex/mimo 运行时、诊断 | 三协议一致性测试;bridge 冒烟 |
 | 5 计费+成员+备份 | 预占/结算/REVIEW/Janitor、成员门户、备份恢复 | 计费用例逐条对照 Java(动钱,测最狠) |

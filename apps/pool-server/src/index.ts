@@ -1,5 +1,5 @@
 /**
- * pool-server 入口 —— 装配领域层与 HTTP/存储/定时器。
+ * pool-server 入口 —— 装配领域层与管理端鉴权栈/HTTP/存储/定时器。
  * 运行：`node dist/main.js`（esbuild 产物）或 `npm run dev`（Node 类型剥离直跑 src）。
  */
 import { mkdirSync } from "node:fs";
@@ -8,17 +8,21 @@ import { pathToFileURL } from "node:url";
 import { CheckInService, TraeCheckInProvider, WorkBuddyCheckInProvider } from "owl-pool";
 import { loadConfig } from "./config.ts";
 import { CheckInScheduler } from "./scheduler.ts";
+import { AdminGuard } from "./security/admin-guard.ts";
+import { AdminAuthService } from "./security/admin-service.ts";
 import { createPoolServer } from "./server.ts";
 import { SqliteAccountStore } from "./store/account-store.ts";
+import { SqliteAdminCredentialStore } from "./store/admin-credential-store.ts";
 import { newRecordId, SqliteCheckInRecordStore } from "./store/checkin-record-store.ts";
 import { dbAlive, openDb } from "./store/db.ts";
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
 	const config = loadConfig(env);
-	if (!isLoopback(config.host)) {
-		// 迁移文档 D7：管理端鉴权（阶段 2）落地前禁止非回环部署
+	const allowNonLoopback =
+		config.admin.enabled && (config.admin.password.length > 0 || config.admin.setupToken.length >= 32);
+	if (!isLoopback(config.host) && !allowNonLoopback) {
 		console.error(
-			`[pool-server] 拒绝启动：host=${config.host} 不是回环地址。阶段 2（鉴权域）完成前只允许 127.0.0.1/localhost。`,
+			"[pool-server] 拒绝绑定非回环地址：需要管理端鉴权就绪（配置 OWL_POOL_ADMIN_PASSWORD，或提供 32 位以上 OWL_POOL_ADMIN_SETUP_TOKEN 供首次向导）。",
 		);
 		throw new Error("non-loopback bind rejected");
 	}
@@ -41,7 +45,24 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		newId: newRecordId,
 	});
 
-	const server = createPoolServer({ accounts, records, checkin, dbPath: dbFile, isDbAlive: () => dbAlive(db) });
+	// 管理端鉴权栈（阶段 2）：口令/会话/锁定/守卫
+	const adminService = new AdminAuthService({
+		config: config.admin,
+		credentials: new SqliteAdminCredentialStore(db),
+	});
+	if (config.admin.enabled && adminService.isSetupRequired()) {
+		console.log(
+			"[pool-server] 管理端尚未设置口令：请完成首次设置（本机回环直接设置；远程需 OWL_POOL_ADMIN_SETUP_TOKEN）。",
+		);
+	}
+	const admin = {
+		config: config.admin,
+		service: adminService,
+		guard: new AdminGuard({ config: config.admin, service: adminService }),
+		trustedProxyCount: config.trustedProxyCount,
+	};
+
+	const server = createPoolServer({ accounts, records, checkin, dbPath: dbFile, isDbAlive: () => dbAlive(db), admin });
 	await new Promise<void>((resolveListen, reject) => {
 		server.once("error", reject);
 		server.listen(config.port, config.host, () => resolveListen());

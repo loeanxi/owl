@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS check_in_records (
 	occurred_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS admin_credentials (
+	id TEXT PRIMARY KEY,
+	username TEXT NOT NULL,
+	salt TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	source_fingerprint TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_check_in_records_occurred ON check_in_records (occurred_at DESC);
 `;
 

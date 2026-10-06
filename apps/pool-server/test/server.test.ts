@@ -41,7 +41,13 @@ beforeAll(async () => {
 
 afterAll(() => {
 	server.close();
-	rmSync(workdir, { recursive: true, force: true });
+	setTimeout(() => {
+		try {
+			rmSync(workdir, { recursive: true, force: true });
+		} catch {
+			// Windows 偶发句柄延迟；留在临时目录由系统清理
+		}
+	}, 200);
 });
 
 interface ApiBody {
