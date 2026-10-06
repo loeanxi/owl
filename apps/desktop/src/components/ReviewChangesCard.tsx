@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { DiffApprovalFileSummary } from "../bridge/protocol.ts";
 import { createSidebarApi, samePath } from "../sidebar/api.ts";
+import { focusEditorDiff } from "../sidebar/editor-diff-focus.ts";
 import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { t, useT } from "../i18n/index.ts";
@@ -174,6 +175,13 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 			});
 	};
 
+	/** 点文件名：照旧打开整文件（可编辑）；pending 条目顺带经聚焦总线给
+	 * 编辑器带上 diff 语境（装饰新增行/删除块 + 滚到第一处改动）。 */
+	const openFileWithDiffContext = (file: FileArtifact, entry: DiffApprovalFileSummary | undefined): void => {
+		if (entry !== undefined && entry.status === "pending") focusEditorDiff(file.path);
+		onOpenFile(file.path);
+	};
+
 	return (
 		<section className={`owl-artifacts owl-changes-card${collapsed ? " is-collapsed" : ""}`} aria-label={t("chat.changesCount", { n: files.length })}>
 			<header className="owl-changes-head">
@@ -226,7 +234,7 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 											</span>
 										);
 									})()}
-									<button type="button" className="owl-changes-file" title={entry?.path ?? file.path} onClick={() => onOpenFile(file.path)}>
+									<button type="button" className="owl-changes-file" title={entry?.path ?? file.path} onClick={() => openFileWithDiffContext(file, entry)}>
 										<span className="owl-changes-name">{name}</span>
 										{entry !== undefined && status === "pending" && entry.originalExisted === false && (
 											<span className="owl-changes-badge-new">{t("review.created")}</span>
