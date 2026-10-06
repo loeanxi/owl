@@ -17,6 +17,7 @@ import {
 	WorkBuddyCheckInProvider,
 } from "owl-pool";
 import { loadConfig } from "./config.ts";
+import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { CheckInScheduler } from "./scheduler.ts";

@@ -20,7 +20,7 @@ import {
 	registerKeyAdminRoutes,
 	registerModelAdminRoutes,
 } from "./http/gateway-admin-api.ts";
-import { type GatewayRoutesDeps, registerGatewayRoutes } from "./http/gateway-api.ts";
+import { type GatewayRoutesDeps, registerAnthropicGatewayRoutes, registerGatewayRoutes } from "./http/gateway-api.ts";
 import { jsonRespond, readJsonBody, respondErr } from "./http/respond.ts";
 import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
@@ -68,6 +68,7 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 	}
 	if (deps.gateway !== undefined) {
 		registerGatewayRoutes(router, deps.gateway);
+		registerAnthropicGatewayRoutes(router, deps.gateway);
 		registerKeyAdminRoutes(router, { keys: deps.gateway.gateway.keys });
 		registerModelAdminRoutes(router, { catalog: deps.gateway.gateway.catalog });
 		registerGatewayAdminRoutes(router, {

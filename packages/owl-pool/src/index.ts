@@ -122,6 +122,7 @@ export {
 	RouteGeneration,
 	type RouteGenerationDeps,
 } from "./gateway/execution.ts";
+export { stripModelPrefix } from "./gateway/model-router.ts";
 export {
 	AccountPoolRouter,
 	cooldownMillis,
@@ -154,3 +155,25 @@ export {
 	UpstreamException,
 } from "./gateway/upstream.ts";
 export { isPlatform, PLATFORMS, type Platform, usesSdkBridge } from "./platform.ts";
+// ── 协议域（阶段 4A）──
+export {
+	anthropicErrorBody,
+	anthropicToOpenAiPayload,
+	estimateAnthropicInputTokens,
+	openAiToAnthropicMessage,
+} from "./protocol/anthropic-protocol.ts";
+export { AnthropicStreamBridge } from "./protocol/anthropic-stream-bridge.ts";
+export {
+	AnthropicStreamDecoder,
+	AnthropicUpstreamMapper,
+	type AnthropicUpstreamMapperOptions,
+	classifyUpstreamError,
+} from "./protocol/anthropic-upstream.ts";
+export {
+	IncompleteUpstreamStreamException,
+	OpenAiStreamCompletion,
+	type SseEvent,
+	SseEventReader,
+	UpstreamStreamError,
+	UpstreamToolCallAggregator,
+} from "./protocol/openai-stream.ts";

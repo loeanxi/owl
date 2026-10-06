@@ -109,7 +109,9 @@ owl-mono/
 - 管理员凭据存储沿用 manager 的 `admin_credentials` 单行表（SQLite 实现），salt/派生值与 Java 版字节兼容，凭据可直搬。
 - resolve 的账号级过滤（WorkBuddy/Trae 模型快照、SDK bridge 能力、工具续接 ContinuationRegistry、Qoder 特例）随阶段 4；目录级容量判定（discovered 容量表）已就位——发现同步（ModelDiscoveryService）在阶段 4，现阶段容量经管理端/SQLite 直填。
 - sticky 存储默认进程内存（manager 有 Redis 选项）；团队部署需要共享亲和时补 Redis 实现。
-- Grok 上游已移植（近透传 + SSE 转发，usage 口径显式请求 include_usage）；WorkBuddy/Trae/ZCode/Claude/Gemini/Mimo 与 bridge/codex 运行时在阶段 4。
+- Grok 上游已移植（近透传 + SSE 转发，usage 口径显式请求 include_usage）。
+- 阶段 4A 已交付：ZCode/Claude 上游（Anthropic 协议兼容客户端：三通道端点、OAuth beta 头与 claude-cli 身份头、thinking 预算注入、缓存折算、流解码器）与对外 `/v1/messages`、`/v1/messages/count_tokens`（AnthropicStreamBridge 流桥、协议错误体、count_tokens 粗算）。
+- 4A 余量：WorkBuddy（仅 SSE 本地聚合）/Trae（session 换 JWT + 自定义事件）/Gemini（generateContent）客户端；4B：Mimo/bridge/codex 运行时、Responses 协议、模型发现同步、Claude OAuth token 刷新（现 OAuth 账号直接使用存量 accessToken）。
 - 计费预占（BillingGuard/admission 并发租约）不在阶段 3：manager 中管理员自有 Key 本就不计费，成员钱包预占随阶段 5。
 
 ## 7. 数据与迁移策略

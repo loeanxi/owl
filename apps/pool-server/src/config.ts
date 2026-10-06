@@ -39,6 +39,14 @@ export interface PoolConfig {
 		stickyEnabled: boolean;
 		stickyTtlSeconds: number;
 		grokBaseUrl?: string;
+		zcode: { anthropicVersion: string; defaultMaxTokens: number };
+		claude: {
+			baseUrl: string;
+			anthropicVersion: string;
+			oauthBetaHeaders: string;
+			cliVersion: string;
+			thinkingBudgets: { low: number; medium: number; high: number };
+		};
 	};
 }
 
@@ -68,8 +76,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			accountCooldownMs: intOr(env.OWL_POOL_GATEWAY_COOLDOWN_MS, 60_000),
 			upstreamTimeoutMs: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
 			stickyEnabled: boolOr(env.OWL_POOL_GATEWAY_STICKY_ENABLED, true),
-			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 900),
+			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 3600),
 			grokBaseUrl: blankToUndefined(env.OWL_POOL_GROK_BASE_URL),
+			zcode: {
+				anthropicVersion: env.OWL_POOL_ZCODE_ANTHROPIC_VERSION ?? "2023-06-01",
+				defaultMaxTokens: intOr(env.OWL_POOL_ZCODE_DEFAULT_MAX_TOKENS, 8192),
+			},
+			claude: {
+				baseUrl: env.OWL_POOL_CLAUDE_BASE_URL ?? "https://api.anthropic.com",
+				anthropicVersion: env.OWL_POOL_CLAUDE_ANTHROPIC_VERSION ?? "2023-06-01",
+				oauthBetaHeaders:
+					env.OWL_POOL_CLAUDE_OAUTH_BETA_HEADERS ??
+					"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+				cliVersion: env.OWL_POOL_CLAUDE_CLI_VERSION ?? "2.1.258",
+				thinkingBudgets: {
+					low: intOr(env.OWL_POOL_CLAUDE_THINKING_BUDGET_LOW, 4096),
+					medium: intOr(env.OWL_POOL_CLAUDE_THINKING_BUDGET_MEDIUM, 16384),
+					high: intOr(env.OWL_POOL_CLAUDE_THINKING_BUDGET_HIGH, 24576),
+				},
+			},
 		},
 		admin: {
 			enabled: boolOr(env.OWL_POOL_ADMIN_ENABLED, true),
