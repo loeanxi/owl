@@ -15,6 +15,12 @@ import {
 import { registerAccountRoutes } from "./http/accounts-api.ts";
 import { registerAdminRoutes } from "./http/admin-api.ts";
 import { registerCheckInRoutes } from "./http/checkin-api.ts";
+import {
+	registerGatewayAdminRoutes,
+	registerKeyAdminRoutes,
+	registerModelAdminRoutes,
+} from "./http/gateway-admin-api.ts";
+import { type GatewayRoutesDeps, registerGatewayRoutes } from "./http/gateway-api.ts";
 import { jsonRespond, readJsonBody, respondErr } from "./http/respond.ts";
 import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
@@ -38,6 +44,8 @@ export interface PoolServerDeps {
 	isDbAlive: () => boolean;
 	/** 管理端鉴权栈；缺省时退化为「自救模式」（仅回环可访问 /api/**）。 */
 	admin?: AdminStack;
+	/** 网关栈（/v1/*，阶段 3）；缺省时 /v1 返回网关未启用。 */
+	gateway?: GatewayRoutesDeps;
 	startedAt?: number;
 	maxBodyBytes?: number;
 }
@@ -56,6 +64,15 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 			guard: deps.admin.guard,
 			checkin: deps.checkin,
 			trustedProxyCount: deps.admin.trustedProxyCount,
+		});
+	}
+	if (deps.gateway !== undefined) {
+		registerGatewayRoutes(router, deps.gateway);
+		registerKeyAdminRoutes(router, { keys: deps.gateway.gateway.keys });
+		registerModelAdminRoutes(router, { catalog: deps.gateway.gateway.catalog });
+		registerGatewayAdminRoutes(router, {
+			callLogs: deps.gateway.gateway.callLogs,
+			catalog: deps.gateway.gateway.catalog,
 		});
 	}
 

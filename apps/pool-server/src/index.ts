@@ -5,8 +5,20 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CheckInService, TraeCheckInProvider, WorkBuddyCheckInProvider } from "owl-pool";
+import type { Platform, UpstreamChatClient } from "owl-pool";
+import {
+	AccountPoolRouter,
+	ApiKeyService,
+	CheckInService,
+	MemoryGatewayState,
+	RouteGeneration,
+	StickySessionService,
+	TraeCheckInProvider,
+	WorkBuddyCheckInProvider,
+} from "owl-pool";
 import { loadConfig } from "./config.ts";
+import { GrokUpstreamClient } from "./gateway/grok-client.ts";
+import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { CheckInScheduler } from "./scheduler.ts";
 import { AdminGuard } from "./security/admin-guard.ts";
 import { AdminAuthService } from "./security/admin-service.ts";
@@ -15,6 +27,7 @@ import { SqliteAccountStore } from "./store/account-store.ts";
 import { SqliteAdminCredentialStore } from "./store/admin-credential-store.ts";
 import { newRecordId, SqliteCheckInRecordStore } from "./store/checkin-record-store.ts";
 import { dbAlive, openDb } from "./store/db.ts";
+import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "./store/gateway-stores.ts";
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
 	const config = loadConfig(env);
@@ -62,7 +75,58 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		trustedProxyCount: config.trustedProxyCount,
 	};
 
-	const server = createPoolServer({ accounts, records, checkin, dbPath: dbFile, isDbAlive: () => dbAlive(db), admin });
+	// 网关栈（阶段 3）：Key 服务 + 目录 + 号池路由 + 换号执行 + 上游通道
+	const apiKeyStore = new SqliteApiKeyStore(db);
+	const keys = new ApiKeyService({ store: apiKeyStore });
+	const catalog = new SqliteCatalogStore(db);
+	const callLogs = new SqliteCallLogStore(db);
+	const gatewayState = new MemoryGatewayState();
+	const poolRouter = new AccountPoolRouter({
+		accounts,
+		accountCooldownMs: config.gateway.accountCooldownMs,
+		cooldownState: gatewayState,
+	});
+	const sticky = new StickySessionService({
+		enabled: config.gateway.stickyEnabled,
+		ttlSeconds: config.gateway.stickyTtlSeconds,
+	});
+	const upstreams = new Map<Platform, UpstreamChatClient>();
+	const grok = new GrokUpstreamClient({
+		baseUrl: config.gateway.grokBaseUrl,
+		timeoutMs: config.gateway.upstreamTimeoutMs,
+	});
+	upstreams.set(grok.platform(), grok);
+	const generation = new RouteGeneration({
+		accounts,
+		router: poolRouter,
+		sticky,
+		upstreams,
+		maxRotate: config.gateway.maxRotate,
+	});
+	const gatewayDeps: GatewayServiceDeps = {
+		config: config.gateway,
+		state: gatewayState,
+		keys,
+		accounts,
+		router: poolRouter,
+		generation,
+		sticky,
+		upstreams,
+		callLogs,
+		catalog,
+		listPublishedModels: () => catalog.listModels(),
+		trustedProxyCount: config.trustedProxyCount,
+	};
+
+	const server = createPoolServer({
+		accounts,
+		records,
+		checkin,
+		dbPath: dbFile,
+		isDbAlive: () => dbAlive(db),
+		admin,
+		gateway: { gateway: gatewayDeps, gatewayConfig: config.gateway },
+	});
 	await new Promise<void>((resolveListen, reject) => {
 		server.once("error", reject);
 		server.listen(config.port, config.host, () => resolveListen());

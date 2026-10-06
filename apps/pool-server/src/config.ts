@@ -27,6 +27,19 @@ export interface PoolConfig {
 	admin: AdminSecurityConfig;
 	/** 可信反代层数；0 = 完全不信转发头。 */
 	trustedProxyCount: number;
+	/** 网关域（对齐 manager `manager.gateway.*`）。 */
+	gateway: {
+		enabled: boolean;
+		globalRateLimitPerMinute: number;
+		ipRateLimitPerMinute: number;
+		ipWhitelist: string | null;
+		maxRotate: number;
+		accountCooldownMs: number;
+		upstreamTimeoutMs: number;
+		stickyEnabled: boolean;
+		stickyTtlSeconds: number;
+		grokBaseUrl?: string;
+	};
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
@@ -46,6 +59,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 		checkInMinute: intOr(env.OWL_POOL_CHECKIN_MINUTE, 5),
 		checkInStaggerMs: intOr(env.OWL_POOL_CHECKIN_STAGGER_MS, 3000),
 		trustedProxyCount: intOr(env.OWL_POOL_TRUSTED_PROXY_COUNT, 0),
+		gateway: {
+			enabled: boolOr(env.OWL_POOL_GATEWAY_ENABLED, true),
+			globalRateLimitPerMinute: intOr(env.OWL_POOL_GATEWAY_GLOBAL_RATE, 600),
+			ipRateLimitPerMinute: intOr(env.OWL_POOL_GATEWAY_IP_RATE, 300),
+			ipWhitelist: blankToUndefined(env.OWL_POOL_GATEWAY_IP_WHITELIST) ?? null,
+			maxRotate: intOr(env.OWL_POOL_GATEWAY_MAX_ROTATE, 3),
+			accountCooldownMs: intOr(env.OWL_POOL_GATEWAY_COOLDOWN_MS, 60_000),
+			upstreamTimeoutMs: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
+			stickyEnabled: boolOr(env.OWL_POOL_GATEWAY_STICKY_ENABLED, true),
+			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 900),
+			grokBaseUrl: blankToUndefined(env.OWL_POOL_GROK_BASE_URL),
+		},
 		admin: {
 			enabled: boolOr(env.OWL_POOL_ADMIN_ENABLED, true),
 			username: env.OWL_POOL_ADMIN_USERNAME ?? "admin",

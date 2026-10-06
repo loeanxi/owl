@@ -64,6 +64,89 @@ CREATE TABLE IF NOT EXISTS admin_credentials (
 	updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS api_keys (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	key_prefix TEXT NOT NULL,
+	key_suffix TEXT,
+	key_hash TEXT NOT NULL UNIQUE,
+	owner_member_id TEXT,
+	parent_key_id TEXT,
+	revoked_at INTEGER,
+	bound_platform TEXT,
+	allowed_models TEXT,
+	effort_policy TEXT,
+	allowed_ips TEXT,
+	rate_limit_per_minute INTEGER,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	created_at INTEGER NOT NULL,
+	expires_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS published_models (
+	id TEXT PRIMARY KEY,
+	public_id TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL,
+	description TEXT,
+	model_version TEXT,
+	context_window INTEGER,
+	default_context_window INTEGER,
+	default_reasoning_effort TEXT,
+	max_output_tokens INTEGER,
+	supports_images INTEGER NOT NULL DEFAULT 0,
+	supports_tools INTEGER NOT NULL DEFAULT 0,
+	reasoning_efforts TEXT NOT NULL DEFAULT '[]',
+	published INTEGER NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS published_model_routes (
+	id TEXT PRIMARY KEY,
+	model_id TEXT NOT NULL,
+	platform TEXT NOT NULL,
+	upstream_model TEXT NOT NULL,
+	priority INTEGER NOT NULL DEFAULT 0,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	supports_images INTEGER NOT NULL DEFAULT 0,
+	supports_tools INTEGER NOT NULL DEFAULT 0,
+	reasoning_efforts TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS discovered_models (
+	platform TEXT NOT NULL,
+	upstream_model TEXT NOT NULL,
+	available INTEGER NOT NULL DEFAULT 1,
+	context_window INTEGER,
+	max_output_tokens INTEGER,
+	updated_at INTEGER NOT NULL,
+	PRIMARY KEY (platform, upstream_model)
+);
+
+CREATE TABLE IF NOT EXISTS gateway_call_logs (
+	id TEXT PRIMARY KEY,
+	key_id TEXT,
+	account_id TEXT,
+	platform TEXT,
+	model TEXT,
+	effective_model TEXT,
+	prompt_tokens INTEGER,
+	completion_tokens INTEGER,
+	total_tokens INTEGER,
+	cache_read_tokens INTEGER,
+	cache_write_tokens INTEGER,
+	latency_ms INTEGER,
+	status TEXT NOT NULL,
+	message TEXT,
+	client_ip TEXT,
+	request_id TEXT,
+	usage_source TEXT,
+	error_category TEXT,
+	occurred_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gateway_call_logs_occurred ON gateway_call_logs (occurred_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_check_in_records_occurred ON check_in_records (occurred_at DESC);
 `;
 

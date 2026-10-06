@@ -107,6 +107,10 @@ owl-mono/
 - 环境变量统一 `OWL_POOL_*` 前缀（`OWL_POOL_ADMIN_*` 对应 `MANAGER_ADMIN_*`，`OWL_POOL_TRUSTED_PROXY_COUNT` 对应 `manager.security.trusted-proxy-count`）。
 - 限流三层（§8#7）在 manager 里本就挂在网关过滤器（`/v1/*`），故随阶段 3 网关交付，不在阶段 2。
 - 管理员凭据存储沿用 manager 的 `admin_credentials` 单行表（SQLite 实现），salt/派生值与 Java 版字节兼容，凭据可直搬。
+- resolve 的账号级过滤（WorkBuddy/Trae 模型快照、SDK bridge 能力、工具续接 ContinuationRegistry、Qoder 特例）随阶段 4；目录级容量判定（discovered 容量表）已就位——发现同步（ModelDiscoveryService）在阶段 4，现阶段容量经管理端/SQLite 直填。
+- sticky 存储默认进程内存（manager 有 Redis 选项）；团队部署需要共享亲和时补 Redis 实现。
+- Grok 上游已移植（近透传 + SSE 转发，usage 口径显式请求 include_usage）；WorkBuddy/Trae/ZCode/Claude/Gemini/Mimo 与 bridge/codex 运行时在阶段 4。
+- 计费预占（BillingGuard/admission 并发租约）不在阶段 3：manager 中管理员自有 Key 本就不计费，成员钱包预占随阶段 5。
 
 ## 7. 数据与迁移策略
 
@@ -143,7 +147,7 @@ owl-mono/
 | **0 骨架（已交付）** | owl-pool 包 + pool-server 服务壳 + healthz + SQLite 建表 + 构建测试接线 | `npm run build / check / test` 全绿；`/healthz` 返回 db 状态 |
 | **1 账号+签到（已交付）** | 账号 CRUD、WorkBuddy/Trae 签到 Provider(含 9074 风控换号)、签到服务(单号/全量/补签判定)、记录、每日定时 | Provider 测试覆盖成功/已签/未开启/鉴权失败/风控重试/HTML 拦截;REST 冒烟测试 |
 | **2 鉴权与安全（已交付）** | §8 的 1-6 项（管理端全套：setup/login/logout/session/password、守卫接入 `/api/**`、补签挂钩登录） | 锁定（双维度+快照恢复）/会话持久化（TTL/重启）/口令强度各有测试；非回环绑定需鉴权就绪 |
-| 3 Key+模型+OpenAI 网关 | Key 域、模型目录、`/v1/chat/completions` 流式、号池路由(积分加权/冷却/sticky/换号≤3) | 录制 Java 版响应做回放对照;SSE 事件流对齐 |
+| **3 Key+模型+OpenAI 网关（已交付）** | Key 域（哈希/IP 策略/思考策略/成员子 Key 继承）、模型目录（CapabilityRequest/档位刻度/resolve 路由收敛）、`/v1/chat/completions` 流式+非流式、`/v1/models`、认证链（全局/IP/Key 限流+白名单）、号池路由（积分加权/冷却分级落库/sticky/换号≤3）、调用日志、Grok 上游 | 域测试 + mock 上游全流程（sanitize/SSE/[DONE]/换号/冷却/日志） |
 | 4 全上游+全协议 | Anthropic/Responses 协议、ZCode/Claude/Gemini/Grok/WorkBuddy/Trae chat 客户端、bridge/codex/mimo 运行时、诊断 | 三协议一致性测试;bridge 冒烟 |
 | 5 计费+成员+备份 | 预占/结算/REVIEW/Janitor、成员门户、备份恢复 | 计费用例逐条对照 Java(动钱,测最狠) |
 | 6 桌面端+割接 | owl 桌面 ManagerTab(最左侧入口)、备份 zip 导入器、数据割接 | owl 内全功能可用;生产数据完整迁入;Java 退役 |
