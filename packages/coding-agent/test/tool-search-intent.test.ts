@@ -232,4 +232,46 @@ describe("tool intent evidence", () => {
 		expect(assessToolForIntent(deriveIntentSteps(tool.name)[0], tool).status).toBe("supported");
 		expect(assessToolForIntent(deriveIntentSteps("把星辰折起来")[0], tool).status).toBe("refine");
 	});
+
+	it("derives the computer desktop domain and its actions", () => {
+		expect(
+			deriveIntentSteps("点击桌面上的记事本窗口").map(({ capability, action }) => ({ capability, action })),
+		).toEqual([{ capability: "computer", action: "click" }]);
+		expect(deriveIntentSteps("列出桌面窗口")[0]).toMatchObject({ capability: "computer", action: "list" });
+		expect(deriveIntentSteps("在输入框打字 hello")[0]).toMatchObject({ capability: "computer", action: "type" });
+		expect(deriveIntentSteps("按 ctrl+s 保存快捷键")[0]).toMatchObject({ capability: "computer", action: "press" });
+	});
+
+	it("matches computer-use tools by desktop evidence without treating prose as pixel capture", () => {
+		const windows: IntentToolMetadata = {
+			name: "computer_windows",
+			description:
+				"List visible top-level windows (returns hwnd, title, process, rect, minimized/foreground flags), or bring a window to the foreground ('focus'), or un-minimize it ('restore') so you can screenshot and interact with it.",
+			parameters: Type.Object({
+				action: Type.Union([Type.Literal("list"), Type.Literal("focus"), Type.Literal("restore")]),
+			}),
+		};
+		expect(assessToolForIntent(deriveIntentSteps("列出桌面窗口")[0], windows).status).toBe("supported");
+		expect(assessToolForIntent(deriveIntentSteps("聚焦记事本窗口")[0], windows).status).toBe("supported");
+
+		const screenshot: IntentToolMetadata = {
+			name: "computer_screenshot",
+			description: "Take a screenshot of this Windows desktop and return it as an image.",
+			parameters: Type.Object({
+				target: Type.Union([Type.Literal("primary"), Type.Literal("all"), Type.Literal("monitor")]),
+			}),
+		};
+		expect(assessToolForIntent(deriveIntentSteps("截屏看一下当前桌面")[0], screenshot).status).toBe("supported");
+
+		const pressKey: IntentToolMetadata = {
+			name: "computer_key",
+			description:
+				"Press a single key or a shortcut combo (real keystrokes into the focused window): 'enter', 'esc', 'ctrl+s'.",
+			parameters: Type.Object({ combo: Type.String({ description: "A single key or combo." }) }),
+		};
+		expect(assessToolForIntent(deriveIntentSteps("按 ctrl+s 保存快捷键")[0], pressKey).status).toBe("supported");
+
+		// 浏览器域的窗口词不被 computer 域抢走（browser 排在 computer 之前）。
+		expect(deriveIntentSteps("浏览器窗口截图")[0]).toMatchObject({ capability: "browser" });
+	});
 });

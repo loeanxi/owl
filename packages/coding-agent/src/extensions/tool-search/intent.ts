@@ -76,6 +76,12 @@ const CAPABILITIES: readonly Concept[] = [
 		pattern: /后台|背景运行|背景執行|定时|定時|排程|\b(schedule|background)\b/i,
 		terms: "background task schedule",
 	},
+	{
+		key: "computer",
+		pattern:
+			/桌面|屏幕|鼠标|鼠標|键盘|鍵盤|快捷键|快捷鍵|热键|熱鍵|窗口|输入框|輸入框|文本框|弹窗|彈窗|\b(desktop|computer|windows?|mouse|keyboard|screen)\b/i,
+		terms: "computer desktop window mouse keyboard screen click type scroll",
+	},
 ];
 
 const ACTIONS: readonly Concept[] = [
@@ -118,6 +124,15 @@ const ACTIONS: readonly Concept[] = [
 	{ key: "delegate", pattern: /委派|子代理|\b(delegate|subagent)\b/i, terms: "delegate subagent" },
 	{ key: "schedule", pattern: /定时|定時|排程|\bschedule\b/i, terms: "schedule" },
 	{ key: "remember", pattern: /记住|記住|\bremember\b/i, terms: "remember save" },
+	{ key: "click", pattern: /点击|點擊|单击|單擊|\bclick(?:s|ed|ing)?\b/i, terms: "click double-click" },
+	{ key: "type", pattern: /键入|打字|输入文本|輸入文本|\btype\b/i, terms: "type keystroke enter text" },
+	{ key: "focus", pattern: /聚焦|切到前台|置前台|置前|\bfocus(?:s|ed|ing)?\b/i, terms: "focus foreground" },
+	{ key: "scroll", pattern: /滚动|滾動|\bscroll(?:s|ed|ing)?\b/i, terms: "scroll wheel" },
+	{
+		key: "press",
+		pattern: /按键|按鍵|快捷键|快捷鍵|热键|熱鍵|\b(?:press(?:es|ing)?|keystrokes?|shortcuts?|hotkeys?)\b/i,
+		terms: "press key keystroke shortcut hotkey combo",
+	},
 ];
 
 /** Retrieval aliases may be broad; domain evidence must describe the actual tool or an input kind. */
@@ -135,6 +150,7 @@ const CAPABILITY_EVIDENCE: Readonly<Record<string, RegExp>> = {
 	subagent: /子代理|子智能体|委派|\b(subagents?|delegate)\b/i,
 	memory: /记忆|記憶|偏好|用户印象|\b(memory|remember|preferences?)\b/i,
 	background: /后台|背景运行|背景執行|定时|定時|排程|\b(schedule|background)\b/i,
+	computer: /桌面|屏幕|鼠标|鼠標|键盘|鍵盤|窗口|\b(desktop|computer|windows?|mouse|keyboard|screen)\b/i,
 };
 
 function normalize(text: string): string {
