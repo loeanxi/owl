@@ -70,6 +70,36 @@ html[data-owl-preset="owl-green"] {
 }
 
 /*
+ * Codex 预设（settings.json owlAppearance.preset = "codex"）：
+ * 中性灰白底 + 蓝紫强调色，靠左侧栏的浅色面板、底栏独立 session 卡片都跟参考对齐。
+ * 与浅色块同优先级，必须放在它前面，浅色 + codex 时浅色获胜；浅色档单独
+ * 由 html[data-owl-preset="codex"][data-owl-theme="light"] 在浅色块之后再覆盖一次。
+ */
+html[data-owl-preset="codex"] {
+	--owl-conversation-bg: #1f1f1f;
+	--color-owl-bg: #1f1f1f;
+	--color-owl-sidebar: #1a1a1a;
+	--color-owl-rail: #161616;
+	--color-owl-panel: #2a2a2a;
+	--color-owl-bubble: #252525;
+	--color-owl-hover: #2e2e2e;
+	--color-owl-border: #3a3a3a;
+	--color-owl-text: #ededed;
+	--color-owl-muted: #9a9a9a;
+	--color-owl-faint: #6e6e6e;
+	--color-owl-accent: #4d9aff;
+	--color-owl-accent-hover: #6babff;
+	--color-owl-sidebar-bg: #1a1a1a;
+	--color-owl-sidebar-surface: #2a2a2a;
+	--color-owl-sidebar-hover: #2e2e2e;
+	--color-owl-sidebar-selected: #3a3a3a;
+	--color-owl-sidebar-border: #3a3a3a;
+	--color-owl-sidebar-text: #ededed;
+	--color-owl-sidebar-muted: #9a9a9a;
+	--color-owl-sidebar-faint: #6e6e6e;
+}
+
+/*
  * 浅色主题：html[data-owl-theme="light"] 时整体覆盖 --color-owl-* 变量。
  * 工具类（bg-owl-bg 等）引用的是变量，所以所有组件无需改动即可换肤。
  * 暖纸色调，与深色的 Claude 风格同族；主色图标绿两套通用。
@@ -98,6 +128,33 @@ html[data-owl-theme="light"] {
 	--color-owl-text: #3d3a32;
 	--color-owl-muted: #6e6a5e;
 	--color-owl-faint: #9a9585;
+}
+
+/*
+ * Codex 预设的浅色覆盖：放在默认浅色块之后同优先级覆盖，确保 codex + 浅色时
+ * 不被默认暖纸色调吞掉。暖灰白底 + 蓝紫强调色。
+ */
+html[data-owl-preset="codex"][data-owl-theme="light"] {
+	--color-owl-accent: #0066cc;
+	--color-owl-accent-hover: #0052a3;
+	--color-owl-bg: #f7f6f3;
+	--color-owl-sidebar: #efeeeb;
+	--color-owl-rail: #e7e6e3;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f0efec;
+	--color-owl-hover: #e9e8e5;
+	--color-owl-border: #d9d7d2;
+	--color-owl-sidebar-bg: #efeeeb;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #e9e8e5;
+	--color-owl-sidebar-selected: #d9d7d2;
+	--color-owl-sidebar-border: #d9d7d2;
+	--color-owl-sidebar-text: #1a1a1a;
+	--color-owl-sidebar-muted: #6e6e6e;
+	--color-owl-sidebar-faint: #8c8c8c;
+	--color-owl-text: #1a1a1a;
+	--color-owl-muted: #6e6e6e;
+	--color-owl-faint: #8c8c8c;
 }
 
 ::selection {
@@ -297,7 +354,7 @@ html[data-owl-theme="light"] {
 .owl-sidebar-section-header {
 	display: flex;
 	position: relative;
-	height: 32px;
+	height: 24px;
 	align-items: center;
 	gap: 4px;
 	padding: 0 8px;
@@ -306,21 +363,23 @@ html[data-owl-theme="light"] {
 .owl-sidebar-section-toggle {
 	display: inline-flex;
 	min-width: 0;
-	height: 28px;
+	height: 24px;
 	flex: 1;
 	align-items: center;
 	gap: 5px;
 	border-radius: 5px;
-	color: var(--color-owl-sidebar-muted);
+	color: var(--color-owl-sidebar-faint);
 }
 
 .owl-sidebar-section-toggle:hover {
 	color: var(--color-owl-sidebar-text);
 }
 
+/* 分区标题作为弱化小标签，把视觉重量让给会话列表 */
 .owl-sidebar-section-label {
-	font-size: 12px;
+	font-size: 10.5px;
 	font-weight: 600;
+	letter-spacing: 0.08em;
 }
 
 .owl-sidebar-section-menu {
@@ -459,31 +518,87 @@ html[data-owl-theme="light"] {
 	color: var(--color-owl-sidebar-text);
 }
 
+/* 项目下的会话列表：缩进表达层级，行首状态点对齐成一列（不再画缩进参考线） */
 .owl-sidebar-project-sessions {
-	margin: 1px 0 2px;
+	margin: 1px 0 2px 11px;
+	padding-left: 8px;
 }
 
 .owl-sidebar-session-row {
-	height: 22px;
-	border-radius: 4px;
+	height: 30px;
 }
 
 .owl-sidebar-session-row .owl-sidebar-row-main {
 	gap: 6px;
 }
 
-.owl-sidebar-session-icon {
-	display: inline-flex;
-	width: 12px;
-	height: 12px;
-	flex: 0 0 12px;
-	align-items: center;
-	justify-content: center;
-	color: color-mix(in srgb, var(--color-owl-sidebar-text) 68%, transparent);
+/* 拖拽暗示：[draggable=true] 的会话行才出 grab 光标，避免误以为所有行都可拖。
+ * 拖拽过程中整行变 grabbing + 禁止文本选中；松手由 onDragEnd 复位。 */
+.owl-sidebar-session-row[draggable="true"] {
+	cursor: grab;
 }
 
-.owl-sidebar-session-icon.is-running {
-	color: #22c55e;
+.owl-sidebar-session-row[draggable="true"]:hover {
+	background: var(--color-owl-sidebar-hover);
+}
+
+.owl-sidebar-session-row.is-dragging,
+.owl-sidebar-session-row.is-dragging * {
+	cursor: grabbing !important;
+	user-select: none;
+}
+
+/* 行首状态点：默认灰色圆环、运行中绿色呼吸、未读 accent 实心 */
+.owl-sidebar-session-dot {
+	width: 7px;
+	height: 7px;
+	flex: 0 0 7px;
+	border: 1.5px solid var(--color-owl-sidebar-faint);
+	border-radius: 50%;
+	background: transparent;
+}
+
+.owl-sidebar-session-dot.is-unread {
+	background: var(--color-owl-accent);
+	border-color: var(--color-owl-accent);
+}
+
+.owl-sidebar-session-dot.is-running {
+	border-color: #22c55e;
+	animation: owl-sidebar-dot-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes owl-sidebar-dot-breathe {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-sidebar-session-dot.is-running {
+		animation: none;
+	}
+}
+
+/* 行尾相对时间：与标题同行的弱元信息 */
+.owl-sidebar-row-time {
+	flex: 0 0 auto;
+	color: var(--color-owl-sidebar-faint);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+}
+
+/* 项目会话拖拽排序：源行半透明，落点用 accent 细线提示（box-shadow 不挤动布局） */
+.owl-sidebar-session-row.is-dragging {
+	opacity: 0.35;
+}
+
+.owl-sidebar-session-row.is-drop-before {
+	box-shadow: 0 -2px 0 0 var(--color-owl-accent);
+}
+
+.owl-sidebar-session-row.is-drop-after {
+	box-shadow: 0 2px 0 0 var(--color-owl-accent);
 }
 
 .owl-sidebar-add-project {
@@ -539,7 +654,101 @@ html[data-owl-theme="light"] {
 
 /* One canvas for messages, tasks and the composer; reading styles remain scoped to content. */
 .owl-shell-conversation { background: var(--owl-conversation-bg); }
-.owl-composer-surface { background: transparent; }
+.owl-composer-surface { background: transparent; overflow: visible; }
+
+/* Composer 内 @ 引用文件生成的芯片：与输入文本同行，随光标插入。*/
+.owl-composer-editor {
+	min-height: 24px;
+	max-height: 192px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.owl-composer-editor:empty::before {
+	content: attr(data-placeholder);
+	color: var(--owl-ui-muted);
+	pointer-events: none;
+}
+.owl-mention-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 240px;
+	padding: 1px 2px 1px 8px;
+	margin: 0 1px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent);
+	color: var(--owl-ui-text);
+	font-size: 12.5px;
+	line-height: 1.5;
+	user-select: none;
+	vertical-align: baseline;
+}
+.owl-mention-chip__label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.owl-mention-chip__x {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	font-size: 11px;
+	line-height: 1;
+	color: var(--owl-ui-muted);
+	background: transparent;
+	border-radius: 4px;
+	cursor: pointer;
+	border: none;
+	padding: 0;
+}
+.owl-mention-chip__x:hover {
+	background: color-mix(in srgb, var(--owl-ui-text) 10%, transparent);
+	color: var(--owl-ui-text);
+}
+.owl-mention-menu {
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 8px;
+	right: 8px;
+	z-index: 25;
+	max-height: 220px;
+	overflow-y: auto;
+	border-radius: 10px;
+	border: 1px solid var(--owl-ui-border);
+	background: var(--owl-ui-panel);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+	padding: 4px 0;
+}
+.owl-mention-menu__row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 5px 12px;
+	font-size: 12.5px;
+	color: var(--owl-ui-muted);
+	cursor: pointer;
+}
+.owl-mention-menu__row[data-active="true"] {
+	background: var(--owl-ui-hover);
+	color: var(--owl-ui-text);
+}
+.owl-mention-menu__row small {
+	color: color-mix(in srgb, var(--owl-ui-muted) 70%, transparent);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+	min-width: 0;
+}
+.owl-mention-menu__empty {
+	padding: 6px 12px;
+	font-size: 12px;
+	color: var(--owl-ui-muted);
+}
 
 .owl-chat-surface {
 	--owl-reading-text: #e4e4e4;
@@ -581,6 +790,8 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-row:hover .owl-rewind-trigger, .owl-rewind-trigger:focus-visible { opacity: 1; }
 .owl-rewind-trigger:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
 .owl-user-bubble { max-width: 85%; border-radius: 16px; background: var(--color-owl-bubble); padding: 10px 16px; font-size: max(14px, calc(var(--owl-chat-font-size, 14px) - 2px)); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owl-user-queued { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin: 8px 0; }
+.owl-user-queued-hint { font-size: 12px; line-height: 1.4; color: var(--owl-reading-muted); }
 
 /* -- 消息操作栏（回答底部：复制/赞/踩/重新生成 + 用量与时间） ----------------
    Claude 同款：默认隐藏，悬停回答正文或操作栏本身时浮现；::before 盖住正文与
@@ -669,6 +880,194 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }
 .owl-response-activity[data-state="working"] .owl-response-mark { animation: owl-response-breathe 2s ease-in-out infinite; }
 .owl-response-activity[data-state="disconnected"] .owl-response-mark { opacity: .4; }
+
+/* 输入框上沿的流羽猫头鹰。整只在边线上方 2px，不压线。 */
+.owl-mascot-slot {
+	position: absolute;
+	top: 0;
+	right: 16px;
+	z-index: 3;
+	line-height: 0;
+	transform: translateY(calc(-100% - 2px));
+}
+.owl-mascot-slot.is-inline {
+	position: static;
+	top: auto;
+	right: auto;
+	z-index: auto;
+	flex: none;
+	margin-right: 2px;
+	transform: none;
+}
+.owl-mascot-slot.is-inline .owl-mascot-fx { display: none !important; }
+.owl-mascot {
+	position: relative;
+	width: 32px;
+	height: 38px;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	cursor: pointer;
+}
+.owl-mascot svg { width: 100%; height: 100%; overflow: visible; }
+.owl-mascot-bird,
+.owl-mascot-plumage,
+.owl-mascot-pupils,
+.owl-mascot-eyes { transform-box: fill-box; transform-origin: center; }
+.owl-mascot-prop { display: none; }
+.owl-mascot-ray { transform-box: fill-box; transform-origin: center; }
+.owl-mascot[data-pose="idle"] .owl-mascot-plumage { animation: owl-flare 2.8s ease-in-out infinite; }
+.owl-mascot[data-pose="idle"] .owl-mascot-pupils { animation: owl-glance 5s ease-in-out infinite; }
+.owl-mascot[data-pose="idle"] .owl-mascot-eyes { animation: owl-blink 3.4s infinite; }
+.owl-mascot[data-pose="think"] .owl-mascot-ray { animation: owl-feather 0.85s ease-in-out infinite; }
+.owl-mascot[data-pose="think"] .owl-mascot-ray:nth-child(odd) { animation-delay: .2s; }
+.owl-mascot[data-pose="think"] .owl-mascot-ray:nth-child(3n) { animation-delay: .4s; }
+.owl-mascot[data-pose="think"] .owl-mascot-bird { animation: owl-bob 0.85s ease-in-out infinite; }
+.owl-mascot[data-pose="think"] .owl-mascot-eyes { animation: owl-blink 1.6s infinite; }
+.owl-mascot[data-pose="read"] .owl-mascot-paper {
+	display: block;
+	transform-box: fill-box;
+	transform-origin: 40% 80%;
+	animation: owl-page 0.9s ease-in-out infinite;
+}
+.owl-mascot[data-pose="read"] .owl-mascot-scanline { animation: owl-readline 0.9s ease-in-out infinite; }
+.owl-mascot[data-pose="read"] .owl-mascot-pupils { animation: owl-scan 0.9s ease-in-out infinite; }
+.owl-mascot[data-pose="read"] .owl-mascot-eyes { animation: owl-blink 2.2s infinite; }
+.owl-mascot[data-pose="read"] .owl-mascot-ray-right { animation: owl-sway 0.9s ease-in-out infinite; }
+.owl-mascot[data-pose="search"] .owl-mascot-glass {
+	display: block;
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: owl-sweep 0.8s ease-in-out infinite;
+}
+.owl-mascot[data-pose="search"] .owl-mascot-pupils { animation: owl-scan 0.8s ease-in-out infinite; }
+.owl-mascot[data-pose="write"] .owl-mascot-laptop {
+	display: block;
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: owl-type 0.45s ease-in-out infinite;
+}
+.owl-mascot[data-pose="write"] .owl-mascot-bird { animation: owl-bob 0.45s ease-in-out infinite; }
+.owl-mascot[data-pose="write"] .owl-mascot-ray-key { animation: owl-peck 0.28s ease-in-out infinite; transform-origin: center top; }
+.owl-mascot[data-pose="run"] .owl-mascot-plumage { animation: owl-stream 0.28s ease-in-out infinite; }
+.owl-mascot[data-pose="run"] .owl-mascot-bird { animation: owl-bob 0.28s ease-in-out infinite; }
+.owl-mascot[data-pose="wait"] .owl-mascot-bird { animation: owl-wait 1.1s ease-in-out infinite; }
+.owl-mascot[data-pose="wait"] .owl-mascot-eyes { animation: owl-blink 2.4s infinite; }
+.owl-mascot[data-pose="off"] .owl-mascot-pupil { fill: #3e4944; }
+.owl-mascot[data-pose="off"] .owl-mascot-glow { opacity: 0; }
+.owl-mascot[data-pose="off"] .owl-mascot-plumage { opacity: .35; }
+.owl-mascot[data-pose="party"] .owl-mascot-ray { animation: owl-feather 0.45s ease-in-out infinite; }
+.owl-mascot[data-pose="party"] { animation: owl-hop 0.55s ease infinite; }
+.owl-mascot.poked { animation: owl-hop 0.55s ease; }
+.owl-mascot-fx { display: none; position: absolute; }
+.owl-mascot[data-pose="write"] .owl-mascot-bubbles,
+.owl-mascot[data-pose="think"] .owl-mascot-thoughts,
+.owl-mascot[data-pose="party"] .owl-mascot-sparks { display: block; }
+.owl-mascot-fx i {
+	position: absolute;
+	font-style: normal;
+	color: var(--color-owl-accent, #50a992);
+	font-size: 11px;
+	font-family: ui-monospace, Consolas, monospace;
+	opacity: 0;
+	animation: owl-rise 1.8s ease-in infinite;
+}
+.owl-mascot-bubbles i:nth-child(1) { left: 14px; }
+.owl-mascot-bubbles i:nth-child(2) { left: 22px; animation-delay: .6s; }
+.owl-mascot-bubbles i:nth-child(3) { left: 6px; animation-delay: 1.1s; }
+.owl-mascot-thoughts { left: 46px; top: 0; }
+.owl-mascot-thoughts i {
+	width: 5px; height: 5px; border-radius: 50%; background: #5ecf82;
+	font-size: 0; animation: owl-pop 1.2s ease-in-out infinite;
+}
+.owl-mascot-thoughts i:nth-child(2) { left: 8px; animation-delay: .15s; }
+.owl-mascot-thoughts i:nth-child(3) { left: 16px; animation-delay: .3s; }
+.owl-mascot-sparks i { color: #c4a82a; animation-duration: .9s; }
+.owl-mascot-sparks i:nth-child(1) { left: 8px; }
+.owl-mascot-sparks i:nth-child(2) { left: 58px; animation-delay: .2s; }
+.owl-mascot-sparks i:nth-child(3) { left: 30px; animation-delay: .45s; }
+@keyframes owl-glance {
+	0%, 70%, 100% { transform: translate(0, 0); }
+	78% { transform: translate(5px, 0); }
+	88% { transform: translate(-5px, 1px); }
+}
+@keyframes owl-blink {
+	0%, 92%, 100% { transform: scaleY(1); }
+	95% { transform: scaleY(0.08); }
+}
+@keyframes owl-flare {
+	0%, 100% { transform: scale(0.92); }
+	50% { transform: scale(1.18); }
+}
+@keyframes owl-feather {
+	0%, 100% { transform: scale(0.55); opacity: .4; }
+	50% { transform: scale(1.45); opacity: 1; }
+}
+@keyframes owl-gather {
+	0%, 100% { transform: scale(1); }
+	50% { transform: scale(0.72); }
+}
+@keyframes owl-burst {
+	0%, 100% { transform: scale(1); }
+	40% { transform: scale(1.35); }
+}
+@keyframes owl-stream {
+	0%, 100% { transform: skewX(-22deg) translateX(-4px); }
+	50% { transform: skewX(22deg) translateX(4px); }
+}
+@keyframes owl-think {
+	0%, 100% { transform: rotate(0deg); }
+	50% { transform: rotate(-12deg); }
+}
+@keyframes owl-bob {
+	0%, 100% { transform: translateY(0) rotate(0deg); }
+	50% { transform: translateY(-8px) rotate(-8deg); }
+}
+@keyframes owl-wait {
+	0%, 100% { transform: rotate(-16deg) translateY(0); }
+	50% { transform: rotate(10deg) translateY(-5px); }
+}
+@keyframes owl-peck {
+	0%, 100% { transform: scaleY(1); }
+	50% { transform: translateY(5px) scaleY(0.4); }
+}
+@keyframes owl-type {
+	0%, 100% { transform: scale(1.2) rotate(-8deg); }
+	50% { transform: scale(1.45) rotate(6deg) translateY(2px); }
+}
+@keyframes owl-hop {
+	0%, 100% { transform: translateY(0); }
+	40% { transform: translateY(-14px); }
+}
+@keyframes owl-rise {
+	0% { transform: translateY(18px); opacity: 0; }
+	20% { opacity: .9; }
+	100% { transform: translateY(-16px); opacity: 0; }
+}
+@keyframes owl-pop {
+	0%, 100% { transform: translateY(0); opacity: .35; }
+	50% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes owl-sweep {
+	0%, 100% { transform: rotate(-12deg) scale(1.35); }
+	50% { transform: rotate(16deg) scale(1.35); }
+}
+@keyframes owl-page {
+	0%, 100% { transform: rotate(-16deg) scale(1.35); }
+	50% { transform: rotate(18deg) scale(1.35); }
+}
+@keyframes owl-readline {
+	0% { transform: translateY(0); opacity: .2; }
+	100% { transform: translateY(5px); opacity: 1; }
+}
+@keyframes owl-scan {
+	0%, 100% { transform: translate(2px, -1px); }
+	50% { transform: translate(6px, 4px); }
+}
+@keyframes owl-sway {
+	0%, 100% { transform: rotate(2deg); }
+	50% { transform: rotate(24deg); }
+}
 .owl-chat-minimap { position: absolute; z-index: 22; top: 16px; bottom: 16px; left: 8px; display: flex; align-items: center; width: 32px; }
 .owl-chat-minimap-marks { position: relative; width: 32px; max-height: min(320px, 100%); overflow-y: auto; scrollbar-width: none; padding: 4px 0; }
 .owl-chat-minimap-marks::-webkit-scrollbar { display: none; }
@@ -681,7 +1080,6 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-minimap-preview-label { color: var(--owl-reading-muted); font-size: 11px; }
 .owl-chat-minimap-preview p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 5px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll { padding-left: 48px; }
-.owl-chat-surface:has(.owl-chat-minimap) .owl-screenshot-dock { left: 48px; max-width: calc(100% - 60px); }
 .owl-chat-latest { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--owl-reading-border); border-radius: 20px; background: var(--owl-reading-panel); color: var(--owl-reading-text); font-size: 12px; box-shadow: 0 3px 14px #0002; }
 .owl-tool-summary:focus-visible, .owl-chat-latest:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
 
@@ -690,9 +1088,9 @@ html[data-owl-theme="light"] .owl-chat-surface {
 }
 @keyframes owl-tool-spin { to { transform: rotate(360deg); } }
 @keyframes owl-response-breathe { 50% { opacity: .45; transform: rotate(12deg) scale(.92); } }
-html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="off"] .owl-tool-spinner, .owl-chat-surface[data-activity="waiting"] .owl-tool-spinner { animation: none !important; }
+html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="off"] .owl-tool-spinner, html[data-owl-chat-motion="off"] .owl-mascot, html[data-owl-chat-motion="off"] .owl-mascot *, .owl-chat-surface[data-activity="waiting"] .owl-tool-spinner { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
-	.owl-response-mark, .owl-tool-spinner, .owl-chat-surface .animate-pulse { animation: none !important; }
+	.owl-response-mark, .owl-tool-spinner, .owl-chat-surface .animate-pulse, .owl-mascot, .owl-mascot * { animation: none !important; }
 }
 
 @media (max-width: 600px) {

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ApprovalMode, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
+import type { ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { samePath } from "../utils/paths.ts";
 import { getProjectDisplayName, isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "../project-sidebar-model.ts";
+import { AttachedFileChip, extractPlainText } from "./AttachedFileChip.tsx";
+import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -239,7 +241,9 @@ export function Composer({
 	sessionScope = "chat",
 	onSwitchProject,
 	commands,
+	searchFiles,
 	draftRequest,
+	owlPose = "idle",
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
@@ -252,7 +256,7 @@ export function Composer({
 	hideEnvironment?: boolean;
 	/** Optional mode control that shares the existing environment row's alignment. */
 	environmentAccessory?: ReactNode;
-	onSend: (text: string, images?: ComposerImage[]) => void;
+	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[]) => void;
 	onAbort: () => void;
 	/** 提供时运行中按钮显示「暂停」而不是直接中止。 */
 	onPause?: () => void;
@@ -276,9 +280,13 @@ export function Composer({
 	onSwitchProject: (path: string) => void;
 	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
 	commands: SlashCommandEntry[];
+	/** @ 调起的本项目文件搜索（侧栏同源：与 fs.search 共享 100 命中兜底）。 */
+	searchFiles: (cwd: string, query: string) => Promise<FsSearchHit[]>;
 	/** Start-page examples fill a draft without submitting or replacing existing text.
 	 *  replace: 会话回退后的「文本回填」——整体替换输入框内容而不是追加。 */
 	draftRequest?: { id: number; text: string; replace?: boolean };
+	/** 栖在对话框上沿的流羽猫头鹰。空闲也在。 */
+	owlPose?: OwlPose;
 }): React.JSX.Element {
 	const t = useT();
 	useProjectSidebarRevision();
@@ -292,29 +300,51 @@ export function Composer({
 	const [dragOver, setDragOver] = useState(false);
 	const hintTimerRef = useRef<number | undefined>(undefined);
 	useEffect(() => () => window.clearTimeout(hintTimerRef.current), []);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const editorRef = useRef<HTMLDivElement>(null);
 	const inputBoxRef = useRef<HTMLDivElement>(null);
 	const slashMenuRef = useRef<HTMLDivElement>(null);
+	const mentionMenuRef = useRef<HTMLDivElement>(null);
 	// 斜杠命令菜单：整段输入还是单个 "/命令" token（没敲出空格）时弹出；
 	// Esc 关闭后要等输入变化才重开，避免关不掉。
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	const [slashIndex, setSlashIndex] = useState(0);
+	// @ 文件引用：attachedPaths 与 DOM 中的芯片同步（哨兵推到、点 X 清掉它们）。
+	const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+	const [mentionOpen, setMentionOpen] = useState(false);
+	const [mentionQuery, setMentionQuery] = useState("");
+	const [mentionItems, setMentionItems] = useState<FsSearchHit[]>([]);
+	const [mentionIndex, setMentionIndex] = useState(0);
+	// 发送或草稿重置后从外部清理附文。
 	useEffect(() => {
 		if (!draftRequest) return;
 		if (draftRequest.replace) {
 			setValue(draftRequest.text);
+			clearEditorContent(editorRef.current);
+			insertPlainText(editorRef.current, draftRequest.text);
 		} else {
-			setValue((current) => (current.trim() ? `${current}\n\n${draftRequest.text}` : draftRequest.text));
+			const next = value.trim() ? `${value}\n\n${draftRequest.text}` : draftRequest.text;
+			setValue(next);
+			if (editorRef.current) {
+				appendPlainText(editorRef.current, draftRequest.text, value.trim().length > 0);
+			}
 		}
+		setAttachedPaths([]);
+		setMentionOpen(false);
 		setSlashDismissed(true);
-		textareaRef.current?.focus();
+		editorRef.current?.focus();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draftRequest]);
 	const submit = (): void => {
 		if (disabled) return;
 		const text = value.trim();
-		if (!text && pendingImages.length === 0) return;
-		onSend(text, pendingImages.length > 0 ? pendingImages : undefined);
+		const hasImages = pendingImages.length > 0;
+		const hasAttachments = attachedPaths.length > 0;
+		if (!text && !hasImages && !hasAttachments) return;
+		onSend(text, hasImages ? pendingImages : undefined, hasAttachments ? attachedPaths : undefined);
 		setValue("");
+		setAttachedPaths([]);
+		setMentionOpen(false);
+		clearEditorContent(editorRef.current);
 		setPendingImages([]);
 	};
 
@@ -343,7 +373,7 @@ export function Composer({
 		});
 	};
 
-	const onClipboardPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+	const onClipboardPaste = (event: React.ClipboardEvent<HTMLElement>): void => {
 		const files: File[] = [];
 		for (const item of Array.from(event.clipboardData.items)) {
 			if (item.kind !== "file") continue;
@@ -360,12 +390,208 @@ export function Composer({
 
 	// 单行起步、随内容自动长高（Claude 同款）；上限 192px 与 max-h-48 一致，发送后随 value 清空缩回。
 	useEffect(() => {
-		const el = textareaRef.current;
+		const el = editorRef.current;
 		if (!el) return;
 		el.style.height = "auto";
 		// Empty drafts keep the one-row height instead of measuring a wrapped placeholder.
 		if (value) el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
 	}, [value]);
+
+	// 抽出从编辑器开头到光标的可见文本（跳过芯片节点），用于检测当前是否在 @ 引用中。
+	function getTextBeforeCaret(editor: HTMLElement): { text: string; caretNode: Node | null; caretOffset: number } {
+		const sel = typeof window !== "undefined" ? window.getSelection() : null;
+		if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return { text: "", caretNode: null, caretOffset: 0 };
+		const range = sel.getRangeAt(0);
+		if (!editor.contains(range.endContainer)) return { text: "", caretNode: null, caretOffset: 0 };
+		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+			acceptNode(node) {
+				const parent = (node.parentElement);
+				if (parent?.closest(".owl-mention-chip")) return NodeFilter.FILTER_REJECT;
+				return NodeFilter.FILTER_ACCEPT;
+			},
+		});
+		let text = "";
+		let caretNode: Node | null = null;
+		let caretOffset = 0;
+		while (walker.nextNode()) {
+			const node = walker.currentNode as Text;
+			if (node === range.endContainer) {
+				text += node.textContent?.slice(0, range.endOffset) ?? "";
+				caretNode = node;
+				caretOffset = range.endOffset;
+				break;
+			}
+			text += node.textContent ?? "";
+		}
+		return { text, caretNode, caretOffset };
+	}
+
+	// 光标当前是否正处在 @xxx token 上（token 以非空白结尾）。
+	function getActiveMention(editor: HTMLElement): { query: string; startNode: Node; startOffset: number; endNode: Node; endOffset: number } | null {
+		const { text, caretNode, caretOffset } = getTextBeforeCaret(editor);
+		if (!caretNode) return null;
+		const match = /@([^\s@]*)$/.exec(text);
+		if (!match) return null;
+		const matchStart = text.length - match[0].length;
+		// 重新走一遍树以定位 token 在 DOM 中的起节点。
+		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+			acceptNode(node) {
+				const parent = (node.parentElement);
+				if (parent?.closest(".owl-mention-chip")) return NodeFilter.FILTER_REJECT;
+				return NodeFilter.FILTER_ACCEPT;
+			},
+		});
+		let pos = 0;
+		let startNode: Node | null = null;
+		let startOffset = 0;
+		while (walker.nextNode()) {
+			const node = walker.currentNode as Text;
+			const len = node.textContent?.length ?? 0;
+			if (pos + len >= matchStart) {
+				startNode = node;
+				startOffset = matchStart - pos;
+				break;
+			}
+			pos += len;
+		}
+		if (!startNode) return null;
+		return { query: match[1], startNode, startOffset, endNode: caretNode, endOffset: caretOffset };
+	}
+
+	// 在编辑器里寻找指定路径对应的芯片并删除；返回是否找到。
+	function removeChipByPath(editor: HTMLElement, path: string): boolean {
+		const chip = editor.querySelector(`[data-mention-path="${CSS.escape(path)}"]`);
+		if (!chip) return false;
+		chip.parentNode?.removeChild(chip);
+		return true;
+	}
+
+	// 重置编辑器：发送 / 草稿后调用。
+	function clearEditorContent(editor: HTMLElement | null): void {
+		if (!editor) return;
+		while (editor.firstChild) editor.removeChild(editor.firstChild);
+	}
+
+	// 草稿初始化：整体赋值并保留光标。
+	function insertPlainText(editor: HTMLElement | null, text: string): void {
+		if (!editor) return;
+		editor.appendChild(document.createTextNode(text));
+	}
+
+	// 草稿追加：在尾部拼一段，必要时先补换行。
+	function appendPlainText(editor: HTMLElement | null, text: string, addLeadingBlankLine: boolean): void {
+		if (!editor) return;
+		if (addLeadingBlankLine) editor.appendChild(document.createTextNode("\n\n"));
+		editor.appendChild(document.createTextNode(text));
+	}
+
+	// 把当前 @xxx token 换成芯片，芯片后保留原 caret。
+	function replaceMentionWithChip(editor: HTMLElement, mention: NonNullable<ReturnType<typeof getActiveMention>>, path: string, basename: string): void {
+		const range = document.createRange();
+		range.setStart(mention.startNode, mention.startOffset);
+		range.setEnd(mention.endNode, mention.endOffset);
+		range.deleteContents();
+		const chip = document.createElement("span");
+		chip.className = "owl-mention-chip";
+		chip.contentEditable = "false";
+		chip.dataset.mentionPath = path;
+		const label = document.createElement("span");
+		label.className = "owl-mention-chip__label";
+		label.textContent = basename;
+		const x = document.createElement("button");
+		x.type = "button";
+		x.className = "owl-mention-chip__x";
+		x.tabIndex = -1;
+		x.textContent = "✕";
+		x.setAttribute("aria-label", t("composer.removeAttachment"));
+		// 防止按 X 跳出可编辑区域；onClick 由事件代理在 editor 顶层处理。
+		x.addEventListener("mousedown", (event) => event.preventDefault());
+		chip.appendChild(label);
+		chip.appendChild(x);
+		range.insertNode(chip);
+		// 紧随芯片补一个零宽空格，光标得以落点（contenteditable=false 不会吃 caret）。
+		const tail = document.createTextNode("\u200b");
+		chip.parentNode?.insertBefore(tail, chip.nextSibling);
+		const sel = window.getSelection();
+		if (sel) {
+			const nextRange = document.createRange();
+			nextRange.setStart(tail, 1);
+			nextRange.setEnd(tail, 1);
+			sel.removeAllRanges();
+			sel.addRange(nextRange);
+		}
+	}
+
+	// 同步编辑器 DOM → value（跳过芯片）。
+	const syncEditorToValue = (editor: HTMLElement | null): string => {
+		if (!editor) return "";
+		return extractPlainText(editor);
+	};
+
+	// 把芯片按 DOM 顺序铺成数组，用于外层 React 渲染（X 按钮点击即删同路径芯片）。
+	const chipEntries: { path: string; basename: string; key: string }[] = [];
+	for (const chip of Array.from(editorRef.current?.querySelectorAll(".owl-mention-chip") ?? [])) {
+		const path = chip.getAttribute("data-mention-path");
+		const basename = chip.querySelector(".owl-mention-chip__label")?.textContent ?? "";
+		if (path) chipEntries.push({ path, basename, key: path });
+	}
+
+	// @ 触发：value 变化时检查是否有 @ token；查询空时不拉接口。
+	useEffect(() => {
+		if (disabled) return;
+		const editor = editorRef.current;
+		if (!editor) return;
+		const mention = getActiveMention(editor);
+		if (!mention) {
+			if (mentionOpen) setMentionOpen(false);
+			return;
+		}
+		setMentionOpen(true);
+		setMentionQuery(mention.query);
+		setMentionIndex(0);
+		if (mention.query.length === 0) {
+			setMentionItems([]);
+			return;
+		}
+		let cancelled = false;
+		void searchFiles(workspaceDir, mention.query).then((hits) => {
+			if (cancelled) return;
+			setMentionItems(hits.slice(0, 30));
+		}).catch(() => {
+			if (cancelled) return;
+			setMentionItems([]);
+		});
+		return () => {
+			cancelled = true;
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [value]);
+
+	// 回车把当前高亮项变为芯片；同时记录到 attachedPaths。
+	const acceptMention = (hit: FsSearchHit): void => {
+		const editor = editorRef.current;
+		if (!editor) return;
+		const mention = getActiveMention(editor);
+		if (!mention) return;
+		// 不设上限（决定 2.3）；同路径不会重复打（重复 @ 同一路径也只多枚芯片）。
+		replaceMentionWithChip(editor, mention, hit.path, hit.path.split("/").pop() ?? hit.path);
+		setAttachedPaths((current) => (current.includes(hit.path) ? current : [...current, hit.path]));
+		setValue(syncEditorToValue(editor));
+		setMentionOpen(false);
+		setMentionItems([]);
+		setMentionQuery("");
+		// 保持 caret 在新芯片之后（replaceMentionWithChip 已经把零宽空格放好）。
+		editor.focus();
+	};
+
+	// 从芯片列表里摘掉一个，同时清掉 editor 中对应的 span。
+	const removeAttachment = (path: string): void => {
+		const editor = editorRef.current;
+		removeChipByPath(editor!, path);
+		setAttachedPaths((current) => current.filter((entry) => entry !== path));
+		setValue(syncEditorToValue(editor));
+		editor?.focus();
+	};
 
 	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
 	// exec 不命中返回 null（≠ undefined），用 null 判「不在输入命令」。
@@ -394,9 +620,13 @@ export function Composer({
 	const acceptSlashCommand = (entry: SlashCommandEntry): void => {
 		// 填入命令留个空格：想带参数直接打字，不带就回车执行（此时菜单已因空格自动收起）
 		setValue(`/${entry.name} `);
+		// 同步到 contenteditable：用零宽尾巴插在末尾，避免下一次 onInput 重复匹配旧内容。
+		if (editorRef.current) {
+			editorRef.current.appendChild(document.createTextNode("/" + entry.name + " "));
+		}
 		setSlashDismissed(false);
 		setSlashIndex(0);
-		textareaRef.current?.focus();
+		editorRef.current?.focus();
 	};
 
 	// 菜单开着时点外部 = 收起（与 Menu 同款；菜单内点击用 onMouseDown 阻止抢焦点）。
@@ -632,6 +862,7 @@ export function Composer({
 						addImageFiles(Array.from(event.dataTransfer.files));
 					}}
 				>
+					<OwlMascot pose={owlPose} />
 					{slashExec !== null && (
 						<div
 							ref={slashMenuRef}
@@ -688,54 +919,152 @@ export function Composer({
 							))}
 						</div>
 					)}
-					{pasteHint && <p className="px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}					<div className="flex items-end gap-1.5 px-1.5 py-1">
-						<textarea
-							ref={textareaRef}
-							className="max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-[13px] leading-5 text-owl-text outline-none placeholder:text-owl-faint"
-							aria-label={t("composer.inputAria")}
-							placeholder={t("composer.inputPlaceholder")}
-							value={value}
-							rows={1}
-							onPaste={onClipboardPaste}
-							onChange={(event) => {
-								setValue(event.target.value);
-								setSlashDismissed(false);
-								setSlashIndex(0);
-							}}
-							onKeyDown={(event) => {
-								if (slashOpen) {
-									if (event.key === "ArrowDown") {
-										event.preventDefault();
-										setSlashIndex((index) => (index + 1) % slashItems.length);
-										return;
+					{pasteHint && <p className="px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}
+					{mentionOpen && (
+						<div
+							ref={mentionMenuRef}
+							className="owl-mention-menu"
+							role="listbox"
+							aria-label="同步附文件"
+						>
+							{mentionItems.length === 0 ? (
+								<p className="owl-mention-menu__empty">{t("composer.mentionNoMatches")}</p>
+							) : (
+								mentionItems.map((hit, index) => {
+									const active = index === mentionIndex;
+									return (
+										<div
+											key={hit.path}
+											role="option"
+											aria-selected={active}
+											data-active={active || undefined}
+											className="owl-mention-menu__row"
+											onMouseDown={(event) => event.preventDefault()}
+											onMouseMove={() => setMentionIndex(index)}
+											onClick={() => acceptMention(hit)}
+										>
+											<small>{hit.path}</small>
+										</div>
+									);
+								})
+							)}
+							{mentionItems.length > 0 && (
+								<p className="owl-mention-menu__empty">
+									{t("composer.mentionCount", { n: mentionItems.length })} · {t("composer.mentionHint")}
+								</p>
+							)}
+						</div>
+					)}
+					<div className="flex items-end gap-1.5 px-1.5 py-1">
+						<div className="flex-1">
+							{chipEntries.length > 0 && (
+								<div className="mb-1.5 flex flex-wrap gap-1.5">
+									{chipEntries.map((chip) => (
+										<AttachedFileChip
+											key={chip.key}
+											path={chip.path}
+											basename={chip.basename}
+											removeLabel={t("composer.removeAttachment")}
+											onRemove={() => removeAttachment(chip.path)}
+										/>
+									))}
+								</div>
+							)}
+							<div
+								ref={editorRef}
+								className="owl-composer-editor max-h-48 min-h-[24px] flex-1 px-1 py-1 text-[13px] leading-5 text-owl-text outline-none"
+								role="textbox"
+								aria-multiline="true"
+								aria-label={t("composer.inputAria")}
+								data-placeholder={running ? t("composer.queuePlaceholder") : t("composer.inputPlaceholder")}
+								contentEditable
+								suppressContentEditableWarning
+								spellCheck={false}
+								onPaste={onClipboardPaste}
+								onInput={() => {
+									const next = syncEditorToValue(editorRef.current);
+									setValue(next);
+									setSlashDismissed(false);
+									setSlashIndex(0);
+								}}
+								onKeyDown={(event) => {
+									if (mentionOpen) {
+										if (event.key === "ArrowDown") {
+											event.preventDefault();
+											setMentionIndex((index) => Math.max(0, Math.min(mentionItems.length - 1, index + 1)));
+											return;
+										}
+										if (event.key === "ArrowUp") {
+											event.preventDefault();
+											setMentionIndex((index) => Math.max(0, index - 1));
+											return;
+										}
+										if (event.key === "Enter" && mentionItems.length > 0) {
+											event.preventDefault();
+											const picked = mentionItems[mentionIndex] ?? mentionItems[0];
+											if (picked) acceptMention(picked);
+											return;
+										}
+										if (event.key === "Tab" && mentionItems.length > 0) {
+											event.preventDefault();
+											const picked = mentionItems[mentionIndex] ?? mentionItems[0];
+											if (picked) acceptMention(picked);
+											return;
+										}
+										if (event.key === "Escape") {
+											event.preventDefault();
+											setMentionOpen(false);
+											return;
+										}
 									}
-									if (event.key === "ArrowUp") {
-										event.preventDefault();
-										setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
-										return;
+									if (slashOpen) {
+										if (event.key === "ArrowDown") {
+											event.preventDefault();
+											setSlashIndex((index) => (index + 1) % slashItems.length);
+											return;
+										}
+										if (event.key === "ArrowUp") {
+											event.preventDefault();
+											setSlashIndex((index) => (index - 1 + slashItems.length) % slashItems.length);
+											return;
+										}
+										// Enter/Tab 选中命令；命令名已完整敲入时回车直接执行（省一次回车）
+										if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+											event.preventDefault();
+											const picked = slashItems[slashActive]!;
+											acceptSlashCommand(picked);
+											if (event.key === "Enter" && `/${picked.name}` === value.trim()) submit();
+											return;
+										}
+										if (event.key === "Escape") {
+											event.preventDefault();
+											setSlashDismissed(true);
+											return;
+										}
 									}
-									// Enter/Tab 选中命令；命令名已完整敲入时回车直接执行（省一次回车）
-									if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+									if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 										event.preventDefault();
-										const picked = slashItems[slashActive]!;
-										acceptSlashCommand(picked);
-										if (event.key === "Enter" && `/${picked.name}` === value.trim()) submit();
-										return;
+										submit();
 									}
-									if (event.key === "Escape") {
-										event.preventDefault();
-										setSlashDismissed(true);
-										return;
-									}
-								}
-								if (event.key === "Enter" && !event.shiftKey) {
-									event.preventDefault();
-									submit();
-								}
-							}}
-						/>
+								}}
+							/>
+						</div>
 						{running ? (
-							onPause ? (
+							<>
+							{(value.trim() || pendingImages.length > 0 || attachedPaths.length > 0) && (
+								<button
+									type="button"
+									aria-label={t("composer.queue")}
+									title={t("composer.queue")}
+									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
+									onClick={submit}
+								>
+									<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
+										<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+									</svg>
+								</button>
+							)}
+							{onPause ? (
 								<button
 									type="button"
 									aria-label={t("composer.pause")}
@@ -760,7 +1089,8 @@ export function Composer({
 										<rect x="2" y="2" width="8" height="8" rx="1" />
 									</svg>
 								</button>
-							)
+							)}
+							</>
 						) : paused && onResume ? (
 							<button
 								type="button"

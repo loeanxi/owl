@@ -77,8 +77,12 @@ export interface SessionPromptRequest {
 	sessionId: string;
 	message: string;
 	images?: unknown[];
+	/** Workspace-relative paths the model should treat as read-only attachments for this turn. */
+	attachedPaths?: string[];
 	/** Update direction only within an existing research conversation. */
 	researchMode?: ResearchMode;
+	/** While the session is already streaming, queue this message instead of rejecting it. */
+	streamingBehavior?: "steer" | "followUp";
 }
 
 export interface SessionAbortRequest {

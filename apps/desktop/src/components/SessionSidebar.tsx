@@ -13,10 +13,10 @@ import { useProjectSidebarText } from "./project-sidebar-copy.ts";
 import {
 	IconChat,
 	IconCheck,
-	IconSessionMark,
 	IconChevron,
 	IconCompose,
 	IconFolder,
+	IconGrip,
 	IconMore,
 	IconPlus,
 	IconSearch,
@@ -160,6 +160,35 @@ function loadCollapsed(key: string = COLLAPSED_KEY): Set<string> {
 	}
 }
 
+/** 项目会话的手动排序（拖拽产生）：项目路径 → 会话 id 全序；未收录的（新建）会话渲染在手动段之前。 */
+type SessionOrderMap = Record<string, string[]>;
+
+function loadSessionOrder(key: string): SessionOrderMap {
+	try {
+		const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+		const map: SessionOrderMap = {};
+		for (const [path, ids] of Object.entries(parsed as Record<string, unknown>)) {
+			if (!normPath(path) || !Array.isArray(ids)) continue;
+			const valid = ids.filter((id): id is string => typeof id === "string" && id !== "");
+			if (valid.length > 0) map[normPath(path)] = valid;
+		}
+		return map;
+	} catch {
+		return {};
+	}
+}
+
+/** 拖拽悬停位置 → 插入下标（按行中点划分上下半）。 */
+function sessionDropIndex(container: HTMLElement, clientY: number): number {
+	const rows = [...container.querySelectorAll<HTMLElement>(".owl-sidebar-session-row")];
+	for (const [index, row] of rows.entries()) {
+		const rect = row.getBoundingClientRect();
+		if (clientY < rect.top + rect.height / 2) return index;
+	}
+	return rows.length;
+}
+
 /** 可折叠分组：标题与尾随箭头，悬停或键盘聚焦时露出快捷操作。 */
 function Section({
 	id,
@@ -192,10 +221,10 @@ function Section({
 					aria-label={t("sidebar.sectionToggleAria", { action: open ? t("common.collapse") : t("common.expand"), label })}
 					aria-expanded={open}
 				>
-					<span className="owl-sidebar-section-label">{label}</span>
 					<IconChevron
 						className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${open ? "rotate-90" : ""}`}
 					/>
+					<span className="owl-sidebar-section-label">{label}</span>
 				</button>
 				{actions && (
 					<div data-menu-root className="owl-sidebar-section-actions">
@@ -347,6 +376,12 @@ export function SessionSidebar({
 	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, keys.projects));
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
+	/** 项目会话手动顺序（拖拽产生并持久化）。 */
+	const [sessionOrder, setSessionOrder] = useState<SessionOrderMap>(() => loadSessionOrder(keys.sessionOrder));
+	/** 拖拽排序进行中的会话（来源项目）；拖拽只允许发生在同一项目的会话列表内。 */
+	const [draggingSession, setDraggingSession] = useState<{ id: string; fromPath: string } | null>(null);
+	/** 落点提示：目标项目 + 插入下标（渲染序，0..行数）。 */
+	const [dropHint, setDropHint] = useState<{ path: string; index: number } | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const asideRef = useRef<HTMLElement>(null);
 	/** 右缘拖拽调宽：null = 未拖过，走 CSS 默认宽度。 */
@@ -478,6 +513,28 @@ export function SessionSidebar({
 		if (valid.length !== pinned.length) {
 			setPinned(valid);
 			localStorage.setItem(keys.pinned, JSON.stringify(valid));
+		}
+	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	// 手动排序里已删除的会话 id 顺手清掉。与置顶清理同理：列表为空（尚未加载）时不动，
+	// 否则会把整个顺序表误判为失效；归档会话保留位置，恢复后仍在原处。
+	useEffect(() => {
+		if (allSessions.length === 0) return;
+		const alive = new Set(allSessions.map((row) => row.id).filter(Boolean));
+		let changed = false;
+		const next: SessionOrderMap = {};
+		for (const [path, ids] of Object.entries(sessionOrder)) {
+			const valid = ids.filter((id) => alive.has(id));
+			if (valid.length !== ids.length) changed = true;
+			if (valid.length > 0) next[path] = valid;
+		}
+		if (changed) {
+			setSessionOrder(next);
+			try {
+				localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
+			} catch {
+				// localStorage 不可用时手动顺序退化为本次会话内存态
+			}
 		}
 	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -686,17 +743,40 @@ export function SessionSidebar({
 	 * 会话行（单行紧凑式）：空心圆 + 标题。没在跑是浅灰，运行中变绿。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string): React.JSX.Element => {
+	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string): React.JSX.Element => {
 		const id = row.id;
 		const isRunning = id !== undefined && runningSessions.has(id);
+		const unread = isSessionUnread(projectPreferences, row);
+		const time = relativeTime(sessionTime(row));
 		const menuKey = `${SESSION_ROW_MENU_PREFIX}${location}:${id ?? index}`;
 		const menuOpen = openMenu === menuKey && sessionMenu?.key === menuKey;
+		// 仅项目分组内的会话行可拖拽排序；搜索时列表是过滤子集，落盘会丢会话，禁用。
+		const draggable = projectPath !== undefined && id !== undefined && search === "";
+		const dropBefore = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
+		const dropAfter = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
 		return (
 			<div
 				key={id ?? index}
 				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
 					id ? "owl-sidebar-row--has-marker" : ""
-				} ${menuOpen ? "is-open" : ""}`}
+				} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
+					dropBefore ? "is-drop-before" : ""
+				} ${dropAfter ? "is-drop-after" : ""}`}
+				draggable={draggable || undefined}
+				onDragStart={draggable ? (event) => {
+					// 从行尾操作按钮（⋯）起拖视为误操作：不进入拖拽。
+					if ((event.target as HTMLElement).closest(".owl-sidebar-row-actions")) {
+						event.preventDefault();
+						return;
+					}
+					event.dataTransfer.effectAllowed = "move";
+					event.dataTransfer.setData("text/plain", id!);
+					setDraggingSession({ id: id!, fromPath: normPath(projectPath!) });
+				} : undefined}
+				onDragEnd={draggable ? () => {
+					setDraggingSession(null);
+					setDropHint(null);
+				} : undefined}
 			>
 				<button
 					type="button"
@@ -706,13 +786,12 @@ export function SessionSidebar({
 					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); } }}
 				>
 					<span
-						className={`owl-sidebar-session-icon${isRunning ? " is-running" : ""}`}
-						title={isRunning ? t("sidebar.runningTip") : undefined}
-					>
-						<IconSessionMark className="h-3 w-3" />
-					</span>
+						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
+						title={isRunning ? t("sidebar.runningTip") : unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : undefined}
+						aria-label={unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : undefined}
+					/>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
-					{isSessionUnread(projectPreferences, row) && <span className="owl-sidebar-unread-dot" title={getUiLanguage() === "en" ? "Unread" : "未读"} aria-label={getUiLanguage() === "en" ? "Unread" : "未读"} />}
+					{time && <span className="owl-sidebar-row-time">{time}</span>}
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
 				{id && (
@@ -742,9 +821,24 @@ export function SessionSidebar({
 		);
 	};
 
-	/** 项目下的未归档会话（按最近活动排序，搜索时同步过滤）。「项目」/「置顶」两组行共用。 */
-	const projectSessionRows = (path: string): SessionRow[] =>
-		sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+	/**
+	 * 项目下的未归档会话（搜索时同步过滤）。「项目」/「置顶」两组行共用。排序规则：
+	 * 有手动顺序（拖拽过）的项目按手动序渲染，未收录的（新建）会话按最近活动排在最前；
+	 * 没有手动顺序时，最新创建的会话固定第一位（新对话默认置顶），其余按当前排序偏好。
+	 */
+	const projectSessionRows = (path: string): SessionRow[] => {
+		const sorted = sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const manual = sessionOrder[normPath(path)];
+		if (manual && manual.length > 0) {
+			const rank = new Map(manual.map((id, index) => [id, index]));
+			const listed = sorted.filter((row) => row.id !== undefined && rank.has(row.id)).sort((a, b) => (rank.get(a.id!) ?? 0) - (rank.get(b.id!) ?? 0));
+			const unlisted = sorted.filter((row) => row.id === undefined || !rank.has(row.id)).sort(byLatest);
+			return [...unlisted, ...listed];
+		}
+		// 最新创建的会话置顶：按名称/从旧到新排序时新对话也不会被插到中间。
+		const newest = sorted.reduce<SessionRow | null>((top, row) => !top || String(row.created ?? "") > String(top.created ?? "") ? row : top, null);
+		return newest ? [newest, ...sorted.filter((row) => row !== newest)] : sorted;
+	};
 
 	/** A single project row implementation serves pinned and partitioned projects. */
 	const renderProjectRow = (path: string, pinnedLocation: boolean): React.JSX.Element => {
@@ -767,7 +861,40 @@ export function SessionSidebar({
 					<button type="button" className="owl-sidebar-action" title={t("sidebar.newChatInProject")} aria-label={t("sidebar.newChatInProjectAria", { project: name })} onClick={() => { setOpenMenu(null); onNewChatInProject(path); }}><IconCompose className="h-3.5 w-3.5" /></button>
 				</div>
 			</div>
-			{expanded && <div className="owl-sidebar-project-sessions">{rows.map((row, index) => sessionRow(row, index, false, menuId))}{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}</div>}
+			{expanded && <div
+				className="owl-sidebar-project-sessions"
+				onDragOver={(event) => {
+					const target = normPath(path);
+					if (!draggingSession || draggingSession.fromPath !== target) return;
+					event.preventDefault();
+					event.dataTransfer.dropEffect = "move";
+					const index = sessionDropIndex(event.currentTarget, event.clientY);
+					setDropHint((current) => current?.path === target && current.index === index ? current : { path: target, index });
+				}}
+				onDrop={(event) => {
+					const drag = draggingSession;
+					const target = normPath(path);
+					if (!drag || drag.fromPath !== target) return;
+					event.preventDefault();
+					const ids = rows.map((row) => row.id).filter((value): value is string => value !== undefined);
+					const oldIndex = ids.indexOf(drag.id);
+					if (oldIndex === -1) return;
+					const without = ids.filter((value) => value !== drag.id);
+					const hintIndex = dropHint?.path === target ? dropHint.index : oldIndex;
+					// 落点按含拖拽行的渲染序计；先摘掉拖拽行，之后的落点前移一位。
+					const insert = Math.min(Math.max(hintIndex > oldIndex ? hintIndex - 1 : hintIndex, 0), without.length);
+					without.splice(insert, 0, drag.id);
+					const next = { ...sessionOrder, [target]: without };
+					setSessionOrder(next);
+					try {
+						localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
+					} catch {
+						// localStorage 不可用时手动顺序退化为本次会话内存态
+					}
+					setDraggingSession(null);
+					setDropHint(null);
+				}}
+			>{rows.map((row, index) => sessionRow(row, index, false, menuId, path))}{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}</div>}
 		</div>;
 	};
 	const pinnedProjectRow = (path: string): React.JSX.Element => renderProjectRow(path, true);

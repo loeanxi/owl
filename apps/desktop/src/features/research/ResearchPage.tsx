@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import type { ApprovalMode, CommandsListResult, ProviderModelsMessage, QuestionRequest, ResearchMode, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
+import type { ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchMode, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
 import { ChatStream, type ChatActivity } from "../../components/ChatStream.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
 import type { ConversationView } from "../../components/ConversationHeader.tsx";
 import { conversationTitleOf } from "../../components/conversation-title.ts";
 import { Composer, type ComposerImage } from "../../components/Composer.tsx";
+import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
 import { Menu } from "../../components/Menu.tsx";
 import { QuestionDock } from "../../components/QuestionDock.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
@@ -110,6 +111,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const visibleResult = state.results.find((result) => result.id === selectedResultId);
 	const pendingQuestions = (props.questions ?? (props.question ? [props.question] : [])).filter((question) => question.sessionId === state.sessionId);
 	const activity: ChatActivity = !connected ? "disconnected" : props.waiting || pendingQuestions.length > 0 ? "waiting" : state.running ? "working" : "idle";
+	const owlPose = useSessionOwlPose(activity, state.entries);
 	const title = conversationTitleOf(state.entries, t("app.newConversation"));
 	useEffect(() => { props.onTitleChange?.(title); }, [title, props.onTitleChange]);
 
@@ -148,7 +150,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 
 	const fillDraft = (value: string): void => { setDraftRequest({ id: ++draftSequence.current, text: value }); };
 	const newThread = (): void => { if (controller.newThread()) { setComposerKey((key) => key + 1); setSelectedResultId(undefined); setLocalError(undefined); } };
-	const send = async (value: string, images?: ComposerImage[]): Promise<void> => {
+	const send = async (value: string, images?: ComposerImage[], attachedPaths?: string[]): Promise<void> => {
 		setLocalError(undefined);
 		const match = /^\/([a-zA-Z0-9:_-]+)(?:\s+([\s\S]*))?$/.exec(value.trim());
 		const matchedCommand = match && commands.find((command) => command.name === match[1]);
@@ -176,7 +178,8 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
 					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						environmentAccessory={<div className="research-composer-mode"><Menu triggerClassName="research-mode-button" panelClassName="right-0 w-56" trigger={<><ResearchMark /><span>{text("modePrefix")} · {text(modeKeys[state.mode])}</span><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="research-mode-chevron" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg></>}>{(close) => <div>{(Object.keys(modeKeys) as ResearchMode[]).map((mode) => <button className="research-mode-option" type="button" aria-pressed={state.mode === mode} disabled={state.running || state.busy} key={mode} onClick={() => { controller.setMode(mode); close(); }}><span>{text(modeKeys[mode])}</span>{mode === state.mode && <span>✓</span>}</button>)}</div>}</Menu></div>}
-						onSend={(value, images) => void send(value, images)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} onSwitchProject={props.onSwitchProject ?? (() => undefined)} commands={commands} draftRequest={draftRequest} />
+						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} onSwitchProject={props.onSwitchProject ?? (() => undefined)} commands={commands}
+						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />
 				</QuestionDock>
 			</div>
 			{visibleResult && <ResultPanel result={visibleResult} sourcesOpen={sourcesOpen} onSources={setSourcesOpen} onClose={() => setSelectedResultId(undefined)} onDraft={fillDraft} onOpenSource={openSource} text={text} />}

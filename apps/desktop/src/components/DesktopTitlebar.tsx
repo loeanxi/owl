@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
-import { IconNavBack, IconNavForward, IconPanelLeft } from "./icons.tsx";
+import { IconNavBack, IconNavForward, IconPanelLeft, IconStickFigure } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
@@ -23,7 +23,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation" | "research";
+	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation" | "research" | "guide";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	terminalOpen: boolean;
 	sidebarOpen: boolean;
@@ -58,6 +58,7 @@ interface DesktopTitlebarProps {
 	onOpenAbout: () => void;
 	onOpenEvaluation: () => void;
 	onOpenResearch: () => void;
+	onOpenLifeGuide: () => void;
 	island?: React.ReactNode;
 }
 
@@ -344,6 +345,16 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			</div>
 			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
+				<button
+					type="button"
+					className={`owl-chrome-button owl-desktop-life-guide${props.sidebarView === "guide" ? " is-active" : ""}`}
+					aria-label={t("titlebar.lifeGuide")}
+					title={t("titlebar.lifeGuide")}
+					aria-pressed={props.sidebarView === "guide"}
+					onClick={props.onOpenLifeGuide}
+				>
+					<IconStickFigure />
+				</button>
 				<WindowControls />
 			</div>
 		</header>

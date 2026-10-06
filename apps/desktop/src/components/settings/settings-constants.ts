@@ -39,6 +39,7 @@ export const WALLPAPER_TYPE_LABEL = {
 export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: { bg: string; rail: string; line: string; panel: string } }[] = [
 	{ id: "", labelKey: "settings.appearance.presetGraphite", preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" } },
 	{ id: "owl-green", labelKey: "settings.appearance.presetOwlGreen", preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" } },
+	{ id: "codex", labelKey: "settings.appearance.presetCodex", preview: { bg: "#f7f6f3", rail: "#e7e6e3", line: "#d9d7d2", panel: "#ffffff" } },
 ];
 
 /** 当前预设下某深浅档的默认底色/文字色（预设无自定义时的拾色器兜底与 hex 展示）。 */

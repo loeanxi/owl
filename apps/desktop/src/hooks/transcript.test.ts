@@ -304,3 +304,65 @@ test("assistant 轮耗时取 message_end 的真实结束时刻，并穿越 agent
 	assert.equal(rebuilt.timestamp, startedAt);
 	assert.equal(rebuilt.endedAt, settled.endedAt);
 });
+
+test("queued follow-up does not freeze the in-progress assistant", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "先看" } });
+	entries = [...entries, { kind: "user", text: "再看日志", queued: true, timestamp: 1 }];
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "目录" } });
+	const streaming = entries.find((entry) => entry.kind === "assistant");
+	assert.ok(streaming?.kind === "assistant");
+	assert.equal(streaming.text, "先看目录");
+	entries = event(entries, { type: "tool_execution_start", toolCallId: "bash-9", toolName: "bash", args: { command: "ls" } });
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "bash-9",
+		isError: false,
+		result: { content: [{ type: "text", text: "ok" }] },
+	});
+	const card = entries.find((entry) => entry.kind === "assistant");
+	assert.ok(card?.kind === "assistant");
+	assert.equal(card.tools.find((tool) => tool.id === "bash-9")?.status, "ok");
+	const queued = entries.find((entry) => entry.kind === "user" && entry.queued);
+	assert.ok(queued?.kind === "user");
+	assert.equal(queued.text, "再看日志");
+});
+
+test("an aborted run keeps a follow-up the snapshot did not include", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "先看" } });
+	entries = [...entries, { kind: "user", text: "再看日志", queued: true }];
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "检查项目" },
+			{ role: "assistant", content: [{ type: "text", text: "先看" }], stopReason: "aborted" },
+		],
+	});
+	const queued = entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志");
+	assert.equal(queued.length, 1);
+	assert.equal(queued[0]?.kind === "user" && queued[0].queued, true);
+});
+
+test("a delivered follow-up is not duplicated when the run snapshot includes it", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries, { kind: "user", text: "再看日志", queued: true }];
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "检查项目" },
+			{ role: "assistant", content: [{ type: "text", text: "先看" }] },
+			{ role: "user", content: "再看日志" },
+			{ role: "assistant", content: [{ type: "text", text: "看完了" }] },
+		],
+	});
+	const queued = entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志");
+	assert.equal(queued.length, 1);
+	assert.equal(queued[0]?.kind === "user" && queued[0].queued, undefined);
+});

@@ -40,8 +40,9 @@ test("non-object nested values do not crash parsing", () => {
 
 test("known presets are kept and unknown ones fall back to the default preset", () => {
 	assert.equal(parseOwlAppearance({ preset: "owl-green" }).preset, "owl-green");
+	assert.equal(parseOwlAppearance({ preset: "codex" }).preset, "codex");
 	assert.equal(parseOwlAppearance({ preset: "" }).preset, "");
-	for (const bad of ["green", "OWL-GREEN", 42, {}, null]) {
+	for (const bad of ["green", "OWL-GREEN", "CODEX", 42, {}, null]) {
 		assert.equal(parseOwlAppearance({ preset: bad }).preset, "");
 	}
 });

@@ -60,6 +60,8 @@ export type ChatEntry =
 			entryId?: string;
 			/** 消息时间戳（ms；乐观追加行取本地时钟，快照重建取会话文件里的值） */
 			timestamp?: number;
+			/** 运行中追加的跟进：先显示，但不切断当前这轮的流式更新。 */
+			queued?: boolean;
 	  }
 	| {
 			kind: "assistant";
@@ -133,11 +135,44 @@ export function formatProviderError(raw: string | undefined): string | undefined
 	return raw;
 }
 
+/** 已落盘的用户消息才切开当前轮。排队中的跟进还没轮到，不能挡住正在写的回答。 */
+function sealsActiveTurn(entry: ChatEntry): boolean {
+	return entry.kind === "user" && entry.queued !== true;
+}
+
+/** 快照里第一条用户消息是本轮开场白。其后的用户消息才是已经送达的跟进。 */
+function retainUndeliveredFollowUps(before: ChatEntry[], next: ChatEntry[], messages: AnyEvent[]): ChatEntry[] {
+	const pending = before.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && entry.queued === true);
+	if (pending.length === 0) return next;
+	const delivered = new Map<string, number>();
+	let skippedOpeningUser = false;
+	for (const message of messages) {
+		if (message.role !== "user") continue;
+		if (!skippedOpeningUser) {
+			skippedOpeningUser = true;
+			continue;
+		}
+		const text = textOf(message.content);
+		delivered.set(text, (delivered.get(text) ?? 0) + 1);
+	}
+	const kept: ChatEntry[] = [];
+	for (const entry of pending) {
+		const count = delivered.get(entry.text) ?? 0;
+		if (count > 0) delivered.set(entry.text, count - 1);
+		else kept.push(entry);
+	}
+	if (kept.length === 0) return next;
+	const merged = [...next.filter((entry) => !(entry.kind === "user" && entry.queued)), ...kept];
+	const boundary = runBoundaries.get(next);
+	if (boundary !== undefined) runBoundaries.set(merged, boundary);
+	return merged;
+}
+
 function lastAssistant(entries: ChatEntry[]): (ChatEntry & { kind: "assistant" }) | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		if (entry.kind === "assistant") return entry;
-		if (entry.kind === "user") return undefined;
+		if (sealsActiveTurn(entry)) return undefined;
 	}
 	return undefined;
 }
@@ -190,7 +225,7 @@ function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyE
 	if (typeof toolCallId !== "string") return entries;
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
-		if (entry.kind === "user") break;
+		if (sealsActiveTurn(entry)) break;
 		if (entry.kind !== "assistant" || !entry.tools.some((tool) => tool.id === toolCallId)) continue;
 		const updated = cloneAssistant(entry);
 		const card = updated.tools.find((tool) => tool.id === toolCallId)!;
@@ -431,26 +466,27 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// 转录的同角色消息行取回（本轮 run 的消息 = 原转录末尾的那 N 条，steering 也对齐）。
 			const rebuilt = rebuild(messages, alignMessageEntryIds(entries, messages));
 			const runBoundary = runBoundaries.get(entries);
+			const finish = (next: ChatEntry[]): ChatEntry[] => retainUndeliveredFollowUps(entries, next, messages);
 			if (runBoundary !== undefined) {
 				const prefix = entries.slice(0, runBoundary);
 				// Some hosts omit the already-displayed user from the run snapshot.
 				if (!messages.some((message) => message.role === "user") && entries[runBoundary]?.kind === "user") prefix.push(entries[runBoundary]);
 				const next = [...prefix, ...rebuilt];
 				runBoundaries.set(next, runBoundary);
-				return next;
+				return finish(next);
 			}
 			// Snapshot replay can begin without agent_start; retain the legacy user-turn fallback.
 			let lastUser = -1;
 			for (let i = entries.length - 1; i >= 0; i--) {
-				if (entries[i].kind === "user") {
+				if (sealsActiveTurn(entries[i]!)) {
 					lastUser = i;
 					break;
 				}
 			}
-			if (lastUser === -1) return entries.length > 0 ? entries : rebuilt;
+			if (lastUser === -1) return finish(entries.length > 0 ? entries : rebuilt);
 			// Continue/retry runs may omit the already-displayed user message.
 			const keepUser = !messages.some((message) => message.role === "user");
-			return [...entries.slice(0, lastUser + (keepUser ? 1 : 0)), ...rebuilt];
+			return finish([...entries.slice(0, lastUser + (keepUser ? 1 : 0)), ...rebuilt]);
 		}
 		default:
 			return entries;
@@ -535,7 +571,7 @@ function findToolCard(entries: ChatEntry[], toolCallId: unknown): ToolCard | und
 	if (typeof toolCallId !== "string") return undefined;
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
-		if (entry.kind === "user") return undefined;
+		if (sealsActiveTurn(entry)) return undefined;
 		if (entry.kind !== "assistant") continue;
 		const card = entry.tools.find((tool) => tool.id === toolCallId);
 		if (card) return card;

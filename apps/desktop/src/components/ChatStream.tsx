@@ -9,12 +9,16 @@ import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } 
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import { UsageOverview } from "./UsageOverview.tsx";
+import { OwlMascot, useSessionOwlPose } from "./OwlMascot.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
 /** 工具输出默认只预览末尾几行（结论/报错多在尾部），展开才看全文。 */
 const OUTPUT_PREVIEW_LINES = 10;
+
+/** 截图类工具：产物是「给用户看的屏幕画面」，进最新截图 Dock 与轮末截图条。 */
+const SCREENSHOT_TOOL_PATTERN = /^(computer_screenshot|browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
 
 export function renderMarkdown(text: string): string {
 	return md.render(text);
@@ -147,7 +151,8 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
  */
 function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCard; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
 	const [fullOutput, setFullOutput] = useState(false);
-	const [zoomed, setZoomed] = useState(false);
+	// 点击图片/「查看完整大图」打开屏幕居中灯箱（不再卡片内撑开把时间轴挤跳）。
+	const [zoomIndex, setZoomIndex] = useState<number | null>(null);
 	const hasImages = (card.output?.images?.length ?? 0) > 0;
 	const [open, setOpen] = useState(expanded || (autoOpen && hasImages));
 	useEffect(() => {
@@ -215,18 +220,25 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 									key={index}
 									src={`data:${image.mimeType};base64,${image.data}`}
 									alt={t("chat.toolScreenshot", { name: card.name, i: index + 1 })}
-									className={`w-full cursor-zoom-in rounded-lg border border-owl-border ${zoomed ? "" : "max-h-72 object-contain object-top"}`}
-									onClick={() => setZoomed((value) => !value)}
+									className="max-h-72 w-full cursor-zoom-in rounded-lg border border-owl-border object-contain object-top"
+									onClick={() => setZoomIndex(index)}
 								/>
 							))}
 							<button
 								type="button"
-								onClick={() => setZoomed((value) => !value)}
+								onClick={() => setZoomIndex(0)}
 								className="text-[11px] text-owl-accent transition-colors hover:text-owl-accent-hover"
 							>
-								{zoomed ? t("common.collapse") : t("chat.viewFullImage")}
+								{t("chat.viewFullImage")}
 							</button>
 						</div>
+					)}
+					{zoomIndex !== null && images[zoomIndex] !== undefined && (
+						<ImageLightbox
+							image={images[zoomIndex]!}
+							alt={t("chat.toolScreenshot", { name: card.name, i: zoomIndex + 1 })}
+							onClose={() => setZoomIndex(null)}
+						/>
 					)}
 					{(output?.text || card.detail) && (
 						<div className="owl-tool-meta">
@@ -586,7 +598,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	// 流式中的进行轮（最后一条用户消息之后的条目）还没定型，整轮操作栏等 agent_end 重建后再出现
 	let lastUserIndex = -1;
 	for (let i = entries.length - 1; i >= 0; i--) {
-		if (entries[i]!.kind === "user") {
+		const entry = entries[i]!;
+		if (entry.kind === "user" && !entry.queued) {
 			lastUserIndex = i;
 			break;
 		}
@@ -606,6 +619,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	let turnAnswerIndex = -1;
 	entries.forEach((entry, index) => {
 		if (entry.kind === "user") {
+			if (entry.queued) return;
 			if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
 			turnAnswerIndex = -1;
 			return;
@@ -644,6 +658,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		turnFooters = [];
 	};
 	let turn = 0;
+	// 轮内截图（截图类工具的产物）：最终回答之后平铺成「本轮截图」条，免翻折叠行
+	let turnShots: Array<{ key: string; image: ToolResultImage }> = [];
 	// ── 整轮工作过程收纳（叠叠乐治理）：跨 LLM 调用累积思考/中间说明/普通工具调用，
 	// 在里程碑（最终回答/提问卡/渲染卡/错误/下一问）处收成一条折叠行；todo 属过程，
 	// 跟着进折叠区，不再把时间轴打成多段。
@@ -686,9 +702,23 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		});
 	};
 		entries.forEach((entry, index) => {
+			if (entry.kind === "user" && entry.queued) {
+				flushWork(true);
+				rows.push({
+					key: "queued-" + index,
+					content: (
+						<div className="owl-user-queued">
+							<div className="owl-user-bubble">{entry.text}</div>
+							<span className="owl-user-queued-hint">{t("composer.queuedHint")}</span>
+						</div>
+					),
+				});
+				return;
+			}
 			if (entry.kind === "user") {
 				finishTurnFooters();
 				flushWork();
+				turnShots = [];
 				const artifacts = historicalArtifacts?.get(index);
 				if (artifacts && onOpenFile) {
 					const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
@@ -718,6 +748,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		];
 		const appendTool = (card: ToolCard): void => {
 			seenTools.add(card.id);
+			// 截图类工具的产物同时进轮末截图条（key 带工具 id 保证稳定）
+			if (SCREENSHOT_TOOL_PATTERN.test(card.name)) {
+				for (const image of card.output?.images ?? []) {
+					turnShots.push({ key: card.id + "-" + turnShots.length, image });
+				}
+			}
 			// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示：时间轴不再
 			// 上屏 todo 卡片（更新频繁，且与常驻条内容完全重复），也不计入折叠区步数
 			if (card.name === "todo") return;
@@ -785,6 +821,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			!(streaming && lastUserIndex !== -1 && index > lastUserIndex)
 		) {
 			flushWork();
+			// 「本轮截图」条挂在最终回答之后、操作栏之前——聊天记录看完回答就见图
+			if (turnShots.length > 0) {
+				const shots = turnShots;
+				turnShots = [];
+				rows.push({ key: "turn-shots-" + index, compact: true, content: <TurnScreenshotStrip shots={shots} /> });
+			}
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
@@ -806,7 +848,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 type QuestionMark = { n: number; text: string; preview: string };
 
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
-	return entries.filter((entry) => entry.kind === "user").map((entry, index) => {
+	return entries.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && !entry.queued).map((entry, index) => {
 		const preview = entry.text.trim() || (entry.images?.length
 			? t("chat.questionImages", { n: entry.images.length })
 			: t("chat.questionFallback", { n: index + 1 }));
@@ -876,9 +918,10 @@ function QuestionMinimap({ questions, active, onJump }: {
 export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 
 function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
-	// 实时状态行（Claude Desktop 同款排版）：图标 + 「时长 · 本轮 tokens · 状态」。
+	// 实时状态行：流羽猫头鹰 + 「时长 · 本轮 tokens · 状态」。
 	// 时长从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示），tokens 为本轮
 	// 已回传用量之和。每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
+	const pose = useSessionOwlPose(activity, entries);
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -909,52 +952,61 @@ function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activit
 	].filter((part): part is string => part !== undefined);
 	return (
 		<div className="owl-response-activity" data-state={activity} role="status">
-			<img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" />
+			<OwlMascot pose={pose} inline />
 			<span>{parts.join(" · ")}</span>
 		</div>
 	);
 }
 
 /**
- * 最新截图 Dock（ZCode 同款）：贴在聊天底部的小缩略图，免翻时间轴直接看
- * agent 刚截的图。点缩略图弹出完整大图（浮层），✕ 关闭后同一张不再出现，
- * agent 截了新图会重新弹出。
+ * 屏幕居中的看图灯箱：点遮罩或按 Esc 关闭。工具卡截图、轮末截图条、
+ * 最新截图 Dock 共用——`fixed` 相对视口，图片始终居中在窗口正中。
  */
-function ScreenshotDock({
-	shot,
-	onClose,
-}: {
-	shot: { key: string; image: ToolResultImage };
-	onClose: () => void;
-}): React.JSX.Element {
-	const [zoom, setZoom] = useState(false);
-	const src = `data:${shot.image.mimeType};base64,${shot.image.data}`;
+function ImageLightbox({ image, alt, onClose }: { image: ToolResultImage; alt: string; onClose: () => void }): React.JSX.Element {
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [onClose]);
 	return (
-		<>
-			{zoom && (
-				<div
-					className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6"
-					onClick={() => setZoom(false)}
-				>
-					<img src={src} alt={t("chat.fullScreenshot")} className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl" />
-				</div>
-			)}
-			<div className="owl-screenshot-dock absolute bottom-2 left-2 z-20 w-56 overflow-hidden rounded-xl border border-owl-border bg-owl-panel/95 shadow-xl shadow-black/30 backdrop-blur-sm">
-				<header className="flex items-center justify-between px-2 py-1">
-					<span className="text-[11px] font-medium text-owl-muted">{t("chat.latestScreenshot")}</span>
-					<button
-						type="button"
-						title={t("window.close")}
-						aria-label={t("chat.closeLatest")}
-						onClick={onClose}
-						className="flex h-5 w-5 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text"
-					>
-						✕
-					</button>
-				</header>
-				<img src={src} alt={t("chat.latestScreenshot")} className="w-full cursor-zoom-in" onClick={() => setZoom(true)} />
+		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={onClose}>
+			<img
+				src={`data:${image.mimeType};base64,${image.data}`}
+				alt={alt}
+				className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl"
+			/>
+		</div>
+	);
+}
+
+/**
+ * 轮末截图条：本轮 agent 截过的屏幕画面在最终回答之后平铺展示，不用翻
+ * 工作过程折叠行找图；点缩略图开灯箱看全图。只收截图类工具（生图类工具的
+ * 产物属于会话内容，已在各自卡片里渲染）。
+ */
+function TurnScreenshotStrip({ shots }: { shots: Array<{ key: string; image: ToolResultImage }> }): React.JSX.Element {
+	const t = useT();
+	const [zoom, setZoom] = useState<number | null>(null);
+	return (
+		<div className="owl-turn-shots space-y-1.5">
+			<div className="text-[11px] font-medium text-owl-muted">{t("chat.turnScreenshots")}</div>
+			<div className="flex flex-wrap gap-2">
+				{shots.map((shot, index) => (
+					<img
+						key={shot.key}
+						src={`data:${shot.image.mimeType};base64,${shot.image.data}`}
+						alt={t("chat.latestScreenshot")}
+						className="h-36 cursor-zoom-in rounded-lg border border-owl-border object-contain"
+						onClick={() => setZoom(index)}
+					/>
+				))}
 			</div>
-		</>
+			{zoom !== null && shots[zoom] !== undefined && (
+				<ImageLightbox image={shots[zoom]!.image} alt={t("chat.fullScreenshot")} onClose={() => setZoom(null)} />
+			)}
+		</div>
 	);
 }
 
@@ -1041,7 +1093,7 @@ export function ChatStream({
 		if (busy || !onRegenerate) return false;
 		for (let index = entries.length - 1; index >= 0; index--) {
 			const entry = entries[index]!;
-			if (entry.kind === "user") return Boolean(entry.entryId);
+			if (entry.kind === "user" && !entry.queued) return Boolean(entry.entryId);
 		}
 		return false;
 	}, [busy, onRegenerate, entries]);
@@ -1063,27 +1115,6 @@ export function ChatStream({
 			}),
 		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, busy],
 	);
-
-	// -- 最新截图 Dock：转录里最后一张**浏览器截图**，贴底展示（ZCode 同款）-----
-	// 只收浏览器/页面截图类工具：生图类工具（owl-image 的 generate/edit_image）的
-	// 产物属于会话内容,已内嵌渲染在各自工具卡片里,不进 Dock 浮窗。
-	const SCREENSHOT_TOOL_PATTERN = /^(browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
-	const latestShot = useMemo(() => {
-		let latest: { key: string; image: ToolResultImage } | undefined;
-		entries.forEach((entry, index) => {
-			if (entry.kind !== "assistant") return;
-			for (const tool of entry.tools) {
-				if (!SCREENSHOT_TOOL_PATTERN.test(tool.name)) continue;
-				const images = tool.output?.images;
-				if (images?.length) {
-					latest = { key: `a${index}-tool-${tool.id}`, image: images[images.length - 1] };
-				}
-			}
-		});
-		return latest;
-	}, [entries]);
-	const [dismissedShotKey, setDismissedShotKey] = useState<string | undefined>(undefined);
-	const showShotDock = latestShot !== undefined && latestShot.key !== dismissedShotKey;
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
 	const uiLanguage = getUiLanguage();
@@ -1193,7 +1224,6 @@ export function ChatStream({
 				</main>
 			</div>
 			{showLatest && <button className="owl-chat-latest" type="button" onClick={() => { navigationTarget.current = null; stick.current = true; const el = container.current; if (el) el.scrollTop = el.scrollHeight; setShowLatest(false); }}>{t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
-			{showShotDock && latestShot && <ScreenshotDock shot={latestShot} onClose={() => setDismissedShotKey(latestShot.key)} />}
 		</div>
 	);
 }

@@ -239,7 +239,7 @@ export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, pe
 			) : face.kind === "done" ? (
 				<div className="owl-island-face">
 					<button type="button" className="owl-island-face-main" aria-expanded={open} aria-controls="owl-island-list" aria-label={spoken} onClick={onFaceClick}>
-						<span className="owl-island-title">{face.title}</span>
+						<span className="owl-island-title" title={face.title}>{face.title}</span>
 						<span className="owl-island-status">{outcomeText(face.outcome)}</span>
 						{face.count > 1 && <span className="owl-island-count">{face.count}</span>}
 					</button>
@@ -253,7 +253,7 @@ export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, pe
 							{pips.map((pip) => <span key={pip.id} className={pip.lead ? "is-lead" : pip.waiting ? "is-wait" : undefined} />)}
 						</span>
 					) : <span className="owl-island-dot" aria-hidden="true" />}
-					<span className="owl-island-title">{face.title}</span>
+					<span className="owl-island-title" title={face.title}>{face.title}</span>
 					{shownWhisper !== "" ? <span className="owl-island-whisper">{shownWhisper}</span> : shownStep !== "" && <span className="owl-island-step">{shownStep}</span>}
 					{shownClock !== "" && <span className="owl-island-clock">{shownClock}</span>}
 					{waitText(face.waitKind, face.waiting) !== "" && <span className="owl-island-wait">{waitText(face.waitKind, face.waiting)}</span>}
@@ -274,7 +274,7 @@ export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, pe
 									onClick={() => openSession(session.id)}
 								>
 									<span className="owl-island-dot" aria-hidden="true" />
-									<span className="owl-island-title">{session.title}</span>
+									<span className="owl-island-title" title={session.title}>{session.title}</span>
 									{session.waitKind === "question" && session.whisper !== "" ? <span className="owl-island-whisper">{session.whisper}</span> : stepText(session.step) !== "" && <span className="owl-island-step">{stepText(session.step)}</span>}
 									{clockText(session.startedAt) !== "" && <span className="owl-island-clock">{clockText(session.startedAt)}</span>}
 									{waitText(session.waitKind, session.waiting) !== "" && <span className="owl-island-wait">{waitText(session.waitKind, session.waiting)}</span>}
@@ -293,7 +293,7 @@ export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, pe
 						<div key={session.id} className="owl-island-block">
 							<div className="owl-island-row" role="none">
 								<button type="button" role="menuitem" className="owl-island-row-main" onClick={() => openSession(session.id)}>
-									<span className="owl-island-title">{session.title}</span>
+									<span className="owl-island-title" title={session.title}>{session.title}</span>
 									<span className="owl-island-status">{outcomeText(session.outcome)}</span>
 								</button>
 								{islandCanReply(session.outcome) && <button type="button" className="owl-island-chip" onClick={() => beginReply(session.id)}>{t("island.reply")}</button>}

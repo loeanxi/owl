@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
-import type { ApprovalMode, CommandsListResult, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import type { ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -13,6 +13,7 @@ import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
 import { ResearchPage } from "./features/research/ResearchPage.tsx";
 import { useResearchEntryText } from "./features/research/research-entry-copy.ts";
 import { MediaView } from "./features/media/MediaView.tsx";
+import { GuidePanel } from "./features/guide/GuidePanel.tsx";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
@@ -20,6 +21,7 @@ import { ContextView } from "./components/ContextView.tsx";
 import { ConversationHeader, type ConversationView, type SessionExportFormat } from "./components/ConversationHeader.tsx";
 import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
+import { useSessionOwlPose } from "./components/OwlMascot.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
@@ -121,7 +123,7 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "research" ? view : "chat";
+		return view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "research" || view === "guide" ? view : "chat";
 	});
 	const sessionScope = railView === "research" ? "research" : "chat";
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
@@ -138,6 +140,8 @@ export default function App(): React.JSX.Element {
 	railViewRef.current = railView;
 	// 媒体桥视图懒挂载：首次点开 Rail「音乐」才渲染，之后保活（保留 tab/滚动位置）。
 	const [mediaMounted, setMediaMounted] = useState(railView === "media");
+	// 「人生指南」同样懒挂载保活：内容抓一次就留在内存与 localStorage。
+	const [guideMounted, setGuideMounted] = useState(railView === "guide");
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -580,6 +584,12 @@ export default function App(): React.JSX.Element {
 			const eventType = (message.event as { type?: string }).type;
 			const now = Date.now();
 			activityAtRef.current.set(message.sessionId, now);
+			// 用户消息落盘即刷新侧栏：新会话文件要等首条用户消息写入才创建（桥端
+			// _hasConversation 门控），此刻 refreshKey（sessionId）早已稳定不再变化，
+			// 只靠 agent_settled 刷新的话，长任务运行期间侧栏一直看不到这个新对话。
+			if (eventType === "entry_appended" && (message.event as { entry?: { message?: { role?: string } } }).entry?.message?.role === "user") {
+				setSidebarRev((current) => current + 1);
+			}
 			if (eventType === "agent_start") {
 				outcomeRef.current.delete(message.sessionId);
 				startedAtRef.current.set(message.sessionId, now);
@@ -1281,9 +1291,11 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	const sendPrompt = async (message: string, images?: ComposerImage[]): Promise<void> => {
+	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[]): Promise<void> => {
 		const hasImages = (images?.length ?? 0) > 0;
-		if (!connected || running || submitInFlight.current || (!message.trim() && !hasImages)) return;
+		const hasAttachments = (attachedPaths?.length ?? 0) > 0;
+		const queueFollowUp = running;
+		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return;
 		submitInFlight.current = true;
 		setSubmitting(true);
 		let target: string | undefined;
@@ -1307,8 +1319,9 @@ export default function App(): React.JSX.Element {
 		});
 		setEntries((current) => [
 			...current,
-			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId
-			{ kind: "user", text: message, timestamp: Date.now(), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
+			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
+			// 运行中追加的跟进先标 queued，避免切断正在写的这一轮。
+			{ kind: "user", text: message, timestamp: Date.now(), ...(queueFollowUp ? { queued: true } : {}), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
 		]);
 		// 用户亲自发言：旧的"重试中/重试失败"横幅已过时（会话由新消息接管）
 		setRetryStatus(null);
@@ -1317,7 +1330,9 @@ export default function App(): React.JSX.Element {
 			type: "session.prompt",
 			sessionId: target,
 			message,
+			...(queueFollowUp ? { streamingBehavior: "followUp" as const } : {}),
 			...(hasImages ? { images } : {}),
+			...(hasAttachments ? { attachedPaths } : {}),
 		});
 		if (!response.ok) throw new Error(response.error ?? t("app.sendFailedMsg"));
 		// Some extension commands finish before starting an agent run. Reconcile their
@@ -1339,6 +1354,14 @@ export default function App(): React.JSX.Element {
 				next.delete(target!);
 				return next;
 			});
+			if (queueFollowUp) {
+				setEntries((current) => {
+					const index = current.findLastIndex((entry) => entry.kind === "user" && entry.queued && entry.text === message);
+					if (index < 0) return current;
+					return [...current.slice(0, index), ...current.slice(index + 1)];
+				});
+				setDraftRequest({ id: ++draftSequence.current, text: message });
+			}
 			if (!target || target === sessionIdRef.current) setEntries((current) => [...current, {
 				kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 			}]);
@@ -1351,6 +1374,7 @@ export default function App(): React.JSX.Element {
 	const replyToSession = (target: string, message: string): void => {
 		const text = message.trim();
 		if (!connected || !text) return;
+		const queueFollowUp = runningSessions.has(target) || pendingPrompts.has(target);
 		setPausedSessions((current) => {
 			if (!current.has(target)) return current;
 			const next = new Set(current);
@@ -1358,11 +1382,11 @@ export default function App(): React.JSX.Element {
 			return next;
 		});
 		if (target === sessionIdRef.current) {
-			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now() }]);
+			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now(), ...(queueFollowUp ? { queued: true } : {}) }]);
 			setRetryStatus(null);
 		}
 		setPendingPrompts((current) => new Set(current).add(target));
-		void client.request({ type: "session.prompt", sessionId: target, message: text }).then((response) => {
+		void client.request({ type: "session.prompt", sessionId: target, message: text, ...(queueFollowUp ? { streamingBehavior: "followUp" as const } : {}) }).then((response) => {
 			if (!response.ok) throw new Error(response.error ?? t("app.sendFailedMsg"));
 		}).catch((error: unknown) => {
 			setPendingPrompts((current) => {
@@ -1483,6 +1507,7 @@ export default function App(): React.JSX.Element {
 		?.models.find((model) => model.id === mapModelValue.slice(mapModelSeparator + 1))?.name;
 	const waitingForUser = Boolean(sessionId && (permissions.some((request) => request.sessionId === sessionId) || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
+	const owlPose = useSessionOwlPose(chatActivity, entries);
 
 	const openSettings = (tab: SettingsInitialTab): void => {
 		setSettingsInitialTab(tab);
@@ -1505,7 +1530,8 @@ export default function App(): React.JSX.Element {
 		// 作废还在飞的会话恢复，避免旧响应盖住这次回退。
 		sessionViewSeq.current += 1;
 		if (place.rail === "mail") setMailMounted(true);
-		if (place.rail === "media") setMediaMounted(true);
+			if (place.rail === "media") setMediaMounted(true);
+			if (place.rail === "guide") setGuideMounted(true);
 		if (place.rail === "research") setResearchMounted(true);
 		if (place.rail === "evaluation") setEvaluationMounted(true);
 		const openingChat = place.rail !== "research" && Boolean(place.chatSession) && place.chatSession !== sessionIdRef.current;
@@ -1695,6 +1721,12 @@ export default function App(): React.JSX.Element {
 					setResearchMounted(true);
 					setRailView("research");
 				}}
+				onOpenLifeGuide={() => {
+					// 火柴人按钮 = 打开/关闭指南面板（再点一次回到会话）。
+					setShowSettings(false);
+					setGuideMounted(true);
+					setRailView(railViewRef.current === "guide" ? "chat" : "guide");
+				}}
 				island={(
 					<DynamicIsland
 						running={islandRunning}
@@ -1808,6 +1840,17 @@ export default function App(): React.JSX.Element {
 			{mediaMounted && <div data-owl-island-anchor="" style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
+			{/* 「高性价比人生指南」原生阅读面板：内容 jsDelivr 拉取 + 本地缓存（CC BY 4.0，署名在面板底栏）。 */}
+			{guideMounted && <div data-owl-island-anchor="" style={{ display: railView === "guide" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<GuidePanel
+					active={railView === "guide" && !showSettings}
+					onOpenUrl={(url) => {
+						void client.request({ type: "open.external", action: "url", target: url })
+							.then((result) => { if (!result.ok) window.open(url, "_blank"); })
+							.catch(() => window.open(url, "_blank"));
+					}}
+				/>
+			</div>}
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
 					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
@@ -1864,31 +1907,33 @@ export default function App(): React.JSX.Element {
 								answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
 							}}
 						>
-								<Composer
-									client={client}
-									sessionScope="chat"
-									connected={connected}
-									disabled={running || submitting || !connected}
-									running={running}
-									paused={Boolean(sessionId && pausedSessions.has(sessionId))}
-									hideEnvironment={connected && (Boolean(activeQuestion) || running)}
-									onSend={(text, images) => void sendPrompt(text, images)}
-									onAbort={() => void abort()}
-									onPause={pauseSession}
-									onResume={() => void resumePaused()}
-								providers={providers}
-								model={modelValue}
-								onModel={handleModelChange}
-								thinkingLevel={thinkingLevel}
-								onThinkingLevel={handleThinkingChange}
-								approvalMode={approvalMode}
-								onApprovalMode={handleApprovalModeChange}
-								sessionInfo={sessionInfo}
+<Composer
+								client={client}
+								sessionScope="chat"
+								connected={connected}
+								disabled={submitting || !connected}
+								running={running}
+								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
+								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
+								onSend={(text, images, attachedPaths) => void sendPrompt(text, images, attachedPaths)}
+								onAbort={() => void abort()}
+								onPause={pauseSession}
+								onResume={() => void resumePaused()}
+							providers={providers}
+							model={modelValue}
+							onModel={handleModelChange}
+							thinkingLevel={thinkingLevel}
+							onThinkingLevel={handleThinkingChange}
+							approvalMode={approvalMode}
+							onApprovalMode={handleApprovalModeChange}
+							sessionInfo={sessionInfo}
 								workspaceDir={workspaceDir}
 								projects={visibleProjects}
 								onSwitchProject={switchProject}
 								commands={slashCommands}
+								searchFiles={(cwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd, query }).then((r) => (r.ok ? r.result ?? [] : []))}
 								draftRequest={draftRequest}
+								owlPose={owlPose}
 							/>
 						</QuestionDock>
 						</div>

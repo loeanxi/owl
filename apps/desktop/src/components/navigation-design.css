@@ -367,11 +367,10 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
-	margin-top: 18px;
+	margin-top: 14px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section-header {
-	height: 30px;
 	padding: 0 7px;
 }
 
@@ -406,6 +405,24 @@
 .owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active {
 	background: var(--owl-navigation-selection);
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+	font-weight: 500;
+}
+
+/* 选中行左缘的 2px accent 指示条（与 rail 激活态同一语言） */
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active::before {
+	content: "";
+	position: absolute;
+	top: 7px;
+	left: 0;
+	width: 2px;
+	height: 16px;
+	border-radius: 2px;
+	background: var(--color-owl-accent);
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row.is-active .owl-sidebar-row-time {
+	color: var(--color-owl-accent);
+	font-weight: 600;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-project-row.is-current {
@@ -423,7 +440,7 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-row-actions {
-	top: 4px;
+	top: 3px;
 	right: 4px;
 }
 
@@ -451,38 +468,7 @@
 	color: #f87171;
 }
 
-.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions {
-	margin: 1px 0 4px;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row {
-	height: 22px;
-	border-radius: 4px;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-main {
-	gap: 6px;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-actions {
-	top: 1px;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-action {
-	width: 18px;
-	height: 20px;
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon {
-	width: 12px;
-	height: 12px;
-	flex-basis: 12px;
-	color: color-mix(in srgb, var(--owl-ui-text, var(--color-owl-sidebar-text)) 70%, transparent);
-}
-
-.owl-desktop-shell .owl-sidebar .owl-sidebar-session-icon.is-running {
-	color: #22c55e;
-}
+/* 会话行结构（行高/缩进/状态点）以 index.css 为准，这里只做主题色覆盖。 */
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-add-project {
 	padding: 0 7px;

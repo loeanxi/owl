@@ -12,7 +12,7 @@
  */
 
 /** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
-export const OWL_PRESET_IDS = ["", "owl-green"] as const;
+export const OWL_PRESET_IDS = ["", "owl-green", "codex"] as const;
 
 export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
 
@@ -32,6 +32,10 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 	"owl-green": {
 		dark: { background: "#262624", foreground: "#e9e7e0" },
 		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	codex: {
+		dark: { background: "#1f1f1f", foreground: "#ededed" },
+		light: { background: "#f7f6f3", foreground: "#1a1a1a" },
 	},
 };
 

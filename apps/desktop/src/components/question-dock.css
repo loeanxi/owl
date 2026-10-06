@@ -1,7 +1,9 @@
 .owl-composer-dock {
 	position: relative;
+	z-index: 2;
 	min-width: 0;
 	flex: 0 0 auto;
+	overflow: visible;
 }
 
 .owl-question-anchor {

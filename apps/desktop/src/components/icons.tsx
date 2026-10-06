@@ -75,6 +75,20 @@ export function IconMore({ className }: { className?: string }): React.JSX.Eleme
 	);
 }
 
+/** 拖拽把手段指示（六点 ⋮⋮），露在可拖拽行状态点位置上替代圆点。 */
+export function IconGrip({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
+			<circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
+			<circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+			<circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+			<circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
+			<circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
+		</Svg>
+	);
+}
+
 /** 侧栏头部：搜索 */
 export function IconSearch({ className }: { className?: string }): React.JSX.Element {
 	return (
@@ -379,6 +393,20 @@ export function IconBranch({ className }: { className?: string }): React.JSX.Ele
 			<circle cx="18" cy="6" r="3" />
 			<circle cx="6" cy="18" r="3" />
 			<path d="M18 9a9 9 0 0 1-9 9" />
+		</Svg>
+	);
+}
+
+/** 标题栏：「高性价比人生指南」外链入口（github.com/eternity4719/HowToLiveBetter） */
+export function IconStickFigure({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="13.4" cy="4.6" r="2.4" />
+			<path d="M13 7.4 11.6 13.4" />
+			<path d="M12.8 8.6 17.2 10.2" />
+			<path d="M12.4 9 8 10.6" />
+			<path d="M11.6 13.4 15 15.8 14.6 19.6" />
+			<path d="M11.6 13.4 8.8 16.6 5.9 19.2" />
 		</Svg>
 	);
 }

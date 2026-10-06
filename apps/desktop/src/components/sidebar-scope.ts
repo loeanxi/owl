@@ -11,15 +11,17 @@ export function matchesSessionScope(row: ScopeRow, scope: SessionScope): boolean
 }
 
 export function sidebarStorageKeys(scope: SessionScope): {
-	pinned: string; pinnedProjects: string; projects: string; collapsed: string; pinnedSort: string; recentSort: string;
+	pinned: string; pinnedProjects: string; projects: string; collapsed: string; pinnedSort: string; recentSort: string; sessionOrder: string;
 } {
 	return scope === "research" ? {
 		pinned: "owl.research.sidebar.pinnedSessions", pinnedProjects: "owl.research.sidebar.pinnedProjects",
 		projects: "owl.research.sidebar.projects", collapsed: "owl.research.sidebar.collapsed",
 		pinnedSort: "owl.research.sidebar.pinnedSort", recentSort: "owl.research.sidebar.recentSort",
+		sessionOrder: "owl.research.sidebar.sessionOrder",
 	} : {
 		pinned: "owl.pinnedSessions", pinnedProjects: "owl.pinnedProjects", projects: "owl.projects",
 		collapsed: "owl.sidebar.collapsed", pinnedSort: "owl.sidebar.pinnedSort", recentSort: "owl.sidebar.recentSort",
+		sessionOrder: "owl.sidebar.sessionOrder",
 	};
 }
 

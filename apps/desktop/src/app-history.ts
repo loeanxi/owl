@@ -2,7 +2,7 @@ import { normPath } from "./utils/paths.ts";
 
 /** 用户所在的一屏：主区、设置页、当前会话、项目。 */
 export interface AppPlace {
-	rail: "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research";
+	rail: "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research" | "guide";
 	settings: boolean;
 	settingsTab: "general" | "models" | "about";
 	chatSession?: string;

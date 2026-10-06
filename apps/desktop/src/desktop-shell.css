@@ -33,15 +33,39 @@ html[data-owl-preset="owl-green"] .owl-desktop-shell {
 	--owl-ui-menu-hover: #3a423b;
 }
 
+/* Codex 预设的深色档（默认深色 + codex）：中性深灰 + 蓝紫强调色，与 index.css 同语义。 */
+html[data-owl-preset="codex"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1f1f1f);
+	--owl-ui-panel: #2a2a2a;
+	--owl-ui-sidebar: #1a1a1a;
+	--owl-ui-border: #3a3a3a;
+	--owl-ui-text: var(--owl-ui-text-override, #ededed);
+	--owl-ui-muted: #9a9a9a;
+	--owl-ui-hover: #2e2e2e;
+	--owl-ui-menu-hover: #3a3a3a;
+}
+
 html[data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafbf9);
 	--owl-ui-panel: #ffffff;
-	--owl-ui-sidebar: #f1f3ef;
+	--owl-ui-sidebar: #ffffff;
 	--owl-ui-border: #e0e5df;
 	--owl-ui-text: var(--owl-ui-text-override, #3d3a32);
 	--owl-ui-muted: #66726a;
 	--owl-ui-hover: #e9eeea;
 	--owl-ui-menu-hover: #dbe3dc;
+}
+
+/* Codex 预设的浅色档（codex + 浅色）：暖灰白底 + 蓝紫强调色，比默认浅色块靠后以覆盖之。 */
+html[data-owl-preset="codex"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #f7f6f3);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #efeeeb;
+	--owl-ui-border: #d9d7d2;
+	--owl-ui-text: var(--owl-ui-text-override, #1a1a1a);
+	--owl-ui-muted: #6e6e6e;
+	--owl-ui-hover: #e9e8e5;
+	--owl-ui-menu-hover: #d9d7d2;
 }
 
 .owl-desktop-titlebar {
@@ -135,7 +159,8 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	display: flex;
 	width: max-content;
 	min-width: 150px;
-	max-width: var(--owl-island-max, 360px);
+	/* 收起的胶囊最宽 280px,长标题省略;--owl-island-max 只负责和菜单/窗控让位。 */
+	max-width: min(280px, var(--owl-island-max, 360px));
 	flex-direction: column;
 	transform: translateX(-50%);
 	overflow: visible;
@@ -150,7 +175,7 @@ html[data-owl-theme="light"] .owl-desktop-shell {
 	box-shadow: none;
 	pointer-events: none;
 }
-.owl-island.is-open { width: min(320px, var(--owl-island-max, 360px)); border-radius: 15px 15px 0 0; }
+.owl-island.is-open { width: min(320px, var(--owl-island-max, 360px)); max-width: var(--owl-island-max, 360px); border-radius: 15px 15px 0 0; }
 .owl-island-face {
 	display: flex;
 	align-items: center;
@@ -342,6 +367,11 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 }
 .owl-desktop-window-controls > div { height: 100%; margin-left: 0; gap: 0; }
 .owl-desktop-window-controls .owl-chrome-button { width: 45px; height: 100%; border-radius: 0; }
+
+/* 「高性价比人生指南」外链入口：保持工具栏按钮尺寸（不被上面 45px 窗口按钮通栏样式吞掉）；
+   面板打开时点亮为强调色。 */
+.owl-desktop-window-controls .owl-desktop-life-guide { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
+.owl-desktop-life-guide.is-active { background: var(--color-owl-accent); color: #fff; }
 
 .owl-desktop-body { display: flex; position: relative; z-index: 0; flex: 1; min-height: 0; min-width: 0; }
 .owl-main-frame {

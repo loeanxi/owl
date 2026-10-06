@@ -46,6 +46,7 @@ import {
 import { getWorkspaceDiffApprovalStore, setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
 import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
+import { installHtmlPlanSkill } from "../../core/html-plan-skill.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import {
 	createMailTools,
@@ -103,6 +104,7 @@ import { MirrorHub } from "./mirror-hub.ts";
 import { handleNewsHttp } from "./news-http.ts";
 import { callNewsModel } from "./news-model.ts";
 import { createNewsTools } from "./news-tools.ts";
+import { streamingBehaviorForPrompt } from "./prompt-delivery.ts";
 import type {
 	CommandsListResult,
 	DiffApprovalClearResult,
@@ -426,6 +428,11 @@ function archiveRetentionDays(meta: ArchiveMetaFile): number {
 
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
 	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[owl] ${message}`));
+	try {
+		installHtmlPlanSkill(options.agentDir ?? getAgentDir());
+	} catch (error) {
+		onDiagnostic(`html-plan skill install failed: ${error instanceof Error ? error.message : String(error)}`);
+	}
 	// 桥进程不经过 main.ts，需自行装代理 dispatcher：fetch 只有装了 EnvHttpProxyAgent
 	// 才认 HTTP(S)_PROXY，否则 OAuth 设备码请求直连 github.com，直连不通时就地超时——
 	// 浏览器永远不弹，UI 停在「正在启动登录流程…」。
@@ -1423,10 +1430,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					}
 					updateResearchMode(session.runtime.session.sessionManager, request.researchMode);
 				}
+				const streamingBehavior = streamingBehaviorForPrompt(
+					session.runtime.session.isStreaming,
+					request.streamingBehavior,
+				);
 				reply(ws, request.id, { ok: true });
 				try {
 					await session.runtime.session.prompt(request.message, {
 						...(request.images ? { images: request.images as ImageContent[] } : {}),
+						...(request.attachedPaths?.length ? { attachedPaths: request.attachedPaths } : {}),
+						...(streamingBehavior ? { streamingBehavior } : {}),
 					});
 				} catch (error) {
 					onDiagnostic(error instanceof Error ? error.message : String(error));

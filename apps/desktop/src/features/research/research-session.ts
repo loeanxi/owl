@@ -22,7 +22,7 @@ export type ResearchSessionState = ResearchPreferences & {
 	stats?: SessionStatsResult;
 	error?: string;
 	retryStatus: RetryBannerState | null;
-	failedPrompt?: { text: string; images?: ResearchImage[] };
+	failedPrompt?: { text: string; images?: ResearchImage[]; attachedPaths?: string[] };
 };
 
 export function researchSessionKey(cwd: string): string {
@@ -220,8 +220,8 @@ export class ResearchSessionController {
 		this.persistPreferences();
 	}
 
-	async send(text: string, images?: ResearchImage[]): Promise<boolean> {
-		if (!this.state.connected || !this.state.ready || this.state.running || this.state.busy || (!text.trim() && !images?.length)) return false;
+	async send(text: string, images?: ResearchImage[], attachedPaths?: string[]): Promise<boolean> {
+		if (!this.state.connected || !this.state.ready || this.state.running || this.state.busy || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
 		const epoch = this.epoch;
 		let optimisticEntry: Extract<ChatEntry, { kind: "user" }> | undefined;
 		let submittedRunRevision = this.runRevision;
@@ -244,7 +244,14 @@ export class ResearchSessionController {
 			optimisticEntry = { kind: "user", text, ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) };
 			submittedRunRevision = this.runRevision;
 			this.update({ entries: [...this.state.entries, optimisticEntry], running: true, retryStatus: null });
-			const response = await this.client.request({ type: "session.prompt", sessionId, message: text, researchMode: this.state.mode, ...(images?.length ? { images } : {}) });
+			const response = await this.client.request({
+				type: "session.prompt",
+				sessionId,
+				message: text,
+				researchMode: this.state.mode,
+				...(images?.length ? { images } : {}),
+				...(attachedPaths?.length ? { attachedPaths } : {}),
+			});
 			if (!this.isCurrent(epoch, sessionId)) return false;
 			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
 			clearTimeout(this.reconcileTimer);
@@ -252,7 +259,7 @@ export class ResearchSessionController {
 			return true;
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({
-				error: error instanceof Error ? error.message : String(error), running: false, failedPrompt: { text, images },
+				error: error instanceof Error ? error.message : String(error), running: false, failedPrompt: { text, images, attachedPaths },
 				...(this.runRevision === submittedRunRevision && optimisticEntry ? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) } : {}),
 			});
 			return false;

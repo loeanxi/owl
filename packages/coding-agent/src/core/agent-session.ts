@@ -306,6 +306,8 @@ export interface PromptOptions {
 	expandPromptTemplates?: boolean;
 	/** Image attachments */
 	images?: ImageContent[];
+	/** Workspace-relative paths to show the model as read-only attachments for this turn. */
+	attachedPaths?: string[];
 	/** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
 	streamingBehavior?: "steer" | "followUp";
 	/** Source of input for extension input event handlers. Defaults to "interactive". */
@@ -2007,10 +2009,14 @@ export class AgentSession {
 					"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
 				);
 			}
+			const attachmentsHeader = options.attachedPaths?.length
+				? `[Attached files for this turn]\n${options.attachedPaths.map((p) => `- ${p}`).join("\n")}\n\n`
+				: "";
+			const queuedText = attachmentsHeader + expandedText;
 			if (options.streamingBehavior === "followUp") {
-				await this._queueFollowUp(expandedText, currentImages);
+				await this._queueFollowUp(queuedText, currentImages);
 			} else {
-				await this._queueSteer(expandedText, currentImages);
+				await this._queueSteer(queuedText, currentImages);
 			}
 			preflightResult?.("queued");
 			return;
@@ -2091,7 +2097,15 @@ export class AgentSession {
 		}
 
 		const normalized = await this._normalizePromptImages(currentImages);
-		const userText = normalized.hints.length > 0 ? `${expandedText}\n\n${normalized.hints.join("\n")}` : expandedText;
+		// /-@ 引用芯片的附文件清单：拼到本回合 user 消息头；模型读到这里主动把对应路径的文件读了。
+		const attachments = options?.attachedPaths;
+		const attachmentsHeader = attachments?.length
+			? `[Attached files for this turn]\n${attachments.map((p) => `- ${p}`).join("\n")}\n\n`
+			: "";
+		const userText =
+			normalized.hints.length > 0
+				? `${attachmentsHeader}${expandedText}\n\n${normalized.hints.join("\n")}`
+				: attachmentsHeader + expandedText;
 
 		// Build messages only after hooks and image normalization have completed.
 		const messages: AgentMessage[] = [];
