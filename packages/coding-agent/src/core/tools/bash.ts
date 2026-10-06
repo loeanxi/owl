@@ -67,35 +67,76 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	return timeoutMs;
 }
 
+const GREP_NO_MATCH_STATUS =
+	'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
+
+/** 去掉 2>&1、2>/dev/null 这类重定向，避免其中的 & 被当成命令分隔。 */
+function withoutRedirections(command: string): string {
+	return command.replace(/\d*>&\d+|\d*(?:>>?|<)\s*[^\s;&|]+/g, " ");
+}
+
+function pipelineEndsWithGrep(statement: string): boolean {
+	const last = statement.split("|").pop()?.trim() ?? "";
+	return /^(grep|rg)(\s|$)/.test(last);
+}
+
 /**
- * grep/rg 的退出码语义：1 = 没有匹配行（正常的空结果），2 = 真正的执行错误。
- * 探查命令 `... | grep foo` 的退出码由末端的 grep 决定，空结果加退出码 1
- * 会让模型误以为命令故障而反复重试，因此明说原因（对齐 exit 127 的处理方式）。
- * 只对纯管道判定（不含 ; & 命令替换、换行）：只有此时退出码必然来自最后一段命令。
+ * grep/rg 的退出码语义：1 = 没有匹配行（正常的空结果，`grep -c` 还会先打出 0），
+ * 2 = 真正的执行错误。
+ * `;` 与换行的退出码来自最后一条语句：最后一条是 grep/rg 时，1 就是没匹配。
+ * `&&` / `||` 可能短路，只有整段都是 grep/rg 才认定退出码来自 grep。
+ * `echo boom; exit 1` 这类复合失败仍是错误。命令替换无法静态判断，不纳入。
  */
 function grepNoMatchStatus(command: string): string | undefined {
-	const trimmed = command.trim();
-	if (/[\n;&`$]/.test(trimmed)) return undefined;
-	const segments = trimmed.split("|");
-	const lastSegment = segments[segments.length - 1].trim();
-	if (!/^(grep|rg)(\s|$)/.test(lastSegment)) return undefined;
-	return 'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
+	const cleaned = withoutRedirections(command.trim());
+	if (/`|\$\(/.test(cleaned)) return undefined;
+	const withoutLogic = cleaned.replace(/&&|\|\|/g, " ");
+	if (/&/.test(withoutLogic)) return undefined;
+	const statements = cleaned
+		.split(/\n|&&|\|\||;/)
+		.map((statement) => statement.trim())
+		.filter(Boolean);
+	if (statements.length === 0) return undefined;
+	const shortCircuit = /&&|\|\|/.test(cleaned);
+	if (shortCircuit) {
+		return statements.every(pipelineEndsWithGrep) ? GREP_NO_MATCH_STATUS : undefined;
+	}
+	return pipelineEndsWithGrep(statements[statements.length - 1] ?? "") ? GREP_NO_MATCH_STATUS : undefined;
+}
+
+/**
+ * 只读 git 查询报「不是仓库」是探路答案。commit/push 等写操作的 128 仍是失败。
+ */
+function gitNotRepositoryStatus(command: string, exitCode: number, output: string): string | undefined {
+	if (exitCode !== 128 || !/not a git repository/i.test(output)) return undefined;
+	// 允许 git -C / --git-dir 这类选项出现在子命令前；commit、push 等写操作对不上子命令名。
+	if (!/\bgit\b(?:\s+-[^\s;|&]+)*\s+(?:status|log|rev-parse|diff|show|ls-files|branch|remote)\b/.test(command)) {
+		return undefined;
+	}
+	return "Command exited with code 128 (not a git repository — an answer, not a shell failure). Don't retry the same git command in this directory; cd to the repo root or inspect the path.";
 }
 
 /**
  * 探测型命令的非零退出是「答案」而不是故障，不标成错误：命令里出现 `2>/dev/null`
- * 说明作者已预期可能不命中并主动压掉 stderr（如探测目录是否存在）；test/[、
- * command -v、which、type 的退出码本身就是判断结果（1 = 未找到/条件为假）。
- * 只认 1/2——127 起的命令缺失、137/139 的被杀崩溃仍是真失败。只按形态分类，
- * 不改给模型看的状态文本；`|| true` 收尾的命令退出码本来就是 0，无需在此处理。
+ * 说明作者已预期可能不命中并主动压掉 stderr（如探测目录是否存在）；`ls`/`find` 等
+ * 只读查找带 `2>&1` 时，路径不存在（退出码 2）同样是答案。test/[、command -v、
+ * which、type 的退出码本身就是判断结果（1 = 未找到/条件为假）。
+ * 只认 1/2——127 起的命令缺失、137/139 的被杀崩溃仍是真失败。没加重定向的
+ * `ls no-such-dir` 仍是错误。只按形态分类；`|| true` 收尾的命令退出码本来就是 0。
  */
 function isProbeExit(command: string, exitCode: number): boolean {
 	if (exitCode !== 1 && exitCode !== 2) return false;
-	return command.split(/\n|&&|\|\||;|\||&/).some((segment) => {
+	const silenced = command.split(/\n|&&|\|\||;|\||&/).some((segment) => {
 		const s = segment.trim();
 		if (!s) return false;
 		if (/2>\s*\/dev\/null/.test(s)) return true;
 		return exitCode === 1 && /^(?:command\s+-v|which|type|test|\[\[|\[)(?:\s|$)/.test(s);
+	});
+	if (silenced) return true;
+	return command.split(/\n|&&|\|\||;/).some((part) => {
+		const s = part.trim();
+		if (!/2>&1/.test(s)) return false;
+		return /(?:^|\|\s*)(?:ls|find|stat|cat|head|tail|file)\b/.test(s);
 	});
 }
 
@@ -121,7 +162,7 @@ export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
 	guidelines: [
 		"You can inspect PI_* environment variables for current model and session details.",
-		"grep/rg exit with code 1 when no lines match (code 2 on real errors). In exploratory searches where an empty result is a valid answer, append `|| true` (e.g. `... | grep -i foo || true`) so 'no match' is not reported as a failed command.",
+		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers — read the output instead of retrying the same command.",
 	],
 } as const;
 
@@ -605,17 +646,18 @@ export function createShellToolDefinition(
 					// 127 = shell 里找不到命令（stderr 可能已被命令自己的 2>/dev/null 吞掉）。
 					// 明说原因并给出替代路径，否则模型只看到空输出加退出码，会反复换姿势重试。
 					const grepStatus = exitCode === 1 ? grepNoMatchStatus(command) : undefined;
+					const gitStatus = gitNotRepositoryStatus(command, exitCode, outputText);
 					const status =
 						exitCode === 127
 							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
-							: (grepStatus ?? `Command exited with code ${exitCode}`);
-					// 探测类非零退出（grep 无匹配、2>/dev/null 探测等）对模型仍附带状态行，
+							: (grepStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
+					// 探测类非零退出（grep 无匹配、路径不存在、不是 git 仓库等）对模型仍附带状态行，
 					// 但不再标记为错误：它们是探测得到的答案，UI 不应计成失败。
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,
 						structuredContent,
-						isError: !(grepStatus !== undefined || isProbeExit(command, exitCode)),
+						isError: !(grepStatus !== undefined || gitStatus !== undefined || isProbeExit(command, exitCode)),
 					};
 				}
 				return { content: [{ type: "text", text: outputText }], details, structuredContent };

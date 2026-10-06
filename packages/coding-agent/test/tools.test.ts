@@ -553,10 +553,18 @@ describe("Coding Agent Tools", () => {
 				expect(bare.isError).toBe(false);
 				expect(getTextOutput(bare)).toContain("no lines matched");
 
-				// 复合命令（; && 等）的退出码不一定来自 grep，保持通用消息
+				// 退出码不来自 grep 的复合命令仍是错误
 				const compound = await bashTool.execute("test-call-compound-exit-1", { command: "echo boom; exit 1" });
 				expect(compound.isError).toBe(true);
 				expect(getTextOutput(compound)).toBe("boom\n\n\nCommand exited with code 1");
+
+				// grep -c 没命中会打出 0 并以 1 退出；用分号串起来时退出码来自最后一条 grep
+				const counted = await bashTool.execute("test-call-grep-c-chain", {
+					command: "grep -c zz-no-such-token-zz package.json; grep -c zz-no-such-token-zz package.json",
+				});
+				expect(counted.isError).toBe(false);
+				expect(getTextOutput(counted)).toContain("0");
+				expect(getTextOutput(counted)).toContain("no lines matched");
 			},
 		);
 
@@ -586,6 +594,27 @@ describe("Coding Agent Tools", () => {
 
 			const plainFailure = await bashTool.execute("test-call-probe-plain", { command: "ls no-such-dir" });
 			expect(plainFailure.isError).toBe(true);
+
+			// 模型探路常用 2>&1 而不是 2>/dev/null：路径不存在是答案，&& 后面不会再跑
+			const merged = await bashTool.execute("test-call-probe-ls-merged", {
+				command: "ls ./no-such-plugin-dir ./no-such-driver-dir 2>&1 && echo SHOULD_NOT_RUN",
+			});
+			expect(merged.isError).toBe(false);
+			expect(getTextOutput(merged)).toContain("Command exited with code 2");
+			expect(getTextOutput(merged)).not.toContain("SHOULD_NOT_RUN");
+
+			const realFailure = await bashTool.execute("test-call-probe-false-merged", { command: "false 2>&1" });
+			expect(realFailure.isError).toBe(true);
+		});
+
+		it.skipIf(!BASH_AVAILABLE)("should treat read-only git outside a repository as an answer", async () => {
+			const result = await bashTool.execute("test-call-git-norepo", {
+				command:
+					"git --git-dir=/__owl_not_a_repo__ status --short 2>&1 | head -5 && echo --- && git --git-dir=/__owl_not_a_repo__ log -1",
+			});
+			expect(result.isError).toBe(false);
+			expect(getTextOutput(result)).toMatch(/not a git repository/i);
+			expect(getTextOutput(result)).toContain("not a shell failure");
 		});
 
 		it.skipIf(!BASH_AVAILABLE)("should return up to 1 MiB of output in structured content", async () => {
