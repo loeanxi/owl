@@ -1,0 +1,19 @@
+{
+	"name": "owl-computer-use",
+	"private": true,
+	"type": "module",
+	"description": "owl computer use：把 Windows 桌面（截图/鼠标/键盘/窗口）暴露给视觉模型的工具面，PowerShell 侧车 + GDI/SendInput 内核",
+	"owl": {
+		"extensions": ["./index.ts"]
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"smoke": "node scripts/smoke.mjs"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "1.0.0",
+		"typebox": "1.3.27",
+		"vitest": "4.1.11"
+	}
+}

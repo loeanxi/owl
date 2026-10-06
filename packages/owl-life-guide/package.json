@@ -1,0 +1,19 @@
+{
+	"name": "owl-life-guide",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "owl「高性价比人生指南」检索插件：life_guide_search 工具，按关键词/章节/证据等级检索 HowToLiveBetter 全书 665 条建议",
+	"license": "MIT",
+	"owl": {
+		"extensions": ["./src/index.ts"]
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"typebox": "1.3.27",
+		"vitest": "4.1.11"
+	},
+	"scripts": {
+		"test": "vitest run"
+	}
+}
