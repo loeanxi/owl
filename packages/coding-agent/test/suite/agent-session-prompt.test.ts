@@ -220,6 +220,7 @@ describe("AgentSession prompt characterization", () => {
 							origin: "top-level",
 							baseDir: tempDir,
 						}),
+						requiresMetadataTracking: false,
 					},
 				],
 				diagnostics: [],

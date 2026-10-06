@@ -68,6 +68,11 @@ export interface SkillFrontmatter {
 	name?: string;
 	description?: string;
 	"disable-model-invocation"?: boolean;
+	/** When true, this skill MUST be invoked alongside any other skill
+	 *  read or followed during the session. The loader injects its
+	 *  description into the system prompt so the agent sees the rule
+	 *  even in tools that don't render descriptions (e.g. skill_search). */
+	"requires-metadata-tracking"?: boolean;
 	[key: string]: unknown;
 }
 
@@ -78,6 +83,7 @@ export interface Skill {
 	baseDir: string;
 	sourceInfo: SourceInfo;
 	disableModelInvocation: boolean;
+	requiresMetadataTracking: boolean;
 }
 
 export interface LoadSkillsResult {
@@ -339,6 +345,7 @@ function loadSkillFromFile(
 			baseDir: skillDir,
 			sourceInfo: createSkillSourceInfo(filePath, skillDir, source),
 			disableModelInvocation: frontmatter["disable-model-invocation"] === true,
+			requiresMetadataTracking: frontmatter["requires-metadata-tracking"] === true,
 		},
 		diagnostics,
 	};
@@ -363,12 +370,22 @@ export function formatSkillsForPrompt(
 	}
 
 	if (fileReadTool === "skill_search") {
+		const metaSkills = visibleSkills.filter((s) => s.requiresMetadataTracking);
 		const lines = [
 			`${visibleSkills.length} installed skills are available through skill_search.`,
 			"For specialized work, search by task or exact skill name to get its full description and file path, then read the matching SKILL.md before using it. Simple greetings and ordinary answers need no skill lookup.",
 			"An empty query browses the catalog with offset/limit. Names below are an index, not usage instructions; respect the full skill's scope and resolve references relative to its directory.",
-			"<available_skills>",
 		];
+		if (metaSkills.length > 0) {
+			lines.push(
+				"",
+				"<meta_skills>",
+				"These skills MUST be invoked whenever you read or follow any other skill's SKILL.md. Read their SKILL.md once per session and obey their reporting rules. They are also marked with `requires-metadata-tracking` in the catalog below:",
+				...metaSkills.map((s) => `- ${escapeXml(s.name)}: ${escapeXml(s.description)}`),
+				"</meta_skills>",
+			);
+		}
+		lines.push("<available_skills>");
 		let length = lines.join("\n").length;
 		for (const skill of visibleSkills) {
 			const name = `- ${escapeXml(skill.name)}`;

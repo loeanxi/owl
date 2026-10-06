@@ -20,6 +20,7 @@ function skill(name: string, description: string, filePath = `/skills/${name}/SK
 		baseDir: "/skills",
 		disableModelInvocation: false,
 		sourceInfo: createSyntheticSourceInfo(filePath, { source: "test" }),
+		requiresMetadataTracking: false,
 	};
 }
 
