@@ -8,8 +8,8 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "cd packages/codemode && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../coding-agent && npm run build",
-		"build:offline": "cd packages/codemode && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../coding-agent && npm run build",
+		"build": "cd packages/codemode && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../coding-agent && npm run build && cd ../owl-pool && npm run build && cd ../../apps/pool-server && npm run build",
+		"build:offline": "cd packages/codemode && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../coding-agent && npm run build && cd ../owl-pool && npm run build && cd ../../apps/pool-server && npm run build",
 		"check": "biome check --write --error-on-warnings . && tsc --noEmit",
 		"check:pinned-deps": "node scripts/check-pinned-deps.mjs",
 		"check:runtime-deps": "node scripts/check-runtime-deps.mjs",

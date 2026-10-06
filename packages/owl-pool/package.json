@@ -1,0 +1,24 @@
+{
+	"name": "owl-pool",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Owl 号池领域核心：账号、签到、API Key、网关、计费（自 manager 迁移）",
+	"keywords": ["owl-package", "owl", "pool"],
+	"files": ["dist"],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest --run"
+	},
+	"devDependencies": {
+		"typescript": "7.0.2",
+		"vitest": "4.1.11"
+	}
+}

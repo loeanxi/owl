@@ -1,0 +1,23 @@
+{
+	"name": "@owl/pool-server",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Owl 号池服务壳：node:http + node:sqlite，承载 owl-pool 领域（自 manager 迁移）",
+	"files": ["dist"],
+	"scripts": {
+		"build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/main.js",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest --run",
+		"dev": "node --experimental-strip-types src/index.ts",
+		"start": "node dist/main.js"
+	},
+	"dependencies": {
+		"owl-pool": "*"
+	},
+	"devDependencies": {
+		"esbuild": "0.28.2",
+		"typescript": "7.0.2",
+		"vitest": "4.1.11"
+	}
+}
