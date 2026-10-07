@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { spawn, spawnSync } from "child_process";
 import { getBinDir } from "../config.ts";
@@ -23,7 +23,16 @@ function getBashShellConfig(shell: string): ShellConfig {
 
 function findExecutableOnPath(executable: string): string | null {
 	if (process.platform === "win32") {
-		// Windows: Use 'where' and verify file exists (where can return non-existent paths)
+		// 先直接扫 PATH 条目：env 值是正确的 UTF-16。where.exe 的输出按控制台代码页
+		// （中文系统是 GBK）编码，按 utf-8 解码后含 CJK 的路径（如中文用户名）会变乱码，
+		// existsSync 必败——中文用户目录下的可执行文件会被误判成"不在 PATH 上"。
+		const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+		for (const dir of (process.env[pathKey] ?? "").split(delimiter)) {
+			if (!dir || dir.includes("?")) continue;
+			const candidate = join(dir, executable);
+			if (existsSync(candidate)) return candidate;
+		}
+		// 兜底：where 还能覆盖 App Paths 等注册表解析，路径不含 CJK 时依然有用
 		try {
 			const result = spawnSync("where", [executable], {
 				encoding: "utf-8",
@@ -158,17 +167,65 @@ function dropMojibakePathEntries(entries: string[]): string[] {
 	return entries.filter((entry) => !entry.includes("?"));
 }
 
+/**
+ * Windows 用户级 Python 常装在 %LOCALAPPDATA%\Programs\Python\Python3XX，而官方安装器
+ * 的"加入 PATH"默认不勾——装完 `python` 就是 NOT FOUND（会话记录实测同一条命令先成功
+ * 后失败）。PATH 上确实没有 python 时，把发现的安装目录前置进子 shell PATH；
+ * 结果按 LOCALAPPDATA 键控缓存，每键只扫一次。
+ */
+let pythonPathCache: { localAppData: string; dirs: string[] } | undefined;
+
+function discoverPythonPathDirs(): string[] {
+	if (process.platform !== "win32") return [];
+	if (findExecutableOnPath("python.exe") || findExecutableOnPath("python3.exe")) return [];
+	const programsRoot = join(process.env.LOCALAPPDATA ?? "", "Programs", "Python");
+	const dirs: string[] = [];
+	try {
+		const versions = readdirSync(programsRoot, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && /^Python3\d+$/i.test(entry.name))
+			.map((entry) => entry.name)
+			.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+		for (const version of versions) {
+			const dir = join(programsRoot, version);
+			if (existsSync(join(dir, "python.exe"))) {
+				dirs.push(dir);
+				break;
+			}
+		}
+	} catch {
+		// 没有 Programs\Python 目录：未装用户级 Python
+	}
+	const launcher = join(programsRoot, "Launcher");
+	if (existsSync(join(launcher, "py.exe"))) dirs.push(launcher);
+	return dirs;
+}
+
+function getPythonPathDirs(): string[] {
+	const localAppData = process.env.LOCALAPPDATA ?? "";
+	if (!pythonPathCache || pythonPathCache.localAppData !== localAppData) {
+		pythonPathCache = { localAppData, dirs: discoverPythonPathDirs() };
+	}
+	return pythonPathCache.dirs;
+}
+
 export function getShellEnv(): NodeJS.ProcessEnv {
 	const binDir = getBinDir();
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 	const currentPath = process.env[pathKey] ?? "";
 	const pathEntries = dropMojibakePathEntries(currentPath.split(delimiter).filter(Boolean));
 	const hasBinDir = pathEntries.includes(binDir);
-	const updatedPath = (hasBinDir ? pathEntries : [binDir, ...pathEntries]).join(delimiter);
+	let updatedPath = hasBinDir ? pathEntries : [binDir, ...pathEntries];
+	const pythonDirs = getPythonPathDirs();
+	if (pythonDirs.length > 0) updatedPath = [...pythonDirs, ...updatedPath];
 
 	return {
 		...process.env,
-		[pathKey]: updatedPath,
+		[pathKey]: updatedPath.join(delimiter),
+		// Windows 上 Python 默认按 ANSI 代码页（中文系统是 GBK）解码脚本与 stdio，模型内嵌
+		// 中文脚本的字符串会变乱码甚至 SyntaxError（会话记录实测）。仅在用户未显式设置时
+		// 注入 UTF-8 默认值，不覆盖用户自己的编码配置。
+		...(process.env.PYTHONUTF8 === undefined ? { PYTHONUTF8: "1" } : {}),
+		...(process.env.PYTHONIOENCODING === undefined ? { PYTHONIOENCODING: "utf-8" } : {}),
 	};
 }
 
