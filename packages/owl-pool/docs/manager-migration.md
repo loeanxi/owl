@@ -112,7 +112,8 @@ owl-mono/
 - Grok 上游已移植（近透传 + SSE 转发，usage 口径显式请求 include_usage）。
 - 阶段 4A 已交付：ZCode/Claude 上游（Anthropic 协议兼容客户端：三通道端点、OAuth beta 头与 claude-cli 身份头、thinking 预算注入、缓存折算、流解码器）与对外 `/v1/messages`、`/v1/messages/count_tokens`（AnthropicStreamBridge 流桥、协议错误体、count_tokens 粗算）。
 - 阶段 4A-2 已交付：WorkBuddy 上游（仅 SSE→OpenAI chunk 本地转换、收尾 chunk 承载 finish+usage、渠道铁律头、指纹键递归剥除、hy3* 缺省思考档 high、非流式=流式聚合）与 Trae 上游（GetUserToken 换 JWT、完整 agent 身份头组、SOLO 自定义事件 output/token_usage/done/error、done+产出双完整性门槛、functionFor 注入钩子）。
-- 4A 余量：Gemini 客户端（generateContent 协议映射 885 行，下一批）；4B：Mimo/bridge/codex 运行时、Responses 协议、模型发现同步、Claude OAuth token 刷新（现 OAuth 账号直接使用存量 accessToken）、WorkBuddy/Trae 账号模型快照域（Trae functionFor 快照实现）。
+- 阶段 4A-3 已交付：Gemini 上游（generateContent 协议映射全量：systemInstruction/contents 角色映射/functionCall 与 functionResponse 反查/thought→reasoning_content/thoughtsTokenCount 计入 completion、toolConfig、仅 data:URL 内联图；alt=sse 流解码器要求显式 finishReason；RESOURCE_EXHAUSTED→RATE 换号）。**阶段 4A 完成，网关已覆盖 manager 全部 HTTP 直连平台（WORKBUDDY/TRAE/ZCODE/CLAUDE/GEMINI/GROK）**。
+- 4B：Mimo/bridge/codex 运行时、Responses 协议、模型发现同步、Claude OAuth token 刷新（现 OAuth 账号直接使用存量 accessToken）、WorkBuddy/Trae 账号模型快照域（Trae functionFor 快照实现）。
 - 计费预占（BillingGuard/admission 并发租约）不在阶段 3：manager 中管理员自有 Key 本就不计费，成员钱包预占随阶段 5。
 
 ## 7. 数据与迁移策略

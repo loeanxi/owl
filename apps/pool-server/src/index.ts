@@ -18,6 +18,7 @@ import {
 } from "owl-pool";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
+import { GeminiChatClient } from "./gateway/gemini-client.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { TraeChatClient } from "./gateway/trae-client.ts";
@@ -143,6 +144,15 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		},
 	});
 	upstreams.set(trae.platform(), trae);
+	const gemini = new GeminiChatClient({
+		config: {
+			baseUrl: config.gateway.gemini.baseUrl,
+			apiVersion: config.gateway.gemini.apiVersion,
+			defaultMaxTokens: config.gateway.gemini.defaultMaxTokens,
+			timeoutMs: config.gateway.upstreamTimeoutMs,
+		},
+	});
+	upstreams.set(gemini.platform(), gemini);
 	const generation = new RouteGeneration({
 		accounts,
 		router: poolRouter,

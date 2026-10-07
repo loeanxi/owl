@@ -42,6 +42,7 @@ export interface PoolConfig {
 		zcode: { anthropicVersion: string; defaultMaxTokens: number };
 		workbuddy: { baseUrl: string; chatPath: string; userAgent: string; origin: string; referer: string };
 		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
+		gemini: { baseUrl: string; apiVersion: string; defaultMaxTokens: number };
 		claude: {
 			baseUrl: string;
 			defaultMaxTokens: number;
@@ -87,6 +88,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
 				origin: env.OWL_POOL_WB_ORIGIN ?? "https://www.codebuddy.cn",
 				referer: env.OWL_POOL_WB_REFERER ?? "https://www.codebuddy.cn/",
+			},
+			gemini: {
+				baseUrl: env.OWL_POOL_GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com",
+				apiVersion: env.OWL_POOL_GEMINI_API_VERSION ?? "v1beta",
+				defaultMaxTokens: intOr(env.OWL_POOL_GEMINI_DEFAULT_MAX_TOKENS, 8192),
 			},
 			trae: {
 				chatBaseUrl: env.OWL_POOL_TRAE_CHAT_BASE_URL ?? "https://trae-api-cn.mchost.guru",

@@ -170,6 +170,12 @@ export {
 	classifyUpstreamError,
 } from "./protocol/anthropic-upstream.ts";
 export {
+	classifyGeminiError,
+	GeminiProtocolMapper,
+	GeminiStreamDecoder,
+	geminiFinishReason,
+} from "./protocol/gemini.ts";
+export {
 	IncompleteUpstreamStreamException,
 	OpenAiStreamCompletion,
 	type SseEvent,
