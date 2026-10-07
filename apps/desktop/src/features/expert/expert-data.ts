@@ -36,6 +36,11 @@ export interface ExpertPersona {
 	custom?: boolean;
 	/** 目录专家的原始档案（首次启用时原样落盘，保证保真）。 */
 	raw?: string;
+	/** 卡片文案中文转述（frontmatter nameZh 等；中文界面优先显示，跟随界面语言）。 */
+	nameZh?: string;
+	titleZh?: string;
+	descZh?: string;
+	tagsZh?: string[];
 }
 
 /** 部门标签：内置精选 + agency-agents 目录的全部部门（中英双语 key 统一在这里翻译）。 */
@@ -475,11 +480,15 @@ export function parsePersonaMarkdown(raw: string, slug: string, opts?: { custom?
 	const descLines = section("身份与记忆");
 	return {
 		slug, name,
+		nameZh: front.namezh || undefined,
 		title: front.title || (opts?.custom ? "自定义专家" : "Expert"),
+		titleZh: front.titlezh || undefined,
 		division: DIVISION_LABELS[front.division] ? front.division : "eng",
 		color: front.color1 && front.color2 ? [front.color1, front.color2] : CUSTOM_COLORS[Math.abs([...slug].reduce((acc, ch) => acc + ch.charCodeAt(0), 0)) % CUSTOM_COLORS.length]!,
 		desc: front.desc || descLines[0] || "",
+		descZh: front.desczh || undefined,
 		tags: (front.tags || "").split(/[、,，]/).map((tag) => tag.trim()).filter(Boolean),
+		tagsZh: (front.tagszh || "").split(/[、,，]/).map((tag) => tag.trim()).filter(Boolean),
 		mission: section("核心使命").join(" "),
 		rules: section("领域规则"),
 		deliv: section("交付物"),

@@ -69,6 +69,10 @@ describe("probeLife", () => {
 		expect(byId.get("model")?.level).toBe("ok");
 		expect(byId.get("shell")).toMatchObject({ level: "warn", note: "missing", evidence: "missing-bash.exe" });
 		expect(JSON.stringify(result)).not.toContain("secret-value");
+		expect(JSON.stringify(result)).not.toMatch(/[A-Za-z]:[\\/]/);
+		expect(byId.get("market")).toMatchObject({ level: "ok", note: "built-in" });
+		expect(byId.get("manager")).toMatchObject({ level: "ok", note: "built-in" });
+		expect(byId.get("myself")?.note).not.toBe("unwired");
 		expect(result.channels.map((item) => item.id).sort()).toEqual(LIFE_CHANNELS.map((item) => item.id).sort());
 	});
 });

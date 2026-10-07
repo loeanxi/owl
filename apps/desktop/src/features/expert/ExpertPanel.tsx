@@ -249,19 +249,22 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 	const openExpert = (slug: string): void => {
 		const p = bySlug(slug);
 		if (!p) return;
+		// 已是当前专家就只切回去，不重建控制器/清草稿（会话进行中浏览目录再回来不打断）。
+		if (target?.kind === "expert" && target.slug === slug) { setTab("chat"); return; }
 		setTarget({ kind: "expert", slug });
 		setTab("chat");
 		setChatView("chat");
 		setComposerKey((key) => key + 1);
 	};
 	const openGroup = (groupItem: { id: string; name: string; memberSlugs?: string[]; memory?: "shared" | "own" }): void => {
+		if (target?.kind === "group" && target.id === groupItem.id) { setTab("chat"); return; }
 		setTarget({ kind: "group", ...groupItem });
 		setTab("chat");
 		setChatView("chat");
 		setComposerKey((key) => key + 1);
 	};
+	/** 回专家目录：保留 target —— 再点「会话」直接回到上一位专家/群，不要求重挑。 */
 	const backToMarket = (): void => {
-		setTarget(undefined);
 		setDrawerSlug(undefined);
 		setTab("market");
 		void refreshGroups();
@@ -348,6 +351,12 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 	};
 
 	// -- 市场过滤 / 排序 ----------------------------------------------------------
+	/** 卡片文案跟随界面语言：中文界面优先用 nameZh 等转述字段（无则回退原文）。 */
+	const nm = useCallback((expert: ExpertPersona): string => (lang === "zh" && expert.nameZh) || expert.name, [lang]);
+	const ttl = useCallback((expert: ExpertPersona): string => (lang === "zh" && expert.titleZh) || expert.title, [lang]);
+	const ds = useCallback((expert: ExpertPersona): string => (lang === "zh" && expert.descZh) || expert.desc, [lang]);
+	const tgs = useCallback((expert: ExpertPersona): string[] => (lang === "zh" && expert.tagsZh?.length ? expert.tagsZh : expert.tags), [lang]);
+
 	/** 部门 chips：内置顺序在前，目录里出现的其他部门按需追加。 */
 	const chipDivisions = useMemo(() => {
 		const present = new Set(catalog.map((expert) => expert.division));
@@ -355,11 +364,15 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 	}, [catalog]);
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
+		const haystack = (expert: ExpertPersona): string =>
+			`${expert.name}${expert.nameZh ?? ""}${expert.title}${expert.titleZh ?? ""}${expert.desc}${expert.descZh ?? ""}${expert.tags.join()}${expert.tagsZh?.join() ?? ""}`;
 		const list = catalog.filter((expert) =>
 			(division === "all" || expert.division === division) &&
-			(q === "" || `${expert.name}${expert.title}${expert.desc}${expert.tags.join()}`.toLowerCase().includes(q)));
-		return sort === "name" ? [...list].sort((a, b) => a.name.localeCompare(b.name, "zh")) : [...list].sort((a, b) => Number(b.feat ?? false) - Number(a.feat ?? false));
-	}, [catalog, division, query, sort]);
+			(q === "" || haystack(expert).toLowerCase().includes(q)));
+		return sort === "name"
+			? [...list].sort((a, b) => nm(a).localeCompare(nm(b), "zh"))
+			: [...list].sort((a, b) => Number(b.feat ?? false) - Number(a.feat ?? false));
+	}, [catalog, division, query, sort, nm]);
 
 	const drawer = drawerSlug ? bySlug(drawerSlug) : undefined;
 	const drawerScope = drawer ? getExpertScope(drawer.slug) : "space";
@@ -389,13 +402,12 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9.5" /><path d="m15.5 8.5-2 5-5 2 2-5z" /></svg>
 				</span>
 				<h1>{t("rail.expert")}</h1>
-				<span className="owl-expert-dir" title={cwd}>{cwd ?? `owl-expert · ${catalog.length}`}</span>
-				{target && (
-					<div className="owl-expert-tabs" role="tablist">
-						<button type="button" role="tab" aria-selected={tab === "market"} className={tab === "market" ? "on" : ""} onClick={backToMarket}>{t("expert.tabMarket")}</button>
-						<button type="button" role="tab" aria-selected={tab === "chat"} className={tab === "chat" ? "on" : ""} onClick={() => setTab("chat")}>{t("expert.tabChat")}</button>
-					</div>
-				)}
+				<span className="owl-expert-dir" title={tab === "chat" ? cwd : undefined}>{tab === "chat" && cwd ? cwd : `owl-expert · ${catalog.length}`}</span>
+				{/* tab 常驻：选过专家时「会话」直接回到上一位；从没选过才在会话页提醒先挑人。 */}
+				<div className="owl-expert-tabs" role="tablist">
+					<button type="button" role="tab" aria-selected={tab !== "chat"} className={tab !== "chat" ? "on" : ""} onClick={backToMarket}>{t("expert.tabMarket")}</button>
+					<button type="button" role="tab" aria-selected={tab === "chat"} className={tab === "chat" ? "on" : ""} onClick={() => setTab("chat")}>{t("expert.tabChat")}</button>
+				</div>
 				<span className="owl-expert-sync" data-ready={connected}>
 					{connected ? t("expert.statusRoster", { n: catalog.length }) : t("expert.offline")}
 				</span>
@@ -410,7 +422,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 						</button>
 						{targetPersona ? <ExpertAvatar expert={targetPersona} size={28} /> : <GroupAvatar size={28} />}
 						<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text">
-							{target.kind === "expert" ? `${targetPersona?.name} · ${targetPersona?.title}` : target.name}
+							{target.kind === "expert" && targetPersona ? `${nm(targetPersona)} · ${ttl(targetPersona)}` : target?.kind === "group" ? target.name : ""}
 						</h1>
 						<span className="owl-expert-file" title={cwd}>{target.kind === "expert" ? `owl-expert/${target.slug}/` : `owl-expert/groups/${target.id}/`}</span>
 						{target.kind === "expert" && expertLoad && (
@@ -446,7 +458,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 						) : (
 							<div className="owl-expert-chathint">
 								{target.kind === "expert" && targetPersona ? <ExpertAvatar expert={targetPersona} size={44} /> : <GroupAvatar size={44} />}
-								<p className="big">{target.kind === "expert" ? t("expert.chatEmptyTitle", { name: targetPersona?.name ?? "" }) : t("expert.groupEmptyTitle")}</p>
+								<p className="big">{target.kind === "expert" ? t("expert.chatEmptyTitle", { name: targetPersona ? nm(targetPersona) : "" }) : t("expert.groupEmptyTitle")}</p>
 								<p>{t("expert.chatEmptyHint")}</p>
 							</div>
 						)}
@@ -463,7 +475,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 							{atPop && (
 								<span className="owl-expert-atpop">
 									{catalog.slice(0, 8).map((expert) => (
-										<button key={expert.slug} type="button" onClick={() => { fillDraft(`@${expert.name} `); setAtPop(false); }}>{expert.name}</button>
+										<button key={expert.slug} type="button" onClick={() => { fillDraft(`@${nm(expert)} `); setAtPop(false); }}>{nm(expert)}</button>
 									))}
 								</span>
 							)}
@@ -510,6 +522,14 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 						<span className="right">{hhmm()} · {t("expert.saved")}</span>
 					</footer>
 				</div>
+			) : tab === "chat" ? (
+				// ---- 会话 tab 但还没选专家：提醒先挑人（去「专家」页选，或用场景/专家团开局）----
+				<div className="owl-expert-chathint">
+					<GroupAvatar size={44} />
+					<p className="big">{t("expert.pickTitle")}</p>
+					<p>{t("expert.pickHint")}</p>
+					<button type="button" className="owl-expert-newgroup" style={{ marginTop: 8 }} onClick={() => setTab("market")}>{t("expert.pickGo")}</button>
+				</div>
 			) : tab === "manage" ? (
 				// ---- 管理 tab：启用范围 + 档案状态 + Agentfile ----------------------------
 				<div className="owl-expert-main">
@@ -533,7 +553,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 								<div key={expert.slug} className="mrow">
 									<ExpertAvatar expert={expert} size={26} />
 									<span className="nm" style={{ width: 164, flex: "none" }}>
-										<b>{expert.name} · {expert.title}</b>
+										<b>{nm(expert)} · {ttl(expert)}</b>
 										<span>{divisionLabel(expert.division)}</span>
 									</span>
 									<select
@@ -616,7 +636,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 									<span className="mem">
 										{team.members.map((slug) => {
 											const expert = bySlug(slug);
-											return expert ? <span key={slug} className="m"><ExpertAvatar expert={expert} size={18} />{expert.name}</span> : null;
+											return expert ? <span key={slug} className="m"><ExpertAvatar expert={expert} size={18} />{nm(expert)}</span> : null;
 										})}
 									</span>
 									<span className="tf">
@@ -632,7 +652,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 									<span className="mem">
 										{groupItem.memberSlugs.map((slug) => {
 											const expert = bySlug(slug);
-											return expert ? <span key={slug} className="m"><ExpertAvatar expert={expert} size={18} />{expert.name}</span> : null;
+											return expert ? <span key={slug} className="m"><ExpertAvatar expert={expert} size={18} />{nm(expert)}</span> : null;
 										})}
 									</span>
 									<span className="tf">
@@ -649,11 +669,11 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 									<span className="top">
 										<ExpertAvatar expert={expert} />
 										<span className="id">
-											<b>{expert.name} · {expert.title}{expert.feat ? <i className="star">★</i> : null}</b>
-											<span>{divisionLabel(expert.division)} · {expert.tags.slice(0, 3).join(" / ")}</span>
+											<b>{nm(expert)} · {ttl(expert)}{expert.feat ? <i className="star">★</i> : null}</b>
+											<span>{divisionLabel(expert.division)} · {tgs(expert).slice(0, 3).join(" / ")}</span>
 										</span>
 									</span>
-									<span className="desc">{expert.desc}</span>
+									<span className="desc">{ds(expert)}</span>
 									<span className="foot">
 										<span className="meta">{expert.custom ? t("expert.customTag") : expert.feat ? t("expert.featTag") : t("expert.officialTag")}</span>
 										<span className="go" onClick={(event) => { event.stopPropagation(); openExpert(expert.slug); }}>{t("expert.consult")}</span>
@@ -667,12 +687,12 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 					{drawer && (
 						<>
 							<div className="owl-expert-mask" onClick={() => setDrawerSlug(undefined)} />
-							<aside className="owl-expert-drawer" role="dialog" aria-label={`${drawer.name} · ${drawer.title}`}>
+							<aside className="owl-expert-drawer" role="dialog" aria-label={`${nm(drawer)} · ${ttl(drawer)}`}>
 								<header>
 									<ExpertAvatar expert={drawer} size={44} />
 									<div className="id">
-										<b>{drawer.name} · {drawer.title}</b>
-										<span>{divisionLabel(drawer.division)} · {drawer.tags.join(" / ")}</span>
+										<b>{nm(drawer)} · {ttl(drawer)}</b>
+										<span>{divisionLabel(drawer.division)} · {tgs(drawer).join(" / ")}</span>
 									</div>
 									<button type="button" className="x" onClick={() => setDrawerSlug(undefined)} aria-label={t("expert.close")}>
 										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -769,7 +789,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 									onClick={() => setGroupPick((current) => current.includes(expert.slug) ? current.filter((slug) => slug !== expert.slug) : [...current, expert.slug])}
 								>
 									<ExpertAvatar expert={expert} size={28} />
-									<span className="gn">{expert.name}</span>
+									<span className="gn">{nm(expert)}</span>
 								</button>
 							))}
 						</div>

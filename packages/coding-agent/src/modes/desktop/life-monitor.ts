@@ -45,6 +45,7 @@ const BENCH_KIND: Record<string, string> = {
 	image: "image",
 	tasks: "tasks",
 	impression: "impression",
+	manager: "manager",
 };
 
 interface PluginRef {
@@ -92,6 +93,8 @@ export function probeLife(input: LifeProbeInput): LifeProbeResult {
 		pluginsChannel(plugins, now),
 		dirChannel("prompts", join(input.agentDir, "prompts"), now, true),
 		memoryChannel(input.agentDir, settings, now),
+		presetsChannel(input.agentDir, now),
+		builtIn("trajectory", now),
 		...pluginChannels(plugins, now),
 		...benchChannels(disabledTabs, now),
 		codemodeChannel(settings, now),
@@ -101,7 +104,12 @@ export function probeLife(input: LifeProbeInput): LifeProbeResult {
 		builtIn("evaluation", now),
 		builtIn("research", now),
 		builtIn("career", now),
-		channel("myself", "off", "unwired", "rail", now),
+		knownDir("myself", input, now),
+		builtIn("projects", now),
+		automationChannel(input.agentDir, now),
+		knownDir("expert", input, now),
+		knownDir("bagu", input, now),
+		builtIn("market", now),
 		shellChannel(settings, now),
 		modelsChannel(input.agentDir, now),
 		sessionsChannel(input.agentDir, now),
@@ -377,6 +385,38 @@ function memoryChannel(agentDir: string, settings: SettingsFile | undefined, now
 	if (settings?.owlMemory?.enabled === false) return channel("memory", "off", "disabled", "memories", now);
 	const path = join(agentDir, "memories");
 	return channel("memory", "ok", existsSync(path) ? "ok" : "empty", "memories", existsSync(path) ? mtime(path) : now);
+}
+
+/** 与桌面 `utils/paths.ts` 的固定目录一致。证据只留文件夹名，不写完整路径。 */
+function knownDir(id: "myself" | "expert" | "bagu", input: LifeProbeInput, now: number): LifeChannel {
+	const folder = id === "myself" ? "owl-myself" : id === "expert" ? "owl-expert" : "owl-bagu";
+	const candidates = [`D:/owl/${folder}`];
+	if (id === "myself") {
+		if (input.cwd?.trim()) candidates.push(join(input.cwd, folder));
+		candidates.push(join(input.agentDir, "myself"));
+	}
+	const found = candidates.find((path) => existsSync(path));
+	if (!found) return channel(id, "warn", "absent", folder, now);
+	return channel(id, "ok", "ok", folder, mtime(found));
+}
+
+function presetsChannel(agentDir: string, now: number): LifeChannel {
+	const dir = join(agentDir, "presets");
+	if (!existsSync(dir)) return channel("presets", "ok", "built-in", "presets", now);
+	try {
+		const count = readdirSync(dir).filter((name) => name.endsWith(".json")).length;
+		if (count === 0) return channel("presets", "ok", "built-in", "presets", now);
+		return channel("presets", "ok", "ok", String(count), mtime(dir));
+	} catch {
+		return channel("presets", "idle", "read-failed", "presets", now);
+	}
+}
+
+function automationChannel(agentDir: string, now: number): LifeChannel {
+	const path = join(agentDir, "schedule", "tasks.json");
+	const data = readJson<{ tasks?: unknown[] }>(path);
+	if (!data || !Array.isArray(data.tasks)) return channel("automation", "ok", "empty", "0", now);
+	return channel("automation", "ok", data.tasks.length === 0 ? "empty" : "ok", String(data.tasks.length), mtime(path));
 }
 
 function dirChannel(id: string, path: string, now: number, missingIsEmpty: boolean): LifeChannel {
