@@ -1,19 +1,21 @@
 /**
  * 窗口镜像 hub（owl Mirror）：桥进程托管窗口捕获 worker（PowerShell + WGC），
- * 把 JPEG 帧流推给订阅的桌面连接。纯观看面 —— 不做输入转发，不给 agent 暴露工具。
+ * 把 JPEG 帧流推给订阅的桌面连接；短剧投影只转发持有连接的内容区输入，不暴露 agent 工具。
  *
  * 设计对照 browser-hub 的帧流策略：帧只发给订阅这条窗口的连接（serve 侧按连接
  * 记账），窗口清单变化才广播。worker 是每窗口一个的 PowerShell 子进程（见
  * mirror/windows-capture.ps1），末个订阅者退订后延迟关闭，避免 tab 切换抖动。
  */
 import { type ChildProcessByStdio, spawn } from "node:child_process";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { hideRect } from "./mirror/embed-layout.ts";
-import type { MirrorWindowInfo } from "./protocol.ts";
+import { projectionPointer } from "./mirror/projection-layout.ts";
+import type { MirrorInputRequest, MirrorProjectionGeometry, MirrorWindowInfo } from "./protocol.ts";
 
 const WORKER_URL = new URL("./mirror/windows-capture.ps1", import.meta.url);
 
@@ -29,7 +31,13 @@ const DETACH_GRACE_MS = 5_000;
 /** 每窗口帧缓存大小（无新帧时 UI 保持最后一帧，这里只做诊断统计）。 */
 
 export interface MirrorHubOptions {
-	onFrame: (windowId: string, data: string, width: number, height: number) => void;
+	onFrame: (
+		windowId: string,
+		data: string,
+		width: number,
+		height: number,
+		geometry?: MirrorProjectionGeometry,
+	) => void;
 	onWindowsChanged: (windows: MirrorWindowInfo[]) => void;
 	onDiagnostic?: (message: string) => void;
 }
@@ -50,6 +58,20 @@ interface EmbedWatchdog {
 	buffer: string;
 }
 
+interface ProjectionState {
+	geometry: MirrorProjectionGeometry;
+	clientOffset: { x: number; y: number };
+	controlPath: string;
+	active: boolean;
+}
+
+interface EmbedMetadata {
+	originalStyle: number;
+	originalParent: number;
+	originalProcessId?: number;
+	originalRect?: { x: number; y: number; width: number; height: number };
+}
+
 export function isHongguoWindow(win: { process: string; title: string }): boolean {
 	// 应用宝容器里红果的宿主进程是 Androws（实测），标题即「红果免费短剧」。
 	return win.process.toLowerCase() === "androws" && win.title.includes("红果");
@@ -60,7 +82,8 @@ export class MirrorHub {
 	private readonly workers = new Map<string, MirrorWorker>();
 	private readonly embedWatchdogs = new Map<string, EmbedWatchdog>();
 	/** 已嵌入窗口的还原元数据（原始样式/原父），unembed 时带回。 */
-	private readonly embedMeta = new Map<string, { originalStyle: number; originalParent: number }>();
+	private readonly embedMeta = new Map<string, EmbedMetadata>();
+	private readonly projections = new Map<string, ProjectionState>();
 	private windows: MirrorWindowInfo[] = [];
 	private supported = MIRROR_SUPPORTED;
 	private disposed = false;
@@ -149,11 +172,99 @@ export class MirrorHub {
 	}
 
 	/** 发现 owl 桌面主窗口 HWND（嵌入的父窗口）；桥由 Tauri 壳拉起时进程名固定为 owl-desktop。 */
-	async findOwlParentHwnd(): Promise<number> {
-		const windows = this.windows.length ? this.windows : await this.listWindows();
-		const owl = windows.find((win) => win.process.toLowerCase() === "owl-desktop" && !win.minimized);
+	async findOwlParentHwnd(windows?: readonly MirrorWindowInfo[]): Promise<number> {
+		const current = windows ?? (await this.listWindows());
+		const hosts = current.filter((win) => win.process.toLowerCase() === "owl-desktop");
+		// A dock may minimize Owl during projection preparation. The native watcher
+		// already hides the source until its owner is visible; the HWND still exists.
+		const owl = hosts.find((win) => !win.minimized) ?? hosts[0];
 		if (!owl) throw new Error("owl desktop window not found");
 		return Number(owl.windowId);
+	}
+
+	async projectWindow(windowId: string, visible = true): Promise<MirrorProjectionGeometry> {
+		if (visible && this.disposed) throw new Error("Mirror hub is closed");
+		let projection = this.projections.get(windowId);
+		if (!visible) {
+			if (!projection) throw new Error("Short-drama projection is not active");
+			projection.active = false;
+			const watchdog = this.embedWatchdogs.get(windowId);
+			if (watchdog) {
+				const current = projection;
+				await new Promise<void>((resolve) => {
+					const timer = setTimeout(resolve, 1500);
+					watchdog.proc.once("exit", () => {
+						clearTimeout(timer);
+						resolve();
+					});
+					appendFileSync(
+						current.controlPath,
+						`${JSON.stringify({ token: current.geometry.geometryId, action: "stop" })}\n`,
+					);
+				});
+				this.killEmbedWatchdog(windowId);
+			}
+			const capture = this.workers.get(windowId);
+			if (capture?.refs === 0) {
+				if (capture.detachTimer) clearTimeout(capture.detachTimer);
+				this.killWorker(capture);
+				this.workers.delete(windowId);
+			}
+			return projection.geometry;
+		}
+		if (projection?.active && this.embedWatchdogs.has(windowId)) return projection.geometry;
+		const windows = await this.listWindows();
+		if (!windows.some((win) => win.windowId === windowId && win.hongguo)) {
+			throw new Error("Projection requires the selected Hongguo window");
+		}
+		// Reuse this preparation's fresh snapshot instead of spawning the same enumeration twice.
+		const parentHwnd = await this.findOwlParentHwnd(windows);
+		if (projection) {
+			try {
+				unlinkSync(projection.controlPath);
+			} catch {}
+		}
+		const geometryId = randomUUID();
+		projection = {
+			geometry: { geometryId, sourceWidth: 906, sourceHeight: 547, crop: { x: 4, y: 40, width: 843, height: 472 } },
+			clientOffset: { x: 4, y: 0 },
+			controlPath: join(tmpdir(), `owl-mirror-input-${windowId}-${geometryId}.jsonl`),
+			active: false,
+		};
+		writeFileSync(projection.controlPath, "", "utf8");
+		this.projections.set(windowId, projection);
+		try {
+			await this.embedWindow(windowId, parentHwnd, { x: 0, y: 0, width: 906, height: 547 }, { projection });
+			if (this.disposed) throw new Error("Mirror hub is closed");
+			projection.active = true;
+			return projection.geometry;
+		} catch (error) {
+			if (this.embedMeta.has(windowId)) await this.unembedWindow(windowId).catch(() => {});
+			else {
+				this.killEmbedWatchdog(windowId);
+				this.projections.delete(windowId);
+				try {
+					unlinkSync(projection.controlPath);
+				} catch {}
+			}
+			throw error;
+		}
+	}
+
+	inputWindow(request: MirrorInputRequest): void {
+		const projection = this.projections.get(request.windowId);
+		if (request.action === "cancel" && !projection?.active) return;
+		if (!projection?.active || !this.embedWatchdogs.has(request.windowId))
+			throw new Error("Short-drama projection is not active");
+		const pointer = projectionPointer(projection.geometry, request, projection.clientOffset);
+		if (pointer.action === "wheel" && pointer.deltaY === 0) return;
+		// UI/native stages coalesce moves. Dropping again here loses the final position
+		// and turns 90/144Hz input into uneven 45/48Hz delivery.
+		appendFileSync(
+			projection.controlPath,
+			`${JSON.stringify({ token: projection.geometry.geometryId, ...pointer })}\n`,
+			"utf8",
+		);
 	}
 
 	/** 启动应用宝电脑版（空态引导）。 */
@@ -182,7 +293,7 @@ export class MirrorHub {
 		windowId: string,
 		parentHwnd: number,
 		rect: { x: number; y: number; width: number; height: number },
-		options?: { swallowMinimize?: boolean },
+		options?: { swallowMinimize?: boolean; projection?: ProjectionState },
 	): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
@@ -206,13 +317,38 @@ export class MirrorHub {
 		];
 		const saved = this.embedMeta.get(windowId);
 		if (saved) args.push("-HasBaseStyle", "-BaseStyle", String(saved.originalStyle));
+		if (saved?.originalRect) {
+			const rect = saved.originalRect;
+			args.push(
+				"-HasBaseRect",
+				"-BaseX",
+				String(rect.x),
+				"-BaseY",
+				String(rect.y),
+				"-BaseW",
+				String(rect.width),
+				"-BaseH",
+				String(rect.height),
+				"-BaseParent",
+				String(saved.originalParent),
+			);
+		}
 		if (options?.swallowMinimize) args.push("-SwallowMinimize");
+		if (options?.projection)
+			args.push(
+				"-Projection",
+				"-ControlPath",
+				options.projection.controlPath,
+				"-GeometryId",
+				options.projection.geometry.geometryId,
+			);
 		const proc = this.spawnWorker(args);
 		const watchdog: EmbedWatchdog = { proc, buffer: "" };
 		this.embedWatchdogs.set(windowId, watchdog);
 
 		await new Promise<void>((resolve, reject) => {
 			let stderrTail = "";
+			let started = false;
 			const timer = setTimeout(() => {
 				this.killEmbedWatchdog(windowId);
 				this.embedWatchdogs.delete(windowId);
@@ -230,19 +366,37 @@ export class MirrorHub {
 				while (index >= 0) {
 					const line = watchdog.buffer.slice(0, index).replace(/\r$/, "");
 					watchdog.buffer = watchdog.buffer.slice(index + 1);
+					if (line.includes('"event":"prepared"')) {
+						const prepared = JSON.parse(line) as EmbedMetadata;
+						if (!this.embedMeta.has(windowId)) this.embedMeta.set(windowId, prepared);
+					}
 					if (line.includes('"event":"embedded"')) {
 						try {
-							const obj = JSON.parse(line) as { originalStyle?: number; originalParent?: number };
+							const obj = JSON.parse(line) as Partial<EmbedMetadata> & {
+								geometry?: MirrorProjectionGeometry;
+								clientOffset?: { x: number; y: number };
+							};
 							// 只记第一次的原始样式。layout 会反复重开 worker，不能把已去头的样式写成「原始」。
 							if (!this.embedMeta.has(windowId)) {
 								this.embedMeta.set(windowId, {
 									originalStyle: obj.originalStyle ?? 0x00cf0000,
 									originalParent: obj.originalParent ?? 0,
+									originalRect: obj.originalRect,
+									originalProcessId: obj.originalProcessId,
 								});
+							}
+							if (options?.projection && obj.geometry && obj.clientOffset) {
+								options.projection.geometry = obj.geometry;
+								options.projection.clientOffset = obj.clientOffset;
+								const meta = this.embedMeta.get(windowId);
+								if (meta) {
+									meta.originalProcessId = obj.originalProcessId;
+									meta.originalRect = obj.originalRect;
+								}
 							}
 						} catch {}
 						clearTimeout(timer);
-						cleanup();
+						started = true;
 						resolve();
 						return;
 					}
@@ -272,7 +426,17 @@ export class MirrorHub {
 				clearTimeout(timer);
 				this.embedWatchdogs.delete(windowId);
 				cleanup();
-				reject(new Error(`embed worker exited unexpectedly (code ${code})${stderrTail ? `: ${stderrTail}` : ""}`));
+				const projection = this.projections.get(windowId);
+				if (projection) projection.active = false;
+				if (!started)
+					reject(
+						new Error(`embed worker exited unexpectedly (code ${code})${stderrTail ? `: ${stderrTail}` : ""}`),
+					);
+			});
+			proc.on("error", (error) => {
+				cleanup();
+				this.embedWatchdogs.delete(windowId);
+				reject(error);
 			});
 		});
 	}
@@ -342,11 +506,18 @@ export class MirrorHub {
 	async unembedWindow(windowId: string): Promise<void> {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
+		// A failed preparation can leave a connection claim without ever touching
+		// the source. Cleanup must not rewrite an unowned application's window style.
+		if (!this.embedMeta.has(windowId) && !this.projections.has(windowId) && !this.embedWatchdogs.has(windowId))
+			return;
+		const projection = this.projections.get(windowId);
+		if (projection) {
+			await this.projectWindow(windowId, false);
+		}
 		this.clearLayout(hwnd);
 		this.killEmbedWatchdog(windowId);
 		const meta = this.embedMeta.get(windowId);
-		this.embedMeta.delete(windowId);
-		await this.runWorkerLines([
+		const args = [
 			"unembed",
 			"-Hwnd",
 			String(hwnd),
@@ -354,19 +525,41 @@ export class MirrorHub {
 			String(meta?.originalStyle ?? -1),
 			"-ParentHwnd",
 			String(meta?.originalParent ?? 0),
-		]);
+		];
+		if (meta?.originalRect) {
+			const rect = meta.originalRect;
+			args.push(
+				"-HasBaseRect",
+				"-X",
+				String(rect.x),
+				"-Y",
+				String(rect.y),
+				"-W",
+				String(rect.width),
+				"-H",
+				String(rect.height),
+			);
+		}
+		if (meta?.originalProcessId) args.push("-ExpectedPid", String(meta.originalProcessId));
+		await this.runWorkerLines(args);
+		this.embedMeta.delete(windowId);
+		if (projection) {
+			this.projections.delete(windowId);
+			try {
+				unlinkSync(projection.controlPath);
+			} catch {}
+		}
 	}
 
 	dispose(): void {
 		this.disposed = true;
 		// 解除全部嵌入（还原窗口），再收 worker
 		for (const windowId of [...this.embedWatchdogs.keys()]) {
-			this.killEmbedWatchdog(windowId);
+			if (!this.projections.has(windowId)) this.killEmbedWatchdog(windowId);
 		}
 		for (const windowId of [...this.embedMeta.keys()]) {
 			this.unembedWindow(windowId).catch(() => {});
 		}
-		this.embedMeta.clear();
 		for (const [windowId, worker] of this.workers) {
 			if (worker.detachTimer) clearTimeout(worker.detachTimer);
 			this.killWorker(worker);
@@ -415,7 +608,7 @@ export class MirrorHub {
 		const hwnd = Number(windowId);
 		if (!Number.isFinite(hwnd) || hwnd <= 0) throw new Error("invalid windowId");
 		const worker: MirrorWorker = {
-			proc: this.spawnWorker(["capture", "-Hwnd", String(hwnd), "-Fps", "20"]),
+			proc: this.spawnWorker(["capture", "-Hwnd", String(hwnd), "-Fps", "60"]),
 			buffer: "",
 			refs: 1,
 		};
@@ -437,7 +630,12 @@ export class MirrorHub {
 				return;
 			}
 			if (obj.event === "frame" && obj.data) {
-				this.options.onFrame(windowId, obj.data, obj.w ?? 0, obj.h ?? 0);
+				const projection = this.projections.get(windowId);
+				if (projection && !projection.active) return;
+				if (projection && (obj.w !== projection.geometry.sourceWidth || obj.h !== projection.geometry.sourceHeight))
+					return;
+				const geometry = projection?.geometry;
+				this.options.onFrame(windowId, obj.data, obj.w ?? 0, obj.h ?? 0, geometry);
 				return;
 			}
 			if (obj.event === "status") {

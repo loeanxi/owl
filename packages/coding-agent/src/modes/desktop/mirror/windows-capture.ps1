@@ -12,7 +12,7 @@
 # UTF-8 with BOM（PowerShell 5.1 的要求，否则中文字符串按 GBK 误读）。
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin', 'movewin', 'host')]
+  [ValidateSet('list', 'capture', 'restore', 'launch', 'probe', 'embed', 'move', 'unembed', 'clientorigin', 'movewin', 'host', 'guard')]
   [string]$Command,
 
   [long]$Hwnd = 0,
@@ -26,9 +26,23 @@ param(
   [int]$Quality = 70,
   [int]$MaxWidth = 1280,
   [int]$FrameTimeoutMs = 1500,
+  [switch]$CaptureDiagnostics,
   [switch]$NoAutoRestore,
   # 侧栏形态：吃掉最小化（清 WS_MINIMIZEBOX）。放大/悬浮不传，保持「最小化后拉回」。
   [switch]$SwallowMinimize,
+  [switch]$Projection,
+  [string]$ControlPath = '',
+  [string]$GeometryId = '',
+  [switch]$HasBaseRect,
+  [int]$BaseX = 0,
+  [int]$BaseY = 0,
+  [int]$BaseW = 0,
+  [int]$BaseH = 0,
+  [long]$BaseParent = 0,
+  [long]$ExpectedPid = 0,
+  [int]$GuardPid = 0,
+  [int]$GuardToken = 0,
+  [string]$GuardMarker = '',
   # 再次 embed 时带回第一次读到的原始样式（含 WS_POPUP 高位），避免用已改过的样式覆盖。
   [switch]$HasBaseStyle,
   [long]$BaseStyle = 0
@@ -67,7 +81,7 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc cb, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr GetSystemMenu(IntPtr hWnd, bool bRevert);
@@ -80,7 +94,42 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref PT point);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")] public static extern IntPtr MonitorFromRect(ref RECT rect, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetProp(IntPtr hwnd, string name, IntPtr value);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetProp(IntPtr hwnd, string name);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr RemoveProp(IntPtr hwnd, string name);
+    [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+    public struct MONITORINFO { public int Size; public RECT Monitor; public RECT Work; public uint Flags; }
     public struct PT { public int X; public int Y; }
+
+    public static System.Threading.Mutex LockProjection(IntPtr hwnd) {
+        var mutex = new System.Threading.Mutex(false, "Local\\OwlMirrorProjection-" + hwnd.ToInt64());
+        try { mutex.WaitOne(); }
+        catch (System.Threading.AbandonedMutexException) { }
+        return mutex;
+    }
+
+    public static RECT VisibleRestoreRect(RECT rect, IntPtr owner) {
+        MONITORINFO info = new MONITORINFO();
+        info.Size = Marshal.SizeOf(typeof(MONITORINFO));
+        IntPtr monitor = MonitorFromRect(ref rect, 0);
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info)) {
+            int iw = Math.Min(rect.Right, info.Work.Right) - Math.Max(rect.Left, info.Work.Left);
+            int ih = Math.Min(rect.Bottom, info.Work.Bottom) - Math.Max(rect.Top, info.Work.Top);
+            if (iw >= 80 && ih >= 80) return rect;
+        }
+        GetMonitorInfo(MonitorFromWindow(owner, 2), ref info);
+        int w = Math.Min(906, info.Work.Right - info.Work.Left);
+        int h = Math.Min(547, info.Work.Bottom - info.Work.Top);
+        rect.Left = info.Work.Left + (info.Work.Right - info.Work.Left - w) / 2;
+        rect.Top = info.Work.Top + (info.Work.Bottom - info.Work.Top - h) / 2;
+        rect.Right = rect.Left + w;
+        rect.Bottom = rect.Top + h;
+        return rect;
+    }
 
     public static bool IsCloaked(IntPtr hwnd) {
         int cloaked;
@@ -211,9 +260,6 @@ public static class OwlMirrorWin32 {
         return true;
     }
 
-    static int lastStageW = -1;
-    static int lastStageH = -1;
-
     // 不再拉子窗口。Qt 自己排版，强行 SetWindowPos 会把底栏画成两层。
     public static void StretchToContent(IntPtr root, int contentX, int contentY, int contentW, int contentH) {
     }
@@ -236,118 +282,31 @@ public static class OwlMirrorWin32 {
         return l >= o.Left - 8 && t >= o.Top - 8 && r <= o.Right + 8 && b <= o.Bottom + 8;
     }
 
-    // stage 是侧栏里要露出的区域。标题和右侧按钮条裁掉，画面拉满这块区域。
+    // Size the app's client content from the stage, rather than using the old
+    // player rectangle as a crop. WM_SIZE lets Qt keep layout and input
+    // coordinates in sync with the available space.
     public static int PlaceStage(IntPtr hwnd, IntPtr owner, int sx, int sy, int sw, int sh) {
-        int sl = ContentLeft;
-        // 拖动 Owl 时先用上次的黑边立刻跟着走。停稳后再量，避免每一拍都卡住。
-        PT followOrigin = new PT();
-        followOrigin.X = 0;
-        followOrigin.Y = 0;
-        bool originOk = ClientToScreen(owner, ref followOrigin);
-        bool ownerMoved = !originOk || followOrigin.X != followOriginX || followOrigin.Y != followOriginY;
-        bool stageChanged = sw != lastStageW || sh != lastStageH;
-        if (ownerMoved) {
-            followOriginX = followOrigin.X;
-            followOriginY = followOrigin.Y;
-            // 只是 Owl 在动、侧栏尺寸没变：用上一拍的位置跟着走，不要重算。
-            if (hasApplied && !stageChanged) {
-                PlaceOwned(hwnd, owner, appliedX, appliedY, appliedW, appliedH, true);
-                return 0;
-            }
+        double scale = Math.Max(96, GetDpiForWindow(hwnd)) / 96.0;
+        int left = (int)Math.Round(ContentLeft * scale);
+        int top = (int)Math.Round(ContentTop * scale);
+        int right = (int)Math.Round(ContentRight * scale);
+        int bottom = (int)Math.Round(ContentBottom * scale);
+        int x = sx - left;
+        int y = sy - top;
+        int w = sw + left + right;
+        int h = sh + top + bottom;
+        // Do not break a press/release pair by moving the window under it.
+        if (LeftButtonDown() && CursorOver(hwnd)) return 0;
+        if (!IsPlacedAt(hwnd, owner, x, y, w, h) ||
+            !ContentClipOk(hwnd, left, top, left + sw, top + sh)) {
+            int err = PlaceOwned(hwnd, owner, x, y, w, h, true);
+            if (err != 0) return err;
+            ClipContent(hwnd, left, top, left + sw, top + sh);
+            SuppressFrame(hwnd);
         }
-        if (stageChanged) {
-            lastStageW = sw;
-            lastStageH = sh;
-        }
-        int ox = ContentLeft, oy = ContentTop, cw = sw, ch = sh;
-        IntPtr player = LargestChild(hwnd);
-        if (player != IntPtr.Zero) {
-            RECT rootNow, childNow;
-            if (GetWindowRect(hwnd, out rootNow) && GetWindowRect(player, out childNow)) {
-                ox = childNow.Left - rootNow.Left;
-                oy = childNow.Top - rootNow.Top;
-                cw = childNow.Right - childNow.Left;
-                ch = childNow.Bottom - childNow.Top;
-            }
-        }
-        // 父窗口不要再往子窗口底下画一遍，否则侧栏里会叠出两层画面。
-        if (!repairedChild && player != IntPtr.Zero && !LeftButtonDown()) {
-            long style = GetStyle(hwnd);
-            if ((style & 0x02000000L) == 0) SetStyle(hwnd, style | 0x02000000L);
-            RECT client;
-            if (GetClientRect(hwnd, out client) && client.Right > 200 && client.Bottom > 200) {
-                SetWindowPos(player, IntPtr.Zero, 0, 0, client.Right, client.Bottom, 0x10 | 0x4 | 0x400);
-            }
-            repairedChild = true;
-        }
-        if (cw < 160 || ch < 160) { cw = sw; ch = sh; ox = ContentLeft; oy = ContentTop; }
-        // 子窗口最上面一截是应用宝标题和最小化按钮，不放进侧栏。
-        if (ch > 200) { oy += 36; ch -= 36; }
-        int viewW = cw < sw ? cw : sw;
-        int viewH = ch < sh ? ch : sh;
-        int stagePadX = (sw - viewW) / 2;
-        int stagePadY = (sh - viewH) / 2;
-        int childPadX = (cw - viewW) / 2;
-        int childPadY = (ch - viewH) / 2;
-        int x = sx + stagePadX - childPadX - ox;
-        int y = sy + stagePadY - childPadY - oy;
-        sl = ox + childPadX;
-        int st = oy + childPadY;
-        int sr = sl + viewW;
-        int sb = st + viewH;
-        // 窗口只要露出来的那一块。再往下留一截，父窗口会把底栏再画一遍。
-        int w = sr;
-        int h = sb;
-        if (w < 80) w = 80;
-        if (h < 80) h = 80;
-        // 窗口矩形本身不能伸出 Owl。裁切区域外面的边框仍会画到壁纸上。
-        RECT ownerRect;
-        PT origin = new PT();
-        origin.X = 0;
-        origin.Y = 0;
-        if (GetWindowRect(owner, out ownerRect) && ClientToScreen(owner, ref origin)) {
-            int winL = origin.X + x;
-            int winT = origin.Y + y;
-            int winR = winL + w;
-            int winB = winT + h;
-            int cutL = Math.Max(0, (ownerRect.Left + 1) - winL);
-            int cutT = Math.Max(0, (ownerRect.Top + 1) - winT);
-            int cutR = Math.Max(0, winR - (ownerRect.Right - 1));
-            int cutB = Math.Max(0, winB - (ownerRect.Bottom - 1));
-            if (w - cutL - cutR >= 80 && h - cutT - cutB >= 80) {
-                x += cutL;
-                y += cutT;
-                w -= cutL + cutR;
-                h -= cutT + cutB;
-                sl -= cutL;
-                st -= cutT;
-                sr -= cutL;
-                sb -= cutT;
-                if (sl < 0) sl = 0;
-                if (st < 0) st = 0;
-                if (sr > w) sr = w;
-                if (sb > h) sb = h;
-            }
-        }
-        // 鼠标正按在画面上时先别动。这一拍如果挪窗口，按下和松开就对不上，按钮没反应。
-        if (!(LeftButtonDown() && CursorOver(hwnd))) {
-            if (!IsPlacedAt(hwnd, owner, x, y, w, h) || !ContentClipOk(hwnd, sl, st, sr, sb)) {
-                int err = PlaceOwned(hwnd, owner, x, y, w, h, true);
-                if (err != 0) return err;
-                ClipContent(hwnd, sl, st, sr, sb);
-                SuppressFrame(hwnd);
-            }
-            SyncQtSize(hwnd, w, h);
-            appliedX = x;
-            appliedY = y;
-            appliedW = w;
-            appliedH = h;
-            hasApplied = true;
-        }
+        SyncQtSize(hwnd, w, h);
         return 0;
     }
-
-    static bool repairedChild = false;
 
     static IntPtr LargestChild(IntPtr root) {
         IntPtr child = GetWindow(root, 5);
@@ -483,10 +442,6 @@ public static class OwlMirrorWin32 {
     static int cachedLetterbox = 0;
     static int pendingInset = -1;
     static int pendingCount = 0;
-    static int followOriginX = int.MinValue;
-    static int followOriginY = int.MinValue;
-    static int appliedX, appliedY, appliedW, appliedH;
-    static bool hasApplied = false;
 
     static bool PointIsOurs(IntPtr hwnd, int x, int y) {
         PT hitAt = new PT();
@@ -670,7 +625,8 @@ public static class OwlMirrorWin32 {
         PT origin = new PT(); origin.X = 0; origin.Y = 0;
         ClientToScreen(owner, ref origin);
         SetLastError(0);
-        // SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSENDCHANGING。不发 WM_WINDOWPOSCHANGING，避免高度被改回 1000 多。
+        // Skip the app's top-level minimum tracking size, but retain
+        // WM_WINDOWPOSCHANGED / WM_SIZE so its content can resize to the stage.
         uint flags = 0x10 | 0x4 | 0x400;
         if (!quiet) flags |= 0x20 | 0x40; // FRAMECHANGED | SHOWWINDOW，只在改样式时用
         bool ok = SetWindowPosErr(hwnd, IntPtr.Zero, origin.X + x, origin.Y + y, w, h, flags);
@@ -775,14 +731,44 @@ public static class OwlMirrorWin32 {
             || Math.Abs((rect.Bottom - rect.Top) - h) > slack;
     }
 
-        public static bool RestoreByScRestore(IntPtr hwnd) {
+    public static bool RestoreByScRestore(IntPtr hwnd) {
         // BitDock 类 Dock 工具会吞掉 ShowWindow/SW_RESTORE；系统的 SC_RESTORE
         // 命令能穿透。
         return PostMessage(hwnd, 0x0112, (IntPtr)0xF120, IntPtr.Zero);
     }
 }
+
+// Per-worker waits, without changing the machine-wide timer resolution.
+public sealed class OwlMirrorInputWaiter : IDisposable {
+    IntPtr timer;
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateWaitableTimerExW(IntPtr attributes, string name, uint flags, uint access);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetWaitableTimer(IntPtr handle, ref long dueTime, int period, IntPtr callback, IntPtr state, bool resume);
+    [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint timeout);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    public OwlMirrorInputWaiter() {
+        timer = CreateWaitableTimerExW(IntPtr.Zero, null, 2, 0x1F0003);
+        if (timer == IntPtr.Zero) timer = CreateWaitableTimerExW(IntPtr.Zero, null, 0, 0x1F0003);
+    }
+    public void WaitMilliseconds(double milliseconds) {
+        if (!(milliseconds > 0) || double.IsInfinity(milliseconds)) return;
+        long due = -(long)Math.Ceiling(milliseconds * 10000.0);
+        if (timer != IntPtr.Zero && SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false)
+            && WaitForSingleObject(timer, 0xFFFFFFFF) == 0) return;
+        System.Threading.Thread.Sleep((int)Math.Ceiling(milliseconds));
+    }
+    public void Dispose() {
+        if (timer != IntPtr.Zero) { CloseHandle(timer); timer = IntPtr.Zero; }
+        GC.SuppressFinalize(this);
+    }
+    ~OwlMirrorInputWaiter() { Dispose(); }
+}
 '@
 Add-Type -TypeDefinition $user32
+# The bridge sends physical pixels. Disable DPI virtualization for native reads
+# and moves so Windows display scaling does not apply a second coordinate scale.
+[OwlMirrorWin32]::SetThreadDpiAwarenessContext([IntPtr](-4)) | Out-Null
 
 function Get-WindowRows {
   $rows = New-Object System.Collections.ArrayList
@@ -943,11 +929,15 @@ function Get-MirrorArgList {
   if ($Command -eq 'embed') {
     $items += @('-ParentHwnd', "$ParentHwnd", '-X', "$X", '-Y', "$Y", '-W', "$W", '-H', "$H")
     if ($SwallowMinimize) { $items += '-SwallowMinimize' }
+    if ($Projection) { $items += @('-Projection', '-ControlPath', $ControlPath, '-GeometryId', $GeometryId) }
+    if ($HasBaseRect) { $items += @('-HasBaseRect', '-BaseX', "$BaseX", '-BaseY', "$BaseY", '-BaseW', "$BaseW", '-BaseH', "$BaseH", '-BaseParent', "$BaseParent") }
     if ($HasBaseStyle) { $items += @('-HasBaseStyle', '-BaseStyle', "$BaseStyle") }
   } elseif ($Command -eq 'move') {
     $items += @('-X', "$X", '-Y', "$Y", '-W', "$W", '-H', "$H")
   } elseif ($Command -eq 'unembed') {
     $items += @('-Style', "$Style", '-ParentHwnd', "$ParentHwnd")
+    if ($ExpectedPid -gt 0) { $items += @('-ExpectedPid', "$ExpectedPid") }
+    if ($HasBaseRect) { $items += @('-HasBaseRect', '-X', "$X", '-Y', "$Y", '-W', "$W", '-H', "$H") }
   }
   return $items
 }
@@ -958,6 +948,69 @@ function Test-TcpClosed($client) {
     $socket = $client.Client
     return ($socket.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and $socket.Available -eq 0)
   } catch { return $true }
+}
+
+function Invoke-MirrorPointer([IntPtr]$target, [string]$action, [int]$px, [int]$py, [int]$delta = 0) {
+  if ($action -eq 'cancel') {
+    if ($script:PointerDown) {
+      $position = [IntPtr](($script:PointerY -shl 16) -bor ($script:PointerX -band 0xffff))
+      [OwlMirrorWin32]::PostMessage($target, 0x0202, [IntPtr]::Zero, $position) | Out-Null
+    }
+    $script:PointerDown = $false
+    return
+  }
+  $bounds = New-Object OwlMirrorWin32+RECT
+  [OwlMirrorWin32]::GetClientRect($target, [ref]$bounds) | Out-Null
+  if ($px -lt 0 -or $py -lt 0 -or $px -ge $bounds.Right -or $py -ge $bounds.Bottom) {
+    throw 'Mirror input is outside the app client area'
+  }
+  $position = [IntPtr](($py -shl 16) -bor ($px -band 0xffff))
+  $script:PointerX = $px; $script:PointerY = $py
+  switch ($action) {
+    'move' {
+      $buttons = if ($script:PointerDown) { 1 } else { 0 }
+      [OwlMirrorWin32]::PostMessage($target, 0x0200, [IntPtr]$buttons, $position) | Out-Null
+    }
+    'down' {
+      [OwlMirrorWin32]::PostMessage($target, 0x0200, [IntPtr]::Zero, $position) | Out-Null
+      [OwlMirrorWin32]::PostMessage($target, 0x0201, [IntPtr]1, $position) | Out-Null
+      $script:PointerDown = $true
+    }
+    'up' {
+      [OwlMirrorWin32]::PostMessage($target, 0x0202, [IntPtr]::Zero, $position) | Out-Null
+      $script:PointerDown = $false
+    }
+    'click' {
+      [OwlMirrorWin32]::PostMessage($target, 0x0200, [IntPtr]::Zero, $position) | Out-Null
+      [OwlMirrorWin32]::PostMessage($target, 0x0201, [IntPtr]1, $position) | Out-Null
+      $script:PointerDown = $true
+      Start-Sleep -Milliseconds 80
+      [OwlMirrorWin32]::PostMessage($target, 0x0202, [IntPtr]::Zero, $position) | Out-Null
+      $script:PointerDown = $false
+    }
+    'wheel' {
+      if ($delta -eq 0) { return }
+      $point = New-Object OwlMirrorWin32+PT
+      $point.X = $px; $point.Y = $py
+      [OwlMirrorWin32]::ClientToScreen($target, [ref]$point) | Out-Null
+      $wheelPosition = [IntPtr](($point.Y -shl 16) -bor ($point.X -band 0xffff))
+      # Keep high-resolution touchpad increments and accumulated wheel distance.
+      # WM_MOUSEWHEEL has a signed 16-bit delta; a tiny movement is not a full notch.
+      $wheelDelta = -[Math]::Max(-32767, [Math]::Min(32767, $delta))
+      [OwlMirrorWin32]::PostMessage($target, 0x020A, [IntPtr](($wheelDelta -band 0xffff) -shl 16), $wheelPosition) | Out-Null
+    }
+  }
+}
+
+function Restore-MirrorWindow([IntPtr]$target, [long]$style, [long]$parent, $rect) {
+  Invoke-MirrorPointer $target 'cancel' 0 0
+  $owner = if ($parent -gt 0 -and [OwlMirrorWin32]::IsWindow([IntPtr]$parent)) { [IntPtr]$parent } else { [IntPtr]::Zero }
+  [OwlMirrorWin32]::SetOwner($target, $owner)
+  [OwlMirrorWin32]::ClearClip($target)
+  [OwlMirrorWin32]::RestoreSystemMenu($target)
+  [OwlMirrorWin32]::SetStyle($target, $style)
+  [OwlMirrorWin32]::SetWindowPos($target, [IntPtr]::Zero, $rect.x, $rect.y, $rect.width, $rect.height, 0x4 -bor 0x10 -bor 0x20) | Out-Null
+  [OwlMirrorWin32]::ShowWindow($target, 4) | Out-Null
 }
 
 Add-Type -TypeDefinition @'
@@ -1034,10 +1087,8 @@ function Invoke-ViaElevatedHost {
   $reader = New-Object System.IO.StreamReader($stream, $utf8)
   while ($true) {
     $line = $reader.ReadLine()
-    if ($null -eq $line -or $line -eq '') {
-      if (-not $client.Connected) { break }
-      continue
-    }
+    if ($null -eq $line) { break }
+    if ($line -eq '') { continue }
     Write-JsonLine $line
   }
 }
@@ -1091,6 +1142,34 @@ if ($Command -in @('embed', 'move', 'unembed') -and $Hwnd -gt 0 -and (Test-Forei
 }
 
 switch ($Command) {
+
+  'guard' {
+    # This separate elevated process survives an abrupt bridge/worker kill. A
+    # per-window token prevents an old guard from restoring a newer projection.
+    try {
+      [IO.File]::WriteAllText($GuardMarker + '.ready', 'ready')
+      try { $watched = [Diagnostics.Process]::GetProcessById($GuardPid); $watched.WaitForExit() } catch {}
+      if (-not (Test-Path -LiteralPath $GuardMarker) -or [IO.File]::ReadAllText($GuardMarker) -ne 'active') { break }
+      $target = [IntPtr]$Hwnd
+      $leaseLock = [OwlMirrorWin32]::LockProjection($target)
+      try {
+        $currentPid = [uint32]0
+        [OwlMirrorWin32]::GetWindowThreadProcessId($target, [ref]$currentPid) | Out-Null
+        if ($currentPid -ne $ExpectedPid -or [OwlMirrorWin32]::GetProp($target, 'OwlMirrorProjectionLease').ToInt64() -ne $GuardToken) { break }
+        if ([OwlMirrorWin32]::GetTitle($target) -notlike '*红果*') { break }
+        [OwlMirrorWin32]::PostMessage($target, 0x001F, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        [OwlMirrorWin32]::PostMessage($target, 0x0202, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        Restore-MirrorWindow $target $Style $ParentHwnd @{ x = $X; y = $Y; width = $W; height = $H }
+        [OwlMirrorWin32]::RemoveProp($target, 'OwlMirrorProjectionLease') | Out-Null
+      } finally { $leaseLock.ReleaseMutex(); $leaseLock.Dispose() }
+    } finally {
+      if ($GuardMarker) {
+        Remove-Item -LiteralPath $GuardMarker -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath ($GuardMarker + '.ready') -ErrorAction SilentlyContinue
+      }
+    }
+  }
+
 
   'host' {
     $mutex = New-Object System.Threading.Mutex($false, 'Local\OwlMirrorElevatedHost')
@@ -1205,10 +1284,12 @@ switch ($Command) {
         $jpeg = $session.GrabFrameJpeg($FrameTimeoutMs, $Quality, $MaxWidth, [ref]$w, [ref]$h)
         if ($jpeg) {
           $b64 = [Convert]::ToBase64String($jpeg)
-          Write-JsonLine ('{"event":"frame","seq":' + $session.FrameSeq + ',"w":' + $w + ',"h":' + $h + ',"data":"' + $b64 + '"}')
+          $diagnostics = if ($CaptureDiagnostics) {
+            ',"copyMs":' + $session.LastCopyMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture) + ',"encodeMs":' + $session.LastEncodeMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture)
+          } else { '' }
+          Write-JsonLine ('{"event":"frame","seq":' + $session.FrameSeq + ',"w":' + $w + ',"h":' + $h + $diagnostics + ',"data":"' + $b64 + '"}')
         }
-        # GrabFrameJpeg 内部已按超时等帧，这里只防硬自旋
-        Start-Sleep -Milliseconds 2
+        $session.WaitForNextFrame($Fps)
       } catch {
         Write-JsonLine ('{"event":"error","message":"' + (Escape-Json $_.Exception.Message) + '"}')
         try { $session.Dispose() } catch { }
@@ -1263,6 +1344,14 @@ switch ($Command) {
     }
     $hwndPtr = [IntPtr]$Hwnd
     $parentPtr = [IntPtr]$ParentHwnd
+    if ($Projection) {
+      $targetPid = [uint32]0
+      [OwlMirrorWin32]::GetWindowThreadProcessId($hwndPtr, [ref]$targetPid) | Out-Null
+      $targetProcess = Get-Process -Id $targetPid -ErrorAction Stop
+      if ($targetProcess.ProcessName -ne 'Androws' -or [OwlMirrorWin32]::GetTitle($hwndPtr) -notlike '*红果*' -or -not $ControlPath -or -not $GeometryId) {
+        throw 'Projection requires a Hongguo window and a session control channel'
+      }
+    }
 
     # 被收起时先拉一次再摆。摆进去之后不改样式、不裁标题，标题栏留在窗口里。
     if ([OwlMirrorWin32]::IsIconic($hwndPtr)) {
@@ -1272,11 +1361,73 @@ switch ($Command) {
     }
 
     $originalStyle = if ($HasBaseStyle) { $BaseStyle } else { [OwlMirrorWin32]::GetStyle($hwndPtr) }
-    $originalParent = [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64()
-    [OwlMirrorWin32]::ClearClip($hwndPtr)
-    [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
+    $originalParent = if ($HasBaseRect) { $BaseParent } else { [OwlMirrorWin32]::GetParent($hwndPtr).ToInt64() }
+    $before = New-Object OwlMirrorWin32+RECT
+    [OwlMirrorWin32]::GetWindowRect($hwndPtr, [ref]$before) | Out-Null
+    $originalRect = if ($HasBaseRect) {
+      @{ x = $BaseX; y = $BaseY; width = $BaseW; height = $BaseH }
+    } else {
+      @{ x = $before.Left; y = $before.Top; width = $before.Right - $before.Left; height = $before.Bottom - $before.Top }
+    }
+    if ($Projection) {
+      $before.Left = $originalRect.x; $before.Top = $originalRect.y
+      $before.Right = $before.Left + $originalRect.width; $before.Bottom = $before.Top + $originalRect.height
+      $before = [OwlMirrorWin32]::VisibleRestoreRect($before, $parentPtr)
+      $originalRect = @{ x = $before.Left; y = $before.Top; width = $before.Right - $before.Left; height = $before.Bottom - $before.Top }
+    }
+    $geometry = $null
+    $clientOffset = $null
+    $controlReader = $null
+    $script:PointerDown = $false
+    $script:PointerX = 0; $script:PointerY = 0
+    if ($Projection) {
+      Write-JsonLine (@{ event = 'prepared'; originalStyle = $originalStyle; originalParent = $originalParent; originalRect = $originalRect; originalProcessId = $targetPid } | ConvertTo-Json -Depth 4 -Compress)
+    }
+    if (-not $Projection) {
+      [OwlMirrorWin32]::ClearClip($hwndPtr)
+      [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
+    }
     $ownerShown = [OwlMirrorWin32]::StageInsideOwner($parentPtr, $X, $Y, $W, $H)
-    if ($ownerShown) {
+    if ($Projection) {
+      $controlStream = [IO.File]::Open($ControlPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+      $controlReader = New-Object IO.StreamReader($controlStream, $Utf8NoBom)
+      $controlBuffer = ''
+      $leasePath = $ControlPath + '.lease'
+      [IO.File]::WriteAllText($leasePath, 'active')
+      $leaseToken = [BitConverter]::ToInt32([Guid]::NewGuid().ToByteArray(), 0) -band 0x7fffffff
+      $guardArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, 'guard', '-Hwnd', "$Hwnd", '-GuardPid', "$PID", '-GuardToken', "$leaseToken", '-GuardMarker', $leasePath, '-ExpectedPid', "$targetPid", '-Style', "$originalStyle", '-ParentHwnd', "$originalParent", '-X', "$($originalRect.x)", '-Y', "$($originalRect.y)", '-W', "$($originalRect.width)", '-H', "$($originalRect.height)")
+      $guardCommand = ($guardArgs | ForEach-Object { Quote-WinArg $_ }) -join ' '
+      $guard = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $guardCommand -WindowStyle Hidden -PassThru
+      $guardDeadline = [DateTime]::UtcNow.AddSeconds(5)
+      while (-not (Test-Path -LiteralPath ($leasePath + '.ready'))) {
+        if ($guard.HasExited -or [DateTime]::UtcNow -gt $guardDeadline) { throw 'Projection recovery guard did not start' }
+        Start-Sleep -Milliseconds 20
+      }
+      $leaseLock = [OwlMirrorWin32]::LockProjection($hwndPtr)
+      try {
+      if (-not [OwlMirrorWin32]::SetProp($hwndPtr, 'OwlMirrorProjectionLease', [IntPtr]$leaseToken)) {
+        throw 'Projection recovery lease was rejected'
+      }
+      [OwlMirrorWin32]::ClearClip($hwndPtr)
+      [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
+      # Androws keeps an 843x472 Android surface when its HWND is resized. Keep
+      # this verified complete surface and scale its pixels in Owl instead.
+      $scale = [Math]::Max(96, [OwlMirrorWin32]::GetDpiForWindow($hwndPtr)) / 96.0
+      $W = [int][Math]::Round(906 * $scale); $H = [int][Math]::Round(547 * $scale)
+      $placeErr = [OwlMirrorWin32]::PlaceOwned($hwndPtr, $parentPtr, -20000, -20000, $W, $H, $true)
+      if ($placeErr -ne 0) { throw "Projection placement failed: $placeErr" }
+      [OwlMirrorWin32]::ShowWindow($hwndPtr, 4) | Out-Null
+      $frame = New-Object OwlMirrorWin32+RECT
+      $clientOrigin = New-Object OwlMirrorWin32+PT
+      [OwlMirrorWin32]::GetWindowRect($hwndPtr, [ref]$frame) | Out-Null
+      [OwlMirrorWin32]::ClientToScreen($hwndPtr, [ref]$clientOrigin) | Out-Null
+      $geometry = @{
+        geometryId = $GeometryId; sourceWidth = $frame.Right - $frame.Left; sourceHeight = $frame.Bottom - $frame.Top
+        crop = @{ x = [int][Math]::Round(4 * $scale); y = [int][Math]::Round(40 * $scale); width = [int][Math]::Round(843 * $scale); height = [int][Math]::Round(472 * $scale) }
+      }
+      $clientOffset = @{ x = $clientOrigin.X - $frame.Left; y = $clientOrigin.Y - $frame.Top }
+      } finally { $leaseLock.ReleaseMutex(); $leaseLock.Dispose() }
+    } elseif ($ownerShown) {
       $placeErr = [OwlMirrorWin32]::PlaceStage($hwndPtr, $parentPtr, $X, $Y, $W, $H)
       if ($placeErr -ne 0) {
         Write-JsonLine ('{"event":"error","message":"SetWindowPos failed (' + $placeErr + '). 红果窗口拒绝被移动。"}')
@@ -1286,7 +1437,7 @@ switch ($Command) {
     } else {
       [OwlMirrorWin32]::ShowWindow($hwndPtr, 0) | Out-Null   # SW_HIDE，Owl 不在屏幕上时不要摆到桌面
     }
-    Write-JsonLine ('{"event":"embedded","originalStyle":' + $originalStyle + ',"originalParent":' + $originalParent + '}')
+    Write-JsonLine (@{ event = 'embedded'; originalStyle = $originalStyle; originalParent = $originalParent; originalRect = $originalRect; originalProcessId = $targetPid; geometry = $geometry; clientOffset = $clientOffset } | ConvertTo-Json -Depth 5 -Compress)
 
     # 看守只做三件事：侧栏矩形变了就跟着摆；窗口被最小化就拉回再摆；
     # 离开目标矩形就下一拍拉回。宽高为 0 表示舞台不可见，只隐藏，不拉回来。
@@ -1294,12 +1445,71 @@ switch ($Command) {
     $lastRect = @{ X = $X; Y = $Y; W = $W; H = $H }
     $autoRestored = 0
     $lastStatusTick = [System.Diagnostics.Stopwatch]::StartNew()
+    $inputWaiter = New-Object OwlMirrorInputWaiter
         $layoutSeen = ''
         while ($true) {
-          # 16ms 一拍才能跟上手拖。已经对准时这一拍不 SetWindowPos，点击不会被拆开。
-          Start-Sleep -Milliseconds 16
+          # Poll continuous gestures promptly; Start-Sleep rounds short waits up.
+          $inputWaiter.WaitMilliseconds($(if ($Projection) { 8 } else { 16 }))
           try {
-            if (-not [OwlMirrorWin32]::IsWindow($parentPtr) -or -not [OwlMirrorWin32]::IsWindow($hwndPtr)) { exit 0 }
+            if (-not [OwlMirrorWin32]::IsWindow($hwndPtr)) { exit 0 }
+            if ($Projection) {
+              $currentPid = [uint32]0
+              [OwlMirrorWin32]::GetWindowThreadProcessId($hwndPtr, [ref]$currentPid) | Out-Null
+              if ($currentPid -ne $targetPid -or [OwlMirrorWin32]::GetTitle($hwndPtr) -notlike '*红果*') { exit 0 }
+            }
+            if (-not [OwlMirrorWin32]::IsWindow($parentPtr)) {
+              if ($Projection) {
+                $leaseLock = [OwlMirrorWin32]::LockProjection($hwndPtr)
+                try {
+                  if ([OwlMirrorWin32]::GetProp($hwndPtr, 'OwlMirrorProjectionLease').ToInt64() -eq $leaseToken) {
+                    Restore-MirrorWindow $hwndPtr $originalStyle $originalParent $originalRect
+                    [OwlMirrorWin32]::RemoveProp($hwndPtr, 'OwlMirrorProjectionLease') | Out-Null
+                  }
+                  [IO.File]::WriteAllText($leasePath, 'restored')
+                } finally { $leaseLock.ReleaseMutex(); $leaseLock.Dispose() }
+              }
+              exit 0
+            }
+            if ($Projection) {
+              $ownerActive = [OwlMirrorWin32]::IsWindowVisible($parentPtr) -and -not [OwlMirrorWin32]::IsIconic($parentPtr)
+              $controlBuffer += $controlReader.ReadToEnd()
+              $readCount = 0
+              while ($controlBuffer.Contains("`n") -and $readCount -lt 128) {
+                $newline = $controlBuffer.IndexOf("`n")
+                $controlLine = $controlBuffer.Substring(0, $newline)
+                $controlBuffer = $controlBuffer.Substring($newline + 1)
+                $readCount++
+                try { $input = $controlLine | ConvertFrom-Json } catch { continue }
+                if ($input.token -ne $GeometryId) { continue }
+                if ($input.action -eq 'stop') {
+                  $leaseLock = [OwlMirrorWin32]::LockProjection($hwndPtr)
+                  try {
+                    if ([OwlMirrorWin32]::GetProp($hwndPtr, 'OwlMirrorProjectionLease').ToInt64() -eq $leaseToken) {
+                      Invoke-MirrorPointer $hwndPtr 'cancel' 0 0
+                      [OwlMirrorWin32]::ShowWindow($hwndPtr, 0) | Out-Null
+                      [OwlMirrorWin32]::RemoveProp($hwndPtr, 'OwlMirrorProjectionLease') | Out-Null
+                    }
+                    [IO.File]::WriteAllText($leasePath, 'stopped')
+                  } finally { $leaseLock.ReleaseMutex(); $leaseLock.Dispose() }
+                  $controlReader.Dispose()
+                  Write-JsonLine '{"event":"stopped"}'
+                  exit 0
+                }
+                if ($input.action -eq 'cancel' -or $ownerActive) {
+                  Invoke-MirrorPointer $hwndPtr $input.action ([int]$input.x) ([int]$input.y) ([int]$input.deltaY)
+                }
+              }
+              if ($ownerActive) {
+                if (-not [OwlMirrorWin32]::IsPlacedAt($hwndPtr, $parentPtr, -20000, -20000, $W, $H)) {
+                  [OwlMirrorWin32]::PlaceOwned($hwndPtr, $parentPtr, -20000, -20000, $W, $H, $true) | Out-Null
+                }
+                if (-not [OwlMirrorWin32]::IsWindowVisible($hwndPtr)) { [OwlMirrorWin32]::ShowWindow($hwndPtr, 4) | Out-Null }
+              } else {
+                Invoke-MirrorPointer $hwndPtr 'cancel' 0 0
+                [OwlMirrorWin32]::ShowWindow($hwndPtr, 0) | Out-Null
+              }
+              continue
+            }
             if ([OwlMirrorWin32]::IsIconic($parentPtr)) { continue }
             $layoutFile = Join-Path ([IO.Path]::GetTempPath()) ("owl-mirror-layout-" + $Hwnd + ".txt")
             if (Test-Path -LiteralPath $layoutFile) {
@@ -1366,8 +1576,23 @@ switch ($Command) {
   'unembed' {
     if ($Hwnd -le 0) { Write-JsonLine '{"event":"error","message":"missing -Hwnd"}'; exit 1 }
     $hwndPtr = [IntPtr]$Hwnd
+    if ($ExpectedPid -gt 0) {
+      $currentPid = [uint32]0
+      [OwlMirrorWin32]::GetWindowThreadProcessId($hwndPtr, [ref]$currentPid) | Out-Null
+      if ($currentPid -ne $ExpectedPid -or [OwlMirrorWin32]::GetTitle($hwndPtr) -notlike '*红果*') {
+        Write-JsonLine '{"event":"unembedded","gone":true}'
+        Write-JsonLine '{"event":"ready"}'
+        break
+      }
+    }
+    if ($HasBaseRect) {
+      Restore-MirrorWindow $hwndPtr $Style $ParentHwnd @{ x = $X; y = $Y; width = $W; height = $H }
+      Write-JsonLine '{"event":"unembedded"}'
+      Write-JsonLine '{"event":"ready"}'
+      break
+    }
     # 还原顺序：先解除 owner、恢复系统菜单，再还原样式，最后通知框架重算并显示
-    [OwlMirrorWin32]::SetOwner($hwndPtr, [IntPtr]::Zero)
+    [OwlMirrorWin32]::SetOwner($hwndPtr, [IntPtr]$ParentHwnd)
     [OwlMirrorWin32]::ClearClip($hwndPtr)
     [OwlMirrorWin32]::RestoreSystemMenu($hwndPtr)
     if ($Style -ge 0) {
