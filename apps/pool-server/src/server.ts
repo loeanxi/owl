@@ -25,6 +25,7 @@ import { jsonRespond, readJsonBody, respondErr } from "./http/respond.ts";
 import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
 import type { AdminAuthService, AdminSecurityConfig } from "./security/admin-service.ts";
+import { registerBackupRoutes } from "./store/backup.ts";
 import { MAX_BODY_BYTES } from "./store/db.ts";
 
 /** 管理端鉴权栈：配置 + 服务 + 守卫 + 可信代层数，由入口装配一次。 */

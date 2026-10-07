@@ -191,6 +191,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		sticky,
 		upstreams,
 		callLogs,
+		backupDb: db,
+		backupDir: pathResolve("data/backups"),
 		billing,
 		billingStore,
 		catalog,

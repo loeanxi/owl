@@ -59,6 +59,8 @@ export interface GatewayServiceDeps {
 	callLogs: SqliteCallLogStore;
 	billing?: BillingService;
 	billingStore?: SqliteBillingStore;
+	backupDb?: import("node:sqlite").DatabaseSync;
+	backupDir?: string;
 	catalog: SqliteCatalogStore;
 	listPublishedModels(): PublishedModel[];
 	trustedProxyCount: number;
