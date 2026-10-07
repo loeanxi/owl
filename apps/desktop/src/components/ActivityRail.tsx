@@ -318,8 +318,8 @@ export function ActivityRail({
 				<IconChat className="h-[18px] w-[18px]" />
 			</button>
 
-			{/* 号池 Manager（迁移阶段 6）：独立窗口打开 pool-server 管理台。
-			    桌面端不打断 Rail 视图状态；池服务未启动时由管理台自身报错。 */}
+			{/* 号池 Manager（迁移阶段 6）：Tauri 里用 WebviewWindow 开独立窗口；
+			    浏览器模式回退 window.open。池服务未启动时由管理台自身报错。 */}
 			<button
 				type="button"
 				className={itemClass(false)}
@@ -328,7 +328,34 @@ export function ActivityRail({
 				onClick={() => {
 					const injected = (globalThis as Record<string, unknown>).OWL_MANAGER_URL;
 					const url = typeof injected === "string" && injected.length > 0 ? injected : "http://127.0.0.1:8790";
-					window.open(url, "owl-manager", "width=1280,height=860");
+					const openInTauri = async (): Promise<boolean> => {
+						try {
+							const hasTauri = "__TAURI_INTERNALS__" in globalThis;
+							if (!hasTauri) {
+								return false;
+							}
+							const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+							const win = new WebviewWindow("owl-manager", {
+								url,
+								title: "号池 Manager",
+								width: 1280,
+								height: 860,
+								center: true,
+							});
+							await new Promise<void>((resolve, reject) => {
+								win.once("tauri://created", () => resolve());
+								win.once("tauri://error", (event: unknown) => reject(new Error(String((event as { payload?: unknown })?.payload ?? "create failed"))));
+							});
+							return true;
+						} catch {
+							return false;
+						}
+					};
+					void openInTauri().then((opened) => {
+						if (!opened) {
+							window.open(url, "owl-manager", "width=1280,height=860");
+						}
+					});
 				}}
 			>
 				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

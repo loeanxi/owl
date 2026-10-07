@@ -2,8 +2,15 @@
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
 	"description": "owl shell defaults",
-	"windows": ["main"],
-	"remote": { "urls": ["http://127.0.0.1:*"] },
+	"windows": [
+		"main",
+		"owl-manager"
+	],
+	"remote": {
+		"urls": [
+			"http://127.0.0.1:*"
+		]
+	},
 	"permissions": [
 		"core:default",
 		"core:window:allow-minimize",
@@ -20,6 +27,8 @@
 		"allow-gps-location",
 		"allow-debug-rebuild-and-restart",
 		"dialog:allow-open",
-		"allow-show-approval-toast"
+		"allow-show-approval-toast",
+		"core:webview:allow-create-webview-window",
+		"core:window:allow-create"
 	]
 }
