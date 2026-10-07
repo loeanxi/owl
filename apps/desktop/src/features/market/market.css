@@ -1,0 +1,147 @@
+/* 「插件市场」（features/market/MarketPage.tsx）。
+   目录列表 + 右侧详情抽屉；颜色全部走应用 token（--color-owl-*），随主题/壁纸自适应。 */
+
+.owl-market {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	font-size: 12px;
+	background: var(--color-owl-bg);
+	color: var(--color-owl-text);
+}
+.owl-market button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+.owl-market a { text-decoration: none; }
+
+/* ---------- 页头 ---------- */
+.owl-market-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 22px 0; }
+.owl-market-title { font-size: 17px; font-weight: 650; letter-spacing: -0.2px; }
+.owl-market-sub { margin-top: 3px; font-size: 11.5px; color: var(--color-owl-faint); }
+.owl-market-srcwrap { position: relative; margin-left: auto; }
+.owl-market-srcpill {
+	display: inline-flex; align-items: center; gap: 7px;
+	height: 28px; padding: 0 10px;
+	border: 1px solid var(--color-owl-border); border-radius: 14px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-muted); font-size: 11px;
+}
+.owl-market-srcpill:hover { border-color: var(--color-owl-faint); }
+.owl-market-livedot { width: 7px; height: 7px; border-radius: 50%; background: #3fae62; flex: 0 0 auto; }
+.owl-market-srcpop {
+	position: absolute; top: 32px; right: 0; z-index: 30;
+	width: 390px; padding: 6px;
+	background: var(--color-owl-panel); border: 1px solid var(--color-owl-border); border-radius: 10px;
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+.owl-market-srcitem { padding: 9px 10px; border-radius: 7px; }
+.owl-market-srcitem:hover { background: var(--color-owl-hover); }
+.owl-market-srcitem-t { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+.owl-market-srcitem-cnt { margin-left: auto; font-weight: 400; color: var(--color-owl-faint); font-variant-numeric: tabular-nums; }
+.owl-market-srcitem-d { margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--color-owl-muted); }
+.owl-market-srcitem-ep { margin-top: 2px; font-size: 10.5px; font-family: Consolas, monospace; color: var(--color-owl-faint); }
+.owl-market-srcretry {
+	display: block; width: calc(100% - 20px); margin: 4px 10px 2px; padding: 7px 9px;
+	border-radius: 7px; text-align: left; font-size: 11px;
+	background: var(--color-owl-hover); color: var(--color-owl-text);
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.owl-market-srcfoot { padding: 8px 10px 6px; margin-top: 4px; border-top: 1px solid var(--color-owl-border); font-size: 10.5px; line-height: 1.5; color: var(--color-owl-faint); }
+
+/* ---------- 工具行 / 分类 ---------- */
+.owl-market-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 22px 10px; }
+.owl-market-seg { display: flex; overflow: hidden; border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel); }
+.owl-market-seg button { padding: 5px 12px; border-right: 1px solid var(--color-owl-border); color: var(--color-owl-muted); font-size: 11.5px; }
+.owl-market-seg button:last-child { border-right: none; }
+.owl-market-seg button.is-on { background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent); color: var(--color-owl-accent); font-weight: 600; }
+.owl-market-search {
+	display: flex; flex: 0 1 340px; align-items: center; gap: 7px;
+	height: 30px; padding: 0 10px;
+	border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel);
+	color: var(--color-owl-faint);
+}
+.owl-market-search input { flex: 1; border: none; outline: none; background: none; color: var(--color-owl-text); font-size: 12px; }
+.owl-market-search input::placeholder { color: var(--color-owl-faint); }
+.owl-market-sort { margin-left: auto; color: var(--color-owl-faint); font-size: 11.5px; }
+.owl-market-cats { display: flex; flex: 0 0 auto; gap: 6px; padding: 0 22px 10px; overflow-x: auto; scrollbar-width: thin; }
+.owl-market-chip {
+	display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px;
+	height: 24px; padding: 0 10px; border: 1px solid var(--color-owl-border); border-radius: 12px;
+	background: var(--color-owl-panel); color: var(--color-owl-muted); font-size: 11px;
+}
+.owl-market-chip-n { font-size: 10px; color: var(--color-owl-faint); font-variant-numeric: tabular-nums; }
+.owl-market-chip.is-on { border-color: color-mix(in srgb, var(--color-owl-accent) 40%, transparent); background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent); color: var(--color-owl-accent); font-weight: 600; }
+.owl-market-chip.is-on .owl-market-chip-n { color: var(--color-owl-accent); }
+
+/* ---------- 主体：列表 + 抽屉 ---------- */
+.owl-market-body { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--color-owl-border); }
+.owl-market-list { flex: 1; min-width: 0; padding: 6px 14px 40px; overflow-y: auto; }
+.owl-market-state { padding: 28px 12px; color: var(--color-owl-faint); }
+.owl-market-retry { margin-left: 10px; padding: 3px 10px; border: 1px solid var(--color-owl-border); border-radius: 6px; color: var(--color-owl-accent); }
+
+.owl-market-prow {
+	display: flex; gap: 12px; align-items: center;
+	width: 100%; padding: 8px 10px; border-radius: 8px; text-align: left;
+}
+.owl-market-prow:hover { background: var(--color-owl-hover); }
+.owl-market-prow.is-sel { background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent); }
+.owl-market-ico {
+	display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px;
+	border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel);
+	color: var(--color-owl-muted); font-weight: 700; font-size: 12px;
+}
+.owl-market-ico.is-big { flex-basis: 38px; width: 38px; height: 38px; border-radius: 10px; border: none; background: color-mix(in srgb, var(--color-owl-accent) 18%, transparent); color: var(--color-owl-accent); }
+.owl-market-prow-mid { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.owl-market-prow-l1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.owl-market-prow-nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-market-prow-v { color: var(--color-owl-faint); font-size: 10.5px; flex: 0 0 auto; }
+.owl-market-prow-ds { margin-top: 1px; color: var(--color-owl-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-market-prow-st { flex: 0 0 auto; text-align: right; color: var(--color-owl-faint); font-size: 10.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.owl-market-prow-st b { color: var(--color-owl-muted); font-weight: 600; }
+.owl-market-prow-stars { display: block; }
+
+/* 徽章 */
+.owl-market-badge {
+	display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px;
+	height: 18px; padding: 0 7px; border-radius: 9px;
+	font-size: 10px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+}
+.owl-market-badge.is-pi { background: color-mix(in srgb, #4a7db3 20%, transparent); color: #85b3e0; }
+.owl-market-badge.is-adapt { background: color-mix(in srgb, #d99131 18%, transparent); color: #e0aa62; }
+.owl-market-badge.is-done { background: color-mix(in srgb, var(--color-owl-accent) 18%, transparent); color: var(--color-owl-accent); }
+.owl-market-badge.is-cap { background: var(--color-owl-hover); border: 1px solid var(--color-owl-border); color: var(--color-owl-muted); font-weight: 500; }
+.owl-market-badge.is-red { background: color-mix(in srgb, #e5484d 16%, transparent); color: #e5808a; }
+
+/* ---------- 详情抽屉 ---------- */
+.owl-market-drawer { display: flex; flex: 0 0 360px; flex-direction: column; padding: 16px 18px 24px; border-left: 1px solid var(--color-owl-border); background: var(--color-owl-panel); overflow-y: auto; }
+.owl-market-drawer-hd { display: flex; align-items: flex-start; gap: 10px; }
+.owl-market-drawer-title { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.owl-market-drawer-nm { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-market-drawer-ow { margin-top: 2px; color: var(--color-owl-faint); font-size: 11px; }
+.owl-market-desc { margin: 10px 0; color: var(--color-owl-muted); line-height: 1.55; }
+.owl-market-kv { display: grid; grid-template-columns: 76px 1fr; gap: 5px 10px; margin: 10px 0; font-size: 11.5px; }
+.owl-market-kv-k { color: var(--color-owl-faint); }
+.owl-market-caps { display: flex; flex-wrap: wrap; gap: 5px; }
+.owl-market-hint { margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: color-mix(in srgb, #d99131 12%, transparent); color: #e0aa62; font-size: 11px; line-height: 1.5; }
+.owl-market-acts { display: flex; gap: 8px; margin-top: 14px; }
+.owl-market-import {
+	display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 6px;
+	height: 30px; padding: 0 14px; border-radius: 7px;
+	background: var(--color-owl-accent); color: #fff; font-weight: 600;
+}
+.owl-market-import:hover { background: var(--color-owl-accent-hover); }
+.owl-market-import:disabled { opacity: 0.55; cursor: default; }
+.owl-market-repo {
+	display: inline-flex; align-items: center; justify-content: center;
+	height: 30px; padding: 0 14px; border: 1px solid var(--color-owl-border); border-radius: 7px;
+	color: var(--color-owl-accent); font-weight: 600;
+}
+.owl-market-repo:hover { border-color: var(--color-owl-accent); }
+.owl-market-import-error { margin-top: 8px; padding: 8px 11px; border-radius: 8px; background: color-mix(in srgb, #e5484d 14%, transparent); color: #e5808a; font-size: 11px; line-height: 1.5; }
+
+/* 改造流水线（静态说明：真实执行发生在引入后的会话里） */
+.owl-market-pipe { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--color-owl-border); }
+.owl-market-pipe-t { margin-bottom: 8px; color: var(--color-owl-muted); font-size: 11.5px; font-weight: 600; }
+.owl-market-step { display: flex; gap: 8px; padding: 3px 0; color: var(--color-owl-faint); font-size: 11.5px; }
+.owl-market-step-dot { flex: 0 0 14px; width: 14px; height: 14px; margin-top: 1px; border: 1.5px solid var(--color-owl-border); border-radius: 50%; }
+.owl-market-pipe-note { margin-top: 8px; color: var(--color-owl-faint); font-size: 10.5px; line-height: 1.5; }
