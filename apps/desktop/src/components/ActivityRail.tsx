@@ -7,7 +7,7 @@ import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market";
+export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market";
 
 /** 菜单底部通知条：调试更新流程的进度 / 结果。 */
 type UpdateNotice = {
@@ -318,45 +318,14 @@ export function ActivityRail({
 				<IconChat className="h-[18px] w-[18px]" />
 			</button>
 
-			{/* 号池 Manager（迁移阶段 6）：Tauri 里用 WebviewWindow 开独立窗口；
-			    浏览器模式回退 window.open。池服务未启动时由管理台自身报错。 */}
+			{/* 号池 Manager（迁移阶段 6）：嵌入 owl 主内容区的一等视图。 */}
 			<button
 				type="button"
-				className={itemClass(false)}
+				className={itemClass(view === "manager" && !settingsOpen)}
 				title="号池 Manager"
 				aria-label="号池 Manager"
-				onClick={() => {
-					const injected = (globalThis as Record<string, unknown>).OWL_MANAGER_URL;
-					const url = typeof injected === "string" && injected.length > 0 ? injected : "http://127.0.0.1:8790";
-					const openInTauri = async (): Promise<boolean> => {
-						try {
-							const hasTauri = "__TAURI_INTERNALS__" in globalThis;
-							if (!hasTauri) {
-								return false;
-							}
-							const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-							const win = new WebviewWindow("owl-manager", {
-								url,
-								title: "号池 Manager",
-								width: 1280,
-								height: 860,
-								center: true,
-							});
-							await new Promise<void>((resolve, reject) => {
-								win.once("tauri://created", () => resolve());
-								win.once("tauri://error", (event: unknown) => reject(new Error(String((event as { payload?: unknown })?.payload ?? "create failed"))));
-							});
-							return true;
-						} catch {
-							return false;
-						}
-					};
-					void openInTauri().then((opened) => {
-						if (!opened) {
-							window.open(url, "owl-manager", "width=1280,height=860");
-						}
-					});
-				}}
+				aria-current={view === "manager" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("manager")}
 			>
 				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
 					<ellipse cx="12" cy="5.5" rx="8" ry="2.8" />

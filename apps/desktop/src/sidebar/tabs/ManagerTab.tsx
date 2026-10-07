@@ -9,7 +9,6 @@
  * 保证能力全量可用，后续按域替换为原生面板。
  */
 import { useCallback, useEffect, useState } from "react";
-import type { TabComponentProps } from "../registry.ts";
 import { IconRefresh } from "../icons.tsx";
 
 const DEFAULT_MANAGER_URL = "http://127.0.0.1:8790";
@@ -20,7 +19,7 @@ interface Healthz {
 	uptimeSeconds: number;
 }
 
-export function ManagerTab(_props: TabComponentProps) {
+export function ManagerTab() {
 	const [url] = useState(() => resolveManagerUrl());
 	const [health, setHealth] = useState<Healthz | null>(null);
 	const [probe, setProbe] = useState<"checking" | "up" | "down">("checking");

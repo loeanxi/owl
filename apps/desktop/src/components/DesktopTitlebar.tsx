@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
-import { IconNavBack, IconNavForward, IconPanelLeft, IconStickFigure } from "./icons.tsx";
+import { IconNavBack, IconNavForward, IconPanelLeft, IconStickFigure, IconTokenCareer } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
@@ -23,7 +23,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "chat" | "map" | "news" | "mail" | "evaluation" | "research" | "guide";
+	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "monitor" | "automation" | "bagu";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	terminalOpen: boolean;
 	sidebarOpen: boolean;
@@ -59,6 +59,10 @@ interface DesktopTitlebarProps {
 	onOpenEvaluation: () => void;
 	onOpenResearch: () => void;
 	onOpenLifeGuide: () => void;
+	onOpenTokenCareer: () => void;
+	onOpenLifeMonitor: () => void;
+	lifeDot: "ok" | "bad" | "warn" | "idle";
+	lifeCount: number;
 	island?: React.ReactNode;
 }
 
@@ -347,6 +351,16 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
 				<button
 					type="button"
+					className={`owl-chrome-button owl-desktop-token-career${props.sidebarView === "career" ? " is-active" : ""}`}
+					aria-label={t("titlebar.tokenCareer")}
+					title={t("titlebar.tokenCareer")}
+					aria-pressed={props.sidebarView === "career"}
+					onClick={props.onOpenTokenCareer}
+				>
+					<IconTokenCareer />
+				</button>
+				<button
+					type="button"
 					className={`owl-chrome-button owl-desktop-life-guide${props.sidebarView === "guide" ? " is-active" : ""}`}
 					aria-label={t("titlebar.lifeGuide")}
 					title={t("titlebar.lifeGuide")}
@@ -354,6 +368,16 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					onClick={props.onOpenLifeGuide}
 				>
 					<IconStickFigure />
+				</button>
+				<button
+					type="button"
+					className={`owl-chrome-button owl-desktop-life-monitor${props.sidebarView === "monitor" ? " is-active" : ""}`}
+					aria-label={props.lifeCount > 0 ? `${t("titlebar.lifeMonitor")} ${props.lifeCount}` : t("titlebar.lifeMonitor")}
+					title={t("titlebar.lifeMonitor")}
+					aria-pressed={props.sidebarView === "monitor"}
+					onClick={props.onOpenLifeMonitor}
+				>
+					<span className={`owl-life-dot ${props.lifeDot}`} aria-hidden="true">{props.lifeCount > 0 ? props.lifeCount : ""}</span>
 				</button>
 				<WindowControls />
 			</div>
