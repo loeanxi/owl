@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { hasTauri, startDebugRebuild } from "../bridge/native.ts";
 import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
-import { IconChat, IconHome, IconMore, IconNews, IconSettings } from "./icons.tsx";
+import { IconChat, IconFolder, IconHome, IconMore, IconNews, IconSelf, IconSettings } from "./icons.tsx";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "chat" | "map" | "news" | "mail" | "evaluation" | "media" | "research" | "guide";
+export type RailView = "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market";
 
 /** 菜单底部通知条：调试更新流程的进度 / 结果。 */
 type UpdateNotice = {
@@ -280,6 +280,33 @@ export function ActivityRail({
 				<IconHome className="h-5 w-5" />
 			</button>
 
+			{/* 「我的助理」：品牌位下第一入口（每天一个 owl-myself/md 的日程与提炼）。 */}
+			<button
+				type="button"
+				className={itemClass(view === "myself" && !settingsOpen)}
+				title={t("rail.myself")}
+				aria-label={t("rail.myself")}
+				aria-current={view === "myself" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("myself")}
+			>
+				<IconSelf className="h-[18px] w-[18px]" />
+			</button>
+
+			{/* 「专家顾问」：助理位之下（owl-expert 目录：人格档案 + 记忆 + 每天一个会话 md）。 */}
+			<button
+				type="button"
+				className={itemClass(view === "expert" && !settingsOpen)}
+				title={t("rail.expert")}
+				aria-label={t("rail.expert")}
+				aria-current={view === "expert" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("expert")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<circle cx="12" cy="12" r="9.5" />
+					<path d="m15.5 8.5-2 5-5 2 2-5z" />
+				</svg>
+			</button>
+
 			<button
 				type="button"
 				className={itemClass(view === "chat" && !settingsOpen)}
@@ -289,6 +316,42 @@ export function ActivityRail({
 				onClick={() => onSelect("chat")}
 			>
 				<IconChat className="h-[18px] w-[18px]" />
+			</button>
+
+			{/* 号池 Manager（迁移阶段 6）：独立窗口打开 pool-server 管理台。
+			    桌面端不打断 Rail 视图状态；池服务未启动时由管理台自身报错。 */}
+			<button
+				type="button"
+				className={itemClass(false)}
+				title="号池 Manager"
+				aria-label="号池 Manager"
+				onClick={() => {
+					const injected = (globalThis as Record<string, unknown>).OWL_MANAGER_URL;
+					const url = typeof injected === "string" && injected.length > 0 ? injected : "http://127.0.0.1:8790";
+					window.open(url, "owl-manager", "width=1280,height=860");
+				}}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<ellipse cx="12" cy="5.5" rx="8" ry="2.8" />
+					<path d="M4 5.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
+					<path d="M4 11.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
+				</svg>
+			</button>
+
+			{/* 自动化任务（schedule）：定时把提示词送回会话的一等视图入口。 */}
+			<button
+				type="button"
+				className={itemClass(view === "automation" && !settingsOpen)}
+				title={t("rail.automation")}
+				aria-label={t("rail.automation")}
+				aria-current={view === "automation" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("automation")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<circle cx="12" cy="13" r="8" />
+					<path d="M12 9v4l2.5 2.5" />
+					<path d="M5 3 2 6M19 3l3 3" />
+				</svg>
 			</button>
 
 			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
@@ -342,6 +405,48 @@ export function ActivityRail({
 					<circle cx="17.5" cy="15" r="2.6" />
 				</svg>
 				{mediaPlaying && <span className="owl-rail-media-dot" aria-hidden="true" />}
+			</button>
+
+			{/* 项目页（Codex 式一览）：全部项目 + 行内展开会话。 */}
+			<button
+				type="button"
+				className={itemClass(view === "projects" && !settingsOpen)}
+				title={t("rail.projects")}
+				aria-label={t("rail.projects")}
+				aria-current={view === "projects" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("projects")}
+			>
+				<IconFolder className="h-[18px] w-[18px]" />
+			</button>
+
+			{/* 「八股对练」：bagu 题库（localhost:8080）+ AI 面试官相互提问。 */}
+			<button
+				type="button"
+				className={itemClass(view === "bagu" && !settingsOpen)}
+				title={t("rail.bagu")}
+				aria-label={t("rail.bagu")}
+				aria-current={view === "bagu" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("bagu")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<circle cx="12" cy="8.5" r="5" />
+					<path d="M9.2 12.8 7.5 21l4.5-2.4L16.5 21l-1.7-8.2" />
+				</svg>
+			</button>
+
+			{/* 插件市场：实时聚合 pi 生态与 DSH 社区插件，引入即交给 Agent 自适应改造。 */}
+			<button
+				type="button"
+				className={itemClass(view === "market" && !settingsOpen)}
+				title={t("rail.market")}
+				aria-label={t("rail.market")}
+				aria-current={view === "market" && !settingsOpen ? "page" : undefined}
+				onClick={() => onSelect("market")}
+			>
+				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<path d="M13.5 3.5 15 5a1.4 1.4 0 0 1-1 2.4h-1.3a1.6 1.6 0 0 0 0 3.2H14a1.4 1.4 0 0 1 1.4 1.4v1.6a1.4 1.4 0 0 0 1.4 1.4H19a1.6 1.6 0 0 0 0-3.2h-.4" />
+					<path d="M19.6 10.6A1.7 1.7 0 0 1 21 12.3V19a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 19V5.6A1.6 1.6 0 0 1 5.6 4h6.1a1.7 1.7 0 0 1 1.7 1.4Z" />
+				</svg>
 			</button>
 
 			<div className="owl-rail-app-menu" ref={menuRootRef} data-tauri-drag-region="false">
