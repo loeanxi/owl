@@ -344,7 +344,15 @@ export function validateToolArguments(tool: Tool, toolCall: ToolCall): any {
 			.map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
 			.join("\n") || "Unknown validation error";
 
-	const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(toolCall.arguments, null, 2)}`;
+	// Echoing the full pretty-printed arguments buries the actionable error list and invites
+	// the model to resend the same malformed payload (observed: 12 identical resends in one
+	// session). Keep the error list, summarize the arguments compactly, and state the fix.
+	const serialized = JSON.stringify(toolCall.arguments) ?? "undefined";
+	const summarized = serialized.length > 600 ? `${serialized.slice(0, 600)}…(truncated)` : serialized;
+	const errorMessage =
+		`Validation failed for tool "${toolCall.name}":\n${errors}\n\n` +
+		`Received arguments: ${summarized}\n\n` +
+		"Fix the flagged fields and resend a corrected call. Do not resend the arguments unchanged.";
 
 	throw new Error(errorMessage);
 }

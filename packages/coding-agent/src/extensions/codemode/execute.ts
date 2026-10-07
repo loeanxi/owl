@@ -411,7 +411,12 @@ export async function executeCodemode(
 		// pi extension: a returned value is appended like text().
 		if (result.value !== undefined) items.push({ type: "text", text: valueText(result.value) });
 	} else {
-		items.push({ type: "text", text: `Script error:\n${formatError(result, calls)}` });
+		const errorText = `Script error:\n${formatError(result, calls)}`;
+		// 沙箱是 ESM：模型按 CJS 习惯写 require 会直接 ReferenceError，附一句提示省一轮重试。
+		const esmHint = /require\s+is\s+not\s+defined/i.test(errorText)
+			? "\n\nThe script sandbox is ESM: there is no require. Use `import ... from ...` at the top of the script instead."
+			: "";
+		items.push({ type: "text", text: errorText + esmHint });
 	}
 	if (generatedImages > 0 && !items.some((item) => item.type === "image")) {
 		items.push({

@@ -114,3 +114,85 @@ describe("edit tool stringified edits", () => {
 		});
 	});
 });
+
+describe("edit tool loose edit items (continuation chunks)", () => {
+	it("merges a bare-string continuation into the previous edit's newText", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		const prepared = definition.prepareArguments!({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "b" }, "c"],
+		});
+		expect(prepared).toEqual({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "bc" }],
+			__owlMergedContinuations: 1,
+		});
+	});
+
+	it("merges {newText}-only and string continuations sequentially", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		const prepared = definition.prepareArguments!({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "b" }, { newText: "c" }, "d"],
+		});
+		expect(prepared).toEqual({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "bcd" }],
+			__owlMergedContinuations: 2,
+		});
+	});
+
+	it("merges {$text}-only keyed-string continuations", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		const prepared = definition.prepareArguments!({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "b" }, { $text: "c" }, "d"],
+		});
+		expect(prepared).toEqual({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "bcd" }],
+			__owlMergedContinuations: 2,
+		});
+	});
+
+	it("leaves an unmergeable leading string untouched for validation to reject", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		const input = { path: "file.txt", edits: ["a", { oldText: "x", newText: "y" }] };
+		const prepared = definition.prepareArguments!(input);
+		expect(prepared).toBe(input);
+	});
+
+	it("keeps valid edits between continuations in place", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		const prepared = definition.prepareArguments!({
+			path: "file.txt",
+			edits: [{ oldText: "a", newText: "b" }, "c", { oldText: "x", newText: "y" }],
+		});
+		expect(prepared).toEqual({
+			path: "file.txt",
+			edits: [
+				{ oldText: "a", newText: "bc" },
+				{ oldText: "x", newText: "y" },
+			],
+			__owlMergedContinuations: 1,
+		});
+	});
+
+	it("executes a merged call, applies the edit, and discloses the repair", async () => {
+		const dir = await createTempDir();
+		const filePath = join(dir, "icon.tsx");
+		await writeFile(filePath, "HEAD\n", "utf8");
+
+		const definition = createEditToolDefinition(dir);
+		const prepared = definition.prepareArguments!({
+			path: "icon.tsx",
+			edits: [{ oldText: "HEAD", newText: "line1\n\t\t" }, "\n\t);\n}"],
+		});
+		const result = await definition.execute("tool-1", prepared, undefined, undefined, {} as ExtensionToolContext);
+
+		const text = result.content[0].type === "text" ? result.content[0].text : "";
+		expect(text).toContain("Successfully replaced 1 block(s) in icon.tsx.");
+		expect(text).toContain("were merged into the previous edit's newText");
+		expect(await readFile(filePath, "utf8")).toBe("line1\n\t\t\n\t);\n}\n");
+	});
+});

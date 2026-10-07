@@ -34,7 +34,7 @@ const editSchema = Type.Object(
 		path: Type.String({ description: "Path to the file to edit (relative or absolute)" }),
 		edits: Type.Array(replaceEditSchema, {
 			description:
-				"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
+				'One or more targeted replacements. Each item MUST be an object like {"oldText": "<exact existing text>", "newText": "<replacement text>"} — never a bare string and never an object without oldText. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.',
 		}),
 	},
 	{},
@@ -58,6 +58,45 @@ type LegacyEditToolInput = EditToolInput & {
 };
 
 type SingleEditInput = { oldText: string; newText: string };
+
+/** Marker key set by prepareEditArguments when loose items were merged (read in execute). */
+const MERGED_CONTINUATIONS_KEY = "__owlMergedContinuations";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Folds continuation-style items (bare strings, {newText}-only objects, or {$text}
+ * keyed-string objects) into the previous edit's newText. Items that cannot be
+ * interpreted this way pass through unchanged so schema validation rejects them
+ * with its normal error.
+ */
+function mergeLooseEditItems(edits: unknown[]): { edits: unknown[]; count: number } {
+	const merged: unknown[] = [];
+	let count = 0;
+	for (const item of edits) {
+		const previous = merged[merged.length - 1];
+		const continuation =
+			typeof item === "string"
+				? item
+				: isPlainObject(item) && typeof item.newText === "string" && typeof item.oldText !== "string"
+					? item.newText
+					: isPlainObject(item) &&
+							typeof (item as { $text?: unknown }).$text === "string" &&
+							typeof item.newText !== "string" &&
+							typeof item.oldText !== "string"
+						? (item as { $text: string }).$text
+						: undefined;
+		if (continuation !== undefined && isPlainObject(previous) && typeof previous.newText === "string") {
+			previous.newText += continuation;
+			count++;
+			continue;
+		}
+		merged.push(item);
+	}
+	return { edits: merged, count };
+}
 
 function isSingleEditInput(value: unknown): value is SingleEditInput {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -121,6 +160,19 @@ function prepareEditArguments(input: unknown): EditToolInput {
 		} catch {}
 	} else if (isSingleEditInput(args.edits)) {
 		args.edits = [args.edits];
+	}
+
+	// MiniMax-M3 treats edits[] as text chunks: later items arrive as bare strings or
+	// {newText}-only objects continuing the previous edit's replacement text. Merge them
+	// into that previous edit so the call survives validation; execute() discloses the
+	// repair and the diff/review flow still gates the written content. Anything that
+	// cannot be interpreted this way is left untouched for schema validation to reject.
+	if (Array.isArray(args.edits)) {
+		const merged = mergeLooseEditItems(args.edits);
+		if (merged.count > 0) {
+			args.edits = merged.edits;
+			args[MERGED_CONTINUATIONS_KEY] = merged.count;
+		}
 	}
 
 	const legacy = args as LegacyEditToolInput;
@@ -211,11 +263,16 @@ export function createEditToolDefinition(
 
 				const diffResult = generateDiffString(baseContent, newContent);
 				const patch = generateUnifiedPatch(path, baseContent, newContent);
+				const mergedContinuations = (input as Record<string, unknown>)[MERGED_CONTINUATIONS_KEY];
+				const mergeNote =
+					typeof mergedContinuations === "number" && mergedContinuations > 0
+						? ` Note: ${mergedContinuations} malformed edits[] item(s) (bare string or missing oldText) were merged into the previous edit's newText as continuation text. Verify the diff matches your intent.`
+						: "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Successfully replaced ${edits.length} block(s) in ${path}.`,
+							text: `Successfully replaced ${edits.length} block(s) in ${path}.${mergeNote}`,
 						},
 					],
 					details: { diff: diffResult.diff, patch, firstChangedLine: diffResult.firstChangedLine },
