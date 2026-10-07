@@ -148,11 +148,6 @@ export default function App(): React.JSX.Element {
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
-	// 号池 Manager 懒挂载：首次切到 manager 视图时渲染，之后保活。
-	const [managerMounted, setManagerMounted] = useState(railView === "manager");
-	useEffect(() => {
-		if (railView === "manager") setManagerMounted(true);
-	}, [railView]);
 	const [researchSessionId, setResearchSessionId] = useState<string>();
 	const researchSessionIdRef = useRef(researchSessionId);
 	researchSessionIdRef.current = researchSessionId;
@@ -2169,11 +2164,13 @@ export default function App(): React.JSX.Element {
 							/>
 						</div>}
 						{/* 号池 Manager（迁移阶段 6）：Rail 一等视图，嵌入 pool-server 管理台。 */}
-						{managerMounted && <div style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
-							<PanelErrorBoundary label="号池 Manager">
-								<ManagerTab />
-							</PanelErrorBoundary>
-						</div>}
+						{railView === "manager" && !showSettings && (
+							<div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column", background: "#fff" }}>
+								<PanelErrorBoundary label="号池 Manager">
+									<ManagerTab />
+								</PanelErrorBoundary>
+							</div>
+						)}
 						<div style={{ display: railView === "research" || railView === "manager" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
 						{conversationView === "trajectory" ? (
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
