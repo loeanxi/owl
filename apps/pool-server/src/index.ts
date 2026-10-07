@@ -9,6 +9,7 @@ import type { Platform, UpstreamChatClient } from "owl-pool";
 import {
 	AccountPoolRouter,
 	ApiKeyService,
+	BillingService,
 	CheckInService,
 	MemoryGatewayState,
 	RouteGeneration,
@@ -30,6 +31,7 @@ import { AdminAuthService } from "./security/admin-service.ts";
 import { createPoolServer } from "./server.ts";
 import { SqliteAccountStore } from "./store/account-store.ts";
 import { SqliteAdminCredentialStore } from "./store/admin-credential-store.ts";
+import { registerBillingRoutes, SqliteBillingStore } from "./store/billing-store.ts";
 import { newRecordId, SqliteCheckInRecordStore } from "./store/checkin-record-store.ts";
 import { dbAlive, openDb } from "./store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "./store/gateway-stores.ts";
@@ -85,6 +87,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	const keys = new ApiKeyService({ store: apiKeyStore });
 	const catalog = new SqliteCatalogStore(db);
 	const callLogs = new SqliteCallLogStore(db);
+	const billingStore = new SqliteBillingStore(db);
+	const billing = new BillingService({ store: billingStore });
 	const gatewayState = new MemoryGatewayState();
 	const poolRouter = new AccountPoolRouter({
 		accounts,
@@ -187,6 +191,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		sticky,
 		upstreams,
 		callLogs,
+		billing,
+		billingStore,
 		catalog,
 		listPublishedModels: () => catalog.listModels(),
 		trustedProxyCount: config.trustedProxyCount,

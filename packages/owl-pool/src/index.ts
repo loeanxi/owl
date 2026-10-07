@@ -60,6 +60,17 @@ export {
 	normalizeAllowedModels,
 	resolveEffectiveKey,
 } from "./apikey/types.ts";
+// ── 计费域（阶段 5）──
+export {
+	BillingService,
+	type BillingServiceOptions,
+	type BillingStore,
+	type LedgerEntry,
+	type LedgerEntryType,
+	type LedgerStatus,
+	type ModelRate,
+	type Wallet,
+} from "./billing/service.ts";
 export {
 	type CapabilityRequest,
 	type CatalogData,

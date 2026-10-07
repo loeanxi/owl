@@ -193,6 +193,7 @@ beforeAll(async () => {
 });
 
 let plaintextKey = "";
+let now2 = 1_700_000_000_000;
 
 afterAll(() => {
 	server.close();
@@ -348,5 +349,70 @@ describe("OpenAI 网关（阶段 3 HTTP 全流程）", () => {
 		expect(okLogs.length).toBeGreaterThanOrEqual(2); // 非流式 + 流式 + 换号各一条
 		expect(okLogs.every((log) => log.usageSource === "KNOWN" && log.accountId !== null)).toBe(true);
 		void DEFAULT_OUTPUT;
+	});
+});
+
+describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
+	it("成员 Key 余额不足 → 402 insufficient_balance；管理 Key 不扣费", async () => {
+		// 现有测试服务未装配 billing → 仅验证管理 Key 不受影响由其余用例覆盖
+		// 这里直接用 billing 服务单元验证核心口径
+		const { BillingService } = await import("owl-pool");
+		const { openDb } = await import("../src/store/db.ts");
+		const { SqliteBillingStore } = await import("../src/store/billing-store.ts");
+		const dir2 = mkdtempSync(join(tmpdir(), "owl-pool-billing-"));
+		const db = openDb(join(dir2, "b.db"));
+		const store = new SqliteBillingStore(db);
+		store.adjust("m1", 100);
+		store.saveRate({
+			model: "star-lm",
+			promptPer1m: 10_000,
+			completionPer1m: 20_000,
+			cacheReadPer1m: 1_000,
+			cacheWritePer1m: 1_000,
+			enabled: true,
+		});
+		const billing = new BillingService({ store, nowMs: () => now2 });
+
+		// 预占：输入 4 tokens(1字符/4) + 输出 2048 → ceil(2052*10000/1e6)=21 分
+		const { entryId, reserved } = billing.reserve("m1", "k1", "star-lm", {
+			messages: [{ role: "user", content: "hi" }],
+		});
+		expect(reserved).toBe(21);
+		expect(billing.balance("m1")).toBe(79);
+
+		// 结算：实际 prompt=10/completion=5 → 输入 ceil(10*10000/1e6)=1,输出 ceil(5*20000/1e6)=1 → 2 分，退 19
+		billing.settle(entryId, { promptTokens: 10, completionTokens: 5 }, null);
+		expect(billing.balance("m1")).toBe(98);
+
+		// 超额：余额 98，预占 999999 分 → 402 语义
+		expect(() =>
+			billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "x".repeat(400_000_000) }] }),
+		).toThrowError(/余额不足/);
+
+		// 失败退还
+		const r2 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
+		billing.voidPending(r2.entryId);
+		expect(billing.balance("m1")).toBe(98); // 预占 21 → 退 21
+
+		// 未知用量 → REVIEW
+		const r3 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
+		billing.settle(r3.entryId, null, null);
+		const entry = store.getLedger(r3.entryId);
+		expect(entry?.status).toBe("REVIEW");
+
+		// REVIEW 不自动退款（待人工），PENDING 超时才清扫
+		const r4 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
+		expect(billing.balance("m1")).toBe(56); // r4 预占 21
+		now2 = 1_700_000_000_000 + 16 * 60_000;
+		expect(billing.sweepStale()).toBe(1); // 只扫 r4（PENDING），r3（REVIEW）不动
+		expect(billing.balance("m1")).toBe(77); // 56 + 21（r4 退还）；r3 的 REVIEW 留待人工
+		db.close();
+		setTimeout(() => {
+			try {
+				rmSync(dir2, { recursive: true, force: true });
+			} catch {
+				// Windows 句柄延迟
+			}
+		}, 200);
 	});
 });

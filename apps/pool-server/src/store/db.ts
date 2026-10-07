@@ -147,6 +147,41 @@ CREATE TABLE IF NOT EXISTS gateway_call_logs (
 
 CREATE INDEX IF NOT EXISTS idx_gateway_call_logs_occurred ON gateway_call_logs (occurred_at DESC);
 
+CREATE TABLE IF NOT EXISTS billing_member_wallets (
+	member_id TEXT PRIMARY KEY,
+	balance INTEGER NOT NULL DEFAULT 0,
+	updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS billing_ledger_entries (
+	id TEXT PRIMARY KEY,
+	member_id TEXT NOT NULL,
+	key_id TEXT,
+	request_id TEXT,
+	model TEXT NOT NULL,
+	amount INTEGER NOT NULL,
+	reserved_amount INTEGER NOT NULL,
+	balance_before INTEGER NOT NULL,
+	balance_after INTEGER NOT NULL,
+	prompt_tokens INTEGER,
+	completion_tokens INTEGER,
+	entry_type TEXT NOT NULL,
+	status TEXT NOT NULL,
+	remark TEXT,
+	occurred_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_member_occurred ON billing_ledger_entries (member_id, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS billing_model_rates (
+	model TEXT PRIMARY KEY,
+	prompt_per_1m INTEGER NOT NULL,
+	completion_per_1m INTEGER NOT NULL,
+	cache_read_per_1m INTEGER NOT NULL,
+	cache_write_per_1m INTEGER NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE INDEX IF NOT EXISTS idx_check_in_records_occurred ON check_in_records (occurred_at DESC);
 `;
 

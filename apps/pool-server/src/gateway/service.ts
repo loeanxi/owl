@@ -10,6 +10,7 @@ import {
 	type AccountStore,
 	type ApiKey,
 	type ApiKeyService,
+	BillingService,
 	estimateTextPromptTokens,
 	GatewayFault,
 	ipAllowed,
@@ -26,6 +27,7 @@ import {
 	type UpstreamChatClient,
 } from "owl-pool";
 import { resolveClientIp } from "../security/client-ip.ts";
+import type { SqliteBillingStore } from "../store/billing-store.ts";
 import type { GatewayCallLogRecord, SqliteCallLogStore, SqliteCatalogStore } from "../store/gateway-stores.ts";
 import { newCallLogId } from "../store/gateway-stores.ts";
 
@@ -55,6 +57,8 @@ export interface GatewayServiceDeps {
 	sticky: StickySessionService;
 	upstreams: Map<Platform, UpstreamChatClient>;
 	callLogs: SqliteCallLogStore;
+	billing?: BillingService;
+	billingStore?: SqliteBillingStore;
 	catalog: SqliteCatalogStore;
 	listPublishedModels(): PublishedModel[];
 	trustedProxyCount: number;
@@ -151,8 +155,11 @@ export async function chatCompletion(
 	payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
 	const run = new Run(deps, auth, payload);
+	// 成员 Key 预占（resolve 之后：模型未上架不扣费）
+	const charge = reserveOf(deps, auth, run, payload);
 	try {
 		const resolution = resolveOf(deps, auth, payload);
+		charge.open(resolution.publicId);
 		const result = await deps.generation.route(
 			{ key: auth.key, payload, resolution, sessionId: run.sessionId },
 			async (account, _target, forwarded) => {
@@ -167,9 +174,15 @@ export async function chatCompletion(
 		run.observe(result.body, false);
 		const sanitizedBody = sanitizeBody(deps, result.body, run);
 		run.produced = true;
+		charge.settle(
+			run.usageSource === "KNOWN"
+				? { promptTokens: run.usage?.[0] ?? -1, completionTokens: run.usage?.[1] ?? -1 }
+				: null,
+		);
 		run.finishOk();
 		return sanitizedBody;
 	} catch (error) {
+		charge.void();
 		run.finishFail(error);
 		throw error;
 	}
@@ -184,8 +197,10 @@ export async function chatCompletionStream(
 	signal?: AbortSignal,
 ): Promise<void> {
 	const run = new Run(deps, auth, payload);
+	const charge = reserveOf(deps, auth, run, payload);
 	try {
 		const resolution = resolveOf(deps, auth, payload);
+		charge.open(resolution.publicId);
 		await deps.generation.route(
 			{ key: auth.key, payload, resolution, sessionId: run.sessionId },
 			async (account, _target, forwarded) => {
@@ -205,12 +220,58 @@ export async function chatCompletionStream(
 			},
 		);
 		run.produced = run.produced || run.sawContent;
+		charge.settle(
+			run.usageSource === "KNOWN"
+				? { promptTokens: run.usage?.[0] ?? -1, completionTokens: run.usage?.[1] ?? -1 }
+				: null,
+		);
 		run.finishOk();
 	} catch (error) {
+		charge.void();
 		run.finishFail(error);
 		throw error;
 	}
 	void signal;
+}
+
+/**
+ * 成员 Key 计费挂钩：预占 → 结算/退还三段。管理员自用 Key 直通。
+ * 预占失败（余额不足）抛 402；resolve 之前不产生任何扣费。
+ */
+function reserveOf(
+	deps: GatewayServiceDeps,
+	auth: AuthenticatedGatewayRequest,
+	run: Run,
+	payload: Record<string, unknown>,
+): {
+	open(publicModel: string): void;
+	settle(usage: { promptTokens: number; completionTokens: number } | null): void;
+	void(): void;
+} {
+	if (deps.billing === undefined || !BillingService.chargeable(auth.key)) {
+		return { open() {}, settle() {}, void() {} };
+	}
+	const pending: { entryId: string; model: string } | null = null;
+	void pending;
+	const state: { entryId: string | null; publicModel: string | null } = { entryId: null, publicModel: null };
+	return {
+		open(publicModel: string): void {
+			const entry = deps.billing!.reserve(auth.key.ownerMemberId!, auth.key.id, publicModel, payload);
+			state.entryId = entry.entryId;
+			state.publicModel = publicModel;
+			run.billingEntryId = entry.entryId;
+		},
+		settle(usage): void {
+			if (state.entryId !== null) {
+				deps.billing!.settle(state.entryId, usage, state.publicModel);
+			}
+		},
+		void(): void {
+			if (state.entryId !== null) {
+				deps.billing!.voidPending(state.entryId);
+			}
+		},
+	};
 }
 
 /** /v1/models：已上架模型按 Key 允许清单过滤。 */
@@ -286,6 +347,7 @@ class Run {
 	usageSource = "UNKNOWN";
 	cacheReadTokens: number | null = null;
 	cacheWriteTokens: number | null = null;
+	billingEntryId: string | null = null;
 
 	readonly #deps: GatewayServiceDeps;
 	readonly #auth: AuthenticatedGatewayRequest;
