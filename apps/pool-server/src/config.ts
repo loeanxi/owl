@@ -43,6 +43,14 @@ export interface PoolConfig {
 		workbuddy: { baseUrl: string; chatPath: string; userAgent: string; origin: string; referer: string };
 		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
 		gemini: { baseUrl: string; apiVersion: string; defaultMaxTokens: number };
+		bridge: {
+			nodeExecutable: string;
+			script: string;
+			homeRoot: string;
+			requestTimeoutMs: number;
+			idleRecycleMs: number;
+			userHome: string;
+		};
 		claude: {
 			baseUrl: string;
 			defaultMaxTokens: number;
@@ -88,6 +96,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
 				origin: env.OWL_POOL_WB_ORIGIN ?? "https://www.codebuddy.cn",
 				referer: env.OWL_POOL_WB_REFERER ?? "https://www.codebuddy.cn/",
+			},
+			bridge: {
+				nodeExecutable: env.OWL_POOL_BRIDGE_NODE ?? "node",
+				script: env.OWL_POOL_BRIDGE_SCRIPT ?? "bridge/src/main.mjs",
+				homeRoot: env.OWL_POOL_BRIDGE_HOME_ROOT ?? "data/bridge-accounts",
+				requestTimeoutMs: intOr(env.OWL_POOL_BRIDGE_REQUEST_TIMEOUT_MS, 600_000),
+				idleRecycleMs: intOr(env.OWL_POOL_BRIDGE_IDLE_RECYCLE_MS, 600_000),
+				userHome: env.OWL_POOL_BRIDGE_USER_HOME ?? env.USERPROFILE ?? env.HOME ?? "",
 			},
 			gemini: {
 				baseUrl: env.OWL_POOL_GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com",

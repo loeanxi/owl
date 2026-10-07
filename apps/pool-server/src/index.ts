@@ -2,9 +2,9 @@
  * pool-server 入口 —— 装配领域层与管理端鉴权栈/HTTP/存储/定时器。
  * 运行：`node dist/main.js`（esbuild 产物）或 `npm run dev`（Node 类型剥离直跑 src）。
  */
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { mkdirSync, existsSync as pathExists } from "node:fs";
+import { dirname, resolve as pathResolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Platform, UpstreamChatClient } from "owl-pool";
 import {
 	AccountPoolRouter,
@@ -20,6 +20,7 @@ import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
 import { GeminiChatClient } from "./gateway/gemini-client.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
+import { SdkBridgeChatClient, SdkBridgeManager } from "./gateway/sdk-bridge.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { TraeChatClient } from "./gateway/trae-client.ts";
 import { WorkBuddyChatClient } from "./gateway/workbuddy-client.ts";
@@ -44,7 +45,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		throw new Error("non-loopback bind rejected");
 	}
 
-	const dbFile = resolve(config.dbPath);
+	const dbFile = pathResolve(config.dbPath);
 	mkdirSync(dirname(dbFile), { recursive: true });
 	const db = openDb(dbFile);
 	const accounts = new SqliteAccountStore(db);
@@ -153,6 +154,22 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		},
 	});
 	upstreams.set(gemini.platform(), gemini);
+	// SDK 桥（CURSOR/COPILOT/QODER）：脚本路径对 cwd / src / dist 三种深度解析
+	const bridgeScriptCandidates = [
+		pathResolve(config.gateway.bridge.script),
+		pathResolve(pathResolve(), "../bridge/src/main.mjs"),
+		fileURLToPath(new URL("../../bridge/src/main.mjs", import.meta.url)),
+	];
+	const bridgeScript =
+		bridgeScriptCandidates.find((candidate) => pathExists(candidate)) ?? config.gateway.bridge.script;
+	const bridgeManager = new SdkBridgeManager({ ...config.gateway.bridge, script: bridgeScript }, accounts);
+	for (const bridgePlatform of ["CURSOR", "COPILOT", "QODER"] as const) {
+		const bridgeClient = new SdkBridgeChatClient(bridgeManager, accounts, bridgePlatform, {
+			...config.gateway.bridge,
+			script: bridgeScript,
+		});
+		upstreams.set(bridgeClient.platform(), bridgeClient);
+	}
 	const generation = new RouteGeneration({
 		accounts,
 		router: poolRouter,
@@ -215,7 +232,7 @@ function isLoopback(host: string): boolean {
 
 // 直接运行时才启动（被测试/其他模块 import 时不拉起服务）
 const invokedDirectly =
-	process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+	process.argv[1] !== undefined && import.meta.url === pathToFileURL(pathResolve(process.argv[1])).href;
 if (invokedDirectly) {
 	void main();
 }
