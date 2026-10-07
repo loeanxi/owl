@@ -82,6 +82,24 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 	async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
 		try {
+			// CORS：owl 桌面页（8787 桥）与管理台窗口跨源访问 pool-server API。
+			// 仅放行回环来源；凭据模式下 ACAO 必须回显具体 Origin。
+			const origin = request.headers.origin;
+			if (origin !== undefined && /\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin)) {
+				response.setHeader("Access-Control-Allow-Origin", origin);
+				response.setHeader("Access-Control-Allow-Credentials", "true");
+				response.setHeader("Vary", "Origin");
+				if (request.method === "OPTIONS") {
+					response.writeHead(204, {
+						"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+						"Access-Control-Allow-Headers": "Content-Type, Authorization, X-Api-Key, X-Request-Id",
+						"Access-Control-Max-Age": "600",
+					});
+					response.end();
+					return;
+				}
+			}
+
 			// 健康检查：无鉴权，manager 形状 {status, db, uptimeSeconds}
 			if (request.method === "GET" && url.pathname === "/healthz") {
 				const alive = deps.isDbAlive();
@@ -94,9 +112,14 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 				return;
 			}
 
-			// 管理台页面（迁移阶段 6）：/ 与 /admin 直接伺服 SPA
+			// 管理台页面（迁移阶段 6）：/ 与 /admin 直接伺服 SPA（跨源 iframe 场景带 ACAO）
 			if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
-				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+				const headers: Record<string, string> = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" };
+				if (origin !== undefined) {
+					headers["Access-Control-Allow-Origin"] = origin;
+					headers["Vary"] = "Origin";
+				}
+				response.writeHead(200, headers);
 				response.end(adminHtml());
 				return;
 			}
