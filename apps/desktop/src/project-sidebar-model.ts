@@ -27,6 +27,10 @@ function publish(): void {
 	revision++;
 	if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANGE_EVENT));
 }
+/** 外部（如项目页）改动共用偏好后手动广播：侧栏的置顶项目等本地 state 依此重读。 */
+export function publishProjectSidebarChange(): void {
+	publish();
+}
 function subscribe(listener: () => void): () => void {
 	if (typeof window === "undefined") return () => {};
 	window.addEventListener(CHANGE_EVENT, listener);
