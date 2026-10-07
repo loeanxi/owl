@@ -59,6 +59,12 @@ describe("desktop agent instructions", () => {
 		expect(sections.addendum).toContain(planPrompt);
 	});
 
+	it("keeps the entity-verification and honesty rules in the defaults", () => {
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("分不清闲聊还是指代就按指代处理");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("不用生成内容冒充检索结果");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("先落盘再承诺");
+	});
+
 	it("discovers updated project append instructions on reload without duplicating defaults", async () => {
 		mkdirSync(join(cwd, ".owl"));
 		const appendPath = join(cwd, ".owl", "APPEND_SYSTEM.md");

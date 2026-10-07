@@ -38,8 +38,8 @@ interface MemoryFile {
 	entries: OwlMemoryEntry[];
 }
 
-/** 注入 system prompt 的记忆内容预算（字符）。 */
-export const MEMORY_SECTION_MAX_CHARS = 8000;
+/** 注入 system prompt 的记忆内容预算（字节，UTF-8；装满即止，尾部提示未注入数量）。 */
+export const MEMORY_SECTION_MAX_CHARS = 12000;
 /** entries 总量软上限：超出时拒绝新增，提示用户清理。 */
 export const MEMORY_MAX_ENTRIES = 200;
 

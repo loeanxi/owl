@@ -1,7 +1,8 @@
 /**
  * owl 跨会话记忆扩展（内置）。
  *
- * - `remember` 工具：用户明确要求时写入一条长期记忆（可标 scope）；
+ * - `remember` 工具：用户明确要求、或助手在对话里承诺过记住时，写入一条长期记忆（可标
+ *   scope）——承诺即授权，说出口的「记下了」必须能用工具兑现，不许只用嘴承诺；
  * - `recall` 工具：模型按关键词按需检索记忆（hindsight recall 的理念、词面匹配实现）；
  * - `before_agent_start`：把记忆投影注入 system prompt 的 `owl_memory` 分区——按项目
  *   过滤 + 证据/新近排序 + 预算化装填，用户在桌面设置页「跨会话记忆」或 `/memory`
@@ -27,10 +28,48 @@ import {
 	renderMemorySection,
 	searchMemoryEntries,
 } from "../../core/memory/store.ts";
-import { MEMORY_WRITE_GUIDANCE, memoryWriteDenial } from "../../core/memory/write-policy.ts";
+import {
+	assistantCommittedToMemory,
+	MEMORY_WRITE_GUIDANCE,
+	memoryWriteDenial,
+} from "../../core/memory/write-policy.ts";
+import type { ReadonlySessionManager } from "../../core/session-manager.ts";
 
 function memoryEnabled(pi: Parameters<ExtensionFactory>[0]): boolean {
 	return pi.getSettings().owlMemory?.enabled !== false;
+}
+
+/** 助手消息正文（剔除 thinking 与工具调用，避免计划文本误判成承诺）。 */
+function assistantCommitInText(content: unknown): boolean {
+	const text =
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content
+						.filter((part): part is { type: "text"; text: string } => (part as { type?: string }).type === "text")
+						.map((part) => part.text)
+						.join("\n")
+				: "";
+	return assistantCommittedToMemory(text);
+}
+
+/** 兜底：扫「最近一条用户消息之后」的助手正文（覆盖进程重启后内存标记丢失的续会话场景；
+ *  更早的「已保存」转述不得把写权限带进新一轮，语义与 message_end 的 savedSinceUserMessage 一致）。 */
+function sessionHasMemoryCommit(sessionManager: ReadonlySessionManager | undefined): boolean {
+	if (!sessionManager) return false;
+	try {
+		const entries = sessionManager.getEntries();
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const entry = entries[i];
+			if (entry.type !== "message") continue;
+			const message = entry.message as { role?: string; content?: unknown };
+			if (message.role === "user") break;
+			if (message.role === "assistant" && assistantCommitInText(message.content)) return true;
+		}
+		return false;
+	} catch {
+		return false;
+	}
 }
 
 function memoryModel<T>(
@@ -65,6 +104,11 @@ function renderEntryList(agentDir: string, cwd: string): string {
 export function createOwlMemoryExtension(): ExtensionFactory {
 	return (pi) => {
 		let currentPrompt = "";
+		// 助手在可见回复里承诺过「记住」→ 本会话内记忆写入放行（承诺必须能当轮兑现）。
+		let assistantCommitted = false;
+		// 本轮已真实放行过一次记忆写入后，助手转述「已保存/已记住」不再算新的承诺——
+		// 防止一次明确授权的保存把写权限泄漏到后续轮次（见 agent-session-memory-intent 测试）。
+		let memorySavedSinceUserMessage = false;
 		// Steering/follow-up messages do not start a new run. Only delivered user messages
 		// may change authorization; merely queued messages must not grant it early.
 		pi.on("message_start", (event) => {
@@ -77,21 +121,28 @@ export function createOwlMemoryExtension(): ExtensionFactory {
 							.filter((part) => part.type === "text")
 							.map((part) => part.text)
 							.join("\n");
+			memorySavedSinceUserMessage = false;
 		});
-		pi.on("tool_call", (event) => {
+		pi.on("message_end", (event) => {
+			if (event.message.role !== "assistant") return;
+			if (!memorySavedSinceUserMessage && assistantCommitInText(event.message.content)) assistantCommitted = true;
+		});
+		pi.on("tool_call", (event, ctx) => {
 			if (event.toolName !== "remember" && event.toolName !== "update_user_impression") return;
-			const reason = memoryWriteDenial(currentPrompt, memoryEnabled(pi));
+			const committed = assistantCommitted || sessionHasMemoryCommit(ctx?.sessionManager);
+			const reason = memoryWriteDenial(currentPrompt, memoryEnabled(pi), committed);
 			if (reason) return { block: true, reason };
+			memorySavedSinceUserMessage = true;
 		});
 		pi.registerTool({
 			name: "remember",
 			label: "记住",
 			description:
-				"仅在用户本轮明确要求记住或保存长期记忆时，保存一条已确认的稳定事实。" +
+				"保存一条已确认的稳定事实。授权条件：用户本轮明确要求记住/保存；或你此前在对话里向用户承诺过记住（说过「记下了」就必须当轮调用本工具兑现，不要只用嘴承诺）。" +
 				'scope 选 "global" 表示跨项目有效的用户偏好/环境特点；"project" 表示只对当前项目有效的事实（默认）。' +
 				"功能需求、截图目标和待办不是现有事实；先完成当前任务，不要用记忆操作替代交付。" +
 				"不要保存一次性任务细节、调试过程或任何密钥。记忆在设置页或 /memory 中管理。",
-			promptSnippet: "remember: 应用户明确要求保存一条长期记忆",
+			promptSnippet: "remember: 保存长期记忆（用户明确要求或你已承诺兑现时）",
 			promptGuidelines: [MEMORY_WRITE_GUIDANCE],
 			parameters: Type.Object({
 				content: Type.String({ description: "一条独立、具体、简短的记忆（第三人称，不超过 80 字）" }),

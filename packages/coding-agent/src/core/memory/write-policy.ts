@@ -1,8 +1,12 @@
-/** Foreground persistence is opt-in; ordinary task routing remains the model's responsibility. */
+/**
+ * Foreground persistence is opt-in; ordinary task routing remains the model's responsibility.
+ * 授权有两条路：用户本轮明确要求，或助手此前在对话里向用户承诺过记住——后者必须能当轮
+ * 用工具兑现，否则门控会逼模型用「记下了」这类空话应付用户（承诺即授权，说出口就要落盘）。
+ */
 export const MEMORY_WRITE_GUIDANCE =
-	"先完成用户当前要求的工作。remember 与 update_user_impression 只用于用户本轮明确要求记住、保存到长期记忆或更新用户印象的内容。" +
+	"先完成用户当前要求的工作。remember 与 update_user_impression 只用于两种情况：用户本轮明确要求记住、保存到长期记忆或更新用户印象；或你此前已在回复里向用户承诺记住（说过「记下了/已记住」就必须当轮调用工具兑现，禁止只用嘴承诺）。" +
 	"功能需求、截图里的目标效果、待办和助手自己的计划都不是已实现事实，不能记成现状；记录记忆也不代表完成原任务。" +
-	"没有明确记忆请求时继续执行原任务，稳定信息的自动沉淀由后台处理。";
+	"两者都不满足时不要写入，继续执行原任务，稳定信息的自动沉淀由后台处理。";
 
 /**
  * Only recognizes direct Chinese/English memory requests, not general task intent.
@@ -46,8 +50,19 @@ export function hasExplicitMemoryRequest(prompt: string): boolean {
 	});
 }
 
-export function memoryWriteDenial(prompt: string, enabled: boolean): string | undefined {
+/**
+ * 助手对话内承诺检测：可见回复里说了「记下了/已记住/存进记忆」就视同接下了保存义务。
+ * 只扫助手正文（调用方负责剔除 thinking、工具结果和引用材料），否定句和疑问不算承诺。
+ */
+const MEMORY_COMMIT_RE =
+	/(?<!不[用要会]|别|没[有]?|无需|未)(?:(?:记(?:住|下)(?:了(?![吗嘛没])|(?![了吗嘛]))|真记了)|(?:记|存|写|保存)(?:进|入|到)?(?:了)?(?:长期|跨会话|全局)?记忆|(?:更新|保存)(?:了)?(?:一下)?(?:你的|对我的)?用户印象)/u;
+
+export function assistantCommittedToMemory(text: string): boolean {
+	return MEMORY_COMMIT_RE.test(text);
+}
+
+export function memoryWriteDenial(prompt: string, enabled: boolean, assistantCommitted = false): string | undefined {
 	if (!enabled) return "未保存：跨会话记忆已关闭。继续处理当前任务，不要通过其他记忆工具绕过此设置。";
-	if (hasExplicitMemoryRequest(prompt)) return undefined;
-	return "未保存：本轮用户没有明确要求写入长期记忆。不要把功能需求、截图目标或待办记成已有事实；当前任务仍未完成，请继续读取相关资料并执行用户要求。";
+	if (hasExplicitMemoryRequest(prompt) || assistantCommitted) return undefined;
+	return "未保存：本轮用户没有明确要求写入长期记忆，你也没有在对话里承诺过要记住。不要把功能需求、截图目标或待办记成已有事实；当前任务仍未完成，请继续读取相关资料并执行用户要求。";
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { hasExplicitMemoryRequest } from "../../src/core/memory/write-policy.ts";
+import {
+	assistantCommittedToMemory,
+	hasExplicitMemoryRequest,
+	memoryWriteDenial,
+} from "../../src/core/memory/write-policy.ts";
 
 describe("direct memory requests", () => {
 	it.each([
@@ -41,5 +45,38 @@ describe("direct memory requests", () => {
 		"记住了吗？",
 	])("does not authorize memory from tasks, reports, or quoted material: %s", (prompt) => {
 		expect(hasExplicitMemoryRequest(prompt)).toBe(false);
+	});
+});
+
+describe("assistant commitment authorizes memory writes", () => {
+	it.each([
+		"收到，记下了 👍",
+		"记下了，下次遇到项目里有名有姓的词，先 grep 再开口。",
+		"这回真记了——存到了全局跨会话记忆里。",
+		"好的，我会记住这个偏好。",
+		"已保存到跨会话记忆。",
+		"我把这条写入了长期记忆。",
+		"已更新用户印象。",
+	])("recognizes a commitment in the assistant reply: %s", (text) => {
+		expect(assistantCommittedToMemory(text)).toBe(true);
+	});
+
+	it.each([
+		"不用记住了，直接干活。",
+		"别记住这条。",
+		"没有记住任何东西。",
+		"记住了吗？",
+		"记住了没？",
+		"下次遇到项目里的具体名词，我会先 grep 再开口。", // 行为承诺 ≠ 记忆承诺
+		"这个文件的改动已保存到 reports/report.md。", // 保存的不是记忆
+	])("does not treat negations, questions, or unrelated claims as commitment: %s", (text) => {
+		expect(assistantCommittedToMemory(text)).toBe(false);
+	});
+
+	it("lets a remembered promise through the denial gate, but not a disabled switch", () => {
+		expect(memoryWriteDenial("可以", true, true)).toBeUndefined();
+		expect(memoryWriteDenial("可以", true, false)).toMatch(/未保存/);
+		expect(memoryWriteDenial("请记住这条", true, false)).toBeUndefined();
+		expect(memoryWriteDenial("可以", false, true)).toMatch(/已关闭/);
 	});
 });
