@@ -6,8 +6,10 @@
 //! - Auto-discovers serve.js and data directory (upward search + OWL_* env
 //!   overrides; a dev-machine absolute path remains only as last-ditch fallback)
 //! - Spawns the bridge (node serve.js) as a hidden child process
-//! - Allocates an available port dynamically to prevent conflicts
-//! - System tray support (show/hide window, restart bridge, exit)
+//! - Spawns the pool-server (号池, default 127.0.0.1:8790) alongside the bridge;
+//!   reuses an already-listening pool instead of binding twice
+//! - Allocates an available bridge port dynamically to prevent conflicts
+//! - System tray support (show/hide window, restart bridge+pool, exit)
 //! - Cleans up child process tree cleanly on exit
 
 use std::io::{Read, Write};
@@ -266,15 +268,21 @@ fn debug_rebuild_and_restart(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 const DEFAULT_PORT: u16 = 18901;
+const DEFAULT_POOL_PORT: u16 = 8790;
 
 /// serve.js does heavy top-level module loading before it starts listening;
 /// a cold start measured ~13s, so allow a generous window.
 const BRIDGE_START_TIMEOUT: Duration = Duration::from_secs(60);
+const POOL_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Bridge output lands here (previously discarded, which made startup
 /// failures like EADDRINUSE impossible to diagnose).
 fn bridge_log_path() -> PathBuf {
     std::env::temp_dir().join("owl-bridge.log")
+}
+
+fn pool_log_path() -> PathBuf {
+    std::env::temp_dir().join("owl-pool.log")
 }
 
 /// Locate the `serve.js` desktop bridge script.
@@ -348,6 +356,75 @@ fn resolve_serve_script() -> PathBuf {
     PathBuf::from("D:/owl/owl-re-v1/owl-mono/packages/coding-agent/dist/modes/desktop/serve.js")
 }
 
+/// Locate pool-server entry (`dist/main.js`). cwd for the child is the app root
+/// so relative `data/pool.db` and bridge-accounts paths resolve to the live DB.
+fn resolve_pool_script() -> PathBuf {
+    if let Ok(path) = std::env::var("OWL_POOL_SCRIPT") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return p;
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let cand1 = exe_dir
+                .join("resources")
+                .join("apps")
+                .join("pool-server")
+                .join("dist")
+                .join("main.js");
+            if cand1.exists() {
+                return cand1;
+            }
+            let cand2 = exe_dir
+                .join("apps")
+                .join("pool-server")
+                .join("dist")
+                .join("main.js");
+            if cand2.exists() {
+                return cand2;
+            }
+        }
+    }
+
+    if let Ok(mut dir) = std::env::current_dir() {
+        for _ in 0..6 {
+            let cand = dir
+                .join("apps")
+                .join("pool-server")
+                .join("dist")
+                .join("main.js");
+            if cand.exists() {
+                return cand;
+            }
+            let cand2 = dir
+                .join("owl-mono")
+                .join("apps")
+                .join("pool-server")
+                .join("dist")
+                .join("main.js");
+            if cand2.exists() {
+                return cand2;
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+
+    PathBuf::from("D:/owl/owl-re-v1/owl-mono/apps/pool-server/dist/main.js")
+}
+
+fn resolve_pool_port() -> u16 {
+    if let Ok(env_p) = std::env::var("OWL_POOL_PORT") {
+        if let Ok(p) = env_p.parse::<u16>() {
+            return p;
+        }
+    }
+    DEFAULT_POOL_PORT
+}
+
 /// Locate the agent data directory (OWL_CODING_AGENT_DIR).
 fn resolve_agent_dir() -> PathBuf {
     // 1. OWL_CODING_AGENT_DIR override
@@ -395,12 +472,12 @@ fn find_available_port(preferred: u16) -> u16 {
     preferred
 }
 
-fn bridge_log_stdio() -> (Stdio, Stdio) {
+fn log_stdio(path: &Path) -> (Stdio, Stdio) {
     let Ok(file) = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(bridge_log_path())
+        .open(path)
     else {
         return (Stdio::null(), Stdio::null());
     };
@@ -408,6 +485,14 @@ fn bridge_log_stdio() -> (Stdio, Stdio) {
         Ok(clone) => (Stdio::from(file), Stdio::from(clone)),
         Err(_) => (Stdio::null(), Stdio::null()),
     }
+}
+
+fn bridge_log_stdio() -> (Stdio, Stdio) {
+    log_stdio(&bridge_log_path())
+}
+
+fn pool_log_stdio() -> (Stdio, Stdio) {
+    log_stdio(&pool_log_path())
 }
 
 /// Tie the child's lifetime to this process via a Windows job object with
@@ -469,6 +554,27 @@ fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> Child {
     child
 }
 
+/// Spawn pool-server with cwd = app root so `data/pool.db` hits the live DB.
+fn spawn_pool(script: &Path, cwd: &Path, port: u16) -> std::io::Result<Child> {
+    let (stdout, stderr) = pool_log_stdio();
+    let db_path = cwd.join("data").join("pool.db");
+    let mut cmd = Command::new("node");
+    cmd.arg(script.to_string_lossy().as_ref())
+        .current_dir(cwd)
+        .env("OWL_POOL_HOST", "127.0.0.1")
+        .env("OWL_POOL_PORT", port.to_string())
+        .env("OWL_POOL_DB", db_path.to_string_lossy().as_ref())
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = cmd.spawn()?;
+    #[cfg(windows)]
+    tie_child_to_self(&child);
+    Ok(child)
+}
+
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -478,6 +584,10 @@ fn wait_for_port(port: u16, timeout: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(150));
     }
     false
+}
+
+fn port_open(port: u16) -> bool {
+    TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
 struct BridgeState {
@@ -523,10 +633,165 @@ impl BridgeState {
     }
 }
 
+/// Owl-owned pool child, or an external listener we leave alone on exit.
+struct PoolState {
+    child: Option<Child>,
+    /// True only when this process spawned the listener (safe to kill on exit).
+    owned: bool,
+    port: u16,
+    script: PathBuf,
+    cwd: PathBuf,
+}
+
+impl PoolState {
+    fn kill(&mut self) {
+        if !self.owned {
+            return;
+        }
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.owned = false;
+    }
+
+    fn restart(&mut self) -> Result<(), String> {
+        if self.owned {
+            self.kill();
+        } else if port_open(self.port) {
+            // External pool already up — leave it.
+            return Ok(());
+        }
+        match spawn_pool(&self.script, &self.cwd, self.port) {
+            Ok(mut child) => {
+                if !wait_for_port(self.port, POOL_START_TIMEOUT) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "号池未在 {} 内监听 127.0.0.1:{}；见 {}",
+                        format_duration(POOL_START_TIMEOUT),
+                        self.port,
+                        pool_log_path().display()
+                    ));
+                }
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    return Err(format!(
+                        "号池进程已退出；见 {}",
+                        pool_log_path().display()
+                    ));
+                }
+                self.child = Some(child);
+                self.owned = true;
+                Ok(())
+            }
+            Err(error) => Err(format!("无法启动号池（node 是否在 PATH？）: {error}")),
+        }
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    format!("{}s", duration.as_secs())
+}
+
+/// Start pool if 8790 is free; otherwise adopt the existing listener.
+fn ensure_pool(script: PathBuf, port: u16) -> PoolState {
+    let cwd = script
+        .parent()
+        .and_then(|dist| dist.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| script.clone());
+
+    if port_open(port) {
+        eprintln!("[owl] pool already listening on 127.0.0.1:{port} — reusing");
+        return PoolState {
+            child: None,
+            owned: false,
+            port,
+            script,
+            cwd,
+        };
+    }
+
+    if !script.exists() {
+        eprintln!(
+            "[owl] pool script missing ({}) — Loean/号池不可用 until started manually",
+            script.display()
+        );
+        return PoolState {
+            child: None,
+            owned: false,
+            port,
+            script,
+            cwd,
+        };
+    }
+
+    eprintln!(
+        "[owl] pool spawning on port {port} (script: {}, cwd: {}, log: {})",
+        script.display(),
+        cwd.display(),
+        pool_log_path().display()
+    );
+    match spawn_pool(&script, &cwd, port) {
+        Ok(mut child) => {
+            if !wait_for_port(port, POOL_START_TIMEOUT) {
+                eprintln!(
+                    "[owl] pool did not listen on 127.0.0.1:{port} within {}; see {}",
+                    format_duration(POOL_START_TIMEOUT),
+                    pool_log_path().display()
+                );
+                let _ = child.kill();
+                let _ = child.wait();
+                return PoolState {
+                    child: None,
+                    owned: false,
+                    port,
+                    script,
+                    cwd,
+                };
+            }
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                eprintln!(
+                    "[owl] pool process exited after bind race; see {}",
+                    pool_log_path().display()
+                );
+                return PoolState {
+                    child: None,
+                    owned: false,
+                    port,
+                    script,
+                    cwd,
+                };
+            }
+            PoolState {
+                child: Some(child),
+                owned: true,
+                port,
+                script,
+                cwd,
+            }
+        }
+        Err(error) => {
+            eprintln!("[owl] failed to spawn pool: {error}");
+            PoolState {
+                child: None,
+                owned: false,
+                port,
+                script,
+                cwd,
+            }
+        }
+    }
+}
+
 fn main() {
     let port = find_available_port(DEFAULT_PORT);
     let script = resolve_serve_script();
     let agent_dir = resolve_agent_dir();
+    let pool_port = resolve_pool_port();
+    let pool_script = resolve_pool_script();
+
+    let pool = Arc::new(Mutex::new(ensure_pool(pool_script, pool_port)));
 
     let child = spawn_bridge(&script, &agent_dir, port);
     eprintln!(
@@ -550,6 +815,7 @@ fn main() {
 
     let url: tauri::Url = format!("http://127.0.0.1:{port}").parse().unwrap();
     let bridge_for_setup = bridge.clone();
+    let pool_for_setup = pool.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -580,11 +846,13 @@ fn main() {
 
             // 构建系统托盘
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-            let restart_item = MenuItem::with_id(app, "restart", "重启桥服务", true, None::<&str>)?;
+            let restart_item =
+                MenuItem::with_id(app, "restart", "重启后台服务", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 Owl", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &restart_item, &quit_item])?;
 
             let bridge_for_tray = bridge_for_setup.clone();
+            let pool_for_tray = pool_for_setup.clone();
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -600,6 +868,11 @@ fn main() {
                     "restart" => {
                         if let Ok(mut b) = bridge_for_tray.lock() {
                             let _ = b.restart();
+                        }
+                        if let Ok(mut p) = pool_for_tray.lock() {
+                            if let Err(error) = p.restart() {
+                                eprintln!("[owl] pool restart: {error}");
+                            }
                         }
                     }
                     "quit" => {
@@ -645,6 +918,9 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 if let Ok(mut b) = bridge.lock() {
                     b.kill();
+                }
+                if let Ok(mut p) = pool.lock() {
+                    p.kill();
                 }
             }
         });

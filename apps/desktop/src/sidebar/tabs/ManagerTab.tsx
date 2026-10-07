@@ -52,8 +52,9 @@ export function ManagerTab() {
 			) : (
 				<div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", flex: 1 }}>
 					<p style={{ fontWeight: 600 }}>号池服务未启动</p>
-					<p style={{ fontSize: 12, color: "#888" }}>
-						运行 <code>node apps/pool-server/dist/main.js</code>（默认 127.0.0.1:8790）
+					<p style={{ fontSize: 12, color: "#888", textAlign: "center", maxWidth: 420 }}>
+						Owl 启动时会自动拉起号池（默认 127.0.0.1:8790）。若仍离线，可托盘「重启后台服务」，
+						或手动运行 <code>node apps/pool-server/dist/main.js</code>。
 					</p>
 					<button type="button" onClick={check}>重试</button>
 				</div>
