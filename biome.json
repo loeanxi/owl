@@ -6,6 +6,7 @@
 			"recommended": true,
 			"style": {
 				"noNonNullAssertion": "off",
+				"useTemplate": "off",
 				"useConst": "error",
 				"useNodejsImportProtocol": "off"
 			},

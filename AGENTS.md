@@ -34,6 +34,7 @@
 - Do not preserve backward compatibility unless the user asks for it.
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
+- End every turn that touched TypeScript code with the affected packages still type-checking (`npm run check`, or per-package `npx tsc -p tsconfig.build.json --noEmit`). Concurrent sessions share this repo and the launcher runs full-workspace `tsc`, so one unfinished file blocks everyone's builds. If a change is intentionally incomplete, name the file and say so in your reply.
 
 ## Commands
 
