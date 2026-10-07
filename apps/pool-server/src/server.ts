@@ -15,6 +15,7 @@ import {
 import { registerAccountRoutes } from "./http/accounts-api.ts";
 import { registerAdminRoutes } from "./http/admin-api.ts";
 import { adminHtml } from "./http/admin-ui.ts";
+import { registerBackupRoutes } from "./store/backup.ts";
 import { registerCheckInRoutes } from "./http/checkin-api.ts";
 import {
 	registerGatewayAdminRoutes,

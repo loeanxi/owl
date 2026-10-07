@@ -22,6 +22,7 @@ import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
 import { GeminiChatClient } from "./gateway/gemini-client.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
 import { SdkBridgeChatClient, SdkBridgeManager } from "./gateway/sdk-bridge.ts";
+import { MimoChatClient, MimoServeManager } from "./gateway/mimo-client.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { TraeChatClient } from "./gateway/trae-client.ts";
 import { WorkBuddyChatClient } from "./gateway/workbuddy-client.ts";
@@ -158,6 +159,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		},
 	});
 	upstreams.set(gemini.platform(), gemini);
+	const mimoManager = new MimoServeManager({ config: config.gateway.mimo, allAccounts: () => accounts.list() });
+	const mimoClient = new MimoChatClient(mimoManager, { config: config.gateway.mimo, allAccounts: () => accounts.list() });
+	upstreams.set(mimoClient.platform(), mimoClient);
 	// SDK 桥（CURSOR/COPILOT/QODER）：脚本路径对 cwd / src / dist 三种深度解析
 	const bridgeScriptCandidates = [
 		pathResolve(config.gateway.bridge.script),

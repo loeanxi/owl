@@ -43,6 +43,7 @@ export interface PoolConfig {
 		workbuddy: { baseUrl: string; chatPath: string; userAgent: string; origin: string; referer: string };
 		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
 		gemini: { baseUrl: string; apiVersion: string; defaultMaxTokens: number };
+		mimo: { executable: string; hostname: string; requestTimeoutMs: number; readyTimeoutMs: number };
 		bridge: {
 			nodeExecutable: string;
 			script: string;
@@ -96,6 +97,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
 				origin: env.OWL_POOL_WB_ORIGIN ?? "https://www.codebuddy.cn",
 				referer: env.OWL_POOL_WB_REFERER ?? "https://www.codebuddy.cn/",
+			},
+			mimo: {
+				executable: env.OWL_POOL_MIMO_EXECUTABLE ?? "mimo",
+				hostname: env.OWL_POOL_MIMO_HOSTNAME ?? "127.0.0.1",
+				requestTimeoutMs: intOr(env.OWL_POOL_MIMO_REQUEST_TIMEOUT_MS, 120_000),
+				readyTimeoutMs: intOr(env.OWL_POOL_MIMO_READY_TIMEOUT_MS, 25_000),
 			},
 			bridge: {
 				nodeExecutable: env.OWL_POOL_BRIDGE_NODE ?? "node",

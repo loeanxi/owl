@@ -12,6 +12,7 @@ import { MailPage } from "./features/mail/MailPage.tsx";
 import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
 import { ResearchPage } from "./features/research/ResearchPage.tsx";
 import { ManagerTab } from "./sidebar/tabs/ManagerTab.tsx";
+import { PanelErrorBoundary } from "./components/PanelErrorBoundary.tsx";
 import { useResearchEntryText } from "./features/research/research-entry-copy.ts";
 import { MediaView } from "./features/media/MediaView.tsx";
 import { ProjectsPage } from "./features/projects/ProjectsPage.tsx";
@@ -149,6 +150,9 @@ export default function App(): React.JSX.Element {
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
 	// 号池 Manager 懒挂载：首次点开 Rail 才渲染 iframe，之后保活。
 	const [managerMounted, setManagerMounted] = useState(railView === "manager");
+	useEffect(() => {
+		if (railView === "manager") setManagerMounted(true);
+	}, [railView]);
 	if (railView === "manager") setManagerMounted(true);
 	const [researchSessionId, setResearchSessionId] = useState<string>();
 	const researchSessionIdRef = useRef(researchSessionId);
@@ -2167,7 +2171,9 @@ export default function App(): React.JSX.Element {
 						</div>}
 						{/* 号池 Manager（迁移阶段 6）：Rail 一等视图，嵌入 pool-server 管理台。 */}
 						{managerMounted && <div style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
-							<ManagerTab />
+							<PanelErrorBoundary label="号池 Manager">
+								<ManagerTab />
+							</PanelErrorBoundary>
 						</div>}
 						<div style={{ display: railView === "research" || railView === "manager" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
 						{conversationView === "trajectory" ? (
