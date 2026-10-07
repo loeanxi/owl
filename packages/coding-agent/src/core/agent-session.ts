@@ -2448,6 +2448,23 @@ export class AgentSession {
 		return this._queue.clear();
 	}
 
+	/** Drop one pending line from both the agent queue and the UI mirror. */
+	removeQueuedMessage(lane: "steering" | "followUp", index: number): boolean {
+		const taken = lane === "steering" ? this.agent.takeSteeringAt(index) : this.agent.takeFollowUpAt(index);
+		if (!taken) return false;
+		this._queue.removeAt(lane, index);
+		return true;
+	}
+
+	/** Move a follow-up into the steering queue so the current turn sees it at the next tool boundary. */
+	promoteQueuedFollowUp(index: number): boolean {
+		const taken = this.agent.takeFollowUpAt(index);
+		if (!taken) return false;
+		this.agent.steer(taken);
+		this._queue.moveFollowUpToSteering(index);
+		return true;
+	}
+
 	/** Number of pending messages (includes both steering and follow-up) */
 	get pendingMessageCount(): number {
 		return this._queue.count;

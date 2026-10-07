@@ -49,6 +49,24 @@ export class SessionQueueTracker {
 		this._emitUpdate();
 	}
 
+	/** Drop one pending line. The index matches the agent queue, steering before follow-up is not assumed. */
+	removeAt(lane: "steering" | "followUp", index: number): string | undefined {
+		const list = lane === "steering" ? this._steering : this._followUp;
+		if (index < 0 || index >= list.length) return undefined;
+		const [text] = list.splice(index, 1);
+		this._emitUpdate();
+		return text;
+	}
+
+	/** A queued follow-up should join the current turn at the next tool boundary. */
+	moveFollowUpToSteering(index: number): string | undefined {
+		if (index < 0 || index >= this._followUp.length) return undefined;
+		const [text] = this._followUp.splice(index, 1);
+		this._steering.push(text);
+		this._emitUpdate();
+		return text;
+	}
+
 	/**
 	 * Drop the first queue entry matching a delivered user message's text,
 	 * checking steering first. Emits queue_update when something was removed.

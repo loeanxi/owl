@@ -156,6 +156,12 @@ class PendingMessageQueue {
 		return this.messages.length > 0;
 	}
 
+	takeAt(index: number): AgentMessage | undefined {
+		if (index < 0 || index >= this.messages.length) return undefined;
+		const [message] = this.messages.splice(index, 1);
+		return message;
+	}
+
 	peek(): AgentMessage[] {
 		if (this.mode === "all") return this.messages.slice();
 		const first = this.messages[0];
@@ -319,6 +325,16 @@ export class Agent {
 	clearAllQueues(): void {
 		this.clearSteeringQueue();
 		this.clearFollowUpQueue();
+	}
+
+	/** Remove one queued steering message. Returns it when the index is still valid. */
+	takeSteeringAt(index: number): AgentMessage | undefined {
+		return this.steeringQueue.takeAt(index);
+	}
+
+	/** Remove one queued follow-up message. Returns it when the index is still valid. */
+	takeFollowUpAt(index: number): AgentMessage | undefined {
+		return this.followUpQueue.takeAt(index);
 	}
 
 	/** Returns true when either queue still contains pending messages. */
