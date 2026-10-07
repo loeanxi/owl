@@ -397,6 +397,17 @@ export function IconBranch({ className }: { className?: string }): React.JSX.Ele
 	);
 }
 
+/** 左侧栏：「我的助理」入口（日历 + 勾选，象征每天的待办与提炼）。 */
+export function IconSelf({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<rect x="3.5" y="5" width="17" height="15" rx="2" />
+			<path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+			<path d="m8.5 14.5 2.2 2.2 4.6-4.6" />
+		</Svg>
+	);
+}
+
 /** 标题栏：「高性价比人生指南」外链入口（github.com/eternity4719/HowToLiveBetter） */
 export function IconStickFigure({ className }: { className?: string }): React.JSX.Element {
 	return (
@@ -407,6 +418,17 @@ export function IconStickFigure({ className }: { className?: string }): React.JS
 			<path d="M12.4 9 8 10.6" />
 			<path d="M11.6 13.4 15 15.8 14.6 19.6" />
 			<path d="M11.6 13.4 8.8 16.6 5.9 19.2" />
+		</Svg>
+	);
+}
+
+/** 顶栏：「我的 Token 生涯」入口（环形用量图：淡色满环 + 强调弧 + 指针）。 */
+export function IconTokenCareer({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="8" opacity="0.35" />
+			<path d="M12 4a8 8 0 0 1 7.6 5.5" />
+			<path d="M12 12V4" opacity="0.6" />
 		</Svg>
 	);
 }

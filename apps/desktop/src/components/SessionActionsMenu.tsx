@@ -1,27 +1,44 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/index.ts";
+import { bridgeLogPath } from "../bridge/native.ts";
 import "./session-actions-menu.css";
+
+/** 右键菜单要用的会话路径信息；字段缺失时对应菜单项隐藏。 */
+export type SessionMenuInfo = {
+	id?: string;
+	/** 会话所属项目（cwd）。 */
+	cwd?: string;
+	/** 会话记录 JSONL 文件的绝对路径（session.list 行上的 path）。 */
+	file?: string;
+};
 
 /** Session actions float outside the sidebar's scrolling and clipping region. */
 export function SessionActionsMenu({
 	anchor,
+	point,
 	menuId,
 	label,
 	pinned,
+	session,
 	onClose,
 	onPin,
 	onArchive,
 	onDelete,
+	onReveal,
 }: {
 	anchor: HTMLButtonElement;
+	/** 右键打开时的指针位置：菜单锚在指针处；省略时按 anchor（⋯ 按钮）定位。 */
+	point?: { x: number; y: number };
 	menuId: string;
 	label: string;
 	pinned: boolean;
+	session?: SessionMenuInfo;
 	onClose: (restoreFocus?: boolean) => void;
 	onPin: () => void;
 	onArchive: () => void;
 	onDelete: () => void;
+	onReveal?: () => void;
 }): React.JSX.Element {
 	const t = useT();
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -31,13 +48,20 @@ export function SessionActionsMenu({
 
 	useLayoutEffect(() => {
 		const menu = menuRef.current;
-		if (!menu || !anchor.isConnected) {
+		if (!menu || (point === undefined && !anchor.isConnected)) {
 			closeRef.current(false);
 			return;
 		}
-		const trigger = anchor.getBoundingClientRect();
 		const bounds = menu.getBoundingClientRect();
 		const inset = 8;
+		if (point !== undefined) {
+			setPosition({
+				left: Math.max(inset, Math.min(point.x, window.innerWidth - bounds.width - inset)),
+				top: Math.max(inset, Math.min(point.y, window.innerHeight - bounds.height - inset)),
+			});
+			return;
+		}
+		const trigger = anchor.getBoundingClientRect();
 		const gap = 4;
 		const below = window.innerHeight - trigger.bottom - inset;
 		const above = trigger.top - inset;
@@ -48,11 +72,21 @@ export function SessionActionsMenu({
 			left: Math.max(inset, Math.min(trigger.right - bounds.width, window.innerWidth - bounds.width - inset)),
 			top: Math.max(inset, Math.min(preferredTop, window.innerHeight - bounds.height - inset)),
 		});
-	}, [anchor, menuId]);
+	}, [anchor, point, menuId]);
 
 	useLayoutEffect(() => {
 		if (position !== null) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true });
 	}, [position]);
+
+	// 桥进程日志路径（%TEMP%\owl-bridge.log）：仅桌面壳有，解析失败按无日志处理
+	const [logPath, setLogPath] = useState<string | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		void bridgeLogPath().then((value) => {
+			if (!cancelled) setLogPath(value);
+		});
+		return () => { cancelled = true; };
+	}, []);
 
 	useEffect(() => {
 		const onOutsideDown = (event: MouseEvent): void => {
@@ -106,6 +140,10 @@ export function SessionActionsMenu({
 		items[next]?.focus({ preventScroll: true });
 	};
 
+	const copyText = (value: string): void => {
+		void navigator.clipboard.writeText(value).catch(() => {});
+	};
+
 	return createPortal(
 		<div
 			ref={menuRef}
@@ -124,6 +162,33 @@ export function SessionActionsMenu({
 			<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); onArchive(); }}>
 				{t("sidebar.archive")}
 			</button>
+			<div className="owl-session-actions-menu-separator" role="separator" />
+			{onReveal !== undefined && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); onReveal(); }}>
+					{t("sidebar.revealInExplorer")}
+				</button>
+			)}
+			{session?.cwd && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); copyText(session.cwd!); }}>
+					{t("sidebar.copyPath")}
+				</button>
+			)}
+			{session?.file && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); copyText(session.file!); }}>
+					{t("sidebar.copyTaskPath")}
+				</button>
+			)}
+			{logPath !== null && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); copyText(logPath); }}>
+					{t("sidebar.copyLogPath")}
+				</button>
+			)}
+			{session?.id && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); copyText(session.id!); }}>
+					{t("sidebar.copySessionId")}
+				</button>
+			)}
+			<div className="owl-session-actions-menu-separator" role="separator" />
 			<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item is-danger" onClick={() => { onClose(false); onDelete(); }}>
 				{t("sidebar.deleteSessionTitle")}
 			</button>

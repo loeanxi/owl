@@ -72,9 +72,19 @@ export type {
 	SessionListRequest,
 	SessionPromptRequest,
 	SessionSetApprovalModeRequest,
+	SessionSetPresetRequest,
+	PresetListRequest,
+	PresetListResult,
+	PresetSetDefaultRequest,
+	PresetSaveRequest,
+	PresetDeleteRequest,
+	AgentPresetDefinition,
 	SessionSetModelRequest,
 	SessionSetThinkingLevelRequest,
 	SessionExportLogResult,
+	SessionTurn,
+	SessionTurnsRequest,
+	SessionTurnsResult,
 	SessionStatsRequest,
 	SessionStatsResult,
 	SessionRunningRequest,
@@ -104,6 +114,16 @@ export type {
 	UsageStatsModel,
 	UsageStatsProject,
 	UsageStatsSession,
+	CareerGetRequest,
+	CareerGetResult,
+	LifeLevel,
+	LifeChannel,
+	LifeProbeRequest,
+	LifeProbeResult,
+	CareerAgentUsage,
+	CareerAgentTotals,
+	CareerSourceStatus,
+	CareerBucket,
 	OwlImageProvider,
 	OwlImageConfigPublic,
 	ImageConfigGetRequest,
@@ -163,6 +183,17 @@ export type {
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 // 上下文洞察的 wire 类型本体在 core/context-insight（内核 protocol 也只是转引）
 export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";
+export type {
+	ScheduleRepeat,
+	ScheduleMissedPolicy,
+	ScheduleTask,
+	ScheduleRun,
+	ScheduleListResult,
+	ScheduleCreateResult,
+	ScheduleUpdateResult,
+	ScheduleRunResult,
+	ScheduleHistoryResult,
+} from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 export type * from "../../../../packages/coding-agent/src/core/news/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/mail/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/evaluation/types.ts";

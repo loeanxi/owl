@@ -305,6 +305,17 @@ test("assistant 轮耗时取 message_end 的真实结束时刻，并穿越 agent
 	assert.equal(rebuilt.endedAt, settled.endedAt);
 });
 
+test("a delivered queued message enters the transcript once, when the model receives it", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "先看" } });
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
+	const delivered = entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志");
+	assert.equal(delivered.length, 1);
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
+	assert.equal(entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志").length, 1);
+});
+
 test("queued follow-up does not freeze the in-progress assistant", () => {
 	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "agent_start" });

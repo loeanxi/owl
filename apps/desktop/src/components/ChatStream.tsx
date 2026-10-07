@@ -6,13 +6,30 @@ import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal } from "./icons.tsx";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
+import { pathCandidateFromCode } from "../utils/paths.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import { UsageOverview } from "./UsageOverview.tsx";
 import { OwlMascot, useSessionOwlPose } from "./OwlMascot.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
+import { ScheduleDeliveryCard } from "../features/automation/ScheduleDeliveryCard.tsx";
+import { parseScheduleDelivery } from "../features/automation/schedule-delivery.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+// 长得像路径/URL 的行内 code 标成 owl-path-chip（主聊天区/文档预览里配链接色 +
+// 虚线下划线，提示可点击跳转）；命令、裸词（pathCandidateFromCode 过滤）保持普通
+// 芯片。点击行为在聊天流与 DocumentTab 的点击代理里，不在渲染层。
+const inlineCodeDefault = md.renderer.rules.code_inline;
+md.renderer.rules.code_inline = (tokens, idx, _options, _env, self): string => {
+	const token = tokens[idx]!;
+	if (pathCandidateFromCode(token.content) === "") {
+		return inlineCodeDefault
+			? inlineCodeDefault(tokens, idx, _options, _env, self)
+			: `<code>${md.utils.escapeHtml(token.content)}</code>`;
+	}
+	return `<code class="owl-path-chip"${self.renderAttrs(token)}>${md.utils.escapeHtml(token.content)}</code>`;
+};
 
 /** 工具输出默认只预览末尾几行（结论/报错多在尾部），展开才看全文。 */
 const OUTPUT_PREVIEW_LINES = 10;
@@ -54,7 +71,17 @@ function formatClock(timestamp: number): string {
 	return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-/** 时长的紧凑展示（对照参考实现的「耗时 46m 24s」）。 */
+/** 相对时间：刚刚 / 12 分钟前。对照 Cursor 回答底下的 “12m ago”。 */
+function formatAgo(timestamp: number, now = Date.now()): string {
+	const minutes = Math.max(0, Math.round((now - timestamp) / 60000));
+	if (minutes < 1) return t("chat.justNow");
+	if (minutes < 60) return t("chat.minutesAgo", { n: minutes });
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) return t("chat.hoursAgo", { n: hours });
+	return t("chat.daysAgo", { n: Math.round(hours / 24) });
+}
+
+/** 时长的紧凑展示（对照 Cursor 的 “Worked for 7m 23s”）。 */
 function formatDuration(ms: number): string {
 	const totalSeconds = Math.max(1, Math.round(ms / 1000));
 	const hours = Math.floor(totalSeconds / 3600);
@@ -69,11 +96,8 @@ function formatDuration(ms: number): string {
  * 聊天流 —— 用户提问与 agent 回答收进同一条居中内容列（响应式：窄窗满宽、宽窗封顶
  * 阅读宽度居中）。公开说明、工具调用与答案保留消息中的先后顺序。
  *
- * 过程采用「渐进披露」：一次提问到该轮最终回答之间的思考、工具调用与中间说明整轮
- * 收进一条「工作过程 · N 步」折叠行（回合进行中转圈并实时计数），所有层级统一默认
- * 收起，失败只标红计数，用户点击才逐级展开。提问卡、渲染卡与错误是里程碑，原位可见
- * 并把工作段切成数段；任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示，
- * 时间轴不再重复上屏。答案正文与其操作栏永远展开。
+ * 过程收成正文上方的一行「工作了 7m 23s」，点开才看步骤。正文下面是复制和时间。
+ * 提问卡、渲染卡与错误仍原位可见。任务清单由输入区上方的 TodoPin 独占，时间轴不再重复。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -82,6 +106,8 @@ type TimelineRow = {
 	content: React.JSX.Element;
 	questionIndex?: number;
 	compact?: boolean;
+	/** 贴在结论下面的附属行（工作过程、截图、改动）：不另起一块，避免回答被切成好几截。 */
+	quiet?: boolean;
 };
 
 /** 渲染含 `code` 反引号的摘要行（工具摘要里的命令/路径/模式）。 */
@@ -91,7 +117,10 @@ export function InlineSummary({ text }: { text: string }): React.JSX.Element {
 		<>
 			{parts.map((part, index) =>
 				index % 2 === 1 ? (
-					<code key={index} className="owl-tool-inline-code">
+					<code
+						key={index}
+						className={`owl-tool-inline-code ${pathCandidateFromCode(part) === "" ? "" : "owl-path-chip"}`}
+					>
 						{part}
 					</code>
 				) : part ? (
@@ -175,7 +204,7 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 			>
 				<StatusIcon status={card.status} />
 				<span
-					className={`min-w-0 flex-1 truncate ${card.status === "error" ? "text-red-400" : "text-owl-muted"}`}
+					className={`min-w-0 flex-1 truncate ${card.status === "error" ? "text-red-400" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
 				>
 					<InlineSummary text={card.summary} />
 				</span>
@@ -304,28 +333,52 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
  * 一条「工作过程 · N 步」，永远默认收起，用户点击才展开（失败也不例外，只在摘要行
  * 标红计数）；回合进行中显示实时步数。活动指示统一由底部 Owl 状态行承担，这里不再转圈。
  */
-function WorkProcessRow({ items, steps, failed, running }: {
+function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, subagents = [] }: {
 	items: Array<{ key: string; content: React.JSX.Element }>;
 	steps: number;
 	failed: number;
 	running: boolean;
+	/** 本轮用户消息发出的时刻。有它就显示「工作了 7m 23s」，没有才退回步数。 */
+	startedAt?: number;
+	finishedAt?: number;
+	/** 本段派出的子智能体卡；有在跑的就常显在标题下（ZCode 式彩色实时行）。 */
+	subagents?: ToolCard[];
 }): React.JSX.Element {
 	const [open, setOpen] = useState(false);
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!running || startedAt === undefined) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, [running, startedAt]);
+	const end = running ? now : finishedAt ?? now;
+	const elapsed = startedAt !== undefined ? Math.max(0, end - startedAt) : undefined;
+	const label = elapsed !== undefined
+		? t(running ? "chat.workingFor" : "chat.workedFor", { time: formatDuration(elapsed) })
+		: t(running ? "chat.workRunning" : "chat.workProcess", { n: steps });
 	return (
 		<div className="owl-work-process">
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
-				className="owl-tool-summary owl-tool-group-summary"
+				className="owl-tool-summary owl-work-process-summary"
 			>
-				<IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />
 				<IconChevron className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`} />
-				<span className="min-w-0 flex-1 truncate text-owl-muted">
-					{running ? t("chat.workRunning", { n: steps }) : t("chat.workProcess", { n: steps })}
+				<span className="min-w-0 flex-1 truncate">
+					{label}
 				</span>
 				{failed > 0 && <span className="shrink-0 text-red-400">{t("chat.groupFailed", { n: failed })}</span>}
 			</button>
+			{subagents.some((card) => card.status === "running" || card.status === "pending") && (
+				<div className="mt-1 space-y-0.5">
+					{subagents
+						.filter((card) => card.status === "running" || card.status === "pending")
+						.map((card) => (
+							<SubagentLiveLine key={card.id} card={card} onOpen={() => setOpen(true)} />
+						))}
+				</div>
+			)}
 			{open && (
 				<div className="owl-tool-group-body owl-work-process-body">
 					{items.map((item) => (
@@ -334,6 +387,36 @@ function WorkProcessRow({ items, steps, failed, running }: {
 				</div>
 			)}
 		</div>
+	);
+}
+
+/** 子智能体实时行：正在工作标题下常显，强调色标 agent 名，点击展开工作过程看详情。 */
+function SubagentLiveLine({ card, onOpen }: { card: ToolCard; onOpen: () => void }): React.JSX.Element {
+	let agent = "";
+	let task = "";
+	try {
+		const args = JSON.parse(card.args) as Record<string, unknown>;
+		if (typeof args.agent === "string") agent = args.agent;
+		else if (typeof args.subagent === "string") agent = args.subagent;
+		const raw = args.task ?? args.prompt ?? args.instructions;
+		if (typeof raw === "string") task = raw;
+	} catch {
+		// 参数还不是合法 JSON 时退回人话摘要
+	}
+	const activity = card.output?.text.split("\n").map((line) => line.trim()).filter(Boolean).pop();
+	return (
+		<button
+			type="button"
+			onClick={onOpen}
+			title={activity ?? task}
+			className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs"
+		>
+			<StatusIcon status={card.status} />
+			<span className="shrink-0 font-mono text-owl-accent">
+				{agent ? t("chat.subagentLabel", { agent }) : t("chat.subagentPlain")}
+			</span>
+			<span className="min-w-0 flex-1 truncate text-owl-faint">{task || card.summary}</span>
+		</button>
 	);
 }
 
@@ -424,12 +507,13 @@ function AssistantFooter({ entry, usage: usageOverride, requestCount, canRegener
 					<IconRefresh className="h-3.5 w-3.5" />
 				</button>
 			)}
-			{usage && totalTokens > 0 && (
+			{(entry.timestamp !== undefined || (usage && totalTokens > 0)) && (
 				<span className="owl-msg-meta" title={usageTitle}>
-					{t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })}
+					{entry.timestamp !== undefined
+						? formatAgo(entry.timestamp)
+						: t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })}
 				</span>
 			)}
-			{entry.timestamp !== undefined && <span className="owl-msg-meta">{formatClock(entry.timestamp)}</span>}
 		</div>
 	);
 }
@@ -569,12 +653,16 @@ type RowOptions = {
 	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
 	/** 「在新对话中分支」：以该条回答为末梢复制新会话并切换。 */
 	onBranch?: (entryId: string) => void;
+	/** 会话内任务卡的「任务页」跳转（自动化任务 Rail 视图）。 */
+	onOpenAutomation?: () => void;
+	/** 桥客户端：任务卡的「暂停任务」需要。 */
+	client?: BridgeClient;
 	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
 	busy: boolean;
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, client, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -604,9 +692,10 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			break;
 		}
 	}
-	// 每轮（两条用户消息之间）的「最终回答」= 该轮最后一条带正文的 assistant：正文展开
-	// 并挂操作栏；其余 LLM 调用（思考/中间说明/工具）全部收进整轮折叠行。轮内没有正文
-	// （被停止/还在生成）时不标回答，工作段在轮末或里程碑处收口。
+	// 每轮（两条用户消息之间）的「最终回答」= 该轮最后一条带正文的 assistant。
+	// 上屏顺序：结论（正文 + 操作栏）在上，工作过程折叠在中，改动文件在下（下一问到来前，
+	// 或最新一轮的 artifacts 槽）。思考、中间说明、普通工具和提问工具都进折叠行。
+	// 轮内没有正文（被停止/还在生成）时不标回答，工作段在轮末收口。
 	const assistantHasText = (entry: ChatEntry): boolean => {
 		if (entry.kind !== "assistant") return false;
 		const segments: AssistantSegment[] = entry.segments ?? [
@@ -658,21 +747,29 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		turnFooters = [];
 	};
 	let turn = 0;
+	// 本轮用户消息的发出时刻，用来写「工作了 7m 23s」。
+	let turnStartedAt: number | undefined;
+	// 结论出现前先把工作行放到正文上面，一轮只放一次。
+	let answerWorkFlushed = false;
 	// 轮内截图（截图类工具的产物）：最终回答之后平铺成「本轮截图」条，免翻折叠行
 	let turnShots: Array<{ key: string; image: ToolResultImage }> = [];
-	// ── 整轮工作过程收纳（叠叠乐治理）：跨 LLM 调用累积思考/中间说明/普通工具调用，
-	// 在里程碑（最终回答/提问卡/渲染卡/错误/下一问）处收成一条折叠行；todo 属过程，
-	// 跟着进折叠区，不再把时间轴打成多段。
+	// ── 整轮工作过程收纳：跨 LLM 调用累积思考/中间说明/普通工具（含提问工具）。
+	// 不在结论之前收口，等本轮结论和操作栏落盘后，或下一问/轮末再收成一条折叠行，
+	// 这样阅读顺序是「结论 → 工作过程 → 改动文件」。todo 不进时间轴。
+	// 交互渲染卡先暂存，跟工作过程一起排到结论下面，避免把工具日志顶到结论上方。
+	let visibleCards: TimelineRow[] = [];
 	let workRows: Array<{ key: string; content: React.JSX.Element }> = [];
 	let workSteps = 0;
 	let workFailed = 0;
 	let workRunning = false;
 	let workPendingTools: ToolCard[] = [];
+	let workSubagents: ToolCard[] = [];
 	let workSeq = 0;
 	const flushWorkTools = (): void => {
 		if (workPendingTools.length === 0) return;
 		const cards = workPendingTools;
 		workPendingTools = [];
+		workSubagents.push(...cards.filter((card) => card.name === "subagent"));
 		workSteps += cards.length;
 		workFailed += cards.filter((card) => card.status === "error").length;
 		if (cards.some((card) => card.status === "running")) workRunning = true;
@@ -683,22 +780,31 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
 		});
 	};
-	// 收口当前工作段；live 表示回合仍在进行（摘要行显示「正在工作」）
-	const flushWork = (live = false): void => {
+	// 收口当前工作段；live 表示回合仍在进行（摘要行显示「正在工作」）。
+	// 交互卡先于折叠行，并且在没有工具步时也要落盘。
+	const flushWork = (live = false, finishedAt?: number): void => {
 		flushWorkTools();
+		if (visibleCards.length > 0) {
+			rows.push(...visibleCards);
+			visibleCards = [];
+		}
 		if (workRows.length === 0) return;
 		const items = workRows;
 		const steps = workSteps;
 		const failed = workFailed;
 		const running = workRunning || live;
+		const startedAt = turnStartedAt;
+		const subagents = workSubagents;
 		workRows = [];
 		workSteps = 0;
 		workFailed = 0;
 		workRunning = false;
+		workSubagents = [];
 		workSeq += 1;
 		rows.push({
 			key: "work-" + workSeq,
-			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} />,
+			quiet: true,
+			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} startedAt={startedAt} finishedAt={running ? undefined : finishedAt} subagents={subagents} />,
 		});
 	};
 		entries.forEach((entry, index) => {
@@ -719,16 +825,22 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				finishTurnFooters();
 				flushWork();
 				turnShots = [];
+				turnStartedAt = entry.timestamp;
+				answerWorkFlushed = false;
 				const artifacts = historicalArtifacts?.get(index);
 				if (artifacts && onOpenFile) {
 					const node = turnCard ? turnCard(artifacts) : <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
-					if (node) rows.push({ key: "artifacts-" + index, content: node });
+					if (node) rows.push({ key: "artifacts-" + index, quiet: true, content: node });
 				}
 				turn += 1;
+				// 自动化任务的到点投递渲染成任务卡（可暂停），不是普通用户气泡。
+				const delivery = parseScheduleDelivery(entry.text);
 				rows.push({
 					key: "q" + turn,
 					questionIndex: turn,
-					content: <UserRowView entry={entry} busy={busy} onRewind={onRewind} onEditMessage={onEditMessage} />,
+					content: delivery
+						? <ScheduleDeliveryCard info={delivery} client={client} onOpenAutomation={onOpenAutomation} />
+						: <UserRowView entry={entry} busy={busy} onRewind={onRewind} onEditMessage={onEditMessage} />,
 				});
 				return;
 			}
@@ -757,28 +869,34 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示：时间轴不再
 			// 上屏 todo 卡片（更新频繁，且与常驻条内容完全重复），也不计入折叠区步数
 			if (card.name === "todo") return;
-			if (card.name === "ask_user_question") {
-				// 提问必须原位可见：先收口当前工作段，再把问题卡挂上时间轴
-				flushWork();
-				rows.push({ key: "question-tool-" + card.id, content: <ToolRowView card={card} expanded={expandedTools} /> });
-			} else if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
-				// owl-genui：render_ui 完成后渲染为工具行交互卡片（运行中先走普通工具行）
-				flushWork();
-				rows.push({ key: "genui-" + card.id, content: <GenuiToolCardView card={card} /> });
+			if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
+				// owl-genui：完成后留在结论下方（运行中还没有 spec，先走普通工具行）。
+				// 正在问的问题由输入框上的提问卡负责，工具记录留在折叠里，不另占一行。
+				visibleCards.push({ key: "genui-" + card.id, content: <GenuiToolCardView card={card} /> });
 			} else {
 				workPendingTools.push(card);
 				if (card.status === "running") workRunning = true;
 			}
 		};
-		const answerTextRow = (segmentIndex: number, text: string): TimelineRow => ({
-			key: "message-" + index + "-" + segmentIndex,
-			content: <GenuiAnswerCard
+		const answerCard = (segmentIndex: number, text: string): React.JSX.Element => (
+			<GenuiAnswerCard
+				key={segmentIndex}
 				text={text}
 				identity={`msg${index}-seg${segmentIndex}`}
 				settled={index !== lastAssistantIndex}
 				renderMarkdown={renderMarkdown}
-			/>,
-		});
+			/>
+		);
+		// 同一轮结论的多段正文合成一块，段与段之间不再各占一行、各留一段空隙。
+		const answerParts: React.JSX.Element[] = [];
+		const pushAnswer = (): void => {
+			if (answerParts.length === 0) return;
+			const parts = answerParts.splice(0, answerParts.length);
+			rows.push({
+				key: "message-" + index,
+				content: parts.length === 1 ? parts[0]! : <div className="owl-turn-answer">{parts}</div>,
+			});
+		};
 		segments.forEach((segment, segmentIndex) => {
 			if (segment.kind === "tool") {
 				const card = entry.tools.find((tool) => tool.id === segment.toolId);
@@ -797,13 +915,21 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				// 中间说明（轮内非最终回答的正文）进折叠区
 				flushWorkTools();
 				workSteps += 1;
-				workRows.push(answerTextRow(segmentIndex, segment.text));
+				workRows.push({
+					key: "note-" + index + "-" + segmentIndex,
+					content: answerCard(segmentIndex, segment.text),
+				});
 				return;
 			}
-			// 最终回答：先把工作过程收成一条折叠行，再展开正文
-			flushWork();
-			rows.push(answerTextRow(segmentIndex, segment.text));
+			// 工作用时放在正文上面，和 Cursor 的 “Worked for …” 同一位置。
+			if (!answerWorkFlushed) {
+				answerWorkFlushed = true;
+				const live = streaming && lastUserIndex !== -1 && index > lastUserIndex;
+				flushWork(live, entry.timestamp);
+			}
+			answerParts.push(answerCard(segmentIndex, segment.text));
 		});
+		pushAnswer();
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
 		if (entry.error) {
 			flushWork();
@@ -815,18 +941,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		}
 		// 回答底部操作栏：只挂在每轮最终回答上（纯工具调用与中间说明不上屏）。流式中的
 		// 进行轮整轮不上屏（等 agent_end 重建后一次性出现，避免中途闪现又消失）。
+		// 这里不收口工作过程，让折叠行留在操作栏下面。
 		if (
 			answerEntries.has(index) &&
 			(lastAssistantIndex === -1 || index !== lastAssistantIndex) &&
 			!(streaming && lastUserIndex !== -1 && index > lastUserIndex)
 		) {
-			flushWork();
-			// 「本轮截图」条挂在最终回答之后、操作栏之前——聊天记录看完回答就见图
-			if (turnShots.length > 0) {
-				const shots = turnShots;
-				turnShots = [];
-				rows.push({ key: "turn-shots-" + index, compact: true, content: <TurnScreenshotStrip shots={shots} /> });
-			}
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
@@ -834,6 +954,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			};
 			rows.push(row);
 			turnFooters.push({ row, index, entry });
+			// 截图不插在正文和操作栏之间，避免把回答切成两截；缩略图跟在操作栏后面。
+			if (turnShots.length > 0) {
+				const shots = turnShots;
+				turnShots = [];
+				rows.push({ key: "turn-shots-" + index, quiet: true, content: <TurnScreenshotStrip shots={shots} /> });
+			}
 		}
 		});
 	flushWork(streaming && lastUserIndex !== -1);
@@ -990,15 +1116,14 @@ function TurnScreenshotStrip({ shots }: { shots: Array<{ key: string; image: Too
 	const t = useT();
 	const [zoom, setZoom] = useState<number | null>(null);
 	return (
-		<div className="owl-turn-shots space-y-1.5">
-			<div className="text-[11px] font-medium text-owl-muted">{t("chat.turnScreenshots")}</div>
+		<div className="owl-turn-shots">
 			<div className="flex flex-wrap gap-2">
 				{shots.map((shot, index) => (
 					<img
 						key={shot.key}
 						src={`data:${shot.image.mimeType};base64,${shot.image.data}`}
 						alt={t("chat.latestScreenshot")}
-						className="h-36 cursor-zoom-in rounded-lg border border-owl-border object-contain"
+						className="h-24 cursor-zoom-in rounded-md border border-owl-border object-contain"
 						onClick={() => setZoom(index)}
 					/>
 				))}
@@ -1015,6 +1140,7 @@ export function ChatStream({
 	artifacts,
 	cwd,
 	onOpenFile,
+	onOpenUrl,
 	activity = "idle",
 	onRewind,
 	client,
@@ -1022,6 +1148,7 @@ export function ChatStream({
 	onRegenerate,
 	onEditMessage,
 	onBranch,
+	onOpenAutomation,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -1032,6 +1159,8 @@ export function ChatStream({
 	artifacts?: React.ReactNode;
 	cwd?: string;
 	onOpenFile?: (path: string) => void;
+	/** 行内 code 芯片里的 http(s) 链接：交给侧边栏浏览器（未传则维持纯文本）。 */
+	onOpenUrl?: (url: string) => void;
 	/** 用户消息 ↶ 回退（owl-rewind）：传了才渲染按钮，未带 entryId 的行不渲染。 */
 	onRewind?: (entryId: string) => void;
 	/** 桥客户端：历史轮的改动卡（diffApproval.*）需要；缺省回退旧「成果文件」卡。 */
@@ -1044,6 +1173,8 @@ export function ChatStream({
 	onEditMessage?: (entryId: string, text: string, images?: ToolResultImage[]) => void;
 	/** 回答操作栏的「在新对话中分支」：以该条回答为末梢复制新会话并切换。 */
 	onBranch?: (entryId: string) => void;
+	/** 会话内任务卡的「任务页」跳转（自动化任务 Rail 视图）。 */
+	onOpenAutomation?: () => void;
 }): React.JSX.Element {
 	const t = useT();
 	const emptyHeadingId = useId();
@@ -1111,9 +1242,11 @@ export function ChatStream({
 				onRegenerate,
 				onEditMessage,
 				onBranch,
+				onOpenAutomation,
+				client,
 				busy,
 			}),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, busy],
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, client, busy],
 	);
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
@@ -1208,18 +1341,41 @@ export function ChatStream({
 					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
 					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
 					const href = anchor?.getAttribute("href");
-					if (!href || href.startsWith("#")) return;
-					const path = workspaceArtifactPath(href.split("#")[0].replace(/:\d+$/, ""), cwd, { encoded: true });
-					if (!path) return;
-					event.preventDefault();
-					onOpenFile(path);
+					if (href && !href.startsWith("#")) {
+						const linked = workspaceArtifactPath(href.split("#")[0].replace(/:\d+$/, ""), cwd, { encoded: true });
+						if (linked) {
+							event.preventDefault();
+							onOpenFile(linked);
+						}
+						return;
+					}
+					// 行内 code 芯片（反引号包的路径/链接）：解析成工作区路径交给
+					// onOpenFile（HTML 由 App 落到侧边栏浏览器）；解析不了（工作区外、
+					// 纯命令词）就维持纯文本。代码块（pre>code）与链接内芯片不抢。
+					const code = event.target.closest<HTMLElement>("code");
+					if (!code || code.closest("pre") || code.closest("a")) return;
+					// 有选区（拖选/双击选词）说明用户在复制：点击不开文件
+					const selection = window.getSelection();
+					if (selection && selection.toString().trim() !== "") return;
+					const candidate = pathCandidateFromCode(code.textContent ?? "");
+					if (!candidate) return;
+					const path = workspaceArtifactPath(candidate, cwd);
+					if (path) {
+						event.preventDefault();
+						onOpenFile(path);
+						return;
+					}
+					if (/^https?:\/\//i.test(candidate) && onOpenUrl) {
+						event.preventDefault();
+						onOpenUrl(candidate);
+					}
 				}}>
 					<div className="owl-chat-column">
 						{/* 空会话开始页：问候语 + 使用概览面板（Claude Desktop 同款，桥的 usage.get 供数） */}
 						{entries.length === 0 && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1>{client && <UsageOverview client={client} />}</section>}
-						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
+						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : row.quiet ? "owl-chat-row owl-chat-row-quiet" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
+						{artifacts != null && <div className="owl-chat-row owl-chat-row-quiet">{artifacts}</div>}
 						<ResponseActivity entries={entries} activity={activity} />
-						{artifacts}
 					</div>
 				</main>
 			</div>

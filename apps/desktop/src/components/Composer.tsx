@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
+import type { AgentPresetDefinition, ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { samePath } from "../utils/paths.ts";
 import { getProjectDisplayName, isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { AttachedFileChip, extractPlainText } from "./AttachedFileChip.tsx";
+import { PresetAvatar } from "./agent-preset-meta.tsx";
 import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -27,6 +28,8 @@ const APPROVAL_MODES: { value: ApprovalMode; labelKey: TextKey; titleKey: TextKe
 	{ value: "plan", labelKey: "composer.mode.plan.label", titleKey: "composer.mode.plan.title" },
 	{ value: "auto", labelKey: "composer.mode.auto.label", titleKey: "composer.mode.auto.title" },
 ];
+
+/** 预设视觉身份（配色/徽字）在 agent-preset-meta 与侧栏、设置页共用。 */
 
 /** 审批模式小图标：线性风格，标准模式使用原型的盾形勾。 */
 function ModeIcon({ mode, active }: { mode: ApprovalMode; active: boolean }): React.JSX.Element {
@@ -130,6 +133,29 @@ function FolderIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.E
 	);
 }
 
+type ComposerAction = "send" | "queue" | "pause" | "abort" | "resume";
+
+function ComposerActionIcon({ action }: { action: ComposerAction }): React.JSX.Element {
+	const send = action === "send" || action === "queue";
+	return (
+		<span className="owl-composer-action-stage" aria-hidden="true">
+			<svg viewBox="0 0 16 16" data-shown={send || undefined} className="owl-composer-action-glyph is-stroke">
+				<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+			</svg>
+			<svg viewBox="0 0 12 12" data-shown={action === "pause" || undefined} className="owl-composer-action-glyph is-fill">
+				<rect x="2.4" y="1.8" width="2.8" height="8.4" rx="1" />
+				<rect x="6.8" y="1.8" width="2.8" height="8.4" rx="1" />
+			</svg>
+			<svg viewBox="0 0 12 12" data-shown={action === "abort" || undefined} className="owl-composer-action-glyph is-fill">
+				<rect x="2" y="2" width="8" height="8" rx="1" />
+			</svg>
+			<svg viewBox="0 0 12 12" data-shown={action === "resume" || undefined} className="owl-composer-action-glyph is-fill">
+				<path d="M4 2.7v6.6c0 .4.45.65.79.42l5.1-3.3a.5.5 0 0 0 0-.84L4.79 2.28A.5.5 0 0 0 4 2.7Z" />
+			</svg>
+		</span>
+	);
+}
+
 function Chevron(): React.JSX.Element {
 	return (
 			<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3 w-3 text-owl-faint">
@@ -160,6 +186,11 @@ const ghostPillClass =
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
+
+/** 目录 chip 尾部的 ✕（叉掉目录，不选目录对话）。 */
+const envChipClearClass =
+	"flex h-6 w-5 items-center justify-center rounded-md text-[11px] text-owl-faint " +
+	"transition-colors hover:bg-owl-hover hover:text-owl-text";
 
 /** 斜杠命令菜单里的来源标签。 */
 const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], TextKey> = {
@@ -235,15 +266,28 @@ export function Composer({
 	onThinkingLevel,
 	approvalMode,
 	onApprovalMode,
+	agentPresets,
+	defaultPresetId,
+	agentPreset,
+	agentPresetLocked,
+	onAgentPresetSelect,
 	sessionInfo,
 	workspaceDir,
 	projects,
 	sessionScope = "chat",
+	/** 是否已选择对话目录；false = 已叉掉（不选目录，会话进默认目录），chip 变成「选择目录」占位。 */
+	workspaceSelected = true,
 	onSwitchProject,
+	/** 点 chip 上的 ✕：解除目录绑定（会话默认进默认目录）。 */
+	onClearProject,
 	commands,
 	searchFiles,
 	draftRequest,
 	owlPose = "idle",
+	queued,
+	onRemoveQueued,
+	onPromoteQueued,
+	hideMascot = false,
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
@@ -256,7 +300,13 @@ export function Composer({
 	hideEnvironment?: boolean;
 	/** Optional mode control that shares the existing environment row's alignment. */
 	environmentAccessory?: ReactNode;
-	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[]) => void;
+	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer") => void;
+	/** Pending lines while the session is running. Steering is delivered at the next tool boundary. */
+	queued?: { steering: readonly string[]; followUp: readonly string[] };
+	onRemoveQueued?: (lane: "steering" | "followUp", index: number) => void;
+	onPromoteQueued?: (index: number) => void;
+	/** 输入框上方已经有排队或任务清单时，把沿口上的猫头鹰收起来。 */
+	hideMascot?: boolean;
 	onAbort: () => void;
 	/** 提供时运行中按钮显示「暂停」而不是直接中止。 */
 	onPause?: () => void;
@@ -269,15 +319,29 @@ export function Composer({
 	onThinkingLevel: (level: string) => void;
 	approvalMode: ApprovalMode;
 	onApprovalMode: (mode: ApprovalMode) => void;
+	/** Agent 预设花名册（桥端 preset.list）：决定会话的工具/提示词/技能组合。 */
+	agentPresets?: AgentPresetDefinition[];
+	/** 新任务默认预设 id（花名册里的「默认」徽章）。 */
+	defaultPresetId?: string;
+	/** 当前生效（或暂存）的预设 id。 */
+	agentPreset?: string;
+	/** 会话跑过第一轮后预设锁定（DSH 的 blank-session-only 切换不变量）。 */
+	agentPresetLocked?: boolean;
+	/** 选择预设：空白会话即时切换，新会话暂存到创建时生效。 */
+	onAgentPresetSelect?: (id: string) => void;
 	sessionInfo: SessionStatsResult | undefined;
 	/** 当前项目（工作目录）绝对路径。 */
 	workspaceDir: string;
+	/** false = 已叉掉目录（不选目录，会话进默认目录），chip 显示「选择目录」占位。 */
+	workspaceSelected?: boolean;
 	/** 候选项目列表（与侧边栏同源：当前 ∪ 有会话 ∪ 到访过）。 */
 	projects: string[];
 	/** Project visibility preferences belong to the current conversation type. */
 	sessionScope?: "chat" | "research";
 	/** 切换项目 = 换工作目录并从新会话开始（与侧边栏点击项目同语义）。 */
 	onSwitchProject: (path: string) => void;
+	/** 叉掉目录（不选目录对话）；提供才显示 ✕。 */
+	onClearProject?: () => void;
 	/** 斜杠命令清单（桥端 commands.list）：输入 "/" 时自动补全。 */
 	commands: SlashCommandEntry[];
 	/** @ 调起的本项目文件搜索（侧栏同源：与 fs.search 共享 100 命中兜底）。 */
@@ -334,13 +398,13 @@ export function Composer({
 		editorRef.current?.focus();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draftRequest]);
-	const submit = (): void => {
+	const submit = (delivery?: "queue" | "steer"): void => {
 		if (disabled) return;
 		const text = value.trim();
 		const hasImages = pendingImages.length > 0;
 		const hasAttachments = attachedPaths.length > 0;
 		if (!text && !hasImages && !hasAttachments) return;
-		onSend(text, hasImages ? pendingImages : undefined, hasAttachments ? attachedPaths : undefined);
+		onSend(text, hasImages ? pendingImages : undefined, hasAttachments ? attachedPaths : undefined, running ? delivery ?? "queue" : undefined);
 		setValue("");
 		setAttachedPaths([]);
 		setMentionOpen(false);
@@ -697,6 +761,49 @@ export function Composer({
 
 	const activeMode = APPROVAL_MODES.find((entry) => entry.value === approvalMode);
 
+	// 项目下拉面板：选中态与「选择目录」占位态共用；未选目录时列表里没有打勾项。
+	const projectMenu = (close: () => void): React.JSX.Element => (
+		<div>
+			<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.projectPanelLabel")}</p>
+			<div className="max-h-56 overflow-y-auto">
+				{sortedProjects.map((path) => {
+					const active = samePath(path, workspaceDir);
+					return (
+						<button
+							key={path}
+							type="button"
+							title={path}
+							className={`${menuItemClass} ${active ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+							onClick={() => {
+								if (!active) onSwitchProject(path);
+								close();
+							}}
+						>
+							<FolderIcon tone={active ? "text-owl-text" : "text-owl-faint"} />
+							<span className="flex-1 truncate">{getProjectDisplayName(path)}</span>
+							{active && <span className="text-owl-accent">✓</span>}
+						</button>
+					);
+				})}
+				{sortedProjects.length === 0 && (
+					<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noProjects")}</p>
+				)}
+			</div>
+			<div className="my-1 border-t border-owl-border/70" />
+			<button
+				type="button"
+				className={`${menuItemClass} text-owl-muted`}
+				onClick={() => {
+					close();
+					setShowNewProject(true);
+				}}
+			>
+				<FolderPlusIcon />
+				<span className="flex-1">{t("composer.newProjectMenu")}</span>
+			</button>
+		</div>
+	);
+
 	const modelMenu = (close: () => void): React.JSX.Element => (
 		<div className="max-h-72 w-72 overflow-y-auto">
 			{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noModels")}</p>}
@@ -733,6 +840,18 @@ export function Composer({
 			))}
 		</div>
 	);
+
+	const hasDraft = value.trim().length > 0 || pendingImages.length > 0 || attachedPaths.length > 0;
+	const action: ComposerAction = running
+		? hasDraft
+			? "queue"
+			: onPause
+				? "pause"
+				: "abort"
+		: paused && onResume
+			? "resume"
+			: "send";
+	const actionLabel = action === "queue" ? "composer.queue" : action === "pause" ? "composer.pause" : action === "abort" ? "composer.abort" : action === "resume" ? "composer.resume" : "composer.send";
 
 	return (
 		<div className="owl-composer-surface px-3 pt-1 pb-2">
@@ -776,60 +895,50 @@ export function Composer({
 							</div>
 						)}
 					</Menu>
-					<Menu
-						triggerClassName={envChipClass}
-						triggerTitle={t("composer.projectChipTitle", { dir: workspaceDir })}
-						panelClassName="w-64"
-						trigger={
-							<>
-								<FolderIcon />
-								<span className="max-w-40 truncate">{getProjectDisplayName(workspaceDir)}</span>
-								<Chevron />
-							</>
-						}
-					>
-						{(close) => (
-							<div>
-								<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.projectPanelLabel")}</p>
-								<div className="max-h-56 overflow-y-auto">
-									{sortedProjects.map((path) => {
-										const active = samePath(path, workspaceDir);
-										return (
-											<button
-												key={path}
-												type="button"
-												title={path}
-												className={`${menuItemClass} ${active ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
-												onClick={() => {
-													if (!active) onSwitchProject(path);
-													close();
-												}}
-											>
-												<FolderIcon tone={active ? "text-owl-text" : "text-owl-faint"} />
-												<span className="flex-1 truncate">{getProjectDisplayName(path)}</span>
-												{active && <span className="text-owl-accent">✓</span>}
-											</button>
-										);
-									})}
-									{sortedProjects.length === 0 && (
-										<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noProjects")}</p>
-									)}
-								</div>
-								<div className="my-1 border-t border-owl-border/70" />
+					{workspaceSelected ? (
+						<div className="flex items-center gap-0.5">
+							<Menu
+								triggerClassName={envChipClass}
+								triggerTitle={t("composer.projectChipTitle", { dir: workspaceDir })}
+								panelClassName="w-64"
+								trigger={
+									<>
+										<FolderIcon />
+										<span className="max-w-40 truncate">{getProjectDisplayName(workspaceDir)}</span>
+										<Chevron />
+									</>
+								}
+							>
+								{projectMenu}
+							</Menu>
+							{onClearProject && (
 								<button
 									type="button"
-									className={`${menuItemClass} text-owl-muted`}
-									onClick={() => {
-										close();
-										setShowNewProject(true);
-									}}
+									className={envChipClearClass}
+									title={t("composer.clearProject")}
+									aria-label={t("composer.clearProject")}
+									onClick={onClearProject}
 								>
-									<FolderPlusIcon />
-									<span className="flex-1">{t("composer.newProjectMenu")}</span>
+									✕
 								</button>
-							</div>
-						)}
-					</Menu>
+							)}
+						</div>
+					) : (
+						<Menu
+							triggerClassName={envChipClass}
+							triggerTitle={t("composer.projectChooseTitle")}
+							panelClassName="w-64"
+							trigger={
+								<>
+									<FolderIcon />
+									<span className="max-w-40 truncate">{t("composer.projectChoose")}</span>
+									<Chevron />
+								</>
+							}
+						>
+							{projectMenu}
+						</Menu>
+					)}
 					<button
 						type="button"
 						className={envIconButtonClass}
@@ -841,6 +950,27 @@ export function Composer({
 					</button>
 					{environmentAccessory}
 				</div>}
+				{(queued?.steering.length || queued?.followUp.length) ? (
+					<div className="owl-prompt-queue" aria-label={t("composer.queueTray")}>
+						{queued.steering.map((text, index) => (
+							<div className="owl-prompt-queue-row" key={`steer-${index}`}>
+								<span className="owl-prompt-queue-lane">{t("composer.steerLane")}</span>
+								<span className="owl-prompt-queue-text">{text}</span>
+								<button type="button" className="owl-prompt-queue-action" onClick={() => onRemoveQueued?.("steering", index)}>{t("composer.removeQueued")}</button>
+							</div>
+						))}
+						{queued.followUp.map((text, index) => (
+							<div className="owl-prompt-queue-row" key={`follow-${index}`}>
+								<div className="owl-prompt-queue-copy">
+									<span className="owl-prompt-queue-text">{text}</span>
+									<span className="owl-prompt-queue-wait">{t("composer.queueWaits")}</span>
+								</div>
+								<button type="button" className="owl-prompt-queue-action is-primary" title={t("composer.steerNowHint")} onClick={() => onPromoteQueued?.(index)}>{t("composer.steerNow")}</button>
+								<button type="button" className="owl-prompt-queue-action" onClick={() => onRemoveQueued?.("followUp", index)}>{t("composer.removeQueued")}</button>
+							</div>
+						))}
+					</div>
+				) : null}
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div
 					className={"relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
@@ -862,7 +992,7 @@ export function Composer({
 						addImageFiles(Array.from(event.dataTransfer.files));
 					}}
 				>
-					<OwlMascot pose={owlPose} />
+					<OwlMascot pose={owlPose} hidden={hideMascot || Boolean(queued?.steering.length || queued?.followUp.length)} />
 					{slashExec !== null && (
 						<div
 							ref={slashMenuRef}
@@ -1044,84 +1174,106 @@ export function Composer({
 									}
 									if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 										event.preventDefault();
-										submit();
+										if (running && (event.ctrlKey || event.metaKey)) submit("steer");
+										else submit(running ? "queue" : undefined);
 									}
 								}}
 							/>
 						</div>
-						{running ? (
-							<>
-							{(value.trim() || pendingImages.length > 0 || attachedPaths.length > 0) && (
-								<button
-									type="button"
-									aria-label={t("composer.queue")}
-									title={t("composer.queue")}
-									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
-									onClick={submit}
-								>
-									<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
-										<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
-									</svg>
-								</button>
-							)}
-							{onPause ? (
-								<button
-									type="button"
-									aria-label={t("composer.pause")}
-									title={t("composer.pause")}
-									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
-									onClick={onPause}
-								>
-									<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-										<rect x="2.4" y="1.8" width="2.8" height="8.4" rx="1" />
-										<rect x="6.8" y="1.8" width="2.8" height="8.4" rx="1" />
-									</svg>
-								</button>
-							) : (
-								<button
-									type="button"
-									aria-label={t("composer.abort")}
-									title={t("composer.abort")}
-									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
-									onClick={onAbort}
-								>
-									<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-										<rect x="2" y="2" width="8" height="8" rx="1" />
-									</svg>
-								</button>
-							)}
-							</>
-						) : paused && onResume ? (
-							<button
-								type="button"
-								aria-label={t("composer.resume")}
-								title={t("composer.resume")}
-								className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-								disabled={disabled}
-								onClick={onResume}
-							>
-								<svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
-									<path d="M4 2.7v6.6c0 .4.45.65.79.42l5.1-3.3a.5.5 0 0 0 0-.84L4.79 2.28A.5.5 0 0 0 4 2.7Z" />
-								</svg>
-							</button>
-						) : (
-							<button
-								type="button"
-								aria-label={t("composer.send")}
-								title={t("composer.send")}
-								className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-								disabled={disabled}
-								onClick={submit}
-							>
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4">
-									<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
-								</svg>
-							</button>
-						)}
+						<button
+							type="button"
+							aria-label={t(actionLabel)}
+							title={action === "queue" ? t("composer.queueHint") : t(actionLabel)}
+							className="owl-composer-action"
+							disabled={(action === "send" || action === "resume") && disabled}
+							onClick={() => {
+								if (action === "queue") submit("queue");
+								else if (action === "send") submit();
+								else if (action === "pause") onPause?.();
+								else if (action === "resume") onResume?.();
+								else onAbort();
+							}}
+						>
+							<ComposerActionIcon action={action} />
+						</button>
 					</div>
 				</div>
 				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
 				<div className="flex flex-wrap items-center gap-0.5 px-0.5 pt-1">
+					{agentPresets && agentPresets.length > 0 && onAgentPresetSelect && (
+						<Menu
+							triggerClassName={ghostPillClass}
+							triggerTitle={t("composer.preset.aria")}
+							panelClassName="left-0 w-80"
+							trigger={
+								<>
+									{(() => {
+										const current = agentPresets.find((preset) => preset.id === agentPreset);
+										return current ? (
+											<PresetAvatar preset={current} />
+										) : (
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5 shrink-0 text-owl-faint">
+												<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
+											</svg>
+										);
+									})()}
+									<span>{agentPresets.find((preset) => preset.id === agentPreset)?.name ?? agentPreset}</span>
+									<Chevron />
+								</>
+							}
+						>
+							{(close) => (
+								<div>
+									<div className="px-3 pb-1.5 pt-2">
+										<p className="text-xs font-semibold text-owl-text">{t("composer.preset.menuTitle")}</p>
+										<p className="mt-0.5 text-[10.5px] leading-snug text-owl-faint">{t("composer.preset.menuDesc")}</p>
+									</div>
+									{agentPresets.map((preset) => (
+										<button
+											key={preset.id}
+											type="button"
+											className={`${menuItemClass} items-start ${preset.id === agentPreset ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+											onClick={() => {
+												onAgentPresetSelect(preset.id);
+												close();
+											}}
+										>
+											<span className="mt-0.5">
+												<PresetAvatar preset={preset} />
+											</span>
+											<span className="flex-1">
+												<span className="flex items-center gap-1.5">
+													<span className="font-medium">{preset.name}</span>
+													{preset.id === defaultPresetId && (
+														<span className="rounded bg-owl-accent/12 px-1.5 py-px text-[9px] font-semibold text-owl-accent">
+															{t("composer.preset.defaultBadge")}
+														</span>
+													)}
+													{!preset.builtin && (
+														<span className="rounded bg-owl-faint/15 px-1.5 py-px text-[9px] text-owl-muted">
+															{t("composer.preset.customBadge")}
+														</span>
+													)}
+													<span className="text-[9px] tracking-wide text-owl-faint">{preset.id}</span>
+												</span>
+												<span className="mt-0.5 block text-[10.5px] leading-snug text-owl-faint">{preset.description}</span>
+											</span>
+											{preset.id === agentPreset && <span className="mt-0.5 text-owl-accent">✓</span>}
+										</button>
+									))}
+									{agentPresetLocked && (
+										<p className="flex items-start gap-1.5 border-t border-owl-border px-3 pb-2.5 pt-2 text-[10px] leading-snug text-owl-faint">
+											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-px h-2.5 w-2.5 shrink-0">
+												<rect x="4" y="10" width="16" height="10" rx="2" />
+												<path d="M8 10V7a4 4 0 0 1 8 0v3" />
+											</svg>
+											{t("composer.preset.locked")}
+										</p>
+									)}
+								</div>
+							)}
+						</Menu>
+					)}
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={activeMode ? t(activeMode.titleKey) : undefined}

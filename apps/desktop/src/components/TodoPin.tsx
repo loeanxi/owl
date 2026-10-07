@@ -12,7 +12,7 @@ const TODO_PIN_KEY = "owl.todopin.open";
  * 收起时一行（进度条 + 进行中的任务），展开后是完整清单；
  * 用户点 × 收下后，清单下一次更新会重新弹出提醒。
  */
-export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Element | null {
+export function TodoPin({ entries, onVisibleChange }: { entries: ChatEntry[]; onVisibleChange?: (visible: boolean) => void }): React.JSX.Element | null {
 	const t = useT();
 	const todos = latestTodoState(entries);
 	const [dismissed, setDismissed] = useState<string | null>(null);
@@ -27,8 +27,13 @@ export function TodoPin({ entries }: { entries: ChatEntry[] }): React.JSX.Elemen
 		}
 	}, [snapshot, dismissed]);
 
-	if (!todos || todos.length === 0) return null;
-	if (dismissed !== null) return null;
+	const visible = Boolean(todos && todos.length > 0 && dismissed === null);
+	useEffect(() => {
+		onVisibleChange?.(visible);
+		return () => onVisibleChange?.(false);
+	}, [visible, onVisibleChange]);
+
+	if (!visible || !todos) return null;
 
 	const done = todos.filter((item) => item.status === "completed").length;
 	const pct = Math.round((done / todos.length) * 100);

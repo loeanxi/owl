@@ -103,3 +103,17 @@ export async function revealInFileManager(path: string): Promise<{ ok: boolean; 
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
 }
+
+/**
+ * 桥进程的日志文件路径（桌面壳把桥的 stdout/stderr 重定向到 %TEMP%\owl-bridge.log，
+ * 与 Rust 侧 bridge_log_path() 同一口径）；浏览器模式没有日志文件，返回 null。
+ */
+export async function bridgeLogPath(): Promise<string | null> {
+	if (!hasTauri()) return null;
+	try {
+		const { tempDir, join } = await import("@tauri-apps/api/path");
+		return await join(await tempDir(), "owl-bridge.log");
+	} catch {
+		return null;
+	}
+}

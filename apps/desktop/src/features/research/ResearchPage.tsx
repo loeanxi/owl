@@ -13,6 +13,7 @@ import { RetryPin } from "../../components/RetryPin.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
+import { TrajectoryView } from "../trajectory/TrajectoryView.tsx";
 import { setSessionFeed } from "../../sidebar/feed.ts";
 import { useResearchText, type ResearchText } from "./research-copy.ts";
 import { researchCsv, safeSourceUrl } from "./research-results.ts";
@@ -43,6 +44,8 @@ export type ResearchPageProps = {
 	onOpenSettings?: () => void;
 	sidebarOpen?: boolean;
 	conversationView?: ConversationView;
+	/** 会话内任务卡的「任务页」跳转（主区共享）。 */
+	onOpenAutomation?: () => void;
 	onTitleChange?: (title: string) => void;
 };
 
@@ -104,6 +107,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const [selectedResultId, setSelectedResultId] = useState<string>();
 	const [sourcesOpen, setSourcesOpen] = useState(false);
 	const [localError, setLocalError] = useState<string>();
+	const [todoPinVisible, setTodoPinVisible] = useState(false);
 	const [commands, setCommands] = useState<SlashCommandEntry[]>([]);
 	const draftSequence = useRef(0);
 	const newRequest = useRef(props.newConversationRequest);
@@ -171,12 +175,12 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	return <section className="research-page" aria-label={text("title")}>
 		<div className="research-content">
 			<div className="research-conversation">
-				{props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} artifacts={<ResultCards results={state.results} text={text} onOpen={openResult} onDraft={fillDraft} />} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p><div className="research-examples"><button type="button" onClick={() => fillDraft(text("crawlDraft"))}>{text("exampleCrawl")}</button><button type="button" onClick={() => fillDraft(text("webDraft"))}>{text("exampleWeb")}</button><button type="button" onClick={() => fillDraft(text("binaryDraft"))}>{text("exampleBinary")}</button><button type="button" onClick={() => fillDraft(text("modelDraft"))}>{text("exampleModel")}</button></div></div>}
+				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} artifacts={<ResultCards results={state.results} text={text} onOpen={openResult} onDraft={fillDraft} />} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p><div className="research-examples"><button type="button" onClick={() => fillDraft(text("crawlDraft"))}>{text("exampleCrawl")}</button><button type="button" onClick={() => fillDraft(text("webDraft"))}>{text("exampleWeb")}</button><button type="button" onClick={() => fillDraft(text("binaryDraft"))}>{text("exampleBinary")}</button><button type="button" onClick={() => fillDraft(text("modelDraft"))}>{text("exampleModel")}</button></div></div>}
 				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus} onDismiss={() => controller.dismissRetry()} />
-				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />
+				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} onVisibleChange={setTodoPinVisible} />
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
-					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
+					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideMascot={todoPinVisible} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						environmentAccessory={<div className="research-composer-mode"><Menu triggerClassName="research-mode-button" panelClassName="right-0 w-56" trigger={<><ResearchMark /><span>{text("modePrefix")} · {text(modeKeys[state.mode])}</span><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="research-mode-chevron" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg></>}>{(close) => <div>{(Object.keys(modeKeys) as ResearchMode[]).map((mode) => <button className="research-mode-option" type="button" aria-pressed={state.mode === mode} disabled={state.running || state.busy} key={mode} onClick={() => { controller.setMode(mode); close(); }}><span>{text(modeKeys[mode])}</span>{mode === state.mode && <span>✓</span>}</button>)}</div>}</Menu></div>}
 						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} onSwitchProject={props.onSwitchProject ?? (() => undefined)} commands={commands}
 						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />

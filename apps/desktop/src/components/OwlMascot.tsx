@@ -60,18 +60,19 @@ export function useSessionOwlPose(activity: ChatActivity, entries: ChatEntry[]):
 	return celebrating && activity === "idle" ? "party" : pose;
 }
 
-export function OwlMascot({ pose, inline = false }: { pose: OwlPose; inline?: boolean }): React.JSX.Element {
+export function OwlMascot({ pose, inline = false, hidden = false }: { pose: OwlPose; inline?: boolean; hidden?: boolean }): React.JSX.Element {
 	const t = useT();
 	const rawId = useId().replace(/:/g, "");
 	const haloId = `owl-halo-${rawId}`;
 	const pupilId = `owl-pupil-${rawId}`;
 	const [poked, setPoked] = useState(false);
 	return (
-		<div className={inline ? "owl-mascot-slot is-inline" : "owl-mascot-slot"}>
+		<div className={"owl-mascot-slot" + (inline ? " is-inline" : "") + (hidden && !inline ? " is-hidden" : "")} aria-hidden={hidden && !inline ? true : undefined}>
 			<button
 				type="button"
 				className={poked ? "owl-mascot poked" : "owl-mascot"}
 				data-pose={pose}
+				tabIndex={hidden && !inline ? -1 : 0}
 				aria-label={t("composer.owlHop")}
 				onClick={() => {
 					setPoked(false);

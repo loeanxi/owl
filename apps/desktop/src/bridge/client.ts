@@ -21,6 +21,8 @@ export type PermissionRequest = PermissionRequestMessage;
 export type QuestionRequest = QuestionRequestMessage;
 export type SessionEventHandler = (event: ServerEventMessage) => void;
 export type PermissionHandler = (request: PermissionRequest) => void;
+/** 自动化任务有变化（创建/开关/到点投递/删除）时的无参通知。 */
+export type ScheduleChangedHandler = () => void;
 export type QuestionHandler = (request: QuestionRequest) => void;
 export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
@@ -106,6 +108,7 @@ export class BridgeClient {
 	private mailDraftHandlers = new Set<MailDraftHandler>();
 	private mapResultsHandlers = new Set<MapResultsHandler>();
 	private diffApprovalHandlers = new Set<DiffApprovalChangedHandler>();
+	private scheduleChangedHandlers = new Set<() => void>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	private url: string;
 	private closedByUser = false;
@@ -180,6 +183,10 @@ export class BridgeClient {
 			}
 			if (message.type === "viewer.changed") {
 				for (const handler of this.viewerChangedHandlers) handler(message);
+				return;
+			}
+			if (message.type === "schedule.changed") {
+				for (const handler of this.scheduleChangedHandlers) handler();
 				return;
 			}
 			if (message.type === "diffApproval.changed") {
@@ -264,6 +271,12 @@ export class BridgeClient {
 		return () => this.diffApprovalHandlers.delete(handler);
 	}
 
+	/** 自动化任务有变化（创建/开关/到点投递/删除）时的服务端推送。 */
+	onScheduleChanged(handler: ScheduleChangedHandler): () => void {
+		this.scheduleChangedHandlers.add(handler);
+		return () => this.scheduleChangedHandlers.delete(handler);
+	}
+
 	onMailDraft(handler: MailDraftHandler): () => void {
 		this.mailDraftHandlers.add(handler);
 		return () => this.mailDraftHandlers.delete(handler);
@@ -335,7 +348,7 @@ export class BridgeClient {
 			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
 			const fallbackTimeout =
 				request.type === "session.resume" ? 30_000
-				: ["session.create", "session.prompt", "session.stats", "session.running", "models.list"].includes(request.type)
+				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "models.list"].includes(request.type)
 					? 15_000
 					: undefined;
 			if (fallbackTimeout !== undefined) {

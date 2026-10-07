@@ -4,10 +4,12 @@
  * server-side leaks into the browser bundle.
  */
 
+import type { AgentPresetDefinition } from "../../core/agent-presets.ts";
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
 import type { EvaluationRequest } from "../../core/evaluation/types.ts";
 import type { MapResultsMessage } from "../../core/maps/types.ts";
 
+export type { AgentPresetDefinition, PresetApprovalMode } from "../../core/agent-presets.ts";
 export type { MapResultsMessage } from "../../core/maps/types.ts";
 
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
@@ -69,6 +71,8 @@ export interface SessionCreateRequest {
 	thinkingLevel?: string;
 	/** Explicitly create a persistent research scope. Omit for ordinary chat. */
 	researchMode?: ResearchMode;
+	/** Agent 预设 id；缺省解析到全局默认预设（owlDefaultPreset，再回退 standard）。 */
+	agentPreset?: string;
 }
 
 export interface SessionPromptRequest {
@@ -83,6 +87,23 @@ export interface SessionPromptRequest {
 	researchMode?: ResearchMode;
 	/** While the session is already streaming, queue this message instead of rejecting it. */
 	streamingBehavior?: "steer" | "followUp";
+}
+
+/** Drop one pending line from the steering or follow-up queue. */
+export interface SessionQueueRemoveRequest {
+	type: "session.queue.remove";
+	id: string;
+	sessionId: string;
+	lane: "steering" | "followUp";
+	index: number;
+}
+
+/** Move a queued follow-up into the current turn. It is delivered at the next tool boundary. */
+export interface SessionQueuePromoteRequest {
+	type: "session.queue.promote";
+	id: string;
+	sessionId: string;
+	index: number;
 }
 
 export interface SessionAbortRequest {
@@ -229,6 +250,50 @@ export interface SessionSetApprovalModeRequest {
 	id: string;
 	sessionId: string;
 	approvalMode: ApprovalMode;
+}
+
+/**
+ * 会话切换 Agent 预设。只有空白会话（还没跑过第一轮）允许切换：跑过的历史是在
+ * 原预设的工具与提示词下产生的，换组合会让记录悬空（DSH 的 agent-preset-locked 不变量）。
+ */
+export interface SessionSetPresetRequest {
+	type: "session.setPreset";
+	id: string;
+	sessionId: string;
+	agentPreset: string;
+}
+
+/** 预设花名册（内置 + 自定义），附全局默认预设 id。 */
+export interface PresetListRequest {
+	type: "preset.list";
+	id: string;
+}
+
+export interface PresetListResult {
+	presets: AgentPresetDefinition[];
+	/** 未显式选择预设的新会话解析到它。 */
+	defaultPreset: string;
+}
+
+/** 设置新会话默认预设（settings.owlDefaultPreset）。 */
+export interface PresetSetDefaultRequest {
+	type: "preset.setDefault";
+	id: string;
+	agentPreset: string;
+}
+
+/** 新建或更新自定义预设；内置 id 拒绝。 */
+export interface PresetSaveRequest {
+	type: "preset.save";
+	id: string;
+	preset: AgentPresetDefinition;
+}
+
+/** 删除自定义预设；内置 id 拒绝。 */
+export interface PresetDeleteRequest {
+	type: "preset.delete";
+	id: string;
+	agentPreset: string;
 }
 
 /** 会话进行中手动压缩上下文（对应 AgentSession.compact，事件照常走事件流）。 */
@@ -400,6 +465,8 @@ export interface SessionSnapshotPayload {
 	researchMode?: ResearchMode;
 	/** Authoritative approval for research conversations, including after a restart. */
 	approvalMode?: ApprovalMode;
+	/** 会话绑定的 Agent 预设 id（owl-agent-preset custom entry；未绑定为 undefined）。 */
+	agentPreset?: string;
 }
 
 /** 斜杠命令一览的一行（commands.list 返回，UI 输入框 "/" 自动补全用）。 */
@@ -611,6 +678,8 @@ export interface SessionStatsResult {
 		tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 		cost: number;
 	};
+	/** Messages waiting while the session is still running. */
+	queue?: { steering: string[]; followUp: string[] };
 }
 
 /** 导出会话日志：jsonl 为原始日志文件原样内容（含全部分支），markdown 只取当前分支的可读转录。 */
@@ -619,6 +688,11 @@ export interface SessionExportLogRequest {
 	id: string;
 	sessionId: string;
 	format: "jsonl" | "markdown";
+	/**
+	 * 勾选历史分享：要导出的轮次，按各轮用户消息的条目 id 指定（session.turns 里拿到的）。
+	 * 提供时 markdown 只排这些轮次；空数组或缺省导出整个当前分支。对 jsonl 无效。
+	 */
+	turnEntryIds?: string[];
 }
 
 export interface SessionExportLogResult {
@@ -630,6 +704,29 @@ export interface SessionExportLogResult {
 	path: string;
 	/** 桥端已落盘的副本绝对路径（下载目录）；前端据此唤起资源管理器定位。 */
 	savedPath?: string;
+}
+
+/** 一轮可勾选的会话历史（用户消息 + 其后的回复与工具往返）。 */
+export interface SessionTurn {
+	/** 该轮用户消息的条目 id（勾选导出时回传 session.exportLog 的 turnEntryIds）。 */
+	entryId: string;
+	/** 用户消息纯文本预览（纯图片/附件消息为空串，UI 自行占位）。 */
+	text: string;
+	timestamp: string;
+	/** 该轮包含的分支条目数（含用户消息自身），仅供 UI 展示。 */
+	entryCount: number;
+}
+
+/** 列出当前分支的可勾选轮次（分享导出前挑选用）。 */
+export interface SessionTurnsRequest {
+	type: "session.turns";
+	id: string;
+	sessionId: string;
+}
+
+export interface SessionTurnsResult {
+	/** 按时间升序（即分支顺序）；用户消息前的序条（session_info 等）不属于任何轮。 */
+	turns: SessionTurn[];
 }
 
 /** 查询上下文洞察（owl-context 插件经 core/context-insight 注册表供数）。 */
@@ -898,6 +995,209 @@ export interface UsageGetResult {
 	byDayModel: UsageStatsDayModel[];
 	/** byDay 超出 366 天被截断（丢的是最老的天）。 */
 	byDayTruncated?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// 「我的 Token 生涯」看板（career.get）—— 跨 Agent 本地会话记录的 token 用量汇总，
+// 数据面见 ./career-stats.ts：owl 复用 usage-stats 全量口径，Claude Code / Codex
+// 走 ~/.claude、~/.codex 的增量扫描；Gemini 本地记录无用量、Cursor 待手动导入，只报状态。
+// ---------------------------------------------------------------------------
+
+/** 单数据源的用量分桶（cost 只有 owl 实测，其余来源本地记录不含费用，恒为 0）。 */
+export interface CareerBucket {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	/** 推理 token（output 的子集，部分来源不上报）。 */
+	reasoning: number;
+	totalTokens: number;
+}
+
+export interface CareerAgentTotals extends CareerBucket {
+	cost: number;
+}
+
+/** 数据源接入状态：ok=已接入；nodata=有本地数据但不含用量；detected=检测到产品数据但存储为私有格式待解析；pending=待手动导入；unavailable=未检测到。 */
+export type CareerSourceStatus = "ok" | "nodata" | "detected" | "pending" | "unavailable";
+
+export interface CareerAgentUsage {
+	id: string;
+	name: string;
+	status: CareerSourceStatus;
+	/** 状态补充说明（无用量 / 待导入的原因），前端直接展示。 */
+	note?: string;
+	/** 本机数据根目录（展示用，~ 缩写）。 */
+	root?: string;
+	/** 已计入的会话文件数（删除不回吐口径）。 */
+	sessions: number;
+	/** 最早 / 最近一次有记录的时间（ISO 或 YYYY-MM-DD，前端按需展示）。 */
+	firstAt?: string;
+	lastAt?: string;
+	totals: CareerAgentTotals;
+	/** 升序、本机时区、只含有用量的天。 */
+	byDay: { date: string; totalTokens: number }[];
+	/** 模型用量降序（key 为各来源原始模型名；owl 为 provider/model）。 */
+	byModel: { key: string; totalTokens: number }[];
+}
+
+export type LifeLevel = "ok" | "bad" | "warn" | "idle" | "off";
+
+export interface LifeChannel {
+	id: string;
+	level: LifeLevel;
+	/** 短证据。不得包含 key、令牌、邮箱或完整本机路径。 */
+	evidence: string;
+	note: string;
+	at: number;
+}
+
+export interface LifeProbeRequest {
+	type: "life.probe";
+	id: string;
+	cwd?: string;
+	/** 输入框当前选中的 `供应商/模型`。空表示没选。 */
+	model?: string;
+}
+
+export interface LifeProbeResult {
+	probedAt: number;
+	channels: LifeChannel[];
+}
+
+export interface CareerGetRequest {
+	type: "career.get";
+	id: string;
+}
+
+export interface CareerGetResult {
+	/** 本次统计的生成时间（ISO），前端据此显示快照时间。 */
+	generatedAt: string;
+	/** 固定顺序 owl/claude/codex/gemini/cursor，含未接入数据源的占位。 */
+	agents: CareerAgentUsage[];
+}
+
+// ---------------------------------------------------------------------------
+// 自动化任务（schedule.*）—— 会话内定时任务：到点把提示词作为普通跟进消息
+// 送回目标会话。任务落盘 ~/.owl/agent/schedule/tasks.json，跨重启存活；
+// 服务本体在 modes/desktop/schedule-service.ts。
+// ---------------------------------------------------------------------------
+
+/** 重复规则：每天 / 每周 / 一次性 / 间隔分钟 / 五段 cron。 */
+export type ScheduleRepeat =
+	| { kind: "daily"; time: string }
+	| { kind: "weekly"; weekday: number; time: string }
+	| { kind: "once"; at: number }
+	| { kind: "interval"; minutes: number }
+	| { kind: "cron"; expr: string };
+
+/** 错过策略：owl 没开着时，到点的运行怎么办。 */
+export type ScheduleMissedPolicy = "catch-up" | "skip" | "wake";
+
+export interface ScheduleTask {
+	id: string;
+	name: string;
+	emoji: string;
+	prompt: string;
+	sessionId: string;
+	/** 目标会话的展示名（创建时由 UI 带入）。 */
+	targetLabel: string;
+	repeat: ScheduleRepeat;
+	missed: ScheduleMissedPolicy;
+	enabled: boolean;
+	createdAt: number;
+	nextRunAt: number | null;
+	lastRunAt: number | null;
+}
+
+export interface ScheduleRun {
+	id: string;
+	taskId: string;
+	/** 计划触发时刻（手动运行为发起时刻）。 */
+	scheduledAt: number;
+	deliveredAt: number | null;
+	status: "ok" | "error" | "skipped" | "pending";
+	durationMs?: number;
+	note?: string;
+	/** 实际收到消息的会话（"__new__" 任务为新建会话 id），供 UI 跳转。 */
+	sessionId?: string;
+}
+
+export interface ScheduleListRequest {
+	type: "schedule.list";
+	id: string;
+}
+
+export interface ScheduleListResult {
+	tasks: ScheduleTask[];
+	/** taskId → 最近运行（新在前，每任务最多 20 条）。 */
+	runs: Record<string, ScheduleRun[]>;
+}
+
+export interface ScheduleCreateRequest {
+	type: "schedule.create";
+	id: string;
+	name: string;
+	/** 任务卡 emoji；可空。 */
+	emoji?: string;
+	prompt: string;
+	sessionId: string;
+	targetLabel: string;
+	repeat: ScheduleRepeat;
+	missed?: ScheduleMissedPolicy;
+}
+
+export interface ScheduleCreateResult {
+	task: ScheduleTask;
+}
+
+export interface ScheduleUpdateRequest {
+	type: "schedule.update";
+	id: string;
+	taskId: string;
+	name?: string;
+	emoji?: string;
+	prompt?: string;
+	targetLabel?: string;
+	repeat?: ScheduleRepeat;
+	missed?: ScheduleMissedPolicy;
+	/** 开关：false 暂停（时刻冻结），true 恢复（从当下重算）。 */
+	enabled?: boolean;
+}
+
+export interface ScheduleUpdateResult {
+	task: ScheduleTask;
+}
+
+export interface ScheduleDeleteRequest {
+	type: "schedule.delete";
+	id: string;
+	taskId: string;
+}
+
+export interface ScheduleRunRequest {
+	type: "schedule.run";
+	id: string;
+	taskId: string;
+}
+
+export interface ScheduleRunResult {
+	run: ScheduleRun;
+}
+
+export interface ScheduleHistoryRequest {
+	type: "schedule.history";
+	id: string;
+	taskId: string;
+}
+
+export interface ScheduleHistoryResult {
+	runs: ScheduleRun[];
+}
+
+/** 服务端推送：任务或运行历史有变化（创建/开关/到点投递/删除）。 */
+export interface ScheduleChangedMessage {
+	type: "schedule.changed";
 }
 
 // ---------------------------------------------------------------------------
@@ -1685,6 +1985,8 @@ export type DesktopClientRequest =
 	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
+	| SessionQueueRemoveRequest
+	| SessionQueuePromoteRequest
 	| OwlUiActionRequest
 	| ContextGetRequest
 	| SessionAbortRequest
@@ -1698,6 +2000,11 @@ export type DesktopClientRequest =
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest
 	| SessionSetApprovalModeRequest
+	| SessionSetPresetRequest
+	| PresetListRequest
+	| PresetSetDefaultRequest
+	| PresetSaveRequest
+	| PresetDeleteRequest
 	| SessionCompactRequest
 	| RewindTargetsRequest
 	| RewindImpactRequest
@@ -1708,6 +2015,7 @@ export type DesktopClientRequest =
 	| DiffApprovalClearRequest
 	| SessionStatsRequest
 	| SessionExportLogRequest
+	| SessionTurnsRequest
 	| CommandsListRequest
 	| SkillsListRequest
 	| SkillsReadRequest
@@ -1737,6 +2045,14 @@ export type DesktopClientRequest =
 	| MemoryDeleteRequest
 	| MemoryClearRequest
 	| UsageGetRequest
+	| CareerGetRequest
+	| ScheduleListRequest
+	| ScheduleCreateRequest
+	| ScheduleUpdateRequest
+	| ScheduleDeleteRequest
+	| ScheduleRunRequest
+	| ScheduleHistoryRequest
+	| LifeProbeRequest
 	| ImageConfigGetRequest
 	| ImageConfigSetRequest
 	| ImageSubLoginRequest
@@ -1879,7 +2195,8 @@ export type DesktopServerMessage =
 	| MirrorServerMessage
 	| ViewerChangedMessage
 	| SidebarOpenMessage
-	| DiffApprovalChangedMessage;
+	| DiffApprovalChangedMessage
+	| ScheduleChangedMessage;
 
 /** Omit that distributes over unions (so each request variant keeps its fields). */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;

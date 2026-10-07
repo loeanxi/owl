@@ -16,6 +16,7 @@ import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { t, useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
+import { FileLanguageIcon, fileLanguageTitle } from "./file-language-icon.tsx";
 import { IconChevronDown, IconChevronRight, IconFile, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
 
 export interface ReviewChangesCardProps {
@@ -44,12 +45,12 @@ const TYPE_FAMILIES: Record<string, string> = {
 	md: "grey", txt: "grey", sh: "grey", yml: "grey", yaml: "grey", toml: "grey",
 };
 
-function fileTypeOf(path: string): { label: string; family: string } {
+function fileTypeOf(path: string): { label: string; family: string; ext: string } {
 	const name = path.split("/").at(-1) ?? path;
 	const dot = name.lastIndexOf(".");
 	const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-	if (ext === "" || ext.length > 5) return { label: "", family: "grey" };
-	return { label: ext.slice(0, 4).toUpperCase(), family: TYPE_FAMILIES[ext] ?? "grey" };
+	if (ext === "" || ext.length > 5) return { label: "", family: "grey", ext };
+	return { label: ext.slice(0, 4).toUpperCase(), family: TYPE_FAMILIES[ext] ?? "grey", ext };
 }
 
 /** 双色 diff 比例条（GitHub 式）+ 加减行数；added/removed 全 0 时不渲染。 */
@@ -77,8 +78,8 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 	const [diffText, setDiffText] = useState<ReadonlyMap<string, string>>(new Map());
 	const [diffLoading, setDiffLoading] = useState<ReadonlySet<string>>(new Set());
 	const [busy, setBusy] = useState(false);
-	// 整卡折叠：只收文件清单，头部（计数 + 统计 + 工作台入口）保持可见
-	const [collapsed, setCollapsed] = useState(false);
+	// 整卡默认收起。对话里只留一行「改了 N 个文件」，点开才看清单，避免摊在回答下面。
+	const [collapsed, setCollapsed] = useState(true);
 	// 展开集合的 ref 镜像：推送回调里免 stale closure
 	const expandedRef = useRef<ReadonlySet<string>>(new Set());
 	expandedRef.current = expanded;
@@ -228,6 +229,14 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 								<div className="owl-changes-row">
 									{(() => {
 										const type = fileTypeOf(file.path);
+										const language = fileLanguageTitle(type.ext);
+										if (language !== undefined) {
+											return (
+												<span className="owl-changes-lang" title={language} aria-hidden="true">
+													<FileLanguageIcon ext={type.ext} />
+												</span>
+											);
+										}
 										return (
 											<span className={`owl-changes-type t-${type.family}`} aria-hidden="true">
 												{type.label === "" ? <IconFile size={10} /> : type.label}

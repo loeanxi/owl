@@ -359,9 +359,23 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			return entries;
 		}
 		case "message_start": {
-			// system/user 消息由 sendPrompt 或 rebuild 负责入列，这里只给 assistant 建流式气泡，
-			// 否则每轮会多出带空"思考过程"的空气泡。
 			const message = event.message as AnyEvent | undefined;
+			// 空闲时发出的用户消息已有乐观行。排队/追加要等真正送达才进对话，
+			// 这时末尾还是助手气泡，补上这一行；和乐观行文本相同则不重复。
+			if (message?.role === "user") {
+				const text = textOf(message.content);
+				const last = entries.at(-1);
+				if (last?.kind === "user" && last.text === text) return entries;
+				const images = contentImagesOf(message.content);
+				const timestamp = timestampOf(message);
+				return [...entries, {
+					kind: "user",
+					text,
+					...(images.length > 0 ? { images } : {}),
+					...(timestamp !== undefined ? { timestamp } : {}),
+				}];
+			}
+			// 只给 assistant 建流式气泡，否则每轮会多出带空"思考过程"的空气泡。
 			if (!message || message.role !== "assistant") return entries;
 			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [], segments: [] }];
 		}

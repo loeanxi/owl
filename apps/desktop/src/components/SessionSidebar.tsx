@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import { normPath, samePath } from "../utils/paths.ts";
-import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
+import { normPath, samePath, isReservedDir } from "../utils/paths.ts";
+import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, publishProjectSidebarChange, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { startPointerDrag } from "../sidebar/pointer-drag.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
@@ -35,8 +35,12 @@ type SessionRow = {
 	firstMessage?: string;
 	/** 父会话文件路径。存在 = 由别的会话分支而来，标题要加「· 分支」后缀区分。 */
 	parentSessionPath?: string;
+	/** 会话记录 JSONL 文件的绝对路径（session.list 随行下发）；右键「复制任务路径」用。 */
+	path?: string;
 	/** 归档时间（ISO）。存在 = 已归档；由桥端 archive.json 下发。 */
 	archivedAt?: string;
+	/** 会话绑定的 Agent 预设 id（owl-agent-preset entry；桥端随 session.list 下发）。 */
+	preset?: string;
 	scope?: SessionScope;
 	[key: string]: unknown;
 };
@@ -356,7 +360,7 @@ export function SessionSidebar({
 		setOpenMenu((current) => current === projectPopup?.key ? null : current);
 	}, [projectPopup]);
 	const sessionMenuId = useId();
-	const [sessionMenu, setSessionMenu] = useState<{ key: string; row: SessionRow; anchor: HTMLButtonElement } | null>(null);
+	const [sessionMenu, setSessionMenu] = useState<{ key: string; row: SessionRow; anchor: HTMLButtonElement; point?: { x: number; y: number } } | null>(null);
 	const closeSessionMenu = useCallback((restoreFocus = true): void => {
 		if (restoreFocus && sessionMenu?.anchor.isConnected) sessionMenu.anchor.focus({ preventScroll: true });
 		setSessionMenu(null);
@@ -604,7 +608,14 @@ export function SessionSidebar({
 			localStorage.setItem(keys.pinnedProjects, JSON.stringify(next));
 			return next;
 		});
+		// 项目页与侧栏共用这份置顶：广播让两边的本地 state 都重读。
+		publishProjectSidebarChange();
 	};
+
+	// 项目页（ProjectsPage）对置顶的修改经 publish 广播到这里：重读保持两边一致。
+	useEffect(() => {
+		setPinnedProjects(loadPinnedProjects(keys.pinnedProjects));
+	}, [projectRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const isProjectPinned = (path: string): boolean => pinnedProjects.some((p) => samePath(p, path));
 
@@ -681,12 +692,14 @@ export function SessionSidebar({
 	}, [sessions, pinned, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 项目列表 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目，按路径去重。
-	// 排序：按最近会话活动时间降序（无会话的按名称垫底）；切项目不改变顺序，
-	// 避免点击的项目跳到列表顶部。
+	// 保留目录（默认目录/助理目录）不算普通项目：只在作为当前项目时出现，退出项目即隐藏，
+	// 其会话仍列在「最近会话」。排序：按最近会话活动时间降序（无会话的按名称垫底）；
+	// 切项目不改变顺序，避免点击的项目跳到列表顶部。
 	const projectPaths = useMemo(() => {
 		const map = new Map<string, { path: string; latest: string }>();
 		const track = (path: string | undefined, time?: string): void => {
 			if (!path) return;
+			if (isReservedDir(path) && !samePath(path, activeProject)) return;
 			const key = normPath(path);
 			const existing = map.get(key);
 			if (!existing) map.set(key, { path, latest: time ?? "" });
@@ -715,10 +728,10 @@ export function SessionSidebar({
 		[projectPaths, sessions, search, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 
-	// 置顶项目行（按置顶先后），搜索时同样按项目过滤。
+	// 置顶项目行（按置顶先后），保留目录只在作为当前项目时显示，搜索时同样按项目过滤。
 	const pinnedProjectRows = useMemo(
-		() => pinnedProjects.filter((path) => !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
-		[pinnedProjects, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
+		() => pinnedProjects.filter((path) => (!isReservedDir(path) || samePath(path, activeProject)) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
+		[pinnedProjects, activeProject, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 
 	const recentSessions = useMemo(() => {
@@ -754,15 +767,23 @@ export function SessionSidebar({
 		const draggable = projectPath !== undefined && id !== undefined && search === "";
 		const dropBefore = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
 		const dropAfter = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
-		return (
-			<div
-				key={id ?? index}
-				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
-					id ? "owl-sidebar-row--has-marker" : ""
-				} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
-					dropBefore ? "is-drop-before" : ""
-				} ${dropAfter ? "is-drop-after" : ""}`}
-				draggable={draggable || undefined}
+			return (
+				<div
+					key={id ?? index}
+					className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
+						id ? "owl-sidebar-row--has-marker" : ""
+					} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
+						dropBefore ? "is-drop-before" : ""
+					} ${dropAfter ? "is-drop-after" : ""}`}
+					draggable={draggable || undefined}
+					onContextMenu={id ? (event) => {
+						// 右键弹出会话操作菜单（与 ⋯ 按钮同一张）；定位到指针处
+						event.preventDefault();
+						const anchor = event.currentTarget.querySelector<HTMLButtonElement>(".owl-sidebar-row-main");
+						if (!anchor) return;
+						setSessionMenu({ key: menuKey, row, anchor, point: { x: event.clientX, y: event.clientY } });
+						setOpenMenu(menuKey);
+					} : undefined}
 				onDragStart={draggable ? (event) => {
 					// 从行尾操作按钮（⋯）起拖视为误操作：不进入拖拽。
 					if ((event.target as HTMLElement).closest(".owl-sidebar-row-actions")) {
@@ -786,8 +807,9 @@ export function SessionSidebar({
 					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); } }}
 				>
 					<span
-						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
-						title={isRunning ? t("sidebar.runningTip") : unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : undefined}
+						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : row.preset ? " is-preset" : ""}`}
+						data-preset={row.preset}
+						title={isRunning ? t("sidebar.runningTip") : unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : row.preset ?? undefined}
 						aria-label={unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : undefined}
 					/>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
@@ -1162,13 +1184,20 @@ export function SessionSidebar({
 				<SessionActionsMenu
 					key={sessionMenu.key}
 					anchor={sessionMenu.anchor}
+					point={sessionMenu.point}
 					menuId={sessionMenuId}
 					label={t("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) })}
 					pinned={sessionMenu.row.id !== undefined && pinned.includes(sessionMenu.row.id)}
+					session={{
+						id: sessionMenu.row.id,
+						cwd: sessionMenu.row.cwd || undefined,
+						file: sessionMenu.row.path || undefined,
+					}}
 					onClose={closeSessionMenu}
 					onPin={() => { if (sessionMenu.row.id) togglePin(sessionMenu.row.id); }}
 					onArchive={() => void archiveSession(sessionMenu.row)}
 					onDelete={() => { setConfirmDelete(sessionMenu.row); setDeleteError(""); }}
+					onReveal={sessionMenu.row.cwd ? () => void revealProject(sessionMenu.row.cwd!) : undefined}
 				/>
 			)}
 

@@ -52,6 +52,14 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 			],
 		},
 		{
+			title: t("help.shortcutChat"),
+			rows: [
+				{ label: t("composer.sendShortcut"), keys: ["Enter"] },
+				{ label: t("composer.queueShortcut"), keys: ["Enter"] },
+				{ label: t("composer.steerShortcut"), keys: ["Ctrl", "Enter"] },
+			],
+		},
+		{
 			title: t("titlebar.menuView"),
 			rows: [
 				{ label: t("titlebar.showSessions"), keys: ["Ctrl", "Shift", "S"] },

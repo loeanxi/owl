@@ -68,6 +68,50 @@ html[data-owl-theme="light"] .owl-changes-card {
 	border-bottom: 1px solid color-mix(in srgb, var(--color-owl-border) 45%, transparent);
 }
 
+/* 收起时只留一行淡字，不跟回答正文抢。点开后恢复面板。 */
+.owl-changes-card.is-collapsed {
+	border: 0;
+	background: transparent;
+	border-radius: 0;
+}
+
+.owl-changes-card.is-collapsed.owl-artifacts {
+	padding: 2px 0 0;
+}
+
+.owl-changes-card.is-collapsed .owl-changes-head {
+	padding: 0;
+	gap: 8px;
+}
+
+.owl-changes-card.is-collapsed .owl-changes-head-icon {
+	display: none;
+}
+
+.owl-changes-card.is-collapsed .owl-changes-head-text {
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+}
+
+.owl-changes-card.is-collapsed .owl-changes-title {
+	font-size: 12px;
+	font-weight: 400;
+	color: var(--owl-reading-muted);
+}
+
+.owl-changes-card.is-collapsed .owl-changes-revert-all,
+.owl-changes-card.is-collapsed .owl-changes-workbench {
+	display: none;
+}
+
+.owl-changes-card.is-collapsed:hover .owl-changes-revert-all,
+.owl-changes-card.is-collapsed:hover .owl-changes-workbench,
+.owl-changes-card.is-collapsed:focus-within .owl-changes-revert-all,
+.owl-changes-card.is-collapsed:focus-within .owl-changes-workbench {
+	display: inline-flex;
+}
+
 .owl-changes-toggle {
 	display: flex;
 	flex: 1;
@@ -257,7 +301,21 @@ html[data-owl-theme="light"] .owl-changes-card {
 	opacity: 0.9;
 }
 
-/* 类型芯片：两三个字母的扩展名缩写，色相按语言家族 */
+/* 语言官方标，占位与字母芯片同宽，文件名仍然对齐 */
+.owl-changes-lang {
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: 24px;
+	height: 19px;
+	color: var(--color-owl-text);
+}
+
+.owl-changes-lang svg {
+	display: block;
+}
+
+/* 类型芯片：没有官方标时，用两三个字母的扩展名缩写 */
 .owl-changes-type {
 	display: grid;
 	place-items: center;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
-import type { ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -11,13 +11,26 @@ import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
 import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
 import { ResearchPage } from "./features/research/ResearchPage.tsx";
+import { ManagerTab } from "./sidebar/tabs/ManagerTab.tsx";
 import { useResearchEntryText } from "./features/research/research-entry-copy.ts";
 import { MediaView } from "./features/media/MediaView.tsx";
+import { ProjectsPage } from "./features/projects/ProjectsPage.tsx";
 import { GuidePanel } from "./features/guide/GuidePanel.tsx";
+import { TokenCareerPage } from "./features/token-career/TokenCareerPage.tsx";
+import { AutomationPage } from "./features/automation/AutomationPage.tsx";
+import { SchedulePin } from "./features/automation/SchedulePin.tsx";
+import { MyselfPanel } from "./features/myself/MyselfPanel.tsx";
+import { ExpertPanel } from "./features/expert/ExpertPanel.tsx";
+import { BaguPage } from "./features/bagu/BaguPage.tsx";
+import { MarketPage } from "./features/market/MarketPage.tsx";
+import { LifeMonitorPage } from "./features/life-monitor/LifeMonitorPage.tsx";
+import { presentLife } from "./features/life-monitor/present.ts";
+import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
+import { TrajectoryView } from "./features/trajectory/TrajectoryView.tsx";
 import { ConversationHeader, type ConversationView, type SessionExportFormat } from "./components/ConversationHeader.tsx";
 import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerImage } from "./components/Composer.tsx";
@@ -27,6 +40,7 @@ import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { QuestionDock } from "./components/QuestionDock.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
+import { SessionShareDialog } from "./components/SessionShareDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
@@ -46,7 +60,7 @@ import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguageSetting, setUiLanguageSetting, t, useT, type UiLanguageSetting } from "./i18n/index.ts";
-import { normPath, samePath } from "./utils/paths.ts";
+import { normPath, samePath, DEFAULT_WORKSPACE_DIR, isReservedDir } from "./utils/paths.ts";
 import { isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "./project-sidebar-model.ts";
 import { Workbench } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
@@ -54,7 +68,7 @@ import { openQuickAction } from "./sidebar/quick.tsx";
 import { openDeveloperWorkbench } from "./sidebar/developer.ts";
 import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarConfig, viewerKindForPath } from "./sidebar/config.ts";
 import { fileUrlOf } from "./sidebar/api.ts";
-import { isIabPageBound, boundTabIdFor, encodeIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
+import { isIabPageBound, boundTabIdFor, encodeIabPath, parseIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
 import { BrowserSessionContext } from "./sidebar/registry.ts";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
@@ -64,11 +78,13 @@ import { downloadTextFile } from "./utils/download.ts";
 import "./desktop-shell.css";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
-/** 未选择过项目时的默认工作目录；启动时会自动创建，保证开箱即可对话。 */
-const DEFAULT_WORKSPACE_DIR = "D:/owl/Owl-def";
+/** 是否选择了对话目录（"0" = 已叉掉，不选目录）：不选时会话进 DEFAULT_WORKSPACE_DIR。 */
+const WORKSPACE_SELECTED_KEY = "owl.workspaceSelected";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 const APPROVAL_KEY = "owl.approvalMode";
+/** 暂存的 Agent 预设 id：新会话创建时带上（DSH 的 staged-selection 语义）。 */
+const PRESET_KEY = "owl.agentPreset";
 const SIDEBAR_MINIMIZED_KEY = "owl.sidebar.minimized";
 const NEWS_SIDEBAR_MINIMIZED_KEY = "owl.news.sidebar.minimized";
 
@@ -118,17 +134,22 @@ export default function App(): React.JSX.Element {
 	// 动态壁纸（owlWallpaper）：设置页保存时同步到这里，WallpaperLayer 随之重渲。
 	const [wallpaper, setWallpaper] = useState<OwlWallpaperSettings>(() => parseOwlWallpaper(undefined));
 	const [showProjectDialog, setShowProjectDialog] = useState(false);
+	// 项目页「创建」：创建后留在项目页（不切走）；顶栏/快捷键入口仍是创建即进入。
+	const [projectDialogStay, setProjectDialogStay] = useState(false);
 	// 设置页改动会话（恢复/删除归档）时递增，驱动侧边栏重拉列表
 	const [sidebarRev, setSidebarRev] = useState(0);
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "research" || view === "guide" ? view : "chat";
+		return view === "manager" || view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "projects" || view === "research" || view === "guide" || view === "career" || view === "monitor" || view === "myself" || view === "expert" || view === "bagu" || view === "market" ? view : "chat";
 	});
 	const sessionScope = railView === "research" ? "research" : "chat";
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
+	// 号池 Manager 懒挂载：首次点开 Rail 才渲染 iframe，之后保活。
+	const [managerMounted, setManagerMounted] = useState(railView === "manager");
+	if (railView === "manager") setManagerMounted(true);
 	const [researchSessionId, setResearchSessionId] = useState<string>();
 	const researchSessionIdRef = useRef(researchSessionId);
 	researchSessionIdRef.current = researchSessionId;
@@ -142,6 +163,25 @@ export default function App(): React.JSX.Element {
 	const [mediaMounted, setMediaMounted] = useState(railView === "media");
 	// 「人生指南」同样懒挂载保活：内容抓一次就留在内存与 localStorage。
 	const [guideMounted, setGuideMounted] = useState(railView === "guide");
+	// 「我的 Token 生涯」看板：懒挂载保活，扫描结果留在内存，重开不重扫（后端另有 mtime 缓存）。
+	const [careerMounted, setCareerMounted] = useState(railView === "career");
+	const [automationMounted, setAutomationMounted] = useState(railView === "automation");
+	/** 跳自动化任务页（会话内任务卡 / 下次运行常驻条共用）。 */
+	const openAutomation = (): void => {
+		setShowSettings(false);
+		setAutomationMounted(true);
+		setRailView("automation");
+	};
+	const [monitorMounted, setMonitorMounted] = useState(railView === "monitor");
+	// 「我的助理」同样懒挂载保活：owl-myself 的天文件读一次留在内存，勾选即时回写。
+	const [myselfMounted, setMyselfMounted] = useState(railView === "myself");
+	// 「专家顾问」懒挂载保活：owl-expert 的人格目录与群清单留在内存。
+	const [expertMounted, setExpertMounted] = useState(railView === "expert");
+	// 「八股对练」懒挂载保活：题库与面试线程留在内存，切走再回来不丢进度。
+	const [baguMounted, setBaguMounted] = useState(railView === "bagu");
+	const [marketMounted, setMarketMounted] = useState(railView === "market");
+	// owl agent 数据目录（settings.get 带出）：我的助理的兜底数据根。
+	const [agentDir, setAgentDir] = useState<string>();
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -160,11 +200,13 @@ export default function App(): React.JSX.Element {
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
 	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
+	const [todoPinVisible, setTodoPinVisible] = useState(false);
 	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
 	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
 	const [pendingPrompts, setPendingPrompts] = useState<ReadonlySet<string>>(() => new Set<string>());
+	const [promptQueues, setPromptQueues] = useState<Record<string, { steering: string[]; followUp: string[] }>>({});
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const runningSessionsRef = useRef(runningSessions);
@@ -232,6 +274,14 @@ export default function App(): React.JSX.Element {
 		const stored = localStorage.getItem(APPROVAL_KEY);
 		return isApprovalMode(stored) ? stored : "confirm";
 	});
+	// Agent 预设：花名册 + 新任务默认（桥端）+ 暂存选择 + 当前会话绑定。
+	// 显示优先级：打开的会话显示它的绑定；空白/新会话显示暂存选择。
+	const [agentPresets, setAgentPresets] = useState<AgentPresetDefinition[]>([]);
+	const [defaultPresetId, setDefaultPresetId] = useState("standard");
+	const [stagedPreset, setStagedPreset] = useState(() => localStorage.getItem(PRESET_KEY) ?? "");
+	const [sessionPreset, setSessionPreset] = useState<string | undefined>(undefined);
+	// ensureSession 闭包要读最新暂存值：经 ref 中转（设置页代创会先改暂存再开会话）。
+	const stagedPresetRef = useRef(stagedPreset);
 	const [sessionInfo, setSessionInfo] = useState<SessionStatsResult | undefined>(undefined);
 	/** 当前会话是否由别的会话分支而来（快照 header.parentSession）：无名分支的顶栏标题加「· 分支」。 */
 	const [sessionBranched, setSessionBranched] = useState(false);
@@ -240,6 +290,12 @@ export default function App(): React.JSX.Element {
 	const [workspaceDir, setWorkspaceDir] = useState(
 		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
 	);
+	// 目录选择状态：叉掉 chip 后为 false——输入框不再绑定目录，会话默认进 DEFAULT_WORKSPACE_DIR。
+	const [workspaceSelected, setWorkspaceSelected] = useState(
+		() => localStorage.getItem(WORKSPACE_SELECTED_KEY) !== "0",
+	);
+	const lifeProbe = useLifeProbe({ client, connected, cwd: workspaceDir, model: modelValue });
+	const lifeView = useMemo(() => presentLife(lifeProbe.channels, lifeProbe.round), [lifeProbe.channels, lifeProbe.round]);
 	// 输入框项目选择器的候选列表：与侧边栏同源（当前 ∪ 有会话 ∪ 到访过），切换项目/侧边栏变更时刷新。
 	const [projects, setProjects] = useState<string[]>([]);
 	const [researchProjects, setResearchProjects] = useState<string[]>([]);
@@ -341,10 +397,37 @@ export default function App(): React.JSX.Element {
 	const [exportingLog, setExportingLog] = useState(false);
 	const [exportNotice, setExportNotice] = useState<{ text: string; tone: "info" | "error" }>();
 	useEffect(() => setExportNotice(undefined), [sessionId, researchSessionId]);
+	// 勾选历史分享：弹窗挂载的目标会话（普通/科研视图同一套导出链路）
+	const [shareTurnsSession, setShareTurnsSession] = useState<string>();
+	/** 在侧边栏浏览器 tab 打开 URL：同一 URL 已有 tab 就激活，否则开新 tab（标题带序号）。 */
+	const openInBrowserTab = (url: string, title: string): void => {
+		if (!isTabKindEnabled("browser", getSidebarConfig())) return;
+		for (const tab of workbenchStore.getState().tabs) {
+			if (tab.kind === "browser" && parseIabPath(tab.path).url === url) {
+				workbenchStore.activate(tab.id);
+				setDeveloperLayoutPersisted(false);
+				if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
+				return;
+			}
+		}
+		workbenchStore.openNew("browser", title, url);
+		setDeveloperLayoutPersisted(false);
+		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
+	};
+	/** 聊天正文行内芯片的 http(s) 链接：交给侧边栏浏览器（「浏览器」卡片停用时不动）。 */
+	const openUrlInSidebarBrowser = (url: string): void => {
+		openInBrowserTab(url, t("app.browserTab"));
+	};
 	const openTaskFile = (path: string): void => {
 		const relative = workspaceArtifactPath(path, workspaceRef.current);
 		if (!relative) return;
 		setFileOpenError(undefined);
+		// 工作区 HTML 优先内置浏览器：真实加载（相对资源可解析），document 预览的
+		// srcDoc iframe 做不到；「浏览器」卡片停用时维持原 document 预览。
+		if (/\.html?$/i.test(relative) && isTabKindEnabled("browser", getSidebarConfig())) {
+			openInBrowserTab(fileUrlOf(workspaceRef.current, relative), relative.split("/").pop() ?? relative);
+			return;
+		}
 		const kind = viewerKindForPath(relative, getSidebarConfig());
 		if (kind === undefined) {
 			void client.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, relative) })
@@ -587,6 +670,13 @@ export default function App(): React.JSX.Element {
 			// 用户消息落盘即刷新侧栏：新会话文件要等首条用户消息写入才创建（桥端
 			// _hasConversation 门控），此刻 refreshKey（sessionId）早已稳定不再变化，
 			// 只靠 agent_settled 刷新的话，长任务运行期间侧栏一直看不到这个新对话。
+			if (eventType === "queue_update") {
+				const queued = message.event as { steering?: string[]; followUp?: string[] };
+				setPromptQueues((current) => ({
+					...current,
+					[message.sessionId]: { steering: [...(queued.steering ?? [])], followUp: [...(queued.followUp ?? [])] },
+				}));
+			}
 			if (eventType === "entry_appended" && (message.event as { entry?: { message?: { role?: string } } }).entry?.message?.role === "user") {
 				setSidebarRev((current) => current + 1);
 			}
@@ -833,6 +923,7 @@ export default function App(): React.JSX.Element {
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
 			.then((response) => {
 				if (!response.ok) return;
+				if (response.result?.agentDir) setAgentDir(response.result.agentDir);
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
 				applyOwlAppearance(parseOwlAppearance(settings?.owlAppearance));
@@ -877,6 +968,21 @@ export default function App(): React.JSX.Element {
 		return () => { cancelled = true; };
 	}, [client, connected, sidebarRev, runningSessions, t]);
 
+	// Agent 预设花名册（内置 + 自定义 + 全局默认）：连接后拉取，设置页改动后由 preset.list 刷新。
+	useEffect(() => {
+		if (!connected) return;
+		let cancelled = false;
+		void client
+			.request<{ presets: AgentPresetDefinition[]; defaultPreset: string }>({ type: "preset.list" })
+			.then((response) => {
+				if (cancelled || !response.ok || !response.result) return;
+				setAgentPresets(response.result.presets);
+				setDefaultPresetId(response.result.defaultPreset);
+			})
+			.catch(() => {});
+		return () => { cancelled = true; };
+	}, [client, connected]);
+
 	function selectedModel(): { provider: string; model: string } | undefined {
 		const value = modelValue;
 		if (!value) return undefined;
@@ -892,7 +998,12 @@ export default function App(): React.JSX.Element {
 		try {
 			const response = await client.request<SessionStatsResult>({ type: "session.stats", sessionId: target });
 			// 落地时会话可能已切走：过期统计画进当前会话就是用量环/模型名串话
-			if (response.ok && target === sessionIdRef.current) setSessionInfo(response.result ?? undefined);
+			if (response.ok && target === sessionIdRef.current) {
+				setSessionInfo(response.result ?? undefined);
+				if (response.result?.queue) {
+					setPromptQueues((current) => ({ ...current, [target]: response.result!.queue! }));
+				}
+			}
 		} catch {
 			// 桥断开时静默跳过，重连后下一轮会重新拉取
 		}
@@ -900,14 +1011,20 @@ export default function App(): React.JSX.Element {
 
 	// 导出当前会话日志（头部下载菜单）：桥端把文件写进下载目录，前端唤起资源
 	// 管理器定位；每一步的结果都写进 exportNotice，绝不静默失败。
-	async function exportSessionLog(format: SessionExportFormat): Promise<void> {
+	// turnEntryIds 提供时（勾选历史分享）只导出所选轮次，其余整支导出。
+	async function exportSessionLog(format: SessionExportFormat, turnEntryIds?: string[]): Promise<void> {
 		// research 视图里导的是 research 会话；普通视图导当前会话
 		const target = railView === "research" ? researchSessionId : sessionIdRef.current;
 		if (!target || exportingLog) return;
 		setExportNotice(undefined);
 		setExportingLog(true);
 		try {
-			const response = await client.request<SessionExportLogResult>({ type: "session.exportLog", sessionId: target, format });
+			const response = await client.request<SessionExportLogResult>({
+				type: "session.exportLog",
+				sessionId: target,
+				format,
+				...(turnEntryIds ? { turnEntryIds } : {}),
+			});
 			if (!response.ok || !response.result) {
 				throw new Error(response.error ?? t("api.opFailed", { what: t("app.downloadSessionLog") }));
 			}
@@ -981,6 +1098,7 @@ export default function App(): React.JSX.Element {
 				...selectedModel(),
 				thinkingLevel,
 				approvalMode,
+				...(stagedPresetRef.current ? { agentPreset: stagedPresetRef.current } : {}),
 			});
 			if (!response.ok || !response.result) {
 				console.error("session.create failed:", response.error);
@@ -996,6 +1114,7 @@ export default function App(): React.JSX.Element {
 			setRetryStatus(null);
 			setSessionBranched(false);
 			setSessionName(undefined);
+			setSessionPreset(stagedPreset || undefined);
 			void refreshStats(id);
 			return id;
 		} finally {
@@ -1012,12 +1131,35 @@ export default function App(): React.JSX.Element {
 		setSessionInfo(undefined);
 		setSessionBranched(false);
 		setSessionName(undefined);
+		setSessionPreset(undefined);
 		void ensureSession();
 	};
 
-	// 切换项目 = 换工作目录并从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
-	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在当前项目下创建会话。
-	const switchProject = (path: string): void => {
+	// 插件市场「引入」：新开一条会话并自动发出改造任务书，然后跳到该会话看 Agent 干活。
+	// 任务书里已注明 owl 与 pi/DSH 接口不兼容、产物装到 agent 目录；后续权限类操作走常规确认流。
+	const importPluginToNewSession = async (promptText: string): Promise<void> => {
+		const response = await client.request<{ sessionId: string }>({
+			type: "session.create",
+			cwd: workspaceRef.current,
+			...selectedModel(),
+			thinkingLevel,
+			approvalMode,
+			...(stagedPresetRef.current ? { agentPreset: stagedPresetRef.current } : {}),
+		});
+		if (!response.ok || !response.result?.sessionId) throw new Error(response.error ?? t("app.unknownError"));
+		const id = response.result.sessionId;
+		sessionViewSeq.current += 1;
+		setShowSettings(false);
+		setRailView("chat");
+		setConversationViewPersisted("chat");
+		await openSession(id);
+		const promptResponse = await client.request({ type: "session.prompt", sessionId: id, message: promptText });
+		if (!promptResponse.ok) throw new Error(promptResponse.error ?? t("app.sendFailedMsg"));
+	};
+
+	// 换工作目录 = 从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
+	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在目标目录下创建会话。
+	const resetToWorkspace = (path: string): void => {
 		sessionViewSeq.current += 1;
 		setResearchConversationTitle(undefined);
 		setResearchResumeRequest(undefined);
@@ -1031,6 +1173,24 @@ export default function App(): React.JSX.Element {
 		setSessionInfo(undefined);
 		setSessionBranched(false);
 		setSessionName(undefined);
+		setSessionPreset(undefined);
+	};
+
+	// 切换项目：绑定目录（chip 显示）并从新会话开始。
+	const switchProject = (path: string): void => {
+		resetToWorkspace(path);
+		setWorkspaceSelected(true);
+		localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
+	};
+
+	// 叉掉目录（输入框 chip 上的 ✕）：不选目录对话，会话默认进 DEFAULT_WORKSPACE_DIR。
+	// 当前会话已经在默认目录时原地继续，不打断；否则换到默认目录并从新会话开始。
+	const clearWorkspaceSelection = (): void => {
+		if (!workspaceSelected) return;
+		setWorkspaceSelected(false);
+		localStorage.setItem(WORKSPACE_SELECTED_KEY, "0");
+		if (samePath(workspaceRef.current, DEFAULT_WORKSPACE_DIR)) return;
+		resetToWorkspace(DEFAULT_WORKSPACE_DIR);
 	};
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
@@ -1047,6 +1207,8 @@ export default function App(): React.JSX.Element {
 			header?: { parentSession?: string };
 			/** 会话持久化显示名（session_info，如分支的「fork2 · 来自「你好」」） */
 			name?: string;
+			/** 会话绑定的 Agent 预设 id：顶栏标签与选择器显示它。 */
+			agentPreset?: string;
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
@@ -1085,6 +1247,7 @@ export default function App(): React.JSX.Element {
 		setRetryStatus(null);
 		setSessionBranched(Boolean(response.result.header?.parentSession));
 		setSessionName(response.result.name);
+		setSessionPreset(response.result.agentPreset);
 		void refreshStats(resumedId);
 	};
 
@@ -1135,7 +1298,8 @@ export default function App(): React.JSX.Element {
 	}, [connected, client, railView]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 输入框项目选择器的候选列表：session.list 的项目 ∪ 到访过的项目 ∪ 当前项目（与侧边栏同源）。
-	// 切项目 / 侧边栏重拉（恢复、删除归档）时刷新；桥瞬断静默跳过。
+	// 保留目录（默认目录/助理目录）只在被选中为当前项目时进入候选；切项目 / 侧边栏重拉
+	// （恢复、删除归档）时刷新；桥瞬断静默跳过。
 	useEffect(() => {
 		if (!connected) return;
 		let cancelled = false;
@@ -1147,6 +1311,7 @@ export default function App(): React.JSX.Element {
 					const seen = new Map<string, string>();
 					const track = (path: string | undefined): void => {
 						if (!path) return;
+						if (isReservedDir(path) && !(workspaceSelected && samePath(path, workspaceRef.current))) return;
 						const key = normPath(path);
 						if (!seen.has(key)) seen.set(key, path);
 					};
@@ -1161,7 +1326,7 @@ export default function App(): React.JSX.Element {
 		return () => {
 			cancelled = true;
 		};
-	}, [connected, client, workspaceDir, sidebarRev, railView, researchSessionId, sessionId]);
+	}, [connected, client, workspaceDir, workspaceSelected, sidebarRev, railView, researchSessionId, sessionId]);
 
 	// 斜杠命令清单：随项目（技能/模板按 cwd 扫描）与会话（扩展命令挂在运行时上）刷新。
 	useEffect(() => {
@@ -1221,6 +1386,39 @@ export default function App(): React.JSX.Element {
 		void client
 			.request({ type: "session.setApprovalMode", sessionId: current, approvalMode: mode })
 			.catch(() => {});
+	};
+
+	// Agent 预设选择：空白/新会话换组合，跑过第一轮的会话由桥端拒绝（preset-locked）——
+	// 此时选择只更新暂存（新会话生效），当前会话继续显示自己的绑定。
+	const handleAgentPresetSelect = (id: string): void => {
+		setStagedPreset(id);
+		stagedPresetRef.current = id;
+		localStorage.setItem(PRESET_KEY, id);
+		const current = sessionIdRef.current;
+		if (!current || entries.length > 0) return;
+		void client
+			.request<{ agentPreset: string }>({ type: "session.setPreset", sessionId: current, agentPreset: id })
+			.then((response) => {
+				if (response.ok) setSessionPreset(id);
+			})
+			.catch(() => {});
+	};
+
+	// 设置页「让 Agent 帮我创建预设模式」：切到创造模式，空白会话直接换、否则开新会话，
+	// 再把引导语填进输入框（不发出去，让用户补一句自己的需求）。
+	const handleAskAgentCreatePreset = (): void => {
+		setShowSettings(false);
+		setRailView("chat");
+		if (sessionIdRef.current && entries.length === 0) {
+			handleAgentPresetSelect("cordis");
+		} else {
+			setStagedPreset("cordis");
+			stagedPresetRef.current = "cordis";
+			localStorage.setItem(PRESET_KEY, "cordis");
+			setSessionPreset(undefined);
+			newChat();
+		}
+		setDraftRequest({ id: ++draftSequence.current, text: t("settings.presets.creatorPrompt") });
 	};
 
 	// 桌面内置斜杠命令：都在界面/桥本地执行，session.prompt 不认识它们，绝不能当文本发给模型。
@@ -1291,10 +1489,10 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[]): Promise<void> => {
+	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<void> => {
 		const hasImages = (images?.length ?? 0) > 0;
 		const hasAttachments = (attachedPaths?.length ?? 0) > 0;
-		const queueFollowUp = running;
+		const queueing = running;
 		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return;
 		submitInFlight.current = true;
 		setSubmitting(true);
@@ -1317,20 +1515,22 @@ export default function App(): React.JSX.Element {
 			next.delete(target!);
 			return next;
 		});
-		setEntries((current) => [
-			...current,
-			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
-			// 运行中追加的跟进先标 queued，避免切断正在写的这一轮。
-			{ kind: "user", text: message, timestamp: Date.now(), ...(queueFollowUp ? { queued: true } : {}), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
-		]);
+		if (!queueing) {
+			setEntries((current) => [
+				...current,
+				// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
+				// 运行中的排队和追加不写进对话，等 queue_update 出现在输入框上方。
+				{ kind: "user", text: message, timestamp: Date.now(), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
+			]);
+			setPendingPrompts((current) => new Set(current).add(target!));
+		}
 		// 用户亲自发言：旧的"重试中/重试失败"横幅已过时（会话由新消息接管）
 		setRetryStatus(null);
-		setPendingPrompts((current) => new Set(current).add(target!));
 		const response = await client.request({
 			type: "session.prompt",
 			sessionId: target,
 			message,
-			...(queueFollowUp ? { streamingBehavior: "followUp" as const } : {}),
+			...(queueing ? { streamingBehavior: delivery === "steer" ? "steer" as const : "followUp" as const } : {}),
 			...(hasImages ? { images } : {}),
 			...(hasAttachments ? { attachedPaths } : {}),
 		});
@@ -1354,14 +1554,7 @@ export default function App(): React.JSX.Element {
 				next.delete(target!);
 				return next;
 			});
-			if (queueFollowUp) {
-				setEntries((current) => {
-					const index = current.findLastIndex((entry) => entry.kind === "user" && entry.queued && entry.text === message);
-					if (index < 0) return current;
-					return [...current.slice(0, index), ...current.slice(index + 1)];
-				});
-				setDraftRequest({ id: ++draftSequence.current, text: message });
-			}
+			if (queueing) setDraftRequest({ id: ++draftSequence.current, text: message });
 			if (!target || target === sessionIdRef.current) setEntries((current) => [...current, {
 				kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 			}]);
@@ -1374,19 +1567,19 @@ export default function App(): React.JSX.Element {
 	const replyToSession = (target: string, message: string): void => {
 		const text = message.trim();
 		if (!connected || !text) return;
-		const queueFollowUp = runningSessions.has(target) || pendingPrompts.has(target);
+		const queueing = runningSessions.has(target) || pendingPrompts.has(target);
 		setPausedSessions((current) => {
 			if (!current.has(target)) return current;
 			const next = new Set(current);
 			next.delete(target);
 			return next;
 		});
-		if (target === sessionIdRef.current) {
-			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now(), ...(queueFollowUp ? { queued: true } : {}) }]);
+		if (target === sessionIdRef.current && !queueing) {
+			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now() }]);
 			setRetryStatus(null);
 		}
-		setPendingPrompts((current) => new Set(current).add(target));
-		void client.request({ type: "session.prompt", sessionId: target, message: text, ...(queueFollowUp ? { streamingBehavior: "followUp" as const } : {}) }).then((response) => {
+		if (!queueing) setPendingPrompts((current) => new Set(current).add(target));
+		void client.request({ type: "session.prompt", sessionId: target, message: text, ...(queueing ? { streamingBehavior: "followUp" as const } : {}) }).then((response) => {
 			if (!response.ok) throw new Error(response.error ?? t("app.sendFailedMsg"));
 		}).catch((error: unknown) => {
 			setPendingPrompts((current) => {
@@ -1532,6 +1725,12 @@ export default function App(): React.JSX.Element {
 		if (place.rail === "mail") setMailMounted(true);
 			if (place.rail === "media") setMediaMounted(true);
 			if (place.rail === "guide") setGuideMounted(true);
+		if (place.rail === "career") setCareerMounted(true);
+		if (place.rail === "automation") setAutomationMounted(true);
+		if (place.rail === "monitor") setMonitorMounted(true);
+		if (place.rail === "myself") setMyselfMounted(true);
+		if (place.rail === "expert") setExpertMounted(true);
+		if (place.rail === "bagu") setBaguMounted(true);
 		if (place.rail === "research") setResearchMounted(true);
 		if (place.rail === "evaluation") setEvaluationMounted(true);
 		const openingChat = place.rail !== "research" && Boolean(place.chatSession) && place.chatSession !== sessionIdRef.current;
@@ -1727,6 +1926,21 @@ export default function App(): React.JSX.Element {
 					setGuideMounted(true);
 					setRailView(railViewRef.current === "guide" ? "chat" : "guide");
 				}}
+				onOpenTokenCareer={() => {
+					// Token 生涯按钮 = 打开/关闭生涯看板（再点一次回到会话）。
+					setShowSettings(false);
+					setCareerMounted(true);
+					setRailView(railViewRef.current === "career" ? "chat" : "career");
+				}}
+				onOpenLifeMonitor={() => {
+					const opening = railViewRef.current !== "monitor";
+					setShowSettings(false);
+					setMonitorMounted(true);
+					setRailView(opening ? "monitor" : "chat");
+					if (opening) lifeProbe.refresh();
+				}}
+				lifeDot={lifeView.summary.dot}
+				lifeCount={lifeView.summary.count}
 				island={(
 					<DynamicIsland
 						running={islandRunning}
@@ -1777,7 +1991,7 @@ export default function App(): React.JSX.Element {
 						onPersistUiLanguage={(next: UiLanguageSetting) => {
 							void client.request({ type: "settings.set", values: { uiLanguage: next } }).catch(() => {});
 						}}
-				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); if (view === "research") setResearchMounted(true); }}
+				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); if (view === "research") setResearchMounted(true); if (view === "automation") setAutomationMounted(true); if (view === "myself") setMyselfMounted(true); if (view === "expert") setExpertMounted(true); if (view === "bagu") setBaguMounted(true); if (view === "market") setMarketMounted(true); }}
 			/>
 			<SessionSidebar
 				key={sessionScope}
@@ -1785,7 +1999,8 @@ export default function App(): React.JSX.Element {
 				sessionScope={sessionScope}
 				connected={connected}
 				activeId={railView === "research" ? researchSessionId : sessionId}
-				activeProject={workspaceDir}
+				// 未选目录时侧栏没有「当前项目」：保留目录也随之从「项目」分组隐藏，会话走「最近会话」。
+				activeProject={workspaceSelected ? workspaceDir : ""}
 				refreshKey={(railView === "research" ? researchSessionId : sessionId) ?? ""}
 				revision={sidebarRev}
 				focus={railView}
@@ -1830,6 +2045,34 @@ export default function App(): React.JSX.Element {
 					setDraftRequest({ id: ++draftSequence.current, text });
 				}} />
 			</div>
+			{/* 「项目」页（Codex 式一览）：与 news 同款常挂载 + display 切换；创建走项目页模式（不跳走）。 */}
+			<div data-owl-island-anchor="" style={{ display: railView === "projects" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<ProjectsPage
+					client={client}
+					connected={connected}
+					active={railView === "projects" && !showSettings}
+					runningSessions={runningSessions}
+					revision={sidebarRev}
+					activeProject={workspaceSelected ? workspaceDir : ""}
+					onOpenSession={(id) => {
+						setShowSettings(false);
+						setRailView("chat");
+						void openSession(id);
+					}}
+					onNewChatInProject={(path) => {
+						setShowSettings(false);
+						if (samePath(path, workspaceRef.current)) shortcuts.newChat();
+						else {
+							switchProject(path);
+							setRailView("chat");
+						}
+					}}
+					onCreateProject={() => {
+						setProjectDialogStay(true);
+						setShowProjectDialog(true);
+					}}
+				/>
+			</div>
 			{mailMounted && <div data-owl-island-anchor="" style={{ display: railView === "mail" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MailPage client={client} connected={connected} cwd={workspaceDir} sidebarCollapsed={sidebarMinimized} model={selectedModel()} thinkingLevel={thinkingLevel} />
 			</div>}
@@ -1840,7 +2083,7 @@ export default function App(): React.JSX.Element {
 			{mediaMounted && <div data-owl-island-anchor="" style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
-			{/* 「高性价比人生指南」原生阅读面板：内容 jsDelivr 拉取 + 本地缓存（CC BY 4.0，署名在面板底栏）。 */}
+			{/* 人生指南视图（双 tab）：高性价比人生指南 + 人生进阶指南，内容 jsDelivr 拉取 + 本地缓存（署名与许可在各自底栏）。 */}
 			{guideMounted && <div data-owl-island-anchor="" style={{ display: railView === "guide" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<GuidePanel
 					active={railView === "guide" && !showSettings}
@@ -1851,10 +2094,45 @@ export default function App(): React.JSX.Element {
 					}}
 				/>
 			</div>}
+			{/* 「我的 Token 生涯」看板：跨 Agent 本地会话记录的 token 用量汇总（career.get，仅本地解析）。 */}
+			{careerMounted && <div data-owl-island-anchor="" style={{ display: railView === "career" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<TokenCareerPage active={railView === "career" && !showSettings} client={client} />
+			</div>}
+			{automationMounted && <div data-owl-island-anchor="" style={{ display: railView === "automation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<AutomationPage client={client} active={railView === "automation" && !showSettings} onOpenSession={(id) => void openSession(id)} sessions={[
+					...(sessionId ? [{ id: sessionId, title: sessionTitle }] : []),
+					...[...listedTitles.entries()].filter(([id]) => id !== sessionId).slice(0, 30).map(([id, title]) => ({ id, title })),
+				]} />
+			</div>}
+			{monitorMounted && <div data-owl-island-anchor="" style={{ display: railView === "monitor" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<LifeMonitorPage view={lifeView} round={lifeProbe.round} active={railView === "monitor" && !showSettings} />
+			</div>}
+			{/* 「我的助理」：owl-myself 目录每天一个 md，左侧日历排序 + 当天提炼/待办/对话。 */}
+			{myselfMounted && <div data-owl-island-anchor="" style={{ display: railView === "myself" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<MyselfPanel active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir} providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
+			</div>}
+			{/* 「专家顾问」：owl-expert 目录（人格档案 + 记忆 + 每天一个会话 md），市场 + 1:1/群聊。 */}
+			{expertMounted && <div data-owl-island-anchor="" style={{ display: railView === "expert" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<ExpertPanel active={railView === "expert" && !showSettings} client={client} connected={connected} providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
+			</div>}
+			{/* 「八股对练」：bagu 题库（localhost:8080）抽题评分 + owl agent 反问/兜底。 */}
+			{baguMounted && <div data-owl-island-anchor="" style={{ display: railView === "bagu" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<BaguPage active={railView === "bagu" && !showSettings} client={client} connected={connected} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} />
+			</div>}
+			{/* 插件市场：与 news/bagu 同款常挂载 + display 切换；引入即新开会话交给 Agent 改造。 */}
+			{marketMounted && <div data-owl-island-anchor="" style={{ display: railView === "market" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<MarketPage active={railView === "market" && !showSettings} connected={connected} agentDir={agentDir ?? ""} workspaceDir={workspaceDir} onImport={(text) => importPluginToNewSession(text)} />
+			</div>}
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
 					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
-					workspaceDir={workspaceDir}
+					// 未选目录时顶栏不显示项目 chip（会话实际落在默认目录）。
+					workspaceDir={workspaceSelected ? workspaceDir : ""}
+					presetName={(() => {
+						if (railView === "research") return undefined;
+						const id = sessionId ? sessionPreset ?? stagedPreset : stagedPreset;
+						return id ? agentPresets.find((preset) => preset.id === id)?.name : undefined;
+					})()}
 					view={railView === "research" ? researchConversationView : conversationView}
 					onViewChange={railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
 					terminalOpen={terminalOpen} sidebarOpen={sidebarOpen}
@@ -1862,6 +2140,7 @@ export default function App(): React.JSX.Element {
 					sessionId={railView === "research" ? researchSessionId : sessionId}
 					exporting={exportingLog}
 					onExport={exportSessionLog}
+					onExportTurns={() => setShareTurnsSession(railView === "research" ? researchSessionId : sessionIdRef.current)}
 				/>
 				{exportNotice && (
 					<p className={`px-5 py-1.5 text-xs ${exportNotice.tone === "error" ? "text-red-400" : "text-owl-faint"}`} role={exportNotice.tone === "error" ? "alert" : "status"}>
@@ -1875,7 +2154,7 @@ export default function App(): React.JSX.Element {
 					<div className="owl-shell-conversation">
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
-								client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
+								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
 								providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
 								projects={visibleResearchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
@@ -1886,18 +2165,25 @@ export default function App(): React.JSX.Element {
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
-						<div style={{ display: railView === "research" && !showSettings ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
-						{conversationView === "context" ? (
+						{/* 号池 Manager（迁移阶段 6）：Rail 一等视图，嵌入 pool-server 管理台。 */}
+						{managerMounted && <div style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
+							<ManagerTab />
+						</div>}
+						<div style={{ display: railView === "research" || railView === "manager" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
+						{conversationView === "trajectory" ? (
+							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
+						) : conversationView === "context" ? (
 							<ContextView key={sessionId ?? workspaceDir} client={client} cwd={workspaceDir} sessionId={sessionId} requireSession active={railView === "chat" && !showSettings && connected} />
 						) : (
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 						)}
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
-						<TodoPin entries={entries} />
+						<TodoPin entries={entries} onVisibleChange={setTodoPinVisible} />
+						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
 						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
 						<QuestionDock
@@ -1914,8 +2200,20 @@ export default function App(): React.JSX.Element {
 								disabled={submitting || !connected}
 								running={running}
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
+								hideMascot={todoPinVisible}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
-								onSend={(text, images, attachedPaths) => void sendPrompt(text, images, attachedPaths)}
+								onSend={(text, images, attachedPaths, delivery) => void sendPrompt(text, images, attachedPaths, delivery)}
+								queued={sessionId ? promptQueues[sessionId] : undefined}
+								onRemoveQueued={(lane, index) => {
+									const target = sessionIdRef.current;
+									if (!target) return;
+									void client.request({ type: "session.queue.remove", sessionId: target, lane, index });
+								}}
+								onPromoteQueued={(index) => {
+									const target = sessionIdRef.current;
+									if (!target) return;
+									void client.request({ type: "session.queue.promote", sessionId: target, index });
+								}}
 								onAbort={() => void abort()}
 								onPause={pauseSession}
 								onResume={() => void resumePaused()}
@@ -1924,12 +2222,19 @@ export default function App(): React.JSX.Element {
 							onModel={handleModelChange}
 							thinkingLevel={thinkingLevel}
 							onThinkingLevel={handleThinkingChange}
-							approvalMode={approvalMode}
+						approvalMode={approvalMode}
 							onApprovalMode={handleApprovalModeChange}
+							agentPresets={agentPresets}
+							defaultPresetId={defaultPresetId}
+							agentPreset={sessionId ? sessionPreset ?? stagedPreset : stagedPreset}
+							agentPresetLocked={Boolean(sessionId) && entries.length > 0}
+							onAgentPresetSelect={handleAgentPresetSelect}
 							sessionInfo={sessionInfo}
 								workspaceDir={workspaceDir}
 								projects={visibleProjects}
+								workspaceSelected={workspaceSelected}
 								onSwitchProject={switchProject}
+								onClearProject={clearWorkspaceSelection}
 								commands={slashCommands}
 								searchFiles={(cwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd, query }).then((r) => (r.ok ? r.result ?? [] : []))}
 								draftRequest={draftRequest}
@@ -1970,6 +2275,7 @@ export default function App(): React.JSX.Element {
 					client={client}
 					workspaceDir={workspaceDir}
 					initialTab={settingsInitialTab}
+					onAskAgentCreatePreset={handleAskAgentCreatePreset}
 					wallpaper={wallpaper}
 					onWallpaperChange={(next) => {
 						setWallpaper(next);
@@ -1978,6 +2284,8 @@ export default function App(): React.JSX.Element {
 					onWorkspaceDir={(dir) => {
 						setWorkspaceDir(dir);
 						localStorage.setItem(WORKSPACE_KEY, dir);
+						setWorkspaceSelected(true);
+						localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
 					}}
 					onClose={() => setShowSettings(false)}
 					onSessionsChanged={() => setSidebarRev((v) => v + 1)}
@@ -1986,11 +2294,19 @@ export default function App(): React.JSX.Element {
 			</div>
 			</div>
 			{showProjectDialog && (
-				<NewProjectDialog client={client} onClose={() => setShowProjectDialog(false)} onCreated={(path, name) => {
+				<NewProjectDialog client={client} onClose={() => { setShowProjectDialog(false); setProjectDialogStay(false); }} onCreated={(path, name) => {
 					restoreProject(path, sessionScope);
 					if (name !== undefined) setProjectAlias(path, name);
 					setShowProjectDialog(false);
 					setShowSettings(false);
+					if (projectDialogStay) {
+						// 项目页创建：登记进已知项目并留在项目页，列表随 sidebarRev 重拉。
+						const known = loadSidebarStrings(localStorage, "owl.projects");
+						if (!known.some((p) => samePath(p, path))) localStorage.setItem("owl.projects", JSON.stringify([...known, path]));
+						setProjectDialogStay(false);
+						setSidebarRev((current) => current + 1);
+						return;
+					}
 					switchProject(path);
 				}} />
 			)}
@@ -2011,6 +2327,20 @@ export default function App(): React.JSX.Element {
 					target={rewindTarget}
 					onDone={handleRewindDone}
 					onClose={() => setRewindTarget(undefined)}
+				/>
+			)}
+			{shareTurnsSession && (
+				<SessionShareDialog
+					key={shareTurnsSession}
+					client={client}
+					sessionId={shareTurnsSession}
+					exporting={exportingLog}
+					onExport={(turnEntryIds) => {
+						// 先关弹窗再导出：结果（保存路径/失败原因）走主窗口的 exportNotice
+						setShareTurnsSession(undefined);
+						void exportSessionLog("markdown", turnEntryIds);
+					}}
+					onClose={() => setShareTurnsSession(undefined)}
 				/>
 			)}
 			{findOpen && <FindBar onClose={() => setFindOpen(false)} />}

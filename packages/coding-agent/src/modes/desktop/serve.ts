@@ -26,6 +26,18 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
 import { expandTildePath, getAgentDir, getGlobalSkillsDir } from "../../config.ts";
+import {
+	type AgentPresetDefinition,
+	applyPresetToolModifiers,
+	deleteCustomAgentPreset,
+	getAgentPreset,
+	getSessionPresetId,
+	listAgentPresets,
+	resolveAgentPreset,
+	resolvePresetAppendPrompt,
+	saveCustomAgentPreset,
+	setSessionPresetEntry,
+} from "../../core/agent-presets.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
 	type AgentSessionRuntime,
@@ -84,7 +96,13 @@ import {
 } from "../../core/research/agent.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
-import { buildSessionExportFilename, formatSessionMarkdown, sessionDisplayName } from "../../core/session-export.ts";
+import {
+	buildSessionExportFilename,
+	filterEntriesToTurns,
+	formatSessionMarkdown,
+	listSessionTurns,
+	sessionDisplayName,
+} from "../../core/session-export.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
@@ -125,6 +143,7 @@ import type {
 	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
+import { ScheduleService } from "./schedule-service.ts";
 import {
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
@@ -455,10 +474,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			if (fdPath) onDiagnostic(`fd ready: ${fdPath}`);
 		})
 		.catch((error) => onDiagnostic(`tool warmup failed: ${error instanceof Error ? error.message : String(error)}`));
-	/** sessionId → live runtime + event subscription（approvalMode 为运行时可变的审批模式 holder）。 */
+	/** sessionId → live runtime + event subscription（approvalMode/preset 为运行时可变的 holder）。 */
 	const sessions = new Map<
 		string,
-		{ runtime: AgentSessionRuntime; unsubscribe: () => void; approvalMode: { current: ApprovalMode } }
+		{
+			runtime: AgentSessionRuntime;
+			unsubscribe: () => void;
+			approvalMode: { current: ApprovalMode };
+			preset: { current: AgentPresetDefinition };
+		}
 	>();
 	const clients = new Set<WebSocket>();
 	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
@@ -781,6 +805,40 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	// 推 diffApproval.changed，工作台 ReviewTab 据此刷新待审清单。
 	setDiffApprovalBroadcaster(broadcast);
 
+	// 自动化任务调度：落盘 ~/.owl/agent/schedule，桥进程内跳表；到点把提示词作为
+	// 普通跟进消息送回目标会话（同 session.prompt 链路），会话没挂载按错过策略处理。
+	// sessionId === "__new__" 表示每次到点新建会话执行（周报这类「一期一会」的任务）：
+	// 无界面挂载（HEADLESS_WS 只用于吞掉 reply，事件仍全局 broadcast），默认工作目录、
+	// 默认模型、auto 审批——与 mail agent 会话同一套参数。
+	const HEADLESS_WS = { readyState: 0 } as unknown as WebSocket;
+	const createScheduledSession = async (): Promise<string> => {
+		const sessionManager = SessionManager.create(options.cwd ?? process.cwd());
+		await mountSession(HEADLESS_WS, "schedule-new", {
+			sessionManager,
+			agentDir: defaultAgentDir(),
+			approvalMode: "auto",
+		});
+		return sessionManager.getSessionId();
+	};
+	const schedule = new ScheduleService({
+		agentDir: defaultAgentDir(),
+		onDiagnostic,
+		onChanged: () => broadcast({ type: "schedule.changed" }),
+		deliver: async (sessionId, text) => {
+			let targetId = sessionId;
+			if (sessionId === "__new__") {
+				targetId = await createScheduledSession();
+				onDiagnostic(`schedule created session ${targetId.slice(0, 8)} for a new-run task`);
+			}
+			const target = sessions.get(targetId);
+			if (!target) return null;
+			const behavior = streamingBehaviorForPrompt(target.runtime.session.isStreaming, "followUp");
+			await target.runtime.session.prompt(text, { ...(behavior ? { streamingBehavior: behavior } : {}) });
+			return targetId;
+		},
+	});
+	schedule.start();
+
 	/** owl-genui：把组件动作格式化成回传给模型的消息（协议见 owl-genui SKILL.md）。 */
 	function formatOwlUiActionMessage(action: string, payload: Record<string, unknown>): string {
 		return `[owl-ui-action] ${action}。用户刚刚在界面中触发了动作 "${action}"，请根据组件数据执行相应操作，并用 owl-ui 输出更新后的界面。 组件数据: ${JSON.stringify(payload)}`;
@@ -841,6 +899,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function getGlobalSettingsManager(): Promise<SettingsManager | null> {
 		globalSettingsManagerPromise ??= getSettingsManagerFor(options.cwd ?? process.cwd());
 		return globalSettingsManagerPromise;
+	}
+
+	/** 全局默认预设 id（settings.owlDefaultPreset；缺省或无效时回退 standard）。 */
+	async function getDefaultPresetId(): Promise<string> {
+		const id = (await getGlobalSettingsManager())?.getGlobalSettings().owlDefaultPreset;
+		return typeof id === "string" && id ? id : "standard";
 	}
 
 	/** 读全局设置里的 owlWallpaper 字段（桌面端动态壁纸；字段由 UI 写入，桥只读）。 */
@@ -1003,6 +1067,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 			name: sessionManager.getSessionName(),
+			agentPreset: getSessionPresetId(sessionManager),
 			...(mailContext ? { mailContext } : {}),
 			...(researchMode ? { researchMode, approvalMode: getResearchApprovalMode(sessionManager) } : {}),
 		};
@@ -1152,6 +1217,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				tokens: stats.tokens,
 				cost: stats.cost,
 			},
+			queue: {
+				steering: [...session.getSteeringMessages()],
+				followUp: [...session.getFollowUpMessages()],
+			},
 		};
 	}
 
@@ -1198,7 +1267,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			provider?: string;
 			model?: string;
 			thinkingLevel?: string;
-			approvalMode: ApprovalMode;
+			approvalMode?: ApprovalMode;
+			/** 显式请求的 Agent 预设 id；缺省按 会话绑定 → 全局默认 → standard 解析。 */
+			agentPreset?: string;
+			/** 新建会话置 true：把解析后的预设 id 写进 owl-agent-preset 绑定 entry。 */
+			persistPreset?: boolean;
 		},
 	): Promise<void> {
 		const { sessionManager } = args;
@@ -1206,8 +1279,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const researchMode = getResearchMode(sessionManager);
 		if (mailContext && researchMode) throw new Error("邮箱会话不能同时作为研究会话");
 		const sessionIdHolder: { current: string } = { current: sessionManager.getSessionId() };
+		// 预设解析：显式请求 → 会话绑定（恢复/分支走这里）→ 全局默认 → standard。
+		// 绑定后预设随会话走：resume 重建它历史运行时的同一组合。
+		const defaultPresetId = await getDefaultPresetId();
+		const presetHolder: { current: AgentPresetDefinition } = {
+			current: resolveAgentPreset(
+				args.agentDir,
+				args.agentPreset ?? getSessionPresetId(sessionManager),
+				() => defaultPresetId,
+			),
+		};
+		if (args.persistPreset) setSessionPresetEntry(sessionManager, presetHolder.current.id);
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
-		const approvalModeHolder: { current: ApprovalMode } = { current: args.approvalMode };
+		const approvalModeHolder: { current: ApprovalMode } = {
+			current: args.approvalMode ?? presetHolder.current.approvalMode ?? (researchMode ? "confirm" : "auto"),
+		};
 		const permissionExtension: InlineExtension = {
 			name: "owl-permissions",
 			factory: (pi) => {
@@ -1257,9 +1343,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					name: "update_user_impression",
 					label: "更新用户印象",
 					description:
-						"仅在用户本轮明确要求更新长期用户印象时，把偏好、习惯、背景或沟通风格合并写入 Owl 的「用户印象」档案。" +
+						"更新长期用户印象：用户本轮明确要求，或你此前在对话里承诺过要更新印象（说过就必须当轮调用本工具兑现）时使用，把偏好、习惯、背景或沟通风格合并写入 Owl 的「用户印象」档案。" +
 						"参数传更新后的完整印象文本（保留仍有效的旧内容，不要清空）。不要把待办、功能需求或目标效果写成已完成的事实。",
-					promptSnippet: "update_user_impression: 按用户本轮明确要求更新长期用户印象",
+					promptSnippet: "update_user_impression: 更新长期用户印象（用户明确要求或你已承诺兑现时）",
 					promptGuidelines: [MEMORY_WRITE_GUIDANCE],
 					parameters: Type.Object({
 						impression: Type.String({ description: "更新后的完整用户印象（Markdown 文本）" }),
@@ -1281,6 +1367,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		// 不再是内联扩展；插件的启停走设置页插件列表。
 		const owlAddenda = mailContext ? [] : await loadOwlAddenda();
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
+		const presetAppendPrompt = mailContext
+			? undefined
+			: resolvePresetAppendPrompt(presetHolder.current, { agentDir: args.agentDir });
+		if (presetAppendPrompt) owlAddenda.push(presetAppendPrompt);
 		const runtime = await createAgentSessionRuntime(
 			mailContext
 				? buildMailFactory(args.agentDir, mailContext, {
@@ -1298,10 +1388,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		);
 		const sessionId = runtime.session.sessionManager.getSessionId();
 		sessionIdHolder.current = sessionId;
+		// 应用预设工具集（裸名替换/＋-增删；未注册的名字由会话注册表过滤）。
+		// 邮箱会话有专属组合，不套预设。
+		if (!mailContext && presetHolder.current.tools?.length) {
+			runtime.session.setActiveToolsByName(
+				applyPresetToolModifiers(runtime.session.getActiveToolNames(), presetHolder.current.tools),
+			);
+		}
 		const unsubscribe = runtime.session.subscribe((event) => {
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
-		sessions.set(sessionId, { runtime, unsubscribe, approvalMode: approvalModeHolder });
+		sessions.set(sessionId, { runtime, unsubscribe, approvalMode: approvalModeHolder, preset: presetHolder });
+		void schedule.onSessionMounted(sessionId);
 		reply(ws, requestId, {
 			ok: true,
 			result: { ...sessionSnapshot(sessionId, sessionManager), ...(mailContext ? { context: mailContext } : {}) },
@@ -1324,7 +1422,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			provider: request.provider,
 			model: request.model,
 			thinkingLevel: request.thinkingLevel,
-			approvalMode: request.approvalMode ?? (researchMode ? "confirm" : "auto"),
+			approvalMode: request.approvalMode ?? (researchMode ? "confirm" : undefined),
+			agentPreset: request.agentPreset,
+			persistPreset: true,
 		});
 	}
 
@@ -1444,6 +1544,26 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				} catch (error) {
 					onDiagnostic(error instanceof Error ? error.message : String(error));
 				}
+				return;
+			}
+			case "session.queue.remove": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const removed = session.runtime.session.removeQueuedMessage(request.lane, request.index);
+				reply(ws, request.id, removed ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
+				return;
+			}
+			case "session.queue.promote": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const promoted = session.runtime.session.promoteQueuedFollowUp(request.index);
+				reply(ws, request.id, promoted ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
 				return;
 			}
 			case "owl-ui.action": {
@@ -1645,6 +1765,77 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: { approvalMode: request.approvalMode } });
 				return;
 			}
+			case "session.setPreset": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const preset = getAgentPreset(defaultAgentDir(), request.agentPreset);
+				if (!preset) {
+					reply(ws, request.id, { ok: false, error: `预设不存在: ${request.agentPreset}` });
+					return;
+				}
+				const sessionManager = session.runtime.session.sessionManager;
+				// 空白判定与快照同一投影：跑过第一轮的会话锁定预设（历史是原组合产生的）。
+				const projection = sessionManager.buildSessionProjection();
+				const messageCount = projection.entries.reduce((count, entry) => count + entry.messages.length, 0);
+				if (messageCount > 0) {
+					reply(ws, request.id, { ok: false, error: "preset-locked" });
+					return;
+				}
+				setSessionPresetEntry(sessionManager, preset.id);
+				session.preset.current = preset;
+				if (!getMailAgentContext(sessionManager) && preset.tools?.length) {
+					session.runtime.session.setActiveToolsByName(
+						applyPresetToolModifiers(session.runtime.session.getActiveToolNames(), preset.tools),
+					);
+				}
+				reply(ws, request.id, { ok: true, result: { agentPreset: preset.id, preset } });
+				return;
+			}
+			case "preset.list": {
+				const agentDir = defaultAgentDir();
+				reply(ws, request.id, {
+					ok: true,
+					result: { presets: await listAgentPresets(agentDir), defaultPreset: await getDefaultPresetId() },
+				});
+				return;
+			}
+			case "preset.setDefault": {
+				const preset = getAgentPreset(defaultAgentDir(), request.agentPreset);
+				if (!preset) {
+					reply(ws, request.id, { ok: false, error: `预设不存在: ${request.agentPreset}` });
+					return;
+				}
+				(await getGlobalSettingsManager())?.applyGlobalOverridesAndSave({ owlDefaultPreset: preset.id });
+				reply(ws, request.id, { ok: true, result: { defaultPreset: preset.id } });
+				return;
+			}
+			case "preset.save": {
+				try {
+					const preset = saveCustomAgentPreset(defaultAgentDir(), request.preset);
+					reply(ws, request.id, {
+						ok: true,
+						result: { preset, presets: await listAgentPresets(defaultAgentDir()) },
+					});
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "preset.delete": {
+				try {
+					deleteCustomAgentPreset(defaultAgentDir(), request.agentPreset);
+					reply(ws, request.id, {
+						ok: true,
+						result: { presets: await listAgentPresets(defaultAgentDir()) },
+					});
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			case "session.stats": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
@@ -1674,12 +1865,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						startedAt: header?.timestamp,
 						ext: request.format === "jsonl" ? "jsonl" : "markdown",
 					});
+					// 勾选历史分享：按所选轮次（用户消息条目 id）过滤分支；只对 markdown 有意义
+					const turnEntryIds = request.format === "markdown" ? request.turnEntryIds : undefined;
+					if (turnEntryIds && turnEntryIds.length === 0) {
+						reply(ws, request.id, { ok: false, error: "未选择要分享的会话历史" });
+						return;
+					}
+					const exportEntries = turnEntryIds ? filterEntriesToTurns(branch, turnEntryIds) : branch;
+					if (turnEntryIds && exportEntries.length === 0) {
+						reply(ws, request.id, { ok: false, error: "所选会话历史不在当前分支上，请刷新后重试" });
+						return;
+					}
 					const content =
 						request.format === "jsonl"
 							? await readFile(sourcePath, "utf8")
 							: formatSessionMarkdown(
 									header ?? { type: "session", id: request.sessionId, timestamp: "", cwd: "" },
-									branch,
+									exportEntries,
+									{ displayName: sessionDisplayName(branch) },
 								);
 					// 直接落盘到下载目录（桌面端随后唤起资源管理器定位），不走 webview 的
 					// blob 下载——WebView2 会静默丢掉 <a download>，表现为点了没反应。
@@ -1699,6 +1902,27 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, {
 						ok: false,
 						error: `导出会话日志失败: ${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
+			// 勾选历史分享的第一步：列出当前分支的轮次（用户消息 + 其后条目），供弹窗勾选。
+			case "session.turns": {
+				const mounted = sessions.get(request.sessionId);
+				const mountedManager = mounted?.runtime.session.sessionManager;
+				try {
+					const sourcePath = mountedManager?.getSessionFile() ?? (await findSessionFile(request.sessionId));
+					if (!sourcePath || !existsSync(sourcePath)) {
+						reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+						return;
+					}
+					// 与 session.exportLog 同口径：未挂载会话只读打开，不产生追加
+					const sessionManager = mountedManager ?? SessionManager.open(sourcePath);
+					reply(ws, request.id, { ok: true, result: { turns: listSessionTurns(sessionManager.getBranch()) } });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `读取会话历史失败: ${error instanceof Error ? error.message : String(error)}`,
 					});
 				}
 				return;
@@ -2497,6 +2721,62 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: await usageStats.collectUsageStats(filter) });
 				return;
 			}
+			case "life.probe": {
+				const life = await import("./life-monitor.ts");
+				reply(ws, request.id, {
+					ok: true,
+					result: life.probeLife({
+						agentDir: defaultAgentDir(),
+						cwd: request.cwd,
+						model: request.model,
+					}),
+				});
+				return;
+			}
+			case "schedule.list": {
+				reply(ws, request.id, { ok: true, result: schedule.list() });
+				return;
+			}
+			case "schedule.create": {
+				const task = schedule.create({
+					name: request.name,
+					...(request.emoji !== undefined ? { emoji: request.emoji } : {}),
+					prompt: request.prompt,
+					sessionId: request.sessionId,
+					targetLabel: request.targetLabel,
+					repeat: request.repeat,
+					...(request.missed !== undefined ? { missed: request.missed } : {}),
+				});
+				reply(ws, request.id, { ok: true, result: { task } });
+				return;
+			}
+			case "schedule.update": {
+				const { taskId, type: _type, id: _id, ...rest } = request;
+				const task = schedule.update({ id: taskId, ...rest });
+				reply(ws, request.id, { ok: true, result: { task } });
+				return;
+			}
+			case "schedule.delete": {
+				schedule.remove(request.taskId);
+				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "schedule.run": {
+				reply(ws, request.id, { ok: true, result: { run: await schedule.runNow(request.taskId) } });
+				return;
+			}
+			case "schedule.history": {
+				reply(ws, request.id, { ok: true, result: { runs: schedule.history(request.taskId) } });
+				return;
+			}
+			case "career.get": {
+				// 「我的 Token 生涯」看板数据面：owl 复用 usage-stats 全量口径，Claude Code /
+				// Codex 走 ~/.claude、~/.codex 的增量扫描（./career-stats.ts）。首扫可能较慢
+				// （Codex 全量可到 GB 级），前端以加载态等待；之后 mtime+size 缓存秒回。
+				const career = await import("./career-stats.ts");
+				reply(ws, request.id, { ok: true, result: await career.collectCareerStats() });
+				return;
+			}
 			case "imageConfig.get":
 			case "imageConfig.set":
 			case "imageSub.login":
@@ -3123,6 +3403,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			closingEvaluation = true;
 			await evaluation?.close();
 			await closeNews();
+			schedule.stop();
 			closingMail = true;
 			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在
 			// 每轮 reconcile 时把工具摘掉）
