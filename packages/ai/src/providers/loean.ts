@@ -4,16 +4,15 @@ import { createProvider, type Provider, type RefreshModelsContext } from "../mod
 import type { Model, OpenAICompletionsCompat, ThinkingLevelMap } from "../types.ts";
 
 /**
- * owl:loean 厂商——对接自建 Manager 中转站（D:\manager，OpenAI 兼容网关：
+ * owl:loean 厂商——对接本仓 pool-server 号池网关（OpenAI 兼容：
  * GET /v1/models、POST /v1/chat/completions，Bearer 网关 Key 鉴权）。
  *
- * 模型目录是动态的：网关侧「发现 → 核验 → 上架」公开模型后，这里 refresh 时拉
- * /v1/models 生成条目，避免手工在 models.json 抄能力值导致的上架值漂移 400
- * （见 manager docs/网关能力校验与Agent接入兼容方案.md 的接入教训）。
+ * 模型目录是动态的：管理端「发现 → 核验 → 上架」公开模型后，这里 refresh 时拉
+ * /v1/models 生成条目，避免手工在 models.json 抄能力值导致的上架值漂移 400。
  */
 
-/** 默认网关：本机 Manager（README 快速开始的 OpenAI 兼容入口）。 */
-export const DEFAULT_LOEAN_BASE_URL = "http://127.0.0.1:8787/v1";
+/** 默认网关：本机 pool-server（apps/pool-server，默认 127.0.0.1:8790）。 */
+export const DEFAULT_LOEAN_BASE_URL = "http://127.0.0.1:8790/v1";
 
 /** 网关未公布能力值时的保守缺省。 */
 const FALLBACK_CONTEXT_WINDOW = 128_000;
@@ -249,7 +248,7 @@ async function fetchLoeanModels(context: RefreshModelsContext): Promise<Model<"o
 	return loeanModelsFromCatalog("loean", baseUrl, payload);
 }
 
-/** Loean：自建 Manager 中转站（OpenAI 兼容），目录从网关 /v1/models 动态刷新。 */
+/** Loean：本仓 pool-server 号池（OpenAI 兼容），目录从网关 /v1/models 动态刷新。 */
 export function loeanProvider(): Provider<"openai-completions"> {
 	return createProvider({
 		id: "loean",

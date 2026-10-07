@@ -11,9 +11,9 @@ import {
 
 describe("loean gateway url", () => {
 	it("normalizes bare host, missing path, and trailing slashes to the /v1 base", () => {
-		expect(normalizeLoeanBaseUrl("127.0.0.1:8787")).toBe("http://127.0.0.1:8787/v1");
-		expect(normalizeLoeanBaseUrl("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787/v1");
-		expect(normalizeLoeanBaseUrl("http://127.0.0.1:8787/")).toBe("http://127.0.0.1:8787/v1");
+		expect(normalizeLoeanBaseUrl("127.0.0.1:8790")).toBe("http://127.0.0.1:8790/v1");
+		expect(normalizeLoeanBaseUrl("http://127.0.0.1:8790")).toBe("http://127.0.0.1:8790/v1");
+		expect(normalizeLoeanBaseUrl("http://127.0.0.1:8790/")).toBe("http://127.0.0.1:8790/v1");
 		expect(normalizeLoeanBaseUrl("https://gw.example.com/v1/")).toBe("https://gw.example.com/v1");
 		expect(normalizeLoeanBaseUrl("  https://gw.example.com/v1  ")).toBe("https://gw.example.com/v1");
 	});
