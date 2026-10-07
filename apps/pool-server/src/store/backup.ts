@@ -28,6 +28,13 @@ export const BACKUP_TABLES = [
 	"billing_member_wallets",
 	"billing_ledger_entries",
 	"billing_model_rates",
+	"members",
+	"key_budgets",
+	"billing_rate_drafts",
+	"trae_account_model_snapshots",
+	"workbuddy_account_model_snapshots",
+	"model_diagnostic_runs",
+	"model_diagnostic_results",
 ] as const;
 
 export interface SnapshotResult {

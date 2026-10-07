@@ -327,6 +327,20 @@ export class SqliteCallLogStore {
 			.all(limit)
 			.map(rowToLog);
 	}
+
+	/** 成员用量：只看这名成员自己的 Key，时间窗左闭右开。 */
+	forKeys(keyIds: string[], fromMs: number, toMs: number, limit: number): GatewayCallLogRecord[] {
+		if (keyIds.length === 0) {
+			return [];
+		}
+		const marks = keyIds.map(() => "?").join(", ");
+		return this.#db
+			.prepare(
+				`SELECT * FROM gateway_call_logs WHERE key_id IN (${marks}) AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT ?`,
+			)
+			.all(...keyIds, fromMs, toMs, limit)
+			.map(rowToLog);
+	}
 }
 
 function rowToLog(row: Record<string, unknown>): GatewayCallLogRecord {

@@ -67,6 +67,18 @@ async function api(method: string, path: string, body?: unknown): Promise<{ stat
 }
 
 describe("pool-server REST（阶段 0+1 冒烟）", () => {
+	it("GET / 是 manager 首页，/admin 是管理台，/member 是成员端", async () => {
+		const home = await fetch(`${baseUrl}/`);
+		const admin = await fetch(`${baseUrl}/admin`);
+		const member = await fetch(`${baseUrl}/member`);
+		expect(home.status).toBe(200);
+		expect(await home.text()).toContain("home-body");
+		expect(admin.status).toBe(200);
+		expect(await admin.text()).toContain('data-view="overview"');
+		expect(member.status).toBe(200);
+		expect(await member.text()).toContain("member-login-page");
+	});
+
 	it("GET /healthz：manager 形状，db 探活", async () => {
 		const { status, json } = await api("GET", "/healthz");
 		expect(status).toBe(200);

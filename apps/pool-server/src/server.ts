@@ -5,17 +5,20 @@
  * 服务仍默认只绑回环（对外部署还需反代 + requireHttps，见迁移文档）。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { dirname } from "node:path";
 import {
+	type Account,
 	type AccountStore,
 	BusinessError,
 	type CheckInRecordStore,
 	type CheckInService,
 	describeUpstreamError,
 } from "owl-pool";
+import type { LiveDiscoveryOptions } from "./catalog/discovery.ts";
+import { registerDiagnosticRoutes } from "./diagnostics.ts";
+import { chatCompletion } from "./gateway/service.ts";
 import { registerAccountRoutes } from "./http/accounts-api.ts";
 import { registerAdminRoutes } from "./http/admin-api.ts";
-import { adminHtml } from "./http/admin-ui.ts";
-import { registerBackupRoutes } from "./store/backup.ts";
 import { registerCheckInRoutes } from "./http/checkin-api.ts";
 import {
 	registerGatewayAdminRoutes,
@@ -23,11 +26,18 @@ import {
 	registerModelAdminRoutes,
 } from "./http/gateway-admin-api.ts";
 import { type GatewayRoutesDeps, registerAnthropicGatewayRoutes, registerGatewayRoutes } from "./http/gateway-api.ts";
+import { tryServeManagerSite } from "./http/manager-site.ts";
+import { registerManagerUiRoutes } from "./http/manager-ui-routes.ts";
+import { listAdminMembers, registerMemberRoutes } from "./http/member-api.ts";
 import { jsonRespond, readJsonBody, respondErr } from "./http/respond.ts";
 import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
 import type { AdminAuthService, AdminSecurityConfig } from "./security/admin-service.ts";
+import type { MemberConcurrencyService } from "./security/member-concurrency.ts";
+import { registerBackupRoutes } from "./store/backup.ts";
+import { registerBillingRoutes } from "./store/billing-store.ts";
 import { MAX_BODY_BYTES } from "./store/db.ts";
+import { SqliteMemberStore } from "./store/member-store.ts";
 
 /** 管理端鉴权栈：配置 + 服务 + 守卫 + 可信代层数，由入口装配一次。 */
 export interface AdminStack {
@@ -48,8 +58,18 @@ export interface PoolServerDeps {
 	admin?: AdminStack;
 	/** 网关栈（/v1/*，阶段 3）；缺省时 /v1 返回网关未启用。 */
 	gateway?: GatewayRoutesDeps;
+	liveDiscovery?: LiveDiscoveryOptions;
 	startedAt?: number;
 	maxBodyBytes?: number;
+	refreshCredit?(account: Account): Promise<Account>;
+	pingAccount?(account: Account): Promise<Record<string, unknown>>;
+	login?: {
+		login(account: Account): Promise<Record<string, unknown>>;
+		status(account: Account): Promise<Record<string, unknown>>;
+		cancel(account: Account, jobId: string | null): Promise<Record<string, unknown>>;
+		input(account: Account, text: string): Promise<Record<string, unknown>>;
+	};
+	concurrency?: MemberConcurrencyService;
 }
 
 export function createPoolServer(deps: PoolServerDeps): Server {
@@ -59,6 +79,59 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 	const router = new Router();
 	registerAccountRoutes(router, deps);
 	registerCheckInRoutes(router, deps);
+	const gateway = deps.gateway;
+	if (gateway?.gateway.backupDb !== undefined) {
+		registerDiagnosticRoutes(router, {
+			db: gateway.gateway.backupDb,
+			accounts: deps.accounts,
+			upstreams: gateway.gateway.upstreams,
+		});
+	}
+	// 具体路径要先于 /api/models/:id，否则 discovered 会被当成模型 id。
+	const gatewayDb = gateway?.gateway.backupDb;
+	const memberPortal = gateway !== undefined && gatewayDb !== undefined;
+	registerManagerUiRoutes(router, {
+		accounts: deps.accounts,
+		callLogs: gateway?.gateway.callLogs,
+		maxRotate: gateway?.gatewayConfig.maxRotate ?? 3,
+		memberPortal,
+		listMembers: memberPortal
+			? () => listAdminMembers(new SqliteMemberStore(gatewayDb), gateway.gateway.keys)
+			: undefined,
+		db: gatewayDb,
+		catalog: gateway?.gateway.catalog,
+		backupDir: gateway?.gateway.backupDir,
+		liveDiscovery: deps.liveDiscovery,
+	});
+	if (memberPortal) {
+		registerMemberRoutes(router, {
+			db: gatewayDb,
+			keys: gateway.gateway.keys,
+			catalog: gateway.gateway.catalog,
+			billingStore: gateway.gateway.billingStore,
+			callLogs: gateway.gateway.callLogs,
+			dataDir: dirname(deps.dbPath),
+			trustedProxyCount: deps.admin?.trustedProxyCount ?? gateway.gateway.trustedProxyCount,
+			completeChat: (auth, payload) => chatCompletion(gateway.gateway, auth, payload),
+			tryRateLimit: (bucket, perMinute) => gateway.gateway.state.tryAcquireRateLimit(bucket, perMinute),
+			concurrency: deps.concurrency,
+		});
+	}
+	const billingStore = deps.gateway?.gateway.billingStore;
+	const billing = deps.gateway?.gateway.billing;
+	if (billingStore !== undefined && billing !== undefined) {
+		registerBillingRoutes(router, {
+			billing,
+			store: billingStore,
+			db: deps.gateway?.gateway.backupDb,
+			catalog: deps.gateway?.gateway.catalog,
+		});
+	}
+	const backupDb = deps.gateway?.gateway.backupDb;
+	const backupDir = deps.gateway?.gateway.backupDir;
+	if (backupDb !== undefined && backupDir !== undefined) {
+		registerBackupRoutes(router, { db: backupDb, backupDir });
+	}
 	if (deps.admin !== undefined) {
 		registerAdminRoutes(router, {
 			config: deps.admin.config,
@@ -71,7 +144,7 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 	if (deps.gateway !== undefined) {
 		registerGatewayRoutes(router, deps.gateway);
 		registerAnthropicGatewayRoutes(router, deps.gateway);
-		registerKeyAdminRoutes(router, { keys: deps.gateway.gateway.keys });
+		registerKeyAdminRoutes(router, { keys: deps.gateway.gateway.keys, db: deps.gateway.gateway.backupDb });
 		registerModelAdminRoutes(router, { catalog: deps.gateway.gateway.catalog });
 		registerGatewayAdminRoutes(router, {
 			callLogs: deps.gateway.gateway.callLogs,
@@ -112,15 +185,8 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 				return;
 			}
 
-			// 管理台页面（迁移阶段 6）：/ 与 /admin 直接伺服 SPA（跨源 iframe 场景带 ACAO）
-			if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
-				const headers: Record<string, string> = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" };
-				if (origin !== undefined) {
-					headers["Access-Control-Allow-Origin"] = origin;
-					headers["Vary"] = "Origin";
-				}
-				response.writeHead(200, headers);
-				response.end(adminHtml());
+			// 原版 manager 静态站：/ 首页、/admin 管理台、/member 成员端，以及 css/js/图。
+			if (tryServeManagerSite(request, response, url.pathname)) {
 				return;
 			}
 

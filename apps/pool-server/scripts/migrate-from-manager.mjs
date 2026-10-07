@@ -194,6 +194,70 @@ for (const d of discovered) {
 }
 console.log(`discovered_models: ${discoveredCount} 行`);
 
+// ── admin_credentials（单行；不迁则管理台会要求重新设密，旧口令失效）──
+const credentials = readJson("admin_credentials");
+const insCredential = db.prepare(`
+	INSERT INTO admin_credentials (id, username, salt, password_hash, source_fingerprint, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		username = excluded.username, salt = excluded.salt, password_hash = excluded.password_hash,
+		source_fingerprint = excluded.source_fingerprint, updated_at = excluded.updated_at
+`);
+let credentialCount = 0;
+for (const c of credentials) {
+	insCredential.run(
+		c.id ?? "default",
+		c.username,
+		c.salt,
+		c.password_hash,
+		text(c.source_fingerprint) ?? "",
+		toMs(c.updated_at) ?? Date.now(),
+	);
+	credentialCount++;
+}
+console.log(`admin_credentials: ${credentialCount} 行`);
+
+// ── members（口令哈希原样搬入，算法与 admin 相同）──
+db.exec(`
+CREATE TABLE IF NOT EXISTS members (
+	id TEXT PRIMARY KEY,
+	username TEXT NOT NULL UNIQUE,
+	display_name TEXT NOT NULL,
+	password_salt TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	max_concurrent_requests INTEGER,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+)`);
+const members = readJson("members");
+const insMember = db.prepare(`
+	INSERT INTO members (id, username, display_name, password_salt, password_hash, enabled,
+		max_concurrent_requests, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		username = excluded.username, display_name = excluded.display_name,
+		password_salt = excluded.password_salt, password_hash = excluded.password_hash,
+		enabled = excluded.enabled, max_concurrent_requests = excluded.max_concurrent_requests,
+		updated_at = excluded.updated_at
+`);
+let memberCount = 0;
+for (const member of members) {
+	insMember.run(
+		member.id,
+		String(member.username ?? "").trim().toLowerCase(),
+		member.display_name,
+		member.password_salt,
+		member.password_hash,
+		toBool(member.enabled),
+		member.max_concurrent_requests ?? null,
+		toMs(member.created_at) ?? Date.now(),
+		toMs(member.updated_at) ?? Date.now(),
+	);
+	memberCount++;
+}
+console.log(`members: ${memberCount} 行`);
+
 db.exec("PRAGMA foreign_keys = ON");
 db.close();
 console.log("\n✅ 数据迁移完成");

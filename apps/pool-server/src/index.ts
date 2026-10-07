@@ -2,8 +2,9 @@
  * pool-server 入口 —— 装配领域层与管理端鉴权栈/HTTP/存储/定时器。
  * 运行：`node dist/main.js`（esbuild 产物）或 `npm run dev`（Node 类型剥离直跑 src）。
  */
-import { mkdirSync, existsSync as pathExists } from "node:fs";
+import { mkdirSync, existsSync as pathExists, statSync, unlinkSync } from "node:fs";
 import { dirname, resolve as pathResolve } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Platform, UpstreamChatClient } from "owl-pool";
 import {
@@ -12,30 +13,42 @@ import {
 	BillingService,
 	CheckInService,
 	MemoryGatewayState,
+	parseCredentials,
 	RouteGeneration,
 	StickySessionService,
 	TraeCheckInProvider,
 	WorkBuddyCheckInProvider,
 } from "owl-pool";
+import { ClaudeOauthLogin } from "./account/claude-oauth.ts";
+import { refreshCredit } from "./account/credits.ts";
+import { AccountLoginService } from "./account/login.ts";
+import { pingAccount } from "./account/ping.ts";
+import { probeAccount } from "./catalog/discovery.ts";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
+import { createClaudeTokenResolver } from "./gateway/claude-token.ts";
+import { CodexChatClient } from "./gateway/codex-client.ts";
+import { ContinuationRegistry } from "./gateway/continuation.ts";
 import { GeminiChatClient } from "./gateway/gemini-client.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
-import { SdkBridgeChatClient, SdkBridgeManager } from "./gateway/sdk-bridge.ts";
 import { MimoChatClient, MimoServeManager } from "./gateway/mimo-client.ts";
+import { SdkBridgeChatClient, SdkBridgeManager } from "./gateway/sdk-bridge.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { TraeChatClient } from "./gateway/trae-client.ts";
 import { WorkBuddyChatClient } from "./gateway/workbuddy-client.ts";
 import { CheckInScheduler } from "./scheduler.ts";
 import { AdminGuard } from "./security/admin-guard.ts";
 import { AdminAuthService } from "./security/admin-service.ts";
+import { MemberConcurrencyService } from "./security/member-concurrency.ts";
 import { createPoolServer } from "./server.ts";
 import { SqliteAccountStore } from "./store/account-store.ts";
 import { SqliteAdminCredentialStore } from "./store/admin-credential-store.ts";
+import { listSnapshots, snapshotToZip } from "./store/backup.ts";
 import { SqliteBillingStore } from "./store/billing-store.ts";
 import { newRecordId, SqliteCheckInRecordStore } from "./store/checkin-record-store.ts";
 import { dbAlive, openDb } from "./store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "./store/gateway-stores.ts";
+import { SqliteMemberStore } from "./store/member-store.ts";
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
 	const config = loadConfig(env);
@@ -114,6 +127,10 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		timeoutMs: config.gateway.upstreamTimeoutMs,
 	});
 	upstreams.set(zcode.platform(), zcode);
+	const claudeTokens = createClaudeTokenResolver(accounts, {
+		clientId: config.gateway.claude.oauthClientId,
+		tokenUrl: config.gateway.claude.oauthTokenUrl,
+	});
 	const claude = new AnthropicCompatibleClient({
 		platform: "CLAUDE",
 		label: "Claude",
@@ -122,6 +139,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		anthropicVersion: config.gateway.claude.anthropicVersion,
 		oauthBetaHeaders: config.gateway.claude.oauthBetaHeaders,
 		cliVersion: config.gateway.claude.cliVersion,
+		refreshOauth: (account) => claudeTokens.resolve(account),
+		rejectOauth: (accountId, token) => claudeTokens.reject(accountId, token),
 		thinkingBudgets: config.gateway.claude.thinkingBudgets,
 		exposeThinking: true,
 		foldCacheTokens: true,
@@ -137,6 +156,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			referer: config.gateway.workbuddy.referer,
 			timeoutMs: config.gateway.upstreamTimeoutMs,
 		},
+		authFileRoots: config.workbuddyAuthFileRoots,
+		supportsModel: (account, model) => workBuddySupports(db, account.id, model),
 	});
 	upstreams.set(workbuddy.platform(), workbuddy);
 	const trae = new TraeChatClient({
@@ -148,6 +169,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			ideVersionCode: config.gateway.trae.ideVersionCode,
 			timeoutMs: config.gateway.upstreamTimeoutMs,
 		},
+		functionFor: (account, model) => traeFunctionFor(db, account.id, model),
 	});
 	upstreams.set(trae.platform(), trae);
 	const gemini = new GeminiChatClient({
@@ -160,8 +182,13 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	});
 	upstreams.set(gemini.platform(), gemini);
 	const mimoManager = new MimoServeManager({ config: config.gateway.mimo, allAccounts: () => accounts.list() });
-	const mimoClient = new MimoChatClient(mimoManager, { config: config.gateway.mimo, allAccounts: () => accounts.list() });
+	const mimoClient = new MimoChatClient(mimoManager, {
+		config: config.gateway.mimo,
+		allAccounts: () => accounts.list(),
+	});
 	upstreams.set(mimoClient.platform(), mimoClient);
+	const codex = new CodexChatClient();
+	upstreams.set(codex.platform(), codex);
 	// SDK 桥（CURSOR/COPILOT/QODER）：脚本路径对 cwd / src / dist 三种深度解析
 	const bridgeScriptCandidates = [
 		pathResolve(config.gateway.bridge.script),
@@ -178,6 +205,45 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		});
 		upstreams.set(bridgeClient.platform(), bridgeClient);
 	}
+	const continuation = new ContinuationRegistry();
+	const concurrency = new MemberConcurrencyService(new SqliteMemberStore(db));
+	const claudeOauth = new ClaudeOauthLogin(accounts, {
+		clientId: config.gateway.claude.oauthClientId,
+		tokenUrl: config.gateway.claude.oauthTokenUrl,
+		authorizeUrl: "https://claude.com/cai/oauth/authorize",
+		redirectUri: "https://platform.claude.com/oauth/code/callback",
+		scopes:
+			"org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+	});
+	const login = new AccountLoginService(accounts, bridgeManager, claudeOauth);
+	const creditHooks = {
+		workbuddyBaseUrl: config.gateway.workbuddy.baseUrl,
+		workbuddyAuthRoots: config.workbuddyAuthFileRoots,
+		exchangeTraeToken: (session: string) => trae.exchangeToken(session),
+		codexQuota: (account: Parameters<typeof codex.quota>[0]) => codex.quota(account),
+		mimoPing: (account: Parameters<typeof mimoClient.ping>[0]) => mimoClient.ping(account),
+		sdkQuota: async (account: Parameters<typeof bridgeManager.clientFor>[0]) => {
+			const client = await bridgeManager.clientFor(account);
+			return client.request("quota", {}, 25_000);
+		},
+		claudeUsage: (account: Parameters<typeof claudeTokens.resolve>[0]) =>
+			claudeUsage(config.gateway.claude, claudeTokens, account),
+		probe: async (account: Parameters<typeof probeAccount>[0]) => {
+			const probed = await probeAccount(account);
+			return { ok: probed.ok === true, message: typeof probed.message === "string" ? probed.message : "" };
+		},
+	};
+	const pingHooks = {
+		workbuddyBaseUrl: config.gateway.workbuddy.baseUrl,
+		workbuddyAuthRoots: config.workbuddyAuthFileRoots,
+		exchangeTraeToken: (session: string) => trae.exchangeToken(session),
+		codexPing: (account: Parameters<typeof codex.ping>[0]) => codex.ping(account),
+		mimoPing: (account: Parameters<typeof mimoClient.ping>[0]) => mimoClient.ping(account),
+		sdkStatus: async (account: Parameters<typeof bridgeManager.clientFor>[0]) => {
+			const client = await bridgeManager.clientFor(account);
+			return client.request("auth_status", {}, 20_000);
+		},
+	};
 	const generation = new RouteGeneration({
 		accounts,
 		router: poolRouter,
@@ -202,6 +268,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		catalog,
 		listPublishedModels: () => catalog.listModels(),
 		trustedProxyCount: config.trustedProxyCount,
+		continuation,
+		concurrency,
 	};
 
 	const server = createPoolServer({
@@ -212,6 +280,18 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		isDbAlive: () => dbAlive(db),
 		admin,
 		gateway: { gateway: gatewayDeps, gatewayConfig: config.gateway },
+		refreshCredit: (account) => refreshCredit(accounts, account, creditHooks),
+		pingAccount: (account) => pingAccount(account, pingHooks),
+		login,
+		concurrency,
+		liveDiscovery: {
+			trae: { ...config.gateway.trae, remoteBaseUrl: "https://solo.trae.cn" },
+			workbuddy: { ...config.gateway.workbuddy, authFileRoots: config.workbuddyAuthFileRoots },
+			sdkCatalog: async (account) => {
+				const client = await bridgeManager.clientFor(account);
+				return client.request("catalog", {}, 30_000);
+			},
+		},
 	});
 	await new Promise<void>((resolveListen, reject) => {
 		server.once("error", reject);
@@ -224,6 +304,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		staggerMs: config.checkInStaggerMs,
 	});
 	scheduler.start();
+	scheduleBackups(db, pathResolve("data/backups"));
 
 	console.log(`owl pool-server listening on http://${config.host}:${config.port}（db: ${dbFile}）`);
 
@@ -238,8 +319,93 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	process.once("SIGTERM", () => shutdown("SIGTERM"));
 }
 
+function scheduleBackups(db: DatabaseSync, dir: string): void {
+	const run = () => {
+		try {
+			const files = listSnapshots(dir);
+			const latest = files[0];
+			if (latest !== undefined) {
+				const age = Date.now() - statSync(pathResolve(dir, latest)).mtimeMs;
+				if (age < 20 * 60 * 60 * 1000) {
+					return;
+				}
+			}
+			snapshotToZip(db, dir);
+			for (const extra of listSnapshots(dir).slice(14)) {
+				unlinkSync(pathResolve(dir, extra));
+			}
+		} catch (error) {
+			console.error(`[pool-server] 备份失败: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
+	const timer = setInterval(run, 60 * 60 * 1000);
+	timer.unref();
+	setTimeout(run, 15_000).unref();
+}
+
+async function claudeUsage(
+	claude: { baseUrl: string; anthropicVersion: string },
+	tokens: { resolve(account: import("owl-pool").Account): Promise<string> },
+	account: import("owl-pool").Account,
+): Promise<Record<string, unknown> | null> {
+	if (String(parseCredentials(account).authType ?? "").toLowerCase() !== "oauth") {
+		return null;
+	}
+	const token = await tokens.resolve(account);
+	const response = await fetch(`${claude.baseUrl.replace(/\/+$/, "")}/api/oauth/usage`, {
+		headers: {
+			Authorization: `Bearer ${token}`,
+			"anthropic-version": claude.anthropicVersion,
+			Accept: "application/json",
+		},
+		signal: AbortSignal.timeout(20_000),
+	});
+	if (!response.ok) {
+		return null;
+	}
+	const body: unknown = await response.json();
+	return body !== null && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+}
+
 function isLoopback(host: string): boolean {
 	return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+/** Trae 调用名以该账号已迁入的模型快照为准；没有快照就不能猜。 */
+function traeFunctionFor(db: DatabaseSync, accountId: string, model: string): string | null {
+	const row = db
+		.prepare("SELECT model_functions FROM trae_account_model_snapshots WHERE account_id = ?")
+		.get(accountId) as { model_functions?: string } | undefined;
+	if (row?.model_functions === undefined || row.model_functions.length === 0) return null;
+	let map: unknown;
+	try {
+		map = JSON.parse(row.model_functions);
+	} catch {
+		return null;
+	}
+	if (map === null || typeof map !== "object") return null;
+	const value = (map as Record<string, unknown>)[model];
+	return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+/** 有快照时只放行目录里的模型；没有快照就不能猜。 */
+function workBuddySupports(db: DatabaseSync, accountId: string, model: string): boolean {
+	const row = db
+		.prepare("SELECT model_ids FROM workbuddy_account_model_snapshots WHERE account_id = ?")
+		.get(accountId) as { model_ids?: string } | undefined;
+	if (row?.model_ids === undefined || row.model_ids.length === 0) {
+		return false;
+	}
+	let ids: unknown;
+	try {
+		ids = JSON.parse(row.model_ids);
+	} catch {
+		return false;
+	}
+	if (!Array.isArray(ids)) {
+		return false;
+	}
+	return ids.some((id) => id === model);
 }
 
 // 直接运行时才启动（被测试/其他模块 import 时不拉起服务）
