@@ -3,8 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-	// TEMP debug entry (owl-genui 引擎调试页)；问题排查完可移除
-	build: { rollupOptions: { input: { main: "index.html", debug: "debug-genui.html" } } },
+	// TEMP debug entry（owl-genui 引擎调试页 + 轨迹/自动化任务调试页）；问题排查完可移除
+	build: { rollupOptions: { input: { main: "index.html", debug: "debug-genui.html", trajectory: "debug-trajectory.html", automation: "debug-automation.html" } } },
 	plugins: [react(), tailwindcss()],
 	server: {
 		port: 5188,
