@@ -131,17 +131,38 @@ export class MimoServeManager {
 		const serve = this.start(["serve", "--port", String(port), "--hostname", this.#config.hostname, "--pure"], home);
 		const baseUrl = `http://${this.#config.hostname}:${port}`;
 		const entry: ServeEntry = { process: serve, baseUrl, bearer: "", home };
-		if (!(await this.awaitReady(entry))) {
-			serve.kill();
-			throw new Error("mimo serve did not become ready");
+		try {
+			const ready = await Promise.race([
+				this.awaitReady(entry),
+				spawnFailure(serve).then((error) => {
+					throw error;
+				}),
+			]);
+			if (!ready) {
+				serve.kill();
+				throw new Error("mimo serve did not become ready");
+			}
+			const token = await this.mintLlmToken(home);
+			if (token.trim().length === 0) {
+				serve.kill();
+				throw new Error("mimo llm-server issue did not return api_key");
+			}
+			entry.bearer = token;
+			return entry;
+		} catch (error) {
+			try {
+				serve.kill();
+			} catch {
+				// 忽略
+			}
+			const message = error instanceof Error ? error.message : String(error);
+			if (isMissingExecutable(error)) {
+				throw new Error(
+					`找不到 mimo 可执行文件（${this.#config.executable}），请安装或配置 OWL_POOL_MIMO_EXECUTABLE`,
+				);
+			}
+			throw error instanceof Error ? error : new Error(message);
 		}
-		const token = await this.mintLlmToken(home);
-		if (token.trim().length === 0) {
-			serve.kill();
-			throw new Error("mimo llm-server issue did not return api_key");
-		}
-		entry.bearer = token;
-		return entry;
 	}
 
 	async boot(home: string): Promise<ServeEntry> {
@@ -155,7 +176,10 @@ export class MimoServeManager {
 			argv.push("cmd.exe", "/c");
 		}
 		argv.push(executable, ...args);
-		return spawn(argv[0]!, argv.slice(1), { cwd: home, env: { ...process.env, MIMOCODE_HOME: home } });
+		const child = spawn(argv[0]!, argv.slice(1), { cwd: home, env: { ...process.env, MIMOCODE_HOME: home } });
+		// 没有 listener 时 spawn ENOENT 会变成未捕获 error，整进程退出
+		child.on("error", () => {});
+		return child;
 	}
 
 	start(args: string[], home: string): ReturnType<typeof spawn> {
@@ -174,6 +198,10 @@ export class MimoServeManager {
 			err += String(chunk);
 		});
 		const code = await new Promise<number | null>((resolveExit) => {
+			proc.once("error", (error) => {
+				err += isMissingExecutable(error) ? `找不到 mimo 可执行文件（${this.#config.executable}）` : error.message;
+				resolveExit(-1);
+			});
 			const timer = setTimeout(() => {
 				proc.kill("SIGKILL");
 				resolveExit(-1);
@@ -217,6 +245,18 @@ export class MimoServeManager {
 	}
 }
 
+function spawnFailure(child: ReturnType<typeof spawn>): Promise<Error> {
+	return new Promise((resolve) => {
+		child.once("error", (error) => resolve(error));
+	});
+}
+
+function isMissingExecutable(error: unknown): boolean {
+	return (
+		error !== null && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ENOENT"
+	);
+}
+
 async function freePort(): Promise<number> {
 	const net = await import("node:net");
 	return new Promise((resolvePort, rejectPort) => {
@@ -246,6 +286,21 @@ export class MimoChatClient implements UpstreamChatClient {
 
 	platform(): Platform {
 		return "MIMO";
+	}
+
+	/** 本地 serve 的模型列表。成功即视为订阅套餐连通。 */
+	async ping(account: Account): Promise<string> {
+		const entry = await this.#manager.clientFor(account);
+		const response = await fetch(`${entry.baseUrl}/v1/models`, {
+			headers: { Authorization: `Bearer ${entry.bearer}` },
+			signal: AbortSignal.timeout(5000),
+		});
+		if (!response.ok) {
+			throw new UpstreamException("SERVER", `mimo models HTTP ${response.status}`);
+		}
+		const body = (await response.json()) as { data?: unknown };
+		const count = Array.isArray(body.data) ? body.data.length : 0;
+		return `mimo serve OK, models=${count}`;
 	}
 
 	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {

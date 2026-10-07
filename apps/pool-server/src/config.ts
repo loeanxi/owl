@@ -58,6 +58,8 @@ export interface PoolConfig {
 			anthropicVersion: string;
 			oauthBetaHeaders: string;
 			cliVersion: string;
+			oauthClientId: string;
+			oauthTokenUrl: string;
 			thinkingBudgets: { low: number; medium: number; high: number };
 		};
 	};
@@ -136,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 					env.OWL_POOL_CLAUDE_OAUTH_BETA_HEADERS ??
 					"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
 				cliVersion: env.OWL_POOL_CLAUDE_CLI_VERSION ?? "2.1.258",
+				oauthClientId: env.OWL_POOL_CLAUDE_OAUTH_CLIENT_ID ?? "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+				oauthTokenUrl: env.OWL_POOL_CLAUDE_OAUTH_TOKEN_URL ?? "https://platform.claude.com/v1/oauth/token",
 				thinkingBudgets: {
 					low: intOr(env.OWL_POOL_CLAUDE_THINKING_BUDGET_LOW, 4096),
 					medium: intOr(env.OWL_POOL_CLAUDE_THINKING_BUDGET_MEDIUM, 16384),

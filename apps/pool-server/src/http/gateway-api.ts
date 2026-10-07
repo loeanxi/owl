@@ -6,6 +6,21 @@
 import type { ServerResponse } from "node:http";
 import { type ApiKeyService, GatewayFault, ModelAccessException, UpstreamException } from "owl-pool";
 import {
+	coalesceTextForStatelessClient,
+	deleteResponse,
+	getResponse,
+	newResponseId,
+	outputOf,
+	preflightResponse,
+	putResponse,
+	ResponsesStreamBridge,
+	readInput,
+	responseObject,
+	responseStatus,
+	responseUsage,
+	toChat,
+} from "../gateway/responses.ts";
+import {
 	type AuthenticatedGatewayRequest,
 	authenticateGatewayRequest,
 	chatCompletion,
@@ -50,6 +65,38 @@ export function registerGatewayRoutes(router: Router, deps: GatewayRoutesDeps): 
 		}
 	});
 
+	router.post("/v1/responses", async (ctx) => {
+		await handleResponses(ctx, deps);
+	});
+
+	router.get("/v1/responses/:id", async (ctx) => {
+		const verdict = authenticateGatewayRequest(deps.gateway, ctx.request);
+		if (!verdict.ok) {
+			writeGatewayError(ctx.response, verdict.reject.status, verdict.reject.code, verdict.reject.message);
+			return;
+		}
+		try {
+			jsonRespond(ctx.response, 200, getResponse(verdict.auth.key, ctx.params.id ?? "").response);
+		} catch (error) {
+			writeGatewayFailure(ctx.response, verdict.auth.requestId, error);
+		}
+	});
+
+	router.delete("/v1/responses/:id", async (ctx) => {
+		const verdict = authenticateGatewayRequest(deps.gateway, ctx.request);
+		if (!verdict.ok) {
+			writeGatewayError(ctx.response, verdict.reject.status, verdict.reject.code, verdict.reject.message);
+			return;
+		}
+		try {
+			const id = ctx.params.id ?? "";
+			deleteResponse(verdict.auth.key, id);
+			jsonRespond(ctx.response, 200, { id, object: "response.deleted", deleted: true });
+		} catch (error) {
+			writeGatewayFailure(ctx.response, verdict.auth.requestId, error);
+		}
+	});
+
 	router.get("/v1/models", async (ctx) => {
 		const verdict = authenticateGatewayRequest(deps.gateway, ctx.request);
 		if (!verdict.ok) {
@@ -60,6 +107,131 @@ export function registerGatewayRoutes(router: Router, deps: GatewayRoutesDeps): 
 		const data = listModelsForKey(deps.gateway, verdict.auth.key);
 		jsonRespond(ctx.response, 200, { object: "list", data });
 	});
+}
+
+async function handleResponses(ctx: RequestContext, deps: GatewayRoutesDeps): Promise<void> {
+	const verdict = authenticateGatewayRequest(deps.gateway, ctx.request);
+	if (!verdict.ok) {
+		writeGatewayError(ctx.response, verdict.reject.status, verdict.reject.code, verdict.reject.message);
+		return;
+	}
+	const { auth } = verdict;
+	ctx.response.setHeader("X-Request-Id", auth.requestId);
+	const body = await ctx.readBody<Record<string, unknown>>();
+	if (body === null || typeof body !== "object" || Array.isArray(body)) {
+		writeGatewayError(ctx.response, 400, "invalid_request", "请求体必须是 JSON 对象");
+		return;
+	}
+	try {
+		let prior: Array<Record<string, unknown>> = [];
+		if (typeof body.previous_response_id === "string" && body.previous_response_id.trim().length > 0) {
+			const context = getResponse(auth.key, body.previous_response_id);
+			if (body.model === undefined || body.model === null) {
+				body.model = context.model;
+			}
+			if (context.model !== body.model) {
+				throw new GatewayFault(400, "model_mismatch", "续接响应时必须使用相同公开模型");
+			}
+			prior = context.messages;
+		}
+		const chat = toChat(body, prior);
+		const history = [...prior, ...readInput(body.input)];
+		if (body.store !== false) {
+			preflightResponse(auth.key, history);
+		}
+		const id = newResponseId();
+		const created = Math.floor(Date.now() / 1000);
+		const model = String(body.model ?? "");
+		if (body.stream === true) {
+			await streamResponses(ctx, deps.gateway, auth, chat, body, history, id, created, model);
+			return;
+		}
+		const result = (await chatCompletion(deps.gateway, auth, chat)) as Record<string, unknown>;
+		const response = responseObject(
+			id,
+			created,
+			model,
+			outputOf(result),
+			body,
+			responseStatus(result),
+			responseUsage(result),
+		);
+		saveResponse(auth.key, response, history, body);
+		jsonRespond(ctx.response, 200, response);
+	} catch (error) {
+		writeGatewayFailure(ctx.response, auth.requestId, error);
+	}
+}
+
+async function streamResponses(
+	ctx: RequestContext,
+	gateway: GatewayServiceDeps,
+	auth: AuthenticatedGatewayRequest,
+	chat: Record<string, unknown>,
+	body: Record<string, unknown>,
+	history: Array<Record<string, unknown>>,
+	id: string,
+	created: number,
+	model: string,
+): Promise<void> {
+	const response = ctx.response;
+	response.writeHead(200, {
+		"Content-Type": "text/event-stream; charset=utf-8",
+		"Cache-Control": "no-store",
+		Connection: "keep-alive",
+		"X-Request-Id": auth.requestId,
+	});
+	const usage = [0, 0, 0];
+	const bridge = new ResponsesStreamBridge(
+		id,
+		created,
+		model,
+		body,
+		coalesceTextForStatelessClient(body),
+		(type, data) => {
+			if (!response.writableEnded) {
+				response.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+			}
+		},
+	);
+	bridge.start();
+	try {
+		await chatCompletionStream(gateway, auth, chat, (chunkJson) => {
+			const chunk = JSON.parse(chunkJson) as Record<string, unknown>;
+			if (chunk.usage !== undefined && typeof chunk.usage === "object" && chunk.usage !== null) {
+				const next = responseUsage(chunk);
+				usage[0] = next[0] ?? 0;
+				usage[1] = next[1] ?? 0;
+				usage[2] = next[2] ?? 0;
+			}
+			bridge.chunk(chunk);
+		});
+		const completed = bridge.complete(usage);
+		saveResponse(auth.key, completed, history, body);
+	} catch (error) {
+		const failure = error instanceof GatewayFault ? error : new GatewayFault(502, "upstream_error", "上游调用失败");
+		bridge.fail(failure.code, failure.message);
+	} finally {
+		if (!response.writableEnded) {
+			response.end();
+		}
+	}
+}
+
+function saveResponse(
+	key: AuthenticatedGatewayRequest["key"],
+	response: Record<string, unknown>,
+	history: Array<Record<string, unknown>>,
+	request: Record<string, unknown>,
+): void {
+	if (request.store === false) {
+		return;
+	}
+	const complete = [...history];
+	if (Array.isArray(response.output) && response.output.length > 0) {
+		complete.push(...readInput(response.output));
+	}
+	putResponse(key, String(response.id), String(response.model), complete, response);
 }
 
 /** SSE 输出：15s keepalive 注释帧；客户端断开即停止；失败且未产出时按协议写错误事件。 */

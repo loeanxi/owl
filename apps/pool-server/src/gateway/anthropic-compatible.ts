@@ -41,6 +41,10 @@ export interface AnthropicCompatibleConfig {
 	exposeThinking?: boolean;
 	foldCacheTokens?: boolean;
 	timeoutMs?: number;
+	/** Claude OAuth：返回当前可用 accessToken，必要时先刷新。 */
+	refreshOauth?: (account: Account) => Promise<string>;
+	/** 上游 401 时标记这枚 token 已失效，下次解析会刷新。 */
+	rejectOauth?: (accountId: string, token: string) => void;
 }
 
 export interface AnthropicCompatibleOptions {
@@ -70,7 +74,7 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 	}
 
 	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const auth = this.authOf(account);
+		const auth = await this.authOf(account);
 		const request = this.#mapper.toAnthropicRequest(payload, this.#config.defaultMaxTokens);
 		request.stream = false;
 		const response = await this.post(auth, request, "application/json");
@@ -92,7 +96,7 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
 	): Promise<void> {
-		const auth = this.authOf(account);
+		const auth = await this.authOf(account);
 		const request = this.#mapper.toAnthropicRequest(payload, this.#config.defaultMaxTokens);
 		request.stream = true;
 		let emitted = false;
@@ -138,6 +142,9 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 			);
 		}
 		if (!response.ok) {
+			if (response.status === 401 && auth.oauth && this.#config.rejectOauth !== undefined) {
+				this.#config.rejectOauth(auth.account.id, auth.secret);
+			}
 			const text = await response.text();
 			const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
 			const exception = this.#mapper.httpError(response.status, text);
@@ -229,9 +236,12 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		return base;
 	}
 
-	authOf(account: Account): AuthContext {
+	async authOf(account: Account): Promise<AuthContext> {
 		const credentials = parseCredentials(account);
 		const oauth = credentials.authType === "oauth";
+		if (oauth && this.#config.refreshOauth !== undefined) {
+			return { account, oauth: true, secret: await this.#config.refreshOauth(account) };
+		}
 		const secret = oauth ? String(credentials.accessToken ?? "") : String(credentials.apiKey ?? "");
 		if (secret.trim().length === 0) {
 			throw new UpstreamException("AUTH", `${this.#config.label} ${oauth ? "accessToken" : "apiKey"} 缺失`);

@@ -6,10 +6,8 @@
  * chat 为回合制：start("chat") 后事件队列消费 text_delta/tool_call/usage/
  * done/error；工具调用即 DEFERRED 段（usage -1 哨兵），回合交还客户端。
  *
- * 与 manager 的差异（迁移文档偏离记录）：工具续接的暂停/恢复
- * （ContinuationRegistry + tool_result）随 4B 快照域一并接入；当前 DEFERRED
- * 返回 tool_calls 后即取消回合，下一轮请求全量重放。账号准入租约
- * （GatewayAdmission）随计费阶段接入。
+ * 工具调用先把回合停在桥上，下一次带 tool 结果的请求用 tool_result 续上，
+ * 不再取消后整段重放。网关侧的 ContinuationRegistry 负责把续接钉回这个账号。
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
@@ -23,6 +21,7 @@ import {
 	type UpstreamChatClient,
 } from "owl-pool";
 import { aggregateStreamToCompletion } from "./aggregate.ts";
+import { latestToolResults } from "./continuation.ts";
 import { type BridgeEvent, SdkRuntimeClient } from "./sdk-runtime.ts";
 
 export interface SdkBridgeConfig {
@@ -151,6 +150,7 @@ interface OpenTurn {
 	chatId: string;
 	client: SdkRuntimeClient;
 	lastAccess: number;
+	done?: Promise<BridgeEvent[]>;
 }
 
 /** 三平台的桥式 UpstreamChatClient（每平台一个实例，共享 manager）。 */
@@ -216,6 +216,11 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		payload: Record<string, unknown>,
 		onText: (text: string) => void,
 	): Promise<SdkSegment> {
+		const resumed = await this.#resume(account, payload, onText);
+		if (resumed !== null) {
+			return resumed;
+		}
+		this.#dropParked(account.id);
 		const client = await this.#manager.clientFor(account);
 		const turnId = randomUUID();
 		const command: Record<string, unknown> = { turnId, model: payload.model };
@@ -274,7 +279,53 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 			});
 		});
 
+		turn.done = completion;
 		return this.#awaitSegments(turn, completion, onText, client);
+	}
+
+	async #resume(
+		account: Account,
+		payload: Record<string, unknown>,
+		onText: (text: string) => void,
+	): Promise<SdkSegment | null> {
+		const results = latestToolResults(payload);
+		const ids = Object.keys(results);
+		if (ids.length === 0) {
+			return null;
+		}
+		const parked = ids.map((id) => this.#pendingTools.get(id));
+		if (parked.some((item) => item === undefined)) {
+			return null;
+		}
+		const turn = parked[0]!.turn;
+		if (turn.accountId !== account.id || parked.some((item) => item!.turn !== turn) || turn.done === undefined) {
+			return null;
+		}
+		for (const id of ids) {
+			const pending = this.#pendingTools.get(id)!;
+			const content = results[id];
+			await turn.client.request(
+				"tool_result",
+				{
+					turnId: turn.id,
+					toolCallId: pending.runtimeId,
+					content: typeof content === "string" ? content : JSON.stringify(content ?? ""),
+					isError: false,
+				},
+				this.#config.requestTimeoutMs,
+			);
+			this.#pendingTools.delete(id);
+		}
+		return this.#awaitSegments(turn, turn.done, onText, turn.client);
+	}
+
+	#dropParked(accountId: string): void {
+		for (const [id, pending] of this.#pendingTools) {
+			if (pending.turn.accountId === accountId) {
+				this.#cancelQuietly(pending.turn, pending.turn.client);
+				this.#pendingTools.delete(id);
+			}
+		}
 	}
 
 	async #awaitSegments(
@@ -298,7 +349,6 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 			if (event === undefined) {
 				// 已收到工具调用且短暂静默 → DEFERRED 段交还客户端
 				if (calls.length > 0) {
-					this.#cancelQuietly(turn, client);
 					return {
 						text: text.join(""),
 						calls,

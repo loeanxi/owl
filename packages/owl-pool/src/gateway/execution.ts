@@ -29,6 +29,8 @@ export interface GenerationRequest {
 	payload: Record<string, unknown>;
 	resolution: ResolvedModel;
 	sessionId: string | null;
+	/** 工具续接钉住的账号。只在平台一致时优先于 sticky。 */
+	pinnedAccountId?: string | null;
 }
 
 /** 上游调用尝试；抛错即按换号语义处理。 */
@@ -49,11 +51,22 @@ export class RouteGeneration {
 	emitted = false;
 	/** 上游是否已完成（完成后的簿记错误不得触发新的付费尝试）。 */
 	upstreamCompleted = false;
+	/** 本请求钉住的账号，只活在 route() 这一次调用里。 */
+	#pinnedAccountId: string | null = null;
 
 	async route<T>(request: GenerationRequest, attempt: GenerationAttempt<T>): Promise<T> {
 		// 每请求重置：产出/完成标记只属于当前调用（服务实例跨请求复用）
 		this.emitted = false;
 		this.upstreamCompleted = false;
+		this.#pinnedAccountId = request.pinnedAccountId ?? null;
+		try {
+			return await this.#routeOnce(request, attempt);
+		} finally {
+			this.#pinnedAccountId = null;
+		}
+	}
+
+	async #routeOnce<T>(request: GenerationRequest, attempt: GenerationAttempt<T>): Promise<T> {
 		const { key, resolution, sessionId } = request;
 		let last: Error | null = null;
 		let capacityRejected = false;
@@ -139,6 +152,13 @@ export class RouteGeneration {
 		seen: Set<string>,
 		sticky: import("../gateway/sticky-sessions.ts").StickyBinding | null,
 	): { account: Account | null; capacityBlocked: boolean } => {
+		const pinnedId = this.#pinnedAccountId;
+		if (pinnedId !== null && !seen.has(pinnedId)) {
+			const pinned = this.#deps.accounts.get(pinnedId);
+			if (pinned?.enabled && pinned.platform === target.platform) {
+				return { account: pinned, capacityBlocked: false };
+			}
+		}
 		// sticky 绑定优先
 		if (sticky !== null && !seen.has(sticky.accountId)) {
 			const bound = this.#deps.accounts.get(sticky.accountId);

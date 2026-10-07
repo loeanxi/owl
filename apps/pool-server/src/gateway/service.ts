@@ -11,6 +11,9 @@ import {
 	type ApiKey,
 	type ApiKeyService,
 	BillingService,
+	DEFAULT_OUTPUT,
+	estimateMaxOutputTokens,
+	estimatePromptTokens,
 	GatewayFault,
 	ipAllowed,
 	isActive,
@@ -29,6 +32,7 @@ import { resolveClientIp } from "../security/client-ip.ts";
 import type { SqliteBillingStore } from "../store/billing-store.ts";
 import type { GatewayCallLogRecord, SqliteCallLogStore, SqliteCatalogStore } from "../store/gateway-stores.ts";
 import { newCallLogId } from "../store/gateway-stores.ts";
+import { assertKeyBudgetAllows } from "../store/key-budget.ts";
 
 export interface GatewayConfig {
 	enabled: boolean;
@@ -64,6 +68,12 @@ export interface GatewayServiceDeps {
 	listPublishedModels(): PublishedModel[];
 	trustedProxyCount: number;
 	nowMs?(): number;
+	continuation?: {
+		find(key: ApiKey, model: string, payload: Record<string, unknown>): { accountId: string } | null;
+		consume(key: ApiKey, payload: Record<string, unknown>): void;
+		bind(key: ApiKey, model: string, accountId: string, callIds: string[]): void;
+	};
+	concurrency?: { acquire(memberId: string | null): Promise<{ close(): void }> };
 }
 
 export interface GatewayRejection {
@@ -156,13 +166,15 @@ export async function chatCompletion(
 	payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
 	const run = new Run(deps, auth, payload);
+	const lease = await holdMember(deps, auth);
 	// 成员 Key 预占（resolve 之后：模型未上架不扣费）
 	const charge = reserveOf(deps, auth, run, payload);
 	try {
 		const resolution = resolveOf(deps, auth, payload);
+		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
 		charge.open(resolution.publicId);
 		const result = await deps.generation.route(
-			{ key: auth.key, payload, resolution, sessionId: run.sessionId },
+			{ key: auth.key, payload, resolution, sessionId: run.sessionId, pinnedAccountId: pin?.accountId ?? null },
 			async (account, _target, forwarded) => {
 				const client = upstreamOf(deps, account.platform);
 				const body = await client.chatCompletion(account, forwarded);
@@ -170,9 +182,13 @@ export async function chatCompletion(
 				return { body, accountId: account.id, platform: account.platform };
 			},
 		);
+		if (pin !== null) {
+			deps.continuation?.consume(auth.key, payload);
+		}
 		run.accountId = result.accountId;
 		run.platform = result.platform;
 		run.observe(result.body, false);
+		rememberTools(deps, auth, resolution.publicId, result.accountId, assistantToolIds(result.body));
 		const sanitizedBody = sanitizeBody(deps, result.body, run);
 		run.produced = true;
 		charge.settle(
@@ -186,6 +202,8 @@ export async function chatCompletion(
 		charge.void();
 		run.finishFail(error);
 		throw error;
+	} finally {
+		lease.close();
 	}
 }
 
@@ -198,12 +216,14 @@ export async function chatCompletionStream(
 	signal?: AbortSignal,
 ): Promise<void> {
 	const run = new Run(deps, auth, payload);
+	const lease = await holdMember(deps, auth);
 	const charge = reserveOf(deps, auth, run, payload);
 	try {
 		const resolution = resolveOf(deps, auth, payload);
+		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
 		charge.open(resolution.publicId);
 		await deps.generation.route(
-			{ key: auth.key, payload, resolution, sessionId: run.sessionId },
+			{ key: auth.key, payload, resolution, sessionId: run.sessionId, pinnedAccountId: pin?.accountId ?? null },
 			async (account, _target, forwarded) => {
 				const client = upstreamOf(deps, account.platform);
 				await client.chatCompletionStream(account, forwarded, (chunkJson) => {
@@ -218,6 +238,10 @@ export async function chatCompletionStream(
 				deps.generation.upstreamCompleted = true;
 				run.accountId = account.id;
 				run.platform = account.platform;
+				if (pin !== null) {
+					deps.continuation?.consume(auth.key, payload);
+				}
+				rememberTools(deps, auth, resolution.publicId, account.id, run.toolCallIds);
 			},
 		);
 		run.produced = run.produced || run.sawContent;
@@ -231,14 +255,74 @@ export async function chatCompletionStream(
 		charge.void();
 		run.finishFail(error);
 		throw error;
+	} finally {
+		lease.close();
 	}
 	void signal;
+}
+
+async function holdMember(deps: GatewayServiceDeps, auth: AuthenticatedGatewayRequest): Promise<{ close(): void }> {
+	if (deps.concurrency === undefined) {
+		return { close() {} };
+	}
+	return deps.concurrency.acquire(auth.key.ownerMemberId);
+}
+
+function rememberTools(
+	deps: GatewayServiceDeps,
+	auth: AuthenticatedGatewayRequest,
+	model: string,
+	accountId: string,
+	callIds: string[],
+): void {
+	if (callIds.length === 0 || deps.continuation === undefined) {
+		return;
+	}
+	deps.continuation.bind(auth.key, model, accountId, callIds);
+}
+
+function assistantToolIds(body: Record<string, unknown>): string[] {
+	const choices = body.choices;
+	if (!Array.isArray(choices)) {
+		return [];
+	}
+	const ids: string[] = [];
+	for (const choice of choices) {
+		if (choice === null || typeof choice !== "object") {
+			continue;
+		}
+		const message = (choice as Record<string, unknown>).message;
+		if (message === null || typeof message !== "object") {
+			continue;
+		}
+		const calls = (message as Record<string, unknown>).tool_calls;
+		if (!Array.isArray(calls)) {
+			continue;
+		}
+		for (const call of calls) {
+			if (call !== null && typeof call === "object" && typeof (call as Record<string, unknown>).id === "string") {
+				ids.push((call as Record<string, unknown>).id as string);
+			}
+		}
+	}
+	return ids;
 }
 
 /**
  * 成员 Key 计费挂钩：预占 → 结算/退还三段。管理员自用 Key 直通。
  * 预占失败（余额不足）抛 402；resolve 之前不产生任何扣费。
  */
+function reserveCents(store: SqliteBillingStore | undefined, model: string, payload: Record<string, unknown>): number {
+	const rate = store?.findRate(model);
+	if (rate === undefined || !rate.enabled) {
+		return 0;
+	}
+	const inputTokens = estimatePromptTokens(payload);
+	const outputTokens = Math.min(estimateMaxOutputTokens(payload), DEFAULT_OUTPUT * 16);
+	const per1m = Math.max(rate.promptPer1m, rate.cacheReadPer1m, rate.cacheWritePer1m);
+	return Math.ceil(((inputTokens + outputTokens) * per1m) / 1_000_000);
+}
+
 function reserveOf(
 	deps: GatewayServiceDeps,
 	auth: AuthenticatedGatewayRequest,
@@ -257,6 +341,9 @@ function reserveOf(
 	const state: { entryId: string | null; publicModel: string | null } = { entryId: null, publicModel: null };
 	return {
 		open(publicModel: string): void {
+			if (deps.backupDb !== undefined) {
+				assertKeyBudgetAllows(deps.backupDb, auth.key, reserveCents(deps.billingStore, publicModel, payload));
+			}
 			const entry = deps.billing!.reserve(auth.key.ownerMemberId!, auth.key.id, publicModel, payload);
 			state.entryId = entry.entryId;
 			state.publicModel = publicModel;
@@ -346,6 +433,7 @@ class Run {
 	sawContent = false;
 	usage: [number, number, number] | null = null;
 	usageSource = "UNKNOWN";
+	toolCallIds: string[] = [];
 	cacheReadTokens: number | null = null;
 	cacheWriteTokens: number | null = null;
 	billingEntryId: string | null = null;
@@ -393,6 +481,21 @@ class Run {
 				if (typeof content === "string" && content.length > 0) {
 					this.produced = true;
 					this.sawContent = true;
+				}
+				const calls = (message as Record<string, unknown>).tool_calls;
+				if (Array.isArray(calls)) {
+					for (const call of calls) {
+						if (
+							call !== null &&
+							typeof call === "object" &&
+							typeof (call as Record<string, unknown>).id === "string"
+						) {
+							const id = (call as Record<string, unknown>).id as string;
+							if (!this.toolCallIds.includes(id)) {
+								this.toolCallIds.push(id);
+							}
+						}
+					}
 				}
 				const reasoning = (message as Record<string, unknown>).reasoning_content;
 				if (typeof reasoning === "string" && reasoning.length > 0) {

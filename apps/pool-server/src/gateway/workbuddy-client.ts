@@ -11,12 +11,12 @@ import {
 	isNetworkBlip,
 	OpenAiStreamCompletion,
 	type Platform,
-	parseCredentials,
 	SseEventReader,
 	stripModelPrefix,
 	type UpstreamChatClient,
 	UpstreamException,
 } from "owl-pool";
+import { workBuddyToken } from "../catalog/workbuddy-catalog.ts";
 import { aggregateStreamToCompletion } from "./aggregate.ts";
 
 export interface WorkBuddyChatConfig {
@@ -31,15 +31,22 @@ export interface WorkBuddyChatConfig {
 export interface WorkBuddyClientOptions {
 	config: WorkBuddyChatConfig;
 	fetchImpl?: typeof fetch;
+	authFileRoots?: string[];
+	/** 账号模型快照。返回 false 表示该账号目录里没有这个模型。 */
+	supportsModel?(account: Account, model: string): boolean;
 }
 
 export class WorkBuddyChatClient implements UpstreamChatClient {
 	readonly #config: WorkBuddyChatConfig;
 	readonly #fetchImpl: typeof fetch;
+	readonly #authFileRoots: string[];
+	readonly #supportsModel: ((account: Account, model: string) => boolean) | undefined;
 
 	constructor(options: WorkBuddyClientOptions) {
 		this.#config = options.config;
 		this.#fetchImpl = options.fetchImpl ?? fetch;
+		this.#authFileRoots = options.authFileRoots ?? [];
+		this.#supportsModel = options.supportsModel;
 	}
 
 	platform(): Platform {
@@ -56,7 +63,19 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
 	): Promise<void> {
-		const accessToken = resolveAccessToken(account);
+		const model = stripModelPrefix(typeof payload.model === "string" ? payload.model : "");
+		if (this.#supportsModel !== undefined && !this.#supportsModel(account, model)) {
+			throw new UpstreamException("BAD_REQUEST", "WorkBuddy 账号不支持该模型或目录尚未同步");
+		}
+		let accessToken: string;
+		try {
+			accessToken = workBuddyToken(account, this.#authFileRoots);
+		} catch (error) {
+			throw new UpstreamException(
+				"AUTH",
+				error instanceof Error ? error.message : "WorkBuddy accessToken 缺失或为加密信封",
+			);
+		}
 		const body = normalizeWorkBuddyPayload(payload);
 		// 上游只认 stream:true
 		body.stream = true;
@@ -350,16 +369,6 @@ function stripFingerprintKeys(node: unknown): void {
 			stripFingerprintKeys(item);
 		}
 	}
-}
-
-function resolveAccessToken(account: Account): string {
-	const accessToken = parseCredentials(account).accessToken;
-	const value = accessToken === null || accessToken === undefined ? "" : String(accessToken);
-	if (value.trim().length === 0 || value.startsWith("$")) {
-		// $wbEncrypted 加密信封不支持解密
-		throw new UpstreamException("AUTH", "WorkBuddy accessToken 缺失或为加密信封");
-	}
-	return value;
 }
 
 function truncate(text: string): string {
