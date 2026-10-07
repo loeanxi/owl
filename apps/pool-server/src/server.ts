@@ -25,8 +25,8 @@ import { jsonRespond, readJsonBody, respondErr } from "./http/respond.ts";
 import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
 import type { AdminAuthService, AdminSecurityConfig } from "./security/admin-service.ts";
-import { registerBackupRoutes } from "./store/backup.ts";
 import { MAX_BODY_BYTES } from "./store/db.ts";
+import { adminHtml } from "./http/admin-ui.ts";
 
 /** 管理端鉴权栈：配置 + 服务 + 守卫 + 可信代层数，由入口装配一次。 */
 export interface AdminStack {
@@ -90,6 +90,13 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 					uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
 				};
 				jsonRespond(response, alive ? 200 : 503, body);
+				return;
+			}
+
+			// 管理台页面（迁移阶段 6）：/ 与 /admin 直接伺服 SPA
+			if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
+				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+				response.end(adminHtml());
 				return;
 			}
 
