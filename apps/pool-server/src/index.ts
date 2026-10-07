@@ -31,7 +31,7 @@ import { AdminAuthService } from "./security/admin-service.ts";
 import { createPoolServer } from "./server.ts";
 import { SqliteAccountStore } from "./store/account-store.ts";
 import { SqliteAdminCredentialStore } from "./store/admin-credential-store.ts";
-import { registerBillingRoutes, SqliteBillingStore } from "./store/billing-store.ts";
+import { SqliteBillingStore } from "./store/billing-store.ts";
 import { newRecordId, SqliteCheckInRecordStore } from "./store/checkin-record-store.ts";
 import { dbAlive, openDb } from "./store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "./store/gateway-stores.ts";

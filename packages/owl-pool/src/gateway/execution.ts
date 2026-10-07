@@ -67,8 +67,6 @@ export class RouteGeneration {
 			);
 			const seen = new Set<string>();
 			let index = 0;
-			let skips = 0;
-			// seen/冷却跳过不消耗换号预算：以 skips 抵偿 index++
 			while (index < Math.max(1, this.#deps.maxRotate)) {
 				const selection = this.#pickFor(target, seen, sticky);
 				const selected = selection.account;
@@ -82,7 +80,6 @@ export class RouteGeneration {
 				if (!account.enabled || account.platform !== target.platform) {
 					this.#deps.sticky.forget(sticky, account.id);
 					seen.add(account.id);
-					skips++;
 					continue;
 				}
 				seen.add(account.id);

@@ -34,18 +34,14 @@ type EventListener = (event: BridgeEvent) => void;
 
 export class SdkRuntimeClient {
 	readonly #process: ChildProcess;
-	readonly #home: string;
 	readonly #workspace: string;
 	readonly #listeners = new Map<string, EventListener>();
-	readonly #options: SdkRuntimeOptions;
 	#writeLine: ((line: string) => Promise<void>) | null = null;
 	#closed = false;
 	#lastAccess = Date.now();
 
-	private constructor(options: SdkRuntimeOptions, process: ChildProcess, home: string, workspace: string) {
-		this.#options = options;
+	private constructor(process: ChildProcess, workspace: string) {
 		this.#process = process;
-		this.#home = home;
 		this.#workspace = workspace;
 	}
 
@@ -93,7 +89,7 @@ export class SdkRuntimeClient {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		const client = new SdkRuntimeClient(options, child, home, workspace);
+		const client = new SdkRuntimeClient(child, workspace);
 		// stdout 专用于协议帧；stderr 只吞不透
 		child.stderr?.on("data", () => {});
 		const readline = createInterface({ input: child.stdout! });

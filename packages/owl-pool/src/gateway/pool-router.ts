@@ -116,7 +116,7 @@ export function hasPersistedCooldown(account: Account, nowMs: number): boolean {
 /** 数据库冷却仍是权威：Redis/内存失败时失败记录已落库。 */
 export function pickHealthyByCreditWeight(
 	candidates: Account[],
-	nowMs: number,
+	_nowMs: number,
 	isCooling: (account: Account) => boolean,
 ): Account | null {
 	const remaining = [...candidates];

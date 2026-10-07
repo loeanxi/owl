@@ -13,17 +13,6 @@ function account(credentials: Record<string, unknown>, id = "acc-1"): Account {
 	return { id, name: "测试号", platform: "WORKBUDDY", credentials, enabled: true, createdAt: 0, updatedAt: 0 };
 }
 
-async function collect(stream: ReadableStream<Uint8Array> | null): Promise<Array<Record<string, unknown>>> {
-	if (stream === null) {
-		return [];
-	}
-	const text = await new Response(stream).text();
-	return text
-		.split("\n\n")
-		.filter((frame) => frame.startsWith("data: "))
-		.map((frame) => JSON.parse(frame.slice(6)) as Record<string, unknown>);
-}
-
 describe("WorkBuddyChatClient", () => {
 	const wb = new WorkBuddyChatClient({
 		config: {

@@ -13,7 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
 	type Account,
 	type AccountStore,
@@ -21,7 +21,6 @@ import {
 	type Platform,
 	parseCredentials,
 	type UpstreamChatClient,
-	UpstreamException,
 } from "owl-pool";
 import { aggregateStreamToCompletion } from "./aggregate.ts";
 import { type BridgeEvent, SdkRuntimeClient } from "./sdk-runtime.ts";
@@ -46,13 +45,11 @@ interface RuntimeEntry {
 
 export class SdkBridgeManager {
 	readonly #config: SdkBridgeConfig;
-	readonly #accounts: AccountStore;
 	readonly #clients = new Map<string, RuntimeEntry>();
 	#janitor: NodeJS.Timeout | undefined;
 
-	constructor(config: SdkBridgeConfig, accounts: AccountStore) {
+	constructor(config: SdkBridgeConfig, _accounts: AccountStore) {
 		this.#config = config;
-		this.#accounts = accounts;
 		// 空闲回收：30s 一查，无监听器且空闲超限即关进程
 		this.#janitor = setInterval(() => {
 			for (const [accountId, entry] of [...this.#clients]) {
@@ -159,14 +156,12 @@ interface OpenTurn {
 /** 三平台的桥式 UpstreamChatClient（每平台一个实例，共享 manager）。 */
 export class SdkBridgeChatClient implements UpstreamChatClient {
 	readonly #manager: SdkBridgeManager;
-	readonly #accounts: AccountStore;
 	readonly #platform: Platform;
 	readonly #config: SdkBridgeConfig;
 	readonly #pendingTools = new Map<string, PendingTool>();
 
-	constructor(manager: SdkBridgeManager, accounts: AccountStore, platform: Platform, config: SdkBridgeConfig) {
+	constructor(manager: SdkBridgeManager, _accounts: AccountStore, platform: Platform, config: SdkBridgeConfig) {
 		this.#manager = manager;
-		this.#accounts = accounts;
 		this.#platform = platform;
 		this.#config = config;
 	}

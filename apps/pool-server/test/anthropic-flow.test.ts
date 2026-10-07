@@ -16,7 +16,7 @@ import { AnthropicCompatibleClient } from "../src/gateway/anthropic-compatible.t
 import type { GatewayServiceDeps } from "../src/gateway/service.ts";
 import { createPoolServer } from "../src/server.ts";
 import { SqliteAccountStore } from "../src/store/account-store.ts";
-import { newRecordId, SqliteCheckInRecordStore } from "../src/store/checkin-record-store.ts";
+import { SqliteCheckInRecordStore } from "../src/store/checkin-record-store.ts";
 import { dbAlive, openDb } from "../src/store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "../src/store/gateway-stores.ts";
 

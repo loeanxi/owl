@@ -15,8 +15,6 @@ import { IncompleteUpstreamStreamException } from "./openai-stream.ts";
 
 type Mapish = Record<string, unknown>;
 
-const CHARS_PER_TOKEN = 4.0;
-
 function isMap(value: unknown): value is Mapish {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }

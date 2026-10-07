@@ -26,7 +26,7 @@ const tick = (): number => now;
 
 const plaintextById = new Map<string, string>();
 
-function findPlaintext(store: { map: Map<string, ApiKey> }, key: ApiKey): string | undefined {
+function findPlaintext(_store: { map: Map<string, ApiKey> }, key: ApiKey): string | undefined {
 	return plaintextById.get(key.id);
 }
 

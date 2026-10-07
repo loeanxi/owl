@@ -25,7 +25,6 @@ import {
 } from "../apikey/reasoning-effort-scale.ts";
 import type { ApiKey } from "../apikey/types.ts";
 import { boundPlatformOf } from "../apikey/types.ts";
-import { BusinessError } from "../common/error.ts";
 import { estimateMaxOutputTokens, estimateTextPromptTokens } from "../gateway/token-estimator.ts";
 import type { Platform } from "../platform.ts";
 import type { DiscoveredCapacity, ModelRoute, PublishedModel } from "./types.ts";
@@ -163,7 +162,6 @@ export function resolveModel(
 	// 思考档位是弹性能力：优先走声明了该档位的路由；子集备用路由附在末尾并收敛最近档
 	const matched = base.filter((route) => effort === null || route.reasoningEfforts.includes(effort));
 	const matchedUnion = [...new Set(matched.flatMap((route) => route.reasoningEfforts))];
-	const effectiveEffort = effort ?? model.defaultReasoningEffort;
 	const order = (a: ModelRoute, b: ModelRoute): number =>
 		a.priority - b.priority || a.platform.localeCompare(b.platform) || a.upstreamModel.localeCompare(b.upstreamModel);
 

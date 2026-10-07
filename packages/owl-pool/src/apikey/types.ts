@@ -49,13 +49,8 @@ export interface ApiKeyInput {
 
 /** Key 处于可用态：未停用、未吊销、未过期。 */
 export function isActive(key: ApiKey | null | undefined, nowMs: number): boolean {
-	return (
-		key !== null &&
-		key !== undefined &&
-		key.enabled &&
-		key.revokedAt === null &&
-		(key.expiresAt === null || key.expiresAt > nowMs)
-	);
+	if (key?.enabled !== true || key.revokedAt !== null) return false;
+	return key.expiresAt === null || key.expiresAt > nowMs;
 }
 
 /**

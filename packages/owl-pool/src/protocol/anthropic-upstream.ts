@@ -522,11 +522,6 @@ export class AnthropicUpstreamMapper {
 		return new AnthropicStreamDecoder(model, consumer, this.#options);
 	}
 
-	/** Anthropic 流内 error 事件 → 上游异常（含 BigModel 配额码识别）。 */
-	#errorEvent(error: unknown): UpstreamException {
-		return buildUpstreamError(this.#options.label, error);
-	}
-
 	/** HTTP 状态 + Anthropic error 体 → 上游异常分类。 */
 	httpError(status: number, body: string): UpstreamException {
 		let type: string | null = null;

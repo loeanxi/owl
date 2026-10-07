@@ -60,7 +60,6 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		const body = normalizeWorkBuddyPayload(payload);
 		// 上游只认 stream:true
 		body.stream = true;
-		const model = String(body.model);
 		let emitted = false;
 		let lastIo: Error | null = null;
 		for (let attempt = 1; attempt <= 2; attempt++) {

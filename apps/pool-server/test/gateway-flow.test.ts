@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayServiceDeps } from "../src/gateway/service.ts";
 import { createPoolServer } from "../src/server.ts";
 import { SqliteAccountStore } from "../src/store/account-store.ts";
-import { newRecordId, SqliteCheckInRecordStore } from "../src/store/checkin-record-store.ts";
+import { SqliteCheckInRecordStore } from "../src/store/checkin-record-store.ts";
 import { dbAlive, openDb } from "../src/store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "../src/store/gateway-stores.ts";
 
@@ -401,7 +401,7 @@ describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
 		expect(entry?.status).toBe("REVIEW");
 
 		// REVIEW 不自动退款（待人工），PENDING 超时才清扫
-		const r4 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
+		billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
 		expect(billing.balance("m1")).toBe(56); // r4 预占 21
 		now2 = 1_700_000_000_000 + 16 * 60_000;
 		expect(billing.sweepStale()).toBe(1); // 只扫 r4（PENDING），r3（REVIEW）不动

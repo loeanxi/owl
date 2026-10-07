@@ -11,7 +11,6 @@ import {
 	type ApiKey,
 	type ApiKeyService,
 	BillingService,
-	estimateTextPromptTokens,
 	GatewayFault,
 	ipAllowed,
 	isActive,
@@ -353,12 +352,10 @@ class Run {
 
 	readonly #deps: GatewayServiceDeps;
 	readonly #auth: AuthenticatedGatewayRequest;
-	readonly #payload: Record<string, unknown>;
 
 	constructor(deps: GatewayServiceDeps, auth: AuthenticatedGatewayRequest, payload: Record<string, unknown>) {
 		this.#deps = deps;
 		this.#auth = auth;
-		this.#payload = payload;
 		this.model = typeof payload.model === "string" ? payload.model : "";
 		this.sessionId = stickySessionId(payload, null);
 		this.startedAt = deps.nowMs?.() ?? Date.now();
@@ -479,5 +476,5 @@ function signedNested(container: unknown, field: string): number | null {
 	return parsed < 0 ? null : parsed;
 }
 
-// isActive 供后续 Key 并发准入使用（阶段 3 范围外）；estimateTextPromptTokens 保留导出面
+// isActive 供后续 Key 并发准入使用（阶段 3 范围外）
 void isActive;

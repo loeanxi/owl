@@ -14,7 +14,6 @@ import {
 	type UpstreamChatClient,
 	UpstreamException,
 } from "owl-pool";
-import { aggregateStreamToCompletion } from "./aggregate.ts";
 
 export interface GeminiChatConfig {
 	baseUrl: string;

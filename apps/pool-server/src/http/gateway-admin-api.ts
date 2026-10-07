@@ -12,7 +12,7 @@ import {
 	parseEffortPolicy,
 } from "owl-pool";
 import type { SqliteCallLogStore, SqliteCatalogStore } from "../store/gateway-stores.ts";
-import type { RequestContext, Router } from "./router.ts";
+import type { Router } from "./router.ts";
 
 export interface KeyAdminRoutesDeps {
 	keys: ApiKeyService;

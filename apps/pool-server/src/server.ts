@@ -14,6 +14,7 @@ import {
 } from "owl-pool";
 import { registerAccountRoutes } from "./http/accounts-api.ts";
 import { registerAdminRoutes } from "./http/admin-api.ts";
+import { adminHtml } from "./http/admin-ui.ts";
 import { registerCheckInRoutes } from "./http/checkin-api.ts";
 import {
 	registerGatewayAdminRoutes,
@@ -26,7 +27,6 @@ import { Router } from "./http/router.ts";
 import type { AdminGuard } from "./security/admin-guard.ts";
 import type { AdminAuthService, AdminSecurityConfig } from "./security/admin-service.ts";
 import { MAX_BODY_BYTES } from "./store/db.ts";
-import { adminHtml } from "./http/admin-ui.ts";
 
 /** 管理端鉴权栈：配置 + 服务 + 守卫 + 可信代层数，由入口装配一次。 */
 export interface AdminStack {
