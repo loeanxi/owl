@@ -16,6 +16,7 @@ import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
 import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
 import { MirrorTab } from "./tabs/MirrorTab.tsx";
+import { ManagerTab } from "./tabs/ManagerTab.tsx";
 import { ReviewTab } from "./tabs/ReviewTab.tsx";
 import { TasksTab } from "./tabs/TasksTab.tsx";
 import { SideChatTab } from "./tabs/SideChatTab.tsx";
@@ -78,6 +79,12 @@ const DEFINITIONS: TabDefinition[] = [
 		get title() { return t("wb.drama"); },
 		icon: quickIcon("mirror"),
 		component: MirrorTab,
+	},
+	{
+		kind: "manager",
+		title: "号池 Manager",
+		icon: quickIcon("mirror"),
+		component: ManagerTab,
 	},
 	{
 		kind: "tasks",

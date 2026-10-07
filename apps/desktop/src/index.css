@@ -568,6 +568,16 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 	animation: owl-sidebar-dot-breathe 1.6s ease-in-out infinite;
 }
 
+/* 预设色点：会话绑定了 Agent 预设时（非运行/未读态）按预设身份着色 */
+.owl-sidebar-session-dot.is-preset {
+	border-color: transparent;
+}
+.owl-sidebar-session-dot[data-preset="standard"].is-preset { background: #268574; }
+.owl-sidebar-session-dot[data-preset="ptc"].is-preset { background: #7c5cd6; }
+.owl-sidebar-session-dot[data-preset="minimal"].is-preset { background: #b45309; }
+.owl-sidebar-session-dot[data-preset="cordis"].is-preset { background: #c2477e; }
+.owl-sidebar-session-dot.is-preset:not([data-preset="standard"]):not([data-preset="ptc"]):not([data-preset="minimal"]):not([data-preset="cordis"]) { background: #8f948c; }
+
 @keyframes owl-sidebar-dot-breathe {
 	50% {
 		opacity: 0.35;
@@ -664,10 +674,52 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 	white-space: pre-wrap;
 	word-break: break-word;
 }
+.owl-prompt-queue { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+.owl-prompt-queue-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--owl-ui-border, var(--owl-reading-border)); border-radius: 10px; background: var(--owl-ui-panel, var(--owl-reading-panel)); padding: 6px 8px 6px 10px; }
+.owl-prompt-queue-lane { flex: none; font-size: 11px; color: var(--color-owl-accent); }
+.owl-prompt-queue-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
+.owl-prompt-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--owl-ui-text, var(--owl-reading-text)); }
+.owl-prompt-queue-copy .owl-prompt-queue-text { flex: none; }
+.owl-prompt-queue-wait { font-size: 11px; line-height: 1.3; color: var(--owl-ui-muted, var(--owl-reading-muted)); }
+.owl-prompt-queue-action { flex: none; border: 0; background: transparent; padding: 0 2px; font-size: 11px; color: var(--owl-ui-muted, var(--owl-reading-muted)); cursor: pointer; }
+.owl-prompt-queue-action:hover { color: var(--owl-ui-text, var(--owl-reading-text)); }
+.owl-prompt-queue-action.is-primary { border-radius: 999px; background: var(--color-owl-accent); padding: 4px 10px; color: white; font-weight: 600; }
+.owl-prompt-queue-action.is-primary:hover { background: var(--color-owl-accent-hover); color: white; }
 .owl-composer-editor:empty::before {
 	content: attr(data-placeholder);
 	color: var(--owl-ui-muted);
 	pointer-events: none;
+}
+.owl-composer-action {
+	position: relative;
+	display: flex;
+	height: 1.75rem;
+	width: 1.75rem;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--color-owl-accent);
+	color: white;
+	transition: background-color 160ms ease, opacity 160ms ease;
+}
+.owl-composer-action:hover { background: var(--color-owl-accent-hover); }
+.owl-composer-action:disabled { cursor: not-allowed; opacity: 0.4; }
+.owl-composer-action-stage { position: relative; height: 1rem; width: 1rem; }
+.owl-composer-action-glyph {
+	position: absolute;
+	inset: 0;
+	height: 100%;
+	width: 100%;
+	opacity: 0;
+	transform: scale(0.72);
+	transition: opacity 180ms ease, transform 180ms ease;
+}
+.owl-composer-action-glyph[data-shown] { opacity: 1; transform: scale(1); }
+.owl-composer-action-glyph.is-stroke { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.owl-composer-action-glyph.is-fill { fill: currentColor; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-composer-action-glyph { transition: none; }
 }
 .owl-mention-chip {
 	display: inline-flex;
@@ -783,7 +835,14 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-empty-mark { width: 48px; height: 48px; object-fit: contain; }
 .owl-chat-empty h1 { margin: 0; font-family: var(--font-sans); font-size: clamp(22px, 2vw, 28px); font-weight: 500; line-height: 1.4; color: var(--color-owl-text); }
 .owl-chat-row { margin: 12px 0; min-width: 0; }
+/* 结论紧贴下面的工作过程，不留出一行空白。 */
+.owl-chat-row:has(+ .owl-chat-row-compact) { margin-bottom: 2px; }
+/* 结论下面的附属行：工作过程、截图、改动文件。贴着正文，不另起一块。 */
+.owl-chat-row-quiet { margin: 0; }
+.owl-turn-answer > * + * { margin-top: .85em; }
 .owl-chat-question { margin: 28px 0 24px; scroll-margin-top: 16px; }
+.owl-chat-question:has(+ .owl-chat-row-quiet) { margin-bottom: 10px; }
+.owl-chat-row-quiet + .owl-chat-row { margin-top: 8px; }
 .owl-chat-question:first-child { margin-top: 0; }
 .owl-user-row { display: flex; justify-content: flex-end; align-items: flex-start; gap: 6px; }
 .owl-rewind-trigger { flex: none; width: 24px; height: 24px; margin-top: 6px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease, color .12s ease; }
@@ -793,16 +852,9 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-queued { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin: 8px 0; }
 .owl-user-queued-hint { font-size: 12px; line-height: 1.4; color: var(--owl-reading-muted); }
 
-/* -- 消息操作栏（回答底部：复制/赞/踩/重新生成 + 用量与时间） ----------------
-   Claude 同款：默认隐藏，悬停回答正文或操作栏本身时浮现；::before 盖住正文与
-   操作栏之间的折叠空隙，鼠标从正文滑下来不中断 hover；键盘 Tab 进按钮同样保持可见。 */
-.owl-chat-row-compact { margin: 2px 0 10px; position: relative; }
-.owl-chat-row-compact::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
+/* 操作栏贴在正文下面，一直可见：复制和时间，不再藏起来留一行空白。 */
+.owl-chat-row-compact { margin: 0 0 4px; position: relative; }
 .owl-msg-actions { display: flex; align-items: center; gap: 2px; margin: 2px 0 0; }
-.owl-chat-row-compact > .owl-msg-actions { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
-.owl-chat-row:hover + .owl-chat-row-compact > .owl-msg-actions,
-.owl-chat-row-compact:hover > .owl-msg-actions,
-.owl-chat-row-compact > .owl-msg-actions:focus-within { opacity: 1; pointer-events: auto; }
 .owl-msg-action { display: inline-flex; align-items: center; justify-content: center; height: 24px; min-width: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 11px; line-height: 1; cursor: pointer; transition: background-color .12s ease, color .12s ease, border-color .12s ease, opacity .12s ease; }
 .owl-msg-action:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
 .owl-msg-action[aria-pressed="true"] { color: var(--color-owl-accent); }
@@ -846,7 +898,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-answer a:hover { text-decoration: underline; }
 .owl-answer strong { font-weight: 600; }
 .owl-answer code { font-family: ui-monospace, Consolas, monospace; font-size: .87em; background: var(--owl-reading-panel); border: 1px solid var(--owl-reading-border); border-radius: 4px; padding: .08em .3em; color: var(--owl-reading-code); }
-.owl-answer pre { overflow: auto; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 13px 15px; font-size: var(--owl-chat-code-font-size, 12px); line-height: 1.65; }
+.owl-answer pre { overflow: auto; max-height: 360px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 13px 15px; font-size: var(--owl-chat-code-font-size, 12px); line-height: 1.65; }
 .owl-answer pre code { font-size: inherit; color: var(--owl-reading-text); border: 0; background: none; border-radius: 0; padding: 0; }
 .owl-answer blockquote { border-left: 2px solid var(--owl-reading-border); padding-left: 1em; margin: 1em 0; color: var(--owl-reading-muted); }
 .owl-answer hr { border: 0; border-top: 1px solid var(--owl-reading-border); margin: 1.5em 0; }
@@ -857,6 +909,19 @@ html[data-owl-theme="light"] .owl-chat-surface {
 
 .owl-thinking { color: var(--owl-reading-muted); font-size: 12px; }
 .owl-tool-inline-code { font: inherit; font-family: ui-monospace, Consolas, monospace; color: inherit; }
+/* 可点击的路径/URL 芯片：随链接配色 + 虚线下划线提示跳转。只限真正接了点击
+ * 代理的容器（主聊天流 / 文档预览）；侧边栏任务行等没有跳转的地方保持普通芯片。 */
+.owl-chat-scroll code.owl-path-chip, .owl-document code.owl-path-chip {
+	color: var(--owl-reading-link);
+	text-decoration: underline dotted;
+	text-decoration-color: color-mix(in srgb, var(--owl-reading-link) 55%, transparent);
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+.owl-chat-scroll code.owl-path-chip:hover, .owl-document code.owl-path-chip:hover {
+	text-decoration-style: solid;
+	text-decoration-color: var(--owl-reading-link);
+}
 .owl-tool-row { min-width: 0; }
 .owl-tool-summary { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 5px; border-radius: 5px; text-align: left; color: var(--owl-reading-muted); font-size: 13px; }
 .owl-tool-summary:hover { background: color-mix(in srgb, var(--owl-reading-panel) 70%, transparent); }
@@ -866,10 +931,16 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-group-body .owl-tool-summary { padding: 7px 10px; }
 .owl-tool-detail { margin: 6px 0 12px 22px; overflow: hidden; border: 1px solid var(--owl-reading-border); border-radius: 7px; }
 .owl-tool-group-body .owl-tool-detail { margin: 0; border: 0; border-top: 1px solid var(--owl-reading-border); border-radius: 0; }
-.owl-work-process { margin: 2px 0; }
-.owl-work-process-body { padding: 8px 10px; }
-.owl-work-process-body > .owl-work-process-item + .owl-work-process-item { margin-top: 8px; }
-.owl-tool-command { padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
+.owl-work-process { margin: 0; }
+.owl-work-process-summary { min-height: 22px; padding: 0; gap: 4px; font-size: 12px; color: var(--owl-reading-muted); opacity: .8; }
+.owl-work-process-summary:hover { background: transparent; opacity: 1; }
+/* 展开后是缩进的记录，不是套在正文下面的第二块卡片。 */
+.owl-work-process-body { margin: 2px 0 0 14px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.owl-work-process-body > .owl-work-process-item + .owl-work-process-item { margin-top: 2px; }
+.owl-work-process-body .owl-answer { color: var(--owl-reading-muted); font-size: 13px; line-height: 1.5; }
+.owl-work-process-body .owl-answer p { margin: 0 0 .35em; }
+.owl-work-process-body .owl-answer > :last-child { margin-bottom: 0; }
+.owl-tool-command { max-height: 360px; overflow: auto; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
 .owl-tool-output { max-height: 360px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-text); font: var(--owl-chat-code-font-size, 12px)/1.65 ui-monospace, Consolas, monospace; }
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }
 .owl-tool-detail img { margin: 8px 0; }
@@ -889,6 +960,12 @@ html[data-owl-theme="light"] .owl-chat-surface {
 	z-index: 3;
 	line-height: 0;
 	transform: translateY(calc(-100% - 2px));
+	transition: opacity 180ms ease, transform 180ms ease;
+}
+.owl-mascot-slot.is-hidden {
+	opacity: 0;
+	transform: translateY(calc(-100% + 8px));
+	pointer-events: none;
 }
 .owl-mascot-slot.is-inline {
 	position: static;
@@ -1091,6 +1168,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="off"] .owl-tool-spinner, html[data-owl-chat-motion="off"] .owl-mascot, html[data-owl-chat-motion="off"] .owl-mascot *, .owl-chat-surface[data-activity="waiting"] .owl-tool-spinner { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
 	.owl-response-mark, .owl-tool-spinner, .owl-chat-surface .animate-pulse, .owl-mascot, .owl-mascot * { animation: none !important; }
+	.owl-mascot-slot { transition: none; }
 }
 
 @media (max-width: 600px) {
@@ -1104,4 +1182,43 @@ html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="
 }
 @media (max-width: 480px) {
 	html .owl-settings-page .owl-settings-row-heading { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+
+/* Manager 号池 tab（迁移阶段 6 嵌入面板） */
+.manager-tab {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.manager-tab-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 8px;
+	font-size: 12px;
+	opacity: 0.85;
+}
+
+.manager-tab-status.manager-tab-up { color: #4caf7d; }
+.manager-tab-status.manager-tab-down { color: #e06c5c; }
+
+.manager-tab-frame {
+	flex: 1;
+	width: 100%;
+	border: none;
+	min-height: 0;
+}
+
+.manager-tab-down {
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	text-align: center;
+}
+
+.manager-tab-hint {
+	opacity: 0.7;
+	max-width: 420px;
 }
