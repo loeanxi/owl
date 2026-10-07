@@ -31,6 +31,7 @@ import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import { OWL_AGENT_PRESET_ENTRY } from "./agent-presets.ts";
 import {
 	type BashExecutionMessage,
 	type CustomMessage,
@@ -235,6 +236,8 @@ export interface SessionInfo {
 	name?: string;
 	/** Unique non-empty custom entry types found in the persisted session. */
 	customTypes?: string[];
+	/** 会话绑定的 Agent 预设 id（owl-agent-preset custom entry；未绑定为 undefined）。 */
+	preset?: string;
 	/** Path to the parent session (if this session was forked). */
 	parentSessionPath?: string;
 	created: Date;
@@ -812,6 +815,7 @@ async function buildSessionInfo(
 		const allMessages: string[] = [];
 		let name: string | undefined;
 		const customTypes = new Set<string>();
+		let presetId: string | undefined;
 		let lastActivityTime: number | undefined;
 
 		const rl = createInterface({
@@ -835,6 +839,10 @@ async function buildSessionInfo(
 			}
 			if (entry.type === "custom" && typeof entry.customType === "string" && entry.customType.trim()) {
 				customTypes.add(entry.customType);
+				if (entry.customType === OWL_AGENT_PRESET_ENTRY) {
+					const data = entry.data as { id?: unknown } | undefined;
+					if (typeof data?.id === "string" && data.id) presetId = data.id;
+				}
 			}
 
 			if (entry.type !== "message") continue;
@@ -876,6 +884,7 @@ async function buildSessionInfo(
 			cwd,
 			name,
 			...(customTypes.size > 0 ? { customTypes: [...customTypes] } : {}),
+			...(presetId ? { preset: presetId } : {}),
 			parentSessionPath,
 			created: new Date(header.timestamp),
 			modified,

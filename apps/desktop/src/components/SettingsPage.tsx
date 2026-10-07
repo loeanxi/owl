@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type {
+	AgentPresetDefinition,
 	ImageConfigGetResult,
 	MemoryListResult,
 	ProviderModelsMessage,
@@ -32,9 +33,10 @@ import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sid
 import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, daysLeft, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
+import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import "./settings-redesign.css";
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
 
 export type SettingsInitialTab = "general" | "models" | "about";
 
@@ -48,6 +50,7 @@ export function SettingsPage({
 	initialTab = "general",
 	wallpaper,
 	onWallpaperChange,
+	onAskAgentCreatePreset,
 }: {
 	client: BridgeClient;
 	workspaceDir: string;
@@ -59,6 +62,8 @@ export function SettingsPage({
 	/** 动态壁纸设置：App 持有状态（渲染层也要用），设置页只做编辑 + 落盘。 */
 	wallpaper: OwlWallpaperSettings;
 	onWallpaperChange: (next: OwlWallpaperSettings) => void;
+	/** 「让 Agent 帮我创建预设模式」：切到创造模式开新会话并填入引导草稿（App 实现）。 */
+	onAskAgentCreatePreset?: () => void;
 }): React.JSX.Element {
 	const t = useT();
 	useProjectSidebarRevision();
@@ -1203,6 +1208,16 @@ export function SettingsPage({
 						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => setSection("plugins")} />
 						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => setSection("skills")} />
+						<NavItem
+							icon={
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+									<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
+								</svg>
+							}
+							label={t("settings.presets.nav")}
+							active={section === "presets"}
+							onClick={() => setSection("presets")}
+						/>
 						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => setSection("sidebar")} />
 						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => setSection("appearance")} />
 						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => setSection("notifications")} />
@@ -3297,6 +3312,11 @@ export function SettingsPage({
 						)}
 
 						{/* -------- 提示词 -------- */}
+						{/* -------- Agent 预设 -------- */}
+						{section === "presets" && (
+							<AgentPresetsSection client={client} agentDir={agentDir} onAskAgent={onAskAgentCreatePreset} />
+						)}
+
 						{section === "prompts" && (
 							<>
 								<SectionHeader

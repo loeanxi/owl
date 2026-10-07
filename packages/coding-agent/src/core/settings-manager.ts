@@ -252,6 +252,8 @@ export interface Settings {
 	owlRewind?: OwlRewindSettings;
 	/** Owl 桌面端：侧边工作台（侧边卡片）的显示与默认行为。 */
 	owlSidebar?: OwlSidebarSettings;
+	/** Owl 桌面端：新会话默认使用的 Agent 预设 id（未显式选择预设的会话解析到它）。 */
+	owlDefaultPreset?: string;
 }
 
 /** Owl 技能分组：命名的技能集合 + 关联的项目目录列表。 */
