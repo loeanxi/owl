@@ -1,0 +1,822 @@
+/* Public entry follows the admin/member palette and shared ambient effects. */
+.home-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}
+
+.home-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 76px;
+  gap: 20px;
+  padding: 15px clamp(24px, 5vw, 68px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.home-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.home-brand-mark {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  transform-origin: 40% 70%;
+  transition: transform .5s cubic-bezier(.2, .9, .3, 1.3);
+}
+
+.home-brand-word {
+  display: block;
+  width: 124px;
+  height: 42px;
+  object-fit: contain;
+  object-position: left;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+  transition: transform .5s ease;
+}
+
+.home-brand:hover .home-brand-mark { transform: rotate(-8deg); }
+.home-brand:hover .home-brand-word { transform: translateX(2px); }
+
+/* 入场与闲置律动统一由 site-theme.css 的品牌节奏层驱动 */
+
+@keyframes brand-in {
+  from { opacity: 0; transform: translateY(6px) rotate(-12deg); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes brand-write {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes brand-breathe {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--accent-glow)); }
+  50% { filter: drop-shadow(0 0 12px var(--accent-glow)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-brand-mark,
+  .home-brand-word { animation: none !important; }
+}
+
+.home-top-links {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  /* 避让右上角固定控件组（主题 + 语言两个按钮），比单个按钮时代多留一个按钮宽 */
+  margin-right: 132px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.home-top-links a,
+.home-role a {
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.home-top-links a:hover,
+.home-role a:hover {
+  text-decoration: underline;
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+
+.home-main {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: clamp(34px, 5vw, 73px) clamp(24px, 5vw, 68px) 75px;
+}
+
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(310px, .8fr);
+  align-items: center;
+  gap: clamp(28px, 4vw, 70px);
+}
+
+.home-hero-copy { min-width: 0; }
+
+.home-eyebrow,
+.home-role-number,
+.home-invite,
+.home-art-caption {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.home-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--accent-2);
+}
+
+.home-eyebrow::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  background: currentColor;
+}
+
+.home-hero h1 {
+  max-width: 700px;
+  margin: 16px 0 17px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(40px, 4.4vw, 62px);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: .025em;
+  text-wrap: balance;
+}
+
+.home-hero h1 em {
+  color: var(--accent-2);
+  font-style: normal;
+  text-shadow: 0 0 18px var(--accent-glow);
+}
+
+.home-hero-copy > p {
+  max-width: 540px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.85;
+  text-wrap: pretty;
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  margin-top: 30px;
+}
+
+.home-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 10px 17px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink);
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color .2s, transform .2s, box-shadow .2s;
+}
+
+.home-button:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-border-strong);
+  box-shadow: 0 8px 22px var(--shadow-raised);
+}
+
+.home-button.primary {
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: linear-gradient(145deg, var(--accent-2), var(--accent-deep));
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.home-button.ghost { background: transparent; }
+
+.home-invite {
+  margin-top: 25px;
+  color: var(--muted);
+}
+
+/* 艺术板：品牌铭牌 —— 手写体骑在中心环下弧上，同心环绕（深浅主题共用结构） */
+.home-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  /* 这里曾有两条互相打架的约束，导致 1024 视口横向溢出 26px：
+       · aspect-ratio: 1.2 想按「高度」反推宽度；
+       · min-height: 370px 想保证面板够高。
+     两者同时存在时元素取「都满足」的解：370 × 1.2 = 444px 宽，
+     而 1024 视口的网格列只有 366.6px → 整块右溢 26px。
+     解法是让「宽度」成为唯一自变量：宽度默认被网格列拉伸（stretch），
+     min-width:0 允许它收缩到列宽以下，高度交给 aspect-ratio 反推。
+     于是宽屏仍是约 370~380 高，窄列时面板变矮而不是变宽。
+     （不要再加 min-height：那会重新把宽度顶出去。） */
+  min-width: 0;
+  max-width: 100%;
+  aspect-ratio: 1.2;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: radial-gradient(circle at center, var(--accent-soft), transparent 58%), var(--surface);
+}
+
+.home-art-mark {
+  position: relative;
+  z-index: 2;
+  height: auto;
+}
+
+/* 艺术板铭牌用左上角同一张手写体（loean-word-clear.png，约 2.5:1 横幅），
+   按宽度定尺寸，避免沿用花押的方形尺寸把字压得过小。
+
+   刻意不上正中：正落在三个同心圆圆心时，手写体会像贴纸一样钉在靶心上，很呆板。
+   这里把它下移（并略微左偏、加一点仰角），让字形骑在 r1 环的下弧上，
+   像签名横跨一条基准线 —— 既与圆环发生关系，又保留手写的随意感。
+   下移量用 min() 夹住，窄屏环变小时不会把字压到底部说明文字上。
+   仰角取 -6°：手写签名常见的倾斜区间是 -5°~-8°，-3.5° 太接近水平、看着仍像印刷体。
+
+   浮动拆成两条动画：位移（drift）与仰角摆动（sway）周期互质（7.2s / 10.8s），
+   合成轨迹短时间不重复，是缓慢漂移而非往复弹跳。
+   sway 走独立的 rotate 属性，避免与 drift 的 transform 互相覆盖；
+   基准位移与仰角必须写在 drift 的关键帧里 —— animation 的 transform 会整条覆盖
+   元素自身的 transform，只写 translateY 会把错位和仰角抹掉、字又弹回正中。 */
+.home-art-mark.loean-word-art {
+  width: clamp(200px, 22vw, 320px);
+  transform: translate(-2%, min(9%, 34px)) rotate(-6deg);
+  animation:
+    homeMarkDrift 7.2s ease-in-out 1.2s infinite,
+    homeMarkSway 10.8s ease-in-out 1.2s infinite;
+}
+
+.home-ring {
+  position: absolute;
+  z-index: 1;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+/* 三环刻意不同心：严格同心会把版面变成「靶心」，手写体再错位也只是靶心上的贴纸。
+   内环保持为中心基准（手写体骑它），中环与外环各自偏一点，视线自然被带成斜向流动。
+   偏移量用百分比随面板缩放，窄屏不会把环推出面板。
+   注意：环的 transform 已被 homeRingSpin 占用，位置只能用 margin 给 —— 写在 transform 里会被动画覆盖。 */
+.home-ring.r1 {
+  width: 46%;
+  border: 1px solid var(--accent-border-strong);
+  animation: homeRingSpin 26s linear infinite;
+}
+
+.home-ring.r2 {
+  width: 66%;
+  border: 1px dashed var(--accent-border);
+  margin: -3.5% 0 0 4.5%;
+  animation: homeRingSpin 44s linear infinite reverse;
+}
+
+.home-ring.r3 {
+  width: 86%;
+  border: 1px solid var(--line);
+  margin: 3% 5% 0 0;
+  animation: homeRingSpin 70s linear infinite;
+}
+
+@keyframes homeRingSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 站点锚点（Idea 2）──────────────────────────────────────────
+   "ONE STATION" 原本只是角落一行小字。在环心放一个 3px 的发光点，
+   三个环、手写体、底部波形就都有了共同的引力中心 —— 画面从"漂浮的圆"
+   变成"有根的地图"。这是全图唯一静止不发散的元素，作为视觉落点。 */
+.home-art-station {
+  position: absolute;
+  z-index: 3;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow:
+    0 0 0 3px var(--accent-veil),
+    0 0 10px 2px var(--accent-glow);
+  animation: homeStationPulse 5.4s ease-in-out infinite;
+}
+
+@keyframes homeStationPulse {
+  0%, 100% { opacity: .75; }
+  50%      { opacity: 1; }
+}
+
+/* ── 扫描弧（Idea 1）────────────────────────────────────────────
+   一圈光扫过 r1/r2/r3，把三联环从"装饰"变成"一个入口 → 多个出路"的图，
+   正是首页文案在讲的事。conic-gradient 旋转 + 环形遮罩，走合成层，
+   不动 box-shadow / filter（这两个最贵）。 */
+/* ── 扫描弧（Idea 1）────────────────────────────────────────────
+   一圈光扫过 r1/r2/r3，把三联环从"装饰"变成"一个入口 → 多个出路"的图，
+   正是首页文案在讲的事。conic-gradient 旋转 + 环形遮罩，走合成层，
+   不动 box-shadow / filter（这两个最贵）。
+
+   尺寸跟随中环 r2（width 66% / margin -3.5% 0 0 4.5%），
+   让扫描弧贴着中环走，而不是悬在环之间。 */
+.home-art-sweep {
+  position: absolute;
+  z-index: 0;
+  /* 62% 略小于 r2 的 66%：外圈亮带正好压在中环环线上。
+     再大一点窄屏就会被面板裁出直边 —— sweep 有填充，裁出来是硬边；
+     环只有 1px 描边，裁掉看不出来，所以 sweep 必须比环更保守。
+     百分比是相对 grid 区域「高度」解析的，而面板窄屏反而更扁，
+     所以用 30vh 兜住高侧，两者取小。实测 640~1700 各档均不裁。 */
+  width: min(62%, 30vh);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 331deg,
+    var(--accent-veil) 346deg,
+    var(--accent-glow) 355deg,
+    transparent 359deg
+  );
+  /* 只保留一圈窄环，中心与边缘镂空，避免糊成一片绿雾。
+     亮带本身也要窄：跨 28° 会糊成扇形雾，收到约 8° 才像"扫描线"。 */
+  mask: radial-gradient(circle, transparent 30%, #000 42%, #000 86%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 42%, #000 86%, transparent 100%);
+  opacity: .42;
+  animation: homeSweepSpin 11s linear infinite;
+  /* 抄 r2 的偏移方向但减半：sweep 的高度基准与 r2 不同（受 30vh 限制），
+     照抄 -3.5% 会把圆顶出面板，实测取 -1.5% / 3% 既贴合 r2 又不裁。 */
+  margin: -1.5% 0 0 3%;
+}
+
+@keyframes homeSweepSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 主题化物理（Idea 3）────────────────────────────────────────
+   同一套结构，两种气质：深色「发光 / 向外辐射」，浅色「墨 / 向内沉淀」。
+   只换行为不换结构，比单纯调色更能拉开两个主题的性格。
+
+   浅色这里踩过坑：深色下 --accent-glow 是 rgba(47,158,90,.45)，
+   浅色只有 rgba(23,107,59,.10)，再乘 opacity .32 就等于叠了两层衰减，
+   结果几乎看不见。所以浅色不能沿用深色的低透明度，
+   要单独用实色描边（见下面的 background 覆盖）把强度补回来。 */
+html[data-theme="light"] .home-art-sweep {
+  /* 浅色转得更慢，像铅笔在纸上划过 */
+  animation-duration: 15s;
+  /* 提回可见度：浅色底是白纸，靠 opacity 而非亮度来控强度 */
+  opacity: .85;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 322deg,
+    rgba(23, 107, 59, 0.10) 340deg,
+    rgba(23, 107, 59, 0.34) 353deg,
+    rgba(23, 107, 59, 0.05) 358deg,
+    transparent 359deg
+  );
+}
+
+html[data-theme="light"] .home-ring {
+  /* 浅色不做自转，改成极缓慢呼吸（缩放贴 1，几乎察觉不到但"活"着） */
+  animation: homeRingBreathe 13s ease-in-out infinite;
+}
+
+html[data-theme="light"] .home-ring.r2 { animation-duration: 17s; }
+html[data-theme="light"] .home-ring.r3 { animation-duration: 21s; }
+
+@keyframes homeRingBreathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.012); }
+}
+
+/* ── 入场：手写体"写"出来（Idea 5）──────────────────────────────
+   呼应 site-theme.css 既有的 brand-rewrite，首页与左上角共用同一套书写语言。
+   只在首次进入时播放（JS 打 .is-first-visit）—— 否则每次刷新都在重写，很快变烦。 */
+.home-art.is-first-visit .home-art-mark.loean-word-art {
+  animation:
+    homeMarkDrift 7.2s ease-in-out 1.2s infinite,
+    homeMarkSway 10.8s ease-in-out 1.2s infinite,
+    homeArtWrite 1.15s cubic-bezier(.6, 0, .2, 1) both;
+}
+
+@keyframes homeArtWrite {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+/* ── 鼠标视差（Idea 4）──────────────────────────────────────────
+   三层环位移量各不相同（近大远小），手写体只走一半 —— 制造极浅纵深。
+   刻意压到 ±4px 内：超过约 6px 就从"有空间感"掉进"廉价 3D 卡片"。
+   位移量由 --px/--py（JS 写入的 px 值）驱动；reduced-motion 时 JS 不写。
+   这里用独立的 translate 属性而非 transform —— 环的 transform 已被自转占用。 */
+.home-ring.r1 { translate: calc(var(--px, 0px) * 1) calc(var(--py, 0px) * 1); }
+.home-ring.r2 { translate: calc(var(--px, 0px) * .62) calc(var(--py, 0px) * .62); }
+.home-ring.r3 { translate: calc(var(--px, 0px) * .34) calc(var(--py, 0px) * .34); }
+
+.home-art-station { translate: calc(var(--px, 0px) * 1) calc(var(--py, 0px) * 1); }
+.home-art-sweep   { translate: calc(var(--px, 0px) * .34) calc(var(--py, 0px) * .34); }
+
+.home-art-mark.loean-word-art {
+  /* 手写体跟随但只走一半，且不动旋转，避免与 drift/sway 的 transform 打架 */
+  translate: calc(var(--px, 0px) * .5) calc(var(--py, 0px) * .5);
+}
+
+/* 浮动拆成两条动画：位移（drift）与仰角摆动（sway）周期不同，避免上下同步成「升降机」。
+   两者都必须带上基准位移与仰角：animation 的 transform 会整条覆盖元素自身的 transform，
+   若只写 translateY，上面 .loean-word-art 的错位与旋转会被抹掉、字又回到正中。
+   周期 7.2s / 10.8s 互质，合成轨迹不会在短时间内重复，看起来是缓慢漂移而非往复弹跳。 */
+@keyframes homeMarkDrift {
+  0%, 100% { transform: translate(-2%, min(9%, 34px)) rotate(-6deg); }
+  33%      { transform: translate(calc(-2% + 5px), calc(min(9%, 34px) - 6px)) rotate(-6deg); }
+  66%      { transform: translate(calc(-2% - 4px), calc(min(9%, 34px) - 2px)) rotate(-6deg); }
+}
+
+@keyframes homeMarkSway {
+  0%, 100% { rotate: 0deg; }
+  50%      { rotate: -1.6deg; }
+}
+
+.home-art-caption {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  left: 18px;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.home-wave {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  width: calc(100% - 24px);
+  height: 30px;
+  opacity: .45;
+  pointer-events: none;
+}
+
+.home-roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-top: 35px;
+}
+
+.home-role {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-height: 174px;
+  padding: 23px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  box-shadow: 0 8px 24px var(--shadow-raised);
+  transition: transform .25s, border-color .25s, box-shadow .25s;
+}
+
+.home-role:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-border);
+  box-shadow: 0 12px 28px var(--shadow-raised), 0 0 16px var(--accent-soft);
+}
+
+.home-role.featured {
+  border-color: var(--accent-border-strong);
+  box-shadow: inset 3px 0 var(--accent), 0 8px 24px var(--shadow-raised);
+}
+
+/* 规格横幅：一行讲清平台能力，压住 hero 与身份卡之间的空档 */
+.home-spec {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin: 22px 0 0;
+  padding: 13px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.home-spec-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-spec-item dt {
+  color: var(--accent-2);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.home-spec-item dd {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+/* 特性卡：三栏承接身份卡下方的留白 */
+.home-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.home-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 21px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  transition: border-color .25s, background .25s;
+}
+
+.home-feature:hover {
+  border-color: var(--accent-border);
+  background: var(--surface);
+}
+
+.home-feature-no {
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+}
+
+.home-feature-no::after {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 1px;
+  margin-top: 7px;
+  background: currentColor;
+  opacity: .55;
+}
+
+.home-feature h3 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font: 600 16px var(--serif);
+  letter-spacing: .04em;
+}
+
+.home-feature p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+/* 联系我们：页脚上方的独立一行，避免与 mono 铭牌式页脚混排 */
+.home-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  max-width: 1280px;
+  margin: 34px auto 0;
+  padding: 16px clamp(24px, 5vw, 68px) 0;
+  border-top: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+
+.home-contact-label {
+  color: var(--muted);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.home-contact-item {
+  color: var(--accent-2);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: inherit;
+  text-decoration: none;
+  transition: color .2s, text-shadow .2s;
+}
+
+a.home-contact-item:hover,
+.home-contact-copy:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* 复制按钮：重置成纯文本外观，只保留可点击性 */
+.home-contact-copy {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.home-contact-copy[data-state="copied"] {
+  color: var(--ok);
+  text-shadow: none;
+}
+
+.home-contact-copy[data-state="failed"] {
+  color: var(--err);
+  text-shadow: none;
+}
+
+.home-contact-sep {
+  color: var(--line);
+}
+
+.home-contact-copy:focus-visible,
+a.home-contact-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r);
+}
+
+/* 页脚：收住首屏下方的空间 */
+.home-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px clamp(24px, 5vw, 68px) 26px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.home-role-number { color: var(--muted); }
+.home-role h2 {
+  margin: 0;
+  color: var(--ink);
+  font: 600 23px var(--serif);
+}
+
+.home-role p {
+  flex: 1;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* The light entry uses quiet paper surfaces and ink-like racing green. */
+html[data-theme="light"] .home-topbar {
+  border-bottom-color: var(--line-soft);
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+}
+
+html[data-theme="light"] .home-top-links a,
+html[data-theme="light"] .home-role a,
+html[data-theme="light"] .home-contact-item,
+html[data-theme="light"] .home-eyebrow,
+html[data-theme="light"] .home-hero h1 em {
+  color: var(--accent-deep);
+  text-shadow: none;
+}
+
+html[data-theme="light"] .home-top-links a:hover,
+html[data-theme="light"] .home-role a:hover,
+html[data-theme="light"] .home-contact-item:hover {
+  text-shadow: none;
+  text-underline-offset: 3px;
+}
+
+html[data-theme="light"] .home-button {
+  background: var(--surface);
+  box-shadow: 0 2px 8px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-button:hover {
+  box-shadow: 0 5px 14px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-button.primary {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  color: var(--on-accent);
+  box-shadow: 0 4px 12px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-button.primary:hover {
+  background: var(--accent);
+  box-shadow: 0 6px 16px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-button.ghost {
+  background: transparent;
+}
+
+html[data-theme="light"] .home-art {
+  background:
+    linear-gradient(rgba(24, 75, 41, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 75, 41, .025) 1px, transparent 1px),
+    linear-gradient(155deg, var(--surface), var(--surface-2));
+  background-size: 40px 40px, 40px 40px, auto;
+  box-shadow: 0 8px 28px var(--shadow-raised);
+}
+
+/* 艺术板铭牌沿用左上角同一张手写体，配色交给 site-theme.css 的 .loean-word-art /
+   .loean-mark-art 规则统一处理，这里不再单独覆写 filter，避免同一 logo 出现两种颜色。 */
+
+html[data-theme="light"] .home-ring.r1 {
+  border-color: var(--accent-deep);
+  opacity: .75;
+}
+
+html[data-theme="light"] .home-ring.r2 {
+  border-color: var(--accent-border-strong);
+  opacity: .9;
+}
+
+html[data-theme="light"] .home-ring.r3 {
+  border-color: var(--line);
+}
+
+/* 浅色下波形是深绿细线（--wave-stroke: rgb(27,104,61)），压到 .28 会几乎看不见。
+   深色主题靠发光增亮，浅色主题没有发光，只能靠不透明度保住可见度。 */
+html[data-theme="light"] .home-wave {
+  opacity: .8;
+}
+
+html[data-theme="light"] .home-role {
+  background: var(--surface);
+  box-shadow: 0 3px 14px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-role:hover {
+  border-color: var(--accent-border);
+  box-shadow: 0 7px 19px var(--shadow-raised);
+}
+
+html[data-theme="light"] .home-role.featured {
+  border-color: var(--accent-border);
+  box-shadow: inset 3px 0 var(--accent-deep), 0 3px 14px var(--shadow-raised);
+  animation: homePaperEdge 6s ease-in-out infinite;
+}
+
+html[data-theme="light"] .home-feature {
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+
+html[data-theme="light"] .home-spec-item dt {
+  color: var(--accent-deep);
+}
+
+@keyframes homePaperEdge {
+  50% { border-color: var(--accent-border-strong); }
+}
+
+@media (max-width: 860px) {
+  .home-hero { grid-template-columns: 1fr; }
+  /* 单列后列宽就是整行，不存在「被 aspect-ratio 顶宽」的问题，
+     所以这里恢复原来的 min-height 撑高写法，并显式 width:100% 吃满整行
+     （此前实测只能到 741px）。max-height 必须清掉，否则会压住上面的 aspect-ratio。 */
+  .home-art { min-height: 235px; aspect-ratio: 1.9; width: 100%; }
+}
+
+@media (max-width: 980px) {
+  .home-features { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .home-main { padding-top: 66px; }
+  /* 窄屏控件组只显示「主题图标 + EN/中文」，但仍需避让，否则与管理员入口重叠 */
+  .home-top-links { margin-right: 92px; }
+  .home-top-links span { display: none; }
+  .home-hero h1 { font-size: clamp(34px, 8.5vw, 44px); }
+  .home-hero-copy > p { max-width: 100%; font-size: 13px; }
+  .home-spec { gap: 8px 18px; }
+  .home-spec-item dd { white-space: normal; }
+  .home-art { display: none; }
+  .home-roles { grid-template-columns: 1fr; gap: 11px; margin-top: 33px; }
+  .home-contact { gap: 6px 9px; margin-top: 28px; font-size: 10px; letter-spacing: .04em; }
+  /* 窄屏断行时把分隔点收掉，避免行首出现孤立的 · */
+  .home-contact-sep { display: none; }
+  .home-contact-label { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-art-mark,
+  .home-ring,
+  html[data-theme="light"] .home-role.featured {
+    animation: none !important;
+  }
+}

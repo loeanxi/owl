@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE — 首页重设计原型（throwaway，勿合入生产）
+  问题：当前 home.html「hero + 身份卡 + 特点卡」的结构显得呆板，参考阶跃星辰的
+  编辑感/滚动动效语言，首页应该长什么样？
+  形态：三个结构迥异的方案，同一文件内通过 ?variant=A|B|C 切换，底部悬浮条 + 左右方向键循环。
+    A · 档案馆 Archival — 纸面编辑风 + 钉住滚动驱动的"手稿拼贴解构"主视觉
+    B · 调度台 Dispatch — 暗色机房风 + 实时请求流水主视觉
+    C · 大字报 Poster — 超大字排版 + 左栏钉住右侧索引行的海报结构
+  数据全部为写死的演示值；链接指向真实路由（/member、/admin），仅结构验证用。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>loean 首页原型 · PROTOTYPE</title>
+<style>
+/* ============ 原型公共基础 ============ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --paper: #f4f2ea;
+  --paper-2: #faf8f0;
+  --paper-3: #ece9dc;
+  --ink: #1b241d;
+  --ink-2: #4a564b;
+  --ink-3: #7d887c;
+  --green: #176b3b;
+  --green-bright: #2f9e5a;
+  --green-soft: rgba(47, 158, 90, 0.12);
+  --line: #d9d5c4;
+  --line-ink: rgba(27, 36, 29, 0.22);
+  --blue: #4f8df9;
+  --dark: #070c09;
+  --dark-2: #0c130e;
+  --dark-3: #121a15;
+  --dark-line: #22352a;
+  --mist: #e8f2ea;
+  --mist-2: #b5c9ba;
+  --mist-3: #6f8a76;
+  --serif: "Cormorant Garamond", "Noto Serif SC", "Source Han Serif SC", "SimSun", Georgia, serif;
+  --sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace;
+}
+html { scroll-behavior: auto; }
+body {
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+body[data-variant="b"] { background: var(--dark); color: var(--mist); }
+.variant { display: none; }
+body[data-variant="a"] #variant-a,
+body[data-variant="b"] #variant-b,
+body[data-variant="c"] #variant-c { display: block; }
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+@media (prefers-reduced-motion: reduce) {
+  .pa-marquee-track, .pb-ticker-track, .pc-band-track { animation: none !important; }
+}
+
+/* ============ 悬浮切换条（原型工具，非设计的一部分） ============ */
+.proto-bar {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  z-index: 9999; display: flex; align-items: center; gap: 10px;
+  background: #10150f; color: #f2f2ea; border: 1px solid #3a463a;
+  border-radius: 999px; padding: 8px 14px 8px 10px;
+  font-family: var(--mono); font-size: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  user-select: none;
+}
+.proto-bar .proto-badge {
+  background: #ffdf5e; color: #10150f; font-weight: 700; font-size: 10px;
+  letter-spacing: .08em; border-radius: 999px; padding: 3px 8px;
+}
+.proto-bar button {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid #4a584a;
+  background: transparent; color: #f2f2ea; font-size: 15px; line-height: 1;
+  cursor: pointer; display: grid; place-items: center;
+}
+.proto-bar button:hover { background: #24301f; }
+.proto-bar .proto-name { min-width: 150px; text-align: center; letter-spacing: .04em; }
+.proto-bar .proto-hint { color: #8a9a8a; font-size: 10px; }
+
+/* ============ 方案 A · 档案馆 Archival ============ */
+#variant-a { background: var(--paper); color: var(--ink); }
+.pa-grain {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5; mix-blend-mode: multiply;
+  background-image: radial-gradient(rgba(27,36,29,.05) 1px, transparent 1.1px);
+  background-size: 5px 5px;
+}
+#variant-a { position: relative; }
+.pa-top {
+  position: relative; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 48px;
+}
+.pa-brand { display: flex; align-items: baseline; gap: 10px; }
+.pa-brand .word { font-family: var(--serif); font-size: 26px; font-weight: 700; letter-spacing: .01em; }
+.pa-brand .word i { font-style: normal; color: var(--green); }
+.pa-brand .tag { font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--ink-3); }
+.pa-top-links { display: flex; gap: 26px; font-size: 13px; color: var(--ink-2); }
+.pa-top-links a:hover { color: var(--green); }
+
+/* 钉住的拼贴舞台 */
+.pa-stage { position: relative; height: 300vh; z-index: 1; }
+.pa-sticky {
+  position: sticky; top: 0; height: 100vh; overflow: hidden;
+}
+.pa-canvas { position: absolute; top: 0; right: 0; width: 60%; height: 78%; }
+.pa-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pa-links line { stroke: rgba(27,36,29,.4); stroke-width: 1; }
+.pa-frame {
+  position: absolute; border: 1px solid rgba(27,36,29,.35); pointer-events: none;
+}
+.pa-handle {
+  position: absolute; width: 9px; height: 9px; background: var(--blue);
+  outline: 1px solid #fff;
+}
+.pa-card {
+  position: absolute; left: 50%; top: 50%;
+  background: var(--paper-2); border: 1px solid var(--line-ink);
+  box-shadow: 0 14px 30px rgba(27,36,29,.14);
+  padding: 10px 10px 6px; will-change: transform;
+}
+.pa-card svg { display: block; }
+.pa-card figcaption {
+  margin-top: 6px; font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  color: var(--ink-3); text-transform: uppercase; display: flex; justify-content: space-between; gap: 12px;
+}
+.pa-head {
+  position: absolute; left: 48px; bottom: 64px; max-width: 460px; z-index: 4;
+}
+.pa-eyebrow {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .22em; color: var(--green);
+  margin-bottom: 18px;
+}
+.pa-head h1 {
+  font-family: var(--serif); font-weight: 700; font-size: 46px; line-height: 1.16;
+  letter-spacing: .01em; margin-bottom: 18px; max-width: 560px;
+}
+.pa-head h1 em { font-style: italic; color: var(--green); }
+.pa-head .lead { font-size: 15px; line-height: 1.8; color: var(--ink-2); margin-bottom: 26px; max-width: 400px; }
+.pa-cta { display: flex; gap: 14px; align-items: center; margin-bottom: 22px; }
+.pa-btn {
+  display: inline-block; padding: 12px 22px; font-size: 14px; border: 1px solid var(--ink);
+  background: var(--ink); color: var(--paper); letter-spacing: .04em; transition: transform .2s ease;
+}
+.pa-btn:hover { transform: translateY(-2px); }
+.pa-btn.ghost { background: transparent; color: var(--ink); }
+.pa-btn.ghost:hover { border-color: var(--green); color: var(--green); }
+.pa-invite { font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--ink-3); }
+
+/* 档案索引（spec） */
+.pa-index { position: relative; z-index: 2; padding: 90px 48px 40px; max-width: 1180px; margin: 0 auto; }
+.pa-section-title {
+  font-family: var(--serif); font-size: 34px; font-weight: 700; margin-bottom: 8px;
+}
+.pa-section-sub { color: var(--ink-2); font-size: 14px; margin-bottom: 36px; }
+.pa-index-row {
+  display: flex; align-items: baseline; gap: 18px; padding: 22px 4px;
+  border-top: 1px solid var(--line-ink); font-size: 15px;
+}
+.pa-index-row:last-child { border-bottom: 1px solid var(--line-ink); }
+.pa-index-row .no { font-family: var(--mono); font-size: 11px; color: var(--green); letter-spacing: .14em; min-width: 64px; }
+.pa-index-row .k { font-family: var(--serif); font-size: 22px; font-weight: 700; min-width: 200px; }
+.pa-index-row .leader { flex: 1; border-bottom: 1px dotted var(--line-ink); transform: translateY(-4px); }
+.pa-index-row .v { color: var(--ink-2); font-size: 13px; font-family: var(--mono); letter-spacing: .04em; }
+
+/* 跑马灯 */
+.pa-marquee {
+  position: relative; z-index: 2; border-top: 1px solid var(--line-ink); border-bottom: 1px solid var(--line-ink);
+  overflow: hidden; padding: 14px 0; background: var(--paper-3);
+}
+.pa-marquee-track {
+  display: inline-flex; gap: 48px; white-space: nowrap; animation: pa-slide 26s linear infinite;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .22em; color: var(--ink-2);
+}
+.pa-marquee-track b { color: var(--green); font-weight: 400; }
+@keyframes pa-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* 身份：两块编辑部大卡 */
+.pa-roles {
+  position: relative; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  max-width: 1180px; margin: 80px auto; padding: 0 48px;
+}
+.pa-role {
+  border: 1px solid var(--line-ink); padding: 40px 36px 34px; position: relative;
+  background: var(--paper-2); transition: background .25s ease, color .25s ease;
+}
+.pa-role + .pa-role { border-left: none; }
+.pa-role .no { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--ink-3); margin-bottom: 46px; }
+.pa-role h3 { font-family: var(--serif); font-size: 40px; font-weight: 700; margin-bottom: 14px; }
+.pa-role p { font-size: 14px; line-height: 1.8; color: var(--ink-2); margin-bottom: 34px; max-width: 340px; }
+.pa-role .go { font-size: 14px; letter-spacing: .06em; border-bottom: 1px solid currentColor; padding-bottom: 3px; }
+.pa-role:hover { background: var(--green); color: #f2f7ef; }
+.pa-role:hover p, .pa-role:hover .no { color: rgba(242,247,239,.75); }
+
+/* 特点：悬挂编号的整行条目（非卡片） */
+.pa-feats { position: relative; z-index: 2; max-width: 1180px; margin: 0 auto; padding: 0 48px 90px; }
+.pa-feat {
+  display: grid; grid-template-columns: 120px 1fr 1.2fr; gap: 28px; align-items: baseline;
+  padding: 34px 4px; border-top: 1px solid var(--line-ink);
+}
+.pa-feat:last-of-type { border-bottom: 1px solid var(--line-ink); }
+.pa-feat .abc { font-family: var(--serif); font-size: 64px; font-weight: 700; font-style: italic; color: var(--green); }
+.pa-feat h4 { font-family: var(--serif); font-size: 26px; font-weight: 700; }
+.pa-feat p { font-size: 14px; line-height: 1.9; color: var(--ink-2); }
+
+/* 页脚 */
+.pa-footer {
+  position: relative; z-index: 2; background: var(--ink); color: var(--paper);
+  padding: 56px 48px; margin-top: 20px;
+}
+.pa-footer .big { font-family: var(--serif); font-size: 34px; font-weight: 700; margin-bottom: 26px; }
+.pa-footer .big i { font-style: italic; color: #7fd8a2; }
+.pa-footer .meta {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .12em; color: rgba(244,242,234,.65);
+}
+.pa-footer .meta a:hover { color: #7fd8a2; }
+
+/* ============ 方案 B · 调度台 Dispatch ============ */
+#variant-b { background: var(--dark); color: var(--mist); font-family: var(--mono); min-height: 100vh;
+  background-image:
+    linear-gradient(rgba(47,158,90,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47,158,90,.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.pb-statusbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 28px; border-bottom: 1px solid var(--dark-line);
+  font-size: 11px; letter-spacing: .1em; color: var(--mist-3);
+  background: rgba(7,12,9,.85); position: sticky; top: 0; z-index: 6; backdrop-filter: blur(6px);
+}
+.pb-statusbar .left { display: flex; align-items: center; gap: 14px; }
+.pb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-bright); box-shadow: 0 0 10px rgba(94,207,130,.9); }
+.pb-statusbar a { color: var(--mist-2); }
+.pb-statusbar a:hover { color: var(--green-bright); }
+.pb-hero {
+  display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center;
+  padding: 84px 48px 64px; max-width: 1240px; margin: 0 auto;
+}
+.pb-eyebrow { font-size: 11px; letter-spacing: .3em; color: var(--green-bright); margin-bottom: 22px; }
+.pb-hero h1 { font-family: var(--sans); font-weight: 700; font-size: 52px; line-height: 1.18; margin-bottom: 20px; }
+.pb-hero h1 .cursor {
+  display: inline-block; width: 22px; height: 44px; background: var(--green-bright);
+  vertical-align: -6px; margin-left: 10px; animation: pb-blink 1.1s steps(1) infinite;
+}
+@keyframes pb-blink { 50% { opacity: 0; } }
+.pb-hero .lead { font-family: var(--sans); font-size: 15px; line-height: 1.9; color: var(--mist-2); margin-bottom: 30px; max-width: 460px; }
+.pb-keys { display: flex; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
+.pb-key {
+  display: inline-block; padding: 13px 22px; font-size: 13px; letter-spacing: .06em;
+  background: var(--green-bright); color: #04140a; border-radius: 6px;
+  border: 1px solid #123c24; box-shadow: 0 4px 0 #17603a, 0 12px 24px rgba(47,158,90,.25);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.pb-key:hover { transform: translateY(2px); box-shadow: 0 2px 0 #17603a; }
+.pb-key.alt { background: transparent; color: var(--mist); border: 1px solid var(--dark-line); box-shadow: 0 4px 0 rgba(34,53,42,.6); }
+.pb-meta { font-size: 11px; color: var(--mist-3); letter-spacing: .08em; }
+.pb-console {
+  border: 1px solid var(--dark-line); border-radius: 10px; overflow: hidden;
+  background: rgba(12,19,14,.92); box-shadow: 0 30px 80px rgba(0,0,0,.5);
+}
+.pb-console .bar {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--dark-line); color: var(--mist-3); font-size: 11px;
+}
+.pb-console .bar .dots { display: flex; gap: 6px; }
+.pb-console .bar .dots i { width: 10px; height: 10px; border-radius: 50%; background: #22352a; }
+.pb-console .bar .dots i:first-child { background: #c45050; }
+.pb-console .bar .dots i:nth-child(2) { background: #c4a82a; }
+.pb-console .bar .dots i:nth-child(3) { background: #3d8f5a; }
+.pb-log { height: 300px; padding: 14px 16px; font-size: 12px; line-height: 2; overflow: hidden; }
+.pb-log .ln { white-space: nowrap; color: var(--mist-2); animation: pb-in .3s ease; }
+@keyframes pb-in { from { opacity: 0; transform: translateY(6px); } }
+.pb-log .t { color: var(--mist-3); }
+.pb-log .ok { color: #5ecf82; }
+.pb-log .rate { color: #d8b93a; }
+.pb-log .m { color: #8fd6ff; }
+.pb-log .dim { color: #4e6656; }
+.pb-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--dark-line); }
+.pb-stats .cell { padding: 16px; border-right: 1px solid var(--dark-line); }
+.pb-stats .cell:last-child { border-right: none; }
+.pb-stats .num { font-size: 24px; color: var(--mist); font-weight: 700; }
+.pb-stats .lbl { font-size: 10px; letter-spacing: .16em; color: var(--mist-3); margin-top: 4px; }
+.pb-ticker { border-top: 1px solid var(--dark-line); border-bottom: 1px solid var(--dark-line); overflow: hidden; background: var(--dark-2); }
+.pb-ticker-track {
+  display: inline-flex; gap: 56px; white-space: nowrap; padding: 12px 0;
+  animation: pb-slide 22s linear infinite; font-size: 11px; letter-spacing: .26em; color: var(--mist-3);
+}
+.pb-ticker-track b { color: var(--green-bright); font-weight: 400; }
+@keyframes pb-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.pb-section { max-width: 1240px; margin: 0 auto; padding: 72px 48px; }
+.pb-section-title { font-family: var(--sans); font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.pb-section-sub { font-family: var(--sans); font-size: 13px; color: var(--mist-3); margin-bottom: 36px; }
+.pb-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.pb-term { border: 1px solid var(--dark-line); border-radius: 10px; background: rgba(12,19,14,.92); overflow: hidden; transition: border-color .2s ease, transform .2s ease; }
+.pb-term:hover { border-color: var(--green); transform: translateY(-3px); }
+.pb-term .bar { display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--dark-line); font-size: 11px; color: var(--mist-3); }
+.pb-term .body { padding: 18px; font-size: 12.5px; line-height: 2.1; }
+.pb-term .body .p { color: var(--green-bright); }
+.pb-term .body .cmt { color: var(--mist-3); }
+.pb-term .go { color: var(--green-bright); border-bottom: 1px dashed var(--green); }
+.pb-feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.pb-feat { border: 1px solid var(--dark-line); border-radius: 10px; padding: 22px; background: rgba(12,19,14,.7); }
+.pb-feat .spark { margin-bottom: 16px; }
+.pb-feat h4 { font-family: var(--sans); font-size: 17px; margin-bottom: 10px; }
+.pb-feat p { font-family: var(--sans); font-size: 12.5px; line-height: 1.9; color: var(--mist-2); }
+.pb-footer { border-top: 1px solid var(--dark-line); padding: 44px 48px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; font-size: 11px; letter-spacing: .1em; color: var(--mist-3); }
+.pb-footer a { color: var(--mist-2); }
+.pb-footer a:hover { color: var(--green-bright); }
+
+/* ============ 方案 C · 大字报 Poster ============ */
+#variant-c { background: var(--paper); color: var(--ink); overflow-x: hidden; }
+.pc-hero { position: relative; height: 100vh; overflow: hidden; }
+.pc-giant {
+  position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%);
+  font-family: var(--serif); font-weight: 700; font-size: clamp(110px, 17vw, 260px);
+  letter-spacing: -.02em; color: var(--ink); line-height: 1; white-space: nowrap;
+  z-index: 1; will-change: transform;
+}
+.pc-giant i { font-style: normal; color: var(--green-bright); }
+.pc-hero-copy {
+  position: absolute; left: 6%; bottom: 14%; z-index: 3; max-width: 520px;
+  background: var(--paper); padding: 26px 30px 24px; border: 1px solid var(--line-ink);
+  box-shadow: 0 18px 44px rgba(27,36,29,.12); will-change: transform;
+}
+.pc-hero-copy .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .24em; color: var(--green); margin-bottom: 16px; }
+.pc-hero-copy h1 { font-family: var(--serif); font-size: 54px; font-weight: 700; line-height: 1.12; margin-bottom: 18px; }
+.pc-hero-copy h1 em { font-style: italic; color: var(--green); }
+.pc-hero-copy .lead { font-size: 14px; line-height: 1.9; color: var(--ink-2); margin-bottom: 26px; }
+.pc-hero-copy .cta { display: flex; gap: 14px; }
+.pc-chip {
+  position: absolute; right: 6%; top: 12%; z-index: 3;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .2em; color: var(--ink-2);
+  border: 1px solid var(--line-ink); border-radius: 999px; padding: 8px 14px; background: var(--paper-2);
+}
+.pc-band {
+  position: absolute; left: -6%; right: -6%; bottom: 4%; z-index: 2;
+  transform: rotate(-3deg); background: var(--green); color: #eef7ee;
+  overflow: hidden; padding: 12px 0; box-shadow: 0 18px 44px rgba(23,107,59,.28);
+}
+.pc-band-track { display: inline-flex; gap: 52px; white-space: nowrap; animation: pc-slide 20s linear infinite; font-family: var(--mono); font-size: 12px; letter-spacing: .3em; }
+.pc-band-track b { font-weight: 400; opacity: .55; }
+@keyframes pc-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.pc-body { display: grid; grid-template-columns: 340px 1fr; max-width: 1280px; margin: 0 auto; padding: 90px 48px 60px; gap: 56px; }
+.pc-rail { position: sticky; top: 40px; align-self: start; }
+.pc-rail .brand { font-family: var(--serif); font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.pc-rail .brand i { font-style: normal; color: var(--green-bright); }
+.pc-rail .slogan { font-size: 13px; color: var(--ink-2); line-height: 1.9; margin-bottom: 28px; }
+.pc-rail .cta { display: grid; gap: 10px; margin-bottom: 34px; }
+.pc-rail .cta a { display: block; padding: 12px 18px; border: 1px solid var(--ink); text-align: center; font-size: 13px; letter-spacing: .06em; transition: all .2s ease; }
+.pc-rail .cta a.pri { background: var(--ink); color: var(--paper); }
+.pc-rail .cta a.pri:hover { background: var(--green); border-color: var(--green); }
+.pc-rail .cta a.sec:hover { color: var(--green); border-color: var(--green); }
+.pc-rail .contact { font-family: var(--mono); font-size: 11px; line-height: 2.2; color: var(--ink-3); }
+.pc-rail .contact a:hover { color: var(--green); }
+.pc-rows { border-top: 2px solid var(--ink); }
+.pc-row {
+  display: grid; grid-template-columns: 90px 1fr auto; gap: 22px; align-items: center;
+  padding: 34px 10px; border-bottom: 1px solid var(--line-ink); transition: background .22s ease, color .22s ease;
+  position: relative;
+}
+.pc-row .no { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; color: var(--ink-3); }
+.pc-row h3 { font-family: var(--serif); font-size: 34px; font-weight: 700; margin-bottom: 6px; }
+.pc-row p { font-size: 13px; line-height: 1.8; color: var(--ink-2); max-width: 560px; }
+.pc-row .arr { font-size: 28px; font-family: var(--serif); }
+.pc-row.link:hover { background: var(--ink); color: var(--paper); }
+.pc-row.link:hover .no, .pc-row.link:hover p { color: rgba(244,242,234,.7); }
+.pc-row.link:hover .arr { transform: translateX(8px); }
+.pc-row .arr { transition: transform .22s ease; }
+.pc-foot {
+  background: var(--green); color: #eef7ee; padding: 72px 48px; margin-top: 40px;
+}
+.pc-foot .big { font-family: var(--serif); font-size: 40px; font-weight: 700; margin-bottom: 30px; max-width: 700px; }
+.pc-foot .big em { font-style: italic; color: #ffd9a0; }
+.pc-foot .links { display: flex; gap: 28px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; }
+.pc-foot .links a { border-bottom: 1px solid rgba(238,247,238,.5); padding-bottom: 3px; }
+.pc-foot .links a:hover { border-color: #fff; }
+
+/* ============ 窄屏兜底（原型仅保证不碎） ============ */
+@media (max-width: 960px) {
+  .pa-canvas { width: 100%; height: 52%; opacity: .9; }
+  .pa-head { left: 24px; right: 24px; bottom: 32px; }
+  .pa-head h1 { font-size: 38px; }
+  .pa-top { padding: 16px 24px; }
+  .pa-index, .pa-feats { padding-left: 24px; padding-right: 24px; }
+  .pa-roles { grid-template-columns: 1fr; padding: 0 24px; }
+  .pa-role + .pa-role { border-left: 1px solid var(--line-ink); border-top: none; }
+  .pa-feat { grid-template-columns: 60px 1fr; }
+  .pa-feat p { grid-column: 2; }
+  .pb-hero { grid-template-columns: 1fr; padding: 48px 24px; }
+  .pb-roles, .pb-feats { grid-template-columns: 1fr; }
+  .pb-section { padding: 48px 24px; }
+  .pc-body { grid-template-columns: 1fr; padding: 48px 24px; }
+  .pc-rail { position: static; }
+  .pc-hero-copy { left: 24px; right: 24px; bottom: 12%; }
+  .pc-hero-copy h1 { font-size: 36px; }
+}
+</style>
+</head>
+<body data-variant="a">
+
+<!-- 悬浮切换条 -->
+<div class="proto-bar" role="toolbar" aria-label="原型方案切换">
+  <span class="proto-badge">PROTOTYPE 原型</span>
+  <button type="button" data-prev aria-label="上一个方案">‹</button>
+  <span class="proto-name" id="proto-name">A / 3 · 档案馆 Archival</span>
+  <button type="button" data-next aria-label="下一个方案">›</button>
+  <span class="proto-hint">← → 切换 · ?variant= 可分享</span>
+</div>
+
+<!-- ================= 方案 A · 档案馆 ================= -->
+<section id="variant-a" class="variant" aria-label="方案 A 档案馆">
+  <div class="pa-grain" aria-hidden="true"></div>
+
+  <header class="pa-top">
+    <div class="pa-brand">
+      <span class="word">loean<i>.</i></span>
+      <span class="tag">AI SERVICE STATION</span>
+    </div>
+    <nav class="pa-top-links">
+      <a href="/member">成员空间</a>
+      <a href="/admin">管理工作台</a>
+      <a href="mailto:loean7@gmail.com">联系我们</a>
+    </nav>
+  </header>
+
+  <div class="pa-stage" id="pa-stage">
+    <div class="pa-sticky">
+      <div class="pa-canvas" id="pa-canvas">
+        <svg class="pa-links" id="pa-links" aria-hidden="true"></svg>
+        <div class="pa-frame" id="pa-frame">
+          <span class="pa-handle" style="left:-5px; top:-5px;"></span>
+          <span class="pa-handle" style="right:-5px; top:-5px;"></span>
+          <span class="pa-handle" style="left:-5px; bottom:-5px;"></span>
+          <span class="pa-handle" style="right:-5px; bottom:-5px;"></span>
+        </div>
+
+        <figure class="pa-card" data-fx="-34,-30,-33,4,2">
+          <svg width="150" height="96" viewBox="0 0 150 96" fill="none" stroke="#1b241d" stroke-width="1.2">
+            <!-- 月相：八个蚀刻圆 -->
+            <g id="pa-moons"></g>
+          </svg>
+          <figcaption><span>Fig.01 · Luna</span><span>1610</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="-38,8,-36,-4,-3">
+          <svg width="120" height="120" viewBox="0 0 120 120" fill="none" stroke="#1b241d" stroke-width="1">
+            <!-- 黄金分割：嵌套矩形与四分之一弧 -->
+            <rect x="8" y="8" width="104" height="64"/><rect x="8" y="72" width="64" height="40"/>
+            <rect x="72" y="72" width="40" height="24"/><rect x="72" y="96" width="24" height="16"/>
+            <path d="M72 8 A64 64 0 0 1 8 72" /><path d="M112 72 A40 40 0 0 1 72 112"/>
+            <path d="M96 96 A24 24 0 0 1 72 120" stroke-dasharray="2 3"/>
+          </svg>
+          <figcaption><span>Fig.02 · Ratio</span><span>φ</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="-24,36,-20,22,3">
+          <svg width="180" height="44" viewBox="0 0 180 44" fill="none" stroke="#1b241d" stroke-width="1">
+            <!-- 穿孔纸带 -->
+            <rect x="2" y="8" width="176" height="28" rx="2"/>
+            <g fill="#1b241d" stroke="none">
+              <circle cx="16" cy="16" r="2.4"/><circle cx="26" cy="16" r="2.4"/><circle cx="46" cy="16" r="2.4"/>
+              <circle cx="76" cy="16" r="2.4"/><circle cx="86" cy="16" r="2.4"/><circle cx="116" cy="16" r="2.4"/>
+              <circle cx="146" cy="16" r="2.4"/><circle cx="166" cy="16" r="2.4"/>
+              <circle cx="21" cy="28" r="2.4"/><circle cx="41" cy="28" r="2.4"/><circle cx="51" cy="28" r="2.4"/>
+              <circle cx="91" cy="28" r="2.4"/><circle cx="111" cy="28" r="2.4"/><circle cx="131" cy="28" r="2.4"/>
+              <circle cx="151" cy="28" r="2.4"/><circle cx="171" cy="28" r="2.4"/>
+            </g>
+          </svg>
+          <figcaption><span>Fig.03 · Tape</span><span>PUNCH</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="1,-4,3,0,0">
+          <svg width="170" height="130" viewBox="-24 -18 78 56" fill="none">
+            <!-- 洛伦茨吸引子：JS 生成轨迹 -->
+            <path id="pa-attractor" stroke="#176b3b" stroke-width="0.35" fill="none"/>
+          </svg>
+          <figcaption><span>Fig.04 · Attractor</span><span>LORENZ 1963</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="26,-30,25,3,-2" id="pa-butterfly-card">
+          <svg width="140" height="110" viewBox="0 0 140 110" fill="none">
+            <defs>
+              <pattern id="pa-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+                <circle cx="1.4" cy="1.4" r="1.1" fill="#1b241d"/>
+              </pattern>
+              <clipPath id="pa-wing-l"><path d="M68 55 C50 18 20 10 12 26 C4 42 30 62 62 60 Z"/><path d="M66 60 C46 72 26 92 36 100 C46 108 62 84 68 64 Z"/></clipPath>
+              <clipPath id="pa-wing-r"><path d="M72 55 C90 18 120 10 128 26 C136 42 110 62 78 60 Z"/><path d="M74 60 C94 72 114 92 104 100 C94 108 78 84 72 64 Z"/></clipPath>
+            </defs>
+            <!-- 蚀刻线稿翼 -->
+            <g stroke="#1b241d" stroke-width="1.1">
+              <path d="M68 55 C50 18 20 10 12 26 C4 42 30 62 62 60 Z"/><path d="M66 60 C46 72 26 92 36 100 C46 108 62 84 68 64 Z"/>
+              <path d="M72 55 C90 18 120 10 128 26 C136 42 110 62 78 60 Z"/><path d="M74 60 C94 72 114 92 104 100 C94 108 78 84 72 64 Z"/>
+            </g>
+            <g stroke="#1b241d" stroke-width="0.6" opacity="0.55">
+              <path d="M68 55 C56 34 40 22 18 24"/><path d="M68 55 C58 44 40 48 24 52"/>
+              <path d="M72 55 C84 34 100 22 122 24"/><path d="M72 55 C82 44 100 48 116 52"/>
+              <path d="M66 62 C56 76 46 88 38 96"/><path d="M74 62 C84 76 94 88 102 96"/>
+            </g>
+            <ellipse cx="70" cy="58" rx="3" ry="14" fill="#1b241d"/>
+            <path d="M68 44 C64 36 58 32 54 30 M72 44 C76 36 82 32 86 30" stroke="#1b241d" stroke-width="1"/>
+            <!-- 滚动渐显的"点阵化"层：手稿 → 像素 -->
+            <g class="pa-dither" opacity="0">
+              <g clip-path="url(#pa-wing-l)"><rect x="0" y="0" width="70" height="110" fill="url(#pa-dots)"/></g>
+              <g clip-path="url(#pa-wing-r)"><rect x="70" y="0" width="70" height="110" fill="url(#pa-dots)"/></g>
+            </g>
+          </svg>
+          <figcaption><span>Fig.05 · Nymphalis</span><span>SPEC.</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="40,-4,39,-8,4">
+          <svg width="110" height="110" viewBox="0 0 110 110" fill="none" stroke="#1b241d" stroke-width="1">
+            <!-- 月面：照片的版画替身 -->
+            <circle cx="55" cy="55" r="44" fill="#e9e6da"/>
+            <circle cx="40" cy="42" r="9"/><circle cx="66" cy="60" r="13"/><circle cx="44" cy="74" r="6"/>
+            <circle cx="74" cy="34" r="4.5"/><circle cx="30" cy="60" r="4"/>
+            <path d="M20 70 Q40 88 66 84 T92 62" stroke-dasharray="2 3"/>
+          </svg>
+          <figcaption><span>Fig.06 · Mare</span><span>TRANQ.</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="33,32,31,16,-4">
+          <svg width="150" height="100" viewBox="0 0 150 100" fill="none" stroke="#1b241d" stroke-width="1">
+            <!-- 神经网路草图 -->
+            <g fill="#1b241d" stroke="none">
+              <circle cx="22" cy="50" r="3.4"/><circle cx="62" cy="24" r="3.4"/><circle cx="62" cy="76" r="3.4"/>
+              <circle cx="104" cy="42" r="3.4"/><circle cx="104" cy="66" r="3.4"/><circle cx="136" cy="52" r="3.4"/>
+            </g>
+            <path d="M25 50 Q44 34 59 25 M25 51 Q44 60 59 75 M64 26 Q86 30 101 41 M64 27 Q84 52 101 64 M64 75 Q86 70 101 67 M107 44 Q122 48 133 51 M107 65 Q122 60 133 53" stroke-dasharray="3 2"/>
+          </svg>
+          <figcaption><span>Fig.07 · Net</span><span>n²</span></figcaption>
+        </figure>
+      </div>
+
+      <div class="pa-head">
+        <div class="pa-eyebrow">LOEAN · TEAM AI STATION</div>
+        <h1>一个入口，<br /><em>接入你的 AI 服务。</em></h1>
+        <p class="lead">查看个人额度、完成客户端配置、核对每一次调用。你的接入信息都在这里，清楚而有序。</p>
+        <div class="pa-cta">
+          <a class="pa-btn" href="/member">进入成员空间 ↗</a>
+          <a class="pa-btn ghost" href="/admin">管理员登录</a>
+        </div>
+        <div class="pa-invite">BY INVITATION · 由管理员邀请开通</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pa-index">
+    <h2 class="pa-section-title">服务档案</h2>
+    <p class="pa-section-sub">像查索引一样核对你的接入要素。</p>
+    <div class="pa-index-row"><span class="no">No.01</span><span class="k">双协议</span><span class="leader"></span><span class="v">OpenAI · Anthropic</span></div>
+    <div class="pa-index-row"><span class="no">No.02</span><span class="k">独立 Key</span><span class="leader"></span><span class="v">额度 · 到期 · 白名单</span></div>
+    <div class="pa-index-row"><span class="no">No.03</span><span class="k">用量可查</span><span class="leader"></span><span class="v">按次 · 按日 · 可追溯</span></div>
+  </div>
+
+  <div class="pa-marquee" aria-hidden="true">
+    <div class="pa-marquee-track" id="pa-marquee-track">
+      <span>OPENAI PROTOCOL <b>✓</b></span><span>ANTHROPIC PROTOCOL <b>✓</b></span><span>STREAMING <b>✓</b></span>
+      <span>QUOTA GUARD <b>✓</b></span><span>AUDIT LOG <b>✓</b></span><span>ONE STATION, MANY POSSIBILITIES <b>✳</b></span>
+    </div>
+  </div>
+
+  <div class="pa-roles">
+    <article class="pa-role">
+      <div class="no">01 / MEMBER</div>
+      <h3>我是成员</h3>
+      <p>查看自己的 Key、剩余额度与调用结果，按步骤完成接入。</p>
+      <a class="go" href="/member">进入成员空间 →</a>
+    </article>
+    <article class="pa-role">
+      <div class="no">02 / ADMIN</div>
+      <h3>我是管理员</h3>
+      <p>管理成员 Key、全局用量与服务状态。</p>
+      <a class="go" href="/admin">进入管理工作台 →</a>
+    </article>
+  </div>
+
+  <div class="pa-feats">
+    <div class="pa-feat"><div class="abc">A</div><h4>额度看得见</h4><p>总额度、剩余量、今日调用与最近结果，成员随时自查；管理员按 Key 核对消耗，异常一眼定位。</p></div>
+    <div class="pa-feat"><div class="abc">B</div><h4>问题有迹可循</h4><p>每次调用都有记录和请求编号；遇到失败时，凭编号联系管理员排查原因。</p></div>
+    <div class="pa-feat"><div class="abc">C</div><h4>消耗可控制</h4><p>独立 Key 配额原子预占、并发不超卖；停用、过期、限流即时生效，预算始终在维护者手里。</p></div>
+  </div>
+
+  <footer class="pa-footer">
+    <div class="big">把接入这件事，<i>一次安顿清楚。</i></div>
+    <div class="meta">
+      <span>LOEAN · RACING GREEN · 自用小团队中转 · BY INVITATION</span>
+      <span>
+        <a href="mailto:loean7@gmail.com">loean7@gmail.com</a> ·
+        <a href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi</a>
+      </span>
+    </div>
+  </footer>
+</section>
+
+<!-- ================= 方案 B · 调度台 ================= -->
+<section id="variant-b" class="variant" aria-label="方案 B 调度台">
+  <header class="pb-statusbar">
+    <div class="left">
+      <span class="pb-dot" aria-hidden="true"></span>
+      <span>loean gateway ▮ OPERATIONAL</span>
+      <span>UPTIME 99.98%</span>
+    </div>
+    <div class="right">
+      <a href="/member">member</a> · <a href="/admin">admin</a> · <span id="pb-clock">--:--:--</span>
+    </div>
+  </header>
+
+  <div class="pb-hero">
+    <div>
+      <div class="pb-eyebrow">TEAM AI GATEWAY · 自用小团队中转</div>
+      <h1>一个入口，<br />接入你的 AI 服务。<span class="cursor" aria-hidden="true"></span></h1>
+      <p class="lead">查看个人额度、完成客户端配置、核对每一次调用。你的接入信息都在这里，清楚而有序。</p>
+      <div class="pb-keys">
+        <a class="pb-key" href="/member">进入成员空间 ↗</a>
+        <a class="pb-key alt" href="/admin">管理员登录</a>
+      </div>
+      <div class="pb-meta">BY INVITATION · 由管理员邀请开通 — 双协议 OpenAI · Anthropic</div>
+    </div>
+    <div class="pb-console" aria-hidden="true">
+      <div class="bar">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span>tail -f /var/log/loean/gateway.log</span>
+      </div>
+      <div class="pb-log" id="pb-log"></div>
+      <div class="pb-stats">
+        <div class="cell"><div class="num" id="pb-stat-calls">1,284</div><div class="lbl">今日调用</div></div>
+        <div class="cell"><div class="num" id="pb-stat-keys">12</div><div class="lbl">活跃 KEY</div></div>
+        <div class="cell"><div class="num" id="pb-stat-lat">312<small style="font-size:12px">ms</small></div><div class="lbl">平均延迟</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pb-ticker" aria-hidden="true">
+    <div class="pb-ticker-track" id="pb-ticker-track">
+      <span>OPENAI PROTOCOL <b>✓</b></span><span>ANTHROPIC PROTOCOL <b>✓</b></span><span>STREAMING <b>✓</b></span>
+      <span>QUOTA GUARD <b>✓</b></span><span>AUDIT LOG <b>✓</b></span><span>RATE LIMIT <b>✓</b></span>
+    </div>
+  </div>
+
+  <div class="pb-section">
+    <h2 class="pb-section-title">选择身份</h2>
+    <p class="pb-section-sub">两个入口，各自的工作台。</p>
+    <div class="pb-roles">
+      <div class="pb-term">
+        <div class="bar"><span>member@loean: ~</span><span>zsh</span></div>
+        <div class="body">
+          <div><span class="p">$</span> loean whoami</div>
+          <div class="cmt"># 我是成员：查看自己的 Key、剩余额度与调用结果，按步骤完成接入。</div>
+          <div><span class="p">$</span> open <a class="go" href="/member">/member</a> <span class="cmt"># 回车进入成员空间</span></div>
+        </div>
+      </div>
+      <div class="pb-term">
+        <div class="bar"><span>admin@loean: ~</span><span>zsh</span></div>
+        <div class="body">
+          <div><span class="p">$</span> loean su admin</div>
+          <div class="cmt"># 我是管理员：管理成员 Key、全局用量与服务状态。</div>
+          <div><span class="p">$</span> open <a class="go" href="/admin">/admin</a> <span class="cmt"># 回车进入管理工作台</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pb-section" style="padding-top:0">
+    <h2 class="pb-section-title">为什么可靠</h2>
+    <p class="pb-section-sub">三个保证，写在系统里而不是口头里。</p>
+    <div class="pb-feats">
+      <div class="pb-feat">
+        <svg class="spark" width="100%" height="36" viewBox="0 0 160 36" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 28 L20 24 L40 26 L60 18 L80 20 L100 12 L120 15 L140 8 L160 10" fill="none" stroke="#2f9e5a" stroke-width="1.6"/>
+        </svg>
+        <h4>额度看得见</h4>
+        <p>总额度、剩余量、今日调用与最近结果，成员随时自查；管理员按 Key 核对消耗，异常一眼定位。</p>
+      </div>
+      <div class="pb-feat">
+        <svg class="spark" width="100%" height="36" viewBox="0 0 160 36" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 18 L20 20 L40 14 L60 22 L80 12 L100 24 L120 18 L140 26 L160 20" fill="none" stroke="#2f9e5a" stroke-width="1.6"/>
+        </svg>
+        <h4>问题有迹可循</h4>
+        <p>每次调用都有记录和请求编号；遇到失败时，凭编号联系管理员排查原因。</p>
+      </div>
+      <div class="pb-feat">
+        <svg class="spark" width="100%" height="36" viewBox="0 0 160 36" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 30 L25 26 L50 27 L75 22 L100 23 L125 19 L160 18" fill="none" stroke="#2f9e5a" stroke-width="1.6"/>
+        </svg>
+        <h4>消耗可控制</h4>
+        <p>独立 Key 配额原子预占、并发不超卖；停用、过期、限流即时生效，预算始终在维护者手里。</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="pb-footer">
+    <span>LOEAN · RACING GREEN · 自用小团队中转 · BY INVITATION</span>
+    <span>
+      <a href="mailto:loean7@gmail.com">loean7@gmail.com</a> ·
+      <a href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi</a> ·
+      QQ 3106189916
+    </span>
+  </footer>
+</section>
+
+<!-- ================= 方案 C · 大字报 ================= -->
+<section id="variant-c" class="variant" aria-label="方案 C 大字报">
+  <div class="pc-hero">
+    <div class="pc-giant" id="pc-giant">loean<i>.</i></div>
+    <div class="pc-chip">BY INVITATION · 由管理员邀请开通</div>
+    <div class="pc-hero-copy" id="pc-hero-copy">
+      <div class="eyebrow">LOEAN · TEAM AI STATION</div>
+      <h1>一个入口，<br /><em>接入你的 AI 服务。</em></h1>
+      <p class="lead">查看个人额度、完成客户端配置、核对每一次调用。<br />你的接入信息都在这里，清楚而有序。</p>
+      <div class="cta">
+        <a class="pa-btn" href="/member">进入成员空间 ↗</a>
+        <a class="pa-btn ghost" href="/admin">管理员登录</a>
+      </div>
+    </div>
+    <div class="pc-band" aria-hidden="true">
+      <div class="pc-band-track" id="pc-band-track">
+        <span>OPENAI</span><b>✳</b><span>ANTHROPIC</span><b>✳</b><span>流式输出</span><b>✳</b><span>额度护栏</span><b>✳</b><span>调用可溯</span><b>✳</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="pc-body">
+    <aside class="pc-rail">
+      <div class="brand">loean<i>.</i></div>
+      <p class="slogan">自用小团队中转。双协议接入、独立 Key、用量可查——把团队用 AI 的杂事收进一个站点。</p>
+      <div class="cta">
+        <a class="pri" href="/member">进入成员空间 ↗</a>
+        <a class="sec" href="/admin">管理员登录</a>
+      </div>
+      <div class="contact">
+        loean7@gmail.com<br />
+        QQ 3106189916<br />
+        github.com/loeanxi
+      </div>
+    </aside>
+
+    <div class="pc-rows">
+      <a class="pc-row link" href="/member">
+        <span class="no">01</span>
+        <span><h3>我是成员</h3><p>查看自己的 Key、剩余额度与调用结果，按步骤完成接入。</p></span>
+        <span class="arr">→</span>
+      </a>
+      <a class="pc-row link" href="/admin">
+        <span class="no">02</span>
+        <span><h3>我是管理员</h3><p>管理成员 Key、全局用量与服务状态。</p></span>
+        <span class="arr">→</span>
+      </a>
+      <div class="pc-row">
+        <span class="no">03</span>
+        <span><h3>额度看得见</h3><p>总额度、剩余量、今日调用与最近结果，成员随时自查；管理员按 Key 核对消耗，异常一眼定位。</p></span>
+        <span class="arr" aria-hidden="true"></span>
+      </div>
+      <div class="pc-row">
+        <span class="no">04</span>
+        <span><h3>问题有迹可循</h3><p>每次调用都有记录和请求编号；遇到失败时，凭编号联系管理员排查原因。</p></span>
+        <span class="arr" aria-hidden="true"></span>
+      </div>
+      <div class="pc-row">
+        <span class="no">05</span>
+        <span><h3>消耗可控制</h3><p>独立 Key 配额原子预占、并发不超卖；停用、过期、限流即时生效，预算始终在维护者手里。</p></span>
+        <span class="arr" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+
+  <footer class="pc-foot">
+    <div class="big">把接入这件事，<em>一次安顿清楚。</em></div>
+    <div class="links">
+      <a href="/member">成员空间</a>
+      <a href="/admin">管理工作台</a>
+      <a href="mailto:loean7@gmail.com">loean7@gmail.com</a>
+      <a href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi</a>
+      <span>LOEAN · RACING GREEN</span>
+    </div>
+  </footer>
+</section>
+
+<script>
+(function () {
+  "use strict";
+  /* ---------- 方案切换器 ---------- */
+  var VARIANTS = [
+    { key: "a", name: "A / 3 · 档案馆 Archival", title: "loean 首页原型 · A 档案馆" },
+    { key: "b", name: "B / 3 · 调度台 Dispatch", title: "loean 首页原型 · B 调度台" },
+    { key: "c", name: "C / 3 · 大字报 Poster", title: "loean 首页原型 · C 大字报" }
+  ];
+  var current = "a";
+  var m = /[?&]variant=([abc])/i.exec(location.search);
+  if (m) current = m[1].toLowerCase();
+
+  var logTimer = null;
+
+  function apply(key, updateUrl) {
+    current = key;
+    document.body.dataset.variant = key;
+    var meta = VARIANTS.filter(function (v) { return v.key === key; })[0];
+    document.getElementById("proto-name").textContent = meta.name;
+    document.title = meta.title;
+    if (updateUrl) history.replaceState(null, "", "?variant=" + key);
+    window.scrollTo(0, 0);
+    if (key === "b") startLog(); else stopLog();
+  }
+
+  function cycle(dir) {
+    var i = VARIANTS.findIndex(function (v) { return v.key === current; });
+    i = (i + dir + VARIANTS.length) % VARIANTS.length;
+    apply(VARIANTS[i].key, true);
+  }
+
+  document.querySelector("[data-prev]").addEventListener("click", function () { cycle(-1); });
+  document.querySelector("[data-next]").addEventListener("click", function () { cycle(1); });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key === "ArrowLeft") cycle(-1);
+    if (e.key === "ArrowRight") cycle(1);
+  });
+
+  /* ---------- A · 拼贴解构驱动 ---------- */
+  /* 月相手绘：八个圆的两圆遮叠 */
+  (function () {
+    var g = document.getElementById("pa-moons");
+    var ns = "http://www.w3.org/2000/svg";
+    for (var i = 0; i < 8; i++) {
+      var cx = 18 + (i % 4) * 38, cy = i < 4 ? 26 : 70;
+      /* 墨色圆打底，纸色圆偏移叠盖切出月相，最后描一圈轮廓 */
+      var c1 = document.createElementNS(ns, "circle");
+      c1.setAttribute("cx", cx); c1.setAttribute("cy", cy); c1.setAttribute("r", 13); c1.setAttribute("fill", "#1b241d");
+      var c2 = document.createElementNS(ns, "circle");
+      var off = [0, -7, 7, 0][i % 4];
+      c2.setAttribute("cx", cx + off); c2.setAttribute("cy", cy); c2.setAttribute("r", i % 4 === 3 ? 9 : 13);
+      c2.setAttribute("fill", "#faf8f0");
+      var c3 = document.createElementNS(ns, "circle");
+      c3.setAttribute("cx", cx); c3.setAttribute("cy", cy); c3.setAttribute("r", 13); c3.setAttribute("fill", "none");
+      g.appendChild(c1); g.appendChild(c2); g.appendChild(c3);
+    }
+  })();
+
+  /* 洛伦茨吸引子轨迹 */
+  (function () {
+    var x = 0.1, y = 0, z = 0, dt = 0.004, d = "", n = 0;
+    for (var i = 0; i < 6000; i++) {
+      var dx = 10 * (y - x), dy = x * (28 - z) - y, dz = x * y - (8 / 3) * z;
+      x += dx * dt; y += dy * dt; z += dz * dt;
+      if (i > 400) {
+        d += (n === 0 ? "M" : "L") + (x * 0.9).toFixed(2) + " " + (34 - z * 0.98).toFixed(2) + " ";
+        n++;
+      }
+    }
+    document.getElementById("pa-attractor").setAttribute("d", d);
+  })();
+
+  /* 拼贴卡片：起始聚拢 → 滚动散开（百分比坐标基于画布尺寸） */
+  var paCards = [];
+  var paHub = { x: 50, y: 50 };
+  function easeIO(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function initPaCards() {
+    paCards = [];
+    var figures = document.querySelectorAll("#pa-canvas figure.pa-card");
+    figures.forEach(function (fig, i) {
+      var parts = fig.dataset.fx.split(",").map(Number);
+      paCards.push({
+        el: fig, i: i,
+        s: { x: (i % 2 ? 3 : -3) + (i - 3) * 0.4, y: -4 + (i % 3) * 4, r: (i % 2 ? 1 : -1) * (2 + i % 3) },
+        f: { x: parts[0], y: parts[1], r: parts[2] },
+        hubR: parts[3], hubA: parts[4]
+      });
+    });
+  }
+  initPaCards();
+
+  function drawLinks(p) {
+    var svg = document.getElementById("pa-links");
+    var canvas = document.getElementById("pa-canvas");
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (svg.childElementCount !== paCards.length) {
+      var ns = "http://www.w3.org/2000/svg";
+      svg.innerHTML = "";
+      paCards.forEach(function (c) {
+        var ln = document.createElementNS(ns, "line");
+        ln.setAttribute("stroke-dasharray", "1200");
+        ln.setAttribute("stroke-dashoffset", "1200");
+        svg.appendChild(ln);
+        c.link = ln;
+      });
+    }
+    var hx = w * paHub.x / 100, hy = h * paHub.y / 100;
+    paCards.forEach(function (c) {
+      var x2 = w * (50 + c.f.x) / 100, y2 = h * (50 + c.f.y) / 100;
+      var ln = c.link;
+      ln.setAttribute("x1", hx); ln.setAttribute("y1", hy);
+      ln.setAttribute("x2", lerp(hx, x2, p)); ln.setAttribute("y2", lerp(hy, y2, p));
+      ln.setAttribute("stroke-dashoffset", String(1200 * (1 - p)));
+    });
+  }
+
+  function paFrame() {
+    var canvas = document.getElementById("pa-canvas");
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    var frame = document.getElementById("pa-frame");
+    var fi = 0.34 - 0.28 * paP;  /* 边框从紧到松 */
+    frame.style.left = (w * fi) + "px";
+    frame.style.top = (h * fi * 0.8) + "px";
+    frame.style.width = (w * (1 - fi * 2)) + "px";
+    frame.style.height = (h * (1 - fi * 1.6)) + "px";
+  }
+
+  var paP = 0;
+  function paDriver() {
+    var active = document.body.dataset.variant === "a";
+    if (active) {
+      var stage = document.getElementById("pa-stage");
+      var vh = window.innerHeight;
+      var total = stage.offsetHeight - vh;
+      paP = clamp01(window.scrollY / Math.max(1, total));
+      var canvas = document.getElementById("pa-canvas");
+      var w = canvas.clientWidth, h = canvas.clientHeight;
+      paCards.forEach(function (c) {
+        var pi = easeIO(clamp01((paP - c.i * 0.05) / 0.72));
+        var x = lerp(c.s.x, c.f.x, pi) * w / 100;
+        var y = lerp(c.s.y, c.f.y, pi) * h / 100;
+        var r = lerp(c.s.r, c.f.r, pi);
+        c.el.style.transform = "translate(-50%,-50%) translate(" + x + "px," + y + "px) rotate(" + r + "deg)";
+        c.el.style.opacity = String(0.88 + 0.12 * pi);
+      });
+      drawLinks(paP);
+      paFrame();
+      var dither = document.querySelector("#pa-butterfly-card .pa-dither");
+      if (dither) {
+        var bf = paCards.filter(function (c) { return c.el.id === "pa-butterfly-card"; })[0];
+        var bp = bf ? easeIO(clamp01((paP - 0.3) / 0.5)) : 0;
+        dither.setAttribute("opacity", bp.toFixed(2));
+      }
+    }
+    /* C · 大字报视差 */
+    if (document.body.dataset.variant === "c") {
+      var giant = document.getElementById("pc-giant");
+      var copy = document.getElementById("pc-hero-copy");
+      var y = window.scrollY;
+      var vh2 = window.innerHeight;
+      var hp = clamp01(y / vh2);
+      giant.style.transform = "translate(-50%,-50%) translateY(" + (-hp * 90) + "px) scale(" + (1 + hp * 0.12) + ")";
+      giant.style.opacity = String(1 - hp * 0.85);
+      copy.style.transform = "translateY(" + (hp * 46) + "px)";
+    }
+    requestAnimationFrame(paDriver);
+  }
+  requestAnimationFrame(paDriver);
+
+  /* 跑马灯内容复制一份实现无缝循环 */
+  ["pa-marquee-track", "pb-ticker-track", "pc-band-track"].forEach(function (id) {
+    var t = document.getElementById(id);
+    if (t) t.innerHTML += t.innerHTML;
+  });
+
+  /* ---------- B · 请求流水 ---------- */
+  var MODELS = ["step-3.7-flash", "glm-4.6", "claude-sonnet-4", "deepseek-v3", "stepaudio-3"];
+  var ROUTES = ["/v1/chat/completions", "/v1/messages", "/v1/embeddings"];
+  var pbClockStarted = false;
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function tickClock() {
+    var d = new Date();
+    var el = document.getElementById("pb-clock");
+    if (el) el.textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  function logLine() {
+    var log = document.getElementById("pb-log");
+    if (!log) return;
+    var d = new Date();
+    var status = Math.random() < 0.08 ? (Math.random() < 0.6 ? ["429", "rate"] : ["500", "err"]) : ["200", "ok"];
+    var ln = document.createElement("div");
+    ln.className = "ln";
+    var toks = (200 + Math.floor(Math.random() * 3800)).toLocaleString();
+    var lat = 80 + Math.floor(Math.random() * 900);
+    ln.innerHTML =
+      '<span class="t">' + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + "</span>  " +
+      '<span class="' + (status[1] === "err" ? "rate" : status[1]) + '">' + status[0] + "</span> " +
+      (Math.random() < 0.7 ? "POST" : "GET") + " " +
+      ROUTES[Math.floor(Math.random() * ROUTES.length)] + "  " +
+      '<span class="m">' + MODELS[Math.floor(Math.random() * MODELS.length)] + "</span> " +
+      toks + ' tok <span class="dim">·</span> ' + lat + "ms";
+    log.appendChild(ln);
+    while (log.childElementCount > 13) log.removeChild(log.firstChild);
+    var calls = document.getElementById("pb-stat-calls");
+    if (calls) {
+      calls.textContent = (parseInt(calls.textContent.replace(/,/g, ""), 10) + 1).toLocaleString();
+    }
+  }
+  function startLog() {
+    if (logTimer) return;
+    var log = document.getElementById("pb-log");
+    if (log && log.childElementCount === 0) {
+      for (var i = 0; i < 8; i++) logLine();
+    }
+    logTimer = setInterval(function () {
+      if (Math.random() < 0.75) logLine();
+    }, 650);
+    if (!pbClockStarted) {
+      pbClockStarted = true;
+      tickClock();
+      setInterval(tickClock, 1000);
+    }
+  }
+  function stopLog() {
+    if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  }
+
+  apply(current, false);
+})();
+</script>
+</body>
+</html>

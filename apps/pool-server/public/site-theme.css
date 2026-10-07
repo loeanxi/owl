@@ -1,0 +1,552 @@
+/* loean shared visual foundation: used by the administrator and member spaces. */
+:root {
+  color-scheme: dark;
+  --bg: #070c09;
+  --bg-2: #0b120e;
+  --surface: #121a15;
+  --surface-2: #18241c;
+  --surface-3: #1e2c22;
+  --line: #2a3d30;
+  --line-soft: #1f2f25;
+  --ink: #e8f2ea;
+  --ink-2: #b5c9ba;
+  --muted: #6f8a76;
+  --accent: #2f9e5a;
+  --accent-2: #5ecf82;
+  --accent-deep: #1a6b3c;
+  --accent-soft: rgba(47, 158, 90, 0.14);
+  --accent-glow: rgba(47, 158, 90, 0.45);
+  --gold: #a8c4a0;
+  --ok: #3d8f5a;
+  --ok-soft: rgba(61, 143, 90, 0.16);
+  --warn: #c4a82a;
+  --warn-soft: rgba(196, 168, 42, 0.16);
+  --err: #c45050;
+  --err-soft: rgba(196, 80, 80, 0.16);
+  --r: 3px;
+  --nav-w: 232px;
+  --serif: "Cormorant Garamond", "Noto Serif SC", "Songti SC", serif;
+  --sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "Consolas", Menlo, monospace;
+
+  /* Dynamic-effect colors are intentionally separate from component colors. */
+  --ambient-primary: rgba(47, 158, 90, 0.14);
+  --ambient-secondary: rgba(94, 207, 130, 0.08);
+  --ambient-center: rgba(47, 158, 90, 0.09);
+  --grid-line: rgba(47, 158, 90, 0.035);
+  --hover-spotlight: rgba(94, 207, 130, 0.16);
+  --wave-fill: rgba(47, 158, 90, 0.12);
+  --wave-stroke: rgb(94, 207, 130);
+  --wave-shadow: rgba(47, 158, 90, 0.65);
+  --cursor-glow: radial-gradient(circle, rgba(47,158,90,0.16) 0%, rgba(47,158,90,0.05) 40%, transparent 70%);
+  --cursor-shade: none;
+  --cursor-blend: screen;
+  --panel-head-overlay: rgba(0, 0, 0, 0.15);
+  --table-head-overlay: rgba(0, 0, 0, 0.2);
+  --overlay-bg: rgba(7, 12, 9, 0.92);
+  --dialog-backdrop: rgba(0, 0, 0, 0.7);
+  --shadow-raised: rgba(0, 0, 0, 0.25);
+  --shadow-float: rgba(0, 0, 0, 0.45);
+  --fresh-row-start: rgba(47, 158, 90, 0.28);
+  --fresh-row-end: rgba(47, 158, 90, 0.08);
+  --button-sheen: rgba(255, 255, 255, 0.12);
+  --on-accent: #fff;
+  --accent-border: rgba(47, 158, 90, 0.35);
+  --accent-border-strong: rgba(47, 158, 90, 0.5);
+  --accent-veil: rgba(47, 158, 90, 0.08);
+  --danger-border: rgba(196, 80, 80, 0.45);
+  --warning-border: rgba(196, 168, 42, 0.45);
+  --success-border: rgba(61, 143, 90, 0.42);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f6f1;
+  --bg-2: #f3f2ec;
+  --surface: #fffefa;
+  --surface-2: #fbfaf6;
+  --surface-3: #f0f3ed;
+  --line: #d5ddd2;
+  --line-soft: #e5e9e1;
+  --ink: #1c2e22;
+  --ink-2: #354b3b;
+  --muted: #536758;
+  --accent: #176b3b;
+  --accent-2: #1b683d;
+  --accent-deep: #124f2d;
+  --accent-soft: rgba(23, 107, 59, 0.08);
+  --accent-glow: rgba(23, 107, 59, 0.10);
+  --gold: #64745f;
+  --ok: #1d6b3c;
+  --ok-soft: rgba(29, 107, 60, 0.10);
+  --warn: #806313;
+  --warn-soft: rgba(128, 99, 19, 0.10);
+  --err: #a13d3d;
+  --err-soft: rgba(161, 61, 61, 0.09);
+
+  --ambient-primary: rgba(127, 119, 90, 0.04);
+  --ambient-secondary: rgba(127, 119, 90, 0.025);
+  --ambient-center: transparent;
+  --grid-line: transparent;
+  --hover-spotlight: rgba(23, 107, 59, 0.055);
+  --wave-fill: rgba(23, 107, 59, 0.035);
+  --wave-stroke: rgb(27, 104, 61);
+  --wave-shadow: rgba(23, 107, 59, 0.10);
+  --cursor-glow: none;
+  /* 浅色不做发光（screen 叠加在白底上会变成脏雾），改用 multiply 的跟随暗晕。
+     形状刻意对齐深色 --cursor-glow：0% 峰值 → 40% 中段 → 70% 归零，
+     使两者的可见半径一致（外圈 30% 为空，不参与视觉）。 */
+  --cursor-shade: radial-gradient(circle,
+    rgba(18, 79, 45, 0.135) 0%,
+    rgba(18, 79, 45, 0.042) 40%,
+    rgba(18, 79, 45, 0) 70%);
+  --cursor-blend: normal;
+  --panel-head-overlay: rgba(68, 79, 63, 0.025);
+  --table-head-overlay: rgba(68, 79, 63, 0.045);
+  --overlay-bg: rgba(247, 246, 241, 0.92);
+  --dialog-backdrop: rgba(37, 48, 38, 0.24);
+  --shadow-raised: rgba(47, 54, 43, 0.08);
+  --shadow-float: rgba(47, 54, 43, 0.14);
+  --fresh-row-start: rgba(23, 107, 59, 0.14);
+  --fresh-row-end: rgba(23, 107, 59, 0.045);
+  --button-sheen: rgba(255, 255, 255, 0.20);
+  --on-accent: #fff;
+  --accent-border: rgba(23, 107, 59, 0.22);
+  --accent-border-strong: rgba(23, 107, 59, 0.38);
+  --accent-veil: rgba(23, 107, 59, 0.05);
+  --danger-border: rgba(161, 61, 61, 0.35);
+  --warning-border: rgba(128, 99, 19, 0.35);
+  --success-border: rgba(29, 107, 60, 0.32);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+html, body { min-height: 100%; }
+
+body {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -4%;
+  background:
+    radial-gradient(ellipse 70% 55% at 18% 8%, var(--ambient-primary), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 88% 92%, var(--ambient-secondary), transparent 52%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: auto, auto, 48px 48px, 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+  animation: bgBreathe 3.6s ease-in-out infinite;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 55% 45% at 50% 30%, var(--ambient-center), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: bgBreathGlow 3.6s ease-in-out infinite;
+}
+
+html[data-theme="light"] body {
+  background: linear-gradient(160deg, #faf9f5 0%, var(--bg) 54%, #f3f2ec 100%);
+}
+
+html[data-theme="light"] body::before,
+html[data-theme="light"] body::after {
+  content: none;
+  animation: none;
+}
+
+@keyframes bgBreathe {
+  0%, 100% { opacity: 0.55; filter: brightness(0.85); }
+  50% { opacity: 1; filter: brightness(1.12); }
+}
+
+@keyframes bgBreathGlow {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+
+.cursor-glow {
+  position: fixed;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 80;
+  background: var(--cursor-glow);
+  transform: translate(-50%, -50%);
+  mix-blend-mode: var(--cursor-blend);
+  transition: opacity 0.3s;
+  opacity: 0;
+}
+
+body.has-pointer .cursor-glow { opacity: 1; }
+
+/* 浅色：不发光，改为「纸面被遮出一小片暗晕」。
+   用 multiply 让暗晕只压暗、不改变色相，避免白底上的绿污渍。
+   尺寸与深色一致（280px），保证两种主题的可见半径相同。 */
+html[data-theme="light"] .cursor-glow {
+  background: var(--cursor-shade);
+  mix-blend-mode: multiply;
+}
+
+/* 右上角控件组：主题 + 语言并排，语言按钮在右（位置固定，切换语言不会跳动） */
+.site-controls {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 被 .site-controls 包裹时交给容器定位，单独出现（管理台/成员端）时仍自行固定 */
+.site-controls .theme-toggle {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--ink-2);
+  box-shadow: 0 8px 22px var(--shadow-raised);
+  font: 11px var(--mono);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-2);
+  box-shadow: 0 0 18px var(--accent-glow);
+}
+
+.theme-toggle-icon { font-size: 14px; line-height: 1; }
+
+html[data-theme="light"] .theme-toggle {
+  background: var(--surface);
+  box-shadow: 0 2px 10px var(--shadow-raised);
+  backdrop-filter: none;
+}
+
+html[data-theme="light"] .theme-toggle:hover {
+  box-shadow: 0 3px 12px var(--shadow-raised);
+}
+
+@keyframes lightStatusPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px rgba(23, 107, 59, 0.08); }
+  50% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(23, 107, 59, 0.04); }
+}
+
+html[data-theme="light"] .live-dot:not(.off) {
+  animation: lightStatusPulse 3s ease-in-out infinite;
+}
+
+/* Transparent brand art sits directly on each page surface. */
+.loean-mark-art { filter: drop-shadow(0 0 8px var(--accent-glow)); }
+
+html[data-theme="light"] .loean-mark-art {
+  filter: brightness(0.62) saturate(1.25);
+}
+
+html[data-theme="light"] .loean-word-art {
+  filter: brightness(0) opacity(0.82);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+  body::before,
+  body::after { animation: none; }
+  .cursor-glow { display: none; }
+}
+
+@media (max-width: 720px) {
+  .site-controls { top: 10px; right: 10px; }
+  .theme-toggle { top: 10px; right: 10px; }
+  .theme-toggle-label { display: none; }
+  /* 语言按钮在窄屏必须保留文字：图标不可用时「EN / 中文」是唯一能说明用途的线索，
+     隐藏后会变成一个无法识别的空按钮。 */
+  .lang-toggle .theme-toggle-label {
+    display: inline;
+    letter-spacing: .04em;
+  }
+}
+
+/* ---- 品牌闲置律动（墨迹呼吸 + 微浮 + 与背景同频）----
+   背景 bgBreathe 周期 3.6s；此处全部取其倍频：
+   brand-float / word-idle = 7.2s（2×），mark-idle = 10.8s（3×），
+   相位经 1.2s / 1.95s 延迟错开，避免机械同步。
+   只动 transform / opacity / filter，零重排；reduced-motion 由上方全局规则关闭。 */
+
+:root {
+  --brand-mark-filter-rest: drop-shadow(0 0 8px var(--accent-glow));
+  --brand-mark-filter-lift: drop-shadow(0 0 13px var(--accent-glow));
+}
+
+/* 浅色主题：不做绿色辉光，改为墨色深浅呼吸（与既有着色参数无缝衔接） */
+html[data-theme="light"] {
+  --brand-mark-filter-rest: brightness(0.62) saturate(1.25);
+  --brand-mark-filter-lift: brightness(0.68) saturate(1.32);
+}
+
+/* B · 微浮：整组缓慢上下浮 + 轻微摇曳（容器上做，不占用花押的悬停旋转） */
+.brand-mark,
+.member-rail .member-brand,
+.home-brand {
+  animation: brand-float 7.2s ease-in-out 1.2s infinite;
+}
+
+/* 入场 + A · 花押辉光/墨色呼吸 */
+.brand-logo-top,
+.member-rail .member-brand-mark,
+.home-brand-mark {
+  animation:
+    brand-in .7s cubic-bezier(.2, .8, .2, 1) both,
+    mark-idle 10.8s ease-in-out 1.2s infinite;
+}
+
+/* 入场手写 + A · 字样墨迹呼吸（只动 opacity，不碰浅色主题的着色 filter） */
+.brand-word,
+.member-rail .member-brand-word,
+.home-brand-word {
+  animation:
+    brand-write 1.4s cubic-bezier(.6, 0, .2, 1) .25s both,
+    word-idle 7.2s ease-in-out 1.95s infinite;
+}
+
+/* E · 悬停彩蛋：字样重新手写一遍。
+   仅在悬停时追加第三个动画；前两个身份不变，移出悬停不会反向重放。 */
+.brand:hover .brand-word,
+.member-brand:hover .member-brand-word,
+.home-brand:hover .home-brand-word {
+  animation:
+    brand-write 1.4s cubic-bezier(.6, 0, .2, 1) .25s both,
+    word-idle 7.2s ease-in-out 1.95s infinite,
+    brand-rewrite 1.1s cubic-bezier(.6, 0, .2, 1) both;
+}
+
+@keyframes brand-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-1.5px) rotate(-0.5deg); }
+}
+
+@keyframes mark-idle {
+  0%, 100% { filter: var(--brand-mark-filter-rest); }
+  50% { filter: var(--brand-mark-filter-lift); }
+}
+
+@keyframes word-idle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.93; }
+}
+
+@keyframes brand-rewrite {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+/* ---- 主题化日期选择器（替代浏览器原生日历弹层）---- */
+.dp-panel {
+  position: fixed;
+  z-index: 300;
+  min-width: 264px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  box-shadow: 0 18px 44px var(--shadow-float), 0 0 24px var(--accent-soft);
+  user-select: none;
+}
+
+.dp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dp-title {
+  flex: 1;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink);
+  font: 600 12.5px var(--sans);
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.dp-title:hover { background: var(--accent-soft); color: var(--accent-2); }
+
+.dp-nav {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+
+.dp-nav:hover { border-color: var(--accent); color: var(--accent-2); }
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp-wd {
+  padding: 4px 0;
+  color: var(--muted);
+  font: 10px var(--mono);
+  letter-spacing: .08em;
+  text-align: center;
+}
+
+.dp-day {
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+  font: 11.5px var(--mono);
+  text-align: center;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.dp-day:hover { background: var(--accent-soft); color: var(--accent-2); }
+
+.dp-day.out { color: var(--muted); opacity: .45; }
+
+.dp-day.today {
+  border-color: var(--accent-border);
+  color: var(--accent-2);
+}
+
+.dp-day.sel {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.dp-day.sel:hover { background: var(--accent); color: var(--on-accent); }
+
+.dp-months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.dp-year {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font: 600 11px var(--mono);
+  text-align: center;
+  letter-spacing: .1em;
+}
+
+.dp-month {
+  padding: 6px 0;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+  font: 11.5px var(--sans);
+  cursor: pointer;
+}
+
+.dp-month:hover { background: var(--accent-soft); color: var(--accent-2); }
+
+.dp-month.cur { background: var(--accent-soft); color: var(--accent-2); font-weight: 600; }
+
+.dp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.dp-foot-right { display: inline-flex; gap: 6px; }
+
+.dp-act {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+  font: 11px var(--sans);
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+
+.dp-act:hover { border-color: var(--accent); color: var(--accent-2); }
+
+.dp-act.strong {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.dp-act.strong:hover { background: var(--accent-2); border-color: var(--accent-2); color: var(--on-accent); }
+
+/* 被接管的输入框：隐藏原生日历指示器外观冲突 */
+.dp-input { cursor: pointer; }
+.dp-input::-webkit-calendar-picker-indicator {
+  filter: invert(.7);
+  opacity: .55;
+  cursor: pointer;
+}
+
+html[data-theme="light"] .dp-input::-webkit-calendar-picker-indicator { filter: none; opacity: .65; }

@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="admin.title">loean · 账号池网关</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定 -->
+  <script src="/i18n.js?v=20261002-diagnostics1"></script>
+  <link rel="stylesheet" href="/site-theme.css?v=20260926-16" />
+  <link rel="stylesheet" href="/style.css?v=20260927-1" />
+  <link rel="stylesheet" href="/pool-admin.css?v=20260929-usdcny" />
+  <link rel="stylesheet" href="/model-diagnostics.css?v=20261002-1" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="nav">
+      <div class="brand">
+        <div class="brand-mark">
+          <img class="brand-logo-top loean-mark-art" src="/loean-mark-clear.png" alt="loean 花押" data-i18n-attr="alt:admin.brandMarkAlt" />
+          <img class="brand-word loean-word-art" src="/loean-word-clear.png" alt="loean" />
+        </div>
+        <div class="brand-sub">Racing Green · Atelier</div>
+      </div>
+
+      <nav class="nav-list" aria-label="主导航" data-i18n-attr="aria-label:admin.nav.aria">
+        <button type="button" class="nav-item active" data-view="overview" data-i18n="admin.nav.overview">总览</button>
+        <button type="button" class="nav-item" data-view="accounts" data-i18n="admin.nav.accounts">账号</button>
+        <button type="button" class="nav-item" data-view="models" data-i18n="pool.nav">模型管理</button>
+        <button type="button" class="nav-item" data-view="members" data-i18n="admin.nav.members">成员</button>
+        <button type="button" class="nav-item" data-view="billing" data-i18n="admin.nav.billing">计费</button>
+        <button type="button" class="nav-item" data-view="usage">
+          <span data-i18n="admin.nav.usage">用量</span>
+          <span class="live-dot" id="usage-live-dot" hidden></span>
+        </button>
+        <button type="button" class="nav-item" data-view="keys">API Key</button>
+        <button type="button" class="nav-item" data-view="records" data-i18n="admin.nav.records">签到记录</button>
+      </nav>
+
+      <div class="nav-bottom">
+        <details class="nav-fold status-bay">
+          <summary class="status-bay-title" title="展开网关状态" data-i18n-attr="title:admin.gateway.expand">
+            <span class="live-dot off" id="gateway-live-dot" aria-label="状态未知" data-i18n-attr="aria-label:admin.gateway.unknown"></span>
+            <span class="nav-fold-label" data-i18n="admin.gateway.status">网关状态</span>
+            <strong class="status-value" id="g-rate-v" title="今日调用成功率" data-i18n-attr="title:admin.gateway.rateTitle">—</strong>
+          </summary>
+          <div class="status-stat">
+            <div class="status-stat-line" title="最近 50 条调用记录中的成功调用平均延迟" data-i18n-attr="title:admin.gateway.latencyTitle">
+              <span class="status-label" data-i18n="admin.gateway.recentLatency">近期平均延迟</span>
+              <strong class="status-value" id="g-lat-v">—</strong>
+            </div>
+          </div>
+          <div class="status-stat">
+            <div class="status-stat-line">
+              <span class="status-label" data-i18n="admin.gateway.poolReady">启用且未冷却</span>
+              <strong class="status-value" id="g-pool-v">—</strong>
+            </div>
+            <div class="status-track" aria-hidden="true"><span id="g-pool-bar"></span></div>
+          </div>
+          <div class="status-stat">
+            <div class="status-stat-line">
+              <span class="status-label" data-i18n="admin.gateway.successRate">今日调用成功率</span>
+            </div>
+            <div class="status-track" aria-hidden="true"><span id="g-rate-bar"></span></div>
+          </div>
+        </details>
+
+        <details class="nav-fold nav-foot">
+          <summary class="status-bay-title">
+            <span class="nav-fold-label" data-i18n="admin.endpoints.title">接口地址</span>
+          </summary>
+          <div class="nav-foot-line">OpenAI</div>
+          <code class="nav-foot-code">/v1/chat/completions</code>
+          <div class="nav-foot-line">Anthropic</div>
+          <code class="nav-foot-code">/v1/messages</code>
+          <div class="nav-foot-line">Responses</div>
+          <code class="nav-foot-code">/v1/responses</code>
+        </details>
+
+        <div class="nav-user">
+          <div class="nav-admin" id="nav-admin" hidden>
+            <span class="nav-admin-avatar" aria-hidden="true">管</span>
+            <strong class="nav-admin-name" id="admin-username" title="当前管理员" data-i18n-attr="title:admin.adminName">—</strong>
+            <button type="button" class="nav-icon-btn" id="btn-change-password" title="修改口令" aria-label="修改口令" data-i18n-attr="title:admin.changePassword,aria-label:admin.changePassword">⚿</button>
+            <button type="button" class="nav-icon-btn" id="btn-logout" title="退出登录" aria-label="退出登录" data-i18n-attr="title:admin.logout,aria-label:admin.logout">⏻</button>
+          </div>
+          <button type="button" class="nav-icon-btn nav-theme-toggle" data-theme-toggle aria-pressed="false" title="切换到浅色主题">
+            <span data-theme-icon>☼</span>
+          </button>
+          <button type="button" class="theme-toggle lang-toggle nav-lang-toggle" data-lang-toggle title="切换到英文">
+            <span class="theme-toggle-label" data-lang-label>EN</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- 总览 -->
+      <section id="view-overview" class="view">
+        <header class="page-head">
+          <div>
+            <h1 data-i18n="admin.overview.h1">总览</h1>
+            <p class="page-sub" data-i18n="admin.overview.sub">账号健康度 · 今日签到 · 今日调用</p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-checkin-all" class="btn primary" data-i18n="admin.overview.checkinAll">一键签到全部</button>
+          </div>
+        </header>
+
+        <div class="kpi-row" id="overview-kpis">
+          <article class="kpi hero">
+            <div class="kpi-label" data-i18n="admin.overview.kpiTokensToday">今日 Tokens</div>
+            <div class="kpi-value accent" data-k="tokens">0</div>
+            <div class="kpi-sub" data-k="tokensSub">—</div>
+            <div class="spark" aria-hidden="true"><canvas class="wave-canvas"></canvas></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.overview.kpiAccounts">账号总数</div>
+            <div class="kpi-value" data-k="accounts">0</div>
+            <div class="kpi-sub" data-k="accountsSub">—</div>
+            <div class="kpi-meter" data-k="accountsMeter" aria-hidden="true"></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.overview.kpiCheckin">今日签到</div>
+            <div class="kpi-value" data-k="checkin">0</div>
+            <div class="kpi-sub" data-k="checkinSub">—</div>
+            <div class="kpi-meter" data-k="checkinMeter" aria-hidden="true"></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.overview.kpiCalls">今日调用</div>
+            <div class="kpi-value" data-k="calls">0</div>
+            <div class="kpi-sub" data-k="callsSub">—</div>
+            <div class="kpi-meter" data-k="callsMeter" aria-hidden="true"></div>
+          </article>
+        </div>
+
+        <div class="split">
+          <section class="panel">
+            <div class="panel-head">
+              <h2 data-i18n="admin.overview.healthTitle">账号健康</h2>
+              <button type="button" class="link" data-goto="accounts" data-i18n="admin.overview.viewAll">查看全部</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.th.name">名称</th>
+                    <th data-i18n="admin.th.platform">平台</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                    <th class="num" data-i18n="admin.th.credits">积分</th>
+                  </tr>
+                </thead>
+                <tbody id="overview-health"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2 data-i18n="admin.overview.recentTitle">最近调用</h2>
+              <button type="button" class="link" data-goto="usage" data-i18n="admin.overview.detail">明细</button>
+            </div>
+            <div class="recent-list" id="overview-recent"></div>
+          </section>
+        </div>
+      </section>
+
+      <template id="backup-overview-template"><section class="panel" style="margin-top:20px">
+        <div class="panel-head"><h2 data-i18n="backup.title">备份状态</h2><button id="overview-backup-refresh" type="button" class="link" data-i18n="admin.refresh">刷新</button></div>
+        <p class="hint" data-i18n="backup.scope">显示本次服务启动后的最近备份状态；历史备份是否可恢复需单独验证。</p>
+        <div id="overview-backup-status" class="pool-status" aria-live="polite"></div>
+      </section></template>
+
+      <!-- 账号 -->
+      <section id="view-accounts" class="view" hidden>
+        <header class="page-head">
+          <div class="page-head-main">
+            <div class="page-head-row">
+              <h1 data-i18n="admin.accounts.h1">账号</h1>
+              <div class="credit-total" id="accounts-credits" title="下方账号积分合计" data-i18n-attr="title:admin.accounts.creditsTitle" data-i18n="admin.accounts.creditsTotal.none">总积分 —</div>
+            </div>
+            <p class="page-sub" id="accounts-sub">共 0 个</p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-refresh-credits" class="btn" data-i18n="admin.accounts.refreshCredits">刷新积分 / 额度</button>
+            <button id="btn-check-creds" class="btn" data-i18n="admin.accounts.checkCreds">检凭证</button>
+            <button id="btn-checkin-all-2" class="btn" data-i18n="admin.accounts.checkinAll">签到全部</button>
+            <button id="btn-new" class="btn primary" data-i18n="admin.accounts.add">+ 添加账号</button>
+          </div>
+        </header>
+
+        <div class="toolbar">
+          <div class="chips" id="account-filters">
+            <button type="button" class="chip active" data-filter="ALL"><span data-i18n="admin.filter.all">全部</span> <span data-c="ALL"></span></button>
+            <button type="button" class="chip" data-filter="WORKBUDDY">WorkBuddy <span data-c="WORKBUDDY"></span></button>
+            <button type="button" class="chip" data-filter="TRAE">Trae <span data-c="TRAE"></span></button>
+            <button type="button" class="chip" data-filter="CODEX">Codex <span data-c="CODEX"></span></button>
+            <button type="button" class="chip" data-filter="ZCODE">ZCode <span data-c="ZCODE"></span></button>
+            <button type="button" class="chip" data-filter="MIMO">MiMo <span data-c="MIMO"></span></button>
+            <button type="button" class="chip" data-filter="CURSOR">Cursor <span data-c="CURSOR"></span></button>
+            <button type="button" class="chip" data-filter="COPILOT">GitHub Copilot <span data-c="COPILOT"></span></button>
+            <button type="button" class="chip" data-filter="QODER">Qoder CN <span data-c="QODER"></span></button>
+            <span class="chip-sep"></span>
+            <button type="button" class="chip" data-status="OK"><span data-i18n="admin.filter.ok">正常</span> <span data-c="OK"></span></button>
+            <button type="button" class="chip" data-status="BAD"><span data-i18n="admin.filter.bad">异常</span> <span data-c="BAD"></span></button>
+          </div>
+          <input id="account-search" class="search" type="search" placeholder="搜索名称 / 备注…" autocomplete="off" data-i18n-attr="placeholder:admin.accounts.searchPh" />
+        </div>
+
+        <section class="panel flush">
+          <div class="table-wrap">
+            <table class="data-table accounts-table">
+              <thead>
+                <tr>
+                  <th data-i18n="admin.th.name">名称</th>
+                  <th data-i18n="admin.th.platform">平台</th>
+                  <th data-i18n="admin.th.status">状态</th>
+                  <th class="num" data-i18n="admin.th.creditsQuota">积分 / 额度</th>
+                  <th data-i18n="admin.accounts.thCheckin">今日签到</th>
+                  <th data-i18n="admin.th.remark">备注</th>
+                  <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                </tr>
+              </thead>
+              <tbody id="account-list"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-models" class="view" hidden>
+        <header class="page-head"><div><h1 data-i18n="pool.nav">模型管理</h1><p class="page-sub" id="pool-model-count" data-i18n="pool.subtitle">配置成员可选模型、能力与主备路由</p></div><div class="page-actions"><button id="btn-pool-model-refresh" class="btn" data-i18n="admin.refresh">刷新</button><button id="btn-pool-model-sync" class="btn" data-i18n="pool.sync">同步可用模型</button><button id="btn-pool-model-new" class="btn primary" data-i18n="pool.newModel">+ 手动添加模型</button></div></header>
+        <div id="pool-load-error" class="pool-status error pool-error" role="alert" hidden></div>
+        <div id="pool-discovery-alert" class="pool-status error pool-discovery-alert" role="alert" hidden><strong id="pool-discovery-alert-title"></strong><div id="pool-discovery-alert-body"></div></div>
+        <div class="toolbar"><div class="subtabs pool-tabs" role="tablist"><button type="button" class="subtab active" data-pool-tab="public" role="tab" aria-selected="true" data-i18n="pool.publicTab">公开模型</button><button type="button" class="subtab" data-pool-tab="drafts" role="tab" aria-selected="false" data-i18n="pool.draftsTab">待上架草稿</button><button type="button" class="subtab" data-pool-tab="discovered" role="tab" aria-selected="false" data-i18n="pool.discoveredTab">已发现模型</button></div><label id="pool-draft-platform-filter" class="pool-platform-filter" hidden><span data-i18n="pool.platformFilter">平台筛选</span><select id="pool-draft-platform" data-i18n-attr="aria-label:pool.platformFilter" aria-label="平台筛选"></select></label><label id="pool-discovered-platform-filter" class="pool-platform-filter" hidden><span data-i18n="pool.platformFilter">平台筛选</span><select id="pool-discovered-platform" data-i18n-attr="aria-label:pool.platformFilter" aria-label="平台筛选"></select></label><input id="pool-model-search" class="search pool-search" type="search" data-i18n-attr="placeholder:member.search.models,aria-label:member.search.modelsAria" placeholder="搜索模型…" /></div>
+        <div id="pool-public-panel"><p class="hint" data-i18n="pool.publicHint">这里只展示已上架、可供已授权成员调用的公开模型。</p><section class="panel flush"><div class="table-wrap"><table class="data-table"><thead><tr><th data-i18n="pool.publicModel">公开模型</th><th data-i18n="pool.capabilities">能力</th><th data-i18n="pool.routes">平台路由</th><th data-i18n="admin.th.status">状态</th><th data-i18n="admin.th.ops">操作</th></tr></thead><tbody id="pool-public-list"></tbody></table></div></section></div>
+        <div id="pool-drafts-panel" hidden><p class="hint" data-i18n="pool.draftsHint">各平台新发现的模型会自动保存为未上架草稿。核对能力与平台路由后，可勾选并批量确认上架。</p><div class="pool-batch-actions"><button id="btn-pool-batch-publish" type="button" class="btn primary" disabled data-i18n="pool.batchPublish">批量确认上架</button><span class="hint" data-i18n="pool.batchPublishHint">只勾选已核对公开能力和平台路由的草稿。</span></div><section class="panel flush"><div class="table-wrap"><table class="data-table"><thead><tr><th class="pool-select-col"><input id="pool-select-all-drafts" type="checkbox" data-i18n-attr="aria-label:pool.selectVisibleDrafts" aria-label="选择当前列表中的所有未上架模型" /></th><th data-i18n="pool.draftModel">待上架模型</th><th data-i18n="pool.capabilities">能力</th><th data-i18n="pool.routes">平台路由</th><th data-i18n="admin.th.status">状态</th><th data-i18n="admin.th.ops">操作</th></tr></thead><tbody id="pool-drafts-list"></tbody></table></div></section></div>
+        <div id="pool-discovered-panel" hidden><p class="hint" data-i18n="pool.discoveredHint">这里列出各平台已发现的模型。同名模型可补充备用路由；新草稿请在“待上架草稿”中核对和上架。</p><div class="pool-batch-actions"><button id="btn-pool-generate-drafts" type="button" class="btn" data-i18n="pool.generateMissingDrafts">补齐草稿和路由</button><span class="hint" data-i18n="pool.generateMissingDraftsHint">为所有平台已发现的新模型生成未上架草稿；同名已有模型会补充平台备用路由，若已上架则新路由保持未启用。原有名称、能力等配置不变。</span></div><section class="panel flush"><div class="table-wrap"><table class="data-table"><thead><tr><th data-i18n="admin.th.platform">平台</th><th data-i18n="pool.actualModel">平台模型名称</th><th data-i18n="pool.capabilities">能力</th><th data-i18n="admin.th.ops">操作</th></tr></thead><tbody id="pool-discovered-list"></tbody></table></div></section></div>
+      </section>
+
+      <template id="model-diagnostic-panel-template">
+        <div id="pool-diagnostics-panel" hidden>
+          <p class="hint" data-i18n="diagnostic.intro">对指定账号和模型进行实际调用，记录通过项目、失败原因及检查时间。结果与人工能力核验分别保存。</p>
+          <div id="diagnostic-error" class="pool-status error" role="alert" hidden></div>
+          <div class="diagnostic-layout">
+            <form id="diagnostic-form" class="panel diagnostic-form">
+              <h3 data-i18n="diagnostic.configure">选择检查范围</h3>
+              <label><span data-i18n="diagnostic.account">账号</span><select id="diagnostic-account" required><option value="" data-i18n="diagnostic.chooseAccount">请选择账号</option></select></label>
+              <p id="diagnostic-account-note" class="hint"></p>
+              <label><span data-i18n="diagnostic.model">平台模型名称</span><input id="diagnostic-model" list="diagnostic-model-options" required maxlength="256" autocomplete="off" placeholder="例如：模型目录中的实际模型名称" data-i18n-attr="placeholder:diagnostic.modelPlaceholder" /></label>
+              <datalist id="diagnostic-model-options"></datalist>
+              <label><span data-i18n="diagnostic.timeout">每项超时（秒）</span><input id="diagnostic-timeout" type="number" min="15" max="120" value="60" required /></label>
+              <fieldset><legend data-i18n="diagnostic.cases">检查项目</legend>
+                <label class="diagnostic-check"><input type="checkbox" name="diagnosticCase" value="TEXT" checked /><span data-i18n="diagnostic.case.TEXT">文本回复</span></label>
+                <label class="diagnostic-check"><input type="checkbox" name="diagnosticCase" value="STREAM" checked /><span data-i18n="diagnostic.case.STREAM">流式输出</span></label>
+                <label class="diagnostic-check"><input type="checkbox" name="diagnosticCase" value="TOOLS" checked /><span data-i18n="diagnostic.case.TOOLS">工具调用</span></label>
+                <label class="diagnostic-check"><input type="checkbox" name="diagnosticCase" value="TOOL_CONTINUATION" checked /><span data-i18n="diagnostic.case.TOOL_CONTINUATION">工具结果续接</span></label>
+              </fieldset>
+              <p class="hint diagnostic-spend" data-i18n="diagnostic.spend">开始后会消耗所选账号的上游额度，不扣成员钱包。只使用固定测试内容和安全的模拟工具。</p>
+              <button id="diagnostic-start" type="submit" class="btn primary" disabled data-i18n="diagnostic.start">开始实测</button>
+            </form>
+            <section class="panel diagnostic-output" aria-live="polite">
+              <h3 id="diagnostic-result-title" data-i18n="diagnostic.latestResults">最近实测结果</h3><p id="diagnostic-run-summary" class="hint"></p>
+              <div id="diagnostic-results" class="diagnostic-cards"></div>
+              <button id="diagnostic-cancel" type="button" class="btn danger" hidden data-i18n="diagnostic.cancel">取消本轮检查</button>
+            </section>
+          </div>
+          <div class="diagnostic-history-head"><h3 data-i18n="diagnostic.history">检查记录</h3><button id="diagnostic-refresh" type="button" class="btn" data-i18n="admin.refresh">刷新</button></div>
+          <section class="panel flush"><div class="table-wrap"><table class="data-table"><thead><tr><th data-i18n="diagnostic.time">发起时间</th><th data-i18n="diagnostic.account">账号</th><th data-i18n="diagnostic.model">平台模型名称</th><th data-i18n="admin.th.status">状态</th><th data-i18n="admin.th.ops">操作</th></tr></thead><tbody id="diagnostic-history"></tbody></table></div></section>
+        </div>
+      </template>
+
+      <!-- 成员 -->
+      <section id="view-members" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <h1 data-i18n="admin.members.h1">成员</h1>
+            <p class="page-sub" data-i18n="admin.members.sub">开通成员空间 · 分配专属 Key · 控制个人额度</p>
+          </div>
+          <div class="page-actions">
+            <a class="btn ghost" href="/member" target="_blank" rel="noopener" data-i18n="admin.members.entry">查看成员入口 ↗</a>
+            <button id="btn-new-member" class="btn primary" data-i18n="admin.members.new">+ 开通成员</button>
+          </div>
+        </header>
+
+        <section class="panel flush">
+          <div class="table-wrap">
+            <table class="data-table members-table">
+              <thead>
+                <tr>
+                  <th data-i18n="admin.members.thMember">成员</th>
+                  <th data-i18n="admin.members.thKey">专属 Key</th>
+                  <th data-i18n="admin.members.thQuota">钱包余额</th>
+                  <th data-i18n="admin.th.status">状态</th>
+                  <th data-i18n="admin.members.thCreated">创建时间</th>
+                  <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                </tr>
+              </thead>
+              <tbody id="member-list"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- 计费 -->
+      <section id="view-billing" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <h1 data-i18n="admin.billing.h1">计费</h1>
+            <p class="page-sub" id="billing-status-sub">模型单价 · 成员钱包 · 流水（与 Token 配额分离）</p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-billing-refresh" class="btn" data-i18n="admin.refresh">刷新</button>
+            <button id="btn-new-rate" class="btn primary" data-i18n="admin.billing.newRate">+ 模型单价</button>
+          </div>
+        </header>
+
+        <div class="kpi-row compact" id="billing-kpis">
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.billing.chargeSwitch">扣费开关</div>
+            <div class="kpi-value" id="billing-enabled-v">—</div>
+            <div class="kpi-sub" id="billing-currency-sub">货币 人民币 (CNY)</div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.billing.rateCount">模型单价</div>
+            <div class="kpi-value" id="billing-rate-count">0</div>
+            <div class="kpi-sub" data-i18n="admin.billing.configured">已配置</div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.billing.walletCount">成员钱包</div>
+            <div class="kpi-value" id="billing-wallet-count">0</div>
+            <div class="kpi-sub" data-i18n="admin.billing.opened">已开户</div>
+          </article>
+        </div>
+
+        <div class="subtabs" id="billing-subtabs" role="tablist">
+          <button type="button" class="subtab active" data-billing-tab="rates" role="tab" data-i18n="admin.billing.tabRates">模型单价</button>
+          <button type="button" class="subtab" data-billing-tab="rate-drafts" role="tab" data-i18n="admin.billing.tabRateDrafts">模型单价（草稿）</button>
+          <button type="button" class="subtab" data-billing-tab="wallets" role="tab" data-i18n="admin.billing.tabWallets">成员钱包</button>
+          <button type="button" class="subtab" data-billing-tab="ledger" role="tab" data-i18n="admin.billing.tabLedger">计费流水</button>
+        </div>
+
+        <div id="billing-panel-rates" class="view-panel">
+          <p class="hint" data-i18n="billing.cacheChargingNote">缓存用量可核实时按缓存价；仅能确认完整输入 Token 总数时按普通输入价；总数也无法确认时，按现有估算规则处理或进入待核对。</p>
+          <section class="panel flush">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.billing.thModel">模型</th>
+                    <th class="num" data-i18n="billing.thInputRate">输入（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thOutputRate">输出（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thCacheReadRate">缓存读取（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thCacheWriteRate">缓存写入（元/百万 Token）</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                    <th data-i18n="admin.th.remark">备注</th>
+                    <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="billing-rate-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="billing-panel-rate-drafts" class="view-panel" hidden>
+          <p class="hint" data-i18n="billing.draftHint">草稿用于记录全网核对的官方刊例价，不影响正式计费；核对完整后可一键应用到「模型单价」。</p>
+          <div class="pool-batch-actions">
+            <label class="pool-platform-filter">
+              <span data-i18n="admin.billing.draft.platform">官方平台</span>
+              <select id="rate-draft-platform-filter">
+                <option value="" data-i18n="admin.billing.draft.allPlatforms">全部平台</option>
+              </select>
+            </label>
+            <button id="btn-seed-rate-drafts" type="button" class="btn" data-i18n="admin.billing.draft.seed">从模型目录补齐草稿</button>
+            <button id="btn-new-rate-draft" type="button" class="btn" data-i18n="admin.billing.draft.new">+ 新建草稿</button>
+            <span class="hint" id="rate-draft-count-hint"></span>
+          </div>
+          <section class="panel flush">
+            <div class="table-wrap">
+              <table class="data-table rate-draft-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.billing.thModel">模型</th>
+                    <th data-i18n="admin.billing.draft.platform">官方平台</th>
+                    <th class="num" data-i18n="billing.draft.thInputRate">输入（官方价/百万 Token）</th>
+                    <th class="num" data-i18n="billing.draft.thOutputRate">输出（官方价/百万 Token）</th>
+                    <th class="num" data-i18n="billing.draft.thCacheReadRate">缓存读取（官方价/百万 Token）</th>
+                    <th class="num" data-i18n="billing.draft.thCacheWriteRate">缓存写入（官方价/百万 Token）</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                    <th data-i18n="admin.th.remark">备注</th>
+                    <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="billing-rate-draft-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="billing-panel-wallets" class="view-panel" hidden>
+          <section class="panel flush">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.billing.thMember">成员</th>
+                    <th class="num" data-i18n="admin.billing.thBalance">钱包余额</th>
+                    <th data-i18n="admin.billing.thOpened">开户</th>
+                    <th data-i18n="admin.billing.thUpdated">更新时间</th>
+                    <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="billing-wallet-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="billing-panel-ledger" class="view-panel" hidden>
+          <section class="panel flush">
+            <div class="table-wrap tall">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.billing.thTime">时间</th>
+                    <th data-i18n="admin.billing.thMember">成员</th>
+                    <th data-i18n="admin.billing.thType">类型</th>
+                    <th class="num" data-i18n="admin.billing.thAmount">金额</th>
+                    <th class="num" data-i18n="admin.billing.thBalanceBefore">余额前</th>
+                    <th class="num" data-i18n="admin.billing.thBalanceAfter">余额后</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                    <th data-i18n="admin.th.remark">备注</th>
+                    <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="billing-ledger-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- 用量 -->
+      <section id="view-usage" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <h1 data-i18n="admin.usage.h1">用量明细</h1>
+            <p class="page-sub">
+              <span class="live-tag" id="usage-live-badge" data-i18n="admin.usage.live">实时</span>
+              <span data-i18n="admin.usage.note">流式调用在收尾 chunk 带 usage 时入账</span>
+              <span class="conn" id="usage-conn-state">连接中…</span>
+            </p>
+            <p class="page-sub muted-text">
+              <span id="usage-range-sub">业务日 —</span>
+              · <span id="usage-source-sub">已知 0 · 估算 0 · 未知 0</span>
+            </p>
+          </div>
+          <div class="page-actions">
+            <input id="usage-date" class="date-input" type="date" title="按业务日（Asia/Shanghai）统计，留空为今天" data-i18n-attr="title:admin.usage.dateTitle" />
+            <button id="btn-usage-refresh" class="btn" data-i18n="admin.refresh">刷新</button>
+          </div>
+        </header>
+
+        <div class="subtabs" id="usage-subtabs" role="tablist">
+          <button type="button" class="subtab active" data-usage-tab="usage" role="tab" data-i18n="admin.usage.tabDetail">用量明细</button>
+          <button type="button" class="subtab" data-usage-tab="credits" role="tab" data-i18n="admin.usage.tabCredits">积分扣减</button>
+          <button type="button" class="subtab" data-usage-tab="lifetime" role="tab" data-i18n="admin.usage.tabLifetime">历史总调用</button>
+        </div>
+
+        <div class="kpi-row compact" id="usage-today-kpis">
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.overview.kpiCalls">今日调用</div>
+            <div class="kpi-value" data-k="calls">0</div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label" data-i18n="admin.usage.kpiFails">失败</div>
+            <div class="kpi-value err" data-k="fails">0</div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label">Prompt</div>
+            <div class="kpi-value" data-k="promptTokens">0</div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-label">Completion</div>
+            <div class="kpi-value" data-k="completionTokens">0</div>
+          </article>
+          <article class="kpi hero">
+            <div class="kpi-label">Total Tokens</div>
+            <div class="kpi-value accent" data-k="totalTokens">0</div>
+            <div class="spark" aria-hidden="true"><canvas class="wave-canvas"></canvas></div>
+          </article>
+        </div>
+
+        <div id="usage-panel-detail" class="view-panel">
+          <section class="panel flush">
+            <div class="table-wrap tall">
+              <table class="data-table usage-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.usage.thTime">时间</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                    <th data-i18n="admin.th.platform">平台</th>
+                    <th data-i18n="admin.usage.thModel">模型</th>
+                    <th data-i18n="admin.usage.thAccount">账号</th>
+                    <th>Key</th>
+                    <th class="num">Prompt</th>
+                    <th class="num">Comp</th>
+                    <th class="num">Total</th>
+                    <th class="num" data-i18n="admin.usage.thLatency">延迟</th>
+                    <th data-i18n="admin.usage.thClientIp">客户端 IP</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="usage-panel-credits" class="view-panel" hidden>
+          <div class="kpi-row compact">
+            <article class="kpi hero">
+              <div class="kpi-label" data-i18n="admin.usage.creditTotal">总扣积分</div>
+              <div class="kpi-value accent" id="credit-cost-total">0</div>
+              <div class="kpi-sub" id="credit-cost-total-sub">—</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label" data-i18n="admin.usage.creditUsedToday">今日已用</div>
+              <div class="kpi-value accent" id="credit-cost-used-today">0</div>
+              <div class="kpi-sub" id="credit-cost-used-sub">—</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label" data-i18n="admin.usage.creditToday">今日扣减合计</div>
+              <div class="kpi-value accent" id="credit-cost-today">0</div>
+              <div class="kpi-sub" id="credit-cost-sub">—</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label" data-i18n="admin.usage.creditAttributed">已归因请求</div>
+              <div class="kpi-value" id="credit-cost-count">0</div>
+              <div class="kpi-sub" data-i18n="admin.usage.creditAttributedSub">含失败请求</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label" data-i18n="admin.usage.creditUnknownLabel">待归因 / 未知</div>
+              <div class="kpi-value" id="credit-cost-unknown">0</div>
+              <div class="kpi-sub" data-i18n="admin.usage.creditUnknownSub">积分接口未回填</div>
+            </article>
+          </div>
+          <section class="panel flush">
+            <div class="table-wrap tall">
+              <table class="data-table credit-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.usage.thTime">时间</th>
+                    <th data-i18n="admin.usage.thAccount">账号</th>
+                    <th data-i18n="admin.usage.thModel">模型</th>
+                    <th class="num" data-i18n="admin.usage.thCreditUsed">扣积分</th>
+                    <th class="num" data-i18n="admin.billing.thBalanceBefore">余额前</th>
+                    <th class="num" data-i18n="admin.billing.thBalanceAfter">余额后</th>
+                    <th data-i18n="admin.th.status">状态</th>
+                  </tr>
+                </thead>
+                <tbody id="credit-list"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="usage-panel-lifetime" class="view-panel" hidden>
+          <div class="kpi-row compact">
+            <article class="kpi hero">
+              <div class="kpi-label" data-i18n="admin.usage.tabLifetime">历史总调用</div>
+              <div class="kpi-value accent" id="lifetime-calls">0</div>
+              <div class="kpi-sub" id="lifetime-span">—</div>
+              <div class="spark" aria-hidden="true"><canvas class="wave-canvas"></canvas></div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label" data-i18n="admin.usage.kpiFails">失败</div>
+              <div class="kpi-value err" id="lifetime-fails">0</div>
+              <div class="kpi-sub" id="lifetime-fail-rate">—</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label">Prompt</div>
+              <div class="kpi-value" id="lifetime-prompt">0</div>
+              <div class="kpi-sub" data-i18n="admin.usage.tokensIn">累计输入 tokens</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label">Completion</div>
+              <div class="kpi-value" id="lifetime-completion">0</div>
+              <div class="kpi-sub" data-i18n="admin.usage.tokensOut">累计输出 tokens</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-label">Total Tokens</div>
+              <div class="kpi-value accent" id="lifetime-total">0</div>
+              <div class="kpi-sub" id="lifetime-credit">—</div>
+            </article>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <h2 data-i18n="admin.usage.breakdownTitle">调用来源构成</h2>
+              <button id="btn-lifetime-refresh" class="btn" data-i18n="admin.refresh">刷新</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="admin.usage.thBucket">口径</th>
+                    <th class="num" data-i18n="admin.usage.thCallCount">调用数</th>
+                    <th data-i18n="admin.usage.thDesc">说明</th>
+                  </tr>
+                </thead>
+                <tbody id="lifetime-breakdown"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- API Key -->
+      <section id="view-keys" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <h1>API Key</h1>
+            <p class="page-sub" data-i18n="admin.keys.sub" data-i18n-html="self">客户端用 <code>Authorization: Bearer sk-…</code> 调 OpenAI <code>/v1/chat/completions</code> 或 Anthropic <code>/v1/messages</code>，按 Key/模型路由到账号池</p>
+          </div>
+          <div class="page-actions">
+            <span class="badge-pill" data-i18n="admin.keys.gatewayOn">网关已启用</span>
+            <button id="btn-new-key" class="btn primary" data-i18n="admin.keys.create">创建 Key</button>
+          </div>
+        </header>
+
+        <section class="panel flush">
+          <div class="table-wrap">
+            <table class="data-table keys-table">
+              <thead>
+                <tr>
+                  <th data-i18n="admin.th.name">名称</th>
+                  <th data-i18n="admin.keys.thPrefix">前缀</th>
+                  <th data-i18n="admin.keys.thPlatform">绑定平台</th>
+                  <th data-i18n="admin.keys.thQuota">计费</th>
+                  <th data-i18n="admin.keys.thRate">限流</th>
+                  <th>IP</th>
+                  <th data-i18n="admin.th.status">状态</th>
+                  <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                </tr>
+              </thead>
+              <tbody id="key-list"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- 签到记录 -->
+      <section id="view-records" class="view" hidden>
+        <header class="page-head">
+          <div>
+            <h1 data-i18n="admin.records.h1">签到记录</h1>
+            <p class="page-sub" id="records-sub" data-i18n="admin.records.sub">最近签到结果</p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-records" class="btn" data-i18n="admin.refresh">刷新</button>
+            <button id="btn-del-all-records" class="btn danger" data-i18n="admin.records.clearAll">清空全部</button>
+          </div>
+        </header>
+
+        <section class="panel flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th data-i18n="admin.records.thTime">时间</th>
+                  <th data-i18n="admin.usage.thAccount">账号</th>
+                  <th data-i18n="admin.th.platform">平台</th>
+                  <th data-i18n="admin.th.status">状态</th>
+                  <th class="num" data-i18n="admin.th.credits">积分</th>
+                  <th data-i18n="admin.records.thMessage">消息</th>
+                  <th class="ops-col" data-i18n="admin.th.ops">操作</th>
+                </tr>
+              </thead>
+              <tbody id="record-list"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dlg-pool-verify"><form id="form-pool-verify" method="dialog"><h3 data-i18n="pool.verifyTitle">记录模型能力核验</h3><p id="pool-verify-name" class="hint"></p><p id="pool-verify-hint" class="hint" data-i18n="pool.verifyHint">请完成真实联调后记录已确认的版本与能力，仅勾选已确认支持的能力。</p><label><span id="pool-verify-version-label" data-i18n="pool.version">模型版本</span><input name="verifiedModelVersion" required maxlength="128" /></label><div class="pool-checks"><label><input type="checkbox" name="supportsImages" /><span data-i18n="pool.images">图片输入</span></label><label><input type="checkbox" name="supportsTools" /><span data-i18n="pool.tools">工具调用</span></label></div><label><span data-i18n="pool.efforts">推理等级</span><div id="pool-verify-efforts" class="pool-checks pool-effort-checks"></div></label><label><span data-i18n="pool.verificationSource">核验依据</span><input name="verificationSource" required maxlength="255" /></label><p id="pool-verify-error" class="pool-status error" hidden role="alert"></p><div class="dlg-actions"><button type="button" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button><button type="submit" class="btn primary" data-i18n="admin.dlg.save">保存</button></div></form></dialog>
+  <dialog id="dlg-pool-model" class="pool-dialog">
+    <form id="form-pool-model" method="dialog"><h3 id="pool-model-title">模型</h3><div class="pool-form-grid">
+      <label><span data-i18n="pool.publicId">调用时使用的模型名称</span><input name="publicId" required maxlength="128" placeholder="model-name" pattern="[^\s]+" /></label>
+      <label><span data-i18n="pool.displayName">显示名称</span><input name="name" required maxlength="128" /></label>
+      <label class="pool-wide"><span data-i18n="pool.description">介绍</span><textarea name="description" rows="2" maxlength="1000"></textarea></label>
+      <label><span data-i18n="pool.version">模型版本</span><input name="modelVersion" maxlength="128" /><span class="hint" data-i18n="pool.versionPublishHint">版本未公布时可留空；此时各平台已启用路由的模型名称须与公开调用名完全一致。</span></label><label><span data-i18n="pool.sort">显示顺序</span><input name="sortOrder" type="number" min="0" step="1" value="0" /></label>
+      <label><span data-i18n="pool.context">上下文长度（Tokens）</span><input name="contextWindow" type="number" min="1" step="1" /></label><label><span data-i18n="pool.output">最大输出（Tokens）</span><input name="maxOutputTokens" type="number" min="1" step="1" /></label>
+       <label class="pool-wide"><span data-i18n="pool.publicEfforts">对外支持的推理等级</span><div class="pool-checks pool-effort-checks" data-public-efforts></div><span class="hint" data-i18n="pool.publicEffortsHint">这里勾选向 API 调用方承诺的等级；每一档都必须有已启用的路由实际提供。</span></label></div>
+      <div class="pool-checks"><label><input name="supportsImages" type="checkbox" /><span data-i18n="pool.images">图片输入</span></label><label><input name="supportsTools" type="checkbox" /><span data-i18n="pool.tools">工具调用</span></label><label><input name="published" type="checkbox" /><span data-i18n="pool.published">已上架</span></label></div>
+      <div class="pool-section-head"><h4 data-i18n="pool.routes">平台路由</h4><button id="btn-pool-route-add" type="button" class="btn" data-i18n="pool.addRoute">+ 添加备用路由</button></div><p class="hint" data-i18n="pool.routeHint">同一模型可配置多个平台备用路由，数字越小越优先。从“已发现模型”为已上架模型添加的路由先保持未启用，核对图片、工具及推理等级后再启用。</p><div id="pool-routes"></div><datalist id="pool-upstream-options"></datalist>
+      <section id="pool-qoder-defaults" class="pool-qoder-defaults" hidden><h4 data-i18n="pool.qoderDefaults">Qoder CN 默认配置</h4><p class="hint" data-i18n="pool.qoderDefaultsHint">可选。只在客户端未传对应参数时使用；选项来自当前已发现的 Qoder 模型。</p><div class="pool-form-grid"><label><span data-i18n="pool.qoderDefaultReasoning">默认思考强度</span><select name="defaultReasoningEffort"></select></label><label><span data-i18n="pool.qoderDefaultContext">默认上下文窗口</span><select name="defaultContextWindow"></select></label></div><p id="pool-qoder-defaults-hint" class="hint" role="status"></p></section>
+      <p id="pool-model-error" class="pool-status error" role="alert" hidden></p><div class="dlg-actions"><button type="button" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button><button id="btn-pool-model-save" class="btn primary" type="submit" data-i18n="admin.dlg.save">保存</button></div>
+    </form>
+  </dialog>
+  <dialog id="dlg-pool-auth" class="pool-dialog"><h3 id="pool-auth-title">账号授权</h3><p id="pool-auth-hint" class="hint" data-i18n="pool.authHint">打开官方授权页面完成登录，再返回这里查看结果。授权状态每两秒更新。</p><div id="pool-auth-message" class="pool-status" role="status" aria-live="polite"></div><a id="pool-auth-link" class="pool-auth-url" target="_blank" rel="noopener noreferrer" hidden></a><div id="pool-auth-code-wrap" class="pool-auth-code" hidden><span data-i18n="pool.deviceCode">设备码</span><code id="pool-auth-code"></code><button type="button" id="btn-pool-code-copy" class="btn" data-i18n="member.copy.short">复制</button></div><div id="pool-auth-input-wrap"><label><span data-i18n="pool.authInput">粘贴官方授权码或回调内容（可选）</span><textarea id="pool-auth-input" rows="3" autocomplete="off" spellcheck="false"></textarea></label><button type="button" id="btn-pool-auth-input" class="btn" data-i18n="pool.submitAuthInput">提交授权内容</button></div><div class="dlg-actions"><button type="button" id="btn-pool-auth-cancel" class="btn danger" data-i18n="pool.cancelAuth">取消授权</button><button type="button" id="btn-pool-auth-retry" class="btn" hidden data-i18n="pool.retryAuth">重新发起</button><button type="button" class="btn ghost" data-close-dlg data-i18n="pool.close">关闭</button></div></dialog>
+
+  <dialog id="dlg-account">
+    <form id="form-account" method="dialog" autocomplete="off">
+      <h3 id="dlg-title" data-i18n="admin.accounts.dlg.create">添加账号</h3>
+      <label><span data-i18n="admin.th.name">名称</span> <input name="name" required maxlength="64" /></label>
+      <label><span data-i18n="admin.th.platform">平台</span>
+        <select name="platform" id="sel-platform">
+          <option value="WORKBUDDY">WorkBuddy</option>
+          <option value="TRAE">Trae</option>
+          <option value="CODEX">Codex</option>
+          <option value="ZCODE">ZCode</option>
+          <option value="MIMO">MiMo</option>
+          <option value="CURSOR">Cursor</option>
+          <option value="COPILOT">GitHub Copilot</option>
+          <option value="QODER">Qoder CN</option>
+          <option value="CLAUDE">Claude</option>
+          <option value="GEMINI">Gemini</option>
+          <option value="GROK">Grok</option>
+        </select>
+      </label>
+      <label><span data-i18n="admin.th.remark">备注</span> <input name="remark" maxlength="255" /></label>
+      <label class="row"><input type="checkbox" name="enabled" checked /> <span data-i18n="admin.dlg.enabled">启用</span></label>
+      <p id="pool-account-hint" class="hint" hidden data-i18n="pool.accountHint">可先保存账号再登录授权；也可填写官方 Token 或服务器上的凭证目录。编辑时留空保留原凭证。</p>
+      <div id="cred-fields"></div>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button id="btn-save-authorize" value="authorize" class="btn" hidden data-i18n="pool.saveAuthorize">保存并授权</button>
+        <button id="btn-save-account" value="default" class="btn primary" data-i18n="admin.dlg.save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-key">
+    <form id="form-key" method="dialog">
+      <h3 data-i18n="admin.keyDlg.create">创建 API Key</h3>
+      <label><span data-i18n="admin.th.name">名称</span> <input name="name" required maxlength="64" /></label>
+      <label><span data-i18n="admin.keyDlg.boundPlatform">绑定平台（可空）</span>
+        <select name="boundPlatform">
+          <option value="" data-i18n="admin.keyDlg.any">任意</option>
+          <option value="WORKBUDDY">WorkBuddy</option>
+          <option value="TRAE">Trae</option>
+          <option value="CODEX">Codex</option>
+          <option value="ZCODE">ZCode</option>
+          <option value="MIMO">MiMo</option>
+          <option value="CURSOR">Cursor</option>
+          <option value="COPILOT">GitHub Copilot</option>
+          <option value="QODER">Qoder CN</option>
+          <option value="CLAUDE">Claude</option>
+          <option value="GEMINI">Gemini</option>
+          <option value="GROK">Grok</option>
+        </select>
+      </label>
+      <label><span data-i18n="admin.keyDlg.ipAllowlist">IP 白名单（逗号分隔，可空）</span> <input name="allowedIps" maxlength="500" placeholder="例如 127.0.0.1,192.168.1.0/24" data-i18n-attr="placeholder:admin.keyDlg.ipPh" /></label>
+      <label><span data-i18n="admin.keyDlg.rateLimit">限流（次/分钟，可空）</span> <input name="rateLimitPerMinute" type="number" min="1" /></label>
+      <fieldset class="pool-route">
+        <legend data-i18n="admin.keyDlg.effortTitle">思考强度策略（可空）</legend>
+        <label><span data-i18n="admin.keyDlg.effortCeiling">档位上限</span>
+          <select name="effortMax">
+            <option value="" data-i18n="admin.keyDlg.effortNone">不限</option>
+            <option value="none">none</option><option value="minimal">minimal</option>
+            <option value="low">low</option><option value="medium">medium</option>
+            <option value="high">high</option><option value="xhigh">xhigh</option>
+            <option value="max">max</option><option value="ultra">ultra</option>
+          </select>
+        </label>
+        <label><span data-i18n="admin.keyDlg.effortOver">超限动作</span>
+          <select name="effortOverLimit">
+            <option value="downgrade" data-i18n="admin.keyDlg.effortDowngrade">压到上限（downgrade）</option>
+            <option value="deny" data-i18n="admin.keyDlg.effortDeny">拒绝（deny，返回 403）</option>
+          </select>
+        </label>
+        <label><span data-i18n="admin.keyDlg.effortMappings">改写映射（每行一条）</span>
+          <textarea name="effortMappings" rows="3" placeholder="xhigh=high&#10;xhigh=deny@gpt-6&#10;max=high@claude*" data-i18n-attr="placeholder:admin.keyDlg.effortMappingsPh"></textarea>
+        </label>
+        <p class="hint" data-i18n="admin.keyDlg.effortHint">仅作用于成员显式指定的思考档位：先按映射改写，再施加上限。留空=不限制。</p>
+      </fieldset>
+      <label><span data-i18n="admin.keyDlg.expiresAt">过期时间（可空）</span> <input name="expiresAt" type="datetime-local" /></label>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.keyDlg.submit">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-key-edit">
+    <form id="form-key-edit" method="dialog">
+      <h3 data-i18n="admin.keyDlg.edit">编辑 API Key</h3>
+      <input type="hidden" name="id" />
+      <label><span data-i18n="admin.th.name">名称</span> <input name="name" required maxlength="64" /></label>
+      <label><span data-i18n="admin.keyDlg.boundPlatformShort">绑定平台</span>
+        <select name="boundPlatform">
+          <option value="" data-i18n="admin.keyDlg.any">任意</option>
+          <option value="WORKBUDDY">WorkBuddy</option>
+          <option value="TRAE">Trae</option>
+          <option value="CODEX">Codex</option>
+          <option value="ZCODE">ZCode</option>
+          <option value="MIMO">MiMo</option>
+          <option value="CURSOR">Cursor</option>
+          <option value="COPILOT">GitHub Copilot</option>
+          <option value="QODER">Qoder CN</option>
+          <option value="CLAUDE">Claude</option>
+          <option value="GEMINI">Gemini</option>
+          <option value="GROK">Grok</option>
+        </select>
+      </label>
+      <fieldset class="pool-route"><legend data-i18n="pool.keyModels">允许使用的模型</legend><label><select id="pool-key-mode"><option value="all" data-i18n="pool.allowAll">全部上架模型（含以后上架）</option><option value="selected" data-i18n="pool.allowSelected">仅所选模型</option></select></label><p class="hint" data-i18n="pool.keyHint">选择“仅所选模型”但不勾选时，该 Key 不能调用任何模型。</p><div id="pool-key-models" class="pool-model-checks"></div><p id="pool-key-error" class="pool-status error" role="alert" hidden></p></fieldset>
+      <label><span data-i18n="admin.keyDlg.ipAllowlistEdit">IP 白名单（逗号分隔，空=不限）</span> <input name="allowedIps" maxlength="500" /></label>
+      <label><span data-i18n="admin.keyDlg.rateLimitEdit">限流（次/分钟，留空或负数=不限）</span> <input name="rateLimitPerMinute" type="number" /></label>
+      <fieldset class="pool-route">
+        <legend data-i18n="admin.keyDlg.effortTitle">思考强度策略（可空）</legend>
+        <label><span data-i18n="admin.keyDlg.effortCeiling">档位上限</span>
+          <select name="effortMax">
+            <option value="" data-i18n="admin.keyDlg.effortNone">不限</option>
+            <option value="none">none</option><option value="minimal">minimal</option>
+            <option value="low">low</option><option value="medium">medium</option>
+            <option value="high">high</option><option value="xhigh">xhigh</option>
+            <option value="max">max</option><option value="ultra">ultra</option>
+          </select>
+        </label>
+        <label><span data-i18n="admin.keyDlg.effortOver">超限动作</span>
+          <select name="effortOverLimit">
+            <option value="downgrade" data-i18n="admin.keyDlg.effortDowngrade">压到上限（downgrade）</option>
+            <option value="deny" data-i18n="admin.keyDlg.effortDeny">拒绝（deny，返回 403）</option>
+          </select>
+        </label>
+        <label><span data-i18n="admin.keyDlg.effortMappings">改写映射（每行一条）</span>
+          <textarea name="effortMappings" rows="3" placeholder="xhigh=high&#10;xhigh=deny@gpt-6&#10;max=high@claude*" data-i18n-attr="placeholder:admin.keyDlg.effortMappingsPh"></textarea>
+        </label>
+        <p class="hint" data-i18n="admin.keyDlg.effortHint">仅作用于成员显式指定的思考档位：先按映射改写，再施加上限。留空=不限制。</p>
+      </fieldset>
+      <label><span data-i18n="admin.keyDlg.expiresAtEdit">过期时间（空=不过期）</span> <input name="expiresAt" type="datetime-local" /></label>
+      <label class="row"><input type="checkbox" name="clearExpiresAt" /> <span data-i18n="admin.keyDlg.clearExpiresAt">清除过期时间</span></label>
+      <label class="row"><input type="checkbox" name="enabled" /> <span data-i18n="admin.keyDlg.enabledRevoke">启用（取消勾选=吊销）</span></label>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.dlg.save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-key-created">
+    <div class="key-created">
+      <h3 data-i18n="admin.keyCreated.title">API Key 已创建</h3>
+      <p class="hint warn-text" data-i18n="admin.keyCreated.hint">仅显示这一次，请立刻复制保存。关闭后无法再次查看明文。</p>
+      <label><span data-i18n="admin.keyCreated.plaintext">Key 明文（可选中复制）</span>
+        <input id="key-plaintext" class="key-input" readonly spellcheck="false" />
+      </label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-copy-key" class="btn primary" data-i18n="admin.keyCreated.copy">复制 Key</button>
+        <button type="button" id="btn-close-key-created" class="btn ghost" data-i18n="admin.keyCreated.saved">我已保存</button>
+      </div>
+      <div class="usage-box">
+        <div class="usage-title" data-i18n="admin.keyCreated.usageTitle">用法（OpenAI 兼容）</div>
+        <pre id="key-usage-sample" class="usage-sample"></pre>
+        <button type="button" id="btn-copy-usage" class="btn ghost" data-i18n="admin.keyCreated.copySample">复制示例</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-member">
+    <form id="form-member" method="dialog">
+      <h3 id="member-dlg-title" data-i18n="admin.members.dlg.create">开通成员</h3>
+      <input type="hidden" name="id" />
+      <label><span data-i18n="admin.memberDlg.username">成员账号</span> <input name="username" required maxlength="64" placeholder="例如 xiaolin" data-i18n-attr="placeholder:admin.memberDlg.usernamePh" /></label>
+      <label><span data-i18n="admin.memberDlg.displayName">显示名称</span> <input name="displayName" required maxlength="64" placeholder="例如 小林" data-i18n-attr="placeholder:admin.memberDlg.displayNamePh" /></label>
+      <label class="member-password-row"><span data-i18n="admin.memberDlg.initialPassword">初始口令</span> <input name="password" type="password" autocomplete="new-password" placeholder="至少 8 位，含字母和数字/符号" data-i18n-attr="placeholder:admin.memberDlg.passwordPh" /></label>
+      <label class="member-key-fields"><span data-i18n="admin.memberDlg.keyName">Key 名称</span> <input name="keyName" maxlength="64" placeholder="留空则自动生成" data-i18n-attr="placeholder:admin.memberDlg.keyNamePh" /></label>
+      <label class="member-key-fields"><span data-i18n="admin.keyDlg.boundPlatformShort">绑定平台</span>
+        <select name="boundPlatform">
+          <option value="" data-i18n="admin.keyDlg.any">任意</option>
+          <option value="WORKBUDDY">WorkBuddy</option>
+          <option value="TRAE">Trae</option>
+          <option value="CODEX">Codex</option>
+          <option value="ZCODE">ZCode</option>
+          <option value="MIMO">MiMo</option>
+          <option value="CURSOR">Cursor</option>
+          <option value="COPILOT">GitHub Copilot</option>
+          <option value="QODER">Qoder CN</option>
+          <option value="CLAUDE">Claude</option>
+          <option value="GEMINI">Gemini</option>
+          <option value="GROK">Grok</option>
+        </select>
+      </label>
+      <label class="member-key-fields"><span data-i18n="admin.keyDlg.rateLimit">限流（次/分钟，可空）</span> <input name="rateLimitPerMinute" type="number" min="1" /></label>
+      <label class="member-key-fields"><span data-i18n="admin.keyDlg.expiresAt">过期时间（可空）</span> <input name="expiresAt" type="datetime-local" /></label>
+      <label class="row"><input type="checkbox" name="enabled" checked /> <span data-i18n="admin.memberDlg.enabled">启用成员账号</span></label>
+      <p class="hint" id="member-dlg-hint" data-i18n="admin.members.hint.create">开通时会同步生成一枚专属 API Key，明文只显示一次。</p>
+      <div id="member-form-error" class="member-form-error" role="alert" hidden></div>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" id="btn-save-member" data-i18n="admin.memberDlg.submit">开通并生成 Key</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-billing-rate">
+    <form id="form-billing-rate" method="dialog">
+      <h3 id="billing-rate-dlg-title" data-i18n="admin.billing.rate.create">模型单价</h3>
+      <input type="hidden" name="id" />
+      <label><span data-i18n="admin.rateDlg.model">公开模型 ID</span> <input name="model" required maxlength="128" placeholder="例如 deepseek-v4.1-flash" data-i18n-attr="placeholder:admin.rateDlg.modelPh" /></label>
+      <label><span data-i18n="billing.thInputRate">输入（元/百万 Token）</span> <input name="promptPer1m" type="text" inputmode="decimal" autocomplete="off" required value="0" /></label>
+      <label><span data-i18n="billing.thOutputRate">输出（元/百万 Token）</span> <input name="completionPer1m" type="text" inputmode="decimal" autocomplete="off" required value="0" /></label>
+      <label><span data-i18n="billing.thCacheReadRate">缓存读取（元/百万 Token）</span> <input name="cacheReadPer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="—" /></label>
+      <label><span data-i18n="billing.thCacheWriteRate">缓存写入（元/百万 Token）</span> <input name="cacheWritePer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="—" /></label>
+      <p class="hint" data-i18n="billing.cachePriceHint">缓存单价可留空，表示未提供；填写 0 表示免费。</p>
+      <label><span data-i18n="admin.th.remark">备注</span> <input name="remark" maxlength="200" placeholder="可选" data-i18n-attr="placeholder:admin.dlg.optional" /></label>
+      <label class="row"><input type="checkbox" name="enabled" checked /> <span data-i18n="admin.dlg.enabled">启用</span></label>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.dlg.save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-billing-rate-draft">
+    <form id="form-billing-rate-draft" method="dialog">
+      <h3 id="billing-rate-draft-dlg-title" data-i18n="admin.billing.draft.create">新增单价草稿</h3>
+      <input type="hidden" name="id" />
+      <label><span data-i18n="admin.rateDlg.model">公开模型 ID</span> <input name="model" required maxlength="128" placeholder="例如 deepseek-v4.1-flash" data-i18n-attr="placeholder:admin.rateDlg.modelPh" /></label>
+      <label><span data-i18n="admin.billing.draft.platform">官方平台</span> <input name="platform" maxlength="64" list="rate-draft-platform-options" placeholder="例如 DeepSeek 开放平台" data-i18n-attr="placeholder:admin.billing.draft.platformPh" /></label>
+      <datalist id="rate-draft-platform-options"></datalist>
+      <label><span data-i18n="billing.draft.thInputRate">输入（官方价/百万 Token）</span> <input name="promptPer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="未核对" data-i18n-attr="placeholder:admin.billing.draft.unchecked" /></label>
+      <label><span data-i18n="billing.draft.thOutputRate">输出（官方价/百万 Token）</span> <input name="completionPer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="未核对" data-i18n-attr="placeholder:admin.billing.draft.unchecked" /></label>
+      <label><span data-i18n="billing.draft.thCacheReadRate">缓存读取（官方价/百万 Token）</span> <input name="cacheReadPer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="未核对" data-i18n-attr="placeholder:admin.billing.draft.unchecked" /></label>
+      <label><span data-i18n="billing.draft.thCacheWriteRate">缓存写入（官方价/百万 Token）</span> <input name="cacheWritePer1m" type="text" inputmode="decimal" autocomplete="off" placeholder="未核对" data-i18n-attr="placeholder:admin.billing.draft.unchecked" /></label>
+      <p class="hint" data-i18n="admin.billing.draft.priceHint">价格可留空表示尚未核对；填写 0 表示官方免费。</p>
+      <label><span data-i18n="admin.billing.draft.currency">币种</span>
+        <select name="currency">
+          <option value="CNY">CNY</option>
+          <option value="USD">USD</option>
+        </select>
+      </label>
+      <label><span data-i18n="admin.billing.draft.sourceUrl">官方定价页链接</span> <input name="sourceUrl" maxlength="512" placeholder="https://…" /></label>
+      <label><span data-i18n="admin.billing.draft.checkedDate">核对日期</span> <input name="checkedDate" maxlength="32" placeholder="2026-09-29" /></label>
+      <label><span data-i18n="admin.th.remark">备注</span> <input name="remark" maxlength="500" placeholder="可选" data-i18n-attr="placeholder:admin.dlg.optional" /></label>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.dlg.save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-billing-wallet">
+    <form id="form-billing-wallet" method="dialog">
+      <h3 id="billing-wallet-dlg-title" data-i18n="admin.billing.wallet.dlgPlaceholder">钱包操作</h3>
+      <input type="hidden" name="memberId" />
+      <label><span data-i18n="admin.billing.thMember">成员</span> <input name="memberLabel" readonly /></label>
+      <label><span data-i18n="admin.billing.wallet.currentBalance">当前余额</span> <input name="currentBalance" readonly /></label>
+      <p class="hint" id="billing-wallet-preview" hidden></p>
+      <label><span data-i18n="admin.walletDlg.action">操作</span>
+        <select name="action">
+          <option value="top-up" data-i18n="admin.walletDlg.topUp">充值</option>
+          <option value="adjust" data-i18n="admin.walletDlg.adjust">调账（可为负）</option>
+        </select>
+      </label>
+      <label><span data-i18n="admin.walletDlg.amount">金额（元）</span> <input name="amount" type="text" inputmode="decimal" autocomplete="off" required /></label>
+      <label><span data-i18n="admin.th.remark">备注</span> <input name="remark" maxlength="500" placeholder="可选" data-i18n-attr="placeholder:admin.dlg.optional" /></label>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.dlg.confirm">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-billing-review" aria-describedby="billing-review-hint">
+    <form id="form-billing-review" method="dialog">
+      <h3 id="billing-review-dlg-title" data-i18n="admin.billing.ledger.reviewTitle">处理待核对流水</h3>
+      <input type="hidden" name="ledgerId" />
+      <input type="hidden" name="action" />
+      <label><span data-i18n="admin.billing.thMember">成员</span> <input name="memberLabel" readonly /></label>
+      <label><span data-i18n="admin.billing.thModel">模型</span> <input name="model" readonly /></label>
+      <label><span data-i18n="admin.billing.ledger.reservedInput">预占金额（元）</span> <input name="reservedAmount" readonly /></label>
+      <p class="hint" id="billing-review-hint"></p>
+      <label id="billing-review-amount-row"><span data-i18n="admin.billing.ledger.reviewAmount">应扣金额（元）</span>
+        <input name="amount" type="text" inputmode="decimal" autocomplete="off" required />
+      </label>
+      <div id="billing-review-error" class="member-form-error" role="alert" hidden></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button id="btn-billing-review-submit" type="submit" class="btn primary" data-i18n="admin.dlg.confirm">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-member-key">
+    <div class="key-created">
+      <h3 id="member-key-title" data-i18n="admin.memberKey.title">成员 Key 已创建</h3>
+      <p class="hint warn-text" data-i18n="admin.memberKey.hint">请把 Key 通过安全渠道发给成员。关闭后无法再次查看明文。</p>
+      <label><span data-i18n="admin.billing.thMember">成员</span> <input id="member-key-member" readonly /></label>
+      <label><span data-i18n="admin.keyCreated.plaintext">Key 明文（可选中复制）</span>
+        <input id="member-key-plaintext" class="key-input" readonly spellcheck="false" />
+      </label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-copy-member-key" class="btn primary" data-i18n="admin.keyCreated.copy">复制 Key</button>
+        <button type="button" id="btn-close-member-key" class="btn ghost" data-i18n="admin.memberKey.saved">我已安全保存</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="login-gate" class="login-gate" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
+    <form id="form-login" class="login-card" autocomplete="on">
+      <div class="login-brand">
+        <img class="login-logo loean-mark-art" src="/loean-mark-clear.png" alt="loean 花押" data-i18n-attr="alt:admin.brandMarkAlt" />
+        <div>
+          <div class="login-title" id="login-title" data-i18n="admin.login.title">管理台登录</div>
+          <div class="login-sub" data-i18n="admin.title">loean · 账号池网关</div>
+        </div>
+      </div>
+
+      <div id="login-fields">
+        <label><span data-i18n="admin.login.username">用户名</span> <input name="username" autocomplete="username" value="admin" required /></label>
+        <label><span data-i18n="admin.login.password">口令</span> <input name="password" type="password" autocomplete="current-password" required /></label>
+      </div>
+
+      <div id="setup-fields" hidden>
+        <p class="login-hint" data-i18n="admin.setup.hint">首次使用，请设置管理员账号与口令。此入口在设置完成后自动失效。</p>
+        <label><span data-i18n="admin.login.username">用户名</span> <input name="setupUsername" autocomplete="username" value="admin" maxlength="32" /></label>
+        <label><span data-i18n="admin.setup.newPassword">新口令</span> <input name="setupPassword" type="password" autocomplete="new-password" /></label>
+        <label><span data-i18n="admin.setup.confirmPassword">确认口令</span> <input name="setupConfirm" type="password" autocomplete="new-password" /></label>
+        <div id="setup-token-fields" hidden>
+          <label><span data-i18n="admin.setup.token">初始化令牌</span> <input name="setupToken" type="password" autocomplete="off" maxlength="256" disabled /></label>
+          <p class="login-hint" data-i18n="admin.setup.tokenHint">请输入安装时生成的初始化令牌。完成首次设置后，该令牌自动失效。</p>
+        </div>
+        <p class="login-hint" data-i18n="admin.password.rule">至少 8 位，需同时包含字母与数字/符号。</p>
+      </div>
+
+      <div class="login-error" id="login-error" hidden></div>
+      <div class="dlg-actions">
+        <button type="submit" class="btn primary" id="login-submit" data-i18n="admin.login.submit">登录</button>
+      </div>
+      <p class="login-hint" id="login-foot" data-i18n="admin.login.foot">仅限服务维护者登录。账号与口令由管理员设置。</p>
+      <div class="login-entry-links">
+        <a class="link" href="/" data-i18n="admin.login.backHome">← 返回首页</a>
+        <a class="link" href="/member" data-i18n="admin.login.memberEntry">成员入口 →</a>
+      </div>
+    </form>
+  </div>
+
+  <dialog id="dlg-password">
+    <form id="form-password" method="dialog">
+      <h3 data-i18n="admin.password.title">修改口令</h3>
+      <label><span data-i18n="admin.password.current">当前口令</span> <input name="currentPassword" type="password" autocomplete="current-password" required /></label>
+      <label><span data-i18n="admin.setup.newPassword">新口令</span> <input name="newPassword" type="password" autocomplete="new-password" required /></label>
+      <label><span data-i18n="admin.password.confirmNew">确认新口令</span> <input name="confirmPassword" type="password" autocomplete="new-password" required /></label>
+      <p class="login-hint" data-i18n="admin.password.ruleLong">至少 8 位，需同时包含字母与数字/符号。修改后所有旧会话失效。</p>
+      <div class="login-error" id="password-error" hidden></div>
+      <div class="dlg-actions">
+        <button type="button" value="cancel" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button>
+        <button value="default" class="btn primary" data-i18n="admin.dlg.save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-confirm">
+    <div class="confirm-body">
+      <h3 id="dlg-confirm-title" data-i18n="admin.dlg.confirmTitle">确认操作</h3>
+      <p class="confirm-text" id="dlg-confirm-text"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn ghost" id="dlg-confirm-cancel" data-i18n="admin.dlg.cancel">取消</button>
+        <button type="button" class="btn danger" id="dlg-confirm-ok" data-i18n="admin.dlg.confirm">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/theme.js?v=20260925-5"></script>
+  <script src="/date-picker.js?v=20260926-2"></script>
+  <script src="/pool-admin.js?v=20261002-diagnostics1"></script>
+  <script src="/model-diagnostics.js?v=20261002-1"></script>
+  <script src="/admin-backups.js?v=20261002-1"></script>
+  <script src="/app.js?v=20261002-diagnostics1"></script>
+  <script src="/ui-effects.js?v=20260927-2"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@
  * `ApiKeyController` + `PublishedModelController`（阶段 3 子集）。
  */
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import {
 	type ApiKeyService,
 	BusinessError,
@@ -12,10 +13,40 @@ import {
 	parseEffortPolicy,
 } from "owl-pool";
 import type { SqliteCallLogStore, SqliteCatalogStore } from "../store/gateway-stores.ts";
+import { adminBudgetView, saveAdminBudget } from "../store/key-budget.ts";
 import type { Router } from "./router.ts";
 
 export interface KeyAdminRoutesDeps {
 	keys: ApiKeyService;
+	db?: DatabaseSync;
+}
+
+function adminBudgetOf(deps: KeyAdminRoutesDeps, keyId: string): Record<string, unknown> {
+	const key = rootOf(deps, keyId);
+	return adminBudgetView(requireBudgetDb(deps), key.key, key.root);
+}
+
+function rootOf(
+	deps: KeyAdminRoutesDeps,
+	keyId: string,
+): { key: ReturnType<ApiKeyService["require"]>; root: ReturnType<ApiKeyService["require"]> } {
+	const key = deps.keys.require(keyId);
+	const root = key.parentKeyId === null ? key : deps.keys.require(key.parentKeyId);
+	return { key, root };
+}
+
+function requireBudgetDb(deps: KeyAdminRoutesDeps): DatabaseSync {
+	if (deps.db === undefined) {
+		throw BusinessError.of("billing.budgetUnavailable", "预算存储未启用");
+	}
+	return deps.db;
+}
+
+function amountOrNull(value: unknown): string | null {
+	if (value === null || value === undefined || value === "") {
+		return null;
+	}
+	return String(value);
 }
 
 function keyView(key: ReturnType<ApiKeyService["list"]>[number]): Record<string, unknown> {
@@ -28,7 +59,7 @@ function keyView(key: ReturnType<ApiKeyService["list"]>[number]): Record<string,
 		boundPlatform: key.boundPlatform,
 		allowedModels: key.allowedModels,
 		allowedIps: key.allowedIps,
-		rateLimitPerMinute: key.rateLimitPerMinute,
+		rateLimitPerMinute: key.rateLimitPerMinute ?? -1,
 		enabled: key.enabled,
 		revokedAt: key.revokedAt,
 		createdAt: key.createdAt,
@@ -37,6 +68,18 @@ function keyView(key: ReturnType<ApiKeyService["list"]>[number]): Record<string,
 }
 
 export function registerKeyAdminRoutes(router: Router, deps: KeyAdminRoutesDeps): void {
+	router.get("/api/keys/:id/budget", async (ctx) => adminBudgetOf(deps, ctx.params.id ?? ""));
+
+	router.put("/api/keys/:id/budget", async (ctx) => {
+		const body = await ctx.readBody<Record<string, unknown>>();
+		const key = rootOf(deps, ctx.params.id ?? "");
+		return saveAdminBudget(requireBudgetDb(deps), key.key, key.root, {
+			total: amountOrNull(body.total),
+			daily: amountOrNull(body.daily),
+			weekly: amountOrNull(body.weekly),
+		});
+	});
+
 	router.get("/api/keys", async () => deps.keys.list().map(keyView));
 
 	router.post("/api/keys", async (ctx) => {
@@ -107,7 +150,12 @@ export interface ModelAdminRoutesDeps {
 }
 
 export function registerModelAdminRoutes(router: Router, deps: ModelAdminRoutesDeps): void {
-	router.get("/api/models", async () => deps.catalog.listModels().map(modelView));
+	router.get("/api/models", async () =>
+		deps.catalog.listModels().map((model) => ({
+			...modelView(model),
+			routes: deps.catalog.routesOf(model.id).map(routeView),
+		})),
+	);
 
 	router.post("/api/models", async (ctx) => {
 		const body = await ctx.readBody<Record<string, unknown>>();

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="home.title">loean · AI 服务入口</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定，否则英文用户会看到中文一闪 -->
+  <script src="/i18n.js?v=20260929-home1"></script>
+  <link rel="stylesheet" href="/site-theme.css?v=20260926-17" />
+  <link rel="stylesheet" href="/home.css?v=20260930-home7" />
+</head>
+<body class="home-body">
+  <div class="site-controls">
+    <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false" title="切换到浅色主题">
+      <span class="theme-toggle-icon" data-theme-icon>☼</span>
+      <span class="theme-toggle-label" data-theme-label>浅色</span>
+    </button>
+    <button type="button" class="theme-toggle lang-toggle" data-lang-toggle title="切换到英文">
+      <span class="theme-toggle-label" data-lang-label>EN</span>
+    </button>
+  </div>
+
+  <div class="pa-grain" aria-hidden="true"></div>
+
+  <header class="home-topbar">
+    <a href="/" class="home-brand" aria-label="loean 首页" data-i18n-attr="aria-label:home.brand.aria">
+      <img class="home-brand-mark loean-mark-art" src="/loean-mark-clear.png" alt="" />
+      <img class="home-brand-word loean-word-art" src="/loean-word-clear.png" alt="loean" />
+    </a>
+    <nav class="pa-top-links" aria-label="站点导航">
+      <a href="/member" data-i18n="home.top.member">成员空间</a>
+      <a href="/admin" data-i18n="home.top.admin">管理工作台</a>
+      <a href="mailto:loean7@gmail.com" data-i18n="home.top.contact">联系我们</a>
+    </nav>
+  </header>
+
+  <!-- 钉住的拼贴舞台：滚动进度驱动手稿卡片从聚拢到散开（蝴蝶同步点阵化） -->
+  <div class="pa-stage" id="pa-stage">
+    <div class="pa-sticky">
+      <div class="pa-canvas" id="pa-canvas" aria-hidden="true">
+        <svg class="pa-links" id="pa-links"></svg>
+        <div class="pa-frame" id="pa-frame">
+          <span class="pa-edge top"></span>
+          <span class="pa-edge right"></span>
+          <span class="pa-handle" style="left:-5px; top:-5px;"></span>
+          <span class="pa-handle" style="right:-5px; top:-5px;"></span>
+          <span class="pa-handle" style="right:-5px; bottom:-5px;"></span>
+          <span class="pa-handle" style="left:50%; top:-5px; margin-left:-5px;"></span>
+        </div>
+
+        <figure class="pa-card" data-fx="-30,-36,-31,4,2">
+          <svg width="195" height="125" viewBox="0 0 150 96" fill="none" stroke="var(--pa-stroke)" stroke-width="1.2">
+            <g id="pa-moons"></g>
+          </svg>
+          <figcaption><span>Fig.01 · Luna</span><span>1610</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="-14,-26,-36,-4,-3">
+          <svg width="156" height="156" viewBox="0 0 120 120" fill="none" stroke="var(--pa-stroke)" stroke-width="1">
+            <rect x="8" y="8" width="104" height="64"/><rect x="8" y="72" width="64" height="40"/>
+            <rect x="72" y="72" width="40" height="24"/><rect x="72" y="96" width="24" height="16"/>
+            <path d="M72 8 A64 64 0 0 1 8 72" /><path d="M112 72 A40 40 0 0 1 72 112"/>
+            <path d="M96 96 A24 24 0 0 1 72 120" stroke-dasharray="2 3"/>
+          </svg>
+          <figcaption><span>Fig.02 · Ratio</span><span>φ</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="2,20,-20,22,3">
+          <svg width="234" height="57" viewBox="0 0 180 44" fill="none" stroke="var(--pa-stroke)" stroke-width="1">
+            <rect x="2" y="8" width="176" height="28" rx="2"/>
+            <g fill="var(--pa-stroke)" stroke="none">
+              <circle cx="16" cy="16" r="2.4"/><circle cx="26" cy="16" r="2.4"/><circle cx="46" cy="16" r="2.4"/>
+              <circle cx="76" cy="16" r="2.4"/><circle cx="86" cy="16" r="2.4"/><circle cx="116" cy="16" r="2.4"/>
+              <circle cx="146" cy="16" r="2.4"/><circle cx="166" cy="16" r="2.4"/>
+              <circle cx="21" cy="28" r="2.4"/><circle cx="41" cy="28" r="2.4"/><circle cx="51" cy="28" r="2.4"/>
+              <circle cx="91" cy="28" r="2.4"/><circle cx="111" cy="28" r="2.4"/><circle cx="131" cy="28" r="2.4"/>
+              <circle cx="151" cy="28" r="2.4"/><circle cx="171" cy="28" r="2.4"/>
+            </g>
+          </svg>
+          <figcaption><span>Fig.03 · Tape</span><span>PUNCH</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="6,-12,3,0,0">
+          <svg width="221" height="169" viewBox="-24 -18 78 56" fill="none">
+            <path id="pa-attractor" stroke="var(--pa-green)" stroke-width="0.35" fill="none"/>
+          </svg>
+          <figcaption><span>Fig.04 · Attractor</span><span>LORENZ 1963</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="26,-36,25,3,-2" id="pa-butterfly-card">
+          <svg width="182" height="143" viewBox="0 0 140 110" fill="none">
+            <defs>
+              <pattern id="pa-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+                <circle cx="1.4" cy="1.4" r="1.1" fill="var(--pa-stroke)"/>
+              </pattern>
+              <clipPath id="pa-wing-l"><path d="M68 55 C50 18 20 10 12 26 C4 42 30 62 62 60 Z"/><path d="M66 60 C46 72 26 92 36 100 C46 108 62 84 68 64 Z"/></clipPath>
+              <clipPath id="pa-wing-r"><path d="M72 55 C90 18 120 10 128 26 C136 42 110 62 78 60 Z"/><path d="M74 60 C94 72 114 92 104 100 C94 108 78 84 72 64 Z"/></clipPath>
+            </defs>
+            <g stroke="var(--pa-stroke)" stroke-width="1.1">
+              <path d="M68 55 C50 18 20 10 12 26 C4 42 30 62 62 60 Z"/><path d="M66 60 C46 72 26 92 36 100 C46 108 62 84 68 64 Z"/>
+              <path d="M72 55 C90 18 120 10 128 26 C136 42 110 62 78 60 Z"/><path d="M74 60 C94 72 114 92 104 100 C94 108 78 84 72 64 Z"/>
+            </g>
+            <g stroke="var(--pa-stroke)" stroke-width="0.6" opacity="0.55">
+              <path d="M68 55 C56 34 40 22 18 24"/><path d="M68 55 C58 44 40 48 24 52"/>
+              <path d="M72 55 C84 34 100 22 122 24"/><path d="M72 55 C82 44 100 48 116 52"/>
+              <path d="M66 62 C56 76 46 88 38 96"/><path d="M74 62 C84 76 94 88 102 96"/>
+            </g>
+            <ellipse cx="70" cy="58" rx="3" ry="14" fill="var(--pa-stroke)"/>
+            <path d="M68 44 C64 36 58 32 54 30 M72 44 C76 36 82 32 86 30" stroke="var(--pa-stroke)" stroke-width="1"/>
+            <!-- 滚动渐显的「点阵化」层：手稿 → 像素 -->
+            <g class="pa-dither" opacity="0">
+              <g clip-path="url(#pa-wing-l)"><rect x="0" y="0" width="70" height="110" fill="url(#pa-dots)"/></g>
+              <g clip-path="url(#pa-wing-r)"><rect x="70" y="0" width="70" height="110" fill="url(#pa-dots)"/></g>
+            </g>
+          </svg>
+          <figcaption><span>Fig.05 · Nymphalis</span><span>SPEC.</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="38,-10,39,-8,4">
+          <svg width="143" height="143" viewBox="0 0 110 110" fill="none" stroke="var(--pa-stroke)" stroke-width="1">
+            <circle cx="55" cy="55" r="44" fill="var(--pa-fill-soft)"/>
+            <circle cx="40" cy="42" r="9"/><circle cx="66" cy="60" r="13"/><circle cx="44" cy="74" r="6"/>
+            <circle cx="74" cy="34" r="4.5"/><circle cx="30" cy="60" r="4"/>
+            <path d="M20 70 Q40 88 66 84 T92 62" stroke-dasharray="2 3"/>
+          </svg>
+          <figcaption><span>Fig.06 · Mare</span><span>TRANQ.</span></figcaption>
+        </figure>
+
+        <figure class="pa-card" data-fx="30,20,31,16,-4">
+          <svg width="195" height="130" viewBox="0 0 150 100" fill="none" stroke="var(--pa-stroke)" stroke-width="1">
+            <g fill="var(--pa-stroke)" stroke="none">
+              <circle cx="22" cy="50" r="3.4"/><circle cx="62" cy="24" r="3.4"/><circle cx="62" cy="76" r="3.4"/>
+              <circle cx="104" cy="42" r="3.4"/><circle cx="104" cy="66" r="3.4"/><circle cx="136" cy="52" r="3.4"/>
+            </g>
+            <path d="M25 50 Q44 34 59 25 M25 51 Q44 60 59 75 M64 26 Q86 30 101 41 M64 27 Q84 52 101 64 M64 75 Q86 70 101 67 M107 44 Q122 48 133 51 M107 65 Q122 60 133 53" stroke-dasharray="3 2"/>
+          </svg>
+          <figcaption><span>Fig.07 · Net</span><span>n²</span></figcaption>
+        </figure>
+      </div>
+
+      <div class="pa-head">
+        <div class="pa-eyebrow" data-i18n="home.hero.eyebrow">LOEAN · TEAM AI STATION</div>
+        <h1 data-i18n="home.hero.title" data-i18n-html="self">一个入口，<br /><em>接入你的 AI 服务。</em></h1>
+        <p class="pa-lead" data-i18n="home.hero.lead">查看个人额度、完成客户端配置、核对每一次调用。你的接入信息都在这里，清楚而有序。</p>
+        <div class="pa-cta">
+          <a class="home-button primary" href="/member" data-i18n="home.hero.cta.member">进入成员空间 ↗</a>
+          <a class="home-button ghost" href="/admin" data-i18n="home.hero.cta.admin">管理员登录</a>
+        </div>
+        <div class="pa-invite" data-i18n="home.hero.invite">BY INVITATION · 由管理员邀请开通</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pa-marquee" aria-hidden="true">
+    <div class="pa-marquee-track" id="pa-marquee-track">
+      <span>OPENAI PROTOCOL <b>✓</b></span><span>ANTHROPIC PROTOCOL <b>✓</b></span><span>STREAMING <b>✓</b></span>
+      <span>QUOTA GUARD <b>✓</b></span><span>AUDIT LOG <b>✓</b></span><span>ONE STATION, MANY POSSIBILITIES <b>✳</b></span>
+    </div>
+  </div>
+
+  <!-- 原首页品牌艺术板：同心环 + 手写体 + 波形（原内容保留，ui-effects.js 自动接管视差/波形） -->
+  <section class="pa-art" aria-hidden="true">
+    <div class="pa-art-inner">
+      <div class="pa-plate-head"><span>FIG.08 · EMBLEM</span><b>loean</b><span>RACING GREEN</span></div>
+      <div class="home-art">
+        <span class="home-ring r3"></span>
+        <span class="home-ring r2"></span>
+        <span class="home-ring r1"></span>
+        <span class="home-art-sweep"></span>
+        <span class="home-art-station"></span>
+        <img class="home-art-mark loean-word-art" src="/loean-word-clear.png" alt="loean" />
+        <div class="home-art-caption"><span>ONE STATION</span><span>MANY POSSIBILITIES</span></div>
+        <canvas class="wave-canvas home-wave"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section class="pa-index" aria-label="服务档案" data-i18n-attr="aria-label:home.archive.aria">
+    <h2 class="pa-section-title" data-i18n="home.archive.title">服务档案</h2>
+    <p class="pa-section-sub" data-i18n="home.archive.sub">像查索引一样核对你的接入要素。</p>
+    <div class="pa-index-row"><span class="no">No.01</span><span class="k" data-i18n="home.spec.protocols">双协议</span><span class="leader"></span><span class="v" data-i18n="home.spec.protocols.value">OpenAI · Anthropic</span></div>
+    <div class="pa-index-row"><span class="no">No.02</span><span class="k" data-i18n="home.spec.keys">独立 Key</span><span class="leader"></span><span class="v" data-i18n="home.spec.keys.value">额度 · 到期 · 白名单</span></div>
+    <div class="pa-index-row"><span class="no">No.03</span><span class="k" data-i18n="home.spec.usage">用量可查</span><span class="leader"></span><span class="v" data-i18n="home.spec.usage.value">按次 · 按日 · 可追溯</span></div>
+  </section>
+
+  <section class="pa-roles" aria-label="选择身份" data-i18n-attr="aria-label:home.roles.aria">
+    <article class="pa-role">
+      <div class="no" data-i18n="home.role.member.no">01 / MEMBER</div>
+      <h2 data-i18n="home.role.member.title">我是成员</h2>
+      <p data-i18n="home.role.member.body">查看自己的 Key、剩余额度与调用结果，按步骤完成接入。</p>
+      <a class="go" href="/member" data-i18n="home.role.member.cta">进入成员空间 →</a>
+    </article>
+    <article class="pa-role">
+      <div class="no" data-i18n="home.role.admin.no">02 / ADMIN</div>
+      <h2 data-i18n="home.role.admin.title">我是管理员</h2>
+      <p data-i18n="home.role.admin.body">管理成员 Key、全局用量与服务状态。</p>
+      <a class="go" href="/admin" data-i18n="home.role.admin.cta">进入管理工作台 →</a>
+    </article>
+  </section>
+
+  <section class="pa-feats" aria-label="服务特点" data-i18n-attr="aria-label:home.features.aria">
+    <div class="pa-feat">
+      <div class="abc" data-i18n="home.feature.quota.no">A</div>
+      <h3 data-i18n="home.feature.quota.title">额度看得见</h3>
+      <p data-i18n="home.feature.quota.body">总额度、剩余量、今日调用与最近结果，成员随时自查；管理员按 Key 核对消耗，异常一眼定位。</p>
+    </div>
+    <div class="pa-feat">
+      <div class="abc" data-i18n="home.feature.trace.no">B</div>
+      <h3 data-i18n="home.feature.trace.title">问题有迹可循</h3>
+      <p data-i18n="home.feature.trace.body">每次调用都有记录和请求编号；遇到失败时，凭编号联系管理员排查原因。</p>
+    </div>
+    <div class="pa-feat">
+      <div class="abc" data-i18n="home.feature.budget.no">C</div>
+      <h3 data-i18n="home.feature.budget.title">消耗可控制</h3>
+      <p data-i18n="home.feature.budget.body">独立 Key 配额原子预占、并发不超卖；停用、过期、限流即时生效，预算始终在维护者手里。</p>
+    </div>
+  </section>
+
+  <footer class="pa-footer">
+    <div class="big" data-i18n="home.footer.big" data-i18n-html="self">把接入这件事，<i>一次安顿清楚。</i></div>
+    <div class="meta">
+      <span data-i18n="home.footer.note">自用小团队中转 · BY INVITATION</span>
+      <span class="home-contact" data-i18n-attr="aria-label:home.contact.aria">
+        <a href="mailto:loean7@gmail.com">loean7@gmail.com</a>
+        <span aria-hidden="true"> · </span>
+        <button type="button" class="home-contact-copy" data-copy="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:home.contact.qq.title">QQ 3106189916</button>
+        <span aria-hidden="true"> · </span>
+        <a href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi</a>
+      </span>
+    </div>
+  </footer>
+
+  <script src="/theme.js?v=20260925-7"></script>
+  <script src="/ui-effects.js?v=20260927-2"></script>
+  <script>
+    /* 拼贴解构驱动：滚动进度映射卡片位移/旋转/引线/点阵化。
+       舞台钉住三屏（.pa-stage 300vh），sticky 视口内的视觉全程由本脚本按帧写入。 */
+    (function () {
+      "use strict";
+      var stage = document.getElementById("pa-stage");
+      if (!stage) return;
+      var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      /* 月相手绘：墨色圆打底、纸色圆叠盖切出月相，最后描轮廓 */
+      (function () {
+        var g = document.getElementById("pa-moons");
+        if (!g) return;
+        var ns = "http://www.w3.org/2000/svg";
+        for (var i = 0; i < 8; i++) {
+          var cx = 18 + (i % 4) * 38, cy = i < 4 ? 26 : 70;
+          var c1 = document.createElementNS(ns, "circle");
+          c1.setAttribute("cx", cx); c1.setAttribute("cy", cy); c1.setAttribute("r", 13); c1.setAttribute("fill", "var(--pa-stroke)");
+          var c2 = document.createElementNS(ns, "circle");
+          var cfg = [[0, 13], [-7, 13], [7, 13], [0, 9]][i % 4];
+          c2.setAttribute("cx", cx + cfg[0]); c2.setAttribute("cy", cy); c2.setAttribute("r", cfg[1]);
+          c2.setAttribute("fill", "var(--pa-paper)");
+          var c3 = document.createElementNS(ns, "circle");
+          c3.setAttribute("cx", cx); c3.setAttribute("cy", cy); c3.setAttribute("r", 13); c3.setAttribute("fill", "none");
+          g.appendChild(c1); g.appendChild(c2); g.appendChild(c3);
+        }
+      })();
+
+      /* 洛伦茨吸引子轨迹（去前 400 步暂态） */
+      (function () {
+        var p = document.getElementById("pa-attractor");
+        if (!p) return;
+        var x = 0.1, y = 0, z = 0, dt = 0.004, d = "", n = 0;
+        for (var i = 0; i < 6000; i++) {
+          var dx = 10 * (y - x), dy = x * (28 - z) - y, dz = x * y - (8 / 3) * z;
+          x += dx * dt; y += dy * dt; z += dz * dt;
+          if (i > 400) {
+            d += (n === 0 ? "M" : "L") + (x * 0.9).toFixed(2) + " " + (34 - z * 0.98).toFixed(2) + " ";
+            n++;
+          }
+        }
+        p.setAttribute("d", d);
+      })();
+
+      /* 卡片起止位姿：data-fx="fx,fy,fr,hubR,hubA"（百分比坐标，相对画布中心） */
+      var cards = [];
+      var figures = document.querySelectorAll("#pa-canvas figure.pa-card");
+      figures.forEach(function (fig, i) {
+        var parts = (fig.dataset.fx || "").split(",").map(Number);
+        cards.push({
+          el: fig, i: i,
+          s: { x: (i % 2 ? 3 : -3) + (i - 3) * 0.4, y: -4 + (i % 3) * 4, r: (i % 2 ? 1 : -1) * (2 + i % 3) },
+          f: { x: parts[0] || 0, y: parts[1] || 0, r: parts[2] || 0 },
+          link: null
+        });
+      });
+
+      var hub = { x: 52, y: 44 };
+      function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function easeIO(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+      function ensureLinks(svg) {
+        if (svg.childElementCount === cards.length) return;
+        var ns = "http://www.w3.org/2000/svg";
+        svg.innerHTML = "";
+        cards.forEach(function (c) {
+          var ln = document.createElementNS(ns, "line");
+          ln.setAttribute("stroke-dasharray", "1200");
+          ln.setAttribute("stroke-dashoffset", "1200");
+          svg.appendChild(ln);
+          c.link = ln;
+        });
+      }
+
+      var dither = document.querySelector("#pa-butterfly-card .pa-dither");
+      var frame = document.getElementById("pa-frame");
+      var canvas = document.getElementById("pa-canvas");
+      var links = document.getElementById("pa-links");
+
+      function draw(progress) {
+        var w = canvas.clientWidth, h = canvas.clientHeight;
+        cards.forEach(function (c) {
+          var pi = easeIO(clamp01((progress - c.i * 0.05) / 0.72));
+          var x = lerp(c.s.x, c.f.x, pi) * w / 100;
+          var y = lerp(c.s.y, c.f.y, pi) * h / 100;
+          var r = lerp(c.s.r, c.f.r, pi);
+          c.el.style.transform = "translate(-50%,-50%) translate(" + x + "px," + y + "px) rotate(" + r + "deg)";
+          c.el.style.opacity = String(0.88 + 0.12 * pi);
+        });
+        ensureLinks(links);
+        var hx = w * hub.x / 100, hy = h * hub.y / 100;
+        cards.forEach(function (c) {
+          var x2 = w * (50 + c.f.x) / 100, y2 = h * (50 + c.f.y) / 100;
+          c.link.setAttribute("x1", hx); c.link.setAttribute("y1", hy);
+          c.link.setAttribute("x2", lerp(hx, x2, progress));
+          c.link.setAttribute("y2", lerp(hy, y2, progress));
+          c.link.setAttribute("stroke-dashoffset", String(1200 * (1 - progress)));
+        });
+        var fi = 0.34 - 0.28 * progress; /* 选中框从紧到松 */
+        frame.style.left = (w * fi) + "px";
+        frame.style.top = (h * fi * 0.8) + "px";
+        frame.style.width = (w * (1 - fi * 2)) + "px";
+        frame.style.height = (h * (1 - fi * 1.6)) + "px";
+        if (dither) {
+          var bf = cards.filter(function (c) { return c.el.id === "pa-butterfly-card"; })[0];
+          var bp = bf ? easeIO(clamp01((progress - 0.3) / 0.5)) : 0;
+          dither.setAttribute("opacity", bp.toFixed(2));
+        }
+      }
+
+      if (reduced) {
+        draw(1);
+      } else {
+        (function loop() {
+          var total = stage.offsetHeight - window.innerHeight;
+          draw(clamp01(window.scrollY / Math.max(1, total)));
+          requestAnimationFrame(loop);
+        })();
+      }
+
+      /* 跑马灯内容复制一份实现无缝循环 */
+      var track = document.getElementById("pa-marquee-track");
+      if (track) track.innerHTML += track.innerHTML;
+    })();
+  </script>
+  <script>
+    /* 联系我们：QQ 号点击复制（clipboard 优先，非 HTTPS 回退 execCommand） */
+    (function () {
+      var btn = document.querySelector(".home-contact-copy");
+      if (!btn) return;
+      var raw = btn.getAttribute("data-copy") || "";
+      var restoreTimer = 0;
+      var i18n = window.loeanI18n;
+
+      function copyLabel() {
+        return "QQ " + raw;
+      }
+
+      function legacyCopy(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      function flash(ok) {
+        window.clearTimeout(restoreTimer);
+        btn.dataset.state = ok ? "copied" : "failed";
+        btn.textContent = ok && i18n
+          ? i18n.t("home.contact.qq.copied", { qq: raw })
+          : (ok ? copyLabel() + " 已复制 ✓" : (i18n ? i18n.t("home.contact.qq.failed") : "复制失败，请手动选择"));
+        restoreTimer = window.setTimeout(function () {
+          delete btn.dataset.state;
+          btn.textContent = copyLabel();
+        }, 1600);
+      }
+
+      btn.addEventListener("click", function () {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(raw).then(function () {
+            flash(true);
+          }).catch(function () {
+            flash(legacyCopy(raw));
+          });
+          return;
+        }
+        flash(legacyCopy(raw));
+      });
+    })();
+  </script>
+</body>
+</html>

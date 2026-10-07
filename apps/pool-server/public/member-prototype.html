@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE — 成员端重设计 · DeepSeek 开放平台风格（throwaway，勿合入生产）
+  方向：用户拍板「模仿 DeepSeek 开放平台」。本页按其控制台语言重排成员端：
+    · 近黑侧栏（图标 + 分组 + 底部用户卡），内容区居中单列
+    · 页面标题 + 灰色说明行（不再有 kicker / 衬线大标题 / 发光）
+    · 大圆角（16px）无边框卡片，仅靠灰阶抬升；白色胶囊 = 主按钮
+    · 筛选胶囊行（时间维度 / 模型 / 清除筛选 + 导出）
+    · 三张统计卡 + 大柱状图卡（右上 模型|API Key 切换）+ 按模型拆解
+  品牌映射：DeepSeek 的橙柱 / 蓝横幅 → loean 绿；数字字体由衬线改为无衬线粗体；
+  卡片底色保留极轻微的绿基调（#1c1f1e），避免完全脱离全站。
+  覆盖视图：用量信息（截图同款）、调用记录（账单式表格）、我的 Key；
+  其余入口为占位——评审通过后按同一语言落正式页面。
+  数据全部为写死的演示值；仅深色主题；按钮均不产生真实行为。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>loean 成员端 · DeepSeek 风格原型</title>
+<style>
+/* ============ 令牌：中性炭灰 + loean 绿点缀 ============ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --side: #0c0d0d;
+  --bg: #141615;
+  --card: #1d201f;
+  --card-2: #242826;
+  --pill: #2a2e2c;
+  --line: #2b302d;
+  --line-soft: #232725;
+  --ink: #f0f3f1;
+  --ink-2: #b9c1bc;
+  --mut: #8f9792;
+  --mut-2: #6c746f;
+  --green: #46b56e;
+  --green-2: #5ecf82;
+  --green-soft: rgba(94, 207, 130, 0.12);
+  --white: #ffffff;
+  --on-white: #101312;
+  --warn: #c4a82a;
+  --err: #e05656;
+  --r-card: 16px;
+  --sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "Consolas", Menlo, monospace;
+}
+body {
+  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  color: var(--ink); background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; }
+a { color: inherit; }
+
+/* ============ 骨架：侧栏 + 内容 ============ */
+.shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
+
+.side {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+  background: var(--side); padding: 20px 14px 16px;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.logo { display: flex; align-items: center; gap: 9px; padding: 4px 10px 22px; }
+.logo .word { font: 700 21px/1 var(--sans); letter-spacing: .01em; }
+.logo .tag {
+  padding: 2.5px 7px; border: 1px solid #3d4340; border-radius: 7px;
+  color: var(--mut); font: 500 10.5px var(--sans); letter-spacing: .05em;
+}
+.nav { display: flex; flex-direction: column; gap: 3px; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 13px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--ink-2); font: 500 13.5px var(--sans);
+  cursor: pointer; text-align: left; transition: background .15s, color .15s;
+}
+.nav-item svg { width: 17px; height: 17px; flex: none; opacity: .85; }
+.nav-item:hover { background: #171a19; color: var(--ink); }
+.nav-item.active { background: var(--pill); color: var(--ink); font-weight: 600; }
+.nav-div { height: 1px; margin: 12px 10px; background: var(--line-soft); }
+
+.side-user {
+  margin-top: auto; display: flex; align-items: center; gap: 10px;
+  padding: 12px 10px 2px; border-top: 1px solid var(--line-soft);
+}
+.ava {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: none;
+  border-radius: 50%; background: var(--green-soft); color: var(--green-2);
+  font: 600 13px var(--sans);
+}
+.side-user .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px var(--sans); }
+.side-user .out {
+  border: 0; background: none; color: var(--mut); font: 500 12px var(--sans); cursor: pointer;
+}
+.side-user .out:hover { color: var(--ink); }
+
+.main { min-width: 0; }
+.col { max-width: 1128px; margin: 0 auto; padding: 44px 40px 110px; }
+
+/* ============ 页头 ============ */
+h1 { font: 700 25px/1.3 var(--sans); letter-spacing: .01em; }
+.note { margin: 10px 0 26px; color: var(--mut); font-size: 13px; }
+.note .i { font-style: normal; color: var(--mut-2); margin-left: 2px; }
+
+/* ============ 卡片体系 ============ */
+.card {
+  border-radius: var(--r-card); background: var(--card); padding: 22px 24px;
+}
+.card-tt { display: flex; align-items: center; gap: 6px; color: var(--mut); font-size: 13px; }
+.card-tt .i { color: var(--mut-2); font-style: normal; font-size: 12px; cursor: help; }
+.big { display: inline-block; font: 700 31px/1.15 var(--sans); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.big .y { font-size: 22px; margin-right: 1px; }
+.cur { margin-left: 7px; color: var(--mut-2); font: 500 12.5px var(--sans); }
+
+.hero-grid { display: grid; grid-template-columns: 1.08fr 1fr; gap: 20px; }
+.hero-grid .card { min-height: 128px; }
+.hero-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
+.alert-line { display: flex; align-items: center; gap: 9px; margin-top: 10px; font-size: 12.5px; }
+.alert-pill { padding: 2.5px 9px; border-radius: 999px; background: var(--green-soft); color: var(--green-2); font-size: 11.5px; }
+.grn-link { color: var(--green-2); cursor: pointer; text-decoration: none; }
+.grn-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.div { border: 0; height: 1px; background: var(--line-soft); margin: 30px 0; }
+
+/* ============ 胶囊按钮 / 筛选行 ============ */
+.pill-white {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 20px; border: 0; border-radius: 999px;
+  background: var(--white); color: var(--on-white); font: 600 13px var(--sans);
+  cursor: pointer; transition: background .15s, transform .15s;
+}
+.pill-white:hover { background: #e6e9e7; }
+.pill-white.sm { padding: 7px 16px; font-size: 12.5px; }
+.pill-dark {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 15px; border: 0; border-radius: 999px;
+  background: var(--pill); color: var(--mut); font: 500 12.5px var(--sans); cursor: pointer;
+}
+.pill-dark b { color: var(--ink); font-weight: 600; }
+.pill-dark .caret { color: var(--mut-2); font-size: 10px; }
+.pill-dark:hover { background: #313634; }
+.clear-link { color: var(--ink-2); font-size: 12.5px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.clear-link:hover { color: var(--ink); }
+.icon-more {
+  width: 32px; height: 32px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--mut); font-size: 15px; cursor: pointer;
+}
+.icon-more:hover { background: var(--pill); color: var(--ink); }
+
+.filter-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.filter-row .spacer { flex: 1; }
+
+/* ============ 统计卡 / 图表卡 ============ */
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.stat .big { display: inline-block; margin-top: 12px; }
+
+.chart-card { margin-top: 20px; padding: 24px 26px 18px; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.chart-title { color: var(--mut); font-size: 13.5px; }
+.chart-title b { color: var(--ink); font-size: 15px; margin-left: 8px; font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--pill); }
+.seg button {
+  padding: 5px 15px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--mut); font: 500 12.5px var(--sans); cursor: pointer;
+}
+.seg button.on { background: #3b413e; color: var(--ink); font-weight: 600; }
+
+.chart { position: relative; height: 264px; }
+.grid-line {
+  position: absolute; left: 30px; right: 0; height: 1px; background: #232725;
+}
+.grid-line em {
+  position: absolute; left: -30px; top: -8px; width: 24px;
+  color: var(--mut-2); font: 11px var(--mono); font-style: normal; text-align: right;
+}
+.bars {
+  position: absolute; left: 30px; right: 0; top: 0; bottom: 21px;
+  display: flex; align-items: flex-end; gap: 5px;
+  border-bottom: 1px solid var(--line);
+}
+.bar-cell { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.bar-cell i {
+  width: 58%; max-width: 16px; border-radius: 4px 4px 0 0;
+  background: var(--green); transition: filter .15s;
+}
+.bar-cell:hover i { filter: brightness(1.25); }
+.x-label {
+  position: absolute; bottom: 0; transform: translateX(-50%);
+  color: var(--mut-2); font: 11px var(--mono); white-space: nowrap;
+}
+
+/* ============ 按模型拆解 ============ */
+.model-sec { margin-top: 34px; }
+.model-sec h3 { font: 600 16px/1.4 var(--sans); margin-bottom: 14px; }
+.model-sec .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tok-line { margin-top: 8px; color: var(--mut); font: 11.5px var(--mono); }
+
+/* ============ 表格（调用记录 / 账单式） ============ */
+.table-card { padding: 6px 18px 14px; }
+.ds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ds-table th {
+  padding: 13px 10px; color: var(--mut); text-align: left;
+  font: 500 12px var(--sans); border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.ds-table td {
+  padding: 13px 10px; border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-2); white-space: nowrap; vertical-align: middle;
+}
+.ds-table tbody tr:last-child td { border-bottom: 0; }
+.ds-table tbody tr:hover td { background: #232726; }
+.ds-table .num { text-align: right; font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+.ds-table .mid { color: var(--ink); font: 12px var(--mono); }
+.ds-table .req { font: 11px var(--mono); color: var(--mut); }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.st::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.st.ok { color: var(--green-2); }
+.st.part { color: var(--warn); }
+.st.err { color: var(--err); }
+.toksub { margin-top: 2px; font: 10.5px var(--mono); color: var(--mut-2); }
+.pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 6px; color: var(--mut); font: 12px var(--mono); }
+.pager button {
+  padding: 6px 16px; border: 0; border-radius: 999px;
+  background: var(--pill); color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer;
+}
+.pager button:hover { background: #313634; color: var(--ink); }
+
+/* ============ 我的 Key ============ */
+.key-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; align-items: stretch; }
+.key-grid .card { display: flex; flex-direction: column; }
+.key-id {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 16px 0 6px; padding: 14px 16px; border-radius: 12px; background: var(--card-2);
+  font: 600 17px var(--mono); letter-spacing: .03em;
+}
+.kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; margin-top: 16px; }
+.kv { padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.kv label { display: block; color: var(--mut); font-size: 12px; }
+.kv b { display: block; margin-top: 5px; color: var(--ink); font: 600 13px var(--sans); }
+.key-tip { margin: 10px 0 16px; color: var(--mut); font-size: 12.5px; line-height: 1.8; }
+.key-side .big { margin: 12px 0 4px; }
+.key-side .p { color: var(--mut); font-size: 12.5px; }
+.key-side .pill-white { margin-top: 16px; align-self: flex-start; }
+
+/* ============ 占位 / 原型标记 ============ */
+.stub {
+  padding: 60px 24px; border: 1px dashed var(--line); border-radius: var(--r-card);
+  color: var(--mut); text-align: center; font-size: 13px; line-height: 2;
+}
+.stub strong { color: var(--ink-2); }
+.proto-badge {
+  position: fixed; right: 16px; bottom: 16px; z-index: 99;
+  background: #ffdf5e; color: #10150f; font: 700 10px var(--mono); letter-spacing: .08em;
+  padding: 5px 10px; border-radius: 999px; user-select: none;
+}
+.proto-toast {
+  position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%);
+  z-index: 98; padding: 7px 16px; border-radius: 999px;
+  background: var(--white); color: var(--on-white); font: 600 12px var(--sans);
+  opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+.proto-toast.show { opacity: 1; }
+.copy-flash { color: var(--green-2) !important; }
+
+/* ============ 响应式（原型级） ============ */
+@media (max-width: 1080px) {
+  .hero-grid, .key-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .col { padding: 32px 22px 90px; }
+}
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { position: static; height: auto; }
+  .nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .nav-item { white-space: nowrap; }
+  .nav-div { display: none; }
+  .side-user { margin-top: 10px; border-top: 0; padding-top: 0; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .model-sec .stat-grid { grid-template-columns: 1fr; }
+  .col { padding: 26px 16px 80px; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ================= 侧栏 ================= -->
+  <aside class="side">
+    <div class="logo"><span class="word">loean</span><span class="tag">成员空间</span></div>
+    <nav class="nav" aria-label="成员导航">
+      <button type="button" class="nav-item active" data-view="usage">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 20.5h17"/><path d="M7 20.5v-9M12 20.5v-14M17 20.5v-6"/></svg>
+        用量信息
+      </button>
+      <button type="button" class="nav-item" data-view="key">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H20M17 12v3.5M20 12v2.5"/></svg>
+        我的 Key
+      </button>
+      <button type="button" class="nav-item" data-view="stub" data-name="模拟调用">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5v-9A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5z"/></svg>
+        模拟调用
+      </button>
+      <button type="button" class="nav-item" data-view="records">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+        调用记录
+      </button>
+      <button type="button" class="nav-item" data-view="stub" data-name="计费 / 充值">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.8 7.8 12 12l3.2-4.2M12 12v5.2M9.6 13.8h4.8M9.6 16.2h4.8"/></svg>
+        计费 / 充值
+      </button>
+      <div class="nav-div" role="separator"></div>
+      <button type="button" class="nav-item" data-view="stub" data-name="模型与定价">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
+        模型与定价
+      </button>
+      <button type="button" class="nav-item" data-view="stub" data-name="接入配置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5V8M15 3.5V8M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v3.5"/></svg>
+        接入配置
+      </button>
+      <button type="button" class="nav-item" data-view="stub" data-name="帮助与反馈">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.9c-.75.35-1 .85-1 1.7"/><circle cx="12" cy="16.8" r=".95" fill="currentColor" stroke="none"/></svg>
+        帮助与反馈
+      </button>
+    </nav>
+    <div class="side-user">
+      <span class="ava">林</span>
+      <span class="nm">林深</span>
+      <button type="button" class="out">退出</button>
+    </div>
+  </aside>
+
+  <!-- ================= 内容 ================= -->
+  <main class="main">
+    <div class="col">
+
+      <!-- 用量信息（DeepSeek 截图同款结构） -->
+      <section id="v-usage">
+        <h1>用量信息</h1>
+        <p class="note">所有日期均按业务日（GMT+8，每日 04:00 切分）显示，数据可能有 5 分钟延迟。<span class="i">ⓘ</span></p>
+
+        <div class="hero-grid">
+          <div class="card">
+            <div class="card-tt">充值余额 <span class="i">ⓘ</span></div>
+            <div class="hero-row">
+              <div>
+                <div><span class="big"><span class="y">¥</span>86.40</span><span class="cur">CNY</span></div>
+                <div class="alert-line">
+                  <span class="alert-pill">余额提醒已开启</span>
+                  <a class="grn-link">去设置</a>
+                </div>
+              </div>
+              <button type="button" class="pill-white">去充值</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-tt">累计消费金额</div>
+            <div style="margin-top:14px"><span class="big"><span class="y">¥</span>111.27</span><span class="cur">CNY</span></div>
+          </div>
+        </div>
+
+        <hr class="div" />
+
+        <div class="filter-row">
+          <button type="button" class="pill-dark">时间维度 <b>09/01 - 09/29</b> <span class="caret">▾</span></button>
+          <button type="button" class="pill-dark">模型 <b>全部模型</b> <span class="caret">▾</span></button>
+          <a class="clear-link">清除筛选条件</a>
+          <span class="spacer"></span>
+          <button type="button" class="pill-white sm">导出</button>
+          <button type="button" class="icon-more" aria-label="更多">⋮</button>
+        </div>
+
+        <div class="stat-grid">
+          <div class="card stat">
+            <div class="card-tt">消费金额</div>
+            <div style="margin-top:12px"><span class="big"><span class="y">¥</span>12.06</span><span class="cur">CNY</span></div>
+          </div>
+          <div class="card stat">
+            <div class="card-tt">API 请求次数</div>
+            <div class="big">281</div>
+            <div class="cur">9 次未完整成功</div>
+          </div>
+          <div class="card stat">
+            <div class="card-tt">Tokens</div>
+            <div class="big">1,204,337</div>
+            <div class="cur">↑862,204 ↓342,133</div>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <div class="chart-head">
+            <div class="chart-title">消费金额（CNY）<b id="chart-sum">¥12.06</b></div>
+            <div class="seg" role="tablist">
+              <button type="button" class="on" data-chart="model">模型</button>
+              <button type="button" data-chart="key">按日请求</button>
+            </div>
+          </div>
+          <div class="chart" id="chart"></div>
+        </div>
+
+        <div id="breakdown"></div>
+      </section>
+
+      <!-- 调用记录（账单式） -->
+      <section id="v-records" hidden>
+        <h1>调用记录</h1>
+        <p class="note">业务日 2026-09-29 · 共 47 条。内部账号与网络信息不会在此展示。<span class="i">ⓘ</span></p>
+        <div class="filter-row">
+          <button type="button" class="pill-dark">业务日 <b>2026-09-29</b> <span class="caret">▾</span></button>
+          <button type="button" class="pill-dark">状态 <b>全部</b> <span class="caret">▾</span></button>
+          <a class="clear-link">清除筛选条件</a>
+          <span class="spacer"></span>
+          <button type="button" class="pill-white sm">导出</button>
+        </div>
+        <div class="card table-card">
+          <table class="ds-table">
+            <thead>
+              <tr><th>时间</th><th>模型</th><th class="num">Tokens</th><th class="num">延迟</th><th>状态</th><th class="num">费用</th><th>请求编号</th></tr>
+            </thead>
+            <tbody id="calls-body"></tbody>
+          </table>
+          <div class="pager">
+            <button type="button">上一页</button>
+            <span>1 / 4</span>
+            <button type="button">下一页</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 我的 Key -->
+      <section id="v-key" hidden>
+        <h1>我的 Key</h1>
+        <p class="note">完整 Key 仅在管理员发放或轮换时提供一次，此处仅展示标识用于核对身份。<span class="i">ⓘ</span></p>
+        <div class="key-grid">
+          <div class="card">
+            <div class="card-tt">Key 标识</div>
+            <div class="key-id">
+              <span>sk-loe-7f3k••••a3f9</span>
+              <button type="button" class="pill-white sm" id="btn-copy-key">复制标识</button>
+            </div>
+            <div class="kv-grid">
+              <div class="kv"><label>允许使用的模型</label><b>全系 6 款</b></div>
+              <div class="kv"><label>到期时间</label><b>2026-10-29</b></div>
+              <div class="kv"><label>速率限制</label><b>60 次 / 分钟</b></div>
+              <div class="kv"><label>状态</label><b><span class="st ok">有效</span></b></div>
+            </div>
+            <p class="key-tip">需要充值或更新 Key？请联系管理员，并提供上方 Key 标识或调用记录里的请求编号，便于快速定位。</p>
+          </div>
+          <div class="card key-side">
+            <div class="card-tt">钱包余额</div>
+            <div class="big"><span class="y">¥</span>86.40</div>
+            <p class="p">人民币计价，按实际用量扣减。</p>
+            <button type="button" class="pill-white sm">去充值</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 占位 -->
+      <section id="v-stub" hidden>
+        <h1 id="stub-name">—</h1>
+        <p class="note">原型未包含该页。</p>
+        <div class="stub">
+          「<strong id="stub-name2">—</strong>」未纳入本原型。<br />
+          评审通过后按同一设计语言实现：大圆角卡片 + 胶囊按钮 + 中性炭灰 + 绿色点缀。
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="proto-badge">PROTOTYPE · 原型</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ================= 演示数据 ================= */
+  var CALLS = [
+    { t: "14:32:08", m: "gpt-5.2", tok: "1,204", up: "↑912 ↓292", ms: "212ms", st: "OK", fee: "¥0.0131", req: "req_9f3a21" },
+    { t: "14:28:51", m: "claude-sonnet-4-5", tok: "3,842", up: "↑3,110 ↓732", ms: "486ms", st: "OK", fee: "¥0.0587", req: "req_7c02be" },
+    { t: "14:19:40", m: "gpt-5.2", tok: "962", up: "↑740 ↓222", ms: "198ms", st: "OK", fee: "¥0.0106", req: "req_5ee9d0" },
+    { t: "13:58:17", m: "glm-5", tok: "1,530", up: "↑1,024 ↓506", ms: "341ms", st: "OK", fee: "¥0.0168", req: "req_1a44c9" },
+    { t: "13:41:05", m: "gpt-5.2", tok: "2,214", up: "↑1,860 ↓354", ms: "276ms", st: "PART", fee: "¥0.0197", req: "req_b8d310" },
+    { t: "13:22:33", m: "claude-sonnet-4-5", tok: "1,208", up: "↑980 ↓228", ms: "395ms", st: "OK", fee: "¥0.0201", req: "req_66f07a" },
+    { t: "12:57:49", m: "gemini-3-pro", tok: "884", up: "↑640 ↓244", ms: "233ms", st: "OK", fee: "¥0.0122", req: "req_04ce18" },
+    { t: "12:36:12", m: "gpt-5.2", tok: "1,642", up: "↑1,240 ↓402", ms: "205ms", st: "OK", fee: "¥0.0176", req: "req_e21f9b" },
+    { t: "11:58:30", m: "deepseek-v4", tok: "2,976", up: "↑2,410 ↓566", ms: "312ms", st: "OK", fee: "¥0.0128", req: "req_9aa514" },
+    { t: "11:30:02", m: "glm-5", tok: "1,044", up: "↑812 ↓232", ms: "287ms", st: "ERR", fee: "—", req: "req_3d7c55" },
+    { t: "11:04:47", m: "gpt-5.2", tok: "1,388", up: "↑1,046 ↓342", ms: "219ms", st: "OK", fee: "¥0.0152", req: "req_c4b802" },
+    { t: "10:41:19", m: "claude-sonnet-4-5", tok: "2,456", up: "↑2,002 ↓454", ms: "441ms", st: "OK", fee: "¥0.0379", req: "req_f0d6a8" }
+  ];
+  var ST_MAP = { OK: ["ok", "成功"], PART: ["part", "未完整成功"], ERR: ["err", "失败"] };
+
+  var MODELS = [
+    { id: "gpt-5.2", calls: 187, tok: "712,442", sub: "↑512,208 ↓200,234" },
+    { id: "claude-sonnet-4-5", calls: 52, tok: "318,109", sub: "↑241,553 ↓76,556" },
+    { id: "glm-5", calls: 42, tok: "173,786", sub: "↑108,443 ↓65,343" }
+  ];
+
+  /* 近 30 天消费（确定性伪随机，总量 ¥12.06） */
+  function genDays(n, seed, total) {
+    var raw = [], sum = 0, i;
+    for (i = 0; i < n; i++) {
+      var v = 0.5 + 0.5 * Math.sin(i * 0.9 + seed) + 0.35 * Math.sin(i * 2.3 + seed * 1.7);
+      if (i % 11 === 4) v += 1.1;            /* 偶发高峰 */
+      if (i % 7 === 5) v *= 0.25;            /* 低谷 */
+      v = Math.max(0.06, v);
+      raw.push(v); sum += v;
+    }
+    return raw.map(function (v) { return v / sum * total; });
+  }
+  var DAYS = 30;
+  var CHART = {
+    model: genDays(DAYS, 2.4, 12.06),
+    key: genDays(DAYS, 5.1, 12.06)
+  };
+
+  /* ================= 图表 ================= */
+  var chartMode = "model";
+  function renderChart() {
+    var data = CHART[chartMode];
+    var max = Math.max.apply(null, data);
+    var top = Math.max(1, Math.ceil(max * 1.15));
+    var html = "";
+    [0, top / 2, top].forEach(function (v, idx) {
+      var y = idx === 0 ? "bottom:21px;" : "bottom:calc(21px + (100% - 21px) * " + (v / top) + ");";
+      html += '<div class="grid-line" style="' + y + '"><em>' + (idx === 0 ? "0" : v.toFixed(0)) + "</em></div>";
+    });
+    html += '<div class="bars">';
+    data.forEach(function (v, i) {
+      var h = Math.max(1.5, v / top * 100);
+      var d = "9/" + (i + 1);
+      html += '<div class="bar-cell" title="' + d + ' · ¥' + v.toFixed(2) + '"><i style="height:' + h + '%"></i></div>';
+    });
+    html += "</div>";
+    [1, 8, 15, 22, 30].forEach(function (day) {
+      var pct = (day - 0.5) / DAYS;
+      html += '<span class="x-label" style="left:calc(30px + (100% - 30px) * ' + pct.toFixed(4) + ')">9/' + day + "</span>";
+    });
+    chartEl.innerHTML = html;
+    $("chart-sum").textContent = "¥" + CHART[chartMode].reduce(function (a, b) { return a + b; }, 0).toFixed(2);
+  }
+  var chartEl;
+
+  /* ================= 表格 / 拆解 ================= */
+  function renderCalls() {
+    $("calls-body").innerHTML = CALLS.map(function (c) {
+      var st = ST_MAP[c.st];
+      return "<tr>" +
+        '<td class="mid">' + c.t + "</td>" +
+        '<td class="mid">' + c.m + "</td>" +
+        '<td class="num">' + c.tok + '<div class="toksub">' + c.up + "</div></td>" +
+        '<td class="num">' + c.ms + "</td>" +
+        '<td><span class="st ' + st[0] + '">' + st[1] + "</span></td>" +
+        '<td class="num">' + c.fee + "</td>" +
+        '<td class="req">' + c.req + "</td>" +
+        "</tr>";
+    }).join("");
+  }
+
+  function renderBreakdown() {
+    $("breakdown").innerHTML = MODELS.map(function (m) {
+      return '<div class="model-sec"><h3>' + m.id + "</h3>" +
+        '<div class="stat-grid">' +
+        '<div class="card stat"><div class="card-tt">API 请求次数</div><div class="big">' + m.calls + '</div><div class="tok-line">' + m.sub + "</div></div>" +
+        '<div class="card stat"><div class="card-tt">Tokens</div><div class="big">' + m.tok + "</div></div>" +
+        "</div></div>";
+    }).join("");
+  }
+
+  /* ================= 侧栏导航 ================= */
+  function initNav() {
+    var items = document.querySelectorAll(".nav-item[data-view]");
+    var views = ["usage", "records", "key", "stub"];
+    items.forEach(function (b) {
+      b.addEventListener("click", function () {
+        items.forEach(function (x) { x.classList.toggle("active", x === b); });
+        var v = b.getAttribute("data-view"), name = b.getAttribute("data-name");
+        views.forEach(function (k) { $("v-" + k).hidden = k !== v; });
+        if (v === "stub" && name) {
+          $("stub-name").textContent = name;
+          $("stub-name2").textContent = name;
+        }
+        window.scrollTo(0, 0);
+      });
+    });
+  }
+
+  /* ================= 图表切换 / 复制 ================= */
+  function initSeg() {
+    document.querySelectorAll(".seg button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll(".seg button").forEach(function (x) { x.classList.toggle("on", x === b); });
+        chartMode = b.getAttribute("data-chart");
+        renderChart();
+      });
+    });
+  }
+
+  function toast(msg) {
+    var t = $("proto-toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.classList.remove("show"); }, 1400);
+  }
+  function copyText(v) {
+    function done() { toast("已复制"); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(v).then(done, done);
+    } else done();
+  }
+
+  /* ================= 启动 ================= */
+  chartEl = $("chart");
+  renderCalls();
+  renderBreakdown();
+  initNav();
+  initSeg();
+  renderChart();
+  window.addEventListener("resize", renderChart);
+  $("btn-copy-key").addEventListener("click", function () { copyText("sk-loe-7f3k••••a3f9"); });
+
+  /* 深链：#view=records|key 直达对应页（评审分享用） */
+  var deep = (location.hash.match(/view=(records|key|usage)/i) || [])[1];
+  if (deep) {
+    var trg = document.querySelector('.nav-item[data-view="' + deep.toLowerCase() + '"]');
+    if (trg) trg.click();
+  }
+})();
+</script>
+<div class="proto-toast" id="proto-toast">已复制</div>
+</body>
+</html>

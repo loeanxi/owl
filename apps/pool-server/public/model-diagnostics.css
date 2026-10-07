@@ -1,0 +1,22 @@
+.diagnostic-layout { display: grid; grid-template-columns: minmax(245px, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.diagnostic-form, .diagnostic-output { padding: 22px; }
+.diagnostic-form h3, .diagnostic-output h3 { margin-top: 0; }
+.diagnostic-form label { display: grid; gap: 7px; margin: 15px 0; }
+.diagnostic-form input, .diagnostic-form select { width: 100%; min-width: 0; }
+.diagnostic-form fieldset { border: 0; padding: 0; margin: 22px 0; }
+.diagnostic-form legend { margin-bottom: 8px; font-weight: 600; }
+.diagnostic-form .diagnostic-check { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 10px; margin: 10px 0; }
+.diagnostic-check input { width: auto; }
+.diagnostic-spend { padding: 12px; border: 1px solid var(--line); border-radius: var(--r); line-height: 1.6; }
+.diagnostic-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.diagnostic-result { border: 1px solid var(--line); border-radius: var(--r); padding: 15px; min-width: 0; }
+.diagnostic-result .hint { min-height: 2.8em; overflow-wrap: anywhere; }
+.diagnostic-result-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; flex-wrap: wrap; }
+.diagnostic-badge { font-size: 11px; white-space: nowrap; display: inline-block; padding: 3px 7px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
+.diagnostic-passed { color: var(--ok, #35b987); border-color: currentColor; }
+.diagnostic-failed, .diagnostic-timed_out { color: var(--danger, #de7168); border-color: currentColor; }
+.diagnostic-running, .diagnostic-queued { color: var(--accent-2); border-color: currentColor; }
+.diagnostic-stale { color: var(--warn, #cb9c48); font-size: 12px; line-height: 1.5; }
+.diagnostic-history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 12px; }
+@media (max-width: 1000px) { .diagnostic-layout { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .diagnostic-cards { grid-template-columns: 1fr; } .diagnostic-form, .diagnostic-output { padding: 15px; } }

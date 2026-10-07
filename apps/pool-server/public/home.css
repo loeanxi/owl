@@ -1,0 +1,403 @@
+/* loean 首页 · 档案馆改版（Archival）
+   设计语言：纸面编辑风 + 滚动驱动的「手稿拼贴解构」主视觉。
+   深色为 Racing Green 底（:root 默认），浅色为米白纸面（html[data-theme="light"] 覆盖）。
+   拼贴卡片全部为内联 SVG（无图片依赖），滚动进度由 home.html 内联驱动脚本按帧写入。 */
+
+:root {
+  --pa-bg: #0a100c;
+  --pa-paper: #0d1410;        /* 卡片纸面（深色下是抬升的墨绿面板） */
+  --pa-paper-2: #121a15;
+  --pa-ink: #e8f2ea;
+  --pa-ink-2: #b5c9ba;
+  --pa-ink-3: #6f8a76;
+  --pa-green: #2f9e5a;
+  --pa-green-hover: #35ab64;
+  --pa-green-2: #5ecf82;
+  --pa-green-ink: #04140a;    /* 反色场景上的文字 */
+  --pa-line: rgba(232, 242, 234, 0.14);
+  --pa-line-strong: rgba(232, 242, 234, 0.3);
+  --pa-card-border: rgba(232, 242, 234, 0.2);
+  --pa-card-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  --pa-frame: rgba(232, 242, 234, 0.35);
+  --pa-link-line: rgba(232, 242, 234, 0.4);
+  --pa-handle: #4f8df9;
+  --pa-stroke: #cfe0d2;       /* SVG 蚀刻线 */
+  --pa-fill-soft: rgba(232, 242, 234, 0.08);
+  --pa-grain: rgba(232, 242, 234, 0.028);
+  --pa-footer-bg: #070c09;
+  --pa-footer-ink: rgba(232, 242, 234, 0.66);
+  --pa-serif: "Cormorant Garamond", "Noto Serif SC", "Source Han Serif SC", "SimSun", Georgia, serif;
+  --pa-mono: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace;
+}
+
+html[data-theme="light"] {
+  --pa-bg: #f4f2ea;
+  --pa-paper: #faf8f0;
+  --pa-paper-2: #f1eee3;
+  --pa-ink: #1b241d;
+  --pa-ink-2: #4a564b;
+  --pa-ink-3: #7d887c;
+  --pa-green: #176b3b;
+  --pa-green-hover: #1b7a45;
+  --pa-green-2: #176b3b;
+  --pa-green-ink: #f2f7ef;
+  --pa-line: rgba(27, 36, 29, 0.14);
+  --pa-line-strong: rgba(27, 36, 29, 0.34);
+  --pa-card-border: rgba(27, 36, 29, 0.24);
+  --pa-card-shadow: 0 14px 30px rgba(27, 36, 29, 0.14);
+  --pa-frame: rgba(27, 36, 29, 0.35);
+  --pa-link-line: rgba(27, 36, 29, 0.4);
+  --pa-stroke: #1b241d;
+  --pa-fill-soft: rgba(27, 36, 29, 0.06);
+  --pa-grain: rgba(27, 36, 29, 0.05);
+  --pa-footer-bg: #1b241d;
+  --pa-footer-ink: rgba(244, 242, 234, 0.66);
+}
+
+body.home-body {
+  background: var(--pa-bg);
+  color: var(--pa-ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* 首页链接回归文本继承色，避免浏览器默认的蓝紫下划线混入纸面编辑风 */
+body.home-body a { color: inherit; text-decoration: none; }
+
+/* 纸面颗粒：一层细点阵，浅色压出纸纹、深色提质感 */
+.pa-grain {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(var(--pa-grain) 1px, transparent 1.1px);
+  background-size: 5px 5px;
+}
+
+/* ---------- 顶栏 ----------
+   常驻固定：下滑不隐藏；半透明毛玻璃底，内容从下方穿过时依然可读。
+   钉住舞台因此可以从视口顶端开始，不被顶栏占据文档流。 */
+.home-topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 48px;
+  background: color-mix(in srgb, var(--pa-bg) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--pa-line);
+}
+.home-brand { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+.home-brand-mark {
+  display: block; width: 34px; height: 34px; object-fit: contain;
+  transform-origin: 40% 70%; transition: transform 0.25s ease;
+}
+.home-brand-word { display: block; height: 20px; width: auto; object-fit: contain; object-position: left; }
+.home-brand:hover .home-brand-mark { transform: rotate(-8deg); }
+.pa-top-links {
+  display: flex; align-items: center; gap: 26px;
+  /* 避让右上角固定的主题/语言控件组（同旧版首页的 132px 预留） */
+  margin-right: 132px;
+  font-size: 13px; color: var(--pa-ink-2);
+}
+.pa-top-links a { transition: color 0.15s ease; }
+.pa-top-links a:hover { color: var(--pa-green-2); }
+
+/* ---------- 钉住的拼贴舞台 ---------- */
+.pa-stage { position: relative; height: 300vh; z-index: 1; }
+.pa-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
+/* 画布铺满整个视口：卡片散布全屏（左上/右上都有的落点），
+   左下角留给主文案，宽屏下不再出现空列 */
+.pa-canvas { position: absolute; inset: 0; }
+.pa-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pa-links line { stroke: var(--pa-link-line); stroke-width: 1; }
+.pa-frame { position: absolute; pointer-events: none; }
+/* 开口 L 形框：只画上边线和右边线，左下留给主文案，边线不再穿过文字 */
+.pa-edge { position: absolute; background: var(--pa-frame); }
+.pa-edge.top { left: 0; right: 0; top: 0; height: 1.5px; }
+.pa-edge.right { top: 0; bottom: 0; right: 0; width: 1.5px; }
+.pa-handle {
+  position: absolute; width: 9px; height: 9px; background: var(--pa-handle);
+  outline: 1px solid var(--pa-bg);
+}
+.pa-card {
+  position: absolute; left: 50%; top: 50%;
+  background: var(--pa-paper); border: 1px solid var(--pa-card-border);
+  box-shadow: var(--pa-card-shadow);
+  padding: 10px 10px 6px; will-change: transform;
+}
+.pa-card svg { display: block; }
+.pa-card figcaption {
+  margin-top: 6px; font-family: var(--pa-mono); font-size: 9px; letter-spacing: 0.12em;
+  color: var(--pa-ink-3); text-transform: uppercase;
+  display: flex; justify-content: space-between; gap: 12px;
+}
+
+/* 主文案区：固定在视口左下，滚动全程保持；大字号随视口放大撑住左列 */
+.pa-head { position: absolute; left: 48px; bottom: 8vh; max-width: 600px; z-index: 4; }
+.pa-eyebrow {
+  font-family: var(--pa-mono); font-size: 11px; letter-spacing: 0.22em;
+  color: var(--pa-green-2); margin-bottom: 20px;
+}
+.pa-head h1 {
+  font-family: var(--pa-serif); font-weight: 700; font-size: clamp(46px, 3.6vw, 74px); line-height: 1.14;
+  letter-spacing: 0.01em; margin-bottom: 22px; max-width: 700px;
+}
+.pa-head h1 em { font-style: italic; color: var(--pa-green-2); }
+.pa-head .pa-lead {
+  font-size: clamp(15px, 1vw, 17px); line-height: 1.85; color: var(--pa-ink-2);
+  margin-bottom: 28px; max-width: 460px;
+}
+.pa-cta { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }
+.home-button {
+  display: inline-block; padding: 13px 24px; font-size: clamp(14px, 0.9vw, 16px); letter-spacing: 0.04em;
+  border: 1px solid var(--pa-green); background: var(--pa-green); color: #fff;
+  transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.home-button:hover { transform: translateY(-2px); background: var(--pa-green-hover); border-color: var(--pa-green-hover); }
+.home-button.ghost { background: transparent; color: var(--pa-ink); border-color: var(--pa-line-strong); }
+.home-button.ghost:hover { background: transparent; border-color: var(--pa-green-2); color: var(--pa-green-2); }
+.pa-invite { font-family: var(--pa-mono); font-size: 10px; letter-spacing: 0.18em; color: var(--pa-ink-3); }
+
+/* ---------- 跑马灯 ---------- */
+.pa-marquee {
+  position: relative; z-index: 2; overflow: hidden;
+  border-top: 1px solid var(--pa-line); border-bottom: 1px solid var(--pa-line);
+  padding: 14px 0; background: var(--pa-paper-2);
+}
+.pa-marquee-track {
+  display: inline-flex; gap: 48px; white-space: nowrap;
+  animation: pa-slide 26s linear infinite;
+  font-family: var(--pa-mono); font-size: 12px; letter-spacing: 0.22em; color: var(--pa-ink-2);
+}
+.pa-marquee-track b { color: var(--pa-green-2); font-weight: 400; }
+@keyframes pa-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* ---------- 原首页品牌艺术板（原内容保留）----------
+   同心三环 + 手写体骑环 + 扫描弧 + 波形，作为一枚「图版」呈现：
+   上方左右是档案式图版标签，面板定宽居中，所有装饰都收在面板内。
+   配色沿用 site-theme.css 的 --surface / --accent-* 变量，深浅主题自动跟随；
+   视差（--px/--py）与波形由 ui-effects.js 驱动，首访书写动画同旧版。 */
+.pa-art { position: relative; z-index: 2; display: flex; justify-content: center; padding: 70px 48px 56px; }
+.pa-art-inner { width: min(560px, 92%); }
+.pa-plate-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px; padding: 0 2px;
+  font-family: var(--pa-mono); font-size: 10px; letter-spacing: 0.16em;
+  color: var(--pa-ink-3); text-transform: uppercase;
+}
+.pa-plate-head b { color: var(--pa-green-2); font-weight: 400; }
+.pa-art .home-art {
+  position: relative;   /* 圆环/波形/铭牌的定位基准，缺了会逃出面板铺满整页 */
+  width: 100%;
+  display: grid; place-items: center; overflow: hidden;
+  min-width: 0;
+  aspect-ratio: 1.2;
+  border: 1px solid var(--line);
+  border-radius: var(--r, 3px);
+  background: radial-gradient(circle at center, var(--accent-soft), transparent 58%), var(--surface);
+}
+.home-art-mark { position: relative; z-index: 2; height: auto; }
+.home-art-mark.loean-word-art {
+  width: clamp(200px, 22vw, 300px);
+  transform: translate(-2%, min(9%, 34px)) rotate(-6deg);
+  animation:
+    paMarkDrift 7.2s ease-in-out 1.2s infinite,
+    paMarkSway 10.8s ease-in-out 1.2s infinite;
+}
+.home-ring { position: absolute; z-index: 1; aspect-ratio: 1; border-radius: 50%; }
+.home-ring.r1 {
+  width: 46%;
+  border: 1px solid var(--accent-border-strong);
+  animation: paRingSpin 26s linear infinite;
+}
+.home-ring.r2 {
+  width: 66%;
+  border: 1px dashed var(--accent-border);
+  margin: -3.5% 0 0 4.5%;
+  animation: paRingSpin 44s linear infinite reverse;
+}
+.home-ring.r3 {
+  width: 86%;
+  border: 1px solid var(--line);
+  margin: 3% 5% 0 0;
+  animation: paRingSpin 70s linear infinite;
+}
+@keyframes paRingSpin { to { transform: rotate(360deg); } }
+.home-art-station {
+  position: absolute; z-index: 3; width: 3px; height: 3px; border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-veil), 0 0 10px 2px var(--accent-glow);
+  animation: paStationPulse 5.4s ease-in-out infinite;
+}
+@keyframes paStationPulse { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+.home-art-sweep {
+  position: absolute; z-index: 0;
+  width: min(62%, 30vh); height: auto; aspect-ratio: 1; border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, transparent 331deg,
+    var(--accent-veil) 346deg, var(--accent-glow) 355deg, transparent 359deg
+  );
+  mask: radial-gradient(circle, transparent 30%, #000 42%, #000 86%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 42%, #000 86%, transparent 100%);
+  opacity: 0.42;
+  animation: paSweepSpin 11s linear infinite;
+  margin: -1.5% 0 0 3%;
+}
+@keyframes paSweepSpin { to { transform: rotate(360deg); } }
+/* 浅色：环改呼吸、扫描弧换纸感配色并放慢（沿用旧版结论） */
+html[data-theme="light"] .pa-art .home-art {
+  background:
+    linear-gradient(rgba(24, 75, 41, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 75, 41, 0.025) 1px, transparent 1px),
+    linear-gradient(155deg, var(--surface), var(--surface-2));
+  background-size: 40px 40px, 40px 40px, auto;
+  box-shadow: 0 8px 28px var(--shadow-raised);
+}
+html[data-theme="light"] .home-art-sweep {
+  animation-duration: 15s;
+  opacity: 0.85;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, transparent 322deg,
+    rgba(23, 107, 59, 0.10) 340deg, rgba(23, 107, 59, 0.34) 353deg,
+    rgba(23, 107, 59, 0.05) 358deg, transparent 359deg
+  );
+}
+html[data-theme="light"] .home-ring { animation: paRingBreathe 13s ease-in-out infinite; }
+html[data-theme="light"] .home-ring.r2 { animation-duration: 17s; }
+html[data-theme="light"] .home-ring.r3 { animation-duration: 21s; }
+@keyframes paRingBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
+/* 鼠标视差：ui-effects.js 在 .home-art 上写 --px/--py，各层不同幅度跟随 */
+.home-ring.r1 { translate: calc(var(--px, 0px) * 1) calc(var(--py, 0px) * 1); }
+.home-ring.r2 { translate: calc(var(--px, 0px) * 0.62) calc(var(--py, 0px) * 0.62); }
+.home-ring.r3 { translate: calc(var(--px, 0px) * 0.34) calc(var(--py, 0px) * 0.34); }
+.home-art-station { translate: calc(var(--px, 0px) * 1) calc(var(--py, 0px) * 1); }
+.home-art-sweep { translate: calc(var(--px, 0px) * 0.34) calc(var(--py, 0px) * 0.34); }
+.home-art-mark.loean-word-art { translate: calc(var(--px, 0px) * 0.5) calc(var(--py, 0px) * 0.5); }
+/* 漂移与仰角摆动周期互质，合成轨迹短时间不重复 */
+@keyframes paMarkDrift {
+  0%, 100% { transform: translate(-2%, min(9%, 34px)) rotate(-6deg); }
+  33%      { transform: translate(calc(-2% + 5px), calc(min(9%, 34px) - 6px)) rotate(-6deg); }
+  66%      { transform: translate(calc(-2% - 4px), calc(min(9%, 34px) - 2px)) rotate(-6deg); }
+}
+@keyframes paMarkSway { 0%, 100% { rotate: 0deg; } 50% { rotate: -1.6deg; } }
+/* 首访「写出来」：ui-effects.js 加 .is-first-visit，session 内只播一次 */
+.pa-art .home-art.is-first-visit .home-art-mark.loean-word-art {
+  animation:
+    paMarkDrift 7.2s ease-in-out 1.2s infinite,
+    paMarkSway 10.8s ease-in-out 1.2s infinite,
+    paArtWrite 1.15s cubic-bezier(0.6, 0, 0.2, 1) both;
+}
+@keyframes paArtWrite {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+.home-art-caption {
+  position: absolute; right: 18px; bottom: 16px; left: 18px; z-index: 2;
+  display: flex; justify-content: space-between; gap: 12px;
+  font-family: var(--pa-mono); font-size: 10px; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--pa-ink-3);
+}
+.home-wave {
+  position: absolute; right: 12px; bottom: 0; left: 12px;
+  width: calc(100% - 24px); height: 30px; opacity: 0.45; pointer-events: none;
+}
+html[data-theme="light"] .home-wave { opacity: 0.8; }
+
+/* ---------- 服务档案（索引行） ---------- */
+.pa-index { position: relative; z-index: 2; max-width: 1180px; margin: 0 auto; padding: 90px 48px 40px; }
+.pa-section-title { font-family: var(--pa-serif); font-size: 34px; font-weight: 700; margin-bottom: 8px; }
+.pa-section-sub { color: var(--pa-ink-2); font-size: 14px; margin-bottom: 36px; }
+.pa-index-row {
+  display: flex; align-items: baseline; gap: 18px; padding: 22px 4px;
+  border-top: 1px solid var(--pa-line-strong); font-size: 15px;
+}
+.pa-index-row:last-child { border-bottom: 1px solid var(--pa-line-strong); }
+.pa-index-row .no {
+  font-family: var(--pa-mono); font-size: 11px; letter-spacing: 0.14em;
+  color: var(--pa-green-2); min-width: 64px;
+}
+.pa-index-row .k { font-family: var(--pa-serif); font-size: 22px; font-weight: 700; min-width: 200px; }
+.pa-index-row .leader { flex: 1; border-bottom: 1px dotted var(--pa-line-strong); transform: translateY(-4px); }
+.pa-index-row .v { color: var(--pa-ink-2); font-size: 13px; font-family: var(--pa-mono); letter-spacing: 0.04em; }
+
+/* ---------- 身份：两块编辑部大卡 ---------- */
+.pa-roles {
+  position: relative; z-index: 2; display: grid; grid-template-columns: 1fr 1fr;
+  max-width: 1180px; margin: 80px auto; padding: 0 48px;
+}
+.pa-role {
+  border: 1px solid var(--pa-line-strong); padding: 40px 36px 34px; position: relative;
+  background: var(--pa-paper); transition: background 0.25s ease, color 0.25s ease;
+}
+.pa-role + .pa-role { border-left: none; }
+.pa-role .no {
+  font-family: var(--pa-mono); font-size: 11px; letter-spacing: 0.18em;
+  color: var(--pa-ink-3); margin-bottom: 46px;
+}
+.pa-role h2 { font-family: var(--pa-serif); font-size: 40px; font-weight: 700; margin-bottom: 14px; }
+.pa-role p { font-size: 14px; line-height: 1.8; color: var(--pa-ink-2); margin-bottom: 34px; max-width: 340px; }
+.pa-role .go { font-size: 14px; letter-spacing: 0.06em; border-bottom: 1px solid currentColor; padding-bottom: 3px; }
+.pa-role:hover { background: var(--pa-green); color: var(--pa-green-ink); }
+.pa-role:hover p, .pa-role:hover .no { color: rgba(242, 247, 239, 0.78); }
+
+/* ---------- 特点：悬挂编号整行条目 ---------- */
+.pa-feats { position: relative; z-index: 2; max-width: 1180px; margin: 0 auto; padding: 0 48px 90px; }
+.pa-feat {
+  display: grid; grid-template-columns: 120px 1fr 1.2fr; gap: 28px; align-items: baseline;
+  padding: 34px 4px; border-top: 1px solid var(--pa-line-strong);
+}
+.pa-feat:last-of-type { border-bottom: 1px solid var(--pa-line-strong); }
+.pa-feat .abc {
+  font-family: var(--pa-serif); font-size: 64px; font-weight: 700; font-style: italic;
+  color: var(--pa-green-2);
+}
+.pa-feat h3 { font-family: var(--pa-serif); font-size: 26px; font-weight: 700; }
+.pa-feat p { font-size: 14px; line-height: 1.9; color: var(--pa-ink-2); }
+
+/* ---------- 页脚 ---------- */
+.pa-footer {
+  position: relative; z-index: 2; background: var(--pa-footer-bg); color: var(--pa-ink);
+  padding: 56px 48px; margin-top: 20px;
+}
+.pa-footer .big { font-family: var(--pa-serif); font-size: 34px; font-weight: 700; margin-bottom: 26px; }
+.pa-footer .big i { font-style: italic; color: var(--pa-green-2); }
+html[data-theme="light"] .pa-footer .big i { color: #7fd8a2; }
+.pa-footer .meta {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+  font-family: var(--pa-mono); font-size: 11px; letter-spacing: 0.12em; color: var(--pa-footer-ink);
+}
+.pa-footer .meta a, .pa-footer .meta .home-contact-copy {
+  color: var(--pa-footer-ink); background: none; border: none; cursor: pointer;
+  font: inherit; letter-spacing: inherit; padding: 0; transition: color 0.15s ease;
+}
+.pa-footer .meta a:hover, .pa-footer .meta .home-contact-copy:hover { color: var(--pa-green-2); }
+html[data-theme="light"] .pa-footer .meta a:hover,
+html[data-theme="light"] .pa-footer .meta .home-contact-copy:hover { color: #7fd8a2; }
+.home-contact-copy[data-state="copied"] { color: var(--ok, #5ecf82); }
+.home-contact-copy[data-state="failed"] { color: var(--err, #c45050); }
+.home-contact-copy:focus-visible, .pa-footer .meta a:focus-visible {
+  outline: 1px solid var(--pa-green-2); outline-offset: 3px;
+}
+
+/* ---------- 动效降级与响应式 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  /* 动效降级：舞台不再钉住三屏长，直接以「散开完成」的静态版式呈现
+     （驱动脚本在 reduced-motion 下恒置 progress=1） */
+  .pa-stage { height: auto; }
+  .pa-sticky { position: relative; }
+  .pa-marquee-track { animation: none; }
+}
+@media (max-width: 960px) {
+  .home-topbar { padding: 16px 24px; }
+  .pa-top-links { margin-right: 96px; gap: 18px; font-size: 12px; }
+  .pa-canvas { left: 0; right: 0; top: 0; bottom: auto; height: 50%; opacity: 0.92; }
+  .pa-head { left: 24px; right: 24px; bottom: 32px; max-width: none; }
+  .pa-head h1 { font-size: 38px; }
+  .pa-index, .pa-feats { padding-left: 24px; padding-right: 24px; }
+  .pa-roles { grid-template-columns: 1fr; padding: 0 24px; }
+  .pa-role + .pa-role { border-left: 1px solid var(--pa-line-strong); border-top: none; }
+  .pa-feat { grid-template-columns: 60px 1fr; }
+  .pa-feat p { grid-column: 2; }
+  .pa-footer { padding: 44px 24px; }
+  .pa-footer .big { font-size: 26px; }
+}

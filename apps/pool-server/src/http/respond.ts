@@ -17,7 +17,20 @@ export function jsonRespond(
 		"X-Content-Type-Options": "nosniff",
 		...extraHeaders,
 	});
-	response.end(JSON.stringify(body));
+	response.end(JSON.stringify(withSuccess(body)));
+}
+
+/**
+ * manager 前端认 `success`，owl 内部认 `ok`。两条都写上，原版页面和现有测试都能读。
+ */
+function withSuccess(body: unknown): unknown {
+	if (body !== null && typeof body === "object" && !Array.isArray(body) && "ok" in body) {
+		const ok = (body as { ok: unknown }).ok;
+		if (typeof ok === "boolean" && !("success" in body)) {
+			return { ...body, success: ok };
+		}
+	}
+	return body;
 }
 
 /** ApiResponse 成功 → 200。 */

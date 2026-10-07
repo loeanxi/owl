@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="home.title">loean · AI 服务入口</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定，否则英文用户会看到中文一闪 -->
+  <script src="/i18n.js?v=20260927-16"></script>
+  <link rel="stylesheet" href="/site-theme.css?v=20260926-17" />
+  <link rel="stylesheet" href="/home-classic.css?v=20260927-14" />
+</head>
+<body>
+  <div class="site-controls">
+    <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false" title="切换到浅色主题">
+      <span class="theme-toggle-icon" data-theme-icon>☼</span>
+      <span class="theme-toggle-label" data-theme-label>浅色</span>
+    </button>
+    <button type="button" class="theme-toggle lang-toggle" data-lang-toggle title="切换到英文">
+      <span class="theme-toggle-label" data-lang-label>EN</span>
+    </button>
+  </div>
+  <div class="home-shell">
+    <header class="home-topbar">
+      <a href="/" class="home-brand" aria-label="loean 首页" data-i18n-attr="aria-label:home.brand.aria">
+        <img class="home-brand-mark loean-mark-art" src="/loean-mark-clear.png" alt="" />
+        <img class="home-brand-word loean-word-art" src="/loean-word-clear.png" alt="loean" />
+      </a>
+      <div class="home-top-links">
+        <span data-i18n="home.topbar.tagline">成员空间 · 管理工作台</span>
+        <a href="/admin" data-i18n="home.topbar.admin">管理员入口 ↗</a>
+      </div>
+    </header>
+
+    <main class="home-main">
+      <section class="home-hero">
+        <div class="home-hero-copy">
+          <div class="home-eyebrow">LOEAN / TEAM ACCESS</div>
+          <h1 data-i18n="home.hero.title" data-i18n-html="self">一个入口，<br /><em>接入你的 AI 服务。</em></h1>
+          <p data-i18n="home.hero.lead">查看个人额度、完成客户端配置、核对每一次调用。你的接入信息都在这里，清楚而有序。</p>
+          <div class="home-actions">
+            <a class="home-button primary" href="/member" data-i18n="home.hero.cta.member">进入成员空间 ↗</a>
+            <a class="home-button ghost" href="/admin" data-i18n="home.hero.cta.admin">管理员登录</a>
+          </div>
+          <div class="home-invite" data-i18n="home.hero.invite">BY INVITATION · 由管理员邀请开通</div>
+          <dl class="home-spec" aria-label="服务概览" data-i18n-attr="aria-label:home.spec.aria">
+            <div class="home-spec-item"><dt data-i18n="home.spec.protocols">双协议</dt><dd data-i18n="home.spec.protocols.value">OpenAI · Anthropic</dd></div>
+            <div class="home-spec-item"><dt data-i18n="home.spec.keys">独立 Key</dt><dd data-i18n="home.spec.keys.value">额度 · 到期 · 白名单</dd></div>
+            <div class="home-spec-item"><dt data-i18n="home.spec.usage">用量可查</dt><dd data-i18n="home.spec.usage.value">按次 · 按日 · 可追溯</dd></div>
+          </dl>
+        </div>
+        <div class="home-art" aria-hidden="true">
+          <span class="home-ring r3"></span>
+          <span class="home-ring r2"></span>
+          <span class="home-ring r1"></span>
+          <span class="home-art-sweep"></span>
+          <span class="home-art-station"></span>
+          <img class="home-art-mark loean-word-art" src="/loean-word-clear.png" alt="loean" />
+          <div class="home-art-caption"><span>ONE STATION</span><span>MANY POSSIBILITIES</span></div>
+          <canvas class="wave-canvas home-wave"></canvas>
+        </div>
+      </section>
+
+      <section class="home-roles" aria-label="选择身份" data-i18n-attr="aria-label:home.roles.aria">
+        <article class="home-role featured">
+          <div class="home-role-number" data-i18n="home.role.member.no">01 / MEMBER</div>
+          <h2 data-i18n="home.role.member.title">我是成员</h2>
+          <p data-i18n="home.role.member.body">查看自己的 Key、剩余额度与调用结果，按步骤完成接入。</p>
+          <a href="/member" data-i18n="home.role.member.cta">进入成员空间 →</a>
+        </article>
+        <article class="home-role">
+          <div class="home-role-number" data-i18n="home.role.admin.no">02 / ADMIN</div>
+          <h2 data-i18n="home.role.admin.title">我是管理员</h2>
+          <p data-i18n="home.role.admin.body">管理成员 Key、全局用量与服务状态。</p>
+          <a href="/admin" data-i18n="home.role.admin.cta">进入管理工作台 →</a>
+        </article>
+      </section>
+
+      <section class="home-features" aria-label="服务特点" data-i18n-attr="aria-label:home.features.aria">
+        <article class="home-feature">
+          <div class="home-feature-no" data-i18n="home.feature.quota.no">A</div>
+          <h3 data-i18n="home.feature.quota.title">额度看得见</h3>
+          <p data-i18n="home.feature.quota.body">总额度、剩余量、今日调用与最近结果，成员随时自查；管理员按 Key 核对消耗，异常一眼定位。</p>
+        </article>
+        <article class="home-feature">
+          <div class="home-feature-no" data-i18n="home.feature.trace.no">B</div>
+          <h3 data-i18n="home.feature.trace.title">问题有迹可循</h3>
+          <p data-i18n="home.feature.trace.body">每次调用都有记录和请求编号；遇到失败时，凭编号联系管理员排查原因。</p>
+        </article>
+        <article class="home-feature">
+          <div class="home-feature-no" data-i18n="home.feature.budget.no">C</div>
+          <h3 data-i18n="home.feature.budget.title">消耗可控制</h3>
+          <p data-i18n="home.feature.budget.body">独立 Key 配额原子预占、并发不超卖；停用、过期、限流即时生效，预算始终在维护者手里。</p>
+        </article>
+      </section>
+    </main>
+
+    <section class="home-contact" aria-label="联系我们" data-i18n-attr="aria-label:home.contact.aria">
+      <span class="home-contact-label" data-i18n="home.contact.label">联系我们</span>
+      <a class="home-contact-item" href="mailto:loean7@gmail.com">loean7@gmail.com ↗</a>
+      <span class="home-contact-sep" aria-hidden="true">·</span>
+      <button type="button" class="home-contact-item home-contact-copy" data-copy="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:home.contact.qq.title">QQ 3106189916</button>
+      <span class="home-contact-sep" aria-hidden="true">·</span>
+      <a class="home-contact-item" href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi ↗</a>
+    </section>
+
+    <footer class="home-footer">
+      <span>LOEAN · RACING GREEN</span>
+      <span data-i18n="home.footer.note">自用小团队中转 · BY INVITATION</span>
+    </footer>
+  </div>
+  <script src="/theme.js?v=20260925-7"></script>
+  <script src="/ui-effects.js?v=20260927-2"></script>
+  <script src="/date-picker.js?v=20260926-2"></script>
+  <script>
+    /* 联系我们：QQ 号点击复制（clipboard 优先，非 HTTPS 回退 execCommand） */
+    (function () {
+      var btn = document.querySelector(".home-contact-copy");
+      if (!btn) return;
+      var raw = btn.getAttribute("data-copy") || "";
+      var restoreTimer = 0;
+      var i18n = window.loeanI18n;
+
+      function copyLabel() {
+        return "QQ " + raw;
+      }
+
+      function legacyCopy(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      function flash(ok) {
+        window.clearTimeout(restoreTimer);
+        btn.dataset.state = ok ? "copied" : "failed";
+        btn.textContent = ok && i18n
+          ? i18n.t("home.contact.qq.copied", { qq: raw })
+          : (ok ? copyLabel() + " 已复制 ✓" : (i18n ? i18n.t("home.contact.qq.failed") : "复制失败，请手动选择"));
+        restoreTimer = window.setTimeout(function () {
+          delete btn.dataset.state;
+          btn.textContent = copyLabel();
+        }, 1600);
+      }
+
+      btn.addEventListener("click", function () {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(raw).then(function () {
+            flash(true);
+          }).catch(function () {
+            flash(legacyCopy(raw));
+          });
+          return;
+        }
+        flash(legacyCopy(raw));
+      });
+    })();
+  </script>
+</body>
+</html>

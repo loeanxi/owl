@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="member.title">loean · 成员空间</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定 -->
+  <script src="/i18n.js?v=20261002-member-keys1"></script>
+  <!-- 共用 helpers（$ / t / locale / errorText / escapeHtml），须先于 member.js -->
+  <script src="/shared.js?v=20260929-secfix"></script>
+  <link rel="stylesheet" href="/site-theme.css?v=20260926-18" />
+  <link rel="stylesheet" href="/member/member.css?v=20260929-mp1" />
+  <link rel="stylesheet" href="/key-management.css?v=20261002-1" />
+</head>
+<body class="member-body">
+  <div class="site-controls">
+    <button type="button" class="theme-toggle member-login-theme" data-theme-toggle aria-pressed="false" title="切换到浅色主题">
+      <span class="theme-toggle-icon" data-theme-icon>☼</span>
+      <span class="theme-toggle-label" data-theme-label>浅色</span>
+    </button>
+    <button type="button" class="theme-toggle lang-toggle" data-lang-toggle title="切换到英文">
+      <span class="theme-toggle-label" data-lang-label>EN</span>
+    </button>
+  </div>
+
+  <div id="member-login-page" class="member-shell">
+    <main class="member-login-page">
+      <section class="member-login-copy">
+        <a class="member-brand" href="/" aria-label="返回 loean 首页" data-i18n-attr="aria-label:member.brand.aria.home">
+          <img class="member-brand-mark loean-mark-art" src="/loean-mark-clear.png" alt="" />
+          <img class="member-brand-word loean-word-art" src="/loean-word-clear.png" alt="loean" />
+        </a>
+        <div class="member-eyebrow" data-i18n="member.login.eyebrow">MEMBER ACCESS / 成员空间</div>
+        <h1 data-i18n="member.login.h1" data-i18n-html="self">继续你的<br /><em>AI 工作流。</em></h1>
+        <p data-i18n="member.login.lead">查看钱包余额、完成客户端配置、核对每一次调用。模型调用 Key 与网页登录账号彼此独立。</p>
+        <div class="member-login-points" aria-label="成员空间能力" data-i18n-attr="aria-label:member.login.points.aria">
+          <span class="member-point" data-i18n="member.login.point.own">仅查看本人信息</span>
+          <span class="member-point" data-i18n="member.login.point.quota">独立计费</span>
+          <span class="member-point" data-i18n="member.login.point.trace">调用可追踪</span>
+        </div>
+      </section>
+
+      <form id="member-login-form" class="member-login-card" autocomplete="on">
+        <div class="member-kicker">PERSONAL SPACE</div>
+        <h2 data-i18n="member.login.h2">成员登录</h2>
+        <p class="login-sub" data-i18n="member.login.sub">请使用管理员开通的成员账号。</p>
+        <label class="member-form-field"><span data-i18n="member.login.username">成员账号</span>
+          <input name="username" autocomplete="username" placeholder="请输入成员账号" required data-i18n-attr="placeholder:member.login.username.ph" />
+        </label>
+        <label class="member-form-field"><span data-i18n="member.login.password">密码</span>
+          <input name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required data-i18n-attr="placeholder:member.login.password.ph" />
+        </label>
+        <div id="member-login-error" class="member-login-error" hidden></div>
+        <button class="member-button primary" type="submit" data-i18n="member.login.submit">登录成员空间 ↗</button>
+        <p class="member-login-help">
+          <span data-i18n="member.login.noAccount">还没有账号？请联系管理员开通。</span>
+          <a class="member-text-link" href="/admin" data-i18n="member.login.adminLink">管理员登录</a>
+        </p>
+        <section class="member-contact member-contact-login" aria-label="联系我们" data-i18n-attr="aria-label:member.contact.aria">
+          <div class="member-contact-label" data-i18n="member.contact.label">联系我们</div>
+          <a class="member-contact-item" href="mailto:loean7@gmail.com">loean7@gmail.com ↗</a>
+          <button type="button" class="member-contact-item member-contact-copy" data-copy-value="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:member.contact.qq.title">QQ 3106189916</button>
+          <a class="member-contact-item" href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi ↗</a>
+        </section>
+      </form>
+    </main>
+  </div>
+
+  <div id="member-app" class="member-shell" hidden>
+    <div class="member-app">
+      <aside class="member-rail">
+        <a class="member-brand" href="/member" aria-label="loean 成员空间首页" data-i18n-attr="aria-label:member.brand.aria.space">
+          <img class="member-brand-mark loean-mark-art" src="/loean-mark-clear.png" alt="" />
+          <img class="member-brand-word loean-word-art" src="/loean-word-clear.png" alt="loean" />
+        </a>
+        <section class="member-rail-section">
+          <div class="member-rail-label">MEMBER SPACE</div>
+          <nav class="member-nav" aria-label="成员导航" data-i18n-attr="aria-label:member.nav.aria">
+            <button type="button" class="active" data-member-view="overview" data-i18n="member.nav.overview">总览</button>
+            <button type="button" data-member-view="key" data-i18n="member.nav.key">我的 Key</button>
+            <button type="button" data-member-view="models" data-i18n="member.nav.models">模型列表</button>
+            <button type="button" data-member-view="playground" data-i18n="member.nav.playground">模拟调用</button>
+            <button type="button" data-member-view="billing" data-i18n="member.nav.billing">计费</button>
+            <button type="button" data-member-view="connect" data-i18n="member.nav.connect">接入配置</button>
+            <button type="button" data-member-view="usage" data-i18n="member.nav.usage">调用记录</button>
+          </nav>
+        </section>
+        <section class="member-rail-quota" aria-label="钱包速览" data-i18n-attr="aria-label:member.rail.quotaAria">
+          <div class="member-rail-label">AT A GLANCE / <span data-i18n="member.rail.glance">速览</span></div>
+          <div class="member-rail-quota-row">
+            <span data-i18n="member.rail.remaining">钱包余额</span>
+            <strong id="rail-wallet-balance">—</strong>
+          </div>
+          <div class="member-rail-quota-row">
+            <span data-i18n="member.rail.todayCalls">今日调用</span>
+            <strong id="rail-quota-calls">—</strong>
+          </div>
+          <div class="member-rail-quota-row">
+            <span data-i18n="member.rail.todayTokens">今日消耗</span>
+            <strong id="rail-quota-tokens">—</strong>
+          </div>
+        </section>
+        <div class="member-rail-bottom">
+          <span class="member-avatar" id="member-rail-avatar" aria-hidden="true">·</span>
+          <span class="member-rail-id">
+            <strong id="member-rail-name">—</strong>
+            <span id="member-rail-username" data-i18n="member.rail.usernameFallback">成员空间</span>
+          </span>
+          <button type="button" class="member-icon-btn" data-theme-toggle aria-pressed="false" title="切换到浅色主题"><span data-theme-icon>☼</span></button>
+          <button type="button" id="btn-member-logout" class="member-icon-btn" title="退出登录" aria-label="退出登录" data-i18n-attr="title:member.logout.title,aria-label:member.logout.title">⏻</button>
+        </div>
+        <section class="member-contact" aria-label="联系我们" data-i18n-attr="aria-label:member.contact.aria">
+          <div class="member-contact-label" data-i18n="member.contact.label">联系我们</div>
+          <a class="member-contact-item" href="mailto:loean7@gmail.com">loean7@gmail.com ↗</a>
+          <button type="button" class="member-contact-item member-contact-copy" data-copy-value="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:member.contact.qq.title">QQ 3106189916</button>
+          <a class="member-contact-item" href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi ↗</a>
+        </section>
+      </aside>
+
+      <nav class="member-top-mobile" aria-label="成员导航" data-i18n-attr="aria-label:member.nav.aria">
+        <button type="button" class="active" data-member-view="overview" data-i18n="member.nav.overview">总览</button>
+        <button type="button" data-member-view="key" data-i18n="member.nav.keyShort">Key</button>
+        <button type="button" data-member-view="models" data-i18n="member.nav.modelsShort">模型</button>
+        <button type="button" data-member-view="playground" data-i18n="member.nav.playgroundShort">模拟</button>
+        <button type="button" data-member-view="billing" data-i18n="member.nav.billingShort">计费</button>
+        <button type="button" data-member-view="connect" data-i18n="member.nav.connectShort">接入</button>
+        <button type="button" data-member-view="usage" data-i18n="member.nav.usageShort">记录</button>
+        <button type="button" id="btn-member-logout-mobile" data-i18n="member.nav.logout">退出</button>
+        <button type="button" class="member-mobile-contact" data-member-contact data-i18n="member.contact.label">联系我们</button>
+      </nav>
+      <section id="member-contact-mobile" class="member-contact member-contact-mobile" aria-label="联系我们" data-i18n-attr="aria-label:member.contact.aria" hidden>
+        <div class="member-contact-label" data-i18n="member.contact.label">联系我们</div>
+        <a class="member-contact-item" href="mailto:loean7@gmail.com">loean7@gmail.com ↗</a>
+        <button type="button" class="member-contact-item member-contact-copy" data-copy-value="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:member.contact.qq.title">QQ 3106189916</button>
+        <a class="member-contact-item" href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi ↗</a>
+      </section>
+
+      <main class="member-main">
+        <section id="member-view-overview" class="member-view">
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.overview.kicker">MY WORKSPACE / 个人总览</div>
+              <h1 id="member-welcome" data-i18n="member.overview.greetingPlain">你好。</h1>
+              <p data-i18n="member.overview.lead">余额、接入与调用结果都在这里。</p>
+            </div>
+            <span id="member-service-status" class="member-status" data-i18n="member.overview.keyEnabled">个人 Key 已启用</span>
+          </header>
+
+          <div id="member-lowbalance" class="member-banner warn" hidden>
+            <span id="member-lowbalance-text"></span>
+            <button type="button" class="member-button small" data-member-topup data-i18n="member.topup.button">充值</button>
+          </div>
+
+          <article class="member-hero">
+            <div>
+              <div class="member-kicker" data-i18n="member.overview.quotaTitle">WALLET BALANCE / 钱包余额</div>
+              <p id="member-hero-balance" class="member-hero-value">—</p>
+              <p id="member-hero-summary" class="member-hero-meta" data-i18n="member.overview.loading">正在读取钱包余额…</p>
+              <p id="member-hero-detail" class="member-hero-meta">—</p>
+              <button type="button" class="member-button small" style="margin-top:14px" data-member-topup data-i18n="member.topup.button">充值</button>
+            </div>
+            <div class="member-hero-aside">
+              <div class="member-kicker">ACCESS STATUS</div>
+              <span id="member-key-status" class="member-status">—</span>
+              <span id="member-key-expires" class="member-hero-meta">—</span>
+              <button type="button" class="member-text-link" data-member-goto="key" data-i18n="member.overview.keyLink">查看我的 Key →</button>
+            </div>
+            <canvas class="wave-canvas member-wave" aria-hidden="true"></canvas>
+          </article>
+
+          <div class="member-metric-grid member-metric-grid-four">
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.overview.todayCalls">今日调用</div>
+              <div id="member-today-calls" class="member-metric-value">—</div>
+              <div class="member-metric-sub" data-i18n="member.overview.businessDay">当前业务日</div>
+            </article>
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.overview.todayTokens">今日消耗</div>
+              <div id="member-today-tokens" class="member-metric-value">—</div>
+              <div class="member-metric-sub">Tokens</div>
+            </article>
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.overview.wallet">钱包余额</div>
+              <div id="member-wallet-balance" class="member-metric-value">—</div>
+              <div id="member-wallet-sub" class="member-metric-sub">人民币 (CNY)</div>
+            </article>
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.overview.latest">最近一次调用</div>
+              <div id="member-latest-status" class="member-metric-value">—</div>
+              <div id="member-latest-time" class="member-metric-sub">—</div>
+            </article>
+          </div>
+
+          <article class="member-panel" style="margin-top:18px">
+            <div class="member-panel-head">
+              <h2 data-i18n="member.trend.title">近 7 天调用</h2>
+              <span id="member-trend-total" class="member-hero-meta">—</span>
+            </div>
+            <div id="member-trend-chart" class="member-trend"></div>
+          </article>
+
+          <div class="member-columns">
+            <article class="member-panel">
+              <div class="member-panel-head">
+                <h2 data-i18n="member.overview.quick">快速接入</h2>
+                <button type="button" class="member-text-link" data-member-goto="connect" data-i18n="member.overview.fullGuide">完整指南 →</button>
+              </div>
+              <div class="member-data-line"><span data-i18n="member.overview.openaiEntry">OpenAI 兼容入口</span><code id="member-quick-openai">—</code></div>
+              <div class="member-data-line"><span data-i18n="member.overview.recommended">推荐模型</span><code id="member-quick-model">—</code></div>
+              <pre id="member-quick-curl" class="member-code member-quick-code"></pre>
+              <div style="margin-top:17px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <button type="button" class="member-button small" data-member-goto="connect" data-i18n="member.overview.viewSteps">查看配置步骤 ↗</button>
+                <button type="button" class="member-button small ghost" data-member-goto="models" data-i18n="member.overview.modelList">模型列表 →</button>
+                <button type="button" class="member-button small ghost" data-copy-target="member-quick-curl" data-i18n="member.overview.copyCurl">复制 curl 示例</button>
+              </div>
+            </article>
+            <article class="member-panel">
+              <div class="member-panel-head">
+                <h2 data-i18n="member.overview.recent">最近调用</h2>
+                <button type="button" class="member-text-link" data-member-goto="usage" data-i18n="member.viewAll">查看全部 →</button>
+              </div>
+              <div id="member-recent-list"><div class="member-empty" data-i18n="member.empty.records">暂无调用记录</div></div>
+            </article>
+          </div>
+
+          <article class="member-panel" style="margin-top:18px">
+            <div class="member-panel-head">
+              <h2 data-i18n="member.overview.modelPreview">可选模型预览</h2>
+              <button type="button" class="member-text-link" data-member-goto="models" data-i18n="member.overview.allModels">全部模型 →</button>
+            </div>
+            <div id="member-overview-models"><div class="member-empty" data-i18n="member.overview.loadingModels">登录后加载模型目录…</div></div>
+          </article>
+        </section>
+
+        <section id="member-view-key" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.key.kicker">MY ACCESS / 我的 KEY</div>
+              <h1 data-i18n="member.key.h1">我的 Key</h1>
+              <p data-i18n="member.key.lead">你的使用范围、钱包余额和有效期。</p>
+            </div>
+            <span id="member-key-page-status" class="member-status">—</span>
+          </header>
+
+          <div class="member-key-grid">
+            <article class="member-panel member-key-card">
+              <div class="member-kicker">PERSONAL KEY</div>
+              <div class="member-key-row">
+                <div id="member-key-identifier" class="member-key-identifier">—</div>
+                <button type="button" id="btn-copy-key-identifier" class="member-button small" data-i18n="member.copy.identifier">复制标识</button>
+              </div>
+              <p class="member-key-copy" data-i18n="member.key.copyNote">完整 Key 仅在管理员首次发放或轮换时提供。这里仅展示前缀与尾号，便于核对身份。</p>
+              <div class="member-rule"></div>
+              <div class="member-info-grid">
+                <div class="member-info-item"><label data-i18n="pool.keyModels">允许使用的模型</label><strong id="member-key-models">—</strong></div>
+                <div class="member-info-item"><label data-i18n="member.key.expiry">到期时间</label><strong id="member-key-expiry">—</strong></div>
+                <div class="member-info-item"><label data-i18n="member.key.rate">速率限制</label><strong id="member-key-rate">—</strong></div>
+                <div class="member-info-item"><label data-i18n="member.key.state">KEY 状态</label><strong id="member-key-state">—</strong></div>
+              </div>
+              <div class="member-key-help">
+                <strong data-i18n="member.key.helpTitle">需要充值或更新 Key？</strong>
+                <p data-i18n="member.key.helpBody">请联系管理员，并提供上方 Key 标识或调用记录里的请求编号，便于快速定位。</p>
+              </div>
+            </article>
+            <article class="member-panel member-key-card member-quota-card">
+              <div class="member-kicker">WALLET / 钱包</div>
+              <div id="member-key-wallet" class="member-hero-value">—</div>
+              <div class="member-hero-meta" data-i18n="member.key.walletNote">人民币余额，按实际用量扣减</div>
+              <button type="button" class="member-button small" style="margin-top:18px" data-member-goto="billing" data-i18n="member.key.viewBilling">查看计费明细 →</button>
+            </article>
+          </div>
+
+        </section>
+
+        <section id="member-view-models" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.models.kicker">MODEL CATALOG / 模型列表</div>
+              <h1 data-i18n="member.models.h1">可选模型</h1>
+              <p id="member-models-sub" data-i18n="member.models.sub">查看你可以使用的模型、能力和单价。</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="member-models-search" type="search" placeholder="搜索模型…" aria-label="搜索模型" class="member-search" data-i18n-attr="placeholder:member.search.models,aria-label:member.search.modelsAria" />
+              <button type="button" id="btn-member-models-refresh" class="member-button small" data-i18n="member.refresh">刷新</button>
+            </div>
+          </header>
+
+          <div class="member-metric-grid">
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.models.available">当前可选</div>
+              <div id="member-models-count" class="member-metric-value">—</div>
+              <div id="member-models-scope" class="member-metric-sub" data-i18n="member.models.authorized">当前 Key 可用模型</div>
+            </article>
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.models.priced">已标价</div>
+              <div id="member-models-priced" class="member-metric-value">—</div>
+              <div class="member-metric-sub" data-i18n="member.models.pricedSub">管理员配置的单价</div>
+            </article>
+            <article class="member-metric">
+              <div class="member-metric-label" data-i18n="member.models.currency">货币</div>
+              <div id="member-models-currency" class="member-metric-value">—</div>
+              <div id="member-models-pricing-flag" class="member-metric-sub" data-i18n="member.models.chargeState">扣费状态</div>
+            </article>
+          </div>
+
+          <article class="member-panel">
+            <div class="member-panel-head">
+              <h2 data-i18n="member.models.catalog">目录</h2>
+              <button type="button" class="member-text-link" data-member-goto="connect" data-i18n="member.models.gotoConnect">去接入配置 →</button>
+            </div>
+            <div class="member-table-wrap">
+              <table class="member-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="member.models.thId">模型 ID</th>
+                    <th data-i18n="pool.capabilities">能力</th>
+                    <th data-i18n="member.models.thEffort">推理等级</th>
+                    <th class="num" data-i18n="billing.thInputRate">输入（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thOutputRate">输出（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thCacheReadRate">缓存读取（元/百万 Token）</th>
+                    <th class="num" data-i18n="billing.thCacheWriteRate">缓存写入（元/百万 Token）</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="member-models-list"></tbody>
+              </table>
+            </div>
+            <p class="member-model-description" data-i18n="billing.cachePriceLegend">“—”表示未提供缓存单价；“¥0.00”表示免费。</p>
+            <p class="member-model-description" data-i18n="billing.cacheChargingNote">缓存用量可核实时按缓存价；仅能确认完整输入 Token 总数时按普通输入价；总数也无法确认时，按现有估算规则处理或进入待核对。</p>
+            <div id="member-models-mobile" class="member-mobile-records"></div>
+          </article>
+        </section>
+
+        <section id="member-view-playground" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.playground.kicker">PLAYGROUND / 模拟调用</div>
+              <h1 data-i18n="member.playground.h1">模拟调用</h1>
+              <p data-i18n="member.playground.lead">选择公开模型，在网页里直接发起一次真实对话。</p>
+            </div>
+            <span id="member-playground-flag" class="member-status">—</span>
+          </header>
+
+          <article class="member-panel member-playground-panel">
+            <div class="member-playground-bar">
+              <div class="model-picker" id="pg-model-picker">
+                <button type="button" class="model-picker-trigger" aria-haspopup="listbox" aria-expanded="false" data-i18n-attr="aria-label:member.playground.chooseModel">
+                  <span class="model-picker-value">—</span><span class="model-picker-caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="model-picker-panel" hidden>
+                  <input type="search" class="model-picker-search" placeholder="搜索模型…" aria-label="搜索模型" data-i18n-attr="placeholder:member.search.models,aria-label:member.search.modelsAria" />
+                  <div class="model-picker-list" role="listbox"></div>
+                </div>
+              </div>
+              <button type="button" id="btn-pg-clear" class="member-button small ghost" data-i18n="member.playground.clear">清空对话</button>
+            </div>
+            <p class="member-model-description" data-i18n="member.playground.billedNote">对话通过你的 Key 真实转发到模型，按所选模型的公开单价从钱包余额扣费；每次调用都会记入「调用记录」。</p>
+            <div id="member-playground-log" class="member-playground-log" aria-live="polite"></div>
+            <div id="member-playground-meta" class="member-playground-meta" hidden></div>
+            <form id="member-playground-form" class="member-playground-input">
+              <textarea id="member-playground-text" rows="2" placeholder="输入消息，Ctrl+Enter 发送…" data-i18n-attr="placeholder:member.playground.placeholder"></textarea>
+              <button type="submit" id="btn-pg-send" class="member-button primary" data-i18n="member.playground.send">发送 ↗</button>
+            </form>
+          </article>
+        </section>
+
+        <section id="member-view-billing" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.billing.kicker">BILLING / 计费</div>
+              <h1 data-i18n="member.billing.h1">我的计费</h1>
+              <p id="member-billing-notice" data-i18n="member.billing.loading">加载中…</p>
+            </div>
+            <span id="member-billing-flag" class="member-status">—</span>
+          </header>
+
+          <article class="member-hero member-billing-hero">
+            <div>
+              <div class="member-kicker" data-i18n="member.billing.walletTitle">WALLET / 钱包余额</div>
+              <p id="member-billing-balance" class="member-hero-value">—</p>
+              <p id="member-billing-wallet-meta" class="member-hero-meta" data-i18n="member.billing.walletIndependent">钱包余额是唯一的调用限额</p>
+            </div>
+            <div class="member-hero-aside">
+              <div class="member-kicker">STATUS</div>
+              <span id="member-billing-wallet-status" class="member-status">—</span>
+              <span class="member-hero-meta" data-i18n="member.billing.needTopUp">需要充值请联系管理员</span>
+              <button type="button" class="member-button small" data-member-topup data-i18n="member.topup.button">充值</button>
+              <button type="button" class="member-text-link" data-member-goto="models" data-i18n="member.billing.viewRates">查看模型单价 →</button>
+            </div>
+          </article>
+
+          <div class="member-columns">
+            <article class="member-panel">
+              <div class="member-panel-head">
+                <h2 data-i18n="member.billing.publicRates">公开单价</h2>
+                <span class="member-hero-meta" id="member-billing-rate-count" data-i18n="member.billing.rateCountPlaceholder">0 条</span>
+              </div>
+              <div class="member-table-wrap">
+                <table class="member-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="member.billing.thModel">模型</th>
+                      <th class="num" data-i18n="billing.thInputRate">输入（元/百万 Token）</th>
+                      <th class="num" data-i18n="billing.thOutputRate">输出（元/百万 Token）</th>
+                      <th class="num" data-i18n="billing.thCacheReadRate">缓存读取（元/百万 Token）</th>
+                      <th class="num" data-i18n="billing.thCacheWriteRate">缓存写入（元/百万 Token）</th>
+                    </tr>
+                  </thead>
+                  <tbody id="member-billing-rates"></tbody>
+                </table>
+              </div>
+              <p class="member-model-description" data-i18n="billing.cachePriceLegend">“—”表示未提供缓存单价；“¥0.00”表示免费。</p>
+              <p class="member-model-description" data-i18n="billing.cacheChargingNote">缓存用量可核实时按缓存价；仅能确认完整输入 Token 总数时按普通输入价；总数也无法确认时，按现有估算规则处理或进入待核对。</p>
+              <div id="member-billing-rates-empty" class="member-empty" hidden data-i18n="member.billing.ratesEmpty">管理员尚未配置公开单价，管理员配好单价后即可按量计费。</div>
+            </article>
+            <article class="member-panel">
+              <div class="member-panel-head">
+                <h2 data-i18n="member.billing.recent">近期流水</h2>
+                <span class="member-hero-meta" data-i18n="member.billing.selfOnly">仅本人</span>
+              </div>
+              <div class="member-table-wrap">
+                <table class="member-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="member.billing.thModel">模型</th>
+                      <th data-i18n="member.billing.thTime">时间</th>
+                      <th data-i18n="member.billing.thType">类型</th>
+                      <th data-i18n="member.billing.thStatus">状态</th>
+                      <th class="num" data-i18n="member.billing.thAmount">金额</th>
+                      <th class="num" data-i18n="member.billing.thBalanceAfter">余额后</th>
+                    </tr>
+                  </thead>
+                  <tbody id="member-billing-ledger"></tbody>
+                </table>
+              </div>
+              <div id="member-billing-ledger-empty" class="member-empty" hidden data-i18n="member.billing.ledgerEmpty">暂无流水。充值或扣费启用后会出现在这里。</div>
+              <div class="member-load-more">
+                <button type="button" id="member-billing-more" class="member-button ghost small" hidden data-i18n="member.billing.ledgerMore">加载更多</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="member-view-connect" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.connect.kicker">GET CONNECTED / 接入配置</div>
+              <h1 data-i18n="member.connect.h1">三步完成接入</h1>
+              <p data-i18n="member.connect.lead">选择协议和公开模型，填写你的客户端配置。</p>
+            </div>
+            <span id="member-connect-availability" class="member-status">—</span>
+          </header>
+
+          <div class="member-connect-grid">
+            <div class="member-step-list">
+              <article class="member-panel member-step"><span class="member-step-num">1</span><div><h3 data-i18n="member.connect.step1Title">取得个人 Key</h3><p data-i18n="member.connect.step1Body">从管理员处获取完整 Key。请妥善保存，勿发送到公开聊天或代码仓库。</p></div></article>
+              <article class="member-panel member-step"><span class="member-step-num">2</span><div><h3 data-i18n="member.connect.step2Title">填写服务地址与模型</h3><p data-i18n="member.connect.step2Body">把右侧地址、个人 Key 和已分配模型填写进你的客户端设置。</p></div></article>
+              <article class="member-panel member-step"><span class="member-step-num">3</span><div><h3 data-i18n="member.connect.step3Title">发起一次测试调用</h3><p data-i18n="member.connect.step3Body">完成后可在“调用记录”中确认状态；失败时复制请求编号联系管理员。</p></div></article>
+            </div>
+            <article class="member-panel">
+              <div class="member-protocols" role="tablist">
+                <button type="button" class="active" data-member-protocol="openai" data-i18n="member.connect.openai">Chat Completions</button>
+                <button type="button" data-member-protocol="anthropic" data-i18n="member.connect.anthropic">Anthropic Messages</button>
+                <button type="button" data-member-protocol="responses">Responses</button>
+              </div>
+              <div class="member-rule"></div>
+              <div class="member-kicker">SERVICE URL</div>
+              <div class="member-data-line"><code id="member-connect-url">—</code><button type="button" class="member-text-link" data-copy-target="member-connect-url" data-i18n="member.connect.copy">复制</button></div>
+              <div class="member-data-line member-endpoint-line"><span data-i18n="member.connect.endpoint">请求路径</span><code id="member-connect-endpoint">/v1/chat/completions</code></div>
+              <div class="member-kicker" style="margin-top:18px">MODEL</div>
+              <div class="member-data-line">
+                <select id="member-model-select" aria-label="选择模型" hidden data-i18n-attr="aria-label:member.connect.chooseModel"></select>
+                <div class="model-picker" id="member-model-picker">
+                  <button type="button" class="model-picker-trigger" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="model-picker-value">—</span><span class="model-picker-caret" aria-hidden="true">▾</span>
+                  </button>
+                  <div class="model-picker-panel" hidden>
+                    <input type="search" class="model-picker-search" placeholder="搜索模型…" aria-label="搜索模型" data-i18n-attr="placeholder:member.search.models,aria-label:member.search.modelsAria" />
+                    <div class="model-picker-list" role="listbox"></div>
+                  </div>
+                </div>
+                <button type="button" class="member-text-link" data-copy-target="member-model-select" data-i18n="member.connect.copy">复制</button>
+              </div>
+              <p id="member-connect-capabilities" class="member-model-description"></p>
+              <div class="member-kicker" style="margin-top:18px" data-i18n="member.connect.sampleTitle">CONFIG SAMPLE</div>
+              <div class="member-protocols member-sample-tabs" role="tablist">
+                <button type="button" class="active" data-member-sample="curl">cURL</button>
+                <button type="button" data-member-sample="python">Python</button>
+                <button type="button" data-member-sample="env" data-i18n="member.connect.envTab">ENV</button>
+              </div>
+              <pre id="member-connect-code" class="member-code" data-i18n="member.connect.reading">正在读取接入配置…</pre>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+                <button type="button" id="btn-copy-connect-code" class="member-button small primary" data-i18n="member.connect.copySample">复制配置示例</button>
+                <button type="button" class="member-button small ghost" data-member-goto="usage" data-i18n="member.connect.viewLog">查看调用记录 →</button>
+              </div>
+            </article>
+          </div>
+
+          <article class="member-panel" id="member-ccswitch-panel" style="margin-top:18px">
+            <div class="member-panel-head">
+              <h2 data-i18n="member.ccswitch.title">CC Switch 一键接入</h2>
+            </div>
+            <p class="member-model-description" data-i18n="member.ccswitch.lead">已安装 CC Switch 桌面端？粘贴完整 Key，点击下方按钮即可把本站写入 CC Switch 的供应商列表（Claude Code、Codex 或 OpenAI 兼容客户端），无需手动编辑配置。</p>
+            <div class="member-form-field" style="max-width:520px">
+              <label for="member-ccswitch-key" data-i18n="member.ccswitch.keyLabel">完整 API Key</label>
+              <input id="member-ccswitch-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" data-i18n-attr="placeholder:member.ccswitch.keyPlaceholder" />
+            </div>
+            <p class="member-model-description" data-i18n="member.ccswitch.keyNote">Key 只会在本地浏览器里拼装导入链接，不会提交到服务器。</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center">
+              <button type="button" class="member-button small primary" data-ccswitch-app="claude" disabled data-i18n="member.ccswitch.importClaude">导入到 CC Switch · Claude Code</button>
+              <button type="button" class="member-button small" data-ccswitch-app="codex" disabled data-i18n="member.ccswitch.importCodex">导入到 CC Switch · Codex</button>
+              <button type="button" id="btn-copy-ccswitch-link" class="member-text-link" disabled data-i18n="member.ccswitch.copyLink">复制导入链接</button>
+            </div>
+            <div class="member-kicker" style="margin-top:16px" data-i18n="member.ccswitch.compatTitle">OPENAI COMPATIBLE · 经 /V1</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button type="button" class="member-button small ghost" data-ccswitch-app="opencode" disabled data-i18n="member.ccswitch.importOpencode">OpenCode</button>
+              <button type="button" class="member-button small ghost" data-ccswitch-app="openclaw" disabled data-i18n="member.ccswitch.importOpenclaw">OpenClaw</button>
+              <button type="button" class="member-button small ghost" data-ccswitch-app="hermes" disabled data-i18n="member.ccswitch.importHermes">Hermes</button>
+              <button type="button" class="member-button small ghost" data-ccswitch-app="grokbuild" disabled data-i18n="member.ccswitch.importGrokbuild">Grok Build</button>
+            </div>
+            <pre id="member-ccswitch-link" class="member-code" hidden></pre>
+            <p class="member-model-description" style="margin-top:10px" data-i18n="member.ccswitch.note">需要 CC Switch v3.19 及以上版本；导入时软件内会弹出确认框。链接包含完整 Key，请勿转发给他人。</p>
+          </article>
+
+          <p class="member-connect-note" data-i18n="member.connect.note">模型与服务地址以管理员实际分配为准。页面不会展示或存储你的完整 Key。</p>
+        </section>
+
+        <section id="member-view-usage" class="member-view" hidden>
+          <header class="member-page-head">
+            <div>
+              <div class="member-kicker" data-i18n="member.usage.kicker">MY ACTIVITY / 调用记录</div>
+              <h1 data-i18n="member.usage.h1">我的调用记录</h1>
+              <p id="member-usage-range" data-i18n="member.usage.rangeNone">业务日 —</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="member-usage-date" type="date" aria-label="选择业务日" data-i18n-attr="aria-label:member.usage.dateAria" />
+              <button type="button" id="btn-member-usage-refresh" class="member-button small" data-i18n="member.refresh">刷新</button>
+            </div>
+          </header>
+
+          <div class="member-metric-grid">
+            <article class="member-metric"><div class="member-metric-label" data-i18n="member.usage.calls">当日调用</div><div id="member-usage-calls" class="member-metric-value">—</div></article>
+            <article class="member-metric"><div class="member-metric-label" data-i18n="member.usage.tokens">当日消耗</div><div id="member-usage-tokens" class="member-metric-value">—</div><div class="member-metric-sub">Tokens</div></article>
+            <article class="member-metric"><div class="member-metric-label" data-i18n="member.usage.fails">未完整成功</div><div id="member-usage-fails" class="member-metric-value">—</div></article>
+          </div>
+
+          <article class="member-panel">
+            <div class="member-panel-head">
+              <h2 data-i18n="member.usage.recent">最近调用</h2>
+              <div class="member-filters">
+                <button type="button" class="active" data-usage-filter="ALL" data-i18n="member.usage.filterAll">全部</button>
+                <button type="button" data-usage-filter="OK" data-i18n="member.usage.filterOk">成功</button>
+                <button type="button" data-usage-filter="OTHER" data-i18n="member.usage.filterOther">未完整成功</button>
+              </div>
+            </div>
+            <div class="member-table-wrap">
+              <table class="member-table">
+                <thead><tr><th data-i18n="member.usage.thTime">时间</th><th data-i18n="member.usage.thModel">模型</th><th>Tokens</th><th data-i18n="member.usage.thLatency">延迟</th><th data-i18n="member.usage.thStatus">状态</th><th data-i18n="member.usage.thRequestId">请求编号</th></tr></thead>
+                <tbody id="member-usage-list"></tbody>
+              </table>
+            </div>
+            <div id="member-usage-mobile" class="member-mobile-records"></div>
+            <div id="member-usage-pagination" style="margin-top:16px;text-align:center" hidden>
+              <button type="button" id="btn-member-usage-prev" class="member-button small ghost" data-i18n="member.usage.prevPage">上一页</button>
+              <span id="member-usage-page-info" style="margin:0 12px">—</span>
+              <button type="button" id="btn-member-usage-next" class="member-button small ghost" data-i18n="member.usage.nextPage">下一页</button>
+            </div>
+            <p class="member-connect-note" style="margin-top:13px" data-i18n="member.usage.note">遇到问题时复制请求编号发给管理员；内部账号与网络信息不会在成员端显示。</p>
+          </article>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="member-topup">
+    <div class="member-confirm-body">
+      <h3 data-i18n="member.topup.title">联系管理员充值</h3>
+      <p class="member-confirm-text" data-i18n="member.topup.lead">充值目前由管理员人工处理。请通过下方方式联系，说明充值金额并提供你的成员账号；到账后可在计费页看到充值流水。</p>
+      <p class="member-confirm-text"><span data-i18n="member.topup.accountLabel">我的成员账号</span>：<strong id="member-topup-account">—</strong></p>
+      <div class="member-topup-contacts">
+        <a class="member-contact-item" href="mailto:loean7@gmail.com">loean7@gmail.com ↗</a>
+        <button type="button" class="member-contact-item member-contact-copy" data-copy-value="3106189916" title="点击复制 QQ 号" data-i18n-attr="title:member.contact.qq.title">QQ 3106189916</button>
+        <a class="member-contact-item" href="https://github.com/loeanxi" target="_blank" rel="noopener noreferrer">github.com/loeanxi ↗</a>
+      </div>
+      <div class="member-confirm-actions">
+        <button type="button" class="member-button ghost" id="btn-member-topup-billing" data-i18n="member.topup.viewBilling">查看计费明细 →</button>
+        <button type="button" class="member-button primary" id="btn-member-topup-close" data-i18n="member.topup.close">知道了</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="member-confirm">
+    <div class="member-confirm-body">
+      <h3 id="member-confirm-title" data-i18n="member.dlg.confirmTitle">确认操作</h3>
+      <p class="member-confirm-text" id="member-confirm-text"></p>
+      <div class="member-confirm-actions">
+        <button type="button" class="member-button ghost" id="member-confirm-cancel" data-i18n="member.dlg.cancel">取消</button>
+        <button type="button" class="member-button danger" id="member-confirm-ok" data-i18n="member.dlg.confirm">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="member-toast" class="member-login-error" hidden style="position:fixed;right:20px;bottom:20px;z-index:100;max-width:min(400px,calc(100vw - 40px));box-shadow:0 8px 24px var(--shadow-raised)"></div>
+  <script src="/theme.js?v=20260925-4"></script>
+  <script src="/date-picker.js?v=20260926-1"></script>
+  <script src="/key-budget.js?v=20261002-1"></script>
+  <script src="/member/member-keys.js?v=20261002-1"></script>
+  <script src="/member/member.js?v=20261002-member-keys1"></script>
+  <script src="/ui-effects.js?v=20260927-2"></script>
+</body>
+</html>
