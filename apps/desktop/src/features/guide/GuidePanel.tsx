@@ -12,8 +12,12 @@ import {
 	type GuideTip,
 } from "./guide-content.ts";
 import "./guide.css";
+import { UpGuidePanel } from "./UpGuidePanel.tsx";
 
 type GradeFilter = "all" | "A" | "B" | "C" | "disputed";
+/** 人生指南视图内的两份指南；选择跨会话记忆。 */
+type GuideTab = "better" | "up";
+const GUIDE_TAB_KEY = "owl.guide.tab.v1";
 
 interface GuidePanelProps {
 	active: boolean;
@@ -49,9 +53,19 @@ function linkify(text: string, onOpenUrl: (url: string) => void, keyBase: string
 	return nodes;
 }
 
-/** 「高性价比人生指南」原生阅读面板：章目录 + 条目卡片流，内容走 jsDelivr + 本地缓存。 */
+/** 人生指南阅读面板：头部双 tab 切换「高性价比人生指南」与「人生进阶指南」，
+ *  两个面板懒加载保活（内容抓一次留在内存与 localStorage）。 */
 export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.Element {
 	const t = useT();
+	const [tab, setTab] = useState<GuideTab>(() => (localStorage.getItem(GUIDE_TAB_KEY) === "up" ? "up" : "better"));
+	const selectTab = (next: GuideTab): void => {
+		setTab(next);
+		try {
+			localStorage.setItem(GUIDE_TAB_KEY, next);
+		} catch {
+			// 忽略。
+		}
+	};
 	const [state, setState] = useState<LoadState>({ status: "idle", chapters: [], done: 0, total: GUIDE_CHAPTERS.length });
 	const [activeNo, setActiveNo] = useState(1);
 	const [query, setQuery] = useState("");
@@ -73,15 +87,15 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 	};
 
 	useEffect(() => {
-		if (!active || state.status !== "idle") return;
+		if (!active || tab !== "better" || state.status !== "idle") return;
 		const cached = loadCachedGuide();
 		if (cached.chapters.length > 0) {
 			setState({ status: "ready", chapters: cached.chapters, savedAt: cached.savedAt, done: cached.chapters.length, total: GUIDE_CHAPTERS.length });
 			return;
 		}
 		sync();
-		// eslint 只在首次激活时触发加载；state.status 变化后不再重入。
-	}, [active]);
+		// eslint 只在该 tab 首次激活时触发加载；state.status 变化后不再重入。
+	}, [active, tab]);
 
 	const counts = useMemo(() => {
 		let total = 0;
@@ -138,94 +152,107 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 				<span className="owl-guide-avatar" aria-hidden="true">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.4" cy="4.6" r="2.4" /><path d="M13 7.4 11.6 13.4" /><path d="M12.8 8.6 17.2 10.2" /><path d="M12.4 9 8 10.6" /><path d="M11.6 13.4 15 15.8 14.6 19.6" /><path d="M11.6 13.4 8.8 16.6 5.9 19.2" /></svg>
 				</span>
-				<h1>{t("titlebar.lifeGuide")}</h1>
-				<label className="owl-guide-search">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-					<input
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						placeholder={t("guide.searchPlaceholder")}
-						aria-label={t("guide.searchPlaceholder")}
-					/>
-					{query && <button type="button" aria-label="×" onClick={() => setQuery("")}>×</button>}
-				</label>
-				<span className="owl-guide-sync" data-status={state.status}>
-					{state.status === "loading" ? t("guide.loading", { done: state.done, total: state.total })
-						: state.status === "error" ? t("guide.fetchFailed")
-						: state.savedAt ? t("guide.cachedAt", { date: state.savedAt })
-						: ""}
-					{(state.status === "ready" || state.status === "error") && (
-						<button type="button" onClick={sync}>{t("guide.resync")}</button>
-					)}
-				</span>
+				<div className="owl-guide-tabs" role="tablist">
+					<button type="button" role="tab" aria-selected={tab === "better"} className={tab === "better" ? "on" : ""} onClick={() => selectTab("better")}>{t("guide.tabBetter")}</button>
+					<button type="button" role="tab" aria-selected={tab === "up"} className={tab === "up" ? "on" : ""} onClick={() => selectTab("up")}>{t("guide.tabUp")}</button>
+				</div>
+				{tab === "better" && (
+					<>
+						<label className="owl-guide-search">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+							<input
+								value={query}
+								onChange={(event) => setQuery(event.target.value)}
+								placeholder={t("guide.searchPlaceholder")}
+								aria-label={t("guide.searchPlaceholder")}
+							/>
+							{query && <button type="button" aria-label="×" onClick={() => setQuery("")}>×</button>}
+						</label>
+						<span className="owl-guide-sync" data-status={state.status}>
+							{state.status === "loading" ? t("guide.loading", { done: state.done, total: state.total })
+								: state.status === "error" ? t("guide.fetchFailed")
+								: state.savedAt ? t("guide.cachedAt", { date: state.savedAt })
+								: ""}
+							{(state.status === "ready" || state.status === "error") && (
+								<button type="button" onClick={sync}>{t("guide.resync")}</button>
+							)}
+						</span>
+					</>
+				)}
 			</div>
-			<div className="owl-guide-filters" role="group">
-				<FilterChip current={grade} value="all" label={t("guide.filterAll")} count={counts.total} onPick={setGrade} />
-				<FilterChip current={grade} value="A" label={t("guide.filterA")} count={counts.a} onPick={setGrade} />
-				<FilterChip current={grade} value="B" label={t("guide.filterB")} count={counts.b} onPick={setGrade} />
-				<FilterChip current={grade} value="C" label={t("guide.filterC")} count={counts.c} onPick={setGrade} />
-				<FilterChip current={grade} value="disputed" label={t("guide.filterDisputed")} count={counts.disputed} onPick={setGrade} />
-				<span className="owl-guide-sort">{t("guide.sortNote")}</span>
-			</div>
-			<div className="owl-guide-main">
-				<nav className="owl-guide-chapters" aria-label={t("titlebar.lifeGuide")}>
-					{GUIDE_CHAPTERS.map((meta) => (
-						<button
-							key={meta.no}
-							type="button"
-							className={`owl-guide-ch${!filtering && activeNo === meta.no ? " on" : ""}`}
-							onClick={() => { setActiveNo(meta.no); setQuery(""); setGrade("all"); }}
-						>
-							<span className="no">{String(meta.no).padStart(2, "0")}</span>
-							<span>{titleOf(meta.no)}</span>
-						</button>
-					))}
-				</nav>
-				<div className="owl-guide-stream">
-					{state.status === "loading" && (
-						<div className="owl-guide-state">
-							<p>{t("guide.loading", { done: state.done, total: state.total })}</p>
-							<div className="bar"><i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} /></div>
-						</div>
-					)}
-					{state.status === "error" && (
-						<div className="owl-guide-state">
-							<p className="err">{t("guide.fetchFailed")}</p>
-							<p><button type="button" className="owl-guide-linkbtn" onClick={sync}>{t("guide.retry")}</button></p>
-						</div>
-					)}
-					{state.status === "ready" && groups.length === 0 && (
-						<div className="owl-guide-state"><p>{t("guide.noMatch")}</p></div>
-					)}
-					{groups.map(({ chapter, tips }) => (
-						<section key={chapter.no} className="owl-guide-section">
-							<header className="owl-guide-sec-head">
-								<h2>{t("guide.section", { no: chapter.no, title: titleOf(chapter.no) })}</h2>
-								<span>{t("guide.sortNote")}</span>
-								<a href={guideChapterUrl(chapter.file)} onClick={(event) => { event.preventDefault(); onOpenUrl(guideChapterUrl(chapter.file)); }}>{t("guide.viewChapter")} ↗</a>
-							</header>
-							{tips.map((tip) => (
-								<TipCard
-									key={tip.key}
-									tip={tip}
-									expanded={expanded.has(tip.key)}
-									onToggle={() => toggleTip(tip.key)}
-									onOpenUrl={onOpenUrl}
-								/>
-							))}
-						</section>
-					))}
+			{/* 两个 tab 都保活：display:contents 让可见面板的子元素直接参与 .owl-guide 布局。 */}
+			<div style={{ display: tab === "better" ? "contents" : "none" }}>
+				<div className="owl-guide-filters" role="group">
+					<FilterChip current={grade} value="all" label={t("guide.filterAll")} count={counts.total} onPick={setGrade} />
+					<FilterChip current={grade} value="A" label={t("guide.filterA")} count={counts.a} onPick={setGrade} />
+					<FilterChip current={grade} value="B" label={t("guide.filterB")} count={counts.b} onPick={setGrade} />
+					<FilterChip current={grade} value="C" label={t("guide.filterC")} count={counts.c} onPick={setGrade} />
+					<FilterChip current={grade} value="disputed" label={t("guide.filterDisputed")} count={counts.disputed} onPick={setGrade} />
+					<span className="owl-guide-sort">{t("guide.sortNote")}</span>
+				</div>
+				<div className="owl-guide-main">
+					<nav className="owl-guide-chapters" aria-label={t("titlebar.lifeGuide")}>
+						{GUIDE_CHAPTERS.map((meta) => (
+							<button
+								key={meta.no}
+								type="button"
+								className={`owl-guide-ch${!filtering && activeNo === meta.no ? " on" : ""}`}
+								onClick={() => { setActiveNo(meta.no); setQuery(""); setGrade("all"); }}
+							>
+								<span className="no">{String(meta.no).padStart(2, "0")}</span>
+								<span>{titleOf(meta.no)}</span>
+							</button>
+						))}
+					</nav>
+					<div className="owl-guide-stream">
+						{state.status === "loading" && (
+							<div className="owl-guide-state">
+								<p>{t("guide.loading", { done: state.done, total: state.total })}</p>
+								<div className="bar"><i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} /></div>
+							</div>
+						)}
+						{state.status === "error" && (
+							<div className="owl-guide-state">
+								<p className="err">{t("guide.fetchFailed")}</p>
+								<p><button type="button" className="owl-guide-linkbtn" onClick={sync}>{t("guide.retry")}</button></p>
+							</div>
+						)}
+						{state.status === "ready" && groups.length === 0 && (
+							<div className="owl-guide-state"><p>{t("guide.noMatch")}</p></div>
+						)}
+						{groups.map(({ chapter, tips }) => (
+							<section key={chapter.no} className="owl-guide-section">
+								<header className="owl-guide-sec-head">
+									<h2>{t("guide.section", { no: chapter.no, title: titleOf(chapter.no) })}</h2>
+									<span>{t("guide.sortNote")}</span>
+									<a href={guideChapterUrl(chapter.file)} onClick={(event) => { event.preventDefault(); onOpenUrl(guideChapterUrl(chapter.file)); }}>{t("guide.viewChapter")} ↗</a>
+								</header>
+								{tips.map((tip) => (
+									<TipCard
+										key={tip.key}
+										tip={tip}
+										expanded={expanded.has(tip.key)}
+										onToggle={() => toggleTip(tip.key)}
+										onOpenUrl={onOpenUrl}
+									/>
+								))}
+							</section>
+						))}
+					</div>
+				</div>
+				<div className="owl-guide-foot">
+					<span>
+						{t("guide.attribution")}
+						{state.savedAt && ` · ${t("guide.mayLagUpstream", { date: state.savedAt })}`}
+					</span>
+					<span className="right">
+						<a href={GUIDE_LICENSE_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_LICENSE_URL); }}>{t("guide.license")} ↗</a>
+						<a href={GUIDE_REPO_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_REPO_URL); }}>{t("guide.openOnGithub")} ↗</a>
+					</span>
 				</div>
 			</div>
-			<div className="owl-guide-foot">
-				<span>
-					{t("guide.attribution")}
-					{state.savedAt && ` · ${t("guide.mayLagUpstream", { date: state.savedAt })}`}
-				</span>
-				<span className="right">
-					<a href={GUIDE_LICENSE_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_LICENSE_URL); }}>{t("guide.license")} ↗</a>
-					<a href={GUIDE_REPO_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_REPO_URL); }}>{t("guide.openOnGithub")} ↗</a>
-				</span>
+			<div style={{ display: tab === "up" ? "contents" : "none" }}>
+				<UpGuidePanel active={active && tab === "up"} onOpenUrl={onOpenUrl} />
 			</div>
 		</div>
 	);
