@@ -1759,8 +1759,8 @@ export interface IabStateResult {
 
 // ---------------------------------------------------------------------------
 // 窗口镜像（owl Mirror）—— 把本机一个顶层窗口（典型：应用宝容器里的红果短剧）
-// 经 Windows.Graphics.Capture 抓成 JPEG 帧流推给侧边卡片。纯观看：无输入转发、
-// 无 agent 工具。帧流与 iab 同策略：只推给订阅它的那条连接；窗口清单变化才广播。
+// 经 Windows.Graphics.Capture 抓成 JPEG 帧流推给侧边卡片。输入仅由持有投影的
+// UI 连接转发，无 agent 工具。帧流只推给订阅连接；窗口清单变化才广播。
 // worker 与协议见 modes/desktop/mirror/windows-capture.ps1。
 // ---------------------------------------------------------------------------
 
@@ -1789,6 +1789,35 @@ export interface MirrorFrameMessage {
 	data: string;
 	width: number;
 	height: number;
+	geometry?: MirrorProjectionGeometry;
+}
+
+/** Native source coordinates and the app-content crop represented by a frame. */
+export interface MirrorProjectionGeometry {
+	geometryId: string;
+	crop: { x: number; y: number; width: number; height: number };
+	sourceWidth: number;
+	sourceHeight: number;
+}
+
+/** Prepare a full-size source offscreen, or pause it while retaining restore ownership. */
+export interface MirrorProjectRequest {
+	type: "mirror.project";
+	id: string;
+	windowId: string;
+	visible?: boolean;
+}
+
+/** UI-only input; u/v are normalized coordinates within the advertised content crop. */
+export interface MirrorInputRequest {
+	type: "mirror.input";
+	id: string;
+	windowId: string;
+	geometryId: string;
+	action: "click" | "down" | "move" | "up" | "wheel" | "cancel";
+	u: number;
+	v: number;
+	deltaY?: number;
 }
 
 export type MirrorServerMessage = MirrorWindowsMessage | MirrorFrameMessage;
@@ -1880,6 +1909,8 @@ export interface MirrorFitOwlRequest {
 
 export type MirrorClientRequest =
 	| MirrorListRequest
+	| MirrorProjectRequest
+	| MirrorInputRequest
 	| MirrorAttachRequest
 	| MirrorDetachRequest
 	| MirrorRestoreRequest

@@ -118,6 +118,8 @@ import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import { handleMapHttp } from "./map-http.ts";
 import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
 import { createMapTools } from "./map-tools.ts";
+import { MirrorFrameDelivery } from "./mirror/frame-delivery.ts";
+import { MirrorProjectionAccess } from "./mirror/projection-access.ts";
 import { MirrorHub } from "./mirror-hub.ts";
 import { handleNewsHttp } from "./news-http.ts";
 import { callNewsModel } from "./news-model.ts";
@@ -538,20 +540,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const iabSubscriptions = new WeakMap<WebSocket, Set<string>>();
 	/** 镜像帧流订阅：连接 → 它在看的 windowId 集合（断线兜底回收）。 */
 	const mirrorSubscriptions = new WeakMap<WebSocket, Set<string>>();
-	/** 窗口镜像 hub：桥进程托管 WGC 捕获 worker（纯观看面，无输入转发）。 */
+	const mirrorFrames = new MirrorFrameDelivery();
+	/** 窗口镜像 hub：帧流与 UI 输入均按连接限定；不注册 agent 工具。 */
 	const mirror = new MirrorHub({
-		onFrame: (windowId, data, width, height) => {
-			const message: MirrorFrameMessage = { type: "mirror.frame", windowId, data, width, height };
-			const payload = JSON.stringify(message);
-			for (const client of clients) {
-				if (client.readyState === client.OPEN && mirrorSubscriptions.get(client)?.has(windowId)) {
-					client.send(payload);
-				}
-			}
+		onFrame: (windowId, data, width, height, geometry) => {
+			const message: MirrorFrameMessage = { type: "mirror.frame", windowId, data, width, height, geometry };
+			mirrorFrames.publish(message);
 		},
 		onWindowsChanged: (windows) => broadcast({ type: "mirror.windows", windows }),
 		onDiagnostic,
 	});
+	const mirrorProjectionAccess = new MirrorProjectionAccess(mirror);
 	/** 内嵌浏览器 hub：UI 面板与 agent 工具共用的无头浏览器。 */
 	const iab = new BrowserHub({
 		onFrame: (pageId, data, width, height) => {
@@ -926,7 +925,57 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 		return listServices;
 	}
-	void getListingServices; // owl: models.list 已改为只读 models.json，保留 getter 备后续声明式扩展
+	void getListingServices;
+
+	/** 有已存凭据（auth.json）的内置供应商 → 「凭据」分组，与 models.json 声明并列出现在模型列表里。 */
+	async function credentialedProviderGroups(): Promise<ProviderModelsMessage[]> {
+		const services = await getListingServices();
+		const byProvider = new Map<string, ProviderModelsMessage>();
+		const available = services.modelRuntime
+			.getAvailableSnapshot()
+			.filter((model) => services.modelRuntime.getProviderAuthStatus(model.provider).source === "stored");
+		for (const model of available) {
+			let group = byProvider.get(model.provider);
+			if (!group) {
+				group = { id: model.provider, models: [] };
+				byProvider.set(model.provider, group);
+			}
+			if (!group.models.some((entry) => entry.id === model.id)) {
+				group.models.push({
+					id: model.id,
+					name: model.name,
+					...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+					...(model.reasoning ? { reasoning: model.reasoning } : {}),
+				});
+			}
+		}
+		return [...byProvider.values()];
+	}
+
+	/**
+	 * 模型列表的完整视图：models.json 声明 ∪ 有凭据的内置供应商（声明优先）。
+	 * 供应商增删的落盘操作也用同一视图回包，否则凭据分组会在界面凭空消失/复活。
+	 */
+	async function mergedProviderGroups(agentDir: string): Promise<ProviderModelsMessage[]> {
+		const declared = declaredProviderModels(readModelsFile(agentDir));
+		let credentialed: ProviderModelsMessage[] = [];
+		try {
+			credentialed = await credentialedProviderGroups();
+		} catch {
+			// services 不可用时跳过凭据部分
+		}
+		const declaredIds = new Set(declared.map((group) => group.id));
+		return [...declared, ...credentialed.filter((group) => !declaredIds.has(group.id))];
+	}
+
+	/** 供应商是否有已落盘凭据（登录 / 快捷接入贴的 API Key）。services 不可用时视为没有。 */
+	async function hasStoredCredential(providerId: string): Promise<boolean> {
+		try {
+			return (await getListingServices()).modelRuntime.getProviderAuthStatus(providerId).source === "stored";
+		} catch {
+			return false;
+		}
+	}
 
 	/**
 	 * owlSidebar.injectOpenTool 开启时返回 sidebar_open 工具（默认关）。
@@ -2421,15 +2470,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				// owl 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
 				// 内置目录本身不再直接暴露：只有用户主动配置过凭据的供应商才会带出目录模型。
 				const agentDir = defaultAgentDir();
-				const declared = declaredProviderModels(readModelsFile(agentDir));
-				const credentialed: ProviderModelsMessage[] = [];
-				try {
-					const services = await getListingServices();
-					// owl:动态目录厂商（loean 等，凭据已存但基线目录为空）读表前补一次联网刷新——
-					// 启动刷新是 offline，若登录时网关不可达或目录是旧版本登录的，重启后这里自愈，
-					// 不用重新登录。PI_OFFLINE 时与全局一致不联网。
-					if (!process.env.PI_OFFLINE) {
-						const runtime = services.modelRuntime;
+				// owl:动态目录厂商（loean 等，凭据已存但基线目录为空）读表前补一次联网刷新——
+				// 启动刷新是 offline，若登录时网关不可达或目录是旧版本登录的，重启后这里自愈，
+				// 不用重新登录。PI_OFFLINE 时与全局一致不联网。
+				if (!process.env.PI_OFFLINE) {
+					try {
+						const runtime = (await getListingServices()).modelRuntime;
 						const staleDynamic = runtime
 							.getProviders()
 							.filter(
@@ -2446,35 +2492,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 								// 单个厂商拉取失败不挡列表（内部已捕获到 errors）
 							}
 						}
+					} catch {
+						// services 不可用时跳过自愈刷新
 					}
-					const byProvider = new Map<string, ProviderModelsMessage>();
-					const available = services.modelRuntime
-						.getAvailableSnapshot()
-						.filter((model) => services.modelRuntime.getProviderAuthStatus(model.provider).source === "stored");
-					for (const model of available) {
-						let group = byProvider.get(model.provider);
-						if (!group) {
-							group = { id: model.provider, models: [] };
-							byProvider.set(model.provider, group);
-						}
-						if (!group.models.some((entry) => entry.id === model.id)) {
-							group.models.push({
-								id: model.id,
-								name: model.name,
-								...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
-								...(model.reasoning ? { reasoning: model.reasoning } : {}),
-							});
-						}
-					}
-					credentialed.push(...byProvider.values());
-				} catch {
-					// services 不可用时跳过凭据部分
 				}
-				const declaredIds = new Set(declared.map((group) => group.id));
-				reply(ws, request.id, {
-					ok: true,
-					result: [...declared, ...credentialed.filter((group) => !declaredIds.has(group.id))],
-				});
+				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
 			case "models.putProvider": {
@@ -2509,7 +2531,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					},
 				};
 				writeModelsFile(agentDir, models);
-				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
 			case "models.putModel": {
@@ -2532,7 +2554,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const rest = (provider.models ?? []).filter((m) => m.id !== entry.id);
 				provider.models = [...rest, entry];
 				writeModelsFile(agentDir, models);
-				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
 			case "models.removeModel": {
@@ -2540,24 +2562,68 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const models = readModelsFile(agentDir);
 				const provider = models.providers?.[request.providerKey];
 				if (!provider) {
-					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+					// 凭据分组（登录过/贴过 Key 的内置供应商）不在 models.json 里。
+					// 删单个模型时，把「剩余模型」落成声明：声明优先后凭据分组不再覆盖该供应商，
+					// 否则界面会报「未知供应商」且列表不变，表现为删除按钮无响应。
+					const group = (await credentialedProviderGroups()).find((entry) => entry.id === request.providerKey);
+					if (!group) {
+						reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+						return;
+					}
+					if (!group.models.some((entry) => entry.id === request.modelId)) {
+						reply(ws, request.id, { ok: false, error: `未知模型：${request.modelId}` });
+						return;
+					}
+					models.providers = {
+						...(models.providers ?? {}),
+						[request.providerKey]: {
+							...(group.name ? { name: group.name } : {}),
+							models: group.models
+								.filter((entry) => entry.id !== request.modelId)
+								.map((entry) => {
+									const model: ModelFileEntry = { id: entry.id };
+									if (entry.name && entry.name !== entry.id) model.name = entry.name;
+									if (entry.contextWindow) model.contextWindow = entry.contextWindow;
+									if (entry.reasoning) model.reasoning = entry.reasoning;
+									return model;
+								}),
+						},
+					};
+					writeModelsFile(agentDir, models);
+					reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 					return;
 				}
+				const before = provider.models?.length ?? 0;
 				provider.models = (provider.models ?? []).filter((m) => m.id !== request.modelId);
+				if ((provider.models?.length ?? 0) === before) {
+					reply(ws, request.id, { ok: false, error: `未知模型：${request.modelId}` });
+					return;
+				}
 				writeModelsFile(agentDir, models);
-				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
 			case "models.removeProvider": {
 				const agentDir = defaultAgentDir();
 				const models = readModelsFile(agentDir);
-				if (!models.providers?.[request.providerKey]) {
+				// 删除供应商 = 移除 models.json 声明 + 注销已存凭据。只删声明的话，
+				// 登录过/贴过 Key 的内置供应商仍会凭「凭据分组」出现在 models.list 里，
+				// 表现为"删了还在"。只登录过、没写进 models.json 的供应商也走这里删凭据。
+				const declared = Boolean(models.providers?.[request.providerKey]);
+				const storedCredential = await hasStoredCredential(request.providerKey);
+				if (!declared && !storedCredential) {
 					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
 					return;
 				}
-				delete models.providers[request.providerKey];
-				writeModelsFile(agentDir, models);
-				reply(ws, request.id, { ok: true, result: declaredProviderModels(readModelsFile(agentDir)) });
+				if (storedCredential) {
+					// 先注销凭据再删声明：注销失败时什么都没变，重试即是完整重来。
+					await (await getListingServices()).modelRuntime.logout(request.providerKey);
+				}
+				if (declared && models.providers) {
+					delete models.providers[request.providerKey];
+					writeModelsFile(agentDir, models);
+				}
+				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
 			case "auth.providers": {
@@ -3194,6 +3260,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				try {
 					mirror.attach(request.windowId);
+					mirrorFrames.subscribe(ws, request.windowId);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					mirrorSubscriptions.get(ws)?.delete(request.windowId);
@@ -3202,13 +3269,34 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "mirror.detach": {
-				mirrorSubscriptions.get(ws)?.delete(request.windowId);
-				mirror.detach(request.windowId);
+				if (mirrorSubscriptions.get(ws)?.delete(request.windowId)) {
+					mirrorFrames.unsubscribe(ws, request.windowId);
+					mirror.detach(request.windowId);
+				}
 				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "mirror.project": {
+				try {
+					const geometry = await mirrorProjectionAccess.project(ws, request.windowId, request.visible !== false);
+					reply(ws, request.id, { ok: true, result: geometry });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "mirror.input": {
+				try {
+					mirrorProjectionAccess.input(ws, request, mirrorSubscriptions.get(ws)?.has(request.windowId) === true);
+					reply(ws, request.id, { ok: true });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
 				return;
 			}
 			case "mirror.restore": {
 				try {
+					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
 					await mirror.restore(request.windowId);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
@@ -3227,6 +3315,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.embed": {
 				try {
+					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
 					const parentHwnd =
 						request.parentHwnd && request.parentHwnd > 0 ? request.parentHwnd : await mirror.findOwlParentHwnd();
 					await mirror.embedWindow(request.windowId, parentHwnd, request.rect, {
@@ -3240,6 +3329,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.layout": {
 				try {
+					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
 					await mirror.layoutWindow(
 						request.windowId,
 						request.rect,
@@ -3263,7 +3353,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			case "mirror.unembed": {
 				try {
-					await mirror.unembedWindow(request.windowId);
+					if (mirrorProjectionAccess.hasClaim(request.windowId))
+						await mirrorProjectionAccess.unembed(ws, request.windowId);
+					else await mirror.unembedWindow(request.windowId);
 					reply(ws, request.id, { ok: true });
 				} catch (error) {
 					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -3371,11 +3463,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				wsTerms.delete(ws);
 			}
 			iabSubscriptions.delete(ws);
+			mirrorFrames.disconnect(ws);
 			const mirrorOwned = mirrorSubscriptions.get(ws);
 			if (mirrorOwned) {
 				for (const windowId of mirrorOwned) mirror.detach(windowId);
 				mirrorSubscriptions.delete(ws);
 			}
+			void mirrorProjectionAccess
+				.disconnect(ws)
+				.catch((error: unknown) => onDiagnostic(`mirror restore on disconnect: ${String(error)}`));
 		});
 	});
 

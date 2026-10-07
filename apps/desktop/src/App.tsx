@@ -2121,6 +2121,12 @@ export default function App(): React.JSX.Element {
 			{marketMounted && <div data-owl-island-anchor="" style={{ display: railView === "market" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MarketPage active={railView === "market" && !showSettings} connected={connected} agentDir={agentDir ?? ""} workspaceDir={workspaceDir} onImport={(text) => importPluginToNewSession(text)} />
 			</div>}
+			{/* 号池 Manager：与 news/mail 同层。不能放进 owl-main-frame——那个框在非对话视图下是 display:none。 */}
+			<div data-owl-island-anchor="" style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column", background: "#fff" }}>
+				<PanelErrorBoundary label="号池 Manager">
+					<ManagerTab />
+				</PanelErrorBoundary>
+			</div>
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
 					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
@@ -2163,15 +2169,7 @@ export default function App(): React.JSX.Element {
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
-						{/* 号池 Manager（迁移阶段 6）：Rail 一等视图，嵌入 pool-server 管理台。 */}
-						{railView === "manager" && !showSettings && (
-							<div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column", background: "#fff" }}>
-								<PanelErrorBoundary label="号池 Manager">
-									<ManagerTab />
-								</PanelErrorBoundary>
-							</div>
-						)}
-						<div style={{ display: railView === "research" || railView === "manager" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
+						<div style={{ display: railView === "research" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
 						{conversationView === "trajectory" ? (
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
 						) : conversationView === "context" ? (
