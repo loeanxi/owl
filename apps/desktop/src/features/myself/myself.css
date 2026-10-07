@@ -1,0 +1,470 @@
+/* 「我的助理」原生面板（features/myself/MyselfPanel.tsx）。
+   版式对齐 features/guide：页头 + 左侧天目录 + 右侧内容流；
+   表面/文字色用应用 token 随主题走，完成态绿用 accent。 */
+
+.owl-myself {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	background: var(--color-owl-panel);
+	border: 1px solid var(--color-owl-border);
+	border-radius: 13px;
+	overflow: hidden;
+}
+
+.owl-myself-head {
+	display: flex;
+	flex: 0 0 52px;
+	align-items: center;
+	gap: 10px;
+	padding: 0 14px;
+	border-bottom: 1px solid var(--color-owl-border);
+}
+.owl-myself-avatar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 8px;
+	color: var(--color-owl-accent);
+	background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}
+.owl-myself-avatar svg { width: 15px; height: 15px; }
+.owl-myself-head h1 { min-width: 0; font-size: 14px; font-weight: 650; letter-spacing: 0.01em; white-space: nowrap; }
+
+.owl-myself-dir {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--color-owl-faint);
+	font-size: 11px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	direction: rtl;
+	text-align: left;
+}
+
+.owl-myself-sync {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 6px;
+	align-items: center;
+	color: var(--color-owl-faint);
+	font-size: 12px;
+	white-space: nowrap;
+}
+.owl-myself-sync.is-busy { opacity: 0.7; }
+.owl-myself-sync[data-status="missing"] { color: #d0885a; }
+.owl-myself-sync button {
+	padding: 3px 9px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-owl-text);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+.owl-myself-sync button:hover { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
+
+/* ---- 头部居中 tab（日程 / 对话）---- */
+.owl-myself-head { position: relative; }
+.owl-myself-tabs {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	display: flex;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--color-owl-text) 4%, transparent);
+	transform: translate(-50%, -50%);
+}
+.owl-myself-tabs button {
+	padding: 3px 14px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--color-owl-faint);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.owl-myself-tabs button:hover { color: var(--color-owl-text); }
+.owl-myself-tabs button.on {
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	font-weight: 650;
+	box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+}
+
+/* ---- 对话 tab：会话头 + 三视图 + 完整 Composer（样式类全部复用 owl 对话区）---- */
+.owl-myself-chatpage {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+/* owl-chat-header 的布局规则在主壳里限定于 .owl-main-frame，面板里补同款。 */
+.owl-myself-chatpage .owl-chat-header {
+	flex: 0 0 40px;
+	height: 40px;
+	gap: 8px;
+	padding-right: 8px;
+	padding-left: 8px;
+	border-bottom: 1px solid var(--color-owl-border);
+	background: transparent;
+}
+.owl-myself-chatmark {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	margin-right: 2px;
+	border-radius: 7px;
+	color: var(--color-owl-accent);
+	background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}
+.owl-myself-chatmark svg { width: 13px; height: 13px; }
+/* 主壳的 owl-chrome-button 是 28px 定宽图标位；「新会话」是文字按钮，放开宽度。 */
+.owl-myself-chatpage .owl-shell-header-actions .owl-chrome-button {
+	width: auto;
+	padding: 0 9px;
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.owl-myself-chatstream {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.owl-myself-chatstream > * { flex: 1; min-height: 0; }
+
+.owl-myself-chathint {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 24px;
+	text-align: center;
+	color: var(--color-owl-faint);
+	font-size: 12px;
+}
+.owl-myself-chathint .mark {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border-radius: 12px;
+	color: var(--color-owl-accent);
+	background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}
+.owl-myself-chathint .mark svg { width: 22px; height: 22px; }
+.owl-myself-chathint .big { color: var(--color-owl-text); font-size: 15px; font-weight: 650; }
+.owl-myself-examples { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.owl-myself-examples button {
+	padding: 6px 13px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 10px;
+	background: transparent;
+	color: var(--color-owl-faint);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.owl-myself-examples button:hover { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
+
+.owl-myself-chatnotice {
+	flex: 0 0 auto;
+	margin: 0 14px 8px;
+	padding: 6px 11px;
+	border: 1px solid color-mix(in srgb, #d0885a 45%, transparent);
+	border-radius: 9px;
+	color: #d0885a;
+	font-size: 11.5px;
+	overflow-wrap: anywhere;
+}
+
+/* ---- 目录缺失空态：解释 + 手动填绝对路径 ---- */
+.owl-myself-missing {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 24px;
+	text-align: center;
+	color: var(--color-owl-faint);
+	font-size: 12px;
+}
+.owl-myself-missing .big { color: var(--color-owl-text); font-size: 14px; font-weight: 650; }
+.owl-myself-missing form { display: flex; gap: 8px; margin-top: 6px; width: min(480px, 100%); }
+.owl-myself-missing input {
+	flex: 1;
+	min-width: 0;
+	padding: 7px 11px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 9px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	font: 12px inherit;
+	font-family: inherit;
+	outline: 0;
+}
+.owl-myself-missing input:focus { border-color: var(--color-owl-accent); }
+.owl-myself-missing form button {
+	padding: 7px 14px;
+	border: 0;
+	border-radius: 9px;
+	background: var(--color-owl-accent);
+	color: #fff;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.owl-myself-missing form button:disabled { opacity: 0.5; cursor: default; }
+.owl-myself-missing .candidates {
+	max-width: 560px;
+	overflow-wrap: anywhere;
+	font-size: 11px;
+	opacity: 0.75;
+}
+
+/* ---- 主区：左目录 + 右内容 ---- */
+.owl-myself-main {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.owl-myself-days {
+	display: flex;
+	flex-direction: column;
+	flex: 0 0 208px;
+	min-height: 0;
+	padding: 10px 8px;
+	border-right: 1px solid var(--color-owl-border);
+	overflow-y: auto;
+}
+.owl-myself-newday {
+	flex: 0 0 auto;
+	margin: 0 2px 10px;
+	padding: 7px 10px;
+	border: 1px dashed var(--color-owl-border);
+	border-radius: 9px;
+	background: transparent;
+	color: var(--color-owl-faint);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.owl-myself-newday:hover:not(:disabled) { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
+.owl-myself-newday.is-done { border-style: solid; opacity: 0.55; cursor: default; }
+.owl-myself-newday:disabled { cursor: default; }
+
+.owl-myself-group { margin-bottom: 12px; }
+.owl-myself-group-head {
+	display: flex;
+	justify-content: space-between;
+	padding: 0 6px 5px;
+	color: var(--color-owl-faint);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+}
+.owl-myself-day {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-owl-text);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+}
+.owl-myself-day:hover { background: color-mix(in srgb, var(--color-owl-text) 7%, transparent); }
+.owl-myself-day.is-on { background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent); }
+.owl-myself-day .d { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.owl-myself-day .w { margin-left: 5px; color: var(--color-owl-faint); font-size: 11px; font-style: normal; }
+.owl-myself-day .today-dot {
+	flex: 0 0 auto;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--color-owl-accent);
+}
+.owl-myself-day .badge {
+	flex: 0 0 auto;
+	min-width: 16px;
+	padding: 0 5px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--color-owl-accent) 20%, transparent);
+	color: var(--color-owl-accent);
+	font-size: 10px;
+	font-weight: 650;
+	line-height: 16px;
+	text-align: center;
+}
+
+.owl-myself-stream {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 14px 18px 20px;
+	overflow-y: auto;
+}
+
+.owl-myself-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12vh;
+	text-align: center;
+	color: var(--color-owl-faint);
+	font-size: 12px;
+}
+.owl-myself-empty .big { color: var(--color-owl-text); font-size: 14px; font-weight: 650; }
+.owl-myself-create {
+	margin-top: 8px;
+	padding: 7px 16px;
+	border: 0;
+	border-radius: 9px;
+	background: var(--color-owl-accent);
+	color: #fff;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+.owl-myself-create:disabled { opacity: 0.5; cursor: default; }
+
+.owl-myself-day-head {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin-bottom: 14px;
+}
+.owl-myself-day-head h2 { font-size: 17px; font-weight: 700; }
+.owl-myself-day-head h2 i { color: var(--color-owl-faint); font-size: 13px; font-style: normal; font-weight: 400; }
+.owl-myself-day-head .pill {
+	padding: 2px 9px;
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--color-owl-accent) 13%, transparent);
+	color: var(--color-owl-accent);
+	font-size: 11px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.owl-myself-day-head .progress { color: var(--color-owl-faint); font-size: 11px; white-space: nowrap; }
+
+/* ---- AI 提炼卡片 ---- */
+.owl-myself-distilled {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 10px;
+	margin-bottom: 18px;
+}
+.owl-myself-distilled .card {
+	padding: 11px 13px;
+	border: 1px solid var(--color-owl-border);
+	border-left: 3px solid var(--color-owl-accent);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--color-owl-text) 3%, transparent);
+}
+.owl-myself-distilled .n { margin-bottom: 4px; color: var(--color-owl-accent); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
+.owl-myself-distilled .title { color: var(--color-owl-text); font-size: 13px; font-weight: 650; line-height: 1.35; }
+.owl-myself-distilled .detail { margin-top: 4px; color: var(--color-owl-faint); font-size: 11px; line-height: 1.45; }
+
+/* ---- 待办清单 ---- */
+.owl-myself-todos { margin-bottom: 18px; }
+.owl-myself-todos h3, .owl-myself-chat h3 {
+	margin: 0 0 8px;
+	color: var(--color-owl-faint);
+	font-size: 11px;
+	font-weight: 650;
+	letter-spacing: 0.05em;
+}
+.owl-myself-todos ul { margin: 0; padding: 0; list-style: none; }
+.owl-myself-todos li {
+	display: flex;
+	gap: 9px;
+	align-items: flex-start;
+	padding: 6px 4px;
+	border-radius: 8px;
+	font-size: 13px;
+	line-height: 1.5;
+}
+.owl-myself-todos li:hover { background: color-mix(in srgb, var(--color-owl-text) 5%, transparent); }
+.owl-myself-todos li.is-done span { color: var(--color-owl-faint); text-decoration: line-through; }
+.owl-myself-todos button {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 17px;
+	height: 17px;
+	margin-top: 2px;
+	padding: 0;
+	border: 1.5px solid var(--color-owl-border);
+	border-radius: 5px;
+	background: transparent;
+	color: transparent;
+	cursor: pointer;
+}
+.owl-myself-todos button:hover:not(:disabled) { border-color: var(--color-owl-accent); }
+.owl-myself-todos button:disabled { cursor: default; }
+.owl-myself-todos li.is-done button { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: #fff; }
+.owl-myself-todos button svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- 对话记录 ---- */
+.owl-myself-chat { margin-bottom: 18px; }
+.owl-myself-chat p {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	margin: 0 0 6px;
+	font-size: 12px;
+	line-height: 1.5;
+}
+.owl-myself-chat .time { flex: 0 0 auto; color: var(--color-owl-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.owl-myself-chat .who { flex: 0 0 auto; color: var(--color-owl-accent); font-weight: 650; }
+.owl-myself-chat .text { min-width: 0; color: var(--color-owl-text); }
+
+/* ---- 自由记录兜底 ---- */
+.owl-myself-notes p { margin: 0 0 6px; color: var(--color-owl-text); font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+
+/* ---- 底栏 ---- */
+.owl-myself-foot {
+	display: flex;
+	flex: 0 0 34px;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 0 14px;
+	border-top: 1px solid var(--color-owl-border);
+	color: var(--color-owl-faint);
+	font-size: 11px;
+}
+.owl-myself-foot .right[data-tone="error"] { color: #d0885a; }
+.owl-myself-foot .right[data-tone="ok"] { color: var(--color-owl-accent); }
