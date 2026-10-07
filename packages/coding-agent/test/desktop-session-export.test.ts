@@ -9,6 +9,7 @@ import type {
 	DesktopClientRequestWithoutId,
 	ServerResponseMessage,
 	SessionExportLogResult,
+	SessionTurnsResult,
 } from "../src/modes/desktop/protocol.ts";
 import { startDesktopServer } from "../src/modes/desktop/serve.ts";
 
@@ -164,6 +165,169 @@ it("session.exportLog returns raw jsonl and markdown before and after mounting",
 		expect(mounted.result?.content).toBe(await readFile(sourceFile, "utf8"));
 		expect(mounted.result?.savedPath).not.toBe(raw.result?.savedPath);
 		expect(mounted.result?.savedPath?.startsWith(join(exportDir, "导出测试会话-"))).toBe(true);
+	} finally {
+		for (const open of sockets) open.terminate();
+		await bridge.close();
+		await rm(absolute, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 勾选历史分享（桌面下载菜单第三项）：
+ * session.turns 按用户消息把当前分支切成轮次；session.exportLog 带 turnEntryIds
+ * 时 markdown 只排所选轮次（会话名从完整分支补齐），空选择明确报错。
+ */
+it("session.turns lists user-message turns and exportLog honours turnEntryIds", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "owl-session-turns-test-"));
+	const absolute = resolve(directory);
+	if (dirname(absolute) !== resolve(tmpdir()) || !basename(absolute).startsWith("owl-session-turns-test-"))
+		throw new Error("Unsafe bridge cleanup target");
+	const agentDir = join(directory, "profile");
+	const cwd = join(directory, "workspace");
+	await mkdir(agentDir);
+	await mkdir(cwd);
+	vi.stubEnv("OWL_CODING_AGENT_DIR", agentDir);
+	const exportDir = join(directory, "downloads");
+	await mkdir(exportDir);
+	vi.stubEnv("OWL_EXPORT_DIR", exportDir);
+
+	const iso = "2026-01-01T00:00:00.000Z";
+	const sessionDir = getDefaultSessionDirPath(cwd, agentDir);
+	await mkdir(sessionDir, { recursive: true });
+	const sourceFile = join(sessionDir, "2026-01-01-00-00-00_session-turns-src.jsonl");
+	const lines = [
+		{ type: "session", version: 3, id: "session-turns-src", timestamp: iso, cwd },
+		{ type: "session_info", id: "t-info-1", parentId: null, timestamp: iso, name: "轮次测试会话" },
+		{
+			type: "message",
+			id: "t-user-1",
+			parentId: "t-info-1",
+			timestamp: iso,
+			message: { role: "user", content: "第一轮提问", timestamp: 1 },
+		},
+		{
+			type: "message",
+			id: "t-assistant-1",
+			parentId: "t-user-1",
+			timestamp: iso,
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "第一轮回答" }],
+				provider: "mock",
+				modelId: "mock-model",
+				stopReason: "endTurn",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				timestamp: 2,
+			},
+		},
+		{
+			type: "message",
+			id: "t-user-2",
+			parentId: "t-assistant-1",
+			timestamp: iso,
+			message: { role: "user", content: "第二轮提问", timestamp: 3 },
+		},
+		{
+			type: "message",
+			id: "t-assistant-2",
+			parentId: "t-user-2",
+			timestamp: iso,
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "第二轮回答" }],
+				provider: "mock",
+				modelId: "mock-model",
+				stopReason: "endTurn",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				timestamp: 4,
+			},
+		},
+	];
+	await writeFile(sourceFile, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
+	const sockets: WebSocket[] = [];
+	try {
+		const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/ws`, {
+			headers: { Origin: `http://127.0.0.1:${bridge.port}` },
+		});
+		sockets.push(socket);
+		await new Promise<void>((done, reject) => {
+			socket.once("open", done);
+			socket.once("error", reject);
+		});
+		function request<T>(payload: DesktopClientRequestWithoutId): Promise<ServerResponseMessage & { result?: T }> {
+			const id = randomUUID();
+			return new Promise((done, reject) => {
+				const timer = setTimeout(() => {
+					socket.off("message", receive);
+					reject(new Error("Fake bridge request timed out"));
+				}, 8000);
+				const receive = (data: unknown) => {
+					const response = JSON.parse(String(data)) as ServerResponseMessage & { result?: T };
+					if (response.type !== "response" || response.id !== id) return;
+					clearTimeout(timer);
+					socket.off("message", receive);
+					done(response);
+				};
+				socket.on("message", receive);
+				socket.send(JSON.stringify({ ...payload, id }));
+			});
+		}
+
+		// 轮次清单：两条用户消息各成一轮，序条（session_info）不计入任何轮
+		const turns = await request<SessionTurnsResult>({ type: "session.turns", sessionId: "session-turns-src" });
+		expect(turns.ok).toBe(true);
+		expect(turns.result?.turns).toHaveLength(2);
+		expect(turns.result?.turns[0]).toMatchObject({ entryId: "t-user-1", text: "第一轮提问", entryCount: 2 });
+		expect(turns.result?.turns[1]).toMatchObject({ entryId: "t-user-2", text: "第二轮提问", entryCount: 2 });
+
+		// 只勾第一轮：正文含第一轮问答、不含第二轮；会话名仍从完整分支解析
+		const picked = await request<SessionExportLogResult>({
+			type: "session.exportLog",
+			sessionId: "session-turns-src",
+			format: "markdown",
+			turnEntryIds: ["t-user-1"],
+		});
+		expect(picked.ok).toBe(true);
+		expect(picked.result?.content).toContain("# Owl 会话：轮次测试会话");
+		expect(picked.result?.content).toContain("第一轮提问");
+		expect(picked.result?.content).toContain("第一轮回答");
+		expect(picked.result?.content).not.toContain("第二轮提问");
+		expect(picked.result?.content).not.toContain("第二轮回答");
+
+		// 不带 turnEntryIds：整支导出，两轮都在
+		const full = await request<SessionExportLogResult>({
+			type: "session.exportLog",
+			sessionId: "session-turns-src",
+			format: "markdown",
+		});
+		expect(full.ok).toBe(true);
+		expect(full.result?.content).toContain("第一轮提问");
+		expect(full.result?.content).toContain("第二轮提问");
+
+		// 空选择是调用方 bug：明确报错而不是导出空壳文件
+		const empty = await request({
+			type: "session.exportLog",
+			sessionId: "session-turns-src",
+			format: "markdown",
+			turnEntryIds: [],
+		});
+		expect(empty.ok).toBe(false);
 	} finally {
 		for (const open of sockets) open.terminate();
 		await bridge.close();

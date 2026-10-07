@@ -94,6 +94,66 @@ export function sessionDisplayName(entries: readonly SessionEntry[]): string | u
 	return undefined;
 }
 
+/** 一轮可勾选的会话历史：一条用户消息 + 其后到下一条用户消息前的全部条目。 */
+export interface SessionTurnSummary {
+	/** 该轮用户消息的条目 id（勾选导出时回传 turnEntryIds）。 */
+	entryId: string;
+	/** 用户消息纯文本预览（只拼 text 块；纯图片消息为空串，由 UI 兜底占位）。 */
+	text: string;
+	timestamp: string;
+	/** 该轮包含的分支条目数（含用户消息自身），仅供 UI 展示。 */
+	entryCount: number;
+}
+
+function textOfUserMessage(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((part): part is { type: "text"; text?: string } => (part as { type?: string })?.type === "text")
+		.map((part) => part.text ?? "")
+		.join("\n");
+}
+
+/** 按用户消息把当前分支切成轮次；用户消息前的序条（session_info 等）不属于任何轮。 */
+export function listSessionTurns(entries: readonly SessionEntry[]): SessionTurnSummary[] {
+	const turns: SessionTurnSummary[] = [];
+	let current: SessionTurnSummary | undefined;
+	for (const entry of entries) {
+		const message = entry.type === "message" ? (entry.message as { role?: string; content?: unknown }) : undefined;
+		if (message?.role === "user") {
+			current = {
+				entryId: entry.id,
+				text: textOfUserMessage(message.content),
+				timestamp: entry.timestamp,
+				entryCount: 1,
+			};
+			turns.push(current);
+			continue;
+		}
+		if (current) current.entryCount += 1;
+	}
+	return turns;
+}
+
+/**
+ * 按勾选的轮次（用户消息条目 id）过滤分支条目：只保留被选轮次的成员，
+ * 保持原有顺序；用户消息前的序条与未选轮次一律不进导出。
+ */
+export function filterEntriesToTurns(
+	entries: readonly SessionEntry[],
+	turnEntryIds: readonly string[],
+): SessionEntry[] {
+	const selected = new Set(turnEntryIds);
+	const filtered: SessionEntry[] = [];
+	let inTurn = false;
+	for (const entry of entries) {
+		const message = entry.type === "message" ? (entry.message as { role?: string }) : undefined;
+		if (message?.role === "user") inTurn = selected.has(entry.id);
+		if (inTurn) filtered.push(entry);
+	}
+	return filtered;
+}
+
 /** 从文件全量条目解析 header 与当前分支（leaf 取文件最后一条，沿 parentId 回溯到根）。 */
 export function resolveCurrentBranch(fileEntries: readonly FileEntry[]): {
 	header: SessionHeader;
@@ -194,8 +254,13 @@ function renderToolResult(message: ToolResultMessage): string {
  * 会话信息头 → 逐条消息（thinking 收进 details、工具调用/结果成对、每条助手附用量）→ 尾部汇总。
  * 只收 message/model_change/compaction/branch_summary 等有叙事意义的条目，
  * 纯元数据（label/context_edit/usage 条目）不进正文，usage 只进汇总。
+ * 勾选导出时条目是分支的子集，displayName 用来从完整分支补会话名。
  */
-export function formatSessionMarkdown(header: SessionHeader, entries: readonly SessionEntry[]): string {
+export function formatSessionMarkdown(
+	header: SessionHeader,
+	entries: readonly SessionEntry[],
+	options?: { displayName?: string },
+): string {
 	let userMessages = 0;
 	let assistantMessages = 0;
 	let toolCalls = 0;
@@ -245,7 +310,10 @@ export function formatSessionMarkdown(header: SessionHeader, entries: readonly S
 		}
 	}
 
-	const head: string[] = [`# Owl 会话：${sessionDisplayName(entries) || header.id || "（未命名）"}`, ""];
+	const head: string[] = [
+		`# Owl 会话：${options?.displayName ?? (sessionDisplayName(entries) || header.id || "（未命名）")}`,
+		"",
+	];
 	head.push(`- 会话 ID：\`${header.id}\``);
 	if (header.cwd) head.push(`- 工作目录：\`${header.cwd}\``);
 	head.push(`- 开始时间：${formatStamp(header.timestamp) || "未知"}`);
