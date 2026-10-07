@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { hasTauri, startDebugRebuild } from "../bridge/native.ts";
 import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
-import { IconChat, IconFolder, IconHome, IconMore, IconNews, IconSelf, IconSettings } from "./icons.tsx";
+import { IconFolder, IconHome, IconNews, IconPin, IconSelf, IconSettings } from "./icons.tsx";
+import { loadRailPins, RAIL_PINNABLE_VIEWS, saveRailPins, toggleRailPin } from "./rail-pins.ts";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
 
@@ -26,6 +27,71 @@ type RailMenuItem = {
 	busy?: boolean;
 	disabledTitle?: TextKey;
 } | { kind: "language" };
+
+/** 可置顶功能条目（Codex 式）：默认不占位，图钉后进入图标栏下方置顶区。 */
+type RailTool = {
+	view: RailView;
+	labelKey: TextKey;
+	icon: React.ReactNode;
+	/** 音乐入口的播放指示点。 */
+	showPlayingDot?: boolean;
+};
+
+const RAIL_TOOL_ICONS: Record<string, React.ReactNode> = {
+	projects: <IconFolder className="h-[18px] w-[18px]" />,
+	automation: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<circle cx="12" cy="13" r="8" />
+			<path d="M12 9v4l2.5 2.5" />
+			<path d="M5 3 2 6M19 3l3 3" />
+		</svg>
+	),
+	map: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
+			<path d="M9 3v15M15 6v15" />
+		</svg>
+	),
+	mail: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<rect x="3" y="5" width="18" height="14" rx="2" />
+			<path d="m3 6 9 7 9-7" />
+		</svg>
+	),
+	media: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="M9 18V6l11-2v11" />
+			<circle cx="6.5" cy="18" r="2.6" />
+			<circle cx="17.5" cy="15" r="2.6" />
+		</svg>
+	),
+	expert: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<circle cx="12" cy="12" r="9.5" />
+			<path d="m15.5 8.5-2 5-5 2 2-5z" />
+		</svg>
+	),
+	bagu: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<circle cx="12" cy="8.5" r="5" />
+			<path d="M9.2 12.8 7.5 21l4.5-2.4L16.5 21l-1.7-8.2" />
+		</svg>
+	),
+	market: (
+		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="M13.5 3.5 15 5a1.4 1.4 0 0 1-1 2.4h-1.3a1.6 1.6 0 0 0 0 3.2H14a1.4 1.4 0 0 1 1.4 1.4v1.6a1.4 1.4 0 0 0 1.4 1.4H19a1.6 1.6 0 0 0 0-3.2h-.4" />
+			<path d="M19.6 10.6A1.7 1.7 0 0 1 21 12.3V19a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 19V5.6A1.6 1.6 0 0 1 5.6 4h6.1a1.7 1.7 0 0 1 1.7 1.4Z" />
+		</svg>
+	),
+};
+
+/** 功能抽屉展示顺序与 rail-pins.RAIL_PINNABLE_VIEWS 保持一致。 */
+const RAIL_TOOLS: RailTool[] = RAIL_PINNABLE_VIEWS.map((view) => ({
+	view,
+	labelKey: `rail.${view}` as TextKey,
+	icon: RAIL_TOOL_ICONS[view],
+	showPlayingDot: view === "media",
+}));
 
 /** 「界面语言」子菜单项：悬停/点击向右弹出 选项，✓ 标当前；选择即切换并交给上层持久化。 */
 function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => void }): React.JSX.Element {
@@ -160,7 +226,9 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
- * 结构刻意做成纯配置驱动：加功能 = 在 items 里加一项 + 接一个 onSelect 分支。
+ * 顶部固定：首页 / 我的助理 / 号池 / 资讯 / 功能抽屉触发钮；
+ * 其余功能默认不占位，在「功能抽屉」里点图钉后才常驻到分隔线下方置顶区，再点图钉取消。
+ * app 菜单单独贴底，中段不留空档。
  */
 export function ActivityRail({
 	view,
@@ -187,9 +255,14 @@ export function ActivityRail({
 	const mediaPlaying = useMediaPlayingDot();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [toolsOpen, setToolsOpen] = useState(false);
+	const [pins, setPins] = useState<RailView[]>(() => loadRailPins());
 	const menuRootRef = useRef<HTMLDivElement>(null);
 	const menuPanelRef = useRef<HTMLDivElement>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement>(null);
+	const toolsRootRef = useRef<HTMLDivElement>(null);
+	const toolsPanelRef = useRef<HTMLDivElement>(null);
+	const toolsTriggerRef = useRef<HTMLButtonElement>(null);
 	const updateBusyRef = useRef(false);
 	const [updateAction, setUpdateAction] = useState<"debug">();
 	const [updateNotice, setUpdateNotice] = useState<UpdateNotice>();
@@ -215,7 +288,38 @@ export function ActivityRail({
 		};
 	}, [menuOpen]);
 
-	useEffect(() => setMenuOpen(false), [view, settingsOpen]);
+	useEffect(() => {
+		if (!toolsOpen) return;
+		toolsPanelRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus();
+		const dismiss = (event: PointerEvent): void => {
+			if (!toolsRootRef.current?.contains(event.target as Node)) setToolsOpen(false);
+		};
+		const dismissOnEscape = (event: KeyboardEvent): void => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			setToolsOpen(false);
+			toolsTriggerRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", dismiss);
+		document.addEventListener("keydown", dismissOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", dismiss);
+			document.removeEventListener("keydown", dismissOnEscape);
+		};
+	}, [toolsOpen]);
+
+	useEffect(() => {
+		setMenuOpen(false);
+		setToolsOpen(false);
+	}, [view, settingsOpen]);
+
+	const togglePin = (view: RailView): void => {
+		setPins((current) => {
+			const next = toggleRailPin(current, view);
+			saveRailPins(next);
+			return next;
+		});
+	};
 
 	const debugUpdate = async (): Promise<void> => {
 		if (updateBusyRef.current) return;
@@ -268,6 +372,60 @@ export function ActivityRail({
 		],
 	];
 
+	// 置顶区 = 已图钉功能；当前打开但未图钉的功能临时跟随显示，避免「开着却找不到入口」。
+	const toolByView = new Map(RAIL_TOOLS.map((tool) => [tool.view, tool]));
+	const pinnedTools = pins.flatMap((pinned) => {
+		const tool = toolByView.get(pinned);
+		return tool ? [tool] : [];
+	});
+	const activeTool = toolByView.get(view);
+	const railTools = activeTool && !pins.includes(activeTool.view) ? [...pinnedTools, activeTool] : pinnedTools;
+
+	const renderToolButton = (tool: RailTool): React.JSX.Element => (
+		<button
+			key={tool.view}
+			type="button"
+			className={itemClass(view === tool.view && !settingsOpen)}
+			title={t(tool.labelKey)}
+			aria-label={t(tool.labelKey)}
+			aria-current={view === tool.view && !settingsOpen ? "page" : undefined}
+			onClick={() => onSelect(tool.view)}
+		>
+			{tool.icon}
+			{tool.showPlayingDot && mediaPlaying && <span className="owl-rail-media-dot" aria-hidden="true" />}
+		</button>
+	);
+
+	const renderDrawerRow = (tool: RailTool, pinned: boolean): React.JSX.Element => (
+		<div key={tool.view} className="owl-rail-tools-row">
+			<button
+				type="button"
+				role="menuitem"
+				className={`owl-rail-tools-item${view === tool.view ? " is-active" : ""}`}
+				onClick={() => {
+					setToolsOpen(false);
+					onSelect(tool.view);
+				}}
+			>
+				{tool.icon}
+				<span>{t(tool.labelKey)}</span>
+			</button>
+			<button
+				type="button"
+				className={`owl-rail-tools-pin${pinned ? " is-pinned" : ""}`}
+				title={pinned ? t("rail.unpin") : t("rail.pin")}
+				aria-label={pinned ? t("rail.unpin") : t("rail.pin")}
+				aria-pressed={pinned}
+				onClick={() => togglePin(tool.view)}
+			>
+				<IconPin className="h-4 w-4" filled={pinned} />
+			</button>
+		</div>
+	);
+
+	const drawerPinned = pinnedTools;
+	const drawerRest = RAIL_TOOLS.filter((tool) => !pins.includes(tool.view));
+
 	return (
 		<nav className="owl-activity-rail" data-tauri-drag-region="deep" aria-label={t("rail.aria")}>
 			<button
@@ -275,12 +433,12 @@ export function ActivityRail({
 				className="owl-rail-brand"
 				title={t("rail.homeTitle")}
 				aria-label={t("rail.home")}
-				onClick={() => { setMenuOpen(false); onHome(); }}
+				onClick={() => { setMenuOpen(false); setToolsOpen(false); onHome(); }}
 			>
 				<IconHome className="h-5 w-5" />
 			</button>
 
-			{/* 「我的助理」：品牌位下第一入口（每天一个 owl-myself/md 的日程与提炼）。 */}
+			{/* 「我的助理」：顶部固定入口（每天一个 owl-myself/md 的日程与提炼）。 */}
 			<button
 				type="button"
 				className={itemClass(view === "myself" && !settingsOpen)}
@@ -292,33 +450,7 @@ export function ActivityRail({
 				<IconSelf className="h-[18px] w-[18px]" />
 			</button>
 
-			{/* 「专家顾问」：助理位之下（owl-expert 目录：人格档案 + 记忆 + 每天一个会话 md）。 */}
-			<button
-				type="button"
-				className={itemClass(view === "expert" && !settingsOpen)}
-				title={t("rail.expert")}
-				aria-label={t("rail.expert")}
-				aria-current={view === "expert" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("expert")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<circle cx="12" cy="12" r="9.5" />
-					<path d="m15.5 8.5-2 5-5 2 2-5z" />
-				</svg>
-			</button>
-
-			<button
-				type="button"
-				className={itemClass(view === "chat" && !settingsOpen)}
-				title={t("rail.chat")}
-				aria-label={t("rail.chat")}
-				aria-current={view === "chat" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("chat")}
-			>
-				<IconChat className="h-[18px] w-[18px]" />
-			</button>
-
-			{/* 号池 Manager（迁移阶段 6）：嵌入 owl 主内容区的一等视图。 */}
+			{/* 号池 Manager：顶部固定入口（迁移阶段 6）：嵌入 owl 主内容区的一等视图。 */}
 			<button
 				type="button"
 				className={itemClass(view === "manager" && !settingsOpen)}
@@ -334,116 +466,80 @@ export function ActivityRail({
 				</svg>
 			</button>
 
-			{/* 自动化任务（schedule）：定时把提示词送回会话的一等视图入口。 */}
-			<button
-				type="button"
-				className={itemClass(view === "automation" && !settingsOpen)}
-				title={t("rail.automation")}
-				aria-label={t("rail.automation")}
-				aria-current={view === "automation" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("automation")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<circle cx="12" cy="13" r="8" />
-					<path d="M12 9v4l2.5 2.5" />
-					<path d="M5 3 2 6M19 3l3 3" />
-				</svg>
-			</button>
-
 			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
 				<IconNews className="h-[18px] w-[18px]" />
 			</button>
 
-			<button
-				type="button"
-				className={itemClass(view === "map" && !settingsOpen)}
-				title={t("rail.map")}
-				aria-label={t("rail.map")}
-				aria-current={view === "map" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("map")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
-					<path d="M9 3v15M15 6v15" />
-				</svg>
-			</button>
+			{/* 功能抽屉触发钮：Codex 式放在固定组末尾、分隔线之上。 */}
+			<div className="owl-rail-tools" ref={toolsRootRef} data-tauri-drag-region="false">
+				<button
+					ref={toolsTriggerRef}
+					type="button"
+					className={`owl-rail-button${toolsOpen ? " is-active" : ""}`}
+					title={t("rail.tools")}
+					aria-label={t("rail.tools")}
+					aria-haspopup="menu"
+					aria-expanded={toolsOpen}
+					aria-controls="owl-rail-tools-panel"
+					onClick={() => setToolsOpen((open) => !open)}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+							event.preventDefault();
+							setToolsOpen(true);
+						}
+					}}
+				>
+					<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+						<rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+						<rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+						<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+						<rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+					</svg>
+				</button>
+				{toolsOpen && (
+					<div
+						ref={toolsPanelRef}
+						id="owl-rail-tools-panel"
+						className="owl-rail-tools-panel"
+						role="menu"
+						aria-label={t("rail.tools")}
+						onBlur={(event) => {
+							if (event.relatedTarget && !toolsRootRef.current?.contains(event.relatedTarget as Node)) setToolsOpen(false);
+						}}
+						onKeyDown={(event) => {
+							const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
+							if (step === undefined) return;
+							event.preventDefault();
+							event.stopPropagation();
+							const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
+							if (items.length === 0) return;
+							const current = items.indexOf(document.activeElement as HTMLButtonElement);
+							const next = step === "first" ? 0 : step === "last" ? items.length - 1 : (current + step + items.length) % items.length;
+							items[next]?.focus();
+						}}
+					>
+					{drawerPinned.length > 0 && (
+						<>
+							<div className="owl-rail-tools-group">{drawerRest.length > 0 ? t("rail.pins") : t("rail.tools")}</div>
+							{drawerPinned.map((tool) => renderDrawerRow(tool, true))}
+						</>
+					)}
+					{drawerRest.length > 0 && (
+						<>
+							{drawerPinned.length > 0 && <div className="owl-rail-menu-separator" role="separator" />}
+							<div className="owl-rail-tools-group">{drawerPinned.length > 0 ? t("rail.toolsMore") : t("rail.toolsAll")}</div>
+							{drawerRest.map((tool) => renderDrawerRow(tool, false))}
+						</>
+					)}
+					</div>
+				)}
+			</div>
 
-			<button type="button" className={itemClass(false)} title={t("rail.more")} aria-label={t("rail.more")} disabled>
-				<IconMore className="h-[18px] w-[18px]" />
-			</button>
-			<button
-				type="button"
-				className={itemClass(view === "mail" && !settingsOpen)}
-				title={t("rail.mail")}
-				aria-label={t("rail.mail")}
-				aria-current={view === "mail" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("mail")}
-				data-fd-id="btn-mail-entry"
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<rect x="3" y="5" width="18" height="14" rx="2" />
-					<path d="m3 6 9 7 9-7" />
-				</svg>
-			</button>
-
-			{/* 媒体桥（owl-media-bridge 插件）：音乐一等视图入口；绿点 = 有播放器正在播放。 */}
-			<button
-				type="button"
-				className={itemClass(view === "media" && !settingsOpen)}
-				title={t("rail.media")}
-				aria-label={t("rail.media")}
-				aria-current={view === "media" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("media")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<path d="M9 18V6l11-2v11" />
-					<circle cx="6.5" cy="18" r="2.6" />
-					<circle cx="17.5" cy="15" r="2.6" />
-				</svg>
-				{mediaPlaying && <span className="owl-rail-media-dot" aria-hidden="true" />}
-			</button>
-
-			{/* 项目页（Codex 式一览）：全部项目 + 行内展开会话。 */}
-			<button
-				type="button"
-				className={itemClass(view === "projects" && !settingsOpen)}
-				title={t("rail.projects")}
-				aria-label={t("rail.projects")}
-				aria-current={view === "projects" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("projects")}
-			>
-				<IconFolder className="h-[18px] w-[18px]" />
-			</button>
-
-			{/* 「八股对练」：bagu 题库（localhost:8080）+ AI 面试官相互提问。 */}
-			<button
-				type="button"
-				className={itemClass(view === "bagu" && !settingsOpen)}
-				title={t("rail.bagu")}
-				aria-label={t("rail.bagu")}
-				aria-current={view === "bagu" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("bagu")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<circle cx="12" cy="8.5" r="5" />
-					<path d="M9.2 12.8 7.5 21l4.5-2.4L16.5 21l-1.7-8.2" />
-				</svg>
-			</button>
-
-			{/* 插件市场：实时聚合 pi 生态与 DSH 社区插件，引入即交给 Agent 自适应改造。 */}
-			<button
-				type="button"
-				className={itemClass(view === "market" && !settingsOpen)}
-				title={t("rail.market")}
-				aria-label={t("rail.market")}
-				aria-current={view === "market" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("market")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<path d="M13.5 3.5 15 5a1.4 1.4 0 0 1-1 2.4h-1.3a1.6 1.6 0 0 0 0 3.2H14a1.4 1.4 0 0 1 1.4 1.4v1.6a1.4 1.4 0 0 0 1.4 1.4H19a1.6 1.6 0 0 0 0-3.2h-.4" />
-					<path d="M19.6 10.6A1.7 1.7 0 0 1 21 12.3V19a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 19V5.6A1.6 1.6 0 0 1 5.6 4h6.1a1.7 1.7 0 0 1 1.7 1.4Z" />
-				</svg>
-			</button>
+			{/* 置顶区：图钉决定常驻功能。 */}
+			<div className="owl-rail-pins" data-tauri-drag-region="false">
+				<div className="owl-rail-divider" role="separator" aria-hidden="true" />
+				{railTools.map(renderToolButton)}
+			</div>
 
 			<div className="owl-rail-app-menu" ref={menuRootRef} data-tauri-drag-region="false">
 				<button

@@ -31,7 +31,120 @@
 .owl-rail-app-menu {
 	position: relative;
 	flex: 0 0 auto;
+	/* app 菜单贴在最底（Codex 的头像位），中段让位给内容流。 */
 	margin-top: auto;
+}
+
+/* 置顶区紧跟顶部固定组（Codex 式不留中段空档）：图钉功能 + 功能抽屉触发钮。 */
+.owl-rail-pins {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding-top: 2px;
+}
+
+.owl-rail-divider {
+	width: 26px;
+	height: 1px;
+	background: var(--owl-ui-border, var(--color-owl-sidebar-border));
+}
+
+.owl-rail-tools {
+	position: relative;
+}
+
+.owl-rail-tools-panel {
+	position: absolute;
+	z-index: 60;
+	/* 触发钮已移到图标栏顶部，面板向下弹出避免被窗口顶边裁剪。 */
+	top: calc(100% + 8px);
+	left: 0;
+	width: 236px;
+	max-width: calc(100vw - 24px);
+	max-height: calc(100vh - 120px);
+	overflow-y: auto;
+	padding: 5px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	border-radius: 8px;
+	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+	font-size: 12px;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
+}
+
+.owl-rail-tools-group {
+	padding: 7px 9px 3px;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	font-size: 11px;
+}
+
+.owl-rail-tools-row {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	border-radius: 4px;
+}
+
+.owl-rail-tools-row:hover,
+.owl-rail-tools-row:focus-within {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-rail-tools-item {
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 32px;
+	align-items: center;
+	gap: 9px;
+	padding: 6px 6px 6px 9px;
+	border-radius: 4px;
+	text-align: left;
+	font-size: 12px;
+}
+
+.owl-rail-tools-item svg {
+	width: 15px;
+	height: 15px;
+	flex: 0 0 15px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.owl-rail-tools-item.is-active {
+	color: var(--color-owl-accent);
+}
+
+.owl-rail-tools-pin {
+	display: grid;
+	flex: 0 0 26px;
+	width: 26px;
+	height: 26px;
+	place-items: center;
+	border-radius: 4px;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	opacity: 0;
+}
+
+/* 键盘焦点落在行内时图钉同样可见，保证可达性。 */
+.owl-rail-tools-row:hover .owl-rail-tools-pin,
+.owl-rail-tools-row:focus-within .owl-rail-tools-pin,
+.owl-rail-tools-pin.is-pinned {
+	opacity: 1;
+}
+
+.owl-rail-tools-pin:hover {
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-rail-tools-pin.is-pinned {
+	color: var(--color-owl-accent);
 }
 
 .owl-rail-menu-trigger {
