@@ -40,8 +40,11 @@ export interface PoolConfig {
 		stickyTtlSeconds: number;
 		grokBaseUrl?: string;
 		zcode: { anthropicVersion: string; defaultMaxTokens: number };
+		workbuddy: { baseUrl: string; chatPath: string; userAgent: string; origin: string; referer: string };
+		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
 		claude: {
 			baseUrl: string;
+			defaultMaxTokens: number;
 			anthropicVersion: string;
 			oauthBetaHeaders: string;
 			cliVersion: string;
@@ -78,12 +81,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			stickyEnabled: boolOr(env.OWL_POOL_GATEWAY_STICKY_ENABLED, true),
 			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 3600),
 			grokBaseUrl: blankToUndefined(env.OWL_POOL_GROK_BASE_URL),
+			workbuddy: {
+				baseUrl: env.OWL_POOL_WB_CHAT_BASE_URL ?? "https://copilot.tencent.com",
+				chatPath: env.OWL_POOL_WB_CHAT_PATH ?? "/v2/chat/completions",
+				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
+				origin: env.OWL_POOL_WB_ORIGIN ?? "https://www.codebuddy.cn",
+				referer: env.OWL_POOL_WB_REFERER ?? "https://www.codebuddy.cn/",
+			},
+			trae: {
+				chatBaseUrl: env.OWL_POOL_TRAE_CHAT_BASE_URL ?? "https://trae-api-cn.mchost.guru",
+				chatPath: env.OWL_POOL_TRAE_CHAT_PATH ?? "/api/agent/v3/llm_utils_chat",
+				appId: env.OWL_POOL_TRAE_APP_ID ?? "icube-ai",
+				ideVersion: env.OWL_POOL_TRAE_IDE_VERSION ?? "2.63.2",
+				ideVersionCode: env.OWL_POOL_TRAE_IDE_VERSION_CODE ?? "2630200",
+			},
 			zcode: {
 				anthropicVersion: env.OWL_POOL_ZCODE_ANTHROPIC_VERSION ?? "2023-06-01",
 				defaultMaxTokens: intOr(env.OWL_POOL_ZCODE_DEFAULT_MAX_TOKENS, 8192),
 			},
 			claude: {
 				baseUrl: env.OWL_POOL_CLAUDE_BASE_URL ?? "https://api.anthropic.com",
+				defaultMaxTokens: intOr(env.OWL_POOL_CLAUDE_DEFAULT_MAX_TOKENS, 8192),
 				anthropicVersion: env.OWL_POOL_CLAUDE_ANTHROPIC_VERSION ?? "2023-06-01",
 				oauthBetaHeaders:
 					env.OWL_POOL_CLAUDE_OAUTH_BETA_HEADERS ??

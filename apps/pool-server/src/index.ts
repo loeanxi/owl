@@ -20,6 +20,8 @@ import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
+import { TraeChatClient } from "./gateway/trae-client.ts";
+import { WorkBuddyChatClient } from "./gateway/workbuddy-client.ts";
 import { CheckInScheduler } from "./scheduler.ts";
 import { AdminGuard } from "./security/admin-guard.ts";
 import { AdminAuthService } from "./security/admin-service.ts";
@@ -97,6 +99,50 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		timeoutMs: config.gateway.upstreamTimeoutMs,
 	});
 	upstreams.set(grok.platform(), grok);
+	const zcode = new AnthropicCompatibleClient({
+		platform: "ZCODE",
+		label: "ZCode",
+		anthropicVersion: config.gateway.zcode.anthropicVersion,
+		defaultMaxTokens: config.gateway.zcode.defaultMaxTokens,
+		timeoutMs: config.gateway.upstreamTimeoutMs,
+	});
+	upstreams.set(zcode.platform(), zcode);
+	const claude = new AnthropicCompatibleClient({
+		platform: "CLAUDE",
+		label: "Claude",
+		baseUrl: config.gateway.claude.baseUrl,
+		defaultMaxTokens: config.gateway.claude.defaultMaxTokens,
+		anthropicVersion: config.gateway.claude.anthropicVersion,
+		oauthBetaHeaders: config.gateway.claude.oauthBetaHeaders,
+		cliVersion: config.gateway.claude.cliVersion,
+		thinkingBudgets: config.gateway.claude.thinkingBudgets,
+		exposeThinking: true,
+		foldCacheTokens: true,
+		timeoutMs: config.gateway.upstreamTimeoutMs,
+	});
+	upstreams.set(claude.platform(), claude);
+	const workbuddy = new WorkBuddyChatClient({
+		config: {
+			baseUrl: config.gateway.workbuddy.baseUrl,
+			chatPath: config.gateway.workbuddy.chatPath,
+			userAgent: config.gateway.workbuddy.userAgent,
+			origin: config.gateway.workbuddy.origin,
+			referer: config.gateway.workbuddy.referer,
+			timeoutMs: config.gateway.upstreamTimeoutMs,
+		},
+	});
+	upstreams.set(workbuddy.platform(), workbuddy);
+	const trae = new TraeChatClient({
+		config: {
+			chatBaseUrl: config.gateway.trae.chatBaseUrl,
+			chatPath: config.gateway.trae.chatPath,
+			appId: config.gateway.trae.appId,
+			ideVersion: config.gateway.trae.ideVersion,
+			ideVersionCode: config.gateway.trae.ideVersionCode,
+			timeoutMs: config.gateway.upstreamTimeoutMs,
+		},
+	});
+	upstreams.set(trae.platform(), trae);
 	const generation = new RouteGeneration({
 		accounts,
 		router: poolRouter,
