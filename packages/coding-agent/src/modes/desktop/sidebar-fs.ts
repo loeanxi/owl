@@ -64,6 +64,8 @@ export async function resolveUnderWorkspace(cwd: string, target: string): Promis
 	const realCwd = await realpath(cwd).catch(() => resolve(cwd));
 	const realTarget = await realpath(absolute).catch(async () => {
 		// 目标不存在（写路径）：对最深的已存在祖先做 realpath，其余段保持词法。
+		// 注意：父目录存在时也要把当前段补回——否则两级以上的新建目录会丢中间段
+		//（如 groups/<新群>/memory.md 被解析成 groups/memory.md，误判越出工作区）。
 		let probe = absolute;
 		const tail: string[] = [];
 		for (;;) {
@@ -71,7 +73,7 @@ export async function resolveUnderWorkspace(cwd: string, target: string): Promis
 			if (parent === probe) break;
 			const real = await realpath(parent).catch(() => undefined);
 			if (real !== undefined) {
-				return join(real, ...tail);
+				return join(real, basename(probe), ...tail);
 			}
 			tail.unshift(basename(probe));
 			probe = parent;
