@@ -75,6 +75,7 @@ import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
 import { parseNotificationPrefs, setNotificationPrefs } from "./utils/notification-prefs.ts";
+import { filterProvidersByEnabledModels, parseEnabledModels } from "./utils/enabled-models.ts";
 import { downloadTextFile } from "./utils/download.ts";
 import "./desktop-shell.css";
 
@@ -265,6 +266,12 @@ export default function App(): React.JSX.Element {
 	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
 	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
 	const [providers, setProviders] = useState<ProviderModelsMessage[]>([]);
+	/** settings.enabledModels：null = 不过滤；数组 = 对话选择器 allowlist。 */
+	const [enabledModels, setEnabledModels] = useState<string[] | null>(null);
+	const chatProviders = useMemo(
+		() => filterProvidersByEnabledModels(providers, enabledModels),
+		[providers, enabledModels],
+	);
 	const [modelValue, setModelValue] = useState(() => localStorage.getItem(MODEL_KEY) ?? "");
 	const [thinkingLevel, setThinkingLevel] = useState(() => localStorage.getItem(THINKING_KEY) ?? "medium");
 	// 审批模式（标准 confirm / 计划 plan / 自动 auto）：输入栏切换，会话中可即时下发
@@ -895,6 +902,15 @@ export default function App(): React.JSX.Element {
 			.request<ProviderModelsMessage[]>({ type: "models.list" })
 			.then((response) => response.ok && setProviders(response.result ?? []))
 			.catch(() => {});
+		// 离开设置页后重读 enabledModels，使「正在使用中的模型」勾选立刻反映到对话选择器。
+		void client
+			.request<{ settings: unknown }>({ type: "settings.get" })
+			.then((response) => {
+				if (!response.ok) return;
+				const settings = response.result?.settings as Record<string, unknown> | undefined;
+				setEnabledModels(parseEnabledModels(settings?.enabledModels));
+			})
+			.catch(() => {});
 	}, [connected, client, showSettings]);
 
 	useEffect(() => {
@@ -935,6 +951,7 @@ export default function App(): React.JSX.Element {
 				setUiLanguageSetting(parseUiLanguageSetting(settings?.uiLanguage));
 				// 通知偏好（owlNotifications）：启动时同步进模块级缓存，notifyAgentStatus 据此门控
 				setNotificationPrefs(parseNotificationPrefs(settings?.owlNotifications));
+				setEnabledModels(parseEnabledModels(settings?.enabledModels));
 			})
 			.catch(() => {});
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
@@ -1296,7 +1313,7 @@ export default function App(): React.JSX.Element {
 	}, [connected, client, railView]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 输入框项目选择器的候选列表：session.list 的项目 ∪ 到访过的项目 ∪ 当前项目（与侧边栏同源）。
-	// 保留目录（默认目录/助理目录）只在被选中为当前项目时进入候选；切项目 / 侧边栏重拉
+	// 保留目录（默认目录/助理目录）一律不进候选（当前位置由输入框 chip 标识）；切项目 / 侧边栏重拉
 	// （恢复、删除归档）时刷新；桥瞬断静默跳过。
 	useEffect(() => {
 		if (!connected) return;
@@ -1308,12 +1325,11 @@ export default function App(): React.JSX.Element {
 				for (const scope of ["chat", "research"] as const) {
 					const seen = new Map<string, string>();
 					const track = (path: string | undefined): void => {
-						if (!path) return;
-						if (isReservedDir(path) && !(workspaceSelected && samePath(path, workspaceRef.current))) return;
+						if (!path || isReservedDir(path)) return;
 						const key = normPath(path);
 						if (!seen.has(key)) seen.set(key, path);
 					};
-					track(workspaceRef.current);
+					track(workspaceSelected ? workspaceRef.current : undefined);
 					for (const row of response.result) if (matchesSessionScope(row, scope)) track(row.cwd);
 					for (const path of loadSidebarStrings(localStorage, sidebarStorageKeys(scope).projects)) track(path);
 					if (scope === "research") setResearchProjects([...seen.values()]);
@@ -2107,11 +2123,11 @@ export default function App(): React.JSX.Element {
 			</div>}
 			{/* 「我的助理」：owl-myself 目录每天一个 md，左侧日历排序 + 当天提炼/待办/对话。 */}
 			{myselfMounted && <div data-owl-island-anchor="" style={{ display: railView === "myself" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
-				<MyselfPanel active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir} providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
+				<MyselfPanel active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir} providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
 			</div>}
 			{/* 「专家顾问」：owl-expert 目录（人格档案 + 记忆 + 每天一个会话 md），市场 + 1:1/群聊。 */}
 			{expertMounted && <div data-owl-island-anchor="" style={{ display: railView === "expert" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
-				<ExpertPanel active={railView === "expert" && !showSettings} client={client} connected={connected} providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
+				<ExpertPanel active={railView === "expert" && !showSettings} client={client} connected={connected} providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
 			</div>}
 			{/* 「八股对练」：bagu 题库（localhost:8080）抽题评分 + owl agent 反问/兜底。 */}
 			{baguMounted && <div data-owl-island-anchor="" style={{ display: railView === "bagu" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
@@ -2159,7 +2175,7 @@ export default function App(): React.JSX.Element {
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
 								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
-								providers={providers} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
+								providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
 								projects={visibleResearchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
@@ -2217,7 +2233,7 @@ export default function App(): React.JSX.Element {
 								onAbort={() => void abort()}
 								onPause={pauseSession}
 								onResume={() => void resumePaused()}
-							providers={providers}
+							providers={chatProviders}
 							model={modelValue}
 							onModel={handleModelChange}
 							thinkingLevel={thinkingLevel}

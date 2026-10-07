@@ -115,6 +115,14 @@ import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
+import {
+	clearCursorAccounts,
+	credentialFromAccount,
+	listCursorAccountsPublic,
+	removeCursorAccount,
+	switchCursorAccount,
+	upsertCursorAccount,
+} from "./cursor-accounts.ts";
 import { handleMapHttp } from "./map-http.ts";
 import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
 import { createMapTools } from "./map-tools.ts";
@@ -2619,6 +2627,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					// 先注销凭据再删声明：注销失败时什么都没变，重试即是完整重来。
 					await (await getListingServices()).modelRuntime.logout(request.providerKey);
 				}
+				if (request.providerKey === "cursor") {
+					clearCursorAccounts(agentDir);
+				}
 				if (declared && models.providers) {
 					delete models.providers[request.providerKey];
 					writeModelsFile(agentDir, models);
@@ -2638,6 +2649,48 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result });
 				return;
 			}
+			case "cursor.accounts.list": {
+				reply(ws, request.id, { ok: true, result: listCursorAccountsPublic(defaultAgentDir()) });
+				return;
+			}
+			case "cursor.accounts.switch": {
+				try {
+					const agentDir = defaultAgentDir();
+					const account = switchCursorAccount(agentDir, request.accountId);
+					const credential = credentialFromAccount(account);
+					const { AuthStorage } = await import("../../core/auth-storage.ts");
+					const storage = AuthStorage.create(join(agentDir, "auth.json"));
+					await storage.modify("cursor", async () => credential);
+					const services = await getListingServices();
+					await services.modelRuntime.refresh({ providers: ["cursor"], allowNetwork: !process.env.PI_OFFLINE });
+					reply(ws, request.id, { ok: true, result: listCursorAccountsPublic(agentDir) });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
+			case "cursor.accounts.remove": {
+				try {
+					const agentDir = defaultAgentDir();
+					const next = removeCursorAccount(agentDir, request.accountId);
+					const { AuthStorage } = await import("../../core/auth-storage.ts");
+					const storage = AuthStorage.create(join(agentDir, "auth.json"));
+					if (next.activeId) {
+						const account = next.accounts.find((entry) => entry.id === next.activeId);
+						if (account) {
+							await storage.modify("cursor", async () => credentialFromAccount(account));
+						}
+					} else {
+						await (await getListingServices()).modelRuntime.logout("cursor");
+					}
+					const services = await getListingServices();
+					await services.modelRuntime.refresh({ providers: ["cursor"], allowNetwork: !process.env.PI_OFFLINE });
+					reply(ws, request.id, { ok: true, result: listCursorAccountsPublic(agentDir) });
+				} catch (error) {
+					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+				}
+				return;
+			}
 			case "auth.login": {
 				// pi /login 的桌面版：oauth 走浏览器（notify 里开浏览器 + 广播进度），api_key 直接落 auth.json。
 				// 流程中的提问（AuthPrompt）转发到界面，由 auth.prompt.respond 带回答案。
@@ -2654,7 +2707,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				// 直接拉起浏览器；enterprise=true（界面勾选企业版）时才转发给界面。
 				const enterpriseMode = request.enterprise === true;
 				try {
-					await services.modelRuntime.login(request.provider, request.authType, {
+					const credential = await services.modelRuntime.login(request.provider, request.authType, {
 						signal: controller.signal,
 						prompt: (ask) => {
 							// 快捷接入贴了 API Key（authType=api_key）："Enter xxx key" 这类 secret 提问
@@ -2704,6 +2757,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 							});
 						},
 					});
+					// Cursor 支持多账号：每次登录 upsert 到账号池，auth.json 的 cursor 槽保持当前活跃。
+					if (request.provider === "cursor" && credential.type === "oauth") {
+						upsertCursorAccount(defaultAgentDir(), credential);
+					}
 					reply(ws, request.id, { ok: true, result: { provider: request.provider, authType: request.authType } });
 				} catch (error) {
 					if (controller.signal.aborted) {

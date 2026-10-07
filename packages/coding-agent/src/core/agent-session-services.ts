@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import type { CredentialStore, Model } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
+import { AuthStorage } from "./auth-storage.ts";
+import { withCursorAccountSync } from "./cursor-accounts.ts";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import {
@@ -39,6 +41,8 @@ export interface CreateAgentSessionServicesOptions {
 	agentDir?: string;
 	settingsManager?: SettingsManager;
 	modelRuntime?: ModelRuntime;
+	/** Override credential store (tests / custom backends). Default: auth.json + Cursor multi-account sync. */
+	credentials?: CredentialStore;
 	modelRuntimeSignal?: AbortSignal;
 	extensionFlagValues?: Map<string, boolean | string>;
 	resourceLoaderOptions?: Omit<DefaultResourceLoaderOptions, "cwd" | "agentDir" | "settingsManager">;
@@ -138,11 +142,14 @@ export async function createAgentSessionServices(
 ): Promise<AgentSessionServices> {
 	const cwd = resolvePath(options.cwd);
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getAgentDir();
+	const authPath = join(agentDir, "auth.json");
+	const credentials = options.credentials ?? withCursorAccountSync(AuthStorage.create(authPath), agentDir);
 	const modelRuntime =
 		options.modelRuntime ??
 		(await ModelRuntime.create({
-			authPath: join(agentDir, "auth.json"),
+			authPath,
 			modelsPath: join(agentDir, "models.json"),
+			credentials,
 			signal: options.modelRuntimeSignal,
 		}));
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);

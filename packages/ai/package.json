@@ -69,7 +69,9 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.129.0",
 		"@aws-sdk/client-bedrock-runtime": "3.1127.0",
+		"@bufbuild/protobuf": "2.13.0",
 		"@google/genai": "2.21.0",
+		"@rahularya01/pi-cursor": "1.4.38",
 		"@smithy/node-http-handler": "4.12.1",
 		"http-proxy-agent": "9.1.0",
 		"https-proxy-agent": "9.1.0",

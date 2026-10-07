@@ -112,12 +112,17 @@ function commonBuildOptions() {
 	};
 }
 
+function isNodeBuiltin(path) {
+	// esbuild may report node:sqlite as the bare "sqlite" external; accept both forms.
+	return isBuiltin(path) || (!path.includes(":") && isBuiltin(`node:${path}`));
+}
+
 function validateExternalImports(metafiles) {
 	const unexpected = new Set();
 	for (const metafile of metafiles) {
 		for (const input of Object.values(metafile.inputs)) {
 			for (const imported of input.imports) {
-				if (!imported.external || isBuiltin(imported.path) || allowedExternalPackages.has(imported.path)) {
+				if (!imported.external || isNodeBuiltin(imported.path) || allowedExternalPackages.has(imported.path)) {
 					continue;
 				}
 				unexpected.add(imported.path);
@@ -191,6 +196,7 @@ const lazyEntryPoints = {
 	anthropic: join(aiDistDir, "auth", "oauth", "anthropic.js"),
 	"bedrock-converse-stream": join(aiDistDir, "api", "bedrock-converse-stream.js"),
 	"codemode-worker": join(codingAgentDistDir, "extensions", "codemode", "worker.js"),
+	cursor: join(aiDistDir, "auth", "oauth", "cursor.js"),
 	"github-copilot": join(aiDistDir, "auth", "oauth", "github-copilot.js"),
 	"image-resize-worker": join(codingAgentDistDir, "utils", "image-resize-worker.js"),
 	"kimi-coding": join(aiDistDir, "auth", "oauth", "kimi-coding.js"),

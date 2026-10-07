@@ -6,6 +6,6 @@
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext"
 	},
-	"include": ["src/**/*.ts"],
-	"exclude": ["node_modules", "dist", "**/*.d.ts", "src/**/*.d.ts"]
+	"include": ["src/**/*.ts", "src/providers/cursor-shim.d.ts", "src/providers/data-json.d.ts"],
+	"exclude": ["node_modules", "dist"]
 }

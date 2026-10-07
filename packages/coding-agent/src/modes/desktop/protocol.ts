@@ -2069,6 +2069,9 @@ export type DesktopClientRequest =
 	| AuthLoginRequest
 	| AuthPromptRespondRequest
 	| AuthCancelRequest
+	| CursorAccountsListRequest
+	| CursorAccountsSwitchRequest
+	| CursorAccountsRemoveRequest
 	| SettingsGetRequest
 	| SettingsSetRequest
 	| SystemPromptPreviewRequest
@@ -2159,6 +2162,34 @@ export interface AuthPromptRespondRequest {
 export interface AuthCancelRequest {
 	type: "auth.cancel";
 	id: string;
+}
+
+/** Cursor 多账号：列出已登录账号（不含密钥）。 */
+export interface CursorAccountsListRequest {
+	type: "cursor.accounts.list";
+	id: string;
+}
+
+/** Cursor 多账号：切换当前活跃账号（写入 auth.json 的 cursor 槽）。 */
+export interface CursorAccountsSwitchRequest {
+	type: "cursor.accounts.switch";
+	id: string;
+	accountId: string;
+}
+
+/** Cursor 多账号：移除一个已保存账号。 */
+export interface CursorAccountsRemoveRequest {
+	type: "cursor.accounts.remove";
+	id: string;
+	accountId: string;
+}
+
+export interface CursorAccountInfo {
+	id: string;
+	label: string;
+	email?: string;
+	active: boolean;
+	expires: number;
 }
 
 export interface ModelInfoMessage {

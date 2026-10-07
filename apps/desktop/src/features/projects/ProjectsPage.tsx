@@ -164,11 +164,11 @@ export function ProjectsPage({
 		[allRows],
 	);
 
-	// 项目 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目；保留目录只在作为当前项目时出现。
+	// 项目 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目；保留目录（默认目录/助理目录）一律不进项目列表。
 	const projects = useMemo<ProjectAgg[]>(() => {
 		const map = new Map<string, ProjectAgg>();
 		const track = (path: string | undefined, row?: SessionRow): void => {
-			if (!path || (isReservedDir(path) && !samePath(path, activeProject))) return;
+			if (!path || isReservedDir(path)) return;
 			const key = normPath(path);
 			let agg = map.get(key);
 			if (!agg) {

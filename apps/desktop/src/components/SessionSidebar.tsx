@@ -689,14 +689,14 @@ export function SessionSidebar({
 	}, [sessions, pinned, pinnedSort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 项目列表 = 当前项目 ∪ 有会话的项目 ∪ 到访过的项目，按路径去重。
-	// 保留目录（默认目录/助理目录）不算普通项目：只在作为当前项目时出现，退出项目即隐藏，
-	// 其会话仍列在「最近会话」。排序：按最近会话活动时间降序（无会话的按名称垫底）；
+	// 保留目录（默认目录/助理目录）不算普通项目：一律不进项目分组（即使是当前项目，
+	// 当前位置由顶栏与输入框 chip 标识），其会话仍列在「最近会话」。
+	// 排序：按最近会话活动时间降序（无会话的按名称垫底）；
 	// 切项目不改变顺序，避免点击的项目跳到列表顶部。
 	const projectPaths = useMemo(() => {
 		const map = new Map<string, { path: string; latest: string }>();
 		const track = (path: string | undefined, time?: string): void => {
-			if (!path) return;
-			if (isReservedDir(path) && !samePath(path, activeProject)) return;
+			if (!path || isReservedDir(path)) return;
 			const key = normPath(path);
 			const existing = map.get(key);
 			if (!existing) map.set(key, { path, latest: time ?? "" });
@@ -711,7 +711,7 @@ export function SessionSidebar({
 				return projectLabel(a.path).localeCompare(projectLabel(b.path), "zh-CN");
 			})
 			.map((entry) => entry.path);
-	}, [sessions, activeProject, knownProjects, projectRevision]);
+	}, [sessions, knownProjects, projectRevision]);
 
 	// 搜索时项目行按名称/路径/自身会话过滤，避免搜会话时冒出一堆不相干项目。
 	const projectMatchesSearch = (path: string): boolean =>
@@ -725,10 +725,10 @@ export function SessionSidebar({
 		[projectPaths, sessions, search, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 
-	// 置顶项目行（按置顶先后），保留目录只在作为当前项目时显示，搜索时同样按项目过滤。
+	// 置顶项目行：保留目录不设项目行，搜索时同样按项目过滤。
 	const pinnedProjectRows = useMemo(
-		() => pinnedProjects.filter((path) => (!isReservedDir(path) || samePath(path, activeProject)) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
-		[pinnedProjects, activeProject, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
+		() => pinnedProjects.filter((path) => !isReservedDir(path) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
+		[pinnedProjects, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 
 	const recentSessions = useMemo(() => {

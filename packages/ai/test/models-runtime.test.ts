@@ -407,6 +407,35 @@ describe("Models runtime", () => {
 		expect(offline.getModel("dynamic", "fetched")).toBeDefined();
 	});
 
+	it("rebases a restored dynamic catalog onto the provider's current baseUrl", async () => {
+		const credentials = new InMemoryCredentialStore();
+		const modelsStore = new InMemoryModelsStore();
+		const stale = testModel("loean", "deepseek-v4.1-flash");
+		stale.baseUrl = "http://127.0.0.1:8787/v1";
+		await modelsStore.write("loean", { models: [stale], checkedAt: 1 });
+
+		const models = createModels({ credentials, modelsStore });
+		models.setProvider(
+			createProvider({
+				id: "loean",
+				baseUrl: "http://127.0.0.1:8790/v1",
+				auth: { apiKey: ambientAuth },
+				models: [],
+				fetchModels: async () => {
+					throw new Error("must not fetch");
+				},
+				api: {
+					stream: () => new AssistantMessageEventStream(),
+					streamSimple: () => new AssistantMessageEventStream(),
+				},
+			}),
+		);
+
+		expect((await models.refresh({ allowNetwork: false })).errors.size).toBe(0);
+		expect(models.getModel("loean", "deepseek-v4.1-flash")?.baseUrl).toBe("http://127.0.0.1:8790/v1");
+		expect((await modelsStore.read("loean"))?.models[0]?.baseUrl).toBe("http://127.0.0.1:8790/v1");
+	});
+
 	it("passes effective API-key credentials and refresh options while skipping unconfigured providers", async () => {
 		let effectiveCredential: unknown;
 		let forceRefresh: boolean | undefined;

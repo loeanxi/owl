@@ -28,6 +28,11 @@ import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
 import { IconActivity, IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
+import {
+	isModelMarkedInUse,
+	nextEnabledModelsAfterToggle,
+	parseEnabledModels,
+} from "../utils/enabled-models.ts";
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
@@ -167,6 +172,10 @@ export function SettingsPage({
 	const [authSuccess, setAuthSuccess] = useState<{ title: string; message: string } | null>(null);
 	// GitHub 企业版登录：勾选后桥不再自动代答「企业域名」，把提问转给界面
 	const [enterpriseLogin, setEnterpriseLogin] = useState(false);
+	// Cursor 多账号池（auth.json 只保留当前活跃槽）
+	const [cursorAccounts, setCursorAccounts] = useState<
+		{ id: string; label: string; email?: string; active: boolean; expires: number }[]
+	>([]);
 
 	// 归档：保留期 + 已归档会话列表（session.list 拿标题，两步确认删除）
 	const [archiveCfg, setArchiveCfg] = useState<ArchiveConfigResult>({ retentionDays: 15, sessions: [] });
@@ -287,6 +296,17 @@ export function SettingsPage({
 	 * 不能走 apply()——数组判断会把成功误判成「操作失败」，这里只看 ok。
 	 * 成功：弹窗提醒 + 后台刷新模型列表；用户取消（「登录已取消」）保持静默。
 	 */
+	function refreshCursorAccounts(): void {
+		void client
+			.request<{ id: string; label: string; email?: string; active: boolean; expires: number }[]>({
+				type: "cursor.accounts.list",
+			})
+			.then((response) => {
+				if (response.ok && Array.isArray(response.result)) setCursorAccounts(response.result);
+			})
+			.catch(() => {});
+	}
+
 	function finishAuthLogin(response: { ok: boolean; error?: string }, providerId: string, title: string): void {
 		if (!response.ok) {
 			if (!/取消/.test(response.error ?? "")) setError(response.error ?? t("common.operationFailed"));
@@ -296,6 +316,7 @@ export function SettingsPage({
 		const name = catalog.find((p) => p.id === providerId)?.name ?? providerId;
 		setAuthSuccess({ title, message: t("settings.models.loginSuccessMessage", { name }) });
 		void client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+		if (providerId === "cursor") refreshCursorAccounts();
 	}
 
 	function apply(response: { ok: boolean; result?: unknown; error?: string }): boolean {
@@ -310,11 +331,15 @@ export function SettingsPage({
 
 	useEffect(() => {
 		void (async () => {
-			const [settings, models, providers] = await Promise.all([
+			const [settings, models, providers, cursorAccts] = await Promise.all([
 				client.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" }),
 				client.request<ProviderModelsMessage[]>({ type: "models.list" }),
 				client.request<{ id: string; name: string; oauth: boolean; apiKey: boolean }[]>({ type: "auth.providers" }),
+				client.request<{ id: string; label: string; email?: string; active: boolean; expires: number }[]>({
+					type: "cursor.accounts.list",
+				}),
 			]);
+			if (cursorAccts.ok && Array.isArray(cursorAccts.result)) setCursorAccounts(cursorAccts.result);
 				if (settings.ok && settings.result) {
 					const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
 					setAgentDir(settings.result.agentDir);
@@ -1056,6 +1081,21 @@ export function SettingsPage({
 		setPApiKey("");
 	}
 
+	/** 正在使用中的模型：写入 settings.enabledModels（数组整体替换；null 表示清除过滤=全部可用）。 */
+	function saveEnabledModels(next: string[] | null): void {
+		void saveSettings({ enabledModels: next });
+	}
+
+	function toggleInUseModel(providerId: string, modelId: string, checked: boolean): void {
+		const current = parseEnabledModels(settingsObj.enabledModels);
+		const next = nextEnabledModelsAfterToggle(groups, current, providerId, modelId, checked);
+		saveEnabledModels(next);
+	}
+
+	function setAllInUse(checked: boolean): void {
+		saveEnabledModels(checked ? null : []);
+	}
+
 	/** 保存侧边卡片配置：settings.set 深合并对象、整体替换数组，所以传完整对象。 */
 	function saveSidebar(next: SidebarConfig): void {
 		void saveSettings({ owlSidebar: next });
@@ -1151,6 +1191,14 @@ export function SettingsPage({
 	const theme = typeof settingsObj.theme === "string" ? settingsObj.theme : "dark";
 	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "";
 	const modelCount = groups.reduce((n, g) => n + g.models.length, 0);
+	const enabledModels = parseEnabledModels(settingsObj.enabledModels);
+	const inUseCount =
+		enabledModels == null
+			? modelCount
+			: groups.reduce(
+					(n, group) => n + group.models.filter((model) => isModelMarkedInUse(group.id, model.id, enabledModels)).length,
+					0,
+				);
 
 	const input = "owl-settings-input mt-1 w-full font-mono";
 	const smallInput = input;
@@ -1363,8 +1411,100 @@ export function SettingsPage({
 													</label>
 												</div>
 											)}
-											{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
-											{loginAsk && (
+									{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
+									{/* Cursor 多账号：继续浏览器登录会追加账号，可在此切换/删除 */}
+									{(quickProvider === "cursor" || cursorAccounts.length > 0) && (
+										<div className="mt-3 space-y-2 rounded-lg border border-owl-border px-3 py-2">
+											<div className="flex items-center justify-between gap-2">
+												<div className="text-[11px] font-medium text-owl-text">{t("settings.models.cursorAccountsTitle")}</div>
+												<button
+													type="button"
+													className={btn}
+													disabled={busy}
+													onClick={() => {
+														setBusy(true);
+														setQuickProvider("cursor");
+														setQuickHint(t("settings.models.oauthStarting"));
+														void client
+															.request({ type: "auth.login", provider: "cursor", authType: "oauth" })
+															.then((response) => finishAuthLogin(response, "cursor", t("settings.models.oauthLoginSuccessTitle")))
+															.finally(() => setBusy(false));
+													}}
+												>
+													{t("settings.models.cursorAddAccount")}
+												</button>
+											</div>
+											<p className="text-[11px] text-owl-muted">{t("settings.models.cursorAccountsDesc")}</p>
+											{cursorAccounts.length === 0 ? (
+												<div className="text-[11px] text-owl-faint">{t("settings.models.cursorAccountsEmpty")}</div>
+											) : (
+												<ul className="space-y-1">
+													{cursorAccounts.map((account) => (
+														<li key={account.id} className="flex items-center justify-between gap-2 text-[12px]">
+															<div className="min-w-0">
+																<div className="truncate text-owl-text">
+																	{account.label}
+																	{account.active ? (
+																		<span className="ml-1 text-[10px] text-owl-accent">{t("settings.models.cursorAccountActive")}</span>
+																	) : null}
+																</div>
+																{account.email && account.email !== account.label ? (
+																	<div className="truncate text-[10px] text-owl-muted">{account.email}</div>
+																) : null}
+															</div>
+															<div className="flex shrink-0 gap-2">
+																{!account.active && (
+																	<button
+																		type="button"
+																		className="owl-settings-link"
+																		disabled={busy}
+																		onClick={() => {
+																			setBusy(true);
+																			void client
+																				.request({ type: "cursor.accounts.switch", accountId: account.id })
+																				.then((response) => {
+																					if (!response.ok) {
+																						setError(response.error ?? t("common.operationFailed"));
+																						return;
+																					}
+																					if (Array.isArray(response.result)) setCursorAccounts(response.result as typeof cursorAccounts);
+																					return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+																				})
+																				.finally(() => setBusy(false));
+																		}}
+																	>
+																		{t("settings.models.cursorAccountSwitch")}
+																	</button>
+																)}
+																<button
+																	type="button"
+																	className="owl-settings-link is-danger"
+																	disabled={busy}
+																	onClick={() => {
+																		setBusy(true);
+																		void client
+																			.request({ type: "cursor.accounts.remove", accountId: account.id })
+																			.then((response) => {
+																				if (!response.ok) {
+																					setError(response.error ?? t("common.operationFailed"));
+																					return;
+																				}
+																				if (Array.isArray(response.result)) setCursorAccounts(response.result as typeof cursorAccounts);
+																				return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
+																			})
+																			.finally(() => setBusy(false));
+																	}}
+																>
+																	{t("common.delete")}
+																</button>
+															</div>
+														</li>
+													))}
+												</ul>
+											)}
+										</div>
+									)}
+									{loginAsk && (
 												<div className="owl-settings-notice is-warning">
 													<div className="text-[11px] text-amber-200">{loginAsk.message ?? t("settings.models.loginNeedsInput")}</div>
 													{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
@@ -1407,6 +1547,55 @@ export function SettingsPage({
 														</button>
 													</div>
 												</div>
+											)}
+										</div>
+									)}
+								</div>
+
+								{/* 正在使用中的模型：勾选后才会出现在对话模型列表 */}
+								<div className="owl-settings-card">
+									<div className="flex items-start justify-between gap-3">
+										<div className="min-w-0">
+											<div className="owl-settings-row-title">{t("settings.models.inUseTitle")}</div>
+											<p className="owl-settings-row-description">{t("settings.models.inUseDesc")}</p>
+										</div>
+										{modelCount > 0 && (
+											<div className="flex shrink-0 items-center gap-2">
+												<button type="button" className="owl-settings-link" disabled={busy || inUseCount === modelCount} onClick={() => setAllInUse(true)}>
+													{t("settings.models.inUseSelectAll")}
+												</button>
+												<button type="button" className="owl-settings-link" disabled={busy || inUseCount === 0} onClick={() => setAllInUse(false)}>
+													{t("settings.models.inUseSelectNone")}
+												</button>
+											</div>
+										)}
+									</div>
+									<div className="mt-2 text-[11px] text-owl-faint">{t("settings.models.inUseCount", { n: inUseCount, total: modelCount })}</div>
+									{modelCount === 0 ? (
+										<div className="owl-settings-notice mt-3">{t("settings.models.inUseEmpty")}</div>
+									) : (
+										<div className="owl-settings-plugin-list mt-3">
+											{groups.map((group) =>
+												group.models.map((model) => {
+													const checked = isModelMarkedInUse(group.id, model.id, enabledModels);
+													const label = model.name || model.id;
+													return (
+														<div key={`${group.id}/${model.id}`} className={`owl-settings-plugin-row ${checked ? "" : "opacity-55"}`}>
+															<input
+																type="checkbox"
+																checked={checked}
+																disabled={busy}
+																aria-label={checked ? t("settings.models.inUseDisableAria", { name: label }) : t("settings.models.inUseEnableAria", { name: label })}
+																onChange={(event) => toggleInUseModel(group.id, model.id, event.target.checked)}
+															/>
+															<span className="min-w-0 flex-1 truncate text-sm text-owl-text">{label}</span>
+															<span className="shrink-0 text-[10px] text-owl-faint">{group.name ?? group.id}</span>
+															{model.reasoning ? (
+																<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-muted">{t("settings.models.reasoning")}</span>
+															) : null}
+														</div>
+													);
+												}),
 											)}
 										</div>
 									)}

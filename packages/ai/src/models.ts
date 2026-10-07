@@ -1086,11 +1086,22 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 		refreshModels: fetchModels
 			? async (context) => {
 					if (context.stored) {
+						// 动态目录把拉取当时的网关地址烤进每条模型。网关搬家后（例如中转从
+						// 8787 换到当前 provider.baseUrl）离线恢复必须改用现在的地址，
+						// 否则请求会一直打到已经没有路由、甚至已经关掉的旧站。
+						const gateway = input.baseUrl;
+						let rebased = false;
 						const restored = context.stored.models
 							.filter((model) => model.provider === input.id)
-							.map((model) => model as ProviderModel<TApi>);
+							.map((model) => {
+								const typed = model as ProviderModel<TApi>;
+								if (!gateway || typed.baseUrl === gateway) return typed;
+								rebased = true;
+								return { ...typed, baseUrl: gateway };
+							});
 						if (
 							!(await context.publish({
+								...(rebased ? { persist: { ...context.stored, models: restored } } : {}),
 								update: () => {
 									dynamicModels = restored;
 								},
