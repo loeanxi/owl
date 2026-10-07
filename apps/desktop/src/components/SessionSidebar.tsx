@@ -4,6 +4,8 @@ import { normPath, samePath, isReservedDir } from "../utils/paths.ts";
 import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, publishProjectSidebarChange, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { startPointerDrag } from "../sidebar/pointer-drag.ts";
+import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, sidebarWidthLimit } from "../sidebar/pane-sizing.ts";
+import { usePaneContainer } from "../sidebar/use-pane-container.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
@@ -51,19 +53,12 @@ const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 侧栏宽度（localStorage）：右缘拖拽调整，双击手柄复位为 CSS 默认值。 */
 const WIDTH_KEY = "owl.sidebar.width";
-/** 侧栏宽度下限；上限同时受「聊天区至少保留 320px」约束。 */
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 720;
 /** 非法/越界存储值按 CSS 默认宽度渲染（返回 null = 不写内联样式）。 */
 function loadSidebarWidth(): number | null {
 	const raw = localStorage.getItem(WIDTH_KEY);
 	const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10);
 	if (!Number.isFinite(parsed)) return null;
 	return Math.min(Math.max(parsed, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
-}
-/** 拖拽时的实时钳制：上限不超过视口宽度减去聊天区最小保留宽度。 */
-function clampSidebarWidth(width: number): number {
-	return Math.min(Math.max(width, SIDEBAR_MIN_WIDTH), Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - 320)));
 }
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
@@ -388,6 +383,8 @@ export function SessionSidebar({
 	const [dropHint, setDropHint] = useState<{ path: string; index: number } | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const asideRef = useRef<HTMLElement>(null);
+	const containerSize = usePaneContainer(asideRef, true);
+	const maxSidebarWidth = containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
 	/** 右缘拖拽调宽：null = 未拖过，走 CSS 默认宽度。 */
 	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
 	const [resizing, setResizing] = useState(false);
@@ -405,7 +402,7 @@ export function SessionSidebar({
 		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
 			cursor: "col-resize",
 			onMove: (moveEvent) => {
-				latest = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
+				latest = Math.min(Math.max(startWidth + moveEvent.clientX - startX, SIDEBAR_MIN_WIDTH), maxSidebarWidth);
 				setSidebarWidth(latest);
 			},
 			onFinish: (cancelled) => {
@@ -416,7 +413,7 @@ export function SessionSidebar({
 				localStorage.setItem(WIDTH_KEY, String(latest));
 			},
 		});
-	}, []);
+	}, [maxSidebarWidth]);
 	useEffect(() => () => {
 		activeDrag.current?.();
 		activeDrag.current = undefined;
@@ -1012,7 +1009,7 @@ export function SessionSidebar({
 			className="owl-sidebar"
 			aria-label={t("sidebar.aria")}
 			hidden={minimized}
-			style={sidebarWidth === null ? undefined : { width: sidebarWidth, flexBasis: sidebarWidth, maxWidth: "calc(100vw - 320px)" }}
+			style={{ ...(sidebarWidth === null ? {} : { width: sidebarWidth, flexBasis: sidebarWidth }), maxWidth: maxSidebarWidth }}
 		>
 			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button

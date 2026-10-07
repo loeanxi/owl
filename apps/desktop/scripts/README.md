@@ -1,5 +1,25 @@
 # Desktop browser regressions
 
+Run the pane-sizing regression from the repository root:
+
+```sh
+node apps/desktop/scripts/workbench-responsive.browser.mjs /absolute/output/directory
+```
+
+This bundles the actual `SessionSidebar`, `Workbench` and current styles with isolated chat/video placeholders. It checks oversized saved preferences, 1920/1280/800 pixel windows, automatic bottom docking, restoring preferences after widening, hidden tools, a concurrent terminal, resizing and double-click reset. It does not access real sessions or native video windows. Pure sizing tests are in `src/sidebar/pane-sizing.test.ts`.
+
+Run the short-drama mirror regression from the repository root:
+
+```sh
+node apps/desktop/scripts/mirror-responsive.browser.mjs /absolute/output/directory
+```
+
+This script bundles the actual `MirrorTab.tsx`, its content-coordinate helper and current Tailwind styles. It uses the existing Playwright, esbuild and Tailwind dependencies with an installed Chromium browser; `OWL_BROWSER_TEST_EXECUTABLE` selects another local browser. All native window RPCs and JPEG frames are local mocks. External requests are blocked, and no running bridge, Hongguo window, model or paid API is used.
+
+The 26 assertions check image proportions and mapped navigation clicks at 1920, 1280, 1024 and 800 pixels, 125% scaling, portrait frames and a short bottom panel. They verify that app-store chrome is cropped while drama navigation remains, black bars and empty frames ignore input, and resize/DPI changes do not shrink the native source. Dragging outside the panel clamps coordinates and always releases the button; cancellation, blur, hide and unmount also release it. Wheel routing, coalesced moves, capture cleanup, explicit restoration, window replacement, WebSocket reconnection, stale geometry and invalid crops are covered. A development React StrictMode case checks late project completion after unmount; a separate new-component reopen case verifies old cleanup finishes before the new projection. The original native-overlay failures and screenshots remain under the external validation directory; the current test exercises the replacement projection architecture. Output contains source hashes, measured pixels, native request traces and screenshots; any failed assertion or browser error exits with status 1. Real WGC capture and native input require the separate Windows acceptance checks. Append `--case=<name-fragment>` to run a focused case.
+
+Six pressure cases additionally measure 60 Hz wheel/drag input with 30–60 ms mock RPCs and 60 FPS input with a deliberately delayed 55 ms browser image decode. They check bounded input tail latency, preserved small wheel increments and large batches, one active decoder, continued drawing during a stream and convergence to its final frame. Three wheel boundary cases cover fractional input, ordered direction changes, consecutive gestures and sustained alternating directions without a long replay queue. Run only pressure cases with `--case=performance`, or boundary cases with `--case=wheel-boundary`. The default run executes all 35 cases; reported timings are controlled browser measurements rather than native application FPS.
+
 Run the Workbench drag regression from the repository root:
 
 ```sh

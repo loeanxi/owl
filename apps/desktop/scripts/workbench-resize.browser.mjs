@@ -147,6 +147,7 @@ try {
 		platform: "browser",
 		format: "esm",
 		jsx: "automatic",
+		loader: { ".woff2": "dataurl", ".woff": "dataurl", ".ttf": "dataurl" },
 		minify: true,
 		define: { "process.env.NODE_ENV": '"production"' },
 		metafile: true,
@@ -211,7 +212,8 @@ try {
 				const target = horizontal
 					? { x: start.x + scenario.delta, y: start.y }
 					: { x: start.x, y: start.y + scenario.delta };
-				const expected = (horizontal ? before.width : before.height) - scenario.delta;
+				const available = await page.$eval(".test-layout", (element) => ({ width: element.clientWidth, height: element.clientHeight }));
+				const expected = Math.min((horizontal ? before.width : before.height) - scenario.delta, horizontal ? available.width - 320 : available.height - 180);
 				await page.mouse.move(start.x, start.y);
 				await page.mouse.down();
 				await page.mouse.move(target.x, target.y, { steps: scenario.steps ?? 12 });

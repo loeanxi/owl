@@ -23,10 +23,14 @@ import { fileUrlOf } from "./api.ts";
 import { attachPluginViewers } from "./plugin-viewers.ts";
 import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
 import { startPointerDrag, type PointerDragHandlers } from "./pointer-drag.ts";
+import { CONVERSATION_MIN_HEIGHT, CONVERSATION_MIN_WIDTH, fitPaneSize, WORKBENCH_MIN_HEIGHT, WORKBENCH_MIN_WIDTH, workbenchDock } from "./pane-sizing.ts";
+import { usePaneContainer } from "./use-pane-container.ts";
 import "./workbench-design.css";
+import "./responsive-panes.css";
 
 const WIDTH_KEY = "owl.workbench.width";
 const HEIGHT_KEY = "owl.workbench.height";
+const COMPACT_HEIGHT_KEY = "owl.workbench.compactHeight";
 
 export type WorkbenchDock = "right" | "bottom";
 
@@ -48,8 +52,6 @@ export interface WorkbenchProps {
 	developerLayout?: boolean;
 }
 
-const HEIGHT_MIN = 140;
-const WIDTH_MIN = 280;
 const DESIGNED_TAB_KINDS = new Set(["files", "changes", "review", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
 
 interface DragState {
@@ -91,12 +93,27 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 	const [gitStatus, setGitStatus] = useState<GitStatusResult | undefined>(undefined);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(WIDTH_KEY));
-		return saved >= WIDTH_MIN ? saved : 380;
+		return Number.isFinite(saved) && saved >= WORKBENCH_MIN_WIDTH ? saved : 380;
 	});
 	const [height, setHeight] = useState(() => {
 		const saved = Number(localStorage.getItem(HEIGHT_KEY));
-		return saved >= HEIGHT_MIN ? saved : 260;
+		return Number.isFinite(saved) && saved >= WORKBENCH_MIN_HEIGHT ? saved : 260;
 	});
+	const [compactHeight, setCompactHeight] = useState<number | null>(() => {
+		const saved = Number(localStorage.getItem(COMPACT_HEIGHT_KEY));
+		return Number.isFinite(saved) && saved >= WORKBENCH_MIN_HEIGHT ? saved : null;
+	});
+	const shellRef = useRef<HTMLElement>(null);
+	const containerSize = usePaneContainer(shellRef);
+	const effectiveDock = containerSize === null ? dock : workbenchDock(dock, containerSize.width);
+	const compact = dock === "right" && effectiveDock === "bottom";
+	// Only an open terminal needs a second vertical reserve in a stacked workspace.
+	const heightReserve = CONVERSATION_MIN_HEIGHT + (compact && containerSize?.terminalVisible ? WORKBENCH_MIN_HEIGHT : 0);
+	const displayWidth = containerSize === null ? width : fitPaneSize(width, WORKBENCH_MIN_WIDTH, containerSize.width, CONVERSATION_MIN_WIDTH);
+	// Short drama needs room for its 843:472 picture plus both tab bars, toolbar and status.
+	const defaultCompactHeight = activeTab?.kind === "mirror" && containerSize ? containerSize.width * 472 / 843 + 140 : 260;
+	const preferredHeight = compact ? compactHeight ?? defaultCompactHeight : height;
+	const displayHeight = containerSize === null ? preferredHeight : fitPaneSize(preferredHeight, WORKBENCH_MIN_HEIGHT, containerSize.height, heightReserve);
 	const gitTimer = useRef<number | undefined>(undefined);
 
 	registerBuiltins();
@@ -130,7 +147,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 	useEffect(() => () => {
 		activeDrag.current?.();
 		activeDrag.current = undefined;
-	}, [cwd, store, open, dock]);
+	}, [cwd, store, open, effectiveDock]);
 
 	const hitTest = useCallback((x: number, y: number): void => {
 		let hit: DropTarget | null = null;
@@ -288,29 +305,30 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 		const shell = e.currentTarget.parentElement;
 		if (!shell) return;
 		const rect = shell.getBoundingClientRect();
-		const origin = dock === "right" ? rect.width : rect.height;
+		const origin = effectiveDock === "right" ? rect.width : rect.height;
 		let currentSize = origin;
 		const startX = e.clientX;
 		const startY = e.clientY;
-		const maxSide =
-			dock === "right" ? Math.max(window.innerWidth * 0.6, 420) : Math.max(window.innerHeight * 0.7, 320);
+		const parent = shell.parentElement;
+		if (!parent) return;
 		const onMove =
-			dock === "right"
+			effectiveDock === "right"
 				? (move: PointerEvent): void => {
-						const next = Math.min(Math.max(origin + startX - move.clientX, WIDTH_MIN), maxSide);
+						const next = fitPaneSize(origin + startX - move.clientX, WORKBENCH_MIN_WIDTH, parent.clientWidth, CONVERSATION_MIN_WIDTH);
 						currentSize = next;
 						setWidth(next);
 					}
 				: (move: PointerEvent): void => {
 						// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
-						const next = Math.min(Math.max(origin + (startY - move.clientY), HEIGHT_MIN), maxSide);
+						const next = fitPaneSize(origin + startY - move.clientY, WORKBENCH_MIN_HEIGHT, parent.clientHeight, heightReserve);
 						currentSize = next;
-						setHeight(next);
+						if (compact) setCompactHeight(next);
+						else setHeight(next);
 					};
 		const onUp = (): void => {
-			localStorage.setItem(dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(currentSize));
+			localStorage.setItem(compact ? COMPACT_HEIGHT_KEY : dock === "right" ? WIDTH_KEY : HEIGHT_KEY, String(currentSize));
 		};
-		beginPointerDrag(e, { cursor: dock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
+		beginPointerDrag(e, { cursor: effectiveDock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
 	};
 
 	// -- split tree 渲染 -------------------------------------------------------
@@ -467,16 +485,18 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 
 	return (
 		<aside
+			ref={shellRef}
 			className={`owl-workbench-shell ${open ? "" : "hidden"} relative flex flex-col ${
-				dock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
+				effectiveDock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
 			}`}
 			aria-label={terminalOnly ? t("start.terminal") : developerLayout ? t("app.developerTrigger") : t("wb.workbench")}
 			data-layout={terminalOnly ? "terminal" : developerLayout ? "developer" : "tools"}
-			data-dock={dock}
-			style={dock === "right" ? { width } : { height }}
+			data-dock={effectiveDock}
+			data-responsive-dock={compact ? "bottom" : undefined}
+			style={effectiveDock === "right" ? { width: displayWidth } : { height: displayHeight }}
 		>
 			{/* 拖拽条：右停靠在左缘调宽，底停靠在顶缘调高 */}
-			{dock === "right" ? (
+			{effectiveDock === "right" ? (
 				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="vertical" data-workbench-size-handle="right" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 left-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
 			) : (
 				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="horizontal" data-workbench-size-handle="bottom" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 right-0 left-0 z-20 h-2 cursor-row-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />

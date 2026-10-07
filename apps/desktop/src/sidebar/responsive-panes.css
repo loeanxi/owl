@@ -1,0 +1,4 @@
+/* The actual workspace width decides whether the tool pane fits beside chat. */
+.owl-shell-content:has(> .owl-workbench-shell[data-responsive-dock="bottom"]:not(.hidden)) {
+	flex-direction: column;
+}
