@@ -148,12 +148,11 @@ export default function App(): React.JSX.Element {
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
 	const [evaluationMounted, setEvaluationMounted] = useState(railView === "evaluation");
 	const [researchMounted, setResearchMounted] = useState(railView === "research");
-	// 号池 Manager 懒挂载：首次点开 Rail 才渲染 iframe，之后保活。
+	// 号池 Manager 懒挂载：首次切到 manager 视图时渲染，之后保活。
 	const [managerMounted, setManagerMounted] = useState(railView === "manager");
 	useEffect(() => {
 		if (railView === "manager") setManagerMounted(true);
 	}, [railView]);
-	if (railView === "manager") setManagerMounted(true);
 	const [researchSessionId, setResearchSessionId] = useState<string>();
 	const researchSessionIdRef = useRef(researchSessionId);
 	researchSessionIdRef.current = researchSessionId;
