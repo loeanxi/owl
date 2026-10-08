@@ -375,6 +375,7 @@ export class ExtensionRunner {
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () =>
 		normalizeBuildSystemPromptOptions({ cwd: this.cwd });
 	private executeToolFn: ExtensionContextActions["executeTool"];
+	private getPendingNestedToolCallsFn: ExtensionContextActions["getPendingNestedToolCalls"];
 	private getCallableToolsFn: () => readonly AgentTool[] = () => [];
 	/** Registered MCP servers already reported as unhandled. */
 	private readonly reportedMcpServers = new Set<string>();
@@ -449,6 +450,7 @@ export class ExtensionRunner {
 		this.getSystemPromptOptionsFn =
 			contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
 		this.executeToolFn = contextActions.executeTool;
+		this.getPendingNestedToolCallsFn = contextActions.getPendingNestedToolCalls;
 		this.getCallableToolsFn = contextActions.getCallableTools ?? (() => []);
 
 		// Servers registered from now on reach the extension that connects them right away. Servers
@@ -952,6 +954,12 @@ export class ExtensionRunner {
 		const runner = this;
 		// createContext() returns a fresh object, so adding properties does not affect other contexts.
 		return Object.defineProperties(this.createContext() as ExtensionToolContext, {
+			getPendingNestedToolCalls: {
+				value: () => {
+					runner.assertActive();
+					return runner.getPendingNestedToolCallsFn?.() ?? [];
+				},
+			},
 			tools: {
 				get() {
 					runner.assertActive();

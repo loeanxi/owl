@@ -1,8 +1,8 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
+import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
-import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 import { assertFullFileReadThisTurn } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { pathExists, resolveToCwd } from "./path-utils.ts";
@@ -17,7 +17,7 @@ export const writeToolSystemPromptContribution = {
 	snippet: "Create or overwrite files",
 	guidelines: [
 		"Use write only for new files or complete rewrites.",
-		"Overwriting an existing file requires a read of the whole file in the current turn. A partial read, or a read from before an edit or write of that file, does not count. New files can be written directly.",
+		"Overwriting an existing file requires a read of the whole file in the current turn, or a successful complete write whose exact content is still current. Earlier reads become stale after a mutation. New files can be written directly.",
 	],
 } as const;
 
@@ -34,11 +34,14 @@ export interface WriteOperations {
 	mkdir: (dir: string) => Promise<void>;
 	/** Whether the target file already exists. Default: local filesystem. */
 	exists?: (absolutePath: string) => Promise<boolean>;
+	/** Read current raw bytes to verify a previous complete write. Omit to require explicit reads. */
+	readFile?: (absolutePath: string) => Promise<Buffer>;
 }
 
 const defaultWriteOperations: WriteOperations = {
 	writeFile: (path, content) => fsWriteFile(path, content, "utf-8"),
 	mkdir: (dir) => fsMkdir(dir, { recursive: true }).then(() => {}),
+	readFile: (path) => fsReadFile(path),
 };
 
 export interface WriteToolOptions {
@@ -56,7 +59,7 @@ export function createWriteToolDefinition(
 		name: "write",
 		label: "write",
 		description:
-			"Write content to a file. Creates the file if it doesn't exist. Overwriting an existing file fails unless the read tool returned the whole file in the current turn. Automatically creates parent directories.",
+			"Write content to a file. Creates the file if it doesn't exist. Overwriting requires a full read in this turn or a successful complete write verified against current bytes. Automatically creates parent directories.",
 		promptSnippet: writeToolSystemPromptContribution.snippet,
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		parameters: writeSchema,
@@ -66,7 +69,7 @@ export function createWriteToolDefinition(
 			{ path, content }: { path: string; content: string },
 			signal?: AbortSignal,
 			_onUpdate?,
-			ctx?: ExtensionContext,
+			ctx?: ExtensionToolContext,
 		) {
 			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
 			const dir = dirname(absolutePath);
@@ -82,7 +85,14 @@ export function createWriteToolDefinition(
 				throwIfAborted();
 				if (ctx?.sessionManager && (await exists(absolutePath))) {
 					throwIfAborted();
-					assertFullFileReadThisTurn(ctx.sessionManager, absolutePath, ctx.cwd || cwd, path);
+					assertFullFileReadThisTurn(
+						ctx.sessionManager,
+						absolutePath,
+						ctx.cwd || cwd,
+						path,
+						ctx.getPendingNestedToolCalls?.(),
+						await ops.readFile?.(absolutePath),
+					);
 				}
 				throwIfAborted();
 				// Create parent directories if needed.

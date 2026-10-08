@@ -3,7 +3,7 @@ import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { splitBom } from "../../utils/text.ts";
-import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
 	detectLineEnding,
@@ -47,7 +47,7 @@ export const editToolSystemPromptContribution = {
 		"When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
 		"Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
 		"Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
-		"Before editing an existing file, read the region you will change in the current turn. Each edits[].oldText must appear in that read. Read again after you edit or overwrite the file.",
+		"Before editing an existing file, read the region you will change in the current turn. Each edits[].oldText must appear in that read, or in a successful complete write verified against current bytes. Read again after an edit.",
 	],
 } as const;
 
@@ -202,14 +202,14 @@ export function createEditToolDefinition(
 		name: "edit",
 		label: "edit",
 		description:
-			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. This call fails unless every edits[].oldText appears in a read of this file from the current turn.",
+			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Each oldText must appear in this turn's read or a successful complete write verified against current bytes.",
 		promptSnippet: editToolSystemPromptContribution.snippet,
 		promptGuidelines: [...editToolSystemPromptContribution.guidelines],
 		parameters: editSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		renderShell: "self",
 		prepareArguments: prepareEditArguments,
-		async execute(_toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
+		async execute(_toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionToolContext) {
 			const { path, edits } = validateEditInput(input);
 			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
 
@@ -234,6 +234,9 @@ export function createEditToolDefinition(
 					throw new Error(`Could not edit file: ${path}. ${errorMessage}.`);
 				}
 				throwIfAborted();
+				// Keep byte verification and the resulting mutation in the same file queue.
+				const buffer = await ops.readFile(absolutePath);
+				throwIfAborted();
 				if (ctx?.sessionManager) {
 					assertEditSeenThisTurn(
 						ctx.sessionManager,
@@ -241,12 +244,13 @@ export function createEditToolDefinition(
 						ctx.cwd || cwd,
 						path,
 						edits.map((edit) => edit.oldText),
+						ctx.getPendingNestedToolCalls?.(),
+						buffer,
 					);
 				}
 				throwIfAborted();
 
 				// Read the file.
-				const buffer = await ops.readFile(absolutePath);
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
 

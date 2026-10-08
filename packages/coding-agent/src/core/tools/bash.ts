@@ -163,6 +163,10 @@ export const bashToolSystemPromptContribution = {
 	guidelines: [
 		"You can inspect PI_* environment variables for current model and session details.",
 		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers — read the output instead of retrying the same command.",
+		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
+		"A pipeline normally reports its last command's status: tail/head exiting 0 does not prove an earlier program succeeded. Capture the producer's exit status or inspect Bash PIPESTATUS when validating a program; inspect native assertions even after a test summary says passed.",
+		"When handing files from Git Bash to native Windows Node/Python, quote paths and prefer workspace-relative paths; shell /tmp/MSYS aliases can refer to a different native directory.",
+		"Match Node module format to the file: use .cjs for require/module.exports and .mjs for import/export; check package.json type when using .js.",
 	],
 } as const;
 
@@ -563,6 +567,10 @@ export function createShellToolDefinition(
 					}
 					try {
 						const outcome = await waitSessionProcess(entry, effectiveYield);
+						if (entry.spawnError) {
+							await finishOutput();
+							throw entry.spawnError;
+						}
 						if (signal?.aborted) {
 							killSessionProcess(entry);
 							throw new Error("aborted");
@@ -643,14 +651,21 @@ export function createShellToolDefinition(
 					wall_time_seconds: wallTimeSeconds,
 				};
 				if (exitCode !== 0) {
-					// 127 = shell 里找不到命令（stderr 可能已被命令自己的 2>/dev/null 吞掉）。
-					// 明说原因并给出替代路径，否则模型只看到空输出加退出码，会反复换姿势重试。
+					// Git Bash also maps some Windows native crashes to 127. Require a lookup
+					// diagnostic before recommending another binary, and preserve runtime failures.
+					const commandNotFound =
+						exitCode === 127 &&
+						!/Assertion failed:|FATAL ERROR:|Segmentation fault|\bUV_HANDLE_CLOSING\b/i.test(
+							fullOutput.content,
+						) &&
+						/^(?:[^\r\n]*:[ \t]*command not found(?:[ \t]*:[^\r\n]*)?|(?:[^\r\n]*[\\/])?(?:ba|da|z|k)?sh(?:\.exe)?:[^\r\n]*:[ \t]*not found)[ \t]*\r?$/im.test(
+							fullOutput.content,
+						);
 					const grepStatus = exitCode === 1 ? grepNoMatchStatus(command) : undefined;
 					const gitStatus = gitNotRepositoryStatus(command, exitCode, outputText);
-					const status =
-						exitCode === 127
-							? "Command exited with code 127 (command not found in this shell). Don't retry the same binary; check availability with `command -v <cmd>` and switch to an available alternative (e.g. grep/find instead of rg)."
-							: (grepStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
+					const status = commandNotFound
+						? "Command exited with code 127 (the shell reported a missing command). Check the command named in the diagnostic with `command -v <cmd>` and use an available alternative."
+						: (grepStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
 					// 探测类非零退出（grep 无匹配、路径不存在、不是 git 仓库等）对模型仍附带状态行，
 					// 但不再标记为错误：它们是探测得到的答案，UI 不应计成失败。
 					return {

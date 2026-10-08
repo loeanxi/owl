@@ -126,6 +126,13 @@ const ACTIONS: readonly Concept[] = [
 	{ key: "remember", pattern: /记住|記住|\bremember\b/i, terms: "remember save" },
 	{ key: "click", pattern: /点击|點擊|单击|單擊|\bclick(?:s|ed|ing)?\b/i, terms: "click double-click" },
 	{ key: "type", pattern: /键入|打字|输入文本|輸入文本|\btype\b/i, terms: "type keystroke enter text" },
+	{ key: "fill", pattern: /填写|填寫|填表|填充|\bfill(?:s|ed|ing)?\b/i, terms: "fill populate" },
+	{ key: "select", pattern: /选择|選擇|选中|選中|\bselect(?:s|ed|ing)?\b/i, terms: "select choose" },
+	{
+		key: "evaluate",
+		pattern: /(?:执行|執行|运行|運行).*\b(?:javascript|js)\b|\bevaluate\b|\beval\b/i,
+		terms: "evaluate eval",
+	},
 	{ key: "focus", pattern: /聚焦|切到前台|置前台|置前|\bfocus(?:s|ed|ing)?\b/i, terms: "focus foreground" },
 	{ key: "scroll", pattern: /滚动|滾動|\bscroll(?:s|ed|ing)?\b/i, terms: "scroll wheel" },
 	{
@@ -254,15 +261,108 @@ export function deriveIntentSteps(query: string): ToolIntentStep[] {
 	return deriveSteps(query, (normalized) => conceptFor(normalized, ACTIONS)?.key ?? "unknown");
 }
 
+/** Only the affirmative prefix of a clause can request an action/backend. */
+function affirmativeBrowserClause(clause: string): string {
+	return clause.split(
+		/不要|别|別|勿|无需|無需|不必|不(?:打开|打開|使用|点击|點擊|填写|填寫)|\b(?:do not|don't|never|without)\b/i,
+	)[0];
+}
+
+/** Backend selection is based on explicit positive wording, not negated mentions. */
+export function requestedBrowserBackend(query: string): "native" | "playwright" | "mcp" | undefined {
+	const positive = query
+		.split(/[，,；;。\n]/)
+		.map(affirmativeBrowserClause)
+		.join(" ")
+		.replace(/https?:\/\/\S+|\S+@\S+/gi, "")
+		.replaceAll("_", " ");
+	if (/(?:原生|内嵌|內嵌|native).{0,16}(?:\bbrowser\b|浏览器|瀏覽器)/i.test(positive)) return "native";
+	if (/\bplaywright\b/i.test(positive)) return "playwright";
+	if (/\bmcp\b/i.test(positive)) return "mcp";
+	return undefined;
+}
 /**
  * Preload vocabulary. An action that only matches inside a capability word (播放 inside 播放器)
  * does not count; the model can still recover it through tool_search.
  */
 export function derivePreloadSteps(query: string): ToolIntentStep[] {
-	return deriveSteps(
+	const steps = deriveSteps(
 		query,
 		(normalized) => actionOutside(normalized, capabilityHit(normalized)?.spans ?? []) ?? "unknown",
 	);
+	const browserSteps: ToolIntentStep[] = [];
+	const browser = CAPABILITIES.find((concept) => concept.key === "browser")!;
+	const browserQueries: Readonly<Record<string, string>> = {
+		navigate: "browser_navigate",
+		read: "browser_snapshot",
+		fill: "browser_fill_form",
+		click: "browser_click",
+	};
+	for (const sentence of query.split(/[。\n]/)) {
+		let browserScope = false;
+		let backend: ReturnType<typeof requestedBrowserBackend>;
+		for (const clause of sentence.split(
+			/[，,；;]|然后|然後|接着|接著|随后|隨後|再(?=实际|實際|使用|用|打开|打開|访问|訪問)|但(?:是)?|\bbut\b|\band then\b|\bthen\b/i,
+		)) {
+			const positive = affirmativeBrowserClause(clause).trim();
+			const normalized = normalize(positive);
+			// A source explanation does not forbid a later explicit UI request in a separate clause.
+			if (
+				/(?:只读|只讀).*(?:分析|解释|解釋|代码|代碼)|\b(?:explain|inspect)\b.*\b(?:code|source)\b/i.test(normalized)
+			) {
+				browserScope = false;
+				continue;
+			}
+			if (
+				browser.pattern.test(normalized) &&
+				/(?:使用|用|实际|實際|必须|必須|请|請|通过|通過|\b(?:with|using|use)\b)\s*(?:原生|native|mcp|playwright|\s)*\s*(?:\bbrowser\b|浏览器|瀏覽器)|^(?:浏览器|瀏覽器)(?:打开|打開|访问|訪問|填写|填寫|点击|點擊|读取|讀取)|^browser\s+(?:open|navigate|fill|click|read)|(?:打开|打開|访问|訪問)\s*(?:浏览器|瀏覽器)/i.test(
+					positive,
+				)
+			) {
+				browserScope = true;
+				backend = requestedBrowserBackend(positive);
+			}
+			if (!browserScope || !positive) continue;
+			const actions = ACTIONS.filter((action) => browserQueries[action.key])
+				.flatMap((action) =>
+					matchSpans(normalized, action.pattern).map((span) => ({ key: action.key, start: span.start })),
+				)
+				.sort((left, right) => left.start - right.start);
+			for (const action of actions) {
+				const wording =
+					backend === "playwright" || backend === "mcp"
+						? `${backend === "playwright" ? "mcp playwright" : "mcp"} browser ${action.key}${action.key === "fill" ? " form" : ""}`
+						: browserQueries[action.key];
+				if (browserSteps.some((step) => step.query === wording)) continue;
+				browserSteps.push({ capability: "browser", action: action.key, query: wording, target: wording });
+			}
+		}
+	}
+	const read = ACTIONS.find((action) => action.key === "read")!;
+	const noObservation = query.split(/[，,；;。\n]/).some((clause) => {
+		const positive = affirmativeBrowserClause(clause);
+		return positive.length < clause.length && read.pattern.test(clause.slice(positive.length));
+	});
+	const nativeOperation = browserSteps.findIndex(
+		(step) => step.query === "browser_navigate" || step.query === "browser_fill_form",
+	);
+	if (!noObservation && nativeOperation >= 0 && !browserSteps.some((step) => step.query === "browser_snapshot")) {
+		browserSteps.splice(nativeOperation + 1, 0, {
+			capability: "browser",
+			action: "read",
+			query: "browser_snapshot",
+			target: "browser_snapshot",
+		});
+	}
+	return [
+		...browserSteps,
+		...steps.filter((step) => {
+			if (step.capability !== "browser") return true;
+			const query = step.query ?? "";
+			if (affirmativeBrowserClause(query).trim() !== query.trim()) return false;
+			return !(browserSteps.length > 0 && browserQueries[step.action]);
+		}),
+	];
 }
 
 export function intentSearchQuery(step: ToolIntentStep): string {

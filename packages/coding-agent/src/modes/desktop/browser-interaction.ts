@@ -57,6 +57,18 @@ interface BrowserOption {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const VERIFY_POLL_MS = 50;
 const VERIFY_STABLE_MS = 200;
+const NON_EDITABLE_INPUT_TYPES = new Set([
+	"checkbox",
+	"radio",
+	"button",
+	"submit",
+	"reset",
+	"file",
+	"hidden",
+	"image",
+	"range",
+	"color",
+]);
 let selectorRegistration: Promise<void> | undefined;
 
 /** Register before BrowserHub creates its first page. Keep refs in the page's main world. */
@@ -129,22 +141,29 @@ export class BrowserInteraction {
 			);
 			if (state.disabled) throw new InteractionError("目标已禁用，不能输入。");
 			if (state.readOnly) throw new InteractionError("目标是只读字段，不能输入。");
-			if (
-				state.kind === "other" ||
-				(state.kind === "input" &&
-					["checkbox", "radio", "button", "submit", "reset", "file", "hidden", "image", "range", "color"].includes(
-						state.inputType,
-					))
-			) {
+			if (state.kind === "other" || (state.kind === "input" && NON_EDITABLE_INPUT_TYPES.has(state.inputType))) {
 				throw new InteractionError("目标不可编辑；请选择 input、textarea 或 contenteditable 元素。");
 			}
 			const expected = options.append ? state.value + text : text;
-			if (options.append) {
+			const dateInput = state.kind === "input" && state.inputType === "date";
+			if (dateInput && options.append && state.value && text) {
+				throw new InteractionError(
+					"日期字段已有值，不能追加文本；请用 browser_fill 或 browser_type clear=true 替换完整 YYYY-MM-DD 日期。",
+				);
+			}
+			if (dateInput && expected && !/^\d{4,}-\d{2}-\d{2}$/.test(expected)) {
+				throw new InteractionError(
+					"日期字段需要完整 YYYY-MM-DD 格式；请用 browser_fill 或 browser_type clear=true 填写。",
+				);
+			}
+			if (options.append && !dateInput) {
 				await locator.click({ timeout: this.timeoutMs });
 				await locator.press("ControlOrMeta+End", { timeout: this.timeoutMs });
 				await locator.pressSequentially(text, { timeout: this.timeoutMs });
 			} else {
-				await locator.fill(text, { timeout: this.timeoutMs });
+				// Native date controls edit separate year/month/day segments; sequential typing cannot
+				// reliably enter the full ISO value even when the field starts empty.
+				await locator.fill(expected, { timeout: this.timeoutMs });
 			}
 			const actual = await this.verify(
 				() =>
@@ -160,6 +179,95 @@ export class BrowserInteraction {
 				"输入后的读回校验失败；页面可能限制长度、格式化内容或拒绝了输入，请重新观察字段。",
 			);
 			return { verified: true, characters: actual.length, redacted: state.password };
+		});
+	}
+
+	/** Preflight a bulk field without changing the page. Each action still checks again when executed. */
+	async validateFormTarget(
+		target: BrowserTarget,
+		kind: "fill" | "select" | "check",
+		checked?: boolean,
+	): Promise<void> {
+		await this.act(target, "检查表单目标", async (locator) => {
+			const state = await locator.evaluate(
+				(element) => {
+					const el = element as unknown as BrowserElement;
+					return {
+						tag: el.tagName,
+						type: el.type ?? "text",
+						editable: el.isContentEditable,
+						disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
+						readOnly: !!el.readOnly || el.getAttribute("aria-readonly") === "true",
+					};
+				},
+				undefined,
+				{ timeout: this.timeoutMs },
+			);
+			if (state.disabled || state.readOnly || !(await locator.isVisible()))
+				throw new InteractionError("表单目标隐藏、禁用或只读，不能修改。");
+			const valid =
+				kind === "select"
+					? state.tag === "SELECT"
+					: kind === "check"
+						? state.tag === "INPUT" && ["checkbox", "radio"].includes(state.type)
+						: state.editable ||
+							state.tag === "TEXTAREA" ||
+							(state.tag === "INPUT" && !NON_EDITABLE_INPUT_TYPES.has(state.type));
+			if (!valid) throw new InteractionError(`表单目标的控件类型不支持 kind=${kind}。`);
+			if (kind === "check" && state.type === "radio" && checked === false)
+				throw new InteractionError("radio 不能单独取消；请将同组的目标 radio 设为 checked=true。");
+		});
+	}
+
+	async setChecked(target: BrowserTarget, checked: boolean): Promise<{ verified: true; checked: boolean }> {
+		await this.validateFormTarget(target, "check", checked);
+		return this.act(target, "设置选中状态", async (locator) => {
+			await locator.setChecked(checked, { timeout: this.timeoutMs });
+			const actual = await this.verify(
+				() => locator.isChecked({ timeout: this.timeoutMs }),
+				(value) => value === checked,
+				"选中状态读回校验失败；页面可能重置了选择，请重新观察。",
+			);
+			return { verified: true, checked: actual };
+		});
+	}
+
+	/** Read the final form state without repeating actions or emitting change events. */
+	async verifyFormField(target: BrowserTarget, expected: string | string[] | boolean): Promise<void> {
+		await this.act(target, "验收表单状态", async (locator) => {
+			const read: () => Promise<unknown> =
+				typeof expected === "boolean"
+					? () => locator.isChecked({ timeout: this.timeoutMs })
+					: Array.isArray(expected)
+						? () =>
+								locator.evaluate(
+									(element) =>
+										Array.from((element as unknown as BrowserElement).selectedOptions ?? []).map(
+											(option) => option.value,
+										),
+									undefined,
+									{ timeout: this.timeoutMs },
+								)
+						: () =>
+								locator.evaluate(
+									(element) => {
+										const el = element as unknown as BrowserElement;
+										return el.isContentEditable ? el.innerText : String(el.value ?? "");
+									},
+									undefined,
+									{ timeout: this.timeoutMs },
+								);
+			await this.verify(
+				read,
+				(value) =>
+					typeof expected === "string"
+						? typeof value === "string" && value.replace(/\r\n/g, "\n") === expected.replace(/\r\n/g, "\n")
+						: Array.isArray(expected)
+							? Array.isArray(value) &&
+								JSON.stringify([...new Set(value)].sort()) === JSON.stringify([...new Set(expected)].sort())
+							: value === expected,
+				"表单最终读回校验失败；后续操作可能重置了已填字段，请重新观察。",
+			);
 		});
 	}
 
@@ -281,7 +389,10 @@ export class BrowserInteraction {
 	private async resolve(target: BrowserTarget): Promise<Locator> {
 		const hasRef = target.ref !== undefined;
 		const hasSelector = target.selector !== undefined;
-		if (hasRef === hasSelector) throw new InteractionError("必须且只能提供 ref 或 selector 其中一个。");
+		if (hasRef === hasSelector)
+			throw new InteractionError(
+				"必须且只能提供 ref（快照中的正整数）或 selector（唯一 CSS 选择器）其中一个，请使用这两个准确的字段名。",
+			);
 		let locator: Locator;
 		if (hasRef) {
 			if (!Number.isSafeInteger(target.ref) || (target.ref ?? 0) < 1)

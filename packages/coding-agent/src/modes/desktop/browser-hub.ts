@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContext, CDPSession, FileChooser, Page } from "playwright-core";
 import pw from "playwright-core";
 import { Type } from "typebox";
+import { Check } from "typebox/value";
 import { defineTool, type ToolDefinition } from "../../core/extensions/index.ts";
 import { BrowserInteraction, initializeBrowserInteraction } from "./browser-interaction.ts";
 import { BrowserNetworkJournal } from "./browser-network.ts";
@@ -529,10 +530,35 @@ export class BrowserHub {
 		const pageFields = {
 			pageId: Type.Optional(Type.String({ description: "当前聊天拥有的目标页；省略使用本聊天活动页" })),
 		};
-		const targetFields = {
-			ref: Type.Optional(Type.Number({ description: "browser_snapshot 返回的 ref；与 selector 二选一" })),
-			selector: Type.Optional(Type.String({ description: "唯一 CSS 选择器；与 ref 二选一" })),
+		const refSchema = Type.Number({
+			minimum: 1,
+			multipleOf: 1,
+			maximum: Number.MAX_SAFE_INTEGER,
+			description:
+				"定位目标时必填二选一：使用准确字段名 ref，值为 browser_snapshot 的正整数；选择此字段就省略 selector",
+		});
+		const selectorSchema = Type.String({
+			minLength: 1,
+			description: "定位目标时必填二选一：使用准确字段名 selector，值为唯一 CSS 选择器；选择此字段就省略 ref",
+		});
+		const targetFields = { ref: Type.Optional(refSchema), selector: Type.Optional(selectorSchema) };
+		// Keep the object root and visible properties for legacy provider adapters. The actual core
+		// Compile validator enforces these required branches before any browser executor is entered.
+		const requiredTargetOptions = {
+			additionalProperties: false,
+			oneOf: [
+				{ type: "object", properties: { ref: refSchema, selector: false }, required: ["ref"] },
+				{ type: "object", properties: { selector: selectorSchema, ref: false }, required: ["selector"] },
+			],
 		};
+		const formFieldSchema = Type.Union([
+			Type.Object({ kind: Type.Literal("fill"), ...targetFields, value: Type.String() }, requiredTargetOptions),
+			Type.Object(
+				{ kind: Type.Literal("select"), ...targetFields, values: Type.Array(Type.String(), { minItems: 1 }) },
+				requiredTargetOptions,
+			),
+			Type.Object({ kind: Type.Literal("check"), ...targetFields, checked: Type.Boolean() }, requiredTargetOptions),
+		]);
 		const text = (value: string) => ({
 			content: [{ type: "text" as const, text: value }],
 			details: { sessionId, pageId: this.activePages.get(sessionId) },
@@ -548,6 +574,19 @@ export class BrowserHub {
 		});
 		const bind = (tool: ToolDefinition): ToolDefinition => ({
 			...tool,
+			prepareArguments: (args) => {
+				const prepared = tool.prepareArguments ? tool.prepareArguments(args) : args;
+				const fields =
+					prepared && typeof prepared === "object" && "fields" in prepared && Array.isArray(prepared.fields)
+						? prepared.fields
+						: [];
+				for (const target of [prepared, ...fields]) {
+					if (!target || typeof target !== "object" || !("ref" in target) || target.ref == null) continue;
+					if (typeof target.ref !== "number" && typeof target.ref !== "string")
+						throw new Error("ref 必须是正整数或数字字符串，不能将 boolean、array 或 object 转换为元素编号。");
+				}
+				return prepared;
+			},
 			execute: (id, params, signal, onUpdate, context) =>
 				this.withAgent(
 					sessionId,
@@ -627,16 +666,95 @@ export class BrowserHub {
 				},
 			}),
 			defineTool({
+				name: "browser_fill_form",
+				label: "浏览器：批量填写表单",
+				description:
+					"一次填写本聊天内嵌浏览器的多个表单字段，保持当前 pageId/ref，不切换到 MCP。fields 按顺序执行：kind=fill 用 value 字符串（日期 YYYY-MM-DD、数量数值字符串）；kind=select 用 values 原生 option value 数组；kind=check 用 checked 布尔值幂等设置 checkbox，radio 用 checked=true 选择。每项 ref 正整数或 selector 二选一。先检查全部参数、目标和控件类型，全部执行后只读检查最终状态；失败返回 completedIndices/failedIndex，已执行修改不会回滚，失败字段需重新观察。填写后另用 browser_click 提交，再 browser_snapshot 确认回执。",
+				promptSnippet: "browser_fill_form: 在同一页面一次填写文本、日期、数量、下拉和勾选状态",
+				parameters: Type.Object({
+					...pageFields,
+					fields: Type.Array(formFieldSchema, { minItems: 1, maxItems: 32 }),
+				}),
+				execute: async (_id, params, signal) => {
+					if (!Array.isArray(params.fields) || params.fields.length < 1 || params.fields.length > 32)
+						throw new Error("fields 必须包含 1–32 项。");
+					for (const [index, field] of params.fields.entries()) {
+						if (!Check(formFieldSchema, field))
+							throw new Error(`fields[${index}] 的 kind/value/values/checked 或目标字段类型无效。`);
+						if ((field.ref !== undefined) === (field.selector !== undefined))
+							throw new Error(`fields[${index}] 必须且只能提供 ref 或 selector 其中一个。`);
+					}
+					const entry = await this.agentPage(sessionId, params.pageId);
+					for (const [index, field] of params.fields.entries()) {
+						signal?.throwIfAborted();
+						try {
+							await entry.interaction.validateFormTarget(
+								field,
+								field.kind,
+								field.kind === "check" ? field.checked : undefined,
+							);
+						} catch (error) {
+							throw new Error(
+								`fields[${index}] 目标检查失败：${error instanceof Error ? error.message : "未知错误"}`,
+							);
+						}
+					}
+					const completedIndices: number[] = [];
+					for (const [index, field] of params.fields.entries()) {
+						try {
+							signal?.throwIfAborted();
+							if (field.kind === "fill") await entry.interaction.fill(field, field.value);
+							else if (field.kind === "select") await entry.interaction.selectOptions(field, field.values);
+							else await entry.interaction.setChecked(field, field.checked);
+							completedIndices.push(index);
+						} catch (error) {
+							const result = json({
+								verified: false,
+								completedIndices,
+								failedIndex: index,
+								error: error instanceof Error ? error.message : "未知错误",
+							});
+							return { ...result, isError: true };
+						}
+					}
+					for (const [index, field] of params.fields.entries()) {
+						try {
+							signal?.throwIfAborted();
+							await entry.interaction.verifyFormField(
+								field,
+								field.kind === "fill" ? field.value : field.kind === "select" ? field.values : field.checked,
+							);
+						} catch (error) {
+							return {
+								...json({
+									verified: false,
+									completedIndices,
+									failedIndex: index,
+									error: error instanceof Error ? error.message : "未知错误",
+								}),
+								isError: true,
+							};
+						}
+					}
+					return json({ verified: true, completedIndices });
+				},
+			}),
+			defineTool({
 				name: "browser_click",
 				label: "浏览器：点击元素",
 				description: "按 fresh ref 或唯一 selector 点击。检查可见、稳定、未遮挡、未禁用；支持鼠标按钮和双击。",
 				promptSnippet: "browser_click: 点击可交互元素",
-				parameters: Type.Object({
-					...pageFields,
-					...targetFields,
-					button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])),
-					clickCount: Type.Optional(Type.Number({ minimum: 1, maximum: 2 })),
-				}),
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						button: Type.Optional(
+							Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")]),
+						),
+						clickCount: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)])),
+					},
+					requiredTargetOptions,
+				),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					await entry.interaction.click(params, { button: params.button, clickCount: params.clickCount });
@@ -647,14 +765,18 @@ export class BrowserHub {
 			defineTool({
 				name: "browser_type",
 				label: "浏览器：输入文本",
-				description: "向可编辑控件输入并读回校验。clear=true 替换；默认追加。结果不返回实际输入文本。",
+				description:
+					"向可编辑控件输入并读回校验。ref 与 selector 只提供一个。clear=true 替换；默认追加。日期使用完整 YYYY-MM-DD，已有日期必须 clear=true；填写表单优先 browser_fill。结果不返回实际输入文本。",
 				promptSnippet: "browser_type: 追加或替换文本并校验",
-				parameters: Type.Object({
-					...pageFields,
-					...targetFields,
-					text: Type.String(),
-					clear: Type.Optional(Type.Boolean()),
-				}),
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						text: Type.String(),
+						clear: Type.Optional(Type.Boolean()),
+					},
+					requiredTargetOptions,
+				),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					return json(await entry.interaction.fill(params, params.text, { append: params.clear !== true }));
@@ -663,14 +785,18 @@ export class BrowserHub {
 			defineTool({
 				name: "browser_fill",
 				label: "浏览器：填写控件",
-				description: "替换 input、textarea 或 contenteditable 内容并校验；拒绝禁用、只读控件。填写表单优先使用。",
+				description:
+					"替换 input、textarea 或 contenteditable 内容并校验；ref 与 selector 只提供一个。日期使用完整 YYYY-MM-DD，数字使用数值字符串。拒绝禁用、只读控件。填写表单优先使用。",
 				promptSnippet: "browser_fill: 填写表单并读回校验",
-				parameters: Type.Object({
-					...pageFields,
-					...targetFields,
-					text: Type.String(),
-					append: Type.Optional(Type.Boolean()),
-				}),
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						text: Type.String(),
+						append: Type.Optional(Type.Boolean()),
+					},
+					requiredTargetOptions,
+				),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					return json(await entry.interaction.fill(params, params.text, { append: params.append }));
@@ -681,11 +807,14 @@ export class BrowserHub {
 				label: "浏览器：选择下拉选项",
 				description: "按 option 的 value 选择原生 select 并核对选中值。自定义下拉先观察后点击。",
 				promptSnippet: "browser_select: 选择原生下拉并校验",
-				parameters: Type.Object({
-					...pageFields,
-					...targetFields,
-					values: Type.Array(Type.String(), { minItems: 1 }),
-				}),
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						values: Type.Array(Type.String(), { minItems: 1 }),
+					},
+					requiredTargetOptions,
+				),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					return json(await entry.interaction.selectOptions(params, params.values));
@@ -696,7 +825,7 @@ export class BrowserHub {
 				label: "浏览器：悬停",
 				description: "在可见元素上悬停，触发菜单或提示；随后重新观察。",
 				promptSnippet: "browser_hover: 悬停元素",
-				parameters: Type.Object({ ...pageFields, ...targetFields }),
+				parameters: Type.Object({ ...pageFields, ...targetFields }, requiredTargetOptions),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					await entry.interaction.hover(params);
@@ -709,11 +838,14 @@ export class BrowserHub {
 				label: "浏览器：调整焦点",
 				description: "聚焦或离开指定控件，触发真实 focus/blur 事件。",
 				promptSnippet: "browser_focus: 聚焦或离开控件",
-				parameters: Type.Object({
-					...pageFields,
-					...targetFields,
-					action: Type.Union([Type.Literal("focus"), Type.Literal("blur")]),
-				}),
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						action: Type.Union([Type.Literal("focus"), Type.Literal("blur")]),
+					},
+					requiredTargetOptions,
+				),
 				execute: async (_id, params) => {
 					const entry = await this.agentPage(sessionId, params.pageId);
 					if (params.action === "focus") await entry.interaction.focus(params);
@@ -982,14 +1114,15 @@ const SNAPSHOT_SCRIPT = `
 			}
 			const role = roleOf(el);
 			const password = el instanceof HTMLInputElement && el.type === "password";
-			const rawName = (el.getAttribute("aria-label") || el.getAttribute("placeholder")
+			const labelText = Array.from(el.labels || []).map((label) => label.textContent || "").join(" ");
+			const rawName = (el.getAttribute("aria-label") || labelText || el.getAttribute("placeholder")
 				|| (!password && el instanceof HTMLElement ? el.value : "") || el.textContent || "")
 				.trim().replace(/\\s+/g, " ").slice(0, 80);
 			// 纯文本容器（p/li/td/th/heading）没字就不占行
 			if (!rawName && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName)) continue;
-			let extra = "";
+			let extra = el instanceof HTMLInputElement ? \` [type=\${el.type}]\` : "";
 			if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-				if (el.value) extra = password ? " [已填写]" : \` 值="\${String(el.value).slice(0, 60)}"\`;
+				if (el.value) extra += password ? " [已填写]" : \` 值="\${String(el.value).slice(0, 60)}"\`;
 				if (el instanceof HTMLInputElement && ["checkbox", "radio"].includes(el.type)) {
 					extra += el.checked ? " [已选]" : " [未选]";
 				}

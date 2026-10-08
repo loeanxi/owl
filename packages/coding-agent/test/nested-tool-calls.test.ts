@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { AgentTool, AgentToolCall } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -9,6 +10,7 @@ import {
 	NestedToolCallRunner,
 	type NestedToolExecutionEvent,
 } from "../src/core/nested-tool-calls.ts";
+import { currentTurnReads } from "../src/core/tools/edit-read-gate.ts";
 
 function usage(input: number, cost: number): Usage {
 	return {
@@ -184,6 +186,81 @@ describe("NestedToolCallRunner", () => {
 		await Promise.all([1, 2, 3].map(() => runner.execute("call", "parallel", {})));
 
 		expect(maxActive).toEqual({ sequential: 1, parallel: 3 });
+	});
+
+	it("expires read evidence in completion order when a mutation started before the read", async () => {
+		let completeRead!: () => void;
+		const readDone = new Promise<void>((resolveRead) => {
+			completeRead = resolveRead;
+		});
+		const { runner } = createRunner([
+			{
+				name: "write",
+				label: "write",
+				description: "write",
+				parameters: Type.Object({ path: Type.String() }),
+				async execute() {
+					await readDone;
+					return { content: [], details: {} };
+				},
+			},
+			{
+				name: "read",
+				label: "read",
+				description: "read",
+				parameters: Type.Object({ path: Type.String() }),
+				async execute() {
+					return { content: [{ type: "text", text: "old text" }], details: {} };
+				},
+			},
+		]);
+		const mutation = runner.execute("call", "write", { path: "a.txt" });
+		await runner.execute("call", "read", { path: "a.txt" });
+		completeRead();
+		await mutation;
+		const calls = runner.takeRecord("call")!.calls!;
+		expect(calls.calls.map((entry) => [entry.name, entry.completionOrder])).toEqual([
+			["write", 2],
+			["read", 1],
+		]);
+		expect(
+			currentTurnReads(
+				[
+					{
+						role: "assistant",
+						content: [{ type: "toolCall", id: "call", name: "codemode", arguments: {} }],
+					} as never,
+				],
+				resolve("a.txt"),
+				process.cwd(),
+				[{ parentToolCallId: "call", calls }],
+			),
+		).toEqual([]);
+	});
+
+	it("omits read evidence beyond its bounds and marks dropped file accesses unsafe", async () => {
+		const parameters = Type.Object({ path: Type.String(), length: Type.Number() });
+		const readTool: AgentTool<typeof parameters> = {
+			name: "read",
+			label: "read",
+			description: "read",
+			parameters,
+			async execute(_id, params) {
+				return { content: [{ type: "text", text: "x".repeat(params.length) }], details: {} };
+			},
+		};
+		const { runner } = createRunner([readTool]);
+		await runner.execute("bounded", "read", { path: "a.txt", length: NESTED_CALL_LIMITS.maxReadCharsPerCall });
+		await runner.execute("bounded", "read", { path: "b.txt", length: NESTED_CALL_LIMITS.maxReadCharsPerCall });
+		await runner.execute("bounded", "read", { path: "c.txt", length: 1 });
+		await runner.execute("bounded", "read", { path: "d.txt", length: NESTED_CALL_LIMITS.maxReadCharsPerCall + 1 });
+		const bounded = runner.takeRecord("bounded")!.calls!;
+		expect(bounded.calls.map((call) => call.readResult?.path)).toEqual(["a.txt", "b.txt", undefined, undefined]);
+
+		for (let i = 0; i <= NESTED_CALL_LIMITS.maxCalls; i++) {
+			await runner.execute("overflow", "read", { path: "a.txt", length: 1 });
+		}
+		expect(runner.takeRecord("overflow")?.calls).toMatchObject({ fileAccessComplete: false, complete: false });
 	});
 });
 

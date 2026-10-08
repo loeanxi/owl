@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	applyPresetToolModifiers,
 	deleteCustomAgentPreset,
+	getAgentPreset,
 	getSessionPresetId,
 	listAgentPresets,
 	listCustomAgentPresets,
@@ -23,10 +24,22 @@ afterAll(() => {
 });
 
 describe("agent presets", () => {
-	it("ships the four built-in presets in a stable roster order", async () => {
+	it("ships the five built-in presets in a stable roster order", async () => {
 		const presets = await listAgentPresets(agentDir);
-		expect(presets.map((preset) => preset.id)).toEqual(["standard", "ptc", "minimal", "cordis"]);
+		expect(presets.map((preset) => preset.id)).toEqual(["standard", "ptc", "minimal", "pi", "cordis"]);
 		expect(presets.every((preset) => preset.builtin)).toBe(true);
+	});
+
+	it("preserves the Pi runtime when duplicating while keeping the built-in read-only", () => {
+		const pi = getAgentPreset(agentDir, "pi");
+		if (!pi) throw new Error("Missing Pi preset");
+		expect(pi.tools).toEqual(["read", "bash", "edit", "write"]);
+		const copy = saveCustomAgentPreset(agentDir, { ...pi, id: "pi-copy", name: "Pi 副本", order: 100 });
+		expect(getAgentPreset(agentDir, copy.id)?.runtime).toBe("pi");
+		expect(copy.builtin).toBe(false);
+		expect(() => saveCustomAgentPreset(agentDir, pi)).toThrow(/只读/);
+		expect(() => deleteCustomAgentPreset(agentDir, pi.id)).toThrow(/只读/);
+		deleteCustomAgentPreset(agentDir, copy.id);
 	});
 
 	it("persists, lists and deletes custom presets while protecting built-ins", () => {

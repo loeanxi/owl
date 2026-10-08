@@ -1,5 +1,5 @@
 import { type AuthType, type CredentialStore, InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 
@@ -263,7 +263,7 @@ describe("ModelRuntime auth options", () => {
 		});
 	});
 
-	it("forwards cancellation to extension OAuth refresh", async () => {
+	it("persists extension OAuth rotation when its requesting caller cancels", async () => {
 		const credentials = AuthStorage.inMemory({
 			"extension-oauth": {
 				type: "oauth",
@@ -274,6 +274,15 @@ describe("ModelRuntime auth options", () => {
 		});
 		const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
 		let refreshSignal: AbortSignal | undefined;
+		let refreshes = 0;
+		let markRefreshStarted: (() => void) | undefined;
+		let finishRefresh: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			markRefreshStarted = resolve;
+		});
+		const blocked = new Promise<void>((resolve) => {
+			finishRefresh = resolve;
+		});
 		runtime.registerProvider("extension-oauth", {
 			name: "Extension OAuth",
 			baseUrl: "https://example.test/v1",
@@ -282,21 +291,41 @@ describe("ModelRuntime auth options", () => {
 				name: "Extension subscription",
 				login: async () => ({ access: "access", refresh: "refresh", expires: Date.now() + 60_000 }),
 				refreshToken: async (credential, signal) => {
+					refreshes++;
 					refreshSignal = signal;
-					return { ...credential, expires: Date.now() + 60_000 };
+					markRefreshStarted?.();
+					await blocked;
+					signal?.throwIfAborted();
+					return {
+						...credential,
+						access: "new-access",
+						refresh: "new-refresh",
+						expires: Date.now() + 60 * 60_000,
+					};
 				},
 				getApiKey: (credential) => credential.access,
 			},
 			models: [testModel("extension-model")],
 		});
 		const controller = new AbortController();
+		const read = vi.spyOn(credentials, "read");
 
-		await runtime.getAuth("extension-oauth", { signal: controller.signal });
-		expect(refreshSignal).toBeInstanceOf(AbortSignal);
+		const auth = runtime.getAuth("extension-oauth", { signal: controller.signal });
+		await started;
+		const otherController = new AbortController();
+		const otherAuth = runtime.getAuth("extension-oauth", { signal: otherController.signal });
+		await vi.waitFor(() => expect(read).toHaveBeenCalledWith("extension-oauth", { signal: otherController.signal }));
 		const reason = new Error("cancelled");
 		controller.abort(reason);
-		expect(refreshSignal?.aborted).toBe(true);
-		expect(refreshSignal?.reason).toBe(reason);
+		await expect(auth).rejects.toBe(reason);
+		const refreshAbortedWithCaller = refreshSignal?.aborted;
+		finishRefresh?.();
+		await expect(otherAuth).resolves.toMatchObject({ auth: { apiKey: "new-access" } });
+
+		expect(refreshSignal).toBeInstanceOf(AbortSignal);
+		expect(refreshAbortedWithCaller).toBe(false);
+		expect(refreshes).toBe(1);
+		expect(await credentials.read("extension-oauth")).toMatchObject({ access: "new-access", refresh: "new-refresh" });
 	});
 
 	it("does not fabricate an API key method for an extension OAuth-only provider", async () => {

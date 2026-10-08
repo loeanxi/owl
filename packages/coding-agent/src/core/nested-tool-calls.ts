@@ -16,6 +16,7 @@ import type {
 	AgentToolUpdateCallback,
 } from "@earendil-works/pi-agent-core";
 import type { JsonObject, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "@earendil-works/pi-ai";
+import { readPathKey, readResultEvidence } from "./tools/edit-read-gate.ts";
 import { combineUsage } from "./usage-totals.ts";
 
 /**
@@ -28,6 +29,8 @@ export const NESTED_CALL_LIMITS = {
 	maxArgumentBytesPerCall: 8 * 1024,
 	maxArgumentBytesTotal: 32 * 1024,
 	maxErrorChars: 500,
+	maxReadCharsPerCall: 64 * 1024,
+	maxReadCharsTotal: 128 * 1024,
 } as const;
 
 const encoder = new TextEncoder();
@@ -40,6 +43,11 @@ export interface NestedCallSummary {
 	usage: Usage | undefined;
 }
 
+export interface PendingNestedToolCalls {
+	parentToolCallId: string;
+	calls: NestedToolCalls;
+}
+
 /**
  * Collects the nested calls of one model-issued tool call, including calls made by nested tools.
  * The snapshot becomes `nestedCalls` on the tool result message.
@@ -49,6 +57,10 @@ export class NestedCallRecorder {
 	private readonly startedAt = new Map<NestedToolCallRecord, number>();
 	private complete = true;
 	private argumentBytes = 0;
+	private readChars = 0;
+	private completionOrder = 0;
+	private fileAccessComplete = true;
+	private readonly invalidatedReads = new WeakSet<NestedToolCallRecord>();
 	/** Summed usage of every nested result, including calls dropped from the record. */
 	private usage: Usage | undefined;
 
@@ -84,6 +96,47 @@ export class NestedCallRecorder {
 		if (isError && errorText) record.error = errorText.slice(0, NESTED_CALL_LIMITS.maxErrorChars);
 	}
 
+	/** Keep file-change evidence even when arguments exceed the generic recording limit. */
+	recordFileAccess(record: NestedToolCallRecord | undefined, outcome: AgentToolCallOutcome): void {
+		const { toolCall, result, isError } = outcome;
+		if (isError || !["read", "edit", "write"].includes(toolCall.name)) return;
+		const path = toolCall.arguments.path;
+		if (typeof path !== "string") return;
+		if (!record) {
+			this.fileAccessComplete = false;
+			return;
+		}
+		record.completionOrder = ++this.completionOrder;
+		if (toolCall.name !== "read") {
+			record.fileMutationPath = path;
+			return;
+		}
+		if (this.invalidatedReads.has(record)) return;
+		const evidence = readResultEvidence(result.content ?? [], toolCall.arguments.offset);
+		if (
+			evidence.text.length > NESTED_CALL_LIMITS.maxReadCharsPerCall ||
+			this.readChars + evidence.text.length > NESTED_CALL_LIMITS.maxReadCharsTotal
+		) {
+			return;
+		}
+		record.readResult = { path, ...evidence };
+		this.readChars += evidence.text.length;
+	}
+
+	/** A completed change invalidates reads in every still-running parent, including parallel parents. */
+	invalidateFileReads(path: string, cwd: string): void {
+		const wanted = readPathKey(path, cwd);
+		for (const record of this.calls) {
+			if (record.readResult && readPathKey(record.readResult.path, cwd) === wanted) delete record.readResult;
+			if (record.name === "read" && record.status === "unfinished") {
+				const pendingPath = record.arguments?.path;
+				if (typeof pendingPath !== "string" || readPathKey(pendingPath, cwd) === wanted) {
+					this.invalidatedReads.add(record);
+				}
+			}
+		}
+	}
+
 	addUsage(usage: Usage): void {
 		this.usage = this.usage ? combineUsage(this.usage, usage) : usage;
 	}
@@ -96,7 +149,11 @@ export class NestedCallRecorder {
 	snapshot(): NestedToolCalls | undefined {
 		if (this.calls.length === 0 && this.complete) return undefined;
 		const calls = this.calls.map((call) => ({ ...call }));
-		return { calls, complete: this.complete && calls.every((call) => call.status !== "unfinished") };
+		return {
+			calls,
+			complete: this.complete && calls.every((call) => call.status !== "unfinished"),
+			...(this.fileAccessComplete ? {} : { fileAccessComplete: false }),
+		};
 	}
 }
 
@@ -145,6 +202,7 @@ export interface NestedToolCallHost {
 /** Calls below one model-issued call share its recorder. */
 interface CallScope {
 	recorder: NestedCallRecorder;
+	rootToolCallId: string;
 	nextId: number;
 	/** Set inside a call that holds the exclusive queue, so its own nested calls do not wait on it. */
 	holdsQueue: boolean;
@@ -180,7 +238,7 @@ export class NestedToolCallRunner {
 	): Promise<AgentToolCallOutcome> {
 		let scope = this.scopes.get(callerId);
 		if (!scope) {
-			scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
+			scope = { recorder: new NestedCallRecorder(), rootToolCallId: callerId, nextId: 1, holdsQueue: false };
 			this.scopes.set(callerId, scope);
 		}
 		const toolCall: AgentToolCall = {
@@ -212,6 +270,7 @@ export class NestedToolCallRunner {
 		}
 		this.scopes.set(toolCall.id, {
 			recorder: scope.recorder,
+			rootToolCallId: scope.rootToolCallId,
 			nextId: 1,
 			holdsQueue: scope.holdsQueue || exclusive,
 		});
@@ -234,6 +293,7 @@ export class NestedToolCallRunner {
 		}
 
 		scope.recorder.finish(record, outcome.isError, textOf(outcome.result));
+		scope.recorder.recordFileAccess(record, outcome);
 		// Nested results are not persisted, so their usage is only counted through the recorder.
 		if (outcome.result.usage) scope.recorder.addUsage(outcome.result.usage);
 		await this.host.emit({
@@ -253,6 +313,22 @@ export class NestedToolCallRunner {
 		this.scopes.delete(toolCallId);
 		if (!scope) return undefined;
 		return { calls: scope.recorder.snapshot(), usage: scope.recorder.totalUsage };
+	}
+
+	/** Completed nested calls are visible to read checks before the parent's result is persisted. */
+	getPendingCalls(): PendingNestedToolCalls[] {
+		const snapshots: PendingNestedToolCalls[] = [];
+		for (const [id, scope] of this.scopes) {
+			if (id !== scope.rootToolCallId) continue;
+			const calls = scope.recorder.snapshot();
+			if (calls) snapshots.push({ parentToolCallId: id, calls });
+		}
+		return snapshots;
+	}
+
+	invalidateFileReads(path: string, cwd: string): void {
+		const recorders = new Set(Array.from(this.scopes.values(), (scope) => scope.recorder));
+		for (const recorder of recorders) recorder.invalidateFileReads(path, cwd);
 	}
 
 	clear(): void {

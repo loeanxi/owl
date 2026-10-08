@@ -12,7 +12,7 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 });
 
-type BridgeEvent = { sessionId: string; event: { type?: string } };
+type BridgeEvent = { sessionId: string; event: { type?: string; aborted?: boolean } };
 
 /**
  * 真桥上的 session.abort：空闲会话立即回包并补发合成 agent_settled（断线窗口
@@ -78,7 +78,11 @@ it("session.abort replies immediately, synthesizes agent_settled for idle sessio
 		let notifyEvents: (() => void) | undefined;
 		let eventWaiter: Promise<void> | undefined;
 		socket.on("message", (data) => {
-			const message = JSON.parse(String(data)) as { type?: string; sessionId?: string; event?: { type?: string } };
+			const message = JSON.parse(String(data)) as {
+				type?: string;
+				sessionId?: string;
+				event?: { type?: string; aborted?: boolean };
+			};
 			if (message.type !== "event") return;
 			events.push({ sessionId: message.sessionId ?? "", event: message.event ?? {} });
 			notifyEvents?.();
@@ -106,6 +110,7 @@ it("session.abort replies immediately, synthesizes agent_settled for idle sessio
 		const settled = await nextEvent();
 		expect(settled.sessionId).toBe("session-abort-src");
 		expect(settled.event.type).toBe("agent_settled");
+		expect(settled.event.aborted).toBe(true);
 
 		// 未知会话：ok:false 明确报错，而不是让请求挂死
 		const unknown = await request({ type: "session.abort", sessionId: "no-such-session" });

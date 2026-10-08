@@ -8,6 +8,7 @@
  * like any other tool change and survives `/tree`, resume, and fork on that branch.
  */
 
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type {
 	ExtensionAPI,
@@ -22,6 +23,7 @@ import {
 	deriveIntentSteps,
 	derivePreloadSteps,
 	intentSearchQuery,
+	requestedBrowserBackend,
 	type ToolIntentStep,
 } from "./intent.ts";
 
@@ -284,6 +286,10 @@ function isSearchable(exposure: ToolExposure): boolean {
 	return exposure !== "hidden";
 }
 
+function browserToolPrefix(name: string): string | undefined {
+	return name.startsWith("browser_") ? "browser_" : name.match(/^mcp_.+_browser_/)?.[0];
+}
+
 /**
  * Rank the searchable tools that are not active yet and activate the matches, so the next model
  * call declares them. Activation is recorded in the transcript like any tool change.
@@ -292,8 +298,24 @@ function searchAndLoad(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
 	input: ToolSearchInput,
 	limit: number,
+	messages: readonly AgentMessage[] = [],
 ): ToolSearchToolDetails {
 	const active = new Set(tools.getActiveTools());
+	let lastBrowserPrefix: string | undefined;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role !== "toolResult") continue;
+		const successfulNames = [
+			...(message.nestedCalls?.calls ?? [])
+				.slice()
+				.reverse()
+				.filter((call) => call.status === "ok")
+				.map((call) => call.name),
+			...(message.isError ? [] : [message.toolName]),
+		];
+		lastBrowserPrefix = successfulNames.map(browserToolPrefix).find((prefix) => prefix !== undefined);
+		if (lastBrowserPrefix) break;
+	}
 	const candidates = tools
 		.getAllTools()
 		.filter((tool) => isSearchable(tool.exposure) && tool.name !== TOOL_SEARCH_TOOL_NAME);
@@ -329,7 +351,31 @@ function searchAndLoad(
 				scores.set(match.name, Math.max(scores.get(match.name) ?? 0, match.score));
 			}
 		}
-		const assessed = (exact ? [exact] : candidates)
+		// Refs belong to the backend that actually handled the latest successful browser call.
+		// Active/pending declarations are only a fallback, not proof of execution; explicit backend requests narrow candidates.
+		const requestedBackend =
+			intent.capability === "browser"
+				? requestedBrowserBackend([intent.query, intent.target].filter(Boolean).join(" "))
+				: undefined;
+		const preferredBrowserPrefix =
+			intent.capability === "browser" && !requestedBackend
+				? (lastBrowserPrefix ??
+					([...active, ...pending].some((name) => name.startsWith("browser_")) ? "browser_" : undefined))
+				: undefined;
+		// Explicit backend requirements filter actual registered families; missing actions never fall back to native.
+		const eligible = exact
+			? [exact]
+			: candidates.filter((tool) => {
+					const prefix = browserToolPrefix(tool.name);
+					if (!requestedBackend) return true;
+					if (requestedBackend === "native") return prefix === "browser_";
+					return (
+						prefix !== undefined &&
+						prefix !== "browser_" &&
+						(requestedBackend !== "playwright" || /\bplaywright\b/i.test(prefix.replaceAll("_", " ")))
+					);
+				});
+		const assessed = eligible
 			.map((tool) => ({
 				tool,
 				score: scores.get(tool.name) ?? 0,
@@ -342,7 +388,17 @@ function searchAndLoad(
 						}
 					: assessToolForIntent(intent, tool),
 			}))
-			.sort((a, b) => b.score - a.score || Number(active.has(b.tool.name)) - Number(active.has(a.tool.name)));
+			.sort(
+				(a, b) =>
+					Number(
+						preferredBrowserPrefix !== undefined && browserToolPrefix(b.tool.name) === preferredBrowserPrefix,
+					) -
+						Number(
+							preferredBrowserPrefix !== undefined && browserToolPrefix(a.tool.name) === preferredBrowserPrefix,
+						) ||
+					b.score - a.score ||
+					Number(active.has(b.tool.name)) - Number(active.has(a.tool.name)),
+			);
 		const supportedMatches = assessed.filter(({ assessment }) => assessment.status === "supported");
 		const supported =
 			pending.size >= limit
@@ -388,7 +444,7 @@ function searchAndLoad(
 					reason: assessment.reason,
 					missing: assessment.missing,
 				}));
-			if (result.candidates.length > 0) result.status = "refine";
+			if (result.candidates.length > 0 || requestedBackend) result.status = "refine";
 		}
 		results.push(result);
 	}
@@ -417,12 +473,26 @@ export function preloadToolsForUserText(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
 	text: string,
 	limit = DEFAULT_TOOL_SEARCH_LIMIT,
+	messages: readonly AgentMessage[] = [],
 ): ToolSearchToolDetails | undefined {
+	const active = new Set(tools.getActiveTools());
+	const coreCodeActions: Readonly<Record<string, string>> = {
+		read: "read",
+		edit: "edit",
+		create: "write",
+		search: "grep",
+	};
 	const steps = derivePreloadSteps(text)
 		.filter((step) => step.capability !== "unknown" && step.action !== "unknown")
+		.filter(
+			(step) =>
+				step.capability !== "code" ||
+				/\b(?:mcp|lsp)\b/i.test((step.query ?? "").replaceAll("_", " ")) ||
+				!active.has(coreCodeActions[step.action] ?? ""),
+		)
 		.slice(0, 4);
 	if (steps.length === 0) return undefined;
-	return searchAndLoad(tools, { steps }, Math.min(Math.max(1, limit), MAX_TOOL_SEARCH_LIMIT));
+	return searchAndLoad(tools, { steps }, Math.min(Math.max(1, limit), MAX_TOOL_SEARCH_LIMIT), messages);
 }
 
 /** Base guidance; prepareLoadout adds a bounded directory of available capabilities. */
@@ -473,7 +543,7 @@ export function createToolSearchToolDefinition(
 		prepareLoadout: (loadout) => ({ descriptions: { [TOOL_SEARCH_TOOL_NAME]: describeCapabilities(loadout) } }),
 		// Searching is not something scripts need; it changes what the model sees.
 		exposure: "model-only",
-		async execute(_toolCallId, input) {
+		async execute(_toolCallId, input, _signal, _onUpdate, ctx) {
 			if (!input.steps?.length && !input.query?.trim())
 				throw new Error("Provide a non-empty query or 1–4 capability/action steps.");
 			if (
@@ -491,6 +561,7 @@ export function createToolSearchToolDefinition(
 				options.tools ?? { getAllTools: () => [], getActiveTools: () => [], setActiveTools: () => {} },
 				input,
 				max,
+				ctx?.sessionManager?.buildSessionProjection().messages ?? [],
 			);
 			const text = JSON.stringify({
 				...details,

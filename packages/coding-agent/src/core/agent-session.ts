@@ -31,7 +31,7 @@ import {
 	runToolCall,
 	type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage } from "@earendil-works/pi-ai";
+import { type Api, contentText, getCurrentSystemMessage } from "@earendil-works/pi-ai";
 import { capThinkingLevelForOutput } from "@earendil-works/pi-ai/api/simple-options";
 import type {
 	AssistantMessage,
@@ -198,7 +198,7 @@ export type AgentSessionEvent =
 			messages: AgentMessage[];
 			willRetry: boolean;
 	  }
-	| { type: "agent_settled" }
+	| { type: "agent_settled"; aborted: boolean }
 	| {
 			type: "queue_update";
 			steering: readonly string[];
@@ -393,6 +393,17 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
+	/** One context-only recovery for an output-capped response with no actionable output per user turn. */
+	private _emptyLengthRecoveryAttempted = false;
+	/** An SDK-observed default ceiling can rise once for the remainder of this real user request. */
+	private _lastRequestOutputBudget?: {
+		provider: string;
+		modelId: string;
+		maxTokens: number;
+		isDefault: boolean;
+		positiveThinking: boolean;
+	};
+	private _recoveryRequestMaxTokens?: { provider: string; modelId: string; maxTokens: number };
 
 	// Branch summarization state
 	private _branchSummaryAbortController: AbortController | undefined = undefined;
@@ -458,6 +469,8 @@ export class AgentSession {
 	private _toolRegistry: Map<string, AgentTool> = new Map();
 	/** Created on the first `ctx.executeTool()` call. */
 	private _nestedToolCalls: NestedToolCallRunner | undefined;
+	/** Successful direct changes whose result message has not yet reached the session transcript. */
+	private _pendingFileMutations = new Map<string, { name: string; path: string }>();
 	/** Declared tools whose declarations requests leave out, from `prepareLoadout` hooks. */
 	private _hiddenDeclarations: ReadonlySet<string> = new Set();
 	private _toolDefinitions: Map<string, ToolDefinitionEntry> = new Map();
@@ -713,6 +726,13 @@ export class AgentSession {
 		{ toolCall, args, result, isError }: AfterToolCallContext,
 		parentToolCallId?: string,
 	): Promise<AfterToolCallResult | undefined> {
+		if (!isError && (toolCall.name === "edit" || toolCall.name === "write")) {
+			const path = (args as Record<string, unknown>).path;
+			if (typeof path === "string") {
+				this._nestedToolCalls?.invalidateFileReads(path, this._cwd);
+				if (!parentToolCallId) this._pendingFileMutations.set(toolCall.id, { name: toolCall.name, path });
+			}
+		}
 		const runner = this._extensionRunner;
 		const hookResult = runner.hasHandlers("tool_result")
 			? await runner.emitToolResult({
@@ -794,6 +814,43 @@ export class AgentSession {
 	/** Keep the user's thinking selection, but don't let it consume a small output budget. */
 	private _capRequestThinking(level: ThinkingLevel, model: Model<any>): ThinkingLevel {
 		return capThinkingLevelForOutput(level, model.maxTokens);
+	}
+
+	/** SDK request evidence, separate from a model's advertised output capability. */
+	recordRequestOutputBudget(
+		model: Model<Api>,
+		maxTokens: number,
+		isDefault: boolean,
+		positiveThinking: boolean,
+	): void {
+		this._lastRequestOutputBudget = {
+			provider: model.provider,
+			modelId: model.id,
+			maxTokens,
+			isDefault,
+			positiveThinking,
+		};
+	}
+
+	/** A temporary default-only shared-ceiling budget; explicit SDK caps take precedence. */
+	getRecoveryRequestMaxTokens(model: Model<Api>, minimumThinkingMaxTokens = 0): number | undefined {
+		const budget = this._recoveryRequestMaxTokens;
+		if (!budget || this._agentRunAbortRequested || !this._isAgentRunActive) return undefined;
+		if (
+			model.api !== "openai-completions" ||
+			!model.reasoning ||
+			this.thinkingLevel === "off" ||
+			minimumThinkingMaxTokens > budget.maxTokens ||
+			model.provider !== budget.provider ||
+			model.id !== budget.modelId ||
+			this.settingsManager.getSettings().requestMaxTokens !== undefined ||
+			this.settingsManager.getGlobalSettings().requestMaxTokens !== undefined ||
+			this.settingsManager.getProjectSettings().requestMaxTokens !== undefined
+		) {
+			this._recoveryRequestMaxTokens = undefined;
+			return undefined;
+		}
+		return Math.min(budget.maxTokens, model.maxTokens);
 	}
 
 	/** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
@@ -1113,8 +1170,9 @@ export class AgentSession {
 		this._isAgentRunActive = false;
 		this._isEmittingAgentSettled = true;
 		try {
-			await this._extensionRunner.emit({ type: "agent_settled" });
-			this._emit({ type: "agent_settled" });
+			const aborted = this._agentRunAbortRequested;
+			await this._extensionRunner.emit({ type: "agent_settled", aborted });
+			this._emit({ type: "agent_settled", aborted });
 		} finally {
 			this._isEmittingAgentSettled = false;
 		}
@@ -1133,6 +1191,11 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		if (event.type === "message_end" && event.message.role === "toolResult") {
+			this._pendingFileMutations.delete(event.message.toolCallId);
+		} else if (event.type === "agent_end") {
+			this._pendingFileMutations.clear();
+		}
 		// Record the calls a tool made through ctx.executeTool() and their usage on its result message.
 		if (this._nestedToolCalls) {
 			if (event.type === "message_start" && event.message.role === "toolResult") {
@@ -1150,6 +1213,9 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
+			this._emptyLengthRecoveryAttempted = false;
+			this._recoveryRequestMaxTokens = undefined;
+			this._lastRequestOutputBudget = undefined;
 			const messageText = contentText(event.message.content, "");
 			if (messageText) this._queue.removeDelivered(messageText);
 		}
@@ -1838,6 +1904,8 @@ export class AgentSession {
 			}
 		} finally {
 			if (this._agentRunAbortRequested) this._retry.finishCancelled();
+			this._recoveryRequestMaxTokens = undefined;
+			this._lastRequestOutputBudget = undefined;
 			this._failedResponse = undefined;
 			this._runSystemPromptOptions = undefined;
 			this._flushPendingBashMessages();
@@ -1856,6 +1924,72 @@ export class AgentSession {
 			return false;
 		}
 		if (!message) return this.agent.hasQueuedMessages();
+
+		if (
+			message.stopReason === "length" &&
+			!message.content.some((part) => part.type === "toolCall" || (part.type === "text" && part.text.trim()))
+		) {
+			// A newly queued real request supersedes this stalled response; its delivery resets the window.
+			if (this.agent.peekQueuedMessages().some((queued) => queued.role === "user")) return true;
+			if (this._emptyLengthRecoveryAttempted) {
+				this._agentRunAbortRequested = true;
+				this._lastActivityOutcome = "aborted";
+				this._appendCustomMessage({
+					role: "custom",
+					customType: "owl-empty-length-stop",
+					display: true,
+					content:
+						"已暂停此轮任务：模型响应被输出长度上限截断，未给出正文或工具调用，一次恢复后仍无法继续。任务尚未完成；已有工具结果已保留。请检查模型或中转响应，或发送新的用户请求继续。",
+					timestamp: Date.now(),
+				});
+				return false;
+			}
+			this._emptyLengthRecoveryAttempted = true;
+			const model = this._modelForMessage(message);
+			const budget = this._lastRequestOutputBudget;
+			if (
+				model?.api === "openai-completions" &&
+				model.reasoning &&
+				this.thinkingLevel !== "off" &&
+				message.content.some((part) => part.type === "thinking" && part.thinking.trim()) &&
+				budget?.isDefault &&
+				budget.positiveThinking &&
+				budget.provider === model.provider &&
+				budget.modelId === model.id &&
+				this.settingsManager.getSettings().requestMaxTokens === undefined &&
+				this.settingsManager.getGlobalSettings().requestMaxTokens === undefined &&
+				this.settingsManager.getProjectSettings().requestMaxTokens === undefined
+			) {
+				const base = this.settingsManager.getRequestMaxTokens();
+				const maxTokens = Math.min(base * 2, model.maxTokens);
+				if (maxTokens > base && maxTokens > budget.maxTokens) {
+					this._recoveryRequestMaxTokens = { provider: model.provider, modelId: model.id, maxTokens };
+					this._appendCustomMessage({
+						role: "custom",
+						customType: "owl-empty-length-budget",
+						display: true,
+						content: `上次响应仅有思考并触及长度上限，正在尝试一次恢复。本轮剩余请求的默认输出额度最多由 ${base} 提高至 ${maxTokens} tokens；显式输出上限仍优先，新的用户请求恢复默认额度。`,
+						details: {
+							previousRequestedMaxTokens: budget.maxTokens,
+							temporaryDefaultMaxTokens: maxTokens,
+							scope: "current-user-request",
+						},
+						timestamp: Date.now(),
+					});
+				}
+			}
+			// Keep earlier tools and their results. Omit only this unusable thinking response from the next request.
+			this._omitRecoveryAttempt(message);
+			this._appendCustomMessage({
+				role: "custom",
+				customType: "owl-empty-length-recovery",
+				display: false,
+				content:
+					"The previous response reached its output limit without any text or tool call. Continue the current authorized task from the existing tool results. Do not repeat completed tools or restart your analysis. Give the next necessary tool call or a concise explanation of the actual blocker. This is the only recovery for this user request; do not claim the task is complete without evidence.",
+				timestamp: Date.now(),
+			});
+			return true;
+		}
 
 		if (
 			this._retry.isRetryableError(message) &&
@@ -2086,6 +2220,8 @@ export class AgentSession {
 					setActiveTools: (names) => this.setActiveToolsByName(names),
 				},
 				expandedText,
+				undefined,
+				this.sessionManager.buildSessionProjection().messages,
 			);
 			if (preloaded) {
 				for (const name of preloaded.loaded) {
@@ -2488,6 +2624,8 @@ export class AgentSession {
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {
+		this._recoveryRequestMaxTokens = undefined;
+		this._lastRequestOutputBudget = undefined;
 		if (this._isAgentRunActive) {
 			this._agentRunAbortRequested = true;
 		}
@@ -2516,6 +2654,8 @@ export class AgentSession {
 		source: "set" | "cycle" | "restore",
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
+		this._recoveryRequestMaxTokens = undefined;
+		this._lastRequestOutputBudget = undefined;
 		await this._extensionRunner.emit({
 			type: "model_select",
 			model: nextModel,
@@ -2671,6 +2811,7 @@ export class AgentSession {
 
 		// Only persist if actually changing
 		const previousLevel = this.agent.state.thinkingLevel;
+		if (effectiveLevel !== previousLevel) this._recoveryRequestMaxTokens = undefined;
 		const isChanging = effectiveLevel !== previousLevel;
 
 		this.agent.state.thinkingLevel = effectiveLevel;
@@ -3539,6 +3680,13 @@ export class AgentSession {
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
 				executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
+				getPendingNestedToolCalls: () => [
+					...(this._nestedToolCalls?.getPendingCalls() ?? []),
+					...Array.from(this._pendingFileMutations, ([id, { name, path }]) => ({
+						parentToolCallId: id,
+						calls: { calls: [{ id, name, status: "ok" as const, fileMutationPath: path }], complete: true },
+					})),
+				],
 				getCallableTools: () => this._getCallableTools(),
 			},
 			{

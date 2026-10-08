@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { ModelsSimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
+import {
+	clampMaxTokensToContext,
+	MIN_ANSWER_TOKENS,
+	thinkingBudgetForLevel,
+} from "@earendil-works/pi-ai/api/simple-options";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -332,6 +337,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	};
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
+	const sessionRef: { current?: AgentSession } = {};
 	const cacheWarmer = new CacheWarmer(
 		modelRuntime,
 		sessionManager,
@@ -340,14 +346,47 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	);
 	const buildRequestOptions = (
 		requestModel: Model<any>,
+		context: TranscriptContext,
 		options: ModelsSimpleStreamOptions = {},
 	): ModelsSimpleStreamOptions => {
 		const providerRetrySettings = settingsManager.getProviderRetrySettings();
 		const httpIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
 		const effectiveTimeoutMs = httpIdleTimeoutMs === 0 ? 2147483647 : httpIdleTimeoutMs;
 		const headerRunner = extensionRunnerRef.current;
+		const completionsCompat =
+			requestModel.api === "openai-completions" ? (requestModel as Model<"openai-completions">).compat : undefined;
+		const minimumThinkingMaxTokens =
+			options.maxTokens === undefined &&
+			requestModel.api === "openai-completions" &&
+			requestModel.reasoning &&
+			options.reasoning &&
+			(completionsCompat?.supportsThinkingTokenBudget ||
+				completionsCompat?.thinkingTokenBudgetField ||
+				completionsCompat?.thinkingFormat === "chat-template")
+				? thinkingBudgetForLevel(options.reasoning, options.thinkingBudgets) + MIN_ANSWER_TOKENS
+				: undefined;
+		const recoveryMaxTokens =
+			options.maxTokens === undefined && options.sessionId === sessionManager.getSessionId()
+				? sessionRef.current?.getRecoveryRequestMaxTokens(requestModel, minimumThinkingMaxTokens)
+				: undefined;
+		let maxTokens = options.maxTokens ?? recoveryMaxTokens ?? settingsManager.getRequestMaxTokens();
+		// OpenAI-compatible budget-based thinking shares the output ceiling. Leave
+		// answer room for default requests; explicit caller caps remain authoritative.
+		if (minimumThinkingMaxTokens !== undefined) maxTokens = Math.max(maxTokens, minimumThinkingMaxTokens);
+		if (recoveryMaxTokens !== undefined) maxTokens = Math.min(maxTokens, recoveryMaxTokens);
+		if (requestModel.maxTokens > 0) maxTokens = Math.min(maxTokens, requestModel.maxTokens);
+		maxTokens = clampMaxTokensToContext(requestModel, context, maxTokens);
+		if (options.sessionId === sessionManager.getSessionId()) {
+			sessionRef.current?.recordRequestOutputBudget(
+				requestModel,
+				maxTokens,
+				options.maxTokens === undefined && settingsManager.getSettings().requestMaxTokens === undefined,
+				Boolean(options.reasoning),
+			);
+		}
 		return {
 			...options,
+			maxTokens,
 			timeoutMs: options.timeoutMs ?? providerRetrySettings.timeoutMs ?? effectiveTimeoutMs,
 			websocketConnectTimeoutMs: options.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs(),
 			maxRetries: options.maxRetries ?? providerRetrySettings.maxRetries,
@@ -419,7 +458,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		},
 		convertToLlm: convertToLlmWithBlockImages,
 		streamFn: async (model, context, options) => {
-			const requestOptions = buildRequestOptions(model, options);
+			const requestOptions = buildRequestOptions(model, context, options);
 			// Compaction and summaries use their own routing ids; only session requests
 			// replace the cache entry, so warming restarts from them. Keep warming while
 			// the current transcript still extends the request's prefix. Agent state may
@@ -479,6 +518,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	});
 
 	const extensionsResult = resourceLoader.getExtensions();
+	sessionRef.current = session;
 
 	return {
 		session,

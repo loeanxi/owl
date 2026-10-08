@@ -8,7 +8,7 @@ import type { SessionManager } from "./session-manager.ts";
  * 默认用什么审批方式。预设不负责模型路由（provider/model 是会话级独立选择），
  * 也不是安全沙箱——自定义预设的提示词由用户提供，写入仍走常规审批。
  *
- * 内置四预设只读；用户修改内置的唯一路径是「复制创建」。会话在创建时绑定预设
+ * 内置预设只读；用户修改内置的唯一路径是「复制创建」。会话在创建时绑定预设
  * （owl-agent-preset custom entry），绑定后仅在会话空白（还没跑过第一轮）时可以切换。
  */
 
@@ -16,7 +16,7 @@ import type { SessionManager } from "./session-manager.ts";
 export type PresetApprovalMode = "auto" | "confirm" | "plan";
 
 export interface AgentPresetDefinition {
-	/** 稳定标识：内置为 standard/ptc/minimal/cordis，自定义须匹配 PRESET_ID_RE。 */
+	/** 稳定标识：内置为 standard/ptc/minimal/pi/cordis，自定义须匹配 PRESET_ID_RE。 */
 	id: string;
 	name: string;
 	description: string;
@@ -29,6 +29,8 @@ export interface AgentPresetDefinition {
 	 * （DEFAULT_TOOL_NAMES），`+name` 增、`-name` 减；undefined/空 = 完全继承现状。
 	 */
 	tools?: string[];
+	/** Pi 基础运行时：精简提示词与资源加载；复制创建时保留该工作方式。 */
+	runtime?: "pi";
 	/** 追加到系统提示词末尾的预设指令；支持 {{agentDir}} 占位符。 */
 	appendPrompt?: string;
 	/** 该预设的初始审批模式（仅影响新会话的初值）。 */
@@ -65,7 +67,7 @@ const CORDIS_APPEND_PROMPT = [
 	"</creator_mode>",
 ].join("\n");
 
-/** 内置四预设。standard 即现状默认配置的打包：不加提示词、不改工具集。 */
+/** 内置预设。standard 即现状默认配置的打包：不加提示词、不改工具集。 */
 export const BUILTIN_AGENT_PRESETS: readonly AgentPresetDefinition[] = [
 	{
 		id: "standard",
@@ -94,11 +96,21 @@ export const BUILTIN_AGENT_PRESETS: readonly AgentPresetDefinition[] = [
 		approvalMode: "auto",
 	},
 	{
+		id: "pi",
+		name: "Pi 模式",
+		description: "沿用 Pi 的极简工作方式，仅使用读取、终端、编辑和写入四个工具，专注完成代码与文件任务。",
+		builtin: true,
+		order: 4,
+		tools: ["read", "bash", "edit", "write"],
+		runtime: "pi",
+		approvalMode: "auto",
+	},
+	{
 		id: "cordis",
 		name: "创造模式",
 		description: "用对话定制 Owl：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。",
 		builtin: true,
-		order: 4,
+		order: 5,
 		tools: ["+codemode"],
 		appendPrompt: CORDIS_APPEND_PROMPT,
 	},
@@ -188,6 +200,7 @@ function normalizePreset(input: AgentPresetDefinition): AgentPresetDefinition {
 		builtin: false,
 		order: Number.isFinite(input.order) ? input.order : 100,
 		...(tools && tools.length > 0 ? { tools } : {}),
+		...(input.runtime === "pi" ? { runtime: "pi" as const } : {}),
 		...(input.appendPrompt ? { appendPrompt: String(input.appendPrompt) } : {}),
 		...(input.approvalMode ? { approvalMode: input.approvalMode } : {}),
 	};

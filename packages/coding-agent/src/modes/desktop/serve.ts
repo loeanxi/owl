@@ -113,6 +113,7 @@ import { builtInExtensions } from "../../extensions/index.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
+import { saveSessionApprovalMode, sessionApprovalMode } from "./approval-history.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import {
@@ -132,6 +133,8 @@ import { MirrorHub } from "./mirror-hub.ts";
 import { handleNewsHttp } from "./news-http.ts";
 import { callNewsModel } from "./news-model.ts";
 import { createNewsTools } from "./news-tools.ts";
+import { DesktopPermissionQueue } from "./permission-queue.ts";
+import { createPiBashTool, piResourceLoaderOptions } from "./pi-runtime.ts";
 import { streamingBehaviorForPrompt } from "./prompt-delivery.ts";
 import type {
 	CommandsListResult,
@@ -492,8 +495,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			unsubscribe: () => void;
 			approvalMode: { current: ApprovalMode };
 			preset: { current: AgentPresetDefinition };
+			runStart: { priorEntryIds?: Set<string> };
 		}
 	>();
+	/** Requests for a session wait until its preset runtime has finished being replaced. */
+	const presetTransitions = new Map<string, Promise<void>>();
 	const clients = new Set<WebSocket>();
 	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
 	/**
@@ -576,10 +582,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		onDiagnostic,
 	});
 	/** requestId → resolver for tool calls awaiting a user decision */
-	const pendingPermissions = new Map<
-		string,
-		{ sessionId: string; message: PermissionRequestMessage; resolve: (approved: boolean) => void }
-	>();
+	const pendingPermissions = new DesktopPermissionQueue(broadcast);
 	/** Shared services for non-session queries (models.list); built lazily. */
 	let listServices: AgentSessionServices | undefined;
 	/** MCP connections established at startup. */
@@ -684,11 +687,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
 	async function unmountSessionRuntime(sessionId: string): Promise<void> {
 		const mounted = sessions.get(sessionId);
-		for (const [requestId, pending] of pendingPermissions) {
-			if (pending.sessionId !== sessionId) continue;
-			pendingPermissions.delete(requestId);
-			pending.resolve(false);
-		}
+		pendingPermissions.cancelSession(sessionId);
 		cancelPendingQuestionsForSession(sessionId);
 		disposeSessionRewindTracker(sessionId);
 		if (mounted) {
@@ -1007,6 +1006,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		modelSpec: { provider?: string; model?: string; thinkingLevel?: string } | undefined,
 		extensionFactories: InlineExtension[],
 		appendSystemPrompt: string[],
+		preset: AgentPresetDefinition,
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const sessionId = runtimeOptions.sessionManager.getSessionId();
@@ -1019,7 +1019,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						...extensionFactories,
 						...(researchMode ? [createResearchExtension(runtimeOptions.sessionManager)] : []),
 					],
-					...desktopAgentPromptOptions(appendSystemPrompt),
+					...(preset.runtime === "pi"
+						? piResourceLoaderOptions(appendSystemPrompt)
+						: desktopAgentPromptOptions(appendSystemPrompt)),
 				},
 			});
 			let model: ReturnType<typeof services.modelRuntime.getModel>;
@@ -1034,14 +1036,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
-				toolActivation: "on-demand",
-				customTools: [
-					...(await getMcpTools()),
-					...iab.tools(sessionId),
-					...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
-					...createNewsTools(newsRequest, sessionId, broadcast),
-					...createMapTools(maps, sessionId, broadcast),
-				],
+				toolActivation: preset.runtime === "pi" ? "eager" : "on-demand",
+				...(preset.runtime === "pi"
+					? { tools: applyPresetToolModifiers(["read", "bash", "edit", "write"], preset.tools) }
+					: {}),
+				customTools:
+					preset.runtime === "pi"
+						? [createPiBashTool(runtimeOptions.cwd, services.settingsManager) as ToolDefinition]
+						: [
+								...(await getMcpTools()),
+								...iab.tools(sessionId),
+								...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
+								...createNewsTools(newsRequest, sessionId, broadcast),
+								...createMapTools(maps, sessionId, broadcast),
+							],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
 			});
@@ -1106,11 +1114,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	 *  messageEntryIds 与 messages 按下标对齐，回退按钮靠它知道每条用户消息的会话条目。 */
 	function sessionSnapshot(sessionId: string, sessionManager: SessionManager): SessionSnapshotPayload {
 		const projection = sessionManager.buildSessionProjection();
+		const mounted = sessions.get(sessionId);
+		const running = mounted?.runtime.session.isStreaming ?? false;
 		const mailContext = getMailAgentContext(sessionManager);
 		const researchMode = getResearchMode(sessionManager);
 		const messages: unknown[] = [];
 		const messageEntryIds: (string | undefined)[] = [];
+		let runStartMessageIndex: number | undefined;
 		for (const entry of projection.entries) {
+			if (
+				running &&
+				runStartMessageIndex === undefined &&
+				mounted?.runStart.priorEntryIds &&
+				!mounted.runStart.priorEntryIds.has(entry.sourceEntry.id) &&
+				entry.messages.some((message) => message.role === "assistant")
+			) {
+				runStartMessageIndex = messages.length;
+			}
 			for (const message of entry.messages) {
 				messages.push(message);
 				messageEntryIds.push(entry.sourceEntry.id);
@@ -1120,21 +1140,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			sessionId,
 			cwd: sessionManager.getCwd(),
 			messages,
+			running,
+			...(running ? { runStartMessageIndex: runStartMessageIndex ?? messages.length } : {}),
 			messageEntryIds,
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 			name: sessionManager.getSessionName(),
 			agentPreset: getSessionPresetId(sessionManager),
 			...(mailContext ? { mailContext } : {}),
-			...(researchMode ? { researchMode, approvalMode: getResearchApprovalMode(sessionManager) } : {}),
+			...(researchMode ? { researchMode } : {}),
+			approvalMode:
+				sessions.get(sessionId)?.approvalMode.current ??
+				(researchMode ? getResearchApprovalMode(sessionManager) : undefined),
 		};
 	}
 
 	function replayResearchRequests(ws: WebSocket, sessionId: string, sessionManager: SessionManager): void {
 		if (!getResearchMode(sessionManager) || ws.readyState !== ws.OPEN) return;
-		for (const pending of pendingPermissions.values()) {
-			if (pending.sessionId === sessionId) ws.send(JSON.stringify(pending.message));
-		}
+		for (const pending of pendingPermissions.forSession(sessionId)) ws.send(JSON.stringify(pending));
 		for (const request of getPendingQuestionRequests(sessionId)) ws.send(JSON.stringify(request));
 	}
 
@@ -1346,11 +1369,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				() => defaultPresetId,
 			),
 		};
+		// Research conversations require their dedicated tools even when ordinary chats default to Pi.
+		if (researchMode && presetHolder.current.runtime === "pi") {
+			presetHolder.current = resolveAgentPreset(args.agentDir, "standard");
+		}
 		if (args.persistPreset) setSessionPresetEntry(sessionManager, presetHolder.current.id);
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
 		const approvalModeHolder: { current: ApprovalMode } = {
-			current: args.approvalMode ?? presetHolder.current.approvalMode ?? (researchMode ? "confirm" : "auto"),
+			current:
+				args.approvalMode ??
+				(!researchMode ? sessionApprovalMode(sessionManager) : undefined) ??
+				presetHolder.current.approvalMode ??
+				(researchMode ? "confirm" : "auto"),
 		};
+		if (!researchMode) saveSessionApprovalMode(sessionManager, approvalModeHolder.current);
 		const permissionExtension: InlineExtension = {
 			name: "owl-permissions",
 			factory: (pi) => {
@@ -1379,14 +1411,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						toolName: event.toolName,
 						input: event.input,
 					};
-					const approved = await new Promise<boolean>((resolve) => {
-						pendingPermissions.set(requestId, {
-							sessionId: sessionIdHolder.current,
-							message,
-							resolve,
-						});
-						broadcast(message);
-					});
+					const approved = await pendingPermissions.request(message);
 					return approved ? {} : { block: true, reason: "Denied by user" };
 				});
 			},
@@ -1422,7 +1447,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 		// 「向用户提问」由插件 owl-ask-user（settings plugins）经 question-channel 通道提供，
 		// 不再是内联扩展；插件的启停走设置页插件列表。
-		const owlAddenda = mailContext ? [] : await loadOwlAddenda();
+		const owlAddenda = mailContext || presetHolder.current.runtime === "pi" ? [] : await loadOwlAddenda();
 		if (approvalModeHolder.current === "plan") owlAddenda.push(PLAN_MODE_ADDENDUM);
 		const presetAppendPrompt = mailContext
 			? undefined
@@ -1438,8 +1463,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				: buildFactory(
 						args.agentDir,
 						{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
-						[...builtInExtensions, permissionExtension, owlMemoryExtension],
+						presetHolder.current.runtime === "pi"
+							? [permissionExtension]
+							: [...builtInExtensions, permissionExtension, owlMemoryExtension],
 						owlAddenda,
+						presetHolder.current,
 					),
 			{ cwd: sessionManager.getCwd(), agentDir: args.agentDir, sessionManager },
 		);
@@ -1452,10 +1480,22 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				applyPresetToolModifiers(runtime.session.getActiveToolNames(), presetHolder.current.tools),
 			);
 		}
+		const runStart: { priorEntryIds?: Set<string> } = {};
 		const unsubscribe = runtime.session.subscribe((event) => {
+			if (event.type === "agent_start") {
+				// Include all raw IDs: compaction may retain old entries absent from today's projection.
+				runStart.priorEntryIds = new Set(runtime.session.sessionManager.getEntries().map((entry) => entry.id));
+			}
+			if (event.type === "agent_settled") runStart.priorEntryIds = undefined;
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
-		sessions.set(sessionId, { runtime, unsubscribe, approvalMode: approvalModeHolder, preset: presetHolder });
+		sessions.set(sessionId, {
+			runtime,
+			unsubscribe,
+			approvalMode: approvalModeHolder,
+			preset: presetHolder,
+			runStart,
+		});
 		void schedule.onSessionMounted(sessionId);
 		reply(ws, requestId, {
 			ok: true,
@@ -1491,8 +1531,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		if (existing) {
 			const sessionManager = existing.runtime.session.sessionManager;
 			// Selecting research history must not apply the ordinary chat's preferences.
-			if (request.approvalMode && !getResearchMode(sessionManager))
+			if (request.approvalMode && !getResearchMode(sessionManager)) {
 				existing.approvalMode.current = request.approvalMode;
+				saveSessionApprovalMode(sessionManager, request.approvalMode);
+				pendingPermissions.changeMode(request.sessionId, request.approvalMode);
+			}
 			reply(ws, request.id, {
 				ok: true,
 				result: sessionSnapshot(request.sessionId, sessionManager),
@@ -1516,7 +1559,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				provider: researchMode ? undefined : request.provider,
 				model: researchMode ? undefined : request.model,
 				thinkingLevel: researchMode ? undefined : request.thinkingLevel,
-				approvalMode: researchMode ? getResearchApprovalMode(sessionManager) : (request.approvalMode ?? "auto"),
+				approvalMode: researchMode
+					? getResearchApprovalMode(sessionManager)
+					: (request.approvalMode ??
+						sessionApprovalMode(sessionManager) ??
+						request.approvalModeFallback ??
+						"auto"),
 			});
 		} catch (error) {
 			reply(ws, request.id, {
@@ -1527,6 +1575,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
+		if ("sessionId" in request && typeof request.sessionId === "string") {
+			const transition = presetTransitions.get(request.sessionId);
+			if (transition) await transition;
+		}
 		switch (request.type) {
 			case "evaluation.request": {
 				const origin = clientOrigins.get(ws);
@@ -1662,13 +1714,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
+				pendingPermissions.cancelSession(request.sessionId);
 				// 已经空闲的会话不会再有 agent_settled（上一次的可能在断线窗口丢了）：
 				// 补发一条合成事件，前端运行态才能解开，否则停止按钮永远"点了没反应"。
 				// 非空闲时触发中止后立即回包，不等全量 settle——流式请求挂死时 settle
 				// 可能迟迟不来；真正停下由订阅里的 agent_settled 事件收尾。
 				if (session.runtime.session.isIdle) {
 					reply(ws, request.id, { ok: true });
-					broadcast({ type: "event", sessionId: request.sessionId, event: { type: "agent_settled" } });
+					broadcast({
+						type: "event",
+						sessionId: request.sessionId,
+						event: { type: "agent_settled", aborted: true },
+					});
 					return;
 				}
 				void session.runtime.session.abort().catch((error: unknown) => {
@@ -1716,6 +1773,36 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				};
 				writeArchiveMeta(agentDir, meta);
 				reply(ws, request.id, { ok: true });
+				return;
+			}
+			case "session.rename": {
+				const name = request.name
+					.replace(/[\r\n]+/g, " ")
+					.trim()
+					.slice(0, 80);
+				if (!name) {
+					reply(ws, request.id, { ok: false, error: "会话名不能为空" });
+					return;
+				}
+				try {
+					const mounted = sessions.get(request.sessionId)?.runtime.session.sessionManager;
+					if (mounted) {
+						mounted.appendSessionInfo(name);
+					} else {
+						const found = await findSessionFile(request.sessionId);
+						if (!found) {
+							reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+							return;
+						}
+						SessionManager.open(found).appendSessionInfo(name);
+					}
+					reply(ws, request.id, { ok: true, result: { name } });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `无法更改会话名：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
 				return;
 			}
 			case "session.unarchive": {
@@ -1814,6 +1901,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				session.approvalMode.current = request.approvalMode;
+				pendingPermissions.changeMode(request.sessionId, request.approvalMode);
+				if (!getResearchMode(session.runtime.session.sessionManager))
+					saveSessionApprovalMode(session.runtime.session.sessionManager, request.approvalMode);
 				if (getResearchMode(session.runtime.session.sessionManager)) {
 					session.runtime.session.sessionManager.appendCustomEntry(RESEARCH_APPROVAL_ENTRY, {
 						mode: request.approvalMode,
@@ -1834,14 +1924,48 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				const sessionManager = session.runtime.session.sessionManager;
+				if (getResearchMode(sessionManager) && preset.runtime === "pi") {
+					reply(ws, request.id, { ok: false, error: "研究会话需要专属工具，不能切换到 Pi 模式" });
+					return;
+				}
 				// 空白判定与快照同一投影：跑过第一轮的会话锁定预设（历史是原组合产生的）。
 				const projection = sessionManager.buildSessionProjection();
 				const messageCount = projection.entries.reduce((count, entry) => count + entry.messages.length, 0);
-				if (messageCount > 0) {
+				if (messageCount > 0 || !session.runtime.session.isIdle) {
 					reply(ws, request.id, { ok: false, error: "preset-locked" });
 					return;
 				}
 				setSessionPresetEntry(sessionManager, preset.id);
+				// Entering/leaving Pi must replace resources, extensions, tool allowlists and prompt together.
+				if (
+					!getMailAgentContext(sessionManager) &&
+					(preset.runtime === "pi" || session.preset.current.runtime === "pi")
+				) {
+					const model = session.runtime.session.model;
+					const thinkingLevel = session.runtime.session.thinkingLevel;
+					const approvalMode = session.approvalMode.current;
+					const agentDir = session.runtime.services.agentDir;
+					const transition = (async () => {
+						await unmountSessionRuntime(request.sessionId);
+						await mountSession(HEADLESS_WS, request.id, {
+							sessionManager,
+							agentDir,
+							provider: model?.provider,
+							model: model?.id,
+							thinkingLevel,
+							approvalMode,
+							agentPreset: preset.id,
+						});
+					})();
+					presetTransitions.set(request.sessionId, transition);
+					try {
+						await transition;
+					} finally {
+						presetTransitions.delete(request.sessionId);
+					}
+					reply(ws, request.id, { ok: true, result: { agentPreset: preset.id, preset } });
+					return;
+				}
 				session.preset.current = preset;
 				if (!getMailAgentContext(sessionManager) && preset.tools?.length) {
 					session.runtime.session.setActiveToolsByName(
@@ -2990,13 +3114,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "permission.response": {
-				const pending = pendingPermissions.get(request.requestId);
-				if (!pending) {
+				if (!pendingPermissions.resolve(request.requestId, request.approved)) {
 					reply(ws, request.id, { ok: false, error: `Unknown permission request: ${request.requestId}` });
 					return;
 				}
-				pendingPermissions.delete(request.requestId);
-				pending.resolve(request.approved);
 				reply(ws, request.id, { ok: true });
 				return;
 			}

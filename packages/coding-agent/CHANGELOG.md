@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added a configurable per-request model-round budget (`agentMaxTurns`, default 64), captured when a real user request starts, to bound continued work while preserving natural completion at the limit.
+- Added a built-in Pi desktop preset with four core tools, a compact coding prompt, foreground shell execution, and isolated add-on loading.
+- Added native `browser_fill_form` batches for setting text/date fields, native select values, and checked states on the chat's current browser, with preflight validation and explicit partial-progress reports.
+- Added a configurable ordinary reply output budget (`requestMaxTokens`, default 16,384), separate from model output capability, to reduce unnecessary gateway credit reservations.
 - Added per-turn token usage to assistant answers, accumulating every model call recorded in the turn (including retries and thinking continuations) with un-cached input, output, cache reads, and cache writes broken out, and kept the context panel's per-request input total separate from the turn total.
 - Added Chinese and English tool discovery and bounded skill discovery for desktop conversations, with native tool results and recorded tool sets preserved on resume and branch navigation.
 - Added capability/action discovery steps with metadata evidence, explicit unresolved requirements, and a shared tool-loading budget for compound tasks.
@@ -19,6 +23,11 @@
 
 ### Changed
 
+- Aligned the Pi preset prompt with Pi v1.1.0's four-tool configuration and current file-tool guidelines, including batch edits and current-turn read requirements.
+- Shell tasks now use verified available commands and avoid unnecessary output-directory deletion during repeated execution checks.
+- Coding tasks with numeric input requirements now validate raw values before conversion, preserve valid representations without adding unstated format restrictions, and check relevant uncovered boundaries before reporting completion.
+- Known file paths are now read directly, with independent source and test inputs batched to avoid unnecessary directory probes and model round trips.
+- Simple desktop operations now favor direct execution and relevant checks, avoiding unnecessary workflows, extra agents, and unchanged retries of deterministic tool failures.
 - Narrowed when the GenUI `render_ui` tool is used: only for a self-contained interactive card that was requested or that clearly helps, instead of whenever an answer contained several parallel points, a comparison, numbers, a step sequence, or a status report. Ordinary answers, lists, comparisons, code, and status reports use Markdown, and inline UI still goes through the `owl-ui` fence without a tool call.
 - Desktop conversations now start with a small tool set and a compact skill index; specialized capabilities are loaded when needed. Ordinary answers can use Markdown without generating UI cards.
 - Compacted the model evaluation navigation and current-run summary, and removed redundant sidebar help.
@@ -27,6 +36,21 @@
 
 ### Fixed
 
+- Default-only OpenAI completions reasoning requests can use a bounded temporary output ceiling after one thinking-only truncation, preserving explicit caps and the selected model/thinking level while retaining the one-recovery stop.
+- Compound browser requests now preload separate navigation, observation and form actions, preserve affirmative steps around negative clauses, and honor explicit native/MCP backend requirements without cross-backend fallback for unsupported actions.
+- Process tools invoked by an agent now list and control only that agent session's processes, preventing one chat from polling, writing to, or killing another chat's background commands.
+- Asynchronous shell spawn failures now terminate the tracked process session with the original error instead of leaving a ghost running session to poll.
+- Thinking-only responses truncated by the output limit now receive one bounded recovery without replaying completed tools; repeated truncation reports an incomplete, aborted run.
+- Consecutive file changes can use a complete successful write from the current user turn after verifying its exact bytes, while external changes, stale reads, and incomplete nested records still require a fresh read.
+- Shell exit code 127 no longer claims a missing binary without a shell lookup diagnostic, including native Windows crashes reported through Git Bash.
+- Repeated identical errors and unsuccessful searches for the same explicit tool intent now stop the current run with a persisted explanation, while successful work and new user requests reset the stagnation window.
+- Task acceptance can cite a successful read of preserved inputs or command-generated artifacts without requiring an unnecessary file rewrite; claims of source changes still require a successful edit or write.
+- Fixed cancelled desktop runs being reported as completed by carrying the run's cancellation state through `agent_settled` and the desktop notification/status handling ([#10607](https://github.com/earendil-works/pi/issues/10607)).
+- Fixed image resize workers interpreting Node watch messages as image results before the actual worker reply arrived ([#10527](https://github.com/earendil-works/pi/issues/10527)).
+- Browser snapshots now include associated form labels and structured input types; empty date inputs accept complete ISO values without broken segmented keyboard entry, while unsupported date appends fail before changing the value.
+- Desktop approvals now synchronize across clients, retire resolved prompts, and preserve each session's approval mode when observing or restoring it, including after a bridge restart.
+- Browser tool discovery now recognizes fill, select, and JavaScript evaluation actions, and keeps generic follow-up actions on the current native browser backend while respecting explicit backend requests.
+- Successful nested reads now satisfy file-edit prerequisites within the current turn, with partial reads and reads made stale by later changes still rejected.
 - Fixed memory consolidation applying sorted candidate indexes to unrelated entries, and isolated duplicate detection and merging by project and scope.
 - Fixed context breakdowns omitting model-only tools and augmented descriptions, and distinguished per-request usage from per-turn cumulative usage including cache reads.
 - Fixed tool discovery loading weak keyword collisions or unrelated alternatives for an already active exact match; action validation now distinguishes unsupported operations from a depleted loading budget.

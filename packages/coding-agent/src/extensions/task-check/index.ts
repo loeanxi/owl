@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
+import { TaskLoopGuard, TaskTurnBudget } from "./loop-guard.ts";
 
 const STATE_TYPE = "owl-task-check";
 const criterionSchema = Type.Object({
@@ -119,16 +119,6 @@ export function formatHostObservations(writes: readonly string[], commands: read
 	return `Host observations from this turn: ${parts.join(" ")}`;
 }
 
-function stableValue(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(stableValue);
-	if (typeof value !== "object" || value === null) return value;
-	return Object.fromEntries(
-		Object.entries(value)
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([key, item]) => [key, stableValue(item)]),
-	);
-}
-
 /** An explicit checklist and a bounded reminder, not an independent proof of task completion. */
 export function createTaskCheckExtension(): ExtensionFactory {
 	return (pi) => {
@@ -136,14 +126,20 @@ export function createTaskCheckExtension(): ExtensionFactory {
 		let active = false;
 		let reminded = false;
 		const successfulCalls = new Set<string>();
-		const failures = new Map<string, { result: string; count: number }>();
+		const successfulReads = new Map<string, { path: string; afterSuccessfulCommand: boolean }>();
+		const loopGuard = new TaskLoopGuard();
+		const turnBudget = new TaskTurnBudget();
+		let stopped = false;
 		const writes: string[] = [];
 		const commands: HostCommand[] = [];
 		const reset = () => {
 			active = false;
 			reminded = false;
 			successfulCalls.clear();
-			failures.clear();
+			successfulReads.clear();
+			loopGuard.reset();
+			turnBudget.reset(pi.getSettings().agentMaxTurns);
+			stopped = false;
 			writes.length = 0;
 			commands.length = 0;
 		};
@@ -208,8 +204,23 @@ export function createTaskCheckExtension(): ExtensionFactory {
 							);
 						}
 						if (item.status === "verified") {
-							const missing = mentionedPaths(`${item.criterion}\n${item.evidence ?? ""}`).filter(
-								(path) => !writes.some((written) => samePath(written, path)),
+							const claim = `${item.criterion}\n${item.evidence ?? ""}`;
+							const proof = item.toolCallId ? successfulReads.get(item.toolCallId) : undefined;
+							const readClaim = /\b(?:read|inspect|preserv(?:e|ed))\b|只读|读取|读回|查看|保留/iu.test(claim);
+							const mutationClaim =
+								/\b(?:updat(?:e|ed)|modif(?:y|ied)|edit(?:ed)?|chang(?:e|ed)|implement(?:ed)?)\b|修改|编辑|改动|更新|实现/iu.test(
+									claim.replace(
+										/\b(?:not|without|never)\s+(?:being\s+)?(?:updating|modified|modifying|editing|changing|changed)\b|(?:未|不)(?:修改|编辑|改动|更新)/giu,
+										"",
+									),
+								);
+							const generatedClaim = /\b(?:generated|produced|exported)\b|生成|导出|命令产物/iu.test(claim);
+							const canUseRead =
+								proof && readClaim && !mutationClaim && (!generatedClaim || proof.afterSuccessfulCommand);
+							const missing = mentionedPaths(claim).filter(
+								(path) =>
+									!writes.some((written) => samePath(written, path)) &&
+									!(canUseRead && samePath(proof.path, path)),
 							);
 							if (missing.length > 0) {
 								return fail(
@@ -248,6 +259,12 @@ export function createTaskCheckExtension(): ExtensionFactory {
 			},
 		});
 		pi.on("tool_result", (event) => {
+			if (event.toolName === "read" && !event.isError && typeof event.input.path === "string") {
+				successfulReads.set(event.toolCallId, {
+					path: event.input.path.trim(),
+					afterSuccessfulCommand: commands.some((command) => command.exitCode === 0),
+				});
+			}
 			if ((event.toolName === "edit" || event.toolName === "write") && !event.isError) {
 				const path = event.input.path;
 				if (typeof path === "string" && path.trim()) writes.push(path.trim());
@@ -261,22 +278,12 @@ export function createTaskCheckExtension(): ExtensionFactory {
 					});
 				}
 			}
-			const call = createHash("sha256")
-				.update(JSON.stringify([event.toolName, stableValue(event.input)]))
-				.digest("hex");
+			const repeatedError = loopGuard.observe(event);
 			if (!event.isError) {
 				if (event.toolName !== "task_check") successfulCalls.add(event.toolCallId);
-				failures.delete(call);
 				return;
 			}
-			const result = createHash("sha256")
-				.update(JSON.stringify(stableValue(event.content)))
-				.digest("hex");
-			const previous = failures.get(call);
-			const count = previous?.result === result ? previous.count + 1 : 1;
-			failures.set(call, { result, count });
-			if (failures.size > 100) failures.delete(failures.keys().next().value!);
-			if (count !== 3) return;
+			if (!repeatedError) return;
 			return {
 				content: [
 					...event.content,
@@ -288,8 +295,38 @@ export function createTaskCheckExtension(): ExtensionFactory {
 				...(event.structuredContent === undefined ? {} : { structuredContent: event.structuredContent }),
 			};
 		});
+		pi.on("turn_end", (event, ctx) => {
+			const budgetStop = turnBudget.completeTurn();
+			const needsContinuation =
+				(event.message.role === "assistant" && ["toolUse", "length"].includes(event.message.stopReason)) ||
+				event.outcome === "error" ||
+				event.context.pendingMessages.length > 0 ||
+				ctx.hasPendingMessages() ||
+				(active && state?.criteria.some((item) => item.status === "pending"));
+			const stop = loopGuard.stop ?? (needsContinuation ? budgetStop : undefined);
+			if (!stop || stopped) return;
+			stopped = true;
+			ctx.abort();
+			return {
+				entries: [
+					{
+						type: "custom_message",
+						customType: "owl-loop-guard-stop",
+						display: true,
+						content:
+							stop.reason === "turn-budget"
+								? `已暂停此轮任务：已达到 ${stop.count} 轮模型调用预算，任务尚未完成。已执行的操作和结果已保留。请检查当前产物和剩余步骤；需要继续长任务时，可调整 agentMaxTurns 后发送新的用户请求。`
+								: stop.reason === "repeated-error"
+									? `已暂停此轮任务：${stop.toolName} 同一请求连续返回相同错误 ${stop.count} 次。请先解决依赖、权限或参数问题，再继续任务。`
+									: `已暂停此轮任务：连续 ${stop.count} 次查找同一能力仍未加载工具。请明确操作和目标，或检查候选工具的可用条件，再继续任务。`,
+						details: stop,
+					},
+				],
+			};
+		});
 		pi.on("agent_before_settle", (event, ctx) => {
 			if (
+				stopped ||
 				!active ||
 				reminded ||
 				!state ||
@@ -309,7 +346,7 @@ export function createTaskCheckExtension(): ExtensionFactory {
 						type: "custom_message",
 						customType: "owl-task-check-reminder",
 						display: false,
-						content: `The implementation checklist you explicitly registered still has pending acceptance criteria for ${state.goal}:\n${pending.map((item) => `- ${item.criterion}`).join("\n")}\n${formatHostObservations(writes, commands)}\nContinue only the authorized work needed to check them. Record actual evidence with task_check; a file named in verified evidence must have a successful edit or write this turn. If blocked, record the reason and report the limitation. This is the only automatic reminder for this user request. Do not repeat checks that already have evidence, invent success, or expand permissions.`,
+						content: `The implementation checklist you explicitly registered still has pending acceptance criteria for ${state.goal}:\n${pending.map((item) => `- ${item.criterion}`).join("\n")}\n${formatHostObservations(writes, commands)}\nContinue only the authorized work needed to check them. Record actual evidence with task_check; a modified file named in verified evidence must have a successful edit or write this turn. Read-only/preserved files can cite a successful read toolCallId for the same path; command-generated artifacts also require a successful command before that read. If blocked, record the reason and report the limitation. This is the only automatic reminder for this user request. Do not repeat checks that already have evidence, invent success, or expand permissions.`,
 					},
 				],
 			};

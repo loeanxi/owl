@@ -10,6 +10,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { streamSimple as anthropicStreamSimple } from "../../ai/src/api/anthropic-messages.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { ExtensionFactory } from "../src/core/extensions/types.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
@@ -85,8 +86,9 @@ describe("createAgentSession stream options", () => {
 		requestOptions: SimpleStreamOptions = {},
 		extensionFactory?: ExtensionFactory,
 		providerEvent?: unknown,
+		modelOverrides: Partial<Model<Api>> = {},
 	): Promise<SimpleStreamOptions | undefined> {
-		const model = createModel(api);
+		const model = { ...createModel(api), ...modelOverrides };
 		const settingsManager = SettingsManager.inMemory(settings);
 		const resourceLoader = new DefaultResourceLoader({
 			cwd,
@@ -231,6 +233,126 @@ describe("createAgentSession stream options", () => {
 		const options = await captureStreamOptions("openai-completions", { httpIdleTimeoutMs: 1234 });
 
 		expect(options?.timeoutMs).toBe(1234);
+	});
+
+	it("sends an ordinary request budget instead of reserving the model's full output capability", async () => {
+		const options = await captureStreamOptions("openai-completions", {}, {}, undefined, undefined, {
+			maxTokens: 128000,
+			contextWindow: 1000000,
+		});
+
+		expect(options?.maxTokens).toBe(16384);
+	});
+
+	it("builds the effective low-thinking Anthropic budget from SDK options without sending a request", async () => {
+		const options = await captureStreamOptions(
+			"anthropic-messages",
+			{ requestMaxTokens: 16384 },
+			{ reasoning: "low" },
+			undefined,
+			undefined,
+			{ maxTokens: 131072, contextWindow: 196608, reasoning: true },
+		);
+		expect(options?.maxTokens).toBe(16384);
+		const model: Model<"anthropic-messages"> = {
+			id: "capture-model",
+			name: "Capture Model",
+			api: "anthropic-messages",
+			provider: "capture-provider",
+			baseUrl: "https://capture.invalid/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 196608,
+			maxTokens: 131072,
+		};
+		let capturedPayload: unknown;
+		let transportCalls = 0;
+		const stream = anthropicStreamSimple(
+			model,
+			normalizeContext({ messages: [{ role: "user", content: "Offline budget fixture", timestamp: 0 }] }),
+			{
+				...options,
+				apiKey: "test-api-key",
+				onPayload: (payload) => {
+					capturedPayload = payload;
+					throw new Error("OFFLINE_PAYLOAD_CAPTURE");
+				},
+				fetch: async () => {
+					transportCalls++;
+					throw new Error("Transport is disabled in this fixture");
+				},
+			},
+		);
+		await stream.result();
+		expect(transportCalls).toBe(0);
+		expect(capturedPayload).toMatchObject({ max_tokens: 18432, thinking: { type: "enabled", budget_tokens: 2048 } });
+	});
+
+	it("accepts a higher configured reply budget without changing model capability", async () => {
+		const options = await captureStreamOptions(
+			"openai-completions",
+			{ requestMaxTokens: 65536 },
+			{},
+			undefined,
+			undefined,
+			{
+				maxTokens: 128000,
+				contextWindow: 1000000,
+			},
+		);
+		expect(options?.maxTokens).toBe(65536);
+	});
+
+	it("keeps explicit caller output budgets authoritative", async () => {
+		const options = await captureStreamOptions(
+			"openai-completions",
+			{ requestMaxTokens: 16384 },
+			{ maxTokens: 65536 },
+			undefined,
+			undefined,
+			{ maxTokens: 128000, contextWindow: 1000000 },
+		);
+		expect(options?.maxTokens).toBe(65536);
+	});
+
+	it("fits the reply budget inside the model capability", async () => {
+		const options = await captureStreamOptions("openai-completions", { requestMaxTokens: 65536 });
+		expect(options?.maxTokens).toBe(4096);
+	});
+
+	it("leaves room for context even with a large configured reply budget", async () => {
+		const options = await captureStreamOptions(
+			"openai-completions",
+			{ requestMaxTokens: 65536 },
+			{},
+			undefined,
+			undefined,
+			{
+				maxTokens: 128000,
+				contextWindow: 8192,
+			},
+		);
+		expect(options?.maxTokens).toBeLessThanOrEqual(4096);
+		expect(options?.maxTokens).toBeGreaterThan(0);
+	});
+
+	it("adds answer room for default shared thinking budgets without reducing the selected level", async () => {
+		const options = await captureStreamOptions(
+			"openai-completions",
+			{},
+			{ reasoning: "high" },
+			undefined,
+			undefined,
+			{
+				maxTokens: 128000,
+				contextWindow: 1000000,
+				reasoning: true,
+				compat: { supportsThinkingTokenBudget: true },
+			},
+		);
+		expect(options?.maxTokens).toBe(16384 + 1024);
+		expect(options?.reasoning).toBe("high");
 	});
 
 	it("lets request timeoutMs override httpIdleTimeoutMs for OpenAI Codex", async () => {

@@ -54,6 +54,7 @@ import type { McpServerConfig, McpServerRegistry, RegisteredMcpServer } from "..
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { PendingNestedToolCalls } from "../nested-tool-calls.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -406,6 +407,8 @@ export interface ExtensionToolContext extends ExtensionContext {
 	 * errors come back as `isError: true`.
 	 */
 	executeTool(name: string, args: unknown, options?: ExecuteToolOptions): Promise<AgentToolCallOutcome>;
+	/** Completed nested calls whose parent result has not yet been added to the session. */
+	getPendingNestedToolCalls?(): readonly PendingNestedToolCalls[];
 }
 
 /**
@@ -998,6 +1001,8 @@ export interface AgentBeforeSettleEvent extends BoundaryState {
 /** Fired after an agent run has fully settled and no automatic retry, compaction, or queued continuation will run. */
 export interface AgentSettledEvent {
 	type: "agent_settled";
+	/** Whether the run ended because it was aborted, for example with Escape. */
+	aborted: boolean;
 }
 
 export type UIPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
@@ -2186,6 +2191,8 @@ export interface ExtensionContextActions {
 	) => Promise<AgentToolCallOutcome>;
 	/** Backs `ExtensionToolContext.tools`. */
 	getCallableTools?: () => readonly AgentTool[];
+	/** Backs the file-read checks in tool execution contexts. */
+	getPendingNestedToolCalls?: () => readonly PendingNestedToolCalls[];
 }
 
 /**

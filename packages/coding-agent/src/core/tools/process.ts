@@ -7,7 +7,7 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Static } from "typebox";
 import { Type } from "typebox";
-import type { ToolDefinition } from "../extensions/types.ts";
+import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import {
 	getSessionProcess,
 	killSessionProcess,
@@ -28,7 +28,7 @@ const MAX_YIELD_MS = 300_000;
 const processSchema = Type.Object({
 	action: Type.Union([Type.Literal("poll"), Type.Literal("write"), Type.Literal("kill"), Type.Literal("list")], {
 		description:
-			"poll: wait for a session's output (default). write: send chars to the session's stdin ('\\u0003' = Ctrl-C). kill: terminate the session's process tree. list: show all sessions.",
+			"poll: wait for a session's output (default). write: send chars to the session's stdin ('\\u0003' = Ctrl-C). kill: terminate the session's process tree. list: show this chat's sessions.",
 	}),
 	session_id: Type.Optional(
 		Type.Number({
@@ -76,17 +76,18 @@ export function createProcessToolDefinition(): ToolDefinition<typeof processSche
 		label: "process",
 		description:
 			"Interact with background shell sessions started by bash/powershell (when a command is still running after yield_time_ms, those tools return a session_id). " +
-			"poll waits up to yield_time_ms and returns new output plus the session status; write sends stdin input ('\\u0003' sends Ctrl-C); kill terminates the process tree; list shows all sessions.",
+			"poll waits up to yield_time_ms and returns new output plus the session status; write sends stdin input ('\\u0003' sends Ctrl-C); kill terminates the process tree; list shows only this chat's sessions. Other chats' sessions cannot be read or controlled.",
 		promptSnippet: "Interact with background shell sessions (poll output, write stdin, kill)",
 		parameters: processSchema,
 		outputSchema: processOutputSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
-		async execute(_toolCallId, params): Promise<ProcessToolResult> {
+		async execute(_toolCallId, params, _signal, _update, ctx?: ExtensionContext): Promise<ProcessToolResult> {
+			const ownerId = ctx?.sessionManager?.getSessionId();
 			const yieldMs = clampNumber(params.yield_time_ms, DEFAULT_POLL_YIELD_MS, MIN_YIELD_MS, MAX_YIELD_MS);
 			const maxOutputTokens = clampNumber(params.max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS, 256, 100_000);
 
 			if (params.action === "list") {
-				return renderList(listSessionProcesses());
+				return renderList(listSessionProcesses(ownerId));
 			}
 
 			if (params.session_id === undefined) {
@@ -94,7 +95,7 @@ export function createProcessToolDefinition(): ToolDefinition<typeof processSche
 					"`session_id` is required for poll/write/kill. Use action=list to see running sessions.",
 				);
 			}
-			const entry = getSessionProcess(params.session_id);
+			const entry = getSessionProcess(params.session_id, ownerId);
 			if (!entry) {
 				return errorResult(
 					`Unknown session_id ${params.session_id}. It may have exited and been reaped, or belongs to another session. Use action=list to see current sessions.`,
@@ -177,6 +178,7 @@ function textResult(text: string, entry: ProcessEntry): ProcessToolResult {
 		content: [{ type: "text", text }],
 		details: { session: sessionDetails(entry) },
 		structuredContent: structured,
+		...(entry.spawnError ? { isError: true } : {}),
 	};
 }
 

@@ -181,6 +181,10 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
+	/** Ordinary reply budget, separate from model output capability. Thinking may add its own budget. Default: 16384. */
+	requestMaxTokens?: number;
+	/** Completed model rounds per real user turn. Integer 1..1024; invalid values fall back to 64. */
+	agentMaxTurns?: number;
 	modelThinkingLevels?: Record<string, ThinkingLevel>; // per-model default thinking level overrides keyed by "provider/modelId"
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
@@ -970,6 +974,15 @@ export class SettingsManager {
 
 	getDefaultThinkingLevel(): ThinkingLevel | undefined {
 		return this.settings.defaultThinkingLevel;
+	}
+
+	getRequestMaxTokens(): number {
+		const value = this.settings.requestMaxTokens;
+		if (value === undefined) return 16384;
+		if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+			throw new Error(`Invalid requestMaxTokens setting: ${String(value)}. Expected a positive safe integer.`);
+		}
+		return value;
 	}
 
 	setDefaultThinkingLevel(level: ThinkingLevel): void {

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Abort requested at the completed-turn boundary now ends the loop before starting another provider stream or consuming queued messages.
+
 ## [1.0.0] - 2026-10-01
 
 ### Breaking Changes

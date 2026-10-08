@@ -11,6 +11,7 @@ This reference lists user-configurable settings, their types, defaults, and purp
 | `defaultProvider` | string | Automatic | Startup AI provider. |
 | `defaultModel` | string | Automatic | Startup model ID. |
 | `defaultThinkingLevel` | `"off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max"` | `"medium"` | Startup thinking level. |
+| `requestMaxTokens` | positive integer | `16384` | Ordinary agent reply budget, separate from the model's output capability. Explicit SDK request budgets override it; model and context limits still apply. Thinking can add its own budget or require extra answer room. |
 | `modelThinkingLevels` | object | None | Per-model startup thinking levels keyed by exact `provider/modelId`. |
 | `thinkingBudgets` | object | Built-in budgets | Token budgets for `minimal`, `low`, `medium`, and `high` thinking levels. |
 | `enabledModels` | `string[]` | All available models | Model patterns used for startup selection and model cycling. Uses the same format as `--models`. |
@@ -20,6 +21,10 @@ This reference lists user-configurable settings, their types, defaults, and purp
 
 Cache warming runs only when the model declares a cache lifetime and Pi estimates at least $0.05 in avoided cache-miss cost. Refresh usage counts toward session totals but does not enter model context. `/session` shows the next decision; extensions can override it with `cache_warming_decision`. See [Prompt Cache Lifetimes](models.md#prompt-cache-lifetimes).
 
+Some gateways reserve credits using the requested output budget before generating a response. `requestMaxTokens` avoids reserving a model's full output capability on every ordinary agent request. Raise it for long responses; it does not change the model catalog or guarantee that available credits cover the input, reasoning, and output cost.
+
+When an OpenAI completions reasoning response reaches its output limit with only thinking and no text or tool call, the agent retains one bounded context recovery. If the failed SDK request used the implicit default budget, positive thinking was requested, and neither global/project settings nor the SDK caller supplied an output cap, the remaining requests for that real user request can use at most twice the default budget, further limited by model and context capacity. A visible recovery message records the temporary ceiling. The agent does not change the selected model or thinking level; a second unusable length response aborts as incomplete. A new real user request, user model/thinking change, or abort clears the temporary ceiling. A newly requested fixed thinking budget that exceeds the temporary ceiling yields to the previous normal request policy, without reducing the user's thinking budget. Other APIs retain their existing recovery behavior. Set `requestMaxTokens` explicitly, even to `16384`, to keep this automatic recovery increase disabled.
+
 See [Choose a Model](models.md) for model selection and thinking controls.
 
 ## Interaction
@@ -28,6 +33,7 @@ See [Choose a Model](models.md) for model selection and thinking controls.
 |---|---|---|---|
 | `steeringMode` | `"all" \| "one-at-a-time"` | `"one-at-a-time"` | How queued steering messages are delivered. |
 | `followUpMode` | `"all" \| "one-at-a-time"` | `"one-at-a-time"` | How queued follow-up messages are delivered. |
+| `agentMaxTurns` | integer `1..1024` | `64` | Maximum completed model rounds per real user request, including successful tool rounds. Invalid values fall back to `64`. The budget is captured when the request starts; changing settings during that request does not extend it. Reaching it while more work remains pauses the run with a visible budget notice and preserves results; a natural final answer at the limit completes normally when no queue or acceptance work remains. Queued follow-ups and acceptance reminders cannot automatically continue an exhausted request. Raise it for longer tasks and send a new user request to continue. |
 | `externalEditor` | string | `$VISUAL`, `$EDITOR`, then platform default | Command opened by the external-editor keybinding. |
 | `doubleEscapeAction` | `"tree" \| "fork" \| "none"` | `"tree"` | Action for double Escape with an empty editor. |
 | `treeFilterMode` | `"default" \| "no-tools" \| "user-only" \| "labeled-only" \| "all"` | `"default"` | Initial filter used by `/tree`. |

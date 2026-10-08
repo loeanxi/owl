@@ -1024,6 +1024,7 @@ describe("Coding Agent Tools", () => {
 			const result = await grepTool.execute("test-call-grep-injection", {
 				pattern: `--pre=${payload}`,
 				path: testDir,
+				literal: true,
 			});
 
 			expect(getTextOutput(result)).toContain("No matches found");

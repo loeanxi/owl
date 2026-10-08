@@ -93,6 +93,9 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    public static extern int DwmGetWindowRectAttribute(IntPtr hwnd, int attr, out RECT value, int size);
+    [DllImport("dwmapi.dll")] public static extern int DwmFlush();
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref PT point);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
@@ -104,6 +107,106 @@ public static class OwlMirrorWin32 {
     [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
     public struct MONITORINFO { public int Size; public RECT Monitor; public RECT Work; public uint Flags; }
     public struct PT { public int X; public int Y; }
+
+    public struct ProjectionBounds {
+        public RECT Capture;
+        public RECT Crop;
+        public PT ClientOffset;
+    }
+
+    public static bool TryAndroidSurface(IntPtr root, out RECT surface) {
+        RECT found = new RECT();
+        long largest = 0;
+        int bestVisibility = -1;
+        uint rootPid;
+        GetWindowThreadProcessId(root, out rootPid);
+        EnumChildWindows(root, (child, unused) => {
+            if (GetClassName(child) != "subWin") return true;
+            uint pid;
+            GetWindowThreadProcessId(child, out pid);
+            if (pid == 0 || pid == rootPid) return true;
+            try {
+                using (var process = System.Diagnostics.Process.GetProcessById((int)pid)) {
+                    if (!String.Equals(process.ProcessName, "AndrowsVm", StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            } catch { return true; }
+            RECT client;
+            PT origin = new PT();
+            if (!GetClientRect(child, out client) || !ClientToScreen(child, ref origin)) return true;
+            int w = client.Right - client.Left, h = client.Bottom - client.Top;
+            long area = (long)w * h;
+            int visibility = IsWindowVisible(child) ? 2 : ((GetStyle(child) & 0x10000000L) != 0 ? 1 : 0);
+            if (w < 80 || h < 80 || visibility < bestVisibility || (visibility == bestVisibility && area <= largest)) return true;
+            found.Left = origin.X; found.Top = origin.Y;
+            found.Right = origin.X + w; found.Bottom = origin.Y + h;
+            largest = area;
+            bestVisibility = visibility;
+            return true;
+        }, IntPtr.Zero);
+        surface = found;
+        return largest > 0;
+    }
+
+    public static RECT MinimumSurfaceWindowRect(IntPtr root, RECT surface) {
+        RECT outer, client;
+        PT origin = new PT();
+        if (!GetWindowRect(root, out outer) || !GetClientRect(root, out client) || !ClientToScreen(root, ref origin))
+            throw new InvalidOperationException("Android host bounds unavailable");
+        if (surface.Left < outer.Left || surface.Top < outer.Top)
+            throw new InvalidOperationException("Android surface starts outside its host");
+        int rightBorder = Math.Max(0, outer.Right - origin.X - (client.Right - client.Left));
+        int bottomBorder = Math.Max(0, outer.Bottom - origin.Y - (client.Bottom - client.Top));
+        outer.Right = surface.Right + rightBorder;
+        outer.Bottom = surface.Bottom + bottomBorder;
+        return outer;
+    }
+
+    public static RECT RequiredSurfaceWindowRect(IntPtr root, RECT surface) {
+        RECT required = MinimumSurfaceWindowRect(root, surface);
+        RECT current;
+        if (!GetWindowRect(root, out current)) throw new InvalidOperationException("Android host bounds unavailable");
+        required.Right = Math.Max(required.Right, current.Right);
+        required.Bottom = Math.Max(required.Bottom, current.Bottom);
+        return required;
+    }
+
+    public static ProjectionBounds ReadProjectionBounds(IntPtr hwnd, double scale) {
+        // WGC omits DWM's invisible resize border. Synchronize the compositor
+        // after placement and keep every coordinate relative to that same frame.
+        DwmFlush();
+        RECT outer;
+        if (!GetWindowRect(hwnd, out outer)) throw new InvalidOperationException("Projection window bounds unavailable");
+        RECT capture;
+        int result = DwmGetWindowRectAttribute(hwnd, 9, out capture, Marshal.SizeOf(typeof(RECT)));
+        if (result != 0 || capture.Right <= capture.Left || capture.Bottom <= capture.Top) capture = outer;
+        PT client = new PT();
+        if (!ClientToScreen(hwnd, ref client)) throw new InvalidOperationException("Projection client origin unavailable");
+        RECT surface;
+        if (TryAndroidSurface(hwnd, out surface)) {
+            ProjectionBounds bounds = new ProjectionBounds();
+            bounds.Capture = capture;
+            bounds.Crop.Left = surface.Left - capture.Left;
+            bounds.Crop.Top = surface.Top - capture.Top;
+            bounds.Crop.Right = surface.Right - capture.Left;
+            bounds.Crop.Bottom = surface.Bottom - capture.Top;
+            bounds.ClientOffset.X = client.X - capture.Left;
+            bounds.ClientOffset.Y = client.Y - capture.Top;
+            return bounds;
+        }
+        return ProjectionBoundsFromRects(outer, capture, client, scale);
+    }
+
+    public static ProjectionBounds ProjectionBoundsFromRects(RECT outer, RECT capture, PT client, double scale) {
+        ProjectionBounds bounds = new ProjectionBounds();
+        bounds.Capture = capture;
+        bounds.Crop.Left = (int)Math.Round(4 * scale) + outer.Left - capture.Left;
+        bounds.Crop.Top = (int)Math.Round(40 * scale) + outer.Top - capture.Top;
+        bounds.Crop.Right = bounds.Crop.Left + (int)Math.Round(843 * scale);
+        bounds.Crop.Bottom = bounds.Crop.Top + (int)Math.Round(472 * scale);
+        bounds.ClientOffset.X = client.X - capture.Left;
+        bounds.ClientOffset.Y = client.Y - capture.Top;
+        return bounds;
+    }
 
     public static System.Threading.Mutex LockProjection(IntPtr hwnd) {
         var mutex = new System.Threading.Mutex(false, "Local\\OwlMirrorProjection-" + hwnd.ToInt64());
@@ -1002,8 +1105,19 @@ function Invoke-MirrorPointer([IntPtr]$target, [string]$action, [int]$px, [int]$
   }
 }
 
+function Ensure-MirrorRestoreSurface([IntPtr]$target, $rect) {
+  $surface = New-Object OwlMirrorWin32+RECT
+  if ([OwlMirrorWin32]::TryAndroidSurface($target, [ref]$surface)) {
+    $minimum = [OwlMirrorWin32]::MinimumSurfaceWindowRect($target, $surface)
+    $rect.width = [Math]::Max($rect.width, $minimum.Right - $minimum.Left)
+    $rect.height = [Math]::Max($rect.height, $minimum.Bottom - $minimum.Top)
+  }
+  return $rect
+}
+
 function Restore-MirrorWindow([IntPtr]$target, [long]$style, [long]$parent, $rect) {
   Invoke-MirrorPointer $target 'cancel' 0 0
+  $rect = Ensure-MirrorRestoreSurface $target $rect
   $owner = if ($parent -gt 0 -and [OwlMirrorWin32]::IsWindow([IntPtr]$parent)) { [IntPtr]$parent } else { [IntPtr]::Zero }
   [OwlMirrorWin32]::SetOwner($target, $owner)
   [OwlMirrorWin32]::ClearClip($target)
@@ -1374,6 +1488,7 @@ switch ($Command) {
       $before.Right = $before.Left + $originalRect.width; $before.Bottom = $before.Top + $originalRect.height
       $before = [OwlMirrorWin32]::VisibleRestoreRect($before, $parentPtr)
       $originalRect = @{ x = $before.Left; y = $before.Top; width = $before.Right - $before.Left; height = $before.Bottom - $before.Top }
+      $originalRect = Ensure-MirrorRestoreSurface $hwndPtr $originalRect
     }
     $geometry = $null
     $clientOffset = $null
@@ -1410,22 +1525,49 @@ switch ($Command) {
       }
       [OwlMirrorWin32]::ClearClip($hwndPtr)
       [OwlMirrorWin32]::SetOwner($hwndPtr, $parentPtr)
-      # Androws keeps an 843x472 Android surface when its HWND is resized. Keep
-      # this verified complete surface and scale its pixels in Owl instead.
+      # The VM child can be larger than a programmatically resized Qt host.
+      # Preserve its real surface; the old profile is only a no-VM fallback.
       $scale = [Math]::Max(96, [OwlMirrorWin32]::GetDpiForWindow($hwndPtr)) / 96.0
-      $W = [int][Math]::Round(906 * $scale); $H = [int][Math]::Round(547 * $scale)
+      $vmSurface = New-Object OwlMirrorWin32+RECT
+      $hasVmSurface = [OwlMirrorWin32]::TryAndroidSurface($hwndPtr, [ref]$vmSurface)
+      if ($hasVmSurface) {
+        $required = [OwlMirrorWin32]::RequiredSurfaceWindowRect($hwndPtr, $vmSurface)
+        $W = $required.Right - $required.Left; $H = $required.Bottom - $required.Top
+      } else {
+        $W = [int][Math]::Round(906 * $scale); $H = [int][Math]::Round(547 * $scale)
+      }
       $placeErr = [OwlMirrorWin32]::PlaceOwned($hwndPtr, $parentPtr, -20000, -20000, $W, $H, $true)
       if ($placeErr -ne 0) { throw "Projection placement failed: $placeErr" }
       [OwlMirrorWin32]::ShowWindow($hwndPtr, 4) | Out-Null
-      $frame = New-Object OwlMirrorWin32+RECT
-      $clientOrigin = New-Object OwlMirrorWin32+PT
-      [OwlMirrorWin32]::GetWindowRect($hwndPtr, [ref]$frame) | Out-Null
-      [OwlMirrorWin32]::ClientToScreen($hwndPtr, [ref]$clientOrigin) | Out-Null
+      $surfaceSettled = -not $hasVmSurface
+      $previousSurface = ''
+      for ($attempt = 0; $hasVmSurface -and $attempt -lt 3; $attempt++) {
+        if ([OwlMirrorWin32]::TryAndroidSurface($hwndPtr, [ref]$vmSurface)) {
+          $required = [OwlMirrorWin32]::RequiredSurfaceWindowRect($hwndPtr, $vmSurface)
+          $requiredW = $required.Right - $required.Left; $requiredH = $required.Bottom - $required.Top
+          $surfaceKey = ($vmSurface.Left - $required.Left).ToString() + ',' + ($vmSurface.Top - $required.Top) + ',' + ($vmSurface.Right - $vmSurface.Left) + ',' + ($vmSurface.Bottom - $vmSurface.Top)
+          if ($requiredW -le $W -and $requiredH -le $H -and $surfaceKey -eq $previousSurface) {
+            $surfaceSettled = $true
+            break
+          }
+          $previousSurface = $surfaceKey
+          if ($requiredW -gt $W -or $requiredH -gt $H) {
+            $W = [Math]::Max($W, $requiredW); $H = [Math]::Max($H, $requiredH)
+            $placeErr = [OwlMirrorWin32]::PlaceOwned($hwndPtr, $parentPtr, -20000, -20000, $W, $H, $true)
+            if ($placeErr -ne 0) { throw "Projection placement failed: $placeErr" }
+          }
+        }
+        if ($attempt -lt 2) { Start-Sleep -Milliseconds 16 }
+      }
+      if (-not $surfaceSettled) { throw 'Android surface layout did not settle after resizing its host' }
+      $projectionBounds = [OwlMirrorWin32]::ReadProjectionBounds($hwndPtr, $scale)
+      $frame = $projectionBounds.Capture
+      $crop = $projectionBounds.Crop
       $geometry = @{
         geometryId = $GeometryId; sourceWidth = $frame.Right - $frame.Left; sourceHeight = $frame.Bottom - $frame.Top
-        crop = @{ x = [int][Math]::Round(4 * $scale); y = [int][Math]::Round(40 * $scale); width = [int][Math]::Round(843 * $scale); height = [int][Math]::Round(472 * $scale) }
+        crop = @{ x = $crop.Left; y = $crop.Top; width = $crop.Right - $crop.Left; height = $crop.Bottom - $crop.Top }
       }
-      $clientOffset = @{ x = $clientOrigin.X - $frame.Left; y = $clientOrigin.Y - $frame.Top }
+      $clientOffset = @{ x = $projectionBounds.ClientOffset.X; y = $projectionBounds.ClientOffset.Y }
       } finally { $leaseLock.ReleaseMutex(); $leaseLock.Dispose() }
     } elseif ($ownerShown) {
       $placeErr = [OwlMirrorWin32]::PlaceStage($hwndPtr, $parentPtr, $X, $Y, $W, $H)

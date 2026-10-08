@@ -59,6 +59,16 @@ export interface MailAgentDraftMessage {
  */
 export type ApprovalMode = "auto" | "confirm" | "plan";
 
+/** Approval notifications use the shared session event stream across all UI clients. */
+export type DesktopApprovalEvent =
+	| {
+			type: "permission_resolved";
+			requestId: string;
+			approved: boolean;
+			reason: "response" | "mode-change" | "cancelled";
+	  }
+	| { type: "approval_mode_changed"; approvalMode: ApprovalMode };
+
 export interface SessionCreateRequest {
 	type: "session.create";
 	id: string;
@@ -151,6 +161,14 @@ export interface SessionArchiveRequest {
 	sessionId: string;
 }
 
+/** 更改会话显示名：追加一条 session_info，侧栏与顶栏都读最新的这一条。 */
+export interface SessionRenameRequest {
+	type: "session.rename";
+	id: string;
+	sessionId: string;
+	name: string;
+}
+
 /** 取消归档。 */
 export interface SessionUnarchiveRequest {
 	type: "session.unarchive";
@@ -190,6 +208,8 @@ export interface SessionResumeRequest {
 	provider?: string;
 	model?: string;
 	approvalMode?: ApprovalMode;
+	/** Observer preference used only when a cold ordinary session has no saved approval mode. */
+	approvalModeFallback?: ApprovalMode;
 	thinkingLevel?: string;
 }
 
@@ -453,6 +473,10 @@ export interface SessionSnapshotPayload {
 	sessionId: string;
 	cwd: string;
 	messages: unknown[];
+	/** Whether the run, including its post-response settlement, was active when this snapshot was read. */
+	running?: boolean;
+	/** First assistant of the active run in messages, or messages.length until one exists. */
+	runStartMessageIndex?: number;
 	/** 与 messages 按下标对齐的会话条目 id（回退按钮需要；无条目来源的消息为 undefined） */
 	messageEntryIds: (string | undefined)[];
 	thinkingLevel?: unknown;
@@ -2024,6 +2048,7 @@ export type DesktopClientRequest =
 	| SessionContinueRequest
 	| SessionDeleteRequest
 	| SessionArchiveRequest
+	| SessionRenameRequest
 	| SessionUnarchiveRequest
 	| SessionArchiveConfigRequest
 	| SessionResumeRequest

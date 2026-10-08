@@ -1,0 +1,906 @@
+{
+  "description": "Public metadata only: all 21 D07 first transcript declarations plus actual captured old MCP browser declarations. Native inactive metadata is created from real BrowserHub in the test. Partial registered index, not a full product registry; no tool execution or provider data.",
+  "prompt": "[TEST/eval v8-initial-a round 1] 表单源码修复与真实提交\n只在本任务工作区修代码，不安装依赖、不访问外网、不修改冻结输入。修复 src/client.js 与api.cjs。validate(payload)必须验证非空姓名/requestId、邮箱含@、quantity原始十进制整数字符串且1..10、真实ISO日期、consent===true，返回规范字段（quantity为number）；非法值抛RangeError。idempotencyKey只用requestId，重复提交复用同回执。客户端须读取正确控件、保留原始quantity、显示接口错误、显示实际receipt并通知其可见。修完后必须实际使用browser工具访问 http://127.0.0.1:63893，填写姓名张回归、邮箱owl-eval@example.test、数量2、日期2026-10-21、同意勾选；点击模拟下一次失败，提交并看到暂时失败，以同requestId重试得到submitted回执，再提交一次不能新增预约。不能只用curl或最终回答代替真实UI。\n\n公开补充规则（v8）：\n- normal.native-submit: 使用原生browser控件完成公开要求的表单；回执必须是真实服务器receipt并可见，quantity规范化为number，其他规范字段匹配表单。\n- edge.invalid-no-submit: 非十进制/越界quantity、无效真实日期、非true consent等不得提交；02等数字文本合法。相同requestId复用回执，不同requestId必须独立且保留各自payload；不能共享常量key。\n- recovery.retry-no-duplicate: 实际browser模拟一次暂时失败并显示错误，再以同requestId重试；仅一个submitted回执，重复提交不新增。保持冻结HTML/服务/日志，不生成假回执。\n工作只限本工作区；Windows下给路径加引号，shell与原生程序之间用当前工作区相对路径交接文件，不用/tmp/MSYS别名猜原生路径。require/module.exports脚本用.cjs，import/export用.mjs；.js按package.json.type执行。Node异步脚本等待资源关闭后设置process.exitCode自然退出。验证须检查实际测试进程退出码；tail/head退出0不能证明上游程序成功。",
+  "active": [
+    "read",
+    "bash",
+    "process",
+    "edit",
+    "write",
+    "todo",
+    "codemode",
+    "computer_screenshot",
+    "computer_click",
+    "computer_type",
+    "computer_key",
+    "computer_scroll",
+    "computer_windows",
+    "tool_search",
+    "skill_search",
+    "ask_user_question",
+    "grep",
+    "find",
+    "univer_execute",
+    "browser_snapshot",
+    "mcp_playwright_browser_click"
+  ],
+  "tools": [
+    {
+      "name": "read",
+      "description": "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.\n\nCodemode: `tools.read(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Line number to start reading from (1-indexed)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to read"
+          }
+        }
+      }
+    },
+    {
+      "name": "bash",
+      "description": "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. By default the command runs in unified-exec mode: if it is still running after 10s, it keeps running in the background and you get a session_id — use the process tool to poll for output, write stdin ('\\u0003' = Ctrl-C), or kill it. Pass timeout (seconds) for classic block-until-done semantics with a hard kill at the timeout.\n\nCodemode: `tools.bash(args)` resolves to `{ output, truncated, full_output_path?, exit_code?, wall_time_seconds, session_id?, status? }`.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in seconds. When set, the command blocks until it finishes or is killed at the timeout (classic behavior). Ignored when yield_time_ms is set."
+          },
+          "yield_time_ms": {
+            "type": "number",
+            "description": "Unified-exec mode: if the command is still running after this many milliseconds, keep it running in the background and return its session_id instead of waiting. Default 10000 when timeout is not set. Interact with the session via the process tool (poll/write/kill/list)."
+          },
+          "max_output_tokens": {
+            "type": "number",
+            "description": "Approximate max tokens of output returned in unified-exec mode. Default 10000."
+          }
+        }
+      }
+    },
+    {
+      "name": "process",
+      "description": "Interact with background shell sessions started by bash/powershell (when a command is still running after yield_time_ms, those tools return a session_id). poll waits up to yield_time_ms and returns new output plus the session status; write sends stdin input ('\\u0003' sends Ctrl-C); kill terminates the process tree; list shows only this chat's sessions. Other chats' sessions cannot be read or controlled.\n\nCodemode: `tools.process(args)` resolves to `{ session_id?, status, exit_code?, output?, truncated? }`.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "poll"
+              },
+              {
+                "type": "string",
+                "const": "write"
+              },
+              {
+                "type": "string",
+                "const": "kill"
+              },
+              {
+                "type": "string",
+                "const": "list"
+              }
+            ],
+            "description": "poll: wait for a session's output (default). write: send chars to the session's stdin ('\\u0003' = Ctrl-C). kill: terminate the session's process tree. list: show this chat's sessions."
+          },
+          "session_id": {
+            "type": "number",
+            "description": "Session id returned by bash/powershell or a previous poll. Required unless action is list."
+          },
+          "chars": {
+            "type": "string",
+            "description": "Input to write (action=write). Append '\\n' for Enter."
+          },
+          "yield_time_ms": {
+            "type": "number",
+            "description": "Max milliseconds to wait for new output before returning (poll/write). Default 30000."
+          },
+          "max_output_tokens": {
+            "type": "number",
+            "description": "Approximate max tokens of output to return. Default 10000."
+          }
+        }
+      }
+    },
+    {
+      "name": "edit",
+      "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Each oldText must appear in this turn's read or a successful complete write verified against current bytes.\n\nCodemode: `tools.edit(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "path",
+          "edits"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "oldText",
+                "newText"
+              ],
+              "properties": {
+                "oldText": {
+                  "type": "string",
+                  "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+                },
+                "newText": {
+                  "type": "string",
+                  "description": "Replacement text for this targeted edit."
+                }
+              }
+            },
+            "description": "One or more targeted replacements. Each item MUST be an object like {\"oldText\": \"<exact existing text>\", \"newText\": \"<replacement text>\"} — never a bare string and never an object without oldText. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+          }
+        }
+      }
+    },
+    {
+      "name": "write",
+      "description": "Write content to a file. Creates the file if it doesn't exist. Overwriting requires a full read in this turn or a successful complete write verified against current bytes. Automatically creates parent directories.\n\nCodemode: `tools.write(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "path",
+          "content"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write to the file"
+          }
+        }
+      }
+    },
+    {
+      "name": "todo",
+      "description": "Read or replace the session task list for tracking multi-step work. Pass `todos` to replace the whole list (full snapshot each time); omit it to read the current list. At most one task may be in_progress.\n\nCodemode: `tools.todo(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "content"
+              ],
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "Task description, concise and actionable"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "pending"
+                    },
+                    {
+                      "type": "string",
+                      "const": "in_progress"
+                    },
+                    {
+                      "type": "string",
+                      "const": "completed"
+                    }
+                  ],
+                  "description": "pending | in_progress | completed (default: pending)"
+                },
+                "priority": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "high"
+                    },
+                    {
+                      "type": "string",
+                      "const": "medium"
+                    },
+                    {
+                      "type": "string",
+                      "const": "low"
+                    }
+                  ],
+                  "description": "high | medium | low (default: medium)"
+                }
+              }
+            },
+            "description": "Full replacement task list. Omit to read the current list without changing it. Send every task each time, not just the delta."
+          }
+        }
+      }
+    },
+    {
+      "name": "codemode",
+      "description": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `searchTools(query, { limit?, namespace? })`, `describeTool(name)`, `describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read D:\\owl\\owl-re-v1\\owl-mono\\packages\\coding-agent\\docs\\codemode.md first.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Raw JavaScript source."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_screenshot",
+      "description": "Take a screenshot of this Windows desktop and return it as an image. Call this BEFORE any mouse/keyboard action to see the screen, and again AFTER acting to verify the result. Coordinates for computer_click/computer_scroll are pixel positions in this image.\n\nCodemode: `tools.computer_screenshot(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "primary"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "monitor"
+              }
+            ],
+            "description": "Which screen area to capture. 'primary' = main monitor (recommended), 'all' = the whole virtual desktop spanning every monitor, 'monitor' = a specific monitor by index (0-based)."
+          },
+          "monitorIndex": {
+            "type": "number",
+            "description": "Only when target is 'monitor'; 0-based index in system monitor order."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_click",
+      "description": "Move the mouse and click at a position given in the LAST computer_screenshot image's pixel coordinates. Take a fresh screenshot first whenever the screen may have changed.\n\nCodemode: `tools.computer_click(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "X coordinate in the LAST computer_screenshot image's pixel space."
+          },
+          "y": {
+            "type": "number",
+            "description": "Y coordinate in the LAST computer_screenshot image's pixel space."
+          },
+          "button": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "left"
+              },
+              {
+                "type": "string",
+                "const": "right"
+              },
+              {
+                "type": "string",
+                "const": "middle"
+              }
+            ],
+            "description": "Mouse button; default left."
+          },
+          "double": {
+            "type": "boolean",
+            "description": "Double-click; default false."
+          },
+          "expectHwnd": {
+            "type": "number",
+            "description": "Safety guard: hwnd of the window you intend to click (from computer_windows or a previous click result). If another window is on top at that point, the click is NOT injected and the actual window is returned. Use it whenever the target window is known."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_type",
+      "description": "Type text into the currently focused window as real keystrokes (Unicode). Click the target field first (computer_click) if the window is not focused; use computer_windows to focus a window, computer_key for shortcuts.\n\nCodemode: `tools.computer_type(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to type into the currently focused window. Use \\n for Enter. For key shortcuts use computer_key instead."
+          },
+          "expectHwnd": {
+            "type": "number",
+            "description": "Safety guard: hwnd of the window that should have keyboard focus. If the foreground window differs, NOTHING is typed (stray keystrokes can trigger shortcuts in other apps)."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_key",
+      "description": "Press a single key or a shortcut combo (real keystrokes into the focused window): 'enter', 'esc', 'tab', 'ctrl+s', 'alt+f4', 'ctrl+shift+esc', 'win', 'f5'. One combo per call.\n\nCodemode: `tools.computer_key(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "combo"
+        ],
+        "properties": {
+          "combo": {
+            "type": "string",
+            "description": "A single key or combo, e.g. 'enter', 'esc', 'ctrl+s', 'alt+tab', 'ctrl+shift+esc', 'win', 'f5'. One combo per call; modifiers: ctrl/alt/shift/win."
+          },
+          "expectHwnd": {
+            "type": "number",
+            "description": "Safety guard: hwnd of the window that should receive the keystroke; refused if the foreground window differs."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_scroll",
+      "description": "Scroll the mouse wheel at a position given in the LAST computer_screenshot image's pixel coordinates. 'up'/'down' scroll vertically, 'left'/'right' horizontally.\n\nCodemode: `tools.computer_scroll(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "X coordinate in the LAST computer_screenshot image's pixel space (scroll position)."
+          },
+          "y": {
+            "type": "number",
+            "description": "Y coordinate in the LAST computer_screenshot image's pixel space (scroll position)."
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "up"
+              },
+              {
+                "type": "string",
+                "const": "down"
+              },
+              {
+                "type": "string",
+                "const": "left"
+              },
+              {
+                "type": "string",
+                "const": "right"
+              }
+            ],
+            "description": "Scroll direction; default down."
+          },
+          "amount": {
+            "type": "number",
+            "description": "Wheel notches (3 ≈ one typical page step); default 3."
+          },
+          "expectHwnd": {
+            "type": "number",
+            "description": "Safety guard: hwnd of the window expected under the scroll point; refused otherwise."
+          }
+        }
+      }
+    },
+    {
+      "name": "computer_windows",
+      "description": "List visible top-level windows (returns hwnd, title, process, rect, minimized/foreground flags), or bring a window to the foreground ('focus'), or un-minimize it ('restore') so you can screenshot and interact with it.\n\nCodemode: `tools.computer_windows(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "list"
+              },
+              {
+                "type": "string",
+                "const": "focus"
+              },
+              {
+                "type": "string",
+                "const": "restore"
+              }
+            ],
+            "description": "'list' enumerates windows; 'focus' brings one to the foreground; 'restore' un-minimizes it."
+          },
+          "hwnd": {
+            "type": "number",
+            "description": "Target window handle from a previous 'list' (for focus/restore)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Case-insensitive substring of the window title (fallback when hwnd is not given)."
+          }
+        }
+      }
+    },
+    {
+      "name": "tool_search",
+      "description": "Find tools by capability and specific action. For compound work, provide separate steps (e.g. web/search, web/read, spreadsheet/create). Candidate actions are checked against tool metadata; weak matches are not loaded. metadata_match is not execution success or verified credentials/constraints. On refine/no_match, narrow the action, reword the step, or use an exact tool name to inspect its schema. The new-tool budget is shared across steps; already active matches are returned without reloading. Call matched tools from the next turn, preserving native images. Do not search for greetings.\n\nAvailable capability groups (discover the exact tools before calling):\n- ast: ast_grep_search, ast_grep_replace\n- bg: bg_wait, bg_delegate\n- browser: browser_navigate, browser_fill_form\n- edit: edit_image\n- effective: effective_config\n- fetch: fetch_content\n- find: find_inspiration\n- fusion: fusion_reason, fusion_investigate\n- generate: generate_image, generate_images\n- get: get_search_content\n- lens: lens_diagnostics, lens_diagnostic_mark\n- life: life_guide_search\n- ls: ls\n- lsp: lsp_navigation\n- map: map_search, map_nearby\n- mcp_playwright: mcp_playwright_browser_close, mcp_playwright_browser_resize\nOther groups: media, module, news, pi, powershell, project, read, recall, remember, render, source, subagent, subagents, symbol, task, univer, update, web. Search by capability and action.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 800,
+            "description": "Single task or exact tool name; use steps for a compound task"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "capability",
+                "action"
+              ],
+              "properties": {
+                "capability": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "Required capability, e.g. web, spreadsheet, image, code, media"
+                },
+                "action": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "description": "Specific operation, e.g. search, read, create, edit, references, pause"
+                },
+                "target": {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                "constraints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "maxItems": 4
+                },
+                "query": {
+                  "type": "string",
+                  "maxLength": 240,
+                  "description": "Optional alternate search wording for this step"
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "Separate required operations; all steps share the load budget"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "description": "Maximum tools to load. Defaults to 4."
+          }
+        }
+      }
+    },
+    {
+      "name": "skill_search",
+      "description": "Find installed skills by task or exact name. Returns matching descriptions and SKILL.md paths to read before specialized work. Empty query browses with offset/limit. A skill describes a workflow; it does not prove tools or dependencies are available.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Task, skill name, or empty string to browse"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          }
+        }
+      }
+    },
+    {
+      "name": "ask_user_question",
+      "description": "只在你确实被一个属于用户的决定卡住、无法从需求/代码/合理默认值中解决时使用：向用户打包提出 1-4 个带选项的问题。每个问题带 2-4 个写清含义的选项，用户在桌面界面里逐题作答，答案以结构化数据返回。能在合理默认值内解决的普通选择不要用它。\n\nCodemode: `tools.ask_user_question(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "questions"
+        ],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "question",
+                "header",
+                "options"
+              ],
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "要问用户的完整问题。要清晰、具体，以问号结尾。例：\"日期格式化用哪个库？\"multiSelect 为 true 时相应改写措辞，如\"要启用哪些功能？\""
+                },
+                "header": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "description": "最长 16 字符——硬限制，超限会被拒绝。问题旁的极短标签/分组名。例：\"认证方式\"、\"选库\"、\"方案\"。"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 60,
+                        "description": "最长 60 字符——硬限制，超限会被拒绝。选项的显示文本，用户看到并点选的就是它。要简短（1-5 个词）且说清这个选项是什么。"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "说明这个选项的含义、选了会发生什么，或它的代价/权衡。给用户做决定提供上下文。"
+                      },
+                      "preview": {
+                        "type": "string",
+                        "description": "可选。选中/聚焦该选项时渲染的预览内容（markdown）。只用于用户需要直观对比的具体产物：界面原型、代码片段、示意图、配置示例。"
+                      }
+                    }
+                  },
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "description": "这个问题的可选答案，2-4 个。每个选项应是互不相同的选择（开了 multiSelect 才可多选）。「其他」自由输入行由界面自动追加，不要自己写。"
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "true 表示允许用户勾选多个选项（选项间不互斥时用）。"
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "要问用户的问题（1-4 个，一次打包问完，UI 会逐题弹出）"
+          }
+        }
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.\n\nCodemode: `tools.grep(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "pattern"
+        ],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (regex or literal string)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or file to search (default: current directory)"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"
+          },
+          "ignoreCase": {
+            "type": "boolean",
+            "description": "Case-insensitive search (default: false)"
+          },
+          "literal": {
+            "type": "boolean",
+            "description": "Treat pattern as literal string instead of regex (default: false)"
+          },
+          "context": {
+            "type": "number",
+            "description": "Number of lines to show before and after each match (default: 0)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of matches to return (default: 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "find",
+      "description": "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).\n\nCodemode: `tools.find(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "pattern"
+        ],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in (default: current directory)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of results (default: 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "univer_execute",
+      "description": "执行 Univer Facade JavaScript，将修改提交到显式草稿；code/codeFile 必须二选一。\n\nCodemode: `tools.univer_execute(args)` resolves to `{ [key: string]: unknown; }`.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "file",
+          "unitId",
+          "worktreeId"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "当前工作区中的 .univer 文件路径。"
+          },
+          "unitId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "univer_status 返回的内容单元 ID。"
+          },
+          "worktreeId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "univer_worktree 返回的草稿 ID。"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codeFile": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_click",
+      "description": "[MCP:playwright] Perform click on a web page\n\nCodemode: `tools.mcp_playwright_browser_click(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "description": "Human-readable element description used to obtain permission to interact with the element",
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "Exact target element reference from the page snapshot, or a unique element selector"
+          },
+          "doubleClick": {
+            "description": "Whether to perform a double click instead of a single click",
+            "type": "boolean"
+          },
+          "button": {
+            "description": "Button to click, defaults to left",
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "middle"
+            ]
+          },
+          "modifiers": {
+            "description": "Modifier keys to press",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Alt",
+                "Control",
+                "ControlOrMeta",
+                "Meta",
+                "Shift"
+              ]
+            }
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_type",
+      "description": "[MCP:playwright] Type text into editable element\n\nCodemode: `tools.mcp_playwright_browser_type(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "description": "Human-readable element description used to obtain permission to interact with the element",
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "Exact target element reference from the page snapshot, or a unique element selector"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to type into the element"
+          },
+          "submit": {
+            "description": "Whether to submit entered text (press Enter after)",
+            "type": "boolean"
+          },
+          "slowly": {
+            "description": "Whether to type one character at a time. Useful for triggering key handlers in the page. By default entire text is filled in at once.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target",
+          "text"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_navigate_back",
+      "description": "[MCP:playwright] Go back to the previous page in the history\n\nCodemode: `tools.mcp_playwright_browser_navigate_back(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_evaluate",
+      "description": "[MCP:playwright] Evaluate JavaScript expression on page or element\n\nCodemode: `tools.mcp_playwright_browser_evaluate(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "description": "Human-readable element description used to obtain permission to interact with the element",
+            "type": "string"
+          },
+          "target": {
+            "description": "Exact target element reference from the page snapshot, or a unique element selector",
+            "type": "string"
+          },
+          "function": {
+            "type": "string",
+            "description": "() => { /* code */ } or (element) => { /* code */ } when element is provided"
+          },
+          "filename": {
+            "description": "File name to save the result to. Relative file names are resolved against the workspace root. If not provided, result is returned as text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "function"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_tabs",
+      "description": "[MCP:playwright] List, create, close, or select a browser tab.\n\nCodemode: `tools.mcp_playwright_browser_tabs(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "new",
+              "close",
+              "select"
+            ],
+            "description": "Operation to perform"
+          },
+          "index": {
+            "description": "Tab index, used for close/select. If omitted for close, current tab is closed.",
+            "type": "number"
+          },
+          "url": {
+            "description": "URL to navigate to in the new tab, used for new.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp_playwright_browser_navigate",
+      "description": "[MCP:playwright] Navigate to a URL\n\nCodemode: `tools.mcp_playwright_browser_navigate(args)` resolves to a string.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to navigate to"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false
+      }
+    }
+  ]
+}

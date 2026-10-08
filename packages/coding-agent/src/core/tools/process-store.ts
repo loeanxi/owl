@@ -94,6 +94,8 @@ export interface ProcessEntry {
 	/** undefined = 仍在运行。 */
 	exitCode: number | null | undefined;
 	exitSignal: NodeJS.Signals | null;
+	/** Failed to start; null exitCode marks terminal state without inventing a command exit code. */
+	spawnError?: Error;
 	killed: boolean;
 	/** 输出自上次 poll 以来的新输出（读取即消费）。 */
 	pending: string;
@@ -176,6 +178,14 @@ export function registerSessionProcess(options: RegisterProcessOptions): Process
 		entry.exitSignal = signal ?? null;
 		resolveExit();
 	});
+	child.once("error", (error) => {
+		// Spawn failures have no PID and may never emit exit. Errors on a live child are not proof it exited.
+		if (child.pid || entry.exitCode !== undefined) return;
+		entry.spawnError = error;
+		entry.exitCode = null;
+		ingest(Buffer.from(`${error.message}\n`, "utf-8"), stderrDecoder);
+		resolveExit();
+	});
 	if (child.pid) trackDetachedChildPid(child.pid);
 	const untrack = () => {
 		if (child.pid) untrackDetachedChildPid(child.pid);
@@ -205,13 +215,13 @@ function sliceUtf8FromEnd(str: string, maxBytes: number): string {
 export function getSessionProcess(id: number, sessionId?: string): ProcessEntry | undefined {
 	const entry = processes.get(id);
 	if (!entry) return undefined;
-	if (sessionId && entry.sessionId !== sessionId) return undefined;
+	if (sessionId !== undefined && entry.sessionId !== sessionId) return undefined;
 	entry.lastUsedAt = Date.now();
 	return entry;
 }
 
 export function listSessionProcesses(sessionId?: string): ProcessEntry[] {
-	const all = [...processes.values()].filter((entry) => !sessionId || entry.sessionId === sessionId);
+	const all = [...processes.values()].filter((entry) => sessionId === undefined || entry.sessionId === sessionId);
 	return all.sort((a, b) => a.id - b.id);
 }
 
