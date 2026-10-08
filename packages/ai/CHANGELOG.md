@@ -9,6 +9,10 @@
 
 ### Fixed
 
+- Fixed cancelled requests discarding rotated OAuth credentials while a refresh is already in progress ([upstream fix](https://github.com/earendil-works/pi/commit/bde882c7471c47dc31af3c622496df66c4fae010)).
+- Fixed `server_busy` and `servers are currently busy` provider errors ending requests instead of using the existing bounded retry policy ([#10543](https://github.com/earendil-works/pi/issues/10543)).
+- Billing and credit-limit errors are no longer retried as transient failures when a gateway wraps them in HTTP 429 or 5xx.
+- Explicit gateway unknown-usage failures retain safe structured diagnostics and stop automatic request and agent retries by default; configured retry substrings and explicit provider retry headers keep their existing override behavior.
 - Fixed "Selected model is at capacity" provider errors ending the turn instead of being retried ([#10278](https://github.com/earendil-works/pi/issues/10278))
 
 ## [1.0.0] - 2026-10-01

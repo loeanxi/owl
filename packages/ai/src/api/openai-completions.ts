@@ -35,8 +35,10 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.ts";
+import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { gatewayUsageUnknownCode } from "../utils/gateway-usage-unknown.ts";
 import { shortHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
@@ -712,6 +714,13 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
+			const unknownUsageCode = gatewayUsageUnknownCode(error);
+			if (unknownUsageCode)
+				appendAssistantMessageDiagnostic(output, {
+					type: "gateway_usage_unknown",
+					timestamp: Date.now(),
+					details: { code: unknownUsageCode, billing_state: "unknown" },
+				});
 			// Some providers via OpenRouter give additional information in this field.
 			// normalizeProviderError already stringifies the parsed body (error.error)
 			// into errorMessage, so only append the raw metadata when it is not already

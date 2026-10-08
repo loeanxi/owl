@@ -137,4 +137,22 @@ describe("openai-completions provider retries", () => {
 		expect(result.errorMessage).toContain("rate limited");
 		expect(mockState.requestOptions).toEqual([expect.objectContaining({ maxRetries: 0 })]);
 	});
+
+	it("does not resend identical requests for gateway balance failures", async () => {
+		vi.useFakeTimers();
+		mockState.requestErrors = [
+			Object.assign(new Error("网关内部错误: 余额不足: 预估 10 分，可用 4 分"), {
+				status: 500,
+				headers: new Headers({ "retry-after-ms": "1" }),
+			}),
+		];
+
+		const pending = consume({ maxRetries: 2 });
+		await vi.runAllTimersAsync();
+		const result = await pending;
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("余额不足");
+		expect(mockState.requestOptions).toHaveLength(1);
+	});
 });

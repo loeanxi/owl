@@ -502,6 +502,67 @@ describe("Models runtime", () => {
 		expect(await credentials.read("oauth-dynamic")).toMatchObject({ access: "fresh", refresh: "rotated" });
 	});
 
+	it.each(["cancelled", "superseded"])(
+		"persists a started OAuth rotation when the model refresh is %s",
+		async (scenario) => {
+			const credentials = new InMemoryCredentialStore();
+			const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
+			await credentials.modify("p1", async () => previous);
+			let markStarted: (() => void) | undefined;
+			let finishRefresh: ((credential: OAuthCredential) => void) | undefined;
+			const started = new Promise<void>((resolve) => {
+				markStarted = resolve;
+			});
+			const blocked = new Promise<OAuthCredential>((resolve) => {
+				finishRefresh = resolve;
+			});
+			let refreshSignal: AbortSignal | undefined;
+			const refresh = vi.fn(async (_credential: OAuthCredential, signal: AbortSignal) => {
+				refreshSignal = signal;
+				markStarted?.();
+				const rotated = await blocked;
+				signal.throwIfAborted();
+				return rotated;
+			});
+			const networkCredentials: unknown[] = [];
+			const models = createModels({ credentials });
+			models.setProvider(
+				testProvider({
+					id: "p1",
+					auth: { oauth: testOAuth({ refresh }) },
+					refreshModels: async (context) => {
+						if (context.allowNetwork) networkCredentials.push(context.credential);
+					},
+				}),
+			);
+			const controller = new AbortController();
+			const first = models.refresh({ signal: controller.signal });
+			await started;
+			const newer = scenario === "superseded" ? models.refresh() : undefined;
+			if (scenario === "cancelled") controller.abort();
+			const firstResult = await first;
+			const refreshAbortedWithCaller = refreshSignal?.aborted;
+			const rotated: OAuthCredential = {
+				...previous,
+				access: "new",
+				refresh: "new-refresh",
+				expires: Date.now() + 60 * 60_000,
+			};
+			finishRefresh?.(rotated);
+			// A subsequent request must wait for the original rotation instead of reusing old-refresh.
+			const latestResult = await (newer ?? models.refresh());
+
+			expect(firstResult).toMatchObject({ aborted: scenario === "cancelled" });
+			expect(firstResult.errors.size).toBe(0);
+			expect(latestResult).toMatchObject({ aborted: false });
+			expect(latestResult.errors.size).toBe(0);
+			expect(refreshAbortedWithCaller).toBe(false);
+			expect(refresh).toHaveBeenCalledOnce();
+			expect(await credentials.read("p1")).toEqual(rotated);
+			expect(networkCredentials).toEqual([rotated]);
+		},
+	);
+
 	it("always gives providers a concrete signal", async () => {
 		let receivedSignal: AbortSignal | undefined;
 		const models = createModels();
@@ -775,7 +836,7 @@ describe("Models runtime", () => {
 		expect(await credentials.read("p1")).toEqual({ type: "api_key", key: "first" });
 	});
 
-	it("passes cancellation to OAuth refresh and preserves the previous credential", async () => {
+	it("persists a started OAuth rotation when one of two concurrent auth callers cancels", async () => {
 		const credentials = new InMemoryCredentialStore();
 		const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
 		await credentials.modify("p1", async () => previous);
@@ -788,33 +849,136 @@ describe("Models runtime", () => {
 			finishRefresh = resolve;
 		});
 		let receivedSignal: AbortSignal | undefined;
+		const refresh = vi.fn(async (_credential: OAuthCredential, signal: AbortSignal) => {
+			receivedSignal = signal;
+			startRefresh?.();
+			const rotated = await blockedRefresh;
+			signal.throwIfAborted();
+			return rotated;
+		});
 		const models = createModels({ credentials });
 		models.setProvider(
 			testProvider({
 				id: "p1",
 				auth: {
-					oauth: testOAuth({
-						refresh: async (_credential, signal) => {
-							receivedSignal = signal;
-							startRefresh?.();
-							return blockedRefresh;
-						},
-					}),
+					oauth: testOAuth({ refresh }),
 				},
 			}),
 		);
 		const controller = new AbortController();
+		const modify = vi.spyOn(credentials, "modify");
 		const auth = models.getAuth("p1", { signal: controller.signal });
 		await refreshStarted;
+		const otherAuth = models.getAuth("p1");
+		await vi.waitFor(() => expect(modify).toHaveBeenCalledTimes(2));
 		controller.abort();
 
 		await expect(auth).rejects.toMatchObject({ name: "AbortError" });
+		const refreshAbortedWithCaller = receivedSignal?.aborted;
+		const rotated: OAuthCredential = {
+			...previous,
+			access: "new",
+			refresh: "new-refresh",
+			expires: Date.now() + 60 * 60_000,
+		};
+		finishRefresh?.(rotated);
+		await expect(otherAuth).resolves.toMatchObject({ auth: { apiKey: "new" } });
+
 		expect(receivedSignal).toBeInstanceOf(AbortSignal);
-		expect(receivedSignal?.aborted).toBe(true);
-		expect(receivedSignal?.reason).toBe(controller.signal.reason);
-		finishRefresh?.({ ...previous, access: "new", expires: Date.now() + 60_000 });
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(refreshAbortedWithCaller).toBe(false);
+		expect(refresh).toHaveBeenCalledOnce();
+		expect(await credentials.read("p1")).toEqual(rotated);
+	});
+
+	it("does not start OAuth refresh for a request cancelled before auth resolution", async () => {
+		const credentials = new InMemoryCredentialStore();
+		const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
+		await credentials.modify("p1", async () => previous);
+		const refresh = vi.fn(async (credential: OAuthCredential) => credential);
+		const models = createModels({ credentials });
+		models.setProvider(testProvider({ id: "p1", auth: { oauth: testOAuth({ refresh }) } }));
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(models.getAuth("p1", { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+
+		expect(refresh).not.toHaveBeenCalled();
 		expect(await credentials.read("p1")).toEqual(previous);
+	});
+
+	it("cancels OAuth lock waiting without refreshing after the lock is released", async () => {
+		const credentials = new InMemoryCredentialStore();
+		const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
+		await credentials.modify("p1", async () => previous);
+		let markLockHeld: (() => void) | undefined;
+		let releaseLock: (() => void) | undefined;
+		const lockHeld = new Promise<void>((resolve) => {
+			markLockHeld = resolve;
+		});
+		const blockedLock = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+		const holding = credentials.modify("p1", async () => {
+			markLockHeld?.();
+			await blockedLock;
+			return undefined;
+		});
+		await lockHeld;
+		const refresh = vi.fn(async (credential: OAuthCredential) => credential);
+		const modify = vi.spyOn(credentials, "modify");
+		const models = createModels({ credentials });
+		models.setProvider(testProvider({ id: "p1", auth: { oauth: testOAuth({ refresh }) } }));
+		const controller = new AbortController();
+		const auth = models.getAuth("p1", { signal: controller.signal });
+		await vi.waitFor(() => expect(modify).toHaveBeenCalledOnce());
+		controller.abort();
+		await expect(auth).rejects.toMatchObject({ name: "AbortError" });
+		releaseLock?.();
+		await holding;
+		// This mutation drains the cancelled task before checking that it did not run.
+		await credentials.modify("p1", async () => undefined);
+
+		expect(refresh).not.toHaveBeenCalled();
+		expect(await credentials.read("p1")).toEqual(previous);
+	});
+
+	it("still bounds a started OAuth refresh with the existing timeout", async () => {
+		const credentials = new InMemoryCredentialStore();
+		const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
+		await credentials.modify("p1", async () => previous);
+		const timeoutController = new AbortController();
+		const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutController.signal);
+		try {
+			let markStarted: (() => void) | undefined;
+			const started = new Promise<void>((resolve) => {
+				markStarted = resolve;
+			});
+			const models = createModels({ credentials });
+			models.setProvider(
+				testProvider({
+					id: "p1",
+					auth: {
+						oauth: testOAuth({
+							refresh: (_credential, signal) =>
+								new Promise<OAuthCredential>((_resolve, reject) => {
+									signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+									markStarted?.();
+								}),
+						}),
+					},
+				}),
+			);
+			const auth = models.getAuth("p1");
+			const rejected = expect(auth).rejects.toMatchObject({ code: "oauth" });
+			await started;
+			expect(timeout).toHaveBeenCalledWith(15_000);
+			timeoutController.abort(new DOMException("Refresh timed out", "TimeoutError"));
+			await rejected;
+
+			expect(await credentials.read("p1")).toEqual(previous);
+		} finally {
+			timeout.mockRestore();
+		}
 	});
 
 	it("resolves auth: stored credential owns the provider, ambient only when nothing stored", async () => {

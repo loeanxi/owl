@@ -581,13 +581,21 @@ export interface NestedToolCallRecord {
 	durationMs?: number;
 	/** Error text, truncated. */
 	error?: string;
+	/** Completion order of file accesses within the parent call, used to expire earlier reads. */
+	completionOrder?: number;
+	/** Bounded evidence of a successful text read. Session metadata only; not sent to the model. */
+	readResult?: { path: string; text: string; fullFile: boolean };
+	/** Target of a successful file change, retained even when its large arguments are omitted. */
+	fileMutationPath?: string;
 }
 
-/** Bounded record of the nested calls a tool made. Results are not recorded. */
+/** Bounded record of nested calls, including text-read evidence needed by file-change checks. */
 export interface NestedToolCalls {
 	calls: NestedToolCallRecord[];
 	/** False when calls were dropped, arguments omitted, or calls had not finished. */
 	complete: boolean;
+	/** False when a successful file access was dropped; earlier read evidence must not be trusted. */
+	fileAccessComplete?: boolean;
 }
 
 export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails> extends true

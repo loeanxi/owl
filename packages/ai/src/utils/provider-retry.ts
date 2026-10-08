@@ -1,3 +1,7 @@
+import { formatProviderError, normalizeProviderError } from "./error-body.ts";
+import { gatewayUsageUnknownCode } from "./gateway-usage-unknown.ts";
+import { isProviderLimitError } from "./provider-limit.ts";
+
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 
 interface ProviderRetryOptions {
@@ -24,6 +28,10 @@ function isRetryableProviderError(error: ProviderError): boolean {
 	const shouldRetry = error.headers?.get("x-should-retry");
 	if (shouldRetry === "true") return true;
 	if (shouldRetry === "false") return false;
+	if (gatewayUsageUnknownCode(error) !== undefined) return false;
+	// Gateways may return a generic 429/500 while their JSON body explains a
+	// deterministic credit limit. Repeating the same request cannot repair it.
+	if (isProviderLimitError(formatProviderError(normalizeProviderError(error)))) return false;
 
 	if (error.status === undefined) return true;
 	return (

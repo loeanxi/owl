@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage } from "../src/providers/faux.ts";
+import type { JsonObject } from "../src/types.ts";
+import { isProviderLimitError } from "../src/utils/provider-limit.ts";
 import { isRetryableAssistantError, type RetryPolicy, retryAssistantCall, retryDelayMs } from "../src/utils/retry.ts";
 
 const openAIExplicitRetryMessage =
@@ -15,7 +17,51 @@ const wrappedDnsLookupError =
 const azurePeakLoadError =
 	"The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throughput.";
 
+const unsupportedUsageMarkers: JsonObject[] = [
+	{ code: "service_unavailable", billing_state: "unknown" },
+	{ code: "upstream_stream_interrupted" },
+];
+
 describe("provider retry classification", () => {
+	it("unknown gateway usage is terminal by structure, without becoming a quota error", () => {
+		const errorMessage =
+			'504 {"error":{"code":"upstream_stream_interrupted","billing_state":"unknown","message":"terminated"}}';
+		expect(isProviderLimitError(errorMessage)).toBe(false);
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+	it("strict unknown-usage diagnostics preserve an explicit user retry override", () => {
+		const message = fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" });
+		message.diagnostics = [
+			{
+				type: "gateway_usage_unknown",
+				timestamp: 0,
+				details: { code: "upstream_stream_interrupted", billing_state: "unknown" },
+			},
+		];
+		expect(isRetryableAssistantError(message)).toBe(false);
+		expect(isRetryableAssistantError(message, ["terminated"])).toBe(true);
+	});
+	it.each(unsupportedUsageMarkers)("does not invent an unknown-usage terminal marker: %j", (details) => {
+		const message = fauxAssistantMessage("", { stopReason: "error", errorMessage: "503 service unavailable" });
+		message.diagnostics = [{ type: "gateway_usage_unknown", timestamp: 0, details }];
+		expect(isRetryableAssistantError(message)).toBe(true);
+	});
+	// Regression for #10543: generic busy errors must use the bounded retry policy.
+	it.each(["server_busy", "The servers are currently busy. Please try again later."])(
+		"matches generic provider busy errors: %s",
+		(errorMessage) => {
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+		},
+	);
+
+	it("keeps quota exhaustion non-retryable even when the provider also says server_busy", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "server_busy: insufficient_quota" }),
+			),
+		).toBe(false);
+	});
+
 	it("matches explicit provider retry guidance", () => {
 		expect(
 			isRetryableAssistantError(
@@ -85,6 +131,14 @@ describe("provider retry classification", () => {
 		).toBe(false);
 	});
 
+	it.each([
+		"500 网关内部错误: 余额不足: 预估 10 分，可用 4 分",
+		"429 insufficient balance: estimated 10 credits, available 4 credits",
+		"503 额度不足，请充值后重试",
+	])("does not retry gateway balance failures hidden behind server statuses: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+
 	it("keeps the ChatGPT subscription usage limit non-retryable", () => {
 		const errorMessage =
 			'OpenAI API error (429): {"code":"subscription_sharing_usage_limit_exceeded","message":"Usage limit reached."}';
@@ -146,6 +200,29 @@ describe("retryDelayMs", () => {
 describe("retryAssistantCall", () => {
 	const disabled: RetryPolicy = { enabled: false, maxRetries: 3, baseDelayMs: 0 };
 	const enabled: RetryPolicy = { enabled: true, maxRetries: 3, baseDelayMs: 0 };
+
+	// Regression for #10543: classification must reach the actual retry loop.
+	it("retries server_busy only up to the configured retry budget", async () => {
+		const produce = vi.fn(async () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "server_busy" }));
+		const onRetryFinished = vi.fn();
+		const policy: RetryPolicy = { enabled: true, maxRetries: 2, baseDelayMs: 0 };
+
+		const response = await retryAssistantCall(produce, policy, undefined, { onRetryFinished });
+
+		expect(response.stopReason).toBe("error");
+		expect(produce).toHaveBeenCalledTimes(3);
+		expect(onRetryFinished).toHaveBeenCalledWith(false, 2, "server_busy");
+	});
+
+	it("does not retry generic busy errors when retries are disabled", async () => {
+		const produce = vi.fn(async () =>
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "servers are currently busy" }),
+		);
+
+		await retryAssistantCall(produce, disabled, undefined);
+
+		expect(produce).toHaveBeenCalledOnce();
+	});
 
 	it("returns a successful response immediately without retrying", async () => {
 		const produce = vi.fn(async () => fauxAssistantMessage("ok"));

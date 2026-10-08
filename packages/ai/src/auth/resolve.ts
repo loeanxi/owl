@@ -103,9 +103,55 @@ const DEFAULT_OAUTH_MINIMUM_VALIDITY_MS = 5 * 60 * 1000;
 const DEFAULT_OAUTH_REFRESH_TIMEOUT_MS = 15_000;
 
 /**
+ * Refresh and persist OAuth under the credential-store lock, re-checking expiry
+ * after acquiring it so concurrent callers refresh only once.
+ *
+ * `signal` cancels only the lock wait. Once refreshing starts, the provider may
+ * already have rotated the token, so refresh and persistence ignore cancellation
+ * and are bounded only by the refresh timeout. Public callers race this operation
+ * with their own signal to stop waiting promptly without losing the new token.
+ */
+export async function refreshStoredOAuthCredential(
+	credentials: CredentialStore,
+	providerId: string,
+	oauth: OAuthAuth,
+	needsRefresh: (credential: OAuthCredential) => boolean,
+	signal: AbortSignal,
+): Promise<OAuthCredential | undefined> {
+	let post: Credential | undefined;
+	const lockWait = new AbortController();
+	const cancelLockWait = () => lockWait.abort(signal.reason);
+	signal.addEventListener("abort", cancelLockWait, { once: true });
+	if (signal.aborted) cancelLockWait();
+	try {
+		post = await credentials.modify(
+			providerId,
+			async (current) => {
+				signal.removeEventListener("abort", cancelLockWait);
+				signal.throwIfAborted();
+				if (current?.type !== "oauth") return undefined; // logged out meanwhile
+				if (!needsRefresh(current)) return undefined; // another process/request refreshed
+				try {
+					return await oauth.refresh(current, AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS));
+				} catch (error) {
+					throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
+				}
+			},
+			{ signal: lockWait.signal },
+		);
+	} catch (error) {
+		if (error instanceof ModelsError) throw error;
+		signal.throwIfAborted();
+		throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
+	} finally {
+		signal.removeEventListener("abort", cancelLockWait);
+	}
+	return post?.type === "oauth" ? post : undefined;
+}
+
+/**
  * OAuth resolution with double-checked locking: tokens with less than five
- * minutes remaining lock, re-check expiry under the lock, refresh once
- * globally, and persist the rotated credential before release.
+ * minutes remaining are refreshed through `refreshStoredOAuthCredential`.
  */
 async function resolveStoredOAuth(
 	credentials: CredentialStore,
@@ -121,30 +167,8 @@ async function resolveStoredOAuth(
 
 	if (expiresSoon(credential)) {
 		// Optimistic check said expired; the authoritative check runs under the lock.
-		let post: Credential | undefined;
-		try {
-			post = await credentials.modify(
-				providerId,
-				async (current) => {
-					if (current?.type !== "oauth") return undefined; // logged out meanwhile
-					if (!expiresSoon(current)) return undefined; // another process/request refreshed
-					try {
-						const refreshSignal = AbortSignal.any([
-							signal,
-							AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS),
-						]);
-						return await oauth.refresh(current, refreshSignal);
-					} catch (error) {
-						throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
-					}
-				},
-				{ signal },
-			);
-		} catch (error) {
-			if (error instanceof ModelsError) throw error;
-			throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
-		}
-		if (post?.type !== "oauth") return undefined; // logged out meanwhile
+		const post = await refreshStoredOAuthCredential(credentials, providerId, oauth, expiresSoon, signal);
+		if (!post) return undefined; // logged out meanwhile
 		credential = post;
 		// The normal five-minute window triggers a refresh but does not impose a
 		// provider contract. Explicit callers (such as bearer-token export) do

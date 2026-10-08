@@ -1,35 +1,18 @@
 import type { AssistantMessage } from "../types.ts";
+import { gatewayUsageUnknownCode } from "./gateway-usage-unknown.ts";
+import { isProviderLimitError } from "./provider-limit.ts";
+
+export { isProviderLimitError } from "./provider-limit.ts";
 
 function buildProviderErrorPattern(patterns: readonly string[]): RegExp {
 	return new RegExp(patterns.join("|"), "i");
 }
 
-const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
-	// OpenCode Go/free-tier limits returned as 429 JSON error types by OpenCode's
-	// Zen API. These are subscription/account limits, not transient throttles.
-	"GoUsageLimitError",
-	"FreeUsageLimitError",
-
-	// OpenCode Go subscription-limit text asks users to enable available-balance
-	// usage after rolling/weekly/monthly limits are reached.
-	"Monthly usage limit reached",
-	"available balance",
-
-	// Generic quota/budget/billing exhaustion. `insufficient_quota` is OpenAI's
-	// quota/billing error code; the other strings cover common gateway wording.
-	"insufficient_quota",
-	"out of budget",
-	"quota exceeded",
-	"billing",
-
-	// Sign in with ChatGPT: the subscription's shared usage limit, which resets
-	// after hours rather than seconds.
-	"subscription_sharing_usage_limit_exceeded",
-]);
-
 const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// Generic provider load, HTTP status, and server-side transient failures.
 	"overloaded",
+	"server_busy",
+	"servers are currently busy",
 	"currently experiencing high demand",
 	"model is at capacity",
 	"rate.?limit",
@@ -263,6 +246,14 @@ export function isRetryableAssistantError(
 			if (trimmed !== "" && lowered.includes(trimmed)) return true;
 		}
 	}
-	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
+	if (
+		message.diagnostics?.some(
+			(diagnostic) =>
+				diagnostic.type === "gateway_usage_unknown" && gatewayUsageUnknownCode(diagnostic.details) !== undefined,
+		) ||
+		gatewayUsageUnknownCode(errorMessage) !== undefined
+	)
+		return false;
+	if (isProviderLimitError(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
 }
