@@ -47,3 +47,17 @@ collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/schemas/
+
+# Local scratch: screenshots, design previews, browser logs, one-off notes
+.temp/
+.frontend-design/
+.playwright-mcp/
+.tmp-*
+*.prototype.html
+apps/desktop/prototype/
+
+# Unpacked third-party drops kept beside the package for reference
+packages/ai/.vendor-*/
+
+# Pool runtime: live DB, sessions, backups, per-account bridge caches
+apps/pool-server/data/
