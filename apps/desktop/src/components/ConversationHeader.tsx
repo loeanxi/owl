@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useT } from "../i18n/index.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { IconDownload, IconFolder, IconPanelBottom, IconPanelRight } from "../sidebar/icons.tsx";
@@ -10,7 +11,7 @@ const exportItemClass =
 	"flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-owl-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent";
 
 /** Shared conversation chrome for ordinary and research sessions. */
-export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, sessionId, exporting, onExport, onExportTurns }: {
+export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, sessionId, exporting, onExport, onExportTurns, actions }: {
 	title: string;
 	workspaceDir: string;
 	/** 当前会话的 Agent 预设名：顶栏标签，resume 一眼可辨本会话用的组合。 */
@@ -30,6 +31,8 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 	onExport: (format: SessionExportFormat) => void;
 	/** 勾选历史分享：打开轮次勾选弹窗，确认后按所选轮次导出。 */
 	onExportTurns: () => void;
+	/** Panels may replace the default export and workbench controls with their own actions. */
+	actions?: ReactNode;
 }): React.JSX.Element {
 	const t = useT();
 	useProjectSidebarRevision();
@@ -51,6 +54,7 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 			<button type="button" role="tab" aria-selected={view === "trajectory"} title={t("app.viewTrajectory")} onClick={() => onViewChange("trajectory")}>{t("app.viewTrajectory")}</button>
 		</div>
 		<div className="owl-shell-header-actions" data-tauri-drag-region="false">
+			{actions !== undefined ? actions : <>
 			{sessionId && (
 				<Menu
 					direction="down"
@@ -107,6 +111,7 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 			)}
 			<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={terminalOpen} className={`owl-chrome-button${terminalOpen ? " is-active" : ""}`} onClick={onToggleTerminal}><IconPanelBottom size={16} /></button>
 			<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={sidebarOpen} className={`owl-chrome-button${sidebarOpen ? " is-active" : ""}`} onClick={onToggleSidebar}><IconPanelRight size={16} /></button>
+			</>}
 		</div>
 	</header>;
 }

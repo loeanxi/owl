@@ -1,0 +1,11 @@
+.owl-agent-conversation {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	flex-direction: column;
+}
+
+.owl-agent-conversation[hidden] {
+	display: none;
+}

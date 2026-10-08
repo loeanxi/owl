@@ -84,7 +84,7 @@ const DEFINITIONS: TabDefinition[] = [
 		kind: "manager",
 		title: "号池 Manager",
 		icon: quickIcon("mirror"),
-		component: ManagerTab,
+		component: ({ api }) => <ManagerTab onOpenExternal={async (url) => { await api.openExternal("url", url); }} />,
 	},
 	{
 		kind: "tasks",

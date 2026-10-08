@@ -38,6 +38,7 @@ type RailTool = {
 };
 
 const RAIL_TOOL_ICONS: Record<string, React.ReactNode> = {
+	news: <IconNews className="h-[18px] w-[18px]" />,
 	projects: <IconFolder className="h-[18px] w-[18px]" />,
 	automation: (
 		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -226,8 +227,8 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
- * 顶部固定：首页 / 我的助理 / 号池 / 资讯 / 功能抽屉触发钮；
- * 其余功能默认不占位，在「功能抽屉」里点图钉后才常驻到分隔线下方置顶区，再点图钉取消。
+ * 顶部固定：首页 / 我的助理 / 号池 / 功能抽屉触发钮；
+ * 资讯与其余功能默认不占位，在「功能抽屉」里点图钉后才常驻到分隔线下方置顶区，再点图钉取消。
  * app 菜单单独贴底，中段不留空档。
  */
 export function ActivityRail({
@@ -464,10 +465,6 @@ export function ActivityRail({
 					<path d="M4 5.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
 					<path d="M4 11.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
 				</svg>
-			</button>
-
-			<button type="button" className={itemClass(view === "news" && !settingsOpen)} title={t("rail.news")} aria-label={t("rail.news")} aria-current={view === "news" && !settingsOpen ? "page" : undefined} onClick={() => onSelect("news")}>
-				<IconNews className="h-[18px] w-[18px]" />
 			</button>
 
 			{/* 功能抽屉触发钮：Codex 式放在固定组末尾、分隔线之上。 */}

@@ -3,17 +3,28 @@
  * 管理台 SPA（登录/账号/签到/Key/模型/费率/日志/备份）全部在 8790 同源运行，
  * iframe 内部无跨源问题。CORS 头仅供 owl 页面直连 API 时使用。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { attachManagerAccountAuth } from "./manager-account-auth.ts";
 
 const DEFAULT_URL = "http://127.0.0.1:8790";
 
-export function ManagerTab() {
+export function ManagerTab({ onOpenExternal }: { onOpenExternal: (url: string) => Promise<void> }) {
 	const [url] = useState(() => {
 		const injected = (globalThis as Record<string, unknown>).OWL_MANAGER_URL;
 		return typeof injected === "string" && injected.length > 0 ? injected : DEFAULT_URL;
 	});
 	const [status, setStatus] = useState<"checking" | "up" | "down">("checking");
 	const [reloadKey, setReloadKey] = useState(0);
+	const frameRef = useRef<HTMLIFrameElement>(null);
+	const openExternalRef = useRef(onOpenExternal);
+	openExternalRef.current = onOpenExternal;
+
+	useEffect(() => attachManagerAccountAuth({
+		host: window,
+		managerUrl: url,
+		frameWindow: () => frameRef.current?.contentWindow ?? null,
+		openExternal: (target) => openExternalRef.current(target),
+	}), [url]);
 
 	const check = useCallback(() => {
 		setStatus("checking");
@@ -43,11 +54,12 @@ export function ManagerTab() {
 			</div>
 			{status === "up" ? (
 				<iframe
+					ref={frameRef}
 					key={reloadKey}
 					src={url}
 					title="号池管理台"
 					style={{ flex: 1, width: "100%", border: "none", minHeight: 0 }}
-					allow="same-origin"
+					allow="clipboard-write"
 				/>
 			) : (
 				<div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", flex: 1 }}>

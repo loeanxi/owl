@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { AgentPresetDefinition, ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
@@ -6,7 +6,9 @@ import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { samePath } from "../utils/paths.ts";
 import { getProjectDisplayName, isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "../project-sidebar-model.ts";
+import { listenForOsFileDrop, readLocalImage } from "../bridge/native.ts";
 import { AttachedFileChip, extractPlainText } from "./AttachedFileChip.tsx";
+import { classifyHtmlDrop, dropPointHits, fileBasename, imageMimeOfName, splitDroppedPaths } from "./composer-drop.ts";
 import { PresetAvatar } from "./agent-preset-meta.tsx";
 import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
 
@@ -212,18 +214,18 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_PROMPT_IMAGES = 8;
 
 /** 剪贴板/拖入的文件按扩展名兜底识别图片（Windows 资源管理器复制的文件 type 可能为空）。 */
-const IMAGE_EXT_MIME: Record<string, string> = {
-	png: "image/png",
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	gif: "image/gif",
-	webp: "image/webp",
-	bmp: "image/bmp",
-};
-
 function imageMimeOf(file: File): string | undefined {
-	if (file.type.startsWith("image/")) return file.type;
-	return IMAGE_EXT_MIME[file.name.split(".").pop()?.toLowerCase() ?? ""];
+	return imageMimeOfName(file.name, file.type);
+}
+
+function filePathOf(file: File): string | undefined {
+	const path = (file as File & { path?: unknown }).path;
+	return typeof path === "string" && path.length > 0 ? path : undefined;
+}
+
+function transferHasFiles(transfer: DataTransfer): boolean {
+	const types = transfer.types;
+	return types.includes("Files") || types.includes("text/uri-list");
 }
 
 /** 把图片文件读成 base64；非图片或读取失败返回 undefined。 */
@@ -283,6 +285,8 @@ export function Composer({
 	commands,
 	searchFiles,
 	draftRequest,
+	initialDraft,
+	onDraftChange,
 	owlPose = "idle",
 	queued,
 	onRemoveQueued,
@@ -349,12 +353,21 @@ export function Composer({
 	/** Start-page examples fill a draft without submitting or replacing existing text.
 	 *  replace: 会话回退后的「文本回填」——整体替换输入框内容而不是追加。 */
 	draftRequest?: { id: number; text: string; replace?: boolean };
+	/** Restore a caller-owned text draft when this composer mounts; later prop changes do not move the caret. */
+	initialDraft?: string;
+	/** Observe edits, draft inserts, and send/clear so another view can restore the same text draft. */
+	onDraftChange?: (text: string) => void;
 	/** 栖在对话框上沿的流羽猫头鹰。空闲也在。 */
 	owlPose?: OwlPose;
 }): React.JSX.Element {
 	const t = useT();
 	useProjectSidebarRevision();
-	const [value, setValue] = useState("");
+	const [value, setValue] = useState(() => initialDraft ?? "");
+	const initialDraftRef = useRef(initialDraft);
+	const setDraftValue = (text: string): void => {
+		setValue(text);
+		onDraftChange?.(text);
+	};
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
 	const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
@@ -366,6 +379,8 @@ export function Composer({
 	useEffect(() => () => window.clearTimeout(hintTimerRef.current), []);
 	const editorRef = useRef<HTMLDivElement>(null);
 	const inputBoxRef = useRef<HTMLDivElement>(null);
+	const dropZoneRef = useRef<HTMLDivElement>(null);
+	const nativeDropAt = useRef(0);
 	const slashMenuRef = useRef<HTMLDivElement>(null);
 	const mentionMenuRef = useRef<HTMLDivElement>(null);
 	// 斜杠命令菜单：整段输入还是单个 "/命令" token（没敲出空格）时弹出；
@@ -378,16 +393,21 @@ export function Composer({
 	const [mentionQuery, setMentionQuery] = useState("");
 	const [mentionItems, setMentionItems] = useState<FsSearchHit[]>([]);
 	const [mentionIndex, setMentionIndex] = useState(0);
+	useLayoutEffect(() => {
+		if (initialDraftRef.current === undefined) return;
+		clearEditorContent(editorRef.current);
+		insertPlainText(editorRef.current, initialDraftRef.current);
+	}, []);
 	// 发送或草稿重置后从外部清理附文。
 	useEffect(() => {
 		if (!draftRequest) return;
 		if (draftRequest.replace) {
-			setValue(draftRequest.text);
+			setDraftValue(draftRequest.text);
 			clearEditorContent(editorRef.current);
 			insertPlainText(editorRef.current, draftRequest.text);
 		} else {
 			const next = value.trim() ? `${value}\n\n${draftRequest.text}` : draftRequest.text;
-			setValue(next);
+			setDraftValue(next);
 			if (editorRef.current) {
 				appendPlainText(editorRef.current, draftRequest.text, value.trim().length > 0);
 			}
@@ -405,7 +425,7 @@ export function Composer({
 		const hasAttachments = attachedPaths.length > 0;
 		if (!text && !hasImages && !hasAttachments) return;
 		onSend(text, hasImages ? pendingImages : undefined, hasAttachments ? attachedPaths : undefined, running ? delivery ?? "queue" : undefined);
-		setValue("");
+		setDraftValue("");
 		setAttachedPaths([]);
 		setMentionOpen(false);
 		clearEditorContent(editorRef.current);
@@ -417,6 +437,42 @@ export function Composer({
 		setPasteHint(text);
 		window.clearTimeout(hintTimerRef.current);
 		hintTimerRef.current = window.setTimeout(() => setPasteHint(undefined), 4000);
+	};
+
+	// 拖进来的文件只记路径。芯片画在输入框上方，不再塞进正文，避免同一文件出现两枚。
+	const addAttachmentPaths = (paths: string[]): void => {
+		if (paths.length === 0) return;
+		setAttachedPaths((current) => {
+			const next = [...current];
+			for (const path of paths) if (!next.includes(path)) next.push(path);
+			return next.length === current.length ? current : next;
+		});
+	};
+
+	// 系统拖放只有路径。图片读成预览；读不到（超大、权限）就退回路径芯片，文件仍然进对话。
+	const addImagePaths = (paths: string[]): void => {
+		const room = Math.max(0, MAX_PROMPT_IMAGES - pendingImages.length);
+		const picked = paths.slice(0, room);
+		if (paths.length > room) showHint(t("composer.imageLimitReached", { max: MAX_PROMPT_IMAGES }));
+		const overflow = paths.slice(room);
+		if (overflow.length > 0) addAttachmentPaths(overflow);
+		if (picked.length === 0) return;
+		void Promise.all(picked.map(async (path) => ({ path, image: await readLocalImage(path) }))).then((loaded) => {
+			const images: PendingImage[] = [];
+			const fallback: string[] = [];
+			for (const entry of loaded) {
+				if (entry.image) images.push({ id: `img-${++imageSeq}`, type: "image", data: entry.image.data, mimeType: entry.image.mimeType });
+				else fallback.push(entry.path);
+			}
+			if (images.length > 0) setPendingImages((current) => [...current, ...images].slice(0, MAX_PROMPT_IMAGES));
+			if (fallback.length > 0) addAttachmentPaths(fallback);
+		});
+	};
+
+	const acceptDroppedPaths = (paths: string[]): void => {
+		const split = splitDroppedPaths(paths);
+		if (split.attachments.length > 0) addAttachmentPaths(split.attachments);
+		if (split.images.length > 0) addImagePaths(split.images);
 	};
 
 	// 粘贴/拖入的图片文件读成 base64 挂进待发送区；超量截断、超大跳过。
@@ -592,13 +648,15 @@ export function Composer({
 		return extractPlainText(editor);
 	};
 
-	// 把芯片按 DOM 顺序铺成数组，用于外层 React 渲染（X 按钮点击即删同路径芯片）。
-	const chipEntries: { path: string; basename: string; key: string }[] = [];
-	for (const chip of Array.from(editorRef.current?.querySelectorAll(".owl-mention-chip") ?? [])) {
-		const path = chip.getAttribute("data-mention-path");
-		const basename = chip.querySelector(".owl-mention-chip__label")?.textContent ?? "";
-		if (path) chipEntries.push({ path, basename, key: path });
-	}
+	// 正文里的 @ 芯片已经占了一枚，上面这排只补拖进来、没有插进正文的路径。
+	const inlineAttachmentPaths = new Set(
+		Array.from(editorRef.current?.querySelectorAll(".owl-mention-chip") ?? [])
+			.map((chip) => chip.getAttribute("data-mention-path"))
+			.filter((path): path is string => Boolean(path)),
+	);
+	const chipEntries = attachedPaths
+		.filter((path) => !inlineAttachmentPaths.has(path))
+		.map((path) => ({ path, basename: fileBasename(path), key: path }));
 
 	// @ 触发：value 变化时检查是否有 @ token；查询空时不拉接口。
 	useEffect(() => {
@@ -640,7 +698,7 @@ export function Composer({
 		// 不设上限（决定 2.3）；同路径不会重复打（重复 @ 同一路径也只多枚芯片）。
 		replaceMentionWithChip(editor, mention, hit.path, hit.path.split("/").pop() ?? hit.path);
 		setAttachedPaths((current) => (current.includes(hit.path) ? current : [...current, hit.path]));
-		setValue(syncEditorToValue(editor));
+		setDraftValue(syncEditorToValue(editor));
 		setMentionOpen(false);
 		setMentionItems([]);
 		setMentionQuery("");
@@ -653,9 +711,41 @@ export function Composer({
 		const editor = editorRef.current;
 		removeChipByPath(editor!, path);
 		setAttachedPaths((current) => current.filter((entry) => entry !== path));
-		setValue(syncEditorToValue(editor));
+		setDraftValue(syncEditorToValue(editor));
 		editor?.focus();
 	};
+
+	const acceptDroppedPathsRef = useRef(acceptDroppedPaths);
+	acceptDroppedPathsRef.current = acceptDroppedPaths;
+	// Windows 上资源管理器拖放到不了网页 drop，只能听桌面壳的系统拖放。
+	useEffect(() => {
+		let unlisten: (() => void) | undefined;
+		let cancelled = false;
+		void listenForOsFileDrop((event) => {
+			const zone = dropZoneRef.current;
+			if (!zone) return;
+			if (event.type === "leave") {
+				setDragOver(false);
+				return;
+			}
+			const inside = dropPointHits(zone.getBoundingClientRect(), event.position, window.devicePixelRatio || 1);
+			if (event.type !== "drop") {
+				setDragOver(inside);
+				return;
+			}
+			setDragOver(false);
+			if (!inside || event.paths.length === 0) return;
+			nativeDropAt.current = Date.now();
+			acceptDroppedPathsRef.current(event.paths);
+		}).then((stop) => {
+			if (cancelled) stop();
+			else unlisten = stop;
+		});
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, []);
 
 	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
 	// exec 不命中返回 null（≠ undefined），用 null 判「不在输入命令」。
@@ -683,7 +773,7 @@ export function Composer({
 
 	const acceptSlashCommand = (entry: SlashCommandEntry): void => {
 		// 填入命令留个空格：想带参数直接打字，不带就回车执行（此时菜单已因空格自动收起）
-		setValue(`/${entry.name} `);
+		setDraftValue(`/${entry.name} `);
 		// 同步到 contenteditable：用零宽尾巴插在末尾，避免下一次 onInput 重复匹配旧内容。
 		if (editorRef.current) {
 			editorRef.current.appendChild(document.createTextNode("/" + entry.name + " "));
@@ -854,7 +944,38 @@ export function Composer({
 	const actionLabel = action === "queue" ? "composer.queue" : action === "pause" ? "composer.pause" : action === "abort" ? "composer.abort" : action === "resume" ? "composer.resume" : "composer.send";
 
 	return (
-		<div className="owl-composer-surface px-3 pt-1 pb-2">
+		<div
+			className="owl-composer-surface px-3 pt-1 pb-2"
+			ref={dropZoneRef}
+			onDragOver={(event) => {
+				if (!transferHasFiles(event.dataTransfer)) return;
+				event.preventDefault();
+				setDragOver(true);
+			}}
+			onDragLeave={(event) => {
+				if (dropZoneRef.current?.contains(event.relatedTarget as Node)) return;
+				setDragOver(false);
+			}}
+			onDrop={(event) => {
+				if (!transferHasFiles(event.dataTransfer)) return;
+				event.preventDefault();
+				setDragOver(false);
+				// 系统拖放和网页 drop 可能接连各来一次，800ms 内以系统路径为准。
+				if (Date.now() - nativeDropAt.current < 800) return;
+				const files = Array.from(event.dataTransfer.files);
+				const classified = classifyHtmlDrop(
+					files.map((file) => ({ name: file.name, type: file.type, path: filePathOf(file) })),
+					event.dataTransfer.getData("text/uri-list"),
+				);
+				const imageFiles = classified.imageIndexes.flatMap((index) => {
+					const file = files[index];
+					return file ? [file] : [];
+				});
+				if (imageFiles.length > 0) addImageFiles(imageFiles);
+				if (classified.attachmentPaths.length > 0) addAttachmentPaths(classified.attachmentPaths);
+				if (classified.unnamedCount > 0) showHint(t("composer.dropNoPath", { count: classified.unnamedCount }));
+			}}
+		>
 			<div className="mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
 				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1 px-0.5 pb-1">
@@ -975,22 +1096,6 @@ export function Composer({
 				<div
 					className={"relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
-					onDragOver={(event) => {
-						if (!event.dataTransfer.types.includes("Files")) return;
-						event.preventDefault();
-						setDragOver(true);
-					}}
-					onDragLeave={(event) => {
-						// 移到盒子内部子元素上也会触发 dragleave，relatedTarget 还在盒内就不收
-						if (inputBoxRef.current?.contains(event.relatedTarget as Node)) return;
-						setDragOver(false);
-					}}
-					onDrop={(event) => {
-						if (!event.dataTransfer.types.includes("Files")) return;
-						event.preventDefault();
-						setDragOver(false);
-						addImageFiles(Array.from(event.dataTransfer.files));
-					}}
 				>
 					<OwlMascot pose={owlPose} hidden={hideMascot || Boolean(queued?.steering.length || queued?.followUp.length)} />
 					{slashExec !== null && (
@@ -1113,7 +1218,7 @@ export function Composer({
 								onPaste={onClipboardPaste}
 								onInput={() => {
 									const next = syncEditorToValue(editorRef.current);
-									setValue(next);
+									setDraftValue(next);
 									setSlashDismissed(false);
 									setSlashIndex(0);
 								}}

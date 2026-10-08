@@ -575,8 +575,9 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 .owl-sidebar-session-dot[data-preset="standard"].is-preset { background: #268574; }
 .owl-sidebar-session-dot[data-preset="ptc"].is-preset { background: #7c5cd6; }
 .owl-sidebar-session-dot[data-preset="minimal"].is-preset { background: #b45309; }
+.owl-sidebar-session-dot[data-preset="pi"].is-preset { background: #475569; }
 .owl-sidebar-session-dot[data-preset="cordis"].is-preset { background: #c2477e; }
-.owl-sidebar-session-dot.is-preset:not([data-preset="standard"]):not([data-preset="ptc"]):not([data-preset="minimal"]):not([data-preset="cordis"]) { background: #8f948c; }
+.owl-sidebar-session-dot.is-preset:not([data-preset="standard"]):not([data-preset="ptc"]):not([data-preset="minimal"]):not([data-preset="pi"]):not([data-preset="cordis"]) { background: #8f948c; }
 
 @keyframes owl-sidebar-dot-breathe {
 	50% {
@@ -926,9 +927,9 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-summary { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 5px; border-radius: 5px; text-align: left; color: var(--owl-reading-muted); font-size: 13px; }
 .owl-tool-summary:hover { background: color-mix(in srgb, var(--owl-reading-panel) 70%, transparent); }
 .owl-tool-group-summary { padding-left: 0; }
-.owl-tool-group-body { margin-top: 7px; overflow: hidden; border: 1px solid var(--owl-reading-border); border-radius: 8px; }
-.owl-tool-group-body .owl-tool-row + .owl-tool-row { border-top: 1px solid var(--owl-reading-border); }
-.owl-tool-group-body .owl-tool-summary { padding: 7px 10px; }
+.owl-tool-group-body { margin-top: 4px; overflow: hidden; border: 0; border-radius: 0; background: transparent; }
+.owl-tool-group-body .owl-tool-row + .owl-tool-row { border-top: 0; }
+.owl-tool-group-body .owl-tool-summary { padding: 3px 5px; }
 .owl-tool-detail { margin: 6px 0 12px 22px; overflow: hidden; border: 1px solid var(--owl-reading-border); border-radius: 7px; }
 .owl-tool-group-body .owl-tool-detail { margin: 0; border: 0; border-top: 1px solid var(--owl-reading-border); border-radius: 0; }
 .owl-work-process { margin: 0; }

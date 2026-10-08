@@ -102,11 +102,12 @@ function record(name, pass, details) {
 	result.cases.push({ name, pass, ...details });
 	process.stdout.write(`${pass ? "PASS" : "FAIL"} ${name}: ${JSON.stringify(details)}\n`);
 }
-async function open(mode, viewport = { width: 1280, height: 860, deviceScaleFactor: 1 }, strict = false) {
+async function open(mode, viewport = { width: 1280, height: 860, deviceScaleFactor: 1 }, strict = false, virtualClock = false) {
 	const page = await browser.newPage({
 		viewport: { width: viewport.width, height: viewport.height },
 		deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
 	});
+	if (virtualClock) await page.clock.install();
 	page.on("pageerror", (error) => result.errors.push(error.message));
 	await page.route("**/*", (route) => {
 		const url = new URL(route.request().url());
@@ -120,7 +121,12 @@ async function open(mode, viewport = { width: 1280, height: 860, deviceScaleFact
 	await page.waitForFunction(() =>
 		window.harness?.calls.some((call) => call.type === "mirror.project" && call.visible !== false),
 	);
+	if (virtualClock) await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
 	return page;
+}
+async function advanceRecoveryClock(page, milliseconds) {
+	await page.clock.runFor(milliseconds);
+	await sleep(40);
 }
 async function ready(mode = "project", viewport, strict = false) {
 	const page = await open(mode, viewport, strict);
@@ -156,6 +162,60 @@ async function runCase(name, body) {
 }
 try {
 	browser = await pw.chromium.launch({ executablePath: browserPath, headless: true });
+	await runCase("recovery-first-frame-timeout-is-ordered-and-bounded", async () => {
+		const page = await open("no-frame", undefined, false, true);
+		await advanceRecoveryClock(page, 7000);
+		assert.equal(await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.attach").length), 1);
+		for (const milliseconds of [2500, 11000, 13000, 60000]) await advanceRecoveryClock(page, milliseconds);
+		const calls = await page.evaluate(() => window.harness.calls.filter(call => call.type !== "mirror.list"));
+		assert.equal(calls.filter(call => call.type === "mirror.attach").length, 4, "Missing or unbounded automatic recovery");
+		assert.deepEqual(calls.map(call => call.type === "mirror.project" ? `${call.type}:${call.visible}` : call.type), [
+			"mirror.project:true", "mirror.attach",
+			...Array.from({ length: 3 }, () => ["mirror.detach", "mirror.project:false", "mirror.project:true", "mirror.attach"]).flat(),
+		]);
+		await page.close();
+		return { attachCount: 4, orderedLifecycle: true };
+	});
+	await runCase("recovery-valid-first-frame-stops-timeouts", async () => {
+		const page = await open("no-frame", undefined, false, true);
+		await page.evaluate(() => window.harness.emitFrame());
+		await sleep(100);
+		assert.equal(await page.$eval("canvas", canvas => canvas.width), 640);
+		await advanceRecoveryClock(page, 60000);
+		const attaches = await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.attach").length);
+		assert.equal(attaches, 1, "A static valid image triggered needless recovery");
+		await page.close();
+		return { attaches };
+	});
+	await runCase("recovery-invalid-frame-does-not-cancel-timeout", async () => {
+		const page = await open("no-frame", undefined, false, true);
+		await page.evaluate(() => window.harness.emitFrame(640, 360, { invalid: true }));
+		await advanceRecoveryClock(page, 10000);
+		assert.equal(await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.attach").length), 2);
+		await page.close();
+	});
+	await runCase("recovery-timers-stop-on-hide-unmount-restore-disconnect", async () => {
+		for (const reason of ["hide", "unmount", "restore", "disconnect"]) {
+			const page = await open("no-frame", undefined, false, true);
+			if (reason === "restore") await page.evaluate(() => document.querySelector('button[title="恢复窗口"]').click());
+			else await page.evaluate(reason => {
+				if (reason === "hide") { document.getElementById("panel").style.display = "none"; window.dispatchEvent(new Event("resize")); }
+				else if (reason === "disconnect") window.harness.emitStatus(false);
+				else window.harness.unmount();
+			}, reason);
+			await sleep(80);
+			await advanceRecoveryClock(page, 60000);
+			assert.equal(await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.attach").length), 1, `${reason} still restarted capture`);
+			await page.close();
+		}
+	});
+	await runCase("recovery-waits-until-preparation-finishes", async () => {
+		const page = await open("pending", undefined, false, true);
+		await advanceRecoveryClock(page, 30000);
+		assert.equal(await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.project" && call.visible).length), 1);
+		assert.equal(await page.evaluate(() => window.harness.calls.filter(call => call.type === "mirror.attach").length), 0);
+		await page.close();
+	});
 	for (const scenario of [
 		{
 			name: "1920-wide",

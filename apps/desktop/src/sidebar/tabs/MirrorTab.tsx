@@ -31,6 +31,8 @@ interface Gesture {
 }
 type InputRequest = Extract<DesktopClientRequestWithoutId, { type: "mirror.input" }>;
 type WheelRequest = InputRequest & { action: "wheel"; deltaY: number };
+const FIRST_FRAME_TIMEOUT_MS = 8_000;
+const FIRST_FRAME_RETRY_DELAYS = [1_000, 2_000, 4_000];
 function takeWheelBatch(queue: WheelRequest[]): WheelRequest | undefined {
 	const request = queue.shift();
 	if (!request) return undefined;
@@ -67,6 +69,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	const decoding = useRef(false);
 	const frameEpoch = useRef(0);
 	const frameShown = useRef(false);
+	const recoveryAttempts = useRef(0);
 	const pointer = useRef<Gesture | undefined>(undefined);
 	const queuedMove = useRef<InputRequest | undefined>(undefined);
 	const moving = useRef(false);
@@ -195,6 +198,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 				if (context) {
 					context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
 					displayedFrame.current = next;
+					recoveryAttempts.current = 0;
 					if (!frameShown.current) {
 						frameShown.current = true;
 						setHasFrame(true);
@@ -343,12 +347,17 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 	);
 
 	useEffect(() => {
+		recoveryAttempts.current = 0;
+	}, [windowId, panelVisible, connected]);
+	useEffect(() => {
 		cancelPointer();
 		clearFrame();
 		setError("");
 		if (!windowId || !panelVisible || !connected || restoring) return;
 		let alive = true;
 		let attachRequested = false;
+		let firstFrameTimer: number | undefined;
+		let recoveryTimer: number | undefined;
 		void requestWindow<MirrorProjectionGeometry>({ type: "mirror.project", windowId, visible: true })
 			.then((response) => {
 				if (!alive) return;
@@ -359,6 +368,21 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 				attachedWindow.current = windowId;
 				return requestWindow({ type: "mirror.attach", windowId }).then((attached) => {
 					if (!attached.ok) throw new Error(attached.error ?? "capture failed");
+					if (!alive) return;
+					// A successful subscription can outlive a capture worker that exits
+					// before its first frame. Reuse the ordered lifecycle instead of
+					// repeatedly attaching to the server's existing subscription claim.
+					firstFrameTimer = window.setTimeout(() => {
+						if (!alive || frameShown.current || !visibleRef.current || restoringRef.current || activeStream.current !== windowId) return;
+						const delay = FIRST_FRAME_RETRY_DELAYS[recoveryAttempts.current];
+						if (delay === undefined) return;
+						recoveryAttempts.current += 1;
+						recoveryTimer = window.setTimeout(() => {
+							if (alive && !frameShown.current && visibleRef.current && !restoringRef.current && activeStream.current === windowId) {
+								setRetry((value) => value + 1);
+							}
+						}, delay);
+					}, FIRST_FRAME_TIMEOUT_MS);
 				});
 			})
 			.catch((failure: unknown) => {
@@ -366,6 +390,8 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 			});
 		return () => {
 			alive = false;
+			window.clearTimeout(firstFrameTimer);
+			window.clearTimeout(recoveryTimer);
 			cancelPointer();
 			if (activeStream.current === windowId) activeStream.current = undefined;
 			clearFrame();
@@ -529,6 +555,7 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 					disabled={restoring}
 					className="rounded px-1.5 py-0.5 text-owl-muted hover:text-owl-text"
 					onClick={() => {
+						recoveryAttempts.current = 0;
 						refreshList();
 						setRetry((value) => value + 1);
 					}}

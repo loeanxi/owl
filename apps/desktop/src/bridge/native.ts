@@ -93,6 +93,48 @@ export async function quitDesktopApp(): Promise<boolean> {
 	}
 }
 
+export type OsFileDrop =
+	| { type: "enter" | "over"; position: { x: number; y: number } }
+	| { type: "drop"; position: { x: number; y: number }; paths: string[] }
+	| { type: "leave" };
+
+/**
+ * 系统文件拖放。Windows 上 Tauri 会吃掉网页的 drop，资源管理器拖进来只能从这里拿到路径。
+ * 浏览器模式没有这个事件，返回空的取消函数。
+ */
+export async function listenForOsFileDrop(handler: (event: OsFileDrop) => void): Promise<() => void> {
+	if (!hasTauri()) return () => undefined;
+	try {
+		const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+		return await getCurrentWebview().onDragDropEvent((event) => {
+			const payload = event.payload;
+			if (payload.type === "leave") {
+				handler({ type: "leave" });
+				return;
+			}
+			if (payload.type === "drop") {
+				handler({ type: "drop", position: payload.position, paths: payload.paths });
+				return;
+			}
+			handler({ type: payload.type, position: payload.position });
+		});
+	} catch {
+		return () => undefined;
+	}
+}
+
+/** 读取拖进来的本地图片。非图片、超大或浏览器模式返回 null，调用方改走路径附件。 */
+export async function readLocalImage(path: string): Promise<{ data: string; mimeType: string } | null> {
+	if (!hasTauri()) return null;
+	try {
+		const image = await invoke<{ data: string; mimeType: string }>("read_local_image", { path });
+		if (!image?.data || !image.mimeType) return null;
+		return image;
+	} catch {
+		return null;
+	}
+}
+
 /** 在资源管理器里定位一个已存在的文件；返回具体失败原因供 UI 展示（浏览器模式也返回原因）。 */
 export async function revealInFileManager(path: string): Promise<{ ok: boolean; error?: string }> {
 	if (!hasTauri()) return { ok: false, error: "not running inside the desktop shell" };

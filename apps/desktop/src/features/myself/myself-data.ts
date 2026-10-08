@@ -14,9 +14,21 @@ import type { BridgeClient } from "../../bridge/client.ts";
 import type { FsListing, FsReadResult } from "../../bridge/protocol.ts";
 import { ASSISTANT_DIR } from "../../utils/paths.ts";
 
-export interface MyselfTodo {
+export type MyselfTodoStatus = "todo" | "doing" | "waiting" | "done";
+
+/** 行尾 owl-task JSON 注释；未填写的字段不推断、不补默认值。 */
+export interface MyselfTodoMetadata {
+	status?: MyselfTodoStatus;
+	time?: string;
+	category?: string;
+	/** 关联目标的标题，目标来自 AI 提炼段。 */
+	goal?: string;
+}
+
+export interface MyselfTodo extends MyselfTodoMetadata {
 	text: string;
 	done: boolean;
+	status: MyselfTodoStatus;
 }
 
 export interface MyselfDistilled {
@@ -37,6 +49,10 @@ export interface MyselfDay {
 	title: string;
 	todos: MyselfTodo[];
 	distilled: MyselfDistilled[];
+	/** 优先使用 AI 提炼段的目标，不从待办虚构目标。 */
+	goals: MyselfDistilled[];
+	/** 完成情况内独立的「### 今日总结」正文。 */
+	summary: string;
 	chat: MyselfChatLine[];
 	/** 未识别段落的纯文本行（自由记录兜底展示）。 */
 	notes: string[];
@@ -63,20 +79,87 @@ export function todayKey(): string {
 	return dayKeyOf(new Date());
 }
 
+function localDay(dateKey: string): Date {
+	const date = new Date(`${dateKey}T12:00:00`);
+	if (!DAY_FILE_RE.test(`${dateKey}.md`) || !Number.isFinite(date.getTime()) || dayKeyOf(date) !== dateKey) {
+		throw new Error(`invalid day: ${dateKey}`);
+	}
+	return date;
+}
+
+export function nextDayKey(dateKey: string): string {
+	const date = localDay(dateKey);
+	date.setDate(date.getDate() + 1);
+	return dayKeyOf(date);
+}
+
+/** 周一至周日的本地日期键，包含周末，并正确跨月、跨年。 */
+export function weekDaysOf(dateKey: string): string[] {
+	const date = localDay(dateKey);
+	date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+	return Array.from({ length: 7 }, (_, index) => {
+		const day = new Date(date);
+		day.setDate(day.getDate() + index);
+		return dayKeyOf(day);
+	});
+}
+
 // ---------------------------------------------------------------------------
 // markdown 解析与回写
 // ---------------------------------------------------------------------------
 
 const CHECK_RE = /^(\s*(?:[-*]|\d+[.、])\s+)\[([ xX])\]\s*(.*)$/;
+const TASK_META_RE = /\s*<!--\s*owl-task:\s*(\{.*\})\s*-->\s*$/;
+
+function taskBody(body: string): { text: string; metadata: Record<string, unknown> } {
+	const match = TASK_META_RE.exec(body);
+	let metadata: Record<string, unknown> = {};
+	if (match) {
+		try {
+			const value: unknown = JSON.parse(match[1]!);
+			if (value && typeof value === "object" && !Array.isArray(value)) metadata = value as Record<string, unknown>;
+		} catch {
+			/* 损坏的元数据不影响原清单文本展示。 */
+		}
+	}
+	return { text: (match ? body.slice(0, match.index) : body).trim(), metadata };
+}
+
+function isTodoStatus(value: unknown): value is MyselfTodoStatus {
+	return value === "todo" || value === "doing" || value === "waiting" || value === "done";
+}
+
+function todoFromCheck(check: RegExpExecArray): { todo: MyselfTodo; explicitStatus: boolean } {
+	const { text, metadata } = taskBody(check[3]!);
+	const status = check[2]!.toLowerCase() === "x" ? "done" : isTodoStatus(metadata.status) ? metadata.status : "todo";
+	const todo: MyselfTodo = { text, done: status === "done", status };
+	for (const key of ["time", "category", "goal"] as const) {
+		const value = metadata[key];
+		if (typeof value === "string" && value.trim()) todo[key] = value.trim();
+	}
+	return { todo, explicitStatus: isTodoStatus(metadata.status) };
+}
 
 /** 解析一天的 markdown。解析规则宽容：段标题按 `## ` 前缀识别，顺序不敏感。 */
 export function parseDay(raw: string, date: string): MyselfDay {
 	const lines = raw.split(/\r?\n/);
-	const day: MyselfDay = { date, title: date, todos: [], distilled: [], chat: [], notes: [], raw };
+	const day: MyselfDay = {
+		date,
+		title: date,
+		todos: [],
+		distilled: [],
+		goals: [],
+		summary: "",
+		chat: [],
+		notes: [],
+		raw,
+	};
 	let section = "";
+	let subsection = "";
+	const summaryLines: string[] = [];
 	// 「待办」与「完成情况」是同一份清单的两个投影：合并去重，状态以「完成情况」为准。
-	const todoDraft: MyselfTodo[] = [];
-	const doneDraft: MyselfTodo[] = [];
+	const todoDraft: ReturnType<typeof todoFromCheck>[] = [];
+	const doneDraft: ReturnType<typeof todoFromCheck>[] = [];
 
 	for (const line of lines) {
 		if (line.startsWith("# ") && day.title === date) {
@@ -85,11 +168,20 @@ export function parseDay(raw: string, date: string): MyselfDay {
 		}
 		if (line.startsWith("## ")) {
 			section = line.slice(3).trim();
+			subsection = "";
+			continue;
+		}
+		if (line.startsWith("### ")) {
+			subsection = line.slice(4).trim();
+			continue;
+		}
+		if (isSummarySection(section) || isSummarySection(subsection)) {
+			summaryLines.push(line);
 			continue;
 		}
 		const check = CHECK_RE.exec(line);
 		if (check && (isTodoSection(section) || isDoneSection(section))) {
-			(isTodoSection(section) ? todoDraft : doneDraft).push({ text: check[3].trim(), done: check[2].toLowerCase() === "x" });
+			(isTodoSection(section) ? todoDraft : doneDraft).push(todoFromCheck(check));
 			continue;
 		}
 		const distilled = parseDistilledLine(line);
@@ -105,16 +197,29 @@ export function parseDay(raw: string, date: string): MyselfDay {
 		if (line.trim() !== "" && line.trim() !== "---") day.notes.push(line);
 	}
 
-	const statusBy = new Map(doneDraft.map((todo) => [normalizeTodoText(todo.text), todo.done]));
+	const statusBy = new Map(doneDraft.map((draft) => [normalizeTodoText(draft.todo.text), draft]));
 	const seen = new Set<string>();
-	for (const todo of todoDraft) {
+	for (const { todo, explicitStatus } of todoDraft) {
 		const key = normalizeTodoText(todo.text);
+		if (seen.has(key)) continue;
 		seen.add(key);
-		day.todos.push({ text: todo.text, done: statusBy.get(key) ?? todo.done });
+		const completed = statusBy.get(key);
+		const status = completed
+			? completed.todo.done || completed.explicitStatus || !explicitStatus
+				? completed.todo.status
+				: todo.status
+			: todo.status;
+		day.todos.push({ ...completed?.todo, ...todo, status, done: status === "done" });
 	}
-	for (const todo of doneDraft) {
-		if (!seen.has(normalizeTodoText(todo.text))) day.todos.push(todo);
+	for (const { todo } of doneDraft) {
+		const key = normalizeTodoText(todo.text);
+		if (!seen.has(key)) {
+			day.todos.push(todo);
+			seen.add(key);
+		}
 	}
+	day.goals = [...day.distilled];
+	day.summary = summaryLines.join("\n").trim();
 	return day;
 }
 
@@ -125,15 +230,18 @@ function isDoneSection(section: string): boolean {
 	return section.startsWith("完成") || /^done|completed/i.test(section);
 }
 function isDistilledSection(section: string): boolean {
-	return section.includes("提炼") || /^distilled|focus/i.test(section);
+	return section.includes("提炼") || /^(?:AI\s+)?(?:distilled|focus)/i.test(section);
 }
 function isChatSection(section: string): boolean {
 	return section.startsWith("对话") || /^chat|log/i.test(section);
 }
+function isSummarySection(section: string): boolean {
+	return /^(?:今日总结|当天总结|总结|daily summary|summary)$/i.test(section);
+}
 
 /** 提炼行：`1. **标题** —— 说明`，也容忍没有加粗/破折号的普通编号行。 */
 function parseDistilledLine(line: string): MyselfDistilled | undefined {
-	const m = /^\s*\d+[.、]\s+(.+)$/.exec(line);
+	const m = /^\s*(?:\d+[.、]\s+|[-*]\s+目标[：:]\s*)(.+)$/.exec(line);
 	if (!m) return undefined;
 	const body = m[1]!;
 	const bold = /^\*\*(.+?)\*\*(?:\s*[—–-]+\s*(.*))?$/.exec(body);
@@ -148,16 +256,164 @@ function parseDistilledLine(line: string): MyselfDistilled | undefined {
  * 两个段落）一起翻；文本按去除空白后比较。找不到匹配行时原文返回。
  */
 export function toggleTodoInRaw(raw: string, text: string, done: boolean): string {
+	return updateTodoStatusInRaw(raw, text, done ? "done" : "todo");
+}
+
+/** 只遍历待办和完成清单，独立总结内的 checklist 不属于任务。 */
+function taskLineIndexes(lines: string[], text: string): number[] {
 	const needle = normalizeTodoText(text);
-	const lines = raw.split(/\r?\n/);
-	let hit = false;
+	let section = "";
+	let subsection = "";
+	const indexes: number[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const check = CHECK_RE.exec(lines[i]!);
-		if (!check || normalizeTodoText(check[3]!) !== needle) continue;
-		lines[i] = `${check[1]}[${done ? "x" : " "}] ${check[3]}`;
-		hit = true;
+		const line = lines[i]!;
+		if (line.startsWith("## ")) {
+			section = line.slice(3).trim();
+			subsection = "";
+		} else if (line.startsWith("### ")) subsection = line.slice(4).trim();
+		if (
+			(!isTodoSection(section) && !isDoneSection(section)) ||
+			isSummarySection(section) ||
+			isSummarySection(subsection)
+		)
+			continue;
+		const check = CHECK_RE.exec(line);
+		if (check && normalizeTodoText(taskBody(check[3]!).text) === needle) indexes.push(i);
 	}
-	return hit ? lines.join("\n") : raw;
+	return indexes;
+}
+
+function newlineOf(raw: string): string {
+	return raw.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function withTaskMetadata(line: string, metadata: Record<string, unknown>): string {
+	const body = line.replace(TASK_META_RE, "");
+	if (Object.keys(metadata).length === 0) return body;
+	// JSON 字符串里的 --> 不得提前结束 HTML 注释。
+	const json = JSON.stringify(metadata).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
+	return `${body} <!-- owl-task:${json} -->`;
+}
+
+/** 修改状态，不改任务原文；旧清单仅改 checkbox，不额外添加多余注释。 */
+export function updateTodoStatusInRaw(raw: string, text: string, status: MyselfTodoStatus): string {
+	if (!isTodoStatus(status)) throw new Error(`invalid todo status: ${status}`);
+	const lines = raw.split(/\r?\n/);
+	const indexes = taskLineIndexes(lines, text);
+	for (const index of indexes) {
+		const line = lines[index]!;
+		const check = CHECK_RE.exec(line)!;
+		const { metadata } = taskBody(check[3]!);
+		if (TASK_META_RE.test(line) || status === "doing" || status === "waiting") metadata.status = status;
+		lines[index] = withTaskMetadata(line.replace(/\[[ xX]\]/, `[${status === "done" ? "x" : " "}]`), metadata);
+	}
+	return indexes.length ? lines.join(newlineOf(raw)) : raw;
+}
+
+export function updateTodoMetadataInRaw(
+	raw: string,
+	text: string,
+	patch: Partial<Pick<MyselfTodoMetadata, "time" | "category" | "goal">>,
+): string {
+	if (!["time", "category", "goal"].some((key) => Object.hasOwn(patch, key))) return raw;
+	const lines = raw.split(/\r?\n/);
+	const indexes = taskLineIndexes(lines, text);
+	for (const index of indexes) {
+		const { metadata } = taskBody(CHECK_RE.exec(lines[index]!)![3]!);
+		for (const key of ["time", "category", "goal"] as const) {
+			if (!Object.hasOwn(patch, key)) continue;
+			const value = patch[key];
+			if (typeof value === "string" && value.trim()) metadata[key] = value.trim();
+			else delete metadata[key];
+		}
+		lines[index] = withTaskMetadata(lines[index]!, metadata);
+	}
+	return indexes.length ? lines.join(newlineOf(raw)) : raw;
+}
+
+function insertInSection(raw: string, matches: (section: string) => boolean, heading: string, content: string): string {
+	const newline = newlineOf(raw);
+	const lines = raw.split(/\r?\n/);
+	const start = lines.findIndex((line) => line.startsWith("## ") && matches(line.slice(3).trim()));
+	if (start < 0)
+		return `${raw}${raw.endsWith(newline) ? newline : raw ? newline + newline : ""}${heading}${newline}${newline}${content}${newline}`;
+	let end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+	if (end < 0) end = lines.length;
+	while (end > start + 1 && lines[end - 1] === "") end--;
+	lines.splice(end, 0, ...content.split(/\r?\n/));
+	return lines.join(newline);
+}
+
+/** 在待办段新增一行，不把新任务复制到完成段。 */
+export function addTodoInRaw(raw: string, text: string, metadata: MyselfTodoMetadata = {}): string {
+	const title = text.replace(/\s*\r?\n\s*/g, " ").trim();
+	if (!title || taskLineIndexes(raw.split(/\r?\n/), title).length) return raw;
+	const status = metadata.status ?? "todo";
+	const fields: Record<string, unknown> = {};
+	for (const key of ["time", "category", "goal"] as const) {
+		if (metadata[key]?.trim()) fields[key] = metadata[key]!.trim();
+	}
+	if (status === "doing" || status === "waiting") fields.status = status;
+	const line = withTaskMetadata(`- [${status === "done" ? "x" : " "}] ${title}`, fields);
+	return insertInSection(raw, isTodoSection, "## 待办（手记）", line);
+}
+
+/** 迁移同名清单投影，原日期的对话、总结和其余正文保留。目标已有同名时不降级完成状态。 */
+export function moveTodoToTomorrow(
+	sourceRaw: string,
+	targetRaw: string,
+	text: string,
+	sourceDate: string,
+	lang: "zh" | "en" = "zh",
+): { sourceRaw: string; targetRaw: string; targetDate: string } {
+	const targetDate = nextDayKey(sourceDate);
+	const lines = sourceRaw.split(/\r?\n/);
+	const indexes = taskLineIndexes(lines, text);
+	if (!indexes.length) return { sourceRaw, targetRaw, targetDate };
+	const source = parseDay(sourceRaw, sourceDate).todos.find(
+		(todo) => normalizeTodoText(todo.text) === normalizeTodoText(text),
+	)!;
+	let nextTarget = targetRaw || newDayTemplate(targetDate, lang);
+	const existing = parseDay(nextTarget, targetDate).todos.find(
+		(todo) => normalizeTodoText(todo.text) === normalizeTodoText(text),
+	);
+	if (existing) {
+		if (source.done || existing.status === "todo")
+			nextTarget = updateTodoStatusInRaw(nextTarget, text, source.status);
+		const patch: Partial<Pick<MyselfTodoMetadata, "time" | "category" | "goal">> = {};
+		for (const key of ["time", "category", "goal"] as const)
+			if (!existing[key] && source[key]) patch[key] = source[key];
+		nextTarget = updateTodoMetadataInRaw(nextTarget, text, patch);
+	} else {
+		let line = lines[indexes[0]!]!;
+		const fields = taskBody(CHECK_RE.exec(line)![3]!).metadata;
+		for (const key of ["time", "category", "goal"] as const) if (source[key]) fields[key] = source[key];
+		if (TASK_META_RE.test(line) || source.status === "doing" || source.status === "waiting")
+			fields.status = source.status;
+		line = withTaskMetadata(line.replace(/\[[ xX]\]/, `[${source.done ? "x" : " "}]`), fields);
+		nextTarget = insertInSection(nextTarget, isTodoSection, lang === "en" ? "## Todos" : "## 待办（手记）", line);
+	}
+	const removed = new Set(indexes);
+	return {
+		sourceRaw: lines.filter((_, index) => !removed.has(index)).join(newlineOf(sourceRaw)),
+		targetRaw: nextTarget,
+		targetDate,
+	};
+}
+
+/** 总结是完成段内独立正文；更新只替换该子段，不修改完成 checklist。 */
+export function updateSummaryInRaw(raw: string, summary: string): string {
+	const newline = newlineOf(raw);
+	const lines = raw.split(/\r?\n/);
+	const start = lines.findIndex(
+		(line) => /^#{2,3} /.test(line) && isSummarySection(line.replace(/^#{2,3} /, "").trim()),
+	);
+	if (start < 0) return insertInSection(raw, isDoneSection, "## 完成情况", `\n### 今日总结\n\n${summary.trim()}\n`);
+	const level = /^#+/.exec(lines[start]!)![0].length;
+	let end = lines.findIndex((line, index) => index > start && new RegExp(`^#{1,${level}} `).test(line));
+	if (end < 0) end = lines.length;
+	lines.splice(start + 1, end - start - 1, "", ...summary.trim().split(/\r?\n/), "");
+	return lines.join(newline);
 }
 
 function normalizeTodoText(text: string): string {
@@ -170,30 +426,14 @@ function normalizeTodoText(text: string): string {
  */
 export function appendChatLine(raw: string, time: string, who: string, text: string): string {
 	const line = `> ${time} ${who}：${text.replace(/\s*\r?\n\s*/g, " ").trim()}`;
-	const lines = raw.split(/\r?\n/);
-	let sectionStart = -1;
-	let insertAt = -1;
-	for (let i = 0; i < lines.length; i++) {
-		if (lines[i]!.startsWith("## ")) {
-			if (isChatSection(lines[i]!.slice(3).trim())) sectionStart = i;
-			else if (sectionStart >= 0) {
-				insertAt = i;
-				break;
-			}
-		}
-	}
-	if (sectionStart < 0) {
-		const trimmed = raw.replace(/\s*$/, "");
-		return `${trimmed}${trimmed ? "\n\n" : ""}## 对话\n\n${line}\n`;
-	}
-	if (insertAt < 0) insertAt = lines.length;
-	lines.splice(insertAt, 0, line);
-	return lines.join("\n");
+	return insertInSection(raw, isChatSection, "## 对话", line);
 }
 
 /** 新建一天的初始文件内容（段落骨架与示例数据一致）。 */
 export function newDayTemplate(dateKey: string, lang: "zh" | "en"): string {
-	const weekday = new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { weekday: "long" }).format(new Date(`${dateKey}T12:00:00`));
+	const weekday = new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { weekday: "long" }).format(
+		new Date(`${dateKey}T12:00:00`),
+	);
 	if (lang === "en") {
 		return `# ${dateKey} (${weekday})\n\n## Todos\n\n- [ ] \n\n## AI distilled\n\n1. \n\n## Chat\n\n## Completed\n`;
 	}
@@ -223,7 +463,11 @@ export function myselfDirCandidates(workspaceDir?: string, agentDir?: string): s
 }
 
 /** 依次探测候选目录，返回第一个能列出来的；全失败返回 null。 */
-export async function resolveMyselfDir(client: BridgeClient, workspaceDir?: string, agentDir?: string): Promise<string | null> {
+export async function resolveMyselfDir(
+	client: BridgeClient,
+	workspaceDir?: string,
+	agentDir?: string,
+): Promise<string | null> {
 	for (const candidate of myselfDirCandidates(workspaceDir, agentDir)) {
 		try {
 			await client.request<FsListing>({ type: "fs.tree", cwd: candidate, path: "" }).then((r) => {
@@ -256,7 +500,12 @@ export async function readMyselfDay(client: BridgeClient, dir: string, date: str
 }
 
 export async function writeMyselfDay(client: BridgeClient, dir: string, date: string, content: string): Promise<void> {
-	const response = await client.request<{ path: string; size: number }>({ type: "fs.write", cwd: dir, path: `${date}.md`, content });
+	const response = await client.request<{ path: string; size: number }>({
+		type: "fs.write",
+		cwd: dir,
+		path: `${date}.md`,
+		content,
+	});
 	if (!response.ok) throw new Error(response.error ?? "fs.write failed");
 }
 
@@ -274,6 +523,8 @@ export function myselfPrimer(dateKey: string, raw: string, lang: "zh" | "en"): s
 			raw.trim(),
 			"```",
 			`Read/write these files with tools to plan and update; keep the section structure. Be concise.`,
+			`When the user reports today's tasks, save them as todos. Recording a task does not authorize implementing that task; retain the full Agent capabilities for explicit requests to do the work.`,
+			`A todo is a checkbox line. Optional status/time/category/goal use a trailing HTML comment, for example: <!-- owl-task:{"status":"waiting","time":"14:00","category":"work","goal":"Goal title"} -->. Status is todo/doing/waiting/done; omit unknown fields. Goals come from AI distilled; summary is a separate ### Summary subsection under Completed, based on actual completion and the user's report.`,
 			`---`,
 			"",
 		].join("\n");
@@ -286,6 +537,8 @@ export function myselfPrimer(dateKey: string, raw: string, lang: "zh" | "en"): s
 		raw.trim(),
 		"```",
 		`用户会在这里跟你商量安排;需要时直接用工具读写目录里的文件,保持四段结构。回答简洁。`,
+		`用户报今天的任务时，先原样记入待办；记录任务不等于授权执行任务。用户明确要求处理或开发时，再使用完整 Agent 能力推进。`,
+		`待办使用 checkbox 行；可选状态/时间/分类/目标放在行尾注释，例如 <!-- owl-task:{"status":"waiting","time":"14:00","category":"工作","goal":"目标标题"} -->。status 可为 todo/doing/waiting/done；未提供的字段不要编造。目标来自 AI 提炼段；今日总结放在完成情况段内的 ### 今日总结，依据实际勾选与用户补充，不把待办目标当成已完成。`,
 		`---`,
 		"",
 	].join("\n");

@@ -24,6 +24,7 @@ export type {
 	NewsClientRequest,
 	NewsOpenMessage,
 	ApprovalMode,
+	DesktopApprovalEvent,
 	DesktopClientRequest,
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,

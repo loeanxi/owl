@@ -15,7 +15,7 @@ export function AttachedFileChip({
 	removeLabel: string;
 }): React.JSX.Element {
 	return (
-		<span className="owl-mention-chip" contentEditable={false} data-mention-path={path}>
+		<span className="owl-mention-chip" contentEditable={false} data-mention-path={path} title={path}>
 			<span className="owl-mention-chip__label">{basename}</span>
 			<button
 				type="button"

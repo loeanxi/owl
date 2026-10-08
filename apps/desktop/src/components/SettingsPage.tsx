@@ -39,6 +39,7 @@ import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL,
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, daysLeft, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
+import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
 import "./settings-redesign.css";
 
 type SettingsSection = "general" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
@@ -1326,6 +1327,11 @@ export function SettingsPage({
 									<option value="en">{t("settings.general.uiLanguageEn")}</option>
 								</select>
 								</SettingRow>
+								<RequestBudgetSetting
+									value={settingsObj.requestMaxTokens}
+									busy={busy}
+									onSave={(requestMaxTokens) => saveSettings({ requestMaxTokens })}
+								/>
 								{/* 聊天阅读偏好已迁至「外观」分区（对齐 ChatGPT/Claude 桌面端的布局）。 */}
 							</>
 						)}

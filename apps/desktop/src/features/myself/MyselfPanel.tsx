@@ -1,128 +1,287 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import type { SettingsInitialTab } from "../../components/SettingsPage.tsx";
-import type { ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, SlashCommandEntry } from "../../bridge/protocol.ts";
-import { ChatStream, type ChatActivity } from "../../components/ChatStream.tsx";
+import type {
+	ApprovalMode,
+	CommandsListResult,
+	FsSearchHit,
+	PermissionRequest,
+	ProviderModelsMessage,
+	QuestionAnswerPayload,
+	QuestionRequest,
+	SlashCommandEntry,
+} from "../../bridge/protocol.ts";
+import { AgentConversation } from "../../components/AgentConversation.tsx";
+import { type ChatActivity, ChatStream } from "../../components/ChatStream.tsx";
 import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
-import type { ConversationView } from "../../components/ConversationHeader.tsx";
+import { ConversationHeader, type ConversationView } from "../../components/ConversationHeader.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
 import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
+import type { SettingsInitialTab } from "../../components/SettingsPage.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
+import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import { TrajectoryView } from "../trajectory/TrajectoryView.tsx";
-import { IconFolder } from "../../sidebar/icons.tsx";
-import { getProjectDisplayName } from "../../project-sidebar-model.ts";
-import { getUiLanguage, useT, type TextKey } from "../../i18n/index.ts";
+import { MyselfChatController, type MyselfChatIntent, type MyselfChatState } from "./myself-chat-controller.ts";
 import {
+	addTodoInRaw,
 	appendChatLine,
 	listMyselfDays,
 	MYSELF_DIR_LS_KEY,
+	type MyselfDay,
+	type MyselfTodo,
+	type MyselfTodoStatus,
+	moveTodoToTomorrow,
 	myselfDirCandidates,
 	myselfPrimer,
 	newDayTemplate,
+	nextDayKey,
 	parseDay,
 	readMyselfDay,
 	resolveMyselfDir,
 	todayKey,
-	toggleTodoInRaw,
+	updateSummaryInRaw,
+	updateTodoMetadataInRaw,
+	updateTodoStatusInRaw,
+	weekDaysOf,
 	writeMyselfDay,
-	type MyselfDay,
 } from "./myself-data.ts";
-import { MyselfChatController, type MyselfChatState } from "./myself-chat-controller.ts";
 import "./myself.css";
+import { MyselfChatHistory } from "./MyselfChatHistory.tsx";
+import { useMyselfPaneResize } from "./myself-pane-resize.ts";
 
-type DirState =
-	| { status: "probing" }
-	| { status: "missing" }
-	| { status: "ready"; dir: string };
-
+type DirState = { status: "probing" } | { status: "missing" } | { status: "ready"; dir: string };
 type Notice = { tone: "ok" | "error"; text: string } | undefined;
-
+type UndoChange = { date: string; text: string; status: MyselfTodoStatus };
+type UnsentRecord = {
+	date: string;
+	text: string;
+	intent: MyselfChatIntent;
+	images?: ComposerImage[];
+	attachedPaths?: string[];
+};
+const EMPTY_CHAT: MyselfChatState = {
+	model: "",
+	thinkingLevel: "",
+	approvalMode: "confirm",
+	entries: [],
+	running: false,
+	busy: false,
+	ready: false,
+	connected: false,
+	retryStatus: null,
+};
 const DAY_READ_CAP = 120;
-
-/** 侧栏分组：今天 / 未来（升序）/ 更早（倒序），标签走 i18n。 */
-const GROUPS = ["today", "future", "earlier"] as const;
-type DayGroup = (typeof GROUPS)[number];
-const GROUP_LABEL: Record<DayGroup, TextKey> = {
-	today: "myself.groupToday",
-	future: "myself.groupFuture",
-	earlier: "myself.groupEarlier",
+const noopSubscribe = (): (() => void) => () => {};
+const noop = (): void => {};
+const STATUS_LABELS: Record<MyselfTodoStatus, TextKey> = {
+	todo: "myself.statusTodo",
+	doing: "myself.statusDoing",
+	waiting: "myself.statusWaiting",
+	done: "myself.statusDone",
 };
 
-const AVATAR_SVG = (
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-		<rect x="3.5" y="5" width="17" height="15" rx="2" />
-		<path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
-		<path d="m8.5 14.5 2.2 2.2 4.6-4.6" />
-	</svg>
-);
-
-function hhmm(): string {
-	const at = new Date();
-	return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+function MyselfIcon({
+	name,
+}: {
+	name: "calendar" | "check" | "plus" | "close" | "arrow" | "clock" | "link" | "leaf" | "target" | "message" | "panel";
+}): React.JSX.Element {
+	const paths = {
+		calendar: "M3 5h18v16H3ZM7 3v4M17 3v4M3 10h18",
+		check: "m5 12 4 4L19 6",
+		plus: "M12 4v16M4 12h16",
+		close: "m6 6 12 12M6 18 18 6",
+		arrow: "M4 12h16m-6-6 6 6-6 6",
+		clock: "M12 7v5l3 2",
+		link: "m10 13 4-4m-5 6-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0",
+		leaf: "M20 3c0 12-6 17-12 16-5-1-6-7-2-11 4-4 8-3 14-5ZM4 21 16 9",
+		target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z",
+		message: "M21 14a3 3 0 0 1-3 3H8l-5 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3ZM7 8h10M7 12h7",
+		panel: "M3 4h18v16H3ZM15 4v16",
+	};
+	return (
+		<svg
+			className="owl-myself-icon"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.7"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			{name === "clock" && <circle cx="12" cy="12" r="9" />}
+			<path d={paths[name]} />
+		</svg>
+	);
 }
 
-const EMPTY_CHAT: MyselfChatState = { model: "", thinkingLevel: "", approvalMode: "confirm", entries: [], running: false, busy: false, ready: false, connected: false, retryStatus: null };
-const noopSubscribe = (): (() => void) => () => {};
+function hhmm(): string {
+	return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+}
 
-/**
- * 「我的助理」面板：头部居中两个 tab——「日程」（左侧按日历排序的天列表 +
- * 当天提炼/待办/对话记录）与「对话」（整套对齐 owl 对话区：会话头 + 对话/上下文/
- * 轨迹视图 + 完整 Composer，独立 Owl Si 会话，轮次落回当天 md 的「对话」段）。
- */
-export function MyselfPanel({ active, client, connected, workspaceDir, agentDir, providers, defaultModel, defaultThinkingLevel, defaultApprovalMode, onOpenSettings }: {
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** The daily workspace uses Home's conversation components with its own persistent session. */
+export function MyselfPanel({
+	active,
+	client,
+	connected,
+	workspaceDir,
+	agentDir,
+	providers,
+	defaultModel,
+	defaultThinkingLevel,
+	defaultApprovalMode,
+	onOpenSettings,
+	questions = [],
+	permissions = [],
+	onQuestionAnswer,
+}: {
 	active: boolean;
 	client: BridgeClient;
-	/** 桥连接状态：对话与目录探测的可用地。 */
 	connected: boolean;
-	/** 当前项目目录（owl-myself 约定放在项目根下）。 */
 	workspaceDir?: string;
-	/** owl agent 数据目录（settings.get 带出），兜底数据根。 */
 	agentDir?: string;
-	/** 模型清单（与主对话同一份，App 从 providers.list 拉取）。 */
 	providers: ProviderModelsMessage[];
-	/** 主对话当前默认值：对话线程新开时从这里起步（偏好之后按线程自记）。 */
 	defaultModel: string;
 	defaultThinkingLevel: string;
 	defaultApprovalMode: ApprovalMode;
-	/** 主对话的设置入口（/settings 命令用）。 */
 	onOpenSettings?: (tab: SettingsInitialTab) => void;
+	questions?: readonly QuestionRequest[];
+	permissions?: readonly PermissionRequest[];
+	onQuestionAnswer?: (requestId: string, answers: QuestionAnswerPayload[], cancelled: boolean) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const lang = getUiLanguage();
 	const [tab, setTab] = useState<"day" | "chat">("day");
 	const [dirState, setDirState] = useState<DirState>({ status: "probing" });
 	const [days, setDays] = useState<string[]>([]);
-	const [selected, setSelected] = useState<string>(todayKey());
+	const [selected, setSelected] = useState(todayKey);
 	const [loaded, setLoaded] = useState<Map<string, MyselfDay>>(() => new Map());
 	const [saving, setSaving] = useState(false);
 	const [notice, setNotice] = useState<Notice>();
 	const [dirInput, setDirInput] = useState("");
 	const [chatView, setChatView] = useState<ConversationView>("chat");
+	const [intent, setIntent] = useState<MyselfChatIntent>("record");
 	const [commands, setCommands] = useState<SlashCommandEntry[]>([]);
 	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
+	const [sharedDraft, setSharedDraft] = useState("");
+	const sharedDraftRef = useRef(sharedDraft);
 	const [composerKey, setComposerKey] = useState(0);
 	const [todoPinVisible, setTodoPinVisible] = useState(false);
+	const [assistantOpen, setAssistantOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1100);
+	const paneContainerRef = useRef<HTMLDivElement>(null);
+	const paneResize = useMyselfPaneResize(
+		paneContainerRef,
+		active && tab === "day" && dirState.status === "ready",
+		assistantOpen,
+	);
+	const [completedOpen, setCompletedOpen] = useState(false);
+	const [adding, setAdding] = useState(false);
+	const [newTodo, setNewTodo] = useState("");
+	const [expanded, setExpanded] = useState<string>();
+	const [editingSummary, setEditingSummary] = useState(false);
+	const [summaryDraft, setSummaryDraft] = useState("");
+	const [undo, setUndo] = useState<UndoChange>();
+	const [unsentRecord, setUnsentRecord] = useState<UnsentRecord>();
 	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const startedRef = useRef(false);
 	const loadedRef = useRef(loaded);
 	loadedRef.current = loaded;
-
+	const selectedRef = useRef(selected);
+	selectedRef.current = selected;
+	const sendDateRef = useRef<string | undefined>(undefined);
+	const langRef = useRef(lang);
+	langRef.current = lang;
 	const dir = dirState.status === "ready" ? dirState.dir : undefined;
 	const dirRef = useRef(dir);
 	dirRef.current = dir;
+	const editQueue = useRef(Promise.resolve());
+	const pendingEdits = useRef(0);
+	const newTodoRef = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (adding && tab === "day") newTodoRef.current?.focus();
+	}, [adding, tab]);
 
 	const flash = useCallback((text: string, tone: "ok" | "error"): void => {
 		clearTimeout(noticeTimer.current);
 		setNotice({ tone, text });
-		noticeTimer.current = setTimeout(() => setNotice(undefined), 3200);
+		noticeTimer.current = setTimeout(() => setNotice(undefined), 5000);
 	}, []);
 	useEffect(() => () => clearTimeout(noticeTimer.current), []);
+	const rememberDay = useCallback((date: string, raw: string): void => {
+		const parsed = parseDay(raw, date);
+		loadedRef.current = new Map(loadedRef.current).set(date, parsed);
+		setLoaded(loadedRef.current);
+		setDays((current) => (current.includes(date) ? current : [...current, date].sort().reverse()));
+	}, []);
 
-	// -- Owl Si 对话线程：控制器按数据目录重建，能力全部对齐主对话 ----------
-	const langRef = useRef(lang);
-	langRef.current = lang;
+	const readLatest = useCallback(
+		async (target: string, date: string): Promise<string> => {
+			try {
+				return await readMyselfDay(client, target, date);
+			} catch (error) {
+				if (!/not found|no such file|ENOENT|不存在/i.test(errorMessage(error))) throw error;
+				return newDayTemplate(date, langRef.current);
+			}
+		},
+		[client],
+	);
+
+	/** Read the current file within a serial edit, so an Agent write is never replaced by cached UI text. */
+	const mutateDay = useCallback(
+		async (date: string, transform: (raw: string) => string): Promise<boolean> => {
+			const target = dirRef.current;
+			if (!target) return false;
+			setUndo(undefined);
+			pendingEdits.current++;
+			setSaving(true);
+			let succeeded = false;
+			const operation = editQueue.current.then(async () => {
+				const base = await readLatest(target, date);
+				const raw = transform(base);
+				if (raw !== base || !loadedRef.current.has(date)) await writeMyselfDay(client, target, date, raw);
+				rememberDay(date, raw);
+				succeeded = true;
+			});
+			editQueue.current = operation.catch(() => {});
+			try {
+				await operation;
+				flash(t("myself.saved"), "ok");
+			} catch (error) {
+				flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
+			} finally {
+				pendingEdits.current--;
+				setSaving(pendingEdits.current > 0);
+			}
+			return succeeded;
+		},
+		[client, flash, readLatest, rememberDay, t],
+	);
+
+	const logChatLine = useCallback(
+		async (date: string, who: string, text: string): Promise<void> => {
+			if (!text.trim()) return;
+			await mutateDay(date, (raw) => {
+				const last = parseDay(raw, date).chat.at(-1);
+				const normalized = text.replace(/\s+/g, " ").trim();
+				if (last?.who === who && last.text.replace(/\s+/g, " ").trim() === normalized) return raw;
+				return appendChatLine(raw, hhmm(), who, text.trim());
+			});
+		},
+		[mutateDay],
+	);
+	const logChatLineRef = useRef(logChatLine);
+	logChatLineRef.current = logChatLine;
+	const refreshDayRef = useRef(async (_date: string): Promise<void> => {});
+	refreshDayRef.current = async (date) => {
+		const target = dirRef.current;
+		if (target) rememberDay(date, await readLatest(target, date));
+	};
+
 	const chatController = useMemo(() => {
 		if (!dir) return undefined;
 		return new MyselfChatController(
@@ -130,214 +289,692 @@ export function MyselfPanel({ active, client, connected, workspaceDir, agentDir,
 			localStorage,
 			dir,
 			{ model: defaultModel, thinkingLevel: defaultThinkingLevel, approvalMode: defaultApprovalMode },
-			() => myselfPrimer(todayKey(), loadedRef.current.get(todayKey())?.raw ?? "", langRef.current),
+			() =>
+				myselfPrimer(
+					selectedRef.current,
+					loadedRef.current.get(selectedRef.current)?.raw ?? newDayTemplate(selectedRef.current, langRef.current),
+					langRef.current,
+				),
 			{
-				// 一轮结束（agent_settled）：把最后一条回答落进当天 md 的「对话」段。
-				onSettled: (entries) => {
+				getScheduleContext: async (requestedDate?: string) => {
+					const date = requestedDate ?? sendDateRef.current ?? selectedRef.current;
+					const raw = await readLatest(dir, date);
+					rememberDay(date, raw);
+					return { date, raw };
+				},
+				onSettled: async (entries, turn) => {
+					const date = turn?.date ?? selectedRef.current;
 					for (let i = entries.length - 1; i >= 0; i--) {
 						const entry = entries[i]!;
 						if (entry.kind === "user") break;
 						if (entry.kind === "assistant") {
-							if (!entry.aborted && entry.text.trim()) void logChatLineRef.current("Owl Si", entry.text);
+							if (!entry.aborted && entry.text.trim()) await logChatLineRef.current(date, "Owl Si", entry.text);
 							break;
 						}
 					}
+					await refreshDayRef.current(date);
 				},
 			},
 		);
-	}, [client, dir, defaultModel, defaultThinkingLevel, defaultApprovalMode]);
-	const chat = useSyncExternalStore(chatController?.subscribe ?? noopSubscribe, chatController?.getSnapshot ?? (() => EMPTY_CHAT));
-
+	}, [client, dir, defaultModel, defaultThinkingLevel, defaultApprovalMode, readLatest, rememberDay]);
+	const chat = useSyncExternalStore(
+		chatController?.subscribe ?? noopSubscribe,
+		chatController?.getSnapshot ?? (() => EMPTY_CHAT),
+	);
 	useEffect(() => {
-		if (!chatController) return;
-		chatController.start();
-		return () => chatController.dispose();
+		chatController?.start();
+		return () => chatController?.dispose();
 	}, [chatController]);
 	useEffect(() => {
 		chatController?.setConnected(connected);
-		if (active && connected) void chatController?.attach();
+		if (active && connected) {
+			void chatController?.attach();
+			void chatController?.refreshPresets();
+			void chatController?.refreshHistory();
+		}
 	}, [chatController, connected, active]);
-
-	// 斜杠命令清单：连接后、建/恢复会话时刷新（扩展命令随会话出现）。
 	useEffect(() => {
 		if (!connected || !active || !dir) return;
 		let cancelled = false;
-		void client.request<CommandsListResult>({ type: "commands.list", cwd: dir })
-			.then((response) => { if (!cancelled && response.ok) setCommands(response.result?.commands ?? []); })
+		void client
+			.request<CommandsListResult>({ type: "commands.list", cwd: dir })
+			.then((response) => {
+				if (!cancelled && response.ok) setCommands(response.result?.commands ?? []);
+			})
 			.catch(() => {});
-		return () => { cancelled = true; };
+		return () => {
+			cancelled = true;
+		};
 	}, [client, dir, chat.sessionId, connected, active]);
 
-	/** 把一轮对话（用户或 Owl Si）落进今天的 md；今天没文件就先建骨架。 */
-	const logChatLine = useCallback(async (who: string, text: string): Promise<void> => {
-		const target = dirRef.current;
-		if (!target || !text.trim()) return;
-		const date = todayKey();
-		const baseRaw = loadedRef.current.get(date)?.raw ?? newDayTemplate(date, langRef.current);
-		const raw = appendChatLine(baseRaw, hhmm(), who, text.trim());
-		setLoaded((current) => new Map(current).set(date, parseDay(raw, date)));
-		setDays((current) => (current.includes(date) ? current : [date, ...current].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))));
-		setSaving(true);
-		try {
-			await writeMyselfDay(client, target, date, raw);
-			flash(t("myself.saved"), "ok");
-		} catch (error) {
-			flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
-		} finally {
-			setSaving(false);
-		}
-	}, [client, flash, t]);
-	const logChatLineRef = useRef(logChatLine);
-	logChatLineRef.current = logChatLine;
-
-	/** 目录定下来后：列天 + 全量读入（天文件都是小笔记，一次拿全给侧栏徽标用）。 */
-	const loadDays = useCallback(async (target: string): Promise<void> => {
-		const dates = await listMyselfDays(client, target);
-		const capped = dates.slice(0, DAY_READ_CAP);
-		const next = new Map<string, MyselfDay>();
-		await Promise.all(capped.map(async (date) => {
-			try {
-				next.set(date, parseDay(await readMyselfDay(client, target, date), date));
-			} catch {
-				// 单个文件读不了不影响整体；侧栏仍可点，内容区报错。
+	const loadDays = useCallback(
+		async (target: string): Promise<void> => {
+			const dates = (await listMyselfDays(client, target)).slice(0, DAY_READ_CAP);
+			const next = new Map<string, MyselfDay>();
+			await Promise.all(
+				dates.map(async (date) => {
+					try {
+						next.set(date, parseDay(await readMyselfDay(client, target, date), date));
+					} catch {
+						/* A bad day file does not hide the other days. */
+					}
+				}),
+			);
+			loadedRef.current = next;
+			setLoaded(next);
+			setDays(dates);
+		},
+		[client],
+	);
+	const probe = useCallback(
+		async (preferred?: string): Promise<void> => {
+			setDirState({ status: "probing" });
+			if (preferred?.trim()) localStorage.setItem(MYSELF_DIR_LS_KEY, preferred.trim());
+			else localStorage.removeItem(MYSELF_DIR_LS_KEY);
+			const resolved = await resolveMyselfDir(client, workspaceDir, agentDir);
+			if (!resolved) {
+				setDirState({ status: "missing" });
+				return;
 			}
-		}));
-		setDays(capped);
-		setLoaded(next);
-		setSelected((current) => (capped.includes(current) ? current : capped[0] ?? todayKey()));
-	}, [client]);
-
-	const probe = useCallback(async (preferred?: string): Promise<void> => {
-		setDirState({ status: "probing" });
-		if (preferred?.trim()) localStorage.setItem(MYSELF_DIR_LS_KEY, preferred.trim());
-		else localStorage.removeItem(MYSELF_DIR_LS_KEY);
-		const resolved = await resolveMyselfDir(client, workspaceDir, agentDir);
-		if (!resolved) {
-			setDirState({ status: "missing" });
-			return;
-		}
-		setDirState({ status: "ready", dir: resolved });
-		try {
-			await loadDays(resolved);
-		} catch {
-			setDirState({ status: "missing" });
-		}
-	}, [client, workspaceDir, agentDir, loadDays]);
-
+			setDirState({ status: "ready", dir: resolved });
+			try {
+				await loadDays(resolved);
+			} catch (error) {
+				flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
+			}
+		},
+		[client, workspaceDir, agentDir, loadDays, flash, t],
+	);
 	useEffect(() => {
-		if (!active) return;
-		if (startedRef.current) return;
-		startedRef.current = true;
-		void probe();
-		// 只在首次激活时探测一次；目录切换走表单。
-	}, [active]);
+		if (active && !startedRef.current) {
+			startedRef.current = true;
+			void probe();
+		}
+	}, [active, probe]);
+	useEffect(() => {
+		setCompletedOpen(false);
+		setExpanded(undefined);
+		setEditingSummary(false);
+		setAdding(false);
+		setUndo(undefined);
+	}, [selected]);
 
-	/** 发送：斜杠内置命令本地消化；普通消息先落用户行，再交控制器（首轮带铺垫）。 */
-	const sendChat = async (value: string, images?: ComposerImage[], attachedPaths?: string[]): Promise<void> => {
-		if (!chatController) return;
+	const sendChat = async (
+		value: string,
+		images?: ComposerImage[],
+		attachedPaths?: string[],
+		requestedIntent = intent,
+		requestedDate = selected,
+	): Promise<void> => {
+		if (!chatController || chat.running || chat.busy) return;
 		const match = /^\/([a-zA-Z0-9:_-]+)(?:\s+([\s\S]*))?$/.exec(value.trim());
-		const matched = match && commands.find((command) => command.name === match[1]);
-		if (match && (matched?.kind === "builtin" || (!matched && ["new", "settings", "model", "thinking", "compact"].includes(match[1])))) {
-			if (match[1] === "settings") { onOpenSettings?.("general"); return; }
-			if (match[1] === "new") { newThread(); return; }
+		const command = match && commands.find((entry) => entry.name === match[1]);
+		if (
+			match &&
+			(command?.kind === "builtin" ||
+				(!command && ["new", "settings", "model", "thinking", "compact"].includes(match[1])))
+		) {
+			if (match[1] === "settings") {
+				onOpenSettings?.("general");
+				return;
+			}
+			if (match[1] === "new") {
+				newThread();
+				return;
+			}
 			await chatController.executeBuiltin(match[1], match[2] ?? "");
 			return;
 		}
-		const sent = await chatController.send(value, images, attachedPaths);
-		if (sent) {
-			const note = images?.length ? `${value}${value.trim() ? " " : ""}[图片×${images.length}]` : value;
-			void logChatLine(lang === "en" ? "Me" : "我", note);
+		const date = requestedDate;
+		const pending = { date, text: value, intent: requestedIntent, images, attachedPaths };
+		const note = images?.length ? `${value}${value.trim() ? " " : ""}[图片×${images.length}]` : value;
+		if (
+			!(await mutateDay(date, (raw) => {
+				const last = parseDay(raw, date).chat.at(-1);
+				if ((last?.who === "我" || last?.who === "Me") && last.text === note.replace(/\s*\r?\n\s*/g, " ").trim())
+					return raw;
+				return appendChatLine(raw, hhmm(), lang === "en" ? "Me" : "我", note);
+			}))
+		) {
+			setUnsentRecord(pending);
+			setDraftRequest({ id: Date.now(), text: value, replace: true });
+			return;
+		}
+		sendDateRef.current = date;
+		try {
+			const sent = await chatController.send(value, images, attachedPaths, requestedIntent, { date });
+			setUnsentRecord(sent ? undefined : pending);
+			if (sent && sharedDraftRef.current === value) {
+				setSharedDraft("");
+				sharedDraftRef.current = "";
+				setDraftRequest({ id: Date.now(), text: "", replace: true });
+			}
+		} finally {
+			sendDateRef.current = undefined;
 		}
 	};
-
+	const replayChat = async (operation: () => Promise<boolean>): Promise<void> => {
+		const sent = await operation();
+		const failed = chatController?.getSnapshot().failedPrompt;
+		if (sent) setUnsentRecord(undefined);
+		else if (failed?.date) {
+			setUnsentRecord({
+				date: failed.date,
+				text: failed.text,
+				intent: failed.intent ?? "record",
+				images: failed.images,
+				attachedPaths: failed.attachedPaths,
+			});
+			setDraftRequest({ id: Date.now(), text: failed.text, replace: true });
+		}
+	};
 	const newThread = (): void => {
 		if (chatController?.newThread()) {
 			setComposerKey((key) => key + 1);
 			setDraftRequest(undefined);
+			setSharedDraft("");
+			sharedDraftRef.current = "";
+			setUnsentRecord(undefined);
 		}
 	};
-
-	const toggleTodo = async (text: string, done: boolean): Promise<void> => {
-		if (dirState.status !== "ready" || !day) return;
-		const raw = toggleTodoInRaw(day.raw, text, done);
-		if (raw === day.raw) return;
-		const next = parseDay(raw, day.date);
-		setLoaded((current) => new Map(current).set(day.date, next));
-		setSaving(true);
-		try {
-			await writeMyselfDay(client, dirState.dir, day.date, raw);
-			flash(t("myself.saved"), "ok");
-		} catch (error) {
-			setLoaded((current) => new Map(current).set(day.date, day));
-			flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
-		} finally {
-			setSaving(false);
+	const restoreConversation = async (id: string): Promise<boolean> => {
+		if (!chatController || saving) return false;
+		const restored = await chatController.switchSession(id);
+		if (restored) {
+			setChatView("chat");
+			setIntent("record");
+			setUnsentRecord(undefined);
 		}
+		return restored;
 	};
-
-	const createToday = async (): Promise<void> => {
-		if (dirState.status !== "ready") return;
-		const date = todayKey();
-		setSaving(true);
-		try {
-			await writeMyselfDay(client, dirState.dir, date, newDayTemplate(date, lang));
-			await loadDays(dirState.dir);
-			setSelected(date);
-		} catch (error) {
-			flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
-		} finally {
-			setSaving(false);
-		}
+	const handleDraftChange = useCallback((value: string): void => {
+		setSharedDraft(value);
+		sharedDraftRef.current = value;
+		setDraftRequest(undefined);
+	}, []);
+	const fillDraft = (value: string, mode: MyselfChatIntent = intent): void => {
+		setIntent(mode);
+		setDraftRequest({ id: Date.now(), text: value });
 	};
-
-	const day = loaded.get(selected);
+	const askAssistant = (value: string, mode: MyselfChatIntent): void => {
+		setAssistantOpen(true);
+		fillDraft(value, mode);
+	};
+	const day = loaded.get(selected) ?? parseDay(newDayTemplate(selected, lang), selected);
 	const today = todayKey();
-
-	const todos = useMemo(() => (day?.todos ?? []).filter((todo) => todo.text !== ""), [day]);
-	const doneCount = todos.filter((todo) => todo.done).length;
-
-	const groups = useMemo(() => ({
-		today: days.filter((date) => date === today),
-		future: days.filter((date) => date > today).reverse(),
-		earlier: days.filter((date) => date < today),
-	}), [days, today]);
-
-	const fmtDay = (date: string): string => {
-		const at = new Date(`${date}T12:00:00`);
-		if (lang === "en") return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(at);
-		return `${at.getMonth() + 1}月${at.getDate()}日`;
-	};
-	const fmtWeekday = (date: string): string =>
-		new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { weekday: "short" }).format(new Date(`${date}T12:00:00`));
-
-	const hasToday = days.includes(today);
-
-	const fillDraft = (value: string): void => setDraftRequest({ id: Date.now(), text: value });
-	const chatActivity: ChatActivity = !connected ? "disconnected" : chat.running ? "working" : "idle";
+	const todos = day.todos.filter((todo) => todo.text !== "");
+	const doneTodos = todos.filter((todo) => todo.done);
+	const week = weekDaysOf(selected);
+	const canEdit = connected && dirState.status === "ready" && !saving && !chat.running && !chat.busy;
+	const sessionQuestions = questions.filter((question) => question.sessionId === chat.sessionId);
+	const sessionPermissions = permissions.filter((permission) => permission.sessionId === chat.sessionId);
+	const waiting = sessionQuestions.length > 0 || sessionPermissions.length > 0;
+	const chatActivity: ChatActivity = !connected
+		? "disconnected"
+		: waiting
+			? "waiting"
+			: chat.running
+				? "working"
+				: "idle";
 	const owlPose = useSessionOwlPose(chatActivity, chat.entries);
+	const fmtDay = (date: string): string =>
+		new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric" }).format(
+			new Date(`${date}T12:00:00`),
+		);
+	const fmtWeekday = (date: string): string =>
+		new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { weekday: "short" }).format(
+			new Date(`${date}T12:00:00`),
+		);
+	const schedule = todos
+		.filter((todo) => !todo.done && todo.time)
+		.sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
+	const setStatus = async (todo: MyselfTodo, status: MyselfTodoStatus): Promise<void> => {
+		const previous = { date: selected, text: todo.text, status: todo.status };
+		if (await mutateDay(selected, (raw) => updateTodoStatusInRaw(raw, todo.text, status))) setUndo(previous);
+	};
+	const moveTomorrow = async (todo: MyselfTodo): Promise<void> => {
+		const target = dirRef.current;
+		if (!target) return;
+		const date = selected;
+		setUndo(undefined);
+		pendingEdits.current++;
+		setSaving(true);
+		const operation = editQueue.current.then(async () => {
+			const nextDate = nextDayKey(date);
+			const source = await readLatest(target, date);
+			const destination = await readLatest(target, nextDate);
+			const moved = moveTodoToTomorrow(source, destination, todo.text, date, lang);
+			// Write the destination first: a failed source write cannot lose the task.
+			await writeMyselfDay(client, target, moved.targetDate, moved.targetRaw);
+			rememberDay(moved.targetDate, moved.targetRaw);
+			await writeMyselfDay(client, target, date, moved.sourceRaw);
+			rememberDay(date, moved.sourceRaw);
+			setExpanded(undefined);
+		});
+		editQueue.current = operation.catch(() => {});
+		try {
+			await operation;
+			flash(t("myself.movedTomorrow"), "ok");
+		} catch (error) {
+			flash(t("myself.saveFailed", { message: errorMessage(error) }), "error");
+		} finally {
+			pendingEdits.current--;
+			setSaving(pendingEdits.current > 0);
+		}
+	};
+	const taskRow = (todo: MyselfTodo): React.JSX.Element => (
+		<li key={todo.text} className={`owl-myself-task${todo.done ? " is-done" : ""}`}>
+			<input
+				type="checkbox"
+				className="owl-myself-check"
+				checked={todo.done}
+				aria-label={`${t(todo.done ? "myself.reopenTodo" : "myself.completeTodo")}: ${todo.text}`}
+				disabled={!canEdit}
+				onChange={() => void setStatus(todo, todo.done ? "todo" : "done")}
+			/>
+			<button
+				type="button"
+				className="owl-myself-task-label"
+				aria-expanded={expanded === todo.text}
+				onClick={() => setExpanded(expanded === todo.text ? undefined : todo.text)}
+			>
+				<strong>{todo.text}</strong>
+				{(todo.category || todo.goal) && (
+					<span>
+						{todo.category && <i>{todo.category}</i>}
+						{todo.goal}
+					</span>
+				)}
+			</button>
+			{todo.time && (
+				<span className="owl-myself-task-time">
+					<MyselfIcon name="clock" />
+					{todo.time}
+				</span>
+			)}
+			{expanded === todo.text && (
+				<div className="owl-myself-task-detail">
+					<label>
+						{t("myself.taskStatus")}
+						<select
+							value={todo.status}
+							disabled={!canEdit}
+							onChange={(event) => void setStatus(todo, event.target.value as MyselfTodoStatus)}
+						>
+							{Object.entries(STATUS_LABELS).map(([status, label]) => (
+								<option key={status} value={status}>
+									{t(label)}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						{t("myself.taskGoal")}
+						<select
+							value={todo.goal ?? ""}
+							disabled={!canEdit}
+							onChange={(event) => {
+								const goal = event.target.value;
+								void mutateDay(selected, (raw) => updateTodoMetadataInRaw(raw, todo.text, { goal }));
+							}}
+						>
+							<option value="">{t("myself.noGoal")}</option>
+							{todo.goal && !day.goals.some((goal) => goal.title === todo.goal) && (
+								<option value={todo.goal}>{todo.goal}</option>
+							)}
+							{day.goals.map((goal) => (
+								<option key={goal.title} value={goal.title}>
+									{goal.title}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						{t("myself.taskTime")}
+						<input
+							key={`${selected}:${todo.text}:time:${todo.time ?? ""}`}
+							defaultValue={todo.time ?? ""}
+							placeholder={t("myself.taskTimeHint")}
+							disabled={!canEdit}
+							onBlur={(event) => {
+								const time = event.target.value;
+								if (time !== (todo.time ?? ""))
+									void mutateDay(selected, (raw) => updateTodoMetadataInRaw(raw, todo.text, { time }));
+							}}
+						/>
+					</label>
+					<label>
+						{t("myself.taskCategory")}
+						<input
+							key={`${selected}:${todo.text}:category:${todo.category ?? ""}`}
+							defaultValue={todo.category ?? ""}
+							placeholder={t("myself.taskCategoryHint")}
+							disabled={!canEdit}
+							onBlur={(event) => {
+								const category = event.target.value;
+								if (category !== (todo.category ?? ""))
+									void mutateDay(selected, (raw) => updateTodoMetadataInRaw(raw, todo.text, { category }));
+							}}
+						/>
+					</label>
+					<div className="owl-myself-task-actions">
+						<button type="button" disabled={!canEdit || todo.done} onClick={() => void moveTomorrow(todo)}>
+							{t("myself.moveTomorrow")}
+							<MyselfIcon name="arrow" />
+						</button>
+						<button
+							type="button"
+							disabled={!connected || chat.running || chat.busy}
+							onClick={() => {
+								setTab("chat");
+								fillDraft(t("myself.processTaskPrompt", { task: todo.text }), "process");
+							}}
+						>
+							{t("myself.askNextStep")}
+						</button>
+					</div>
+				</div>
+			)}
+		</li>
+	);
+	const intentControls = (
+		<fieldset className="owl-myself-intents" aria-label={t("myself.intentLabel")}>
+			{(["record", "plan", "process"] as const).map((mode) => (
+				<button
+					key={mode}
+					type="button"
+					aria-pressed={intent === mode}
+					disabled={chat.running || chat.busy}
+					onClick={() => setIntent(mode)}
+				>
+					{t(`myself.intent${mode === "record" ? "Record" : mode === "plan" ? "Plan" : "Process"}`)}
+				</button>
+			))}
+			<span>
+				{t(
+					intent === "record" ? "myself.recordHint" : intent === "plan" ? "myself.planHint" : "myself.processHint",
+				)}
+			</span>
+		</fieldset>
+	);
+	const historyControl = (
+		<MyselfChatHistory
+			entries={chat.history}
+			loading={chat.historyLoading}
+			error={chat.historyError}
+			sessionId={chat.sessionId}
+			disabled={!connected || chat.running || chat.busy || saving}
+			onRefresh={() => void chatController?.refreshHistory()}
+			onSelect={restoreConversation}
+		/>
+	);
+	const conversation = (compact: boolean): React.JSX.Element => (
+		<AgentConversation
+			className={compact ? "owl-myself-compact-conversation" : "owl-myself-full-conversation"}
+			view={compact ? "chat" : chatView}
+			header={
+				compact ? undefined : (
+					<ConversationHeader
+						title="Owl Si"
+						workspaceDir={dir ?? ""}
+						view={chatView}
+						onViewChange={setChatView}
+						terminalOpen={false}
+						sidebarOpen={false}
+						onToggleTerminal={noop}
+						onToggleSidebar={noop}
+						onExport={noop}
+						onExportTurns={noop}
+						actions={
+							<>
+								{historyControl}
+								<button
+									type="button"
+									className="owl-myself-new-session"
+									disabled={chat.running || chat.busy}
+									onClick={newThread}
+								>
+									{t("myself.chatNew")}
+								</button>
+							</>
+						}
+					/>
+				)
+			}
+			chat={
+				<GenuiSessionProvider client={client} sessionId={chat.sessionId}>
+					{chat.entries.length ? (
+						<ChatStream
+							entries={chat.entries}
+							activity={chatActivity}
+							client={client}
+							cwd={dir ?? ""}
+							onRegenerate={
+								chatController && !chat.busy && !saving
+									? () => void replayChat(() => chatController.regenerate())
+									: undefined
+							}
+							onEditMessage={
+								chatController && !chat.busy && !saving
+									? (entryId, text, images) =>
+											void replayChat(() => chatController.editMessage(entryId, text, images))
+									: undefined
+							}
+							onBranch={
+								chatController && !chat.running && !chat.busy && !saving
+									? (entryId) => void chatController.branch(entryId)
+									: undefined
+							}
+						/>
+					) : (
+						<div className="owl-myself-chathint">
+							<span className="mark">
+								<MyselfIcon name="calendar" />
+							</span>
+							<p className="big">{t("myself.chatEmptyTitle")}</p>
+							<p>{t("myself.chatWelcome")}</p>
+							{chat.previousSessionId && (
+								<div className="owl-myself-return-conversation">
+									<button
+										type="button"
+										disabled={!connected || chat.running || chat.busy || saving}
+										onClick={() => void restoreConversation(chat.previousSessionId!)}
+									>
+										{t("myself.returnPrevious")}
+									</button>
+									<span>{t("myself.newChatHint")}</span>
+								</div>
+							)}
+							<div className="owl-myself-examples">
+								<button type="button" onClick={() => fillDraft(t("myself.exampleRecord"), "record")}>
+									{t("myself.recordToday")}
+								</button>
+								<button type="button" onClick={() => fillDraft(t("myself.examplePlan"), "plan")}>
+									{t("myself.planTogether")}
+								</button>
+								<button type="button" onClick={() => fillDraft(t("myself.exampleReview"), "plan")}>
+									{t("myself.reviewTogether")}
+								</button>
+							</div>
+						</div>
+					)}
+				</GenuiSessionProvider>
+			}
+			context={
+				<ContextView
+					key={`myself-context:${chat.sessionId ?? dir}`}
+					client={client}
+					cwd={dir ?? ""}
+					sessionId={chat.sessionId}
+					requireSession
+					active={active && connected && !compact && chatView === "context"}
+				/>
+			}
+			trajectory={<TrajectoryView entries={chat.entries} active={active && !compact && chatView === "trajectory"} />}
+			beforeComposer={
+				<>
+					{unsentRecord && (
+						<div className="owl-myself-chatnotice">
+							<span>{t("myself.unsentRecord")}</span>
+							<button
+								type="button"
+								disabled={chat.running || chat.busy || saving || !connected}
+								onClick={() => {
+									setSelected(unsentRecord.date);
+									void sendChat(
+										unsentRecord.text,
+										unsentRecord.images,
+										unsentRecord.attachedPaths,
+										unsentRecord.intent,
+										unsentRecord.date,
+									);
+								}}
+							>
+								{t("myself.retryRecord")}
+							</button>
+						</div>
+					)}
+					<RetryPin status={chat.retryStatus} onDismiss={() => chatController?.dismissRetry()} />
+					<TodoPin
+						key={`myself-todos:${chat.sessionId ?? dir}`}
+						entries={chat.entries}
+						onVisibleChange={setTodoPinVisible}
+					/>
+					{(!connected || !chat.ready || chat.error) && (
+						<div className="owl-myself-chatnotice" role={chat.error ? "alert" : "status"}>
+							{chat.error ?? (!connected ? t("myself.chatOffline") : t("myself.chatRestore"))}
+						</div>
+					)}
+					{sessionPermissions.length > 0 && (
+						<output className="owl-myself-chatnotice">{t("myself.waitingPermission")}</output>
+					)}
+				</>
+			}
+			questionDock={{
+				requests: sessionQuestions,
+				activeRequest: sessionQuestions[0],
+				onAnswer: (requestId, answers, cancelled) => {
+					if (onQuestionAnswer) onQuestionAnswer(requestId, answers, cancelled);
+					else void client.respondQuestion(requestId, answers, cancelled);
+				},
+			}}
+			composer={
+				<Composer
+					environmentAccessory={intentControls}
+					key={`${dir}:${composerKey}:${compact ? "quick" : "full"}`}
+					client={client}
+					connected={connected}
+					disabled={!connected || !chat.ready || chat.running || chat.busy || saving}
+					running={chat.running}
+					hideMascot={compact || todoPinVisible}
+					onSend={(value, images, attachedPaths) => {
+						void sendChat(value, images, attachedPaths);
+					}}
+					onAbort={() => void chatController?.abort()}
+					providers={providers}
+					model={chat.model}
+					onModel={(value) => {
+						void chatController?.setModel(value);
+					}}
+					thinkingLevel={chat.thinkingLevel}
+					onThinkingLevel={(value) => {
+						void chatController?.setThinkingLevel(value);
+					}}
+					approvalMode={chat.approvalMode}
+					onApprovalMode={(mode) => {
+						void chatController?.setApprovalMode(mode);
+					}}
+					agentPresets={chat.agentPresets}
+					defaultPresetId={chat.defaultPreset}
+					agentPreset={
+						chat.sessionId
+							? (chat.agentPreset ?? chat.nextAgentPreset ?? chat.defaultPreset)
+							: (chat.nextAgentPreset ?? chat.defaultPreset)
+					}
+					agentPresetLocked={chat.agentPresetLocked}
+					onAgentPresetSelect={(id) => void chatController?.setAgentPreset(id)}
+					sessionInfo={chat.stats}
+					workspaceDir={dir ?? ""}
+					projects={dir ? [dir] : []}
+					onSwitchProject={noop}
+					commands={commands}
+					searchFiles={(searchCwd, query) =>
+						client
+							.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query })
+							.then((response) => (response.ok ? (response.result ?? []) : []))
+					}
+					draftRequest={draftRequest}
+					initialDraft={sharedDraft}
+					onDraftChange={handleDraftChange}
+					owlPose={owlPose}
+				/>
+			}
+		/>
+	);
 
 	return (
 		<div className={`owl-myself${active ? " is-active" : ""}`}>
-			<div className="owl-myself-head">
-				<span className="owl-myself-avatar" aria-hidden="true">{AVATAR_SVG}</span>
-				<h1>{t("rail.myself")}</h1>
-				<span className="owl-myself-dir" title={dir ?? undefined}>{dir ?? ""}</span>
-				{dirState.status === "ready" && (
-					<div className="owl-myself-tabs" role="tablist" aria-label={t("rail.myself")}>
-						<button type="button" role="tab" aria-selected={tab === "day"} className={tab === "day" ? "on" : ""} onClick={() => setTab("day")}>{t("myself.tabDay")}</button>
-						<button type="button" role="tab" aria-selected={tab === "chat"} className={tab === "chat" ? "on" : ""} onClick={() => setTab("chat")}>{t("myself.tabChat")}</button>
-					</div>
-				)}
-				<span className={`owl-myself-sync${saving ? " is-busy" : ""}`} data-status={dirState.status}>
-					{notice ? notice.text : dirState.status === "probing" ? t("myself.loading")
-						: dirState.status === "missing" ? t("myself.noDir")
-						: t("myself.statusDays", { n: days.length })}
-					{dirState.status === "ready" && (
-						<button type="button" onClick={() => { setDays([]); setLoaded(new Map()); void probe(); }}>{t("myself.resync")}</button>
-					)}
+			<header className="owl-myself-head">
+				<span className="owl-myself-avatar">
+					<MyselfIcon name="calendar" />
 				</span>
-			</div>
-
+				<h1>{t("rail.myself")}</h1>
+				<span className="owl-myself-location">{t("myself.mySchedule")}</span>
+				<div className="owl-myself-tabs" role="tablist" aria-label={t("rail.myself")}>
+					<button type="button" role="tab" aria-selected={tab === "day"} onClick={() => setTab("day")}>
+						{t("myself.tabDay")}
+					</button>
+					<button type="button" role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}>
+						{t("myself.tabChat")}
+					</button>
+				</div>
+				<div className="owl-myself-sync">
+					<span>{saving ? t("myself.saving") : t("myself.statusDays", { n: days.length })}</span>
+					{tab === "day" && (
+						<button
+							type="button"
+							aria-label={t(assistantOpen ? "myself.closeAssistant" : "myself.openAssistant")}
+							aria-expanded={assistantOpen}
+							onClick={() => setAssistantOpen(!assistantOpen)}
+						>
+							<MyselfIcon name="panel" />
+						</button>
+					)}
+					<button
+						type="button"
+						disabled={saving || !connected}
+						onClick={() => {
+							if (dir) void loadDays(dir);
+						}}
+					>
+						{t("myself.resync")}
+					</button>
+				</div>
+			</header>
+			{notice && (
+				<div
+					className="owl-myself-notice"
+					data-tone={notice.tone}
+					role={notice.tone === "error" ? "alert" : "status"}
+				>
+					<span>{notice.text}</span>
+					{undo && (
+						<button
+							type="button"
+							disabled={!canEdit}
+							onClick={() => {
+								const previous = undo;
+								setUndo(undefined);
+								void mutateDay(previous.date, (raw) =>
+									updateTodoStatusInRaw(raw, previous.text, previous.status),
+								);
+							}}
+						>
+							{t("myself.undo")}
+						</button>
+					)}
+				</div>
+			)}
 			{dirState.status === "missing" ? (
 				<div className="owl-myself-missing">
 					<p className="big">{t("myself.noDirTitle")}</p>
@@ -354,207 +991,345 @@ export function MyselfPanel({ active, client, connected, workspaceDir, agentDir,
 							placeholder={t("myself.dirPlaceholder")}
 							aria-label={t("myself.dirPlaceholder")}
 						/>
-						<button type="submit" disabled={dirInput.trim() === ""}>{t("myself.dirSave")}</button>
+						<button type="submit" disabled={!dirInput.trim()}>
+							{t("myself.dirSave")}
+						</button>
 					</form>
-					<p className="candidates">{myselfDirCandidates(workspaceDir, agentDir).join("  ·  ")}</p>
+					<p className="candidates">{myselfDirCandidates(workspaceDir, agentDir).join(" · ")}</p>
 				</div>
-			) : tab === "chat" && dir ? (
-				// ---- 对话 tab：整套对齐 owl 对话区（会话头 + 三视图 + 完整 Composer）----
-				<div className="owl-myself-chatpage">
-					<header className="owl-chat-header flex shrink-0 select-none items-center">
-						<span className="owl-myself-chatmark" aria-hidden="true">{AVATAR_SVG}</span>
-						<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text">Owl Si</h1>
-						<span className="owl-shell-project" title={dir}><IconFolder size={12} /><span className="owl-shell-project-label">{getProjectDisplayName(dir)}</span></span>
-						<div className="owl-view-tabs" role="tablist" aria-label={t("app.viewTabsAria")}>
-							<button type="button" role="tab" aria-selected={chatView === "chat"} onClick={() => setChatView("chat")}>{t("app.viewChat")}</button>
-							<button type="button" role="tab" aria-selected={chatView === "context"} onClick={() => setChatView("context")}>{t("composer.context")}</button>
-							<button type="button" role="tab" aria-selected={chatView === "trajectory"} onClick={() => setChatView("trajectory")}>{t("app.viewTrajectory")}</button>
-						</div>
-						<div className="owl-shell-header-actions">
-							<button type="button" className="owl-chrome-button" disabled={chat.running || chat.busy} onClick={newThread}>{t("myself.chatNew")}</button>
-						</div>
-					</header>
-					<div className="owl-myself-chatstream">
-						{chatView === "trajectory" ? (
-							<TrajectoryView entries={chat.entries} active={active} />
-						) : chatView === "context" ? (
-							<ContextView key={`myself-context:${chat.sessionId ?? dir}`} client={client} cwd={dir} sessionId={chat.sessionId} requireSession active={active && connected} />
-						) : chat.entries.length ? (
-							<GenuiSessionProvider client={client} sessionId={chat.sessionId}>
-								<ChatStream entries={chat.entries} activity={chatActivity} client={client} cwd={dir} />
-							</GenuiSessionProvider>
-						) : (
-							<div className="owl-myself-chathint">
-								<span className="mark" aria-hidden="true">{AVATAR_SVG}</span>
-								<p className="big">{t("myself.chatEmptyTitle")}</p>
-								<p>{t("myself.chatEmptyHint")}</p>
-								<div className="owl-myself-examples">
-									<button type="button" onClick={() => fillDraft(t("myself.exampleLeft"))}>{t("myself.exampleLeft")}</button>
-									<button type="button" onClick={() => fillDraft(t("myself.examplePlan"))}>{t("myself.examplePlan")}</button>
-									<button type="button" onClick={() => fillDraft(t("myself.exampleReview"))}>{t("myself.exampleReview")}</button>
-								</div>
-							</div>
-						)}
-						{(!connected || !chat.ready || chat.error) && (
-							<div className="owl-myself-chatnotice" role={chat.error ? "alert" : "status"}>
-								{chat.error ? chat.error : !connected ? t("myself.chatOffline") : t("myself.chatRestore")}
-							</div>
-						)}
-						<RetryPin status={chat.retryStatus} onDismiss={() => chatController?.dismissRetry()} />
-						<TodoPin key={`myself-todos:${chat.sessionId ?? dir}`} entries={chat.entries} onVisibleChange={setTodoPinVisible} />
-					</div>
-					<Composer
-						key={`${dir}:${composerKey}`}
-						client={client}
-						connected={connected}
-						disabled={!connected || !chat.ready || chat.running || chat.busy}
-						running={chat.running}
-						hideMascot={todoPinVisible}
-						onSend={(value, images, attachedPaths) => { void sendChat(value, images, attachedPaths); }}
-						onAbort={() => void chatController?.abort()}
-						providers={providers}
-						model={chat.model}
-						onModel={(value) => { void chatController?.setModel(value); }}
-						thinkingLevel={chat.thinkingLevel}
-						onThinkingLevel={(value) => { void chatController?.setThinkingLevel(value); }}
-						approvalMode={chat.approvalMode}
-						onApprovalMode={(mode) => { void chatController?.setApprovalMode(mode); }}
-						sessionInfo={chat.stats}
-						workspaceDir={dir}
-						projects={[dir]}
-						onSwitchProject={() => undefined}
-						commands={commands}
-						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))}
-						draftRequest={draftRequest}
-						owlPose={owlPose}
-					/>
-				</div>
+			) : dirState.status === "probing" ? (
+				<output className="owl-myself-empty">{t("myself.loading")}</output>
+			) : tab === "chat" ? (
+				<div className="owl-myself-chatpage">{conversation(false)}</div>
 			) : (
-				// ---- 日程 tab：左目录 + 当天内容 ----
-				<div className="owl-myself-main">
-					<nav className="owl-myself-days" aria-label={t("rail.myself")}>
+				<div
+					ref={paneContainerRef}
+					style={paneResize.style}
+					className={`owl-myself-main${assistantOpen ? " has-assistant" : ""}`}
+				>
+					<input
+						{...paneResize.handleProps("days")}
+						aria-label={lang === "en" ? "Date sidebar width" : "日期栏宽度"}
+						title={lang === "en" ? "Drag to resize, double-click to reset" : "拖拽调整宽度，双击复位"}
+						data-tauri-drag-region="false"
+					/>
+					<nav className="owl-myself-days" aria-label={t("myself.dateNavigation")}>
+						<div className="owl-myself-month">
+							{new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", {
+								year: "numeric",
+								month: "long",
+							}).format(new Date(`${selected}T12:00:00`))}
+						</div>
+						<div className="owl-myself-week">
+							{week.map((date) => (
+								<button
+									key={date}
+									type="button"
+									aria-label={`${fmtDay(date)} ${fmtWeekday(date)}`}
+									aria-pressed={selected === date}
+									className={selected === date ? "is-selected" : ""}
+									onClick={() => setSelected(date)}
+								>
+									<span>{fmtWeekday(date).replace(/^周|星期/, "")}</span>
+									<b>{new Date(`${date}T12:00:00`).getDate()}</b>
+								</button>
+							))}
+						</div>
+						<div className="owl-myself-group-head">{t("myself.thisWeek")}</div>
 						<button
 							type="button"
-							className={`owl-myself-newday${hasToday ? " is-done" : ""}`}
-							disabled={hasToday || dirState.status !== "ready" || saving}
-							onClick={() => void createToday()}
+							className={`owl-myself-day${selected === today ? " is-on" : ""}`}
+							onClick={() => setSelected(today)}
 						>
-							{hasToday ? t("myself.todayReady") : t("myself.newDay")}
+							<MyselfIcon name="calendar" />
+							<span>
+								{t("myself.groupToday")}
+								<small>{fmtDay(today)}</small>
+							</span>
 						</button>
-						{GROUPS.map((key) => {
-							const list = groups[key];
-							if (list.length === 0) return null;
-							return (
-								<div key={key} className="owl-myself-group">
-									<div className="owl-myself-group-head">
-										<span>{t(GROUP_LABEL[key])}</span>
-										<span>{list.length}</span>
-									</div>
-									{list.map((date) => {
-										const remaining = (loaded.get(date)?.todos ?? []).filter((todo) => todo.text !== "" && !todo.done).length;
-										return (
-											<button
-												key={date}
-												type="button"
-												className={`owl-myself-day${selected === date ? " is-on" : ""}`}
-												onClick={() => setSelected(date)}
-											>
-												<span className="d">{fmtDay(date)}<i className="w">{fmtWeekday(date)}</i></span>
-												{date === today && <span className="today-dot" aria-hidden="true" />}
-												{remaining > 0 && <span className="badge">{remaining}</span>}
-											</button>
-										);
-									})}
-								</div>
-							);
-						})}
+						{days
+							.filter((date) => date !== today)
+							.map((date) => (
+								<button
+									key={date}
+									type="button"
+									className={`owl-myself-day${selected === date ? " is-on" : ""}`}
+									onClick={() => setSelected(date)}
+								>
+									<MyselfIcon name="clock" />
+									<span>
+										{fmtDay(date)}
+										<small>{fmtWeekday(date)}</small>
+									</span>
+									<i>{loaded.get(date)?.todos.filter((todo) => todo.text && !todo.done).length || ""}</i>
+								</button>
+							))}
+						<div className="owl-myself-week-note">
+							<MyselfIcon name="leaf" />
+							<p>{t("myself.weekNote")}</p>
+						</div>
 					</nav>
-
-					<div className="owl-myself-stream">
-						{!day ? (
-							<div className="owl-myself-empty">
-								<p className="big">{t("myself.emptyTitle")}</p>
-								<p>{t("myself.emptyHint")}</p>
-								{!hasToday && dirState.status === "ready" && (
-									<button type="button" className="owl-myself-create" disabled={saving} onClick={() => void createToday()}>{t("myself.newDay")}</button>
+					<main className={`owl-myself-stream${selected < today ? " is-history" : ""}`}>
+						<div className="owl-myself-day-content">
+							<header className="owl-myself-day-head">
+								<div>
+									<h2>
+										{fmtDay(selected)}{" "}
+										<i>
+											{fmtWeekday(selected)}
+											{selected === today ? ` · ${t("myself.groupToday")}` : ""}
+										</i>
+									</h2>
+									<p>{t("myself.remaining", { n: todos.length - doneTodos.length })}</p>
+								</div>
+								{selected !== today && (
+									<button type="button" onClick={() => setSelected(today)}>
+										{t("myself.backToday")}
+										<MyselfIcon name="arrow" />
+									</button>
 								)}
-							</div>
-						) : (
-							<>
-								<header className="owl-myself-day-head">
-									<h2>{fmtDay(day.date)} <i>· {fmtWeekday(day.date)}</i></h2>
-									{day.distilled.length > 0 && <span className="pill">{t("myself.distilledCount", { n: day.distilled.length })}</span>}
-									{todos.length > 0 && <span className="progress">{t("myself.progress", { done: doneCount, total: todos.length })}</span>}
-								</header>
-
-								{day.distilled.length > 0 && (
-									<div className="owl-myself-distilled">
-										{day.distilled.map((item, index) => (
-											<article key={index} className="card">
-												<div className="n">{t("myself.distilledNo", { n: index + 1 })}</div>
-												<div className="title">{item.title}</div>
-												{item.detail && <div className="detail">{item.detail}</div>}
-											</article>
-										))}
+							</header>
+							<div className="owl-myself-day-sections">
+								<section className="owl-myself-goals">
+									<div className="owl-myself-section-head">
+										<h3>{t("myself.goals")}</h3>
+										<span>{t("myself.goalsHint")}</span>
 									</div>
-								)}
-
-								{todos.length > 0 && (
-									<section className="owl-myself-todos">
+									{day.goals.length ? (
+										day.goals.map((goal, index) => {
+											const linked = todos.filter((todo) => todo.goal === goal.title);
+											return (
+												<article
+													key={`${goal.title}:${index}`}
+													className={index === 0 ? "is-priority" : ""}
+												>
+													<MyselfIcon name={index === 0 ? "target" : "check"} />
+													<div>
+														<strong>{goal.title}</strong>
+														{goal.detail && <p>{goal.detail}</p>}
+													</div>
+													{linked.length > 0 && (
+														<button type="button" onClick={() => setExpanded(linked[0]!.text)}>
+															<MyselfIcon name="link" />
+															{t("myself.linkedProgress", {
+																done: linked.filter((todo) => todo.done).length,
+																total: linked.length,
+															})}
+														</button>
+													)}
+												</article>
+											);
+										})
+									) : (
+										<p className="owl-myself-section-empty">
+											{t("myself.noGoals")}
+											<button
+												type="button"
+												disabled={!connected || chat.running}
+												onClick={() => askAssistant(t("myself.planGoalsPrompt"), "plan")}
+											>
+												{t("myself.planTogether")}
+											</button>
+										</p>
+									)}
+								</section>
+								<section className="owl-myself-todos">
+									<div className="owl-myself-section-head">
 										<h3>{t("myself.todos")}</h3>
-										<ul>
-											{todos.map((todo, index) => (
-												<li key={index} className={todo.done ? "is-done" : ""}>
-													<button
-														type="button"
-														role="checkbox"
-														aria-checked={todo.done}
-														disabled={saving || dirState.status !== "ready"}
-														onClick={() => void toggleTodo(todo.text, !todo.done)}
-													>
-														<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
-													</button>
-													<span>{todo.text}</span>
-												</li>
-											))}
-										</ul>
-									</section>
-								)}
-
-								{day.chat.length > 0 && (
-									<section className="owl-myself-chat">
-										<h3>{t("myself.chat")}</h3>
-										{day.chat.map((line, index) => (
-											<p key={index}>
-												<span className="time">{line.time}</span>
-												<span className="who">{line.who}</span>
-												<span className="text">{line.text}</span>
+										<button type="button" disabled={!canEdit} onClick={() => setAdding(!adding)}>
+											<MyselfIcon name="plus" />
+											{t("myself.addTodo")}
+										</button>
+									</div>
+									{adding && (
+										<form
+											className="owl-myself-quick-add"
+											onSubmit={(event) => {
+												event.preventDefault();
+												const text = newTodo.trim();
+												if (!text) return;
+												void mutateDay(selected, (raw) => addTodoInRaw(raw, text)).then((saved) => {
+													if (saved) {
+														setNewTodo("");
+														setAdding(false);
+													}
+												});
+											}}
+										>
+											<input
+												ref={newTodoRef}
+												value={newTodo}
+												onChange={(event) => setNewTodo(event.target.value)}
+												placeholder={t("myself.newTodoHint")}
+												aria-label={t("myself.addTodo")}
+											/>
+											<button type="submit" disabled={!canEdit || !newTodo.trim()}>
+												{t("myself.add")}
+											</button>
+											<button type="button" onClick={() => setAdding(false)} aria-label={t("myself.cancel")}>
+												<MyselfIcon name="close" />
+											</button>
+										</form>
+									)}
+									{(["doing", "todo", "waiting"] as const).map((status) => {
+										const items = todos.filter((todo) => todo.status === status);
+										return items.length ? (
+											<div key={status} className={`owl-myself-task-group is-${status}`}>
+												<div className="owl-myself-task-group-label">
+													<span />
+													{t(STATUS_LABELS[status])}
+													<i>{items.length}</i>
+												</div>
+												<ul>{items.map(taskRow)}</ul>
+											</div>
+										) : null;
+									})}
+									{!todos.some((todo) => !todo.done) && (
+										<p className="owl-myself-section-empty">
+											{todos.length ? t("myself.allDone") : t("myself.noTodos")}
+										</p>
+									)}
+									<div className="owl-myself-completed">
+										<button
+											type="button"
+											aria-expanded={completedOpen}
+											onClick={() => setCompletedOpen(!completedOpen)}
+										>
+											<span>{completedOpen ? "−" : "+"}</span>
+											{t("myself.completedCount", { n: doneTodos.length })}
+										</button>
+										{completedOpen && <ul>{doneTodos.map(taskRow)}</ul>}
+									</div>
+								</section>
+								<section className="owl-myself-summary">
+									<div className="owl-myself-section-head">
+										<h3>{t(selected < today ? "myself.dayReview" : "myself.summary")}</h3>
+										<button
+											type="button"
+											disabled={!connected || chat.running || chat.busy}
+											onClick={() => {
+												setAssistantOpen(true);
+												setIntent("plan");
+												void sendChat(
+													t("myself.summaryPrompt", { date: selected }),
+													undefined,
+													undefined,
+													"plan",
+												);
+											}}
+										>
+											{t(day.summary ? "myself.updateSummary" : "myself.generateSummary")}
+										</button>
+									</div>
+									{editingSummary ? (
+										<form
+											className="owl-myself-summary-edit"
+											onSubmit={(event) => {
+												event.preventDefault();
+												void mutateDay(selected, (raw) => updateSummaryInRaw(raw, summaryDraft)).then(
+													(saved) => {
+														if (saved) setEditingSummary(false);
+													},
+												);
+											}}
+										>
+											<textarea
+												value={summaryDraft}
+												onChange={(event) => setSummaryDraft(event.target.value)}
+												aria-label={t("myself.editSummary")}
+												rows={5}
+											/>
+											<div>
+												<button type="button" onClick={() => setEditingSummary(false)}>
+													{t("myself.cancel")}
+												</button>
+												<button type="submit" disabled={!canEdit}>
+													{t("myself.saveSummary")}
+												</button>
+											</div>
+										</form>
+									) : (
+										<>
+											<p className={day.summary ? "owl-myself-summary-text" : "owl-myself-section-empty"}>
+												{day.summary || t("myself.summaryEmpty")}
 											</p>
-										))}
-									</section>
+											<button
+												type="button"
+												className="owl-myself-summary-edit-button"
+												disabled={!canEdit}
+												onClick={() => {
+													setSummaryDraft(day.summary);
+													setEditingSummary(true);
+												}}
+											>
+												{t("myself.editSummary")}
+											</button>
+										</>
+									)}
+								</section>
+							</div>
+							{day.notes.length > 0 && (
+								<details className="owl-myself-notes">
+									<summary>{t("myself.otherNotes")}</summary>
+									{day.notes.map((line, index) => (
+										<p key={`${index}:${line}`}>{line}</p>
+									))}
+								</details>
+							)}
+						</div>
+					</main>
+					{assistantOpen && (
+						<aside className="owl-myself-assistant" aria-label="Owl Si">
+							<input
+								{...paneResize.handleProps("assistant")}
+								aria-label={lang === "en" ? "Assistant pane width" : "助理栏宽度"}
+								title={lang === "en" ? "Drag to resize, double-click to reset" : "拖拽调整宽度，双击复位"}
+								data-tauri-drag-region="false"
+							/>
+							<div className="owl-myself-assistant-head">
+								<strong>Owl Si</strong>
+								<div className="owl-myself-assistant-actions">
+									{historyControl}
+									<button
+										type="button"
+										onClick={() => setAssistantOpen(false)}
+										aria-label={t("myself.closeAssistant")}
+									>
+										<MyselfIcon name="close" />
+									</button>
+								</div>
+							</div>
+							<button type="button" className="owl-myself-open-full" onClick={() => setTab("chat")}>
+								{t("myself.openFull")}
+								<MyselfIcon name="arrow" />
+							</button>
+							<section className="owl-myself-schedule">
+								<div className="owl-myself-section-head">
+									<h3>{t("myself.timeSchedule")}</h3>
+									<button
+										type="button"
+										disabled={!connected || chat.running}
+										onClick={() => askAssistant(t("myself.planTimePrompt"), "plan")}
+									>
+										{t("myself.planTogether")}
+									</button>
+								</div>
+								{schedule.length ? (
+									schedule.map((todo) => (
+										<div key={todo.text}>
+											<time>{todo.time}</time>
+											<span>{todo.text}</span>
+										</div>
+									))
+								) : (
+									<p>{t("myself.noTimeSchedule")}</p>
 								)}
-
-								{day.todos.length === 0 && day.distilled.length === 0 && day.chat.length === 0 && day.notes.length > 0 && (
-									<section className="owl-myself-notes">
-										{day.notes.map((line, index) => <p key={index}>{line}</p>)}
-									</section>
-								)}
-							</>
-						)}
-					</div>
+							</section>
+							{conversation(true)}
+						</aside>
+					)}
 				</div>
 			)}
-
-			<div className="owl-myself-foot">
-				<span>{t("myself.footSource")}</span>
-				<span className="right" data-tone={notice?.tone}>{notice?.text ?? ""}</span>
-			</div>
 		</div>
 	);
-}
-
-function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message.trim()) return error.message.trim();
-	if (typeof error === "string" && error.trim()) return error.trim();
-	return String(error ?? "unknown");
 }

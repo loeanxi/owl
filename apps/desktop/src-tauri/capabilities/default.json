@@ -24,6 +24,7 @@
 		"core:webview:allow-set-webview-zoom",
 		"allow-quit-app",
 		"allow-reveal-in-file-manager",
+		"allow-read-local-image",
 		"allow-gps-location",
 		"allow-debug-rebuild-and-restart",
 		"dialog:allow-open",

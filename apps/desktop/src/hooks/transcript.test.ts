@@ -377,3 +377,105 @@ test("a delivered follow-up is not duplicated when the run snapshot includes it"
 	assert.equal(queued.length, 1);
 	assert.equal(queued[0]?.kind === "user" && queued[0].queued, undefined);
 });
+
+test("an aborted settlement marks the current run while retaining completed and failed tool results", () => {
+	const history = rebuild([user, { role: "assistant", content: [{ type: "text", text: "旧回答" }] }]);
+	let entries = event([...history, { kind: "user", text: "检查项目" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [user, assistant, result("read-1", "done"), result("bash-1", "failed", true)] });
+	const before = entries;
+	entries = event(entries, { type: "agent_settled", aborted: true });
+	assert.equal(current(entries).aborted, true);
+	assert.deepEqual(current(entries).tools.map((tool) => tool.status), ["ok", "error"]);
+	assert.equal(current(before).aborted, undefined);
+	assert.deepEqual(entries.slice(0, history.length), history);
+});
+
+test("aborted settlement cancels unfinished tools and preserves an existing assistant error", () => {
+	let entries = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [user, assistant] });
+	entries = event(entries, { type: "agent_settled", aborted: true });
+	assert.ok(current(entries).tools.every((tool) => tool.status === "cancelled"));
+	let failed = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
+	failed = event(failed, { type: "agent_end", messages: [user, { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed" }] });
+	const before = failed;
+	failed = event(failed, { type: "agent_settled", aborted: true });
+	assert.equal(current(failed).error, "provider failed");
+	assert.equal(current(failed).aborted, undefined);
+	assert.deepEqual(failed, before);
+});
+
+test("normal or old settlement events preserve history and an idle stop cannot relabel the previous run", () => {
+	let entries = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [user, { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }] });
+	entries = event(entries, { type: "agent_settled", aborted: false });
+	const completed = entries;
+	entries = event(entries, { type: "agent_settled", aborted: true });
+	assert.deepEqual(entries, completed);
+	assert.equal(current(entries).aborted, undefined);
+	const abortedHistory = rebuild([user, { ...assistant, stopReason: "aborted" }]);
+	assert.deepEqual(event(abortedHistory, { type: "agent_settled" }), abortedHistory);
+	entries = event([...entries, { kind: "user", text: "next" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [{ role: "user", content: "next" }, { role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" }] });
+	entries = event(entries, { type: "agent_settled", aborted: false });
+	assert.equal(current(entries).aborted, undefined);
+});
+
+test("the next run finishes normally while the preceding stopped run retains its marker", () => {
+	let entries = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [user, assistant] });
+	entries = event(entries, { type: "agent_settled", aborted: true });
+	const previous = entries;
+	entries = event([...entries, { kind: "user", text: "next" }], { type: "agent_start" });
+	entries = event(entries, { type: "agent_end", messages: [{ role: "user", content: "next" }, { role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" }] });
+	entries = event(entries, { type: "agent_settled", aborted: false });
+	assert.equal(current(entries).aborted, undefined);
+	assert.deepEqual(entries.slice(0, previous.length), previous);
+	assert.equal(current(previous).aborted, true);
+});
+
+test("resuming an active snapshot without agent_start still marks its stopped tool run", () => {
+	const snapshot = [
+		{ role: "user", content: "旧任务" },
+		{ role: "assistant", content: [{ type: "text", text: "旧回答" }], stopReason: "stop" },
+		user,
+		assistant,
+		result("read-1", "done"),
+	];
+	const replayed = rebuild(snapshot);
+	let entries = rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 3 });
+	entries = event(entries, { type: "agent_end", messages: [user, assistant, result("read-1", "done")] });
+	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
+	entries = event(entries, { type: "agent_settled", aborted: true });
+	assert.equal(current(entries).aborted, true);
+	assert.deepEqual(current(entries).tools.map((tool) => tool.status), ["ok", "cancelled"]);
+	assert.deepEqual(entries.slice(0, 2), replayed.slice(0, 2));
+	assert.equal(current(replayed).aborted, undefined);
+});
+
+test("restored active pre-settlement replies can stop while the same idle history is unchanged", () => {
+	const snapshot = [user, { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }];
+	const active = rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 1 });
+	const stopped = event(active, { type: "agent_settled", aborted: true });
+	assert.equal(current(stopped).aborted, true);
+	const idle = rebuild(snapshot, undefined, { running: false, runStartMessageIndex: 1 });
+	assert.deepEqual(event(idle, { type: "agent_settled", aborted: true }), idle);
+	assert.equal(current(idle).aborted, undefined);
+	const completed = event(rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 1 }), { type: "agent_settled", aborted: false });
+	assert.deepEqual(event(completed, { type: "agent_settled", aborted: true }), completed);
+});
+
+test("a restored user-less continuation cannot mark the previous reply before its new assistant exists", () => {
+	const snapshot = [
+		user,
+		{ role: "assistant", content: [{ type: "text", text: "previous reply" }], stopReason: "stop" },
+		{ role: "custom", customType: "owl.resume", content: "continue", display: false },
+	];
+	const active = rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 3 });
+	const stoppedBeforeReply = event(active, { type: "agent_settled", aborted: true });
+	assert.deepEqual(stoppedBeforeReply, rebuild(snapshot));
+	assert.equal(current(stoppedBeforeReply).aborted, undefined);
+	const withReply = [...snapshot, { role: "assistant", content: [{ type: "text", text: "continued reply" }], stopReason: "stop" }];
+	const stoppedAfterReply = event(rebuild(withReply, undefined, { running: true, runStartMessageIndex: 3 }), { type: "agent_settled", aborted: true });
+	assert.equal(current(stoppedAfterReply).aborted, true);
+	assert.equal(stoppedAfterReply[1]?.kind === "assistant" && stoppedAfterReply[1].aborted, undefined);
+});

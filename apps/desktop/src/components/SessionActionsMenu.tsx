@@ -23,6 +23,7 @@ export function SessionActionsMenu({
 	session,
 	onClose,
 	onPin,
+	onRename,
 	onArchive,
 	onDelete,
 	onReveal,
@@ -36,6 +37,8 @@ export function SessionActionsMenu({
 	session?: SessionMenuInfo;
 	onClose: (restoreFocus?: boolean) => void;
 	onPin: () => void;
+	/** 有会话 id 时提供。改名写回会话文件，不在菜单里就地编辑。 */
+	onRename?: () => void;
 	onArchive: () => void;
 	onDelete: () => void;
 	onReveal?: () => void;
@@ -158,6 +161,11 @@ export function SessionActionsMenu({
 			<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); onPin(); }}>
 				{pinned ? t("sidebar.unpin") : t("sidebar.pin")}
 			</button>
+			{onRename !== undefined && (
+				<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); onRename(); }}>
+					{t("sidebar.rename")}
+				</button>
+			)}
 			<div className="owl-session-actions-menu-separator" role="separator" />
 			<button type="button" role="menuitem" tabIndex={-1} className="owl-session-actions-menu-item" onClick={() => { onClose(false); onArchive(); }}>
 				{t("sidebar.archive")}

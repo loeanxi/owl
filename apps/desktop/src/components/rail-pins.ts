@@ -7,6 +7,7 @@ import type { RailView } from "./ActivityRail.tsx";
 
 /** 可置顶的功能视图；顺序即功能抽屉里的展示顺序。 */
 export const RAIL_PINNABLE_VIEWS: readonly RailView[] = [
+	"news",
 	"projects",
 	"automation",
 	"map",

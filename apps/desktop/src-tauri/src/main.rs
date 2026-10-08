@@ -54,6 +54,74 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// 把拖进对话框的图片读成 base64。只接受常见图片扩展名，并且不超过 10MB。
+/// 非图片不走这里：那些文件只把路径交给模型，不把字节拉进 webview。
+#[tauri::command]
+fn read_local_image(path: String) -> Result<LocalImage, String> {
+    let extension = Path::new(&path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime_type = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        _ => return Err("not an image".into()),
+    };
+    let meta = std::fs::metadata(&path).map_err(|error| error.to_string())?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+    if meta.len() > MAX_IMAGE_BYTES {
+        return Err("too large".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+    Ok(LocalImage {
+        mime_type: mime_type.to_string(),
+        data: encode_base64(&bytes),
+    })
+}
+
+#[derive(serde::Serialize)]
+struct LocalImage {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    data: String,
+}
+
+fn encode_base64(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut index = 0;
+    while index + 3 <= input.len() {
+        let value = ((input[index] as u32) << 16) | ((input[index + 1] as u32) << 8) | (input[index + 2] as u32);
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push(TABLE[((value >> 6) & 63) as usize] as char);
+        out.push(TABLE[(value & 63) as usize] as char);
+        index += 3;
+    }
+    let rest = input.len() - index;
+    if rest == 1 {
+        let value = (input[index] as u32) << 16;
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rest == 2 {
+        let value = ((input[index] as u32) << 16) | ((input[index + 1] as u32) << 8);
+        out.push(TABLE[((value >> 18) & 63) as usize] as char);
+        out.push(TABLE[((value >> 12) & 63) as usize] as char);
+        out.push(TABLE[((value >> 6) & 63) as usize] as char);
+        out.push('=');
+    }
+    out
+}
+
 /// 在资源管理器里定位已导出的文件。用 shell 官方 API SHOpenFolderAndSelectItems
 /// （VSCode 同款）——本机实测 CreateProcess 拉起 explorer /select 会静默失败
 /// （进程退出 0 但窗口不出现）。失败兜底 ShellExecuteW 直接打开所在文件夹。
@@ -823,6 +891,7 @@ fn main() {
             toast::show_approval_toast,
             quit_app,
             reveal_in_file_manager,
+            read_local_image,
             gps::gps_location,
             debug_rebuild_and_restart
         ])
@@ -924,4 +993,16 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod image_drop_tests {
+    use super::encode_base64;
+
+    #[test]
+    fn base64_pads_short_inputs() {
+        assert_eq!(encode_base64(b"hello"), "aGVsbG8=");
+        assert_eq!(encode_base64(b"hi"), "aGk=");
+        assert_eq!(encode_base64(&[0xff, 0x00]), "/wA=");
+    }
 }

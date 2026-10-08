@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
+import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTracker } from "./bridge/permission-state.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
+import { settledRunStatus } from "./hooks/agent-settlement.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
@@ -29,6 +31,7 @@ import { presentLife } from "./features/life-monitor/present.ts";
 import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
+import { AgentConversation } from "./components/AgentConversation.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
 import { TrajectoryView } from "./features/trajectory/TrajectoryView.tsx";
@@ -39,7 +42,6 @@ import { useSessionOwlPose } from "./components/OwlMascot.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
-import { QuestionDock } from "./components/QuestionDock.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionShareDialog } from "./components/SessionShareDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
@@ -68,7 +70,7 @@ import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
 import { openQuickAction } from "./sidebar/quick.tsx";
 import { openDeveloperWorkbench } from "./sidebar/developer.ts";
 import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarConfig, viewerKindForPath } from "./sidebar/config.ts";
-import { fileUrlOf } from "./sidebar/api.ts";
+import { createSidebarApi, fileUrlOf } from "./sidebar/api.ts";
 import { isIabPageBound, boundTabIdFor, encodeIabPath, parseIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
 import { BrowserSessionContext } from "./sidebar/registry.ts";
 import { setSessionFeed } from "./sidebar/feed.ts";
@@ -129,6 +131,7 @@ export default function App(): React.JSX.Element {
 	const projectSidebarRevision = useProjectSidebarRevision();
 	const researchTitle = useResearchEntryText();
 	const client = useMemo(() => new BridgeClient(), []);
+	const managerApi = useMemo(() => createSidebarApi(client), [client]);
 	const [connected, setConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>("general");
@@ -247,6 +250,7 @@ export default function App(): React.JSX.Element {
 	// 应答审批/提问用的实时镜像：Toast 监听器等一次性注册的闭包拿不到新 state
 	const permissionsRef = useRef(permissions);
 	permissionsRef.current = permissions;
+	const permissionResponses = useRef(new PermissionResponseTracker());
 	const questionsRef = useRef(questions);
 	questionsRef.current = questions;
 	// 审批/提问应答统一走这里：先乐观出队；失败（断线窗口、桥重启中）把请求放回
@@ -256,12 +260,16 @@ export default function App(): React.JSX.Element {
 		listRef: { current: T[] },
 		setList: (update: (current: T[]) => T[]) => void,
 		respond: () => Promise<unknown>,
+		trackPermission = false,
 	): void => {
 		const entry = listRef.current.find((item) => item.requestId === requestId);
+		const permissionEntry = trackPermission ? permissionsRef.current.find((item) => item.requestId === requestId) : undefined;
+		const attempt = permissionEntry ? permissionResponses.current.begin(permissionEntry) : undefined;
 		setList((current) => current.filter((item) => item.requestId !== requestId));
 		respond().catch(() => {
+			if (attempt && !permissionResponses.current.canRestore(attempt)) return;
 			setList((current) => (entry !== undefined && !current.some((item) => item.requestId === requestId) ? [...current, entry] : current));
-		});
+		}).finally(() => { if (attempt) permissionResponses.current.finish(attempt); });
 	};
 	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
 	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
@@ -279,6 +287,8 @@ export default function App(): React.JSX.Element {
 		const stored = localStorage.getItem(APPROVAL_KEY);
 		return isApprovalMode(stored) ? stored : "confirm";
 	});
+	const [observedApprovalMode, setObservedApprovalMode] = useState<{ sessionId: string; mode: ApprovalMode }>();
+	const currentApprovalMode = observedApprovalMode && observedApprovalMode.sessionId === sessionId ? observedApprovalMode.mode : approvalMode;
 	// Agent 预设：花名册 + 新任务默认（桥端）+ 暂存选择 + 当前会话绑定。
 	// 显示优先级：打开的会话显示它的绑定；空白/新会话显示暂存选择。
 	const [agentPresets, setAgentPresets] = useState<AgentPresetDefinition[]>([]);
@@ -670,6 +680,16 @@ export default function App(): React.JSX.Element {
 			// 全会话运行状态跟踪：agent_start / agent_settled 成对出现（abort、出错也走 settled），
 			// 必须在下面的当前会话过滤之前记录，否则后台会话的绿点状态丢失。
 			const eventType = (message.event as { type?: string }).type;
+			const settlement = eventType === "agent_settled"
+				? settledRunStatus(message.event as { aborted?: unknown }, outcomeRef.current.get(message.sessionId))
+				: undefined;
+			if (eventType === "permission_resolved" || eventType === "approval_mode_changed" || eventType === "agent_settled") permissionResponses.current.observe(message, permissionsRef.current);
+			if (eventType === "permission_resolved" || eventType === "approval_mode_changed") {
+				setPermissions((current) => applyPermissionQueueEvent(current, message));
+				const mode = approvalModeFromEvent(message);
+				if (mode && message.sessionId === sessionIdRef.current) setObservedApprovalMode({ sessionId: message.sessionId, mode });
+				return;
+			}
 			const now = Date.now();
 			activityAtRef.current.set(message.sessionId, now);
 			// 用户消息落盘即刷新侧栏：新会话文件要等首条用户消息写入才创建（桥端
@@ -705,7 +725,7 @@ export default function App(): React.JSX.Element {
 					stepRef.current.delete(message.sessionId);
 					setRunningSessions(next);
 					publishActivityRef.current(next);
-					const outcome = outcomeRef.current.get(message.sessionId) ?? "done";
+					const outcome = settlement!.outcome;
 					outcomeRef.current.delete(message.sessionId);
 					setDoneNotice({ seq: ++doneSeqRef.current, id: message.sessionId, outcome });
 				}
@@ -740,7 +760,7 @@ export default function App(): React.JSX.Element {
 			setRetryStatus((current) => applyRetryEvent(current, message));
 			if (eventType === "agent_settled") {
 				void refreshStats();
-				void notifyAgentStatus({
+				if (settlement?.notifyDone) void notifyAgentStatus({
 					title: t("app.notifyDoneTitle"),
 					body: t("app.notifyDoneBody"),
 					category: "done",
@@ -790,7 +810,7 @@ export default function App(): React.JSX.Element {
 		void listen<{ kind?: string; requestId?: string; approved?: boolean }>("owl-toast-action", (event) => {
 			const payload = event.payload;
 			if (payload?.kind !== "decision" || typeof payload.requestId !== "string" || typeof payload.approved !== "boolean") return;
-			answerAndRestore(payload.requestId, permissionsRef, setPermissions, () => client.respondPermission(payload.requestId!, payload.approved!));
+			answerAndRestore(payload.requestId, permissionsRef, setPermissions, () => client.respondPermission(payload.requestId!, payload.approved!), true);
 		}).then((off) => {
 			if (disposed) off();
 			else unlisten = off;
@@ -1217,6 +1237,8 @@ export default function App(): React.JSX.Element {
 			cwd: string;
 			messages: Record<string, unknown>[];
 			messageEntryIds?: (string | undefined)[];
+			running?: boolean;
+			runStartMessageIndex?: number;
 			researchMode?: ResearchMode;
 			/** 会话头（含 parentSession）：分支出来的无名会话顶栏标题要加「· 分支」后缀 */
 			header?: { parentSession?: string };
@@ -1224,10 +1246,11 @@ export default function App(): React.JSX.Element {
 			name?: string;
 			/** 会话绑定的 Agent 预设 id：顶栏标签与选择器显示它。 */
 			agentPreset?: string;
+			approvalMode?: ApprovalMode;
 		}>({
 			type: "session.resume",
 			sessionId: targetSessionId,
-			approvalMode,
+			approvalModeFallback: approvalMode,
 			...selectedModel(),
 		});
 		// 响应落地前用户又做了新的会话切换：这份过期响应整体丢弃（含错误横幅，
@@ -1258,11 +1281,15 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
 		sessionIdRef.current = resumedId;
-		setEntries(rebuild(messages, messageEntryIds));
+		setEntries(rebuild(messages, messageEntryIds, {
+			running: response.result.running ?? runningSessionsRef.current.has(resumedId),
+			runStartMessageIndex: response.result.runStartMessageIndex,
+		}));
 		setRetryStatus(null);
 		setSessionBranched(Boolean(response.result.header?.parentSession));
 		setSessionName(response.result.name);
 		setSessionPreset(response.result.agentPreset);
+		if (response.result.approvalMode) setObservedApprovalMode({ sessionId: resumedId, mode: response.result.approvalMode });
 		void refreshStats(resumedId);
 	};
 
@@ -1393,6 +1420,7 @@ export default function App(): React.JSX.Element {
 
 	// 审批模式切换：与模型/思考同款——先记本地，再有会话就即时下发（下次工具调用生效）。
 	const handleApprovalModeChange = (mode: ApprovalMode): void => {
+		setObservedApprovalMode(undefined);
 		setApprovalMode(mode);
 		localStorage.setItem(APPROVAL_KEY, mode);
 		const current = sessionIdRef.current;
@@ -1976,7 +2004,7 @@ export default function App(): React.JSX.Element {
 							return labels.length > 0 ? { requestId: request.requestId, labels } : undefined;
 						}}
 						onPermission={(requestId, approved) => {
-							answerAndRestore(requestId, permissionsRef, setPermissions, () => client.respondPermission(requestId, approved));
+							answerAndRestore(requestId, permissionsRef, setPermissions, () => client.respondPermission(requestId, approved), true);
 						}}
 						onChoose={(requestId, label) => {
 							answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, [{ index: 0, selectedLabels: [label] }], false));
@@ -2032,6 +2060,10 @@ export default function App(): React.JSX.Element {
 				}}
 				onSelectProject={switchProject}
 				onOpenSession={(id) => void openSession(id)}
+				onSessionRenamed={(id, name) => {
+					if (id === sessionIdRef.current) setSessionName(name);
+					if (id === researchSessionIdRef.current) setResearchConversationTitle(name);
+				}}
 			/>
 			<div className="owl-map-view" data-owl-island-anchor="" style={{ display: railView === "map" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<MapWorkspace
@@ -2123,7 +2155,14 @@ export default function App(): React.JSX.Element {
 			</div>}
 			{/* 「我的助理」：owl-myself 目录每天一个 md，左侧日历排序 + 当天提炼/待办/对话。 */}
 			{myselfMounted && <div data-owl-island-anchor="" style={{ display: railView === "myself" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
-				<MyselfPanel active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir} providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings} />
+				<MyselfPanel
+					active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir}
+					providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings}
+					questions={questions} permissions={permissions}
+					onQuestionAnswer={(requestId, answers, cancelled) => {
+						answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
+					}}
+				/>
 			</div>}
 			{/* 「专家顾问」：owl-expert 目录（人格档案 + 记忆 + 每天一个会话 md），市场 + 1:1/群聊。 */}
 			{expertMounted && <div data-owl-island-anchor="" style={{ display: railView === "expert" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
@@ -2140,7 +2179,7 @@ export default function App(): React.JSX.Element {
 			{/* 号池 Manager：与 news/mail 同层。不能放进 owl-main-frame——那个框在非对话视图下是 display:none。 */}
 			<div data-owl-island-anchor="" style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column", background: "#fff" }}>
 				<PanelErrorBoundary label="号池 Manager">
-					<ManagerTab />
+					<ManagerTab onOpenExternal={async (url) => { await managerApi.openExternal("url", url); }} />
 				</PanelErrorBoundary>
 			</div>
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
@@ -2185,31 +2224,40 @@ export default function App(): React.JSX.Element {
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
-						<div style={{ display: railView === "research" ? "none" : "flex", flex: 1, minHeight: 0, minWidth: 0, flexDirection: "column" }}>
-						{conversationView === "trajectory" ? (
+						<AgentConversation
+							hidden={railView === "research"}
+							view={conversationView}
+							trajectory={(
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
-						) : conversationView === "context" ? (
+							)}
+							context={(
 							<ContextView key={sessionId ?? workspaceDir} client={client} cwd={workspaceDir} sessionId={sessionId} requireSession active={railView === "chat" && !showSettings && connected} />
-						) : (
+							)}
+							chat={(
 							<>
 								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
-						)}
+							)}
+							beforeComposer={(
+							<>
 						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
 						<TodoPin entries={entries} onVisibleChange={setTodoPinVisible} />
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
 						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
-						<QuestionDock
-							requests={questions}
-							activeRequest={activeQuestion}
-							onAnswer={(requestId, answers, cancelled) => {
+							</>
+							)}
+							questionDock={{
+							requests: questions,
+							activeRequest: activeQuestion,
+							onAnswer: (requestId, answers, cancelled) => {
 								answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
+							},
 							}}
-						>
-<Composer
+							composer={(
+							<Composer
 								client={client}
 								sessionScope="chat"
 								connected={connected}
@@ -2238,8 +2286,8 @@ export default function App(): React.JSX.Element {
 							onModel={handleModelChange}
 							thinkingLevel={thinkingLevel}
 							onThinkingLevel={handleThinkingChange}
-						approvalMode={approvalMode}
-							onApprovalMode={handleApprovalModeChange}
+								approvalMode={currentApprovalMode}
+								onApprovalMode={handleApprovalModeChange}
 							agentPresets={agentPresets}
 							defaultPresetId={defaultPresetId}
 							agentPreset={sessionId ? sessionPreset ?? stagedPreset : stagedPreset}
@@ -2256,8 +2304,8 @@ export default function App(): React.JSX.Element {
 								draftRequest={draftRequest}
 								owlPose={owlPose}
 							/>
-						</QuestionDock>
-						</div>
+							)}
+						/>
 					</div>
 					{/* 终端底栏：挂在对话列之下（高度拖拽），与右侧栏互不相干 */}
 					<BrowserSessionContext.Provider value={railView === "research" ? researchSessionId : sessionId}>
@@ -2331,7 +2379,7 @@ export default function App(): React.JSX.Element {
 					request={permission}
 					contextLabel={permission.sessionId === researchSessionId ? researchTitle : permission.sessionId === sessionId ? sessionTitle : permission.sessionId.slice(0, 8)}
 					onDecide={(approved) => {
-						answerAndRestore(permission.requestId, permissionsRef, setPermissions, () => client.respondPermission(permission.requestId, approved));
+						answerAndRestore(permission.requestId, permissionsRef, setPermissions, () => client.respondPermission(permission.requestId, approved), true);
 					}}
 				/>
 			)}

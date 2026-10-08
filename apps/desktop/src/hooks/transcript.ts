@@ -1,7 +1,10 @@
 import type { ResearchResult, ServerEventMessage } from "../bridge/protocol.ts";
 import { researchResultOf } from "../features/research/research-results.ts";
 import { t } from "../i18n/index.ts";
+import { formatProviderError } from "./provider-error.ts";
 import { summarizeToolCall } from "./summarize.ts";
+
+export { formatProviderError } from "./provider-error.ts";
 
 export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
 
@@ -91,6 +94,9 @@ type AnyEvent = Record<string, any>; // wire events are forward-compat; render d
 /** Run boundaries belong to UI snapshots, never to messages or model-visible text. */
 const runBoundaries = new WeakMap<ChatEntry[], number>();
 
+/** Resumed snapshots identify an assistant range for cancellation, not agent_end replacement. */
+const restoredRunBoundaries = new WeakMap<ChatEntry[], number>();
+
 /**
  * assistant 消息的真实结束时刻（message_end 到达的本地时钟）。wire 上的
  * message.timestamp 是响应「开始」时刻（pi-ai 构造消息时取 Date.now()），
@@ -108,31 +114,6 @@ function rememberAssistantEndedAt(startedAt: number, endedAt: number): void {
 		assistantEndedAt.delete(oldest);
 	}
 	assistantEndedAt.set(startedAt, Math.max(endedAt, assistantEndedAt.get(startedAt) ?? 0));
-}
-
-/**
- * 把供应商错误整理成可读中文。OpenAI 兼容 SDK 的报错形如
- * `429: {"code":"1308","message":"已达到 5 小时的使用上限。…"}`，
- * 裸上屏是一坨 JSON —— 这里解析出状态码与 message 再映射；解析不出就原样放行。
- */
-export function formatProviderError(raw: string | undefined): string | undefined {
-	if (!raw) return undefined;
-	const match = raw.match(/^\s*(\d{3})\s*[:\-]\s*(\{[\s\S]*\})\s*$/);
-	if (match) {
-		const status = match[1]!;
-		let message = "";
-		try {
-			const body = JSON.parse(match[2]!) as { message?: string; error?: { message?: string } };
-			message = body.message ?? body.error?.message ?? "";
-		} catch {
-			// body 不是 JSON：走下面的兜底文案
-		}
-		if (status === "429") return t("err.rateLimited", { message: message || t("err.rateLimitedFallback") });
-		if (status === "401" || status === "403") return t("err.keyInvalid", { message: message || raw });
-		if (status.startsWith("5")) return t("err.serverUnavailable", { status, message: message || t("err.retryLater") });
-		if (message) return t("err.httpStatus", { message, status });
-	}
-	return raw;
 }
 
 /** 已落盘的用户消息才切开当前轮。排队中的跟进还没轮到，不能挡住正在写的回答。 */
@@ -252,8 +233,16 @@ function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string,
 /** Apply one bridge event to the transcript. Returns a new array (immutably). */
 export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): ChatEntry[] {
 	const next = applyTranscriptEvent(entries, message);
+	if ((message.event as AnyEvent).type === "agent_settled") {
+		// A later synthetic idle-stop event must not relabel the completed run as paused.
+		runBoundaries.delete(next);
+		restoredRunBoundaries.delete(next);
+		return next;
+	}
 	const boundary = runBoundaries.get(entries);
 	if (boundary !== undefined && next !== entries && !runBoundaries.has(next)) runBoundaries.set(next, boundary);
+	const restoredBoundary = restoredRunBoundaries.get(entries);
+	if (restoredBoundary !== undefined && next !== entries && !restoredRunBoundaries.has(next)) restoredRunBoundaries.set(next, restoredBoundary);
 	return next;
 }
 
@@ -329,6 +318,19 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			const boundary = entries.at(-1)?.kind === "user" ? entries.length - 1 : entries.length;
 			runBoundaries.set(next, boundary);
 			return next;
+		}
+		case "agent_settled": {
+			const boundary = runBoundaries.get(entries) ?? restoredRunBoundaries.get(entries);
+			if (event.aborted !== true || boundary === undefined) return entries;
+			const index = entries.findLastIndex((entry, index) => index >= boundary && entry.kind === "assistant");
+			const previous = entries[index];
+			if (previous?.kind !== "assistant" || previous.error) return entries;
+			const current = cloneAssistant(previous);
+			current.aborted = true;
+			for (const tool of current.tools) {
+				if (tool.status === "pending" || tool.status === "running") tool.status = "cancelled";
+			}
+			return [...entries.slice(0, index), current, ...entries.slice(index + 1)];
 		}
 		case "entry_appended": {
 			// 会话日志条目落盘事件：给乐观追加、还没有 entryId 的用户消息行补上条目 id
@@ -510,8 +512,18 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 /** Rebuild the transcript from a full AgentMessage[] snapshot.
  *  entryIds（可选）与 messages 按下标对齐：会话快照带条目 id 时，用户消息行
  *  与 assistant 消息行都能带上 entryId（回退/分支按钮用）。 */
-export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | undefined>): ChatEntry[] {	const entries: ChatEntry[] = [];
+export function rebuild(
+	messages: AnyEvent[],
+	entryIds?: ReadonlyArray<string | undefined>,
+	run?: { running: boolean; runStartMessageIndex?: number },
+): ChatEntry[] {
+	const entries: ChatEntry[] = [];
+	const rawBoundary = run?.running && Number.isInteger(run.runStartMessageIndex)
+		? run.runStartMessageIndex
+		: undefined;
 	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+		// Wire indices include hidden/system/tool messages that produce no separate UI row.
+		if (messageIndex === rawBoundary) restoredRunBoundaries.set(entries, entries.length);
 		const message = messages[messageIndex]!;
 		const entryId = entryIds?.[messageIndex];
 		if (message.role === "user") {
@@ -577,6 +589,7 @@ export function rebuild(messages: AnyEvent[], entryIds?: ReadonlyArray<string | 
 			}
 		}
 	}
+	if (rawBoundary === messages.length) restoredRunBoundaries.set(entries, entries.length);
 	return entries;
 }
 

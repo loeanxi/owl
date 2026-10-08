@@ -400,7 +400,8 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 	/* Same surface as the conversation so the header sits in the page, not on a separate bar. */
 	background: var(--owl-conversation-bg, var(--color-owl-bg));
 }
-.owl-main-frame .owl-chat-header {
+.owl-main-frame .owl-chat-header,
+.owl-agent-conversation > .owl-chat-header {
 	height: 40px;
 	flex: 0 0 40px;
 	gap: 8px;
@@ -459,7 +460,8 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 }
 
 @media (max-width: 1050px) {
-	.owl-main-frame .owl-chat-header { gap: 8px; padding-right: 16px; padding-left: 16px; }
+	.owl-main-frame .owl-chat-header,
+	.owl-agent-conversation > .owl-chat-header { gap: 8px; padding-right: 16px; padding-left: 16px; }
 	.owl-shell-project { display: none; }
 	.owl-shell-session-title { max-width: 50%; }
 }

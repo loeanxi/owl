@@ -10,6 +10,7 @@ fn main() {
 				"show_approval_toast",
 				"quit_app",
 				"reveal_in_file_manager",
+				"read_local_image",
 				"gps_location",
 				"debug_rebuild_and_restart",
 			])),

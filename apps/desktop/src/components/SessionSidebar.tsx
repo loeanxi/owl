@@ -109,6 +109,15 @@ function sessionTitle(row: SessionRow): string {
 	return row.parentSessionPath ? `${base} · ${t("app.branchSuffix")}` : base;
 }
 
+/** 改名框的初值：已有自定义名优先，否则用首条消息，不再带截断和「· 分支」。 */
+function sessionRenameDraft(row: SessionRow): string {
+	const named = row.name?.trim();
+	if (named) return named;
+	const first = row.firstMessage?.trim();
+	if (first) return flatText(first).slice(0, 80);
+	return sessionTitle(row).slice(0, 80);
+}
+
 function flatText(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
@@ -296,6 +305,7 @@ export function SessionSidebar({
 	onNewChatInProject,
 	onSelectProject,
 	onOpenSession,
+	onSessionRenamed,
 }: {
 	client: BridgeClient;
 	/** Ordinary chat and research own independent history and sidebar preferences. */
@@ -323,6 +333,8 @@ export function SessionSidebar({
 	onSelectProject: (path: string) => void;
 	/** 点击历史会话：恢复回放并续聊。 */
 	onOpenSession: (sessionId: string) => void;
+	/** 改名成功后通知顶栏；侧栏列表会自己重拉。 */
+	onSessionRenamed?: (sessionId: string, name: string) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const pt = useProjectSidebarText();
@@ -370,6 +382,9 @@ export function SessionSidebar({
 	/** 待确认删除的会话（非 null 时显示确认弹窗）。 */
 	const [confirmDelete, setConfirmDelete] = useState<SessionRow | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	const [renaming, setRenaming] = useState<SessionRow | null>(null);
+	const [renameError, setRenameError] = useState("");
+	const [renameBusy, setRenameBusy] = useState(false);
 	const [deleteError, setDeleteError] = useState("");
 	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。 */
 	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, keys.projects));
@@ -629,6 +644,27 @@ export function SessionSidebar({
 			void refresh();
 		} catch {
 			// 桥未连接等瞬时失败：列表不动，用户重试即可
+		}
+	};
+
+	const renameSession = async (row: SessionRow, name: string): Promise<void> => {
+		const id = row.id;
+		if (!id || renameBusy) return;
+		setRenameBusy(true);
+		setRenameError("");
+		try {
+			const response = await client.request<{ name: string }>({ type: "session.rename", sessionId: id, name });
+			if (!response.ok) {
+				setRenameError(response.error ?? t("sidebar.renameFailed"));
+				return;
+			}
+			setRenaming(null);
+			onSessionRenamed?.(id, response.result?.name ?? name);
+			void refresh();
+		} catch {
+			setRenameError(t("sidebar.renameFailed"));
+		} finally {
+			setRenameBusy(false);
 		}
 	};
 
@@ -1192,6 +1228,7 @@ export function SessionSidebar({
 					}}
 					onClose={closeSessionMenu}
 					onPin={() => { if (sessionMenu.row.id) togglePin(sessionMenu.row.id); }}
+					onRename={sessionMenu.row.id ? () => { setRenameError(""); setRenaming(sessionMenu.row); } : undefined}
 					onArchive={() => void archiveSession(sessionMenu.row)}
 					onDelete={() => { setConfirmDelete(sessionMenu.row); setDeleteError(""); }}
 					onReveal={sessionMenu.row.cwd ? () => void revealProject(sessionMenu.row.cwd!) : undefined}
@@ -1220,6 +1257,19 @@ export function SessionSidebar({
 			}} />}
 			{projectConfirm !== null && <ProjectSidebarDialog title={pt(projectConfirm.type === "archive" ? "archiveTitle" : projectConfirm.type === "remove" ? "removeTitle" : "removeSection")} description={(projectConfirm.path ? `${projectLabel(projectConfirm.path)}\n` : "") + pt(projectConfirm.type === "archive" ? "archiveHint" : projectConfirm.type === "remove" ? "removeHint" : "removeSectionHint")} busy={projectBusy} confirmLabel={pt("confirm")} onClose={() => { if (!projectBusyRef.current) setProjectConfirm(null); }} onSubmit={() => void confirmProjectAction()} />}
 
+			{renaming !== null && (
+				<ProjectSidebarDialog
+					key={renaming.id ?? sessionRenameDraft(renaming)}
+					title={t("sidebar.renameTitle")}
+					fieldLabel={t("sidebar.renameField")}
+					initialValue={sessionRenameDraft(renaming)}
+					error={renameError}
+					busy={renameBusy}
+					confirmLabel={t("sidebar.renameSave")}
+					onClose={() => { if (!renameBusy) setRenaming(null); }}
+					onSubmit={(name) => void renameSession(renaming, name)}
+				/>
+			)}
 			{confirmDelete && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
 					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
