@@ -4,6 +4,7 @@
  *
  * 能力请求支持 `模型ID@档位` 后缀、reasoning_effort、reasoning.effort（二者不得冲突）、
  * capability_mode（strict/compatible）、max_tokens/max_completion_tokens、context_window。
+ * 思考档对不上时收到最近已声明档。TRAE/CODEX 的输出上限只做容量准入，转发前丢掉。
  * 解析产出按优先级排序的 RouteTarget 列表；主路由按档位精确匹配，
  * 档位集合为主路由子集的备用路由附在末尾并收敛到最近档。
  *
@@ -131,8 +132,9 @@ export function resolveModel(
 
 	const requestedEffort = capabilities.requestedEffort;
 	const policyEffort = policy.effort;
-	// 校验与路由匹配都用策略改写后的档位
-	const effort = convergeEffort(policyEffort, model.reasoningEfforts, capabilities.compatible);
+	// 精确档优先；strict 对不上时再收到最近已声明档（agent 把思考当偏好，不因档位名字 400）
+	const exact = convergeEffort(policyEffort, model.reasoningEfforts, capabilities.compatible);
+	const effort = exact ?? (policyEffort === null ? null : nearestEffort(policyEffort, model.reasoningEfforts));
 	const contextWindow = capabilities.contextWindow;
 	if (
 		(images && !model.supportsImages) ||
@@ -231,6 +233,14 @@ function routeAllowed(key: ApiKey, route: ModelRoute): boolean {
 	return binding === null || binding === route.platform;
 }
 
+/**
+ * TRAE / CODEX 适配器执行不了调用方指定的输出上限。
+ * 准入仍按已发现的 max_output_tokens 判断；转发前丢掉该字段。
+ */
+export function dropsCallerOutputCap(platform: Platform): boolean {
+	return platform === "CODEX" || platform === "TRAE";
+}
+
 /** 目录级容量判定（账号级快照过滤随阶段 4 接入）。 */
 function withinRouteLimits(
 	route: ModelRoute,
@@ -239,14 +249,6 @@ function withinRouteLimits(
 	payload: Record<string, unknown>,
 	data: CatalogData,
 ): boolean {
-	if (
-		capabilities.maxOutputTokens !== null &&
-		!capabilities.compatible &&
-		(route.platform === "CODEX" || route.platform === "TRAE")
-	) {
-		// 这些适配器无法执行调用方指定的输出上限
-		return false;
-	}
 	const found = data.findCapacity(route.platform, route.upstreamModel);
 	if (found === undefined || !found.available) {
 		return false;

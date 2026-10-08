@@ -75,6 +75,7 @@ export {
 export {
 	type CapabilityRequest,
 	type CatalogData,
+	dropsCallerOutputCap,
 	isPlaceholder,
 	ModelAccessException,
 	modelAllowed,

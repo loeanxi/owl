@@ -171,6 +171,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			appId: config.gateway.trae.appId,
 			ideVersion: config.gateway.trae.ideVersion,
 			ideVersionCode: config.gateway.trae.ideVersionCode,
+			appVersion: config.gateway.trae.appVersion,
+			product: config.gateway.trae.product,
 			timeoutMs: config.gateway.upstreamTimeoutMs,
 		},
 		functionFor: (account, model) => traeFunctionFor(db, account.id, model),

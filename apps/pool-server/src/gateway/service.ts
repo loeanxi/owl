@@ -13,6 +13,7 @@ import {
 	BillingService,
 	type BillingUsage,
 	DEFAULT_OUTPUT,
+	dropsCallerOutputCap,
 	estimateMaxOutputTokens,
 	estimatePromptTokens,
 	GatewayFault,
@@ -189,6 +190,7 @@ export async function chatCompletion(
 		lease = await holdMember(deps, auth);
 		signal?.throwIfAborted();
 		const resolution = resolveOf(deps, auth, payload);
+		run.bindCapability(resolution, null, payload);
 		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
 		run.prepare();
 		charge.open(resolution.publicId);
@@ -201,11 +203,12 @@ export async function chatCompletion(
 				pinnedAccountId: pin?.accountId ?? null,
 				signal,
 			},
-			async (account, _target, forwarded, context) => {
+			async (account, target, forwarded, context) => {
 				const client = upstreamOf(deps, account.platform);
 				signal?.throwIfAborted();
 				run.accountId = account.id;
 				run.platform = account.platform;
+				run.bindCapability(resolution, target.platform, payload);
 				charge.dispatch();
 				run.dispatch();
 				const body = await client.chatCompletion(account, forwarded, signal);
@@ -274,6 +277,7 @@ export async function chatCompletionStream(
 		lease = await holdMember(deps, auth);
 		signal?.throwIfAborted();
 		const resolution = resolveOf(deps, auth, payload);
+		run.bindCapability(resolution, null, payload);
 		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
 		run.prepare();
 		charge.open(resolution.publicId);
@@ -286,11 +290,12 @@ export async function chatCompletionStream(
 				pinnedAccountId: pin?.accountId ?? null,
 				signal,
 			},
-			async (account, _target, forwarded, context) => {
+			async (account, target, forwarded, context) => {
 				const client = upstreamOf(deps, account.platform);
 				signal?.throwIfAborted();
 				run.accountId = account.id;
 				run.platform = account.platform;
+				run.bindCapability(resolution, target.platform, payload);
 				charge.dispatch();
 				run.dispatch();
 				await client.chatCompletionStream(
@@ -533,6 +538,7 @@ class Run {
 	cacheReadTokens: number | null = null;
 	cacheWriteTokens: number | null = null;
 	billingEntryId: string | null = null;
+	capabilityDecision: string | null = null;
 
 	readonly #deps: GatewayServiceDeps;
 	readonly #auth: AuthenticatedGatewayRequest;
@@ -543,6 +549,17 @@ class Run {
 		this.model = typeof payload.model === "string" ? payload.model : "";
 		this.sessionId = stickySessionId(payload, null);
 		this.startedAt = deps.nowMs?.() ?? Date.now();
+	}
+
+	/** 调用日志里的能力改写：思考档收敛，以及 TRAE/CODEX 丢掉的输出上限。 */
+	bindCapability(resolution: ResolvedModel, platform: Platform | null, payload: Record<string, unknown>): void {
+		const requestedCap = payload.max_tokens !== undefined || payload.max_completion_tokens !== undefined;
+		this.capabilityDecision = JSON.stringify({
+			mode: resolution.compatible ? "compatible" : "strict",
+			dropped_output_cap: platform !== null && dropsCallerOutputCap(platform) && requestedCap,
+			requested_reasoning_effort: resolution.requestedReasoningEffort,
+			effective_reasoning_effort: resolution.effectiveReasoningEffort,
+		});
 	}
 
 	/** 观察完整响应或 chunk 的 usage/产出（对齐 Run.observe）。 */
@@ -664,6 +681,7 @@ class Run {
 			usageSource: this.usageSource,
 			errorCategory,
 			occurredAt: now,
+			capabilityDecision: this.capabilityDecision,
 		};
 		try {
 			this.#deps.callLogs.save(record);

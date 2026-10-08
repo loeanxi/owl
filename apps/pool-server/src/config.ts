@@ -56,7 +56,15 @@ export interface PoolConfig {
 			streamIdleTimeoutMs: number;
 			streamMaxDurationMs: number;
 		};
-		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
+		trae: {
+			chatBaseUrl: string;
+			chatPath: string;
+			appId: string;
+			ideVersion: string;
+			ideVersionCode: string;
+			appVersion: string;
+			product: string;
+		};
 		gemini: { baseUrl: string; apiVersion: string; defaultMaxTokens: number };
 		mimo: { executable: string; hostname: string; requestTimeoutMs: number; readyTimeoutMs: number };
 		codex: { homeRoot: string; executable: string };
@@ -153,9 +161,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			trae: {
 				chatBaseUrl: env.OWL_POOL_TRAE_CHAT_BASE_URL ?? "https://trae-api-cn.mchost.guru",
 				chatPath: env.OWL_POOL_TRAE_CHAT_PATH ?? "/api/agent/v3/llm_utils_chat",
-				appId: env.OWL_POOL_TRAE_APP_ID ?? "icube-ai",
-				ideVersion: env.OWL_POOL_TRAE_IDE_VERSION ?? "2.63.2",
-				ideVersionCode: env.OWL_POOL_TRAE_IDE_VERSION_CODE ?? "2630200",
+				appId: env.OWL_POOL_TRAE_APP_ID ?? "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8",
+				ideVersion: env.OWL_POOL_TRAE_IDE_VERSION ?? "3.3.67",
+				ideVersionCode: env.OWL_POOL_TRAE_IDE_VERSION_CODE ?? "20260917",
+				appVersion: env.OWL_POOL_TRAE_APP_VERSION ?? "0.1.69",
+				product: env.OWL_POOL_TRAE_PRODUCT ?? "Work",
 			},
 			zcode: {
 				anthropicVersion: env.OWL_POOL_ZCODE_ANTHROPIC_VERSION ?? "2023-06-01",

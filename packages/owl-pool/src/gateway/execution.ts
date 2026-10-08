@@ -9,7 +9,7 @@
 import type { AccountStore } from "../account/store.ts";
 import type { Account } from "../account/types.ts";
 import type { ApiKey } from "../apikey/types.ts";
-import type { ResolvedModel, ResolvedRouteTarget } from "../catalog/resolve.ts";
+import { dropsCallerOutputCap, type ResolvedModel, type ResolvedRouteTarget } from "../catalog/resolve.ts";
 import type { Platform } from "../platform.ts";
 import type { AccountPoolRouter } from "./pool-router.ts";
 import type { StickyBinding, StickySessionService } from "./sticky-sessions.ts";
@@ -205,6 +205,11 @@ export class RouteGeneration {
 		}
 		// 固定窗口路由上 context_window 是准入语义，不是上游旋钮
 		delete forwarded.context_window;
+		// 适配器执行不了调用方输出上限：准入已按已发现容量放过，转发前丢掉
+		if (dropsCallerOutputCap(target.platform)) {
+			delete forwarded.max_tokens;
+			delete forwarded.max_completion_tokens;
+		}
 		// 内部键（_managerRequestId 等）不出网
 		for (const name of Object.keys(forwarded)) {
 			if (name.startsWith("_")) {

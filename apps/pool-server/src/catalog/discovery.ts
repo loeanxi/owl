@@ -33,6 +33,8 @@ export interface LiveDiscoveryOptions {
 		appId: string;
 		ideVersion: string;
 		ideVersionCode: string;
+		appVersion?: string;
+		product?: string;
 		remoteBaseUrl?: string;
 	};
 	workbuddy?: WorkBuddyCatalogConfig;

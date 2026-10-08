@@ -28,6 +28,10 @@ export interface TraeChatConfig {
 	appId: string;
 	ideVersion: string;
 	ideVersionCode: string;
+	/** TRAE Work 的 x-app-version。不传时用当前 SOLO 客户端版本。 */
+	appVersion?: string;
+	/** x-icube-product。Work 才会返回 step-5 这类 SOLO 配置。 */
+	product?: string;
 	timeoutMs?: number;
 }
 
@@ -162,8 +166,9 @@ export class TraeChatClient implements UpstreamChatClient {
 			"x-machine-id": sha256Hex(`trae-manager:${identity}`),
 			"x-device-id": deviceId(credentials, identity),
 			"x-device-type": "windows",
-			"x-app-version": this.#config.ideVersion,
+			"x-app-version": this.#config.appVersion ?? "0.1.69",
 			"x-ide-version": this.#config.ideVersion,
+			"x-icube-product": this.#config.product ?? "Work",
 			"x-app-version-code": this.#config.ideVersionCode,
 			"x-ide-version-code": this.#config.ideVersionCode,
 			"x-ide-version-type": "stable",
@@ -306,15 +311,15 @@ export async function parseSoloSse(
 	consumer(JSON.stringify(last));
 }
 
-/** 请求形状：config_name/function + 消息内容数组化 + assistant tool_calls→function_call。 */
+/** 请求形状：config_name 选配置（不带 model，否则 4023）+ 消息内容数组化 + assistant tool_calls→function_call。 */
 export function normalizeTraePayload(
 	payload: Record<string, unknown>,
 	model: string,
 	fn: string,
 ): Record<string, unknown> {
 	const body: Record<string, unknown> = {
-		model,
 		config_name: model,
+		config_source: 1,
 		function: fn,
 		stream: true,
 	};

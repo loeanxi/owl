@@ -281,6 +281,7 @@ export interface GatewayCallLogRecord {
 	usageSource: string | null;
 	errorCategory: string | null;
 	occurredAt: number;
+	capabilityDecision: string | null;
 }
 
 export class SqliteCallLogStore {
@@ -295,14 +296,16 @@ export class SqliteCallLogStore {
 			.prepare(`
 			INSERT INTO gateway_call_logs (id, key_id, account_id, platform, model, effective_model,
 				prompt_tokens, completion_tokens, total_tokens, cache_read_tokens, cache_write_tokens,
-				latency_ms, status, message, client_ip, request_id, usage_source, error_category, occurred_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				latency_ms, status, message, client_ip, request_id, usage_source, error_category, occurred_at,
+				capability_decision)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id, platform=excluded.platform,
 			 effective_model=excluded.effective_model,prompt_tokens=excluded.prompt_tokens,
 			 completion_tokens=excluded.completion_tokens,total_tokens=excluded.total_tokens,
 			 cache_read_tokens=excluded.cache_read_tokens,cache_write_tokens=excluded.cache_write_tokens,
 			 latency_ms=excluded.latency_ms,status=excluded.status,message=excluded.message,
-			 usage_source=excluded.usage_source,error_category=excluded.error_category,occurred_at=excluded.occurred_at
+			 usage_source=excluded.usage_source,error_category=excluded.error_category,occurred_at=excluded.occurred_at,
+			 capability_decision=excluded.capability_decision
 		`)
 			.run(
 				record.id,
@@ -324,6 +327,7 @@ export class SqliteCallLogStore {
 				record.usageSource,
 				record.errorCategory,
 				record.occurredAt,
+				record.capabilityDecision,
 			);
 	}
 
@@ -370,6 +374,7 @@ function rowToLog(row: Record<string, unknown>): GatewayCallLogRecord {
 		usageSource: textOrNull(row.usage_source),
 		errorCategory: textOrNull(row.error_category),
 		occurredAt: Number(row.occurred_at),
+		capabilityDecision: textOrNull(row.capability_decision),
 	};
 }
 

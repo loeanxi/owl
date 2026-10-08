@@ -192,8 +192,10 @@ describe("TraeChatClient", () => {
 		expect(chat.headers.authorization).toBe("Cloud-IDE-JWT jwt-1");
 		expect(chat.headers["x-plugin-channel"]).toBe("icube-ai");
 		expect(chat.headers["x-device-id"]).toMatch(/^\d{16}$/);
-		expect(chat.body.model).toBe("solo-1");
+		expect(chat.body.model).toBeUndefined();
 		expect(chat.body.config_name).toBe("solo-1");
+		expect(chat.body.config_source).toBe(1);
+		expect(chat.headers["x-icube-product"]).toBe("Work");
 		expect(Array.isArray(chat.body.messages)).toBe(true);
 		expect((chat.body.messages as Array<Record<string, unknown>>)[0]?.content).toEqual([
 			{ type: "text", text: "早" },

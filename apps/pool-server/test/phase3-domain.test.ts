@@ -17,6 +17,9 @@ import {
 	type Platform,
 	type PublishedModel,
 	parseEffortPolicy,
+	type ResolvedModel,
+	type ResolvedRouteTarget,
+	RouteGeneration,
 	resolveModel,
 } from "owl-pool";
 import { describe, expect, it } from "vitest";
@@ -228,6 +231,20 @@ describe("模型解析 resolveModel", () => {
 		};
 	}
 
+	function traeRoute(): ModelRoute {
+		return {
+			id: "r-trae",
+			modelId: "m1",
+			platform: "TRAE",
+			upstreamModel: "star-a",
+			priority: 0,
+			enabled: true,
+			supportsImages: false,
+			supportsTools: true,
+			reasoningEfforts: ["low", "medium", "high"],
+		};
+	}
+
 	function adminKey(overrides?: Partial<ApiKey>): ApiKey {
 		return {
 			id: "k1",
@@ -290,6 +307,59 @@ describe("模型解析 resolveModel", () => {
 		}
 	});
 
+	it("TRAE 输出上限未超过已发现容量时仍准入", () => {
+		const resolved = resolveModel(
+			adminKey(),
+			"star-lm",
+			{ messages: [{ role: "user", content: "hi" }], max_tokens: 16_000 },
+			catalog({
+				routes: [traeRoute()],
+				capacity: {
+					platform: "TRAE",
+					upstreamModel: "star-a",
+					available: true,
+					contextWindow: 128_000,
+					maxOutputTokens: 32_000,
+				},
+			}),
+		);
+		expect(resolved.routes.map((route) => route.platform)).toEqual(["TRAE"]);
+	});
+
+	it("TRAE 输出上限超过已发现容量仍拒绝", () => {
+		try {
+			resolveModel(
+				adminKey(),
+				"star-lm",
+				{ messages: [{ role: "user", content: "hi" }], max_tokens: 20_000 },
+				catalog({
+					routes: [traeRoute()],
+					capacity: {
+						platform: "TRAE",
+						upstreamModel: "star-a",
+						available: true,
+						contextWindow: 128_000,
+						maxOutputTokens: 16_000,
+					},
+				}),
+			);
+			throw new Error("should throw");
+		} catch (error) {
+			expect((error as ModelAccessException).code).toBe("unsupported_capability");
+		}
+	});
+
+	it("请求思考档不在目录里时收到最近已声明档", () => {
+		const resolved = resolveModel(
+			adminKey(),
+			"star-lm",
+			{ messages: [{ role: "user", content: "hi" }], reasoning_effort: "max" },
+			catalog({ model: { reasoningEfforts: ["high"] } }),
+		);
+		expect(resolved.requestedReasoningEffort).toBe("max");
+		expect(resolved.effectiveReasoningEffort).toBe("high");
+	});
+
 	it("输入文本 + 输出预留装不进窗口 → 路由淘汰（对齐 Java：unsupported）", () => {
 		const longText = "x".repeat(127_000 * 4); // ≈127k tokens，容量 128k，预留 2048 装不下
 		try {
@@ -298,6 +368,66 @@ describe("模型解析 resolveModel", () => {
 		} catch (error) {
 			expect((error as ModelAccessException).code).toBe("unsupported_capability");
 		}
+	});
+});
+
+describe("转发前适配", () => {
+	function resolution(effort: string | null): ResolvedModel {
+		return {
+			publicId: "star-lm",
+			routes: [],
+			modelVersion: null,
+			defaultReasoningEffort: null,
+			defaultContextWindow: null,
+			requestedReasoningEffort: "max",
+			effectiveReasoningEffort: effort,
+			requestedContextWindow: null,
+			compatible: false,
+			policyAction: null,
+			policyRule: null,
+		};
+	}
+
+	function target(platform: ResolvedRouteTarget["platform"]): ResolvedRouteTarget {
+		return {
+			platform,
+			upstreamModel: "star-a",
+			priority: 0,
+			supportsImages: false,
+			supportsTools: true,
+			reasoningEfforts: ["high"],
+			effectiveEffort: null,
+		};
+	}
+
+	const generation = new RouteGeneration({
+		accounts: null as never,
+		router: null as never,
+		sticky: null as never,
+		upstreams: new Map(),
+		maxRotate: 1,
+	});
+
+	it("TRAE 丢掉调用方输出上限，并写回收敛后的思考档", () => {
+		const forwarded = generation.forwardedPayload(
+			{ model: "star-lm", max_tokens: 16_384, max_completion_tokens: 16_384, messages: [] },
+			target("TRAE"),
+			resolution("high"),
+		);
+		expect(forwarded.max_tokens).toBeUndefined();
+		expect(forwarded.max_completion_tokens).toBeUndefined();
+		expect(forwarded.reasoning_effort).toBe("high");
+		expect(forwarded.model).toBe("star-a");
+	});
+
+	it("能执行输出上限的通道保留 max_tokens", () => {
+		const forwarded = generation.forwardedPayload(
+			{ model: "star-lm", max_tokens: 16_384, messages: [] },
+			target("GROK"),
+			resolution(null),
+		);
+		expect(forwarded.max_tokens).toBe(16_384);
+		expect(forwarded.reasoning_effort).toBeUndefined();
 	});
 });
 

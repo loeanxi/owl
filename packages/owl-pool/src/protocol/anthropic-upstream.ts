@@ -48,9 +48,14 @@ function normalizedUsage(usage: Mapish, foldCacheTokens: boolean): Mapish | unde
 	if (usage.input_tokens === undefined || usage.output_tokens === undefined) return undefined;
 	const input = usageCount(usage.input_tokens);
 	const output = usageCount(usage.output_tokens);
-	const read = usage.cache_read_input_tokens === undefined ? undefined : usageCount(usage.cache_read_input_tokens);
+	const read =
+		usage.cache_read_input_tokens === undefined || usage.cache_read_input_tokens === null
+			? undefined
+			: usageCount(usage.cache_read_input_tokens);
 	const write =
-		usage.cache_creation_input_tokens === undefined ? undefined : usageCount(usage.cache_creation_input_tokens);
+		usage.cache_creation_input_tokens === undefined || usage.cache_creation_input_tokens === null
+			? undefined
+			: usageCount(usage.cache_creation_input_tokens);
 	const allInput = input + (read ?? 0) + (write ?? 0);
 	const valid =
 		input >= 0 &&
@@ -343,6 +348,8 @@ export class AnthropicStreamDecoder {
 	#observeUsage(usage: Mapish): void {
 		for (const field of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
 			if (!(field in usage)) continue;
+			// Native MessageDeltaUsage permits nullable input/cache counters: null contains no new reading.
+			if (field !== "output_tokens" && usage[field] === null) continue;
 			const next = usageCount(usage[field]);
 			const previous = this.#usage[field];
 			this.#usage[field] =

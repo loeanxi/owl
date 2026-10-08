@@ -2,6 +2,61 @@ import { AnthropicUpstreamMapper } from "owl-pool";
 import { describe, expect, it } from "vitest";
 
 describe("native unknown and explicit zero measurements", () => {
+	it("official nullable cumulative delta preserves previously verified input/cache readings", () => {
+		const mapper = new AnthropicUpstreamMapper({ label: "faux", foldCacheTokens: true });
+		const chunks: Array<Record<string, unknown>> = [];
+		const decoder = mapper.newStreamDecoder("faux-model", (chunk) =>
+			chunks.push(JSON.parse(chunk) as Record<string, unknown>),
+		);
+		decoder.onEvent(
+			JSON.stringify({
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 100,
+						output_tokens: 0,
+						cache_read_input_tokens: 600,
+						cache_creation_input_tokens: 300,
+					},
+				},
+			}),
+		);
+		decoder.onEvent(
+			JSON.stringify({
+				type: "message_delta",
+				delta: { stop_reason: "end_turn" },
+				usage: {
+					input_tokens: null,
+					output_tokens: 50,
+					cache_read_input_tokens: null,
+					cache_creation_input_tokens: null,
+				},
+			}),
+		);
+		decoder.onEvent(JSON.stringify({ type: "message_stop" }));
+		decoder.finish();
+		expect(chunks.at(-1)?.usage).toMatchObject({
+			prompt_tokens: 1000,
+			completion_tokens: 50,
+			prompt_tokens_details: { cached_tokens: 600 },
+			cache_creation_input_tokens: 300,
+		});
+	});
+	it("nullable complete-response cache counters are absent measurements, not zero discounts", () => {
+		const mapper = new AnthropicUpstreamMapper({ label: "faux", foldCacheTokens: true });
+		const result = mapper.toOpenAiCompletion({
+			model: "faux-model",
+			content: [],
+			stop_reason: "end_turn",
+			usage: {
+				input_tokens: 100,
+				output_tokens: 50,
+				cache_read_input_tokens: null,
+				cache_creation_input_tokens: null,
+			},
+		});
+		expect(result.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 });
+	});
 	it("missing nonstream usage stays UNKNOWN instead of a synthetic known zero", () => {
 		const mapper = new AnthropicUpstreamMapper({ label: "faux", foldCacheTokens: true });
 		const result = mapper.toOpenAiCompletion({ model: "faux-model", content: [], stop_reason: "end_turn" });
@@ -105,7 +160,7 @@ describe("Anthropic native cache components normalize consistently", () => {
 		});
 		expect(result.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 });
 	});
-	it.each([-1, 0.5, "600", null, Number.MAX_SAFE_INTEGER + 1])(
+	it.each([-1, 0.5, "600", Number.MAX_SAFE_INTEGER + 1])(
 		"invalid native cache value %s is not truncated or treated as missing",
 		(invalid) => {
 			const mapper = new AnthropicUpstreamMapper({ label: "faux", foldCacheTokens: true });
@@ -125,7 +180,7 @@ describe("Anthropic native cache components normalize consistently", () => {
 			chunks.push(JSON.parse(chunk) as Record<string, unknown>),
 		);
 		decoder.onEvent(JSON.stringify({ type: "message_start", message: { usage: native } }));
-		decoder.onEvent(JSON.stringify({ type: "message_delta", usage: { cache_read_input_tokens: null } }));
+		decoder.onEvent(JSON.stringify({ type: "message_delta", usage: { cache_read_input_tokens: -1 } }));
 		decoder.onEvent(JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: native }));
 		decoder.onEvent(JSON.stringify({ type: "message_stop" }));
 		decoder.finish();
