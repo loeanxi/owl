@@ -93,7 +93,7 @@ export class BridgeProtocol {
     if(p.parallel_tool_calls!==undefined&&typeof p.parallel_tool_calls!=='boolean')throw new BridgeError('INVALID_OPTION','parallel_tool_calls must be a boolean');
     const controller=new AbortController();const signal=controller.signal;
     const turn={controller,pending:new Set()};this.turns.set(p.turnId,turn);
-    let budgetReached=false,timedOut=false,toolTimedOut=false,bytes=0,known=false,inputTokens=0,outputTokens=0,cacheReadTokens=null,cacheWriteTokens=null;
+    let budgetReached=false,timedOut=false,toolTimedOut=false,bytes=0,known=false,invalidUsage=false,inputTokens=0,outputTokens=0,cacheReadTokens=null,cacheWriteTokens=null;
     const timer=setTimeout(()=>{timedOut=true;controller.abort();},this.turnTimeoutMs);
     const cancelPending=()=>{for(const key of turn.pending){const pending=this.pending.get(key);if(pending){this.pending.delete(key);clearTimeout(pending.timer);pending.reject(new BridgeError('CANCELLED','Tool wait was cancelled'));}}};
     signal.addEventListener('abort',cancelPending);
@@ -108,15 +108,18 @@ export class BridgeProtocol {
     const ctx={abortController:controller,signal,
       text:text=>{if(signal.aborted||typeof text!=='string')return;const fragment=spend(text);if(fragment)send({event:'text_delta',text:fragment});if(budgetReached)controller.abort();},
       usage:(input,output,total=false,cache=null)=>{
+        if(input==null&&output==null&&cache===null)return;
+        if(invalidUsage)return;
+        const invalidate=()=>{invalidUsage=true;known=false;};
         const valid=value=>Number.isSafeInteger(value)&&value>=0;
-        if(!valid(input)||!valid(output)||cache!==null&&typeof cache!=='object')return;
+        if(!valid(input)||!valid(output)||cache!==null&&(typeof cache!=='object'||Array.isArray(cache))){invalidate();return;}
         const read=cache?.cacheReadTokens??null,write=cache?.cacheWriteTokens??null;
-        if(read!==null&&!valid(read)||write!==null&&!valid(write))return;
+        if(read!==null&&!valid(read)||write!==null&&!valid(write)){invalidate();return;}
         const nextInput=total?input:inputTokens+input,nextOutput=total?output:outputTokens+output;
         const nextRead=total?read:!known?read:cacheReadTokens!==null&&read!==null?cacheReadTokens+read:null;
         const nextWrite=total?write:!known?write:cacheWriteTokens!==null&&write!==null?cacheWriteTokens+write:null;
-        if(!valid(nextInput)||!valid(nextOutput)||nextRead!==null&&!valid(nextRead)||nextWrite!==null&&!valid(nextWrite))return;
-        if((nextRead??0)+(nextWrite??0)>nextInput)return;
+        if(!valid(nextInput)||!valid(nextOutput)||nextRead!==null&&!valid(nextRead)||nextWrite!==null&&!valid(nextWrite)){invalidate();return;}
+        if((nextRead??0)+(nextWrite??0)>nextInput){invalidate();return;}
         known=true;inputTokens=nextInput;outputTokens=nextOutput;cacheReadTokens=nextRead;cacheWriteTokens=nextWrite;
       },
       tool:(name,args,providedId)=>{
@@ -139,10 +142,10 @@ export class BridgeProtocol {
       if(signal.aborted)throw new BridgeError('CANCELLED','Request cancelled');
       let result;
       try{result=await(await this.provider()).chat({...p,...content,definitions},ctx);}catch(error){if(!signal.aborted)throw error;}
-      const usageSource=known?'KNOWN':bytes?'ESTIMATED':'UNKNOWN';
-      send({event:'usage',inputTokens:known?inputTokens:null,outputTokens:known?outputTokens:bytes?Math.ceil(bytes/3):null,
+      const usageSource=invalidUsage?'UNKNOWN':known?'KNOWN':bytes?'ESTIMATED':'UNKNOWN';
+      send({event:'usage',inputTokens:known?inputTokens:null,outputTokens:known?outputTokens:!invalidUsage&&bytes?Math.ceil(bytes/3):null,
         cacheReadTokens:known?cacheReadTokens:null,cacheWriteTokens:known?cacheWriteTokens:null,
-        usageSource,cumulative:true,...(!known&&bytes?{estimateMethod:'UTF8_BYTES_DIV_3'}:{})});
+        usageSource,cumulative:true,...(!invalidUsage&&!known&&bytes?{estimateMethod:'UTF8_BYTES_DIV_3'}:{})});
       if(timedOut)throw new BridgeError('TURN_TIMEOUT','Upstream turn exceeded its time limit',true);
       if(toolTimedOut)throw new BridgeError('TOOL_TIMEOUT','Member tool result did not arrive before the deadline');
       send({event:'done',stopReason:budgetReached?'max_tokens':signal.aborted?'cancelled':result?.stopReason??'end_turn',...(budgetReached?{limitSource:'GATEWAY_ESTIMATE'}:{})});

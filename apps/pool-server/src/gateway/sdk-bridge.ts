@@ -358,8 +358,9 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 	): Promise<SdkSegment> {
 		const text: string[] = [];
 		const calls: Array<Record<string, unknown>> = [];
-		const usage: [number, number, number] = [0, 0, 0];
+		const usage: [number, number, number] = [-1, -1, -1];
 		let source: SdkSegment["source"] = "UNKNOWN";
+		let invalidUsage = false;
 		let finishReason = "stop";
 		const deadline = Date.now() + this.#config.requestTimeoutMs;
 		for (;;) {
@@ -423,10 +424,24 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 					},
 				});
 			} else if (type === "usage") {
-				usage[0] = tokenCount(event.inputTokens);
-				usage[1] = tokenCount(event.outputTokens);
-				usage[2] = usage[0] + usage[1];
-				source = "KNOWN";
+				if (event.inputTokens == null && event.outputTokens == null && event.usageSource === undefined) continue;
+				const input = tokenCount(event.inputTokens),
+					output = tokenCount(event.outputTokens);
+				if (
+					input < 0 ||
+					output < 0 ||
+					!Number.isSafeInteger(input + output) ||
+					(event.usageSource !== undefined && event.usageSource !== "KNOWN")
+				) {
+					invalidUsage = true;
+					usage.fill(-1);
+					source = "UNKNOWN";
+				} else if (!invalidUsage) {
+					usage[0] = input;
+					usage[1] = output;
+					usage[2] = input + output;
+					source = "KNOWN";
+				}
 			} else if (type === "done") {
 				if (typeof event.finishReason === "string" && event.finishReason.length > 0) {
 					finishReason = event.finishReason;
@@ -452,7 +467,7 @@ function isMap(value: unknown): value is Record<string, unknown> {
 }
 
 function tokenCount(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : -1;
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : -1;
 }
 
 function usageOf(segment: SdkSegment): Record<string, unknown> {

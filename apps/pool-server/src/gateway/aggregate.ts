@@ -19,6 +19,7 @@ export function aggregateStreamToCompletion(
 	let reasoning = "";
 	const toolCalls = new UpstreamToolCallAggregator();
 	const usage: Record<string, unknown> = {};
+	let usageSource: string | undefined;
 	let finishReason = "stop";
 	const model = String(payload.model ?? "unknown");
 
@@ -55,6 +56,7 @@ export function aggregateStreamToCompletion(
 				if (node.usage !== null && typeof node.usage === "object" && !Array.isArray(node.usage)) {
 					Object.assign(usage, node.usage);
 				}
+				if (typeof node.usage_source === "string") usageSource = node.usage_source;
 			},
 			signal,
 		)
@@ -79,6 +81,7 @@ export function aggregateStreamToCompletion(
 					model,
 					choices: [{ index: 0, message, finish_reason: effectiveFinish }],
 					usage,
+					...(usageSource !== undefined ? { usage_source: usageSource } : {}),
 				},
 			};
 		});
