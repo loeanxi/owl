@@ -4,7 +4,7 @@
  * SSE：15s keepalive 注释帧；客户端断开即停止输出。
  */
 import type { ServerResponse } from "node:http";
-import { type ApiKeyService, GatewayFault, ModelAccessException, UpstreamException } from "owl-pool";
+import { type ApiKeyService, BusinessError, GatewayFault, ModelAccessException, UpstreamException } from "owl-pool";
 import {
 	coalesceTextForStatelessClient,
 	deleteResponse,
@@ -34,6 +34,23 @@ import type { RequestContext, Router } from "./router.ts";
 
 const KEEPALIVE_MS = 15_000;
 
+function callerCancellation(ctx: RequestContext): { signal: AbortSignal; dispose(): void } {
+	const controller = new AbortController();
+	const disconnect = () => {
+		if (!ctx.response.writableEnded) controller.abort(new Error("Gateway client disconnected"));
+	};
+	ctx.response.once("close", disconnect);
+	ctx.request.once("aborted", disconnect);
+	if (ctx.response.destroyed || ctx.request.aborted) disconnect();
+	return {
+		signal: controller.signal,
+		dispose: () => {
+			ctx.response.removeListener("close", disconnect);
+			ctx.request.removeListener("aborted", disconnect);
+		},
+	};
+}
+
 export interface GatewayRoutesDeps {
 	gateway: GatewayServiceDeps;
 	gatewayConfig: GatewayConfig;
@@ -57,11 +74,14 @@ export function registerGatewayRoutes(router: Router, deps: GatewayRoutesDeps): 
 			await streamResponse(ctx, deps.gateway, auth, payload);
 			return;
 		}
+		const cancellation = callerCancellation(ctx);
 		try {
-			const body = await chatCompletion(deps.gateway, auth, payload);
+			const body = await chatCompletion(deps.gateway, auth, payload, cancellation.signal);
 			jsonRespond(ctx.response, 200, body);
 		} catch (error) {
 			writeGatewayFailure(ctx.response, auth.requestId, error);
+		} finally {
+			cancellation.dispose();
 		}
 	});
 
@@ -122,6 +142,7 @@ async function handleResponses(ctx: RequestContext, deps: GatewayRoutesDeps): Pr
 		writeGatewayError(ctx.response, 400, "invalid_request", "请求体必须是 JSON 对象");
 		return;
 	}
+	const cancellation = callerCancellation(ctx);
 	try {
 		let prior: Array<Record<string, unknown>> = [];
 		if (typeof body.previous_response_id === "string" && body.previous_response_id.trim().length > 0) {
@@ -146,7 +167,7 @@ async function handleResponses(ctx: RequestContext, deps: GatewayRoutesDeps): Pr
 			await streamResponses(ctx, deps.gateway, auth, chat, body, history, id, created, model);
 			return;
 		}
-		const result = (await chatCompletion(deps.gateway, auth, chat)) as Record<string, unknown>;
+		const result = (await chatCompletion(deps.gateway, auth, chat, cancellation.signal)) as Record<string, unknown>;
 		const response = responseObject(
 			id,
 			created,
@@ -160,6 +181,8 @@ async function handleResponses(ctx: RequestContext, deps: GatewayRoutesDeps): Pr
 		jsonRespond(ctx.response, 200, response);
 	} catch (error) {
 		writeGatewayFailure(ctx.response, auth.requestId, error);
+	} finally {
+		cancellation.dispose();
 	}
 }
 
@@ -175,6 +198,7 @@ async function streamResponses(
 	model: string,
 ): Promise<void> {
 	const response = ctx.response;
+	const cancellation = callerCancellation(ctx);
 	response.writeHead(200, {
 		"Content-Type": "text/event-stream; charset=utf-8",
 		"Cache-Control": "no-store",
@@ -196,22 +220,33 @@ async function streamResponses(
 	);
 	bridge.start();
 	try {
-		await chatCompletionStream(gateway, auth, chat, (chunkJson) => {
-			const chunk = JSON.parse(chunkJson) as Record<string, unknown>;
-			if (chunk.usage !== undefined && typeof chunk.usage === "object" && chunk.usage !== null) {
-				const next = responseUsage(chunk);
-				usage[0] = next[0] ?? 0;
-				usage[1] = next[1] ?? 0;
-				usage[2] = next[2] ?? 0;
-			}
-			bridge.chunk(chunk);
-		});
+		await chatCompletionStream(
+			gateway,
+			auth,
+			chat,
+			(chunkJson) => {
+				const chunk = JSON.parse(chunkJson) as Record<string, unknown>;
+				if (chunk.usage !== undefined && typeof chunk.usage === "object" && chunk.usage !== null) {
+					const next = responseUsage(chunk);
+					usage[0] = next[0] ?? 0;
+					usage[1] = next[1] ?? 0;
+					usage[2] = next[2] ?? 0;
+				}
+				bridge.chunk(chunk);
+			},
+			cancellation.signal,
+		);
 		const completed = bridge.complete(usage);
 		saveResponse(auth.key, completed, history, body);
 	} catch (error) {
-		const failure = error instanceof GatewayFault ? error : new GatewayFault(502, "upstream_error", "上游调用失败");
+		const failure =
+			error instanceof GatewayFault ||
+			(error instanceof BusinessError && error.code === "billing.usageInsufficientBalance")
+				? normalize(error)
+				: new GatewayFault(502, "upstream_error", "上游调用失败");
 		bridge.fail(failure.code, failure.message);
 	} finally {
+		cancellation.dispose();
 		if (!response.writableEnded) {
 			response.end();
 		}
@@ -242,6 +277,7 @@ async function streamResponse(
 	payload: Record<string, unknown>,
 ): Promise<void> {
 	const response: ServerResponse = ctx.response;
+	const cancellation = callerCancellation(ctx);
 	response.writeHead(200, {
 		"Content-Type": "text/event-stream; charset=utf-8",
 		"Cache-Control": "no-store",
@@ -250,7 +286,6 @@ async function streamResponse(
 		"X-Request-Id": auth.requestId,
 	});
 	let closed = false;
-	let emitted = false;
 	const keepalive = setInterval(() => {
 		if (!closed) {
 			response.write(": keepalive\n\n");
@@ -263,42 +298,61 @@ async function streamResponse(
 			response.end();
 		}
 	};
-	ctx.request.on("close", () => {
+	ctx.response.on("close", () => {
 		closed = true;
 		clearInterval(keepalive);
 	});
 	const writeChunk = (json: string): void => {
-		emitted = true;
 		if (!closed) {
 			response.write(`data: ${json}\n\n`);
 		}
 	};
 	try {
-		await chatCompletionStream(gateway, auth, payload, (chunkJson) => {
-			writeChunk(chunkJson);
-		});
+		await chatCompletionStream(
+			gateway,
+			auth,
+			payload,
+			(chunkJson) => {
+				writeChunk(chunkJson);
+			},
+			cancellation.signal,
+		);
 		if (!closed) {
 			response.write("data: [DONE]\n\n");
 		}
 		finish();
 	} catch (error) {
 		const failure = normalize(error);
-		if (!closed && !emitted) {
+		if (!closed) {
 			writeChunk(
 				JSON.stringify({
-					error: { message: failure.message, type: failure.code, code: failure.code, request_id: auth.requestId },
+					error: {
+						message: failure.message,
+						type: failure.code,
+						code: failure.code,
+						request_id: auth.requestId,
+						...(failure.billingState ? { billing_state: failure.billingState } : {}),
+					},
 				}),
 			);
 			response.write("data: [DONE]\n\n");
 		}
 		finish();
+	} finally {
+		cancellation.dispose();
 	}
 }
 
 function writeGatewayFailure(response: ServerResponse, requestId: string, error: unknown): void {
 	const failure = normalize(error);
 	jsonRespond(response, failure.status, {
-		error: { message: failure.message, type: failure.code, code: failure.code, request_id: requestId },
+		error: {
+			message: failure.message,
+			type: failure.code,
+			code: failure.code,
+			request_id: requestId,
+			...(failure.billingState ? { billing_state: failure.billingState } : {}),
+		},
 	});
 }
 
@@ -306,14 +360,27 @@ interface GatewayFailure {
 	status: number;
 	code: string;
 	message: string;
+	billingState?: "unknown";
 }
 
 function normalize(error: unknown): GatewayFailure {
+	if (error instanceof BusinessError && error.code === "billing.usageInsufficientBalance") {
+		return { status: 402, code: "insufficient_balance", message: error.message };
+	}
 	if (error instanceof ModelAccessException) {
 		return { status: error.status, code: error.code, message: error.message };
 	}
 	if (error instanceof GatewayFault) {
-		return { status: error.status, code: error.code, message: error.message };
+		return {
+			status: error.status,
+			code: error.code,
+			message: error.message,
+			billingState: ["upstream_timeout", "upstream_stream_idle_timeout", "upstream_stream_interrupted"].includes(
+				error.code,
+			)
+				? "unknown"
+				: undefined,
+		};
 	}
 	if (error instanceof UpstreamException) {
 		return { status: 502, code: "upstream_error", message: `上游调用失败：${error.message}` };
@@ -406,6 +473,7 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 		const requestedModel = typeof anthropicPayload.model === "string" ? anthropicPayload.model : null;
 		if (payload.stream === true) {
 			const response: ServerResponse = ctx.response;
+			const cancellation = callerCancellation(ctx);
 			response.writeHead(200, {
 				"Content-Type": "text/event-stream; charset=utf-8",
 				"Cache-Control": "no-store",
@@ -414,9 +482,7 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 				"X-Request-Id": auth.requestId,
 			});
 			let closed = false;
-			let emitted = false;
 			const send = (event: string, data: Record<string, unknown>): void => {
-				emitted = true;
 				if (!closed) {
 					response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 				}
@@ -438,29 +504,38 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 					response.end();
 				}
 			};
-			ctx.request.on("close", () => {
+			ctx.response.on("close", () => {
 				closed = true;
 				clearInterval(keepalive);
 			});
 			try {
-				await chatCompletionStream(deps.gateway, auth, payload, (chunkJson) => {
-					bridge.onOpenAiChunk(chunkJson);
-				});
+				await chatCompletionStream(
+					deps.gateway,
+					auth,
+					payload,
+					(chunkJson) => {
+						bridge.onOpenAiChunk(chunkJson);
+					},
+					cancellation.signal,
+				);
 				bridge.complete();
 				finish();
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const type =
 					error instanceof UpstreamException ? upstreamKindType(error) : anthropicTypeOf(normalize(error).status);
-				if (!closed && !emitted) {
+				if (!closed) {
 					bridge.fail(type, message);
 				}
 				finish();
+			} finally {
+				cancellation.dispose();
 			}
 			return;
 		}
+		const cancellation = callerCancellation(ctx);
 		try {
-			const openAiBody = await chatCompletion(deps.gateway, auth, payload);
+			const openAiBody = await chatCompletion(deps.gateway, auth, payload, cancellation.signal);
 			jsonRespond(ctx.response, 200, openAiToAnthropicMessage(openAiBody, requestedModel));
 		} catch (error) {
 			if (error instanceof UpstreamException) {
@@ -475,6 +550,8 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 				failure.message,
 				auth.requestId,
 			);
+		} finally {
+			cancellation.dispose();
 		}
 	});
 

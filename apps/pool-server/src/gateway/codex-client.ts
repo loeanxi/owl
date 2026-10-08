@@ -107,8 +107,9 @@ export class CodexChatClient implements UpstreamChatClient {
 	async quota(account: Account): Promise<CreditSnapshot> {
 		let first: unknown = null;
 		for (let attempt = 0; attempt < 2; attempt++) {
-			const session = await this.#open(account);
+			let session: CodexSession | undefined;
 			try {
+				session = await this.#open(account);
 				const read = await session.request("account/read", { refreshToken: false });
 				requireChatgpt(read);
 				const response = await session.request("account/rateLimits/read", {});
@@ -117,6 +118,9 @@ export class CodexChatClient implements UpstreamChatClient {
 					return snapshot;
 				}
 			} catch (error) {
+				if (error instanceof BusinessError || (error instanceof UpstreamException && error.kind === "AUTH")) {
+					throw error;
+				}
 				first = error;
 				if (attempt > 0) {
 					throw new UpstreamException(
@@ -125,7 +129,7 @@ export class CodexChatClient implements UpstreamChatClient {
 					);
 				}
 			} finally {
-				session.close();
+				session?.close();
 			}
 		}
 		throw new UpstreamException(
@@ -450,7 +454,7 @@ export class CodexSession {
 	readonly #timeoutMs: number;
 	readonly #waiters = new Map<
 		number,
-		{ resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }
+		{ method: string; resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }
 	>();
 	readonly #signals: Array<RpcNote | RpcCall> = [];
 	readonly #signalWaiters: Array<(signal: RpcNote | RpcCall | null) => void> = [];
@@ -485,6 +489,7 @@ export class CodexSession {
 				reject(new UpstreamException("SERVER", `Codex app-server timeout during ${method}`));
 			}, this.#timeoutMs);
 			this.#waiters.set(id, {
+				method,
 				resolve: (value) => {
 					clearTimeout(timer);
 					resolve(value);
@@ -576,7 +581,8 @@ export class CodexSession {
 				return;
 			}
 			if (isRecord(message.error)) {
-				waiter.reject(new UpstreamException("SERVER", `Codex ${String(message.error.message ?? "rpc error")}`));
+				const code = typeof message.error.code === "number" ? message.error.code : "unknown";
+				waiter.reject(new UpstreamException("SERVER", `Codex RPC ${waiter.method} 失败（code ${code}）`));
 			} else {
 				waiter.resolve(isRecord(message.result) ? message.result : {});
 			}
@@ -606,6 +612,7 @@ async function spawnTransport(home: string, command: string[]): Promise<CodexTra
 			env[key] = value;
 		}
 	}
+	env.CODEX_HOME = home;
 	const child: ChildProcessWithoutNullStreams = spawn(command[0] ?? "codex", command.slice(1), {
 		cwd: home,
 		env,

@@ -55,6 +55,10 @@ export class TraeCheckInProvider implements CheckInProvider {
 		return "TRAE";
 	}
 
+	isConfigured(account: Account): boolean {
+		return (asString(parseCredentials(account).session)?.trim().length ?? 0) > 0;
+	}
+
 	async checkIn(account: Account): Promise<CheckInResult> {
 		const credentials = parseCredentials(account);
 		const session = asString(credentials.session);

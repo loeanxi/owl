@@ -56,7 +56,11 @@ describe("credit extractors", () => {
 		});
 		expect(summary.credits).toBe(3.5);
 		expect(summary.label).toBe("CycleRemainCapacity×2");
-		expect(cursorQuota({ source: "CURSOR_DASHBOARD_ONLY" }).label).toBe("Cursor 双池额度");
+		expect(cursorQuota({ source: "CURSOR_DASHBOARD_ONLY" })).toMatchObject({
+			availability: "UNAVAILABLE",
+			label: "CURSOR_SESSION_REQUIRED",
+			buckets: [],
+		});
 		expect(
 			copilotQuota({ quotaSnapshots: { chat: { entitlementRequests: 10, usedRequests: 4 } } }).buckets[0]?.remaining,
 		).toBe(6);

@@ -9,6 +9,7 @@ import {
 	type AccountInput,
 	type AccountStore,
 	BusinessError,
+	type CheckInService,
 	isPlatform,
 	type Platform,
 	parseCredentials,
@@ -18,10 +19,13 @@ import type { RequestContext, Router } from "./router.ts";
 
 export interface AccountRoutesDeps {
 	accounts: AccountStore;
+	checkin?: Pick<CheckInService, "capability">;
 	/** 按平台刷新积分并落库。缺省时保持「尚未接入」。 */
 	refreshCredit?(account: Account): Promise<Account>;
 	/** 按平台探测连通性。缺省时只探测已接入的 HTTP 模型目录。 */
 	pingAccount?(account: Account): Promise<Record<string, unknown>>;
+	/** Cursor OAuth 凭证可能只在独立 SDK 文件中，健康检查需要真实上游验证。 */
+	probeCredential?(account: Account): Promise<Record<string, unknown> | null>;
 	login?: {
 		login(account: Account): Promise<Record<string, unknown>>;
 		status(account: Account): Promise<Record<string, unknown>>;
@@ -33,22 +37,22 @@ export interface AccountRoutesDeps {
 export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): void {
 	router.get("/api/accounts", async (ctx) => {
 		const platform = readPlatform(ctx);
-		return deps.accounts.list(platform).map(maskCredentials);
+		return deps.accounts.list(platform).map((account) => maskCredentials(account, deps.checkin));
 	});
 
 	router.post("/api/accounts", async (ctx) => {
 		const body = await ctx.readBody<Record<string, unknown>>();
 		const input = parseAccountInput(body, {});
-		return maskCredentials(deps.accounts.create(input, Date.now()));
+		return maskCredentials(deps.accounts.create(input, Date.now()), deps.checkin);
 	});
 
-	router.get("/api/accounts/:id", async (ctx) => maskCredentials(deps.accounts.require(ctx.params.id!)));
+	router.get("/api/accounts/:id", async (ctx) => maskCredentials(deps.accounts.require(ctx.params.id!), deps.checkin));
 
 	router.put("/api/accounts/:id", async (ctx) => {
 		const body = await ctx.readBody<Record<string, unknown>>();
 		const current = deps.accounts.require(ctx.params.id!);
 		const input = parseAccountInput(body, current);
-		return maskCredentials(deps.accounts.updateFields(ctx.params.id!, input, Date.now()));
+		return maskCredentials(deps.accounts.updateFields(ctx.params.id!, input, Date.now()), deps.checkin);
 	});
 
 	router.patch("/api/accounts/:id/enabled", async (ctx) => {
@@ -56,7 +60,10 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 		if (raw !== "true" && raw !== "false") {
 			throw BusinessError.of("account.badEnabled", "enabled 参数只接受 true/false");
 		}
-		return maskCredentials(deps.accounts.updateFields(ctx.params.id!, { enabled: raw === "true" }, Date.now()));
+		return maskCredentials(
+			deps.accounts.updateFields(ctx.params.id!, { enabled: raw === "true" }, Date.now()),
+			deps.checkin,
+		);
 	});
 
 	router.post("/api/accounts/:id/ping", async (ctx) => {
@@ -101,9 +108,13 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 	router.post("/api/accounts/:id/credits/refresh", async (ctx) => {
 		const account = deps.accounts.require(ctx.params.id!);
 		if (deps.refreshCredit === undefined) {
-			return { ...maskCredentials(account), creditsStatus: "FAIL", creditsMessage: "该平台积分查询尚未接入" };
+			return {
+				...maskCredentials(account, deps.checkin),
+				creditsStatus: "FAIL",
+				creditsMessage: "该平台积分查询尚未接入",
+			};
 		}
-		return maskCredentials(await deps.refreshCredit(account));
+		return maskCredentials(await deps.refreshCredit(account), deps.checkin);
 	});
 
 	router.post("/api/accounts/credits/refresh", async (ctx) => {
@@ -126,23 +137,26 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 			return {
 				accountId: account.id,
 				accountName: account.name,
-				snapshot: { ok: updated.creditsStatus === "OK", message: updated.creditsMessage ?? "" },
+				snapshot: {
+					ok: updated.creditsStatus === "OK",
+					availability: updated.creditsStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE",
+					message: updated.creditsMessage ?? "",
+				},
 			};
 		});
 		const ok = items.filter((item) => item.snapshot.ok).length;
-		return { total: accounts.length, ok, failed: accounts.length - ok, items };
+		const unavailable = items.filter((item) => item.snapshot.availability === "UNAVAILABLE").length;
+		return { total: accounts.length, ok, unavailable, failed: accounts.length - ok - unavailable, items };
 	});
 
 	router.post("/api/credentials/check", async (ctx) => {
 		const onlyEnabled = ctx.query.get("onlyEnabled") !== "false";
-		return deps.accounts
-			.list()
-			.filter((account) => !onlyEnabled || account.enabled)
-			.map((account) => checkCredential(deps.accounts, account));
+		const selected = deps.accounts.list().filter((account) => !onlyEnabled || account.enabled);
+		return mapPool(selected, 4, (account) => checkCredential(deps.accounts, account, deps.probeCredential));
 	});
 
 	router.post("/api/credentials/check/:id", async (ctx) =>
-		checkCredential(deps.accounts, deps.accounts.require(ctx.params.id!)),
+		checkCredential(deps.accounts, deps.accounts.require(ctx.params.id!), deps.probeCredential),
 	);
 
 	router.delete("/api/accounts/:id", async (ctx) => {
@@ -214,13 +228,38 @@ function maskValue(value: string): string {
 
 const WARN_DAYS = 7;
 
-function checkCredential(accounts: AccountStore, account: Account): Record<string, unknown> {
+async function checkCredential(
+	accounts: AccountStore,
+	account: Account,
+	probe?: AccountRoutesDeps["probeCredential"],
+): Promise<Record<string, unknown>> {
 	const now = Date.now();
 	const expires = account.credentialExpiresAt ?? null;
 	const remaining = expires === null ? null : Math.floor((expires - now) / 86_400_000);
 	let status: Account["credentialStatus"] = "UNKNOWN";
 	let message = "凭证没有到期时间，尚未探测上游";
-	if (Object.keys(parseCredentials(account)).length === 0) {
+	let live: Record<string, unknown> | null = null;
+	if (account.platform === "CURSOR") {
+		try {
+			live = (await probe?.(account)) ?? null;
+		} catch {
+			message = "Cursor SDK 登录状态暂时无法确认，请稍后重试";
+		}
+	}
+	if (account.platform === "CURSOR") {
+		if (
+			live?.sdkAuthenticated === true &&
+			["ACCOUNT_HOME", "ACCOUNT_TOKEN"].includes(String(live.credentialSource))
+		) {
+			status = "OK";
+			message = "Cursor 官方 SDK 授权有效";
+		} else if (live?.sdkAuthenticated === false) {
+			status = "ERROR";
+			message = "Cursor 当前账号尚未完成 SDK 授权，请点击登录 / 重新授权";
+		} else if (live !== null) {
+			message = "尚未确认 Cursor 当前账号的 SDK 授权状态";
+		}
+	} else if (Object.keys(parseCredentials(account)).length === 0) {
 		status = "ERROR";
 		message = "账号没有凭证";
 	} else if (remaining !== null && remaining < 0) {
@@ -237,6 +276,7 @@ function checkCredential(accounts: AccountStore, account: Account): Record<strin
 		credentialStatus: status,
 		credentialCheckedAt: now,
 		credentialMessage: message,
+		...(status === "OK" && account.platform === "CURSOR" ? { credentialExpiresAt: null } : {}),
 	});
 	const checked = saved.credentialExpiresAt;
 	return {
@@ -246,7 +286,7 @@ function checkCredential(accounts: AccountStore, account: Account): Record<strin
 		enabled: saved.enabled,
 		status: saved.credentialStatus ?? "UNKNOWN",
 		expiresAt: checked === null || checked === undefined ? "" : new Date(checked).toISOString(),
-		remainingDays: remaining === null ? -1 : remaining,
+		remainingDays: checked === null || checked === undefined ? -1 : Math.floor((checked - now) / 86_400_000),
 		checkedAt: new Date(now).toISOString(),
 		message,
 	};
@@ -268,11 +308,16 @@ function creditBuckets(raw: string | null | undefined): unknown[] {
  * 对外账号视图：保留测试用的 credentials（字符串一律 ***），
  * 同时给出原版管理台读取的 credentialsMasked（按字段名精细脱敏）。
  */
-function maskCredentials(account: Account): Account & {
+function maskCredentials(
+	account: Account,
+	checkin?: AccountRoutesDeps["checkin"],
+): Account & {
 	credentialsMasked: Record<string, string>;
 	creditsUnlimited: boolean;
 	creditBuckets: unknown[];
 	credentialRemainingDays: number | null;
+	checkInSupported: boolean;
+	checkInConfigured: boolean;
 } {
 	const parsed = parseCredentials(account);
 	const credentials: Record<string, unknown> = {};
@@ -288,6 +333,7 @@ function maskCredentials(account: Account): Account & {
 	const expires = account.credentialExpiresAt;
 	const credentialRemainingDays =
 		expires === null || expires === undefined ? null : Math.floor((expires - Date.now()) / 86_400_000);
+	const capability = checkin?.capability(account);
 	return {
 		...account,
 		credentials,
@@ -295,6 +341,8 @@ function maskCredentials(account: Account): Account & {
 		creditsUnlimited: account.creditsMessage === UNLIMITED_NOTE,
 		creditBuckets: creditBuckets(account.creditsDetails),
 		credentialRemainingDays,
+		checkInSupported: capability?.supported ?? false,
+		checkInConfigured: capability?.configured ?? false,
 	};
 }
 

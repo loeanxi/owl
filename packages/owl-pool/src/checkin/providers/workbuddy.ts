@@ -171,6 +171,26 @@ export class WorkBuddyCheckInProvider implements CheckInProvider {
 		return "WORKBUDDY";
 	}
 
+	isConfigured(account: Account): boolean {
+		const credentials = parseCredentials(account);
+		const direct = asString(credentials.accessToken);
+		if (direct && direct.trim().length > 0 && !direct.startsWith("$")) {
+			return true;
+		}
+		const file = asString(credentials.authFile);
+		if (!file || file.trim().length === 0) return false;
+		try {
+			// 列表投影只判断读取路径是否配置，不读取文件或探测凭证有效性。
+			ensureAllowedLocation(
+				normalize(isAbsolute(file) ? file : join(process.cwd(), file)),
+				this.#options.authFileRoots,
+			);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	async checkIn(account: Account): Promise<CheckInResult> {
 		const credentials = parseCredentials(account);
 		const accessToken = this.resolveAccessToken(credentials);

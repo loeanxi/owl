@@ -65,6 +65,7 @@ export {
 	BillingService,
 	type BillingServiceOptions,
 	type BillingStore,
+	type BillingUsage,
 	type LedgerEntry,
 	type LedgerEntryType,
 	type LedgerStatus,
@@ -95,9 +96,11 @@ export { type CheckInRecordStore, InMemoryCheckInRecordStore } from "./checkin/r
 export {
 	type AccountCheckInOutcome,
 	type BatchCheckInOutcome,
+	type CheckInCapability,
 	CheckInService,
 	type CheckInServiceOptions,
 	type CredentialHealthHooks,
+	type SelectedCheckInOutcome,
 	signedToday,
 } from "./checkin/service.ts";
 export {
@@ -129,6 +132,7 @@ export { describeUpstreamError, UpstreamHttpError } from "./common/upstream.ts";
 export { sha256Hex } from "./gateway/crypto-lite.ts";
 export {
 	type GenerationAttempt,
+	type GenerationAttemptContext,
 	type GenerationRequest,
 	RouteGeneration,
 	type RouteGenerationDeps,

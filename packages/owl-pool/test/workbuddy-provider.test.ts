@@ -48,6 +48,20 @@ describe("WorkBuddyCheckInProvider", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("配置判断遵循 accessToken 或允许的 authFile，不读取文件也不打上游", () => {
+		const { fetchImpl, requests } = stubFetch({});
+		const provider = new WorkBuddyCheckInProvider({ fetchImpl });
+		expect(provider.isConfigured(makeAccount({}))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ accessToken: " " }))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ accessToken: "$wbEncrypted:xxx" }))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ accessToken: "token" }))).toBe(true);
+		expect(
+			provider.isConfigured(makeAccount({ authFile: join(tmpdir(), "not-created", "workbuddy-desktop.info") })),
+		).toBe(true);
+		expect(provider.isConfigured(makeAccount({ authFile: join(tmpdir(), "secret.txt") }))).toBe(false);
+		expect(requests).toHaveLength(0);
+	});
+
 	it("查状态未签 → 领取成功（code 0 + credits）", async () => {
 		const { fetchImpl, requests } = stubFetch({
 			[STATUS_PATH]: JSON.stringify({ code: 1, message: "not checked in" }),

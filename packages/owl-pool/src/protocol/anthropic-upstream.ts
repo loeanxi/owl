@@ -39,6 +39,35 @@ function longValue(value: unknown): number {
 	return typeof value === "number" ? Math.trunc(value) : 0;
 }
 
+function usageCount(value: unknown): number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : -1;
+}
+
+/** Anthropic input is ordinary input; cache read/write are additional, disjoint input components. */
+function normalizedUsage(usage: Mapish, foldCacheTokens: boolean): Mapish | undefined {
+	if (usage.input_tokens === undefined || usage.output_tokens === undefined) return undefined;
+	const input = usageCount(usage.input_tokens);
+	const output = usageCount(usage.output_tokens);
+	const read = usage.cache_read_input_tokens === undefined ? undefined : usageCount(usage.cache_read_input_tokens);
+	const write =
+		usage.cache_creation_input_tokens === undefined ? undefined : usageCount(usage.cache_creation_input_tokens);
+	const allInput = input + (read ?? 0) + (write ?? 0);
+	const valid =
+		input >= 0 &&
+		output >= 0 &&
+		(read === undefined || read >= 0) &&
+		(write === undefined || write >= 0) &&
+		Number.isSafeInteger(allInput);
+	const prompt = foldCacheTokens ? (valid ? allInput : -1) : input;
+	return {
+		prompt_tokens: prompt,
+		completion_tokens: output,
+		total_tokens: valid && Number.isSafeInteger(prompt + output) ? prompt + output : -1,
+		...(read === undefined ? {} : { prompt_tokens_details: { cached_tokens: read } }),
+		...(write === undefined ? {} : { cache_creation_input_tokens: write }),
+	};
+}
+
 function flattenText(content: unknown): string | null {
 	if (content === null || content === undefined) {
 		return null;
@@ -174,8 +203,7 @@ export class AnthropicStreamDecoder {
 	#terminal = false;
 	#responseEvidence = false;
 	#finished = false;
-	#inputTokens = 0;
-	#outputTokens = 0;
+	readonly #usage: Mapish = {};
 
 	constructor(model: string, consumer: (chunkJson: string) => void, options: AnthropicUpstreamMapperOptions) {
 		this.#model = model;
@@ -202,8 +230,7 @@ export class AnthropicStreamDecoder {
 		switch (type) {
 			case "message_start": {
 				if (isMap(event.message) && isMap(event.message.usage)) {
-					this.#inputTokens = longValue(event.message.usage.input_tokens);
-					this.#outputTokens = longValue(event.message.usage.output_tokens);
+					this.#observeUsage(event.message.usage);
 				}
 				break;
 			}
@@ -269,8 +296,7 @@ export class AnthropicStreamDecoder {
 					this.#responseEvidence = true;
 				}
 				if (isMap(event.usage)) {
-					this.#inputTokens = Math.max(this.#inputTokens, longValue(event.usage.input_tokens));
-					this.#outputTokens = Math.max(this.#outputTokens, longValue(event.usage.output_tokens));
+					this.#observeUsage(event.usage);
 				}
 				break;
 			}
@@ -308,12 +334,22 @@ export class AnthropicStreamDecoder {
 		const effective = this.#finishReason === "stop" && this.#sawToolUse ? "tool_calls" : this.#finishReason;
 		const chunk: Mapish = this.#baseChunk();
 		chunk.choices = [{ index: 0, delta: {}, finish_reason: effective }];
-		chunk.usage = {
-			prompt_tokens: this.#inputTokens,
-			completion_tokens: this.#outputTokens,
-			total_tokens: this.#inputTokens + this.#outputTokens,
-		};
+		const usage = normalizedUsage(this.#usage, this.#options.foldCacheTokens ?? false);
+		if (usage === undefined) chunk.usage_source = "UNKNOWN";
+		else chunk.usage = usage;
 		this.#consumer(JSON.stringify(chunk));
+	}
+
+	#observeUsage(usage: Mapish): void {
+		for (const field of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
+			if (!(field in usage)) continue;
+			const next = usageCount(usage[field]);
+			const previous = this.#usage[field];
+			this.#usage[field] =
+				next < 0 || (previous !== undefined && usageCount(previous) < 0)
+					? -1
+					: Math.max(typeof previous === "number" ? previous : 0, next);
+		}
 	}
 
 	#emit(fill: (delta: Mapish) => void): void {
@@ -508,13 +544,14 @@ export class AnthropicUpstreamMapper {
 		if (toolCalls.length > 0) {
 			message.tool_calls = toolCalls;
 		}
+		const usage = this.#openAiUsage(anthropic.usage);
 		return {
 			id: `chatcmpl_${randomUUID().replaceAll("-", "")}`,
 			object: "chat.completion",
 			created: Math.floor(Date.now() / 1000),
 			model: String(anthropic.model ?? "unknown"),
 			choices: [{ index: 0, message, finish_reason: finish }],
-			usage: this.#openAiUsage(anthropic.usage),
+			...(usage === undefined ? { usage_source: "UNKNOWN" } : { usage }),
 		};
 	}
 
@@ -558,24 +595,8 @@ export class AnthropicUpstreamMapper {
 		return new UpstreamException(kind, text);
 	}
 
-	#openAiUsage(anthropicUsage: unknown): Mapish {
-		let input = 0;
-		let output = 0;
-		if (isMap(anthropicUsage)) {
-			input = longValue(anthropicUsage.input_tokens);
-			output = longValue(anthropicUsage.output_tokens);
-			if (this.#options.foldCacheTokens) {
-				// Anthropic input_tokens 不含缓存分量；内部只按 prompt/completion 记账
-				input +=
-					longValue(anthropicUsage.cache_creation_input_tokens) +
-					longValue(anthropicUsage.cache_read_input_tokens);
-			}
-		}
-		return {
-			prompt_tokens: input,
-			completion_tokens: output,
-			total_tokens: input + output,
-		};
+	#openAiUsage(anthropicUsage: unknown): Mapish | undefined {
+		return normalizedUsage(isMap(anthropicUsage) ? anthropicUsage : {}, this.#options.foldCacheTokens ?? false);
 	}
 
 	/** 非流式 thinking 内容块 → reasoning 文本（Claude 叠加，ZCode 默认不透出）。 */

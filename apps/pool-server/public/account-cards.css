@@ -1,0 +1,34 @@
+/* Platform balances share the account table's palette and remain independent. */
+.account-categories { margin: 4px 0 0; gap: 10px; }
+.account-categories button.chip { min-height: 40px; padding: 8px 16px; }
+.account-balance-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.account-balance-head .hint { margin: 0; color: var(--ink-2); }
+.account-platform-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; }
+button.account-platform-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 18px; text-align: left; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; font: inherit; transition: background-color .18s ease-out, border-color .18s ease-out; }
+button.account-platform-card:hover { background: var(--surface-2); border-color: var(--accent-2); }
+button.account-platform-card.active { border-color: var(--accent-2); background: var(--accent-soft); }
+.account-platform-card-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
+.account-platform-name { font-size: 16px; font-weight: 600; }
+.account-platform-count { color: var(--ink-2); font-size: 12px; }
+.account-platform-metrics { display: grid; gap: 8px; }
+.account-platform-metric { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; }
+.account-platform-metric-label { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.account-platform-metric-value { color: var(--accent-2); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.account-platform-note { display: block; color: var(--ink-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.account-platform-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.account-platform-footer .account-platform-note + .account-platform-note { margin-top: 3px; }
+.account-platform-empty { grid-column: 1 / -1; padding: 18px 0; margin: 0; color: var(--ink-2); }
+.account-list-toolbar .search { min-width: 180px; max-width: 100%; }
+.account-list-summary { margin: -6px 0; color: var(--ink-2); }
+#view-accounts button:focus-visible, #view-accounts input:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+#view-accounts button.chip.active { box-shadow: none; }
+@media (max-width: 700px) {
+  .account-platform-cards { grid-template-columns: minmax(0, 1fr); }
+  .account-categories { gap: 6px; }
+  .account-categories button.chip { padding: 8px 12px; }
+  .account-list-toolbar .search { margin-left: 0; width: 100%; }
+  #view-accounts .page-actions { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.account-platform-card { transition: none; }
+}

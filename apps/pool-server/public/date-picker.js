@@ -86,7 +86,7 @@
     });
 
     document.addEventListener("pointerdown", (e) => {
-      if (!panel.hidden && active && !panel.contains(e.target) && e.target !== active.input) {
+      if (panel && !panel.hidden && active && !panel.contains(e.target) && e.target !== active.input) {
         active.close(false);
       }
     }, true);
@@ -115,6 +115,7 @@
     }
 
     open() {
+      ensurePanel();
       if (active && active !== this) active.close(false);
       active = this;
       const cur = parseValue(this.input.value);

@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { mkdir, rm } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { AsyncQueue, BridgeError } from './runtime.mjs';
 import { imageBlocks, nativeToolResult } from './content.mjs';
@@ -25,9 +26,18 @@ function cursorUserIdFromAccessToken(accessToken){
   return match[0];
 }
 
-/** WorkosCursorSessionToken cookie value: `{userId}%3A%3A{accessToken}` (browser shape). */
-function cursorSessionCookie(accessToken){
-  return `WorkosCursorSessionToken=${cursorUserIdFromAccessToken(accessToken)}%3A%3A${accessToken}`;
+/** Accept an account JWT, browser cookie value, or named session cookie. */
+function cursorSessionCredential(session){
+  let value=String(session).trim();
+  if(/[\r\n]/.test(value))throw new BridgeError('INVALID_CREDENTIAL','Cursor session must be a single value');
+  const named=value.match(/(?:^|;\s*)WorkosCursorSessionToken=([^;]+)/);
+  if(named)value=named[1];
+  try{value=decodeURIComponent(value);}catch{throw new BridgeError('INVALID_CREDENTIAL','Cursor session cookie is malformed');}
+  const separator=value.indexOf('::');
+  const accessToken=separator<0?value:value.slice(separator+2);
+  const userId=cursorUserIdFromAccessToken(accessToken);
+  if(separator>=0&&value.slice(0,separator)!==userId)throw new BridgeError('INVALID_CREDENTIAL','Cursor session cookie identity is inconsistent');
+  return {accessToken,cookie:`WorkosCursorSessionToken=${userId}%3A%3A${accessToken}`};
 }
 
 /** The one desktop-app state DB path candidate that exists, or null. */
@@ -46,7 +56,6 @@ async function desktopCursorAccessToken(userHome){
   const dbPath=cursorDesktopStateDb(userHome);
   if(!dbPath)return null;
   try{
-    const {DatabaseSync}=await import('node:sqlite');
     const db=new DatabaseSync(dbPath,{readOnly:true});
     try{
       const row=db.prepare("SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'").get();
@@ -66,7 +75,7 @@ async function cursorUsageSummary(accessToken){
       headers:{
         Accept:'*/*',
         'Accept-Language':'en-US,en;q=0.9',
-        Cookie:cursorSessionCookie(accessToken),
+        Cookie:cursorSessionCredential(accessToken).cookie,
         Referer:'https://www.cursor.com/settings',
         'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
@@ -91,6 +100,32 @@ async function cursorUsageSummary(accessToken){
     if(error?.name==='AbortError')throw new BridgeError('UPSTREAM_UNAVAILABLE','Cursor usage-summary timed out',true);
     throw new BridgeError('UPSTREAM_UNAVAILABLE','Cursor usage-summary request failed',true);
   }finally{clearTimeout(timer);}
+}
+
+/** Read-only identity RPC from the official desktop AuthService.GetUserMeta contract. */
+async function cursorSessionIdentity(session){
+  const {accessToken}=cursorSessionCredential(session);
+  try{
+    const response=await fetch('https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta',{
+      method:'POST',body:'{}',signal:AbortSignal.timeout(15000),
+      headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json','Connect-Protocol-Version':'1'},
+    });
+    if(response.status===401||response.status===403)throw new BridgeError('AUTH_REQUIRED','Cursor web session is unavailable');
+    if(!response.ok)throw new BridgeError('UPSTREAM_UNAVAILABLE','Cursor session identity request failed',true);
+    return await response.json();
+  }catch(error){
+    if(error instanceof BridgeError)throw error;
+    throw new BridgeError('UPSTREAM_UNAVAILABLE','Cursor session identity request failed',true);
+  }
+}
+
+function cursorIdentityMatches(account,session){
+  const id=value=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?String(value):typeof value==='string'&&/^\d+$/.test(value.trim())?value.trim():null;
+  const accountId=id(account.userId),sessionId=id(session.userId??session.user_id);
+  if(accountId!==null&&sessionId!==null)return accountId===sessionId;
+  const email=value=>typeof value==='string'&&value.trim()?value.trim().toLowerCase():null;
+  const accountEmail=email(account.userEmail),sessionEmail=email(session.email);
+  return accountEmail!==null&&sessionEmail!==null?accountEmail===sessionEmail:null;
 }
 
 const qoderSelectors=new Set(['auto','default','ultimate','performance','balanced','economy','efficient','fast','premium','smart-routing']);
@@ -123,21 +158,46 @@ function qoderModelRow(model){
 export class CursorProvider {
   /** @param {any} runtime @param {typeof import('@cursor/sdk')} sdk */
   constructor(runtime,sdk){this.rt=runtime;this.sdk=sdk;this.models=[];}
-  async status(){const x=await this.sdk.Cursor.auth.status({store:new this.sdk.FileCredentialStore(path.join(this.rt.authHome,'.cursor','sdk','auth.json'))});
-    if(this.rt.env.CURSOR_API_KEY){const u=await this.sdk.Cursor.me({apiKey:this.rt.env.CURSOR_API_KEY});return {authenticated:true,label:u.userEmail??u.apiKeyName,message:'Credential verified by Cursor'};}
-    return {authenticated:x.status==='logged-in',label:x.status==='logged-in'?(x.email??''):'',message:x.status};}
+  async accountIdentity(){
+    const explicit=this.rt.env.CURSOR_API_KEY?.trim();
+    const stored=explicit?undefined:await new this.sdk.FileCredentialStore(path.join(this.rt.authHome,'.cursor','sdk','auth.json')).load();
+    if(!explicit&&(!stored?.apiKey||stored.apiKeyExpiresAtMs!==undefined&&stored.apiKeyExpiresAtMs<=Date.now()))return null;
+    const user=await this.sdk.Cursor.me({apiKey:explicit||stored.apiKey});
+    return {user,credentialSource:explicit?'ACCOUNT_TOKEN':'ACCOUNT_HOME'};
+  }
+  async status(){
+    const identity=await this.accountIdentity();
+    if(!identity)return {authenticated:false,sdkAuthenticated:false,label:'',message:'Cursor SDK sign-in required'};
+    return {authenticated:true,sdkAuthenticated:true,credentialSource:identity.credentialSource,
+      label:identity.user.userEmail??identity.user.apiKeyName,message:'Credential verified by Cursor'};
+  }
   async login(ctx){const result=await this.sdk.Cursor.auth.login({openBrowser:false,onLoginUrl:url=>ctx.emit({event:'auth_url',url}),signal:ctx.signal,store:new this.sdk.FileCredentialStore(path.join(this.rt.authHome,'.cursor','sdk','auth.json'))});
     await this.rt.refreshAuth();this.rt.env.CURSOR_API_KEY=result.apiKey;process.env.CURSOR_API_KEY=result.apiKey;return {...await this.status(),credentialSource:'ACCOUNT_HOME'};}
   async catalog(){this.models=await this.sdk.Cursor.models.list({apiKey:this.rt.env.CURSOR_API_KEY});return this.models.map(m=>modelRow(m.id,m.displayName,{reasoningEfforts:m.parameters?.find(p=>/reasoning|effort/i.test(p.id))?.values.map(v=>v.value)??null}));}
   async quota(){
-    // Account-pasted token wins for pool isolation; desktop login is the zero-config
-    // fallback. Both work without this account's own SDK login, so try them first.
-    const accessToken=this.rt.sessionToken||await desktopCursorAccessToken(this.rt.userHome);
-    if(accessToken)return cursorUsageSummary(accessToken);
-    const status=await this.status();
-    if(!status.authenticated)throw new BridgeError('AUTH_REQUIRED','Cursor sign-in required');
-    // The public SDK reports per-agent usage, not the two account spending pools.
-    return {source:'CURSOR_DASHBOARD_ONLY',dashboardUrl:'https://cursor.com/dashboard/spending'};
+    // Model API-key health and web-session quota access are separate credentials.
+    // A local desktop session is usable only after both upstream identities match.
+    let identity;
+    try{identity=await this.accountIdentity();}catch{identity=null;}
+    const sdkAuthenticated=identity!==null;
+    const dashboard=(quotaReason,credentialSource=identity?.credentialSource)=>({
+      source:'CURSOR_DASHBOARD_ONLY',dashboardUrl:'https://cursor.com/dashboard/spending',
+      sdkAuthenticated,quotaReason,...(credentialSource?{credentialSource}:{}),
+    });
+    if(!this.rt.sessionToken&&!identity)return dashboard('SDK_AUTH_REQUIRED');
+    const session=this.rt.sessionToken||await desktopCursorAccessToken(this.rt.userHome);
+    const credentialSource=this.rt.sessionToken?'ACCOUNT_SESSION':'LOCAL_DESKTOP';
+    if(!session)return dashboard('SESSION_REQUIRED');
+    try{
+      if(identity){
+        const sessionIdentity=await cursorSessionIdentity(session);
+        const matches=cursorIdentityMatches(identity.user,sessionIdentity);
+        if(matches!==true)return dashboard(matches===false?'ACCOUNT_MISMATCH':'IDENTITY_UNAVAILABLE',credentialSource);
+      }
+      return {...await cursorUsageSummary(session),credentialSource,sdkAuthenticated};
+    }catch(error){
+      return dashboard(error?.code==='AUTH_REQUIRED'?'SESSION_REQUIRED':error?.code==='INVALID_CREDENTIAL'?'SESSION_INVALID':'QUOTA_UNAVAILABLE',credentialSource);
+    }
   }
   async chat(p,ctx){
     let params;
@@ -187,7 +247,19 @@ export class CopilotProvider {
     // The CLI currently caches account.getQuota for its process lifetime. A short
     // read-only client gets a fresh account snapshot without interrupting chats.
     const reader=new this.sdk.CopilotClient(this.clientOptions());
-    try {await reader.start();return await reader.rpc.account.getQuota(this.rt.env.COPILOT_GITHUB_TOKEN?{gitHubToken:this.rt.env.COPILOT_GITHUB_TOKEN}:{});}
+    try {
+      await reader.start();
+      const auth=await reader.getAuthStatus();
+      const quota=await reader.rpc.account.getQuota(this.rt.env.COPILOT_GITHUB_TOKEN?{gitHubToken:this.rt.env.COPILOT_GITHUB_TOKEN}:{});
+      // Project only verified identity and the quota pools. Local gh CLI auth can
+      // succeed even with an empty account home; make that provenance explicit.
+      const login=typeof auth.login==='string'?auth.login.trim():'';
+      const identity=auth.isAuthenticated===true&&login?{
+        authenticated:true,accountLogin:login,
+        credentialSource:this.rt.env.COPILOT_GITHUB_TOKEN?'ACCOUNT_TOKEN':auth.authType==='gh-cli'?'LOCAL_GH':'ACCOUNT_HOME',
+      }:{};
+      return {quotaSnapshots:quota.quotaSnapshots,...identity};
+    }
     finally {await reader.stop();}
   }
   async chat(p,ctx){

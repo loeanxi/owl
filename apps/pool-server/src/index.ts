@@ -2,10 +2,10 @@
  * pool-server 入口 —— 装配领域层与管理端鉴权栈/HTTP/存储/定时器。
  * 运行：`node dist/main.js`（esbuild 产物）或 `npm run dev`（Node 类型剥离直跑 src）。
  */
-import { mkdirSync, existsSync as pathExists, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, resolve as pathResolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { Platform, UpstreamChatClient } from "owl-pool";
 import {
 	AccountPoolRouter,
@@ -23,6 +23,7 @@ import { ClaudeOauthLogin } from "./account/claude-oauth.ts";
 import { refreshCredit } from "./account/credits.ts";
 import { AccountLoginService } from "./account/login.ts";
 import { pingAccount } from "./account/ping.ts";
+import { QoderCheckInProvider } from "./account/qoder-checkin.ts";
 import { probeAccount } from "./catalog/discovery.ts";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
@@ -31,8 +32,10 @@ import { CodexChatClient } from "./gateway/codex-client.ts";
 import { ContinuationRegistry } from "./gateway/continuation.ts";
 import { GeminiChatClient } from "./gateway/gemini-client.ts";
 import { GrokUpstreamClient } from "./gateway/grok-client.ts";
+import { GatewayLifecycle } from "./gateway/lifecycle.ts";
 import { MimoChatClient, MimoServeManager } from "./gateway/mimo-client.ts";
 import { SdkBridgeChatClient, SdkBridgeManager } from "./gateway/sdk-bridge.ts";
+import { resolveSdkBridgeScript } from "./gateway/sdk-bridge-entry.ts";
 import type { GatewayServiceDeps } from "./gateway/service.ts";
 import { TraeChatClient } from "./gateway/trae-client.ts";
 import { WorkBuddyChatClient } from "./gateway/workbuddy-client.ts";
@@ -66,19 +69,6 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	const db = openDb(dbFile);
 	const accounts = new SqliteAccountStore(db);
 	const records = new SqliteCheckInRecordStore(db);
-	const checkin = new CheckInService({
-		accounts,
-		records,
-		providers: [
-			new WorkBuddyCheckInProvider({
-				baseUrl: config.workbuddyBaseUrl,
-				authFileRoots: config.workbuddyAuthFileRoots,
-			}),
-			new TraeCheckInProvider({ baseUrl: config.traeBaseUrl }),
-		],
-		newId: newRecordId,
-	});
-
 	// 管理端鉴权栈（阶段 2）：口令/会话/锁定/守卫
 	const adminService = new AdminAuthService({
 		config: config.admin,
@@ -103,6 +93,17 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	const callLogs = new SqliteCallLogStore(db);
 	const billingStore = new SqliteBillingStore(db);
 	const billing = new BillingService({ store: billingStore });
+	const gatewayLifecycle = new GatewayLifecycle();
+	// Never credit legacy/unlinked holds based on age or missing usage alone.
+	billing.sweepStale();
+	const billingJanitor = setInterval(() => {
+		try {
+			billing.sweepStale(gatewayLifecycle.activeCallIds());
+		} catch (error) {
+			console.error(`[pool-server] 计费待核对检查失败: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}, 60_000);
+	billingJanitor.unref();
 	const gatewayState = new MemoryGatewayState();
 	const poolRouter = new AccountPoolRouter({
 		accounts,
@@ -124,6 +125,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		label: "ZCode",
 		anthropicVersion: config.gateway.zcode.anthropicVersion,
 		defaultMaxTokens: config.gateway.zcode.defaultMaxTokens,
+		foldCacheTokens: true,
 		timeoutMs: config.gateway.upstreamTimeoutMs,
 	});
 	upstreams.set(zcode.platform(), zcode);
@@ -154,7 +156,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			userAgent: config.gateway.workbuddy.userAgent,
 			origin: config.gateway.workbuddy.origin,
 			referer: config.gateway.workbuddy.referer,
-			timeoutMs: config.gateway.upstreamTimeoutMs,
+			timeoutMs: config.gateway.workbuddy.timeoutMs,
+			streamIdleTimeoutMs: config.gateway.workbuddy.streamIdleTimeoutMs,
+			streamMaxDurationMs: config.gateway.workbuddy.streamMaxDurationMs,
 		},
 		authFileRoots: config.workbuddyAuthFileRoots,
 		supportsModel: (account, model) => workBuddySupports(db, account.id, model),
@@ -187,17 +191,30 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		allAccounts: () => accounts.list(),
 	});
 	upstreams.set(mimoClient.platform(), mimoClient);
-	const codex = new CodexChatClient();
+	const codex = new CodexChatClient({
+		homeRoot: pathResolve(config.gateway.codex.homeRoot),
+		executable: config.gateway.codex.executable,
+	});
 	upstreams.set(codex.platform(), codex);
-	// SDK 桥（CURSOR/COPILOT/QODER）：脚本路径对 cwd / src / dist 三种深度解析
-	const bridgeScriptCandidates = [
-		pathResolve(config.gateway.bridge.script),
-		pathResolve(pathResolve(), "../bridge/src/main.mjs"),
-		fileURLToPath(new URL("../../bridge/src/main.mjs", import.meta.url)),
-	];
-	const bridgeScript =
-		bridgeScriptCandidates.find((candidate) => pathExists(candidate)) ?? config.gateway.bridge.script;
+	// 默认桥入口随当前源码/编译入口解析，显式配置保留自己的路径。
+	const bridgeScript = resolveSdkBridgeScript(config.gateway.bridge.script, import.meta.url);
 	const bridgeManager = new SdkBridgeManager({ ...config.gateway.bridge, script: bridgeScript }, accounts);
+	const checkin = new CheckInService({
+		accounts,
+		records,
+		providers: [
+			new WorkBuddyCheckInProvider({
+				baseUrl: config.workbuddyBaseUrl,
+				authFileRoots: config.workbuddyAuthFileRoots,
+			}),
+			new TraeCheckInProvider({ baseUrl: config.traeBaseUrl }),
+			new QoderCheckInProvider(async (account) => {
+				const client = await bridgeManager.clientFor(account);
+				return client.request("checkin", {}, 60_000);
+			}),
+		],
+		newId: newRecordId,
+	});
 	for (const bridgePlatform of ["CURSOR", "COPILOT", "QODER"] as const) {
 		const bridgeClient = new SdkBridgeChatClient(bridgeManager, accounts, bridgePlatform, {
 			...config.gateway.bridge,
@@ -206,7 +223,11 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		upstreams.set(bridgeClient.platform(), bridgeClient);
 	}
 	const continuation = new ContinuationRegistry();
-	const concurrency = new MemberConcurrencyService(new SqliteMemberStore(db));
+	const concurrency = new MemberConcurrencyService(new SqliteMemberStore(db), {
+		defaultLimit: config.memberConcurrency.defaultLimit,
+		maxWaiting: config.memberConcurrency.maxWaiting,
+		waitMillis: config.memberConcurrency.waitMillis,
+	});
 	const claudeOauth = new ClaudeOauthLogin(accounts, {
 		clientId: config.gateway.claude.oauthClientId,
 		tokenUrl: config.gateway.claude.oauthTokenUrl,
@@ -270,6 +291,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		trustedProxyCount: config.trustedProxyCount,
 		continuation,
 		concurrency,
+		lifecycle: gatewayLifecycle,
 	};
 
 	const server = createPoolServer({
@@ -281,6 +303,10 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		admin,
 		gateway: { gateway: gatewayDeps, gatewayConfig: config.gateway },
 		refreshCredit: (account) => refreshCredit(accounts, account, creditHooks),
+		probeCredential: async (account) => {
+			if (account.platform !== "CURSOR") return null;
+			return (await bridgeManager.clientFor(account)).request("auth_status", {}, 20_000);
+		},
 		pingAccount: (account) => pingAccount(account, pingHooks),
 		login,
 		concurrency,
@@ -308,15 +334,25 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 
 	console.log(`owl pool-server listening on http://${config.host}:${config.port}（db: ${dbFile}）`);
 
-	const shutdown = (signal: string) => {
+	let shuttingDown = false;
+	const shutdown = async (signal: string) => {
+		if (shuttingDown) return;
+		shuttingDown = true;
 		console.log(`[pool-server] 收到 ${signal}，退出`);
 		scheduler.stop();
+		clearInterval(billingJanitor);
 		server.close();
+		const drained = await gatewayLifecycle.drain(3000);
+		if (!drained) console.warn("[pool-server] 等待中的调用尚未结束；已保留未确定计费的预占待核对");
+		bridgeManager.stop();
+		mimoManager.stop();
+		server.closeAllConnections();
 		db.close();
-		process.exit(0);
+		process.exitCode = 0;
+		if (!drained) setTimeout(() => process.exit(0), 100).unref();
 	};
-	process.once("SIGINT", () => shutdown("SIGINT"));
-	process.once("SIGTERM", () => shutdown("SIGTERM"));
+	process.once("SIGINT", () => void shutdown("SIGINT"));
+	process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 function scheduleBackups(db: DatabaseSync, dir: string): void {

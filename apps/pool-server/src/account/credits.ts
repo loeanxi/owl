@@ -5,6 +5,9 @@
 import type { Account, AccountStore } from "owl-pool";
 import { parseCredentials, UpstreamException } from "owl-pool";
 import { workBuddyToken } from "../catalog/workbuddy-catalog.ts";
+import { queryMimoQuota } from "./mimo-quota.ts";
+import { qoderQuotaPersonalToken, queryQoderQuota } from "./qoder-quota.ts";
+import { queryZcodeQuota } from "./zcode-quota.ts";
 
 export const UNLIMITED_NOTE = "积分池不限量";
 
@@ -29,6 +32,8 @@ export interface CreditSnapshot {
 	message: string;
 	buckets: CreditBucket[];
 	authRejected?: boolean;
+	authAccepted?: boolean;
+	availability?: "UNAVAILABLE";
 }
 
 export interface CreditHooks {
@@ -83,12 +88,15 @@ export async function query(account: Account, hooks: CreditHooks): Promise<Credi
 			return queryWorkBuddy(account, hooks);
 		case "CODEX":
 			return hooks.codexQuota !== undefined ? hooks.codexQuota(account) : fail("Codex 额度查询尚未接入");
+		case "ZCODE":
+			return queryZcodeQuota(account, hooks.fetchImpl);
 		case "MIMO":
-			return queryMimo(account, hooks);
+			return queryMimoQuota();
 		case "CURSOR":
 		case "COPILOT":
-		case "QODER":
 			return querySdk(account, hooks);
+		case "QODER":
+			return queryQoder(account, hooks);
 		case "CLAUDE":
 			return queryClaude(account, hooks);
 		default:
@@ -101,12 +109,20 @@ function persist(accounts: AccountStore, account: Account, snapshot: CreditSnaps
 	return accounts.patchState(account.id, {
 		credits: snapshot.credits,
 		creditsLabel: snapshot.label,
-		creditsStatus: snapshot.ok ? "OK" : "FAIL",
+		creditsStatus: snapshot.availability === "UNAVAILABLE" ? "UNAVAILABLE" : snapshot.ok ? "OK" : "FAIL",
 		creditsMessage: message,
 		creditsDetails: snapshot.buckets.length > 0 ? JSON.stringify(snapshot.buckets) : null,
 		creditsUpdatedAt: Date.now(),
 		...(snapshot.authRejected
 			? { credentialStatus: "EXPIRED" as const, credentialMessage: message, credentialCheckedAt: Date.now() }
+			: {}),
+		...(snapshot.authAccepted
+			? {
+					credentialStatus: "OK" as const,
+					credentialMessage:
+						account.platform === "CURSOR" ? "Cursor 官方 SDK 授权有效，额度会话单独验证" : "额度接口已验证登录",
+					credentialCheckedAt: Date.now(),
+				}
 			: {}),
 	});
 }
@@ -182,15 +198,12 @@ async function queryWorkBuddy(account: Account, hooks: CreditHooks): Promise<Cre
 	}
 }
 
-async function queryMimo(account: Account, hooks: CreditHooks): Promise<CreditSnapshot> {
-	if (hooks.mimoPing === undefined) {
-		return fail("MiMo 连通性检查尚未接入");
-	}
+async function queryQoder(account: Account, hooks: CreditHooks): Promise<CreditSnapshot> {
 	try {
-		await hooks.mimoPing(account);
-		return ok(null, "订阅套餐");
+		const token = qoderQuotaPersonalToken(parseCredentials(account));
+		return token === null ? querySdk(account, hooks) : qoderQuota(await queryQoderQuota(token, hooks.fetchImpl));
 	} catch (error) {
-		return fail(error instanceof Error ? error.message : "MiMo 连通失败");
+		return fail(error instanceof Error ? error.message : "Qoder CN 额度查询失败");
 	}
 }
 
@@ -358,16 +371,23 @@ export function extractUserResource(node: unknown): CreditSnapshot {
 
 export function cursorQuota(response: Record<string, unknown>): CreditSnapshot {
 	const source = text(response.source);
+	const authAccepted = response.sdkAuthenticated === true;
 	const plan = isRecord(response.plan) ? response.plan : null;
 	if (source === "CURSOR_USAGE_SUMMARY" && plan !== null && Object.keys(plan).length > 0) {
 		const used = numberOf(plan.used);
-		const breakdown = isRecord(plan.breakdown) ? plan.breakdown : null;
-		const totalPool = breakdown !== null ? (numberOf(breakdown.total) ?? numberOf(plan.limit)) : numberOf(plan.limit);
-		const remaining = totalPool === null || used === null ? numberOf(plan.remaining) : Math.max(0, totalPool - used);
+		const totalPool = numberOf(plan.limit);
+		const remaining =
+			numberOf(plan.remaining) ?? (totalPool === null || used === null ? null : Math.max(0, totalPool - used));
 		const totalPercent = numberOf(plan.totalPercentUsed);
-		const remainingPercent = totalPercent === null ? null : Math.max(0, 100 - totalPercent);
+		const remainingPercent =
+			remaining !== null && totalPool !== null && totalPool > 0
+				? Math.max(0, Math.min(100, (remaining / totalPool) * 100))
+				: totalPercent === null
+					? null
+					: Math.max(0, 100 - totalPercent);
 		const membership = text(response.membershipType)?.toUpperCase() ?? "";
 		const auto = numberOf(plan.autoPercentUsed);
+		const sourceNote = response.credentialSource === "LOCAL_DESKTOP" ? "使用本机 Cursor 当前登录账户的额度" : "";
 		const note = `${membership.length > 0 ? `${membership} 订阅额度` : "订阅额度"}${auto === null ? "" : ` · Auto 已用 ${auto}%`}`;
 		const buckets: CreditBucket[] = [
 			bucket(
@@ -382,6 +402,21 @@ export function cursorQuota(response: Record<string, unknown>): CreditSnapshot {
 				note,
 			),
 		];
+		if (totalPercent !== null) {
+			buckets.push(
+				bucket(
+					"cursor_total_percent",
+					"本周期额度剩余比例",
+					totalPercent,
+					100,
+					Math.max(0, Math.min(100, 100 - totalPercent)),
+					Math.max(0, Math.min(100, 100 - totalPercent)),
+					"%",
+					text(response.billingCycleEnd),
+					"按平台返回的本周期使用率计算，与数值余额分别展示",
+				),
+			);
+		}
 		const onDemand = isRecord(response.onDemand) ? response.onDemand : null;
 		if (onDemand?.enabled === true) {
 			const odTotal = numberOf(onDemand.limit);
@@ -392,11 +427,12 @@ export function cursorQuota(response: Record<string, unknown>): CreditSnapshot {
 					"按需付费",
 					odUsed,
 					odTotal,
-					odTotal === null || odUsed === null ? numberOf(onDemand.remaining) : Math.max(0, odTotal - odUsed),
+					numberOf(onDemand.remaining) ??
+						(odTotal === null || odUsed === null ? null : Math.max(0, odTotal - odUsed)),
 					null,
-					"USD",
+					text(onDemand.unit) ?? "",
 					null,
-					"按需付费（用量计费）",
+					"按需付费用量；未标明计量单位时请以平台控制台为准",
 				),
 			);
 		}
@@ -404,23 +440,32 @@ export function cursorQuota(response: Record<string, unknown>): CreditSnapshot {
 			ok: true,
 			credits: null,
 			label: membership.length > 0 ? `Cursor ${membership} 额度` : "Cursor 订阅额度",
-			message: "",
+			message: sourceNote,
 			buckets,
+			authAccepted,
 		};
 	}
 	if (source !== "CURSOR_DASHBOARD_ONLY") {
 		return fail("Cursor 未返回额度来源");
 	}
-	const note = "未找到可用的 Cursor 会话：重新登录桌面端，或在账号凭证中粘贴 sessionToken；也可在 Spending 页面查看";
+	const quotaReason = text(response.quotaReason) ?? "SESSION_REQUIRED";
+	const notes: Record<string, string> = {
+		ACCOUNT_MISMATCH:
+			"官方 SDK 授权有效，但桌面 Cursor 登录的是另一个账号。请为当前账号提供匹配的网页 sessionToken，或到额度控制台查看。",
+		SESSION_REQUIRED: "当前账号缺少可用的网页额度会话。请更新匹配的 sessionToken，或到额度控制台查看。",
+		SDK_AUTH_REQUIRED: "当前账号尚未完成 SDK 授权，请先登录 / 重新授权。",
+		IDENTITY_UNAVAILABLE: "暂时无法确认额度会话是否属于当前账号，未读取其它账号的额度。",
+		SESSION_INVALID: "当前网页会话格式无效，请更新 sessionToken。",
+		QUOTA_UNAVAILABLE: "Cursor 额度服务暂时不可用，请稍后重试。SDK 登录状态单独检查。",
+	};
 	return {
-		ok: true,
+		ok: false,
 		credits: null,
-		label: "Cursor 双池额度",
-		message: note,
-		buckets: [
-			bucket("cursor_models", "Cursor Models", null, null, null, null, "USD", null, note),
-			bucket("other_models", "Other Models", null, null, null, null, "USD", null, note),
-		],
+		label: `CURSOR_${quotaReason}`,
+		message: notes[quotaReason] ?? notes.QUOTA_UNAVAILABLE,
+		buckets: [],
+		availability: "UNAVAILABLE",
+		authAccepted,
 	};
 }
 
@@ -430,6 +475,10 @@ export function copilotQuota(response: Record<string, unknown>): CreditSnapshot 
 		return fail("Copilot 未返回账户额度；请检查账号授权");
 	}
 	const buckets: CreditBucket[] = [];
+	const login = text(response.accountLogin);
+	const authenticated = response.authenticated === true && login !== null;
+	const sourceNote =
+		authenticated && response.credentialSource === "LOCAL_GH" ? `使用本机 GitHub CLI 已登录账号 ${login} 的额度` : "";
 	for (const [key, value] of Object.entries(snapshots)) {
 		if (!isRecord(value)) {
 			continue;
@@ -459,7 +508,7 @@ export function copilotQuota(response: Record<string, unknown>): CreditSnapshot 
 				total === null || used === null ? null : Math.max(0, total - used),
 				numberOf(value.remainingPercentage),
 				"次",
-				null,
+				text(value.resetDate) ?? text(response.resetDate),
 				unlimited ? "不限量" : null,
 				unlimited,
 			),
@@ -467,7 +516,14 @@ export function copilotQuota(response: Record<string, unknown>): CreditSnapshot 
 	}
 	return buckets.length === 0
 		? fail("Copilot 额度数据为空")
-		: { ok: true, credits: null, label: "Copilot 账户额度", message: "", buckets };
+		: {
+				ok: true,
+				credits: null,
+				label: "Copilot 账户额度",
+				message: sourceNote,
+				buckets,
+				authAccepted: authenticated,
+			};
 }
 
 export function qoderQuota(response: Record<string, unknown>): CreditSnapshot {

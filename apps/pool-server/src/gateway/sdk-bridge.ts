@@ -26,7 +26,7 @@ import { type BridgeEvent, SdkRuntimeClient } from "./sdk-runtime.ts";
 
 export interface SdkBridgeConfig {
 	nodeExecutable: string;
-	/** bridge/src/main.mjs 路径。 */
+	/** bridge/main.mjs 路径。 */
 	script: string;
 	/** 账号隔离根目录。 */
 	homeRoot: string;
@@ -170,8 +170,12 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		return this.#platform;
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const { body } = await aggregateStreamToCompletion(this, account, payload);
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
+		const { body } = await aggregateStreamToCompletion(this, account, payload, signal);
 		return body;
 	}
 
@@ -179,19 +183,25 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
 		const id = segmentId();
 		let roleSent = false;
 		const sendDelta = (delta: Record<string, unknown>, finishReason: string | null = null): void => {
 			onChunk(JSON.stringify(chunkOf(id, payload.model, delta, finishReason)));
 		};
-		const segment = await this.awaitTurn(account, payload, (text) => {
-			if (!roleSent) {
-				roleSent = true;
-				sendDelta({ role: "assistant" });
-			}
-			sendDelta({ content: text });
-		});
+		const segment = await this.awaitTurn(
+			account,
+			payload,
+			(text) => {
+				if (!roleSent) {
+					roleSent = true;
+					sendDelta({ role: "assistant" });
+				}
+				sendDelta({ content: text });
+			},
+			signal,
+		);
 		if (!roleSent) {
 			sendDelta({ role: "assistant" });
 		}
@@ -215,13 +225,16 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onText: (text: string) => void,
+		signal?: AbortSignal,
 	): Promise<SdkSegment> {
-		const resumed = await this.#resume(account, payload, onText);
+		signal?.throwIfAborted();
+		const resumed = await this.#resume(account, payload, onText, signal);
 		if (resumed !== null) {
 			return resumed;
 		}
 		this.#dropParked(account.id);
 		const client = await this.#manager.clientFor(account);
+		signal?.throwIfAborted();
 		const turnId = randomUUID();
 		const command: Record<string, unknown> = { turnId, model: payload.model };
 		for (const field of [
@@ -280,13 +293,15 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		});
 
 		turn.done = completion;
-		return this.#awaitSegments(turn, completion, onText, client);
+		void completion.catch(() => {});
+		return this.#awaitSegments(turn, completion, onText, client, signal);
 	}
 
 	async #resume(
 		account: Account,
 		payload: Record<string, unknown>,
 		onText: (text: string) => void,
+		signal?: AbortSignal,
 	): Promise<SdkSegment | null> {
 		const results = latestToolResults(payload);
 		const ids = Object.keys(results);
@@ -302,6 +317,12 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 			return null;
 		}
 		for (const id of ids) {
+			if (signal?.aborted) {
+				this.#cancelQuietly(turn, turn.client);
+				for (const [toolId, pending] of this.#pendingTools)
+					if (pending.turn === turn) this.#pendingTools.delete(toolId);
+				signal.throwIfAborted();
+			}
 			const pending = this.#pendingTools.get(id)!;
 			const content = results[id];
 			await turn.client.request(
@@ -316,7 +337,7 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 			);
 			this.#pendingTools.delete(id);
 		}
-		return this.#awaitSegments(turn, turn.done, onText, turn.client);
+		return this.#awaitSegments(turn, turn.done, onText, turn.client, signal);
 	}
 
 	#dropParked(accountId: string): void {
@@ -333,6 +354,7 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		completion: Promise<BridgeEvent[]>,
 		onText: (text: string) => void,
 		client: SdkRuntimeClient,
+		signal?: AbortSignal,
 	): Promise<SdkSegment> {
 		const text: string[] = [];
 		const calls: Array<Record<string, unknown>> = [];
@@ -341,6 +363,11 @@ export class SdkBridgeChatClient implements UpstreamChatClient {
 		let finishReason = "stop";
 		const deadline = Date.now() + this.#config.requestTimeoutMs;
 		for (;;) {
+			if (signal?.aborted) {
+				this.#cancelQuietly(turn, client);
+				for (const [id, pending] of this.#pendingTools) if (pending.turn === turn) this.#pendingTools.delete(id);
+				signal.throwIfAborted();
+			}
 			if (Date.now() > deadline) {
 				this.#cancelQuietly(turn, client);
 				throw new GatewayFault(504, "upstream_timeout", "模型响应超时");

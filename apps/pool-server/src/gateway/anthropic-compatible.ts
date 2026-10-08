@@ -64,7 +64,7 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 			label: config.label,
 			thinkingBudgets: config.thinkingBudgets,
 			exposeThinking: config.exposeThinking ?? false,
-			foldCacheTokens: config.foldCacheTokens ?? false,
+			foldCacheTokens: config.foldCacheTokens ?? true,
 		});
 		this.#fetchImpl = options.fetchImpl ?? fetch;
 	}
@@ -73,11 +73,16 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		return this.#config.platform;
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
+		signal?.throwIfAborted();
 		const auth = await this.authOf(account);
 		const request = this.#mapper.toAnthropicRequest(payload, this.#config.defaultMaxTokens);
 		request.stream = false;
-		const response = await this.post(auth, request, "application/json");
+		const response = await this.post(auth, request, "application/json", signal);
 		const body = await response.text();
 		let parsed: unknown;
 		try {
@@ -95,7 +100,9 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
+		signal?.throwIfAborted();
 		const auth = await this.authOf(account);
 		const request = this.#mapper.toAnthropicRequest(payload, this.#config.defaultMaxTokens);
 		request.stream = true;
@@ -109,9 +116,10 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			const decoder = this.#mapper.newStreamDecoder(String(request.model), guarded);
 			try {
-				await this.postStream(auth, request, decoder);
+				await this.postStream(auth, request, decoder, signal);
 				return;
 			} catch (error) {
+				signal?.throwIfAborted();
 				if (error instanceof UpstreamException) {
 					throw error;
 				}
@@ -126,16 +134,20 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		throw new UpstreamException("SERVER", `${this.#config.label} 转发失败: ${lastIo?.message ?? "unknown"}`);
 	}
 
-	async post(auth: AuthContext, body: unknown, accept: string): Promise<Response> {
+	async post(auth: AuthContext, body: unknown, accept: string, signal?: AbortSignal): Promise<Response> {
+		signal?.throwIfAborted();
 		let response: Response;
 		try {
 			response = await this.#fetchImpl(`${this.baseUrlOf(auth.account)}/v1/messages`, {
 				method: "POST",
 				headers: { ...this.headersOf(auth), Accept: accept },
 				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
+				signal: signal
+					? AbortSignal.any([signal, AbortSignal.timeout(this.#config.timeoutMs ?? 120_000)])
+					: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
 			});
 		} catch (error) {
+			signal?.throwIfAborted();
 			throw new UpstreamException(
 				"SERVER",
 				`${this.#config.label} 请求失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -160,8 +172,9 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		auth: AuthContext,
 		request: Record<string, unknown>,
 		decoder: ReturnType<AnthropicUpstreamMapper["newStreamDecoder"]>,
+		signal?: AbortSignal,
 	): Promise<void> {
-		const response = await this.post(auth, request, "text/event-stream");
+		const response = await this.post(auth, request, "text/event-stream", signal);
 		if (!response.body) {
 			throw new UpstreamException("SERVER", `${this.#config.label} 流式响应为空`);
 		}

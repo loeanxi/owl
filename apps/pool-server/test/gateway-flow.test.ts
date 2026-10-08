@@ -6,6 +6,7 @@ import {
 	type Account,
 	AccountPoolRouter,
 	ApiKeyService,
+	BillingService,
 	DEFAULT_OUTPUT,
 	MemoryGatewayState,
 	type Platform,
@@ -18,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayServiceDeps } from "../src/gateway/service.ts";
 import { createPoolServer } from "../src/server.ts";
 import { SqliteAccountStore } from "../src/store/account-store.ts";
+import { SqliteBillingStore } from "../src/store/billing-store.ts";
 import { SqliteCheckInRecordStore } from "../src/store/checkin-record-store.ts";
 import { dbAlive, openDb } from "../src/store/db.ts";
 import { SqliteApiKeyStore, SqliteCallLogStore, SqliteCatalogStore } from "../src/store/gateway-stores.ts";
@@ -92,6 +94,17 @@ beforeAll(async () => {
 	const keys = new ApiKeyService({ store: new SqliteApiKeyStore(db) });
 	const catalog = new SqliteCatalogStore(db);
 	const callLogs = new SqliteCallLogStore(db);
+	const billingStore = new SqliteBillingStore(db);
+	billingStore.adjust("low-balance-member", 4);
+	billingStore.saveRate({
+		model: "star-lm",
+		promptPer1m: 4_500,
+		completionPer1m: 4_000,
+		cacheReadPer1m: 4_500,
+		cacheWritePer1m: 4_500,
+		enabled: true,
+	});
+	const billing = new BillingService({ store: billingStore });
 	const state = new MemoryGatewayState();
 	const poolRouter = new AccountPoolRouter({ accounts, accountCooldownMs: 60_000, cooldownState: state });
 	const sticky = new StickySessionService({ enabled: true, ttlSeconds: 900 });
@@ -117,6 +130,8 @@ beforeAll(async () => {
 		sticky,
 		upstreams,
 		callLogs,
+		billing,
+		billingStore,
 		catalog,
 		listPublishedModels: () => catalog.listModels(),
 		trustedProxyCount: 0,
@@ -177,6 +192,7 @@ beforeAll(async () => {
 	});
 	const createdKey = keys.create({ name: "桌面端" });
 	plaintextKey = createdKey.plaintext;
+	lowBalanceKey = keys.create({ name: "余额不足回归", ownerMemberId: "low-balance-member" }).plaintext;
 
 	server = createPoolServer({
 		accounts,
@@ -193,6 +209,7 @@ beforeAll(async () => {
 });
 
 let plaintextKey = "";
+let lowBalanceKey = "";
 let now2 = 1_700_000_000_000;
 
 afterAll(() => {
@@ -353,6 +370,79 @@ describe("OpenAI 网关（阶段 3 HTTP 全流程）", () => {
 });
 
 describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
+	it("微请求按输入和输出分别向上取整预占，并发结算不会透支 4 分余额", () => {
+		const directory = mkdtempSync(join(tmpdir(), "owl-pool-rounding-"));
+		const db = openDb(join(directory, "billing.db"));
+		try {
+			const store = new SqliteBillingStore(db);
+			store.adjust("rounding-member", 4);
+			store.saveRate({
+				model: "tiny-model",
+				promptPer1m: 200,
+				completionPer1m: 800,
+				cacheReadPer1m: 4,
+				cacheWritePer1m: 200,
+				enabled: true,
+			});
+			const billing = new BillingService({ store });
+			const payload = { messages: [{ role: "user", content: "1234567890123456789012345678901234" }], max_tokens: 1 };
+			const first = billing.reserve("rounding-member", "key", "tiny-model", payload);
+			expect(first.reserved).toBe(2);
+			const second = billing.reserve("rounding-member", "key", "tiny-model", payload);
+			expect(second.reserved).toBe(2);
+			expect(billing.balance("rounding-member")).toBe(0);
+			billing.settle(first.entryId, { promptTokens: 9, completionTokens: 1 }, null);
+			billing.settle(second.entryId, { promptTokens: 9, completionTokens: 1 }, null);
+			expect(billing.balance("rounding-member")).toBe(0);
+			expect(() => billing.reserve("rounding-member", "key", "tiny-model", payload)).toThrow(/余额不足/);
+			expect(billing.balance("rounding-member")).toBe(0);
+		} finally {
+			db.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it.each(["/v1/chat/completions", "/v1/responses"])(
+		"%s 将真实余额不足业务错误返回为 402，保留预占和可用金额",
+		async (path) => {
+			const callsBefore = calledAccounts.length;
+			const { status, json } = await api("POST", path, {
+				key: lowBalanceKey,
+				body: { model: "star-lm", messages: [{ role: "user", content: "hi" }], input: "hi" },
+			});
+			expect(status).toBe(402);
+			expect(json.error.code).toBe("insufficient_balance");
+			expect(json.error.type).toBe("insufficient_balance");
+			expect(json.error.message).toBe("余额不足：预估 10 分，可用 4 分");
+			expect(json.error.request_id).toMatch(/^[a-f0-9]{32}$/);
+			expect(calledAccounts).toHaveLength(callsBefore);
+		},
+	);
+
+	it.each(["/v1/chat/completions", "/v1/responses"])(
+		"%s 的 SSE 余额拒绝使用 insufficient_balance，保持具体金额",
+		async (path) => {
+			const callsBefore = calledAccounts.length;
+			const response = await fetch(`${baseUrl}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Authorization: `Bearer ${lowBalanceKey}` },
+				body: JSON.stringify({
+					model: "star-lm",
+					messages: [{ role: "user", content: "hi" }],
+					input: "hi",
+					stream: true,
+				}),
+			});
+			expect(response.headers.get("content-type")).toContain("text/event-stream");
+			const text = await response.text();
+			expect(text).toContain('"code":"insufficient_balance"');
+			expect(text).toContain("余额不足：预估 10 分，可用 4 分");
+			expect(text).not.toContain("网关内部错误");
+			expect(text).not.toContain('"code":"upstream_error"');
+			expect(calledAccounts).toHaveLength(callsBefore);
+		},
+	);
+
 	it("成员 Key 余额不足 → 402 insufficient_balance；管理 Key 不扣费", async () => {
 		// 现有测试服务未装配 billing → 仅验证管理 Key 不受影响由其余用例覆盖
 		// 这里直接用 billing 服务单元验证核心口径
@@ -373,14 +463,14 @@ describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
 		});
 		const billing = new BillingService({ store, nowMs: () => now2 });
 
-		// 预占：输入 4 tokens(1字符/4) + 输出 2048 → ceil(2052*10000/1e6)=21 分
+		// 预占：输入 2 tokens → ceil(2*10000/1e6)=1，输出 2048 → ceil(2048*20000/1e6)=41，共 42 分
 		const { entryId, reserved } = billing.reserve("m1", "k1", "star-lm", {
 			messages: [{ role: "user", content: "hi" }],
 		});
-		expect(reserved).toBe(21);
-		expect(billing.balance("m1")).toBe(79);
+		expect(reserved).toBe(42);
+		expect(billing.balance("m1")).toBe(58);
 
-		// 结算：实际 prompt=10/completion=5 → 输入 ceil(10*10000/1e6)=1,输出 ceil(5*20000/1e6)=1 → 2 分，退 19
+		// 结算：实际 prompt=10/completion=5 → 输入 1、输出 1 → 2 分，退 40
 		billing.settle(entryId, { promptTokens: 10, completionTokens: 5 }, null);
 		expect(billing.balance("m1")).toBe(98);
 
@@ -392,7 +482,7 @@ describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
 		// 失败退还
 		const r2 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
 		billing.voidPending(r2.entryId);
-		expect(billing.balance("m1")).toBe(98); // 预占 21 → 退 21
+		expect(billing.balance("m1")).toBe(98); // 预占 42 → 退 42
 
 		// 未知用量 → REVIEW
 		const r3 = billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
@@ -400,12 +490,12 @@ describe("计费挂钩（阶段 5a：成员 Key 预占/结算/402）", () => {
 		const entry = store.getLedger(r3.entryId);
 		expect(entry?.status).toBe("REVIEW");
 
-		// REVIEW 不自动退款（待人工），PENDING 超时才清扫
+		// Legacy/unlinked PENDING cannot prove no upstream billing; reconcile to REVIEW without credit.
 		billing.reserve("m1", "k1", "star-lm", { messages: [{ role: "user", content: "hi" }] });
-		expect(billing.balance("m1")).toBe(56); // r4 预占 21
+		expect(billing.balance("m1")).toBe(14); // r3 与 r4 各预占 42
 		now2 = 1_700_000_000_000 + 16 * 60_000;
 		expect(billing.sweepStale()).toBe(1); // 只扫 r4（PENDING），r3（REVIEW）不动
-		expect(billing.balance("m1")).toBe(77); // 56 + 21（r4 退还）；r3 的 REVIEW 留待人工
+		expect(billing.balance("m1")).toBe(14);
 		db.close();
 		setTimeout(() => {
 			try {

@@ -63,6 +63,16 @@ function noSleep(): { sleepImpl: (ms: number) => Promise<void>; sleeps: number[]
 }
 
 describe("TraeCheckInProvider", () => {
+	it("签到配置需要 session；聊天 authToken 或空 session 不能替代", () => {
+		const { fetchImpl, requestUrls } = traeStub([]);
+		const provider = new TraeCheckInProvider({ fetchImpl });
+		expect(provider.isConfigured(makeAccount({}))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ session: " " }))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ authToken: "chat-token" }))).toBe(false);
+		expect(provider.isConfigured(makeAccount({ session: "sess" }))).toBe(true);
+		expect(requestUrls).toHaveLength(0);
+	});
+
 	it("换 token → 领取成功（code 0 + credits）", async () => {
 		const { fetchImpl, claimCalls, requestUrls } = traeStub([{ code: 0, credits: 30, message: "签到成功" }]);
 		const provider = new TraeCheckInProvider({ fetchImpl });

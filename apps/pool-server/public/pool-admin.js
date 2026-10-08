@@ -3,6 +3,9 @@ const POOL_PLATFORMS = { WORKBUDDY: "WorkBuddy", TRAE: "Trae", CODEX: "Codex", Z
 /* CLAUDE 走托管 OAuth 授权对话框（授权链接 + 粘贴回调），不经 Node bridge。 */
 const POOL_LOGIN_PLATFORMS = ["CURSOR", "COPILOT", "QODER", "CLAUDE"];
 const poolState = { models: [], discovered: [], discoveredLoaded: false, discoveryStatus: null, discoveryStatusPolling: false, seenNoticeRevisions: {}, tab: "public", loaded: false, editId: null, loginAccount: null, loginTimer: null, loginGeneration: 0, loginJob: null, keySelection: null, keyReady: false, keyGeneration: 0, batchSelection: new Set(), batchPublishing: false };
+poolState.authOpening = false;
+poolState.authOpenState = "";
+poolState.authOpenUrl = "";
 const POOL_SYNC_PLATFORMS = { workbuddy: "WorkBuddy", qoder: "Qoder CN", trae: "Trae" };
 const POOL_ADD_NOTICE_KEYS = { workbuddy: "loean-pool-workbuddy-add-notice-revision", qoder: "loean-pool-qoder-add-notice-revision", trae: "loean-pool-trae-add-notice-revision" };
 
@@ -524,6 +527,65 @@ function safeAuthUrl(value) {
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) ? url.href : ""; } catch { return ""; }
 }
 
+function renderAuthBrowserFeedback() {
+  const status = $("#pool-auth-open-status");
+  const keys = { OPENING: "pool.authBrowserOpening", OPENED: "pool.authBrowserOpened", FAILED: "pool.authBrowserFailed" };
+  status.hidden = !poolState.authOpenState;
+  status.textContent = keys[poolState.authOpenState] ? t(keys[poolState.authOpenState]) : "";
+  status.classList.toggle("err-text", poolState.authOpenState === "FAILED");
+}
+
+function authBrowserParentOrigin() {
+  try {
+    const url = new URL(document.referrer);
+    return ["http:", "https:"].includes(url.protocol) && ["127.0.0.1", "localhost"].includes(url.hostname) && !url.username && !url.password ? url.origin : "";
+  } catch { return ""; }
+}
+
+function requestAuthBrowser(url, platform, operation = "auth") {
+  const origin = authBrowserParentOrigin();
+  if (!origin) return Promise.reject(new Error("untrusted_parent"));
+  const requestId = crypto.randomUUID();
+  const responseType = operation === "quota" ? "owl:account-quota:opened" : "owl:account-auth:opened";
+  return new Promise((resolve, reject) => {
+    let timer;
+    const cleanup = () => { window.removeEventListener("message", onReply); clearTimeout(timer); };
+    const onReply = event => {
+      if (event.source !== window.parent || event.origin !== origin || event.data?.type !== responseType || event.data.requestId !== requestId || typeof event.data.opened !== "boolean") return;
+      cleanup();
+      if (event.data.opened) resolve(); else reject(new Error("external_open_failed"));
+    };
+    window.addEventListener("message", onReply);
+    timer = setTimeout(() => { cleanup(); reject(new Error("external_open_timeout")); }, 10000);
+    try { window.parent.postMessage({ type: operation === "quota" ? "owl:account-quota:open" : "owl:account-auth:open", requestId, platform, url }, origin); }
+    catch { cleanup(); reject(new Error("external_open_failed")); }
+  });
+}
+
+async function openAccountAuthBrowser(event) {
+  if (window.parent === window) return;
+  event.preventDefault();
+  if (poolState.authOpening) return;
+  const url = safeAuthUrl($("#pool-auth-link").href);
+  if (!url || !poolState.loginAccount) return;
+  poolState.authOpening = true;
+  poolState.authOpenUrl = url;
+  poolState.authOpenState = "OPENING";
+  const generation = poolState.loginGeneration;
+  renderAuthBrowserFeedback();
+  try {
+    await requestAuthBrowser(url, poolState.loginAccount.platform);
+    if (generation === poolState.loginGeneration && url === poolState.authOpenUrl) poolState.authOpenState = "OPENED";
+  } catch {
+    if (generation === poolState.loginGeneration && url === poolState.authOpenUrl) poolState.authOpenState = "FAILED";
+  } finally {
+    if (generation === poolState.loginGeneration && url === poolState.authOpenUrl) {
+      poolState.authOpening = false;
+      renderAuthBrowserFeedback();
+    }
+  }
+}
+
 function renderAccountAuth(data) {
   const job = accountAuthJob(data);
   poolState.loginJob = data;
@@ -543,6 +605,9 @@ function renderAccountAuth(data) {
   link.hidden = trae || !waitingUrl || terminal;
   link.href = waitingUrl || "#";
   link.textContent = waitingUrl ? t("pool.openAuth") + " ↗ " + waitingUrl : "";
+  $("#btn-pool-auth-link-copy").hidden = link.hidden;
+  if (terminal || (poolState.authOpenUrl && poolState.authOpenUrl !== waitingUrl)) poolState.authOpenState = "";
+  renderAuthBrowserFeedback();
   $("#pool-auth-code-wrap").hidden = trae || !job.userCode || terminal;
   $("#pool-auth-code").textContent = job.userCode || "";
   $("#btn-pool-auth-cancel").hidden = terminal;
@@ -560,6 +625,12 @@ function renderAccountAuthCopy() {
 
 async function finishAccountAuth() {
   const account = poolState.loginAccount;
+  if (account?.platform === "CURSOR") {
+    try { await refreshOneCredit(account.id, null, account.name); }
+    catch (error) { toast(error.message, "err"); }
+    await loadAccounts();
+    return;
+  }
   if (account?.platform === "TRAE") {
     try {
       const refreshed = await refreshOneCredit(account.id, null, account.name);
@@ -598,11 +669,19 @@ async function startAccountAuth(account) {
   const generation = ++poolState.loginGeneration;
   renderAccountAuthCopy();
   $("#pool-auth-input").value = "";
+  poolState.authOpenState = "";
+  poolState.authOpenUrl = "";
+  poolState.authOpening = false;
   renderAccountAuth({ status: "STARTING", message: t("pool.authStarting") });
   $("#btn-pool-auth-cancel").disabled = true;
   if (!$("#dlg-pool-auth").open) $("#dlg-pool-auth").showModal();
   try {
-    const job = await api(`/api/accounts/${encodeURIComponent(account.id)}/auth/login`, { method: "POST" });
+    // Refreshing the desktop UI must not restart an authorization already waiting in the backend.
+    const existing = account.platform === "TRAE" ? null : await api(`/api/accounts/${encodeURIComponent(account.id)}/auth/status`).catch(() => null);
+    if (generation !== poolState.loginGeneration) return;
+    const existingJob = accountAuthJob(existing);
+    const pending = ["PENDING", "STARTING"].includes(String(existingJob.status || "").toUpperCase());
+    const job = pending ? existing : await api(`/api/accounts/${encodeURIComponent(account.id)}/auth/login`, { method: "POST" });
     if (generation !== poolState.loginGeneration) {
       if (account.platform === "TRAE" && job?.id) {
         await cancelTraeAuthJob(account.id, job.id).catch(error =>
@@ -622,6 +701,13 @@ async function startAccountAuth(account) {
 }
 
 function bindPoolUI() {
+  document.addEventListener("click", async event => {
+    const link = event.target.closest?.("[data-cursor-quota-dashboard]");
+    if (!link || window.parent === window) return;
+    event.preventDefault();
+    try { await requestAuthBrowser(link.href, "CURSOR", "quota"); }
+    catch { toast(t("pool.quotaBrowserFailed"), "err"); }
+  });
   if (typeof bindModelDiagnostics === "function") bindModelDiagnostics();
   $("#btn-pool-model-new").addEventListener("click", () => openPoolModel());
   $("#btn-pool-model-refresh").addEventListener("click", () => loadPoolModels());
@@ -743,6 +829,8 @@ function bindPoolUI() {
   });
   $("#pool-key-mode").addEventListener("change", () => { $("#pool-key-models").hidden = $("#pool-key-mode").value === "all"; });
   $("#pool-key-models").addEventListener("change", () => { poolState.keySelection = readKeyModels(); });
+  $("#pool-auth-link").addEventListener("click", openAccountAuthBrowser);
+  $("#btn-pool-auth-link-copy").addEventListener("click", event => copyText($("#pool-auth-link").href, event.currentTarget, t("member.copy.done")));
   $("#btn-pool-auth-input").addEventListener("click", async event => {
     const input = $("#pool-auth-input");
     if (!input.value.trim()) return;

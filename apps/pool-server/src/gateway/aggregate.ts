@@ -13,6 +13,7 @@ export function aggregateStreamToCompletion(
 	client: Pick<UpstreamChatClient, "chatCompletionStream">,
 	account: Parameters<UpstreamChatClient["chatCompletionStream"]>[0],
 	payload: Record<string, unknown>,
+	signal?: AbortSignal,
 ): Promise<AggregatedCompletion> {
 	let content = "";
 	let reasoning = "";
@@ -22,36 +23,41 @@ export function aggregateStreamToCompletion(
 	const model = String(payload.model ?? "unknown");
 
 	return client
-		.chatCompletionStream(account, payload, (chunkJson) => {
-			let node: Record<string, unknown>;
-			try {
-				node = JSON.parse(chunkJson) as Record<string, unknown>;
-			} catch {
-				return; // 聚合阶段容忍坏 chunk
-			}
-			const choices = node.choices;
-			if (Array.isArray(choices) && choices.length > 0) {
-				const choice = choices[0] as Record<string, unknown>;
-				const delta = (choice.delta ?? {}) as Record<string, unknown>;
-				if (typeof delta.content === "string") {
-					content += delta.content;
+		.chatCompletionStream(
+			account,
+			payload,
+			(chunkJson) => {
+				let node: Record<string, unknown>;
+				try {
+					node = JSON.parse(chunkJson) as Record<string, unknown>;
+				} catch {
+					return; // 聚合阶段容忍坏 chunk
 				}
-				if (typeof delta.reasoning_content === "string") {
-					reasoning += delta.reasoning_content;
-				}
-				if (Array.isArray(delta.tool_calls)) {
-					for (const call of delta.tool_calls) {
-						toolCalls.merge(call);
+				const choices = node.choices;
+				if (Array.isArray(choices) && choices.length > 0) {
+					const choice = choices[0] as Record<string, unknown>;
+					const delta = (choice.delta ?? {}) as Record<string, unknown>;
+					if (typeof delta.content === "string") {
+						content += delta.content;
+					}
+					if (typeof delta.reasoning_content === "string") {
+						reasoning += delta.reasoning_content;
+					}
+					if (Array.isArray(delta.tool_calls)) {
+						for (const call of delta.tool_calls) {
+							toolCalls.merge(call);
+						}
+					}
+					if (typeof choice.finish_reason === "string" && choice.finish_reason.length > 0) {
+						finishReason = choice.finish_reason;
 					}
 				}
-				if (typeof choice.finish_reason === "string" && choice.finish_reason.length > 0) {
-					finishReason = choice.finish_reason;
+				if (node.usage !== null && typeof node.usage === "object" && !Array.isArray(node.usage)) {
+					Object.assign(usage, node.usage);
 				}
-			}
-			if (node.usage !== null && typeof node.usage === "object" && !Array.isArray(node.usage)) {
-				Object.assign(usage, node.usage);
-			}
-		})
+			},
+			signal,
+		)
 		.then(() => {
 			const flattened = toolCalls.flatten();
 			const message: Record<string, unknown> = { role: "assistant", content };

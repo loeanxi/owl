@@ -7,6 +7,7 @@
  */
 import {
 	type Account,
+	GatewayFault,
 	IncompleteUpstreamStreamException,
 	isNetworkBlip,
 	OpenAiStreamCompletion,
@@ -26,6 +27,9 @@ export interface WorkBuddyChatConfig {
 	origin: string;
 	referer: string;
 	timeoutMs?: number;
+	/** Explicit timeoutMs remains an absolute hard cap. Otherwise use idle + total bounds. */
+	streamIdleTimeoutMs?: number;
+	streamMaxDurationMs?: number;
 }
 
 export interface WorkBuddyClientOptions {
@@ -53,8 +57,12 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		return "WORKBUDDY";
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const { body } = await aggregateStreamToCompletion(this, account, payload);
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
+		const { body } = await aggregateStreamToCompletion(this, account, payload, signal);
 		return body;
 	}
 
@@ -62,7 +70,9 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
+		signal?.throwIfAborted();
 		const model = stripModelPrefix(typeof payload.model === "string" ? payload.model : "");
 		if (this.#supportsModel !== undefined && !this.#supportsModel(account, model)) {
 			throw new UpstreamException("BAD_REQUEST", "WorkBuddy 账号不支持该模型或目录尚未同步");
@@ -83,13 +93,19 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		let lastIo: Error | null = null;
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			try {
-				await this.postChat(accessToken, body, (chunk) => {
-					emitted = true;
-					onChunk(chunk);
-				});
+				await this.postChat(
+					accessToken,
+					body,
+					(chunk) => {
+						emitted = true;
+						onChunk(chunk);
+					},
+					signal,
+				);
 				return;
 			} catch (error) {
-				if (error instanceof UpstreamException) {
+				signal?.throwIfAborted();
+				if (error instanceof UpstreamException || error instanceof GatewayFault) {
 					throw error;
 				}
 				const message = error instanceof Error ? error.message : String(error);
@@ -108,55 +124,155 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		accessToken: string,
 		body: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		caller?: AbortSignal,
 	): Promise<void> {
-		let response: Response;
-		try {
-			response = await this.#fetchImpl(`${this.#config.baseUrl.replace(/\/+$/, "")}${this.#config.chatPath}`, {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${accessToken}`,
-					"User-Agent": this.#config.userAgent,
-					Origin: this.#config.origin,
-					Referer: this.#config.referer,
-					Accept: "text/event-stream",
-					"Content-Type": "application/json",
-					"X-Requested-With": "XMLHttpRequest",
-					"X-Product": "SaaS",
-					// 三铁律：缺省身份头显式占位；绝不携带 X-Refresh-Token
-					"X-No-User-Id": "1",
-					"X-No-Enterprise-Id": "1",
-					"X-No-Department-Info": "1",
-				},
-				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
-			});
-		} catch (error) {
-			throw new UpstreamException(
-				"SERVER",
-				`WorkBuddy 请求失败: ${error instanceof Error ? error.message : String(error)}`,
+		caller?.throwIfAborted();
+		const controller = new AbortController();
+		const idleMs = this.#config.streamIdleTimeoutMs ?? 120_000;
+		const totalMs = this.#config.timeoutMs ?? this.#config.streamMaxDurationMs ?? 600_000;
+		const explicit = this.#config.timeoutMs !== undefined;
+		const abortFromCaller = () => controller.abort(caller?.reason);
+		caller?.addEventListener("abort", abortFromCaller, { once: true });
+		let idleTimer: ReturnType<typeof setTimeout> | undefined;
+		const touch = () => {
+			if (idleTimer) clearTimeout(idleTimer);
+			idleTimer = setTimeout(
+				() =>
+					controller.abort(
+						new GatewayFault(
+							504,
+							"upstream_stream_idle_timeout",
+							`WorkBuddy 流连续 ${idleMs}ms 未收到数据，已中止等待`,
+						),
+					),
+				idleMs,
 			);
-		}
-		if (!response.ok) {
-			const text = await response.text();
-			const kind =
-				response.status === 400
-					? "BAD_REQUEST"
-					: response.status === 401 || response.status === 403
-						? "AUTH"
-						: response.status === 429
-							? "RATE"
-							: "SERVER";
-			const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
-			const exception = new UpstreamException(kind, `WorkBuddy HTTP ${response.status}: ${truncate(text)}`);
-			if (!Number.isNaN(retryAfter)) {
-				throw new UpstreamException(exception.kind, exception.message, retryAfter);
+		};
+		const totalTimer = setTimeout(
+			() =>
+				controller.abort(
+					new GatewayFault(
+						504,
+						"upstream_timeout",
+						`WorkBuddy ${explicit ? "显式绝对期限" : "流总时长上限"} ${totalMs}ms 已到，已中止等待`,
+					),
+				),
+			totalMs,
+		);
+		let rejectAbort: (reason: unknown) => void = () => {};
+		const aborted = new Promise<never>((_resolve, reject) => {
+			rejectAbort = reject;
+		});
+		const abortWait = () => rejectAbort(controller.signal.reason);
+		controller.signal.addEventListener("abort", abortWait, { once: true });
+		touch();
+		try {
+			let response: Response;
+			try {
+				const pending = this.#fetchImpl(`${this.#config.baseUrl.replace(/\/+$/, "")}${this.#config.chatPath}`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${accessToken}`,
+						"User-Agent": this.#config.userAgent,
+						Origin: this.#config.origin,
+						Referer: this.#config.referer,
+						Accept: "text/event-stream",
+						"Content-Type": "application/json",
+						"X-Requested-With": "XMLHttpRequest",
+						"X-Product": "SaaS",
+						// 三铁律：缺省身份头显式占位；绝不携带 X-Refresh-Token
+						"X-No-User-Id": "1",
+						"X-No-Enterprise-Id": "1",
+						"X-No-Department-Info": "1",
+					},
+					body: JSON.stringify(body),
+					signal: controller.signal,
+				});
+				// A non-cooperative transport still cannot keep our request waiting indefinitely.
+				void pending.then(
+					(late) => {
+						if (controller.signal.aborted) void late.body?.cancel().catch(() => {});
+					},
+					() => {},
+				);
+				response = await Promise.race([pending, aborted]);
+			} catch (error) {
+				controller.signal.throwIfAborted();
+				const cause = error !== null && typeof error === "object" && "cause" in error ? error.cause : null;
+				const code = cause !== null && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
+				if (!["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(code)) {
+					throw new GatewayFault(
+						502,
+						"upstream_stream_interrupted",
+						`WorkBuddy 请求中断，费用待核对: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+				throw new UpstreamException(
+					"SERVER",
+					`WorkBuddy 请求未建立连接 (${code}): ${error instanceof Error ? error.message : String(error)}`,
+				);
 			}
-			throw exception;
+			if (!response.ok) {
+				let text = "";
+				const errorReader = response.body?.getReader();
+				if (errorReader) {
+					const decoder = new TextDecoder();
+					const cancelErrorBody = () => {
+						void errorReader.cancel(controller.signal.reason).catch(() => {});
+					};
+					controller.signal.addEventListener("abort", cancelErrorBody, { once: true });
+					try {
+						for (;;) {
+							const { done, value } = await Promise.race([errorReader.read(), aborted]);
+							if (done) break;
+							touch();
+							text += decoder.decode(value, { stream: true });
+							if (text.length >= 4096) break;
+						}
+					} finally {
+						controller.signal.removeEventListener("abort", cancelErrorBody);
+						void errorReader.cancel().catch(() => {});
+						errorReader.releaseLock();
+					}
+				}
+				const kind =
+					response.status === 400
+						? "BAD_REQUEST"
+						: response.status === 401 || response.status === 403
+							? "AUTH"
+							: response.status === 429
+								? "RATE"
+								: "SERVER";
+				const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
+				const exception = new UpstreamException(kind, `WorkBuddy HTTP ${response.status}: ${truncate(text)}`);
+				if (!Number.isNaN(retryAfter)) {
+					throw new UpstreamException(exception.kind, exception.message, retryAfter);
+				}
+				throw exception;
+			}
+			if (!response.body) {
+				throw new GatewayFault(502, "upstream_stream_interrupted", "WorkBuddy 流式响应为空，费用待核对");
+			}
+			touch();
+			try {
+				await parseSseToOpenAi(response.body, String(body.model), onChunk, {
+					signal: controller.signal,
+					onActivity: touch,
+				});
+			} catch (error) {
+				controller.signal.throwIfAborted();
+				throw new GatewayFault(
+					502,
+					"upstream_stream_interrupted",
+					`WorkBuddy 流中断，费用待核对: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		} finally {
+			clearTimeout(totalTimer);
+			if (idleTimer) clearTimeout(idleTimer);
+			caller?.removeEventListener("abort", abortFromCaller);
+			controller.signal.removeEventListener("abort", abortWait);
 		}
-		if (!response.body) {
-			throw new UpstreamException("SERVER", "WorkBuddy 流式响应为空");
-		}
-		await parseSseToOpenAi(response.body, String(body.model), onChunk);
 	}
 }
 
@@ -165,6 +281,7 @@ export async function parseSseToOpenAi(
 	stream: ReadableStream<Uint8Array>,
 	model: string,
 	consumer: (chunkJson: string) => void,
+	options?: { signal?: AbortSignal; onActivity?(): void },
 ): Promise<void> {
 	const id = `chatcmpl-${crypto.randomUUID()}`;
 	const created = Math.floor(Date.now() / 1000);
@@ -254,13 +371,24 @@ export async function parseSseToOpenAi(
 		emitChunk(out);
 	};
 
+	const reader = stream.getReader();
+	let rejectAbort: (reason: unknown) => void = () => {};
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject;
+	});
+	const interrupt = () => {
+		rejectAbort(options?.signal?.reason);
+		void reader.cancel(options?.signal?.reason).catch(() => {});
+	};
+	options?.signal?.addEventListener("abort", interrupt, { once: true });
 	const pump = async (): Promise<void> => {
-		const reader = stream.getReader();
+		options?.signal?.throwIfAborted();
 		for (;;) {
-			const { done, value } = await reader.read();
+			const { done, value } = await Promise.race([reader.read(), aborted]);
 			if (done) {
 				break;
 			}
+			options?.onActivity?.();
 			buffer += decoder.decode(value, { stream: true });
 			let newline = buffer.indexOf("\n");
 			while (newline >= 0) {
@@ -282,6 +410,7 @@ export async function parseSseToOpenAi(
 	try {
 		await pump();
 	} catch (error) {
+		options?.signal?.throwIfAborted();
 		if (error instanceof IncompleteUpstreamStreamException) {
 			throw error;
 		}
@@ -289,6 +418,10 @@ export async function parseSseToOpenAi(
 			"SERVER",
 			`WorkBuddy SSE 解析失败: ${error instanceof Error ? error.message : String(error)}`,
 		);
+	} finally {
+		options?.signal?.removeEventListener("abort", interrupt);
+		void reader.cancel().catch(() => {});
+		reader.releaseLock();
 	}
 	completion.requireComplete();
 

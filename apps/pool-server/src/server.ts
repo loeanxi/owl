@@ -63,6 +63,7 @@ export interface PoolServerDeps {
 	maxBodyBytes?: number;
 	refreshCredit?(account: Account): Promise<Account>;
 	pingAccount?(account: Account): Promise<Record<string, unknown>>;
+	probeCredential?(account: Account): Promise<Record<string, unknown> | null>;
 	login?: {
 		login(account: Account): Promise<Record<string, unknown>>;
 		status(account: Account): Promise<Record<string, unknown>>;

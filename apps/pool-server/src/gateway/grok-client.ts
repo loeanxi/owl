@@ -32,8 +32,12 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		return "GROK";
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const response = await this.post(account, sanitized(payload), "application/json");
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
+		const response = await this.post(account, sanitized(payload), "application/json", signal);
 		const body = await response.text();
 		let parsed: unknown;
 		try {
@@ -54,6 +58,7 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
 		const request = sanitized(payload);
 		request.stream = true;
@@ -61,7 +66,7 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		if (request.stream_options === null || request.stream_options === undefined) {
 			request.stream_options = { include_usage: true };
 		}
-		const response = await this.post(account, request, "text/event-stream");
+		const response = await this.post(account, request, "text/event-stream", signal);
 		if (!response.body) {
 			throw new UpstreamException("SERVER", "Grok 流式响应为空");
 		}
@@ -87,7 +92,8 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		}
 	}
 
-	async post(account: Account, body: unknown, accept: string): Promise<Response> {
+	async post(account: Account, body: unknown, accept: string, signal?: AbortSignal): Promise<Response> {
+		signal?.throwIfAborted();
 		const apiKey = requireApiKey(account);
 		let response: Response;
 		try {
@@ -99,9 +105,12 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 					Accept: accept,
 				},
 				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(this.#timeoutMs),
+				signal: signal
+					? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
+					: AbortSignal.timeout(this.#timeoutMs),
 			});
 		} catch (error) {
+			signal?.throwIfAborted();
 			// IO 瞬断按 SERVER 分类（换号路径据 reason 判定短冷却）
 			const message = error instanceof Error ? error.message : String(error);
 			throw new UpstreamException("SERVER", `Grok 转发失败: ${message}`);

@@ -27,6 +27,12 @@ export interface PoolConfig {
 	admin: AdminSecurityConfig;
 	/** 可信反代层数；0 = 完全不信转发头。 */
 	trustedProxyCount: number;
+	/** 成员并发租约默认参数（对齐 manager `MemberConcurrencyProperties`，全部可由 env 覆盖）。 */
+	memberConcurrency: {
+		defaultLimit: number;
+		maxWaiting: number;
+		waitMillis: number;
+	};
 	/** 网关域（对齐 manager `manager.gateway.*`）。 */
 	gateway: {
 		enabled: boolean;
@@ -40,10 +46,20 @@ export interface PoolConfig {
 		stickyTtlSeconds: number;
 		grokBaseUrl?: string;
 		zcode: { anthropicVersion: string; defaultMaxTokens: number };
-		workbuddy: { baseUrl: string; chatPath: string; userAgent: string; origin: string; referer: string };
+		workbuddy: {
+			baseUrl: string;
+			chatPath: string;
+			userAgent: string;
+			origin: string;
+			referer: string;
+			timeoutMs?: number;
+			streamIdleTimeoutMs: number;
+			streamMaxDurationMs: number;
+		};
 		trae: { chatBaseUrl: string; chatPath: string; appId: string; ideVersion: string; ideVersionCode: string };
 		gemini: { baseUrl: string; apiVersion: string; defaultMaxTokens: number };
 		mimo: { executable: string; hostname: string; requestTimeoutMs: number; readyTimeoutMs: number };
+		codex: { homeRoot: string; executable: string };
 		bridge: {
 			nodeExecutable: string;
 			script: string;
@@ -82,6 +98,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 		checkInMinute: intOr(env.OWL_POOL_CHECKIN_MINUTE, 5),
 		checkInStaggerMs: intOr(env.OWL_POOL_CHECKIN_STAGGER_MS, 3000),
 		trustedProxyCount: intOr(env.OWL_POOL_TRUSTED_PROXY_COUNT, 0),
+		memberConcurrency: {
+			defaultLimit: intOr(env.OWL_POOL_MEMBER_CONCURRENCY_DEFAULT, 2),
+			maxWaiting: intOr(env.OWL_POOL_MEMBER_CONCURRENCY_MAX_WAITING, 8),
+			waitMillis: intOr(env.OWL_POOL_MEMBER_CONCURRENCY_WAIT_MS, 2_000),
+		},
 		gateway: {
 			enabled: boolOr(env.OWL_POOL_GATEWAY_ENABLED, true),
 			globalRateLimitPerMinute: intOr(env.OWL_POOL_GATEWAY_GLOBAL_RATE, 600),
@@ -94,6 +115,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 3600),
 			grokBaseUrl: blankToUndefined(env.OWL_POOL_GROK_BASE_URL),
 			workbuddy: {
+				timeoutMs:
+					blankToUndefined(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS) === undefined
+						? undefined
+						: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
+				streamIdleTimeoutMs: intOr(env.OWL_POOL_WB_STREAM_IDLE_TIMEOUT_MS, 120_000),
+				streamMaxDurationMs: intOr(env.OWL_POOL_WB_STREAM_MAX_DURATION_MS, 600_000),
 				baseUrl: env.OWL_POOL_WB_CHAT_BASE_URL ?? "https://copilot.tencent.com",
 				chatPath: env.OWL_POOL_WB_CHAT_PATH ?? "/v2/chat/completions",
 				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
@@ -106,9 +133,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 				requestTimeoutMs: intOr(env.OWL_POOL_MIMO_REQUEST_TIMEOUT_MS, 120_000),
 				readyTimeoutMs: intOr(env.OWL_POOL_MIMO_READY_TIMEOUT_MS, 25_000),
 			},
+			codex: {
+				homeRoot: env.OWL_POOL_CODEX_HOME_ROOT ?? join(dataDir, "codex-accounts"),
+				executable: env.OWL_POOL_CODEX_EXECUTABLE ?? "codex",
+			},
 			bridge: {
 				nodeExecutable: env.OWL_POOL_BRIDGE_NODE ?? "node",
-				script: env.OWL_POOL_BRIDGE_SCRIPT ?? "bridge/src/main.mjs",
+				script: env.OWL_POOL_BRIDGE_SCRIPT ?? "bridge/main.mjs",
 				homeRoot: env.OWL_POOL_BRIDGE_HOME_ROOT ?? "data/bridge-accounts",
 				requestTimeoutMs: intOr(env.OWL_POOL_BRIDGE_REQUEST_TIMEOUT_MS, 600_000),
 				idleRecycleMs: intOr(env.OWL_POOL_BRIDGE_IDLE_RECYCLE_MS, 600_000),

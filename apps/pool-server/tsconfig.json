@@ -1,7 +1,10 @@
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"noEmit": true
+		"noEmit": true,
+		"paths": {
+			"owl-pool": ["../../packages/owl-pool/src/index.ts"]
+		}
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"]
 }

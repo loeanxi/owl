@@ -171,4 +171,15 @@ describe("pool-server REST（阶段 0+1 冒烟）", () => {
 		expect(defaults.checkInHour).toBe(0);
 		expect(defaults.checkInStaggerMs).toBe(3000);
 	});
+
+	it("config：成员并发租约默认参数可由 env 覆盖", () => {
+		const defaults = loadConfig({} as NodeJS.ProcessEnv);
+		expect(defaults.memberConcurrency).toEqual({ defaultLimit: 2, maxWaiting: 8, waitMillis: 2000 });
+		const overridden = loadConfig({
+			OWL_POOL_MEMBER_CONCURRENCY_DEFAULT: "12",
+			OWL_POOL_MEMBER_CONCURRENCY_MAX_WAITING: "32",
+			OWL_POOL_MEMBER_CONCURRENCY_WAIT_MS: "30000",
+		} as NodeJS.ProcessEnv);
+		expect(overridden.memberConcurrency).toEqual({ defaultLimit: 12, maxWaiting: 32, waitMillis: 30000 });
+	});
 });

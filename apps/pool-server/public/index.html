@@ -10,10 +10,11 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
   <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定 -->
-  <script src="/i18n.js?v=20261002-diagnostics1"></script>
+  <script src="/i18n.js?v=20261008-cursor4"></script>
   <link rel="stylesheet" href="/site-theme.css?v=20260926-16" />
   <link rel="stylesheet" href="/style.css?v=20260927-1" />
   <link rel="stylesheet" href="/pool-admin.css?v=20260929-usdcny" />
+  <link rel="stylesheet" href="/account-cards.css?v=20261008-1" />
   <link rel="stylesheet" href="/model-diagnostics.css?v=20261002-1" />
 </head>
 <body>
@@ -181,35 +182,36 @@
           <div class="page-head-main">
             <div class="page-head-row">
               <h1 data-i18n="admin.accounts.h1">账号</h1>
-              <div class="credit-total" id="accounts-credits" title="下方账号积分合计" data-i18n-attr="title:admin.accounts.creditsTitle" data-i18n="admin.accounts.creditsTotal.none">总积分 —</div>
             </div>
             <p class="page-sub" id="accounts-sub">共 0 个</p>
           </div>
           <div class="page-actions">
             <button id="btn-refresh-credits" class="btn" data-i18n="admin.accounts.refreshCredits">刷新积分 / 额度</button>
             <button id="btn-check-creds" class="btn" data-i18n="admin.accounts.checkCreds">检凭证</button>
-            <button id="btn-checkin-all-2" class="btn" data-i18n="admin.accounts.checkinAll">签到全部</button>
+            <button id="btn-checkin-all-2" class="btn" disabled>签到当前筛选账号（0）</button>
             <button id="btn-new" class="btn primary" data-i18n="admin.accounts.add">+ 添加账号</button>
           </div>
         </header>
 
-        <div class="toolbar">
-          <div class="chips" id="account-filters">
-            <button type="button" class="chip active" data-filter="ALL"><span data-i18n="admin.filter.all">全部</span> <span data-c="ALL"></span></button>
-            <button type="button" class="chip" data-filter="WORKBUDDY">WorkBuddy <span data-c="WORKBUDDY"></span></button>
-            <button type="button" class="chip" data-filter="TRAE">Trae <span data-c="TRAE"></span></button>
-            <button type="button" class="chip" data-filter="CODEX">Codex <span data-c="CODEX"></span></button>
-            <button type="button" class="chip" data-filter="ZCODE">ZCode <span data-c="ZCODE"></span></button>
-            <button type="button" class="chip" data-filter="MIMO">MiMo <span data-c="MIMO"></span></button>
-            <button type="button" class="chip" data-filter="CURSOR">Cursor <span data-c="CURSOR"></span></button>
-            <button type="button" class="chip" data-filter="COPILOT">GitHub Copilot <span data-c="COPILOT"></span></button>
-            <button type="button" class="chip" data-filter="QODER">Qoder CN <span data-c="QODER"></span></button>
-            <span class="chip-sep"></span>
-            <button type="button" class="chip" data-status="OK"><span data-i18n="admin.filter.ok">正常</span> <span data-c="OK"></span></button>
-            <button type="button" class="chip" data-status="BAD"><span data-i18n="admin.filter.bad">异常</span> <span data-c="BAD"></span></button>
-          </div>
-          <input id="account-search" class="search" type="search" placeholder="搜索名称 / 备注…" autocomplete="off" data-i18n-attr="placeholder:admin.accounts.searchPh" />
+        <div class="account-categories chips" id="account-category-filters" role="group" aria-label="签到能力分类" data-i18n-attr="aria-label:admin.accounts.categoryAria">
+          <button type="button" class="chip active" data-category="ALL" aria-pressed="true"><span data-i18n="admin.accounts.category.ALL">全部账号</span> <span data-category-count="ALL">0</span></button>
+          <button type="button" class="chip" data-category="SUPPORTED" aria-pressed="false"><span data-i18n="admin.accounts.category.SUPPORTED">支持签到</span> <span data-category-count="SUPPORTED">0</span></button>
+          <button type="button" class="chip" data-category="UNSUPPORTED" aria-pressed="false"><span data-i18n="admin.accounts.category.UNSUPPORTED">不支持签到</span> <span data-category-count="UNSUPPORTED">0</span></button>
         </div>
+        <div class="account-balance-head">
+          <p class="hint" data-i18n="admin.accounts.cardsHint">各平台余额独立统计，点击卡片筛选账号。</p>
+          <button type="button" id="btn-account-platform-all" class="row-btn" hidden data-i18n="admin.accounts.clearPlatform">查看全部平台</button>
+        </div>
+        <div class="account-platform-cards" id="account-platform-cards" role="group" aria-label="平台余额与筛选" data-i18n-attr="aria-label:admin.accounts.cardsAria"></div>
+        <div class="toolbar account-list-toolbar">
+          <div class="chips" id="account-filters" role="group" aria-label="账号状态" data-i18n-attr="aria-label:admin.accounts.statusAria">
+            <button type="button" class="chip active" data-status="ALL" aria-pressed="true"><span data-i18n="admin.accounts.statusAll">全部状态</span> <span data-c="ALL"></span></button>
+            <button type="button" class="chip" data-status="OK" aria-pressed="false"><span data-i18n="admin.filter.ok">正常</span> <span data-c="OK"></span></button>
+            <button type="button" class="chip" data-status="BAD" aria-pressed="false"><span data-i18n="admin.filter.bad">异常</span> <span data-c="BAD"></span></button>
+          </div>
+          <input id="account-search" class="search" type="search" placeholder="搜索名称 / 备注…" aria-label="搜索名称或备注" autocomplete="off" data-i18n-attr="placeholder:admin.accounts.searchPh,aria-label:admin.accounts.searchPh" />
+        </div>
+        <p class="hint account-list-summary" id="account-list-summary" aria-live="polite"></p>
 
         <section class="panel flush">
           <div class="table-wrap">
@@ -220,7 +222,7 @@
                   <th data-i18n="admin.th.platform">平台</th>
                   <th data-i18n="admin.th.status">状态</th>
                   <th class="num" data-i18n="admin.th.creditsQuota">积分 / 额度</th>
-                  <th data-i18n="admin.accounts.thCheckin">今日签到</th>
+                  <th id="accounts-checkin-header" data-i18n="admin.accounts.thCheckin">今日签到</th>
                   <th data-i18n="admin.th.remark">备注</th>
                   <th class="ops-col" data-i18n="admin.th.ops">操作</th>
                 </tr>
@@ -702,7 +704,17 @@
       <p id="pool-model-error" class="pool-status error" role="alert" hidden></p><div class="dlg-actions"><button type="button" class="btn ghost" data-close-dlg data-i18n="admin.dlg.cancel">取消</button><button id="btn-pool-model-save" class="btn primary" type="submit" data-i18n="admin.dlg.save">保存</button></div>
     </form>
   </dialog>
-  <dialog id="dlg-pool-auth" class="pool-dialog"><h3 id="pool-auth-title">账号授权</h3><p id="pool-auth-hint" class="hint" data-i18n="pool.authHint">打开官方授权页面完成登录，再返回这里查看结果。授权状态每两秒更新。</p><div id="pool-auth-message" class="pool-status" role="status" aria-live="polite"></div><a id="pool-auth-link" class="pool-auth-url" target="_blank" rel="noopener noreferrer" hidden></a><div id="pool-auth-code-wrap" class="pool-auth-code" hidden><span data-i18n="pool.deviceCode">设备码</span><code id="pool-auth-code"></code><button type="button" id="btn-pool-code-copy" class="btn" data-i18n="member.copy.short">复制</button></div><div id="pool-auth-input-wrap"><label><span data-i18n="pool.authInput">粘贴官方授权码或回调内容（可选）</span><textarea id="pool-auth-input" rows="3" autocomplete="off" spellcheck="false"></textarea></label><button type="button" id="btn-pool-auth-input" class="btn" data-i18n="pool.submitAuthInput">提交授权内容</button></div><div class="dlg-actions"><button type="button" id="btn-pool-auth-cancel" class="btn danger" data-i18n="pool.cancelAuth">取消授权</button><button type="button" id="btn-pool-auth-retry" class="btn" hidden data-i18n="pool.retryAuth">重新发起</button><button type="button" class="btn ghost" data-close-dlg data-i18n="pool.close">关闭</button></div></dialog>
+  <dialog id="dlg-pool-auth" class="pool-dialog">
+    <h3 id="pool-auth-title">账号授权</h3>
+    <p id="pool-auth-hint" class="hint" data-i18n="pool.authHint">打开官方授权页面完成登录，再返回这里查看结果。授权状态每两秒更新。</p>
+    <div id="pool-auth-message" class="pool-status" role="status" aria-live="polite"></div>
+    <a id="pool-auth-link" class="pool-auth-url" target="_blank" rel="noopener noreferrer" hidden></a>
+    <button type="button" id="btn-pool-auth-link-copy" class="btn" hidden data-i18n="pool.copyAuthLink">复制授权链接</button>
+    <p id="pool-auth-open-status" class="hint" role="status" aria-live="polite" hidden></p>
+    <div id="pool-auth-code-wrap" class="pool-auth-code" hidden><span data-i18n="pool.deviceCode">设备码</span><code id="pool-auth-code"></code><button type="button" id="btn-pool-code-copy" class="btn" data-i18n="member.copy.short">复制</button></div>
+    <div id="pool-auth-input-wrap"><label><span data-i18n="pool.authInput">粘贴官方授权码或回调内容（可选）</span><textarea id="pool-auth-input" rows="3" autocomplete="off" spellcheck="false"></textarea></label><button type="button" id="btn-pool-auth-input" class="btn" data-i18n="pool.submitAuthInput">提交授权内容</button></div>
+    <div class="dlg-actions"><button type="button" id="btn-pool-auth-cancel" class="btn danger" data-i18n="pool.cancelAuth">取消授权</button><button type="button" id="btn-pool-auth-retry" class="btn" hidden data-i18n="pool.retryAuth">重新发起</button><button type="button" class="btn ghost" data-close-dlg data-i18n="pool.close">关闭</button></div>
+  </dialog>
 
   <dialog id="dlg-account">
     <form id="form-account" method="dialog" autocomplete="off">
@@ -1069,11 +1081,12 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/theme.js?v=20260925-5"></script>
-  <script src="/date-picker.js?v=20260926-2"></script>
-  <script src="/pool-admin.js?v=20261002-diagnostics1"></script>
+  <script src="/date-picker.js?v=20261008-1"></script>
+  <script src="/pool-admin.js?v=20261008-cursor4"></script>
   <script src="/model-diagnostics.js?v=20261002-1"></script>
   <script src="/admin-backups.js?v=20261002-1"></script>
-  <script src="/app.js?v=20261002-diagnostics1"></script>
+  <script src="/account-balances.js?v=20261008-quota2"></script>
+  <script src="/app.js?v=20261008-cursor4"></script>
   <script src="/ui-effects.js?v=20260927-2"></script>
 </body>
 </html>

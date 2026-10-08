@@ -89,6 +89,79 @@ describe("CheckInService", () => {
 		await expect(service.checkInAll()).rejects.toMatchObject({ code: "checkin.noAccounts" });
 	});
 
+	it("签到分类独立于启用和凭证有效性，配置缺失仍属于支持签到", () => {
+		const accounts = new InMemoryAccountStore();
+		const disabled = makeAccount(accounts, "WORKBUDDY", false);
+		const unconfigured = makeAccount(accounts, "TRAE");
+		const unsupported = makeAccount(accounts, "CODEX");
+		const { service } = buildService(accounts, [
+			stubProvider("WORKBUDDY", () => checkInSuccess("ok", 1, NOW)),
+			stubProvider("TRAE", () => checkInSuccess("ok", 1, NOW), false),
+		]);
+		expect(service.capability({ ...disabled, credentialStatus: "EXPIRED" })).toEqual({
+			supported: true,
+			configured: true,
+		});
+		expect(service.capability(unconfigured)).toEqual({ supported: true, configured: false });
+		expect(service.capability(unsupported)).toEqual({ supported: false, configured: false });
+	});
+
+	it("筛选批量去重，只执行已启用且配置完整的所选账号；跳过不写记录", async () => {
+		const accounts = new InMemoryAccountStore();
+		const selected = makeAccount(accounts, "WORKBUDDY");
+		const outsideFilter = makeAccount(accounts, "WORKBUDDY");
+		const disabled = makeAccount(accounts, "WORKBUDDY", false);
+		const unconfigured = makeAccount(accounts, "TRAE");
+		const unsupported = makeAccount(accounts, "CODEX");
+		const { records, service } = buildService(accounts, [
+			stubProvider("WORKBUDDY", () => checkInSuccess("ok", 1, NOW)),
+			stubProvider("TRAE", () => checkInSuccess("ok", 1, NOW), false),
+		]);
+		const batch = await service.checkInSelected([
+			selected.id,
+			selected.id,
+			disabled.id,
+			unconfigured.id,
+			unsupported.id,
+		]);
+		expect(batch).toMatchObject({ requested: 4, total: 1, success: 1, skipped: 3 });
+		expect(batch.items.map((item) => item.accountId)).toEqual([selected.id]);
+		expect(batch.skippedItems).toEqual([
+			{ accountId: disabled.id, reason: "DISABLED" },
+			{ accountId: unconfigured.id, reason: "NOT_CONFIGURED" },
+			{ accountId: unsupported.id, reason: "NOT_SUPPORTED" },
+		]);
+		expect(records.recent(10)).toHaveLength(1);
+		expect(accounts.require(outsideFilter.id).lastCheckInAt).toBeUndefined();
+		expect(accounts.require(disabled.id).lastCheckInAt).toBeUndefined();
+		expect(await service.checkInSelected([])).toMatchObject({ requested: 0, total: 0, skipped: 0, items: [] });
+	});
+
+	it("筛选批量在触发上游前校验全部 ID，无效选择不产生部分签到", async () => {
+		const accounts = new InMemoryAccountStore();
+		const selected = makeAccount(accounts, "WORKBUDDY");
+		const { records, service } = buildService(accounts, [
+			stubProvider("WORKBUDDY", () => checkInSuccess("ok", 1, NOW)),
+		]);
+		await expect(service.checkInSelected([selected.id, "missing"])).rejects.toMatchObject({
+			code: "account.notFound",
+		});
+		await expect(service.checkInSelected([selected.id, " "])).rejects.toMatchObject({
+			code: "checkin.badAccountIds",
+		});
+		expect(records.recent(10)).toHaveLength(0);
+	});
+
+	it("旧全量签到保留 onlyEnabled=false 的停用失败语义", async () => {
+		const accounts = new InMemoryAccountStore();
+		makeAccount(accounts, "WORKBUDDY", false);
+		const { records, service } = buildService(accounts, [
+			stubProvider("WORKBUDDY", () => checkInSuccess("ok", 1, NOW)),
+		]);
+		expect(await service.checkInAll(false)).toMatchObject({ total: 1, failed: 1 });
+		expect(records.recent(10)).toHaveLength(1);
+	});
+
 	it("Provider 抛异常折成 FAILED，不冒泡", async () => {
 		const accounts = new InMemoryAccountStore();
 		makeAccount(accounts, "WORKBUDDY");

@@ -12,7 +12,7 @@ import type { ApiKey } from "../apikey/types.ts";
 import type { ResolvedModel, ResolvedRouteTarget } from "../catalog/resolve.ts";
 import type { Platform } from "../platform.ts";
 import type { AccountPoolRouter } from "./pool-router.ts";
-import type { StickySessionService } from "./sticky-sessions.ts";
+import type { StickyBinding, StickySessionService } from "./sticky-sessions.ts";
 import { stripStickyFields } from "./sticky-sessions.ts";
 import { GatewayFault, type UpstreamChatClient, UpstreamException } from "./upstream.ts";
 
@@ -31,6 +31,14 @@ export interface GenerationRequest {
 	sessionId: string | null;
 	/** 工具续接钉住的账号。只在平台一致时优先于 sticky。 */
 	pinnedAccountId?: string | null;
+	signal?: AbortSignal;
+}
+
+/** Output/completion and continuation routing belong to one request, including its retries. */
+export interface GenerationAttemptContext {
+	emitted: boolean;
+	upstreamCompleted: boolean;
+	readonly pinnedAccountId: string | null;
 }
 
 /** 上游调用尝试；抛错即按换号语义处理。 */
@@ -38,6 +46,7 @@ export type GenerationAttempt<T> = (
 	account: Account,
 	target: ResolvedRouteTarget,
 	forwarded: Record<string, unknown>,
+	context: GenerationAttemptContext,
 ) => Promise<T>;
 
 export class RouteGeneration {
@@ -47,26 +56,13 @@ export class RouteGeneration {
 		this.#deps = deps;
 	}
 
-	/** 是否已向客户端产出内容（产出后失败不可换号重试，由 HTTP 层标记）。 */
-	emitted = false;
-	/** 上游是否已完成（完成后的簿记错误不得触发新的付费尝试）。 */
-	upstreamCompleted = false;
-	/** 本请求钉住的账号，只活在 route() 这一次调用里。 */
-	#pinnedAccountId: string | null = null;
-
 	async route<T>(request: GenerationRequest, attempt: GenerationAttempt<T>): Promise<T> {
-		// 每请求重置：产出/完成标记只属于当前调用（服务实例跨请求复用）
-		this.emitted = false;
-		this.upstreamCompleted = false;
-		this.#pinnedAccountId = request.pinnedAccountId ?? null;
-		try {
-			return await this.#routeOnce(request, attempt);
-		} finally {
-			this.#pinnedAccountId = null;
-		}
-	}
-
-	async #routeOnce<T>(request: GenerationRequest, attempt: GenerationAttempt<T>): Promise<T> {
+		const context: GenerationAttemptContext = {
+			emitted: false,
+			upstreamCompleted: false,
+			pinnedAccountId: request.pinnedAccountId ?? null,
+		};
+		request.signal?.throwIfAborted();
 		const { key, resolution, sessionId } = request;
 		let last: Error | null = null;
 		let capacityRejected = false;
@@ -81,7 +77,8 @@ export class RouteGeneration {
 			const seen = new Set<string>();
 			let index = 0;
 			while (index < Math.max(1, this.#deps.maxRotate)) {
-				const selection = this.#pickFor(target, seen, sticky);
+				request.signal?.throwIfAborted();
+				const selection = this.#pickFor(target, seen, sticky, context);
 				const selected = selection.account;
 				if (selection.capacityBlocked) {
 					capacityRejected = true;
@@ -99,7 +96,8 @@ export class RouteGeneration {
 				index++;
 				const forwarded = this.forwardedPayload(request.payload, target, resolution);
 				try {
-					const result = await attempt(account, target, forwarded);
+					const result = await attempt(account, target, forwarded, context);
+					request.signal?.throwIfAborted();
 					this.#deps.sticky.bindSuccessful(
 						key.id,
 						resolution.publicId,
@@ -110,11 +108,12 @@ export class RouteGeneration {
 					);
 					return result;
 				} catch (failure) {
+					request.signal?.throwIfAborted();
 					if (!(failure instanceof Error)) {
 						throw failure;
 					}
 					// 已产出内容或上游已完成：失败不得变成另一次付费尝试
-					if (this.emitted || this.upstreamCompleted) {
+					if (context.emitted || context.upstreamCompleted) {
 						throw failure;
 					}
 					if (isRequestFailure(failure)) {
@@ -150,9 +149,10 @@ export class RouteGeneration {
 	#pickFor = (
 		target: ResolvedRouteTarget,
 		seen: Set<string>,
-		sticky: import("../gateway/sticky-sessions.ts").StickyBinding | null,
+		sticky: StickyBinding | null,
+		context: GenerationAttemptContext,
 	): { account: Account | null; capacityBlocked: boolean } => {
-		const pinnedId = this.#pinnedAccountId;
+		const pinnedId = context.pinnedAccountId;
 		if (pinnedId !== null && !seen.has(pinnedId)) {
 			const pinned = this.#deps.accounts.get(pinnedId);
 			if (pinned?.enabled && pinned.platform === target.platform) {
@@ -217,6 +217,11 @@ export class RouteGeneration {
 
 /** AUTH/BAD_REQUEST 属于请求性失败：换号无意义，直接抛给客户端。 */
 function isRequestFailure(failure: Error): boolean {
+	if (
+		failure instanceof GatewayFault &&
+		["upstream_timeout", "upstream_stream_idle_timeout", "upstream_stream_interrupted"].includes(failure.code)
+	)
+		return true;
 	if (failure instanceof UpstreamException) {
 		return failure.kind === "AUTH" || failure.kind === "BAD_REQUEST";
 	}

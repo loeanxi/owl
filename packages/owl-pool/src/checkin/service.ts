@@ -36,6 +36,17 @@ export interface BatchCheckInOutcome {
 	items: AccountCheckInOutcome[];
 }
 
+export interface CheckInCapability {
+	supported: boolean;
+	configured: boolean;
+}
+
+export interface SelectedCheckInOutcome extends BatchCheckInOutcome {
+	requested: number;
+	skipped: number;
+	skippedItems: Array<{ accountId: string; reason: "DISABLED" | "NOT_SUPPORTED" | "NOT_CONFIGURED" }>;
+}
+
 export interface CheckInServiceOptions {
 	accounts: AccountStore;
 	records: CheckInRecordStore;
@@ -62,6 +73,15 @@ export class CheckInService {
 		this.#providers = new Map(options.providers.map((provider) => [provider.supports(), provider]));
 	}
 
+	/** 能力与凭证配置分别判断；停用或凭证失效不改变平台的签到分类。 */
+	capability(account: Account): CheckInCapability {
+		const provider = this.#providers.get(account.platform);
+		return {
+			supported: provider !== undefined,
+			configured: provider !== undefined && (provider.isConfigured?.(account) ?? true),
+		};
+	}
+
 	/** 签到单个账号（平台不支持/凭证未配置直接抛业务错误，对齐 Java 版）。 */
 	async checkInOne(accountId: string): Promise<AccountCheckInOutcome> {
 		const account = this.#accounts.require(accountId);
@@ -86,6 +106,37 @@ export class CheckInService {
 			throw BusinessError.of("checkin.noAccounts", "没有可签到的账号");
 		}
 		return this.runBatch(accounts);
+	}
+
+	/** 当前筛选批量：先校验全部 ID，再去重，跳过执行时不满足条件的账号。 */
+	async checkInSelected(accountIds: string[]): Promise<SelectedCheckInOutcome> {
+		if (accountIds.some((id) => typeof id !== "string" || id.trim().length === 0)) {
+			throw BusinessError.of("checkin.badAccountIds", "accountIds 必须是非空账号 ID 的数组");
+		}
+		const selected = [...new Set(accountIds)].map((id) => this.#accounts.require(id));
+		const accounts: Account[] = [];
+		const skippedItems: SelectedCheckInOutcome["skippedItems"] = [];
+		for (const account of selected) {
+			const capability = this.capability(account);
+			const reason = !account.enabled
+				? "DISABLED"
+				: !capability.supported
+					? "NOT_SUPPORTED"
+					: !capability.configured
+						? "NOT_CONFIGURED"
+						: null;
+			if (reason !== null) {
+				skippedItems.push({ accountId: account.id, reason });
+			} else {
+				accounts.push(account);
+			}
+		}
+		return {
+			...(await this.runBatch(accounts)),
+			requested: selected.length,
+			skipped: skippedItems.length,
+			skippedItems,
+		};
 	}
 
 	/**
@@ -131,8 +182,7 @@ export class CheckInService {
 
 	/** 平台可签（有 Provider 且凭证已配置）。 */
 	private canCheckIn(account: Account): boolean {
-		const provider = this.#providers.get(account.platform);
-		return provider !== undefined && (provider.isConfigured?.(account) ?? true);
+		return this.capability(account).configured;
 	}
 
 	private async runBatch(accounts: Account[]): Promise<BatchCheckInOutcome> {

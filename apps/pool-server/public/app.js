@@ -17,6 +17,7 @@ const state = {
   records: [],
   keys: [],
   platformFilter: "ALL",
+  categoryFilter: "ALL",
   statusFilter: "ALL",
   search: "",
   usageItems: [],
@@ -32,6 +33,7 @@ const state = {
   lifetimeSummary: null,
   creditTimer: null,
   creditRefreshing: false,
+  checkinRunning: false,
   admin: { enabled: true, authenticated: false, username: "", setupRequired: false },
   billingTab: "rates",
   billingStatus: null,
@@ -453,8 +455,8 @@ function uiConfirm(message, opts = {}) {
 // 成员页等其他脚本复用同一套确认弹窗
 window.uiConfirm = uiConfirm;
 
-function formatNum(n) {
-  return Number(n || 0).toLocaleString(locale(), { maximumFractionDigits: 4 });
+function formatNum(n, maximumFractionDigits = 4) {
+  return Number(n || 0).toLocaleString(locale(), { maximumFractionDigits });
 }
 
 function formatTime(iso) {
@@ -575,8 +577,8 @@ function accountRowClass(a) {
 }
 
 function todayCheckIn(a) {
-  const qoderCheckin = a.platform === "QODER" && !!a.credentialsMasked?.checkinToken;
-  if (a.platform === "CODEX" || a.platform === "ZCODE" || a.platform === "MIMO" || (poolLoginPlatform(a.platform) && !qoderCheckin)) return { key: "none", text: t("admin.checkin.NA"), cls: "" };
+  if (!a.checkInSupported) return { key: "none", text: t("admin.checkin.NA"), cls: "" };
+  if (!a.checkInConfigured) return { key: "config", text: t("admin.accounts.checkinUnconfigured"), cls: "" };
   if (!a.lastCheckInAt || !isToday(a.lastCheckInAt)) {
     return { key: "none", text: t("admin.checkin.none"), cls: "" };
   }
@@ -588,8 +590,27 @@ function todayCheckIn(a) {
   return { key: "fail", text: t("member.status.FAIL"), cls: "err" };
 }
 
+function accountCreditMessage(a) {
+  if (a.platform === "CURSOR" && a.creditsStatus === "UNAVAILABLE" && a.creditsLabel?.startsWith("CURSOR_")) return t(`admin.credits.${a.creditsLabel}`);
+  if (a.platform === "MIMO" && a.creditsStatus === "UNAVAILABLE") return t("admin.credits.mimoUnavailable");
+  if (a.platform === "CODEX" && a.creditsStatus === "OK") {
+    const primary = a.creditBuckets?.find((bucket) => bucket.key === "primary");
+    if (primary?.used != null) return t(primary.resetsAt ? "admin.credits.codexUsageReset" : "admin.credits.codexUsage", {
+      used: formatNum(primary.used), reset: primary.resetsAt ? new Date(primary.resetsAt).toLocaleString(locale()) : "",
+    });
+  }
+  const message = a.creditsMessage || "";
+  if (a.platform === "CURSOR" && message === "使用本机 Cursor 当前登录账户的额度") return t("admin.credits.cursorDesktopSource");
+  const localGithub = a.platform === "COPILOT" ? message.match(/^使用本机 GitHub CLI 已登录账号 (.+) 的额度$/) : null;
+  return localGithub ? t("admin.credits.copilotGithubSource", { login: localGithub[1] }) : message;
+}
+
 function creditsCell(a) {
-  if (a.creditsStatus === "FAIL" && a.platform !== "MIMO") {
+  if (a.creditsStatus === "UNAVAILABLE") {
+    if (a.platform === "CURSOR") return `<span class="muted-text" title="${escapeHtml(accountCreditMessage(a))}">${escapeHtml(t("admin.credits.cursorSessionRequired"))}</span> <a href="https://cursor.com/dashboard/spending" data-cursor-quota-dashboard target="_blank" rel="noopener noreferrer">${escapeHtml(t("admin.credits.openDashboard"))}</a>`;
+    return `<span class="muted-text" title="${escapeHtml(accountCreditMessage(a))}">${escapeHtml(t("admin.credits.notSupported"))}</span>`;
+  }
+  if (a.creditsStatus === "FAIL") {
     return `<span class="err-text" title="${escapeHtml(a.creditsMessage || "")}">${escapeHtml(t("admin.credits.queryFailed"))}</span>`;
   }
   if (Array.isArray(a.creditBuckets) && a.creditBuckets.length) {
@@ -597,7 +618,7 @@ function creditsCell(a) {
     const rows = a.creditBuckets.map((bucket) => {
       const label = quotaBucketLabel(a.platform, bucket);
       const value = bucket.remaining != null
-        ? `${formatNum(bucket.remaining)}${bucket.unit === "%" ? "%" : ` ${escapeHtml(bucket.unit || "")}`}`
+        ? `${formatNum(bucket.remaining, bucket.unit === "%" ? 2 : 4)}${bucket.unit === "%" ? "%" : ` ${escapeHtml(bucket.unit || "")}`}`
         : bucket.unlimited ? escapeHtml(t("admin.credits.unlimited"))
           : cursor ? `<a href="https://cursor.com/dashboard/spending" target="_blank" rel="noopener noreferrer">${escapeHtml(t("admin.credits.openDashboard"))}</a>`
             : bucket.remainingPercent != null ? `${formatNum(bucket.remainingPercent)}%` : "—";
@@ -629,8 +650,11 @@ function creditsCell(a) {
 function quotaBucketLabel(platform, bucket) {
   if (platform === "CURSOR") {
     if (bucket.key === "cursor_plan") return t("admin.credits.cursorPlan");
+    if (bucket.key === "cursor_total_percent") return t("admin.credits.cursorTotalPercent");
     if (bucket.key === "cursor_on_demand") return t("admin.credits.cursorOnDemand");
-    return bucket.key === "cursor_models" ? "Cursor Models" : "Other Models";
+    if (bucket.key === "cursor_models") return "Cursor Models";
+    if (bucket.key === "other_models") return "Other Models";
+    return bucket.label || bucket.key;
   }
   if (platform === "CODEX") return bucket.key === "primary" ? t("admin.credits.primary") : t("admin.credits.secondary");
   if (platform === "ZCODE") return ({ hour5: t("admin.credits.zcode5h"), weekly: t("admin.credits.zcodeWeekly") })[bucket.key] || bucket.label;
@@ -648,10 +672,24 @@ function zcodeChannelLabel(channel) {
   return t(`admin.cred.zcodeChannel.${key}`);
 }
 
+function categoryAccounts() {
+  return state.accounts.filter((a) => state.categoryFilter === "ALL"
+    || (state.categoryFilter === "SUPPORTED" ? a.checkInSupported === true : a.checkInSupported !== true));
+}
+
+function platformAccounts() {
+  return categoryAccounts().filter((a) => state.platformFilter === "ALL" || a.platform === state.platformFilter);
+}
+
+function canCheckInNow(a) {
+  const health = accountHealth(a);
+  return a.enabled && a.checkInSupported && a.checkInConfigured
+    && health.code !== "AUTH_ERROR" && health.code !== "CRED_EXPIRED";
+}
+
 function filterAccounts() {
   const q = state.search.trim().toLowerCase();
-  return state.accounts.filter((a) => {
-    if (state.platformFilter !== "ALL" && a.platform !== state.platformFilter) return false;
+  return platformAccounts().filter((a) => {
     if (state.statusFilter !== "ALL" && accountHealth(a).key !== state.statusFilter) return false;
     if (q) {
       const hay = `${a.name || ""} ${a.remark || ""}`.toLowerCase();
@@ -663,50 +701,86 @@ function filterAccounts() {
 
 function updateFilterCounts() {
   const all = state.accounts.length;
-  const wb = state.accounts.filter((a) => a.platform === "WORKBUDDY").length;
-  const trae = state.accounts.filter((a) => a.platform === "TRAE").length;
-  const codex = state.accounts.filter((a) => a.platform === "CODEX").length;
-  const ok = state.accounts.filter((a) => accountHealth(a).key === "OK").length;
-  const bad = all - ok;
+  const rows = platformAccounts();
+  const ok = rows.filter((a) => accountHealth(a).key === "OK").length;
+  const bad = rows.length - ok;
   const set = (key, n) => {
     const el = document.querySelector(`[data-c="${key}"]`);
     if (el) el.textContent = n;
   };
-  set("ALL", all);
-  set("WORKBUDDY", wb);
-  set("TRAE", trae);
-  set("CODEX", codex);
-  set("ZCODE", state.accounts.filter((a) => a.platform === "ZCODE").length);
-  set("MIMO", state.accounts.filter((a) => a.platform === "MIMO").length);
-  POOL_LOGIN_PLATFORMS.forEach(platform => set(platform, state.accounts.filter(a => a.platform === platform).length));
+  set("ALL", rows.length);
   set("OK", ok);
   set("BAD", bad);
 
   const sub = $("#accounts-sub");
   if (sub) {
     const enabled = state.accounts.filter((a) => a.enabled).length;
-    sub.textContent = t("admin.accounts.summary", { total: all, enabled, bad });
+    sub.textContent = t("admin.accounts.summary", { total: all, enabled, bad: state.accounts.filter((a) => accountHealth(a).key === "BAD").length });
   }
-  updateCreditTotal();
+  const supported = state.accounts.filter((a) => a.checkInSupported === true).length;
+  const counts = { ALL: all, SUPPORTED: supported, UNSUPPORTED: all - supported };
+  document.querySelectorAll("[data-category-count]").forEach((el) => { el.textContent = counts[el.dataset.categoryCount]; });
+  document.querySelectorAll("#account-category-filters [data-category]").forEach((el) => {
+    const active = el.dataset.category === state.categoryFilter;
+    el.classList.toggle("active", active);
+    el.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("#account-filters [data-status]").forEach((el) => {
+    const active = el.dataset.status === state.statusFilter;
+    el.classList.toggle("active", active);
+    el.setAttribute("aria-pressed", String(active));
+  });
 }
 
-// 标题旁「总积分」：合计当前列表（含筛选）中有数值的积分。
-function updateCreditTotal() {
-  const el = $("#accounts-credits");
-  if (!el) return;
-  const rows = filterAccounts();
-  let sum = 0;
-  let counted = 0;
-  for (const a of rows) {
-    if (a.credits != null && a.creditsStatus !== "FAIL") {
-      sum += Number(a.credits) || 0;
-      counted++;
-    }
+function renderAccountPlatformCards() {
+  const root = $("#account-platform-cards");
+  if (!root) return;
+  const categoryRows = categoryAccounts();
+  const order = Object.keys(POOL_PLATFORMS);
+  const cards = window.PoolAccountBalances.summarize(categoryRows).sort((a, b) => {
+    const rank = (platform) => order.includes(platform) ? order.indexOf(platform) : order.length;
+    return rank(a.platform) - rank(b.platform) || a.platform.localeCompare(b.platform);
+  });
+  if (state.platformFilter !== "ALL" && !cards.some((card) => card.platform === state.platformFilter)) state.platformFilter = "ALL";
+  $("#btn-account-platform-all").hidden = state.platformFilter === "ALL";
+  if (!cards.length) {
+    root.innerHTML = `<p class="account-platform-empty">${escapeHtml(t("admin.accounts.categoryEmpty"))}</p>`;
+    return;
   }
-  el.textContent = counted ? t("admin.accounts.creditsTotal", { sum: formatNum(sum) }) : t("admin.accounts.creditsTotal.none");
-  el.title = counted
-    ? t("admin.accounts.creditsTotal.tip", { count: counted })
-    : t("admin.accounts.creditsTotal.tipNone");
+  root.innerHTML = cards.map((card) => {
+    const metrics = card.metrics.map((metric) => {
+      const label = metric.source === "bucket"
+        ? quotaBucketLabel(card.platform, { key: metric.bucketKey, label: metric.label })
+        : card.metrics.filter((item) => item.source === "scalar").length > 1 ? metric.label : t("admin.accounts.remainingCredits");
+      const unit = metric.unit === "%" ? "%" : metric.unit ? ` ${metric.unit}` : "";
+      const value = metric.count
+        ? (metric.kind === "sum" ? formatNum(metric.remaining, metric.unit === "%" ? 2 : 4)
+          : metric.minimum === metric.maximum ? formatNum(metric.minimum, metric.unit === "%" ? 2 : 4) : `${formatNum(metric.minimum, metric.unit === "%" ? 2 : 4)}–${formatNum(metric.maximum, metric.unit === "%" ? 2 : 4)}`) + unit
+        : metric.unlimitedCount ? t("admin.credits.unlimited") : t("admin.accounts.balanceUnknown");
+      const notes = [];
+      if (metric.kind === "range" && metric.count > 1) notes.push(t("admin.accounts.balanceRange", { count: metric.count }));
+      if (metric.unlimitedCount && metric.count) notes.push(t("admin.accounts.balanceUnlimited", { count: metric.unlimitedCount }));
+      if (metric.unavailableCount) notes.push(t("admin.accounts.balanceUnavailable", { count: metric.unavailableCount }));
+      if (metric.unknownCount) notes.push(t("admin.accounts.balancePoolUnknown", { count: metric.unknownCount }));
+      return `<span class="account-platform-metric"><span class="account-platform-metric-label">${escapeHtml(label)}</span><span class="account-platform-metric-value">${escapeHtml(value)}</span></span>${notes.length ? `<span class="account-platform-note">${escapeHtml(notes.join(" · "))}</span>` : ""}`;
+    }).join("");
+    const noQueries = card.unavailableQueryCount === card.accountCount;
+    const coverage = noQueries ? [] : [t("admin.accounts.balanceCoverage", { known: card.knownCount, total: card.accountCount })];
+    if (card.unavailableQueryCount) coverage.push(t("admin.accounts.balanceQueryUnavailable", { count: card.unavailableQueryCount }));
+    if (card.failedCount) coverage.push(t("admin.accounts.balanceFailed", { count: card.failedCount }));
+    if (card.unknownCount) coverage.push(t("admin.accounts.balanceNotQueried", { count: card.unknownCount }));
+    if (card.unlimitedCount && !card.metrics.some((metric) => metric.unlimitedCount)) coverage.push(t("admin.accounts.balanceUnlimited", { count: card.unlimitedCount }));
+    const disabled = categoryRows.filter((account) => account.platform === card.platform && !account.enabled).length;
+    if (disabled) coverage.push(t("admin.accounts.balanceDisabled", { count: disabled }));
+    const name = POOL_PLATFORMS[card.platform] || card.platform;
+    const messages = [...new Set(categoryRows.filter((account) => account.platform === card.platform).map(accountCreditMessage).filter(Boolean))];
+    const emptyLabel = noQueries ? t(card.platform === "CURSOR" ? "admin.credits.cursorSessionRequired" : "admin.credits.notSupported") : card.failedCount ? t("admin.credits.queryFailed") : t("admin.accounts.balanceUnknown");
+    return `<button type="button" class="account-platform-card${state.platformFilter === card.platform ? " active" : ""}" data-platform="${escapeHtml(card.platform)}" aria-pressed="${state.platformFilter === card.platform}" aria-label="${escapeHtml(t("admin.accounts.filterPlatform", { platform: name }))}">
+      <span class="account-platform-card-head"><span class="account-platform-name">${escapeHtml(name)}</span><span class="account-platform-count">${escapeHtml(t("admin.accounts.platformCount", { count: card.accountCount }))}</span></span>
+      <span class="account-platform-metrics">${metrics || `<span class="account-platform-note">${escapeHtml(emptyLabel)}</span>`}</span>
+      <span class="account-platform-footer"><span class="account-platform-note">${escapeHtml(coverage.join(" · "))}</span>${messages.map((message) => `<span class="account-platform-note">${escapeHtml(message)}</span>`).join("")}${card.updatedAt ? `<span class="account-platform-note">${escapeHtml(t("admin.accounts.balanceUpdated", { time: formatTimeShort(card.updatedAt) }))}</span>` : ""}</span>
+    </button>`;
+  }).join("");
 }
 
 function updateNav() {
@@ -775,12 +849,13 @@ function renderOverviewKpis() {
   const trae = accounts.filter((a) => a.platform === "TRAE").length;
   const codex = accounts.filter((a) => a.platform === "CODEX").length;
 
-  const checked = accounts.filter((a) => {
+  const checkable = accounts.filter(canCheckInNow);
+  const checked = checkable.filter((a) => {
     const ci = todayCheckIn(a);
     return ci.key === "done";
   }).length;
-  const checkFail = accounts.filter((a) => todayCheckIn(a).key === "fail").length;
-  const checkinTotal = accounts.filter(a => ["WORKBUDDY", "TRAE"].includes(a.platform)).length;
+  const checkFail = checkable.filter((a) => todayCheckIn(a).key === "fail").length;
+  const checkinTotal = checkable.length;
   const pending = Math.max(0, checkinTotal - checked - checkFail);
 
   const s = state.usageSummary;
@@ -933,10 +1008,20 @@ async function loadAccounts() {
 
 function renderAccountList() {
   const root = $("#account-list");
+  renderAccountPlatformCards();
+  updateFilterCounts();
   const filtered = filterAccounts();
-  updateCreditTotal();
+  const showCheckIn = state.categoryFilter !== "UNSUPPORTED" && platformAccounts().some((a) => a.checkInSupported);
+  $("#accounts-checkin-header").hidden = !showCheckIn;
+  const checkinButton = $("#btn-checkin-all-2");
+  const checkable = filtered.filter(canCheckInNow);
+  checkinButton.hidden = !showCheckIn;
+  checkinButton.disabled = !checkable.length || state.checkinRunning;
+  checkinButton.textContent = t(state.checkinRunning ? "admin.accounts.checkinRunning" : "admin.accounts.checkinFiltered", { count: checkable.length });
+  const platformName = state.platformFilter === "ALL" ? t("admin.accounts.allPlatforms") : POOL_PLATFORMS[state.platformFilter] || state.platformFilter;
+  $("#account-list-summary").textContent = t("admin.accounts.listSummary", { category: t(`admin.accounts.category.${state.categoryFilter}`), platform: platformName, count: filtered.length });
   if (!filtered.length) {
-    root.innerHTML = `<tr><td colspan="7"><div class="empty">${escapeHtml(state.accounts.length ? t("admin.accounts.emptyFiltered") : t("admin.accounts.emptyHint"))}</div></td></tr>`;
+    root.innerHTML = `<tr><td colspan="${showCheckIn ? 7 : 6}"><div class="empty">${escapeHtml(state.accounts.length ? t("admin.accounts.emptyFiltered") : t("admin.accounts.emptyHint"))}</div></td></tr>`;
     return;
   }
 
@@ -958,15 +1043,15 @@ function renderAccountList() {
     const remark = a.remark || "—";
     const needsCredUpdate = h.code === "AUTH_ERROR" || h.code === "CRED_EXPIRED";
     const isCodex = a.platform === "CODEX";
-    const isZcode = a.platform === "ZCODE";
-    const isMimo = a.platform === "MIMO";
     const isTrae = a.platform === "TRAE";
     const hasLogin = poolLoginPlatform(a.platform);
-    const qoderCheckin = a.platform === "QODER" && !!a.credentialsMasked?.checkinToken;
-    const checkinLabel = isTrae || qoderCheckin ? t("admin.accounts.act.checkin") : hasLogin ? t("pool.login") : isCodex ? t("admin.accounts.act.creditQuery")
-      : needsCredUpdate ? t("admin.accounts.act.updateCred") : (isZcode || isMimo) ? t("admin.accounts.act.edit") : t("admin.accounts.act.checkin");
-    const checkinAct = isTrae || qoderCheckin ? "checkin" : hasLogin ? "authorize" : isCodex ? "refresh-credit"
-      : needsCredUpdate ? "edit" : (isZcode || isMimo) ? "edit" : "checkin";
+    const qoderCheckin = a.platform === "QODER" && a.checkInSupported && a.checkInConfigured;
+    const needsCheckinConfig = a.checkInSupported && !a.checkInConfigured;
+    const checkinAct = needsCheckinConfig ? "edit" : needsCredUpdate ? (hasLogin || isTrae ? "authorize" : "edit")
+      : a.checkInSupported ? "checkin" : hasLogin ? "authorize" : isCodex ? "refresh-credit" : "edit";
+    const checkinLabel = needsCheckinConfig ? t("admin.accounts.configureCheckin")
+      : needsCredUpdate ? t("admin.accounts.act.updateCred") : checkinAct === "checkin" ? t("admin.accounts.act.checkin")
+      : checkinAct === "authorize" ? t("pool.login") : checkinAct === "refresh-credit" ? t("admin.accounts.act.creditQuery") : t("admin.accounts.act.edit");
     const tip = cp.tip ? `${h.label} · ${cp.tip}` : h.label;
     return `
       <tr data-id="${escapeHtml(a.id)}" class="${accountRowClass(a)}">
@@ -977,13 +1062,13 @@ function renderAccountList() {
         <td>${platformPill(a.platform)}</td>
         <td title="${escapeHtml(tip)}">${statusPill(h.kind, h.label)}</td>
         <td class="num">${creditsCell(a)}</td>
-        <td><span class="${ci.cls === "ok" ? "ok-text" : ci.cls === "err" ? "err-text" : "muted-text"}">${escapeHtml(ci.text)}</span></td>
+        ${showCheckIn ? `<td><span class="${ci.cls === "ok" ? "ok-text" : ci.cls === "err" ? "err-text" : "muted-text"}">${escapeHtml(ci.text)}</span></td>` : ""}
         <td title="${escapeHtml(a.remark || "")}"><span class="muted-text">${escapeHtml(shortMsg(remark, 16))}</span></td>
         <td class="ops-col">
           <div class="row-actions">
             <button class="row-btn" data-act="ping">Ping</button>
-            <button class="row-btn primary" data-act="${checkinAct}">${escapeHtml(checkinLabel)}</button>
-            ${qoderCheckin || isTrae ? `<button class="row-btn" data-act="authorize">${escapeHtml(t(isTrae ? "pool.traeLogin" : "pool.login"))}</button>` : ""}
+            <button class="row-btn primary" data-act="${checkinAct}"${checkinAct === "checkin" && !a.enabled ? " disabled" : ""}>${escapeHtml(checkinLabel)}</button>
+            ${(qoderCheckin || isTrae) && checkinAct !== "authorize" ? `<button class="row-btn" data-act="authorize">${escapeHtml(t(isTrae ? "pool.traeLogin" : "pool.login"))}</button>` : ""}
             ${hasLogin || a.platform === "TRAE" ? `<button class="row-btn" data-act="refresh-credit">${escapeHtml(t(a.platform === "TRAE" ? "admin.accounts.act.refreshCredit" : "admin.accounts.act.creditQuery"))}</button>` : ""}
             ${checkinAct === "edit" ? "" : `<button class="row-btn" data-act="edit">${escapeHtml(t("admin.accounts.act.edit"))}</button>`}
             <div class="more">
@@ -2638,7 +2723,7 @@ async function refreshCredits(silent = false) {
       } else if (result?.total === 0) {
         toast(t("admin.credits.toast.noAccounts"), "warn");
       } else {
-        toast(t("admin.credits.toast.batchDone", { count: result?.ok ?? 0 }), "ok");
+        toast(t(result?.unavailable ? "admin.credits.toast.batchUnavailable" : "admin.credits.toast.batchDone", { count: result?.ok ?? 0, unavailable: result?.unavailable ?? 0 }), result?.unavailable ? "warn" : "ok");
       }
     }
   } catch (err) {
@@ -2851,11 +2936,24 @@ async function copyText(text, btn, okText) {
   }
 }
 
-async function checkinAll() {
-  const result = await api("/api/checkin/all?onlyEnabled=true", { method: "POST" });
-  toast(t("admin.checkin.toast.done", { ok: result.success, already: result.already, fail: result.failed }), result.failed ? "err" : "ok");
-  if (state.view === "overview") await loadOverview();
-  else await Promise.all([loadAccounts(), loadRecords()]);
+async function checkinAll(scoped = false) {
+  if (state.checkinRunning) return;
+  const accountIds = scoped ? filterAccounts().filter(canCheckInNow).map((a) => a.id) : null;
+  if (scoped && !accountIds.length) return;
+  state.checkinRunning = true;
+  if (state.view === "accounts") renderAccountList();
+  $("#btn-checkin-all").disabled = true;
+  try {
+    const result = await api("/api/checkin/all?onlyEnabled=true", { method: "POST", ...(scoped ? { body: JSON.stringify({ accountIds }) } : {}) });
+    const skipped = result.skipped ? ` · ${t("admin.accounts.checkinSkipped", { count: result.skipped })}` : "";
+    toast(t("admin.checkin.toast.done", { ok: result.success, already: result.already, fail: result.failed }) + skipped, result.failed ? "err" : "ok");
+    if (state.view === "overview") await loadOverview();
+    else await Promise.all([loadAccounts(), loadRecords()]);
+  } finally {
+    state.checkinRunning = false;
+    $("#btn-checkin-all").disabled = false;
+    if (state.view === "accounts") renderAccountList();
+  }
 }
 
 /* ---------- Bind ---------- */
@@ -2887,7 +2985,7 @@ function bind() {
     checkinAll().catch((e) => toast(e.message, "err"));
   });
   $("#btn-checkin-all-2").addEventListener("click", () => {
-    checkinAll().catch((e) => toast(e.message, "err"));
+    checkinAll(true).catch((e) => toast(e.message, "err"));
   });
 
   $("#btn-new").addEventListener("click", () => openAccountDialog());
@@ -3067,23 +3165,32 @@ function bind() {
   $("#form-account").addEventListener("submit", submitAccount);
   $("#form-key").addEventListener("submit", submitKey);
 
+  $("#account-category-filters").addEventListener("click", (e) => {
+    const button = e.target.closest("[data-category]");
+    if (!button) return;
+    state.categoryFilter = button.dataset.category;
+    state.platformFilter = "ALL";
+    renderAccountList();
+  });
+
+  $("#account-platform-cards").addEventListener("click", (e) => {
+    const button = e.target.closest("[data-platform]");
+    if (!button) return;
+    const platform = button.dataset.platform;
+    state.platformFilter = state.platformFilter === platform ? "ALL" : platform;
+    renderAccountList();
+    document.querySelector(`#account-platform-cards [data-platform="${platform}"]`)?.focus({ preventScroll: true });
+  });
+
+  $("#btn-account-platform-all").addEventListener("click", () => {
+    state.platformFilter = "ALL";
+    renderAccountList();
+  });
+
   $("#account-filters").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
-    if (!chip) return;
-    if (chip.dataset.filter) {
-      state.platformFilter = chip.dataset.filter;
-    } else if (chip.dataset.status) {
-      state.statusFilter = state.statusFilter === chip.dataset.status ? "ALL" : chip.dataset.status;
-    }
-    document.querySelectorAll("#account-filters .chip").forEach((c) => {
-      const on = (c.dataset.filter && c.dataset.filter === state.platformFilter)
-        || (c.dataset.status && c.dataset.status === state.statusFilter);
-      c.classList.toggle("active", !!on);
-    });
-    // platform chips are exclusive; keep ALL active when no platform match on status-only click
-    if (state.platformFilter === "ALL") {
-      document.querySelector('#account-filters .chip[data-filter="ALL"]')?.classList.add("active");
-    }
+    if (!chip?.dataset.status) return;
+    state.statusFilter = state.statusFilter === chip.dataset.status ? "ALL" : chip.dataset.status;
     renderAccountList();
   });
 

@@ -40,13 +40,18 @@ export interface UpstreamChatClient {
 	platform(): Platform;
 
 	/** 非流式对话；上游只回 SSE 时实现侧本地聚合。 */
-	chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+	chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>>;
 
 	/** 流式对话；OpenAI chunk JSON 字符串逐段回调（不含 data: 前缀，以 [DONE] 结束）。 */
 	chatCompletionStream(
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (openAiChunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void>;
 }
 

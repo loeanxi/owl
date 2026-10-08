@@ -11,6 +11,7 @@ import {
 	type ApiKey,
 	type ApiKeyService,
 	BillingService,
+	type BillingUsage,
 	DEFAULT_OUTPUT,
 	estimateMaxOutputTokens,
 	estimatePromptTokens,
@@ -33,6 +34,7 @@ import type { SqliteBillingStore } from "../store/billing-store.ts";
 import type { GatewayCallLogRecord, SqliteCallLogStore, SqliteCatalogStore } from "../store/gateway-stores.ts";
 import { newCallLogId } from "../store/gateway-stores.ts";
 import { assertKeyBudgetAllows } from "../store/key-budget.ts";
+import type { GatewayLifecycle } from "./lifecycle.ts";
 
 export interface GatewayConfig {
 	enabled: boolean;
@@ -74,6 +76,7 @@ export interface GatewayServiceDeps {
 		bind(key: ApiKey, model: string, accountId: string, callIds: string[]): void;
 	};
 	concurrency?: { acquire(memberId: string | null): Promise<{ close(): void }> };
+	lifecycle?: GatewayLifecycle;
 }
 
 export interface GatewayRejection {
@@ -164,21 +167,50 @@ export async function chatCompletion(
 	deps: GatewayServiceDeps,
 	auth: AuthenticatedGatewayRequest,
 	payload: Record<string, unknown>,
+	signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
+	signal?.throwIfAborted();
 	const run = new Run(deps, auth, payload);
-	const lease = await holdMember(deps, auth);
+	const activity = deps.lifecycle?.enter(run.callLogId, signal);
+	signal = activity?.signal ?? signal;
+	let lease: { close(): void } | undefined;
 	// 成员 Key 预占（resolve 之后：模型未上架不扣费）
 	const charge = reserveOf(deps, auth, run, payload);
+	const interrupted = () => {
+		try {
+			if (run.dispatched) charge.settle(null);
+			else charge.void();
+		} catch {
+			/* Startup reconciliation preserves unresolved holds if storage is unavailable. */
+		}
+	};
+	signal?.addEventListener("abort", interrupted, { once: true });
 	try {
+		lease = await holdMember(deps, auth);
+		signal?.throwIfAborted();
 		const resolution = resolveOf(deps, auth, payload);
 		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
+		run.prepare();
 		charge.open(resolution.publicId);
 		const result = await deps.generation.route(
-			{ key: auth.key, payload, resolution, sessionId: run.sessionId, pinnedAccountId: pin?.accountId ?? null },
-			async (account, _target, forwarded) => {
+			{
+				key: auth.key,
+				payload,
+				resolution,
+				sessionId: run.sessionId,
+				pinnedAccountId: pin?.accountId ?? null,
+				signal,
+			},
+			async (account, _target, forwarded, context) => {
 				const client = upstreamOf(deps, account.platform);
-				const body = await client.chatCompletion(account, forwarded);
-				deps.generation.upstreamCompleted = true;
+				signal?.throwIfAborted();
+				run.accountId = account.id;
+				run.platform = account.platform;
+				charge.dispatch();
+				run.dispatch();
+				const body = await client.chatCompletion(account, forwarded, signal);
+				signal?.throwIfAborted();
+				context.upstreamCompleted = true;
 				return { body, accountId: account.id, platform: account.platform };
 			},
 		);
@@ -193,17 +225,25 @@ export async function chatCompletion(
 		run.produced = true;
 		charge.settle(
 			run.usageSource === "KNOWN"
-				? { promptTokens: run.usage?.[0] ?? -1, completionTokens: run.usage?.[1] ?? -1 }
+				? {
+						promptTokens: run.usage?.[0] ?? -1,
+						completionTokens: run.usage?.[1] ?? -1,
+						cacheReadTokens: run.cacheReadTokens ?? undefined,
+						cacheWriteTokens: run.cacheWriteTokens ?? undefined,
+					}
 				: null,
 		);
 		run.finishOk();
 		return sanitizedBody;
 	} catch (error) {
-		charge.void();
+		if (run.dispatched) charge.settle(null);
+		else charge.void();
 		run.finishFail(error);
 		throw error;
 	} finally {
-		lease.close();
+		signal?.removeEventListener("abort", interrupted);
+		lease?.close();
+		activity?.close();
 	}
 }
 
@@ -215,27 +255,61 @@ export async function chatCompletionStream(
 	onChunk: (chunkJson: string) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
+	signal?.throwIfAborted();
 	const run = new Run(deps, auth, payload);
-	const lease = await holdMember(deps, auth);
+	const activity = deps.lifecycle?.enter(run.callLogId, signal);
+	signal = activity?.signal ?? signal;
+	let lease: { close(): void } | undefined;
 	const charge = reserveOf(deps, auth, run, payload);
+	const interrupted = () => {
+		try {
+			if (run.dispatched) charge.settle(null);
+			else charge.void();
+		} catch {
+			/* Keep unresolved reservations for conservative recovery. */
+		}
+	};
+	signal?.addEventListener("abort", interrupted, { once: true });
 	try {
+		lease = await holdMember(deps, auth);
+		signal?.throwIfAborted();
 		const resolution = resolveOf(deps, auth, payload);
 		const pin = deps.continuation?.find(auth.key, resolution.publicId, payload) ?? null;
+		run.prepare();
 		charge.open(resolution.publicId);
 		await deps.generation.route(
-			{ key: auth.key, payload, resolution, sessionId: run.sessionId, pinnedAccountId: pin?.accountId ?? null },
-			async (account, _target, forwarded) => {
+			{
+				key: auth.key,
+				payload,
+				resolution,
+				sessionId: run.sessionId,
+				pinnedAccountId: pin?.accountId ?? null,
+				signal,
+			},
+			async (account, _target, forwarded, context) => {
 				const client = upstreamOf(deps, account.platform);
-				await client.chatCompletionStream(account, forwarded, (chunkJson) => {
-					deps.generation.emitted = true;
-					// 上游的 [DONE] 丢弃：流终止符由 HTTP 层统一写（对齐 manager dispatcher 回调）
-					if (chunkJson === "[DONE]") {
-						return;
-					}
-					run.observeChunk(chunkJson);
-					onChunk(JSON.stringify(sanitizeChunk(deps, chunkJson, run)));
-				});
-				deps.generation.upstreamCompleted = true;
+				signal?.throwIfAborted();
+				run.accountId = account.id;
+				run.platform = account.platform;
+				charge.dispatch();
+				run.dispatch();
+				await client.chatCompletionStream(
+					account,
+					forwarded,
+					(chunkJson) => {
+						signal?.throwIfAborted();
+						context.emitted = true;
+						// 上游的 [DONE] 丢弃：流终止符由 HTTP 层统一写（对齐 manager dispatcher 回调）
+						if (chunkJson === "[DONE]") {
+							return;
+						}
+						run.observeChunk(chunkJson);
+						onChunk(JSON.stringify(sanitizeChunk(deps, chunkJson, run)));
+					},
+					signal,
+				);
+				signal?.throwIfAborted();
+				context.upstreamCompleted = true;
 				run.accountId = account.id;
 				run.platform = account.platform;
 				if (pin !== null) {
@@ -247,18 +321,25 @@ export async function chatCompletionStream(
 		run.produced = run.produced || run.sawContent;
 		charge.settle(
 			run.usageSource === "KNOWN"
-				? { promptTokens: run.usage?.[0] ?? -1, completionTokens: run.usage?.[1] ?? -1 }
+				? {
+						promptTokens: run.usage?.[0] ?? -1,
+						completionTokens: run.usage?.[1] ?? -1,
+						cacheReadTokens: run.cacheReadTokens ?? undefined,
+						cacheWriteTokens: run.cacheWriteTokens ?? undefined,
+					}
 				: null,
 		);
 		run.finishOk();
 	} catch (error) {
-		charge.void();
+		if (run.dispatched) charge.settle(null);
+		else charge.void();
 		run.finishFail(error);
 		throw error;
 	} finally {
-		lease.close();
+		signal?.removeEventListener("abort", interrupted);
+		lease?.close();
+		activity?.close();
 	}
-	void signal;
 }
 
 async function holdMember(deps: GatewayServiceDeps, auth: AuthenticatedGatewayRequest): Promise<{ close(): void }> {
@@ -319,8 +400,11 @@ function reserveCents(store: SqliteBillingStore | undefined, model: string, payl
 	}
 	const inputTokens = estimatePromptTokens(payload);
 	const outputTokens = Math.min(estimateMaxOutputTokens(payload), DEFAULT_OUTPUT * 16);
-	const per1m = Math.max(rate.promptPer1m, rate.cacheReadPer1m, rate.cacheWritePer1m);
-	return Math.ceil(((inputTokens + outputTokens) * per1m) / 1_000_000);
+	const inputPer1m = Math.max(rate.promptPer1m, rate.cacheReadPer1m, rate.cacheWritePer1m);
+	// Key 预算准入与 BillingService.reserve 的输入、输出分桶预占保持一致。
+	return (
+		Math.ceil((inputTokens * inputPer1m) / 1_000_000) + Math.ceil((outputTokens * rate.completionPer1m) / 1_000_000)
+	);
 }
 
 function reserveOf(
@@ -330,11 +414,12 @@ function reserveOf(
 	payload: Record<string, unknown>,
 ): {
 	open(publicModel: string): void;
-	settle(usage: { promptTokens: number; completionTokens: number } | null): void;
+	dispatch(): void;
+	settle(usage: BillingUsage | null): void;
 	void(): void;
 } {
 	if (deps.billing === undefined || !BillingService.chargeable(auth.key)) {
-		return { open() {}, settle() {}, void() {} };
+		return { open() {}, dispatch() {}, settle() {}, void() {} };
 	}
 	const pending: { entryId: string; model: string } | null = null;
 	void pending;
@@ -344,10 +429,19 @@ function reserveOf(
 			if (deps.backupDb !== undefined) {
 				assertKeyBudgetAllows(deps.backupDb, auth.key, reserveCents(deps.billingStore, publicModel, payload));
 			}
-			const entry = deps.billing!.reserve(auth.key.ownerMemberId!, auth.key.id, publicModel, payload);
+			const entry = deps.billing!.reserve(auth.key.ownerMemberId!, auth.key.id, publicModel, payload, {
+				requestId: auth.requestId,
+				callLogId: run.callLogId,
+			});
 			state.entryId = entry.entryId;
 			state.publicModel = publicModel;
 			run.billingEntryId = entry.entryId;
+		},
+		dispatch(): void {
+			if (run.dispatched) return;
+			if (state.entryId && !deps.billing!.claimDispatch(state.entryId, auth.requestId)) {
+				throw new GatewayFault(409, "reservation_closed", "调用预占已关闭，不能发送上游请求");
+			}
 		},
 		settle(usage): void {
 			if (state.entryId !== null) {
@@ -423,6 +517,7 @@ function sanitizeChunk(deps: GatewayServiceDeps, chunkJson: string, run: Run): R
 
 /** 单次调用的记账状态（对齐 GatewayExecutionService.Run 的核心面）。 */
 class Run {
+	readonly callLogId = `${BillingService.lifecycleCallLogPrefix}${newCallLogId()}`;
 	readonly completionId = `chatcmpl_${randomUUID().replaceAll("-", "")}`;
 	readonly model: string;
 	readonly sessionId: string | null;
@@ -430,6 +525,7 @@ class Run {
 	accountId: string | null = null;
 	platform: string | null = null;
 	produced = false;
+	dispatched = false;
 	sawContent = false;
 	usage: [number, number, number] | null = null;
 	usageSource = "UNKNOWN";
@@ -459,8 +555,10 @@ class Run {
 			const total = signed(record.total_tokens);
 			this.usage = [prompt, completion, total];
 			this.usageSource = "KNOWN";
-			this.cacheReadTokens = signedNested(record.prompt_tokens_details, "cached_tokens");
-			this.cacheWriteTokens = signed(record.cache_creation_input_tokens);
+			const read = cacheQuantity(record, "cached_tokens", ["prompt_cache_hit_tokens", "cached_tokens"]);
+			const write = cacheQuantity(record, "cache_write_tokens", ["cache_creation_input_tokens"]);
+			this.cacheReadTokens = this.cacheReadTokens === -1 ? -1 : read;
+			this.cacheWriteTokens = this.cacheWriteTokens === -1 ? -1 : write;
 		}
 		const source = body.usage_source;
 		if (typeof source === "string") {
@@ -521,6 +619,15 @@ class Run {
 		this.#write("OK", null, null);
 	}
 
+	prepare(): void {
+		this.#write("PREPARED", null, null, true);
+	}
+
+	dispatch(): void {
+		this.#write("DISPATCHED", null, null, true);
+		this.dispatched = true;
+	}
+
 	finishFail(error: unknown): void {
 		if (error instanceof ModelAccessException) {
 			this.#write("FAIL", error.code, error.message);
@@ -534,11 +641,11 @@ class Run {
 		this.#write(this.produced ? "ABORTED" : "FAIL", "upstream_error", message.slice(0, 200));
 	}
 
-	#write(status: string, errorCategory: string | null, message: string | null): void {
+	#write(status: string, errorCategory: string | null, message: string | null, required = false): void {
 		const now = this.#deps.nowMs?.() ?? Date.now();
 		const [prompt, completion, total] = this.usage ?? [-1, -1, -1];
 		const record: GatewayCallLogRecord = {
-			id: newCallLogId(),
+			id: this.callLogId,
 			keyId: this.#auth.key.id,
 			accountId: this.accountId,
 			platform: this.platform,
@@ -560,23 +667,32 @@ class Run {
 		};
 		try {
 			this.#deps.callLogs.save(record);
-		} catch {
+		} catch (error) {
+			if (required) throw error;
 			// 日志失败不影响主流程
 		}
 	}
 }
 
 function signed(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : -1;
+	return typeof value === "number" && Number.isSafeInteger(value) ? value : -1;
 }
 
-function signedNested(container: unknown, field: string): number | null {
-	if (container === null || typeof container !== "object") {
-		return null;
+function cacheQuantity(record: Record<string, unknown>, nestedKey: string, aliases: readonly string[]): number | null {
+	const values: unknown[] = [];
+	const details = record.prompt_tokens_details;
+	if (details !== undefined && details !== null) {
+		if (typeof details !== "object" || Array.isArray(details)) return -1;
+		if (nestedKey in details) values.push((details as Record<string, unknown>)[nestedKey]);
 	}
-	const value = (container as Record<string, unknown>)[field];
-	const parsed = signed(value);
-	return parsed < 0 ? null : parsed;
+	for (const key of aliases) if (key in record) values.push(record[key]);
+	let observed: number | null = null;
+	for (const value of values) {
+		const count = signed(value);
+		if (count < 0 || (observed !== null && count !== observed)) return -1;
+		observed = count;
+	}
+	return observed;
 }
 
 // isActive 供后续 Key 并发准入使用（阶段 3 范围外）

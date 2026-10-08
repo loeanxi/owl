@@ -27,9 +27,47 @@ import {
 
 export class SqliteBillingStore implements BillingStore {
 	readonly #db: DatabaseSync;
+	#transactionDepth = 0;
 
 	constructor(db: DatabaseSync) {
 		this.#db = db;
+	}
+
+	transaction<T>(run: () => T): T {
+		if (this.#transactionDepth > 0) return run();
+		this.#db.exec("BEGIN IMMEDIATE");
+		this.#transactionDepth++;
+		try {
+			const result = run();
+			this.#db.exec("COMMIT");
+			return result;
+		} catch (error) {
+			this.#db.exec("ROLLBACK");
+			throw error;
+		} finally {
+			this.#transactionDepth--;
+		}
+	}
+
+	callState(callLogId: string): { requestId: string | null; status: string } | undefined {
+		const row = this.#db.prepare("SELECT request_id,status FROM gateway_call_logs WHERE id=?").get(callLogId);
+		return row
+			? { requestId: row.request_id === null ? null : String(row.request_id), status: String(row.status) }
+			: undefined;
+	}
+
+	markDispatched(callLogId: string, requestId: string): boolean {
+		const row = this.callState(callLogId);
+		if (row?.requestId !== requestId) return false;
+		return (
+			Number(
+				this.#db
+					.prepare(
+						"UPDATE gateway_call_logs SET status='DISPATCHED' WHERE id=? AND request_id=? AND status='PREPARED'",
+					)
+					.run(callLogId, requestId).changes,
+			) === 1
+		);
 	}
 
 	getWallet(memberId: string): Wallet | undefined {
@@ -61,12 +99,13 @@ export class SqliteBillingStore implements BillingStore {
 	saveLedger(entry: LedgerEntry): void {
 		this.#db
 			.prepare(`
-			INSERT INTO billing_ledger_entries (id, member_id, key_id, request_id, model, amount, reserved_amount,
-				balance_before, balance_after, prompt_tokens, completion_tokens, entry_type, status, remark, occurred_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO billing_ledger_entries (id, member_id, key_id, request_id, call_log_id, model, amount, reserved_amount,
+				balance_before, balance_after, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, entry_type, status, remark, occurred_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				amount = excluded.amount, balance_after = excluded.balance_after,
 				prompt_tokens = excluded.prompt_tokens, completion_tokens = excluded.completion_tokens,
+				cache_read_tokens = excluded.cache_read_tokens, cache_write_tokens = excluded.cache_write_tokens,
 				entry_type = excluded.entry_type, status = excluded.status, remark = excluded.remark
 		`)
 			.run(
@@ -74,6 +113,7 @@ export class SqliteBillingStore implements BillingStore {
 				entry.memberId,
 				entry.keyId,
 				entry.requestId,
+				entry.callLogId ?? null,
 				entry.model,
 				entry.amount,
 				entry.reservedAmount,
@@ -81,6 +121,8 @@ export class SqliteBillingStore implements BillingStore {
 				entry.balanceAfter,
 				entry.promptTokens,
 				entry.completionTokens,
+				entry.cacheReadTokens ?? null,
+				entry.cacheWriteTokens ?? null,
 				entry.entryType,
 				entry.status,
 				entry.remark,
@@ -173,6 +215,7 @@ function rowToLedger(row: Record<string, unknown>): LedgerEntry {
 		memberId: String(row.member_id),
 		keyId: row.key_id === null || row.key_id === undefined ? null : String(row.key_id),
 		requestId: row.request_id === null || row.request_id === undefined ? null : String(row.request_id),
+		callLogId: row.call_log_id === null || row.call_log_id === undefined ? null : String(row.call_log_id),
 		model: String(row.model),
 		amount: Number(row.amount),
 		reservedAmount: Number(row.reserved_amount),
@@ -181,6 +224,12 @@ function rowToLedger(row: Record<string, unknown>): LedgerEntry {
 		promptTokens: row.prompt_tokens === null || row.prompt_tokens === undefined ? null : Number(row.prompt_tokens),
 		completionTokens:
 			row.completion_tokens === null || row.completion_tokens === undefined ? null : Number(row.completion_tokens),
+		cacheReadTokens:
+			row.cache_read_tokens === null || row.cache_read_tokens === undefined ? null : Number(row.cache_read_tokens),
+		cacheWriteTokens:
+			row.cache_write_tokens === null || row.cache_write_tokens === undefined
+				? null
+				: Number(row.cache_write_tokens),
 		entryType: String(row.entry_type) as LedgerEntryType,
 		status: String(row.status) as LedgerStatus,
 		remark: row.remark === null || row.remark === undefined ? null : String(row.remark),

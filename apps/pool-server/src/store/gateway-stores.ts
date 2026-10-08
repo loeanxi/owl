@@ -297,6 +297,12 @@ export class SqliteCallLogStore {
 				prompt_tokens, completion_tokens, total_tokens, cache_read_tokens, cache_write_tokens,
 				latency_ms, status, message, client_ip, request_id, usage_source, error_category, occurred_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id, platform=excluded.platform,
+			 effective_model=excluded.effective_model,prompt_tokens=excluded.prompt_tokens,
+			 completion_tokens=excluded.completion_tokens,total_tokens=excluded.total_tokens,
+			 cache_read_tokens=excluded.cache_read_tokens,cache_write_tokens=excluded.cache_write_tokens,
+			 latency_ms=excluded.latency_ms,status=excluded.status,message=excluded.message,
+			 usage_source=excluded.usage_source,error_category=excluded.error_category,occurred_at=excluded.occurred_at
 		`)
 			.run(
 				record.id,
