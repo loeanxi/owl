@@ -19,13 +19,13 @@ import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSyn
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
-import { expandTildePath, getAgentDir, getGlobalSkillsDir } from "../../config.ts";
+import { getAgentDir, getGlobalSkillsDir } from "../../config.ts";
 import {
 	type AgentPresetDefinition,
 	applyPresetToolModifiers,
@@ -55,7 +55,7 @@ import {
 	getContextInsight,
 	reconstructContextInsight,
 } from "../../core/context-insight.ts";
-import { getWorkspaceDiffApprovalStore, setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
+import { setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
 import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { installHtmlPlanSkill } from "../../core/html-plan-skill.ts";
@@ -81,7 +81,6 @@ import {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
 	getPendingQuestionRequests,
-	resolveQuestion,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
 import {
@@ -108,7 +107,7 @@ import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
-import { listWorkspaceViewers, openWorkspaceViewer, subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
+import { subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
@@ -124,6 +123,22 @@ import {
 	switchCursorAccount,
 	upsertCursorAccount,
 } from "./cursor-accounts.ts";
+import { type BrowserHandlerContext, handleIabRequest } from "./handlers/browser.ts";
+import { handleMirrorRequest, type MirrorHandlerContext } from "./handlers/mirror.ts";
+import { handleTermRequest, type TerminalHandlerContext } from "./handlers/terminal.ts";
+import {
+	handleDialogRequest,
+	handleDiffApprovalRequest,
+	handleScheduleRequest,
+	type WorkbenchHandlerContext,
+} from "./handlers/workbench.ts";
+import {
+	handleFsRequest,
+	handleGitRequest,
+	handleProjectRequest,
+	handleWatchRequest,
+	type WorkspaceHandlerContext,
+} from "./handlers/workspace.ts";
 import { handleMapHttp } from "./map-http.ts";
 import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
 import { createMapTools } from "./map-tools.ts";
@@ -138,16 +153,9 @@ import { createPiBashTool, piResourceLoaderOptions } from "./pi-runtime.ts";
 import { streamingBehaviorForPrompt } from "./prompt-delivery.ts";
 import type {
 	CommandsListResult,
-	DiffApprovalClearResult,
-	DiffApprovalDiffResult,
-	DiffApprovalListResult,
-	DiffApprovalResolveResult,
 	IabFrameMessage,
-	IabOpenResult,
 	IabPageInfo,
-	IabStateResult,
 	MirrorFrameMessage,
-	MirrorListResult,
 	PermissionRequestMessage,
 	RewindExecuteResult,
 	RewindImpactFile,
@@ -157,22 +165,9 @@ import type {
 	SlashCommandEntry,
 } from "./protocol.ts";
 import { ScheduleService } from "./schedule-service.ts";
-import {
-	listWorkspaceDirectory,
-	mkdirWorkspaceEntry,
-	readWorkspaceFile,
-	readWorkspaceFileBinary,
-	removeWorkspaceEntry,
-	renameWorkspaceEntry,
-	resolveUnderWorkspace,
-	SidebarError,
-	searchWorkspaceFiles,
-	toWirePath,
-	writeWorkspaceFile,
-} from "./sidebar-fs.ts";
-import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "./sidebar-git.ts";
+import { SidebarError } from "./sidebar-fs.ts";
 import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
-import { createDirectoryWatchers, type DirectoryWatchers } from "./sidebar-watch.ts";
+import type { DirectoryWatchers } from "./sidebar-watch.ts";
 import {
 	createSkill,
 	deleteSkill,
@@ -274,8 +269,6 @@ import type {
 	SessionResumeRequest,
 	SessionStatsResult,
 	SystemPromptPreviewResult,
-	TermDataMessage,
-	TermExitMessage,
 } from "./protocol.ts";
 
 /** 打开系统默认浏览器（OAuth 授权用）。 */
@@ -1574,55 +1567,32 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 	}
 
-	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
-		if ("sessionId" in request && typeof request.sessionId === "string") {
-			const transition = presetTransitions.get(request.sessionId);
-			if (transition) await transition;
+	/** Session 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type SessionRequest = Extract<
+		DesktopClientRequest,
+		{
+			type:
+				| "session.create"
+				| "session.prompt"
+				| "session.queue.remove"
+				| "session.queue.promote"
+				| "owl-ui.action"
+				| "session.continue"
+				| "session.abort"
+				| "session.delete"
+				| "session.archive"
+				| "session.rename"
+				| "session.unarchive"
+				| "session.archiveConfig"
+				| "session.setModel"
+				| "session.setThinkingLevel"
+				| "session.setApprovalMode"
+				| "session.setPreset";
 		}
+	>;
+
+	async function handleSessionRequest(ws: WebSocket, request: SessionRequest): Promise<void> {
 		switch (request.type) {
-			case "evaluation.request": {
-				const origin = clientOrigins.get(ws);
-				if (
-					origin &&
-					!["127.0.0.1", "localhost", "[::1]", "tauri.localhost"].includes(new URL(origin).hostname.toLowerCase())
-				) {
-					throw new Error("模型测评请求只接受本机界面来源");
-				}
-				reply(ws, request.id, { ok: true, result: await getEvaluationService().handle(request.request) });
-				return;
-			}
-			case "mail.request": {
-				reply(ws, request.id, { ok: true, result: await getMailService().handle(request.request) });
-				return;
-			}
-			case "mail.agent.start": {
-				const context = await validateMailAgentContext(getMailService(), request.context);
-				const agentDir = defaultAgentDir();
-				const cwd = request.cwd ?? options.cwd ?? process.cwd();
-				const sessionManager = SessionManager.create(cwd, join(agentDir, "mail", "agent-sessions"));
-				sessionManager.appendCustomEntry(MAIL_AGENT_CONTEXT_ENTRY, context);
-				await mountSession(ws, request.id, {
-					sessionManager,
-					agentDir,
-					approvalMode: "auto",
-					provider: request.provider,
-					model: request.model,
-					thinkingLevel: request.thinkingLevel,
-				});
-				return;
-			}
-			case "news.request": {
-				const origin = clientOrigins.get(ws);
-				if (origin && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname.toLowerCase())) {
-					throw new Error("资讯管理请求只接受本机界面来源");
-				}
-				reply(ws, request.id, { ok: true, result: await newsRequest(request.request) });
-				return;
-			}
-			case "ping": {
-				reply(ws, request.id, { ok: true, result: "pong" });
-				return;
-			}
 			case "session.create": {
 				await createSession(ws, request);
 				return;
@@ -1975,6 +1945,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: { agentPreset: preset.id, preset } });
 				return;
 			}
+		}
+	}
+
+	/** Preset 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type PresetRequest = Extract<
+		DesktopClientRequest,
+		{ type: "preset.list" | "preset.setDefault" | "preset.save" | "preset.delete" }
+	>;
+
+	async function handlePresetRequest(ws: WebSocket, request: PresetRequest): Promise<void> {
+		switch (request.type) {
 			case "preset.list": {
 				const agentDir = defaultAgentDir();
 				reply(ws, request.id, {
@@ -2017,6 +1998,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
+		}
+	}
+
+	/** SessionLog 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type SessionLogRequest = Extract<
+		DesktopClientRequest,
+		{ type: "session.stats" | "session.exportLog" | "session.turns" }
+	>;
+
+	async function handleSessionLogRequest(ws: WebSocket, request: SessionLogRequest): Promise<void> {
+		switch (request.type) {
 			case "session.stats": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
@@ -2108,51 +2100,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
-			// 「上下文洞察」由插件 owl-context 经 context-insight 注册表供数：
-			// 按 sessionId 或（缺省）按 cwd 取最近活跃会话。注册表只在插件现采后
-			// 才有数据，恢复历史会话时是空的——这时从会话转录重建一份（带
-			// reconstructed 标记），让「上下文」页不至于一直空着。
-			case "context.get": {
-				const sessionId = request.sessionId ?? findContextInsightByCwd(request.cwd)?.sessionId;
-				let state = sessionId ? getContextInsight(sessionId) : undefined;
-				let reconstructed = false;
-				if (sessionId && (!state || state.requests.length === 0)) {
-					const rows = await contextInsightFromHistory(sessionId);
-					if (rows && rows.requests.length > 0) {
-						state = { sessionId, cwd: request.cwd, ...rows, lastTs: Date.now() } satisfies ContextInsightState;
-						reconstructed = true;
-					}
-				}
-				reply(ws, request.id, {
-					ok: true,
-					result: {
-						sessionId,
-						requests: state ? [...state.requests] : [],
-						events: state ? [...state.events] : [],
-						tools: state ? [...state.tools] : [],
-						...(reconstructed ? { reconstructed: true } : {}),
-					},
-				});
-				return;
-			}
-			case "session.compact": {
-				const session = sessions.get(request.sessionId);
-				if (!session) {
-					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
-					return;
-				}
-				try {
-					await session.runtime.session.compact();
-					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			// -- 会话回退（owl-rewind） --------------------------------------------------
+		}
+	}
+
+	/** Rewind 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type RewindRequest = Extract<DesktopClientRequest, { type: "rewind.targets" | "rewind.impact" | "rewind.execute" }>;
+
+	async function handleRewindRequest(ws: WebSocket, request: RewindRequest): Promise<void> {
+		switch (request.type) {
 			case "rewind.targets": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
@@ -2270,65 +2225,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
-			// -- 改动审批（owl-diff-approval）------------------------------------------
-			// 按 cwd 定位工作区存储（与 fs.*/git.* 同口径），不依赖会话挂载；
-			// 插件侧捕获也经同一注册表实例写，broadcast 由注册表的 onChanged 触发。
-			case "diffApproval.list": {
-				try {
-					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
-					const files = store.list(request.cwd);
-					reply(ws, request.id, { ok: true, result: { files } satisfies DiffApprovalListResult });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "diffApproval.diff": {
-				try {
-					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
-					const result: DiffApprovalDiffResult = store.diff(request.entryId);
-					reply(ws, request.id, { ok: true, result });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "diffApproval.resolve": {
-				try {
-					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
-					const result: DiffApprovalResolveResult = store.resolve(request.entryIds, request.action);
-					reply(ws, request.id, { ok: true, result });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "diffApproval.clear": {
-				try {
-					const store = getWorkspaceDiffApprovalStore(defaultAgentDir(), request.cwd);
-					const result: DiffApprovalClearResult = { removed: store.clearResolved() };
-					reply(ws, request.id, { ok: true, result });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "commands.list": {
-				reply(ws, request.id, { ok: true, result: await listSlashCommands(request.cwd) });
-				return;
-			}
+		}
+	}
+
+	/** Skills 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type SkillsRequest = Extract<DesktopClientRequest, { type: `skills.${string}` }>;
+
+	async function handleSkillsRequest(ws: WebSocket, request: SkillsRequest): Promise<void> {
+		switch (request.type) {
 			case "skills.list": {
 				const cwd = request.cwd ?? options.cwd ?? process.cwd();
 				const projectSettings = await getSettingsManagerFor(cwd);
@@ -2445,159 +2349,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				return;
 			}
-			case "session.resume": {
-				await resumeSession(ws, request);
-				return;
-			}
-			case "session.fork": {
-				// 在新对话中分支：以目标条目为末梢复制新会话文件（createBranchedSession，
-				// 头部 parentSession 指回原会话），原会话原封不动；然后按恢复流程全新
-				// 挂载分支会话——不复用运行时，权限/事件订阅等闭包里的 sessionId 才不会过期。
-				// 响应复用挂载快照（与 session.resume 同构），前端走同一条回放切换路径。
-				const existing = sessions.get(request.sessionId);
-				if (!existing) {
-					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
-					return;
-				}
-				const sourceManager = existing.runtime.session.sessionManager;
-				// 压缩会整文件重写，读盘做副本会读到半截；流式输出只是往尾部追加，历史条目已经落盘。
-				if (existing.runtime.session.isCompacting) {
-					reply(ws, request.id, { ok: false, error: "会话正在压缩，等压缩完成后再分支" });
-					return;
-				}
-				// 运行中的会话留在后台继续：分支只复制到目标条目为止，不卸载、不中止原运行时。
-				const keepSourceRunning = existing.runtime.session.isStreaming;
-				const sourceFile = sourceManager.getSessionFile();
-				if (!sourceFile || !existsSync(sourceFile)) {
-					reply(ws, request.id, { ok: false, error: "会话还没有落盘，先发一条消息再分支" });
-					return;
-				}
-				if (getMailAgentContext(sourceManager) || getResearchMode(sourceManager)) {
-					reply(ws, request.id, { ok: false, error: "邮箱/研究会话暂不支持在新对话中分支" });
-					return;
-				}
-				if (!sourceManager.getEntry(request.entryId)) {
-					reply(ws, request.id, { ok: false, error: "分支目标消息不存在" });
-					return;
-				}
-				try {
-					const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
-					const branchFile = branched.createBranchedSession(request.entryId);
-					if (!branchFile) throw new Error("分支会话创建失败");
-					// 分支命名：fork<N> · 来自「<根会话名>」。名字沿 parentSession 链追溯到最初
-					// 的来源（fork 链再深也不会越叠越长）；N 取整个家族（根的全部后代）现有
-					// 序号的最大值 +1——同一来源的分支按分支时间自然递增、互不撞号。
-					const sourceRows = await SessionManager.listAll(sourceManager.getSessionDir());
-					const byPath = new Map(sourceRows.map((row) => [resolve(row.path), row]));
-					const sourcePath = resolve(sourceFile);
-					const visited = new Set<string>([sourcePath]);
-					let rootPath = sourcePath;
-					for (;;) {
-						const row = byPath.get(rootPath);
-						const parent = row?.parentSessionPath ? resolve(row.parentSessionPath) : undefined;
-						if (!parent || visited.has(parent) || !byPath.has(parent)) break;
-						visited.add(rootPath);
-						rootPath = parent;
-					}
-					const children = new Map<string, string[]>();
-					for (const row of sourceRows) {
-						if (!row.parentSessionPath) continue;
-						const parent = resolve(row.parentSessionPath);
-						const list = children.get(parent);
-						if (list) list.push(resolve(row.path));
-						else children.set(parent, [resolve(row.path)]);
-					}
-					let lastForkNumber = 0;
-					const familyQueue = [rootPath];
-					const seenFamily = new Set<string>([rootPath]);
-					while (familyQueue.length > 0) {
-						const current = familyQueue.shift()!;
-						for (const child of children.get(current) ?? []) {
-							if (seenFamily.has(child)) continue;
-							seenFamily.add(child);
-							const match = /^fork(\d+) · /.exec(byPath.get(child)?.name ?? "");
-							if (match) lastForkNumber = Math.max(lastForkNumber, Number(match[1]));
-							familyQueue.push(child);
-						}
-					}
-					// 根会话名：显示名或首条用户消息；万一追溯断在半路（父文件被删），
-					// 把残留的 fork 包装层剥掉， nesting 也不会渗回来
-					let rootTitle = (byPath.get(rootPath)?.name ?? byPath.get(rootPath)?.firstMessage ?? "")
-						.trim()
-						.replace(/\s+/g, " ");
-					for (;;) {
-						const unwrap = /^fork\d+ · 来自「(.+)」$/.exec(rootTitle);
-						if (!unwrap) break;
-						rootTitle = unwrap[1]!;
-					}
-					rootTitle = rootTitle.slice(0, 80) || "原会话";
-					branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${rootTitle}」`);
-					if (!keepSourceRunning) await unmountSessionRuntime(request.sessionId);
-					await mountSession(ws, request.id, {
-						sessionManager: branched,
-						agentDir: defaultAgentDir(),
-						provider: request.provider,
-						model: request.model,
-						thinkingLevel: request.thinkingLevel,
-						approvalMode: request.approvalMode ?? existing.approvalMode.current,
-					});
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: `分支失败：${error instanceof Error ? error.message : String(error)}`,
-					});
-				}
-				return;
-			}
-			case "session.list": {
-				if (request.scope !== undefined && request.scope !== "chat" && request.scope !== "research") {
-					throw new Error("无效的会话目录类型");
-				}
-				const found = await SessionManager.listAll(request.sessionDir);
-				// 附带归档标记：sidebar 据此把会话放进「归档」分组
-				const meta = readArchiveMeta(defaultAgentDir());
-				reply(ws, request.id, {
-					ok: true,
-					result: found
-						.map((row) => {
-							const scope = row.customTypes?.includes(RESEARCH_MODE_ENTRY) ? "research" : "chat";
-							const archived = meta.sessions?.[row.id];
-							return { ...row, scope, ...(archived ? { archivedAt: archived.archivedAt } : {}) };
-						})
-						.filter((row) => request.scope === undefined || row.scope === request.scope),
-				});
-				return;
-			}
-			case "session.running": {
-				// 已挂载且 agent run 活跃的会话 id 列表（UI 刷新后恢复侧边栏绿点状态）
-				const running = [...sessions.entries()]
-					.filter(([, entry]) => entry.runtime.session.isStreaming)
-					.map(([sessionId]) => sessionId);
-				reply(ws, request.id, { ok: true, result: { running } });
-				return;
-			}
-			case "project.create": {
-				// 新建/打开项目目录：mkdir -p 后返回规范绝对路径，前端拿它当 session.create 的 cwd。
-				const raw = request.path?.trim();
-				if (!raw || !isAbsolute(expandTildePath(raw))) {
-					reply(ws, request.id, {
-						ok: false,
-						error: "需要绝对路径，例如 D:\\mycode\\new-project（支持 ~ 前缀）",
-					});
-					return;
-				}
-				try {
-					const path = resolve(expandTildePath(raw));
-					mkdirSync(path, { recursive: true });
-					reply(ws, request.id, { ok: true, result: { path } });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: `无法创建目录：${error instanceof Error ? error.message : String(error)}`,
-					});
-				}
-				return;
-			}
+		}
+	}
+
+	/** Models 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type ModelsRequest = Extract<DesktopClientRequest, { type: `models.${string}` }>;
+
+	async function handleModelsRequest(ws: WebSocket, request: ModelsRequest): Promise<void> {
+		switch (request.type) {
 			case "models.list": {
 				// owl 模型来源 = models.json 声明（自定义接入） ∪ 有凭据的内置供应商（登录/API Key 激活）。
 				// 内置目录本身不再直接暴露：只有用户主动配置过凭据的供应商才会带出目录模型。
@@ -2761,6 +2520,26 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
 				return;
 			}
+		}
+	}
+
+	/** Auth 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type AuthRequest = Extract<
+		DesktopClientRequest,
+		{
+			type:
+				| "auth.providers"
+				| "cursor.accounts.list"
+				| "cursor.accounts.switch"
+				| "cursor.accounts.remove"
+				| "auth.login"
+				| "auth.prompt.respond"
+				| "auth.cancel";
+		}
+	>;
+
+	async function handleAuthRequest(ws: WebSocket, request: AuthRequest): Promise<void> {
+		switch (request.type) {
 			case "auth.providers": {
 				// 内置厂商目录（供桌面下拉选择）：id / 显示名 / 支持的认证方式
 				const services = await getListingServices();
@@ -2915,6 +2694,33 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true });
 				return;
 			}
+		}
+	}
+
+	/** Settings 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type SettingsRequest = Extract<
+		DesktopClientRequest,
+		{
+			type:
+				| "settings.get"
+				| "memory.list"
+				| "memory.delete"
+				| "memory.clear"
+				| "usage.get"
+				| "life.probe"
+				| "career.get"
+				| "imageConfig.get"
+				| "imageConfig.set"
+				| "imageSub.login"
+				| "imageSub.logout"
+				| "imageModels.list"
+				| "settings.set"
+				| "systemPrompt.preview";
+		}
+	>;
+
+	async function handleSettingsRequest(ws: WebSocket, request: SettingsRequest): Promise<void> {
+		switch (request.type) {
 			case "settings.get": {
 				const agentDir = defaultAgentDir();
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
@@ -2980,42 +2786,303 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				});
 				return;
 			}
-			case "schedule.list": {
-				reply(ws, request.id, { ok: true, result: schedule.list() });
+		}
+	}
+
+	/** Other 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type OtherRequest = Extract<
+		DesktopClientRequest,
+		{
+			type:
+				| "ping"
+				| "commands.list"
+				| "project.create"
+				| "context.get"
+				| "permission.response"
+				| "question.response"
+				| "settings.get";
+		}
+	>;
+
+	async function handleOtherRequest(ws: WebSocket, request: OtherRequest): Promise<void> {
+		switch (request.type) {
+			case "ping": {
+				reply(ws, request.id, { ok: true, result: "pong" });
 				return;
 			}
-			case "schedule.create": {
-				const task = schedule.create({
-					name: request.name,
-					...(request.emoji !== undefined ? { emoji: request.emoji } : {}),
-					prompt: request.prompt,
-					sessionId: request.sessionId,
-					targetLabel: request.targetLabel,
-					repeat: request.repeat,
-					...(request.missed !== undefined ? { missed: request.missed } : {}),
+		}
+	}
+
+	/** Hosted 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type HostedRequest = Extract<
+		DesktopClientRequest,
+		{ type: "evaluation.request" | "mail.request" | "mail.agent.start" | "news.request" }
+	>;
+
+	async function handleHostedRequest(ws: WebSocket, request: HostedRequest): Promise<void> {
+		switch (request.type) {
+			case "evaluation.request": {
+				const origin = clientOrigins.get(ws);
+				if (
+					origin &&
+					!["127.0.0.1", "localhost", "[::1]", "tauri.localhost"].includes(new URL(origin).hostname.toLowerCase())
+				) {
+					throw new Error("模型测评请求只接受本机界面来源");
+				}
+				reply(ws, request.id, { ok: true, result: await getEvaluationService().handle(request.request) });
+				return;
+			}
+			case "mail.request": {
+				reply(ws, request.id, { ok: true, result: await getMailService().handle(request.request) });
+				return;
+			}
+			case "mail.agent.start": {
+				const context = await validateMailAgentContext(getMailService(), request.context);
+				const agentDir = defaultAgentDir();
+				const cwd = request.cwd ?? options.cwd ?? process.cwd();
+				const sessionManager = SessionManager.create(cwd, join(agentDir, "mail", "agent-sessions"));
+				sessionManager.appendCustomEntry(MAIL_AGENT_CONTEXT_ENTRY, context);
+				await mountSession(ws, request.id, {
+					sessionManager,
+					agentDir,
+					approvalMode: "auto",
+					provider: request.provider,
+					model: request.model,
+					thinkingLevel: request.thinkingLevel,
 				});
-				reply(ws, request.id, { ok: true, result: { task } });
 				return;
 			}
-			case "schedule.update": {
-				const { taskId, type: _type, id: _id, ...rest } = request;
-				const task = schedule.update({ id: taskId, ...rest });
-				reply(ws, request.id, { ok: true, result: { task } });
+			case "news.request": {
+				const origin = clientOrigins.get(ws);
+				if (origin && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(origin).hostname.toLowerCase())) {
+					throw new Error("资讯管理请求只接受本机界面来源");
+				}
+				reply(ws, request.id, { ok: true, result: await newsRequest(request.request) });
 				return;
 			}
-			case "schedule.delete": {
-				schedule.remove(request.taskId);
-				reply(ws, request.id, { ok: true });
+		}
+	}
+
+	/** Context 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type ContextRequest = Extract<DesktopClientRequest, { type: "context.get" | "session.compact" }>;
+
+	async function handleContextRequest(ws: WebSocket, request: ContextRequest): Promise<void> {
+		switch (request.type) {
+			case "context.get": {
+				const sessionId = request.sessionId ?? findContextInsightByCwd(request.cwd)?.sessionId;
+				let state = sessionId ? getContextInsight(sessionId) : undefined;
+				let reconstructed = false;
+				if (sessionId && (!state || state.requests.length === 0)) {
+					const rows = await contextInsightFromHistory(sessionId);
+					if (rows && rows.requests.length > 0) {
+						state = { sessionId, cwd: request.cwd, ...rows, lastTs: Date.now() } satisfies ContextInsightState;
+						reconstructed = true;
+					}
+				}
+				reply(ws, request.id, {
+					ok: true,
+					result: {
+						sessionId,
+						requests: state ? [...state.requests] : [],
+						events: state ? [...state.events] : [],
+						tools: state ? [...state.tools] : [],
+						...(reconstructed ? { reconstructed: true } : {}),
+					},
+				});
 				return;
 			}
-			case "schedule.run": {
-				reply(ws, request.id, { ok: true, result: { run: await schedule.runNow(request.taskId) } });
+			case "session.compact": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				try {
+					await session.runtime.session.compact();
+					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
 				return;
 			}
-			case "schedule.history": {
-				reply(ws, request.id, { ok: true, result: { runs: schedule.history(request.taskId) } });
+		}
+	}
+
+	/** Commands 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type CommandsRequest = Extract<DesktopClientRequest, { type: "commands.list" }>;
+
+	async function handleCommandsRequest(ws: WebSocket, request: CommandsRequest): Promise<void> {
+		switch (request.type) {
+			case "commands.list": {
+				reply(ws, request.id, { ok: true, result: await listSlashCommands(request.cwd) });
 				return;
 			}
+		}
+	}
+
+	/** SessionLifecycle 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type SessionLifecycleRequest = Extract<
+		DesktopClientRequest,
+		{ type: "session.resume" | "session.fork" | "session.list" | "session.running" }
+	>;
+
+	async function handleSessionLifecycleRequest(ws: WebSocket, request: SessionLifecycleRequest): Promise<void> {
+		switch (request.type) {
+			case "session.resume": {
+				await resumeSession(ws, request);
+				return;
+			}
+			case "session.fork": {
+				// 在新对话中分支：以目标条目为末梢复制新会话文件（createBranchedSession，
+				// 头部 parentSession 指回原会话），原会话原封不动；然后按恢复流程全新
+				// 挂载分支会话——不复用运行时，权限/事件订阅等闭包里的 sessionId 才不会过期。
+				// 响应复用挂载快照（与 session.resume 同构），前端走同一条回放切换路径。
+				const existing = sessions.get(request.sessionId);
+				if (!existing) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const sourceManager = existing.runtime.session.sessionManager;
+				// 压缩会整文件重写，读盘做副本会读到半截；流式输出只是往尾部追加，历史条目已经落盘。
+				if (existing.runtime.session.isCompacting) {
+					reply(ws, request.id, { ok: false, error: "会话正在压缩，等压缩完成后再分支" });
+					return;
+				}
+				// 运行中的会话留在后台继续：分支只复制到目标条目为止，不卸载、不中止原运行时。
+				const keepSourceRunning = existing.runtime.session.isStreaming;
+				const sourceFile = sourceManager.getSessionFile();
+				if (!sourceFile || !existsSync(sourceFile)) {
+					reply(ws, request.id, { ok: false, error: "会话还没有落盘，先发一条消息再分支" });
+					return;
+				}
+				if (getMailAgentContext(sourceManager) || getResearchMode(sourceManager)) {
+					reply(ws, request.id, { ok: false, error: "邮箱/研究会话暂不支持在新对话中分支" });
+					return;
+				}
+				if (!sourceManager.getEntry(request.entryId)) {
+					reply(ws, request.id, { ok: false, error: "分支目标消息不存在" });
+					return;
+				}
+				try {
+					const branched = SessionManager.open(sourceFile, sourceManager.getSessionDir());
+					const branchFile = branched.createBranchedSession(request.entryId);
+					if (!branchFile) throw new Error("分支会话创建失败");
+					// 分支命名：fork<N> · 来自「<根会话名>」。名字沿 parentSession 链追溯到最初
+					// 的来源（fork 链再深也不会越叠越长）；N 取整个家族（根的全部后代）现有
+					// 序号的最大值 +1——同一来源的分支按分支时间自然递增、互不撞号。
+					const sourceRows = await SessionManager.listAll(sourceManager.getSessionDir());
+					const byPath = new Map(sourceRows.map((row) => [resolve(row.path), row]));
+					const sourcePath = resolve(sourceFile);
+					const visited = new Set<string>([sourcePath]);
+					let rootPath = sourcePath;
+					for (;;) {
+						const row = byPath.get(rootPath);
+						const parent = row?.parentSessionPath ? resolve(row.parentSessionPath) : undefined;
+						if (!parent || visited.has(parent) || !byPath.has(parent)) break;
+						visited.add(rootPath);
+						rootPath = parent;
+					}
+					const children = new Map<string, string[]>();
+					for (const row of sourceRows) {
+						if (!row.parentSessionPath) continue;
+						const parent = resolve(row.parentSessionPath);
+						const list = children.get(parent);
+						if (list) list.push(resolve(row.path));
+						else children.set(parent, [resolve(row.path)]);
+					}
+					let lastForkNumber = 0;
+					const familyQueue = [rootPath];
+					const seenFamily = new Set<string>([rootPath]);
+					while (familyQueue.length > 0) {
+						const current = familyQueue.shift()!;
+						for (const child of children.get(current) ?? []) {
+							if (seenFamily.has(child)) continue;
+							seenFamily.add(child);
+							const match = /^fork(\d+) · /.exec(byPath.get(child)?.name ?? "");
+							if (match) lastForkNumber = Math.max(lastForkNumber, Number(match[1]));
+							familyQueue.push(child);
+						}
+					}
+					// 根会话名：显示名或首条用户消息；万一追溯断在半路（父文件被删），
+					// 把残留的 fork 包装层剥掉， nesting 也不会渗回来
+					let rootTitle = (byPath.get(rootPath)?.name ?? byPath.get(rootPath)?.firstMessage ?? "")
+						.trim()
+						.replace(/\s+/g, " ");
+					for (;;) {
+						const unwrap = /^fork\d+ · 来自「(.+)」$/.exec(rootTitle);
+						if (!unwrap) break;
+						rootTitle = unwrap[1]!;
+					}
+					rootTitle = rootTitle.slice(0, 80) || "原会话";
+					branched.appendSessionInfo(`fork${lastForkNumber + 1} · 来自「${rootTitle}」`);
+					if (!keepSourceRunning) await unmountSessionRuntime(request.sessionId);
+					await mountSession(ws, request.id, {
+						sessionManager: branched,
+						agentDir: defaultAgentDir(),
+						provider: request.provider,
+						model: request.model,
+						thinkingLevel: request.thinkingLevel,
+						approvalMode: request.approvalMode ?? existing.approvalMode.current,
+					});
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: `分支失败：${error instanceof Error ? error.message : String(error)}`,
+					});
+				}
+				return;
+			}
+			case "session.list": {
+				if (request.scope !== undefined && request.scope !== "chat" && request.scope !== "research") {
+					throw new Error("无效的会话目录类型");
+				}
+				const found = await SessionManager.listAll(request.sessionDir);
+				// 附带归档标记：sidebar 据此把会话放进「归档」分组
+				const meta = readArchiveMeta(defaultAgentDir());
+				reply(ws, request.id, {
+					ok: true,
+					result: found
+						.map((row) => {
+							const scope = row.customTypes?.includes(RESEARCH_MODE_ENTRY) ? "research" : "chat";
+							const archived = meta.sessions?.[row.id];
+							return { ...row, scope, ...(archived ? { archivedAt: archived.archivedAt } : {}) };
+						})
+						.filter((row) => request.scope === undefined || row.scope === request.scope),
+				});
+				return;
+			}
+			case "session.running": {
+				// 已挂载且 agent run 活跃的会话 id 列表（UI 刷新后恢复侧边栏绿点状态）
+				const running = [...sessions.entries()]
+					.filter(([, entry]) => entry.runtime.session.isStreaming)
+					.map(([sessionId]) => sessionId);
+				reply(ws, request.id, { ok: true, result: { running } });
+				return;
+			}
+		}
+	}
+
+	/** ImageSettings 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
+	type ImageSettingsRequest = Extract<
+		DesktopClientRequest,
+		{
+			type:
+				| "career.get"
+				| "imageConfig.get"
+				| "imageConfig.set"
+				| "imageSub.login"
+				| "imageSub.logout"
+				| "imageModels.list"
+				| "settings.set"
+				| "systemPrompt.preview";
+		}
+	>;
+
+	async function handleImageSettingsRequest(ws: WebSocket, request: ImageSettingsRequest): Promise<void> {
+		switch (request.type) {
 			case "career.get": {
 				// 「我的 Token 生涯」看板数据面：owl 复用 usage-stats 全量口径，Claude Code /
 				// Codex 走 ~/.claude、~/.codex 的增量扫描（./career-stats.ts）。首扫可能较慢
@@ -3113,433 +3180,233 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: { sections: stripped } satisfies SystemPromptPreviewResult });
 				return;
 			}
-			case "permission.response": {
-				if (!pendingPermissions.resolve(request.requestId, request.approved)) {
-					reply(ws, request.id, { ok: false, error: `Unknown permission request: ${request.requestId}` });
-					return;
-				}
-				reply(ws, request.id, { ok: true });
+		}
+	}
+
+	const terminalContext: TerminalHandlerContext = {
+		reply,
+		terminals,
+		wsTerms,
+	};
+	const browserContext: BrowserHandlerContext = {
+		reply,
+		iab,
+		iabSubscriptions,
+	};
+	const mirrorContext: MirrorHandlerContext = {
+		reply,
+		mirror,
+		mirrorProjectionAccess,
+		mirrorFrames,
+		mirrorSubscriptions,
+	};
+	const workspaceContext: WorkspaceHandlerContext = {
+		reply,
+		onDiagnostic,
+		broadcast,
+		sidebarWatchers,
+		viewerRequests,
+	};
+
+	const workbenchContext: WorkbenchHandlerContext = {
+		reply,
+		defaultAgentDir,
+		pendingPermissions,
+		schedule,
+	};
+
+	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
+		if ("sessionId" in request && typeof request.sessionId === "string") {
+			const transition = presetTransitions.get(request.sessionId);
+			if (transition) await transition;
+		}
+		switch (request.type) {
+			case "evaluation.request":
+			case "mail.request":
+			case "mail.agent.start":
+			case "news.request":
+				await handleHostedRequest(ws, request);
 				return;
-			}
-			case "question.response": {
-				const resolved = resolveQuestion(request.requestId, {
-					cancelled: request.cancelled === true,
-					answers: request.answers ?? [],
-				});
-				if (!resolved) {
-					reply(ws, request.id, { ok: false, error: `Unknown question request: ${request.requestId}` });
-					return;
-				}
-				reply(ws, request.id, { ok: true });
+			case "ping":
+				await handleOtherRequest(ws, request);
 				return;
-			}
-			case "fs.tree": {
-				reply(ws, request.id, { ok: true, result: await listWorkspaceDirectory(request.cwd, request.path ?? "") });
+			case "session.create":
+			case "session.prompt":
+			case "session.queue.remove":
+			case "session.queue.promote":
+			case "owl-ui.action":
+			case "session.continue":
+			case "session.abort":
+			case "session.delete":
+			case "session.archive":
+			case "session.rename":
+			case "session.unarchive":
+			case "session.archiveConfig":
+			case "session.setModel":
+			case "session.setThinkingLevel":
+			case "session.setApprovalMode":
+			case "session.setPreset":
+				await handleSessionRequest(ws, request);
 				return;
-			}
-			case "viewer.list": {
-				reply(ws, request.id, { ok: true, result: { viewers: listWorkspaceViewers() } });
+			case "preset.list":
+			case "preset.setDefault":
+			case "preset.save":
+			case "preset.delete":
+				await handlePresetRequest(ws, request);
 				return;
-			}
-			case "viewer.open": {
-				const controller = new AbortController();
-				const pending = viewerRequests.get(ws) ?? new Set<AbortController>();
-				viewerRequests.set(ws, pending);
-				pending.add(controller);
-				try {
-					const result = await openWorkspaceViewer(request.viewerId, {
-						cwd: request.cwd,
-						path: request.path,
-						signal: controller.signal,
-					});
-					reply(ws, request.id, { ok: true, result });
-				} finally {
-					pending.delete(controller);
-				}
+			case "session.stats":
+			case "session.exportLog":
+			case "session.turns":
+				await handleSessionLogRequest(ws, request);
 				return;
-			}
-			case "fs.read": {
-				reply(ws, request.id, { ok: true, result: await readWorkspaceFile(request.cwd, request.path) });
+			// 「上下文洞察」由插件 owl-context 经 context-insight 注册表供数：
+			// 按 sessionId 或（缺省）按 cwd 取最近活跃会话。注册表只在插件现采后
+			// 才有数据，恢复历史会话时是空的——这时从会话转录重建一份（带
+			// reconstructed 标记），让「上下文」页不至于一直空着。
+			case "context.get":
+			case "session.compact":
+				await handleContextRequest(ws, request);
 				return;
-			}
-			case "fs.readBin": {
-				reply(ws, request.id, { ok: true, result: await readWorkspaceFileBinary(request.cwd, request.path) });
+			// -- 会话回退（owl-rewind） --------------------------------------------------
+			case "rewind.targets":
+			case "rewind.impact":
+			case "rewind.execute":
+				await handleRewindRequest(ws, request);
 				return;
-			}
-			case "fs.write": {
-				reply(ws, request.id, {
-					ok: true,
-					result: await writeWorkspaceFile(request.cwd, request.path, request.content),
-				});
+			// -- 改动审批（owl-diff-approval）------------------------------------------
+			// 按 cwd 定位工作区存储（与 fs.*/git.* 同口径），不依赖会话挂载；
+			// 插件侧捕获也经同一注册表实例写，broadcast 由注册表的 onChanged 触发。
+			case "diffApproval.list":
+			case "diffApproval.diff":
+			case "diffApproval.resolve":
+			case "diffApproval.clear":
+				await handleDiffApprovalRequest(ws, request, workbenchContext);
 				return;
-			}
-			case "fs.mkdir": {
-				reply(ws, request.id, {
-					ok: true,
-					result: await mkdirWorkspaceEntry(request.cwd, request.path, request.name),
-				});
+			case "commands.list":
+				await handleCommandsRequest(ws, request);
 				return;
-			}
-			case "fs.rename": {
-				reply(ws, request.id, {
-					ok: true,
-					result: await renameWorkspaceEntry(request.cwd, request.path, request.name),
-				});
+			case "skills.list":
+			case "skills.groups.save":
+			case "skills.project.addExtras":
+			case "skills.project.removeExtras":
+			case "skills.setProjectSelection":
+			case "skills.read":
+			case "skills.setEnabled":
+			case "skills.create":
+			case "skills.update":
+			case "skills.delete":
+				await handleSkillsRequest(ws, request);
 				return;
-			}
-			case "fs.remove": {
-				reply(ws, request.id, { ok: true, result: await removeWorkspaceEntry(request.cwd, request.path) });
+			case "session.resume":
+			case "session.fork":
+			case "session.list":
+			case "session.running":
+				await handleSessionLifecycleRequest(ws, request);
 				return;
-			}
-			case "fs.search": {
-				reply(ws, request.id, { ok: true, result: await searchWorkspaceFiles(request.cwd, request.query) });
+			case "project.create":
+				await handleProjectRequest(ws, request, workspaceContext);
 				return;
-			}
-			case "git.status": {
-				reply(ws, request.id, { ok: true, result: await gitStatus(request.cwd) });
+			case "models.list":
+			case "models.putProvider":
+			case "models.putModel":
+			case "models.removeModel":
+			case "models.removeProvider":
+				await handleModelsRequest(ws, request);
 				return;
-			}
-			case "git.diff": {
-				reply(ws, request.id, {
-					ok: true,
-					result: { diff: await gitDiff(request.cwd, request.path, request.staged === true) },
-				});
+			case "auth.providers":
+			case "cursor.accounts.list":
+			case "cursor.accounts.switch":
+			case "cursor.accounts.remove":
+			case "auth.login":
+			case "auth.prompt.respond":
+			case "auth.cancel":
+				await handleAuthRequest(ws, request);
 				return;
-			}
-			case "git.stage": {
-				await gitStage(request.cwd, request.paths);
-				reply(ws, request.id, { ok: true });
+			case "settings.get":
+			case "memory.list":
+			case "memory.delete":
+			case "memory.clear":
+			case "usage.get":
+			case "life.probe":
+				await handleSettingsRequest(ws, request);
 				return;
-			}
-			case "git.unstage": {
-				await gitUnstage(request.cwd, request.paths);
-				reply(ws, request.id, { ok: true });
+			case "schedule.list":
+			case "schedule.create":
+			case "schedule.update":
+			case "schedule.delete":
+			case "schedule.run":
+			case "schedule.history":
+				await handleScheduleRequest(ws, request, workbenchContext);
 				return;
-			}
-			case "git.commit": {
-				await gitCommit(request.cwd, request.message, request.repo);
-				reply(ws, request.id, { ok: true });
+			case "career.get":
+			case "imageConfig.get":
+			case "imageConfig.set":
+			case "imageSub.login":
+			case "imageSub.logout":
+			case "imageModels.list":
+			case "settings.set":
+			case "systemPrompt.preview":
+				await handleImageSettingsRequest(ws, request);
 				return;
-			}
-			case "git.discard": {
-				await gitDiscard(request.cwd, request.path);
-				reply(ws, request.id, { ok: true });
+			case "permission.response":
+			case "question.response":
+				await handleDialogRequest(ws, request, workbenchContext);
 				return;
-			}
-			case "git.log": {
-				reply(ws, request.id, { ok: true, result: await gitLog(request.cwd, request.count) });
+			case "fs.tree":
+			case "viewer.list":
+			case "viewer.open":
+			case "fs.read":
+			case "fs.readBin":
+			case "fs.write":
+			case "fs.mkdir":
+			case "fs.rename":
+			case "fs.remove":
+			case "fs.search":
+				await handleFsRequest(ws, request, workspaceContext);
 				return;
-			}
-			case "watch.set": {
-				// watcher 集按项目归一（resolve 后的绝对路径做 key）；replace 语义
-				// 由 add/remove 差分实现，避免每次展开/收起都重建全部句柄。
-				const key = resolve(request.cwd);
-				let watchers = sidebarWatchers.get(key);
-				if (watchers === undefined) {
-					watchers = createDirectoryWatchers(
-						(dir) => {
-							broadcast({
-								type: "event",
-								sessionId: "",
-								event: { type: "fs_changed", cwd: key, dirs: [toWirePath(key, dir)] },
-							});
-						},
-						(dir, error) => {
-							onDiagnostic(`sidebar watch ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-						},
-					);
-					sidebarWatchers.set(key, watchers);
-				}
-				const wanted = new Set<string>();
-				for (const relativeDir of request.dirs.slice(0, 64)) {
-					await resolveUnderWorkspace(request.cwd, relativeDir)
-						.then((absolute) => wanted.add(absolute))
-						.catch(() => {});
-				}
-				for (const dir of watchers.dirs()) {
-					if (!wanted.has(dir)) watchers.remove(dir);
-				}
-				for (const dir of wanted) {
-					watchers.add(dir);
-				}
-				reply(ws, request.id, { ok: true });
+			case "git.status":
+			case "git.diff":
+			case "git.stage":
+			case "git.unstage":
+			case "git.commit":
+			case "git.discard":
+			case "git.log":
+				await handleGitRequest(ws, request, workspaceContext);
 				return;
-			}
-			case "open.external": {
-				if (request.action === "reveal") {
-					// workspace 相对路径 → 围栏解析成绝对路径，文件管理器定位。
-					const base = request.cwd ?? process.cwd();
-					const absolute = await resolveUnderWorkspace(base, request.target);
-					if (process.platform === "darwin") {
-						spawn("open", ["-R", absolute], { detached: true, stdio: "ignore" }).unref();
-					} else if (process.platform === "win32") {
-						spawn("explorer", [`/select,${absolute}`], { detached: true, stdio: "ignore" }).unref();
-					} else {
-						spawn("xdg-open", [absolute], { detached: true, stdio: "ignore" }).unref();
-					}
-				} else {
-					// 自定义协议（vscode:// 等）白名单后交给系统处理器；argv 直传不落 shell。
-					const allowed = new Set(["vscode:", "cursor:", "zed:", "file:", "http:", "https:"]);
-					const parsed = new URL(request.target);
-					if (!allowed.has(parsed.protocol)) {
-						throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
-					}
-					spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
-						detached: true,
-						stdio: "ignore",
-					}).unref();
-				}
-				reply(ws, request.id, { ok: true });
+			case "watch.set":
+			case "open.external":
+				await handleWatchRequest(ws, request, workspaceContext);
 				return;
-			}
-			case "term.create": {
-				// 输出定向回创建它的连接（不广播）；连接记账，断线时统一回收
-				const owned = wsTerms.get(ws) ?? new Set<string>();
-				wsTerms.set(ws, owned);
-				const { termId, shell } = terminals.create(request.cwd, request.cols, request.rows, {
-					onData: (id, data) => {
-						if (ws.readyState !== ws.OPEN) return;
-						const message: TermDataMessage = { type: "term.data", termId: id, data };
-						ws.send(JSON.stringify(message));
-					},
-					onExit: (id, exitCode) => {
-						owned.delete(id);
-						if (ws.readyState !== ws.OPEN) return;
-						const message: TermExitMessage = { type: "term.exit", termId: id, exitCode };
-						ws.send(JSON.stringify(message));
-					},
-				});
-				owned.add(termId);
-				reply(ws, request.id, { ok: true, result: { termId, shell } });
+			case "term.create":
+			case "term.input":
+			case "term.resize":
+			case "term.kill":
+				await handleTermRequest(ws, request, terminalContext);
 				return;
-			}
-			case "term.input": {
-				terminals.write(request.termId, request.data);
-				reply(ws, request.id, { ok: true });
+			case "iab.open":
+			case "iab.nav":
+			case "iab.viewport":
+			case "iab.input":
+			case "iab.attach":
+			case "iab.detach":
+			case "iab.close":
+			case "iab.state":
+			case "iab.fileResponse":
+				await handleIabRequest(ws, request, browserContext);
 				return;
-			}
-			case "term.resize": {
-				terminals.resize(request.termId, request.cols, request.rows);
-				reply(ws, request.id, { ok: true });
+			case "mirror.list":
+			case "mirror.attach":
+			case "mirror.detach":
+			case "mirror.project":
+			case "mirror.input":
+			case "mirror.restore":
+			case "mirror.launch":
+			case "mirror.embed":
+			case "mirror.layout":
+			case "mirror.fitowl":
+			case "mirror.unembed":
+				await handleMirrorRequest(ws, request, mirrorContext);
 				return;
-			}
-			case "term.kill": {
-				wsTerms.get(ws)?.delete(request.termId);
-				terminals.kill(request.termId);
-				reply(ws, request.id, { ok: true });
-				return;
-			}
-			case "iab.open": {
-				// 绑定/打开页面：pageId 只绑定，url 按 URL 复用或新建，双给 = 导航既有页
-				try {
-					const page = await iab.open({
-						...(request.pageId !== undefined ? { pageId: request.pageId } : {}),
-						...(request.url !== undefined ? { url: request.url } : {}),
-						...(request.sessionId !== undefined ? { sessionId: request.sessionId } : {}),
-					});
-					reply(ws, request.id, { ok: true, result: { page } satisfies IabOpenResult });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "iab.nav": {
-				try {
-					await iab.nav(request.pageId, request.action);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "iab.viewport": {
-				try {
-					await iab.setViewport(request.pageId, request.width, request.height);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "iab.input": {
-				try {
-					await iab.input(request.pageId, request.input);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "iab.attach": {
-				// 先记账再抓首帧：保证首帧一定送到这条连接（screencast 只推增量）
-				const owned = iabSubscriptions.get(ws) ?? new Set<string>();
-				owned.add(request.pageId);
-				iabSubscriptions.set(ws, owned);
-				await iab.captureFrame(request.pageId);
-				reply(ws, request.id, { ok: true });
-				return;
-			}
-			case "iab.detach": {
-				iabSubscriptions.get(ws)?.delete(request.pageId);
-				reply(ws, request.id, { ok: true });
-				return;
-			}
-			case "iab.close": {
-				await iab.closePage(request.pageId);
-				reply(ws, request.id, { ok: true });
-				return;
-			}
-			case "iab.state": {
-				reply(ws, request.id, { ok: true, result: { pages: iab.listPages() } satisfies IabStateResult });
-				return;
-			}
-			case "iab.fileResponse": {
-				try {
-					await iab.fileResponse(request.pageId, request.paths);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.list": {
-				if (!mirror.isSupported()) {
-					reply(ws, request.id, {
-						ok: true,
-						result: { windows: [], supported: false } satisfies MirrorListResult,
-					});
-					return;
-				}
-				try {
-					const windows = await mirror.listWindows();
-					reply(ws, request.id, { ok: true, result: { windows, supported: true } satisfies MirrorListResult });
-				} catch (error) {
-					reply(ws, request.id, {
-						ok: false,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				return;
-			}
-			case "mirror.attach": {
-				// 先记账再 attach：帧一到就按订阅表定向投递。同一连接重复 attach（前端
-				// 3s 无帧重试）只在首次真正 hub.attach——hub 的 refs 是计数器，重复加
-				// 而清理只有一份 detach，捕获进程就永远等不到回收。
-				const owned = mirrorSubscriptions.get(ws) ?? new Set<string>();
-				const firstClaim = !owned.has(request.windowId);
-				owned.add(request.windowId);
-				mirrorSubscriptions.set(ws, owned);
-				if (!firstClaim) {
-					reply(ws, request.id, { ok: true });
-					return;
-				}
-				try {
-					mirror.attach(request.windowId);
-					mirrorFrames.subscribe(ws, request.windowId);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					mirrorSubscriptions.get(ws)?.delete(request.windowId);
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.detach": {
-				if (mirrorSubscriptions.get(ws)?.delete(request.windowId)) {
-					mirrorFrames.unsubscribe(ws, request.windowId);
-					mirror.detach(request.windowId);
-				}
-				reply(ws, request.id, { ok: true });
-				return;
-			}
-			case "mirror.project": {
-				try {
-					const geometry = await mirrorProjectionAccess.project(ws, request.windowId, request.visible !== false);
-					reply(ws, request.id, { ok: true, result: geometry });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.input": {
-				try {
-					mirrorProjectionAccess.input(ws, request, mirrorSubscriptions.get(ws)?.has(request.windowId) === true);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.restore": {
-				try {
-					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
-					await mirror.restore(request.windowId);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.launch": {
-				try {
-					await mirror.launchApp();
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.embed": {
-				try {
-					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
-					const parentHwnd =
-						request.parentHwnd && request.parentHwnd > 0 ? request.parentHwnd : await mirror.findOwlParentHwnd();
-					await mirror.embedWindow(request.windowId, parentHwnd, request.rect, {
-						swallowMinimize: request.swallowMinimize === true,
-					});
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.layout": {
-				try {
-					mirrorProjectionAccess.assertOwnerOrUnclaimed(ws, request.windowId);
-					await mirror.layoutWindow(
-						request.windowId,
-						request.rect,
-						request.visible,
-						request.swallowMinimize === true,
-					);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.fitowl": {
-				try {
-					await mirror.fitOwl(request.windowId, request.x, request.y, request.width, request.height);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
-			case "mirror.unembed": {
-				try {
-					if (mirrorProjectionAccess.hasClaim(request.windowId))
-						await mirrorProjectionAccess.unembed(ws, request.windowId);
-					else await mirror.unembedWindow(request.windowId);
-					reply(ws, request.id, { ok: true });
-				} catch (error) {
-					reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
-				}
-				return;
-			}
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
