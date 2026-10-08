@@ -1,7 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } from "@earendil-works/pi-ai";
 import { constants } from "fs";
-import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
+import { access as fsAccess, readdir as fsReaddir, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
@@ -11,7 +11,7 @@ import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
 const readSchema = Type.Object({
-	path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
+	path: Type.String({ description: "Path to the file or directory to read (relative or absolute)" }),
 	offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
 });
@@ -29,6 +29,7 @@ export type ReadToolInput = Static<typeof readSchema>;
 
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
+	directory?: boolean;
 }
 
 /**
@@ -42,12 +43,20 @@ export interface ReadOperations {
 	access: (absolutePath: string) => Promise<void>;
 	/** Detect image MIME type, return null or undefined for non-images */
 	detectImageMimeType?: (absolutePath: string) => Promise<string | null | undefined>;
+	/** Return shallow entry names for a directory, or undefined for a file. Remote adapters opt in. */
+	listDirectory?: (absolutePath: string) => Promise<string[] | undefined>;
 }
 
 const defaultReadOperations: ReadOperations = {
 	readFile: (path) => fsReadFile(path),
 	access: (path) => fsAccess(path, constants.R_OK),
 	detectImageMimeType: detectSupportedImageMimeTypeFromFile,
+	listDirectory: async (path) => {
+		if (!(await fsStat(path)).isDirectory()) return undefined;
+		return (await fsReaddir(path, { withFileTypes: true })).map(
+			(entry) => `${entry.name}${entry.isDirectory() ? "/" : entry.isSymbolicLink() ? "@" : ""}`,
+		);
+	},
 };
 
 export interface ReadToolOptions {
@@ -76,7 +85,7 @@ export function createReadToolDefinition(
 	return {
 		name: "read",
 		label: "read",
-		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+		description: `Read a file or list a directory's immediate entries. Directory listings do not read child file contents. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files or directory listings. When you need the full file, continue with offset until complete.`,
 		promptSnippet: readToolSystemPromptContribution.snippet,
 		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		parameters: readSchema,
@@ -108,6 +117,27 @@ export function createReadToolDefinition(
 							// Check if file exists and is readable.
 							await ops.access(absolutePath);
 							if (aborted) return;
+							const entries = await ops.listDirectory?.(absolutePath);
+							if (aborted) return;
+							if (entries !== undefined) {
+								entries.sort();
+								const start = offset ? Math.max(0, Math.floor(offset) - 1) : 0;
+								const count = Math.min(DEFAULT_MAX_LINES, Math.max(0, Math.floor(limit ?? 200)));
+								const selected = entries.slice(start, start + count);
+								const listing = truncateHead(selected.map((entry) => JSON.stringify(entry)).join("\n"));
+								const next = start + Math.min(selected.length, listing.outputLines);
+								const remainder =
+									next < entries.length
+										? `\n[More entries available. Use offset=${next + 1} to continue.]`
+										: "";
+								const text = `[Directory listing: ${absolutePath}]\n${listing.content || (entries.length === 0 ? "(empty directory)" : "(no entries selected)")}${remainder}\nRead a child file by its full path before editing its contents.`;
+								signal?.removeEventListener("abort", onAbort);
+								resolve({
+									content: [{ type: "text", text }],
+									details: { directory: true, truncation: listing },
+								});
+								return;
+							}
 							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
 							let content: (TextContent | ImageContent)[];
 							let details: ReadToolDetails | undefined;

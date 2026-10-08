@@ -175,7 +175,8 @@ export function currentTurnReads(
 			continue;
 		}
 		if (call.name !== "read" || message.toolName !== "read" || !Array.isArray(message.content)) continue;
-		reads.push(readResultEvidence(message.content, call.offset));
+		const evidence = readResultEvidence(message.content, call.offset);
+		if (!evidence.text.startsWith("[Directory listing:")) reads.push(evidence);
 	}
 	for (const pending of pendingNestedCalls) {
 		// The parent must still be present after compaction and within this user turn.
@@ -190,7 +191,11 @@ export function readResultEvidence(content: readonly { type: string; text?: stri
 	const hasImage = content.some((block) => block.type === "image");
 	return {
 		text,
-		fullFile: !hasImage && (typeof offset !== "number" || offset <= 1) && !PARTIAL_READ.test(text),
+		fullFile:
+			!hasImage &&
+			!text.startsWith("[Directory listing:") &&
+			(typeof offset !== "number" || offset <= 1) &&
+			!PARTIAL_READ.test(text),
 	};
 }
 
@@ -204,6 +209,7 @@ function applyNestedReads(nested: NestedToolCalls, wanted: string, cwd: string, 
 			if (typeof path === "string" && readPathKey(path, cwd) === wanted) reads.length = 0;
 		} else if (call.name === "read" && call.readResult) {
 			if (readPathKey(call.readResult.path, cwd) !== wanted) continue;
+			if (call.readResult.text.startsWith("[Directory listing:")) continue;
 			reads.push({ text: call.readResult.text, fullFile: call.readResult.fullFile });
 		}
 	}

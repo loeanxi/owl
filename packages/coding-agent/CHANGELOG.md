@@ -36,6 +36,7 @@
 
 ### Fixed
 
+- Directory reads now return bounded shallow listings instead of EISDIR, without granting file-edit read evidence; coding checks now prepare compiler directories and encode verifier URLs before execution.
 - Default-only OpenAI completions reasoning requests can use a bounded temporary output ceiling after one thinking-only truncation, preserving explicit caps and the selected model/thinking level while retaining the one-recovery stop.
 - Compound browser requests now preload separate navigation, observation and form actions, preserve affirmative steps around negative clauses, and honor explicit native/MCP backend requirements without cross-backend fallback for unsupported actions.
 - Process tools invoked by an agent now list and control only that agent session's processes, preventing one chat from polling, writing to, or killing another chat's background commands.
