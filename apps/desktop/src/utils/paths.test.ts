@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASSISTANT_DIR, DEFAULT_WORKSPACE_DIR, isReservedDir, pathCandidateFromCode } from "./paths.ts";
+import { ASSISTANT_DIR, DEFAULT_WORKSPACE_DIR, isReservedDir, isValidationDir, loadAndScrubProjects, pathCandidateFromCode, withoutValidationDirs } from "./paths.ts";
 
 test("reserved dirs cover the default workspace and assistant dir across separators and case", () => {
 	assert.equal(isReservedDir(DEFAULT_WORKSPACE_DIR), true);
@@ -21,6 +21,28 @@ test("data-dir subdirs (experts, groups, customs) are reserved too; workspace su
 	assert.equal(isReservedDir("D:/owl/owl-myself/2026-10-07.md"), true);
 	assert.equal(isReservedDir("D:/owl/owl-expert-extra"), false);
 	assert.equal(isReservedDir("D:/owl/Owl-def/subproject"), false);
+});
+
+test("validation dirs match the .validation segment only", () => {
+	assert.equal(isValidationDir("D:\\owl\\owl-re-v1\\.validation\\agent-eval-20261008\\runs\\b\\round-1\\node-code\\workspace"), true);
+	assert.equal(isValidationDir("D:/owl/.validation/office-manual-test"), true);
+	assert.equal(isValidationDir("d:/owl/.Validation/"), true);
+	assert.equal(isValidationDir("D:/owl/my.validation/x"), false);
+	assert.equal(isValidationDir("D:/owl/validation"), false);
+	assert.equal(isValidationDir(undefined), false);
+});
+
+test("scrub drops validation workspaces and writes the cleaned list back", () => {
+	const keep = "D:/owl/owl-re-v1";
+	const drop = "D:/owl/owl-re-v1/.validation/agent-eval/runs/a/workspace";
+	assert.deepEqual(withoutValidationDirs([keep, drop]), [keep]);
+	const store = new Map<string, string>([["owl.projects", JSON.stringify([keep, drop, drop])]]);
+	const storage: Pick<Storage, "getItem" | "setItem"> = {
+		getItem: (key: string) => store.get(key) ?? null,
+		setItem: (key: string, value: string) => { store.set(key, value); },
+	};
+	assert.deepEqual(loadAndScrubProjects(storage, "owl.projects"), [keep]);
+	assert.deepEqual(JSON.parse(store.get("owl.projects")!), [keep]);
 });
 
 test("code chip candidate keeps windows absolute, posix and file URLs", () => {

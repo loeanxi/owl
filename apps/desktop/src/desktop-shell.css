@@ -382,6 +382,8 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 .owl-life-dot.idle { background: #b7b2a6; color: transparent; }
 
 /* 「我的 Token 生涯」看板入口：与火柴人同尺寸并排（在看板打开时点亮）。 */
+.owl-desktop-window-controls .owl-desktop-manager { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
+.owl-desktop-manager.is-active { background: var(--color-owl-accent); color: #fff; }
 .owl-desktop-window-controls .owl-desktop-token-career { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
 .owl-desktop-token-career.is-active { background: var(--color-owl-accent); color: #fff; }
 

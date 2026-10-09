@@ -15,11 +15,12 @@
  * 用户消息计数不走 JSON.parse（正文可能极大）：在原始行上取 `"message":{` 之后
  * 片段匹配 role——role 紧跟信封处，正文里出现的同名字面量匹配不到这个位置。
  */
-import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir, getSessionsDir } from "../../config.ts";
+import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
 import type {
 	UsageGetResult,
 	UsageStatsDay,
@@ -112,21 +113,31 @@ function readStore(path: string): UsageStore {
 		if (raw.version !== 1 || typeof raw.files !== "object" || raw.files === null) throw new Error("bad shape");
 		return raw;
 	} catch {
-		try {
-			renameSync(path, `${path}.corrupt`);
-		} catch {
-			// 备份失败就算了，直接重建
-		}
+		backupCorruptFile(path);
 		return newStore();
 	}
 }
 
-/** 原子写存储（tmp + rename）。 */
+/**
+ * 锁内读盘合并后原子写：另一个桥进程已落盘、本进程缓存里没有或更旧的文件记录一并保留
+ * （多个桥共用 agentDir 时互不覆盖，守住"只进不吐"）。
+ */
 function writeStore(path: string, store: UsageStore): void {
-	mkdirSync(dirname(path), { recursive: true });
-	const tmp = `${path}.tmp`;
-	writeFileSync(tmp, `${JSON.stringify(store)}\n`, "utf-8");
-	renameSync(tmp, path);
+	withFileLockSync(path, () => {
+		let disk: Partial<UsageStore> | undefined;
+		try {
+			disk = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Partial<UsageStore>) : undefined;
+		} catch {
+			disk = undefined;
+		}
+		if (disk?.version === 1 && typeof disk.files === "object" && disk.files !== null) {
+			for (const [key, record] of Object.entries(disk.files)) {
+				const mine = store.files[key];
+				if (!mine || record.mtime > mine.mtime) store.files[key] = record;
+			}
+		}
+		atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
+	});
 }
 
 /** 模块级缓存 + 串行链：设置页 5s 轮询与开始页并发请求共享同一次扫描，不互相踩。 */

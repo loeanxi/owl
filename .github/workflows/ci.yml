@@ -41,6 +41,48 @@ jobs:
       - name: Test
         run: npm test
 
+  # The desktop app ships on Windows only: catch path / rename / CRLF / cmd-shell breakage there,
+  # and check that every artifact carries a build-info.json fingerprint that matches the sources.
+  desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build packages (bridge included)
+        run: npm run build
+
+      - name: Build esbuild plugins
+        shell: bash
+        run: |
+          for plugin in owl-image owl-web-access owl-safety-net owl-billion-context; do
+            (cd "packages/$plugin" && npm run build)
+          done
+
+      - name: Build desktop UI (tsc + vite)
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Artifacts match sources
+        run: node scripts/check-desktop-freshness.mjs
+
+      - name: State-file and build-check tests
+        working-directory: packages/coding-agent
+        run: npx vitest --run test/atomic-file.test.ts test/build-check.test.ts test/career-stats.test.ts test/usage-stats-store.test.ts test/core/owl-memory.test.ts
+
+      - name: Check Tauri shell
+        working-directory: apps/desktop/src-tauri
+        run: cargo check --locked
+
   mcp-conformance:
     runs-on: ubuntu-latest
     steps:

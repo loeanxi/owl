@@ -227,7 +227,7 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 
 /**
  * 最左侧图标栏（Codex 式 activity bar）。
- * 顶部固定：首页 / 我的助理 / 号池 / 功能抽屉触发钮；
+ * 顶部固定：首页 / 我的助理 / 功能抽屉触发钮（号池入口在标题栏右侧）；
  * 资讯与其余功能默认不占位，在「功能抽屉」里点图钉后才常驻到分隔线下方置顶区，再点图钉取消。
  * app 菜单单独贴底，中段不留空档。
  */
@@ -449,22 +449,6 @@ export function ActivityRail({
 				onClick={() => onSelect("myself")}
 			>
 				<IconSelf className="h-[18px] w-[18px]" />
-			</button>
-
-			{/* 号池 Manager：顶部固定入口（迁移阶段 6）：嵌入 owl 主内容区的一等视图。 */}
-			<button
-				type="button"
-				className={itemClass(view === "manager" && !settingsOpen)}
-				title="号池 Manager"
-				aria-label="号池 Manager"
-				aria-current={view === "manager" && !settingsOpen ? "page" : undefined}
-				onClick={() => onSelect("manager")}
-			>
-				<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-					<ellipse cx="12" cy="5.5" rx="8" ry="2.8" />
-					<path d="M4 5.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
-					<path d="M4 11.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
-				</svg>
 			</button>
 
 			{/* 功能抽屉触发钮：Codex 式放在固定组末尾、分隔线之上。 */}

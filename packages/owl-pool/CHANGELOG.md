@@ -15,3 +15,4 @@
 - Anthropic upstream conversion now preserves cache components and folds native ordinary input into total prompt input consistently in streaming and nonstreaming responses; gateway defaults use total prompt semantics while explicit standalone fold=false behavior remains available.
 - Native Anthropic nullable cumulative input/cache fields now preserve previous verified measurements; complete-response null cache fields remain absent instead of triggering an invalid-cache hold. Strict normalized usage validation remains unchanged.
 - SDK bridge turns retain unknown usage after an explicit invalid metric instead of settling earlier counters; stream and nonstream consumers preserve that status through wallet review. Empty notifications preserve earlier valid usage.
+- Optional null cache aliases no longer invalidate another verified count in the same response; numeric conflicts, invalid counts and null-only metrics still retain review holds.

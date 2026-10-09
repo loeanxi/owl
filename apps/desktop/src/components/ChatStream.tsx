@@ -922,10 +922,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				return;
 			}
 			// 工作用时放在正文上面，和 Cursor 的 “Worked for …” 同一位置。
+			// finishedAt 必须用 endedAt（message_end 本地时钟）：wire 的 timestamp 是
+			// 响应开始时刻，用它会把「生成了 3s」收成「工作了 1s」。
 			if (!answerWorkFlushed) {
 				answerWorkFlushed = true;
 				const live = streaming && lastUserIndex !== -1 && index > lastUserIndex;
-				flushWork(live, entry.timestamp);
+				flushWork(live, entry.endedAt ?? entry.timestamp);
 			}
 			answerParts.push(answerCard(segmentIndex, segment.text));
 		});

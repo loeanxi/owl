@@ -110,6 +110,8 @@ export class BridgeClient {
 	private diffApprovalHandlers = new Set<DiffApprovalChangedHandler>();
 	private scheduleChangedHandlers = new Set<() => void>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
+	/** sessionId → 引用计数；空表示未声明，桥端按 all 推送（兼容旧行为）。 */
+	private watchedSessions = new Map<string, number>();
 	private url: string;
 	private closedByUser = false;
 
@@ -127,6 +129,7 @@ export class BridgeClient {
 		const ws = new WebSocket(this.url);
 		this.ws = ws;
 		ws.onopen = () => {
+			this.syncEventSubscription();
 			for (const handler of this.statusHandlers) handler(true);
 		};
 		ws.onmessage = (event) => {
@@ -214,6 +217,33 @@ export class BridgeClient {
 	onSessionEvent(handler: SessionEventHandler): () => void {
 		this.sessionHandlers.add(handler);
 		return () => this.sessionHandlers.delete(handler);
+	}
+
+	/**
+	 * 声明需要该会话的正文 delta。至少有一个 watch 时，桥只把 text/thinking delta
+	 * 推给已声明会话；生命周期/工具步进仍全量下发。返回取消函数（引用计数）。
+	 */
+	watchSessionEvents(sessionId: string | undefined): () => void {
+		if (!sessionId) return () => {};
+		this.watchedSessions.set(sessionId, (this.watchedSessions.get(sessionId) ?? 0) + 1);
+		this.syncEventSubscription();
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			const next = (this.watchedSessions.get(sessionId) ?? 1) - 1;
+			if (next <= 0) this.watchedSessions.delete(sessionId);
+			else this.watchedSessions.set(sessionId, next);
+			this.syncEventSubscription();
+		};
+	}
+
+	private syncEventSubscription(): void {
+		if (!this.ws || this.ws.readyState !== this.ws.OPEN) return;
+		const sessionIds = this.watchedSessions.size > 0 ? [...this.watchedSessions.keys()] : "all";
+		void this.request({ type: "events.subscribe", sessionIds }).catch(() => {
+			// 旧桥不认识 events.subscribe：保持 all 推送即可
+		});
 	}
 
 	onPermissionRequest(handler: PermissionHandler): () => void {
@@ -348,7 +378,8 @@ export class BridgeClient {
 			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
 			const fallbackTimeout =
 				request.type === "session.resume" ? 30_000
-				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "models.list"].includes(request.type)
+				: request.type === "models.discover" ? 30_000
+				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "models.list", "build.hello"].includes(request.type)
 					? 15_000
 					: undefined;
 			if (fallbackTimeout !== undefined) {

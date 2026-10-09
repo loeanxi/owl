@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import { stampEsbuild } from "../../../scripts/stamp-build-info.mjs";
 
 const hostExternals = [
 	"@owl/owl-coding-agent",
@@ -9,9 +10,10 @@ const hostExternals = [
 	"@sinclair/typebox",
 ];
 
-await build({
+const result = await build({
 	entryPoints: ["./index.ts"],
 	outfile: "./dist/index.js",
+	metafile: true,
 	bundle: true,
 	format: "esm",
 	platform: "node",
@@ -29,4 +31,5 @@ await build({
 		js: "// owl-web-access — ported from nicobailon/pi-web-access (MIT). Host SDK modules are provided by the owl agent at runtime.",
 	},
 });
+stampEsbuild(result.metafile, { component: "plugin:owl-web-access", outDir: "./dist" });
 console.log("Built dist/index.js");

@@ -515,6 +515,12 @@ describe("Coding Agent Tools", () => {
 			expect(result.details).toBeUndefined();
 		});
 
+		it.skipIf(!BASH_AVAILABLE)("should fail a pipeline when an earlier command fails (pipefail)", async () => {
+			const result = await bashTool.execute("test-call-pipefail", { command: "false | head -n 1" });
+			expect(result.isError).toBe(true);
+			expect(getTextOutput(result)).toMatch(/exited with code/);
+		});
+
 		it.skipIf(!BASH_AVAILABLE)(
 			"should report non-zero exit codes as error results with structured content",
 			async () => {

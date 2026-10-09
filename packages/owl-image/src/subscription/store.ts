@@ -4,8 +4,9 @@
  * `<agentDir>/image-gen-auth.json` (0600 where the OS honors it) and never
  * leaves the host process.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFileSync } from "../atomic-write.ts";
 import { agentDirOf } from "../config.ts";
 import { parseBlob, type SubscriptionBlob, serializeBlob } from "./blob.ts";
 
@@ -26,10 +27,7 @@ export function readStoredBlob(): SubscriptionBlob | undefined {
 
 /** Persist the blob; at least one token must be present. */
 export function writeStoredBlob(blob: Partial<SubscriptionBlob>): void {
-	const serialized = serializeBlob(blob);
-	const dir = agentDirOf();
-	mkdirSync(dir, { recursive: true });
-	writeFileSync(authPath(), serialized, { encoding: "utf8", mode: 0o600 });
+	atomicWriteFileSync(authPath(), serializeBlob(blob), 0o600);
 	try {
 		chmodSync(authPath(), 0o600);
 	} catch {

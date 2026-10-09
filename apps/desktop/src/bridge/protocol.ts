@@ -37,6 +37,8 @@ export type {
 	ModelsPutProviderRequest,
 	ModelsRemoveModelRequest,
 	ModelsRemoveProviderRequest,
+	ModelsDiscoverResult,
+	DiscoveredModel,
 	PermissionRequestMessage,
 	ProjectCreateRequest,
 	ProjectCreateResult,
@@ -184,6 +186,9 @@ export type {
 	ViewerOpenRequest,
 	WorkspaceViewerInfo,
 	WorkspaceViewerOpenResult,
+	BuildHelloResult,
+	BuildIssue,
+	UiBuildFingerprint,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 // 上下文洞察的 wire 类型本体在 core/context-insight（内核 protocol 也只是转引）
 export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";

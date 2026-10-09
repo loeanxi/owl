@@ -1,4 +1,5 @@
 import type { BridgeClient } from "../bridge/client.ts";
+import { SessionWatch } from "../bridge/session-watch.ts";
 import type {
 	ApprovalMode,
 	DesktopClientRequestWithoutId,
@@ -14,7 +15,7 @@ import type { DeviceLocation } from "./device-location.ts";
 import type { ConfiguredMapLocation } from "./live-model.ts";
 
 export type MapConversationClient = Pick<BridgeClient, "request" | "onSessionEvent" | "onStatus"> &
-	Partial<Pick<BridgeClient, "onMapResults">>;
+	Partial<Pick<BridgeClient, "onMapResults" | "watchSessionEvents">>;
 
 export interface MapConversationConfig {
 	cwd: string;
@@ -67,6 +68,7 @@ export class MapConversation {
 	private detachEvents?: () => void;
 	private detachStatus?: () => void;
 	private detachMapResults?: () => void;
+	private readonly sessionWatch: SessionWatch;
 	private mapRevision = 0;
 	private generation = 0;
 	private operation = 0;
@@ -80,6 +82,7 @@ export class MapConversation {
 	/** Pure construction also avoids discarded useMemo instances leaking subscriptions in StrictMode. */
 	constructor(client: MapConversationClient, config: MapConversationConfig, connected = false) {
 		this.client = client;
+		this.sessionWatch = new SessionWatch(client);
 		this.config = { ...config };
 		this.state = { entries: [], connected, submitting: false, running: false, busy: false };
 	}
@@ -215,6 +218,7 @@ export class MapConversation {
 
 	private attach(): void {
 		if (this.detachEvents) return;
+		this.sessionWatch.set(this.state.sessionId);
 		this.detachEvents = this.client.onSessionEvent((message) => {
 			if (message.sessionId !== this.state.sessionId || !isRecord(message.event)) return;
 			this.eventRevision++;
@@ -238,6 +242,7 @@ export class MapConversation {
 	}
 
 	private detach(): void {
+		this.sessionWatch.dispose();
 		this.detachEvents?.();
 		this.detachStatus?.();
 		this.detachMapResults?.();
@@ -251,6 +256,7 @@ export class MapConversation {
 		const next = { ...this.state, ...patch };
 		next.busy = next.running || next.submitting;
 		this.state = next;
+		if (this.detachEvents) this.sessionWatch.set(next.sessionId);
 		for (const listener of this.listeners) listener();
 	}
 

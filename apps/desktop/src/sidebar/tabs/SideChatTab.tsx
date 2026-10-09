@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
+import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "../../hooks/transcript.ts";
 import { renderMarkdown, InlineSummary } from "../../components/ChatStream.tsx";
@@ -29,13 +30,20 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 	const [draft, setDraft] = useState("");
 	const [attached, setAttached] = useState(false); // 已绑定（或决定不绑定）会话，输入框可用
 	const sessionIdRef = useRef<string | null>(null);
+	const watchRef = useRef<SessionWatch | null>(null);
+	if (!watchRef.current) watchRef.current = new SessionWatch(client);
+	const bindSession = (id: string | null): void => {
+		sessionIdRef.current = id;
+		watchRef.current?.set(id);
+	};
+	useEffect(() => () => watchRef.current?.dispose(), []);
 	const scroller = useRef<HTMLDivElement>(null);
 
 	// -- 会话绑定：挂载 / 项目切换时重挂 --------------------------------------
 	// silent：恢复失败（历史被删等）不留错误，退回全新线程即可
 	useEffect(() => {
 		let cancelled = false;
-		sessionIdRef.current = null;
+		bindSession(null);
 		setEntries([]);
 		setRunning(false);
 		setAttached(false);
@@ -53,7 +61,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 				});
 				if (cancelled) return;
 				if (response.ok && response.result) {
-					sessionIdRef.current = response.result.sessionId;
+					bindSession(response.result.sessionId);
 					setEntries(rebuild(response.result.messages ?? []));
 				} else {
 					localStorage.removeItem(sideChatKey(cwd));
@@ -94,7 +102,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 			approvalMode: "confirm",
 		});
 		if (!response.ok || !response.result) return undefined;
-		sessionIdRef.current = response.result.sessionId;
+		bindSession(response.result.sessionId);
 		localStorage.setItem(sideChatKey(cwd), response.result.sessionId);
 		return response.result.sessionId;
 	};
@@ -115,7 +123,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 	};
 
 	const newThread = (): void => {
-		sessionIdRef.current = null;
+		bindSession(null);
 		localStorage.removeItem(sideChatKey(cwd));
 		setEntries([]);
 		setRunning(false);

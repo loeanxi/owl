@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import type { ListeningEntry } from "./listening-memory.ts";
 
 export type ListeningReportRange = "today" | "week";
@@ -248,10 +249,7 @@ export class SkipLedger {
 	}
 
 	private saveNow(): void {
-		mkdirSync(dirname(this.filePath), { recursive: true });
-		const tempPath = `${this.filePath}.tmp`;
-		writeFileSync(tempPath, JSON.stringify({ version: 1, skips: this.skips }), "utf8");
-		renameSync(tempPath, this.filePath);
+		atomicWriteFileSync(this.filePath, JSON.stringify({ version: 1, skips: this.skips }));
 	}
 }
 

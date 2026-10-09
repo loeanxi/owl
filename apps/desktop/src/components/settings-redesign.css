@@ -468,6 +468,57 @@
 	opacity: 0.4;
 }
 
+.owl-settings-page .owl-settings-provider-picker {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--settings-muted);
+	font-size: 12px;
+}
+
+.owl-settings-page .owl-settings-provider-picker select {
+	width: min(100%, 360px);
+}
+
+.owl-settings-page .owl-settings-filter-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.owl-settings-page .owl-settings-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 10px;
+	border: 1px solid var(--settings-border);
+	border-radius: 999px;
+	color: var(--settings-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	transition:
+		color 0.15s,
+		border-color 0.15s,
+		background-color 0.15s;
+}
+
+.owl-settings-page .owl-settings-filter-chip:hover {
+	color: var(--settings-text);
+}
+
+.owl-settings-page .owl-settings-filter-chip.is-active {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 45%, var(--settings-border));
+	background: var(--settings-accent-soft);
+	color: var(--settings-text);
+}
+
+.owl-settings-page .owl-settings-filter-chip-count {
+	color: var(--settings-muted);
+	font-size: 10px;
+	opacity: 0.75;
+	font-variant-numeric: tabular-nums;
+}
+
 .owl-settings-page .owl-settings-notice {
 	padding: 12px 15px;
 	border: 1px solid color-mix(in srgb, var(--color-owl-accent) 22%, var(--settings-border));

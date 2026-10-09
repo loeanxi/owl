@@ -11,7 +11,11 @@ import { resolveReadPath } from "./path-utils.ts";
  * current user turn. A read dropped by compaction is gone. A successful
  * `edit` or `write` of that file makes earlier reads stale. A complete successful
  * write can separately supply a known version, verified against current bytes.
- * Creating a new file with `write` is not gated.
+ * That version stays valid across later user turns until compaction drops the
+ * write, a later successful mutation of the same file invalidates it, or the
+ * bytes on disk no longer match. A failed write does not change the file, so it
+ * does not erase the last verified version. Creating a new file with `write`
+ * is not gated.
  */
 const PARTIAL_READ = /\[Showing lines \d+-\d+ of \d+|\[\d+ more lines in file\.|\[Line \d+ is [^\]]*exceeds /;
 
@@ -91,7 +95,7 @@ function verifiedFullWriteThisTurn(
 			const path = call.fileMutationPath ?? call.arguments?.path;
 			return typeof path !== "string" || readPathKey(path, cwd) === wanted;
 		});
-	for (const message of messagesAfterLastUser(messages)) {
+	for (const message of messages) {
 		if (message.role === "assistant" && Array.isArray(message.content)) {
 			for (const block of message.content) {
 				if (block.type !== "toolCall") continue;
@@ -111,8 +115,8 @@ function verifiedFullWriteThisTurn(
 		if (parents.has(message.toolCallId) && message.nestedCalls && invalidates(message.nestedCalls))
 			written = undefined;
 		const call = calls.get(message.toolCallId);
-		if (!call || readPathKey(call.path, cwd) !== wanted) continue;
-		written = !message.isError && message.toolName === "write" && call.name === "write" ? call.content : undefined;
+		if (!call || readPathKey(call.path, cwd) !== wanted || message.isError) continue;
+		written = message.toolName === "write" && call.name === "write" ? call.content : undefined;
 	}
 	for (const pending of pendingNestedCalls) {
 		if (

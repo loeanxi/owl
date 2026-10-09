@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import { normPath, samePath, isReservedDir } from "../utils/paths.ts";
+import { loadAndScrubProjects, normPath, samePath, isReservedDir, isValidationDir } from "../utils/paths.ts";
 import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, publishProjectSidebarChange, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { startPointerDrag } from "../sidebar/pointer-drag.ts";
@@ -149,13 +149,7 @@ function loadPinned(key: string = PINNED_KEY): string[] {
 }
 
 function loadPinnedProjects(key: string = PINNED_PROJECTS_KEY): string[] {
-	try {
-		const raw = localStorage.getItem(key);
-		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
-	} catch {
-		return [];
-	}
+	return loadAndScrubProjects(localStorage, key);
 }
 
 function loadCollapsed(key: string = COLLAPSED_KEY): Set<string> {
@@ -386,8 +380,8 @@ export function SessionSidebar({
 	const [renameError, setRenameError] = useState("");
 	const [renameBusy, setRenameBusy] = useState(false);
 	const [deleteError, setDeleteError] = useState("");
-	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。 */
-	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, keys.projects));
+	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。启动时清掉评测 workspace。 */
+	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, keys.projects));
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	/** 项目会话手动顺序（拖拽产生并持久化）。 */
@@ -479,7 +473,7 @@ export function SessionSidebar({
 	// 当前项目变化时登记进项目列表：新建项目、切项目、恢复历史会话都会走到这里。
 	// 不登记的话，没有会话的项目会在切走后从「项目」分组消失。
 	useEffect(() => {
-		if (!activeProject) return;
+		if (!activeProject || isValidationDir(activeProject)) return;
 		setKnownProjects((current) => {
 			if (current.some((p) => samePath(p, activeProject))) return current;
 			const next = [...current, activeProject];
@@ -732,7 +726,7 @@ export function SessionSidebar({
 	const projectPaths = useMemo(() => {
 		const map = new Map<string, { path: string; latest: string }>();
 		const track = (path: string | undefined, time?: string): void => {
-			if (!path || isReservedDir(path)) return;
+			if (!path || isReservedDir(path) || isValidationDir(path)) return;
 			const key = normPath(path);
 			const existing = map.get(key);
 			if (!existing) map.set(key, { path, latest: time ?? "" });
@@ -763,7 +757,7 @@ export function SessionSidebar({
 
 	// 置顶项目行：保留目录不设项目行，搜索时同样按项目过滤。
 	const pinnedProjectRows = useMemo(
-		() => pinnedProjects.filter((path) => !isReservedDir(path) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
+		() => pinnedProjects.filter((path) => !isReservedDir(path) && !isValidationDir(path) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
 		[pinnedProjects, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
 	);
 

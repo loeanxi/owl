@@ -3,10 +3,11 @@
  */
 
 import chalk from "chalk";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "fs";
+import { join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.ts";
 import { migrateKeybindingsConfig } from "./core/tui-seam.ts";
+import { atomicWriteFileSync } from "./utils/atomic-file.ts";
 import { stripBom } from "./utils/text.ts";
 
 const MIGRATION_GUIDE_URL =
@@ -57,7 +58,7 @@ export function migrateAuthToAuthJson(): string[] {
 					}
 				}
 				delete settings.apiKeys;
-				writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+				atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2));
 			}
 		} catch {
 			// Skip on error
@@ -65,8 +66,7 @@ export function migrateAuthToAuthJson(): string[] {
 	}
 
 	if (Object.keys(migrated).length > 0) {
-		mkdirSync(dirname(authPath), { recursive: true });
-		writeFileSync(authPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
+		atomicWriteFileSync(authPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
 	}
 
 	return providers;
@@ -165,7 +165,7 @@ function migrateKeybindingsConfigFile(): void {
 		}
 		const { config, migrated } = migrateKeybindingsConfig(parsed as Record<string, unknown>);
 		if (!migrated) return;
-		writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+		atomicWriteFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 	} catch {
 		// Ignore malformed files during migration
 	}

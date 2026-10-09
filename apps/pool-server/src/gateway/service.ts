@@ -461,7 +461,7 @@ function reserveOf(
 	};
 }
 
-/** /v1/models：已上架模型按 Key 允许清单过滤。 */
+/** /v1/models：已上架模型按 Key 允许清单过滤，并公布能力值供客户端（loean）映射目录。 */
 export function listModelsForKey(deps: GatewayServiceDeps, key: ApiKey): Array<Record<string, unknown>> {
 	return deps
 		.listPublishedModels()
@@ -471,7 +471,18 @@ export function listModelsForKey(deps: GatewayServiceDeps, key: ApiKey): Array<R
 				key.allowedModels === null ||
 				key.allowedModels.some((allowed) => allowed.toLowerCase() === model.publicId.toLowerCase()),
 		)
-		.map((model) => ({ id: model.publicId, object: "model", owned_by: "owl-pool" }));
+		.map((model) => ({
+			id: model.publicId,
+			object: "model",
+			owned_by: "owl-pool",
+			// OpenAI 扩展字段：客户端用这些重建 Model.input / contextWindow / reasoning，避免靠 id 关键词猜。
+			input_modalities: model.supportsImages ? (["text", "image"] as const) : (["text"] as const),
+			supports_images: model.supportsImages,
+			supports_tools: model.supportsTools,
+			...(model.contextWindow != null ? { context_window: model.contextWindow } : {}),
+			...(model.maxOutputTokens != null ? { max_output_tokens: model.maxOutputTokens } : {}),
+			...(model.reasoningEfforts.length > 0 ? { reasoning_efforts: model.reasoningEfforts } : {}),
+		}));
 }
 
 function resolveOf(
@@ -706,11 +717,13 @@ function cacheQuantity(record: Record<string, unknown>, nestedKey: string, alias
 	for (const key of aliases) if (key in record) values.push(record[key]);
 	let observed: number | null = null;
 	for (const value of values) {
+		// Optional wire aliases may be null beside another verified cache count.
+		if (value === null || value === undefined) continue;
 		const count = signed(value);
 		if (count < 0 || (observed !== null && count !== observed)) return -1;
 		observed = count;
 	}
-	return observed;
+	return observed ?? (values.length > 0 ? -1 : null);
 }
 
 // isActive 供后续 Key 并发准入使用（阶段 3 范围外）

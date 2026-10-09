@@ -60,21 +60,18 @@ import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
-import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import type { BashResult } from "./bash-executor.ts";
 import { generateBugReportSummary } from "./bug-report.ts";
 import type { CacheWarmer, CacheWarmingStatus } from "./cache-warmer.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
 	calculateContextTokens,
-	collectEntriesForBranchSummary,
 	compact,
 	compactionContextWindow,
-	estimateContextBreakdown,
 	estimateContextTokens,
 	estimateProjectedContextTokens,
 	estimateTokens,
-	generateBranchSummary,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -83,7 +80,6 @@ import {
 	type AgentActivityOutcome,
 	type BoundaryContextPreview,
 	type ContextUsage,
-	type ContextUsageBreakdown,
 	type ExecuteToolOptions,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
@@ -96,7 +92,6 @@ import {
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
 	type SessionBeforeCompactResult,
-	type SessionBeforeTreeResult,
 	type SessionBoundaryDraft,
 	type SessionCompactFailedEvent,
 	type SessionStartEvent,
@@ -108,18 +103,18 @@ import {
 	type ToolExposure,
 	type ToolInfo,
 	type ToolLoadout,
-	type TreePreparation,
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import { resolveHarnessModel } from "./harness-model.ts";
-import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
+import { type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { NestedToolCallRunner } from "./nested-tool-calls.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { SessionBashController } from "./session-bash.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import {
 	type BranchSummaryEntry,
@@ -132,6 +127,8 @@ import {
 } from "./session-manager.ts";
 import { SessionQueueTracker } from "./session-queue.ts";
 import { SessionRetryController } from "./session-retry.ts";
+import { computeContextUsage, computeSessionStats } from "./session-stats.ts";
+import { SessionTreeNavigationController } from "./session-tree.ts";
 import { type CacheWarmingMode, DEFAULT_TOOL_NAMES, type SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
@@ -142,11 +139,12 @@ import {
 	type NormalizedBuildSystemPromptOptions,
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
-import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
+import type { BashOperations } from "./tools/bash.ts";
+import { readPathKey, readResultEvidence } from "./tools/edit-read-gate.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { terminateSessionProcesses } from "./tools/process-store.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
-import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
+import { combineUsage } from "./usage-totals.ts";
 import {
 	findLatestResponse,
 	getBranchSelection,
@@ -405,9 +403,6 @@ export class AgentSession {
 	};
 	private _recoveryRequestMaxTokens?: { provider: string; modelId: string; maxTokens: number };
 
-	// Branch summarization state
-	private _branchSummaryAbortController: AbortController | undefined = undefined;
-
 	// Retry state: policy/attempt counter live in the controller; `_failedResponse` is
 	// shared between auto-retry and overflow recovery, so it stays here.
 	private readonly _retry: SessionRetryController;
@@ -417,9 +412,8 @@ export class AgentSession {
 	 */
 	private _failedResponse: AssistantMessage | undefined;
 
-	// Bash execution state
-	private readonly _bashAbortControllers = new Set<AbortController>();
-	private _pendingBashMessages: BashExecutionMessage[] = [];
+	private readonly _bash: SessionBashController;
+	private readonly _tree: SessionTreeNavigationController;
 
 	// Extension system
 	private _extensionRunner!: ExtensionRunner;
@@ -471,6 +465,8 @@ export class AgentSession {
 	private _nestedToolCalls: NestedToolCallRunner | undefined;
 	/** Successful direct changes whose result message has not yet reached the session transcript. */
 	private _pendingFileMutations = new Map<string, { name: string; path: string }>();
+	/** Successful direct reads whose result message has not yet reached the session transcript. */
+	private _pendingFileReads = new Map<string, { path: string; text: string; fullFile: boolean }>();
 	/** Declared tools whose declarations requests leave out, from `prepareLoadout` hooks. */
 	private _hiddenDeclarations: ReadonlySet<string> = new Set();
 	private _toolDefinitions: Map<string, ToolDefinitionEntry> = new Map();
@@ -507,6 +503,43 @@ export class AgentSession {
 			getErrorPatterns: () => this.settingsManager.getRetryableErrorPatterns(),
 			emit: (event) => this._emit(event),
 			resolveContextWindow: (message) => (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0,
+		});
+		this._bash = new SessionBashController({
+			getCwd: () => this.sessionManager.getCwd(),
+			settingsManager: this.settingsManager,
+			isStreaming: () => this.isStreaming,
+			appendMessage: (message) => {
+				this.sessionManager.appendMessage(message);
+			},
+			refreshFinalizedContext: () => this._refreshFinalizedContext(),
+			emit: (event) => this._emit(event),
+		});
+		this._tree = new SessionTreeNavigationController({
+			sessionManager: this.sessionManager,
+			settingsManager: this.settingsManager,
+			isStreaming: () => this.isStreaming,
+			isCompacting: () =>
+				this._autoCompactionAbortController !== undefined || this._compactionAbortController !== undefined,
+			getModel: () => this.model,
+			getStreamFunction: () => this.agent.streamFunction,
+			getSummarizationRequestAuth: (model, signal) => this._getSummarizationRequestAuth(model, signal),
+			getSummarizationRetryCallbacks: () => this._retry.summarizationCallbacks({ source: "branchSummary" }),
+			emitBeforeTree: async (preparation, signal) => {
+				if (!this._extensionRunner.hasHandlers("session_before_tree")) return undefined;
+				return await this._extensionRunner.emit({
+					type: "session_before_tree",
+					preparation,
+					signal,
+				});
+			},
+			emitSessionTree: async (args) => {
+				await this._extensionRunner.emit({ type: "session_tree", ...args });
+			},
+			refreshAfterNavigate: () => {
+				this._refreshFinalizedContext();
+				this._restoreToolsFromTranscript();
+			},
+			resolveIdleWaitIfIdle: () => this._resolveIdleWaitIfIdle(),
 		});
 		this._queue = new SessionQueueTracker({ emit: (event) => this._emit(event) });
 
@@ -726,11 +759,24 @@ export class AgentSession {
 		{ toolCall, args, result, isError }: AfterToolCallContext,
 		parentToolCallId?: string,
 	): Promise<AfterToolCallResult | undefined> {
+		if (!isError && toolCall.name === "read" && !parentToolCallId) {
+			const path = (args as Record<string, unknown>).path;
+			if (typeof path === "string") {
+				const evidence = readResultEvidence(result.content ?? [], (args as Record<string, unknown>).offset);
+				if (!evidence.text.startsWith("[Directory listing:")) {
+					this._pendingFileReads.set(toolCall.id, { path, text: evidence.text, fullFile: evidence.fullFile });
+				}
+			}
+		}
 		if (!isError && (toolCall.name === "edit" || toolCall.name === "write")) {
 			const path = (args as Record<string, unknown>).path;
 			if (typeof path === "string") {
 				this._nestedToolCalls?.invalidateFileReads(path, this._cwd);
 				if (!parentToolCallId) this._pendingFileMutations.set(toolCall.id, { name: toolCall.name, path });
+				const wanted = readPathKey(path, this._cwd);
+				for (const [id, pending] of this._pendingFileReads) {
+					if (readPathKey(pending.path, this._cwd) === wanted) this._pendingFileReads.delete(id);
+				}
 			}
 		}
 		const runner = this._extensionRunner;
@@ -1193,8 +1239,10 @@ export class AgentSession {
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		if (event.type === "message_end" && event.message.role === "toolResult") {
 			this._pendingFileMutations.delete(event.message.toolCallId);
+			this._pendingFileReads.delete(event.message.toolCallId);
 		} else if (event.type === "agent_end") {
 			this._pendingFileMutations.clear();
+			this._pendingFileReads.clear();
 		}
 		// Record the calls a tool made through ctx.executeTool() and their usage on its result message.
 		if (this._nestedToolCalls) {
@@ -1685,7 +1733,7 @@ export class AgentSession {
 		return (
 			this._autoCompactionAbortController !== undefined ||
 			this._compactionAbortController !== undefined ||
-			this._branchSummaryAbortController !== undefined
+			this._tree.isNavigating
 		);
 	}
 
@@ -2233,6 +2281,24 @@ export class AgentSession {
 		}
 
 		const normalized = await this._normalizePromptImages(currentImages);
+		// 模型目录未声明图像能力时，附图会在 API 层被替换成占位文本；给用户一条可见提示，避免静默丢图。
+		const modelLacksVision = this.model !== undefined && !this.model.input.includes("image");
+		const omittedImageCount = modelLacksVision && (currentImages?.length ?? 0) > 0 ? (currentImages?.length ?? 0) : 0;
+		if (omittedImageCount > 0 && this.model) {
+			this._appendCustomMessage({
+				role: "custom",
+				customType: "owl-image-omitted",
+				content: `当前模型 ${this.model.provider}/${this.model.id} 未声明图像能力，本轮 ${omittedImageCount} 张附图不会发给模型（仅保留文字占位）。若上游实际支持识图，请刷新模型目录，或换一个声明支持图像的模型。`,
+				display: true,
+				details: {
+					provider: this.model.provider,
+					modelId: this.model.id,
+					imageCount: omittedImageCount,
+					reason: "model-input-lacks-image",
+				},
+				timestamp: Date.now(),
+			});
+		}
 		// /-@ 引用芯片的附文件清单：拼到本回合 user 消息头；模型读到这里主动把对应路径的文件读了。
 		const attachments = options?.attachedPaths;
 		const attachmentsHeader = attachments?.length
@@ -3118,7 +3184,7 @@ export class AgentSession {
 	 * Cancel in-progress branch summarization.
 	 */
 	abortBranchSummary(): void {
-		this._branchSummaryAbortController?.abort();
+		this._tree.abort();
 	}
 
 	/**
@@ -3986,33 +4052,7 @@ export class AgentSession {
 		onChunk?: (chunk: string) => void,
 		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
 	): Promise<BashResult> {
-		const abortController = new AbortController();
-		this._bashAbortControllers.add(abortController);
-
-		// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
-		const prefix = this.settingsManager.getShellCommandPrefix();
-		const shellPath = this.settingsManager.getShellPath();
-		const resolvedCommand = prefix ? `${prefix}\n${command}` : command;
-
-		try {
-			const result = await executeBashWithOperations(
-				resolvedCommand,
-				this.sessionManager.getCwd(),
-				options?.operations ?? createLocalBashOperations({ shellPath }),
-				{
-					onChunk: (delta) => {
-						onChunk?.(delta);
-						this._emit({ type: "bash_execution_update", id: options?.id, delta });
-					},
-					signal: abortController.signal,
-				},
-			);
-
-			this.recordBashResult(command, result, options);
-			return result;
-		} finally {
-			this._bashAbortControllers.delete(abortController);
-		}
+		return this._bash.execute(command, onChunk, options);
 	}
 
 	/**
@@ -4020,45 +4060,24 @@ export class AgentSession {
 	 * Used by executeBash and by extensions that handle bash execution themselves.
 	 */
 	recordBashResult(command: string, result: BashResult, options?: { excludeFromContext?: boolean }): void {
-		const bashMessage: BashExecutionMessage = {
-			role: "bashExecution",
-			command,
-			output: result.output,
-			exitCode: result.exitCode,
-			cancelled: result.cancelled,
-			truncated: result.truncated,
-			fullOutputPath: result.fullOutputPath,
-			timestamp: Date.now(),
-			excludeFromContext: options?.excludeFromContext,
-		};
-
-		// If agent is streaming, defer adding to avoid breaking tool_use/tool_result ordering
-		if (this.isStreaming) {
-			// Queue for later - will be flushed on agent_end
-			this._pendingBashMessages.push(bashMessage);
-		} else {
-			this.sessionManager.appendMessage(bashMessage);
-			this._refreshFinalizedContext();
-		}
+		this._bash.recordResult(command, result, options);
 	}
 
 	/**
 	 * Cancel running bash command.
 	 */
 	abortBash(): void {
-		for (const abortController of [...this._bashAbortControllers]) {
-			abortController.abort();
-		}
+		this._bash.abort();
 	}
 
 	/** Whether a bash command is currently running */
 	get isBashRunning(): boolean {
-		return this._bashAbortControllers.size > 0;
+		return this._bash.isRunning;
 	}
 
 	/** Whether there are pending bash messages waiting to be flushed */
 	get hasPendingBashMessages(): boolean {
-		return this._pendingBashMessages.length > 0;
+		return this._bash.hasPendingMessages;
 	}
 
 	/**
@@ -4066,13 +4085,7 @@ export class AgentSession {
 	 * Called after agent turn completes to maintain proper message ordering.
 	 */
 	private _flushPendingBashMessages(): void {
-		if (this._pendingBashMessages.length === 0) return;
-
-		for (const bashMessage of this._pendingBashMessages) {
-			this.sessionManager.appendMessage(bashMessage);
-		}
-		this._pendingBashMessages = [];
-		this._refreshFinalizedContext();
+		this._bash.flushPending();
 	}
 
 	// =========================================================================
@@ -4108,214 +4121,14 @@ export class AgentSession {
 		targetId: string,
 		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
-		if (this.isStreaming) {
-			throw new Error("Wait for the current response to finish before navigating the session tree.");
-		}
-		if (this.isCompacting) {
-			throw new Error(
-				"Wait for the current compaction or tree navigation to finish before navigating the session tree.",
-			);
-		}
-
-		const oldLeafId = this.sessionManager.getLeafId();
-
-		// No-op if already at target
-		if (targetId === oldLeafId) {
-			return { cancelled: false };
-		}
-
-		// Model required for summarization
-		if (options.summarize && !this.model) {
-			throw new Error("No model available for summarization");
-		}
-
-		const targetEntry = this.sessionManager.getEntry(targetId);
-		if (!targetEntry) {
-			throw new Error(`Entry ${targetId} not found`);
-		}
-
-		// Collect entries to summarize (from old leaf to common ancestor)
-		const { entries: entriesToSummarize, commonAncestorId } = collectEntriesForBranchSummary(
-			this.sessionManager,
-			oldLeafId,
-			targetId,
-		);
-
-		// Prepare event data - mutable so extensions can override
-		let customInstructions = options.customInstructions;
-		let replaceInstructions = options.replaceInstructions;
-		let label = options.label;
-
-		const preparation: TreePreparation = {
-			targetId,
-			oldLeafId,
-			commonAncestorId,
-			entriesToSummarize,
-			userWantsSummary: options.summarize ?? false,
-			customInstructions,
-			replaceInstructions,
-			label,
-		};
-
-		// Set up abort controller for summarization
-		this._branchSummaryAbortController = new AbortController();
-
-		try {
-			let extensionSummary: { summary: string; details?: unknown; usage?: Usage } | undefined;
-			let fromExtension = false;
-
-			// Emit session_before_tree event
-			if (this._extensionRunner.hasHandlers("session_before_tree")) {
-				const result = (await this._extensionRunner.emit({
-					type: "session_before_tree",
-					preparation,
-					signal: this._branchSummaryAbortController.signal,
-				})) as SessionBeforeTreeResult | undefined;
-
-				if (result?.cancel) {
-					return { cancelled: true };
-				}
-
-				if (result?.summary && options.summarize) {
-					extensionSummary = result.summary;
-					fromExtension = true;
-				}
-
-				// Allow extensions to override instructions and label
-				if (result?.customInstructions !== undefined) {
-					customInstructions = result.customInstructions;
-				}
-				if (result?.replaceInstructions !== undefined) {
-					replaceInstructions = result.replaceInstructions;
-				}
-				if (result?.label !== undefined) {
-					label = result.label;
-				}
-			}
-
-			// Run default summarizer if needed
-			let summaryText: string | undefined;
-			let summaryDetails: unknown;
-			let summaryUsage: Usage | undefined;
-			if (options.summarize && entriesToSummarize.length > 0 && !extensionSummary) {
-				const signal = this._branchSummaryAbortController.signal;
-				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
-				const result = await generateBranchSummary(entriesToSummarize, {
-					...(await this._getSummarizationRequestAuth(this.model!, signal)),
-					signal,
-					customInstructions,
-					replaceInstructions,
-					reserveTokens: branchSummarySettings.reserveTokens,
-					streamFn: this.agent.streamFunction,
-					retry: this.settingsManager.getRetrySettings(),
-					callbacks: this._retry.summarizationCallbacks({ source: "branchSummary" }),
-				});
-				if (result.aborted) {
-					return { cancelled: true, aborted: true };
-				}
-				if (result.error) {
-					throw new Error(result.error);
-				}
-				summaryText = result.summary;
-				summaryUsage = result.usage;
-				summaryDetails = {
-					readFiles: result.readFiles || [],
-					modifiedFiles: result.modifiedFiles || [],
-				};
-			} else if (extensionSummary) {
-				summaryText = extensionSummary.summary;
-				summaryDetails = extensionSummary.details;
-				summaryUsage = extensionSummary.usage;
-			}
-
-			// Determine the new leaf position based on target type
-			let newLeafId: string | null;
-			let editorText: string | undefined;
-
-			if (targetEntry.type === "message" && targetEntry.message.role === "user") {
-				// User message: leaf = parent (null if root), text goes to editor
-				newLeafId = targetEntry.parentId;
-				editorText = contentText(targetEntry.message.content, "");
-			} else if (targetEntry.type === "custom_message") {
-				// Custom message: leaf = parent (null if root), text goes to editor
-				newLeafId = targetEntry.parentId;
-				editorText = contentText(targetEntry.content, "");
-			} else {
-				// Non-user message: leaf = selected node
-				newLeafId = targetId;
-			}
-
-			// Switch leaf (with or without summary)
-			// Summary is attached at the navigation target position (newLeafId), not the old branch
-			let summaryEntry: BranchSummaryEntry | undefined;
-			if (summaryText) {
-				// Create summary at target position (can be null for root)
-				const summaryId = this.sessionManager.branchWithSummary(
-					newLeafId,
-					summaryText,
-					summaryDetails,
-					fromExtension,
-					summaryUsage,
-				);
-				summaryEntry = this.sessionManager.getEntry(summaryId) as BranchSummaryEntry;
-
-				// Attach label to the summary entry
-				if (label) {
-					this.sessionManager.appendLabelChange(summaryId, label);
-				}
-			} else if (newLeafId === null) {
-				// No summary, navigating to root - reset leaf
-				this.sessionManager.resetLeaf();
-			} else {
-				// No summary, navigating to non-root
-				this.sessionManager.branch(newLeafId);
-			}
-
-			// Attach label to target entry when not summarizing (no summary entry to label)
-			if (label && !summaryText) {
-				this.sessionManager.appendLabelChange(targetId, label);
-			}
-
-			// Update finalized context from the canonical session projection.
-			this._refreshFinalizedContext();
-			this._restoreToolsFromTranscript();
-
-			// Emit session_tree event
-			await this._extensionRunner.emit({
-				type: "session_tree",
-				newLeafId: this.sessionManager.getLeafId(),
-				oldLeafId,
-				summaryEntry,
-				fromExtension: summaryText ? fromExtension : undefined,
-			});
-
-			// Emit to custom tools
-
-			return { editorText, cancelled: false, summaryEntry };
-		} finally {
-			this._branchSummaryAbortController = undefined;
-			this._resolveIdleWaitIfIdle();
-		}
+		return this._tree.navigate(targetId, options);
 	}
 
 	/**
 	 * Get all user messages from session for fork selector.
 	 */
 	getUserMessagesForForking(): Array<{ entryId: string; text: string }> {
-		const entries = this.sessionManager.getEntries();
-		const result: Array<{ entryId: string; text: string }> = [];
-
-		for (const entry of entries) {
-			if (entry.type !== "message") continue;
-			if (entry.message.role !== "user") continue;
-
-			const text = contentText(entry.message.content, "");
-			if (text) {
-				result.push({ entryId: entry.id, text });
-			}
-		}
-
-		return result;
+		return this._tree.listUserMessagesForForking();
 	}
 
 	/**
@@ -4324,116 +4137,20 @@ export class AgentSession {
 	 * actually billed across the session.
 	 */
 	getSessionStats(): SessionStats {
-		let userMessages = 0;
-		let assistantMessages = 0;
-		let toolResults = 0;
-		let totalMessages = 0;
-		let toolCalls = 0;
-		const usageTotals = createUsageTotals();
-
-		for (const entry of this.sessionManager.getEntries()) {
-			if (entry.type === "usage") {
-				addUsageToTotals(usageTotals, entry.usage);
-			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-				addUsageToTotals(usageTotals, entry.usage);
-			}
-			if (entry.type !== "message") continue;
-			totalMessages++;
-			const message = entry.message;
-			if (message.role === "user") {
-				userMessages++;
-			} else if (message.role === "toolResult") {
-				toolResults++;
-				if (message.usage) {
-					addUsageToTotals(usageTotals, message.usage);
-				}
-			} else if (message.role === "assistant") {
-				assistantMessages++;
-				const assistantMsg = message as AssistantMessage;
-				if (Array.isArray(assistantMsg.content)) {
-					toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
-				}
-				addUsageToTotals(usageTotals, assistantMsg.usage);
-			}
-		}
-
-		return {
+		return computeSessionStats({
+			entries: this.sessionManager.getEntries(),
 			sessionFile: this.sessionFile,
 			sessionId: this.sessionId,
-			userMessages,
-			assistantMessages,
-			toolCalls,
-			toolResults,
-			totalMessages,
-			tokens: {
-				input: usageTotals.input,
-				output: usageTotals.output,
-				cacheRead: usageTotals.cacheRead,
-				cacheWrite: usageTotals.cacheWrite,
-				total: usageTotals.input + usageTotals.output + usageTotals.cacheRead + usageTotals.cacheWrite,
-			},
-			cost: usageTotals.cost,
 			contextUsage: this.getContextUsage(),
-		};
+		});
 	}
 
 	getContextUsage(): ContextUsage | undefined {
-		const model = this._limitsModel();
-		if (!model) return undefined;
-
-		const contextWindow = model.contextWindow ?? 0;
-		if (contextWindow <= 0) return undefined;
-
-		// After compaction, the last assistant usage reflects pre-compaction context size.
-		// We can only trust usage from an assistant that responded after the latest compaction.
-		// If no such assistant exists, context token count is unknown until the next LLM response.
-		const projection = this.sessionManager.buildSessionProjection();
-		const branch = this.sessionManager.getBranch();
-		const latestCompaction = getLatestCompactionEntry(branch);
-
-		if (latestCompaction) {
-			const projectedAssistants = new Set(
-				projection.entries.flatMap((entry) =>
-					entry.messages.some(
-						(message) =>
-							message.role === "assistant" &&
-							message.stopReason !== "aborted" &&
-							message.stopReason !== "error" &&
-							calculateContextTokens(message.usage) > 0,
-					)
-						? [entry.sourceEntry.id]
-						: [],
-				),
-			);
-			const compactionIndex = branch.findIndex((entry) => entry.id === latestCompaction.id);
-			const hasPostCompactionUsage = branch
-				.slice(compactionIndex + 1)
-				.some((entry) => projectedAssistants.has(entry.id));
-			if (!hasPostCompactionUsage) return { tokens: null, contextWindow, percent: null };
-		}
-
-		const estimate = estimateProjectedContextTokens(projection, branch);
-		const percent = (estimate.tokens / contextWindow) * 100;
-
-		// 分类构成：按估算比例缩放到总口径（provider usage 无法按类别拆分，仅供展示）。
-		const raw = estimateContextBreakdown(projection.messages);
-		const rawTotal = raw.systemPrompt + raw.toolDefinitions + raw.messages + raw.toolResults;
-		const breakdown: ContextUsageBreakdown | undefined =
-			rawTotal > 0 && estimate.tokens > 0
-				? {
-						systemPrompt: Math.round((raw.systemPrompt / rawTotal) * estimate.tokens),
-						toolDefinitions: Math.round((raw.toolDefinitions / rawTotal) * estimate.tokens),
-						messages: Math.round((raw.messages / rawTotal) * estimate.tokens),
-						toolResults: Math.round((raw.toolResults / rawTotal) * estimate.tokens),
-					}
-				: undefined;
-
-		return {
-			tokens: estimate.tokens,
-			contextWindow,
-			percent,
-			...(breakdown ? { breakdown } : {}),
-		};
+		return computeContextUsage({
+			model: this._limitsModel(),
+			projection: this.sessionManager.buildSessionProjection(),
+			branch: this.sessionManager.getBranch(),
+		});
 	}
 
 	/**

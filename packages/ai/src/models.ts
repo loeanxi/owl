@@ -1009,6 +1009,11 @@ export interface CreateProviderOptions<TApi extends Api = Api> {
 	 * publishes it transactionally and drops models of unknown types.
 	 */
 	fetchModels?: (context: RefreshModelsContext) => Promise<readonly ProviderModel<TApi>[]>;
+	/**
+	 * Optional heal/normalize when restoring a cached dynamic catalog (offline phase).
+	 * Used e.g. by loean to re-infer image support on stale models-store entries.
+	 */
+	mapStoredModel?: (model: ProviderModel<TApi>) => ProviderModel<TApi>;
 	/** Credential-specific chat model availability. See `Provider.filterModels`. */
 	filterModels?: (models: readonly Model<TApi>[], credential: Credential | undefined) => readonly Model<TApi>[];
 	/** Credential-specific availability across every model type. See `Provider.filterAllModels`. */
@@ -1054,6 +1059,7 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 	const baselineModels = input.models;
 	let dynamicModels: readonly ProviderModel<TApi>[] = [];
 	const fetchModels = input.fetchModels;
+	const mapStoredModel = input.mapStoredModel;
 	const currentModels = (): readonly ProviderModel<TApi>[] => {
 		const merged = [...baselineModels];
 		for (const model of dynamicModels) {
@@ -1095,18 +1101,27 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 						// 8787 换到当前 provider.baseUrl）离线恢复必须改用现在的地址，
 						// 否则请求会一直打到已经没有路由、甚至已经关掉的旧站。
 						const gateway = input.baseUrl;
-						let rebased = false;
+						let changed = false;
 						const restored = context.stored.models
 							.filter((model) => model.provider === input.id)
 							.map((model) => {
-								const typed = model as ProviderModel<TApi>;
-								if (!gateway || typed.baseUrl === gateway) return typed;
-								rebased = true;
-								return { ...typed, baseUrl: gateway };
+								let typed = model as ProviderModel<TApi>;
+								if (gateway && typed.baseUrl !== gateway) {
+									changed = true;
+									typed = { ...typed, baseUrl: gateway };
+								}
+								if (mapStoredModel) {
+									const healed = mapStoredModel(typed);
+									if (healed !== typed) {
+										changed = true;
+										typed = healed;
+									}
+								}
+								return typed;
 							});
 						if (
 							!(await context.publish({
-								...(rebased ? { persist: { ...context.stored, models: restored } } : {}),
+								...(changed ? { persist: { ...context.stored, models: restored } } : {}),
 								update: () => {
 									dynamicModels = restored;
 								},

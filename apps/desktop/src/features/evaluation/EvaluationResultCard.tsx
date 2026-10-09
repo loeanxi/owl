@@ -40,7 +40,7 @@ export function EvaluationResultCard({ result, group, task, draft, busy, uiState
 	const liveReply = currentFollowup ?? followups[followups.length - 1] ?? result;
 	const stage = evaluationProcessStage(liveReply);
 	const generating = liveReply.status === "queued" || liveReply.status === "running";
-	const profileName = result.revealed && result.profile ? t("modelConfig", { model: result.profile.model.name, level: result.profile.thinkingLevel === "default" ? t("defaultThinking") : result.profile.thinkingLevel }) : t("result", { letter: result.anonymousLabel });
+	const profileName = result.revealed && result.profile ? t("modelConfig", { model: result.profile.model.name, level: result.profile.thinkingLevel === "default" ? t("defaultThinking") : result.profile.thinkingLevel, supplier: result.profile.model.sourceName }) : t("result", { letter: result.anonymousLabel });
 	const scores = result.revealed ? result.rating?.scores ?? {} : draft.scores;
 	const ratingComplete = task.rubric.every((item) => typeof scores[item.id] === "number");
 	const canSend = FINISHED_STATUSES.has(result.status) && result.output.trim().length > 0 && !currentFollowup && !busy && !pending && followups.length < 20;

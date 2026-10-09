@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 import {
 	DEFAULT_LOEAN_BASE_URL,
+	healLoeanStoredModel,
 	loeanCompatFromCatalog,
 	loeanModelsFromCatalog,
 	loeanProvider,
 	normalizeLoeanBaseUrl,
+	resolveLoeanInputModalities,
 	thinkingLevelMapFromEfforts,
 } from "../src/providers/loean.ts";
 
@@ -136,6 +138,30 @@ describe("loean catalog mapping", () => {
 
 	it("throws on an unexpected payload shape", () => {
 		expect(() => loeanModelsFromCatalog("loean", DEFAULT_LOEAN_BASE_URL, { data: "nope" })).toThrow();
+	});
+
+	it("treats deepseek-v4.1-flash as vision from id heuristic or explicit supports_images", () => {
+		expect(resolveLoeanInputModalities({ id: "deepseek-v4.1-flash" })).toEqual(["text", "image"]);
+		expect(resolveLoeanInputModalities({ id: "hy3", supports_images: true })).toEqual(["text", "image"]);
+		expect(resolveLoeanInputModalities({ id: "deepseek-v4.1-flash", supports_images: false })).toEqual(["text"]);
+		const fromCatalog = loeanModelsFromCatalog("loean", DEFAULT_LOEAN_BASE_URL, [
+			{ id: "deepseek-v4.1-flash" },
+			{ id: "hy3", supports_images: 1 },
+			{ id: "qwen-text", supports_images: false },
+		]);
+		expect(fromCatalog.find((model) => model.id === "deepseek-v4.1-flash")?.input).toEqual(["text", "image"]);
+		expect(fromCatalog.find((model) => model.id === "hy3")?.input).toEqual(["text", "image"]);
+		expect(fromCatalog.find((model) => model.id === "qwen-text")?.input).toEqual(["text"]);
+	});
+
+	it("heals stale cached catalogs that omitted image from flash models", () => {
+		const healed = healLoeanStoredModel({
+			id: "deepseek-v4.1-flash",
+			input: ["text"] as const,
+			provider: "loean",
+		});
+		expect(healed.input).toEqual(["text", "image"]);
+		expect(healLoeanStoredModel({ id: "hy3", input: ["text"] as const }).input).toEqual(["text"]);
 	});
 });
 

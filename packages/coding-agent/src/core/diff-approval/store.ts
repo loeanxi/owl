@@ -12,9 +12,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import * as Diff from "diff";
+import { atomicWriteFileSync, backupCorruptFile } from "../../utils/atomic-file.ts";
 import { generateUnifiedPatch } from "../tools/edit-diff.ts";
 
 export type DiffApprovalStatus = "pending" | "kept" | "reverted";
@@ -105,11 +106,7 @@ export class DiffApprovalStore {
 			}
 		} catch {
 			// 损坏文件拒绝加载但备份留证，从空重建
-			try {
-				renameSync(this.filePath, `${this.filePath}.corrupt`);
-			} catch {
-				/* 备份失败也只能放弃旧文件 */
-			}
+			backupCorruptFile(this.filePath);
 		}
 	}
 
@@ -306,15 +303,12 @@ export class DiffApprovalStore {
 	}
 
 	private persist(): void {
-		mkdirSync(dirname(this.filePath), { recursive: true });
 		const payload: PersistShape = {
 			version: PERSIST_VERSION,
 			workspaceDir: this.workspaceDir,
 			entries: this.entries,
 		};
-		const tmp = `${this.filePath}.tmp`;
-		writeFileSync(tmp, JSON.stringify(payload), "utf-8");
-		renameSync(tmp, this.filePath);
+		atomicWriteFileSync(this.filePath, JSON.stringify(payload));
 	}
 }
 

@@ -29,6 +29,43 @@ export function isReservedDir(path: string | undefined): boolean {
 	});
 }
 
+/**
+ * 评测/验收产物目录（路径中含 `.validation` 段）：评测每轮都会生成大批临时 workspace，
+ * 打开过也不自动登记进「到访过的项目」，否则侧栏会堆满同名的 workspace。
+ */
+export function isValidationDir(path: string | undefined): boolean {
+	const key = normPath(path);
+	return key.includes("/.validation/") || key.endsWith("/.validation");
+}
+
+/** 从路径列表里去掉评测目录；不改动原数组。 */
+export function withoutValidationDirs(paths: readonly string[]): string[] {
+	return paths.filter((path) => !isValidationDir(path));
+}
+
+/**
+ * 读出 localStorage 里的项目路径列表，顺带清掉已落库的评测目录（写回）。
+ * 侧栏 / 项目页 / 输入框候选共用，避免旧评测 workspace 一直占着列表。
+ */
+export function loadAndScrubProjects(storage: Pick<Storage, "getItem" | "setItem">, key: string): string[] {
+	let list: string[] = [];
+	try {
+		const parsed: unknown = JSON.parse(storage.getItem(key) ?? "[]");
+		list = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+	} catch {
+		return [];
+	}
+	const next = withoutValidationDirs(list);
+	if (next.length !== list.length) {
+		try {
+			storage.setItem(key, JSON.stringify(next));
+		} catch {
+			/* localStorage 满或不可用时仍返回清洗后的内存列表 */
+		}
+	}
+	return next;
+}
+
 /** 行内 code 芯片被顺手套上的成对包裹符（开 → 收）。 */
 const PATH_CHIP_WRAPPERS: Record<string, string> = {
 	'"': '"',
@@ -79,13 +116,7 @@ export function projectLabel(cwd: string): string {
 /** 到访过的项目（localStorage key）：没有会话的项目也能常驻项目列表。 */
 export const KNOWN_PROJECTS_KEY = "owl.projects";
 
-/** 到访过的项目（localStorage）：没有会话的项目也能常驻项目列表。 */
+/** 到访过的项目（localStorage）：没有会话的项目也能常驻项目列表；评测目录会顺带清掉。 */
 export function loadKnownProjects(): string[] {
-	try {
-		const raw = localStorage.getItem(KNOWN_PROJECTS_KEY);
-		const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-		return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
-	} catch {
-		return [];
-	}
+	return loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY);
 }

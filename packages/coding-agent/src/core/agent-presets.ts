@@ -1,5 +1,6 @@
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 /**
@@ -176,8 +177,7 @@ export function saveCustomAgentPreset(agentDir: string, input: AgentPresetDefini
 	if (isBuiltInPresetId(preset.id)) throw new Error(`内置预设只读，不能覆盖：${preset.id}`);
 	if (!PRESET_ID_RE.test(preset.id)) throw new Error(`预设 id 只允许小写字母、数字和连字符：${preset.id}`);
 	if (!preset.name.trim()) throw new Error("预设名称不能为空");
-	mkdirSync(presetsDir(agentDir), { recursive: true });
-	writeFileSync(join(presetsDir(agentDir), `${preset.id}.json`), JSON.stringify(preset, null, "\t") + "\n", "utf8");
+	atomicWriteFileSync(join(presetsDir(agentDir), `${preset.id}.json`), JSON.stringify(preset, null, "\t") + "\n");
 	return preset;
 }
 

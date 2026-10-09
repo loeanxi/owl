@@ -130,6 +130,50 @@ it("switches only the selected session to auto and resolves its older waiting to
 	await expect(second).resolves.toBe(false);
 });
 
+it("times out unresolved approvals as denied and pendingMessages lists every session", async () => {
+	vi.useFakeTimers();
+	try {
+		const events: ServerEventMessage[] = [];
+		const queue = new DesktopPermissionQueue(
+			(message) => {
+				if (message.type === "event") events.push(message);
+			},
+			{ timeoutMs: 1_000 },
+		);
+		const first = queue.request({
+			type: "permission_request",
+			requestId: "timeout-a",
+			sessionId: "s1",
+			toolName: "bash",
+			input: {},
+		});
+		const second = queue.request({
+			type: "permission_request",
+			requestId: "timeout-b",
+			sessionId: "s2",
+			toolName: "write",
+			input: {},
+		});
+		expect(
+			queue
+				.pendingMessages()
+				.map((request) => request.requestId)
+				.sort(),
+		).toEqual(["timeout-a", "timeout-b"]);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await expect(first).resolves.toBe(false);
+		await expect(second).resolves.toBe(false);
+		expect(queue.pendingMessages()).toEqual([]);
+		expect(
+			events
+				.filter((event) => (event.event as { type: string }).type === "permission_resolved")
+				.map((event) => (event.event as { reason: string }).reason),
+		).toEqual(["timeout", "timeout"]);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it("plan accepts pending reads, rejects pending writes, and confirm keeps legitimate decisions pending", async () => {
 	const events: ServerEventMessage[] = [];
 	const queue = new DesktopPermissionQueue((message) => {

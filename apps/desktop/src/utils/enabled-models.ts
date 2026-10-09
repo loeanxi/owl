@@ -60,12 +60,22 @@ export function nextEnabledModelsAfterToggle(
 	modelId: string,
 	checked: boolean,
 ): string[] | null {
+	return nextEnabledModelsAfterBulkToggle(groups, current, [modelRef(providerId, modelId)], checked);
+}
+
+/** 批量勾选/取消（如按供应商全选）；返回规则同 `nextEnabledModelsAfterToggle`。 */
+export function nextEnabledModelsAfterBulkToggle(
+	groups: ReadonlyArray<ProviderModelsLike>,
+	current: string[] | null,
+	targets: readonly string[],
+	checked: boolean,
+): string[] | null {
 	const allRefs = groups.flatMap((group) => group.models.map((model) => modelRef(group.id, model.id)));
 	const base = current == null ? allRefs : allRefs.filter((ref) => isModelInEnabledList(...splitRef(ref), current));
-	const target = modelRef(providerId, modelId);
+	const isTarget = (ref: string) => targets.some((target) => refsEqual(ref, target));
 	const next = checked
-		? uniqueRefs([...base.filter((ref) => !refsEqual(ref, target)), target])
-		: base.filter((ref) => !refsEqual(ref, target));
+		? uniqueRefs([...base.filter((ref) => !isTarget(ref)), ...targets])
+		: base.filter((ref) => !isTarget(ref));
 	if (next.length === allRefs.length && allRefs.every((ref) => next.some((entry) => refsEqual(entry, ref)))) {
 		return null;
 	}

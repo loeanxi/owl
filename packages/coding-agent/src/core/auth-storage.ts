@@ -10,6 +10,7 @@ import lockfile from "proper-lockfile";
 import { setTimeout as sleep } from "timers/promises";
 import { getAgentDir } from "../config.ts";
 import { raceWithAbortSignal } from "../utils/abort.ts";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 import { getFileRevision, normalizePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
 import { isCommandConfigValue, resolveConfigValue } from "./resolve-config-value.ts";
@@ -21,7 +22,7 @@ type LockResult<T> = {
 	next?: string;
 };
 
-// The mode applies only on creation so administrator-managed modes and ACLs remain intact.
+// The mode applies only on creation; rewrites keep the existing POSIX mode (see atomicWriteFileSync).
 const AUTH_FILE_WRITE_OPTIONS = { encoding: "utf-8", mode: 0o600 } as const;
 
 type AuthFileReload = {
@@ -103,7 +104,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 			const current = existsSync(this.authPath) ? readFileSync(this.authPath, "utf-8") : undefined;
 			const { result, next } = fn(current);
 			if (next !== undefined) {
-				writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
+				atomicWriteFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
 			}
 			return result;
 		} finally {
@@ -184,7 +185,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 			throwIfCompromised();
 			options?.signal?.throwIfAborted();
 			if (next !== undefined) {
-				writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
+				atomicWriteFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
 			}
 			throwIfCompromised();
 			return result;

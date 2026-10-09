@@ -1,4 +1,5 @@
 import type { BridgeClient } from "../../bridge/client.ts";
+import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchMode, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
 import { normPath, samePath } from "../../utils/paths.ts";
@@ -7,7 +8,7 @@ import { mergeResearchResults, publishedResults, researchResultsFromEvent } from
 import { researchText } from "./research-copy.ts";
 
 type ResearchImage = { type: "image"; data: string; mimeType: string };
-type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent">;
+type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent"> & Partial<Pick<BridgeClient, "watchSessionEvents">>;
 type ResearchStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type ResearchPreferences = { model: string; thinkingLevel: string; approvalMode: ApprovalMode; mode: ResearchMode };
@@ -50,6 +51,7 @@ export class ResearchSessionController {
 	private storage: ResearchStorage;
 	private cwd: string;
 	private offEvents?: () => void;
+	private readonly sessionWatch: SessionWatch;
 	private disposed = false;
 	private epoch = 0;
 	private attachPromise?: Promise<void>;
@@ -61,6 +63,7 @@ export class ResearchSessionController {
 
 	constructor(client: ResearchBridge, storage: ResearchStorage, cwd: string, defaults: ResearchPreferences) {
 		this.client = client;
+		this.sessionWatch = new SessionWatch(client);
 		this.storage = storage;
 		this.cwd = cwd;
 		let preferences = defaults;
@@ -99,6 +102,7 @@ export class ResearchSessionController {
 		this.epoch++;
 		this.offEvents?.();
 		this.offEvents = undefined;
+		this.sessionWatch.dispose();
 		this.attachPromise = undefined;
 		this.restoring = false;
 		this.replayEvents = [];
@@ -108,6 +112,7 @@ export class ResearchSessionController {
 	private update(patch: Partial<ResearchSessionState>): void {
 		if (this.disposed) return;
 		this.state = { ...this.state, ...patch };
+		this.sessionWatch.set(this.state.sessionId);
 		for (const listener of this.listeners) listener();
 	}
 

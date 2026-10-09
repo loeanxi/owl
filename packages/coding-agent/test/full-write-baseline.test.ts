@@ -87,12 +87,48 @@ describe("verified full-write baselines", () => {
 		).rejects.toThrow(/read/);
 		expect(await readFile(f.path, "utf8")).toBe("external revision\n");
 	});
-	it("does not reuse a previous user turn or a compacted call", async () => {
+	it("reuses a previous user turn while the written bytes are still current", async () => {
 		const f = await fixture();
 		f.messages.push({ role: "user", content: "new request", timestamp: 4 });
-		await expect(
-			f.writer.execute("write-2", { path: "source.txt", content: "unsafe" }, undefined, undefined, f.ctx),
-		).rejects.toThrow(/read/);
+		f.messages.push(
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "partial", name: "read", arguments: { path: "source.txt", offset: 2 } }],
+			} as unknown as AgentMessage,
+			{
+				role: "toolResult",
+				toolCallId: "partial",
+				toolName: "read",
+				content: [{ type: "text", text: "second line\n\n[Showing lines 2-2 of 2. Use offset=3 to continue.]" }],
+				isError: false,
+				timestamp: 5,
+			} as AgentMessage,
+			{
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "rejected", name: "write", arguments: { path: "source.txt", content: "nope" } },
+				],
+			} as unknown as AgentMessage,
+			{
+				role: "toolResult",
+				toolCallId: "rejected",
+				toolName: "write",
+				content: [{ type: "text", text: "Refusing to overwrite" }],
+				isError: true,
+				timestamp: 6,
+			} as AgentMessage,
+		);
+		await f.writer.execute(
+			"write-2",
+			{ path: "source.txt", content: "second version\n" },
+			undefined,
+			undefined,
+			f.ctx,
+		);
+		expect(await readFile(f.path, "utf8")).toBe("second version\n");
+	});
+	it("does not reuse a compacted call", async () => {
+		const f = await fixture();
 		f.messages.splice(0, f.messages.length, {
 			role: "user",
 			content: "same content was written earlier",

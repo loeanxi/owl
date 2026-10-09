@@ -14,22 +14,13 @@
  * - 创建/编辑内容上限 64KB；名称/描述按 Agent Skills 规范校验。
  */
 
-import {
-	copyFileSync,
-	existsSync,
-	lstatSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { getAgentDir, getGlobalSkillsDir } from "../../config.ts";
 import { isEnabledByOverrides } from "../../core/package-manager.ts";
 import { loadSkillsFromDir, type SkillFrontmatter, validateDescription, validateName } from "../../core/skills.ts";
+import { atomicWriteFileSync } from "../../utils/atomic-file.ts";
 import { parseFrontmatter } from "../../utils/frontmatter.ts";
 import type {
 	SkillCenterEntry,
@@ -260,7 +251,7 @@ export function setSkillEnabled(
 	} else {
 		frontmatter["disable-model-invocation"] = true;
 	}
-	writeFileSync(entry.path, serializeSkillMd(frontmatter, body), "utf-8");
+	atomicWriteFileSync(entry.path, serializeSkillMd(frontmatter, body), "utf-8");
 }
 
 /** 创建新技能（目录 + SKILL.md）。 */
@@ -309,7 +300,7 @@ export function createSkill(
 		throw new SkillCenterError(`无法创建技能目录：${error instanceof Error ? error.message : String(error)}`);
 	}
 	const frontmatter: SkillFrontmatter = { name, description: input.description };
-	writeFileSync(join(skillDir, "SKILL.md"), serializeSkillMd(frontmatter, input.body), "utf-8");
+	atomicWriteFileSync(join(skillDir, "SKILL.md"), serializeSkillMd(frontmatter, input.body), "utf-8");
 	return {
 		name,
 		description: input.description,
@@ -345,7 +336,7 @@ export function updateSkill(
 		name: entry.name,
 		description: input.description,
 	};
-	writeFileSync(entry.path, serializeSkillMd(next, input.body), "utf-8");
+	atomicWriteFileSync(entry.path, serializeSkillMd(next, input.body), "utf-8");
 }
 
 /** 删除 = 移入 <根>/.trash/（带时间戳，可手工恢复）。链接技能拒绝。 */

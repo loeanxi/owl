@@ -73,6 +73,16 @@ export function getPendingQuestionRequests(sessionId: string): QuestionRequestMe
 	return messages;
 }
 
+/** 连接建立时重放所有会话的挂起提问（不新建请求）。 */
+export function getAllPendingQuestionRequests(): QuestionRequestMessage[] {
+	const messages: QuestionRequestMessage[] = [];
+	for (const [requestId] of pending) {
+		const message = requests.get(requestId);
+		if (message) messages.push(structuredClone(message));
+	}
+	return messages;
+}
+
 /** 桥收到 question.response 时调用；返回 false 表示请求已不存在（已取消/已清理）。 */
 export function resolveQuestion(requestId: string, outcome: QuestionOutcome): boolean {
 	const entry = pending.get(requestId);

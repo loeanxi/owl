@@ -5,6 +5,7 @@ import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTra
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
+import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
 import { settledRunStatus } from "./hooks/agent-settlement.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
@@ -57,13 +58,14 @@ import { NewProjectDialog } from "./components/NewProjectDialog.tsx";
 import { SettingsPage, type SettingsInitialTab } from "./components/SettingsPage.tsx";
 import { TodoPin } from "./components/TodoPin.tsx";
 import { RetryPin } from "./components/RetryPin.tsx";
+import { BuildConsistencyBanner } from "./components/BuildConsistencyBanner.tsx";
 import { isThemePreference, setThemePreference } from "./theme.ts";
 import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguageSetting, setUiLanguageSetting, t, useT, type UiLanguageSetting } from "./i18n/index.ts";
-import { normPath, samePath, DEFAULT_WORKSPACE_DIR, isReservedDir } from "./utils/paths.ts";
+import { normPath, samePath, DEFAULT_WORKSPACE_DIR, isReservedDir, isValidationDir, loadAndScrubProjects } from "./utils/paths.ts";
 import { isProjectHidden, restoreProject, setProjectAlias, useProjectSidebarRevision } from "./project-sidebar-model.ts";
 import { Workbench } from "./sidebar/Workbench.tsx";
 import { SidebarStore, normProjectKey } from "./sidebar/store.ts";
@@ -302,9 +304,13 @@ export default function App(): React.JSX.Element {
 	const [sessionBranched, setSessionBranched] = useState(false);
 	/** 当前会话的持久化显示名（session_info，如分支的「fork2 · 来自「你好」」）；顶栏优先用它。 */
 	const [sessionName, setSessionName] = useState<string | undefined>(undefined);
-	const [workspaceDir, setWorkspaceDir] = useState(
-		() => localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR,
-	);
+	const [workspaceDir, setWorkspaceDir] = useState(() => {
+		const saved = localStorage.getItem(WORKSPACE_KEY) ?? DEFAULT_WORKSPACE_DIR;
+		// 评测临时 workspace 不应作为当前工作目录常驻（输入框 chip / 顶栏会显示成一堆同名「workspace」）。
+		if (!isValidationDir(saved)) return saved;
+		localStorage.setItem(WORKSPACE_KEY, DEFAULT_WORKSPACE_DIR);
+		return DEFAULT_WORKSPACE_DIR;
+	});
 	// 目录选择状态：叉掉 chip 后为 false——输入框不再绑定目录，会话默认进 DEFAULT_WORKSPACE_DIR。
 	const [workspaceSelected, setWorkspaceSelected] = useState(
 		() => localStorage.getItem(WORKSPACE_SELECTED_KEY) !== "0",
@@ -518,6 +524,19 @@ export default function App(): React.JSX.Element {
 	// 序号对不上的过期响应直接丢弃，否则旧会话（连同 workspace、localStorage）
 	// 会被后到的响应画回屏幕
 	const sessionViewSeq = useRef(0);
+	/** 主转录事件按帧合并：同一帧多个 text_delta 只触发一次 setEntries。 */
+	const transcriptBatchRef = useRef(
+		createFrameBatcher<{ message: ServerEventMessage; seq: number }>((items) => {
+			const live = items.filter(
+				(item) => item.seq === sessionViewSeq.current && item.message.sessionId === sessionIdRef.current,
+			);
+			if (live.length === 0) return;
+			setEntries((current) => live.reduce((acc, item) => applyEvent(acc, item.message), current));
+			setRetryStatus((current) => live.reduce((acc, item) => applyRetryEvent(acc, item.message), current));
+		}),
+	);
+	useEffect(() => client.watchSessionEvents(sessionId), [client, sessionId]);
+	useEffect(() => () => transcriptBatchRef.current.clear(), []);
 	// session.create 在途标记：连点「新会话」时只放行第一笔创建，免得侧栏多出空会话
 	const creatingSessionRef = useRef(false);
 	const panelSessionIdRef = useRef<string | undefined>(undefined);
@@ -557,6 +576,7 @@ export default function App(): React.JSX.Element {
 	/** 回退成功后的公共收尾：按快照重建转录 + 清理受影响文件的工作台过期缓冲。 */
 	const applyRewindSnapshot = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
 		const messages = result.snapshot.messages as Record<string, unknown>[];
+		transcriptBatchRef.current.clear();
 		setEntries(rebuild(messages, result.snapshot.messageEntryIds));
 		// 收尾工作台：被还原/删除的文件在编辑器里的旧缓冲不会自己感知磁盘变化，
 		// 关掉无未保存改动的匹配 tab（脏 tab 留给用户自己决定），重开即是新内容。
@@ -756,8 +776,8 @@ export default function App(): React.JSX.Element {
 			}
 			// 旁路会话（侧边对话等）的事件由各自 tab 消费，主转录只跟当前会话
 			if (message.sessionId !== sessionIdRef.current) return;
-			setEntries((current) => applyEvent(current, message));
-			setRetryStatus((current) => applyRetryEvent(current, message));
+			transcriptBatchRef.current.push({ message, seq: sessionViewSeq.current });
+			if (!isStreamingDeltaEvent(message)) transcriptBatchRef.current.flush();
 			if (eventType === "agent_settled") {
 				void refreshStats();
 				if (settlement?.notifyDone) void notifyAgentStatus({
@@ -1281,6 +1301,7 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
 		sessionIdRef.current = resumedId;
+		transcriptBatchRef.current.clear();
 		setEntries(rebuild(messages, messageEntryIds, {
 			running: response.result.running ?? runningSessionsRef.current.has(resumedId),
 			runStartMessageIndex: response.result.runStartMessageIndex,
@@ -1352,13 +1373,13 @@ export default function App(): React.JSX.Element {
 				for (const scope of ["chat", "research"] as const) {
 					const seen = new Map<string, string>();
 					const track = (path: string | undefined): void => {
-						if (!path || isReservedDir(path)) return;
+						if (!path || isReservedDir(path) || isValidationDir(path)) return;
 						const key = normPath(path);
 						if (!seen.has(key)) seen.set(key, path);
 					};
 					track(workspaceSelected ? workspaceRef.current : undefined);
 					for (const row of response.result) if (matchesSessionScope(row, scope)) track(row.cwd);
-					for (const path of loadSidebarStrings(localStorage, sidebarStorageKeys(scope).projects)) track(path);
+					for (const path of loadAndScrubProjects(localStorage, sidebarStorageKeys(scope).projects)) track(path);
 					if (scope === "research") setResearchProjects([...seen.values()]);
 					else setProjects([...seen.values()]);
 				}
@@ -1916,6 +1937,7 @@ export default function App(): React.JSX.Element {
 			<WallpaperLayer settings={wallpaper} />
 			{/* 媒体桥全局覆盖层（顶部歌词条 + 深背景）：各自有开关，默认都不渲染。 */}
 			<MediaOverlays />
+			<BuildConsistencyBanner client={client} connected={connected} />
 			<DesktopTitlebar
 				connected={connected}
 				sidebarCollapsed={railView === "news" && !showSettings ? newsSidebarMinimized : sidebarMinimized || showSettings}
@@ -1973,6 +1995,10 @@ export default function App(): React.JSX.Element {
 					setShowSettings(false);
 					setCareerMounted(true);
 					setRailView(railViewRef.current === "career" ? "chat" : "career");
+				}}
+				onOpenManager={() => {
+					setShowSettings(false);
+					setRailView(railViewRef.current === "manager" ? "chat" : "manager");
 				}}
 				onOpenLifeMonitor={() => {
 					const opening = railViewRef.current !== "monitor";

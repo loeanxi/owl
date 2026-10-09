@@ -66,6 +66,9 @@ export interface LoeanCatalogRow {
 	max_output_tokens?: unknown;
 	reasoning_efforts?: unknown;
 	input_modalities?: unknown;
+	/** 与 input_modalities 等价的布尔公布；pool-server 同时下发两者。 */
+	supports_images?: unknown;
+	supportsImages?: unknown;
 	/** 该模型上游的 OpenAI 兼容方言。缺省时仍发最朴素的 completions 请求。 */
 	compat?: unknown;
 }
@@ -160,10 +163,46 @@ function parseInputModalities(value: unknown): InputModality[] {
 }
 
 /**
- * 网关未公布 input_modalities 时的兜底：按模型 id 关键词保守判断图像能力。
+ * 网关未公布 input_modalities / supports_images 时的兜底：按模型 id 关键词保守判断图像能力。
  * deepseek-v4.1-flash 等多模态变体通常命中 flash / vl / vision；其余纯文本模型保持 text。
  */
-const VISION_ID_PATTERN = /\b(vision|vl|flash|vlite)\b/iu;
+export const LOEAN_VISION_ID_PATTERN = /\b(vision|vl|flash|vlite)\b/iu;
+
+/** 根据网关公布字段 + id 启发式解析 input 模态。显式 supports_images=false 时不猜。 */
+export function resolveLoeanInputModalities(row: {
+	id: string;
+	input_modalities?: unknown;
+	supports_images?: unknown;
+	supportsImages?: unknown;
+}): InputModality[] {
+	const modalities = parseInputModalities(row.input_modalities);
+	if (modalities.includes("image")) return ["text", "image"];
+	const flagged =
+		row.supports_images === true ||
+		row.supportsImages === true ||
+		row.supports_images === 1 ||
+		row.supportsImages === 1;
+	if (flagged) return ["text", "image"];
+	const denied =
+		row.supports_images === false ||
+		row.supportsImages === false ||
+		row.supports_images === 0 ||
+		row.supportsImages === 0;
+	if (denied) return ["text"];
+	// 未公布：关键词兜底（兼容旧网关只返回 id 的目录）。
+	return LOEAN_VISION_ID_PATTERN.test(row.id) ? ["text", "image"] : ["text"];
+}
+
+/**
+ * 离线恢复旧 models-store 时自愈：历史缓存可能把识图模型烤成 input:["text"]。
+ * 有 image 的不动；否则按当前启发式补上。
+ */
+export function healLoeanStoredModel<T extends { id: string; input?: readonly string[] }>(model: T): T {
+	if (!model.input || model.input.includes("image")) return model;
+	const input = resolveLoeanInputModalities({ id: model.id });
+	if (!input.includes("image")) return model;
+	return { ...model, input };
+}
 
 /**
  * pi 思考档位 → 网关 reasoning_effort：精确命中用之；否则按 manager 方针
@@ -201,15 +240,14 @@ export function loeanModelsFromCatalog(
 	const models: Model<"openai-completions">[] = [];
 	for (const row of rows as LoeanCatalogRow[]) {
 		if (typeof row?.id !== "string" || row.id.length === 0) continue;
+		const id = row.id;
 		const efforts = parseEfforts(row.reasoning_efforts);
 		const reasoning = efforts.some((effort) => effort !== "none");
-		const modalities = parseInputModalities(row.input_modalities);
-		const input: InputModality[] =
-			modalities.includes("image") || VISION_ID_PATTERN.test(row.id) ? ["text", "image"] : ["text"];
+		const input = resolveLoeanInputModalities({ ...row, id });
 		const publishedWindow = positiveInt(row.context_window);
 		models.push({
-			id: row.id,
-			name: row.id,
+			id,
+			name: id,
 			api: "openai-completions",
 			provider: providerId,
 			baseUrl,
@@ -257,6 +295,8 @@ export function loeanProvider(): Provider<"openai-completions"> {
 		auth: { apiKey: envApiKeyAuth("Loean API key", ["LOEAN_API_KEY"]) },
 		models: [],
 		fetchModels: fetchLoeanModels,
+		// 旧缓存可能把 deepseek-v4.1-flash 等识图模型烤成 text-only；离线恢复时自愈。
+		mapStoredModel: (model) => ("input" in model ? healLoeanStoredModel(model) : model),
 		api: openAICompletionsApi(),
 	});
 }

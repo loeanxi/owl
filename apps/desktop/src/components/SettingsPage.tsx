@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type {
 	AgentPresetDefinition,
+	DiscoveredModel,
 	ImageConfigGetResult,
 	MemoryListResult,
+	ModelsDiscoverResult,
 	ProviderModelsMessage,
 	SkillCenterEntry,
 	SkillCenterTab,
@@ -30,6 +32,8 @@ import { IconActivity, IconArchive, IconBell, IconCode, IconCompose, IconImage, 
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import {
 	isModelMarkedInUse,
+	modelRef,
+	nextEnabledModelsAfterBulkToggle,
 	nextEnabledModelsAfterToggle,
 	parseEnabledModels,
 } from "../utils/enabled-models.ts";
@@ -154,6 +158,11 @@ export function SettingsPage({
 	const [pApi, setPApi] = useState("openai-completions");
 	const [pApiKey, setPApiKey] = useState("");
 
+	// 正在使用中的模型：按供应商筛选（null = 全部供应商）
+	const [inUseProviderFilter, setInUseProviderFilter] = useState<string | null>(null);
+	// 底部供应商管理：下拉选中后只展示当前供应商卡片
+	const [managedProviderId, setManagedProviderId] = useState<string | null>(null);
+
 	// 添加模型表单（按供应商）
 	const [modelFormFor, setModelFormFor] = useState<string | null>(null);
 	const [mId, setMId] = useState("");
@@ -161,6 +170,10 @@ export function SettingsPage({
 	const [mCtx, setMCtx] = useState("");
 	const [mMax, setMMax] = useState("");
 	const [mReasoning, setMReasoning] = useState(false);
+	// 上游模型目录：按供应商缓存；下拉选中后回填表单，仍可手填。
+	const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
+	const [discoverNote, setDiscoverNote] = useState("");
+	const [discovering, setDiscovering] = useState(false);
 
 	// 快捷接入（像 /login：选厂商 → 登录或贴 Key）
 	const [catalog, setCatalog] = useState<{ id: string; name: string; oauth: boolean; apiKey: boolean }[]>([]);
@@ -1082,6 +1095,36 @@ export function SettingsPage({
 		setPApiKey("");
 	}
 
+	/** 从上游拉取该供应商的模型目录，结果按供应商缓存供下拉选择。 */
+	async function discoverUpstreamModels(providerKey: string): Promise<void> {
+		setDiscovering(true);
+		setDiscoverNote("");
+		try {
+			const response = await client.request<ModelsDiscoverResult>({ type: "models.discover", providerKey });
+			if (!response.ok) {
+				setDiscoverNote(`${t("settings.models.discoverFailed")}: ${response.error ?? ""}`.trim());
+				return;
+			}
+			const models = response.result?.models ?? [];
+			setDiscoveredModels((prev) => ({ ...prev, [providerKey]: models }));
+			const note = models.length > 0 ? t("settings.models.discoverOk", { n: models.length }) : t("settings.models.discoverEmpty");
+			setDiscoverNote(response.result?.error ? `${note} · ${response.result.error}` : note);
+		} catch (error) {
+			setDiscoverNote(`${t("settings.models.discoverFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setDiscovering(false);
+		}
+	}
+
+	/** 下拉选中上游模型后回填添加模型表单（用户仍可再改）。 */
+	function applyDiscoveredModel(model: DiscoveredModel): void {
+		setMId(model.id);
+		setMName(model.name && model.name !== model.id ? model.name : "");
+		setMCtx(model.contextWindow ? String(model.contextWindow) : "");
+		setMMax(model.maxTokens ? String(model.maxTokens) : "");
+		setMReasoning(model.reasoning === true);
+	}
+
 	/** 正在使用中的模型：写入 settings.enabledModels（数组整体替换；null 表示清除过滤=全部可用）。 */
 	function saveEnabledModels(next: string[] | null): void {
 		void saveSettings({ enabledModels: next });
@@ -1093,8 +1136,15 @@ export function SettingsPage({
 		saveEnabledModels(next);
 	}
 
+	/** 全选/全不选：有供应商筛选时只作用于该供应商的模型。 */
 	function setAllInUse(checked: boolean): void {
-		saveEnabledModels(checked ? null : []);
+		if (!inUseFilterGroup) {
+			saveEnabledModels(checked ? null : []);
+			return;
+		}
+		const current = parseEnabledModels(settingsObj.enabledModels);
+		const targets = inUseFilterGroup.models.map((model) => modelRef(inUseFilterGroup.id, model.id));
+		saveEnabledModels(nextEnabledModelsAfterBulkToggle(groups, current, targets, checked));
 	}
 
 	/** 保存侧边卡片配置：settings.set 深合并对象、整体替换数组，所以传完整对象。 */
@@ -1193,13 +1243,16 @@ export function SettingsPage({
 	const version = typeof settingsObj.lastChangelogVersion === "string" ? settingsObj.lastChangelogVersion : "";
 	const modelCount = groups.reduce((n, g) => n + g.models.length, 0);
 	const enabledModels = parseEnabledModels(settingsObj.enabledModels);
-	const inUseCount =
-		enabledModels == null
-			? modelCount
-			: groups.reduce(
-					(n, group) => n + group.models.filter((model) => isModelMarkedInUse(group.id, model.id, enabledModels)).length,
-					0,
-				);
+	const countInUse = (group: (typeof groups)[number]) =>
+		group.models.filter((model) => isModelMarkedInUse(group.id, model.id, enabledModels)).length;
+	const inUseCount = groups.reduce((n, group) => n + countInUse(group), 0);
+	// 选中的供应商被删除后自动回到「全部」
+	const inUseFilterGroup = inUseProviderFilter ? groups.find((group) => group.id === inUseProviderFilter) : undefined;
+	const inUseGroups = inUseFilterGroup ? [inUseFilterGroup] : groups;
+	const inUseScopeTotal = inUseFilterGroup ? inUseFilterGroup.models.length : modelCount;
+	const inUseScopeCount = inUseFilterGroup ? countInUse(inUseFilterGroup) : inUseCount;
+	// 底部供应商管理：选中供应商被删后回落到列表第一项
+	const managedProvider = groups.find((group) => group.id === managedProviderId) ?? groups[0];
 
 	const input = "owl-settings-input mt-1 w-full font-mono";
 	const smallInput = input;
@@ -1567,21 +1620,57 @@ export function SettingsPage({
 										</div>
 										{modelCount > 0 && (
 											<div className="flex shrink-0 items-center gap-2">
-												<button type="button" className="owl-settings-link" disabled={busy || inUseCount === modelCount} onClick={() => setAllInUse(true)}>
+												<button type="button" className="owl-settings-link" disabled={busy || inUseScopeCount === inUseScopeTotal} onClick={() => setAllInUse(true)}>
 													{t("settings.models.inUseSelectAll")}
 												</button>
-												<button type="button" className="owl-settings-link" disabled={busy || inUseCount === 0} onClick={() => setAllInUse(false)}>
+												<button type="button" className="owl-settings-link" disabled={busy || inUseScopeCount === 0} onClick={() => setAllInUse(false)}>
 													{t("settings.models.inUseSelectNone")}
 												</button>
 											</div>
 										)}
 									</div>
-									<div className="mt-2 text-[11px] text-owl-faint">{t("settings.models.inUseCount", { n: inUseCount, total: modelCount })}</div>
+									{groups.length > 1 && (
+										<div className="owl-settings-filter-chips mt-3" role="group" aria-label={t("settings.models.inUseFilterAria")}>
+											<button
+												type="button"
+												className={`owl-settings-filter-chip ${inUseFilterGroup ? "" : "is-active"}`}
+												aria-pressed={!inUseFilterGroup}
+												onClick={() => setInUseProviderFilter(null)}
+											>
+												{t("settings.models.inUseFilterAll")}
+												<span className="owl-settings-filter-chip-count">
+													{inUseCount}/{modelCount}
+												</span>
+											</button>
+											{groups.map((group) => {
+												const active = inUseFilterGroup?.id === group.id;
+												return (
+													<button
+														key={group.id}
+														type="button"
+														className={`owl-settings-filter-chip ${active ? "is-active" : ""}`}
+														aria-pressed={active}
+														onClick={() => setInUseProviderFilter(group.id)}
+													>
+														{group.name ?? group.id}
+														<span className="owl-settings-filter-chip-count">
+															{countInUse(group)}/{group.models.length}
+														</span>
+													</button>
+												);
+											})}
+										</div>
+									)}
+									<div className="mt-2 text-[11px] text-owl-faint">
+										{inUseFilterGroup
+											? t("settings.models.inUseCountScoped", { n: inUseScopeCount, total: inUseScopeTotal, all: inUseCount, allTotal: modelCount })
+											: t("settings.models.inUseCount", { n: inUseCount, total: modelCount })}
+									</div>
 									{modelCount === 0 ? (
 										<div className="owl-settings-notice mt-3">{t("settings.models.inUseEmpty")}</div>
 									) : (
 										<div className="owl-settings-plugin-list mt-3">
-											{groups.map((group) =>
+											{inUseGroups.map((group) =>
 												group.models.map((model) => {
 													const checked = isModelMarkedInUse(group.id, model.id, enabledModels);
 													const label = model.name || model.id;
@@ -1664,16 +1753,18 @@ export function SettingsPage({
 												className={btnAccent}
 												disabled={busy || !pKey.trim() || !pUrl.trim()}
 												onClick={() => {
+													const newProviderId = pKey.trim();
 													void run({
 														type: "models.putProvider",
 														provider: {
-															key: pKey.trim(),
+															key: newProviderId,
 															...(pName.trim() ? { name: pName.trim() } : {}),
 															baseUrl: pUrl.trim(),
 															api: pApi,
 															...(pApiKey.trim() ? { apiKey: pApiKey.trim() } : {}),
 														},
 													}).then(() => {
+														setManagedProviderId(newProviderId);
 														resetProviderForm();
 														setShowProviderForm(false);
 													});
@@ -1691,7 +1782,27 @@ export function SettingsPage({
 											{t("settings.models.empty")}
 										</div>
 									)}
-									{groups.map((group) => (
+									{groups.length > 1 && (
+										<label className="owl-settings-provider-picker">
+											<span>{t("settings.models.selectProvider")}</span>
+											<select
+												className="owl-settings-input"
+												aria-label={t("settings.models.selectProviderAria")}
+												value={managedProvider?.id ?? ""}
+												onChange={(event) => {
+													setManagedProviderId(event.target.value);
+													setModelFormFor(null);
+												}}
+											>
+												{groups.map((group) => (
+													<option key={group.id} value={group.id}>
+														{group.name ?? group.id} · {t("settings.models.modelCountSuffix", { n: group.models.length })}
+													</option>
+												))}
+											</select>
+										</label>
+									)}
+									{(managedProvider ? [managedProvider] : []).map((group) => (
 										<div key={group.id} className="owl-settings-provider">
 											<div className="owl-settings-provider-header">
 												<div className="owl-settings-provider-identity">
@@ -1728,6 +1839,44 @@ export function SettingsPage({
 
 											{modelFormFor === group.id ? (
 												<div className="owl-settings-form mt-4 space-y-4">
+													<div className="space-y-1.5">
+														<div className="flex items-end gap-2">
+															<label className="block min-w-0 flex-1 text-[11px] text-owl-muted">
+																{t("settings.models.discoverLabel")}
+																<select
+																	className={`${smallInput} mt-0.5`}
+																	value={discoveredModels[group.id]?.some((model) => model.id === mId) ? mId : ""}
+																	disabled={busy || discovering || (discoveredModels[group.id]?.length ?? 0) === 0}
+																	onChange={(event) => {
+																		const model = discoveredModels[group.id]?.find((entry) => entry.id === event.target.value);
+																		if (model) applyDiscoveredModel(model);
+																	}}
+																>
+																	<option value="">
+																		{(discoveredModels[group.id]?.length ?? 0) > 0
+																			? t("settings.models.discoverPick")
+																			: t("settings.models.discoverNeedFetch")}
+																	</option>
+																	{(discoveredModels[group.id] ?? []).map((model) => (
+																		<option key={model.id} value={model.id}>
+																			{model.name && model.name !== model.id ? `${model.name} (${model.id})` : model.id}
+																			{model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k` : ""}
+																			{model.reasoning ? ` · ${t("settings.models.reasoning")}` : ""}
+																		</option>
+																	))}
+																</select>
+															</label>
+															<button
+																type="button"
+																className={`${btn} shrink-0`}
+																disabled={busy || discovering}
+																onClick={() => void discoverUpstreamModels(group.id)}
+															>
+																{discovering ? t("settings.models.discovering") : t("settings.models.discover")}
+															</button>
+														</div>
+														{discoverNote && <div className="text-[10px] text-owl-faint">{discoverNote}</div>}
+													</div>
 													<div className="grid grid-cols-2 gap-4">
 														<label className="block text-[11px] text-owl-muted">
 															{t("settings.models.modelIdLabel")}
@@ -1751,7 +1900,14 @@ export function SettingsPage({
 														{t("settings.models.reasoningModel")}
 													</label>
 													<div className="flex justify-end gap-2">
-														<button type="button" className={btn} onClick={() => setModelFormFor(null)}>
+														<button
+															type="button"
+															className={btn}
+															onClick={() => {
+																setModelFormFor(null);
+																setDiscoverNote("");
+															}}
+														>
 															{t("common.cancel")}
 														</button>
 														<button
@@ -1775,6 +1931,7 @@ export function SettingsPage({
 																	setMCtx("");
 																	setMMax("");
 																	setMReasoning(false);
+																	setDiscoverNote("");
 																	setModelFormFor(null);
 																});
 															}}
@@ -1786,11 +1943,17 @@ export function SettingsPage({
 											) : (
 												<button
 													type="button"
-															className={`mt-4 ${btn}`}
+													className={`mt-4 ${btn}`}
 													disabled={busy}
 													onClick={() => {
 														setModelFormFor(group.id);
 														setShowProviderForm(false);
+														setDiscoverNote("");
+														setMId("");
+														setMName("");
+														setMCtx("");
+														setMMax("");
+														setMReasoning(false);
 													}}
 												>
 													{t("settings.models.addModel")}

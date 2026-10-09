@@ -482,6 +482,9 @@ export class CodexSession {
 	}
 
 	request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+		if (!this.#alive) {
+			return Promise.reject(new UpstreamException("SERVER", "Codex app-server 已退出"));
+		}
 		const id = ++this.#next;
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -621,6 +624,16 @@ async function spawnTransport(home: string, command: string[]): Promise<CodexTra
 	});
 	const lines: Array<(line: string) => void> = [];
 	const exits: Array<() => void> = [];
+	let exited = false;
+	const finish = (): void => {
+		if (exited) {
+			return;
+		}
+		exited = true;
+		for (const listener of exits.splice(0)) {
+			listener();
+		}
+	};
 	const reader = createInterface({ input: child.stdout });
 	reader.on("line", (line) => {
 		for (const listener of lines) {
@@ -628,20 +641,29 @@ async function spawnTransport(home: string, command: string[]): Promise<CodexTra
 		}
 	});
 	child.stderr.on("data", () => {});
-	child.on("exit", () => {
-		for (const listener of exits) {
-			listener();
-		}
+	// Without these listeners a missing executable (spawn ENOENT) or a write to a dead
+	// child (EPIPE) becomes an uncaught 'error' and takes down the whole pool server.
+	child.on("error", (error) => {
+		console.error(`[codex] 无法启动 ${command[0] ?? "codex"}: ${error.message}`);
+		finish();
 	});
+	child.stdin.on("error", () => {});
+	child.on("exit", finish);
 	return {
 		write(line: string) {
-			child.stdin.write(line);
+			if (!exited) {
+				child.stdin.write(line);
+			}
 		},
 		onLine(listener) {
 			lines.push(listener);
 		},
 		onExit(listener) {
-			exits.push(listener);
+			if (exited) {
+				listener();
+			} else {
+				exits.push(listener);
+			}
 		},
 		kill() {
 			child.kill();

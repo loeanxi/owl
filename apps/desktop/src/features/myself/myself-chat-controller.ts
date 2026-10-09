@@ -23,11 +23,12 @@ import type {
 	SessionStatsResult,
 } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, type ChatEntry, type RetryBannerState, rebuild } from "../../hooks/transcript.ts";
+import { SessionWatch } from "../../bridge/session-watch.ts";
 import { normProjectKey } from "../../sidebar/store.ts";
 import { samePath } from "../../utils/paths.ts";
 
 type MyselfImage = { type: "image"; data: string; mimeType: string };
-type MyselfBridge = Pick<BridgeClient, "request" | "onSessionEvent">;
+type MyselfBridge = Pick<BridgeClient, "request" | "onSessionEvent"> & Partial<Pick<BridgeClient, "watchSessionEvents">>;
 type MyselfStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type MyselfChatIntent = "record" | "plan" | "process";
@@ -208,6 +209,8 @@ export class MyselfChatController {
 	/** 会话绑定在 localStorage 里的键前缀：助理与专家面板共用控制器时各用各的名字空间。 */
 	private keyPrefix: string;
 	private offEvents?: () => void;
+	private readonly sessionWatch: SessionWatch;
+	private readonly pendingSwitchWatch: SessionWatch;
 	private disposed = false;
 	private epoch = 0;
 	private attachPromise?: Promise<void>;
@@ -233,6 +236,8 @@ export class MyselfChatController {
 		},
 	) {
 		this.client = client;
+		this.sessionWatch = new SessionWatch(client);
+		this.pendingSwitchWatch = new SessionWatch(client);
 		this.storage = storage;
 		this.cwd = cwd;
 		this.primer = primer;
@@ -303,6 +308,8 @@ export class MyselfChatController {
 		this.settlingRevision = undefined;
 		this.offEvents?.();
 		this.offEvents = undefined;
+		this.sessionWatch.dispose();
+		this.pendingSwitchWatch.dispose();
 		this.attachPromise = undefined;
 		this.restoring = false;
 		this.pendingSettled = false;
@@ -311,9 +318,15 @@ export class MyselfChatController {
 		clearTimeout(this.reconcileTimer);
 	}
 
+	private syncSessionWatches(): void {
+		this.sessionWatch.set(this.state.sessionId);
+		this.pendingSwitchWatch.set(this.pendingSessionSwitch?.id);
+	}
+
 	private update(patch: Partial<MyselfChatState>): void {
 		if (this.disposed) return;
 		this.state = { ...this.state, ...patch };
+		this.syncSessionWatches();
 		for (const listener of this.listeners) listener();
 	}
 
@@ -642,6 +655,7 @@ export class MyselfChatController {
 		const epoch = this.epoch;
 		const candidate = { id, events: [] as ServerEventMessage[] };
 		this.pendingSessionSwitch = candidate;
+		this.syncSessionWatches();
 		this.update({ busy: true, historyError: undefined });
 		try {
 			const response = await this.client.request<SessionSnapshotPayload>({ type: "session.resume", sessionId: id });

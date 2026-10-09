@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	filterProvidersByEnabledModels,
 	isModelMarkedInUse,
+	nextEnabledModelsAfterBulkToggle,
 	nextEnabledModelsAfterToggle,
 	parseEnabledModels,
 } from "./enabled-models.ts";
@@ -59,6 +60,18 @@ test("全部取消 → 空数组；空数组过滤结果为空列表", () => {
 	}
 	assert.deepEqual(current, []);
 	assert.deepEqual(filterProvidersByEnabledModels(groups, current), []);
+});
+
+test("按供应商批量取消/勾选：只影响该供应商；全部勾回则清除为 null", () => {
+	const deepseekRefs = ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"];
+	const afterNone = nextEnabledModelsAfterBulkToggle(groups, null, deepseekRefs, false);
+	assert.deepEqual(afterNone, ["github-copilot/claude-fable-5"]);
+
+	const afterAll = nextEnabledModelsAfterBulkToggle(groups, afterNone, deepseekRefs, true);
+	assert.equal(afterAll, null);
+
+	const onlyDeepseek = nextEnabledModelsAfterBulkToggle(groups, [], deepseekRefs, true);
+	assert.deepEqual(onlyDeepseek, deepseekRefs);
 });
 
 test("filterProvidersByEnabledModels: null 原样；allowlist 只留命中供应商", () => {

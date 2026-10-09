@@ -4,9 +4,13 @@
 // fail-closed: any engine error also blocks the call.
 //
 // Origin: kenryu42/cc-safety-net 2.4.15 (MIT). The rule engine is vendored
-// verbatim under vendor/chunks/ (see that directory's .d.ts files for the
+// under vendor/chunks/ (see that directory's .d.ts files for the
 // minified-export mapping); this entry is a clean rewrite of the upstream
 // `dist/pi/index.js` extension against the Owl extension API (@owl/owl-coding-agent).
+// Owl raises the vendored controlFlowStates cap from 64 to 1024. Ordinary
+// read-only loops (several `for name in ...; do grep`) otherwise die as
+// "derived-command work limit" before any dangerous rule runs. The cap still
+// fails closed on pathological expansions.
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@owl/owl-coding-agent";
 import { he as auditDenial, N as guardEvaluate } from "../vendor/chunks/index-96rww7g0.js";
 import type { Denial, SafetyNetAnalysis, SafetyNetEvaluation } from "../vendor/chunks/index-gj6afr0n.js";

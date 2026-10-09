@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
 import {
 	buildImportPrompt,
+	isMarketStale,
 	loadMarket,
 	MARKET_CATS,
 	type MarketPlugin,
 	type MarketSnapshot,
 	type MarketSrc,
+	peekMarket,
 } from "./market-service.ts";
 import "./market.css";
 
@@ -14,6 +16,17 @@ import "./market.css";
 const importedKeys = new Set<string>();
 
 const EMPTY: MarketSnapshot = { plugins: [], dshTotal: 0, piTotal: 0 };
+
+type SortKey = "dl" | "stars" | "new" | "name";
+const SORT_KEYS: SortKey[] = ["dl", "stars", "new", "name"];
+
+/** 主键相同或缺失时按下载量兜底，保证顺序稳定。 */
+const SORTERS: Record<SortKey, (a: MarketPlugin, b: MarketPlugin) => number> = {
+	dl: (a, b) => (b.dl ?? -1) - (a.dl ?? -1),
+	stars: (a, b) => b.stars - a.stars || (b.dl ?? -1) - (a.dl ?? -1),
+	new: (a, b) => (b.added ?? "").localeCompare(a.added ?? "") || (b.dl ?? -1) - (a.dl ?? -1),
+	name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+};
 
 function fmtCount(n: number | null): string {
 	if (n === null) return "—";
@@ -68,12 +81,24 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 	const [importing, setImporting] = useState<string>();
 	const [importError, setImportError] = useState<string>();
 	const [srcPopOpen, setSrcPopOpen] = useState(false);
+	const [sort, setSort] = useState<SortKey>("dl");
+	const [sortOpen, setSortOpen] = useState(false);
+	const sortRef = useRef<HTMLDivElement>(null);
 	const [importedBump, setImportedBump] = useState(0);
 	const loadSeq = useRef(0);
 
+	useEffect(() => {
+		if (!sortOpen) return;
+		const onDown = (event: MouseEvent): void => {
+			if (!sortRef.current?.contains(event.target as Node)) setSortOpen(false);
+		};
+		document.addEventListener("mousedown", onDown);
+		return () => document.removeEventListener("mousedown", onDown);
+	}, [sortOpen]);
+
 	const load = async (force: boolean): Promise<void> => {
 		const seq = ++loadSeq.current;
-		setLoading(true);
+		if (force || isMarketStale()) setLoading(true);
 		try {
 			const next = await loadMarket(force);
 			if (seq === loadSeq.current) setSnapshot(next);
@@ -82,10 +107,19 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 		}
 	};
 
+	// 每次进入：先秒开本地快照，再由 loadMarket 判断是否过期、过期才后台刷新。
 	useEffect(() => {
-		if (active && snapshot.plugins.length === 0 && !loading && snapshot.dshError === undefined && snapshot.piError === undefined) {
-			void load(false);
-		}
+		if (!active) return;
+		let cancelled = false;
+		void (async () => {
+			const cached = await peekMarket();
+			if (cancelled) return;
+			if (cached) setSnapshot((cur) => (cur.plugins.length > 0 ? cur : cached));
+			await load(false);
+		})();
+		return () => {
+			cancelled = true;
+		};
 	}, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const filtered = useMemo(() => {
@@ -93,8 +127,9 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 		return snapshot.plugins.filter((p) =>
 			(source === "all" || p.src === source)
 			&& (cat === "all" || p.cat === cat)
-			&& (!q || `${p.name} ${p.descZh} ${p.descEn} ${p.owner}`.toLowerCase().includes(q)));
-	}, [snapshot, source, cat, query]);
+			&& (!q || `${p.name} ${p.descZh} ${p.descEn} ${p.owner}`.toLowerCase().includes(q)))
+			.sort(SORTERS[sort]);
+	}, [snapshot, source, cat, query, sort]);
 
 	const selected = filtered.find((p) => p.key === selKey) ?? filtered[0];
 
@@ -136,6 +171,7 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 					<button type="button" className="owl-market-srcpill" onClick={() => setSrcPopOpen((v) => !v)}>
 						<span className="owl-market-livedot" aria-hidden="true" />
 						{t("market.sources")}
+						{loading && snapshot.plugins.length > 0 && <span className="owl-market-srcpill-busy">· {t("market.refreshing")}</span>}
 						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
 					</button>
 					{srcPopOpen && (
@@ -158,9 +194,13 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 								<div className="owl-market-srcitem-d">{t("market.srcDshDesc")}</div>
 								<div className="owl-market-srcitem-ep">awesome-dsh-plugin.com/plugins.json · {relTime(snapshot.dshAt, lang)}</div>
 							</div>
-							{(snapshot.dshError || snapshot.piError) && (
-								<button type="button" className="owl-market-srcretry" onClick={() => void load(true)}>
+							{snapshot.dshError || snapshot.piError ? (
+								<button type="button" className="owl-market-srcretry" disabled={loading} onClick={() => void load(true)}>
 									{t("market.retry")} · {snapshot.piError ?? snapshot.dshError}
+								</button>
+							) : (
+								<button type="button" className="owl-market-srcretry" disabled={loading} onClick={() => void load(true)}>
+									{loading ? t("market.refreshing") : t("market.refreshNow")}
 								</button>
 							)}
 							<div className="owl-market-srcfoot">{t("market.srcFoot")}</div>
@@ -181,7 +221,29 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
 					<input value={query} placeholder={t("market.search")} onChange={(event) => setQuery(event.target.value)} />
 				</label>
-				<div className="owl-market-sort">{t("market.sort")}</div>
+				<div className="owl-market-sort" ref={sortRef}>
+					<button type="button" className="owl-market-sort-btn" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((v) => !v)}>
+						{t("market.sortBy", { label: t(`market.sort.${sort}`) })}
+						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+					</button>
+					{sortOpen && (
+						<div className="owl-market-sort-pop" role="listbox">
+							{SORT_KEYS.map((key) => (
+								<button
+									key={key}
+									type="button"
+									role="option"
+									aria-selected={sort === key}
+									className={sort === key ? "is-on" : undefined}
+									onClick={() => {
+										setSort(key);
+										setSortOpen(false);
+									}}
+								>{t(`market.sort.${key}`)}</button>
+							))}
+						</div>
+					)}
+				</div>
 			</div>
 
 			<div className="owl-market-cats">

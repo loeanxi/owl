@@ -15,8 +15,9 @@
  * - **预算化注入**：注入按 项目匹配 > proofCount > 新近度 排序，装满字符预算即止，
  *   剩余提示模型用 recall 工具按需查询。
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
 
 export interface OwlMemoryEntry {
 	id: string;
@@ -70,7 +71,8 @@ function memoryScopeKey(entry: Partial<OwlMemoryEntry>): string {
 
 let cache: { path: string; mtimeMs: number; data: MemoryFile } | undefined;
 
-function readMemoryFile(agentDir: string): MemoryFile {
+/** backupCorrupt：解析失败时先把原文件挪成 *.corrupt，否则随后的写入会把读不出的条目整份清空。 */
+function readMemoryFile(agentDir: string, backupCorrupt = false): MemoryFile {
 	const path = memoryFile(agentDir);
 	let mtimeMs = 0;
 	try {
@@ -102,17 +104,29 @@ function readMemoryFile(agentDir: string): MemoryFile {
 		cache = { path, mtimeMs, data };
 		return data;
 	} catch {
+		if (backupCorrupt) backupCorruptFile(path);
 		return { version: 1, entries: [] };
 	}
 }
 
 function writeMemoryFile(agentDir: string, data: MemoryFile): void {
-	const dir = getMemoryDir(agentDir);
-	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	const path = memoryFile(agentDir);
-	writeFileSync(path, `${JSON.stringify(data, null, "\t")}\n`, "utf-8");
+	atomicWriteFileSync(path, `${JSON.stringify(data, null, "\t")}\n`);
 	cache = { path, mtimeMs: statSync(path).mtimeMs, data };
 	renderMemoryMarkdown(agentDir, data.entries);
+}
+
+/**
+ * 读-改-写在跨进程锁内完成：锁内重读盘面（别的会话 / 桥刚写入的条目不会被本进程的旧快照覆盖），
+ * 在副本上修改，确有变化才落盘。
+ */
+function mutateMemoryFile<T>(agentDir: string, mutate: (data: MemoryFile) => { result: T; changed: boolean }): T {
+	return withFileLockSync(memoryFile(agentDir), () => {
+		const data = structuredClone(readMemoryFile(agentDir, true));
+		const { result, changed } = mutate(data);
+		if (changed) writeMemoryFile(agentDir, data);
+		return result;
+	});
 }
 
 export function readMemoryEntries(agentDir: string): OwlMemoryEntry[] {
@@ -128,7 +142,16 @@ export function appendMemoryEntries(
 	agentDir: string,
 	entries: Array<Pick<OwlMemoryEntry, "content"> & Partial<OwlMemoryEntry>>,
 ): { added: OwlMemoryEntry[]; strengthened: number } {
-	const data = readMemoryFile(agentDir);
+	return mutateMemoryFile(agentDir, (data) => {
+		const result = appendToMemoryFile(data, entries);
+		return { result, changed: result.added.length > 0 || result.strengthened > 0 };
+	});
+}
+
+function appendToMemoryFile(
+	data: MemoryFile,
+	entries: Array<Pick<OwlMemoryEntry, "content"> & Partial<OwlMemoryEntry>>,
+): { added: OwlMemoryEntry[]; strengthened: number } {
 	const added: OwlMemoryEntry[] = [];
 	let strengthened = 0;
 	for (const entry of entries) {
@@ -158,21 +181,23 @@ export function appendMemoryEntries(
 		data.entries.push(full);
 		added.push(full);
 	}
-	if (added.length > 0 || strengthened > 0) writeMemoryFile(agentDir, data);
 	return { added, strengthened };
 }
 
 export function deleteMemoryEntry(agentDir: string, id: string): boolean {
-	const data = readMemoryFile(agentDir);
-	const index = data.entries.findIndex((entry) => entry.id === id);
-	if (index === -1) return false;
-	data.entries.splice(index, 1);
-	writeMemoryFile(agentDir, data);
-	return true;
+	return mutateMemoryFile(agentDir, (data) => {
+		const index = data.entries.findIndex((entry) => entry.id === id);
+		if (index === -1) return { result: false, changed: false };
+		data.entries.splice(index, 1);
+		return { result: true, changed: true };
+	});
 }
 
 export function clearMemoryEntries(agentDir: string): void {
-	writeMemoryFile(agentDir, { version: 1, entries: [] });
+	mutateMemoryFile(agentDir, (data) => {
+		data.entries = [];
+		return { result: undefined, changed: true };
+	});
 }
 
 /** 归并指令：把 mergeIds 的条目并进 intoId，内容用合并后的文本。 */
@@ -185,7 +210,13 @@ export interface MemoryMerge {
 /** 应用归并流水线的判定结果：目标条目改为合并内容、证据计数累加，被并条目删除。 */
 export function applyMemoryMerges(agentDir: string, merges: MemoryMerge[]): number {
 	if (merges.length === 0) return 0;
-	const data = readMemoryFile(agentDir);
+	return mutateMemoryFile(agentDir, (data) => {
+		const applied = applyMergesToMemoryFile(data, merges);
+		return { result: applied, changed: applied > 0 };
+	});
+}
+
+function applyMergesToMemoryFile(data: MemoryFile, merges: MemoryMerge[]): number {
 	let applied = 0;
 	for (const merge of merges) {
 		const target = data.entries.find((entry) => entry.id === merge.intoId);
@@ -205,7 +236,6 @@ export function applyMemoryMerges(agentDir: string, merges: MemoryMerge[]): numb
 		data.entries = data.entries.filter((entry) => !mergedIds.has(entry.id));
 		applied++;
 	}
-	if (applied > 0) writeMemoryFile(agentDir, data);
 	return applied;
 }
 
@@ -223,8 +253,7 @@ function renderMemoryMarkdown(agentDir: string, entries: OwlMemoryEntry[]): void
 		const scope = entry.scope === "global" ? " · 全局" : entry.sourceCwd ? ` · ${entry.sourceCwd}` : "";
 		lines.push(`- ${entry.content} （${date}${proofs}${scope}）`);
 	}
-	const path = join(getMemoryDir(agentDir), "MEMORY.md");
-	writeFileSync(path, `${lines.join("\n")}\n`, "utf-8");
+	atomicWriteFileSync(join(getMemoryDir(agentDir), "MEMORY.md"), `${lines.join("\n")}\n`);
 }
 
 /**
@@ -364,16 +393,17 @@ export function readExtractedMarkers(agentDir: string): Record<string, number> {
 }
 
 export function markExtracted(agentDir: string, sessionFilePaths: string[]): void {
-	const dir = getMemoryDir(agentDir);
-	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-	const markers = readExtractedMarkers(agentDir);
-	const now = Date.now();
-	for (const path of sessionFilePaths) markers[path] = now;
-	// 标记文件按 5000 条裁剪，防无限膨胀
-	const trimmed = Object.entries(markers)
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, 5000);
-	writeFileSync(extractedFile(agentDir), `${JSON.stringify(Object.fromEntries(trimmed), null, "\t")}\n`, "utf-8");
+	const path = extractedFile(agentDir);
+	withFileLockSync(path, () => {
+		const markers = readExtractedMarkers(agentDir);
+		const now = Date.now();
+		for (const sessionPath of sessionFilePaths) markers[sessionPath] = now;
+		// 标记文件按 5000 条裁剪，防无限膨胀
+		const trimmed = Object.entries(markers)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 5000);
+		atomicWriteFileSync(path, `${JSON.stringify(Object.fromEntries(trimmed), null, "\t")}\n`);
+	});
 }
 
 /** 供测试与记忆卡片展示：读取记忆目录的文件清单。 */

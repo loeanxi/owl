@@ -10,9 +10,10 @@
  * import 其 dist 暴露的 `beginGoogleSubscriptionLogin`（与 /image-login 命令
  * 同一实现，单一事实源）；插件未安装/未构建时返回可读错误。
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { atomicWriteFileSync } from "../../utils/atomic-file.ts";
 import type { OwlImageConfigPublic, OwlImageProvider } from "./protocol.ts";
 
 /** 与 packages/owl-image/src/shared.ts 的 IMAGE_PROVIDERS 对齐。 */
@@ -227,8 +228,7 @@ export function writeImageConfig(
 		else delete next.apiKeys;
 	}
 
-	mkdirSync(agentDir, { recursive: true });
-	writeFileSync(imageConfigPath(agentDir), `${JSON.stringify(next, null, "\t")}\n`, "utf8");
+	atomicWriteFileSync(imageConfigPath(agentDir), `${JSON.stringify(next, null, "\t")}\n`);
 	return { ok: true };
 }
 

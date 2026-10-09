@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { isReservedDir, normPath, samePath } from "../../utils/paths.ts";
+import { isReservedDir, isValidationDir, loadAndScrubProjects, normPath, samePath } from "../../utils/paths.ts";
 import {
 	getProjectDisplayName as projectLabel,
 	getProjectSidebarPreferences,
@@ -127,7 +127,7 @@ export function ProjectsPage({
 	/** 手动展开的项目（normalized path）；搜索时全部按展开处理。 */
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 	const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, PINNED_PROJECTS_KEY));
-	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, KNOWN_PROJECTS_KEY));
+	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY));
 	/** ⋯ 菜单目标（ProjectActionsMenu 需要锚点按钮定位）。 */
 	const [menu, setMenu] = useState<{ path: string; anchor: HTMLButtonElement } | null>(null);
 	const menuId = useId();
@@ -154,8 +154,8 @@ export function ProjectsPage({
 	// 置顶 / 已知项目与侧栏共用同一份 localStorage：侧栏或本页任一侧变更都会
 	// publish（model 的 CHANGE_EVENT），这里随之重读保持双向同步。
 	useEffect(() => {
-		setPinnedProjects(loadSidebarStrings(localStorage, PINNED_PROJECTS_KEY));
-		setKnownProjects(loadSidebarStrings(localStorage, KNOWN_PROJECTS_KEY));
+		setPinnedProjects(loadAndScrubProjects(localStorage, PINNED_PROJECTS_KEY));
+		setKnownProjects(loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY));
 	}, [prefsRevision, revision]);
 
 	// 本页固为 chat 作用域：研究会话有自己的侧栏与归档管理，不进这张表。
@@ -168,7 +168,7 @@ export function ProjectsPage({
 	const projects = useMemo<ProjectAgg[]>(() => {
 		const map = new Map<string, ProjectAgg>();
 		const track = (path: string | undefined, row?: SessionRow): void => {
-			if (!path || isReservedDir(path)) return;
+			if (!path || isReservedDir(path) || isValidationDir(path)) return;
 			const key = normPath(path);
 			let agg = map.get(key);
 			if (!agg) {

@@ -30,6 +30,7 @@ import { basename, join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { OWL_AGENT_PRESET_ENTRY } from "./agent-presets.ts";
 import {
@@ -938,16 +939,50 @@ function sortSessionInfos(sessions: SessionInfo[]): SessionInfo[] {
 	return sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
 }
 
+/** path → 上次解析结果；mtime/size 未变则复用，避免 session.list 反复扫全文。 */
+const sessionInfoCache = new Map<string, { mtimeMs: number; size: number; info: SessionInfo }>();
+
+async function resolveSessionInfoCached(file: SessionFileCandidate, signal?: AbortSignal): Promise<SessionInfo | null> {
+	let stats = file.stats;
+	if (!stats) {
+		try {
+			stats = await stat(file.path);
+		} catch {
+			sessionInfoCache.delete(file.path);
+			return null;
+		}
+	}
+	const cached = sessionInfoCache.get(file.path);
+	if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached.info;
+	const info = await buildSessionInfo(file.path, signal, stats);
+	if (info) sessionInfoCache.set(file.path, { mtimeMs: stats.mtimeMs, size: stats.size, info });
+	else sessionInfoCache.delete(file.path);
+	return info;
+}
+
+function pruneSessionInfoCache(livePaths: Iterable<string>): void {
+	const keep = new Set(livePaths);
+	for (const path of sessionInfoCache.keys()) {
+		if (!keep.has(path)) sessionInfoCache.delete(path);
+	}
+}
+
+/** 测试用：清空列表解析缓存。 */
+export function clearSessionInfoCacheForTests(): void {
+	sessionInfoCache.clear();
+}
+
 function buildSessionInfosWithConcurrency(
 	files: SessionFileCandidate[],
 	onLoaded: (info: SessionInfo | null, index: number) => void,
 	signal?: AbortSignal,
 ): Promise<(SessionInfo | null)[]> {
+	pruneSessionInfoCache(files.map((file) => file.path));
 	return mapWithConcurrency(
 		files,
 		MAX_CONCURRENT_SESSION_INFO_LOADS,
 		async (file, index) => {
-			const info = await buildSessionInfo(file.path, signal, file.stats);
+			const info = await resolveSessionInfoCached(file, signal);
 			onLoaded(info, index);
 			return info;
 		},
@@ -1140,14 +1175,7 @@ export class SessionManager {
 
 	private _rewriteFile(): void {
 		if (!this.persist || !this.sessionFile) return;
-		const fd = openSync(this.sessionFile, "w");
-		try {
-			for (const entry of this.fileEntries) {
-				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
-			}
-		} finally {
-			closeSync(fd);
-		}
+		atomicWriteFileSync(this.sessionFile, this.fileEntries.map((entry) => `${JSON.stringify(entry)}\n`).join(""));
 	}
 
 	isPersisted(): boolean {
@@ -1904,6 +1932,63 @@ export class SessionManager {
 			}
 		} catch {
 			// Exact session discovery is best-effort, matching list().
+		}
+		return undefined;
+	}
+
+	/**
+	 * Locate a session JSONL by id without parsing transcript bodies.
+	 * Prefer filename `*_${id}.jsonl`, then fall back to header-only scans.
+	 * @param id Exact session ID
+	 * @param sessionDir Optional single directory (mail/custom). Omit to walk Owl-history project dirs.
+	 */
+	static findPathById(id: string, sessionDir?: string): string | undefined {
+		if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return undefined;
+		const dirs = sessionDir
+			? [normalizePath(sessionDir)]
+			: (() => {
+					const root = getSessionsDir();
+					try {
+						if (!existsSync(root)) return [];
+						return readdirSync(root, { withFileTypes: true })
+							.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+							.map((entry) => join(root, entry.name));
+					} catch {
+						return [];
+					}
+				})();
+		const suffix = `_${id}.jsonl`;
+		const matchInDir = (dir: string, filenameOnly: boolean): string | undefined => {
+			try {
+				const files = readdirSync(dir);
+				let best: { path: string; mtime: number } | undefined;
+				for (const file of files) {
+					if (!file.endsWith(".jsonl")) continue;
+					if (filenameOnly && !file.endsWith(suffix)) continue;
+					if (!filenameOnly && file.endsWith(suffix)) continue;
+					const path = join(dir, file);
+					const header = readSessionHeaderForDiscovery(path);
+					if (header?.id !== id) continue;
+					let mtime = 0;
+					try {
+						mtime = statSync(path).mtimeMs;
+					} catch {
+						continue;
+					}
+					if (!best || mtime > best.mtime) best = { path, mtime };
+				}
+				return best?.path;
+			} catch {
+				return undefined;
+			}
+		};
+		for (const dir of dirs) {
+			const hit = matchInDir(dir, true);
+			if (hit) return hit;
+		}
+		for (const dir of dirs) {
+			const hit = matchInDir(dir, false);
+			if (hit) return hit;
 		}
 		return undefined;
 	}

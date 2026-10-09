@@ -1,10 +1,11 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Model, type Transport } from "@earendil-works/pi-ai";
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
@@ -45,8 +46,8 @@ export interface ProviderRetrySettings {
 
 export interface RetrySettings {
 	enabled?: boolean; // default: true
-	maxRetries?: number; // default: 3
-	baseDelayMs?: number; // default: 2000 (exponential backoff: 2s, 4s, 8s)
+	maxRetries?: number; // default: 5
+	baseDelayMs?: number; // default: 5000 (exponential backoff: 5s, 10s, 20s, 40s, 60s capped)
 	maxAgentDelayMs?: number; // default: 60000
 	/** Plain-text substrings (case-insensitive, blank entries ignored) treated as
 	 * retryable with precedence over the built-in non-retryable limit rules — for
@@ -447,7 +448,7 @@ export class FileSettingsStorage implements SettingsStorage {
 				if (!release) {
 					release = this.acquireLockSyncWithRetry(path);
 				}
-				writeFileSync(path, next, "utf-8");
+				atomicWriteFileSync(path, next);
 			}
 		} finally {
 			if (release) {
@@ -1117,8 +1118,8 @@ export class SettingsManager {
 	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number; maxAgentDelayMs: number } {
 		return {
 			enabled: this.getRetryEnabled(),
-			maxRetries: this.settings.retry?.maxRetries ?? 3,
-			baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
+			maxRetries: this.settings.retry?.maxRetries ?? 5,
+			baseDelayMs: this.settings.retry?.baseDelayMs ?? 5000,
 			maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,
 		};
 	}

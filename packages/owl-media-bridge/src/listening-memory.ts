@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import type { BridgeStatus } from "./domain/types.ts";
 
 /** One "what played just now" row in the local listening history. */
@@ -356,11 +357,7 @@ export class ListeningMemory {
 
 	private saveNow(): void {
 		if (!this.loaded) return;
-		const directory = dirname(this.filePath);
-		mkdirSync(directory, { recursive: true });
-		const tempPath = `${this.filePath}.tmp`;
-		writeFileSync(tempPath, JSON.stringify(this.state), "utf8");
-		renameSync(tempPath, this.filePath);
+		atomicWriteFileSync(this.filePath, JSON.stringify(this.state));
 	}
 }
 

@@ -8,9 +8,10 @@
  * @module owl-media-bridge/config
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getAgentDir } from "@owl/owl-coding-agent";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import type { BridgeSettingsPatch } from "./http.ts";
 
 export type MediaBridgeSettings = BridgeSettingsPatch;
@@ -53,6 +54,5 @@ export function loadMediaBridgeSettings(): MediaBridgeSettings {
 export function saveMediaBridgeSettings(patch: MediaBridgeSettings): void {
 	const merged = { ...loadMediaBridgeSettings(), ...patch };
 	const file = mediaBridgeConfigPath();
-	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+	atomicWriteFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
 }

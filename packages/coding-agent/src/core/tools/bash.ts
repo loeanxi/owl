@@ -158,13 +158,16 @@ const bashSchema = Type.Object({
 	),
 });
 
+/** Prepended to every bash command so `| head` / `| tail` cannot hide earlier failures. */
+export const BASH_PIPEFAIL_PREFIX = "set -o pipefail";
+
 export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
 	guidelines: [
 		"You can inspect PI_* environment variables for current model and session details.",
 		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers — read the output instead of retrying the same command.",
 		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
-		"A pipeline normally reports its last command's status: tail/head exiting 0 does not prove an earlier program succeeded. Capture the producer's exit status or inspect Bash PIPESTATUS when validating a program; inspect native assertions even after a test summary says passed.",
+		"Bash runs with `set -o pipefail`: a failing producer in a pipeline (`cmd | head`) makes the whole command fail even if head exits 0. Prefer that over relying on PIPESTATUS.",
 		"When handing files from Git Bash to native Windows Node/Python, quote paths and prefer workspace-relative paths; shell /tmp/MSYS aliases can refer to a different native directory.",
 		"Match Node module format to the file: use .cjs for require/module.exports and .mjs for import/export; check package.json type when using .js.",
 	],
@@ -419,10 +422,10 @@ export function createShellToolDefinition(
 	const spawnHook = options?.spawnHook;
 	// bash 语法提示只给 bash 工具：模型常把 CMD/PowerShell 姿势（cd /d、dir）带进 bash，
 	// 第一条命令就失败。powershell 工具共用本函数，不能注入这条提示。
-	const syntaxNote =
-		config.shellName === "bash"
-			? "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. "
-			: "";
+	const isBash = config.shellName === "bash";
+	const syntaxNote = isBash
+		? "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. Pipelines use pipefail so earlier failures are not hidden by head/tail. "
+		: "";
 	return {
 		name: config.name,
 		label: config.label,
@@ -443,7 +446,12 @@ export function createShellToolDefinition(
 			onUpdate?,
 			ctx?: ExtensionContext,
 		) {
-			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
+			// bash 默认开启 pipefail，避免 `false | head` 被当成成功；用户自定义 prefix 叠在其后。
+			const prefixParts = [
+				...(isBash ? [BASH_PIPEFAIL_PREFIX] : []),
+				...(commandPrefix && commandPrefix.trim().length > 0 ? [commandPrefix] : []),
+			];
+			const resolvedCommand = prefixParts.length > 0 ? `${prefixParts.join("\n")}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(
 				resolvedCommand,
 				ctx?.cwd || cwd,

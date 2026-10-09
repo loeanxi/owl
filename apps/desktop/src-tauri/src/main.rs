@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 mod gps;
 
@@ -600,7 +600,7 @@ fn tie_child_to_self(child: &Child) {
     }
 }
 
-fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> Child {
+fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> std::io::Result<Child> {
     let (stdout, stderr) = bridge_log_stdio();
     let mut cmd = Command::new("node");
     cmd.args([
@@ -614,12 +614,10 @@ fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> Child {
     .stderr(stderr);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let child = cmd
-        .spawn()
-        .expect("failed to spawn owl bridge (is node on PATH?)");
+    let child = cmd.spawn()?;
     #[cfg(windows)]
     tie_child_to_self(&child);
-    child
+    Ok(child)
 }
 
 /// Spawn pool-server with cwd = app root so `data/pool.db` hits the live DB.
@@ -663,9 +661,16 @@ struct BridgeState {
     port: u16,
     script: PathBuf,
     agent_dir: PathBuf,
+    /// 桥应当在跑：退出应用时置 false，巡检据此区分"被我们停掉"和"自己挂了"。
+    wanted: bool,
 }
 
 impl BridgeState {
+    fn shutdown(&mut self) {
+        self.wanted = false;
+        self.kill();
+    }
+
     fn kill(&mut self) {
         if let Some(mut child) = self.child.take() {
             // Let the news queue save any paid response before terminating the bridge.
@@ -692,13 +697,88 @@ impl BridgeState {
 
     fn restart(&mut self) -> Result<(), String> {
         self.kill();
-        let child = spawn_bridge(&self.script, &self.agent_dir, self.port);
+        self.wanted = true;
+        let mut child = spawn_bridge(&self.script, &self.agent_dir, self.port)
+            .map_err(|error| format!("failed to spawn owl bridge (is node on PATH?): {error}"))?;
         if !wait_for_port(self.port, BRIDGE_START_TIMEOUT) {
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(format!("Bridge failed to restart on port {}", self.port));
         }
         self.child = Some(child);
         Ok(())
     }
+
+    /// 桥子进程已退出则回收并返回退出码（被信号杀掉时为 None）。
+    fn reap_exited(&mut self) -> Option<Option<i32>> {
+        let status = self.child.as_mut()?.try_wait().ok()??;
+        self.child = None;
+        Some(status.code())
+    }
+}
+
+const BRIDGE_WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
+/// 窗口期内自动重启超过这个次数就判定为崩溃循环，停手等用户从托盘重启。
+const BRIDGE_MAX_RESTARTS: usize = 5;
+const BRIDGE_RESTART_WINDOW: Duration = Duration::from_secs(60);
+
+#[derive(Clone, serde::Serialize)]
+struct BridgeWatchdogEvent {
+    /// exited = 刚发现退出、正在拉起；restarted = 已重新监听；down = 崩溃循环，放弃自动重启。
+    state: &'static str,
+    code: Option<i32>,
+}
+
+/// 桥进程巡检：周期 try_wait，桥自己退出（崩溃、OOM、被外部杀掉）就在原端口重新拉起，
+/// 窗口里的页面和 WebSocket 会自动重连；每一步经 owl-bridge 事件通知 UI。
+fn spawn_bridge_watchdog(app: tauri::AppHandle, bridge: Arc<Mutex<BridgeState>>) {
+    std::thread::spawn(move || {
+        let mut restarts: Vec<Instant> = Vec::new();
+        let mut gave_up = false;
+        let mut last_code = None;
+        loop {
+            std::thread::sleep(BRIDGE_WATCHDOG_INTERVAL);
+            let Ok(mut state) = bridge.lock() else { return };
+            if !state.wanted {
+                continue;
+            }
+            if let Some(code) = state.reap_exited() {
+                // 重新拉起会截断桥日志，先把崩溃现场另存一份
+                let crash_log = bridge_log_path().with_file_name("owl-bridge.crash.log");
+                let _ = std::fs::copy(bridge_log_path(), &crash_log);
+                eprintln!("[owl] bridge exited unexpectedly (code {code:?}); log saved to {}", crash_log.display());
+                last_code = code;
+                gave_up = false;
+                let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "exited", code });
+            }
+            if state.child.is_some() {
+                // 托盘「重启后台服务」成功后重新计数
+                if gave_up {
+                    gave_up = false;
+                    restarts.clear();
+                }
+                continue;
+            }
+            if gave_up {
+                continue;
+            }
+            restarts.retain(|at| at.elapsed() < BRIDGE_RESTART_WINDOW);
+            if restarts.len() >= BRIDGE_MAX_RESTARTS {
+                gave_up = true;
+                eprintln!("[owl] bridge crash loop ({} restarts within {:?}); giving up", restarts.len(), BRIDGE_RESTART_WINDOW);
+                let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "down", code: last_code });
+                continue;
+            }
+            restarts.push(Instant::now());
+            match state.restart() {
+                Ok(()) => {
+                    eprintln!("[owl] bridge restarted on port {}", state.port);
+                    let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "restarted", code: last_code });
+                }
+                Err(error) => eprintln!("[owl] bridge restart failed: {error}"),
+            }
+        }
+    });
 }
 
 /// Owl-owned pool child, or an external listener we leave alone on exit.
@@ -861,7 +941,7 @@ fn main() {
 
     let pool = Arc::new(Mutex::new(ensure_pool(pool_script, pool_port)));
 
-    let child = spawn_bridge(&script, &agent_dir, port);
+    let child = spawn_bridge(&script, &agent_dir, port).expect("failed to spawn owl bridge (is node on PATH?)");
     eprintln!(
         "[owl] bridge spawning on port {port} (script: {}, log: {})",
         script.display(),
@@ -879,6 +959,7 @@ fn main() {
         port,
         script,
         agent_dir,
+        wanted: true,
     }));
 
     let url: tauri::Url = format!("http://127.0.0.1:{port}").parse().unwrap();
@@ -979,6 +1060,8 @@ fn main() {
 
             tray_builder.build(app)?;
 
+            spawn_bridge_watchdog(app.handle().clone(), bridge_for_setup.clone());
+
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -986,7 +1069,7 @@ fn main() {
         .run(move |_app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Ok(mut b) = bridge.lock() {
-                    b.kill();
+                    b.shutdown();
                 }
                 if let Ok(mut p) = pool.lock() {
                     p.kill();

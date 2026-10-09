@@ -423,6 +423,17 @@ export function IconStickFigure({ className }: { className?: string }): React.JS
 }
 
 /** 顶栏：「我的 Token 生涯」入口（环形用量图：淡色满环 + 强调弧 + 指针）。 */
+/** 号池 Manager：叠放的数据库圆柱。 */
+export function IconPool({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<ellipse cx="12" cy="5.5" rx="8" ry="2.8" />
+			<path d="M4 5.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
+			<path d="M4 11.5v6c0 1.5 3.6 2.8 8 2.8s8-1.3 8-2.8v-6" />
+		</Svg>
+	);
+}
+
 export function IconTokenCareer({ className }: { className?: string }): React.JSX.Element {
 	return (
 		<Svg className={className}>

@@ -5,6 +5,8 @@
  *  · DSH 社区 —— awesome-dsh-plugin.com/plugins.json（dsh-market 读取的同一注册表，CORS 开放）
  * DSH 注册表 5MB+：内存缓存 10 分钟；两源各自拉取、失败互不影响，可单独重试。
  * pi 生态按热度取前若干页（npm search 单页上限 250），月下载量用 npm 批量接口补齐。
+ * 快照落 IndexedDB：启动后先展示上次结果，过期再后台刷新；某源刷新失败时沿用它的旧数据。
+ * 月下载量按包缓存 24 小时，刷新时只补查新出现或过期的包。
  */
 
 export type MarketSrc = "pi" | "dsh";
@@ -71,6 +73,8 @@ const NPM_DOWNLOADS_URL = "https://api.npmjs.org/downloads/point/last-month";
 const PI_PAGES = 2;
 const PI_PAGE_SIZE = 250;
 const CACHE_TTL_MS = 10 * 60_000;
+/** npm last-month 下载量按天更新，一天内不重复查。 */
+const DOWNLOADS_TTL_MS = 24 * 60 * 60_000;
 
 export type MarketSnapshot = {
 	plugins: MarketPlugin[];
@@ -84,8 +88,80 @@ export type MarketSnapshot = {
 };
 
 type CacheEntry = { at: number; snapshot: MarketSnapshot };
+type DownloadEntry = { dl: number; at: number };
 let cache: CacheEntry | undefined;
 let inflight: Promise<MarketSnapshot> | undefined;
+let piDownloads = new Map<string, DownloadEntry>();
+
+const IDB_NAME = "owl-market";
+const IDB_STORE = "kv";
+const PERSIST_KEY = "market";
+/** 快照结构变了就升版本，旧数据直接作废。 */
+const PERSIST_VERSION = 1;
+
+type Persisted = {
+	v: number;
+	at: number;
+	snapshot: MarketSnapshot;
+	piDownloads: Record<string, DownloadEntry>;
+};
+
+let dbPromise: Promise<IDBDatabase> | undefined;
+
+function openDb(): Promise<IDBDatabase> {
+	dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
+		const request = indexedDB.open(IDB_NAME, 1);
+		request.onupgradeneeded = () => request.result.createObjectStore(IDB_STORE);
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
+	}).catch((error: unknown) => {
+		dbPromise = undefined;
+		throw error;
+	});
+	return dbPromise;
+}
+
+async function idbGet<T>(key: string): Promise<T | undefined> {
+	try {
+		const db = await openDb();
+		return await new Promise<T | undefined>((resolve, reject) => {
+			const request = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(key);
+			request.onsuccess = () => resolve(request.result as T | undefined);
+			request.onerror = () => reject(request.error);
+		});
+	} catch {
+		return undefined;
+	}
+}
+
+async function idbSet(key: string, value: unknown): Promise<void> {
+	try {
+		const db = await openDb();
+		await new Promise<void>((resolve, reject) => {
+			const tx = db.transaction(IDB_STORE, "readwrite");
+			tx.objectStore(IDB_STORE).put(value, key);
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
+	} catch {
+		// 持久化失败只影响下次启动的秒开，不影响本次展示。
+	}
+}
+
+let hydrating: Promise<MarketSnapshot | undefined> | undefined;
+
+/** 取本地已有快照（内存优先，其次 IndexedDB），不发网络请求；没有则为 undefined。 */
+export function peekMarket(): Promise<MarketSnapshot | undefined> {
+	if (cache) return Promise.resolve(cache.snapshot);
+	hydrating ??= idbGet<Persisted>(PERSIST_KEY).then((saved) => {
+		if (cache) return cache.snapshot;
+		if (!saved || saved.v !== PERSIST_VERSION || saved.snapshot.plugins.length === 0) return undefined;
+		cache = { at: saved.at, snapshot: saved.snapshot };
+		piDownloads = new Map(Object.entries(saved.piDownloads ?? {}));
+		return saved.snapshot;
+	});
+	return hydrating;
+}
 
 function text(value: unknown): string {
 	return typeof value === "string" ? value : "";
@@ -206,9 +282,20 @@ async function fetchPiPlugins(): Promise<{ plugins: MarketPlugin[]; total: numbe
 		}
 	}
 	// 月下载量补齐：普通包走 npm 批量接口（每批 100）；批量接口不支持 scope 包，小并发单查。
-	// 失败的留空（展示为 —），不影响列表本身。
+	// 未过期的沿用缓存，只查新包和过期包；失败的留空（展示为 —），不影响列表本身。
+	const now = Date.now();
 	const downloads = new Map<string, number>();
-	const names = [...seen.keys()];
+	const nextCache = new Map<string, DownloadEntry>();
+	const names: string[] = [];
+	for (const name of seen.keys()) {
+		const known = piDownloads.get(name);
+		if (known && now - known.at < DOWNLOADS_TTL_MS) {
+			downloads.set(name, known.dl);
+			nextCache.set(name, known);
+		} else {
+			names.push(name);
+		}
+	}
 	const plain = names.filter((n) => !n.startsWith("@"));
 	const scoped = names.filter((n) => n.startsWith("@"));
 	for (let offset = 0; offset < plain.length; offset += 100) {
@@ -240,6 +327,11 @@ async function fetchPiPlugins(): Promise<{ plugins: MarketPlugin[]; total: numbe
 			}
 		}));
 	}
+	for (const name of names) {
+		const dl = downloads.get(name);
+		if (dl !== undefined) nextCache.set(name, { dl, at: now });
+	}
+	piDownloads = nextCache;
 	for (const plugin of seen.values()) plugin.dl = downloads.get(plugin.id) ?? null;
 	const plugins = [...seen.values()];
 	plugins.sort((a, b) => (b.dl ?? 0) - (a.dl ?? 0));
@@ -247,6 +339,7 @@ async function fetchPiPlugins(): Promise<{ plugins: MarketPlugin[]; total: numbe
 }
 
 async function refresh(): Promise<MarketSnapshot> {
+	const prev = await peekMarket();
 	const [dsh, pi] = await Promise.allSettled([fetchDshPlugins(), fetchPiPlugins()]);
 	const snapshot: MarketSnapshot = { plugins: [], dshTotal: 0, piTotal: 0 };
 	if (dsh.status === "fulfilled") {
@@ -255,6 +348,11 @@ async function refresh(): Promise<MarketSnapshot> {
 		snapshot.dshAt = Date.now();
 	} else {
 		snapshot.dshError = dsh.reason instanceof Error ? dsh.reason.message : String(dsh.reason);
+		if (prev) {
+			snapshot.plugins.push(...prev.plugins.filter((p) => p.src === "dsh"));
+			snapshot.dshTotal = prev.dshTotal;
+			snapshot.dshAt = prev.dshAt;
+		}
 	}
 	if (pi.status === "fulfilled") {
 		snapshot.plugins.push(...pi.value.plugins);
@@ -262,13 +360,34 @@ async function refresh(): Promise<MarketSnapshot> {
 		snapshot.piAt = Date.now();
 	} else {
 		snapshot.piError = pi.reason instanceof Error ? pi.reason.message : String(pi.reason);
+		if (prev) {
+			snapshot.plugins.push(...prev.plugins.filter((p) => p.src === "pi"));
+			snapshot.piTotal = prev.piTotal;
+			snapshot.piAt = prev.piAt;
+		}
 	}
-	cache = { at: Date.now(), snapshot };
+	const at = Date.now();
+	cache = { at, snapshot };
+	if (dsh.status === "fulfilled" || pi.status === "fulfilled") {
+		const persisted: Persisted = {
+			v: PERSIST_VERSION,
+			at,
+			snapshot: { ...snapshot, dshError: undefined, piError: undefined },
+			piDownloads: Object.fromEntries(piDownloads),
+		};
+		void idbSet(PERSIST_KEY, persisted);
+	}
 	return snapshot;
 }
 
-/** 拉取市场数据：缓存未过期直接返回；force 时绕过缓存重拉。 */
+/** 内存里的快照是否已过期（或还没有）；需先 await peekMarket() 才能反映 IndexedDB 里的快照。 */
+export function isMarketStale(): boolean {
+	return !cache || Date.now() - cache.at >= CACHE_TTL_MS;
+}
+
+/** 拉取市场数据：缓存（含 IndexedDB 快照）未过期直接返回；force 时绕过缓存重拉。 */
 export async function loadMarket(force = false): Promise<MarketSnapshot> {
+	await peekMarket();
 	if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.snapshot;
 	if (!inflight) {
 		inflight = refresh().finally(() => {

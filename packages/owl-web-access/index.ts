@@ -31,7 +31,8 @@ import {
 	type SummaryGenerationContext,
 	type SummaryMeta,
 } from "./summary-review.ts";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { findModelWithProviderRouting, isModelInScope, splitThinkingSuffix } from "./summary-model-scope.ts";
 import {
@@ -170,7 +171,7 @@ function saveConfig(updates: Partial<WebSearchConfig>): void {
 	Object.assign(config, updates);
 	const dir = getWebSearchConfigDir();
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-	writeFileSync(WEB_SEARCH_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
+	atomicWriteFileSync(WEB_SEARCH_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 
 type ToolNames = {

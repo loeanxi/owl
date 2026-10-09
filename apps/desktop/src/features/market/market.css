@@ -27,6 +27,7 @@
 	color: var(--color-owl-muted); font-size: 11px;
 }
 .owl-market-srcpill:hover { border-color: var(--color-owl-faint); }
+.owl-market-srcpill-busy { margin-left: -3px; color: var(--color-owl-faint); }
 .owl-market-livedot { width: 7px; height: 7px; border-radius: 50%; background: #3fae62; flex: 0 0 auto; }
 .owl-market-srcpop {
 	position: absolute; top: 32px; right: 0; z-index: 30;
@@ -46,6 +47,7 @@
 	background: var(--color-owl-hover); color: var(--color-owl-text);
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.owl-market-srcretry:disabled { opacity: 0.6; cursor: default; }
 .owl-market-srcfoot { padding: 8px 10px 6px; margin-top: 4px; border-top: 1px solid var(--color-owl-border); font-size: 10.5px; line-height: 1.5; color: var(--color-owl-faint); }
 
 /* ---------- 工具行 / 分类 ---------- */
@@ -62,7 +64,25 @@
 }
 .owl-market-search input { flex: 1; border: none; outline: none; background: none; color: var(--color-owl-text); font-size: 12px; }
 .owl-market-search input::placeholder { color: var(--color-owl-faint); }
-.owl-market-sort { margin-left: auto; color: var(--color-owl-faint); font-size: 11.5px; }
+.owl-market-sort { position: relative; margin-left: auto; }
+.owl-market-sort-btn {
+	display: inline-flex; align-items: center; gap: 5px;
+	height: 26px; padding: 0 8px; border-radius: 7px;
+	color: var(--color-owl-faint); font-size: 11.5px;
+}
+.owl-market-sort-btn:hover, .owl-market-sort-btn[aria-expanded="true"] { background: var(--color-owl-hover); color: var(--color-owl-text); }
+.owl-market-sort-pop {
+	position: absolute; top: 30px; right: 0; z-index: 30;
+	min-width: 132px; padding: 4px;
+	background: var(--color-owl-panel); border: 1px solid var(--color-owl-border); border-radius: 9px;
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+.owl-market-sort-pop button {
+	display: block; width: 100%; padding: 6px 9px; border-radius: 6px;
+	text-align: left; font-size: 11.5px; color: var(--color-owl-muted);
+}
+.owl-market-sort-pop button:hover { background: var(--color-owl-hover); color: var(--color-owl-text); }
+.owl-market-sort-pop button.is-on { color: var(--color-owl-text); font-weight: 600; }
 .owl-market-cats { display: flex; flex: 0 0 auto; gap: 6px; padding: 0 22px 10px; overflow-x: auto; scrollbar-width: thin; }
 .owl-market-chip {
 	display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px;

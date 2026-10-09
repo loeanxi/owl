@@ -13,8 +13,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFileSync, backupCorruptFile } from "../../utils/atomic-file.ts";
 import {
 	describeRepeat,
 	formatLocal,
@@ -372,14 +373,17 @@ export class ScheduleService {
 			if (raw.version !== 1 || !Array.isArray(raw.tasks)) return;
 			this.store = { version: 1, tasks: raw.tasks, runs: raw.runs ?? {} };
 		} catch (error) {
-			this.onDiagnostic?.(`schedule store load failed: ${error instanceof Error ? error.message : String(error)}`);
+			// 读不出的任务库先留证，否则下一次 save 会用空库把它覆盖掉
+			const backup = backupCorruptFile(this.file);
+			this.onDiagnostic?.(
+				`schedule store load failed: ${error instanceof Error ? error.message : String(error)}${backup ? `（已备份到 ${backup}）` : ""}`,
+			);
 		}
 	}
 
 	private save(): void {
 		try {
-			mkdirSync(join(this.file, ".."), { recursive: true });
-			writeFileSync(this.file, JSON.stringify(this.store, null, "\t"));
+			atomicWriteFileSync(this.file, JSON.stringify(this.store, null, "\t"));
 		} catch (error) {
 			this.onDiagnostic?.(`schedule store save failed: ${error instanceof Error ? error.message : String(error)}`);
 		}

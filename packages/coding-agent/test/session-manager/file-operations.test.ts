@@ -15,7 +15,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { APP_NAME } from "../../src/config.ts";
-import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
+import {
+	clearSessionInfoCacheForTests,
+	findMostRecentSession,
+	loadEntriesFromFile,
+	SessionManager,
+} from "../../src/core/session-manager.ts";
 import { assistantMsg, readSessionFileRoles, userMsg } from "../utilities.ts";
 
 const HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
@@ -353,6 +358,42 @@ describe("SessionManager custom flat session directory", () => {
 
 		await expect(listing).rejects.toMatchObject({ name: "AbortError" });
 		await expect(SessionManager.listAll(undefined, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+	});
+
+	it("findPathById locates by filename without needing listAll metadata", () => {
+		const sessionA = createPersistedSession(projectA, "from A");
+		const sessionB = createPersistedSession(projectB, "from B");
+		const idA = SessionManager.open(sessionA, tempDir).getSessionId();
+		const idB = SessionManager.open(sessionB, tempDir).getSessionId();
+		expect(SessionManager.findPathById(idA, tempDir)).toBe(sessionA);
+		expect(SessionManager.findPathById(idB, tempDir)).toBe(sessionB);
+		expect(SessionManager.findPathById("missing-id", tempDir)).toBeUndefined();
+		expect(SessionManager.findPathById("../escape", tempDir)).toBeUndefined();
+	});
+
+	it("listAll reuses cached session info until the file changes", async () => {
+		clearSessionInfoCacheForTests();
+		const session = createPersistedSession(projectA, "cache me");
+		const first = await SessionManager.listAll(tempDir);
+		const row = first.find((info) => info.path === session);
+		expect(row?.firstMessage).toBe("cache me");
+		const second = await SessionManager.listAll(tempDir);
+		expect(second.find((info) => info.path === session)).toBe(row);
+		const manager = SessionManager.open(session, tempDir);
+		manager.appendMessage({ role: "user", content: "after", timestamp: Date.now() });
+		const third = await SessionManager.listAll(tempDir);
+		const updated = third.find((info) => info.path === session);
+		expect(updated).not.toBe(row);
+		expect(updated?.messageCount).toBeGreaterThan(row?.messageCount ?? 0);
+	});
+
+	it("findPathById finds legacy filenames via header-only scan", () => {
+		const session = createPersistedSession(projectA, "legacy name");
+		const id = SessionManager.open(session, tempDir).getSessionId();
+		const legacyPath = join(tempDir, "renamed-legacy.jsonl");
+		writeFileSync(legacyPath, readFileSync(session, "utf8"));
+		rmSync(session, { force: true });
+		expect(SessionManager.findPathById(id, tempDir)).toBe(legacyPath);
 	});
 });
 

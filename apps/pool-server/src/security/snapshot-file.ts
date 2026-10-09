@@ -3,6 +3,7 @@
  * 共用的磁盘形态：写 tmp → 原子改名；读损坏一律返回 null（安全侧倾，调用方按空表启动）。
  * 快照失败绝不影响主流程。
  */
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -23,12 +24,14 @@ export function saveSnapshot(file: string | null, data: unknown): void {
 	if (file === null) {
 		return;
 	}
+	let tmp: string | undefined;
 	try {
 		const parent = dirname(file);
 		if (parent.length > 0) {
 			mkdirSync(parent, { recursive: true });
 		}
-		const tmp = `${file}.tmp`;
+		// 临时名必须唯一：固定的 `${file}.tmp` 在两个进程同时写时会互相截断
+		tmp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
 		writeFileSync(tmp, `${JSON.stringify(data)}\n`, "utf8");
 		try {
 			renameSync(tmp, file);
@@ -39,6 +42,11 @@ export function saveSnapshot(file: string | null, data: unknown): void {
 		}
 	} catch {
 		// 快照失败只影响重启恢复，静默
+		try {
+			if (tmp) rmSync(tmp, { force: true });
+		} catch {
+			// 忽略
+		}
 	}
 }
 

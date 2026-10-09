@@ -1,6 +1,7 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { getAgentDir, VERSION } from "../config.ts";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 import type { Extension } from "./extensions/types.ts";
 import { isSyntheticPath } from "./source-info.ts";
 
@@ -40,8 +41,7 @@ export function readCrashLog(path = crashLogPath()): CrashRecord[] {
 }
 
 function writeCrashLog(records: readonly CrashRecord[], path: string): void {
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(records, null, 2)}\n`);
+	atomicWriteFileSync(path, `${JSON.stringify(records, null, 2)}\n`);
 }
 
 type ExtensionStackMetadata = Pick<Extension, "path" | "resolvedPath" | "sourceInfo">;

@@ -69,6 +69,13 @@ const benign = [
 	["bash", { command: "ls -la" }],
 	["bash", { command: "git status" }],
 	["bash", { command: "npm test" }],
+	[
+		"bash",
+		{
+			command:
+				'cd /d/owl/owl-re-v1/owl-mono/packages/coding-agent/src/modes/desktop && echo "=== spawn usages ===" && grep -n "spawn(" serve.ts && echo "=== node:fs usages ===" && for f in existsSync mkdirSync readFileSync statSync unlinkSync writeFileSync; do echo "--- $f"; grep -n "\\b$f\\b" serve.ts | head -8; done && echo "=== node:path usages ===" && for f in extname normalize isAbsolute sep dirname; do printf "%s: %s\\n" "$f" "$(grep -c "\\b$f\\b" serve.ts)"; done && echo "=== sidebar-fs symbol usages ===" && for s in listWorkspaceDirectory mkdirWorkspaceEntry readWorkspaceFile readWorkspaceFileBinary removeWorkspaceEntry renameWorkspaceEntry resolveUnderWorkspace SidebarError searchWorkspaceFiles toWirePath writeWorkspaceFile; do printf "%s: %s\\n" "$s" "$(grep -c "\\b$s\\b" serve.ts)"; done && echo "=== viewers ===" && for s in listWorkspaceViewers openWorkspaceViewer subscribeWorkspaceViewers; do printf "%s: %s\\n" "$s" "$(grep -c "\\b$s\\b" serve.ts)"; done',
+		},
+	],
 	["read", { path: "src/index.ts" }],
 	["edit", { path: "README.md", oldValue: "a", newValue: "b" }],
 ];

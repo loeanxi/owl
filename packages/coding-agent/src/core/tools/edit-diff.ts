@@ -25,6 +25,37 @@ export function restoreLineEndings(text: string, ending: "\r\n" | "\n"): string 
 }
 
 /**
+ * Re-apply the original file's per-line endings onto LF-normalized edited text.
+ * Mixed EOL files keep their mix; uniform files stay uniform. New/extra lines
+ * inherit the nearest prior ending, then the file's dominant ending.
+ */
+export function restoreMixedLineEndings(original: string, editedLf: string): string {
+	const endings = [...original.matchAll(/\r\n|\n|\r/g)].map((match) => match[0]);
+	if (endings.length === 0) return editedLf;
+
+	let crlf = 0;
+	let lf = 0;
+	for (const ending of endings) {
+		if (ending === "\r\n") crlf++;
+		else lf++;
+	}
+	const dominant = crlf > lf ? "\r\n" : "\n";
+	if (endings.every((ending) => ending === endings[0])) {
+		return restoreLineEndings(editedLf, endings[0] === "\r\n" ? "\r\n" : "\n");
+	}
+
+	const lines = editedLf.split("\n");
+	let result = "";
+	for (let i = 0; i < lines.length; i++) {
+		result += lines[i];
+		if (i < lines.length - 1) {
+			result += endings[i] ?? endings[Math.min(i, endings.length - 1)] ?? dominant;
+		}
+	}
+	return result;
+}
+
+/**
  * Normalize text for fuzzy matching. Applies progressive transformations:
  * - Strip trailing whitespace from each line
  * - Normalize smart quotes to ASCII equivalents
@@ -245,9 +276,70 @@ export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResul
 }
 
 function countOccurrences(content: string, oldText: string): number {
+	// Prefer exact counts so a unique trailing-space match is not rejected just
+	// because a nearby trimEnd-equivalent line also fuzzy-matches.
+	let exact = 0;
+	let pos = 0;
+	while (oldText.length > 0) {
+		const idx = content.indexOf(oldText, pos);
+		if (idx === -1) break;
+		exact++;
+		pos = idx + oldText.length;
+	}
+	if (exact > 0) return exact;
+
 	const fuzzyContent = normalizeForFuzzyMatch(content);
 	const fuzzyOldText = normalizeForFuzzyMatch(oldText);
+	if (!fuzzyOldText) return 0;
 	return fuzzyContent.split(fuzzyOldText).length - 1;
+}
+
+/**
+ * Map a fuzzy-normalized match back onto the original bytes so NFKC / quote
+ * normalization can find text without rewriting untouched characters on the
+ * same line (e.g. fullwidth ｂ next to an ASCII quote edit).
+ */
+function findOriginalSpan(
+	original: string,
+	oldText: string,
+	fuzzyContent: string,
+	fuzzyIndex: number,
+	fuzzyLength: number,
+): { index: number; length: number } | null {
+	const exactIndex = original.indexOf(oldText);
+	if (exactIndex !== -1) {
+		// When the exact string is unique, use it. When duplicates exist, fall
+		// through so the fuzzy line range can disambiguate.
+		const second = original.indexOf(oldText, exactIndex + oldText.length);
+		if (second === -1) return { index: exactIndex, length: oldText.length };
+	}
+
+	const fuzzyTarget =
+		fuzzyLength > 0 ? fuzzyContent.slice(fuzzyIndex, fuzzyIndex + fuzzyLength) : normalizeForFuzzyMatch(oldText);
+	if (!fuzzyTarget) return null;
+
+	const fuzzyLines = getLineSpans(fuzzyContent);
+	const range = getReplacementLineRange(fuzzyLines, {
+		matchIndex: fuzzyIndex,
+		matchLength: fuzzyLength,
+		newText: "",
+	});
+	const originalLines = splitLinesWithEndings(original);
+	if (originalLines.length !== fuzzyLines.length) return null;
+
+	const blockStart = originalLines.slice(0, range.startLine).join("").length;
+	const block = originalLines.slice(range.startLine, range.endLine).join("");
+	const maxSpan = Math.min(block.length, Math.max(fuzzyTarget.length * 4 + 32, oldText.length * 2 + 32));
+
+	for (let i = 0; i < block.length; i++) {
+		const endLimit = Math.min(block.length, i + maxSpan);
+		for (let j = i + 1; j <= endLimit; j++) {
+			if (normalizeForFuzzyMatch(block.slice(i, j)) === fuzzyTarget) {
+				return { index: blockStart + i, length: j - i };
+			}
+		}
+	}
+	return null;
 }
 
 function getNotFoundError(path: string, editIndex: number, totalEdits: number): Error {
@@ -293,9 +385,9 @@ function getNoChangeError(path: string, totalEdits: number): Error {
  *
  * All edits are matched against the same original content. Replacements are
  * then applied in reverse order so offsets remain stable. If any edit needs
- * fuzzy matching, the operation runs in fuzzy-normalized content space and then
- * overlays those line-level changes onto the original content so unchanged line
- * blocks keep their original bytes.
+ * fuzzy matching, matches are found in fuzzy-normalized space but applied back
+ * onto the original bytes so untouched characters on the same line (e.g.
+ * fullwidth identifiers) are not rewritten by NFKC.
  */
 export function applyEditsToNormalizedContent(
 	normalizedContent: string,
@@ -315,27 +407,46 @@ export function applyEditsToNormalizedContent(
 
 	const initialMatches = normalizedEdits.map((edit) => fuzzyFindText(normalizedContent, edit.oldText));
 	const usedFuzzyMatch = initialMatches.some((match) => match.usedFuzzyMatch);
-	const replacementBaseContent = usedFuzzyMatch ? normalizeForFuzzyMatch(normalizedContent) : normalizedContent;
+	const fuzzyContent = usedFuzzyMatch ? normalizeForFuzzyMatch(normalizedContent) : normalizedContent;
 
 	const matchedEdits: MatchedEdit[] = [];
 	for (let i = 0; i < normalizedEdits.length; i++) {
 		const edit = normalizedEdits[i];
-		const matchResult = fuzzyFindText(replacementBaseContent, edit.oldText);
+		const matchResult = fuzzyFindText(fuzzyContent, edit.oldText);
 		if (!matchResult.found) {
 			throw getNotFoundError(path, i, normalizedEdits.length);
 		}
 
-		const occurrences = countOccurrences(replacementBaseContent, edit.oldText);
+		const occurrences = countOccurrences(normalizedContent, edit.oldText);
 		if (occurrences > 1) {
 			throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
 		}
 
-		matchedEdits.push({
-			editIndex: i,
-			matchIndex: matchResult.index,
-			matchLength: matchResult.matchLength,
-			newText: edit.newText,
-		});
+		if (usedFuzzyMatch) {
+			const span = findOriginalSpan(
+				normalizedContent,
+				edit.oldText,
+				fuzzyContent,
+				matchResult.index,
+				matchResult.matchLength,
+			);
+			if (!span) {
+				throw getNotFoundError(path, i, normalizedEdits.length);
+			}
+			matchedEdits.push({
+				editIndex: i,
+				matchIndex: span.index,
+				matchLength: span.length,
+				newText: edit.newText,
+			});
+		} else {
+			matchedEdits.push({
+				editIndex: i,
+				matchIndex: matchResult.index,
+				matchLength: matchResult.matchLength,
+				newText: edit.newText,
+			});
+		}
 	}
 
 	matchedEdits.sort((a, b) => a.matchIndex - b.matchIndex);
@@ -350,9 +461,7 @@ export function applyEditsToNormalizedContent(
 	}
 
 	const baseContent = normalizedContent;
-	const newContent = usedFuzzyMatch
-		? applyReplacementsPreservingUnchangedLines(normalizedContent, replacementBaseContent, matchedEdits)
-		: applyReplacements(replacementBaseContent, matchedEdits);
+	const newContent = applyReplacements(normalizedContent, matchedEdits);
 
 	if (baseContent === newContent) {
 		throw getNoChangeError(path, normalizedEdits.length);

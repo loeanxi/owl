@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
 import {
 	AccountPoolRouter,
@@ -10,7 +12,11 @@ import {
 	type UpstreamChatClient,
 } from "owl-pool";
 import { afterEach, describe, expect, it } from "vitest";
+import { stream as streamOpenAI } from "../../../packages/ai/src/api/openai-completions.ts";
+import { normalizeContext } from "../../../packages/ai/src/utils/transcript.ts";
 import { chatCompletionStream, type GatewayServiceDeps } from "../src/gateway/service.ts";
+import { registerGatewayRoutes } from "../src/http/gateway-api.ts";
+import { Router } from "../src/http/router.ts";
 import { SqliteAccountStore } from "../src/store/account-store.ts";
 import { SqliteBillingStore } from "../src/store/billing-store.ts";
 import { openDb } from "../src/store/db.ts";
@@ -251,6 +257,80 @@ function gatewayFixture(usage: Record<string, unknown>) {
 }
 
 describe("gateway passes only trustworthy upstream cache metrics", () => {
+	it.each([
+		{ label: "nullable canonical field", cached: null, alias: 11648 },
+		{ label: "nullable fallback alias", cached: 11648, alias: null },
+	])("the actual local SDK and ledger agree on a verified count beside $label", async (sample) => {
+		const f = gatewayFixture({
+			prompt_tokens: 12387,
+			completion_tokens: 718,
+			total_tokens: 13105,
+			prompt_tokens_details: { cached_tokens: sample.cached },
+			prompt_cache_hit_tokens: sample.alias,
+			cache_creation_input_tokens: 0,
+		});
+		f.deps.upstreams.get("GROK")!.chatCompletionStream = async (_account, _payload, chunk) => {
+			chunk(JSON.stringify({ choices: [{ index: 0, delta: { content: "faux" }, finish_reason: "stop" }] }));
+			chunk(
+				JSON.stringify({
+					choices: [],
+					usage: {
+						prompt_tokens: 12387,
+						completion_tokens: 718,
+						total_tokens: 13105,
+						prompt_tokens_details: { cached_tokens: sample.cached },
+						prompt_cache_hit_tokens: sample.alias,
+						cache_creation_input_tokens: 0,
+					},
+				}),
+			);
+		};
+		const apiKey = f.deps.keys.create({ name: "faux-local-sdk", ownerMemberId: "faux-member" });
+		const router = new Router();
+		registerGatewayRoutes(router, { gateway: f.deps, gatewayConfig: f.deps.config });
+		const server = createServer((request, response) => {
+			void router
+				.handle(request, response, new URL(request.url ?? "/", "http://127.0.0.1"), async <T>() => {
+					let body = "";
+					for await (const chunk of request) body += String(chunk);
+					return JSON.parse(body) as T;
+				})
+				.catch(() => response.destroy());
+		});
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+		try {
+			const result = await streamOpenAI(
+				{
+					api: "openai-completions",
+					id: "faux-model",
+					name: "Faux",
+					provider: "faux-local",
+					baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+					reasoning: false,
+					input: ["text"],
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+					contextWindow: 200000,
+					maxTokens: 32768,
+				},
+				normalizeContext({ messages: [{ role: "user", content: "faux", timestamp: Date.now() }] }),
+				{
+					apiKey: apiKey.plaintext,
+					maxTokens: 1,
+					maxRetries: 0,
+				},
+			).result();
+			expect(result.stopReason).toBe("stop");
+			expect(typeof result.usage.cacheRead).toBe("number");
+			expect(Number.isSafeInteger(result.usage.cacheRead)).toBe(true);
+			expect(result.usage).toMatchObject({ input: 739, output: 718, cacheRead: 11648, totalTokens: 13105 });
+			expect(f.db.prepare("SELECT status,amount,cache_read_tokens FROM billing_ledger_entries").get()).toMatchObject(
+				{ status: "POSTED", amount: -2, cache_read_tokens: 11648 },
+			);
+		} finally {
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
+	});
 	it("missing native basic usage reaches the ledger as REVIEW", async () => {
 		const f = gatewayFixture({});
 		const mapper = new AnthropicUpstreamMapper({ label: "faux", foldCacheTokens: true });

@@ -65,7 +65,7 @@ export type DesktopApprovalEvent =
 			type: "permission_resolved";
 			requestId: string;
 			approved: boolean;
-			reason: "response" | "mode-change" | "cancelled";
+			reason: "response" | "mode-change" | "cancelled" | "timeout";
 	  }
 	| { type: "approval_mode_changed"; approvalMode: ApprovalMode };
 
@@ -828,6 +828,27 @@ export interface ModelsRemoveProviderRequest {
 	providerKey: string;
 }
 
+/** 上游模型目录里的一条（用于设置页「添加模型」下拉）。 */
+export interface DiscoveredModel {
+	id: string;
+	name?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+}
+
+export interface ModelsDiscoverRequest {
+	type: "models.discover";
+	id: string;
+	providerKey: string;
+}
+
+export interface ModelsDiscoverResult {
+	models: DiscoveredModel[];
+	/** 有部分结果时也可带提示（例如用了本地目录兜底）。 */
+	error?: string;
+}
+
 export interface SettingsSetRequest {
 	type: "settings.set";
 	id: string;
@@ -848,6 +869,17 @@ export interface SystemPromptPreviewResult {
 export interface PingRequest {
 	type: "ping";
 	id: string;
+}
+
+/**
+ * 声明本连接关心的会话：高频 text/thinking delta 只推给订阅方。
+ * 未订阅会话仍收生命周期与工具步进事件（侧栏绿点 / 步进提示）。
+ * 未发送本请求时视为 all（兼容旧 UI）。
+ */
+export interface EventsSubscribeRequest {
+	type: "events.subscribe";
+	id: string;
+	sessionIds: string[] | "all";
 }
 
 export interface NewsClientRequest {
@@ -2033,7 +2065,47 @@ export interface ProviderModelsMessage {
 	models: ModelInfoMessage[];
 }
 
+// ---------------------------------------------------------------------------
+// 构建一致性握手：UI 每次连上桥报一次自己的构建指纹，桥回报差异清单
+// ---------------------------------------------------------------------------
+
+/** UI bundle 构建时注入的指纹；vite dev 下 buildId 为 "dev"（HMR 天然新鲜，不做比对）。 */
+export interface UiBuildFingerprint {
+	buildId: string;
+	protocolHash?: string;
+}
+
+export interface BuildHelloRequest {
+	type: "build.hello";
+	id: string;
+	ui: UiBuildFingerprint;
+}
+
+/** files 只带前几个路径做展示，count 是全部变更数。 */
+export type BuildIssue =
+	| { kind: "protocol-mismatch"; uiProtocol: string; bridgeProtocol: string }
+	| { kind: "ui-reload" }
+	| { kind: "ui-source-newer"; files: string[]; count: number }
+	| { kind: "bridge-restart" }
+	| { kind: "bridge-source-newer"; files: string[]; count: number }
+	| { kind: "bridge-unstamped" }
+	| { kind: "plugin-source-newer"; plugin: string; files: string[]; count: number }
+	| { kind: "corrupt-files"; files: Array<{ path: string; size: number; mtime: string }> };
+
+export interface BuildHelloResult {
+	bridge: {
+		/** dist = 带指纹的构建产物；source = 直接跑源码（天然新鲜）；unstamped = dist 缺 build-info.json。 */
+		mode: "dist" | "source" | "unstamped";
+		buildId?: string;
+		builtAt?: string;
+		gitHead?: string;
+		protocolHash?: string;
+	};
+	issues: BuildIssue[];
+}
+
 export type DesktopClientRequest =
+	| BuildHelloRequest
 	| EvaluationClientRequest
 	| MailClientRequest
 	| MailAgentStartRequest
@@ -2090,6 +2162,7 @@ export type DesktopClientRequest =
 	| ModelsPutModelRequest
 	| ModelsRemoveModelRequest
 	| ModelsRemoveProviderRequest
+	| ModelsDiscoverRequest
 	| AuthProvidersRequest
 	| AuthLoginRequest
 	| AuthPromptRespondRequest
@@ -2118,6 +2191,7 @@ export type DesktopClientRequest =
 	| ImageSubLogoutRequest
 	| ImageModelsListRequest
 	| PingRequest
+	| EventsSubscribeRequest
 	| PermissionResponseRequest
 	| ViewerListRequest
 	| ViewerOpenRequest

@@ -6,12 +6,11 @@ import { splitBom } from "../../utils/text.ts";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
-	detectLineEnding,
 	type Edit,
 	generateDiffString,
 	generateUnifiedPatch,
 	normalizeToLF,
-	restoreLineEndings,
+	restoreMixedLineEndings,
 } from "./edit-diff.ts";
 import { assertEditSeenThisTurn } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
@@ -256,12 +255,11 @@ export function createEditToolDefinition(
 
 				// Strip BOM before matching. The model will not include an invisible BOM in oldText.
 				const { bom, text: content } = splitBom(rawContent);
-				const originalEnding = detectLineEnding(content);
 				const normalizedContent = normalizeToLF(content);
 				const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
 				throwIfAborted();
 
-				const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+				const finalContent = bom + restoreMixedLineEndings(content, newContent);
 				await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 

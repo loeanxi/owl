@@ -115,6 +115,16 @@ export function useMailAgent(
 		};
 	}, [client]);
 
+	// 只在会话集合变化时重订阅；每条 delta 都会 setSessions，不能依赖数组引用。
+	const watchedSessionKey = sessions.map((session) => session.id).join("\n");
+	useEffect(() => {
+		const ids = watchedSessionKey ? watchedSessionKey.split("\n") : [];
+		const releases = ids.map((id) => client.watchSessionEvents(id));
+		return () => {
+			for (const release of releases) release();
+		};
+	}, [client, watchedSessionKey]);
+
 	useEffect(() => {
 		if (!connected) {
 			for (const session of sessionsRef.current)

@@ -17,10 +17,10 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { homedir } from "node:os";
-import { dirname, extname, join, normalize, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -80,6 +80,7 @@ import { loadPromptTemplates } from "../../core/prompt-templates.ts";
 import {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
+	getAllPendingQuestionRequests,
 	getPendingQuestionRequests,
 	setQuestionChannel,
 } from "../../core/question-channel.ts";
@@ -102,6 +103,7 @@ import {
 	listSessionTurns,
 	sessionDisplayName,
 } from "../../core/session-export.ts";
+import type { SessionInfo } from "../../core/session-manager.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
@@ -109,12 +111,21 @@ import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
+import { atomicWriteFileSync } from "../../utils/atomic-file.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { saveSessionApprovalMode, sessionApprovalMode } from "./approval-history.ts";
+import {
+	ARCHIVE_PURGE_INTERVAL_MS,
+	archiveRetentionDays,
+	DEFAULT_ARCHIVE_RETENTION_DAYS,
+	readArchiveMeta,
+	writeArchiveMeta,
+} from "./archive-meta.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
+import { BuildChecker } from "./build-check.ts";
 import {
 	clearCursorAccounts,
 	credentialFromAccount,
@@ -123,6 +134,7 @@ import {
 	switchCursorAccount,
 	upsertCursorAccount,
 } from "./cursor-accounts.ts";
+import { DesktopEventFanout } from "./event-fanout.ts";
 import { type BrowserHandlerContext, handleIabRequest } from "./handlers/browser.ts";
 import { handleMirrorRequest, type MirrorHandlerContext } from "./handlers/mirror.ts";
 import { handleTermRequest, type TerminalHandlerContext } from "./handlers/terminal.ts";
@@ -153,6 +165,7 @@ import { createPiBashTool, piResourceLoaderOptions } from "./pi-runtime.ts";
 import { streamingBehaviorForPrompt } from "./prompt-delivery.ts";
 import type {
 	CommandsListResult,
+	DiscoveredModel,
 	IabFrameMessage,
 	IabPageInfo,
 	MirrorFrameMessage,
@@ -179,6 +192,7 @@ import {
 	updateSkill,
 } from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
+import { isTrustedDesktopOrigin, resolveUiRoot, serveUi } from "./ui-static.ts";
 import { handleWallpaperHttp } from "./wallpaper-http.ts";
 
 // ---------------------------------------------------------------------------
@@ -257,7 +271,83 @@ function uniqueExportPath(dir: string, filename: string): string {
 }
 
 function writeModelsFile(agentDir: string, models: ModelsFile): void {
-	writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, "\t")}\n`);
+	atomicWriteFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, "\t")}\n`);
+}
+
+/** OpenAI 兼容目录接口可用的协议（Anthropic Messages 没有标准 /models）。 */
+const OPENAI_COMPAT_APIS = new Set(["openai-completions", "openai-responses"]);
+
+function positiveInt(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+}
+
+/** 把上游 /models 行（或运行时 Model）压成设置页下拉用的精简条目。 */
+function toDiscoveredModel(row: {
+	id: string;
+	name?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+}): DiscoveredModel {
+	return {
+		id: row.id,
+		...(row.name && row.name !== row.id ? { name: row.name } : {}),
+		...(row.contextWindow ? { contextWindow: row.contextWindow } : {}),
+		...(row.maxTokens ? { maxTokens: row.maxTokens } : {}),
+		...(row.reasoning ? { reasoning: true } : {}),
+	};
+}
+
+/**
+ * 调上游 OpenAI 兼容的 GET {baseUrl}/models，解析成发现列表。
+ * baseUrl 通常已带 /v1；用 URL 相对解析避免重复或漏斜杠。
+ */
+async function fetchOpenAiCompatibleModels(
+	baseUrl: string,
+	apiKey: string | undefined,
+	signal?: AbortSignal,
+): Promise<DiscoveredModel[]> {
+	const response = await fetch(new URL("models", `${baseUrl.replace(/\/?$/, "/")}`), {
+		headers: {
+			accept: "application/json",
+			...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+		},
+		signal,
+	});
+	if (!response.ok) {
+		const body = (await response.text().catch(() => "")).trim().slice(0, 512);
+		throw new Error(`/models ${response.status}${body ? `: ${body}` : ""}`);
+	}
+	const payload: unknown = await response.json();
+	const rows = Array.isArray(payload) ? payload : ((payload as { data?: unknown } | null)?.data ?? []);
+	if (!Array.isArray(rows)) throw new Error("/models 响应格式无法识别");
+	const models: DiscoveredModel[] = [];
+	for (const raw of rows) {
+		const row = raw as Record<string, unknown>;
+		const id = typeof row.id === "string" ? row.id : typeof row.name === "string" ? row.name : "";
+		if (!id) continue;
+		const contextWindow =
+			positiveInt(row.context_window) ??
+			positiveInt(row.context_length) ??
+			positiveInt(row.max_model_len) ??
+			positiveInt(row.contextWindow);
+		const maxTokens = positiveInt(row.max_output_tokens) ?? positiveInt(row.max_tokens) ?? positiveInt(row.maxTokens);
+		const reasoning =
+			row.reasoning === true ||
+			row.supports_reasoning === true ||
+			(typeof row.id === "string" && /reason|think|r1|o[1-9]/i.test(row.id));
+		models.push(
+			toDiscoveredModel({
+				id,
+				name:
+					typeof row.display_name === "string" ? row.display_name : typeof row.name === "string" ? row.name : id,
+				...(contextWindow ? { contextWindow } : {}),
+				...(maxTokens ? { maxTokens } : {}),
+				reasoning,
+			}),
+		);
+	}
+	return models.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 import type {
@@ -290,70 +380,11 @@ export type {
 	ServerEventMessage,
 	ServerResponseMessage,
 } from "./protocol.ts";
+export { DEFAULT_ARCHIVE_RETENTION_DAYS, isTrustedDesktopOrigin };
 
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Static UI — single-port mode: the bridge also serves the built desktop UI,
-// so `node serve.js` alone is the whole app. Override with OWL_UI_DIR.
-// ---------------------------------------------------------------------------
-
-const UI_CONTENT_TYPES: Record<string, string> = {
-	".html": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-	".json": "application/json; charset=utf-8",
-	".svg": "image/svg+xml",
-	".png": "image/png",
-	".ico": "image/x-icon",
-	".woff2": "font/woff2",
-	".map": "application/json",
-};
-
-function resolveUiRoot(): string | null {
-	const explicit = process.env.OWL_UI_DIR;
-	if (explicit && existsSync(join(explicit, "index.html"))) return explicit;
-	// 从本文件位置向上找仓库根的 apps/desktop/dist，不依赖固定层级
-	let dir = dirname(fileURLToPath(import.meta.url));
-	for (let i = 0; i < 8; i++) {
-		const candidate = join(dir, "apps", "desktop", "dist");
-		if (existsSync(join(candidate, "index.html"))) return candidate;
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return null;
-}
-
-function serveUi(uiRoot: string, requestPath: string, response: ServerResponse, headOnly: boolean): void {
-	let relative = "/";
-	try {
-		relative = normalize(decodeURIComponent(requestPath.split("?")[0] ?? "/"));
-	} catch {
-		// 非法编码按 "/" 处理
-	}
-	let filePath = join(uiRoot, relative.replace(/^[/\\]+/, ""));
-	// 目录穿越防护：逃出 uiRoot 一律回退 SPA 入口
-	if (filePath !== uiRoot && !filePath.startsWith(uiRoot + sep)) filePath = join(uiRoot, "index.html");
-	if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
-		filePath = join(uiRoot, "index.html"); // SPA fallback
-	}
-	try {
-		const body = readFileSync(filePath);
-		const isHtml = extname(filePath).toLowerCase() === ".html";
-		response.writeHead(200, {
-			"Content-Type": UI_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream",
-			// 入口 HTML 不许缓存：dist 重建后已打开的窗口刷新/重开必须拿到新 bundle
-			//（资源文件本身带内容哈希，可安全缓存）。
-			...(isHtml ? { "Cache-Control": "no-cache" } : {}),
-		});
-		response.end(headOnly ? undefined : body);
-	} catch {
-		response.writeHead(500).end();
-	}
-}
 
 export interface DesktopServerOptions {
 	port?: number;
@@ -386,69 +417,6 @@ export interface DesktopServerOptions {
 export interface DesktopServerHandle {
 	port: number;
 	close(): Promise<void>;
-}
-
-/** Only local desktop/browser surfaces may subscribe to private agent and mailbox events. */
-export function isTrustedDesktopOrigin(origin: string | undefined, bindingHost?: string): boolean {
-	if (origin === undefined) return true;
-	let url: URL;
-	try {
-		url = new URL(origin);
-	} catch {
-		return false;
-	}
-	if (url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash)
-		return false;
-	if (url.protocol === "tauri:") return url.hostname === "localhost";
-	if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-	if (["localhost", "127.0.0.1", "[::1]", "tauri.localhost"].includes(url.hostname)) return true;
-	if (!bindingHost || ["0.0.0.0", "::", "[::]"].includes(bindingHost)) return false;
-	return url.hostname === bindingHost.toLowerCase();
-}
-
-// ---------------------------------------------------------------------------
-// 会话归档：归档是侧边栏元数据，不写进会话文件，统一记在
-// <agentDir>/Owl-history/archive.json —— { retentionDays, sessions: {id: {archivedAt, path?}} }。
-// 桥端定时巡检：归档超过 retentionDays（默认 15 天）的会话自动删除 JSONL。
-// ---------------------------------------------------------------------------
-
-interface ArchiveMetaEntry {
-	archivedAt: string;
-	/** 归档时定位到的 JSONL 路径（巡检优先用它，找不到再按 id 全盘搜索）。 */
-	path?: string;
-}
-
-interface ArchiveMetaFile {
-	retentionDays?: number;
-	sessions?: Record<string, ArchiveMetaEntry>;
-}
-
-export const DEFAULT_ARCHIVE_RETENTION_DAYS = 15;
-/** 巡检间隔：1 小时（保留期以天为单位，小时级精度足够）。 */
-const ARCHIVE_PURGE_INTERVAL_MS = 60 * 60 * 1000;
-
-function archiveMetaPath(agentDir: string): string {
-	return join(agentDir, "Owl-history", "archive.json");
-}
-
-function readArchiveMeta(agentDir: string): ArchiveMetaFile {
-	try {
-		const parsed = JSON.parse(readFileSync(archiveMetaPath(agentDir), "utf-8")) as ArchiveMetaFile;
-		return parsed && typeof parsed === "object" ? parsed : {};
-	} catch {
-		return {};
-	}
-}
-
-function writeArchiveMeta(agentDir: string, meta: ArchiveMetaFile): void {
-	const path = archiveMetaPath(agentDir);
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(meta, null, 2)}\n`);
-}
-
-function archiveRetentionDays(meta: ArchiveMetaFile): number {
-	const value = meta.retentionDays;
-	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_ARCHIVE_RETENTION_DAYS;
 }
 
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
@@ -520,18 +488,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				contextRebuildCache.set(sessionId, { key, rows });
 				return rows;
 			}
-			const info = (await SessionManager.listAll()).find((row) => row.id === sessionId);
-			if (!info) return undefined;
+			const sessionPath = await findSessionFile(sessionId);
+			if (!sessionPath) return undefined;
 			let mtimeMs = 0;
 			try {
-				mtimeMs = statSync(info.path).mtimeMs;
+				mtimeMs = statSync(sessionPath).mtimeMs;
 			} catch {
 				return undefined;
 			}
 			const key = String(mtimeMs);
 			const cached = contextRebuildCache.get(sessionId);
 			if (cached && cached.key === key) return cached.rows;
-			const rows = reconstructContextInsight(SessionManager.open(info.path).buildSessionProjection().entries);
+			const rows = reconstructContextInsight(SessionManager.open(sessionPath).buildSessionProjection().entries);
 			contextRebuildCache.set(sessionId, { key, rows });
 			return rows;
 		} catch {
@@ -666,15 +634,30 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return getNewsService().handle(request);
 	}
 
-	/** 按 id 定位历史会话的 JSONL 文件。 */
+	/** sessionId → 路径 + mtime：避免热路径反复扫 Owl-history。 */
+	const sessionPathCache = new Map<string, { path: string; mtimeMs: number }>();
+
+	/** 按 id 定位历史会话的 JSONL 文件（只读 header / 文件名，不解析全文）。 */
 	async function findSessionFile(sessionId: string): Promise<string | undefined> {
-		const ordinary = (await SessionManager.listAll()).find((row) => row.id === sessionId)?.path;
-		return (
-			ordinary ??
-			(await SessionManager.listAll(join(defaultAgentDir(), "mail", "agent-sessions"))).find(
-				(row) => row.id === sessionId,
-			)?.path
-		);
+		const cached = sessionPathCache.get(sessionId);
+		if (cached) {
+			try {
+				if (existsSync(cached.path) && statSync(cached.path).mtimeMs === cached.mtimeMs) return cached.path;
+			} catch {
+				// 缓存失效后重新定位
+			}
+			sessionPathCache.delete(sessionId);
+		}
+		const path =
+			SessionManager.findPathById(sessionId) ??
+			SessionManager.findPathById(sessionId, join(defaultAgentDir(), "mail", "agent-sessions"));
+		if (!path) return undefined;
+		try {
+			sessionPathCache.set(sessionId, { path, mtimeMs: statSync(path).mtimeMs });
+		} catch {
+			// 定位成功但 stat 失败：仍返回路径，不写缓存
+		}
+		return path;
 	}
 
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
@@ -779,13 +762,26 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		reject: (error: Error) => void;
 	} | null = null;
 
+	const eventFanout = new DesktopEventFanout({
+		clients: () => clients,
+		send: (client, payload) => client.send(payload),
+	});
+
 	function broadcast(message: DesktopServerMessage): void {
-		const payload = JSON.stringify(message);
-		for (const client of clients) {
-			if (client.readyState === client.OPEN) {
-				client.send(payload);
-			}
-		}
+		eventFanout.broadcast(message);
+	}
+
+	/** 同时到达的 session.list 共享同一次扫描；目录不同则分开。 */
+	const sessionListInflight = new Map<string, Promise<SessionInfo[]>>();
+	async function listSessionsShared(sessionDir: string | undefined): Promise<SessionInfo[]> {
+		const key = sessionDir ?? "";
+		const existing = sessionListInflight.get(key);
+		if (existing) return existing;
+		const pending = SessionManager.listAll(sessionDir).finally(() => {
+			sessionListInflight.delete(key);
+		});
+		sessionListInflight.set(key, pending);
+		return pending;
 	}
 
 	/** ask_user_question 出发前的守卫：一个 UI 都没连着时提问必然无人应答。 */
@@ -1148,10 +1144,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		};
 	}
 
-	function replayResearchRequests(ws: WebSocket, sessionId: string, sessionManager: SessionManager): void {
-		if (!getResearchMode(sessionManager) || ws.readyState !== ws.OPEN) return;
+	/** 挂载/恢复后把该会话仍挂起的审批与提问单播给当前连接（普通会话与研究会话一视同仁）。 */
+	function replayPendingSessionRequests(ws: WebSocket, sessionId: string): void {
+		if (ws.readyState !== ws.OPEN) return;
 		for (const pending of pendingPermissions.forSession(sessionId)) ws.send(JSON.stringify(pending));
 		for (const request of getPendingQuestionRequests(sessionId)) ws.send(JSON.stringify(request));
+	}
+
+	/** 新 UI 连上时重放全部挂起审批/提问，避免刷新后模态丢失、Agent 一直卡在 beforeToolCall。 */
+	function replayAllPendingRequests(ws: WebSocket): void {
+		if (ws.readyState !== ws.OPEN) return;
+		for (const pending of pendingPermissions.pendingMessages()) ws.send(JSON.stringify(pending));
+		for (const request of getAllPendingQuestionRequests()) ws.send(JSON.stringify(request));
 	}
 
 	/** 回退目标合法性：必须是当前分支上的用户消息条目。 */
@@ -1494,7 +1498,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			ok: true,
 			result: { ...sessionSnapshot(sessionId, sessionManager), ...(mailContext ? { context: mailContext } : {}) },
 		});
-		replayResearchRequests(ws, sessionId, sessionManager);
+		replayPendingSessionRequests(ws, sessionId);
 	}
 
 	async function createSession(ws: WebSocket, request: SessionCreateRequest): Promise<void> {
@@ -1533,10 +1537,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				ok: true,
 				result: sessionSnapshot(request.sessionId, sessionManager),
 			});
-			replayResearchRequests(ws, request.sessionId, sessionManager);
+			replayPendingSessionRequests(ws, request.sessionId);
 			return;
 		}
-		// 定位历史文件：listAll 返回的 SessionInfo 带 path 与原 cwd
+		// 定位历史文件：header/文件名定位，不扫全文
 		const sessionPath = await findSessionFile(request.sessionId);
 		if (!sessionPath || !existsSync(sessionPath)) {
 			reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
@@ -2428,10 +2432,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "models.putModel": {
 				const agentDir = defaultAgentDir();
 				const models = readModelsFile(agentDir);
-				const provider = models.providers?.[request.providerKey];
+				let provider = models.providers?.[request.providerKey];
 				if (!provider) {
-					reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
-					return;
+					// 凭据分组（登录过/贴过 Key 的内置供应商）不在 models.json：首次添加模型时落成声明。
+					const group = (await credentialedProviderGroups()).find((entry) => entry.id === request.providerKey);
+					if (!group) {
+						reply(ws, request.id, { ok: false, error: `未知供应商：${request.providerKey}` });
+						return;
+					}
+					provider = {
+						...(group.name ? { name: group.name } : {}),
+						models: group.models.map((entry) => {
+							const model: ModelFileEntry = { id: entry.id };
+							if (entry.name && entry.name !== entry.id) model.name = entry.name;
+							if (entry.contextWindow) model.contextWindow = entry.contextWindow;
+							if (entry.reasoning) model.reasoning = entry.reasoning;
+							return model;
+						}),
+					};
+					models.providers = { ...(models.providers ?? {}), [request.providerKey]: provider };
 				}
 				if (!request.model.id.trim()) {
 					reply(ws, request.id, { ok: false, error: "模型 ID 不能为空" });
@@ -2446,6 +2465,148 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				provider.models = [...rest, entry];
 				writeModelsFile(agentDir, models);
 				reply(ws, request.id, { ok: true, result: await mergedProviderGroups(agentDir) });
+				return;
+			}
+			case "models.discover": {
+				const agentDir = defaultAgentDir();
+				const providerKey = request.providerKey.trim();
+				if (!providerKey) {
+					reply(ws, request.id, { ok: false, error: "供应商不能为空" });
+					return;
+				}
+				const declared = readModelsFile(agentDir).providers?.[providerKey];
+				let runtime: Awaited<ReturnType<typeof getListingServices>>["modelRuntime"] | undefined;
+				try {
+					runtime = (await getListingServices()).modelRuntime;
+				} catch {
+					runtime = undefined;
+				}
+				const provider = runtime?.getProvider(providerKey);
+				const known = (): DiscoveredModel[] =>
+					(runtime?.getModels(providerKey) ?? []).map((model) =>
+						toDiscoveredModel({
+							id: model.id,
+							name: model.name,
+							contextWindow: model.contextWindow,
+							maxTokens: model.maxTokens,
+							reasoning: model.reasoning,
+						}),
+					);
+
+				// 1) 内置动态目录（loean / cursor 等）：联网 refresh 后读运行时目录。
+				if (provider?.refreshModels && !process.env.PI_OFFLINE && runtime) {
+					try {
+						const refreshed = await runtime.refresh({
+							providers: [providerKey],
+							allowNetwork: true,
+							signal: AbortSignal.timeout(25_000),
+						});
+						const refreshError = refreshed.errors.get(providerKey);
+						const models = known();
+						if (models.length > 0) {
+							reply(ws, request.id, {
+								ok: true,
+								result: {
+									models,
+									...(refreshError
+										? { error: refreshError instanceof Error ? refreshError.message : String(refreshError) }
+										: {}),
+								},
+							});
+							return;
+						}
+						if (refreshError) {
+							reply(ws, request.id, {
+								ok: false,
+								error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+							});
+							return;
+						}
+					} catch (error) {
+						const catalog = known();
+						if (catalog.length > 0) {
+							reply(ws, request.id, {
+								ok: true,
+								result: {
+									models: catalog,
+									error: `联网拉取失败，已用本地目录（${error instanceof Error ? error.message : String(error)}）`,
+								},
+							});
+							return;
+						}
+						reply(ws, request.id, {
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						});
+						return;
+					}
+				}
+
+				// 2) OpenAI 兼容：直接打上游 GET /models（自定义供应商或内置 openai-completions）。
+				const baseUrl = declared?.baseUrl ?? provider?.baseUrl;
+				const api = declared?.api ?? provider?.getModels()[0]?.api;
+				if (baseUrl && (!api || OPENAI_COMPAT_APIS.has(api))) {
+					let apiKey: string | undefined;
+					if (declared?.apiKey) {
+						try {
+							const { resolveConfigValue } = await import("../../core/resolve-config-value.ts");
+							apiKey = resolveConfigValue(declared.apiKey);
+						} catch {
+							apiKey = declared.apiKey.startsWith("$") ? undefined : declared.apiKey;
+						}
+					}
+					if (!apiKey && runtime) {
+						try {
+							apiKey = (await runtime.getAuth(providerKey))?.auth.apiKey;
+						} catch {
+							// 没凭据就匿名试一下（部分本地网关不需要 Key）
+						}
+					}
+					try {
+						const models = await fetchOpenAiCompatibleModels(baseUrl, apiKey, AbortSignal.timeout(25_000));
+						if (models.length > 0) {
+							reply(ws, request.id, { ok: true, result: { models } });
+							return;
+						}
+					} catch (error) {
+						const catalog = known();
+						if (catalog.length > 0) {
+							reply(ws, request.id, {
+								ok: true,
+								result: {
+									models: catalog,
+									error: `上游 /models 失败，已用本地目录（${error instanceof Error ? error.message : String(error)}）`,
+								},
+							});
+							return;
+						}
+						reply(ws, request.id, {
+							ok: false,
+							error: error instanceof Error ? error.message : String(error),
+						});
+						return;
+					}
+				}
+
+				// 3) 兜底：本地内置/已声明目录（不能联网或协议不支持时仍给出可选列表）。
+				const catalog = known();
+				if (catalog.length > 0) {
+					reply(ws, request.id, {
+						ok: true,
+						result: {
+							models: catalog,
+							error:
+								provider?.refreshModels || (baseUrl && OPENAI_COMPAT_APIS.has(api ?? ""))
+									? undefined
+									: "该供应商没有上游目录接口，以下是本地已知模型",
+						},
+					});
+					return;
+				}
+				reply(ws, request.id, {
+					ok: false,
+					error: "无法拉取上游模型：请确认已配置 API Key / 登录，且供应商支持模型目录接口",
+				});
 				return;
 			}
 			case "models.removeModel": {
@@ -2795,6 +2956,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		{
 			type:
 				| "ping"
+				| "events.subscribe"
 				| "commands.list"
 				| "project.create"
 				| "context.get"
@@ -2808,6 +2970,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		switch (request.type) {
 			case "ping": {
 				reply(ws, request.id, { ok: true, result: "pong" });
+				return;
+			}
+			case "events.subscribe": {
+				eventFanout.subscribe(ws, request.sessionIds === "all" ? "all" : request.sessionIds);
+				reply(ws, request.id, { ok: true, result: { ok: true } });
 				return;
 			}
 		}
@@ -3039,7 +3206,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				if (request.scope !== undefined && request.scope !== "chat" && request.scope !== "research") {
 					throw new Error("无效的会话目录类型");
 				}
-				const found = await SessionManager.listAll(request.sessionDir);
+				const found = await listSessionsShared(request.sessionDir);
 				// 附带归档标记：sidebar 据此把会话放进「归档」分组
 				const meta = readArchiveMeta(defaultAgentDir());
 				reply(ws, request.id, {
@@ -3048,7 +3215,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						.map((row) => {
 							const scope = row.customTypes?.includes(RESEARCH_MODE_ENTRY) ? "research" : "chat";
 							const archived = meta.sessions?.[row.id];
-							return { ...row, scope, ...(archived ? { archivedAt: archived.archivedAt } : {}) };
+							// allMessagesText 只服务 TUI 搜索；桌面侧栏不用，下发会放大 WS 负载
+							const { allMessagesText: _allMessagesText, ...rest } = row;
+							return { ...rest, scope, ...(archived ? { archivedAt: archived.archivedAt } : {}) };
 						})
 						.filter((row) => request.scope === undefined || row.scope === request.scope),
 				});
@@ -3228,6 +3397,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				await handleHostedRequest(ws, request);
 				return;
 			case "ping":
+			case "events.subscribe":
 				await handleOtherRequest(ws, request);
 				return;
 			case "session.create":
@@ -3311,6 +3481,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "models.putModel":
 			case "models.removeModel":
 			case "models.removeProvider":
+			case "models.discover":
 				await handleModelsRequest(ws, request);
 				return;
 			case "auth.providers":
@@ -3407,6 +3578,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "mirror.unembed":
 				await handleMirrorRequest(ws, request, mirrorContext);
 				return;
+			case "build.hello":
+				reply(ws, request.id, { ok: true, result: await buildChecker.hello(request.ui) });
+				return;
 			default: {
 				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
 				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
@@ -3421,6 +3595,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	const uiRoot = resolveUiRoot();
+	const buildChecker = new BuildChecker({
+		moduleUrl: import.meta.url,
+		uiRoot,
+		agentDir: defaultAgentDir(),
+		plugins: async () => {
+			const settings = (await getGlobalSettingsManager())?.getGlobalSettings();
+			return settings
+				? [...(settings.plugins ?? []), ...(settings.packages ?? []), ...(settings.extensions ?? [])]
+				: [];
+		},
+		onDiagnostic,
+	});
 	const httpServer = createServer((request, response) => {
 		void handleMapHttp(request, response, {
 			service: maps,
@@ -3478,6 +3664,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	wss.on("connection", (ws, upgrade) => {
 		clients.add(ws);
 		clientOrigins.set(ws, upgrade.headers.origin);
+		replayAllPendingRequests(ws);
 		ws.on("message", (data) => {
 			let request: DesktopClientRequest;
 			try {
@@ -3499,6 +3686,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		});
 		ws.on("close", () => {
 			clients.delete(ws);
+			eventFanout.disconnect(ws);
 			for (const controller of viewerRequests.get(ws) ?? []) controller.abort();
 			viewerRequests.delete(ws);
 			// 连接断开：回收它名下的终端（UI 关闭时也会主动 kill，这里是兜底）
@@ -3549,6 +3737,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 桥关闭：挂起的提问全部按取消处理，并摘除提问通道（插件随后会在
 			// 每轮 reconcile 时把工具摘掉）
 			cancelAllPendingQuestions();
+			pendingPermissions.cancelAll();
+			eventFanout.flushAll();
 			await Promise.all([...sessions.keys()].map(unmountSessionRuntime));
 			await mail?.dispose();
 			setQuestionChannel(undefined);

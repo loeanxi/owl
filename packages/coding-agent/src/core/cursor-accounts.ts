@@ -7,8 +7,9 @@
  */
 
 import type { CredentialStore, OAuthCredential } from "@earendil-works/pi-ai";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
+import { atomicWriteFileSync } from "../utils/atomic-file.ts";
 
 export interface CursorAccountRecord {
 	id: string;
@@ -73,7 +74,7 @@ export function writeCursorAccounts(agentDir: string, store: CursorAccountsFile)
 	const path = cursorAccountsPath(agentDir);
 	const dir = dirname(path);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-	writeFileSync(path, `${JSON.stringify(store, null, "\t")}\n`, { encoding: "utf-8", mode: 0o600 });
+	atomicWriteFileSync(path, `${JSON.stringify(store, null, "\t")}\n`, { encoding: "utf-8", mode: 0o600 });
 }
 
 function accountIdFromCredential(credential: OAuthCredential): string {

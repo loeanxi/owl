@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
-import { IconNavBack, IconNavForward, IconPanelLeft, IconStickFigure, IconTokenCareer } from "./icons.tsx";
+import { IconNavBack, IconNavForward, IconPanelLeft, IconPool, IconStickFigure, IconTokenCareer } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
@@ -60,6 +60,7 @@ interface DesktopTitlebarProps {
 	onOpenResearch: () => void;
 	onOpenLifeGuide: () => void;
 	onOpenTokenCareer: () => void;
+	onOpenManager: () => void;
 	onOpenLifeMonitor: () => void;
 	lifeDot: "ok" | "bad" | "warn" | "idle";
 	lifeCount: number;
@@ -349,6 +350,16 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			</div>
 			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
+				<button
+					type="button"
+					className={`owl-chrome-button owl-desktop-manager${props.sidebarView === "manager" ? " is-active" : ""}`}
+					aria-label="号池 Manager"
+					title="号池 Manager"
+					aria-pressed={props.sidebarView === "manager"}
+					onClick={props.onOpenManager}
+				>
+					<IconPool />
+				</button>
 				<button
 					type="button"
 					className={`owl-chrome-button owl-desktop-token-career${props.sidebarView === "career" ? " is-active" : ""}`}

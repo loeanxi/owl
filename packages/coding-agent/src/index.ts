@@ -286,6 +286,8 @@ export { DefaultPackageManager } from "./core/package-manager.ts";
 export {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
+	getAllPendingQuestionRequests,
+	getPendingQuestionRequests,
 	getQuestionChannel,
 	type PendingQuestion,
 	type QuestionChannel,

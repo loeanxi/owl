@@ -4,10 +4,11 @@
  * (Apache-2.0): the DSH settings service and credentials store are replaced by a
  * JSON config file plus env vars, which is how owl plugins take configuration.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import {
 	API_KEY_ENV_VARS,
 	type ArkBackgroundMode,
@@ -178,9 +179,7 @@ export function loadConfig(): OwlImageConfig {
 
 /** Persist the config file (agent dir created on demand). */
 export function saveConfig(config: OwlImageConfig): void {
-	const dir = agentDirOf();
-	mkdirSync(dir, { recursive: true });
-	writeFileSync(imageConfigPath(), `${JSON.stringify(config, null, "\t")}\n`, "utf8");
+	atomicWriteFileSync(imageConfigPath(), `${JSON.stringify(config, null, "\t")}\n`);
 }
 
 // ---------------------------------------------------------------------------

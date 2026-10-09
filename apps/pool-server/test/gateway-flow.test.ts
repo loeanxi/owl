@@ -263,10 +263,21 @@ describe("OpenAI 网关（阶段 3 HTTP 全流程）", () => {
 		expect(headers.get("x-request-id")).not.toBe("");
 	});
 
-	it("/v1/models 列出已上架模型", async () => {
+	it("/v1/models 列出已上架模型并公布能力值", async () => {
 		const { status, json } = await api("GET", "/v1/models", { key: plaintextKey });
 		expect(status).toBe(200);
-		expect(json.data.map((item: { id: string }) => item.id)).toContain("star-lm");
+		const star = json.data.find((item: { id: string }) => item.id === "star-lm");
+		expect(star).toMatchObject({
+			id: "star-lm",
+			object: "model",
+			owned_by: "owl-pool",
+			input_modalities: ["text"],
+			supports_images: false,
+			supports_tools: true,
+			context_window: 200_000,
+			max_output_tokens: 32_000,
+			reasoning_efforts: ["low", "medium", "high"],
+		});
 	});
 
 	it("非流式对话：上游响应 sanitize（model=公开名、id 重写）+ 调用日志", async () => {

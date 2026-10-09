@@ -95,6 +95,9 @@ export class SdkRuntimeClient {
 		const readline = createInterface({ input: child.stdout! });
 		readline.on("line", (line) => client.#onLine(line));
 		child.on("exit", () => client.close());
+		// An unhandled spawn or stdin 'error' would crash the pool server, not just this runtime.
+		child.on("error", () => client.close());
+		child.stdin?.on("error", () => {});
 
 		client.#writeLine = (line: string) =>
 			new Promise<void>((resolve, reject) => {

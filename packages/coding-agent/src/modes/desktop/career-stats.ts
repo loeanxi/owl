@@ -58,23 +58,15 @@
  * OpenCode 的 SQLite 每次直接查询（行数量级小，且官方汇总列本身就是缓存口径）。
  */
 
-import {
-	createReadStream,
-	type Dirent,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { createReadStream, type Dirent, existsSync, readFileSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { DatabaseSync } from "node:sqlite";
 import { zstdDecompressSync } from "node:zlib";
 import { getAgentDir } from "../../config.ts";
+import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
 import type { CareerAgentUsage, CareerBucket, CareerGetResult, CareerSourceStatus } from "./protocol.ts";
 import { collectUsageStats, type UsageDirs } from "./usage-stats.ts";
 
@@ -237,30 +229,15 @@ function readStore(path: string): CareerStore {
 		// 从 *.corrupt（含更早代）里把能解析的记录回填进新库（旧版本形状也接受，
 		// 缺 aggregates 补空；路径键唯一，与后续重扫天然合并）。
 		const fresh = newStore();
-		try {
-			renameSync(path, `${path}.corrupt`);
-		} catch {
-			// 备份失败就算了，直接重建
-		}
-		for (let gen = 0; gen < 4; gen++) {
-			const corruptPath = gen === 0 ? `${path}.corrupt` : `${path}.corrupt.${gen - 1}`;
-			if (!existsSync(corruptPath)) continue;
+		backupCorruptFile(path);
+		const generations = [`${path}.corrupt`, ...Array.from({ length: 20 }, (_, gen) => `${path}.corrupt.${gen}`)]
+			.filter((candidate) => existsSync(candidate))
+			.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+		for (const corruptPath of generations) {
 			try {
 				const old = JSON.parse(readFileSync(corruptPath, "utf-8")) as Partial<CareerStore>;
-				const tables = [
-					"claude",
-					"codex",
-					"kimi",
-					"roo",
-					"cline",
-					"workbuddy",
-					"dsh",
-					"cursor",
-					"mavis",
-					"reasonix",
-				] as const;
 				const tabled = fresh as unknown as Record<string, Record<string, CareerFileRecord>>;
-				for (const table of tables) {
+				for (const table of CAREER_TABLES) {
 					const records = (old as Record<string, Record<string, CareerFileRecord>>)[table];
 					if (typeof records !== "object" || records === null) continue;
 					for (const [key, value] of Object.entries(records)) {
@@ -288,11 +265,43 @@ function readStore(path: string): CareerStore {
 	}
 }
 
+const CAREER_TABLES = [
+	"claude",
+	"codex",
+	"kimi",
+	"roo",
+	"cline",
+	"workbuddy",
+	"dsh",
+	"cursor",
+	"mavis",
+	"reasonix",
+] as const;
+
+/**
+ * 锁内读盘合并后原子写：另一个桥进程已落盘、本进程缓存里没有或更旧的文件记录一并保留
+ * （多个桥共用 agentDir 时互不覆盖，守住"永不删除"）。
+ */
 function writeStore(path: string, store: CareerStore): void {
-	mkdirSync(dirname(path), { recursive: true });
-	const tmp = `${path}.tmp`;
-	writeFileSync(tmp, `${JSON.stringify(store)}\n`, "utf-8");
-	renameSync(tmp, path);
+	withFileLockSync(path, () => {
+		let disk: Partial<CareerStore> | undefined;
+		try {
+			disk = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Partial<CareerStore>) : undefined;
+		} catch {
+			disk = undefined;
+		}
+		if (disk?.version === store.version) {
+			for (const table of CAREER_TABLES) {
+				const records = disk[table];
+				if (typeof records !== "object" || records === null) continue;
+				for (const [key, record] of Object.entries(records)) {
+					const mine = store[table][key];
+					if (!mine || record.mtime > mine.mtime) store[table][key] = record;
+				}
+			}
+		}
+		atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
+	});
 }
 
 /** 模块级缓存 + 串行链：看板短轮询与并发打开共享同一次扫描。 */
