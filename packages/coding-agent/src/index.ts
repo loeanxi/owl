@@ -471,7 +471,19 @@ export {
 } from "./core/workspace-viewers.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
+// 桥插件：package.json `owl.bridge` 声明、桌面桥启动时加载一次的进程级插件
+export type {
+	BridgePlugin,
+	BridgePluginContext,
+	BridgePluginFactory,
+	BridgeRequest,
+	BridgeRequestClient,
+	BridgeRequestHandler,
+	BridgeServerMessage,
+	BridgeSession,
+} from "./modes/desktop/bridge-plugins.ts";
 export type { QuestionAnswerPayload, QuestionOptionPayload, QuestionPayload } from "./modes/desktop/protocol.ts";
+export type { UsageDirs } from "./modes/desktop/usage-stats.ts";
 // Run modes for programmatic SDK usage
 export {
 	type JsonAgentSessionEvent,

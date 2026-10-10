@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import type { GeocodeRequest, MapResult, NearbyRequest, RealPlace, ReverseRequest } from "../src/core/maps/types.ts";
-import { handleMapHttp } from "../src/modes/desktop/map-http.ts";
+import { handleMapHttp } from "../src/map-http.ts";
+import type { GeocodeRequest, MapResult, NearbyRequest, RealPlace, ReverseRequest } from "../src/types.ts";
 
 const result: MapResult<RealPlace> = {
 	data: [],

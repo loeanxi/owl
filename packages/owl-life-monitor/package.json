@@ -1,0 +1,18 @@
+{
+	"name": "owl-life-monitor",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "owl「生命监护」桥插件：对本机 owl 的设置、插件、模型与会话做廉价只读体检（life.probe）",
+	"license": "MIT",
+	"owl": {
+		"bridge": ["./src/bridge.ts"]
+	},
+	"scripts": {
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"vitest": "4.1.11"
+	}
+}

@@ -65,10 +65,12 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { DatabaseSync } from "node:sqlite";
 import { zstdDecompressSync } from "node:zlib";
-import { getAgentDir } from "../../config.ts";
-import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
-import type { CareerAgentUsage, CareerBucket, CareerGetResult, CareerSourceStatus } from "./protocol.ts";
-import { collectUsageStats, type UsageDirs } from "./usage-stats.ts";
+import type { BridgePluginContext, UsageDirs } from "@owl/owl-coding-agent";
+import type { CareerAgentUsage, CareerBucket, CareerGetResult, CareerSourceStatus } from "./types.ts";
+
+/** 宿主提供的能力：agentDir、owl 自身用量聚合与落盘约定。 */
+export type CareerHost = Pick<BridgePluginContext, "agentDir" | "collectUsageStats" | "files">;
+type CareerFiles = CareerHost["files"];
 
 /** 测试注入点：默认 ~/.claude、~/.codex、~/.kimi-code、~/.local/share/opencode 与 <agentDir>/career-stats.json。 */
 export interface CareerDirs {
@@ -185,11 +187,11 @@ function newStore(): CareerStore {
 	};
 }
 
-function careerStorePath(agentDir?: string): string {
-	return join(agentDir ?? getAgentDir(), "career-stats.json");
+function careerStorePath(agentDir: string): string {
+	return join(agentDir, "career-stats.json");
 }
 
-function readStore(path: string): CareerStore {
+function readStore(path: string, files: CareerFiles): CareerStore {
 	if (!existsSync(path)) return newStore();
 	try {
 		const raw = JSON.parse(readFileSync(path, "utf-8")) as CareerStore;
@@ -229,7 +231,7 @@ function readStore(path: string): CareerStore {
 		// 从 *.corrupt（含更早代）里把能解析的记录回填进新库（旧版本形状也接受，
 		// 缺 aggregates 补空；路径键唯一，与后续重扫天然合并）。
 		const fresh = newStore();
-		backupCorruptFile(path);
+		files.backupCorruptFile(path);
 		const generations = [`${path}.corrupt`, ...Array.from({ length: 20 }, (_, gen) => `${path}.corrupt.${gen}`)]
 			.filter((candidate) => existsSync(candidate))
 			.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
@@ -282,8 +284,8 @@ const CAREER_TABLES = [
  * 锁内读盘合并后原子写：另一个桥进程已落盘、本进程缓存里没有或更旧的文件记录一并保留
  * （多个桥共用 agentDir 时互不覆盖，守住"永不删除"）。
  */
-function writeStore(path: string, store: CareerStore): void {
-	withFileLockSync(path, () => {
+function writeStore(path: string, store: CareerStore, files: CareerFiles): void {
+	files.withFileLockSync(path, () => {
 		let disk: Partial<CareerStore> | undefined;
 		try {
 			disk = existsSync(path) ? (JSON.parse(readFileSync(path, "utf-8")) as Partial<CareerStore>) : undefined;
@@ -300,7 +302,7 @@ function writeStore(path: string, store: CareerStore): void {
 				}
 			}
 		}
-		atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
+		files.atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
 	});
 }
 
@@ -1860,15 +1862,15 @@ function detectedRows(root: string): CareerAgentUsage[] {
 }
 
 // ---------------------------------------------------------------------------
-// 总装（serve.ts 的 career.get 调用）
+// 总装（桥插件 career.get 调用）
 // ---------------------------------------------------------------------------
 
 /**
  * 聚合全部数据源。串行化与 usage-stats 独立：career 的首扫可能较慢
  * （Codex 全量可到 GB 级），不拖累其它 usage 调用。
  */
-export async function collectCareerStats(dirs?: CareerDirs): Promise<CareerGetResult> {
-	const agentDir = dirs?.agentDir ?? getAgentDir();
+export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): Promise<CareerGetResult> {
+	const agentDir = dirs?.agentDir ?? host.agentDir;
 	const claudeDir = dirs?.claudeDir ?? join(homedir(), ".claude");
 	const codexDir = dirs?.codexDir ?? join(homedir(), ".codex");
 	const kimiDir = dirs?.kimiDir ?? join(homedir(), ".kimi-code");
@@ -1880,7 +1882,7 @@ export async function collectCareerStats(dirs?: CareerDirs): Promise<CareerGetRe
 		.catch(() => undefined)
 		.then(async (): Promise<CareerGetResult> => {
 			const storePath = careerStorePath(agentDir);
-			const store = storeCache.get(storePath) ?? readStore(storePath);
+			const store = storeCache.get(storePath) ?? readStore(storePath, host.files);
 			storeCache.set(storePath, store);
 
 			const jsonl = (name: string): boolean => name.endsWith(".jsonl");
@@ -1958,14 +1960,14 @@ export async function collectCareerStats(dirs?: CareerDirs): Promise<CareerGetRe
 			// writeStore 统一移到 return 前：SQLite 快照（aggregates）在 collect 之后才产生
 
 			// owl / pi 是两个独立 agent，各自一行，互不合并（目录迁移叙事不成立，避免混计）。
-			const owlUsage = await collectUsageStats({ days: "all" }, dirs?.owl);
+			const owlUsage = await host.collectUsageStats({ days: "all" }, dirs?.owl);
 			const piSessionsDir = dirs?.piSessions?.sessionsDir ?? join(homedir(), ".pi", "agent", "sessions");
 			const piUsage = existsSync(piSessionsDir)
-				? await collectUsageStats(
+				? await host.collectUsageStats(
 						{ days: "all" },
 						dirs?.piSessions ?? {
 							sessionsDir: piSessionsDir,
-							storePath: join(getAgentDir(), "usage-stats-pi.json"),
+							storePath: join(host.agentDir, "usage-stats-pi.json"),
 						},
 					)
 				: undefined;
@@ -2338,7 +2340,7 @@ export async function collectCareerStats(dirs?: CareerDirs): Promise<CareerGetRe
 			];
 
 			// aggregates 快照与 JSONL 增量统一落盘（career.get 每次全量刷新快照）
-			writeStore(storePath, store);
+			writeStore(storePath, store, host.files);
 			return { generatedAt: new Date().toISOString(), agents };
 		});
 	chain = run;

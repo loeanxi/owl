@@ -1,9 +1,15 @@
+import type { ExtensionToolContext } from "@owl/owl-coding-agent";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
-import type { ExtensionToolContext } from "../src/core/extensions/types.ts";
-import type { GeocodeRequest, MapResult, NearbyRequest, RealPlace, ReverseRequest } from "../src/core/maps/types.ts";
-import { createMapTools } from "../src/modes/desktop/map-tools.ts";
-import type { DesktopServerMessage } from "../src/modes/desktop/protocol.ts";
+import { createMapTools } from "../src/map-tools.ts";
+import type {
+	GeocodeRequest,
+	MapResult,
+	MapResultsMessage,
+	NearbyRequest,
+	RealPlace,
+	ReverseRequest,
+} from "../src/types.ts";
 
 const place: RealPlace = {
 	id: "osm:node:4771034248",
@@ -41,7 +47,7 @@ function fixture(output = result) {
 		nearby: vi.fn(async (_request: NearbyRequest) => output),
 		reverse: vi.fn(async (_request: ReverseRequest) => output),
 	};
-	const messages: DesktopServerMessage[] = [];
+	const messages: MapResultsMessage[] = [];
 	const tools = createMapTools(service, "map-session", (message) => {
 		messages.push(message);
 	});

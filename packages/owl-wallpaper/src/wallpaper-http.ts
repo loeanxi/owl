@@ -11,7 +11,7 @@
  *   任意路径的构造能力（token 是不可猜测的随机串，不是 base64 路径）。
  * - 网页壁纸目录文件按「目录 token + 相对子路径」出文件：resolve 后必须仍在
  *   目录内（防 `..` 逃逸），扩展名走 MIME 白名单，HTML 注入 shim。
- * - 全部路由仅接受本地桌面来源（authorizeOrigin 由 serve.ts 注入）。
+ * - 全部路由仅接受本地桌面来源（authorizeOrigin 由桥插件上下文注入）。
  */
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -642,7 +642,7 @@ function injectWebShim(html: string, seed: Record<string, { value: unknown }>, d
 
 // ---------------------------------------------------------------- HTTP 入口
 
-/** 挂进 serve.ts 的 HTTP handler 链（map/news 同款：处理了返回 true）。 */
+/** 桥插件的 HTTP 处理器：处理了返回 true，非壁纸路径返回 false 交还分发链。 */
 export async function handleWallpaperHttp(
 	request: IncomingMessage,
 	response: ServerResponse,

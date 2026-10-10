@@ -17,11 +17,13 @@ export const BUILD_INFO_FILE = "build-info.json";
 /** UI 侧 bridge/protocol.ts 转引的线协议类型来源；任何一个变了，UI 与桥都必须一起重建。 */
 export const PROTOCOL_SOURCES = [
 	"packages/coding-agent/src/modes/desktop/protocol.ts",
-	"packages/coding-agent/src/core/maps/types.ts",
 	"packages/coding-agent/src/core/news/types.ts",
 	"packages/coding-agent/src/core/mail/types.ts",
 	"packages/coding-agent/src/core/evaluation/types.ts",
 	"packages/coding-agent/src/core/research/types.ts",
+	"packages/owl-career/src/types.ts",
+	"packages/owl-life-monitor/src/types.ts",
+	"packages/owl-map/src/types.ts",
 ];
 
 export interface BuildInfo {

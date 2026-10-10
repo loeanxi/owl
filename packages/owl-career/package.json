@@ -1,0 +1,18 @@
+{
+	"name": "owl-career",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "owl「我的 Token 生涯」桥插件：汇总本机各 coding agent 会话记录里的 token 用量（career.get）",
+	"license": "MIT",
+	"owl": {
+		"bridge": ["./src/bridge.ts"]
+	},
+	"scripts": {
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"vitest": "4.1.11"
+	}
+}

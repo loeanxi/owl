@@ -7,10 +7,8 @@
 import type { AgentPresetDefinition } from "../../core/agent-presets.ts";
 import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
 import type { EvaluationRequest } from "../../core/evaluation/types.ts";
-import type { MapResultsMessage } from "../../core/maps/types.ts";
 
 export type { AgentPresetDefinition, PresetApprovalMode } from "../../core/agent-presets.ts";
-export type { MapResultsMessage } from "../../core/maps/types.ts";
 
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
@@ -812,7 +810,14 @@ export interface ModelsPutModelRequest {
 	type: "models.putModel";
 	id: string;
 	providerKey: string;
-	model: { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean };
+	model: {
+		id: string;
+		name?: string;
+		contextWindow?: number;
+		maxTokens?: number;
+		reasoning?: boolean;
+		input?: ("text" | "image")[];
+	};
 }
 
 export interface ModelsRemoveModelRequest {
@@ -835,6 +840,8 @@ export interface DiscoveredModel {
 	contextWindow?: number;
 	maxTokens?: number;
 	reasoning?: boolean;
+	/** 仅在上游目录明确公布了输入模态时出现。 */
+	input?: ("text" | "image")[];
 }
 
 export interface ModelsDiscoverRequest {
@@ -1051,86 +1058,6 @@ export interface UsageGetResult {
 	byDayModel: UsageStatsDayModel[];
 	/** byDay 超出 366 天被截断（丢的是最老的天）。 */
 	byDayTruncated?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// 「我的 Token 生涯」看板（career.get）—— 跨 Agent 本地会话记录的 token 用量汇总，
-// 数据面见 ./career-stats.ts：owl 复用 usage-stats 全量口径，Claude Code / Codex
-// 走 ~/.claude、~/.codex 的增量扫描；Gemini 本地记录无用量、Cursor 待手动导入，只报状态。
-// ---------------------------------------------------------------------------
-
-/** 单数据源的用量分桶（cost 只有 owl 实测，其余来源本地记录不含费用，恒为 0）。 */
-export interface CareerBucket {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	/** 推理 token（output 的子集，部分来源不上报）。 */
-	reasoning: number;
-	totalTokens: number;
-}
-
-export interface CareerAgentTotals extends CareerBucket {
-	cost: number;
-}
-
-/** 数据源接入状态：ok=已接入；nodata=有本地数据但不含用量；detected=检测到产品数据但存储为私有格式待解析；pending=待手动导入；unavailable=未检测到。 */
-export type CareerSourceStatus = "ok" | "nodata" | "detected" | "pending" | "unavailable";
-
-export interface CareerAgentUsage {
-	id: string;
-	name: string;
-	status: CareerSourceStatus;
-	/** 状态补充说明（无用量 / 待导入的原因），前端直接展示。 */
-	note?: string;
-	/** 本机数据根目录（展示用，~ 缩写）。 */
-	root?: string;
-	/** 已计入的会话文件数（删除不回吐口径）。 */
-	sessions: number;
-	/** 最早 / 最近一次有记录的时间（ISO 或 YYYY-MM-DD，前端按需展示）。 */
-	firstAt?: string;
-	lastAt?: string;
-	totals: CareerAgentTotals;
-	/** 升序、本机时区、只含有用量的天。 */
-	byDay: { date: string; totalTokens: number }[];
-	/** 模型用量降序（key 为各来源原始模型名；owl 为 provider/model）。 */
-	byModel: { key: string; totalTokens: number }[];
-}
-
-export type LifeLevel = "ok" | "bad" | "warn" | "idle" | "off";
-
-export interface LifeChannel {
-	id: string;
-	level: LifeLevel;
-	/** 短证据。不得包含 key、令牌、邮箱或完整本机路径。 */
-	evidence: string;
-	note: string;
-	at: number;
-}
-
-export interface LifeProbeRequest {
-	type: "life.probe";
-	id: string;
-	cwd?: string;
-	/** 输入框当前选中的 `供应商/模型`。空表示没选。 */
-	model?: string;
-}
-
-export interface LifeProbeResult {
-	probedAt: number;
-	channels: LifeChannel[];
-}
-
-export interface CareerGetRequest {
-	type: "career.get";
-	id: string;
-}
-
-export interface CareerGetResult {
-	/** 本次统计的生成时间（ISO），前端据此显示快照时间。 */
-	generatedAt: string;
-	/** 固定顺序 owl/claude/codex/gemini/cursor，含未接入数据源的占位。 */
-	agents: CareerAgentUsage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -2177,14 +2104,12 @@ export type DesktopClientRequest =
 	| MemoryDeleteRequest
 	| MemoryClearRequest
 	| UsageGetRequest
-	| CareerGetRequest
 	| ScheduleListRequest
 	| ScheduleCreateRequest
 	| ScheduleUpdateRequest
 	| ScheduleDeleteRequest
 	| ScheduleRunRequest
 	| ScheduleHistoryRequest
-	| LifeProbeRequest
 	| ImageConfigGetRequest
 	| ImageConfigSetRequest
 	| ImageSubLoginRequest
@@ -2295,7 +2220,9 @@ export interface ModelInfoMessage {
 	id: string;
 	name: string;
 	contextWindow?: number;
+	maxTokens?: number;
 	reasoning?: boolean;
+	input?: ("text" | "image")[];
 }
 
 /**
@@ -2343,7 +2270,6 @@ export type ServerResponseMessage = {
 };
 
 export type DesktopServerMessage =
-	| MapResultsMessage
 	| MailAgentDraftMessage
 	| NewsOpenMessage
 	| ServerEventMessage

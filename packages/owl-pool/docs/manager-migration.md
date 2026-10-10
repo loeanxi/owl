@@ -29,7 +29,7 @@ provider 接入(`127.0.0.1:8787`)。
 | # | 决策 | 理由 |
 |---|------|------|
 | D1 | **存储用 `node:sqlite`(DatabaseSync,WAL)**,不引入 PostgreSQL/ORM | owl-mono 唯一 DB 先例就是 node:sqlite(news store),全仓库零第三方 DB 依赖;桌面内嵌形态天然适合嵌入式库。与 Java 版的数据桥接不用在线双写:manager 每日备份 zip 本来就是「每表一个 JSONL」,写一个导入器即可。团队部署若将来需要 PG,Repository 接口留好再补实现 |
-| D2 | **HTTP 用 `node:http`**,路由走 handler 链(`handleXxx(req,res,ctx): Promise<boolean>`,不匹配返回 false),不引入 Fastify/Hono | 对齐 `packages/coding-agent/src/modes/desktop/map-http.ts` 的既有模式;SSE(网关阶段)直接 `res.write` |
+| D2 | **HTTP 用 `node:http`**,路由走 handler 链(`handleXxx(req,res,ctx): Promise<boolean>`,不匹配返回 false),不引入 Fastify/Hono | 对齐 `packages/owl-map/src/map-http.ts` 的既有模式;SSE(网关阶段)直接 `res.write` |
 | D3 | **领域层(`owl-pool`)零运行时依赖**;HTTP 用 Node 22 全局 fetch(AbortSignal 超时),时间统一 epoch 毫秒 + Asia/Shanghai 业务日 | 保持可移植、可独立测试 |
 | D4 | **禁 enum**(仓库 erasableSyntaxOnly):`Platform`/`CheckInStatus` 等用字符串字面量联合 + const 数组,**值与 Java 枚举名逐字一致**(DB 兼容) | TS 语法约束 + 数据兼容 |
 | D5 | `owl-pool` 用 **tsc emit**(dist + d.ts,`rewriteRelativeImportExtensions` 自动把 `.ts` 导入改写为 `.js`);`pool-server` 用 **esbuild bundle** 成单文件 `dist/main.js` 运行,`owl-pool` 保持 external(workspace 解析) | 对齐仓库既有构建方式 |

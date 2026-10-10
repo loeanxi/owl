@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { LIFE_CHANNELS, LIFE_GROUPS, type LifeChannelDef } from "../../../../../packages/coding-agent/src/modes/desktop/life-channels.ts";
+import { LIFE_CHANNELS, LIFE_GROUPS, type LifeChannelDef } from "../../../../../packages/owl-life-monitor/src/life-channels.ts";
 import type { LifeChannel, LifeLevel } from "../../bridge/protocol.ts";
 import { lifeFact, lifeGroup, lifeLevel, lifeName, lifeShell, useLifeCopy } from "./life-copy.ts";
 import type { LifeView } from "./present.ts";

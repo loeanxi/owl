@@ -8,8 +8,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, join } from "node:path";
-import { getDefaultSessionDirPath } from "../../core/session-manager.ts";
-import type { LifeChannel, LifeLevel, LifeProbeResult } from "./protocol.ts";
+import type { LifeChannel, LifeLevel, LifeProbeResult } from "./types.ts";
 
 export { summarizeLife } from "./life-channels.ts";
 
@@ -74,6 +73,8 @@ export interface LifeProbeInput {
 	agentDir: string;
 	cwd?: string;
 	model?: string;
+	/** cwd 对应的会话目录（宿主提供，与会话管理器同一编码规则）。 */
+	sessionDirFor(cwd: string): string;
 }
 
 export function probeLife(input: LifeProbeInput): LifeProbeResult {
@@ -252,7 +253,7 @@ function lastRunChannel(input: LifeProbeInput, packageBroken: boolean, now: numb
 	if (!input.cwd?.trim()) return channel("last-run", "ok", "no-project", "", now);
 	let dir: string;
 	try {
-		dir = join(getDefaultSessionDirPath(input.cwd, input.agentDir), "subagent-artifacts");
+		dir = join(input.sessionDirFor(input.cwd), "subagent-artifacts");
 	} catch {
 		return channel("last-run", "idle", "read-failed", "subagent-artifacts", now);
 	}

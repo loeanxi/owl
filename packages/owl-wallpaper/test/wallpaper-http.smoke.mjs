@@ -1,7 +1,7 @@
 /**
  * 动态壁纸桥端模块冒烟测试：不启动完整桥，直接把 handleWallpaperHttp 挂到
  * 一个临时 HTTP server 上，验证清单 / 媒体 Range / 网页壁纸 shim 注入。
- * 运行：node test/wallpaper-http.smoke.mjs
+ * 运行：npm test（packages/owl-wallpaper 下）
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { handleWallpaperHttp } from "../src/modes/desktop/wallpaper-http.ts";
+import { handleWallpaperHttp } from "../src/wallpaper-http.ts";
 
 const root = mkdtempSync(join(tmpdir(), "owl-wp-test-"));
 const wsDir = join(root, "workshop");

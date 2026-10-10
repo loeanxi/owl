@@ -58,6 +58,7 @@ import {
 import { setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts";
 import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
+import { importExtensionRuntimeModule } from "../../core/extensions/loader.ts";
 import { installHtmlPlanSkill } from "../../core/html-plan-skill.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import {
@@ -104,14 +105,14 @@ import {
 	sessionDisplayName,
 } from "../../core/session-export.ts";
 import type { SessionInfo } from "../../core/session-manager.ts";
-import { SessionManager } from "../../core/session-manager.ts";
+import { getDefaultSessionDirPath, SessionManager } from "../../core/session-manager.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
 import { subscribeWorkspaceViewers } from "../../core/workspace-viewers.ts";
 import { builtInExtensions } from "../../extensions/index.ts";
-import { atomicWriteFileSync } from "../../utils/atomic-file.ts";
+import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
@@ -123,6 +124,15 @@ import {
 	readArchiveMeta,
 	writeArchiveMeta,
 } from "./archive-meta.ts";
+import {
+	type BridgeRequest,
+	bridgePluginSessionTools,
+	bridgeRequestRoutes,
+	closeBridgePlugins,
+	handleBridgePluginHttp,
+	type LoadedBridgePlugin,
+	loadBridgePlugins,
+} from "./bridge-plugins.ts";
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
@@ -151,9 +161,6 @@ import {
 	handleWatchRequest,
 	type WorkspaceHandlerContext,
 } from "./handlers/workspace.ts";
-import { handleMapHttp } from "./map-http.ts";
-import { RealMapService, type RealMapServiceOptions } from "./map-service.ts";
-import { createMapTools } from "./map-tools.ts";
 import { MirrorFrameDelivery } from "./mirror/frame-delivery.ts";
 import { MirrorProjectionAccess } from "./mirror/projection-access.ts";
 import { MirrorHub } from "./mirror-hub.ts";
@@ -169,6 +176,7 @@ import type {
 	IabFrameMessage,
 	IabPageInfo,
 	MirrorFrameMessage,
+	ModelInfoMessage,
 	PermissionRequestMessage,
 	RewindExecuteResult,
 	RewindImpactFile,
@@ -193,7 +201,6 @@ import {
 } from "./skills-center.ts";
 import { TerminalManager } from "./terminals.ts";
 import { isTrustedDesktopOrigin, resolveUiRoot, serveUi } from "./ui-static.ts";
-import { handleWallpaperHttp } from "./wallpaper-http.ts";
 
 // ---------------------------------------------------------------------------
 // models.json — owl 的模型声明（唯一模型来源；不复用 pi 内置目录）
@@ -220,6 +227,7 @@ interface ModelFileEntry {
 	contextWindow?: number;
 	maxTokens?: number;
 	reasoning?: boolean;
+	input?: ("text" | "image")[];
 }
 
 interface ProviderFileEntry {
@@ -245,11 +253,38 @@ function declaredProviderModels(models: ModelsFile): ProviderModelsMessage[] {
 				id: model.id,
 				name: model.name ?? model.id,
 				...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+				...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
 				...(model.reasoning ? { reasoning: model.reasoning } : {}),
+				...(model.input ? { input: model.input } : {}),
 			})),
 		});
 	}
 	return result;
+}
+
+/** 内置/凭据分组的模型落成 models.json 声明时保留能力字段，避免识图等能力被降级成纯文本。 */
+function modelFileEntryFrom(model: ModelInfoMessage): ModelFileEntry {
+	const entry: ModelFileEntry = { id: model.id };
+	if (model.name && model.name !== model.id) entry.name = model.name;
+	if (model.contextWindow) entry.contextWindow = model.contextWindow;
+	if (model.maxTokens) entry.maxTokens = model.maxTokens;
+	if (model.reasoning) entry.reasoning = model.reasoning;
+	if (model.input) entry.input = model.input;
+	return entry;
+}
+
+/** 上游 /models 行公布的输入模态；未公布返回 undefined（不猜）。兼容 OpenRouter architecture.input_modalities。 */
+function upstreamInputModalities(row: Record<string, unknown>): ("text" | "image")[] | undefined {
+	const architecture = row.architecture as Record<string, unknown> | undefined;
+	const modalities = [row.input_modalities, row.modalities, architecture?.input_modalities].find(Array.isArray) as
+		| unknown[]
+		| undefined;
+	const flag = [row.supports_images, row.supportsImages, row.supports_vision, row.vision].find(
+		(value) => typeof value === "boolean",
+	);
+	if (modalities?.includes("image") || flag === true) return ["text", "image"];
+	if (modalities || flag === false) return ["text"];
+	return undefined;
 }
 
 function readModelsFile(agentDir: string): ModelsFile {
@@ -288,6 +323,7 @@ function toDiscoveredModel(row: {
 	contextWindow?: number;
 	maxTokens?: number;
 	reasoning?: boolean;
+	input?: ("text" | "image")[];
 }): DiscoveredModel {
 	return {
 		id: row.id,
@@ -295,6 +331,7 @@ function toDiscoveredModel(row: {
 		...(row.contextWindow ? { contextWindow: row.contextWindow } : {}),
 		...(row.maxTokens ? { maxTokens: row.maxTokens } : {}),
 		...(row.reasoning ? { reasoning: true } : {}),
+		...(row.input ? { input: row.input } : {}),
 	};
 }
 
@@ -336,6 +373,7 @@ async function fetchOpenAiCompatibleModels(
 			row.reasoning === true ||
 			row.supports_reasoning === true ||
 			(typeof row.id === "string" && /reason|think|r1|o[1-9]/i.test(row.id));
+		const input = upstreamInputModalities(row);
 		models.push(
 			toDiscoveredModel({
 				id,
@@ -344,6 +382,7 @@ async function fetchOpenAiCompatibleModels(
 				...(contextWindow ? { contextWindow } : {}),
 				...(maxTokens ? { maxTokens } : {}),
 				reasoning,
+				...(input ? { input } : {}),
 			}),
 		);
 	}
@@ -406,8 +445,6 @@ export interface DesktopServerOptions {
 			"callModel" | "listModels" | "fetch" | "resolveHost" | "resolvePublicHost" | "resolveModel"
 		>
 	>;
-	/** Real geographic sources, injectable for offline map regression checks. */
-	maps?: RealMapServiceOptions;
 	/** Fake evaluation dependencies for isolated local tests; never use paid models in tests. */
 	evaluation?: Partial<
 		Pick<EvaluationServiceOptions, "listModels" | "invoke" | "check" | "builtinTasks" | "idleTimeoutMs">
@@ -556,7 +593,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	let closingNews = false;
 	let mail: MailService | undefined;
 	let closingMail = false;
-	const maps = new RealMapService(options.maps);
 	let evaluation: EvaluationService | undefined;
 	let closingEvaluation = false;
 
@@ -896,20 +932,32 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return globalSettingsManagerPromise;
 	}
 
+	// 定时任务启动后就可能建会话，会话工具要等插件就绪；加载失败按"无插件"继续，不能拒绝。
+	const bridgePluginsLoading: Promise<LoadedBridgePlugin[]> = (async () =>
+		loadBridgePlugins(
+			(await getGlobalSettingsManager())?.getGlobalSettings().plugins ?? [],
+			{
+				agentDir: defaultAgentDir(),
+				isTrustedOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
+				getGlobalSetting: async (key) =>
+					((await getGlobalSettingsManager())?.getGlobalSettings() as Record<string, unknown> | undefined)?.[key],
+				onDiagnostic,
+				broadcast: (message) => broadcast(message as DesktopServerMessage),
+				sessionDirFor: (cwd) => getDefaultSessionDirPath(cwd, defaultAgentDir()),
+				collectUsageStats: async (filter, dirs) =>
+					(await import("./usage-stats.ts")).collectUsageStats(filter, dirs),
+				files: { atomicWriteFileSync, backupCorruptFile, withFileLockSync },
+			},
+			importExtensionRuntimeModule,
+		))().catch((error: unknown) => {
+		onDiagnostic(`bridge plugins 加载失败：${error instanceof Error ? error.message : String(error)}`);
+		return [];
+	});
+
 	/** 全局默认预设 id（settings.owlDefaultPreset；缺省或无效时回退 standard）。 */
 	async function getDefaultPresetId(): Promise<string> {
 		const id = (await getGlobalSettingsManager())?.getGlobalSettings().owlDefaultPreset;
 		return typeof id === "string" && id ? id : "standard";
-	}
-
-	/** 读全局设置里的 owlWallpaper 字段（桌面端动态壁纸；字段由 UI 写入，桥只读）。 */
-	function owlWallpaperField(key: "customDir" | "customPath"): Promise<string> {
-		return getGlobalSettingsManager().then((manager) => {
-			const wallpaper = (manager?.getGlobalSettings() as { owlWallpaper?: unknown } | undefined)?.owlWallpaper;
-			if (typeof wallpaper !== "object" || wallpaper === null) return "";
-			const value = (wallpaper as Record<string, unknown>)[key];
-			return typeof value === "string" ? value : "";
-		});
 	}
 
 	async function getListingServices(): Promise<AgentSessionServices> {
@@ -941,7 +989,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					id: model.id,
 					name: model.name,
 					...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+					...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
 					...(model.reasoning ? { reasoning: model.reasoning } : {}),
+					input: model.input,
 				});
 			}
 		}
@@ -957,6 +1007,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		let credentialed: ProviderModelsMessage[] = [];
 		try {
 			credentialed = await credentialedProviderGroups();
+			// 声明里没写 input 的模型沿用内置目录能力；按运行时实际值展示，避免界面与发送行为不一致。
+			const runtime = (await getListingServices()).modelRuntime;
+			for (const group of declared) {
+				for (const model of group.models) {
+					model.input ??= runtime.getModels(group.id).find((entry) => entry.id === model.id)?.input;
+				}
+			}
 		} catch {
 			// services 不可用时跳过凭据部分
 		}
@@ -1037,7 +1094,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 								...iab.tools(sessionId),
 								...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
 								...createNewsTools(newsRequest, sessionId, broadcast),
-								...createMapTools(maps, sessionId, broadcast),
+								...(await bridgePluginSessionTools(
+									await bridgePluginsLoading,
+									{ sessionId, cwd: runtimeOptions.cwd },
+									onDiagnostic,
+								)),
 							],
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
@@ -2442,13 +2503,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					}
 					provider = {
 						...(group.name ? { name: group.name } : {}),
-						models: group.models.map((entry) => {
-							const model: ModelFileEntry = { id: entry.id };
-							if (entry.name && entry.name !== entry.id) model.name = entry.name;
-							if (entry.contextWindow) model.contextWindow = entry.contextWindow;
-							if (entry.reasoning) model.reasoning = entry.reasoning;
-							return model;
-						}),
+						models: group.models.map(modelFileEntryFrom),
 					};
 					models.providers = { ...(models.providers ?? {}), [request.providerKey]: provider };
 				}
@@ -2461,6 +2516,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				if (request.model.contextWindow) entry.contextWindow = request.model.contextWindow;
 				if (request.model.maxTokens) entry.maxTokens = request.model.maxTokens;
 				if (request.model.reasoning != null) entry.reasoning = request.model.reasoning;
+				if (request.model.input?.length) entry.input = request.model.input;
 				const rest = (provider.models ?? []).filter((m) => m.id !== entry.id);
 				provider.models = [...rest, entry];
 				writeModelsFile(agentDir, models);
@@ -2490,6 +2546,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 							contextWindow: model.contextWindow,
 							maxTokens: model.maxTokens,
 							reasoning: model.reasoning,
+							input: model.input,
 						}),
 					);
 
@@ -2630,15 +2687,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						...(models.providers ?? {}),
 						[request.providerKey]: {
 							...(group.name ? { name: group.name } : {}),
-							models: group.models
-								.filter((entry) => entry.id !== request.modelId)
-								.map((entry) => {
-									const model: ModelFileEntry = { id: entry.id };
-									if (entry.name && entry.name !== entry.id) model.name = entry.name;
-									if (entry.contextWindow) model.contextWindow = entry.contextWindow;
-									if (entry.reasoning) model.reasoning = entry.reasoning;
-									return model;
-								}),
+							models: group.models.filter((entry) => entry.id !== request.modelId).map(modelFileEntryFrom),
 						},
 					};
 					writeModelsFile(agentDir, models);
@@ -2868,8 +2917,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				| "memory.delete"
 				| "memory.clear"
 				| "usage.get"
-				| "life.probe"
-				| "career.get"
 				| "imageConfig.get"
 				| "imageConfig.set"
 				| "imageSub.login"
@@ -2933,18 +2980,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						? { days: request.days, cwd: request.cwd }
 						: undefined;
 				reply(ws, request.id, { ok: true, result: await usageStats.collectUsageStats(filter) });
-				return;
-			}
-			case "life.probe": {
-				const life = await import("./life-monitor.ts");
-				reply(ws, request.id, {
-					ok: true,
-					result: life.probeLife({
-						agentDir: defaultAgentDir(),
-						cwd: request.cwd,
-						model: request.model,
-					}),
-				});
 				return;
 			}
 		}
@@ -3239,7 +3274,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		DesktopClientRequest,
 		{
 			type:
-				| "career.get"
 				| "imageConfig.get"
 				| "imageConfig.set"
 				| "imageSub.login"
@@ -3252,14 +3286,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	async function handleImageSettingsRequest(ws: WebSocket, request: ImageSettingsRequest): Promise<void> {
 		switch (request.type) {
-			case "career.get": {
-				// 「我的 Token 生涯」看板数据面：owl 复用 usage-stats 全量口径，Claude Code /
-				// Codex 走 ~/.claude、~/.codex 的增量扫描（./career-stats.ts）。首扫可能较慢
-				// （Codex 全量可到 GB 级），前端以加载态等待；之后 mtime+size 缓存秒回。
-				const career = await import("./career-stats.ts");
-				reply(ws, request.id, { ok: true, result: await career.collectCareerStats() });
-				return;
-			}
 			case "imageConfig.get":
 			case "imageConfig.set":
 			case "imageSub.login":
@@ -3498,7 +3524,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "memory.delete":
 			case "memory.clear":
 			case "usage.get":
-			case "life.probe":
 				await handleSettingsRequest(ws, request);
 				return;
 			case "schedule.list":
@@ -3509,7 +3534,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "schedule.history":
 				await handleScheduleRequest(ws, request, workbenchContext);
 				return;
-			case "career.get":
 			case "imageConfig.get":
 			case "imageConfig.set":
 			case "imageSub.login":
@@ -3582,9 +3606,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				reply(ws, request.id, { ok: true, result: await buildChecker.hello(request.ui) });
 				return;
 			default: {
-				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
-				// UI 已是新版），界面上表现为"点了没反应"。switch 已穷尽已知类型，这里必是 never。
 				const unmatched = request as { id?: string; type?: string };
+				const pluginHandler = unmatched.type ? bridgeRoutes.get(unmatched.type) : undefined;
+				if (pluginHandler) {
+					const result = await pluginHandler(request as unknown as BridgeRequest, {
+						origin: clientOrigins.get(ws),
+					});
+					reply(ws, unmatched.id ?? "?", { ok: true, result });
+					return;
+				}
+				// 不认识的请求必须回错误：否则 UI 的 promise 永远挂起（典型场景 = 桥是旧进程、
+				// UI 已是新版，或提供该请求的桥插件没装），界面上表现为"点了没反应"。
 				reply(ws, unmatched.id ?? "?", {
 					ok: false,
 					error: `未知请求类型：${String(unmatched.type)}（UI 与桥版本不匹配，请重启应用）`,
@@ -3607,29 +3639,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		},
 		onDiagnostic,
 	});
+	const bridgePlugins = await bridgePluginsLoading;
+	const bridgeRoutes = bridgeRequestRoutes(bridgePlugins, onDiagnostic);
 	const httpServer = createServer((request, response) => {
-		void handleMapHttp(request, response, {
-			service: maps,
-			authorizeOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
+		void handleNewsHttp(request, response, {
+			handle: newsRequest,
+			authorizeIngest: (token) => getNewsService().authorizeIngest(token),
+			shutdown: closeNews,
 		})
-			.then(
-				(handled) =>
-					handled ||
-					handleNewsHttp(request, response, {
-						handle: newsRequest,
-						authorizeIngest: (token) => getNewsService().authorizeIngest(token),
-						shutdown: closeNews,
-					}),
-			)
-			.then(
-				(handled) =>
-					handled ||
-					handleWallpaperHttp(request, response, {
-						authorizeOrigin: (origin) => isTrustedDesktopOrigin(origin, options.host),
-						getCustomDir: () => owlWallpaperField("customDir"),
-						getCustomPath: () => owlWallpaperField("customPath"),
-					}),
-			)
+			.then((handled) => handled || handleBridgePluginHttp(bridgePlugins, request, response, onDiagnostic))
 			// 媒体桥（owl-media-bridge 插件）的同源 API；插件未加载时处理器缺位，
 			// 直接落到 UI 静态服务——与没有媒体桥时完全一致。
 			.then(
@@ -3748,6 +3766,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			terminals.killAll();
 			await iab.dispose();
 			mirror.dispose();
+			await closeBridgePlugins(bridgePlugins, onDiagnostic);
 			for (const client of clients) client.close();
 			wss.close();
 			await mcp?.close();

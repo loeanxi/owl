@@ -561,14 +561,12 @@ function isCurrentCacheToken(cacheToken: ExtensionCacheToken | undefined): cache
 	);
 }
 
-async function loadExtensionModule(extensionPath: string, cacheToken?: ExtensionCacheToken) {
-	if (isCurrentCacheToken(cacheToken)) {
-		const cachedFactory = extensionCache.get(extensionPath);
-		if (cachedFactory) {
-			return cachedFactory;
-		}
-	}
-
+/**
+ * Import a plugin module (TypeScript or JavaScript) with the same module
+ * resolution extensions get, so `@owl/owl-coding-agent` and friends resolve to
+ * the running host. Returns the module's default export.
+ */
+export async function importExtensionRuntimeModule(modulePath: string): Promise<unknown> {
 	const createJitiImpl = await getCreateJiti();
 	// Compiled binaries and the bundled Node distribution use embedded modules.
 	// Source TypeScript reuses host modules and root tsconfig paths. Unbundled
@@ -582,8 +580,18 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		moduleCache: false,
 		...resolutionOptions,
 	});
+	return jiti.import(modulePath, { default: true });
+}
 
-	const module = await jiti.import(extensionPath, { default: true });
+async function loadExtensionModule(extensionPath: string, cacheToken?: ExtensionCacheToken) {
+	if (isCurrentCacheToken(cacheToken)) {
+		const cachedFactory = extensionCache.get(extensionPath);
+		if (cachedFactory) {
+			return cachedFactory;
+		}
+	}
+
+	const module = await importExtensionRuntimeModule(extensionPath);
 	const factory = module as ExtensionFactory;
 	if (typeof factory !== "function") {
 		return undefined;

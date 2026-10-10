@@ -11,7 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type CareerDirs, collectCareerStats } from "../src/modes/desktop/career-stats.ts";
+import { collectUsageStats } from "../../coding-agent/src/modes/desktop/usage-stats.ts";
+import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../coding-agent/src/utils/atomic-file.ts";
+import { type CareerDirs, type CareerHost, collectCareerStats } from "../src/career-stats.ts";
 
 // 合成本机各 agent 的会话数据（与真实落盘格式同构），驱动多 Agent 扫描/聚合链路。
 // owl 侧注入空目录（totals=0 占位），不碰本机真实 ~/.owl。
@@ -127,7 +129,12 @@ function kimiUsageRecord(
 }
 
 async function scan(dirs: CareerDirs) {
-	const result = await collectCareerStats(dirs);
+	const host: CareerHost = {
+		agentDir: dirs.agentDir!,
+		collectUsageStats,
+		files: { atomicWriteFileSync, backupCorruptFile, withFileLockSync },
+	};
+	const result = await collectCareerStats(host, dirs);
 	const byId = new Map(result.agents.map((agent) => [agent.id, agent]));
 	return { result, byId };
 }

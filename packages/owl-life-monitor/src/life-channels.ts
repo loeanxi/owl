@@ -1,5 +1,5 @@
 /** 生命监护的通道清单。纯数据，桌面和桥共用，不要在这里读文件。 */
-import type { LifeLevel } from "./protocol.ts";
+import type { LifeLevel } from "./types.ts";
 
 export type LifeGroup = "link" | "agent" | "bench" | "power" | "desk" | "body";
 

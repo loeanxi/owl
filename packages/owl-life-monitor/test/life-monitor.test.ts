@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LIFE_CHANNELS } from "../src/modes/desktop/life-channels.ts";
-import { interpretLatest, probeLife, summarizeLife } from "../src/modes/desktop/life-monitor.ts";
+import { LIFE_CHANNELS } from "../src/life-channels.ts";
+import { interpretLatest, probeLife, summarizeLife } from "../src/life-monitor.ts";
 
 describe("interpretLatest", () => {
 	it("does not count a package failure twice", () => {
@@ -56,7 +56,12 @@ describe("probeLife", () => {
 				providers: { local: { baseUrl: "http://127.0.0.1:9/v1", apiKey: "secret-value", models: [{ id: "m" }] } },
 			}),
 		);
-		const result = probeLife({ agentDir, cwd: join(agentDir, "project"), model: "local/m" });
+		const result = probeLife({
+			agentDir,
+			cwd: join(agentDir, "project"),
+			model: "local/m",
+			sessionDirFor: (cwd) => join(agentDir, "sessions", cwd.replace(/[\\/:]+/g, "-")),
+		});
 		const byId = new Map(result.channels.map((item) => [item.id, item]));
 		expect(byId.get("package")).toMatchObject({
 			level: "bad",

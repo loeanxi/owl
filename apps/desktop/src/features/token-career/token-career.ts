@@ -1,7 +1,7 @@
 /**
  * 「我的 Token 生涯」数据层：career.get 桥调用 + 卡片墙的派生模型。
  *
- * 后端（modes/desktop/career-stats.ts）按数据源分桶返回各自 totals/byDay/byModel；
+ * 后端（packages/owl-career/src/career-stats.ts）按数据源分桶返回各自 totals/byDay/byModel；
  * 这里负责把 scope（全部或单个 Agent）折叠成看板要的形状：补零的趋势窗、活跃/连续
  * 天数、单日峰值、生涯里程碑。全部纯函数，方便测试与重算（切 Agent 过滤不重拉桥）。
  */

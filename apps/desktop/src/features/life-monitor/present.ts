@@ -1,4 +1,4 @@
-import { LIFE_CHANNELS, summarizeLife } from "../../../../../packages/coding-agent/src/modes/desktop/life-channels.ts";
+import { LIFE_CHANNELS, summarizeLife } from "../../../../../packages/owl-life-monitor/src/life-channels.ts";
 import type { LifeChannel } from "../../bridge/protocol.ts";
 import type { LifeRound } from "./use-life-probe.ts";
 

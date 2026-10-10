@@ -1,0 +1,17 @@
+{
+	"name": "owl-wallpaper",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "owl 动态壁纸桥插件：Wallpaper Engine 工程发现、媒体 Range 服务与网页壁纸 shim 注入（/wallpaper/* 同源路由）",
+	"license": "MIT",
+	"owl": {
+		"bridge": ["./src/bridge.ts"]
+	},
+	"scripts": {
+		"test": "node test/wallpaper-http.smoke.mjs"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*"
+	}
+}

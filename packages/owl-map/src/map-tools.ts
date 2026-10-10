@@ -1,8 +1,7 @@
+import type { ToolDefinition } from "@owl/owl-coding-agent";
 import { Type } from "typebox";
-import type { ToolDefinition } from "../../core/extensions/index.ts";
-import type { MapResult, MapResultsMessage, RealPlace } from "../../core/maps/types.ts";
 import type { RealMapService } from "./map-service.ts";
-import type { DesktopServerMessage } from "./protocol.ts";
+import type { MapResult, MapResultsMessage, RealPlace } from "./types.ts";
 
 const TRUST = {
 	contentTrust: "untrusted_external_data",
@@ -25,7 +24,7 @@ function failure(error: string, cancelled = false) {
 export function createMapTools(
 	service: Pick<RealMapService, "geocode" | "nearby" | "reverse">,
 	sessionId: string,
-	broadcast: (message: DesktopServerMessage) => void,
+	broadcast: (message: MapResultsMessage) => void,
 ): ToolDefinition[] {
 	const latitude = Type.Number({ minimum: -90, maximum: 90, description: "WGS84 纬度，来自地图或搜索结果" });
 	const longitude = Type.Number({ minimum: -180, maximum: 180, description: "WGS84 经度，来自地图或搜索结果" });

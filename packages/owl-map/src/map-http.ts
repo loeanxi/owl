@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { MapCategory, MapCoordinate } from "../../core/maps/types.ts";
 import type { RealMapService } from "./map-service.ts";
+import type { MapCategory, MapCoordinate } from "./types.ts";
 
 export interface MapHttpOptions {
 	service: Pick<RealMapService, "geocode" | "nearby" | "reverse">;

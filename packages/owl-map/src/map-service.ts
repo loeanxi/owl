@@ -10,9 +10,9 @@ import type {
 	NearbyRequest,
 	RealPlace,
 	ReverseRequest,
-} from "../../core/maps/types.ts";
+} from "./types.ts";
 
-export type * from "../../core/maps/types.ts";
+export type * from "./types.ts";
 
 const PHOTON_URL = "https://photon.komoot.io/";
 const CATEGORY_TAGS: Record<Exclude<MapCategory, "all">, string> = {

@@ -2,22 +2,6 @@
  * Re-exports the kernel wire protocol so the UI and bridge share one definition.
  */
 export type {
-	MapCategory,
-	MapCoordinate,
-	MapBounds,
-	MapDataSource,
-	RealMapPoint,
-	RealPlace,
-	MapSourceStatus,
-	MapResult,
-	GeocodeRequest,
-	NearbyRequest,
-	ReverseRequest,
-	MapViewUpdate,
-	MapResultsMessage,
-} from "../../../../packages/coding-agent/src/core/maps/types.ts";
-
-export type {
 	MailClientRequest,
 	MailAgentStartRequest,
 	MailAgentDraftMessage,
@@ -25,9 +9,6 @@ export type {
 	NewsOpenMessage,
 	ApprovalMode,
 	DesktopApprovalEvent,
-	DesktopClientRequest,
-	DesktopClientRequestWithoutId,
-	DesktopServerMessage,
 	AuthCancelRequest,
 	AuthLoginRequest,
 	AuthPromptRespondRequest,
@@ -117,16 +98,6 @@ export type {
 	UsageStatsModel,
 	UsageStatsProject,
 	UsageStatsSession,
-	CareerGetRequest,
-	CareerGetResult,
-	LifeLevel,
-	LifeChannel,
-	LifeProbeRequest,
-	LifeProbeResult,
-	CareerAgentUsage,
-	CareerAgentTotals,
-	CareerSourceStatus,
-	CareerBucket,
 	OwlImageProvider,
 	OwlImageConfigPublic,
 	ImageConfigGetRequest,
@@ -208,7 +179,27 @@ export type * from "../../../../packages/coding-agent/src/core/mail/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/evaluation/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/research/types.ts";
 
-import type { PermissionRequestMessage, QuestionRequestMessage } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
+// 桥插件自带的 wire 类型（插件包随功能一起拥有自己的协议）
+export type * from "../../../../packages/owl-career/src/types.ts";
+export type * from "../../../../packages/owl-life-monitor/src/types.ts";
+export type * from "../../../../packages/owl-map/src/types.ts";
+
+import type {
+	DesktopClientRequest as KernelClientRequest,
+	DesktopServerMessage as KernelServerMessage,
+	DistributiveOmit,
+	PermissionRequestMessage,
+	QuestionRequestMessage,
+} from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
+import type { CareerGetRequest } from "../../../../packages/owl-career/src/types.ts";
+import type { LifeProbeRequest } from "../../../../packages/owl-life-monitor/src/types.ts";
+import type { MapResultsMessage } from "../../../../packages/owl-map/src/types.ts";
+
+/** UI 能发的全部请求：内核请求 + 已知桥插件的请求。 */
+export type DesktopClientRequest = KernelClientRequest | CareerGetRequest | LifeProbeRequest;
+export type DesktopClientRequestWithoutId = DistributiveOmit<DesktopClientRequest, "id">;
+/** UI 能收到的全部推送：内核消息 + 已知桥插件的推送。 */
+export type DesktopServerMessage = KernelServerMessage | MapResultsMessage;
 
 /** Alias used by UI components. */
 export type PermissionRequest = PermissionRequestMessage;

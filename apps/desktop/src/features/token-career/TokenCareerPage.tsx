@@ -20,7 +20,7 @@ type LoadState = {
 
 /**
  * 「我的 Token 生涯」大屏看板（版式对齐 features/guide：页头 + 筛选 chips + 卡片墙 + 来源栏）。
- * 数据面是桥的 career.get（modes/desktop/career-stats.ts）：owl 复用 usage-stats，
+ * 数据面是 owl-career 桥插件的 career.get（packages/owl-career/src/career-stats.ts）：owl 复用 usage-stats，
  * Claude Code / Codex 扫本地会话 JSONL；Agent chips 切换 scope 时纯前端重算，不重拉桥。
  */
 export function TokenCareerPage({ active, client }: { active: boolean; client: BridgeClient }): React.JSX.Element {

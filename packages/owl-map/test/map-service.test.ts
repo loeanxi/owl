@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MapCategory } from "../src/core/maps/types.ts";
-import { distanceMeters, parseOverpass, parsePhoton, RealMapService } from "../src/modes/desktop/map-service.ts";
+import { distanceMeters, parseOverpass, parsePhoton, RealMapService } from "../src/map-service.ts";
+import type { MapCategory } from "../src/types.ts";
 
 const center = { lat: 30.25, lng: 120.2 };
 const feature = (id: number, name = "Source cafe", lat = 30.25, lng = 120.2, key = "amenity", value = "cafe") => ({
