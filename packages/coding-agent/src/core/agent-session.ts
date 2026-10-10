@@ -2288,7 +2288,7 @@ export class AgentSession {
 			this._appendCustomMessage({
 				role: "custom",
 				customType: "owl-image-omitted",
-				content: `当前模型 ${this.model.provider}/${this.model.id} 未声明图像能力，本轮 ${omittedImageCount} 张附图不会发给模型（仅保留文字占位）。若上游实际支持识图，请刷新模型目录，或换一个声明支持图像的模型。`,
+				content: `当前模型 ${this.model.provider}/${this.model.id} 未声明图像能力，本轮 ${omittedImageCount} 张附图不会发给模型（仅保留文字占位）。若上游实际支持识图，请在「设置 → 模型」为该模型勾选「支持图像输入」，或在 models.json 中为它写上 "input": ["text", "image"]。`,
 				display: true,
 				details: {
 					provider: this.model.provider,

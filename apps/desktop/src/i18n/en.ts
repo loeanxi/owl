@@ -444,6 +444,8 @@ export const en: Dict = {
 	"settings.models.contextWindowLabel": "Context window (tokens)",
 	"settings.models.maxOutputLabel": "Max output (tokens)",
 	"settings.models.reasoningModel": "Reasoning model",
+	"settings.models.imageInput": "Supports image input (vision)",
+	"settings.models.vision": "Vision",
 	"settings.models.discoverLabel": "Pick from upstream",
 	"settings.models.discover": "Fetch upstream models",
 	"settings.models.discovering": "Fetching…",

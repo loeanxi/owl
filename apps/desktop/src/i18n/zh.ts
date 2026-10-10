@@ -443,6 +443,8 @@ export const zh = {
 	"settings.models.contextWindowLabel": "上下文窗口（tokens）",
 	"settings.models.maxOutputLabel": "最大输出（tokens）",
 	"settings.models.reasoningModel": "推理模型",
+	"settings.models.imageInput": "支持图像输入（识图）",
+	"settings.models.vision": "识图",
 	"settings.models.discoverLabel": "从上游选择",
 	"settings.models.discover": "拉取上游模型",
 	"settings.models.discovering": "正在拉取…",

@@ -170,6 +170,7 @@ export function SettingsPage({
 	const [mCtx, setMCtx] = useState("");
 	const [mMax, setMMax] = useState("");
 	const [mReasoning, setMReasoning] = useState(false);
+	const [mImage, setMImage] = useState(false);
 	// 上游模型目录：按供应商缓存；下拉选中后回填表单，仍可手填。
 	const [discoveredModels, setDiscoveredModels] = useState<Record<string, DiscoveredModel[]>>({});
 	const [discoverNote, setDiscoverNote] = useState("");
@@ -1123,6 +1124,7 @@ export function SettingsPage({
 		setMCtx(model.contextWindow ? String(model.contextWindow) : "");
 		setMMax(model.maxTokens ? String(model.maxTokens) : "");
 		setMReasoning(model.reasoning === true);
+		setMImage(model.input?.includes("image") === true);
 	}
 
 	/** 正在使用中的模型：写入 settings.enabledModels（数组整体替换；null 表示清除过滤=全部可用）。 */
@@ -1829,7 +1831,10 @@ export function SettingsPage({
 															<tr key={model.id}>
 																<td><div>{model.name || model.id}</div><div className="owl-settings-model-id">{model.id}</div></td>
 																<td className="whitespace-nowrap">{model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : "—"}</td>
-																<td className="whitespace-nowrap text-owl-muted">{model.reasoning ? t("settings.models.reasoning") : t("settings.models.general")}</td>
+																<td className="whitespace-nowrap text-owl-muted">
+																	{model.reasoning ? t("settings.models.reasoning") : t("settings.models.general")}
+																	{model.input?.includes("image") ? ` · ${t("settings.models.vision")}` : ""}
+																</td>
 																<td><button type="button" className="owl-settings-link is-danger" disabled={busy} aria-label={t("settings.models.deleteModelAria", { name: model.name || model.id })} onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}>{t("common.delete")}</button></td>
 															</tr>
 														))}
@@ -1862,6 +1867,7 @@ export function SettingsPage({
 																			{model.name && model.name !== model.id ? `${model.name} (${model.id})` : model.id}
 																			{model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k` : ""}
 																			{model.reasoning ? ` · ${t("settings.models.reasoning")}` : ""}
+																			{model.input?.includes("image") ? ` · ${t("settings.models.vision")}` : ""}
 																		</option>
 																	))}
 																</select>
@@ -1899,6 +1905,10 @@ export function SettingsPage({
 														<input type="checkbox" checked={mReasoning} onChange={(e) => setMReasoning(e.target.checked)} />
 														{t("settings.models.reasoningModel")}
 													</label>
+													<label className="flex items-center gap-1.5 text-[11px] text-owl-muted">
+														<input type="checkbox" checked={mImage} onChange={(e) => setMImage(e.target.checked)} />
+														{t("settings.models.imageInput")}
+													</label>
 													<div className="flex justify-end gap-2">
 														<button
 															type="button"
@@ -1924,6 +1934,7 @@ export function SettingsPage({
 																		...(Number(mCtx) > 0 ? { contextWindow: Number(mCtx) } : {}),
 																		...(Number(mMax) > 0 ? { maxTokens: Number(mMax) } : {}),
 																		reasoning: mReasoning,
+																		...(mImage ? { input: ["text", "image"] as ("text" | "image")[] } : {}),
 																	},
 																}).then(() => {
 																	setMId("");
@@ -1931,6 +1942,7 @@ export function SettingsPage({
 																	setMCtx("");
 																	setMMax("");
 																	setMReasoning(false);
+																	setMImage(false);
 																	setDiscoverNote("");
 																	setModelFormFor(null);
 																});
@@ -1954,6 +1966,7 @@ export function SettingsPage({
 														setMCtx("");
 														setMMax("");
 														setMReasoning(false);
+														setMImage(false);
 													}}
 												>
 													{t("settings.models.addModel")}

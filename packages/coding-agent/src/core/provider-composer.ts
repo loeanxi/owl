@@ -209,23 +209,26 @@ function modelFromJson(
 	if (definition.maxTokens !== undefined && definition.maxTokens <= 0) {
 		throw new Error(`Provider ${providerId}, model ${definition.id}: invalid maxTokens`);
 	}
+	// A same-ID entry replaces the existing model, but fields it omits keep the existing values;
+	// otherwise a partial entry silently drops capabilities such as image input.
+	const inherited = defaults?.id === definition.id && defaults.api === api ? defaults : undefined;
 	return {
 		id: definition.id,
-		name: definition.name ?? definition.id,
+		name: definition.name ?? inherited?.name ?? definition.id,
 		api: api as Api,
 		provider: providerId,
 		baseUrl,
-		reasoning: definition.reasoning ?? false,
-		thinkingLevelMap: definition.thinkingLevelMap,
-		input: (definition.input ?? ["text"]) as ("text" | "image")[],
-		inputLimits: definition.inputLimits,
-		cost: definition.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		promptCache: definition.promptCache,
-		contextWindow: definition.contextWindow ?? 128000,
-		maxTokens: definition.maxTokens ?? 16384,
-		samplingParams: definition.samplingParams,
+		reasoning: definition.reasoning ?? inherited?.reasoning ?? false,
+		thinkingLevelMap: definition.thinkingLevelMap ?? inherited?.thinkingLevelMap,
+		input: (definition.input ?? inherited?.input ?? ["text"]) as ("text" | "image")[],
+		inputLimits: definition.inputLimits ?? inherited?.inputLimits,
+		cost: definition.cost ?? inherited?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		promptCache: definition.promptCache ?? inherited?.promptCache,
+		contextWindow: definition.contextWindow ?? inherited?.contextWindow ?? 128000,
+		maxTokens: definition.maxTokens ?? inherited?.maxTokens ?? 16384,
+		samplingParams: definition.samplingParams ?? inherited?.samplingParams,
 		headers: undefined,
-		compat: mergeCompat(providerConfig.compat, definition.compat),
+		compat: mergeCompat(inherited?.compat ?? providerConfig.compat, definition.compat),
 	};
 }
 
