@@ -141,7 +141,9 @@ export {
 export { stripModelPrefix } from "./gateway/model-router.ts";
 export {
 	AccountPoolRouter,
+	type CreditExpiry,
 	cooldownMillis,
+	expiringCredits,
 	hasPersistedCooldown,
 	isNetworkBlip,
 	pickByCreditWeight,

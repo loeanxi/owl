@@ -8,6 +8,7 @@ import {
 	claudeUsageBuckets,
 	copilotQuota,
 	cursorQuota,
+	extractCreditExpiry,
 	extractEntitlementUsage,
 	extractResourceSummary,
 	qoderQuota,
@@ -66,6 +67,36 @@ describe("credit extractors", () => {
 		).toBe(6);
 		expect(qoderQuota({ userQuota: { remaining: 3, total: 10, used: 7 } }).ok).toBe(true);
 		expect(claudeUsageBuckets({ five_hour: { utilization: 0.25, resets_at: 1_700_000_000 } })[0]?.used).toBe(25);
+	});
+
+	it("reads WorkBuddy per-package expiry in Shanghai time and skips empty packages", () => {
+		const expiry = extractCreditExpiry({
+			code: 0,
+			data: {
+				Response: {
+					Data: {
+						Accounts: [
+							{
+								CapacityRemainPrecise: "500",
+								CycleEndTime: "2026-10-31 23:59:59",
+								DeductionEndTime: 2043046033000,
+							},
+							{
+								CapacityRemainPrecise: "96.85",
+								CycleEndTime: "2026-10-11 17:22:38",
+								DeductionEndTime: 1791710558000,
+							},
+							{ CapacityRemainPrecise: "0", CycleEndTime: "2026-10-12 00:00:00" },
+						],
+					},
+				},
+			},
+		});
+		expect(expiry).toEqual([
+			{ at: Date.parse("2026-10-11T17:22:38+08:00"), remaining: 96.85 },
+			{ at: Date.parse("2026-10-31T23:59:59+08:00"), remaining: 500 },
+		]);
+		expect(extractCreditExpiry({ code: 0, data: { Packages: [] } })).toBeNull();
 	});
 });
 

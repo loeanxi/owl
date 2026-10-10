@@ -4,6 +4,7 @@
  * 非流式本地聚合；② Origin/Referer 必须是 codebuddy.cn（否则 11128 unapproved
  * channel）；③ 缺省身份头显式占位，chat 请求绝不携带 X-Refresh-Token；
  * ④ hy3* 系模型缺省 reasoning_effort=high。
+ * 11128 实测为按请求抽检（同一秒相邻请求一过一拒），吐字前短退避重试通常即可放行。
  */
 import {
 	type Account,
@@ -91,7 +92,7 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 		body.stream = true;
 		let emitted = false;
 		let lastIo: Error | null = null;
-		for (let attempt = 1; attempt <= 2; attempt++) {
+		for (let attempt = 1; attempt <= 3; attempt++) {
 			try {
 				await this.postChat(
 					accessToken,
@@ -105,6 +106,16 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 				return;
 			} catch (error) {
 				signal?.throwIfAborted();
+				// 11128 渠道抽检按请求命中，账号与模型无关：吐字前短退避重试，耗尽才上报
+				if (
+					error instanceof GatewayFault &&
+					error.code === "upstream_channel_rejected" &&
+					!emitted &&
+					attempt < 3
+				) {
+					await delay(Math.round(500 * 2 ** (attempt - 1)), signal);
+					continue;
+				}
 				if (error instanceof UpstreamException || error instanceof GatewayFault) {
 					throw error;
 				}
@@ -234,6 +245,13 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 						void errorReader.cancel().catch(() => {});
 						errorReader.releaseLock();
 					}
+				}
+				if (upstreamBusinessCode(text) === 11128) {
+					throw new GatewayFault(
+						502,
+						"upstream_channel_rejected",
+						"WorkBuddy 拒绝了本中转站的调用（11128：渠道校验未通过），该通道当前不可用",
+					);
 				}
 				const kind =
 					response.status === 400
@@ -502,6 +520,35 @@ function stripFingerprintKeys(node: unknown): void {
 			stripFingerprintKeys(item);
 		}
 	}
+}
+
+function upstreamBusinessCode(text: string): number | null {
+	try {
+		const parsed: unknown = JSON.parse(text);
+		if (parsed !== null && typeof parsed === "object" && "code" in parsed && typeof parsed.code === "number") {
+			return parsed.code;
+		}
+	} catch {
+		// 非 JSON 错误体按 HTTP 状态分类
+	}
+	return null;
+}
+
+/** abort 感知的退避等待；触发中止时以调用方 reason 拒绝。 */
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const onAbort = () => {
+			clearTimeout(timer);
+			cleanup();
+			reject(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
+		};
+		const cleanup = () => signal?.removeEventListener("abort", onAbort);
+		const timer = setTimeout(() => {
+			cleanup();
+			resolve();
+		}, ms);
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 function truncate(text: string): string {

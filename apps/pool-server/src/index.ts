@@ -108,6 +108,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	const poolRouter = new AccountPoolRouter({
 		accounts,
 		accountCooldownMs: config.gateway.accountCooldownMs,
+		expiringWindowMs: config.gateway.expiringWindowMs,
+		// 至少容忍两轮刷新间隔，单次刷新失败不至于让临期信息立刻失效
+		expiryFreshnessMs: Math.max(2 * 3_600_000, config.creditRefreshMs * 2),
 		cooldownState: gatewayState,
 	});
 	const sticky = new StickySessionService({
@@ -333,6 +336,11 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	});
 	scheduler.start();
 	scheduleBackups(db, pathResolve("data/backups"));
+	const creditRefresher = scheduleCreditRefresh(
+		config.creditRefreshMs,
+		() => accounts.listEnabled().filter((account) => account.platform === "WORKBUDDY"),
+		(account) => refreshCredit(accounts, account, creditHooks),
+	);
 
 	console.log(`owl pool-server listening on http://${config.host}:${config.port}（db: ${dbFile}）`);
 
@@ -343,6 +351,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		console.log(`[pool-server] 收到 ${signal}，退出`);
 		scheduler.stop();
 		clearInterval(billingJanitor);
+		if (creditRefresher !== null) clearInterval(creditRefresher);
 		server.close();
 		const drained = await gatewayLifecycle.drain(3000);
 		if (!drained) console.warn("[pool-server] 等待中的调用尚未结束；已保留未确定计费的预占待核对");
@@ -379,6 +388,42 @@ function scheduleBackups(db: DatabaseSync, dir: string): void {
 	const timer = setInterval(run, 60 * 60 * 1000);
 	timer.unref();
 	setTimeout(run, 15_000).unref();
+}
+
+/** 临期优先依赖新鲜的积分快照：不开账号页也要定时刷新。 */
+function scheduleCreditRefresh(
+	intervalMs: number,
+	targets: () => import("owl-pool").Account[],
+	refresh: (account: import("owl-pool").Account) => Promise<unknown>,
+): NodeJS.Timeout | null {
+	if (intervalMs <= 0) {
+		return null;
+	}
+	let running = false;
+	const run = async () => {
+		if (running) return;
+		running = true;
+		try {
+			const queue = targets();
+			const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+				for (let account = queue.shift(); account !== undefined; account = queue.shift()) {
+					const name = account.name;
+					await refresh(account).catch((error: unknown) => {
+						console.error(
+							`[pool-server] 积分定时刷新失败 ${name}: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					});
+				}
+			});
+			await Promise.all(workers);
+		} finally {
+			running = false;
+		}
+	};
+	const timer = setInterval(() => void run(), intervalMs);
+	timer.unref();
+	setTimeout(() => void run(), 30_000).unref();
+	return timer;
 }
 
 async function claudeUsage(

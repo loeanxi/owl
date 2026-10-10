@@ -33,6 +33,8 @@ export interface Account {
 	creditsMessage?: string | null;
 	creditsDetails?: string | null;
 	creditsUpdatedAt?: number | null;
+	/** 有剩余的积分包到期时间 JSON（CreditExpiry[]，按到期升序）；拿不到时为 null。 */
+	creditsExpiry?: string | null;
 	/** 凭证健康。 */
 	credentialExpiresAt?: number | null;
 	credentialStatus?: CredentialStatus | null;

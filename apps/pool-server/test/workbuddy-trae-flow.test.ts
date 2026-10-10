@@ -1,4 +1,16 @@
-import type { Account } from "owl-pool";
+import {
+	type Account,
+	AccountPoolRouter,
+	GatewayFault,
+	InMemoryAccountStore,
+	MemoryGatewayState,
+	type Platform,
+	type ResolvedModel,
+	type ResolvedRouteTarget,
+	RouteGeneration,
+	StickySessionService,
+	type UpstreamChatClient,
+} from "owl-pool";
 import { describe, expect, it } from "vitest";
 import { normalizeTraePayload, TraeChatClient } from "../src/gateway/trae-client.ts";
 import { normalizeWorkBuddyPayload, WorkBuddyChatClient } from "../src/gateway/workbuddy-client.ts";
@@ -129,6 +141,188 @@ describe("WorkBuddyChatClient", () => {
 				() => {},
 			),
 		).rejects.toMatchObject({ name: "UpstreamException", kind: "AUTH" });
+	});
+
+	it("11128 渠道拒绝：退避重试后放行，不再透传原始 JSON", async () => {
+		let call = 0;
+		const client = new WorkBuddyChatClient({
+			config: {
+				baseUrl: "https://copilot.tencent.com",
+				chatPath: "/v2/chat/completions",
+				userAgent: "CLI/2.63.2 CodeBuddy/2.63.2",
+				origin: "https://www.codebuddy.cn",
+				referer: "https://www.codebuddy.cn/",
+				timeoutMs: 5000,
+			},
+			fetchImpl: (async () => {
+				call++;
+				if (call === 1) {
+					return new Response(
+						JSON.stringify({ code: 11128, msg: "Illegal API invocation from an unapproved channel" }),
+						{ status: 400, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return sse([
+					JSON.stringify({ choices: [{ index: 0, delta: { content: "好" } }] }),
+					JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
+					"[DONE]",
+				]);
+			}) as typeof fetch,
+		});
+		const chunks: Array<Record<string, unknown>> = [];
+		await client.chatCompletionStream(account({ accessToken: "wb-tok" }), { model: "hy3", messages: [] }, (json) => {
+			chunks.push(JSON.parse(json));
+		});
+		expect(call).toBe(2); // 首次 11128 抽检拦截 → 重试放行
+		expect(chunks.length).toBe(3); // 内容增量 + finish 帧增量 + 收尾 chunk
+	});
+
+	it("11128 连续拦截：重试耗尽 → upstream_channel_rejected，不透传原始 JSON", async () => {
+		let call = 0;
+		const client = new WorkBuddyChatClient({
+			config: {
+				baseUrl: "https://copilot.tencent.com",
+				chatPath: "/v2/chat/completions",
+				userAgent: "CLI/2.63.2 CodeBuddy/2.63.2",
+				origin: "https://www.codebuddy.cn",
+				referer: "https://www.codebuddy.cn/",
+				timeoutMs: 5000,
+			},
+			fetchImpl: (async () => {
+				call++;
+				return new Response(
+					JSON.stringify({ code: 11128, msg: "Illegal API invocation from an unapproved channel" }),
+					{ status: 400, headers: { "Content-Type": "application/json" } },
+				);
+			}) as typeof fetch,
+		});
+		const failure = await client
+			.chatCompletionStream(account({ accessToken: "wb-tok" }), { model: "hy3", messages: [] }, () => {})
+			.catch((error: unknown) => error);
+		expect(call).toBe(3); // 500ms + 1000ms 两次退避后耗尽
+		expect(failure).toBeInstanceOf(GatewayFault);
+		expect(failure).toMatchObject({ status: 502, code: "upstream_channel_rejected" });
+		expect((failure as Error).message).not.toContain("Illegal API invocation");
+	});
+
+	it("其他 400 仍按 BAD_REQUEST 透传", async () => {
+		const client = new WorkBuddyChatClient({
+			config: {
+				baseUrl: "https://copilot.tencent.com",
+				chatPath: "/v2/chat/completions",
+				userAgent: "CLI/2.63.2 CodeBuddy/2.63.2",
+				origin: "https://www.codebuddy.cn",
+				referer: "https://www.codebuddy.cn/",
+				timeoutMs: 5000,
+			},
+			fetchImpl: (async () =>
+				new Response(JSON.stringify({ code: 11101, msg: "bad" }), { status: 400 })) as typeof fetch,
+		});
+		await expect(
+			client.chatCompletionStream(account({ accessToken: "wb-tok" }), { model: "hy3", messages: [] }, () => {}),
+		).rejects.toMatchObject({ name: "UpstreamException", kind: "BAD_REQUEST" });
+	});
+});
+
+describe("渠道拒绝的路由处理", () => {
+	function target(platform: Platform): ResolvedRouteTarget {
+		return {
+			platform,
+			upstreamModel: "star-a",
+			priority: 0,
+			supportsImages: false,
+			supportsTools: true,
+			reasoningEfforts: ["high"],
+			effectiveEffort: null,
+		};
+	}
+
+	function resolution(routes: ResolvedRouteTarget[]): ResolvedModel {
+		return {
+			publicId: "star-lm",
+			routes,
+			modelVersion: null,
+			defaultReasoningEffort: null,
+			defaultContextWindow: null,
+			requestedReasoningEffort: null,
+			effectiveReasoningEffort: null,
+			requestedContextWindow: null,
+			compatible: false,
+			policyAction: null,
+			policyRule: null,
+		};
+	}
+
+	function fixture(): { generation: RouteGeneration; router: AccountPoolRouter; workBuddyIds: string[] } {
+		const accounts = new InMemoryAccountStore();
+		const workBuddyIds = ["a", "b"].map(
+			(token) =>
+				accounts.create(
+					{ name: `wb-${token}`, platform: "WORKBUDDY", credentials: { accessToken: token }, enabled: true },
+					0,
+				).id,
+		);
+		accounts.create({ name: "grok", platform: "GROK", credentials: { apiKey: "k" }, enabled: true }, 0);
+		const router = new AccountPoolRouter({
+			accounts,
+			accountCooldownMs: 60_000,
+			cooldownState: new MemoryGatewayState(),
+		});
+		const generation = new RouteGeneration({
+			accounts,
+			router,
+			sticky: new StickySessionService({ enabled: false, ttlSeconds: 900 }),
+			upstreams: new Map<Platform, UpstreamChatClient>([
+				["WORKBUDDY", {} as UpstreamChatClient],
+				["GROK", {} as UpstreamChatClient],
+			]),
+			maxRotate: 3,
+		});
+		return { generation, router, workBuddyIds };
+	}
+
+	const rejectWorkBuddy = (tried: string[]) => async (selected: Account) => {
+		tried.push(selected.platform);
+		if (selected.platform === "WORKBUDDY") {
+			throw new GatewayFault(502, "upstream_channel_rejected", "rejected");
+		}
+		return "ok";
+	};
+
+	it("同平台不换号、不冷却，降级到下一路由目标", async () => {
+		const { generation, router, workBuddyIds } = fixture();
+		const tried: string[] = [];
+		const result = await generation.route(
+			{
+				key: { id: "k" } as never,
+				payload: { model: "star-lm", messages: [] },
+				resolution: resolution([target("WORKBUDDY"), target("GROK")]),
+				sessionId: null,
+			},
+			rejectWorkBuddy(tried),
+		);
+		expect(result).toBe("ok");
+		expect(tried).toEqual(["WORKBUDDY", "GROK"]);
+		for (const id of workBuddyIds) {
+			expect(router.isCooling(id)).toBe(false);
+		}
+	});
+
+	it("没有其他路由目标时把渠道拒绝抛给调用方", async () => {
+		const { generation } = fixture();
+		const tried: string[] = [];
+		await expect(
+			generation.route(
+				{
+					key: { id: "k" } as never,
+					payload: { model: "star-lm", messages: [] },
+					resolution: resolution([target("WORKBUDDY")]),
+					sessionId: null,
+				},
+				rejectWorkBuddy(tried),
+			),
+		).rejects.toMatchObject({ code: "upstream_channel_rejected" });
+		expect(tried).toEqual(["WORKBUDDY"]);
 	});
 });
 

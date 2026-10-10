@@ -23,6 +23,8 @@ export interface PoolConfig {
 	checkInMinute: number;
 	/** 账号间签到间隔毫秒。 */
 	checkInStaggerMs: number;
+	/** 服务端定时刷新 WorkBuddy 积分（含到期时间）的间隔毫秒；0 关闭。 */
+	creditRefreshMs: number;
 	/** 管理端鉴权域（对齐 manager `manager.admin.*` + `manager.security.trusted-proxy-count`）。 */
 	admin: AdminSecurityConfig;
 	/** 可信反代层数；0 = 完全不信转发头。 */
@@ -41,6 +43,8 @@ export interface PoolConfig {
 		ipWhitelist: string | null;
 		maxRotate: number;
 		accountCooldownMs: number;
+		/** 临期积分优先的窗口毫秒；0 关闭。 */
+		expiringWindowMs: number;
 		upstreamTimeoutMs: number;
 		stickyEnabled: boolean;
 		stickyTtlSeconds: number;
@@ -105,6 +109,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 		checkInHour: intOr(env.OWL_POOL_CHECKIN_HOUR, 0),
 		checkInMinute: intOr(env.OWL_POOL_CHECKIN_MINUTE, 5),
 		checkInStaggerMs: intOr(env.OWL_POOL_CHECKIN_STAGGER_MS, 3000),
+		creditRefreshMs: intOr(env.OWL_POOL_CREDIT_REFRESH_MINUTES, 30) * 60_000,
 		trustedProxyCount: intOr(env.OWL_POOL_TRUSTED_PROXY_COUNT, 0),
 		memberConcurrency: {
 			defaultLimit: intOr(env.OWL_POOL_MEMBER_CONCURRENCY_DEFAULT, 2),
@@ -118,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			ipWhitelist: blankToUndefined(env.OWL_POOL_GATEWAY_IP_WHITELIST) ?? null,
 			maxRotate: intOr(env.OWL_POOL_GATEWAY_MAX_ROTATE, 3),
 			accountCooldownMs: intOr(env.OWL_POOL_GATEWAY_COOLDOWN_MS, 60_000),
+			expiringWindowMs: intOr(env.OWL_POOL_GATEWAY_EXPIRING_WINDOW_HOURS, 72) * 3_600_000,
 			upstreamTimeoutMs: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
 			stickyEnabled: boolOr(env.OWL_POOL_GATEWAY_STICKY_ENABLED, true),
 			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 3600),

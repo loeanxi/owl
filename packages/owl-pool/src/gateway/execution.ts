@@ -2,7 +2,8 @@
  * 网关换号执行 —— 移植自 manager `gateway/GatewayChatDispatcher.route` 的核心语义。
  * 逐 RouteTarget：sticky 优先 → 积分加权选号（单目标最多换 maxRotate 次）→
  * 转发规范化（剥 sticky/能力内部字段、模型改上游名、档位收敛写回）→ 调上游。
- * 失败：AUTH/BAD_REQUEST 不换号直接抛；其余冷却落库 + 换号；
+ * 失败：AUTH/BAD_REQUEST 不换号直接抛；平台级拒绝（upstream_channel_rejected）不冷却、
+ * 跳到下一路由目标；其余冷却落库 + 换号；
  * gateway_busy 不耗换号预算（本地槽位未打上游）；已产出 chunk 后失败不重试。
  */
 
@@ -116,6 +117,10 @@ export class RouteGeneration {
 					if (context.emitted || context.upstreamCompleted) {
 						throw failure;
 					}
+					if (isPlatformRejection(failure)) {
+						last = failure;
+						break;
+					}
 					if (isRequestFailure(failure)) {
 						throw failure;
 					}
@@ -171,14 +176,8 @@ export class RouteGeneration {
 		if (client === undefined) {
 			return { account: null, capacityBlocked: false };
 		}
-		const candidate = this.#deps.router.pick(target.platform);
-		if (candidate === null) {
-			return { account: null, capacityBlocked: false };
-		}
-		if (seen.has(candidate.id)) {
-			// 池内唯一候选已试过：直接终止本目标，避免死循环
-			return { account: null, capacityBlocked: false };
-		}
+		// 已试过的号不再参与：临期优先是偏向性的，不排除会反复抽回同一个号
+		const candidate = this.#deps.router.pick(target.platform, seen);
 		return { account: candidate, capacityBlocked: false };
 	};
 
@@ -218,6 +217,11 @@ export class RouteGeneration {
 		}
 		return forwarded;
 	}
+}
+
+/** 平台整体拒绝本中转（如渠道校验）：同平台换号无意义、账号也无过错，跳到下一路由目标。 */
+function isPlatformRejection(failure: Error): boolean {
+	return failure instanceof GatewayFault && failure.code === "upstream_channel_rejected";
 }
 
 /** AUTH/BAD_REQUEST 属于请求性失败：换号无意义，直接抛给客户端。 */

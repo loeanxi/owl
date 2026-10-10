@@ -8,6 +8,7 @@ import {
 	applyEffortPolicy,
 	cooldownMillis,
 	type DiscoveredCapacity,
+	expiringCredits,
 	FixedWindowRateLimiter,
 	InMemoryAccountStore,
 	ipAllowed,
@@ -489,5 +490,40 @@ describe("AccountPoolRouter", () => {
 		now += 60_000 + 1;
 		expect(router.isCooling(alias("a"))).toBe(false);
 		expect(router.pick("GROK")?.id).toBe(alias("a"));
+	});
+
+	it("临期优先：窗口内有临期积分的号先选，冷却或排除后回到积分加权", () => {
+		const { store, router } = routerStore([account("rich", 10_000), account("soon", 10)]);
+		const hour = 3_600_000;
+		store.patchState(alias("soon"), {
+			creditsUpdatedAt: now,
+			creditsExpiry: JSON.stringify([{ at: now + 24 * hour, remaining: 10 }]),
+		});
+		store.patchState(alias("rich"), {
+			creditsUpdatedAt: now,
+			creditsExpiry: JSON.stringify([{ at: now + 30 * 24 * hour, remaining: 10_000 }]),
+		});
+		for (let i = 0; i < 20; i++) {
+			expect(router.pick("GROK")?.id).toBe(alias("soon"));
+		}
+		expect(router.pick("GROK", new Set([alias("soon")]))?.id).toBe(alias("rich"));
+		router.markFailure(alias("soon"), "429");
+		expect(router.pick("GROK")?.id).toBe(alias("rich"));
+	});
+
+	it("临期优先：快照过旧或已过期的到期信息不生效", () => {
+		const hour = 3_600_000;
+		const stale = {
+			creditsUpdatedAt: now - 3 * hour,
+			creditsExpiry: JSON.stringify([{ at: now + hour, remaining: 50 }]),
+		};
+		const past = { creditsUpdatedAt: now, creditsExpiry: JSON.stringify([{ at: now - 1, remaining: 50 }]) };
+		const probe = { ...account("x", 50), ...stale };
+		expect(expiringCredits(probe, now, 72 * hour, 2 * hour)).toBe(0);
+		expect(expiringCredits({ ...probe, ...past }, now, 72 * hour, 2 * hour)).toBe(0);
+		expect(expiringCredits({ ...probe, creditsUpdatedAt: now }, now, 72 * hour, 2 * hour)).toBe(50);
+		expect(
+			expiringCredits({ ...probe, creditsUpdatedAt: now, creditsExpiry: "not json" }, now, 72 * hour, 2 * hour),
+		).toBe(0);
 	});
 });

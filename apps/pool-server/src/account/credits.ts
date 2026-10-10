@@ -3,7 +3,7 @@
  * 查询结果写回账号行。停用账号不打上游。同一账号的刷新串行。
  */
 import type { Account, AccountStore } from "owl-pool";
-import { parseCredentials, UpstreamException } from "owl-pool";
+import { type CreditExpiry, parseCredentials, UpstreamException } from "owl-pool";
 import { workBuddyToken } from "../catalog/workbuddy-catalog.ts";
 import { queryMimoQuota } from "./mimo-quota.ts";
 import { qoderQuotaPersonalToken, queryQoderQuota } from "./qoder-quota.ts";
@@ -31,6 +31,7 @@ export interface CreditSnapshot {
 	label: string | null;
 	message: string;
 	buckets: CreditBucket[];
+	expiry?: CreditExpiry[] | null;
 	authRejected?: boolean;
 	authAccepted?: boolean;
 	availability?: "UNAVAILABLE";
@@ -113,6 +114,8 @@ function persist(accounts: AccountStore, account: Account, snapshot: CreditSnaps
 		creditsMessage: message,
 		creditsDetails: snapshot.buckets.length > 0 ? JSON.stringify(snapshot.buckets) : null,
 		creditsUpdatedAt: Date.now(),
+		creditsExpiry:
+			snapshot.ok && snapshot.expiry && snapshot.expiry.length > 0 ? JSON.stringify(snapshot.expiry) : null,
 		...(snapshot.authRejected
 			? { credentialStatus: "EXPIRED" as const, credentialMessage: message, credentialCheckedAt: Date.now() }
 			: {}),
@@ -189,10 +192,17 @@ async function queryWorkBuddy(account: Account, hooks: CreditHooks): Promise<Cre
 		const summary = extractResourceSummary(
 			await postWorkBuddy(fetchImpl, base, "/billing/meter/get-user-resource-summary", token),
 		);
-		if (summary.ok) {
-			return summary;
+		// summary 没有到期时间；按包明细只给选号排序用，取不到时余额仍以 summary 为准
+		let resource: unknown = null;
+		try {
+			resource = await postWorkBuddy(fetchImpl, base, "/v2/billing/meter/get-user-resource", token);
+		} catch (error) {
+			if (!summary.ok) {
+				throw error;
+			}
 		}
-		return extractUserResource(await postWorkBuddy(fetchImpl, base, "/v2/billing/meter/get-user-resource", token));
+		const snapshot = summary.ok ? summary : extractUserResource(resource);
+		return snapshot.ok ? { ...snapshot, expiry: extractCreditExpiry(resource) } : snapshot;
 	} catch (error) {
 		return fail(`WorkBuddy 积分查询失败: ${error instanceof Error ? error.message : "unknown"}`);
 	}
@@ -340,7 +350,7 @@ export function extractUserResource(node: unknown): CreditSnapshot {
 		return fail(text(node.msg) ?? text(node.message) ?? `上游返回 code=${code}`);
 	}
 	const data = isRecord(node.data) ? node.data : node;
-	const accounts = findKeyLoose(data, "Accounts");
+	const accounts = findKeyLoose(data, "Accounts") ?? findKey(node, "Accounts");
 	if (Array.isArray(accounts)) {
 		let sum = 0;
 		let counted = 0;
@@ -362,11 +372,59 @@ export function extractUserResource(node: unknown): CreditSnapshot {
 			return ok(sum, `CapacityRemain×${counted}`);
 		}
 	}
-	const total = numberOf(data.TotalDosage) ?? numberOf(data.totalDosage);
+	const total = numberOf(data.TotalDosage) ?? numberOf(data.totalDosage) ?? numberOf(findKey(node, "TotalDosage"));
 	if (total !== null) {
 		return ok(total, "TotalDosage");
 	}
 	return fail("响应中无 TotalDosage/CapacityRemain");
+}
+
+/** get-user-resource 按包明细 → 有剩余的包的到期时间（周期结束即作废，取周期结束与扣费截止中较早者）。 */
+export function extractCreditExpiry(node: unknown): CreditExpiry[] | null {
+	if (!isRecord(node)) {
+		return null;
+	}
+	// 真实响应嵌在 data.Response.Data.Accounts
+	const accounts = findKey(node, "Accounts");
+	if (!Array.isArray(accounts)) {
+		return null;
+	}
+	const out: CreditExpiry[] = [];
+	for (const item of accounts) {
+		if (!isRecord(item)) {
+			continue;
+		}
+		const remaining =
+			numberOf(item.CapacityRemainPrecise) ??
+			numberOf(item.CycleCapacityRemainPrecise) ??
+			numberOf(item.CapacityRemain);
+		if (remaining === null || remaining <= 0) {
+			continue;
+		}
+		const ends = [shanghaiTime(item.CycleEndTime), numberOf(item.DeductionEndTime)].filter(
+			(value): value is number => value !== null && value > 0,
+		);
+		if (ends.length === 0) {
+			continue;
+		}
+		out.push({ at: Math.min(...ends), remaining: Math.round(remaining * 100) / 100 });
+	}
+	out.sort((a, b) => a.at - b.at);
+	return out.length > 0 ? out : null;
+}
+
+/** 上游 "yyyy-MM-dd HH:mm:ss" 不带时区，按 Asia/Shanghai 解释。 */
+function shanghaiTime(value: unknown): number | null {
+	const raw = text(value);
+	if (raw === null) {
+		return null;
+	}
+	const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})$/.exec(raw.trim());
+	if (match === null) {
+		return null;
+	}
+	const parsed = Date.parse(`${match[1]}T${match[2]}+08:00`);
+	return Number.isNaN(parsed) ? null : parsed;
 }
 
 export function cursorQuota(response: Record<string, unknown>): CreditSnapshot {

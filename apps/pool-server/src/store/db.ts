@@ -58,6 +58,7 @@ function ensureDiscoveredColumns(db: DatabaseSync): void {
 
 /** 从 manager 整表迁入时要保住的列。旧库缺列就补，不重建。 */
 function ensureImportedColumns(db: DatabaseSync): void {
+	addColumn(db, "accounts", "credits_expiry", "TEXT");
 	addColumn(db, "published_models", "revision", "INTEGER");
 	addColumn(db, "billing_member_wallets", "id", "TEXT");
 	addColumn(db, "billing_member_wallets", "currency", "TEXT");
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 	credits_message TEXT,
 	credits_details TEXT,
 	credits_updated_at INTEGER,
+	credits_expiry TEXT,
 	credential_expires_at INTEGER,
 	credential_status TEXT,
 	credential_checked_at INTEGER,

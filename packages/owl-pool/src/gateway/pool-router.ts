@@ -1,6 +1,7 @@
 /**
  * 账号池路由 —— 移植自 manager `gateway/DefaultAccountPoolRouter`。
- * enabled 账号中按剩余积分加权选号（未知积分按权重 1；已知 ≤0 且池内有正积分则跳过），
+ * enabled 账号中先在「窗口内有临期积分」的账号里按临期积分量加权选号，
+ * 没有可用临期账号时按剩余积分加权选号（未知积分按权重 1；已知 ≤0 且池内有正积分则跳过），
  * EXPIRED 凭证一律不参与；失败冷却（网络瞬断 5s / 认证 10min / 额度 12h / 默认 60s），
  * 冷却同时落库：重启后仍未过期的冷却自动恢复。
  */
@@ -15,11 +16,23 @@ const EXPIRED = "EXPIRED";
 const UNKNOWN_CREDIT_WEIGHT = 1.0;
 /** Retry-After 参与冷却的上限秒数。 */
 const MAX_RETRY_AFTER_SECONDS = 3600;
+const DEFAULT_EXPIRING_WINDOW_MS = 72 * 3_600_000;
+const DEFAULT_EXPIRY_FRESHNESS_MS = 2 * 3_600_000;
+
+/** 单个积分包的到期时间（epoch 毫秒）与剩余量。 */
+export interface CreditExpiry {
+	at: number;
+	remaining: number;
+}
 
 export interface PoolRouterOptions {
 	accounts: AccountStore;
 	/** 默认冷却毫秒（manager: account-cooldown-ms=60000）。 */
 	accountCooldownMs: number;
+	/** 多久内到期算「临期」；0 关闭临期优先。默认 72 小时。 */
+	expiringWindowMs?: number;
+	/** 积分快照超过这么久没刷新就不信它的到期信息。默认 2 小时。 */
+	expiryFreshnessMs?: number;
 	nowMs?(): number;
 	/** 冷却内存态（测试可注入）；生产用 MemoryGatewayState。 */
 	cooldownState: {
@@ -31,12 +44,16 @@ export interface PoolRouterOptions {
 export class AccountPoolRouter {
 	readonly #accounts: AccountStore;
 	readonly #accountCooldownMs: number;
+	readonly #expiringWindowMs: number;
+	readonly #expiryFreshnessMs: number;
 	readonly #nowMs: () => number;
 	readonly #cooldownState: PoolRouterOptions["cooldownState"];
 
 	constructor(options: PoolRouterOptions) {
 		this.#accounts = options.accounts;
 		this.#accountCooldownMs = options.accountCooldownMs;
+		this.#expiringWindowMs = options.expiringWindowMs ?? DEFAULT_EXPIRING_WINDOW_MS;
+		this.#expiryFreshnessMs = options.expiryFreshnessMs ?? DEFAULT_EXPIRY_FRESHNESS_MS;
 		this.#nowMs = options.nowMs ?? (() => Date.now());
 		this.#cooldownState = options.cooldownState;
 		// 启动时把仍在冷却期内的账号恢复进内存
@@ -53,15 +70,27 @@ export class AccountPoolRouter {
 		}
 	}
 
-	/** 选号：平台启用账号 → 过滤冷却/失效凭证 → 积分加权随机。 */
-	pick(platform: Platform): Account | null {
+	/** 选号：平台启用账号 → 过滤冷却/失效凭证/已试过 → 临期积分加权 → 积分加权随机。 */
+	pick(platform: Platform, exclude?: ReadonlySet<string>): Account | null {
 		const now = this.#nowMs();
 		const candidates = this.#accounts
 			.list(platform)
 			.filter((account) => account.enabled)
+			.filter((account) => !exclude?.has(account.id))
 			.filter((account) => !hasPersistedCooldown(account, now))
 			.filter((account) => account.credentialStatus !== EXPIRED);
-		return pickHealthyByCreditWeight(candidates, now, (account) => this.isCooling(account.id));
+		const isCooling = (account: Account) => this.isCooling(account.id);
+		if (this.#expiringWindowMs > 0) {
+			const expiring = pickWeighted(
+				candidates,
+				(account) => expiringCredits(account, now, this.#expiringWindowMs, this.#expiryFreshnessMs),
+				isCooling,
+			);
+			if (expiring !== null) {
+				return expiring;
+			}
+		}
+		return pickHealthyByCreditWeight(candidates, now, isCooling);
 	}
 
 	markFailure(accountId: string, reason: string, retryAfterSeconds: number | null = null): void {
@@ -129,6 +158,73 @@ export function pickHealthyByCreditWeight(
 			return selected;
 		}
 		remaining.splice(remaining.indexOf(selected), 1);
+	}
+	return null;
+}
+
+/**
+ * now 到 now+windowMs 之间会作废的积分量。
+ * 快照过旧或解析不了时返回 0：不参与临期优先，回到普通加权。
+ */
+export function expiringCredits(account: Account, nowMs: number, windowMs: number, freshnessMs: number): number {
+	const raw = account.creditsExpiry;
+	if (raw === null || raw === undefined || raw.length === 0) {
+		return 0;
+	}
+	const updatedAt = account.creditsUpdatedAt;
+	if (updatedAt === null || updatedAt === undefined || nowMs - updatedAt > freshnessMs) {
+		return 0;
+	}
+	let entries: unknown;
+	try {
+		entries = JSON.parse(raw);
+	} catch {
+		return 0;
+	}
+	if (!Array.isArray(entries)) {
+		return 0;
+	}
+	let sum = 0;
+	for (const entry of entries) {
+		const { at, remaining } = (entry ?? {}) as Partial<CreditExpiry>;
+		if (
+			typeof at === "number" &&
+			typeof remaining === "number" &&
+			remaining > 0 &&
+			at > nowMs &&
+			at <= nowMs + windowMs
+		) {
+			sum += remaining;
+		}
+	}
+	return sum;
+}
+
+/** 只在权重 > 0 的账号里加权抽签，抽中冷却中的就剔除重抽。 */
+function pickWeighted(
+	candidates: Account[],
+	weightOf: (account: Account) => number,
+	isCooling: (account: Account) => boolean,
+): Account | null {
+	const pool = candidates
+		.map((account) => ({ account, weight: weightOf(account) }))
+		.filter((entry) => entry.weight > 0);
+	while (pool.length > 0) {
+		const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+		let roll = Math.random() * total;
+		let index = pool.length - 1;
+		for (let i = 0; i < pool.length; i++) {
+			roll -= pool[i]!.weight;
+			if (roll < 0) {
+				index = i;
+				break;
+			}
+		}
+		const selected = pool[index]!.account;
+		if (!isCooling(selected)) {
+			return selected;
+		}
+		pool.splice(index, 1);
 	}
 	return null;
 }
