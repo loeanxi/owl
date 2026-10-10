@@ -1340,9 +1340,16 @@ export function ChatStream({
 			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />}
 			<div className="owl-chat-layout">
 				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} onScrollEnd={() => { navigationTarget.current = null; onScrollWithTracking(); }} onPointerDown={() => { navigationTarget.current = null; }} onTouchStart={() => { navigationTarget.current = null; }} onKeyDown={() => { navigationTarget.current = null; }} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
-					if (!cwd || !onOpenFile || !(event.target instanceof Element)) return;
+					if (!(event.target instanceof Element)) return;
 					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
 					const href = anchor?.getAttribute("href");
+					// 外链不能走 <a> 默认行为：那会把整个主窗口导航走，且没有返回入口
+					if (href && /^https?:\/\//i.test(href)) {
+						event.preventDefault();
+						onOpenUrl?.(href);
+						return;
+					}
+					if (!cwd || !onOpenFile) return;
 					if (href && !href.startsWith("#")) {
 						const linked = workspaceArtifactPath(href.split("#")[0].replace(/:\d+$/, ""), cwd, { encoded: true });
 						if (linked) {

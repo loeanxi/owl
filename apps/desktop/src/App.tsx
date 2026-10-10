@@ -435,10 +435,36 @@ export default function App(): React.JSX.Element {
 		setDeveloperLayoutPersisted(false);
 		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
 	};
-	/** 聊天正文行内芯片的 http(s) 链接：交给侧边栏浏览器（「浏览器」卡片停用时不动）。 */
+	/** 在系统浏览器打开 URL：桥不可用时退回 window.open。 */
+	const openUrlExternally = (url: string): void => {
+		void client.request({ type: "open.external", action: "url", target: url })
+			.then((result) => { if (!result.ok) window.open(url, "_blank"); })
+			.catch(() => window.open(url, "_blank"));
+	};
+	/** 聊天正文的 http(s) 链接：交给侧边栏浏览器；「浏览器」卡片停用时走系统浏览器。 */
 	const openUrlInSidebarBrowser = (url: string): void => {
+		if (!isTabKindEnabled("browser", getSidebarConfig())) {
+			openUrlExternally(url);
+			return;
+		}
 		openInBrowserTab(url, t("app.browserTab"));
 	};
+	const openUrlExternallyRef = useRef(openUrlExternally);
+	openUrlExternallyRef.current = openUrlExternally;
+	// 兜底：组件没接管的外链点击一律不许导航主窗口（Tauri 窗口没有后退入口，导航走就回不来）
+	useEffect(() => {
+		const onClick = (event: MouseEvent): void => {
+			if (event.defaultPrevented || !(event.target instanceof Element)) return;
+			const anchor = event.target.closest<HTMLAnchorElement>("a[href]");
+			if (!anchor || anchor.hasAttribute("download")) return;
+			const url = anchor.href;
+			if (!/^https?:\/\//i.test(url) || new URL(url).origin === window.location.origin) return;
+			event.preventDefault();
+			openUrlExternallyRef.current(url);
+		};
+		document.addEventListener("click", onClick);
+		return () => document.removeEventListener("click", onClick);
+	}, []);
 	const openTaskFile = (path: string): void => {
 		const relative = workspaceArtifactPath(path, workspaceRef.current);
 		if (!relative) return;
