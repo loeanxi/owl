@@ -38,6 +38,7 @@ export const PI_SYSTEM_PROMPT = [
 			)
 			.map((guideline) => `- ${guideline}`),
 	),
+	"- Keep investigations bounded: for open-ended questions (review the project, find the biggest problem, explain a cause), read the few most relevant files and answer; do not run whole test suites or read the entire repository to answer. If twenty to thirty tool calls have not converged, stop, report what is confirmed and what you would do next, and ask whether to continue.",
 	"- Be concise in your responses and use the user's language.",
 	"- Show file paths clearly when working with files.",
 ].join("\n");

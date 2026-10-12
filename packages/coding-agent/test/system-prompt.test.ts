@@ -50,7 +50,10 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(defaultPrompt.startsWith("你是 Owl Si，Owl 桌面端的超级智能助手。")).toBe(true);
-			expect(defaultPrompt).toContain("- 使用用户所用的语言回复（中文提问 → 中文回答）。");
+			expect(defaultPrompt).toContain(
+				"- 使用用户所用的语言回复（中文提问 → 中文回答），工具调用之间的过程说明也一样。",
+			);
+			expect(defaultPrompt).toContain("在同一轮里一次发出多个工具调用");
 			expect(customPrompt.startsWith("You are Exact.\n\n<cwd>")).toBe(true);
 		});
 

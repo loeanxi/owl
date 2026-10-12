@@ -165,6 +165,8 @@ export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
 	guidelines: [
 		"You can inspect PI_* environment variables for current model and session details.",
+		"Each bash call starts a new shell in the session working directory; a `cd` does not carry over to the next call. Use paths relative to the working directory or absolute paths, and prefix `cd <dir> &&` only when the command must run inside that directory (e.g. a package's npm or test scripts).",
+		"Verify with the narrowest check that covers your change: run the test files for the code you touched, not a whole package or the full suite, unless the user asks for it. Do not rerun an identical command expecting a different result; change something first.",
 		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers — read the output instead of retrying the same command.",
 		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
 		"Bash runs with `set -o pipefail`: a failing producer in a pipeline (`cmd | head`) makes the whole command fail even if head exits 0. Prefer that over relying on PIPESTATUS.",
