@@ -12,7 +12,6 @@ import {
 	normalizeToLF,
 	restoreMixedLineEndings,
 } from "./edit-diff.ts";
-import { assertEditTargetRead } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -46,8 +45,8 @@ export const editToolSystemPromptContribution = {
 		"When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
 		"Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
 		"Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
-		"Before editing an existing file, read the region you will change. A read from an earlier turn still counts while the file is unchanged. Each edits[].oldText must appear in that read, or in a successful complete write verified against current bytes. Read again after an edit.",
-		"If an edit is refused for a missing read, the refusal includes the current file content: retry the edit against that content directly instead of calling read.",
+		"Copy edits[].oldText from file content you have seen (read, cat/sed -n output, your own write or edits), not from memory. Your own successful edits are already applied, so consecutive edits of one file need no re-read.",
+		"If an edit fails because oldText was not found, read the current region of the file before retrying; do not guess again or rewrite the whole file.",
 	],
 } as const;
 
@@ -221,7 +220,7 @@ export function createEditToolDefinition(
 		name: "edit",
 		label: "edit",
 		description:
-			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Each oldText must appear in a read of the file's current content (earlier turns count while the file is unchanged) or a successful complete write verified against current bytes.",
+			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Copy each oldText from content you have seen; an oldText that is not in the current file fails without changing it.",
 		promptSnippet: editToolSystemPromptContribution.snippet,
 		promptGuidelines: [...editToolSystemPromptContribution.guidelines],
 		parameters: editSchema,
@@ -253,23 +252,9 @@ export function createEditToolDefinition(
 					throw new Error(`Could not edit file: ${path}. ${errorMessage}.`);
 				}
 				throwIfAborted();
-				// Keep byte verification and the resulting mutation in the same file queue.
 				const buffer = await ops.readFile(absolutePath);
 				throwIfAborted();
-				if (ctx?.sessionManager) {
-					assertEditTargetRead(
-						ctx.sessionManager,
-						absolutePath,
-						ctx.cwd || cwd,
-						path,
-						edits.map((edit) => edit.oldText),
-						ctx.getPendingNestedToolCalls?.(),
-						buffer,
-					);
-				}
-				throwIfAborted();
 
-				// Read the file.
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
 

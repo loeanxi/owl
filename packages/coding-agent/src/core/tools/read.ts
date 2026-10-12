@@ -167,6 +167,10 @@ export function createReadToolDefinition(
 								const buffer = await ops.readFile(absolutePath);
 								const textContent = buffer.toString("utf-8");
 								const allLines = textContent.split("\n");
+								// Count lines like `wc -l`: a final newline ends the last line instead of starting
+								// an empty one, so `limit` = line count reads the whole file with no remainder notice.
+								const endsWithNewline = allLines.length > 1 && allLines[allLines.length - 1] === "";
+								if (endsWithNewline) allLines.pop();
 								const totalFileLines = allLines.length;
 								// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
@@ -178,13 +182,11 @@ export function createReadToolDefinition(
 								let selectedContent: string;
 								let userLimitedLines: number | undefined;
 								// If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-								if (limit !== undefined) {
-									const endLine = Math.min(startLine + limit, allLines.length);
-									selectedContent = allLines.slice(startLine, endLine).join("\n");
-									userLimitedLines = endLine - startLine;
-								} else {
-									selectedContent = allLines.slice(startLine).join("\n");
-								}
+								const endLine =
+									limit !== undefined ? Math.min(startLine + limit, allLines.length) : allLines.length;
+								selectedContent = allLines.slice(startLine, endLine).join("\n");
+								if (endsWithNewline && endLine === allLines.length) selectedContent += "\n";
+								if (limit !== undefined) userLimitedLines = endLine - startLine;
 								// Apply truncation, respecting both line and byte limits.
 								const truncation = truncateHead(selectedContent);
 								let outputText: string;

@@ -198,6 +198,24 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("[40 more lines in file. Use offset=61 to continue.]");
 		});
 
+		it("should treat a final newline as the end of the last line, like wc -l", async () => {
+			const testFile = join(testDir, "trailing-newline.txt");
+			writeFileSync(testFile, "Line 1\nLine 2\nLine 3\n");
+
+			const exact = getTextOutput(await readTool.execute("test-call-nl-1", { path: testFile, limit: 3 }));
+			expect(exact).toBe("Line 1\nLine 2\nLine 3\n");
+
+			const head = getTextOutput(await readTool.execute("test-call-nl-2", { path: testFile, limit: 2 }));
+			expect(head).toContain("[1 more lines in file. Use offset=3 to continue.]");
+
+			const full = getTextOutput(await readTool.execute("test-call-nl-3", { path: testFile }));
+			expect(full).toBe("Line 1\nLine 2\nLine 3\n");
+
+			await expect(readTool.execute("test-call-nl-4", { path: testFile, offset: 4 })).rejects.toThrow(
+				/beyond end of file \(3 lines total\)/,
+			);
+		});
+
 		it("should show error when offset is beyond file length", async () => {
 			const testFile = join(testDir, "short.txt");
 			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
@@ -574,6 +592,66 @@ describe("Coding Agent Tools", () => {
 			},
 		);
 
+		it.skipIf(!BASH_AVAILABLE)(
+			"should treat diff differences, head-truncated SIGPIPE and cd-prefixed grep chains as answers",
+			async () => {
+				// pipefail 下 diff 的 1（有差异）穿过 head 成为整条命令的退出码
+				const differ = await bashTool.execute("test-call-diff-differ", {
+					command: 'for f in a; do echo "== $f"; diff <(echo a) <(echo b) | head -20; done',
+				});
+				expect(differ.isError).toBe(false);
+				expect(getTextOutput(differ)).toContain("the inputs differ");
+
+				// head 读够就退出，上游被 SIGPIPE 截断：141 是预期结果
+				const truncated = await bashTool.execute("test-call-sigpipe", { command: "echo start; yes | head -n 1" });
+				expect(truncated.structuredContent).toMatchObject({ exit_code: 141 });
+				expect(truncated.isError).toBe(false);
+				expect(getTextOutput(truncated)).toContain("SIGPIPE");
+
+				// 退出码来自最后一条语句；前面语句里的 cd && 不影响判定
+				const chained = await bashTool.execute("test-call-cd-grep-chain", {
+					command: "cd . && echo header; grep -rn zz-no-such-token-zz package.json | head",
+				});
+				expect(chained.isError).toBe(false);
+				expect(getTextOutput(chained)).toContain("no lines matched");
+
+				const cdThenGrep = await bashTool.execute("test-call-cd-then-grep", {
+					command: "cd . && grep zz-no-such-token-zz package.json",
+				});
+				expect(cdThenGrep.isError).toBe(false);
+
+				// 引号里的 ; 不是语句分隔符
+				const quotedSemicolon = await bashTool.execute("test-call-quoted-semicolon", {
+					command: 'cd . && grep -B2 -A15 "public java.lang.Integer count();" package.json | head -30',
+				});
+				expect(quotedSemicolon.isError).toBe(false);
+
+				// 静默成功的准备段（jar xf、ls >/dev/null）之后的 grep 没命中
+				const silentSetup = await bashTool.execute("test-call-silent-setup", {
+					command: "cd . && ls package.json >/dev/null && grep zz-no-such-token-zz package.json | head",
+				});
+				expect(silentSetup.isError).toBe(false);
+
+				// false 失败时不输出任何内容，空输出说明不了它成功
+				const silentTest = await bashTool.execute("test-call-silent-false", {
+					command: "false && grep zz package.json",
+				});
+				expect(silentTest.isError).toBe(true);
+
+				// cd 本身失败、或生产者不是 grep/diff 的 1 仍是错误
+				const cdFailed = await bashTool.execute("test-call-cd-failed", {
+					command: "cd ./zz-no-such-dir && grep zz package.json",
+				});
+				expect(cdFailed.isError).toBe(true);
+
+				const catFailed = await bashTool.execute("test-call-cat-head", { command: "cat zz-no-such-file | head" });
+				expect(catFailed.isError).toBe(true);
+
+				const killedWithoutHead = await bashTool.execute("test-call-141-no-head", { command: "exit 141" });
+				expect(killedWithoutHead.isError).toBe(true);
+			},
+		);
+
 		it.skipIf(!BASH_AVAILABLE)("should treat probe-like non-zero exits as answers, not errors", async () => {
 			// stderr 被主动压掉的探测：不命中是有效答案（对齐 UI 上的探测命令场景）
 			const lsProbe = await bashTool.execute("test-call-probe-ls", {
@@ -621,6 +699,25 @@ describe("Coding Agent Tools", () => {
 			expect(result.isError).toBe(false);
 			expect(getTextOutput(result)).toMatch(/not a git repository/i);
 			expect(getTextOutput(result)).toContain("not a shell failure");
+
+			// 2>/dev/null 压掉了报错，输出里看不到 not a git repository，128 仍是探路答案
+			const silenced = await bashTool.execute("test-call-git-norepo-silenced", {
+				command:
+					"echo probe; cd . && ls -a >/dev/null && git --git-dir=/__owl_not_a_repo__ log --oneline -3 2>/dev/null",
+			});
+			expect(silenced.isError).toBe(false);
+			expect(getTextOutput(silenced)).toContain("not a shell failure");
+
+			// 写操作、或 128 可能来自前面非探路段时仍是错误
+			const silencedWrite = await bashTool.execute("test-call-git-norepo-silenced-write", {
+				command: "git --git-dir=/__owl_not_a_repo__ commit -m x 2>/dev/null",
+			});
+			expect(silencedWrite.isError).toBe(true);
+
+			const unknownProducer = await bashTool.execute("test-call-git-norepo-silenced-producer", {
+				command: "(exit 128) && git --git-dir=/__owl_not_a_repo__ log -1 2>/dev/null",
+			});
+			expect(unknownProducer.isError).toBe(true);
 		});
 
 		it.skipIf(!BASH_AVAILABLE)("should return up to 1 MiB of output in structured content", async () => {
@@ -1324,6 +1421,44 @@ describe("edit tool fuzzy matching", () => {
 		expect(getTextOutput(result)).toContain("Successfully replaced");
 		const content = readFileSync(testFile, "utf-8");
 		expect(content).toContain("10-50");
+	});
+
+	it("should match a Chinese double em-dash to a single em-dash", async () => {
+		const testFile = join(testDir, "cn-dash.md");
+		writeFileSync(testFile, "1. ~~旧问题~~ — 已修复\n2. 其他\n");
+
+		const result = await editTool.execute("test-fuzzy-cn-dash", {
+			path: testFile,
+			edits: [{ oldText: "1. ~~旧问题~~ —— 已修复", newText: "1. ~~旧问题~~ — 已修复，补了测试" }],
+		});
+
+		expect(getTextOutput(result)).toContain("Successfully replaced");
+		expect(readFileSync(testFile, "utf-8")).toBe("1. ~~旧问题~~ — 已修复，补了测试\n2. 其他\n");
+	});
+
+	it("should replace a whole em-dash run when oldText ends on a dash", async () => {
+		const testFile = join(testDir, "cn-dash-tail.md");
+		writeFileSync(testFile, "结论 ——\n下一行\n");
+
+		const result = await editTool.execute("test-fuzzy-cn-dash-tail", {
+			path: testFile,
+			edits: [{ oldText: "结论 -", newText: "结论：" }],
+		});
+
+		expect(getTextOutput(result)).toContain("Successfully replaced");
+		expect(readFileSync(testFile, "utf-8")).toBe("结论：\n下一行\n");
+	});
+
+	it("should not match ASCII double hyphen to a single hyphen", async () => {
+		const testFile = join(testDir, "ascii-dash.txt");
+		writeFileSync(testFile, "run -port 80\n");
+
+		await expect(
+			editTool.execute("test-fuzzy-ascii-dash", {
+				path: testFile,
+				edits: [{ oldText: "run --port 80", newText: "run --port 81" }],
+			}),
+		).rejects.toThrow(/Could not find/);
 	});
 
 	it("should match non-breaking space to regular space", async () => {

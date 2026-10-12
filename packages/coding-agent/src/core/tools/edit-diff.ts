@@ -55,10 +55,13 @@ export function restoreMixedLineEndings(original: string, editedLf: string): str
 	return result;
 }
 
+const EM_DASH_RUN = /[\u2014\u2015]{2,}/g;
+
 /**
  * Normalize text for fuzzy matching. Applies progressive transformations:
  * - Strip trailing whitespace from each line
  * - Normalize smart quotes to ASCII equivalents
+ * - Collapse em-dash runs, so a Chinese "——" matches a single "—"
  * - Normalize Unicode dashes/hyphens to ASCII hyphen
  * - Normalize special Unicode spaces to regular space
  */
@@ -74,6 +77,8 @@ export function normalizeForFuzzyMatch(text: string): string {
 			.replace(/[\u2018\u2019\u201A\u201B]/g, "'")
 			// Smart double quotes → "
 			.replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+			// Only Unicode em-dash runs collapse; ASCII "--" stays distinct from "-" in code.
+			.replace(EM_DASH_RUN, "\u2014")
 			// Various dashes/hyphens → -
 			// U+2010 hyphen, U+2011 non-breaking hyphen, U+2012 figure dash,
 			// U+2013 en-dash, U+2014 em-dash, U+2015 horizontal bar, U+2212 minus
@@ -335,21 +340,31 @@ function findOriginalSpan(
 		const endLimit = Math.min(block.length, i + maxSpan);
 		for (let j = i + 1; j <= endLimit; j++) {
 			if (normalizeForFuzzyMatch(block.slice(i, j)) === fuzzyTarget) {
-				return { index: blockStart + i, length: j - i };
+				// The shortest span can stop inside a collapsed "——"; take the whole run.
+				let end = j;
+				while (end < block.length && isEmDash(block[end]!) && isEmDash(block[end - 1]!)) end++;
+				return { index: blockStart + i, length: end - i };
 			}
 		}
 	}
 	return null;
 }
 
+function isEmDash(char: string): boolean {
+	return char === "\u2014" || char === "\u2015";
+}
+
+const NOT_FOUND_HINT =
+	"Line endings are normalized (CRLF and LF both match), so the text itself differs from the file, often a misremembered comment or line. Re-read that region and retry with its exact text; do not rewrite the whole file to get around this.";
+
 function getNotFoundError(path: string, editIndex: number, totalEdits: number): Error {
 	if (totalEdits === 1) {
 		return new Error(
-			`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.`,
+			`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines. ${NOT_FOUND_HINT}`,
 		);
 	}
 	return new Error(
-		`Could not find edits[${editIndex}] in ${path}. The oldText must match exactly including all whitespace and newlines.`,
+		`Could not find edits[${editIndex}] in ${path}. The oldText must match exactly including all whitespace and newlines. ${NOT_FOUND_HINT}`,
 	);
 }
 

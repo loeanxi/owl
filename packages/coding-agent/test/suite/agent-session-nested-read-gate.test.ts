@@ -63,35 +63,40 @@ describe("nested read evidence for file changes", () => {
 				}),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(fauxToolCall("edit", { path: "file.txt", edits: [{ oldText: "old", newText: "new" }] }), {
+			fauxAssistantMessage(fauxToolCall("write", { path: "file.txt", content: "new text\n" }), {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("done"),
 		]);
 		await harness.session.prompt("Read, then change the file.");
 		expect(getToolResult(harness, "codemode").isError).toBe(failParent);
-		expect(getToolResult(harness, "edit").isError).toBe(false);
+		expect(getToolResult(harness, "write").isError).toBe(false);
 		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("new text\n");
 	});
 
-	it.each([false, true])("requires a fresh read after a nested edit; fresh read: %s", async (freshRead) => {
-		const harness = await makeHarness();
-		harness.setResponses([
-			fauxAssistantMessage(
-				fauxToolCall("codemode", {
-					code: `await tools.read({ path: "file.txt" });
+	it.each([false, true])(
+		"requires a fresh read to overwrite after a nested edit; fresh read: %s",
+		async (freshRead) => {
+			const harness = await makeHarness();
+			harness.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall("codemode", {
+						code: `await tools.read({ path: "file.txt" });
 await tools.edit({ path: "file.txt", edits: [{ oldText: "old", newText: "new" }] });
 ${freshRead ? 'await tools.read({ path: "file.txt" });' : ""}
-await tools.edit({ path: "file.txt", edits: [{ oldText: "new", newText: "done" }] });`,
-				}),
-				{ stopReason: "toolUse" },
-			),
-			fauxAssistantMessage("done"),
-		]);
-		await harness.session.prompt("Change the file twice.");
-		expect(getToolResult(harness, "codemode").isError).toBe(!freshRead);
-		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe(freshRead ? "done text\n" : "new text\n");
-	});
+await tools.write({ path: "file.txt", content: "done text\\n" });`,
+					}),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("done"),
+			]);
+			await harness.session.prompt("Change the file twice.");
+			expect(getToolResult(harness, "codemode").isError).toBe(!freshRead);
+			expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe(
+				freshRead ? "done text\n" : "new text\n",
+			);
+		},
+	);
 
 	it.each([{ limit: 1 }, { offset: 2 }])("refuses overwrites after a limited nested read: %j", async (options) => {
 		const harness = await makeHarness();
@@ -228,17 +233,17 @@ await tools.write({ path: "file.txt", content: "unexpected" });`,
 				}),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(fauxToolCall("edit", { path: "file.txt", edits: [{ oldText: "old", newText: "new" }] }), {
+			fauxAssistantMessage(fauxToolCall("write", { path: "file.txt", content: "unexpected" }), {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("done"),
 		]);
-		await harness.session.prompt("Write a long file, then attempt another edit.");
+		await harness.session.prompt("Write a long file, then attempt another overwrite.");
 		const result = getToolResult(harness, "codemode");
 		expect(result.isError).toBe(false);
 		expect(result.nestedCalls?.calls[1].arguments).toBeUndefined();
 		expect(result.nestedCalls?.calls[1].fileMutationPath).toBe("file.txt");
-		expect(getToolResult(harness, "edit").isError).toBe(true);
+		expect(getToolResult(harness, "write").isError).toBe(true);
 		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe(content);
 	});
 
@@ -256,7 +261,7 @@ await tools.write({ path: "file.txt", content: "unexpected" });`,
 			const definition = createWriteToolDefinition(process.cwd());
 			const readDefinition = createReadToolDefinition(process.cwd());
 			const harness = await makeHarness({
-				initialActiveToolNames: [...DEFAULT_TOOL_NAMES, "read_then_edit"],
+				initialActiveToolNames: [...DEFAULT_TOOL_NAMES, "read_then_write"],
 				extensionFactories: [
 					(pi) => {
 						if (delayRead) {
@@ -272,17 +277,17 @@ await tools.write({ path: "file.txt", content: "unexpected" });`,
 							});
 						}
 						pi.registerTool({
-							name: "read_then_edit",
-							label: "Read then edit",
-							description: "Wait for another tool after reading, then edit without a new read.",
+							name: "read_then_write",
+							label: "Read then write",
+							description: "Wait for another tool after reading, then overwrite without a new read.",
 							parameters: Type.Object({}),
 							async execute(_id, _args, _signal, _onUpdate, ctx) {
 								await ctx.executeTool("read", { path: "file.txt" });
 								readCompleted();
 								await writeDone;
-								const outcome = await ctx.executeTool("edit", {
+								const outcome = await ctx.executeTool("write", {
 									path: "file.txt",
-									edits: [{ oldText: "old", newText: "unexpected" }],
+									content: "unexpected",
 								});
 								return { ...outcome.result, isError: outcome.isError };
 							},
@@ -307,7 +312,7 @@ await tools.write({ path: "file.txt", content: "unexpected" });`,
 				fauxAssistantMessage(fauxToolCall("read", { path: "file.txt" }), { stopReason: "toolUse" }),
 				fauxAssistantMessage(
 					[
-						fauxToolCall("read_then_edit", {}),
+						fauxToolCall("read_then_write", {}),
 						fauxToolCall("write", { path: "file.txt", content: "old text plus a parallel change\n" }),
 					],
 					{ stopReason: "toolUse" },
@@ -316,7 +321,7 @@ await tools.write({ path: "file.txt", content: "unexpected" });`,
 			]);
 			await harness.session.prompt("Run both file operations together.");
 			expect(getToolResult(harness, "write").isError).toBe(false);
-			expect(getToolResult(harness, "read_then_edit").isError).toBe(true);
+			expect(getToolResult(harness, "read_then_write").isError).toBe(true);
 			expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("old text plus a parallel change\n");
 		},
 	);

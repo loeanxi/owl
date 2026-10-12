@@ -1,23 +1,26 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { NestedToolCalls } from "@earendil-works/pi-ai";
 import { splitBom } from "../../utils/text.ts";
 import type { PendingNestedToolCalls } from "../nested-tool-calls.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
-import { fuzzyFindText, normalizeToLF } from "./edit-diff.ts";
+import { applyEditsToNormalizedContent, normalizeToLF } from "./edit-diff.ts";
 import { resolveReadPath } from "./path-utils.ts";
 import { formatSize, truncateHead } from "./truncate.ts";
 
 /**
- * An existing file may be changed only from a `read` that still shows its
- * current content. A read in the current user turn counts as long as no later
- * `edit` or `write` of that file happened. A read from an earlier user turn
- * counts only while its text still matches the bytes on disk, so a `继续`
- * does not force a re-read of an unchanged file, but an external change does.
- * A read dropped by compaction is gone. A complete successful write can
- * separately supply a known version, verified against current bytes. A failed
- * write does not change the file, so it does not erase the last verified
- * version. Creating a new file with `write` is not gated.
+ * `write` may overwrite an existing file only after the whole current content
+ * was seen. `edit` is not gated: its oldText must match the current file, which
+ * already keeps it from changing text the model never saw.
+ *
+ * A full `read` in the current user turn counts until a `write` of that file; a
+ * successful `edit` carries it forward by applying the same replacements. The
+ * session's own complete write counts while it, with later own edits applied,
+ * still equals the file. Shell output (`cat`) that contains the whole current
+ * file counts in any turn. A read from an earlier user turn counts only while
+ * its text still matches the bytes on disk, so a `继续` does not force a
+ * re-read of an unchanged file, but an external change does. A read dropped by
+ * compaction is gone. Creating a new file with `write` is not gated.
  *
  * A refusal carries the current file content after GATE_SNAPSHOT_MARKER. That
  * snapshot counts as a read, so the retry succeeds without a separate `read`.
@@ -34,42 +37,19 @@ export interface TurnRead {
 	fullFile: boolean;
 }
 
-interface IndexedRead extends TurnRead {
-	/** Position of the evidence in the projected messages; pending nested reads use messages.length. */
-	index: number;
+interface PlacedRead extends TurnRead {
+	/** 1-based file line where a `read` result (or gate snapshot) starts; undefined for other evidence. */
+	startLine?: number;
 }
 
-export function assertEditTargetRead(
-	sessionManager: Pick<ReadonlySessionManager, "buildSessionProjection">,
-	absolutePath: string,
-	cwd: string,
-	displayPath: string,
-	oldTexts: readonly string[],
-	pendingNestedCalls: readonly PendingNestedToolCalls[] = [],
-	currentBytes?: Buffer,
-): void {
-	const messages = sessionManager.buildSessionProjection().messages;
-	const reads = usableReads(messages, absolutePath, cwd, pendingNestedCalls, currentBytes);
-	const written = verifiedFullWriteThisTurn(messages, absolutePath, cwd, currentBytes, pendingNestedCalls);
-	if (written !== undefined) reads.push({ text: written, fullFile: true });
-	if (reads.length === 0) {
-		throw new Error(
-			withSnapshot(
-				`Refusing to edit ${displayPath}: no read of its current content is in context (never read, removed by compaction, or changed since the last read).`,
-				currentBytes,
-			),
-		);
-	}
-	for (const oldText of oldTexts) {
-		if (oldText.length === 0) continue;
-		if (reads.some((read) => fuzzyFindText(read.text, oldText).found)) continue;
-		throw new Error(
-			withSnapshot(
-				`Refusing to edit ${displayPath}: ${quote(oldText)} was not in a read of its current content.`,
-				currentBytes,
-			),
-		);
-	}
+interface IndexedRead extends PlacedRead {
+	/** Position of the evidence in the projected messages; pending nested reads use messages.length. */
+	index: number;
+	/**
+	 * Evidence that is not a `read` result. `shell`: output of a command naming the file.
+	 * `write`: content of this session's own complete write, usable only while it equals the file.
+	 */
+	source?: "shell" | "write";
 }
 
 export function assertFullFileRead(
@@ -84,6 +64,8 @@ export function assertFullFileRead(
 	if (verifiedFullWriteThisTurn(messages, absolutePath, cwd, currentBytes, pendingNestedCalls) !== undefined) return;
 	const reads = usableReads(messages, absolutePath, cwd, pendingNestedCalls, currentBytes);
 	if (reads.some((read) => read.fullFile)) return;
+	const current = currentBytes ? currentFileText(currentBytes) : undefined;
+	if (current !== undefined && readsCoverFile(reads, current)) return;
 	if (reads.length === 0) {
 		throw new Error(
 			withSnapshot(
@@ -100,19 +82,58 @@ export function assertFullFileRead(
 	);
 }
 
-/** Reads of the current turn, plus earlier-turn reads whose text still matches the file on disk. */
+/**
+ * Reads of the current turn, plus earlier-turn reads whose text still matches the file on disk.
+ * Shell output that contains the whole current file counts as a full read in any turn; other
+ * shell output only in the current turn. Own-write content counts only while it equals the file.
+ */
 function usableReads(
 	messages: readonly AgentMessage[],
 	absolutePath: string,
 	cwd: string,
 	pendingNestedCalls: readonly PendingNestedToolCalls[],
 	currentBytes: Buffer | undefined,
-): TurnRead[] {
+): PlacedRead[] {
 	const turnStart = lastUserIndex(messages) + 1;
 	const current = currentBytes ? currentFileText(currentBytes) : undefined;
-	return collectReads(messages, 0, absolutePath, cwd, pendingNestedCalls)
-		.filter((read) => read.index >= turnStart || (current !== undefined && readMatchesContent(read, current)))
-		.map(({ text, fullFile }) => ({ text, fullFile }));
+	return collectReads(messages, 0, absolutePath, cwd, pendingNestedCalls).flatMap((read): PlacedRead[] => {
+		if (read.source === "write") {
+			return current !== undefined && normalizeToLF(read.text) === current
+				? [{ text: current, fullFile: true }]
+				: [];
+		}
+		if (read.source === "shell") {
+			const whole =
+				current !== undefined && current.trim() !== "" && normalizeToLF(read.text).includes(current.trimEnd());
+			if (whole) return [{ text: current, fullFile: true }];
+			return read.index >= turnStart ? [{ text: read.text, fullFile: false }] : [];
+		}
+		if (read.index >= turnStart || (current !== undefined && readMatchesContent(read, current))) {
+			return [{ text: read.text, fullFile: read.fullFile, startLine: read.startLine }];
+		}
+		return [];
+	});
+}
+
+/**
+ * Partial reads taken with offsets (e.g. lines 1-100, then offset=101 to the end) together count
+ * as a full read when each one still equals the current file at its own lines and every line is covered.
+ */
+function readsCoverFile(reads: readonly PlacedRead[], current: string): boolean {
+	const lines = current.split("\n");
+	const covered = new Array<boolean>(lines.length).fill(false);
+	for (const read of reads) {
+		if (read.startLine === undefined || OVERSIZED_LINE_NOTICE.test(read.text)) continue;
+		// A segment of a CRLF file ends in the bare "\r" of its last line.
+		let body = normalizeToLF(read.text.replace(READ_NOTICE_SUFFIX, "").replace(/\r$/, ""));
+		if (read.startLine === 1) body = splitBom(body).text;
+		const start = read.startLine - 1;
+		const bodyLines = body.split("\n");
+		if (start + bodyLines.length > lines.length) continue;
+		if (lines.slice(start, start + bodyLines.length).join("\n") !== body) continue;
+		covered.fill(true, start, start + bodyLines.length);
+	}
+	return covered.every(Boolean);
 }
 
 function currentFileText(bytes: Buffer): string | undefined {
@@ -208,12 +229,15 @@ export function currentTurnReads(
 	cwd: string,
 	pendingNestedCalls: readonly PendingNestedToolCalls[] = [],
 ): TurnRead[] {
-	return collectReads(messages, lastUserIndex(messages) + 1, absolutePath, cwd, pendingNestedCalls).map(
-		({ text, fullFile }) => ({ text, fullFile }),
-	);
+	return collectReads(messages, lastUserIndex(messages) + 1, absolutePath, cwd, pendingNestedCalls)
+		.filter((read) => read.source !== "write")
+		.map(({ text, fullFile }) => ({ text, fullFile }));
 }
 
-/** Read evidence for the file from messages[start..], cleared by each later successful edit or write of it. */
+/**
+ * Read evidence for the file from messages[start..]. A later successful write of it replaces the
+ * evidence with the written content; a later successful edit rewrites it with the same replacements.
+ */
 function collectReads(
 	messages: readonly AgentMessage[],
 	start: number,
@@ -223,6 +247,7 @@ function collectReads(
 ): IndexedRead[] {
 	const wanted = readPathKey(absolutePath, cwd);
 	const calls = new Map<string, ToolCallPath>();
+	const shellCommands = new Map<string, string>();
 	const parentCalls = new Set<string>();
 	const completedParents = new Set<string>();
 	const reads: IndexedRead[] = [];
@@ -232,13 +257,20 @@ function collectReads(
 			for (const block of message.content) {
 				if (block.type !== "toolCall") continue;
 				parentCalls.add(block.id);
+				if (SHELL_TOOLS.has(block.name) && typeof block.arguments.command === "string") {
+					shellCommands.set(block.id, block.arguments.command);
+					continue;
+				}
 				if (block.name !== "read" && block.name !== "edit" && block.name !== "write") continue;
 				const path = block.arguments.path;
 				if (typeof path !== "string") continue;
+				const content = block.arguments.content;
 				calls.set(block.id, {
 					name: block.name,
 					path,
 					offset: typeof block.arguments.offset === "number" ? block.arguments.offset : undefined,
+					edits: block.name === "edit" ? editPairs(block.arguments) : undefined,
+					content: block.name === "write" && typeof content === "string" ? content : undefined,
 				});
 			}
 			continue;
@@ -249,6 +281,15 @@ function collectReads(
 		if (parentCalls.has(message.toolCallId) && message.nestedCalls) {
 			applyNestedReads(message.nestedCalls, wanted, cwd, reads, index);
 		}
+		const command = shellCommands.get(message.toolCallId);
+		if (command !== undefined) {
+			// A failing exit still printed what the command showed of the file.
+			if (Array.isArray(message.content) && commandNamesFile(command, absolutePath)) {
+				const text = textOf(message.content);
+				if (text) reads.push({ text, fullFile: false, index, source: "shell" });
+			}
+			continue;
+		}
 		const call = calls.get(message.toolCallId);
 		if (message.isError) {
 			const snapshot =
@@ -257,13 +298,27 @@ function collectReads(
 			continue;
 		}
 		if (!call || readPathKey(call.path, cwd) !== wanted) continue;
+		if (call.name === "edit" && call.edits) {
+			const rebased = reads.flatMap((read) => rebaseRead(read, call.edits!) ?? []);
+			reads.length = 0;
+			reads.push(...rebased);
+			for (const { newText } of call.edits) {
+				if (newText) reads.push({ text: newText, fullFile: false, index });
+			}
+			continue;
+		}
 		if (call.name === "edit" || call.name === "write") {
 			reads.length = 0;
+			if (call.name === "write" && message.toolName === "write" && call.content !== undefined) {
+				reads.push({ text: call.content, fullFile: true, index, source: "write" });
+			}
 			continue;
 		}
 		if (call.name !== "read" || message.toolName !== "read" || !Array.isArray(message.content)) continue;
 		const evidence = readResultEvidence(message.content, call.offset);
-		if (!evidence.text.startsWith("[Directory listing:")) reads.push({ ...evidence, index });
+		if (!evidence.text.startsWith("[Directory listing:")) {
+			reads.push({ ...evidence, index, startLine: Math.max(1, call.offset ?? 1) });
+		}
 	}
 	for (const pending of pendingNestedCalls) {
 		// The parent must still be present after compaction and within the scanned messages.
@@ -274,13 +329,14 @@ function collectReads(
 }
 
 /** A gate refusal of edit/write that carried the current file content. */
-function gateSnapshotEvidence(call: ToolCallPath, message: AgentMessage): TurnRead | undefined {
+function gateSnapshotEvidence(call: ToolCallPath, message: AgentMessage): PlacedRead | undefined {
 	if (call.name !== "edit" && call.name !== "write") return undefined;
 	if (message.role !== "toolResult" || !Array.isArray(message.content)) return undefined;
 	const text = textOf(message.content);
 	const at = text.indexOf(`\n\n${GATE_SNAPSHOT_MARKER}\n`);
 	if (at < 0) return undefined;
-	return readResultEvidence([{ type: "text", text: text.slice(at + GATE_SNAPSHOT_MARKER.length + 3) }], undefined);
+	const snapshot = text.slice(at + GATE_SNAPSHOT_MARKER.length + 3);
+	return { ...readResultEvidence([{ type: "text", text: snapshot }], undefined), startLine: 1 };
 }
 
 export function readResultEvidence(content: readonly { type: string; text?: string }[], offset: unknown): TurnRead {
@@ -324,6 +380,70 @@ interface ToolCallPath {
 	name: string;
 	path: string;
 	offset?: number;
+	/** Replacements of an edit call; undefined when the arguments cannot be read back. */
+	edits?: EditPair[];
+	/** Content of a write call. */
+	content?: string;
+}
+
+interface EditPair {
+	oldText: string;
+	newText: string;
+}
+
+const SHELL_TOOLS = new Set(["bash", "powershell"]);
+
+/** The replacements an edit call made, in any argument shape the edit tool accepts. */
+function editPairs(args: Record<string, unknown>): EditPair[] | undefined {
+	let edits: unknown = args.edits;
+	if (typeof edits === "string") {
+		try {
+			edits = JSON.parse(edits);
+		} catch {
+			return undefined;
+		}
+	}
+	const items: unknown[] = Array.isArray(edits) ? [...edits] : edits === undefined ? [] : [edits];
+	if (typeof args.oldText === "string" && typeof args.newText === "string") {
+		items.push({ oldText: args.oldText, newText: args.newText });
+	}
+	if (items.length === 0) return undefined;
+	const pairs: EditPair[] = [];
+	for (const item of items) {
+		if (typeof item !== "object" || item === null) return undefined;
+		const { oldText, newText } = item as Record<string, unknown>;
+		if (typeof oldText !== "string" || typeof newText !== "string") return undefined;
+		pairs.push({ oldText, newText });
+	}
+	return pairs;
+}
+
+/**
+ * The read as it looks after the edit. A partial read that does not contain an edited region
+ * stays as it was; a whole-file read that misses one was already stale and is dropped.
+ */
+function rebaseRead(read: IndexedRead, edits: readonly EditPair[]): IndexedRead | undefined {
+	const text = normalizeToLF(read.text);
+	const applied = applyEdits(text, edits);
+	if (applied !== undefined) return { ...read, text: applied };
+	if (read.fullFile) return undefined;
+	let partial = text;
+	for (const edit of edits) partial = applyEdits(partial, [edit]) ?? partial;
+	return { ...read, text: partial };
+}
+
+function applyEdits(text: string, edits: readonly EditPair[]): string | undefined {
+	try {
+		return applyEditsToNormalizedContent(text, [...edits], "read").newContent;
+	} catch {
+		return undefined;
+	}
+}
+
+function commandNamesFile(command: string, absolutePath: string): boolean {
+	const name = basename(absolutePath);
+	if (!name) return false;
+	return process.platform === "win32" ? command.toLowerCase().includes(name.toLowerCase()) : command.includes(name);
 }
 
 function textOf(content: readonly { type: string; text?: string }[]): string {
@@ -343,10 +463,4 @@ function lastUserIndex(messages: readonly AgentMessage[]): number {
 export function readPathKey(filePath: string, cwd: string): string {
 	const resolved = resolve(resolveReadPath(filePath, cwd));
 	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-
-function quote(oldText: string): string {
-	const oneLine = oldText.replace(/\s+/g, " ").trim();
-	const shown = oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
-	return `"${shown}"`;
 }
