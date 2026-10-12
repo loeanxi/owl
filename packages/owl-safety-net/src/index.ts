@@ -171,19 +171,35 @@ function extract(event: ToolCallEvent, ctx: ExtensionContext, paths: unknown): E
 		};
 	}
 
-	const command = (event.input as { command?: unknown }).command;
-	if (typeof command !== "string" || command.trim() === "") return malformed(ctx.cwd, event.toolName);
+	const rawCommand = (event.input as { command?: unknown }).command;
+	if (typeof rawCommand !== "string" || rawCommand.trim() === "") return malformed(ctx.cwd, event.toolName);
+	const command = shell === "posix" ? windowsCdTargets(rawCommand) : rawCommand;
 
 	return {
 		kind: "analyze",
 		analysis: analyzeToolCall(
 			event.toolName,
-			event.input,
+			command === rawCommand ? event.input : { ...event.input, command },
 			{ kind: "command", shell },
 			{ configCwd, executionCwd: configCwd },
 			command,
 		),
 	};
+}
+
+const MSYS_CD_TARGET = /(\b(?:cd|pushd)\s+)(['"]?)\/([a-zA-Z])(?=[/'"\s;&|)]|$)(\/?)/g;
+
+/**
+ * Git Bash on Windows writes drives as `/d/...`. The engine resolves `cd` targets as
+ * Windows paths, so `cd /d/repo && rm -rf target` lands outside the cwd and is blocked.
+ * Only the `cd` target is rewritten to `D:/...`; other arguments keep their form.
+ */
+function windowsCdTargets(command: string): string {
+	if (process.platform !== "win32") return command;
+	return command.replace(
+		MSYS_CD_TARGET,
+		(_match, prefix: string, quote: string, drive: string) => `${prefix}${quote}${drive.toUpperCase()}:/`,
+	);
 }
 
 function malformed(cwd: string | null, toolName: string | undefined): Extraction {

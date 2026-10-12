@@ -87,6 +87,17 @@ const benign = [
 	["read", { path: "src/index.ts" }],
 	["edit", { path: "README.md", oldValue: "a", newValue: "b" }],
 ];
+// Git Bash writes Windows drives as /d/...; a cd into the cwd that way must not look like leaving it.
+const msysCwd =
+	process.platform === "win32"
+		? `/${ctx.cwd[0].toLowerCase()}${ctx.cwd.slice(2).replaceAll("\\", "/")}`
+		: ctx.cwd;
+benign.push(["bash", { command: `cd ${msysCwd} && rm -rf target/classes` }]);
+benign.push(["bash", { command: `cd "${msysCwd}" && rm -rf target/classes` }]);
+for (const command of [`cd ${msysCwd} && rm -rf /d/zz-other`, `cd /d/zz-other && rm -rf target/classes`]) {
+	const result = toolCall("bash", { command });
+	check(`blocks bash: ${command}`, result?.block === true, true);
+}
 for (const [toolName, input] of benign) {
 	check(`allows ${toolName}: ${JSON.stringify(input)}`, toolCall(toolName, input), undefined);
 }
