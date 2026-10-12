@@ -46,6 +46,11 @@ const destructive = [
 	["bash", { command: "sudo dd if=/dev/zero of=/dev/sda" }],
 	["bash", { command: "git reset --hard HEAD~5" }],
 	["powershell", { command: "Remove-Item -Recurse -Force C:\\" }],
+	["bash", { command: "git stash" }],
+	["bash", { command: "cd /d/owl/owl-mono && git stash -u -q 2>/dev/null && npm test; git stash pop -q" }],
+	["bash", { command: "git -C /d/owl/owl-mono stash push -m baseline" }],
+	["bash", { command: "git stash pop" }],
+	["powershell", { command: "git stash --include-untracked" }],
 ];
 for (const [toolName, input] of destructive) {
 	const result = toolCall(toolName, input);
@@ -68,6 +73,9 @@ for (const [toolName, input] of secretAccess) {
 const benign = [
 	["bash", { command: "ls -la" }],
 	["bash", { command: "git status" }],
+	["bash", { command: "git stash list | head -3" }],
+	["bash", { command: "git stash show -p stash@{0}" }],
+	["bash", { command: "git worktree add ../_owl-baseline HEAD" }],
 	["bash", { command: "npm test" }],
 	[
 		"bash",

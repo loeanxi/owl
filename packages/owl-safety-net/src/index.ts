@@ -60,7 +60,7 @@ export default function createSafetyNetExtension(pi: ExtensionAPI): void {
 
 function handleToolCall(event: ToolCallEvent, ctx: ExtensionContext): ToolCallEventResult | undefined {
 	try {
-		return evaluateEvent(event, ctx);
+		return workingTreeStashBlock(event) ?? evaluateEvent(event, ctx);
 	} catch (error) {
 		console.error("owl-safety-net error:", error);
 		// Fail closed: an engine crash must not wave the call through.
@@ -105,6 +105,30 @@ function evaluateEvent(event: ToolCallEvent, ctx: ExtensionContext): ToolCallEve
 		}
 		return finish(error.evaluation, extraction.analysis.route.kind === "command");
 	}
+}
+
+const GIT_STASH = /\bgit\b(?:\s+(?:-C|-c)\s+\S+|\s+--[^\s;&|]+)*\s+stash\b(?:\s+([^\s;&|)]+))?/g;
+const READ_ONLY_STASH_SUBCOMMANDS = new Set(["list", "show"]);
+
+/**
+ * Owl rule, not in the vendored engine: `git stash` (push/-u/pop/apply/drop...)
+ * rewrites the shared working tree. Agents used it to get a "clean baseline"
+ * while other sessions and the user were editing the same checkout; every
+ * uncommitted change vanished for the length of a test run, and a failed pop
+ * loses work. `git stash list` / `git stash show` only read.
+ */
+function workingTreeStashBlock(event: ToolCallEvent): ToolCallEventResult | undefined {
+	if (!SHELL_PROFILES.has(event.toolName)) return undefined;
+	const command = (event.input as { command?: unknown } | undefined)?.command;
+	if (typeof command !== "string") return undefined;
+	for (const match of command.matchAll(GIT_STASH)) {
+		if (READ_ONLY_STASH_SUBCOMMANDS.has(match[1] ?? "")) continue;
+		return {
+			block: true,
+			reason: `BLOCKED by Owl Safety Net\n\nReason: \`git stash\` takes every uncommitted change out of this working tree, which other sessions or the user may be editing right now; a failed pop loses work.\n\nCommand: ${command}\n\nTo tell new test failures from old ones, compare against the repository's known-failures list (see AGENTS.md) instead of re-running a stashed baseline; to see original file content use \`git show HEAD:<path>\` or \`git diff\`. If the user explicitly wants a stash, ask them to run it themselves.`,
+		};
+	}
+	return undefined;
 }
 
 /**
