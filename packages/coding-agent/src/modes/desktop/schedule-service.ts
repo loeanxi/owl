@@ -36,6 +36,9 @@ export interface ScheduleTask {
 	sessionId: string;
 	/** 目标的展示名（创建时由 UI 带入会话标题，任务卡直接显示）。 */
 	targetLabel: string;
+	/** "__new__" 任务新建会话用的模型（创建时由 UI 带入当前选中模型）；缺省走默认模型。 */
+	provider?: string;
+	model?: string;
 	repeat: ScheduleRepeat;
 	missed: "catch-up" | "skip" | "wake";
 	enabled: boolean;
@@ -72,6 +75,11 @@ interface ScheduleStore {
 	runs: Record<string, ScheduleRun[]>;
 }
 
+export interface ScheduleDelivery {
+	sessionId: string;
+	error?: string;
+}
+
 const MAX_RUNS_PER_TASK = 20;
 const TICK_MS = 15_000;
 
@@ -82,9 +90,10 @@ export interface ScheduleServiceOptions {
 	tickMs?: number;
 	/**
 	 * 投递一条到点消息。返回实际收到消息的会话 id（"__new__" 任务由桥端新建会话，
-	 * 返回新建 id）；会话不可达（未挂载且无法新建）返回 null，由错过策略接手。
+	 * 返回新建 id）及该轮 Agent 的失败原因（模型报错等；排队未执行时无从得知，不带）；
+	 * 会话不可达（未挂载且无法新建）返回 null，由错过策略接手。
 	 */
-	deliver: (sessionId: string, text: string) => Promise<string | null>;
+	deliver: (task: ScheduleTask, text: string) => Promise<ScheduleDelivery | null>;
 	onDiagnostic?: (message: string) => void;
 	onChanged?: () => void;
 }
@@ -102,7 +111,7 @@ export function deliveryText(task: ScheduleTask, now: number): string {
 export class ScheduleService {
 	private readonly file: string;
 	private readonly now: () => number;
-	private readonly deliver: (sessionId: string, text: string) => Promise<string | null>;
+	private readonly deliver: (task: ScheduleTask, text: string) => Promise<ScheduleDelivery | null>;
 	private readonly tickMs: number;
 	private readonly onDiagnostic?: (message: string) => void;
 	private readonly onChanged?: () => void;
@@ -181,8 +190,11 @@ export class ScheduleService {
 
 	// ── 桥命令 ────────────────────────────────────────────────────
 
+	/**
+	 * 只读内存，不重读磁盘：投递进行中的 task/run 对象挂在 this.store 上，
+	 * 重读会换掉它们，投递结束写回的状态与 nextRunAt 落到孤儿对象上，存盘丢失且会重复触发。
+	 */
 	list(): ScheduleListResult {
-		this.load();
 		return { tasks: this.store.tasks, runs: this.store.runs };
 	}
 
@@ -191,6 +203,8 @@ export class ScheduleService {
 		prompt: string;
 		sessionId: string;
 		targetLabel: string;
+		provider?: string;
+		model?: string;
 		repeat: ScheduleRepeat;
 		missed?: ScheduleTask["missed"];
 		emoji?: string;
@@ -205,6 +219,7 @@ export class ScheduleService {
 			prompt: input.prompt.trim(),
 			sessionId: input.sessionId,
 			targetLabel: input.targetLabel.trim(),
+			...(input.provider && input.model ? { provider: input.provider, model: input.model } : {}),
 			repeat: input.repeat,
 			missed: input.missed ?? "catch-up",
 			enabled: true,
@@ -318,14 +333,19 @@ export class ScheduleService {
 	private async deliverRun(task: ScheduleTask, run: ScheduleRun, now: number): Promise<void> {
 		const startedAt = this.now();
 		try {
-			const target = await this.deliver(task.sessionId, deliveryText(task, now));
-			if (target !== null) {
-				run.status = "ok";
+			const delivery = await this.deliver(task, deliveryText(task, now));
+			if (delivery !== null) {
+				const target = delivery.sessionId;
+				run.status = delivery.error ? "error" : "ok";
 				run.deliveredAt = this.now();
 				run.durationMs = Math.max(0, this.now() - startedAt);
 				run.sessionId = target;
 				task.lastRunAt = run.deliveredAt;
-				if (target !== task.sessionId) run.note = `新会话 ${target.slice(0, 8)}`;
+				const notes = [
+					...(target !== task.sessionId ? [`新会话 ${target.slice(0, 8)}`] : []),
+					...(delivery.error ? [delivery.error] : []),
+				];
+				if (notes.length > 0) run.note = notes.join(" · ");
 			} else {
 				// 会话未挂载：catch-up/wake 留 pending 等挂载补投；skip 直接跳过。
 				if (task.missed === "skip") {

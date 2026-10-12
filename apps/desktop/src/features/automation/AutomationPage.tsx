@@ -115,10 +115,12 @@ function nextAfter(repeat: ScheduleRepeat, after: number): number | null {
 	}
 }
 
-export function AutomationPage({ client, active, sessions, onOpenSession }: {
+export function AutomationPage({ client, active, sessions, model, onOpenSession }: {
 	client: BridgeClient;
 	/** 视图是否可见（隐藏时暂停轮询）。 */
 	active: boolean;
+	/** 当前选中的模型：新建任务时记进任务，「新会话」投递按它建会话。 */
+	model?: { provider: string; model: string };
 	/** 侧栏已知会话（id → 标题），创建弹窗的投递目标候选。 */
 	sessions: readonly { id: string; title: string }[];
 	/** 运行历史里「打开会话」：跳到该次投递实际发生的会话。 */
@@ -250,9 +252,9 @@ export function AutomationPage({ client, active, sessions, onOpenSession }: {
 		setError(null);
 		try {
 			if (editing) {
-				await client.request({ type: "schedule.update", taskId: editing.id, name: draft.name, emoji: draft.emoji, prompt: draft.prompt, targetLabel: draft.targetLabel, repeat, missed: draft.missed });
+				await client.request({ type: "schedule.update", taskId: editing.id, name: draft.name, emoji: draft.emoji, prompt: draft.prompt, targetLabel: draft.targetLabel, ...(editing.sessionId === "__new__" ? model : undefined), repeat, missed: draft.missed });
 			} else {
-				await client.request({ type: "schedule.create", name: draft.name, emoji: draft.emoji, prompt: draft.prompt, sessionId: draft.sessionId, targetLabel: draft.targetLabel, repeat, missed: draft.missed });
+				await client.request({ type: "schedule.create", name: draft.name, emoji: draft.emoji, prompt: draft.prompt, sessionId: draft.sessionId, targetLabel: draft.targetLabel, ...(draft.sessionId === "__new__" ? model : undefined), repeat, missed: draft.missed });
 			}
 			setModalOpen(false);
 			await refresh();
@@ -396,6 +398,12 @@ export function AutomationPage({ client, active, sessions, onOpenSession }: {
 									<dd>{describeRepeat(selected.repeat)}</dd>
 									<dt>{t("automation.kvDeliver")}</dt>
 									<dd>{selected.sessionId === "__new__" ? t("automation.deliverToNew") : t("automation.deliverTo", { target: selected.targetLabel })}</dd>
+									{selected.sessionId === "__new__" && (
+										<>
+											<dt>{t("automation.kvModel")}</dt>
+											<dd>{selected.provider && selected.model ? `${selected.provider}/${selected.model}` : t("automation.defaultModel")}</dd>
+										</>
+									)}
 									<dt>{t("automation.kvMissed")}</dt>
 									<dd>{t(`automation.missed_${selected.missed}` as never)}</dd>
 									<dt>{t("automation.kvCreated")}</dt>
@@ -423,7 +431,7 @@ export function AutomationPage({ client, active, sessions, onOpenSession }: {
 												<div className="owl-automation-hist-what">
 													<b>{t(`automation.run_${run.status}` as never)}</b>
 													{run.note && <span> · {run.note}</span>}
-													{run.sessionId && onOpenSession && run.status === "ok" && (
+													{run.sessionId && onOpenSession && (
 														<button type="button" className="owl-automation-hist-open" onClick={(event) => { event.stopPropagation(); onOpenSession(run.sessionId!); }}>
 															{t("automation.openSession" as TextKey)} ↗
 														</button>

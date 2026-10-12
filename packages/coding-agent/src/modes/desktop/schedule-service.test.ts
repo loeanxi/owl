@@ -15,9 +15,9 @@ function harness(now: () => number) {
 		agentDir: dir,
 		tickMs: 5,
 		now,
-		deliver: async (sessionId, text) => {
+		deliver: async ({ sessionId }, text) => {
 			delivered.push({ sessionId, text });
-			return sessionId;
+			return { sessionId };
 		},
 		onDiagnostic: (message) => diagnostics.push(message),
 		onChanged: () => {
@@ -98,10 +98,10 @@ test("错过策略 catch-up：重启后留 pending，会话挂载时补投", asy
 		agentDir: h.dir,
 		tickMs: 5,
 		now: () => clock2.value,
-		deliver: async (sessionId) => {
+		deliver: async ({ sessionId }) => {
 			if (!online) return null;
 			delivered2.push(sessionId);
-			return sessionId;
+			return { sessionId };
 		},
 	});
 	service2.start();
@@ -131,7 +131,7 @@ test("错过策略 skip：重启后跳过并推进", () => {
 		agentDir: h.dir,
 		tickMs: 5,
 		now: () => clock2.value,
-		deliver: async (sessionId) => sessionId,
+		deliver: async ({ sessionId }) => ({ sessionId }),
 	});
 	service2.start();
 	const { tasks, runs } = h.store();
@@ -190,7 +190,9 @@ test("新会话任务：deliver 返回新建 id 时记「新会话」备注", as
 		agentDir: h.dir,
 		tickMs: 5,
 		now: () => clock.value,
-		deliver: async (sessionId) => (sessionId === "__new__" ? "ab12cd34-5678-90ab-cdef" : sessionId),
+		deliver: async ({ sessionId }) => ({
+			sessionId: sessionId === "__new__" ? "ab12cd34-5678-90ab-cdef" : sessionId,
+		}),
 	});
 	const task = service.create({
 		name: "周报",
@@ -202,4 +204,96 @@ test("新会话任务：deliver 返回新建 id 时记「新会话」备注", as
 	const run = await service.runNow(task.id);
 	assert.equal(run.status, "ok");
 	assert.match(run.note ?? "", /新会话 ab12cd34/);
+});
+
+test("新会话任务：创建时记下模型并随任务交给 deliver", async () => {
+	const clock = { value: BASE };
+	const h = harness(() => clock.value);
+	const seen: { provider?: string; model?: string }[] = [];
+	const service = new ScheduleService({
+		agentDir: h.dir,
+		tickMs: 5,
+		now: () => clock.value,
+		deliver: async ({ provider, model }) => {
+			seen.push({ provider, model });
+			return { sessionId: "ab12cd34-5678-90ab-cdef" };
+		},
+	});
+	const task = service.create({
+		name: "周报",
+		prompt: "盘点",
+		sessionId: "__new__",
+		targetLabel: "新会话（每次新建）",
+		provider: "loean",
+		model: "space-bunny",
+		repeat: { kind: "weekly", weekday: 1, time: "09:00" },
+	});
+	assert.equal(h.store().tasks[0]!.model, "space-bunny");
+	await service.runNow(task.id);
+	assert.deepEqual(seen, [{ provider: "loean", model: "space-bunny" }]);
+});
+
+test("投递进行中界面刷新 list：运行结果与一次性完成状态不丢、不重复触发", async () => {
+	const clock = { value: BASE };
+	const h = harness(() => clock.value);
+	let release: () => void = () => {};
+	let deliveries = 0;
+	const service = new ScheduleService({
+		agentDir: h.dir,
+		tickMs: 5,
+		now: () => clock.value,
+		deliver: async ({ sessionId }) => {
+			deliveries += 1;
+			await new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			return { sessionId };
+		},
+	});
+	const task = service.create({
+		name: "提醒",
+		prompt: "看日程",
+		sessionId: "sess-1",
+		targetLabel: "会话",
+		repeat: { kind: "once", at: BASE + 60_000 },
+	});
+	service.start();
+	try {
+		clock.value = BASE + 120_000;
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(deliveries, 1);
+		service.list();
+		release();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		const { tasks, runs } = h.store();
+		assert.equal(runs[task.id]![0]!.status, "ok");
+		assert.equal(tasks[0]!.enabled, false);
+		assert.equal(tasks[0]!.lastRunAt !== null, true);
+		assert.equal(deliveries, 1);
+	} finally {
+		service.stop();
+		release();
+	}
+});
+
+test("投递成功但 Agent 报错：运行记为 error，备注带失败原因", async () => {
+	const clock = { value: BASE };
+	const h = harness(() => clock.value);
+	const service = new ScheduleService({
+		agentDir: h.dir,
+		tickMs: 5,
+		now: () => clock.value,
+		deliver: async () => ({ sessionId: "ab12cd34-5678-90ab-cdef", error: "402: Insufficient Balance" }),
+	});
+	const task = service.create({
+		name: "周报",
+		prompt: "盘点",
+		sessionId: "__new__",
+		targetLabel: "新会话（每次新建）",
+		repeat: { kind: "weekly", weekday: 1, time: "09:00" },
+	});
+	const run = await service.runNow(task.id);
+	assert.equal(run.status, "error");
+	assert.equal(run.sessionId, "ab12cd34-5678-90ab-cdef");
+	assert.equal(run.note, "新会话 ab12cd34 · 402: Insufficient Balance");
 });
