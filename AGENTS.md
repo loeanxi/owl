@@ -43,6 +43,8 @@
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. Otherwise run specific tests from the package root:
   - Vitest: `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/specific.test.ts`
   - `packages/tui` (`node:test`): `node --test test/specific.test.ts`
+- `packages/coding-agent` has pre-existing failures listed in `test/known-failures.txt`. Check your change with `npm run test:changed` (tests related to uncommitted files) or `node scripts/test-known.mjs test/a.test.ts ...` from the package root; both fail only on failures missing from that list. Do not stash or re-run a "baseline" to tell old failures from new ones; if you truly need HEAD, use a worktree outside the repo and junction `node_modules` and `packages/ai/src/providers/data` into it (without the generated model data, test files fail to load and look green). Afterwards delete the two junctions with `cmd /c rmdir <path>` (never a recursive delete, which follows the junction into the real directory), then `git worktree remove` it.
+- One full-suite run takes minutes. Run it at most once per task, after targeted tests pass; never re-run it unchanged.
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
 - For `packages/coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs, keys, or paid tokens.
 - When regressions tests for fixing a github issue, add a comment with the github issue number next to the test.

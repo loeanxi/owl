@@ -7,10 +7,14 @@
 	"license": "Apache-2.0",
 	"files": ["src", "skills", "scripts", "README.md", "NOTICE", "LICENSE"],
 	"scripts": {
-		"install:runtime": "node scripts/install-runtime.mjs"
+		"install:runtime": "node scripts/install-runtime.mjs",
+		"test": "node ../../scripts/run-mixed-tests.mjs test"
 	},
 	"dependencies": {
 		"ws": "8.21.0"
+	},
+	"devDependencies": {
+		"vitest": "4.1.11"
 	},
 	"peerDependencies": {
 		"@owl/owl-coding-agent": "*",

@@ -9,7 +9,10 @@
 		"preview": "vite preview",
 		"tauri": "tauri",
 		"tauri:dev": "tauri dev",
-		"tauri:build": "tauri build"
+		"tauri:build": "tauri build",
+		"test": "node ../../scripts/require-platform.mjs win32 && node ../../scripts/run-mixed-tests.mjs src",
+		"test:all-platforms": "node ../../scripts/run-mixed-tests.mjs src",
+		"test:vitest": "vitest run"
 	},
 	"dependencies": {
 		"@codemirror/commands": "6.11.1",
@@ -51,6 +54,7 @@
 		"@vitejs/plugin-react": "5.0.4",
 		"tailwindcss": "4.1.14",
 		"typescript": "7.0.2",
-		"vite": "7.1.9"
+		"vite": "7.1.9",
+		"vitest": "4.1.11"
 	}
 }

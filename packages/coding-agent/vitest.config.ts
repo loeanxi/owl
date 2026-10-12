@@ -15,6 +15,11 @@ export default mergeConfig(
 			setupFiles: ["./test/setup-agent-env.ts"],
 			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
 			silent: "passed-only",
+			// tsconfig.build.json 的 include 是 src/**/*.ts，没排 *.test.ts，
+			// 所以 dist/ 里会编译出同名测试产物（src/modes/desktop/schedule-*.test.ts → dist/…），
+			// 而 vitest 默认也收集 dist：这些副本既重复又缺 "No test suite found" 噪音。
+			// src-tauri/target 下同样有嵌入的源码副本，一并排除。
+			exclude: ["**/node_modules/**", "**/dist/**", "**/target/**", "**/.artifacts/**"],
 			server: {
 				deps: {
 					external: [/@silvia-odwyer\/photon-node/],

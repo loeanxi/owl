@@ -41,6 +41,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # owl-univer-office had no test script at all, so its suite never ran anywhere.
+      # Its integration cases self-skip unless OWL_UNIVER_TEST_RUNTIME points at an
+      # installed dsh-univer-office, so CI covers the offline half of the suite.
+      - name: Test Office plugin (desktop-agnostic half)
+        working-directory: packages/owl-univer-office
+        run: npm test
+
   # The desktop app ships on Windows only: catch path / rename / CRLF / cmd-shell breakage there,
   # and check that every artifact carries a build-info.json fingerprint that matches the sources.
   desktop-windows:
@@ -74,6 +81,14 @@ jobs:
 
       - name: Artifacts match sources
         run: node scripts/check-desktop-freshness.mjs
+
+      # apps/desktop carries the bulk of the product UI but had no test script, so its
+      # 40 suites were never executed by any CI job. `test:all-platforms` bypasses the
+      # Windows-only gate on purpose: this job IS the Windows job, so a skip here would
+      # mean the gate silently stopped protecting us — it must fail instead.
+      - name: Test desktop UI
+        working-directory: apps/desktop
+        run: npm run test:all-platforms
 
       - name: State-file and build-check tests
         working-directory: packages/coding-agent
