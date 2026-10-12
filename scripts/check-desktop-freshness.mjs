@@ -25,6 +25,7 @@ const COMPONENTS = [
 	{ name: "owl-web-access", dir: "packages/owl-web-access", dist: "dist", command: "npm run build" },
 	{ name: "owl-safety-net", dir: "packages/owl-safety-net", dist: "dist", command: "npm run build" },
 	{ name: "owl-billion-context", dir: "packages/owl-billion-context", dist: "dist", command: "npm run build" },
+	{ name: "owl-github", dir: "packages/owl-github", dist: "dist", command: "npm run build" },
 ];
 
 async function staleReason(component, hashes) {

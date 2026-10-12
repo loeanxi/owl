@@ -1,0 +1,41 @@
+{
+	"name": "owl-github",
+	"version": "0.2.0-owl.1",
+	"description": "Typed GitHub tools for the Owl coding agent via the host gh CLI: PRs, issues, Actions runs/workflows, releases. Ported from amitkot/pi-tools safe-github 0.2.0 (MIT).",
+	"license": "MIT",
+	"author": "Owl contributors (upstream: amitkot, amitkot/pi-tools)",
+	"type": "module",
+	"private": true,
+	"keywords": [
+		"owl-package",
+		"owl",
+		"owl-coding-agent",
+		"extension",
+		"github",
+		"gh"
+	],
+	"scripts": {
+		"build": "node scripts/build.js",
+		"typecheck": "tsc --noEmit",
+		"smoke": "node scripts/smoke.mjs"
+	},
+	"peerDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@owl/owl-coding-agent": "*",
+		"esbuild": "0.28.2",
+		"typebox": "1.3.27",
+		"typescript": "7.0.2"
+	},
+	"owl": {
+		"extensions": ["./dist/index.js"],
+		"forkedFrom": {
+			"name": "@amitkot/pi-safe-github",
+			"version": "0.2.0",
+			"repository": "git+https://github.com/amitkot/pi-tools.git",
+			"directory": "packages/safe-github"
+		}
+	}
+}

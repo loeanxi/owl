@@ -71,7 +71,7 @@ jobs:
       - name: Build esbuild plugins
         shell: bash
         run: |
-          for plugin in owl-image owl-web-access owl-safety-net owl-billion-context; do
+          for plugin in owl-image owl-web-access owl-safety-net owl-billion-context owl-github; do
             (cd "packages/$plugin" && npm run build)
           done
 
