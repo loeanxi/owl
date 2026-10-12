@@ -82,6 +82,23 @@ export async function closeMainWindow(): Promise<boolean> {
 	}
 }
 
+/** 切换主窗口背板（"off" / "clear" 不挂效果，"blur" 轻模糊，"acrylic" 系统亚克力）；浏览器模式或系统不支持返回 false。 */
+export async function setWindowGlass(mode: "off" | "clear" | "blur" | "acrylic"): Promise<boolean> {
+	if (!hasTauri()) return false;
+	try {
+		await invoke("set_window_glass", { mode });
+		return true;
+	} catch {
+		// 未重编的旧版桌面壳只认 { enabled }（亚克力开/关）；窗口同样是透明的，清透档关掉亚克力即可。
+		try {
+			await invoke("set_window_glass", { enabled: mode === "blur" || mode === "acrylic" });
+			return true;
+		} catch {
+			return false;
+		}
+	}
+}
+
 /** 退出整个应用（Rust RunEvent::Exit 里会顺带杀掉桥子进程）。 */
 export async function quitDesktopApp(): Promise<boolean> {
 	if (!hasTauri()) return false;

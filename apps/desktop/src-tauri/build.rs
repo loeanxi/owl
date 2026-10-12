@@ -9,6 +9,7 @@ fn main() {
 			.app_manifest(tauri_build::AppManifest::new().commands(&[
 				"show_approval_toast",
 				"quit_app",
+				"set_window_glass",
 				"reveal_in_file_manager",
 				"read_local_image",
 				"gps_location",

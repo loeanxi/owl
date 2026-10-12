@@ -54,6 +54,25 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// 「液态玻璃」主题预设的窗口背板。窗口建时已是 transparent，页面自己铺不透明底色时外观与不透明窗口无异。
+/// - "acrylic"：Win11 DWM 系统亚克力（DWMSBT_TRANSIENTWINDOW），重模糊 + 系统染色，拖动不卡；
+/// - "blur"：旧版 blur-behind，轻模糊、不染色，Win11 22621+ 上拖动/缩放可能卡顿；
+/// - 其它（"clear" / "off"）：不挂效果，页面透明处直接看到桌面原样。
+/// set_effects 不会先摘掉旧效果（亚克力与 blur-behind 走两套 API 能同时生效），所以每次先清空。
+#[tauri::command]
+fn set_window_glass(window: tauri::WebviewWindow, mode: String) -> Result<(), String> {
+    use tauri::window::{Effect, EffectsBuilder};
+    window.set_effects(None).map_err(|error| error.to_string())?;
+    let effect = match mode.as_str() {
+        "acrylic" => Effect::Acrylic,
+        "blur" => Effect::Blur,
+        _ => return Ok(()),
+    };
+    window
+        .set_effects(EffectsBuilder::new().effect(effect).build())
+        .map_err(|error| error.to_string())
+}
+
 /// 把拖进对话框的图片读成 base64。只接受常见图片扩展名，并且不超过 10MB。
 /// 非图片不走这里：那些文件只把路径交给模型，不把字节拉进 webview。
 #[tauri::command]
@@ -971,6 +990,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toast::show_approval_toast,
             quit_app,
+            set_window_glass,
             reveal_in_file_manager,
             read_local_image,
             gps::gps_location,
@@ -983,6 +1003,8 @@ fn main() {
                     .inner_size(1280.0, 860.0)
                     .resizable(true)
                     .decorations(false)
+                    // 液态玻璃要透出桌面，透明只能建窗时定；其余预设由页面铺满不透明底色。
+                    .transparent(true)
                     .build()?;
 
             // 拦截窗口关闭：隐藏到托盘，保持后台会话运行

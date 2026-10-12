@@ -9,8 +9,10 @@ export type ThemePreference = "dark" | "light" | "system";
 const lightQuery = window.matchMedia("(prefers-color-scheme: light)");
 
 let preference: ThemePreference = "dark";
+let lock: "dark" | "light" | null = null;
 
 function resolved(): "dark" | "light" {
+	if (lock) return lock;
 	if (preference === "system") return lightQuery.matches ? "light" : "dark";
 	return preference;
 }
@@ -29,6 +31,13 @@ export function getResolvedTheme(): "dark" | "light" {
 /** 应用一档主题偏好；重复调用会覆盖上一档（设置页即时切档、启动时初始化共用）。 */
 export function setThemePreference(pref: ThemePreference): void {
 	preference = pref;
+	apply();
+}
+
+/** 主题预设锁定深浅档（如毛玻璃2 只有深色档）；null 解除，回到用户偏好。偏好本身照常保存。 */
+export function setThemeLock(next: "dark" | "light" | null): void {
+	if (next === lock) return;
+	lock = next;
 	apply();
 }
 

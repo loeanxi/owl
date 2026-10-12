@@ -12,12 +12,36 @@
  */
 
 /** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
-export const OWL_PRESET_IDS = ["", "owl-green", "codex"] as const;
+export const OWL_PRESET_IDS = ["", "owl-green", "codex", "liquid-glass", "frost"] as const;
 
 export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
 
+/**
+ * 玻璃系预设：共用液态玻璃的整套玻璃样式与窗口背板档位。
+ * "frost"（毛玻璃2）= 液态玻璃深色档锁死，不跟随深浅色切换；标题栏/图标栏图标改深色墨水，
+ * 压在浅色系统背板上也看得清（desktop-shell.css 末尾「毛玻璃2」段）。
+ */
+export function isGlassPreset(preset: OwlPresetId): boolean {
+	return preset === "liquid-glass" || preset === "frost";
+}
+
+/** 预设锁定的深浅档；null = 跟随用户主题设置。 */
+export function presetThemeLock(preset: OwlPresetId): "dark" | null {
+	return preset === "frost" ? "dark" : null;
+}
+
+/**
+ * 液态玻璃预设在桌面壳里的窗口背板：clear = 不加系统效果，桌面原样透出；
+ * blur = 轻模糊、不染色（Win11 上拖动/缩放窗口可能卡顿）；acrylic = 系统亚克力（重模糊 + 系统染色）。
+ * 顺序即设置页展示顺序；未知值回 clear。
+ */
+export const OWL_GLASS_MODES = ["clear", "blur", "acrylic"] as const;
+
+export type OwlGlassMode = (typeof OWL_GLASS_MODES)[number];
+
 export interface OwlAppearanceColors {
 	preset: OwlPresetId;
+	glass: OwlGlassMode;
 	accent: string;
 	dark: { background: string; foreground: string };
 	light: { background: string; foreground: string };
@@ -37,12 +61,21 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 		dark: { background: "#1f1f1f", foreground: "#ededed" },
 		light: { background: "#f7f6f3", foreground: "#1a1a1a" },
 	},
+	"liquid-glass": {
+		dark: { background: "#0b0d1a", foreground: "#f5f5f7" },
+		light: { background: "#eef1fa", foreground: "#1d1d1f" },
+	},
+	frost: {
+		dark: { background: "#0b0d1a", foreground: "#f5f5f7" },
+		light: { background: "#0b0d1a", foreground: "#f5f5f7" },
+	},
 };
 
 export const DEFAULT_ACCENTS = { dark: "#50a992", light: "#268574" } as const;
 
 export const DEFAULT_OWL_APPEARANCE: Readonly<OwlAppearanceColors> = Object.freeze({
 	preset: "",
+	glass: "clear",
 	accent: "",
 	dark: Object.freeze({ background: "", foreground: "" }),
 	light: Object.freeze({ background: "", foreground: "" }),
@@ -68,6 +101,10 @@ function parsePreset(value: unknown): OwlPresetId {
 	return (OWL_PRESET_IDS as readonly string[]).includes(value as string) ? value as OwlPresetId : "";
 }
 
+function parseGlassMode(value: unknown): OwlGlassMode {
+	return (OWL_GLASS_MODES as readonly string[]).includes(value as string) ? value as OwlGlassMode : "clear";
+}
+
 /** 逐字段回退：坏值只影响自己那一项，不拖垮其它已保存的颜色。 */
 export function parseOwlAppearance(raw: unknown): OwlAppearanceColors {
 	const value = asRecord(raw);
@@ -75,6 +112,7 @@ export function parseOwlAppearance(raw: unknown): OwlAppearanceColors {
 	const light = asRecord(value.light);
 	return {
 		preset: parsePreset(value.preset),
+		glass: parseGlassMode(value.glass),
 		accent: normalizeHexColor(value.accent),
 		dark: { background: normalizeHexColor(dark.background), foreground: normalizeHexColor(dark.foreground) },
 		light: { background: normalizeHexColor(light.background), foreground: normalizeHexColor(light.foreground) },

@@ -18,17 +18,18 @@ import type {
 	OwlImageProvider,
 } from "../bridge/protocol.ts";
 import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
-import { applyOwlAppearance, DEFAULT_ACCENTS, DEFAULT_OWL_APPEARANCE, parseOwlAppearance, type OwlAppearanceColors } from "../owl-appearance.ts";
+import { applyOwlAppearance, DEFAULT_ACCENTS, DEFAULT_OWL_APPEARANCE, isGlassPreset, OWL_GLASS_MODES, parseOwlAppearance, presetThemeLock, type OwlAppearanceColors } from "../owl-appearance.ts";
+import { syncWindowGlass } from "../window-glass.ts";
 import { DEFAULT_OWL_WALLPAPER, parseOwlWallpaper, type OwlWallpaperSettings, type WallpaperContentRating } from "../wallpaper.ts";
 import { entryDirPrefix, parseUserPropDefs, weEvalCondition, type WallpaperPropDef } from "../we-props.ts";
 import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
 import { pickFile, pickFolder } from "../bridge/native.ts";
-import { getResolvedTheme, isThemePreference, setThemePreference } from "../theme.ts";
+import { getResolvedTheme, isThemePreference, setThemeLock, setThemePreference } from "../theme.ts";
 import { getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, useT, type TextKey } from "../i18n/index.ts";
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconActivity, IconArchive, IconBell, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconActivity, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import {
 	isModelMarkedInUse,
@@ -39,14 +40,15 @@ import {
 } from "../utils/enabled-models.ts";
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
-import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
+import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, daysLeft, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
+import { ChangelogSection, useChangelogCopy } from "./settings/ChangelogSection.tsx";
 import "./settings-redesign.css";
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "about";
+type SettingsSection = "general" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "changelog" | "about";
 
 export type SettingsInitialTab = "general" | "models" | "about";
 
@@ -76,6 +78,7 @@ export function SettingsPage({
 	onAskAgentCreatePreset?: () => void;
 }): React.JSX.Element {
 	const t = useT();
+	const changelogCopy = useChangelogCopy();
 	useProjectSidebarRevision();
 	const [section, setSection] = useState<SettingsSection>(initialTab);
 	const [agentDir, setAgentDir] = useState("");
@@ -1172,7 +1175,9 @@ export function SettingsPage({
 	/** 保存外观自定义颜色：先本地应用即时预览，再落盘 settings.json 的 owlAppearance（桥端深合并，空串=恢复默认）。 */
 	function saveAppearanceColors(next: OwlAppearanceColors): void {
 		setOwlAppearance(next);
+		setThemeLock(presetThemeLock(next.preset));
 		applyOwlAppearance(next);
+		syncWindowGlass(next);
 		void saveSettings({ owlAppearance: next });
 	}
 
@@ -1332,6 +1337,7 @@ export function SettingsPage({
 						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => setSection("usage")} />
 						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => setSection("archived")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
+						<NavItem icon={<IconClock />} label={changelogCopy.nav} active={section === "changelog"} onClick={() => setSection("changelog")} />
 						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => setSection("about")} />
 					</nav>
 
@@ -2887,6 +2893,25 @@ export function SettingsPage({
 											})}
 											</div>
 										</SettingRow>
+										{isGlassPreset(owlAppearance.preset) && (
+											<SettingRow title={t("settings.appearance.glassMode")} desc={t("settings.appearance.glassModeDesc")}>
+												<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.glassMode")}>
+													{OWL_GLASS_MODES.map((mode) => (
+														<button
+															key={mode}
+															type="button"
+															role="radio"
+															aria-checked={owlAppearance.glass === mode}
+															className={`owl-settings-mode-thumb is-text ${owlAppearance.glass === mode ? "is-active" : ""}`}
+															disabled={busy || !owlAppearanceLoaded}
+															onClick={() => saveAppearanceColors({ ...owlAppearance, glass: mode })}
+														>
+															<span className="owl-settings-mode-label">{t(GLASS_MODE_LABEL_KEYS[mode])}</span>
+														</button>
+													))}
+												</div>
+											</SettingRow>
+										)}
 									</div>
 
 									{/* 动态壁纸（Wallpaper Engine 适配）：video/web 直渲、scene 用预览图降级。 */}
@@ -4311,6 +4336,8 @@ export function SettingsPage({
 								</div>
 							</>
 						)}
+
+						{section === "changelog" && <ChangelogSection />}
 
 						{/* -------- 关于 -------- */}
 						{section === "about" && (

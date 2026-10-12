@@ -45,6 +45,19 @@ html[data-owl-preset="codex"] .owl-desktop-shell {
 	--owl-ui-menu-hover: #3a3a3a;
 }
 
+/* 液态玻璃预设的深色档：底色/面板保持实色（给不做模糊的子页兜底），
+   悬停与描边改半透明，叠在玻璃上也能透出底下的流光。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #161827);
+	--owl-ui-panel: #20233a;
+	--owl-ui-sidebar: #121421;
+	--owl-ui-border: rgb(255 255 255 / 12%);
+	--owl-ui-text: var(--owl-ui-text-override, #f5f5f7);
+	--owl-ui-muted: #a9abc0;
+	--owl-ui-hover: rgb(255 255 255 / 8%);
+	--owl-ui-menu-hover: rgb(255 255 255 / 12%);
+}
+
 html[data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafbf9);
 	--owl-ui-panel: #ffffff;
@@ -66,6 +79,18 @@ html[data-owl-preset="codex"][data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-muted: #6e6e6e;
 	--owl-ui-hover: #e9e8e5;
 	--owl-ui-menu-hover: #d9d7d2;
+}
+
+/* 液态玻璃预设的浅色档：比默认浅色块靠后以覆盖之。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #f2f4fa);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #eceff7;
+	--owl-ui-border: rgb(60 70 110 / 14%);
+	--owl-ui-text: var(--owl-ui-text-override, #1d1d1f);
+	--owl-ui-muted: #6e6e73;
+	--owl-ui-hover: rgb(60 70 110 / 7%);
+	--owl-ui-menu-hover: rgb(60 70 110 / 11%);
 }
 
 .owl-desktop-titlebar {
@@ -658,4 +683,284 @@ html[data-owl-theme][data-owl-wallpaper="on"] .owl-desktop-shell {
 html[data-owl-wallpaper="on"] .owl-desktop-titlebar {
 	background: color-mix(in srgb, var(--owl-glass-panel-2, #181818) 52%, transparent);
 	backdrop-filter: blur(14px);
+}
+
+/* ---------------------------------------------------------------- 液态玻璃 ----
+ * 主题预设 "liquid-glass"：仿 iOS Liquid Glass。外壳铺一层流光渐变当「桌面」，
+ * 侧栏 / 主区 / 设置页 / 弹出菜单是半透明 + 模糊提饱和的玻璃板，顶边一道高光、
+ * 四周一圈细亮边勾出厚玻璃的折射边。自定义背景色替换的是流光底下的底色。
+ * 开启动态壁纸时整段让位给上面的壁纸玻璃模式（:not 门控）。
+ * 大面板的模糊挂在 ::before 上而不是面板本身：backdrop-filter 会让元素成为
+ * position: fixed 后代的包含块，面板里那些 fixed 的弹窗/右键菜单就会错位。
+ * 面板内的小块（输入框、气泡、卡片）只给半透明填充，不再叠模糊。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) {
+	--owl-lg-base: var(--owl-ui-canvas-override, #0b0d1a);
+	--owl-lg-aurora:
+		radial-gradient(60% 55% at 10% 6%, rgb(64 112 255 / 55%), transparent 70%),
+		radial-gradient(50% 50% at 90% 12%, rgb(176 82 255 / 42%), transparent 70%),
+		radial-gradient(55% 60% at 80% 94%, rgb(0 196 180 / 34%), transparent 70%),
+		radial-gradient(45% 50% at 18% 90%, rgb(255 92 148 / 28%), transparent 70%);
+	--owl-lg-fill: rgb(22 24 40 / 48%);
+	--owl-lg-fill-soft: rgb(22 24 40 / 30%);
+	--owl-lg-fill-strong: rgb(28 31 52 / 74%);
+	--owl-lg-tint: rgb(255 255 255 / 6%);
+	--owl-lg-well: rgb(0 0 0 / 22%);
+	--owl-lg-thumb: rgb(255 255 255 / 14%);
+	--owl-lg-line: rgb(255 255 255 / 12%);
+	--owl-lg-stroke: rgb(255 255 255 / 14%);
+	--owl-lg-rim: inset 0 1px 0 rgb(255 255 255 / 22%), inset 0 -1px 0 rgb(255 255 255 / 4%), inset 0 0 0 1px rgb(255 255 255 / 6%);
+	--owl-lg-card-shadow: 0 4px 14px rgb(0 0 0 / 14%);
+	--owl-lg-shadow: 0 18px 50px rgb(0 0 0 / 38%);
+	--owl-lg-blur: blur(30px) saturate(180%);
+	--owl-lg-read-text: #ececf1;
+	--owl-lg-read-muted: #a9abc0;
+	--owl-lg-read-panel: rgb(0 0 0 / 24%);
+	--owl-lg-read-link: #64b5ff;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"] {
+	--owl-lg-base: var(--owl-ui-canvas-override, #eef1fa);
+	--owl-lg-aurora:
+		radial-gradient(60% 55% at 10% 6%, rgb(120 160 255 / 55%), transparent 70%),
+		radial-gradient(50% 50% at 90% 12%, rgb(255 150 210 / 45%), transparent 70%),
+		radial-gradient(55% 60% at 80% 94%, rgb(110 230 205 / 45%), transparent 70%),
+		radial-gradient(45% 50% at 18% 90%, rgb(255 205 130 / 42%), transparent 70%);
+	--owl-lg-fill: rgb(255 255 255 / 52%);
+	--owl-lg-fill-soft: rgb(255 255 255 / 34%);
+	--owl-lg-fill-strong: rgb(255 255 255 / 80%);
+	--owl-lg-tint: rgb(255 255 255 / 50%);
+	--owl-lg-well: rgb(118 118 128 / 12%);
+	--owl-lg-thumb: #ffffff;
+	--owl-lg-line: rgb(60 70 110 / 14%);
+	--owl-lg-stroke: rgb(255 255 255 / 75%);
+	--owl-lg-rim: inset 0 1px 0 rgb(255 255 255 / 95%), inset 0 -1px 0 rgb(255 255 255 / 40%), inset 0 0 0 1px rgb(255 255 255 / 45%);
+	--owl-lg-card-shadow: 0 1px 2px rgb(40 52 110 / 6%), 0 4px 14px rgb(40 52 110 / 7%);
+	--owl-lg-shadow: 0 18px 50px rgb(40 52 110 / 16%);
+	--owl-lg-read-text: #1d1d1f;
+	--owl-lg-read-muted: #6e6e73;
+	--owl-lg-read-panel: rgb(255 255 255 / 60%);
+	--owl-lg-read-link: #0066cc;
+}
+
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell {
+	background: var(--owl-lg-aurora), var(--owl-lg-base);
+}
+
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-workspace-frame {
+	border-color: var(--owl-lg-stroke);
+	border-radius: 20px;
+	background: transparent;
+	box-shadow: var(--owl-lg-shadow);
+}
+/* 外框高光盖在子面板之上（子面板是半透明的，画在外框自身的内阴影会被压暗）。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-workspace-frame::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	border-radius: inherit;
+	box-shadow: var(--owl-lg-rim);
+	pointer-events: none;
+}
+
+/* 面板本体透明，填充与模糊由 ::before 垫在内容之下。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-main-frame,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-sidebar,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-shell-conversation,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-chat-surface,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-panel {
+	background: transparent;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-main-frame::before,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-sidebar::before,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page::before,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-panel::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background: var(--owl-lg-fill);
+	backdrop-filter: var(--owl-lg-blur);
+	pointer-events: none;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-sidebar::before {
+	background: var(--owl-lg-fill-soft);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-panel::before {
+	background: var(--owl-lg-fill-strong);
+	box-shadow: var(--owl-lg-rim);
+}
+
+/* 图标栏直接浮在流光上；选中/悬停改成半透明，叠在玻璃上不发闷。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail {
+	background: transparent;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-sidebar,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail {
+	--owl-navigation-selection: color-mix(in srgb, var(--color-owl-accent) 22%, transparent);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-brand:not(:hover),
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat:not(:hover) {
+	background: var(--owl-lg-tint);
+	box-shadow: var(--owl-lg-rim);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat:not(:hover) {
+	border-color: var(--owl-lg-stroke);
+}
+
+/* 浮层：叶子节点直接模糊（rail 主菜单里套着 fixed 的二级菜单，走上面的 ::before）。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-menu-panel,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-tools-panel,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-flyout {
+	background: var(--owl-lg-fill-strong);
+	backdrop-filter: var(--owl-lg-blur);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-desktop-menu-panel,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-tools-panel,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-panel,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-rail-menu-flyout {
+	border-color: var(--owl-lg-stroke);
+	border-radius: 12px;
+	box-shadow: var(--owl-lg-rim), var(--owl-lg-shadow);
+}
+
+/* 顶栏「对话/上下文」切换做成 iOS 分段控件：凹槽 + 浮起的滑块。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs {
+	border-radius: 10px;
+	background: var(--owl-lg-well);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs button {
+	border-radius: 8px;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs button[aria-selected="true"] {
+	background: var(--owl-lg-thumb);
+	box-shadow: var(--owl-lg-rim), 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+/* 对话区：阅读色改半透明，代码块/引用块透出底下的玻璃。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-chat-surface {
+	--owl-reading-text: var(--owl-lg-read-text);
+	--owl-reading-muted: var(--owl-lg-read-muted);
+	--owl-reading-border: var(--owl-lg-line);
+	--owl-reading-panel: var(--owl-lg-read-panel);
+	--owl-reading-link: var(--owl-lg-read-link);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-user-bubble {
+	background: color-mix(in srgb, var(--color-owl-accent) 16%, var(--owl-lg-tint));
+	box-shadow: var(--owl-lg-rim);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-chat-latest {
+	border-color: var(--owl-lg-stroke);
+	background: var(--owl-lg-fill-strong);
+	backdrop-filter: var(--owl-lg-blur);
+	box-shadow: var(--owl-lg-rim), var(--owl-lg-card-shadow);
+}
+/* 输入卡（.relative 排除掉同为 rounded-xl 的 absolute 补全弹层）；聚焦/拖入时的强调色边框保留。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-composer-surface .rounded-xl.relative {
+	border-radius: 18px;
+	background: var(--owl-lg-tint);
+	box-shadow: var(--owl-lg-rim), var(--owl-lg-card-shadow);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-composer-surface .rounded-xl.relative:not(:focus-within):not(.border-owl-accent) {
+	border-color: var(--owl-lg-stroke);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-todo-pin,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-todo-trigger {
+	border-color: var(--owl-lg-stroke);
+	background: var(--owl-lg-tint);
+	box-shadow: var(--owl-lg-rim), var(--owl-lg-card-shadow);
+}
+
+/* 工具侧栏：画布透出主区玻璃，标签条/卡片薄薄一层。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-workbench-shell {
+	--workbench-canvas: transparent;
+	--workbench-chrome: var(--owl-lg-tint);
+	--workbench-panel: var(--owl-lg-tint);
+	--workbench-border: var(--owl-lg-line);
+}
+
+/* 设置页 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page .owl-settings-nav {
+	background: transparent;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page .owl-settings-group,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page .owl-settings-preset-card {
+	border-color: var(--owl-lg-stroke);
+	background: var(--owl-lg-tint);
+	box-shadow: var(--owl-lg-rim), var(--owl-lg-card-shadow);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-settings-page .owl-settings-preset-card.is-active {
+	border-color: var(--color-owl-accent);
+	box-shadow: var(--owl-lg-rim), 0 0 0 2px var(--settings-accent-soft);
+}
+
+/* 真透明：桌面壳已给窗口挂好背板（data-owl-window-glass = clear / blur / acrylic，window-glass.ts 写入）。
+ * 页面不再自绘流光，整页透明，桌面直接（或经系统模糊后）垫在底下。
+ * 外壳一层极薄的底，侧栏/主区再叠一层半透明，Owl 的轮廓从桌面里浮出来但桌面仍看得见；文字另加一圈阴影/光晕。
+ * body 的底色写在 index.html 内联 style 上，只能 !important 压掉。
+ * 侧栏/主区的 ::before 此时背后只有透明页面，CSS 模糊白算，关掉；设置页仍要模糊盖住的对话，保留。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass] {
+	--owl-lg-window-fill: rgb(18 20 32 / 14%);
+	--owl-lg-fill: rgb(18 20 32 / 34%);
+	--owl-lg-fill-soft: rgb(18 20 32 / 24%);
+	--owl-lg-tint: rgb(255 255 255 / 12%);
+	--owl-lg-read-panel: rgb(0 0 0 / 30%);
+	--owl-lg-shadow: 0 10px 30px rgb(0 0 0 / 22%);
+	--owl-lg-text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"][data-owl-window-glass] {
+	--owl-lg-window-fill: rgb(255 255 255 / 16%);
+	--owl-lg-fill: rgb(255 255 255 / 46%);
+	--owl-lg-fill-soft: rgb(255 255 255 / 34%);
+	--owl-lg-tint: rgb(255 255 255 / 55%);
+	--owl-lg-read-panel: rgb(255 255 255 / 55%);
+	--owl-lg-shadow: 0 10px 30px rgb(40 52 110 / 14%);
+	--owl-lg-text-shadow: 0 0 6px rgb(255 255 255 / 60%);
+}
+/* 磨砂档：系统亚克力已经够糊，字不用描那么重。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass="acrylic"] {
+	--owl-lg-text-shadow: 0 1px 2px rgb(0 0 0 / 50%);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"][data-owl-window-glass="acrylic"] {
+	--owl-lg-text-shadow: 0 0 6px rgb(255 255 255 / 60%);
+}
+html[data-owl-window-glass]:not([data-owl-wallpaper="on"]),
+html[data-owl-window-glass]:not([data-owl-wallpaper="on"]) body {
+	background: transparent !important;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-shell {
+	background: var(--owl-lg-window-fill);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-main-frame::before,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-sidebar::before {
+	backdrop-filter: none;
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-activity-rail,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-sidebar,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-chat-header,
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-chat-surface {
+	text-shadow: var(--owl-lg-text-shadow);
+}
+
+/* ---------------------------------------------------------------- 毛玻璃2 ----
+ * 预设 "frost"：液态玻璃深色档（主题锁定，见 owl-appearance.ts presetThemeLock）。
+ * 标题栏与图标栏不在面板里，直接压在浅色系统背板上，深色档的浅灰图标几乎看不见，改用深色墨水。
+ * 选中项（.is-active）保留强调色；下拉菜单面板是深色玻璃，不在此范围内。 */
+html[data-owl-preset="frost"] {
+	--owl-frost-ink: rgb(24 26 38 / 80%);
+	--owl-frost-ink-strong: #10111a;
+}
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active),
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger,
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active) {
+	color: var(--owl-frost-ink);
+	text-shadow: none;
+}
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active, .owl-window-close):hover:not(:disabled),
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger:is(:hover, .is-open),
+html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active):hover:not(:disabled) {
+	color: var(--owl-frost-ink-strong);
+	background: rgb(24 26 38 / 8%);
 }

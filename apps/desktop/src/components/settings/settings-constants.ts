@@ -1,6 +1,6 @@
 import type { OwlImageProvider, SkillCenterTab } from "../../bridge/protocol.ts";
 import type { TextKey } from "../../i18n/index.ts";
-import { type OwlPresetId, PRESET_DEFAULT_COLORS } from "../../owl-appearance.ts";
+import { type OwlGlassMode, type OwlPresetId, PRESET_DEFAULT_COLORS } from "../../owl-appearance.ts";
 
 export const API_OPTIONS = [
 	{ value: "openai-completions", labelKey: "settings.models.apiOpenaiCompat" },
@@ -40,7 +40,33 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 	{ id: "", labelKey: "settings.appearance.presetGraphite", preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" } },
 	{ id: "owl-green", labelKey: "settings.appearance.presetOwlGreen", preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" } },
 	{ id: "codex", labelKey: "settings.appearance.presetCodex", preview: { bg: "#f7f6f3", rail: "#e7e6e3", line: "#d9d7d2", panel: "#ffffff" } },
+	{
+		id: "liquid-glass",
+		labelKey: "settings.appearance.presetLiquidGlass",
+		preview: {
+			bg: "radial-gradient(80% 90% at 0% 0%, #4070ff, transparent 70%), radial-gradient(70% 80% at 100% 100%, #b052ff, transparent 70%), radial-gradient(60% 60% at 100% 0%, #00c4b4, transparent 70%), #141733",
+			rail: "rgb(255 255 255 / 12%)",
+			line: "rgb(255 255 255 / 30%)",
+			panel: "rgb(255 255 255 / 18%)",
+		},
+	},
+	{
+		id: "frost",
+		labelKey: "settings.appearance.presetFrost",
+		preview: {
+			bg: "linear-gradient(160deg, #c9cbd2, #a9abb4)",
+			rail: "rgb(24 26 38 / 10%)",
+			line: "rgb(24 26 38 / 45%)",
+			panel: "rgb(40 42 58 / 55%)",
+		},
+	},
 ];
+
+export const GLASS_MODE_LABEL_KEYS: Record<OwlGlassMode, TextKey> = {
+	clear: "settings.appearance.glassClear",
+	blur: "settings.appearance.glassBlur",
+	acrylic: "settings.appearance.glassAcrylic",
+};
 
 /** 当前预设下某深浅档的默认底色/文字色（预设无自定义时的拾色器兜底与 hex 展示）。 */
 export function presetDefaultColors(preset: OwlPresetId, mode: "dark" | "light") {

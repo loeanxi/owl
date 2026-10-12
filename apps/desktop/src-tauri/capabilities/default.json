@@ -23,6 +23,7 @@
 		"core:window:allow-set-fullscreen",
 		"core:webview:allow-set-webview-zoom",
 		"allow-quit-app",
+		"allow-set-window-glass",
 		"allow-reveal-in-file-manager",
 		"allow-read-local-image",
 		"allow-gps-location",
