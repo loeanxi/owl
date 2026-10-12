@@ -49,7 +49,10 @@ import {
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
 import {
-	type ContextInsightState,
+	type ContextInsightData,
+	contextDetailOf,
+	contextInsightWire,
+	contextItemOf,
 	findContextInsightByCwd,
 	getContextInsight,
 	reconstructContextInsight,
@@ -326,14 +329,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	 * mtime（磁盘）或投影末条 id+消息数（运行中），ContextView 2s 轮询时
 	 * 未变化的会话直接命中缓存，不重复读文件/分类。
 	 */
-	const contextRebuildCache = new Map<
-		string,
-		{ key: string; rows: Pick<ContextInsightState, "requests" | "events" | "tools"> }
-	>();
+	const contextRebuildCache = new Map<string, { key: string; rows: ContextInsightData }>();
 	/** 注册表无数据时从会话转录重建上下文洞察；会话不存在或没有消息回 undefined。 */
-	const contextInsightFromHistory = async (
-		sessionId: string,
-	): Promise<Pick<ContextInsightState, "requests" | "events" | "tools"> | undefined> => {
+	const contextInsightFromHistory = async (sessionId: string): Promise<ContextInsightData | undefined> => {
 		try {
 			const running = sessions.get(sessionId)?.runtime.session.sessionManager;
 			if (running) {
@@ -2364,30 +2362,63 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	/** Context 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
-	type ContextRequest = Extract<DesktopClientRequest, { type: "context.get" | "session.compact" }>;
+	type ContextRequest = Extract<
+		DesktopClientRequest,
+		{ type: "context.get" | "context.detail" | "context.item" | "session.compact" }
+	>;
+
+	/** 注册表现采优先；没有请求记录时退回会话转录重建。 */
+	async function resolveContextInsight(
+		cwd: string,
+		requestedSessionId: string | undefined,
+	): Promise<{ sessionId?: string; data?: ContextInsightData; reconstructed: boolean }> {
+		const sessionId = requestedSessionId ?? findContextInsightByCwd(cwd)?.sessionId;
+		const live = sessionId ? getContextInsight(sessionId) : undefined;
+		if (sessionId && (!live || live.requests.length === 0)) {
+			const rows = await contextInsightFromHistory(sessionId);
+			if (rows && rows.requests.length > 0) return { sessionId, data: rows, reconstructed: true };
+		}
+		return { sessionId, data: live, reconstructed: false };
+	}
 
 	async function handleContextRequest(ws: WebSocket, request: ContextRequest): Promise<void> {
 		switch (request.type) {
 			case "context.get": {
-				const sessionId = request.sessionId ?? findContextInsightByCwd(request.cwd)?.sessionId;
-				let state = sessionId ? getContextInsight(sessionId) : undefined;
-				let reconstructed = false;
-				if (sessionId && (!state || state.requests.length === 0)) {
-					const rows = await contextInsightFromHistory(sessionId);
-					if (rows && rows.requests.length > 0) {
-						state = { sessionId, cwd: request.cwd, ...rows, lastTs: Date.now() } satisfies ContextInsightState;
-						reconstructed = true;
-					}
-				}
+				const { sessionId, data, reconstructed } = await resolveContextInsight(request.cwd, request.sessionId);
 				reply(ws, request.id, {
 					ok: true,
 					result: {
 						sessionId,
-						requests: state ? [...state.requests] : [],
-						events: state ? [...state.events] : [],
-						tools: state ? [...state.tools] : [],
+						...(data
+							? contextInsightWire(data)
+							: {
+									requests: [],
+									events: [],
+									tools: [],
+									files: [],
+									timing: { activeMs: 0, toolRuns: 0, toolMs: 0 },
+									liveVersion: "",
+								}),
 						...(reconstructed ? { reconstructed: true } : {}),
 					},
+				});
+				return;
+			}
+			case "context.detail": {
+				const { data } = await resolveContextInsight(request.cwd, request.sessionId);
+				reply(ws, request.id, {
+					ok: true,
+					result: data
+						? contextDetailOf(data, request.seq)
+						: { ...(request.seq !== undefined ? { seq: request.seq } : {}), available: false, categories: [] },
+				});
+				return;
+			}
+			case "context.item": {
+				const { data } = await resolveContextInsight(request.cwd, request.sessionId);
+				reply(ws, request.id, {
+					ok: true,
+					result: (data && contextItemOf(data, request.key, request.seq)) ?? null,
 				});
 				return;
 			}
@@ -2770,6 +2801,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 才有数据，恢复历史会话时是空的——这时从会话转录重建一份（带
 			// reconstructed 标记），让「上下文」页不至于一直空着。
 			case "context.get":
+			case "context.detail":
+			case "context.item":
 			case "session.compact":
 				await handleContextRequest(ws, request);
 				return;
@@ -2883,6 +2916,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "git.commit":
 			case "git.discard":
 			case "git.log":
+			case "git.history":
+			case "git.show":
+			case "git.showDiff":
+			case "git.push":
+			case "git.checks":
 				await handleGitRequest(ws, request, workspaceContext);
 				return;
 			case "watch.set":

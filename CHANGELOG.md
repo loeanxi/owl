@@ -23,6 +23,7 @@
 - `desktop` 外观新增液态玻璃与毛玻璃预设，桌面壳可切换清透、轻雾、亚克力窗口背板
 - `owl-github` 新增 GitHub 工具插件，经本机 gh 操作 PR、Issue、Actions 与 Release
 - `desktop` 变更侧栏新增提交历史视图，可看提交详情、推送分支并查看 GitHub CI 状态
+- `desktop` 上下文页重做为统计、趋势、上下文浏览器与事件文件活动，可逐步下钻原文
 
 ### 改进
 

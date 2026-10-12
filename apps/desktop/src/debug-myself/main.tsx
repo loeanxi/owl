@@ -509,37 +509,62 @@ const mockClient = {
 					},
 				};
 				break;
-			case "context.get":
+			case "context.get": {
+				const now = Date.now();
+				const row = (seq: number, turn: number, step: number, toolResult: number, assistant: number) => ({
+					seq,
+					turn,
+					step,
+					ts: now - (4 - seq) * 15_000,
+					model: preferences.model,
+					composition: { system: 700, inject: 300, user: 900, assistant, toolResult, toolSchemas: 1200, other: 0 },
+					totalTokens: 3100 + toolResult + assistant,
+					contextWindow: 200000,
+					usage: { input: 200, output: 40 * seq, cacheRead: 120 * seq, cacheWrite: 0, totalTokens: 360 + 160 * seq },
+					timing: { ttft: 800, thinking: 1200, answer: 900, toolArgs: 300, model: 3200 },
+					toolCalls: step === 1 ? 1 : 0,
+					brief: {
+						user: "看看 README 里写了什么",
+						inbound: step === 1 ? [] : [{ chip: "read", text: "README.md" }],
+						response: step === 1 ? [{ chip: "read", text: "README.md" }] : [{ text: "README 介绍了项目的安装与使用。" }],
+					},
+				});
 				response = {
 					ok: true,
 					result: {
 						sessionId,
-						requests: [
-							{
-								seq: 1,
-								ts: Date.now(),
-								model: preferences.model,
-								composition: {
-									system: 700,
-									inject: 300,
-									user: 900,
-									assistant: 500,
-									toolResult: 1200,
-									toolSchemas: 1200,
-									other: 0,
-								},
-								totalTokens: 4800,
-								contextWindow: 200000,
-								usage: { input: 200, output: 40, cacheRead: 120, cacheWrite: 0, totalTokens: 360 },
-							},
-						],
-						events: [],
+						requests: [row(1, 1, 1, 0, 0), row(2, 1, 2, 1200, 500), row(3, 2, 1, 1200, 900)],
+						events: [{ ts: now - 45_000, kind: "inject", label: "段落注入 · environment", seq: 1, turn: 1, step: 1, delta: 300, itemKey: "sec:environment" }],
 						tools: [
 							{ name: "read", source: "builtin" },
 							{ name: "edit", source: "builtin" },
 						],
+						files: [{ path: `${CWD}/README.md`, kind: "read", tool: "read", seq: 1, ts: now - 40_000, ok: true, callId: "call-1" }],
+						timing: { activeMs: 14_000, toolRuns: 1, toolMs: 400 },
+						liveVersion: "3:0",
 					},
 				};
+				break;
+			}
+			case "context.detail":
+				response = {
+					ok: true,
+					result: {
+						available: true,
+						categories: [
+							{ key: "system", tokens: 700, items: [{ key: "sys", label: "系统提示词", tokens: 700 }] },
+							{ key: "toolSchemas", tokens: 1200, items: [{ key: "tool:read", label: "read", chip: "builtin", tokens: 600, hits: 1 }, { key: "tool:edit", label: "edit", chip: "builtin", tokens: 600 }] },
+							{ key: "user", tokens: 900, items: [{ key: "m0", label: "看看 README 里写了什么", tokens: 900, at: { turn: 1, step: 1 } }] },
+							{ key: "inject", tokens: 300, items: [{ key: "sec:environment", label: "environment", chip: "段落", tokens: 300 }] },
+							{ key: "assistant", tokens: 500, items: [{ key: "m1", label: "read README.md", tokens: 500, kinds: ["tool"], at: { turn: 1, step: 1 } }] },
+							{ key: "toolResult", tokens: 1200, items: [{ key: "m2", label: "README.md", chip: "read", tokens: 1200, callId: "call-1", at: { turn: 1, step: 2 } }] },
+							{ key: "other", tokens: 0, items: [] },
+						],
+					},
+				};
+				break;
+			case "context.item":
+				response = { ok: true, result: { title: "README.md", text: "# Owl\n\n离线调试用的示例内容。" } };
 				break;
 			case "owl-ui.action":
 				response = { ok: true };

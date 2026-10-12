@@ -3,16 +3,25 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
+	appendContextLive,
 	type ContextRequestRow,
 	classifyRequestMessages,
+	contextDetailOf,
+	contextItemOf,
 	dropContextInsight,
 	estimateToolDeclarations,
 	findContextInsightByCwd,
 	getContextInsight,
 	measuredContextTokens,
 	reconstructContextInsight,
+	recordContextAgent,
+	recordContextCompaction,
 	recordContextEvent,
 	recordContextRequest,
+	recordContextResponse,
+	recordContextStream,
+	recordContextToolEnd,
+	recordContextToolStart,
 	recordContextTools,
 	recordContextUsage,
 } from "../../src/core/context-insight.ts";
@@ -217,7 +226,7 @@ describe("context-insight 注册表", () => {
 			recordContextRequest(sessionId, cwd0, { ts: index, composition: emptyComposition() });
 		}
 		for (let index = 0; index < 120; index += 1) {
-			recordContextEvent(sessionId, cwd0, { kind: "tools", label: `t${index}` });
+			recordContextEvent(sessionId, cwd0, { kind: "inject", label: `t${index}` });
 		}
 		const state = getContextInsight(sessionId)!;
 		expect(state.requests).toHaveLength(400);
@@ -348,7 +357,17 @@ describe("reconstructContextInsight（历史会话回放）", () => {
 		});
 		expect(rows.requests[1].totalTokens).toBe(12);
 		expect(rows.requests[1].usage).toBeUndefined();
-		expect(rows.events).toHaveLength(0);
+		// 后置系统消息记一条注入事件，落在它首次进入的那一步
+		expect(rows.events).toEqual([
+			expect.objectContaining({ kind: "inject", label: "指令注入 · extra", delta: 2, seq: 2, turn: 1, step: 2 }),
+		]);
+		// 同一轮内的第二次请求；简报回显本轮用户消息与新进入的内容
+		expect(rows.requests.map((row) => [row.turn, row.step])).toEqual([
+			[1, 1],
+			[1, 2],
+		]);
+		expect(rows.requests[1].brief?.user).toBe("hello");
+		expect(rows.requests[1].brief?.inbound.map((item) => item.chip)).toEqual(["tool", "注入"]);
 	});
 
 	it("compaction 条目记一条 compact 事件，全零 usage 不回填", () => {
@@ -369,5 +388,183 @@ describe("reconstructContextInsight（历史会话回放）", () => {
 		expect(rows.requests).toHaveLength(0);
 		expect(rows.events).toHaveLength(0);
 		expect(rows.tools).toHaveLength(0);
+	});
+
+	it("工具调用回放成文件活动，归属发起调用的那一步", () => {
+		const rows = reconstructContextInsight([
+			entry("message", "e1", [
+				{ role: "user", content: "fix it" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "toolCall", id: "c1", name: "read", arguments: { path: "src/a.ts", offset: 10, limit: 5 } },
+						{
+							type: "toolCall",
+							id: "c2",
+							name: "edit",
+							arguments: { path: "src/a.ts", edits: [{ oldText: "a", newText: "b\nc" }] },
+						},
+					],
+				},
+				{ role: "toolResult", toolCallId: "c1", toolName: "read", content: "x" },
+				{ role: "toolResult", toolCallId: "c2", toolName: "edit", content: "ok", isError: true },
+				{ role: "assistant", content: "done" },
+			]),
+		] as any);
+		expect(rows.files).toEqual([
+			expect.objectContaining({ path: "src/a.ts", kind: "read", seq: 1, ok: true, lines: [10, 14], callId: "c1" }),
+			expect.objectContaining({ path: "src/a.ts", kind: "write", seq: 1, ok: false, added: 2, removed: 1 }),
+		]);
+		expect(rows.requests[0].toolCalls).toBe(2);
+		expect(rows.requests[0].brief?.response.map((item) => item.chip)).toEqual(["read", "edit"]);
+		expect(rows.requests[1].brief?.inbound).toEqual([
+			{ chip: "read", text: "src/a.ts" },
+			{ chip: "edit", text: "src/a.ts", error: true },
+		]);
+	});
+});
+
+describe("上下文浏览器（快照前缀还原）", () => {
+	const system = {
+		role: "system",
+		content: "",
+		sections: { preamble: "base prompt", owl_memory: "remember this" },
+		toolsAdded: [{ name: "read", description: "read a file", parameters: {} }],
+	};
+	const user = { role: "user", content: "hello", timestamp: 1 };
+	const call = {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "plan" },
+			{ type: "toolCall", id: "c1", name: "read", arguments: { path: "a.ts" } },
+		],
+		timestamp: 2,
+	};
+	const result = { role: "toolResult", toolCallId: "c1", toolName: "read", content: "file body", timestamp: 3 };
+
+	it("按每步的消息数取前缀，条目带首次进入的步骤戳与上一步基线", () => {
+		const sessionId = "test-session-detail";
+		dropContextInsight(sessionId);
+		const first = [system, user] as any[];
+		recordContextRequest(sessionId, cwd0, { ts: 1, composition: classifyRequestMessages(first) }, undefined, first, [
+			"read",
+		]);
+		recordContextResponse(sessionId, call as any);
+		const second = [system, user, call, result] as any[];
+		recordContextRequest(
+			sessionId,
+			cwd0,
+			{ ts: 2, composition: classifyRequestMessages(second) },
+			undefined,
+			second,
+			["read"],
+		);
+
+		const state = getContextInsight(sessionId)!;
+		expect(state.requests.map((row) => [row.turn, row.step, row.messageCount])).toEqual([
+			[1, 1, 2],
+			[1, 2, 4],
+		]);
+		// 首个请求把已有的扩展段落记为注入
+		expect(state.events).toEqual([expect.objectContaining({ kind: "inject", itemKey: "sec:owl_memory", seq: 1 })]);
+
+		const step1 = contextDetailOf(state, 1);
+		const byKey = (detail: typeof step1, key: string) => detail.categories.find((category) => category.key === key)!;
+		expect(step1.available).toBe(true);
+		expect(byKey(step1, "assistant").items).toHaveLength(0);
+		expect(byKey(step1, "toolSchemas").items).toEqual([
+			expect.objectContaining({ key: "tool:read", chip: "transcript", hits: 0 }),
+		]);
+
+		const step2 = contextDetailOf(state, 2);
+		expect(byKey(step2, "toolResult").items).toEqual([
+			expect.objectContaining({ key: "m3", chip: "read", label: "a.ts", callId: "c1", at: { turn: 1, step: 2 } }),
+		]);
+		expect(byKey(step2, "assistant").items[0]).toEqual(
+			expect.objectContaining({ kinds: ["think", "tool"], chip: "read", at: { turn: 1, step: 2 } }),
+		);
+		expect(byKey(step2, "user").items[0].at).toEqual({ turn: 1, step: 1 });
+		expect(step2.baseline?.toolResult).toEqual({ count: 0, tokens: 0 });
+
+		// 当前（下一次请求）= 快照 + 之后进入的尾巴，尾巴条目标为待发送
+		appendContextLive(sessionId, { role: "user", content: "next", timestamp: 4 } as any);
+		const live = contextDetailOf(state);
+		expect(live.seq).toBeUndefined();
+		expect(byKey(live, "user").items[1].at).toEqual({ turn: 2, step: 1, pending: true });
+		expect(live.baseline?.user).toEqual({ count: 1, tokens: 2 });
+
+		expect(contextItemOf(state, "sys")?.text).toBe("base prompt");
+		expect(contextItemOf(state, "sec:owl_memory")?.text).toBe("remember this");
+		expect(contextItemOf(state, "m3", 2)).toEqual(
+			expect.objectContaining({ text: "file body", call: { name: "read", args: { path: "a.ts" }, ok: true } }),
+		);
+		expect(contextItemOf(state, "m2", 2)).toEqual(
+			expect.objectContaining({ thinking: "plan", calls: [{ name: "read", args: { path: "a.ts" } }] }),
+		);
+		expect(contextItemOf(state, "tool:read")?.tool?.description).toBe("read a file");
+		dropContextInsight(sessionId);
+	});
+
+	it("压缩开启新纪元：旧步骤仍按旧快照还原，压缩差值在下一步回填", () => {
+		const sessionId = "test-session-epoch";
+		dropContextInsight(sessionId);
+		const before = [system, user, call, result] as any[];
+		recordContextRequest(sessionId, cwd0, { ts: 1, composition: classifyRequestMessages(before) }, undefined, before);
+		recordContextCompaction(sessionId, cwd0, "压缩上下文（手动）", "manual");
+		const after = [system, { role: "compactionSummary", summary: "short" }] as any[];
+		recordContextRequest(sessionId, cwd0, { ts: 2, composition: classifyRequestMessages(after) }, undefined, after);
+
+		const state = getContextInsight(sessionId)!;
+		expect(state.requests.map((row) => row.epoch)).toEqual([0, 1]);
+		const compact = state.events.find((event) => event.kind === "compact")!;
+		expect(compact.seq).toBe(2);
+		expect(compact.delta).toBe(state.requests[1].totalTokens - state.requests[0].totalTokens);
+		expect(compact.delta).toBeLessThan(0);
+		// 压缩前的步骤仍能下钻；与上一步跨纪元不给基线
+		expect(
+			contextDetailOf(state, 1).categories.find((category) => category.key === "toolResult")!.items,
+		).toHaveLength(1);
+		expect(contextDetailOf(state, 2).baseline).toBeUndefined();
+		dropContextInsight(sessionId);
+	});
+
+	it("流式增量拆分耗时，工具执行累计时长并记文件活动", () => {
+		const sessionId = "test-session-timing";
+		dropContextInsight(sessionId);
+		recordContextAgent(sessionId, cwd0, "start", 1000);
+		recordContextRequest(sessionId, cwd0, { ts: 1000, composition: emptyComposition() });
+		recordContextStream(sessionId, "thinking", 1300);
+		recordContextStream(sessionId, "thinking", 1500);
+		recordContextStream(sessionId, "toolArgs", 1600);
+		recordContextResponse(sessionId, call as any, 1700);
+		recordContextToolStart(sessionId, "c1", "read", { path: "a.png" }, 1700);
+		recordContextToolEnd(sessionId, "c1", "read", false, 1900);
+		recordContextAgent(sessionId, cwd0, "end", 2000);
+
+		const state = getContextInsight(sessionId)!;
+		expect(state.requests[0].timing).toEqual({ ttft: 300, thinking: 200, answer: 0, toolArgs: 100, model: 700 });
+		expect(state.requests[0].toolCalls).toBe(1);
+		expect(state.timing).toEqual({ activeMs: 1000, toolRuns: 1, toolMs: 200 });
+		expect(state.files).toEqual([expect.objectContaining({ path: "a.png", kind: "image", seq: 1, callId: "c1" })]);
+		dropContextInsight(sessionId);
+	});
+
+	it("模型切换记一条事件", () => {
+		const sessionId = "test-session-model";
+		dropContextInsight(sessionId);
+		recordContextRequest(sessionId, cwd0, {
+			ts: 1,
+			model: { provider: "p", id: "a" },
+			composition: emptyComposition(),
+		});
+		recordContextRequest(sessionId, cwd0, {
+			ts: 2,
+			model: { provider: "p", id: "b" },
+			composition: emptyComposition(),
+		});
+		expect(getContextInsight(sessionId)!.events).toEqual([
+			expect.objectContaining({ kind: "model", label: "模型切换：a → b", seq: 2 }),
+		]);
+		dropContextInsight(sessionId);
 	});
 });

@@ -1,132 +1,197 @@
 /**
- * 上下文视图 —— 当前会话每次 LLM 请求的上下文构成与趋势，占据主对话区
+ * 上下文视图 —— 当前会话的上下文仪表盘，占据主对话区
  * （顶栏「对话/上下文」tab 切换，见 App.tsx 的 conversationView）。
- * 数据由插件 owl-context（settings plugins）在请求组装点现采，经桥
- * context.get（core/context-insight 注册表）供数；这里 2s 轮询保活。
- * 对照 dsh-context 的会话内视图：当前构成堆叠条、每请求趋势（压缩分界线）、
- * 事件流、声明工具的来源分组。
+ * 数据由插件 owl-context 在请求组装点与流式事件上现采，经桥 context.get /
+ * context.detail / context.item（core/context-insight 注册表）供数；这里 2s 轮询保活。
+ * 版式与交互对齐 dsh-context 的会话内 Context 标签页：上下文统计、会话信息、
+ * Token / 耗时统计、当前上下文、上下文趋势、上下文浏览器、上下文事件、文件活动。
  */
-import { useEffect, useMemo, useState } from "react";
+import "./context/context-view.css";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../bridge/protocol.ts";
-
-const CATEGORIES = [
-	{ key: "system", label: "系统提示", color: "#4d9fd8" },
-	{ key: "inject", label: "注入内容", color: "#c77dff" },
-	{ key: "user", label: "用户", color: "#e0a33e" },
-	{ key: "assistant", label: "回复", color: "#41c463" },
-	{ key: "toolResult", label: "工具结果", color: "#f0883e" },
-	{ key: "toolSchemas", label: "工具 Schema", color: "#5cc8d7" },
-	{ key: "other", label: "其他", color: "#8b949e" },
-] as const;
-
-type CategoryKey = (typeof CATEGORIES)[number]["key"];
-type Composition = Record<CategoryKey, number>;
-
-interface InsightData {
-	sessionId?: string;
-	requests: ContextRequestRow[];
-	events: ContextEventRow[];
-	tools: ContextToolRef[];
-	/** 本数据是按会话转录重建的（历史会话兜底），不是插件现采。 */
-	reconstructed?: boolean;
-}
-
-const EMPTY: InsightData = { requests: [], events: [], tools: [] };
-
-function fmtTokens(n: number | undefined): string {
-	if (n === undefined) return "—";
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-	if (n >= 1000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
-	return String(n);
-}
-
-function fmtTime(ts: number): string {
-	const date = new Date(ts);
-	const pad = (value: number): string => String(value).padStart(2, "0");
-	return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-function compositionOf(row: ContextRequestRow): Composition {
-	return {
-		system: row.composition.system ?? 0,
-		inject: row.composition.inject ?? 0,
-		user: row.composition.user ?? 0,
-		assistant: row.composition.assistant ?? 0,
-		toolResult: row.composition.toolResult ?? 0,
-		toolSchemas: row.composition.toolSchemas ?? 0,
-		other: row.composition.other ?? 0,
-	};
-}
+import type { ContextEventRow, ContextFileOp, ContextRequestRow } from "../bridge/protocol.ts";
+import { EventsCard, FilesCard } from "./context/ContextActivity.tsx";
+import { type BrowserFocus, BrowserCard } from "./context/ContextBrowser.tsx";
+import { DonutCard, Legend, StackedBar } from "./context/ContextCharts.tsx";
+import { type Granularity, type LocateTarget, TrendCard, type TrendMode } from "./context/ContextTrend.tsx";
+import {
+	anchorParts,
+	compositionParts,
+	EMPTY_INSIGHT,
+	fmtCost,
+	fmtDuration,
+	fmtPct1,
+	fmtTime,
+	fmtTokens,
+	type InsightData,
+	measuredOf,
+	promptTokensOf,
+	sessionStatsOf,
+	stepsByTurn,
+	stepTitle,
+	timingStatsOf,
+} from "./context/context-model.ts";
 
 export function ContextRequestUsage({ usage }: { usage: NonNullable<ContextRequestRow["usage"]> }): React.JSX.Element {
 	const totalInput = usage.input + usage.cacheRead + usage.cacheWrite;
 	return (
-		<span className="ml-auto text-xs text-owl-faint">
+		<span className="ctx-usage-line">
 			本次输入 {fmtTokens(totalInput)}（含缓存；未缓存 {fmtTokens(usage.input)} · 缓存读 {fmtTokens(usage.cacheRead)} · 缓存写 {fmtTokens(usage.cacheWrite)}）· 本次输出 {fmtTokens(usage.output)}
 		</span>
 	);
 }
 
-/** 每请求趋势：堆叠柱 + 压缩分界线。宽度自适应（viewBox 拉伸，只用矩形）。 */
-function TrendChart({ requests, events }: { requests: ContextRequestRow[]; events: ContextEventRow[] }): React.JSX.Element {
-	const W = 600;
-	const H = 110;
-	const trend = useMemo(() => requests.slice(-48), [requests]);
-	const compacts = useMemo(() => events.filter((event) => event.kind === "compact"), [events]);
-	const max = Math.max(...trend.map((row) => row.totalTokens), 1);
-	const barW = W / Math.max(trend.length, 1);
+function StatsCard({ data }: { data: InsightData }): React.JSX.Element {
+	const stats = useMemo(() => sessionStatsOf(data.requests), [data.requests]);
+	const totals = useMemo(() => {
+		let input = 0;
+		let output = 0;
+		for (const row of data.requests) {
+			if (!row.usage) continue;
+			input += promptTokensOf(row.usage);
+			output += row.usage.output;
+		}
+		return { input, output };
+	}, [data.requests]);
+	const cells: Array<{ label: string; value: string; title?: string }> = [
+		{ label: "轮次", value: String(stats.turns), title: "用户发起的对话轮数" },
+		{ label: "步数", value: String(stats.steps), title: "模型请求次数（一轮内每次工具往返算一步）" },
+		{ label: "工具调用", value: String(stats.toolCalls) },
+		{ label: "回答", value: String(stats.answers), title: "含正文回复的步数" },
+		{ label: "缓存命中", value: stats.cacheHit !== undefined ? fmtPct1(stats.cacheHit) : "—", title: "缓存读 ÷ 计费输入（含缓存）" },
+		{ label: "费用", value: fmtCost(stats.cost), title: "provider 上报的累计费用" },
+	];
 	return (
-		<div>
-			<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-28 w-full" aria-hidden="true">
-				{trend.map((row, index) => {
-					const composition = compositionOf(row);
-					let y = H;
-					const x = index * barW;
-					const width = Math.max(barW - (barW > 4 ? 1 : 0.2), 0.5);
-					return (
-						<g key={row.seq}>
-							{CATEGORIES.map((category) => {
-								const height = (composition[category.key] / max) * H;
-								if (height <= 0) return null;
-								y -= height;
-								return <rect key={category.key} x={x} y={y} width={width} height={height} fill={category.color} />;
-							})}
-							<rect x={x} y={0} width={width} height={H} fill="transparent" className="cursor-help">
-								<title>{`#${row.seq} · ${fmtTime(row.ts)}\n估算 ${fmtTokens(row.totalTokens)} tok${
-									row.usage
-										? `\n实测 ${fmtTokens(
-												row.usage.totalTokens ||
-													row.usage.input + row.usage.output + row.usage.cacheRead + row.usage.cacheWrite,
-											)} tok（输入含缓存 ${fmtTokens(row.usage.input + row.usage.cacheRead + row.usage.cacheWrite)} · 输出 ${fmtTokens(row.usage.output)}）`
-										: ""
-								}`}</title>
-							</rect>
-						</g>
-					);
-				})}
-				{compacts.map((event) => {
-					const index = trend.findIndex((row) => row.ts >= event.ts);
-					if (index < 0) return null;
-					return (
-						<line
-							key={event.ts}
-							x1={index * barW + barW / 2}
-							x2={index * barW + barW / 2}
-							y1={0}
-							y2={H}
-							stroke="#e5534b"
-							strokeWidth={1.4}
-							strokeDasharray="4 3"
-						/>
-					);
-				})}
-			</svg>
-			{compacts.length > 0 && (
-				<p className="mt-1 text-[10px] text-owl-faint">
-					<span className="mr-1 inline-block h-2 w-3 border-t-2 border-dashed border-[#e5534b] align-middle" />
-					压缩分界（{compacts.length} 次）
-				</p>
+		<div className="ctx-card ctx-col">
+			<div className="ctx-card-title">
+				<span className="ctx-card-title-text">上下文统计</span>
+			</div>
+			<div className="ctx-stats">
+				{cells.map((cell) => (
+					<div key={cell.label} className="ctx-stat" title={cell.title}>
+						<b>{cell.value}</b>
+						<span>{cell.label}</span>
+					</div>
+				))}
+			</div>
+			<div className="ctx-io">
+				<span className="ctx-io-pill" title="各步计费输入之和（未缓存 + 缓存读 + 缓存写）">
+					<i className="ctx-io-in" />
+					输入 {fmtTokens(totals.input)}
+				</span>
+				<span className="ctx-io-pill" title="各步输出之和（含思考）">
+					<i className="ctx-io-out" />
+					输出 {fmtTokens(totals.output)}
+				</span>
+			</div>
+		</div>
+	);
+}
+
+function SessionCard({ data, latest }: { data: InsightData; latest: ContextRequestRow }): React.JSX.Element {
+	const toolGroups = useMemo(() => {
+		const groups = new Map<string, string[]>();
+		for (const tool of data.tools) {
+			const names = groups.get(tool.source) ?? [];
+			names.push(tool.name);
+			groups.set(tool.source, names);
+		}
+		return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+	}, [data.tools]);
+	return (
+		<div className="ctx-card ctx-col">
+			<div className="ctx-card-title">
+				<span className="ctx-card-title-text">会话信息</span>
+				<span className={`ctx-src${data.reconstructed ? "" : " ctx-src-live"}`}>
+					{data.reconstructed ? "历史重建" : "实采"}
+				</span>
+			</div>
+			<dl className="ctx-info">
+				<dt>模型</dt>
+				<dd title={latest.model ? `${latest.model.provider}/${latest.model.id}` : undefined}>
+					{latest.model ? `${latest.model.provider} / ${latest.model.id}` : "—"}
+				</dd>
+				<dt>上下文窗口</dt>
+				<dd>{latest.contextWindow ? `${fmtTokens(latest.contextWindow)} tokens` : "—"}</dd>
+				<dt>会话</dt>
+				<dd className="ctx-mono" title={data.sessionId}>
+					{data.sessionId ? data.sessionId.slice(0, 8) : "未关联会话"}
+				</dd>
+				<dt>最近请求</dt>
+				<dd>
+					#{latest.seq} · {fmtTime(latest.ts)}
+				</dd>
+				{latest.usage && (
+					<>
+						<dt>本步用量</dt>
+						<dd>
+							<ContextRequestUsage usage={latest.usage} />
+						</dd>
+					</>
+				)}
+				{toolGroups.length > 0 && (
+					<>
+						<dt>声明工具</dt>
+						<dd className="ctx-tool-groups">
+							{toolGroups.map(([source, names]) => (
+								<span key={source} className="ctx-tool-group" title={names.join("\n")}>
+									{source} · {names.length}
+								</span>
+							))}
+						</dd>
+					</>
+				)}
+			</dl>
+			{data.reconstructed && (
+				<p className="ctx-note">本进程还没有该会话的实采数据：按会话转录回放估算，没有耗时数据。</p>
+			)}
+		</div>
+	);
+}
+
+function CurrentCard({
+	row,
+	pinned,
+	stepsInTurn,
+	hoverCat,
+	onHoverCat,
+}: {
+	row: ContextRequestRow;
+	pinned: boolean;
+	stepsInTurn: number;
+	hoverCat: string | null;
+	onHoverCat: (key: string | null) => void;
+}): React.JSX.Element {
+	const measured = row.usage ? measuredOf(row.usage) : undefined;
+	const headline = measured ?? row.totalTokens;
+	const capacity = row.contextWindow;
+	const parts = useMemo(() => anchorParts(compositionParts(row), measured), [row, measured]);
+	return (
+		<div className="ctx-card">
+			<div className="ctx-card-title">
+				<span className="ctx-card-title-text">当前上下文</span>
+				<span className="ctx-card-sub">{pinned ? stepTitle(row, stepsInTurn) : "最新一步"}</span>
+				{row.model && <span className="ctx-card-sub ctx-card-right">{row.model.id}</span>}
+			</div>
+			<div className="ctx-headline">
+				<b>{fmtTokens(headline)}</b>
+				{capacity ? <span className="ctx-headline-cap">/ {fmtTokens(capacity)} tokens</span> : <span className="ctx-headline-cap">tokens</span>}
+				<span
+					className={`ctx-tag${measured !== undefined ? " ctx-tag-live" : ""}`}
+					title={measured !== undefined ? "provider 返回的本步输入、输出及缓存 token 总量" : "chars/4 估算，响应回来后改用 provider 用量"}
+				>
+					{measured !== undefined ? "实测" : "估算"}
+				</span>
+				{capacity ? (
+					<span className="ctx-headline-pct">
+						<b>{fmtPct1(headline / capacity)}</b> 上下文已用
+					</span>
+				) : null}
+			</div>
+			<StackedBar parts={parts} capacity={capacity} height={14} hoverKey={hoverCat} onHoverKey={onHoverCat} />
+			<Legend parts={parts} total={headline} hoverKey={hoverCat} onHoverKey={onHoverCat} />
+			{measured !== undefined && Math.abs(measured - row.totalTokens) > 500 && (
+				<p className="ctx-note">构成按估算比例摊到实测总量；估算原值 ≈{fmtTokens(row.totalTokens)}（中文、JSON 与分词会带来误差）。</p>
 			)}
 		</div>
 	);
@@ -140,12 +205,23 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 	requireSession?: boolean;
 	active?: boolean;
 }): React.JSX.Element {
-	const [data, setData] = useState<InsightData>(EMPTY);
+	const [data, setData] = useState<InsightData>(EMPTY_INSIGHT);
 	const [error, setError] = useState<string | undefined>(undefined);
+	const lastJson = useRef("");
+	const [granularity, setGranularity] = useState<Granularity>("step");
+	const [mode, setMode] = useState<TrendMode>("total");
+	const [durationCurve, setDurationCurve] = useState(false);
+	const [hoveredSeq, setHoveredSeq] = useState<number | null>(null);
+	const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
+	const [hoverCat, setHoverCat] = useState<string | null>(null);
+	const [focus, setFocus] = useState<BrowserFocus | null>(null);
+	const [tokenHover, setTokenHover] = useState<string | null>(null);
+	const [timeHover, setTimeHover] = useState<string | null>(null);
 
 	useEffect(() => {
-		setData(EMPTY);
+		setData(EMPTY_INSIGHT);
 		setError(undefined);
+		lastJson.current = "";
 		if (!active || (requireSession && !sessionId)) return;
 		let alive = true;
 		const fetchOnce = async (): Promise<void> => {
@@ -153,7 +229,11 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 				const response = await client.request<InsightData>({ type: "context.get", cwd, ...(sessionId ? { sessionId } : {}) });
 				if (!alive) return;
 				if (response.ok && response.result) {
-					setData(response.result);
+					const json = JSON.stringify(response.result);
+					if (json !== lastJson.current) {
+						lastJson.current = json;
+						setData({ ...EMPTY_INSIGHT, ...response.result });
+					}
 					setError(undefined);
 				} else {
 					setError(response.error ?? "context.get 失败");
@@ -170,168 +250,155 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 		};
 	}, [client, cwd, sessionId, requireSession, active]);
 
+	const locate = useCallback((target: LocateTarget) => {
+		setFocus((current) => ({ ...target, nonce: (current?.nonce ?? 0) + 1 }));
+	}, []);
+	const focusEvent = useCallback(
+		(event: ContextEventRow) => locate({ seq: event.seq, cat: event.itemKey ? "inject" : "toolSchemas", key: event.itemKey }),
+		[locate],
+	);
+	const locateFileOp = useCallback(
+		(op: ContextFileOp) => {
+			// 工具结果出现在调用之后的那一步请求里；还没有下一步时在「当前」里
+			const next = data.requests.find((row) => row.seq > op.seq);
+			locate({ seq: next?.seq, cat: "toolResult", callId: op.callId });
+		},
+		[data.requests, locate],
+	);
+
+	const turnSteps = useMemo(() => stepsByTurn(data.requests), [data.requests]);
+	const stats = useMemo(() => sessionStatsOf(data.requests), [data.requests]);
+	const timing = timingStatsOf(data.requests, data.timing, Date.now());
 	const latest = data.requests[data.requests.length - 1];
-	const composition = latest ? compositionOf(latest) : undefined;
-	const total = latest?.totalTokens ?? 0;
-	// 双口径：实测（provider 计费，与输入栏状态一致）优先；估算（chars/4，对中文
-	// 明显偏低）只做构成占比参考。实测要等响应回来才有——之前只显示估算。
-	const measured = latest?.usage
-		? latest.usage.totalTokens ||
-			latest.usage.input + latest.usage.output + latest.usage.cacheRead + latest.usage.cacheWrite
-		: undefined;
-	const headline = measured ?? total;
-	const percent = latest?.contextWindow ? (headline / latest.contextWindow) * 100 : undefined;
-	const usage = latest?.usage;
-	const toolGroups = useMemo(() => {
-		const groups = new Map<string, string[]>();
-		for (const tool of data.tools) {
-			const names = groups.get(tool.source) ?? [];
-			names.push(tool.name);
-			groups.set(tool.source, names);
-		}
-		return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
-	}, [data.tools]);
+	const selectedRow = selectedSeq !== null ? data.requests.find((row) => row.seq === selectedSeq) : undefined;
 
 	if (!latest) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-y-auto text-center">
-				<span className="text-4xl opacity-40">🫧</span>
-				<p className="text-sm text-owl-faint">
+			<div className="ctx-root ctx-empty-state">
+				<span className="ctx-empty-icon">🫧</span>
+				<p>
 					当前会话还没有上下文记录。
 					<br />
-					发一条消息后，这里会展示每次请求的构成与趋势。
+					发一条消息后，这里会展示每一步请求的构成、趋势、事件与文件活动。
 				</p>
-				{error && <p className="max-w-md text-[11px] text-red-400">{error}</p>}
+				{error && <p className="ctx-error">{error}</p>}
 			</div>
 		);
 	}
 
+	const currentRow = selectedRow ?? latest;
+
 	return (
-		<div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-			{error && <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}</p>}
+		<div className="ctx-root">
+			{error && <p className="ctx-error ctx-error-bar">{error}</p>}
 
-			{/* 总览条 */}
-			<div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-				<span className="text-2xl font-semibold text-owl-text">
-					<span className="mr-2 text-xs font-normal text-owl-faint">本次合计</span>
-					{fmtTokens(headline)}
-					<span className="ml-1 text-xs font-normal text-owl-faint">tok</span>
-					<span
-						className={`ml-1.5 rounded px-1 py-0.5 align-middle text-[10px] font-normal ${
-							measured !== undefined ? "bg-emerald-500/15 text-emerald-400" : "bg-owl-hover text-owl-faint"
-						}`}
-						title={measured !== undefined ? "本次模型调用返回的输入、输出及缓存 token 总量；不是整轮多次调用的累计用量" : "chars/4 估算，等响应回来后显示上游用量"}
-					>
-						{measured !== undefined ? "实测" : "估算"}
-					</span>
-				</span>
-				{measured !== undefined && Math.abs(measured - total) > 500 && (
-					<span className="text-xs text-owl-faint" title="按字符数估算，中文、JSON 和模型分词会影响误差；包含 transcript 中的完整工具声明，不能视为精确计费分摊">
-						估算构成 {fmtTokens(total)}
-					</span>
-				)}
-				{latest.contextWindow && (
-					<span className="text-xs text-owl-faint">
-						上下文窗口 {fmtTokens(latest.contextWindow)} · 本次输入及输出占 {percent?.toFixed(1)}%
-					</span>
-				)}
-				{latest.model && (
-					<span className="text-xs text-owl-faint" title={`${latest.model.provider}/${latest.model.id}`}>
-						{latest.model.id}
-					</span>
-				)}
-				<span className="text-xs text-owl-faint">
-					#{latest.seq} · {fmtTime(latest.ts)}
-				</span>
-				{data.reconstructed && (
-					<span
-						className="rounded bg-owl-hover px-1 py-0.5 align-middle text-[10px] text-owl-faint"
-						title="本进程还没有该会话的实采数据：按会话转录回放估算，包含转录中已保存的工具声明；旧记录未保存声明时无法补算"
-					>
-						历史重建
-					</span>
-				)}
-				{usage && <ContextRequestUsage usage={usage} />}
+			<div className="ctx-cols ctx-head">
+				<StatsCard data={data} />
+				<SessionCard data={data} latest={latest} />
 			</div>
 
-			{/* 当前构成：堆叠条 + 图例（估算口径） */}
-			<section className="mt-4">
-				<p className="mb-2 text-[11px] text-owl-faint">以下为请求构成估算；缓存命中的内容仍占上下文窗口。</p>
-				<div className="flex h-3.5 w-full overflow-hidden rounded-full bg-owl-hover">
-					{CATEGORIES.map((category) => {
-						const tokens = composition?.[category.key] ?? 0;
-						if (tokens <= 0) return null;
-						return (
-							<div
-								key={category.key}
-								className="h-full"
-								style={{ width: `${(tokens / total) * 100}%`, backgroundColor: category.color }}
-								title={`${category.label} ${fmtTokens(tokens)}（${((tokens / total) * 100).toFixed(1)}%）`}
-							/>
-						);
-					})}
-				</div>
-				<div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
-					{CATEGORIES.map((category) => (
-						<div key={category.key} className="flex items-center gap-2 text-xs">
-							<span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: category.color }} />
-							<span className="text-owl-muted">{category.label}</span>
-							<span className="ml-auto font-mono text-owl-text">{fmtTokens(composition?.[category.key])}</span>
-						</div>
-					))}
-				</div>
-			</section>
-
-			{/* 趋势 + 事件 双列 */}
-			<div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-				{data.requests.length > 1 && (
-					<section>
-						<h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-owl-faint">
-							趋势 · 最近 {Math.min(data.requests.length, 48)} 次请求
-						</h3>
-						<TrendChart requests={data.requests} events={data.events} />
-					</section>
-				)}
-				{data.events.length > 0 && (
-					<section>
-						<h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-owl-faint">上下文事件</h3>
-						<ol className="space-y-1">
-							{[...data.events]
-								.reverse()
-								.slice(0, 14)
-								.map((event) => (
-									<li key={event.ts} className="flex items-center gap-2 text-xs">
-										<span className="font-mono text-owl-faint">{fmtTime(event.ts)}</span>
-										<span className={event.kind === "compact" ? "text-[#e5534b]" : "text-owl-muted"}>{event.label}</span>
-									</li>
-								))}
-						</ol>
-					</section>
-				)}
-			</div>
-
-			{/* 声明的工具（来源分组） */}
-			{toolGroups.length > 0 && (
-				<section className="mt-6">
-					<h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-owl-faint">声明工具 · {data.tools.length} 个</h3>
-					<div className="flex flex-wrap gap-1.5">
-						{toolGroups.map(([source, names]) => (
-							<span
-								key={source}
-								className="rounded-full border border-owl-border/40 bg-owl-panel/60 px-2.5 py-1 text-[11px] text-owl-muted"
-								title={names.join("\n")}
-							>
-								{source} · {names.length}
-							</span>
-						))}
+			<div className="ctx-cols">
+				<div className="ctx-card ctx-col">
+					<div className="ctx-card-title">
+						<span className="ctx-card-title-text">Token 统计</span>
+						{stats.cost !== undefined && <span className="ctx-card-sub ctx-card-right">费用 {fmtCost(stats.cost)}</span>}
 					</div>
-				</section>
-			)}
+					{stats.billedTotal > 0 ? (
+						<DonutCard
+							parts={stats.billed}
+							center={fmtTokens(stats.billedTotal)}
+							caption="总用量"
+							hoverKey={tokenHover}
+							onHoverKey={setTokenHover}
+						/>
+					) : (
+						<div className="ctx-lane">
+							<span className="ctx-empty">尚无 provider 上报的用量</span>
+						</div>
+					)}
+				</div>
+				<div className="ctx-card ctx-col">
+					<div className="ctx-card-title">
+						<span className="ctx-card-title-text">耗时统计</span>
+						{timing?.tps !== undefined && (
+							<span className="ctx-card-sub ctx-card-right" title="输出 token ÷ 生成耗时（思考 + 回复 + 工具参数）">
+								输出 {timing.tps.toFixed(1)} tok/s
+							</span>
+						)}
+					</div>
+					{timing ? (
+						<DonutCard
+							parts={timing.parts}
+							center={fmtDuration(timing.active)}
+							caption="活跃时长"
+							hoverKey={timeHover}
+							onHoverKey={setTimeHover}
+						/>
+					) : (
+						<div className="ctx-lane">
+							<span className="ctx-empty">{data.reconstructed ? "历史重建的会话没有耗时数据" : "尚无耗时数据"}</span>
+						</div>
+					)}
+				</div>
+			</div>
 
-			{/* 底部状态 */}
-			<div className="mt-6 flex items-center gap-1.5 text-[10px] text-owl-faint">
-				<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-accent" />
-				2s 轮询 · {data.requests.length} 条请求记录 · {data.sessionId ? `会话 ${data.sessionId.slice(0, 8)}` : "未关联会话"}
+			<div className="ctx-cols ctx-cols-main">
+				<div className="ctx-col ctx-stack">
+					<CurrentCard
+						row={currentRow}
+						pinned={selectedRow !== undefined}
+						stepsInTurn={turnSteps.get(currentRow.turn) ?? 1}
+						hoverCat={hoverCat}
+						onHoverCat={setHoverCat}
+					/>
+					<TrendCard
+						requests={data.requests}
+						events={data.events}
+						granularity={granularity}
+						onGranularity={setGranularity}
+						mode={mode}
+						onMode={setMode}
+						durationCurve={durationCurve}
+						onDurationCurve={setDurationCurve}
+						selectedSeq={selectedSeq}
+						onSelect={setSelectedSeq}
+						hoveredSeq={hoveredSeq}
+						onHover={setHoveredSeq}
+						hoverCat={hoverCat}
+						onHoverCat={setHoverCat}
+						onLocate={locate}
+					/>
+				</div>
+				<div className="ctx-col">
+					<BrowserCard
+						client={client}
+						cwd={cwd}
+						sessionId={sessionId}
+						requests={data.requests}
+						liveVersion={data.liveVersion}
+						previewSeq={hoveredSeq}
+						pinSeq={selectedSeq}
+						hoverCat={hoverCat}
+						onHoverCat={setHoverCat}
+						focus={focus}
+					/>
+				</div>
+			</div>
+
+			<div className="ctx-cols">
+				<EventsCard events={data.events} onFocusEvent={focusEvent} />
+				<FilesCard
+					files={data.files}
+					cwd={cwd}
+					upTo={selectedRow?.seq}
+					scope={selectedRow ? `截至 ${stepTitle(selectedRow, turnSteps.get(selectedRow.turn) ?? 1)}` : "截至最新 · 跟随趋势图的选择"}
+					onLocate={locateFileOp}
+				/>
+			</div>
+
+			<div className="ctx-footer">
+				<span className="ctx-pulse" />
+				2s 轮询 · {data.requests.length} 步请求记录 · 「≈」为 chars/4 估算，「实际/实测」为 provider 上报用量；缓存命中的内容仍占上下文窗口
 			</div>
 		</div>
 	);
