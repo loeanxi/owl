@@ -21,26 +21,45 @@ import { inspectNativeDecompilerAvailability, runNativeDecompiler } from "./nati
 import type { ResearchResult, ResearchResultInput } from "./types.ts";
 
 export const RESEARCH_DECOMPILE_TOOL = "research_decompile";
-export const researchDecompileSchema = Type.Object(
+const decompilePath = Type.String({
+	minLength: 1,
+	maxLength: 4096,
+	description: "用户明确选中的本地 EXE、DLL、ASAR、JSC/CJSC 或 JavaScript 文件。",
+});
+const decompileTimeout = Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 }));
+const decompileAction = Type.Optional(Type.Literal("decompile"));
+const decompileNativeSchema = Type.Object(
 	{
-		action: Type.Optional(Type.Union([Type.Literal("inventory"), Type.Literal("decompile")])),
-		path: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
-		engine: Type.Optional(
-			Type.Union([
-				Type.Literal("auto"),
-				Type.Literal("bytecode"),
-				Type.Literal("javascript"),
-				Type.Literal("native"),
-			]),
-		),
+		action: decompileAction,
+		path: decompilePath,
+		engine: Type.Literal("native"),
+		timeoutMs: decompileTimeout,
+	},
+	{ additionalProperties: false, description: "原生 PE 静态反编译；不接受 names。" },
+);
+const decompileResourceSchema = Type.Object(
+	{
+		action: decompileAction,
+		path: decompilePath,
+		engine: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("bytecode"), Type.Literal("javascript")])),
 		/** For an application, explicit names are relative to resources/app or its ASAR root. */
 		names: Type.Optional(
-			Type.Array(Type.String({ minLength: 1, maxLength: 1024 }), { minItems: 1, maxItems: 16, uniqueItems: true }),
+			Type.Array(Type.String({ minLength: 1, maxLength: 1024 }), {
+				minItems: 1,
+				maxItems: 16,
+				uniqueItems: true,
+				description: "仅限 Electron 资源容器内已观察到的 JS/JSC 条目；原生 engine 不接受此字段。",
+			}),
 		),
-		timeoutMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
+		timeoutMs: decompileTimeout,
 	},
-	{ additionalProperties: false },
+	{ additionalProperties: false, description: "Electron、JavaScript 或字节码静态恢复。" },
 );
+const inventorySchema = Type.Object(
+	{ action: Type.Literal("inventory") },
+	{ additionalProperties: false, description: "只检查可用工具链，不接受目标文件或分析参数。" },
+);
+export const researchDecompileSchema = Type.Union([inventorySchema, decompileNativeSchema, decompileResourceSchema]);
 
 export interface ResearchDecompileReport {
 	createdAt: string;
@@ -89,10 +108,19 @@ export async function runResearchDecompile(
 	workspace: string,
 	signal?: AbortSignal,
 ): Promise<ResearchDecompileReport> {
-	if (!Value.Check(researchDecompileSchema, value)) throw new Error("反编译参数无效");
+	if (!Value.Check(researchDecompileSchema, value)) {
+		const candidate =
+			value !== null && typeof value === "object" && !Array.isArray(value)
+				? (value as Record<string, unknown>)
+				: undefined;
+		if (candidate?.engine === "native" && Object.hasOwn(candidate, "names"))
+			throw new Error("native 不接受 names；请移除 names 后重试");
+		throw new Error("反编译参数无效");
+	}
 	const input = value as Static<typeof researchDecompileSchema>;
 	if (input.action === "inventory") throw new Error("inventory 不进行反编译");
 	if (!input.path) throw new Error("反编译需要用户明确选中的本地路径");
+	const names = "names" in input ? input.names : undefined;
 	signal?.throwIfAborted();
 	const path = await selectedFile(input.path, workspace);
 	const extension = extname(path).toLowerCase();
@@ -109,7 +137,7 @@ export async function runResearchDecompile(
 	};
 	if ([".jsc", ".cjsc"].includes(extension)) {
 		if (requested !== "auto" && requested !== "bytecode") throw new Error("JSC 输入应选择 bytecode 或 auto");
-		if (input.names) throw new Error("单个 JSC 输入不接受额外 names");
+		if (names) throw new Error("单个 JSC 输入不接受额外 names");
 		report.method = "bytecode";
 		report.bytecode.push(
 			await runBytecodeDecompiler(
@@ -122,7 +150,7 @@ export async function runResearchDecompile(
 	if ([".js", ".cjs", ".mjs"].includes(extension)) {
 		if (requested !== "auto" && requested !== "javascript")
 			throw new Error("JavaScript 输入应选择 javascript 或 auto");
-		if (input.names) throw new Error("单个 JavaScript 输入不接受额外 names");
+		if (names) throw new Error("单个 JavaScript 输入不接受额外 names");
 		report.method = "javascript";
 		report.javascript = await recoverJavascriptSources(
 			{ inputRoot: dirname(path), outputCwd: workspace, names: [basename(path)] },
@@ -139,7 +167,7 @@ export async function runResearchDecompile(
 		if (requested !== "auto" && requested !== "native")
 			throw new Error("未发现该应用的 Electron 资源；不能凭路径编造字节码或 JavaScript");
 		if (extension === ".asar") throw new Error("ASAR 是资源容器，不能当原生 PE 反编译");
-		if (input.names) throw new Error("native 不接受 names");
+		if (names) throw new Error("native 不接受 names");
 		report.native = await runNativeDecompiler(
 			{ cwd: dirname(path), path, outputCwd: workspace, timeoutMs: input.timeoutMs, maxFunctions: 100 },
 			signal,
@@ -176,13 +204,13 @@ export async function runResearchDecompile(
 				.map((entry) => entry.path),
 		]),
 	].filter((name) => /\.(?:js|cjs|mjs)$/i.test(name));
-	if (input.names) {
-		for (const name of input.names)
+	if (names) {
+		for (const name of names)
 			if (!app.entries.some((entry) => entry.type === "file" && entry.path === name))
 				throw new Error("names 包含未观察到的普通资源文件");
-		bytecodeNames = input.names.filter((name) => /\.(?:jsc|cjsc)$/i.test(name));
-		jsNames = input.names.filter((name) => /\.(?:js|cjs|mjs)$/i.test(name));
-		if (bytecodeNames.length + jsNames.length !== input.names.length)
+		bytecodeNames = names.filter((name) => /\.(?:jsc|cjsc)$/i.test(name));
+		jsNames = names.filter((name) => /\.(?:js|cjs|mjs)$/i.test(name));
+		if (bytecodeNames.length + jsNames.length !== names.length)
 			throw new Error("names 仅支持字节码或 JavaScript 条目");
 	}
 	if (requested === "javascript") bytecodeNames = [];
@@ -364,7 +392,7 @@ export function createResearchDecompileTool(): ToolDefinition<typeof researchDec
 		name: RESEARCH_DECOMPILE_TOOL,
 		label: "字节码反编译 / 代码恢复",
 		description:
-			"对用户选中的程序执行实际静态代码恢复。默认 action=decompile, engine=auto：Electron 资源按实际文件识别 JSC/CJSC 与 JS，可提取 ASAR 到新目录；匹配的 V8 12.6 工具反汇编并重建近似 JS；已有 JS 生成源码副本与可读稿；原生 PE 使用已配置 Ghidra。可给 names 限定资源内条目，timeoutMs 限制子进程。action=inventory 只探测工具链。不会运行 EXE、原加载器或重建代码；未知版本不改头硬解。",
+			"对用户选中的程序执行实际静态代码恢复。默认 action=decompile, engine=auto：Electron 资源按实际文件识别 JSC/CJSC 与 JS，可提取 ASAR 到新目录；匹配的 V8 12.6 工具反汇编并重建近似 JS；已有 JS 生成源码副本与可读稿；原生 PE 使用已配置 Ghidra。仅 Electron 资源分析可传 names；engine=native 时省略 names。timeoutMs 限制子进程。action=inventory 只探测工具链。不会运行 EXE、原加载器或重建代码；未知版本不改头硬解。",
 		promptSnippet: "research_decompile: 在 inspect 后继续实际反编译，输出可审阅源码、伪代码、指令与未恢复证据",
 		parameters: researchDecompileSchema,
 		annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

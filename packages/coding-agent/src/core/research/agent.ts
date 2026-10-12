@@ -97,9 +97,9 @@ export function researchAgentInstructions(prompt = defaultResearchPrompt()): str
 		"逆向与安全实验按具体目标开展：自有程序、授权审计、CTF 与防御样本分析可正常研究，不因逆向、对抗等关键词就拒绝。模型实验只使用人工可识别的合成秘密与模拟工具，不使用真实凭据或第三方私有材料，不构建用于放开有害行为的通用越狱器。研究标签不会改变上游模型规则或扩大文件、网络、工具权限。",
 		...Object.values(METHOD_GUIDANCE),
 		"EXE 静态检查允许读取明确选中的本地程序及其固定相邻应用资源，不运行目标；脱壳结果必须注明输入/输出哈希、使用的适配器及再解析结果。检测到高熵或节名只能说壳迹象，不能据此声称已脱壳。Electron 的业务脚本解析不等于完整恢复 Chromium 原生源码；入口转向 .jsc / 字节码时明确说明原生静态解析未恢复源码，不运行加载器来猜测结果。",
-		"research_rea 用于选中本地原生程序或已有 JavaScript 的静态函数、引用和调用链研究；先检查实际可用能力，按返回的函数继续分析，不启动调试器或运行目标。每个研究会话独立连接，恢复会话后重新打开明确选中的输入；不能把上次内存中的目标状态当作仍可用。代码恢复、Electron 资源提取和 V8 字节码处理继续使用 research_decompile。把已有源码规范化、字节码反汇编、近似 JavaScript、原生 C 伪代码分别说明；工具状态 completed 只表示有产物，不表示语义等价或所有代码已恢复。查看已验证产物中的函数、常量、调用线索来解释业务，未知 Scope、占位符和未支持指令保留原样并关联原始反汇编。对 pendingPaths 在原授权应用范围内分批继续。给用户可点击的绝对产物路径，不让用户自己配置专业参数；不执行重建文件做验证。",
+		"research_rea 用于选中本地原生程序或已有 JavaScript 的静态函数、引用和调用链研究；先检查实际可用能力，按返回的函数继续分析，不启动调试器或运行目标。每个研究会话独立连接，恢复会话后重新打开明确选中的输入；不能把上次内存中的目标状态当作仍可用。代码恢复、Electron 资源提取和 V8 字节码处理继续使用 research_decompile。大型 PE 的 native_overview/native_strings 可能触发整文件 Ghidra 分析，即使 limit 很小；若 research_executable inspect 已返回所需 PE/字符串线索，不要为相同信息重复扫描。收到 provider_timeout 后保留诊断，不要对同一大型目标重试另一个宽泛 Ghidra 操作；改用已保存证据或将问题缩小到一个已观察函数。不要手工拼 Ghidra .bat 启动命令或绕过研究包装器；原生分析只经已注册的研究工具执行。把已有源码规范化、字节码反汇编、近似 JavaScript、原生 C 伪代码分别说明；工具状态 completed 只表示有产物，不表示语义等价或所有代码已恢复。查看已验证产物中的函数、常量、调用线索来解释业务，未知 Scope、占位符和未支持指令保留原样并关联原始反汇编。对 pendingPaths 在原授权应用范围内分批继续。给用户可点击的绝对产物路径，不让用户自己配置专业参数；不执行重建文件做验证。",
 		"获得有用样本或结论后调用 research_publish，把表格、来源和发现交给界面；该工具仅整理已有材料，不会抓取页面、测试模型或独立验证事实。普通解释和追问直接在对话中回复，不强行发布空结果。",
-		"research_publish 的 mode 是实际使用的方法（crawl / web / binary / model / osint）；status 区分 sample、complete、partial。仅覆盖部分页面或实验时使用 partial，说明实际覆盖与缺口。专用工具已给出的结果卡直接沿用，不重复伪造一张成功卡。",
+		"research_publish 的 mode 是实际使用的方法（crawl / web / binary / model / osint）；status 区分 sample、complete、partial。只要用户要求的覆盖范围仍有 blockers 或未处理的关键步骤，就用 partial 并说明缺口；只有已完成请求范围时才用 complete。专用工具已给出的结果卡直接沿用，不重复伪造一张成功卡。",
 		"columns 与 rows 一一对应；每行包含全部 column.key，未知值为 null。sources 的 id 在当前结果内唯一，url 只填写实际观察到的 HTTP(S) 来源，本地文件 / 用户材料可省略 url 并在 title 或 note 说明。",
 		"findings.kind 使用 fact（来源明确的观察）、inference（基于来源的推测）、unverified（待验证）；fact 至少引用一个 sourceIds，所有 sourceIds 引用当前 sources.id。结构通过校验不代表事实已经独立验证。",
 		"网页抓取缓存、浏览器页面与网络日志可能过期或不会随会话恢复；在 sources.note 保留重要原文摘录、观察时间或真实实验记录。需要完整数据时可写入工作区报告 / CSV，核验文件存在后给出链接；不能把失效 responseId 当作永久证据。",
@@ -111,10 +111,21 @@ export function researchAgentInstructions(prompt = defaultResearchPrompt()): str
 const cellSchema = Type.Union([Type.String({ maxLength: 2000 }), Type.Number(), Type.Boolean(), Type.Null()]);
 const sourceSchema = Type.Object(
 	{
-		id: Type.String({ minLength: 1, maxLength: 100, pattern: "^[A-Za-z0-9_-]+$" }),
+		id: Type.String({
+			minLength: 1,
+			maxLength: 100,
+			pattern: "^[A-Za-z0-9_-]+$",
+			description: "当前结果内唯一的来源 ID，供 findings.sourceIds 引用。",
+		}),
 		title: Type.String({ minLength: 1, maxLength: 300 }),
-		url: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
-		note: Type.Optional(Type.String({ maxLength: 2000 })),
+		url: Type.Optional(
+			Type.String({
+				minLength: 1,
+				maxLength: 2048,
+				description: "只填不含用户名或密码的 HTTP(S) 网页 URL；本地文件或用户材料省略 url，改用 note。",
+			}),
+		),
+		note: Type.Optional(Type.String({ maxLength: 2000, description: "本地材料的路径、观察时间或具体证据位置。" })),
 	},
 	{ additionalProperties: false },
 );
@@ -138,9 +149,15 @@ export const researchResultSchema = Type.Object(
 				},
 				{ additionalProperties: false },
 			),
-			{ maxItems: 24 },
+			{ maxItems: 24, description: "每个 key 都必须在 rows 的每一行中出现一次。" },
 		),
-		rows: Type.Array(Type.Record(Type.String(), cellSchema, { maxProperties: 24 }), { maxItems: 200 }),
+		rows: Type.Array(
+			Type.Record(Type.String(), cellSchema, {
+				maxProperties: 24,
+				description: "每一行的 key 必须与 columns.key 完全相同；未知值使用 null，不要增加或遗漏字段。",
+			}),
+			{ maxItems: 200, description: "每行都必须包含 columns 中的全部字段，字段值可为 null。" },
+		),
 		sources: Type.Array(sourceSchema, { maxItems: 100 }),
 		findings: Type.Array(
 			Type.Object(
@@ -150,6 +167,7 @@ export const researchResultSchema = Type.Object(
 					sourceIds: Type.Array(Type.String({ minLength: 1, maxLength: 100 }), {
 						maxItems: 100,
 						uniqueItems: true,
+						description: "只能引用当前 sources 数组中已有的 id。fact 至少引用一个来源。",
 					}),
 				},
 				{ additionalProperties: false },
@@ -178,7 +196,13 @@ export function normalizeResearchResult(value: unknown): ResearchResultInput {
 	}
 	for (const row of input.rows) {
 		if (Object.keys(row).length !== keys.length || keys.some((key) => !Object.hasOwn(row, key))) {
-			throw new Error("研究结果每行必须与 columns 字段完全对应，未知值请填写 null");
+			const missing = keys.filter((key) => !Object.hasOwn(row, key));
+			const extra = Object.keys(row).filter((key) => !keys.includes(key));
+			const detail = [
+				...(missing.length ? [`缺少 ${missing.join(", ")}`] : []),
+				...(extra.length ? [`多余 ${extra.join(", ")}`] : []),
+			].join("；");
+			throw new Error(`研究结果每行必须与 columns 字段完全对应，未知值请填写 null${detail ? `：${detail}` : ""}`);
 		}
 		if (Object.values(row).some((cell) => typeof cell === "number" && !Number.isFinite(cell))) {
 			throw new Error("研究结果数字必须是有限值");
@@ -215,7 +239,7 @@ export function createResearchPublishTool(): ToolDefinition<typeof researchResul
 		name: RESEARCH_PUBLISH_TOOL,
 		label: "整理研究结果",
 		description:
-			"把已经获取的真实资料整理为研究结果卡。输入 title、summary、mode、status、columns、rows、sources、findings；空列表传 []。只做格式与引用校验，不执行采集或独立事实验证，不允许编造来源或把推测标为事实。",
+			"把已经获取的真实资料整理为研究结果卡。每行 rows 必须且只能包含 columns.key 的全部键；未知值传 null。sources.url 只接受不含凭据的 HTTP(S) 网页链接，本地文件来源省略 url 并填写 title/note。只做格式与引用校验，不执行采集或独立事实验证，不允许编造来源或把推测标为事实。",
 		promptSnippet: "research_publish: 展示已有研究样本、表格、来源与发现",
 		annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 		parameters: researchResultSchema,
