@@ -133,7 +133,9 @@ function writeStore(path: string, store: UsageStore): void {
 		if (disk?.version === 1 && typeof disk.files === "object" && disk.files !== null) {
 			for (const [key, record] of Object.entries(disk.files)) {
 				const mine = store.files[key];
-				if (!mine || record.mtime > mine.mtime) store.files[key] = record;
+				if (!mine || (record.mtime > mine.mtime && fileTotalTokens(record) >= fileTotalTokens(mine))) {
+					store.files[key] = record;
+				}
 			}
 		}
 		atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
@@ -406,9 +408,18 @@ async function listSessionFiles(sessionsDir: string): Promise<string[]> {
 	return files;
 }
 
+function fileTotalTokens(file: Pick<UsageStoreFile, "days">): number {
+	let total = 0;
+	for (const day of Object.values(file.days ?? {})) {
+		for (const bucket of Object.values(day?.models ?? {})) total += bucket?.total ?? 0;
+	}
+	return total;
+}
+
 /**
- * 增量刷新存储并返回它。mtime+size 都没变的文件直接复用记录；变了的整文件重扫替换；
- * 磁盘上已消失的文件记录原样保留（删除不回吐）。只有确实变了才落盘。
+ * 增量刷新存储并返回它。mtime+size 都没变的文件直接复用记录；变了的整文件重扫，token
+ * 总量不低于已存才替换（文件被改写变小时保留已存记录，只更新 mtime+size）；磁盘上已消失
+ * 的文件记录原样保留（删除不回吐）。只有确实变了才落盘。
  */
 async function refreshStore(dirs?: UsageDirs): Promise<UsageStore> {
 	const storePath = dirs?.storePath ?? usageStatsStorePath();
@@ -429,7 +440,8 @@ async function refreshStore(dirs?: UsageDirs): Promise<UsageStore> {
 		if (cached && cached.mtime === info.mtimeMs && cached.size === info.size) continue;
 		const scanned = await scanSessionFile(path);
 		if (!scanned) continue; // 读失败：保留旧记录，下轮重试
-		store.files[path] = { ...scanned, mtime: info.mtimeMs, size: info.size };
+		const kept = cached && fileTotalTokens(scanned) < fileTotalTokens(cached) ? cached : scanned;
+		store.files[path] = { ...kept, mtime: info.mtimeMs, size: info.size };
 		dirty = true;
 	}
 	if (dirty) writeStore(storePath, store);

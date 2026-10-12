@@ -44,8 +44,10 @@
  *
  * 二、只报状态（本地无用量明文或暂无法准确解析，绝不估算充数）：
  * - Gemini CLI：会话与日志记录均不含 token 用量字段（logs.json 已核验）；
- * - Cursor：官方用量只在服务端（IDE/CLI 各库已逐个核验无记录）。按 acp-sessions
- *   会话历史内容估算（每轮上下文重放），行内注明估算口径；
+ * - Cursor：官方用量只在服务端（IDE/CLI 各库已逐个核验无记录）。优先用本机 IDE
+ *   state.vscdb 里的登录令牌只读拉 cursor.com 官方用量事件（按账号、按天增量缓存，
+ *   换号后旧账号数据保留并累加）；未登录或
+ *   从未同步成功时，回退按 acp-sessions 会话历史内容估算（行内注明估算口径）；
  * - Antigravity：会话在 ~/.gemini/antigravity/conversations/*.db（SQLite），但内容是
  *   私有 protobuf 字节流，无明文用量；
  * - Trae：会话库（ModularData/ai-agent/database.db）为加密私有格式，无法解析；
@@ -116,6 +118,12 @@ export interface CareerDirs {
 	mimoDb?: string;
 	/** Cursor ACP 会话目录（默认 ~/.cursor/acp-sessions）。 */
 	cursorSessionsDir?: string;
+	/** Cursor IDE 状态库（默认按平台取 Cursor/User/globalStorage/state.vscdb），读登录令牌拉官方用量。 */
+	cursorStateDb?: string;
+	/** Cursor 官方用量接口的请求实现（测试注入；缺省全局 fetch）。 */
+	cursorFetch?: typeof fetch;
+	/** Cursor 官方用量两次同步的最小间隔（缺省 60s）。 */
+	cursorSyncIntervalMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +161,52 @@ interface CareerAggregateCache {
 	byModel: Record<string, CareerBucket>;
 }
 
+/** Cursor 官方用量的一天（本机时区）：每次同步整天替换，conversations 用于跨天去重计会话数。 */
+interface CursorCloudDay {
+	totals: CareerBucket;
+	/** 官方 totalCents 折算的美元（API 等价价，非订阅账单）。 */
+	cost: number;
+	models: Record<string, CareerBucket>;
+	conversations: string[];
+	firstMs: number;
+	lastMs: number;
+}
+
+/** Cursor 官方用量的增量缓存：已同步上界之前的天永久保留，之后的天每次重拉覆盖。 */
+interface CursorCloudCache {
+	/** 最近一次成功同步的时间（ISO）。 */
+	syncedAt: string;
+	/** 最近一次成功同步覆盖到的时间上界（ms）。 */
+	syncedUntilMs: number;
+	days: Record<string, CursorCloudDay>;
+}
+
+function isCursorCloudCache(value: unknown): value is CursorCloudCache {
+	const cache = value as CursorCloudCache | null | undefined;
+	return (
+		typeof cache === "object" &&
+		cache !== null &&
+		typeof cache.syncedAt === "string" &&
+		typeof cache.syncedUntilMs === "number" &&
+		typeof cache.days === "object" &&
+		cache.days !== null
+	);
+}
+
+/** 尚未归属账号的旧版单份缓存，首次同步时归到当时登录的账号。 */
+const CURSOR_LEGACY_ACCOUNT = "__legacy__";
+
+/** 落盘的 cursorCloud 规整为按账号（userId）分存；旧版单份缓存挂到 CURSOR_LEGACY_ACCOUNT，坏条目丢弃。 */
+function normalizeCursorCloud(value: unknown): Record<string, CursorCloudCache> | undefined {
+	if (isCursorCloudCache(value)) return { [CURSOR_LEGACY_ACCOUNT]: value };
+	if (typeof value !== "object" || value === null) return undefined;
+	const accounts: Record<string, CursorCloudCache> = {};
+	for (const [userId, cache] of Object.entries(value)) {
+		if (isCursorCloudCache(cache)) accounts[userId] = cache;
+	}
+	return Object.keys(accounts).length > 0 ? accounts : undefined;
+}
+
 interface CareerStore {
 	version: 10;
 	mavis: Record<string, CareerFileRecord>;
@@ -168,6 +222,8 @@ interface CareerStore {
 	cursor: Record<string, CareerFileRecord>;
 	/** SQLite 聚合源的最后一次成功快照（源被卸载/不可读时回退展示）。 */
 	aggregates: Partial<Record<"opencode" | "kilo" | "qoder" | "copilot" | "mimo" | "zcode", CareerAggregateCache>>;
+	/** Cursor 官方用量（cursor.com），按账号 userId 分存（换号不覆盖旧账号）；从未同步成功时缺省。 */
+	cursorCloud?: Record<string, CursorCloudCache>;
 }
 
 function newStore(): CareerStore {
@@ -189,6 +245,26 @@ function newStore(): CareerStore {
 
 function careerStorePath(agentDir: string): string {
 	return join(agentDir, "career-stats.json");
+}
+
+/** 上一次完整统计结果（看板秒开用；与累积库分开存，读它不触发任何扫描）。 */
+function careerSnapshotPath(agentDir: string): string {
+	return join(agentDir, "career-snapshot.json");
+}
+
+/** 读上一次完整统计结果；从未统计过或文件损坏时返回 null。 */
+export function readCareerSnapshot(
+	host: Pick<CareerHost, "agentDir">,
+	dirs?: Pick<CareerDirs, "agentDir">,
+): CareerGetResult | null {
+	try {
+		const snapshot = JSON.parse(
+			readFileSync(careerSnapshotPath(dirs?.agentDir ?? host.agentDir), "utf-8"),
+		) as CareerGetResult;
+		return typeof snapshot.generatedAt === "string" && Array.isArray(snapshot.agents) ? snapshot : null;
+	} catch {
+		return null;
+	}
 }
 
 function readStore(path: string, files: CareerFiles): CareerStore {
@@ -225,6 +301,9 @@ function readStore(path: string, files: CareerFiles): CareerStore {
 			throw new Error("bad shape");
 		}
 		raw.aggregates ??= {};
+		const cursorCloud = normalizeCursorCloud(raw.cursorCloud);
+		if (cursorCloud) raw.cursorCloud = cursorCloud;
+		else delete raw.cursorCloud;
 		return raw;
 	} catch {
 		// 损坏库备份为 *.corrupt 后重建；但"永不删除"承诺要求历史尽量找回——
@@ -260,6 +339,8 @@ function readStore(path: string, files: CareerFiles): CareerStore {
 						if (!fresh.aggregates[k]) fresh.aggregates[k] = value as CareerAggregateCache;
 					}
 				}
+				const oldCursorCloud = normalizeCursorCloud(old.cursorCloud);
+				if (!fresh.cursorCloud && oldCursorCloud) fresh.cursorCloud = oldCursorCloud;
 				break; // 恢复了最近一代就够（更早代是更老的快照）
 			} catch {}
 		}
@@ -298,8 +379,21 @@ function writeStore(path: string, store: CareerStore, files: CareerFiles): void 
 				if (typeof records !== "object" || records === null) continue;
 				for (const [key, record] of Object.entries(records)) {
 					const mine = store[table][key];
-					if (!mine || record.mtime > mine.mtime) store[table][key] = record;
+					if (!mine || (record.mtime > mine.mtime && recordTotalTokens(record) >= recordTotalTokens(mine))) {
+						store[table][key] = record;
+					}
 				}
+			}
+			for (const [userId, cache] of Object.entries(normalizeCursorCloud(disk.cursorCloud) ?? {})) {
+				// 内存里旧版缓存已归到具体账号：盘上残留的旧版份不能再并回来（否则重复计数）
+				if (userId === CURSOR_LEGACY_ACCOUNT && store.cursorCloud && !store.cursorCloud[CURSOR_LEGACY_ACCOUNT]) {
+					continue;
+				}
+				const accounts = store.cursorCloud ?? {};
+				store.cursorCloud = accounts;
+				const mine = accounts[userId];
+				const newer = !mine || cache.syncedUntilMs > mine.syncedUntilMs ? cache : mine;
+				accounts[userId] = { ...newer, days: growCursorDays(mine?.days ?? {}, cache.days) };
 			}
 		}
 		files.atomicWriteFileSync(path, `${JSON.stringify(store)}\n`);
@@ -389,7 +483,16 @@ function recordUsage(
 	}
 }
 
-/** mtime+size 都没变的文件直接复用记录；变了的整文件重扫替换；删除的记录保留。 */
+function recordTotalTokens(record: Pick<CareerFileRecord, "days">): number {
+	let total = 0;
+	for (const day of Object.values(record.days ?? {})) total += day?.totalTokens ?? 0;
+	return total;
+}
+
+/**
+ * mtime+size 都没变的文件直接复用记录；变了的整文件重扫，总量不低于已存才替换（文件被截断/
+ * 改写变小时保留已存记录，只更新 mtime+size 免得每轮重扫）；删除的记录保留。已计入的量只增不减。
+ */
 async function refreshSource(
 	files: Record<string, CareerFileRecord>,
 	roots: string[],
@@ -410,7 +513,8 @@ async function refreshSource(
 			if (cached && cached.mtime === info.mtimeMs && cached.size === info.size) continue;
 			const scanned = await scan(path);
 			if (!scanned) continue;
-			files[path] = { ...scanned, mtime: info.mtimeMs, size: info.size };
+			const kept = cached && recordTotalTokens(scanned) < recordTotalTokens(cached) ? cached : scanned;
+			files[path] = { ...kept, mtime: info.mtimeMs, size: info.size };
 			dirty = true;
 		}
 	}
@@ -1058,6 +1162,243 @@ async function scanCursorEstimateFile(path: string): Promise<Omit<CareerFileReco
 }
 
 // ---------------------------------------------------------------------------
+// Cursor 官方用量（cursor.com 用量事件，本机 IDE 登录令牌只读拉取）
+// ---------------------------------------------------------------------------
+
+const CURSOR_USAGE_URL = "https://cursor.com/api/dashboard/get-filtered-usage-events";
+const CURSOR_PAGE_SIZE = 1000;
+/** 防御上限：按 1000 条/页约 50 万事件，远超个人账号量级。 */
+const CURSOR_MAX_PAGES = 500;
+const CURSOR_REQUEST_TIMEOUT_MS = 30_000;
+
+function cursorStateDbPath(): string {
+	const tail = ["Cursor", "User", "globalStorage", "state.vscdb"];
+	if (process.platform === "win32") {
+		return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), ...tail);
+	}
+	if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", ...tail);
+	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), ...tail);
+}
+
+/** 从 IDE 状态库取登录令牌拼会话 Cookie（userId 是 JWT sub 里 "|" 之后的段）；令牌只在内存中使用。 */
+async function readCursorLogin(dbPath: string): Promise<{ userId: string; cookie: string } | null> {
+	const db = await openSqliteReadOnly(dbPath);
+	if (!db) return null;
+	try {
+		const row = db.prepare("select value from ItemTable where key = 'cursorAuth/accessToken'").get() as
+			| { value?: unknown }
+			| undefined;
+		const token =
+			typeof row?.value === "string"
+				? row.value
+				: row?.value instanceof Uint8Array
+					? Buffer.from(row.value).toString("utf-8")
+					: "";
+		const payload = token.split(".")[1];
+		if (!payload) return null;
+		const sub = (JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")) as { sub?: unknown }).sub;
+		if (typeof sub !== "string" || !sub) return null;
+		const userId = sub.split("|").pop() || sub;
+		return { userId, cookie: `WorkosCursorSessionToken=${encodeURIComponent(`${userId}::${token}`)}` };
+	} catch {
+		return null;
+	} finally {
+		try {
+			db.close();
+		} catch {
+			// 已关/不可关就算了
+		}
+	}
+}
+
+interface CursorUsageEvent {
+	/** 毫秒时间戳（字符串）。 */
+	timestamp?: string;
+	model?: string;
+	conversationId?: string;
+	/** 早期按次计费的事件没有该字段，跳过。 */
+	tokenUsage?: {
+		inputTokens?: number;
+		outputTokens?: number;
+		cacheWriteTokens?: number;
+		cacheReadTokens?: number;
+		totalCents?: number;
+	};
+}
+
+interface CursorUsagePage {
+	totalUsageEventsCount?: number;
+	usageEventsDisplay?: CursorUsageEvent[];
+}
+
+function addCursorEvent(days: Record<string, CursorCloudDay>, event: CursorUsageEvent): void {
+	const usage = event.tokenUsage;
+	const ms = Number(event.timestamp);
+	if (!usage || !Number.isFinite(ms) || ms <= 0) return;
+	const bucket: CareerBucket = {
+		input: usage.inputTokens ?? 0,
+		output: usage.outputTokens ?? 0,
+		cacheRead: usage.cacheReadTokens ?? 0,
+		cacheWrite: usage.cacheWriteTokens ?? 0,
+		reasoning: 0,
+		totalTokens:
+			(usage.inputTokens ?? 0) +
+			(usage.outputTokens ?? 0) +
+			(usage.cacheReadTokens ?? 0) +
+			(usage.cacheWriteTokens ?? 0),
+	};
+	if (bucket.totalTokens <= 0) return;
+	const date = localDateKey(new Date(ms).toISOString());
+	if (!date) return;
+	const day = days[date] ?? {
+		totals: emptyBucket(),
+		cost: 0,
+		models: {},
+		conversations: [],
+		firstMs: ms,
+		lastMs: ms,
+	};
+	days[date] = day;
+	addBucket(day.totals, bucket);
+	day.cost += (usage.totalCents ?? 0) / 100;
+	// 官方面板把 "default" 显示为 Auto
+	const model = !event.model ? "unknown" : event.model === "default" ? "auto" : event.model;
+	day.models[model] = addBucket(day.models[model] ?? emptyBucket(), bucket);
+	if (event.conversationId && !day.conversations.includes(event.conversationId)) {
+		day.conversations.push(event.conversationId);
+	}
+	day.firstMs = Math.min(day.firstMs, ms);
+	day.lastMs = Math.max(day.lastMs, ms);
+}
+
+/** 只增不减地合并两份按天缓存：已存的天一律保留；同一天取总量大的一份，会话 id 取并集。 */
+function growCursorDays(
+	kept: Record<string, CursorCloudDay>,
+	incoming: Record<string, CursorCloudDay>,
+): Record<string, CursorCloudDay> {
+	const days: Record<string, CursorCloudDay> = { ...kept };
+	for (const [date, day] of Object.entries(incoming)) {
+		const before = days[date];
+		if (!before) {
+			days[date] = day;
+			continue;
+		}
+		const larger = day.totals.totalTokens >= before.totals.totalTokens ? day : before;
+		days[date] = {
+			...larger,
+			conversations: [...new Set([...before.conversations, ...day.conversations])],
+			firstMs: Math.min(before.firstMs, day.firstMs),
+			lastMs: Math.max(before.lastMs, day.lastMs),
+		};
+	}
+	return days;
+}
+
+/** 增量重拉起点：上次同步上界所在日的前一天本地零点（兜住跨天与服务端迟到入库的事件）。 */
+function cursorResyncFrom(syncedUntilMs: number): number {
+	const date = new Date(syncedUntilMs);
+	date.setHours(0, 0, 0, 0);
+	date.setDate(date.getDate() - 1);
+	return date.getTime();
+}
+
+type CursorSyncOutcome = "synced" | "fresh" | "no-login" | "unauthorized" | "failed";
+
+/**
+ * 同步当前登录账号的 Cursor 官方用量到 store.cursorCloud[userId]。账号首次出现时全量拉；
+ * 之后从 cursorResyncFrom 起重拉，重拉到的天总量不低于已存才替换，其余天原样保留（服务端
+ * 历史即使被清理，看板也不回吐）。其它账号的缓存不动（换号后旧账号数据冻结保留）。
+ * 任何一页失败都整次放弃，不落半截数据。
+ */
+async function syncCursorCloud(
+	store: CareerStore,
+	stateDb: string,
+	fetchImpl: typeof fetch,
+	minIntervalMs: number,
+): Promise<CursorSyncOutcome> {
+	const login = await readCursorLogin(stateDb);
+	if (!login) return "no-login";
+	const { userId, cookie } = login;
+	const accounts = store.cursorCloud ?? {};
+	const legacy = accounts[CURSOR_LEGACY_ACCOUNT];
+	if (legacy && !accounts[userId]) {
+		accounts[userId] = legacy;
+		delete accounts[CURSOR_LEGACY_ACCOUNT];
+		store.cursorCloud = accounts;
+	}
+	const cached = accounts[userId];
+	if (cached && Date.now() - Date.parse(cached.syncedAt) < minIntervalMs) return "fresh";
+	const endMs = Date.now();
+	const startMs = cached ? cursorResyncFrom(cached.syncedUntilMs) : 0;
+	const fresh: Record<string, CursorCloudDay> = {};
+	try {
+		let seen = 0;
+		for (let page = 1; page <= CURSOR_MAX_PAGES; page++) {
+			const response = await fetchImpl(CURSOR_USAGE_URL, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Origin: "https://cursor.com", Cookie: cookie },
+				body: JSON.stringify({
+					startDate: String(startMs),
+					endDate: String(endMs),
+					page,
+					pageSize: CURSOR_PAGE_SIZE,
+				}),
+				signal: AbortSignal.timeout(CURSOR_REQUEST_TIMEOUT_MS),
+			});
+			if (response.status === 401 || response.status === 403) return "unauthorized";
+			if (!response.ok) return "failed";
+			const body = (await response.json()) as CursorUsagePage;
+			const events = Array.isArray(body.usageEventsDisplay) ? body.usageEventsDisplay : [];
+			for (const event of events) addCursorEvent(fresh, event);
+			seen += events.length;
+			if (events.length < CURSOR_PAGE_SIZE || seen >= (body.totalUsageEventsCount ?? 0)) break;
+		}
+	} catch {
+		return "failed";
+	}
+	accounts[userId] = {
+		syncedAt: new Date(endMs).toISOString(),
+		syncedUntilMs: endMs,
+		days: growCursorDays(cached?.days ?? {}, fresh),
+	};
+	store.cursorCloud = accounts;
+	return "synced";
+}
+
+/** 全部账号累加折叠成与 foldFiles 同形；会话数按全部天的 conversationId 去重。 */
+function foldCursorCloud(accounts: Record<string, CursorCloudCache>): ReturnType<typeof foldFiles> {
+	const totals = emptyBucket();
+	const byDay = new Map<string, CareerBucket>();
+	const byModel = new Map<string, CareerBucket>();
+	const conversations = new Set<string>();
+	let cost = 0;
+	let firstMs: number | undefined;
+	let lastMs: number | undefined;
+	for (const cache of Object.values(accounts)) {
+		for (const [date, day] of Object.entries(cache.days)) {
+			addBucket(totals, day.totals);
+			byDay.set(date, addBucket(byDay.get(date) ?? emptyBucket(), day.totals));
+			for (const [model, bucket] of Object.entries(day.models)) {
+				byModel.set(model, addBucket(byModel.get(model) ?? emptyBucket(), bucket));
+			}
+			for (const id of day.conversations) conversations.add(id);
+			cost += day.cost;
+			firstMs = firstMs === undefined ? day.firstMs : Math.min(firstMs, day.firstMs);
+			lastMs = lastMs === undefined ? day.lastMs : Math.max(lastMs, day.lastMs);
+		}
+	}
+	return {
+		totals,
+		byDay,
+		byModel,
+		sessions: conversations.size,
+		...(firstMs !== undefined ? { firstAt: new Date(firstMs).toISOString() } : {}),
+		...(lastMs !== undefined ? { lastAt: new Date(lastMs).toISOString() } : {}),
+		cost,
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Mavis（MiniMax Code，~/.mavis/v2/sessions/**/messages.jsonl）
 // ---------------------------------------------------------------------------
 
@@ -1230,8 +1571,51 @@ function cacheToUsage(cache: CareerAggregateCache): OpenCodeUsage {
 	};
 }
 
+/** 逐字段 max(0, a - b)；totalTokens 同口径相减。 */
+function bucketGrowth(after: CareerBucket, before: CareerBucket): CareerBucket {
+	return {
+		input: Math.max(0, after.input - before.input),
+		output: Math.max(0, after.output - before.output),
+		cacheRead: Math.max(0, after.cacheRead - before.cacheRead),
+		cacheWrite: Math.max(0, after.cacheWrite - before.cacheWrite),
+		reasoning: Math.max(0, after.reasoning - before.reasoning),
+		totalTokens: Math.max(0, after.totalTokens - before.totalTokens),
+	};
+}
+
 /**
- * "只增量、永不删除"对 SQLite 聚合源的落地：读取成功 → 刷新快照返回；
+ * 只增不减地把实时库读数并入上次快照：按天/按模型取总量大的一份（应用里删掉的会话
+ * 不回吐）；总量取「实时总量」与「快照总量 + 各天新增」中大的一份；会话数与费用取大。
+ */
+function growAggregate(live: OpenCodeUsage, cached: CareerAggregateCache | undefined): OpenCodeUsage {
+	if (!cached) return live;
+	const keepLarger = (target: Map<string, CareerBucket>, previous: Record<string, CareerBucket>): void => {
+		for (const [key, bucket] of Object.entries(previous)) {
+			const current = target.get(key);
+			if (!current || current.totalTokens < bucket.totalTokens) target.set(key, bucket);
+		}
+	};
+	const byDay = new Map(live.byDay);
+	keepLarger(byDay, cached.byDay);
+	const byModel = new Map(live.byModel);
+	keepLarger(byModel, cached.byModel);
+	const grown = addBucket(emptyBucket(), cached.totals);
+	for (const [date, day] of live.byDay) addBucket(grown, bucketGrowth(day, cached.byDay[date] ?? emptyBucket()));
+	const firstMs = [live.firstMs, cached.firstMs].filter((ms): ms is number => ms !== undefined);
+	const lastMs = [live.lastMs, cached.lastMs].filter((ms): ms is number => ms !== undefined);
+	return {
+		totals: grown.totalTokens > live.totals.totalTokens ? grown : live.totals,
+		cost: Math.max(live.cost, cached.cost),
+		byDay,
+		byModel,
+		sessions: Math.max(live.sessions, cached.sessions),
+		...(firstMs.length > 0 ? { firstMs: Math.min(...firstMs) } : {}),
+		...(lastMs.length > 0 ? { lastMs: Math.max(...lastMs) } : {}),
+	};
+}
+
+/**
+ * "只增量、永不删除"对 SQLite 聚合源的落地：读取成功 → 只增不减地并入快照后返回；
  * 库被删/损坏/不可读 → 回退到最后一次成功快照（fromCache 标记由行级 note 说明）。
  */
 function withAggregateFallback(
@@ -1240,8 +1624,9 @@ function withAggregateFallback(
 	store: CareerStore,
 ): OpenCodeUsage | null {
 	if (live) {
-		store.aggregates[key] = usageToCache(live);
-		return live;
+		const grown = growAggregate(live, store.aggregates[key]);
+		store.aggregates[key] = usageToCache(grown);
+		return grown;
 	}
 	const cached = store.aggregates[key];
 	if (!cached) return null;
@@ -1957,6 +2342,12 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 				(name) => name === "store.db",
 				scanCursorEstimateFile,
 			);
+			const cursorSync = await syncCursorCloud(
+				store,
+				dirs?.cursorStateDb ?? cursorStateDbPath(),
+				dirs?.cursorFetch ?? fetch,
+				dirs?.cursorSyncIntervalMs ?? 60_000,
+			);
 			// writeStore 统一移到 return 前：SQLite 快照（aggregates）在 collect 之后才产生
 
 			// owl / pi 是两个独立 agent，各自一行，互不合并（目录迁移叙事不成立，避免混计）。
@@ -1988,6 +2379,21 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 			const mavisFold = foldFiles(store.mavis);
 			const reasonixFold = foldFiles(store.reasonix);
 			const cursorFold = foldFiles(store.cursor);
+			const cursorCloudFold = store.cursorCloud ? foldCursorCloud(store.cursorCloud) : undefined;
+			const cursorAccounts = Object.values(store.cursorCloud ?? {});
+			const cursorSyncedAt =
+				cursorAccounts
+					.map((cache) => cache.syncedAt)
+					.sort()
+					.pop() ?? "";
+			const cursorSyncIssue =
+				cursorSync === "no-login"
+					? "未读到 Cursor IDE 登录令牌"
+					: cursorSync === "unauthorized"
+						? "Cursor 登录已失效（重新登录 Cursor IDE 即可恢复）"
+						: cursorSync === "failed"
+							? "cursor.com 官方用量同步失败"
+							: undefined;
 			const opencode = withAggregateFallback(
 				"opencode",
 				await collectSessionAggregateDb(dirs?.opencodeDb ?? join(opencodeDir, "opencode.db")),
@@ -2315,33 +2721,58 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 					byDay: [],
 					byModel: [],
 				},
-				{
-					id: "cursor",
-					name: "Cursor",
-					status:
-						cursorFold.sessions > 0
-							? "ok"
-							: existsSync(join(homedir(), ".cursor", "acp-sessions"))
-								? "nodata"
-								: "unavailable",
-					note:
-						cursorFold.sessions > 0
-							? "官方用量只在服务端；此行按本地会话历史内容估算（每轮上下文重放，量级参考）"
-							: "IDE 与 CLI 两端的本地各库已逐个核验，均不记录 token 用量（用量在服务端）",
-					root: "~/.cursor/acp-sessions",
-					sessions: cursorFold.sessions,
-					...(cursorFold.firstAt ? { firstAt: cursorFold.firstAt } : {}),
-					...(cursorFold.lastAt ? { lastAt: cursorFold.lastAt } : {}),
-					totals: { ...cursorFold.totals, cost: 0 },
-					byDay: bucketToTokens(cursorFold.byDay),
-					byModel: modelsToRows(cursorFold.byModel),
-				},
+				cursorCloudFold
+					? {
+							id: "cursor",
+							name: "Cursor",
+							status: cursorCloudFold.totals.totalTokens > 0 ? "ok" : "nodata",
+							note: `${
+								cursorSyncIssue
+									? `${cursorSyncIssue}，显示 ${cursorSyncedAt.slice(0, 10)} ${cursorSyncedAt.slice(11, 16)} 的最后同步快照`
+									: "cursor.com 官方用量（账号下 IDE、CLI、Cloud Agent 全部调用），用本机登录令牌只读拉取；费用为官方 API 等价价"
+							}${cursorAccounts.length > 1 ? `；含 ${cursorAccounts.length} 个账号累计` : ""}`,
+							root: "cursor.com · 官方用量",
+							sessions: cursorCloudFold.sessions,
+							...(cursorCloudFold.firstAt ? { firstAt: cursorCloudFold.firstAt } : {}),
+							...(cursorCloudFold.lastAt ? { lastAt: cursorCloudFold.lastAt } : {}),
+							totals: { ...cursorCloudFold.totals, cost: cursorCloudFold.cost },
+							byDay: bucketToTokens(cursorCloudFold.byDay),
+							byModel: modelsToRows(cursorCloudFold.byModel),
+						}
+					: {
+							id: "cursor",
+							name: "Cursor",
+							status:
+								cursorFold.sessions > 0
+									? "ok"
+									: existsSync(join(homedir(), ".cursor", "acp-sessions"))
+										? "nodata"
+										: "unavailable",
+							note: `${cursorSyncIssue ? `${cursorSyncIssue}；` : ""}${
+								cursorFold.sessions > 0
+									? "官方用量只在服务端；此行按本地会话历史内容估算（每轮上下文重放，量级参考）"
+									: "IDE 与 CLI 两端的本地各库已逐个核验，均不记录 token 用量（用量在服务端）"
+							}`,
+							root: "~/.cursor/acp-sessions",
+							sessions: cursorFold.sessions,
+							...(cursorFold.firstAt ? { firstAt: cursorFold.firstAt } : {}),
+							...(cursorFold.lastAt ? { lastAt: cursorFold.lastAt } : {}),
+							totals: { ...cursorFold.totals, cost: 0 },
+							byDay: bucketToTokens(cursorFold.byDay),
+							byModel: modelsToRows(cursorFold.byModel),
+						},
 				...detectedRows(detectRoot),
 			];
 
 			// aggregates 快照与 JSONL 增量统一落盘（career.get 每次全量刷新快照）
 			writeStore(storePath, store, host.files);
-			return { generatedAt: new Date().toISOString(), agents };
+			const result: CareerGetResult = { generatedAt: new Date().toISOString(), agents };
+			try {
+				host.files.atomicWriteFileSync(careerSnapshotPath(agentDir), `${JSON.stringify(result)}\n`);
+			} catch {
+				// 快照只为下次秒开，写不进去不影响本次结果
+			}
+			return result;
 		});
 	chain = run;
 	return run;

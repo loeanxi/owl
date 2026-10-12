@@ -17,6 +17,13 @@ export async function fetchCareer(client: BridgeClient): Promise<CareerGetResult
 	return response.result;
 }
 
+/** 读上一次完整结果（不扫描，秒回）；从未统计过时为 null。旧桥不认 cached，会退化成一次全量统计。 */
+export async function fetchCareerSnapshot(client: BridgeClient): Promise<CareerGetResult | null> {
+	const response = await client.request<CareerGetResult | null>({ type: "career.get", cached: true });
+	if (!response.ok) throw new Error(response.error ?? "career.get failed");
+	return response.result ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // 派生模型
 // ---------------------------------------------------------------------------

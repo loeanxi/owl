@@ -164,6 +164,28 @@ describe("usage-stats 增量存储与聚合", () => {
 		expect(after.sessionCount).toBe(3);
 	});
 
+	it("会话文件被改写变小时统计不回吐，之后再增长照常计入", async () => {
+		const { dirs } = makeRoot();
+		const { projA } = seedStandard(dirs.sessionsDir!);
+		const before = await collectUsageStats(undefined, dirs);
+		const s1Path = join(projA, "s1.jsonl");
+
+		writeSession(s1Path, [sessionHead("s1", "D:\\proj-a", localIso(2, 9)), userLine("u1", localIso(2, 9), "截断")]);
+		utimesSync(s1Path, Date.now() / 1000 + 5, Date.now() / 1000 + 5);
+		expect((await collectUsageStats(undefined, dirs)).totals.totalTokens).toBe(before.totals.totalTokens);
+
+		writeSession(s1Path, [
+			sessionHead("s1", "D:\\proj-a", localIso(2, 9)),
+			assistantLine("a1", localIso(2, 10), "prov", "model-a", U_A),
+			assistantLine("a2", localIso(0, 15), "prov", "model-b", U_B),
+			assistantLine("a3", localIso(0, 16), "prov", "model-b", U_B),
+		]);
+		utimesSync(s1Path, Date.now() / 1000 + 10, Date.now() / 1000 + 10);
+		expect((await collectUsageStats(undefined, dirs)).totals.totalTokens).toBe(
+			before.totals.totalTokens + tokensOf(U_B),
+		);
+	});
+
 	it("days 过滤：7d 只折叠近 7 天，byDay 补零 7 格", async () => {
 		const { dirs } = makeRoot();
 		seedStandard(dirs.sessionsDir!);

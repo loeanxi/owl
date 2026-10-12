@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // 「我的 Token 生涯」看板（career.get）—— 跨 Agent 本地会话记录的 token 用量汇总，
 // 数据面见 ./career-stats.ts：owl 复用 usage-stats 全量口径，Claude Code / Codex
-// 走 ~/.claude、~/.codex 的增量扫描；Gemini 本地记录无用量、Cursor 待手动导入，只报状态。
+// 走 ~/.claude、~/.codex 的增量扫描；Gemini 本地记录无用量只报状态；Cursor 用本机登录令牌拉 cursor.com 官方用量。
 // ---------------------------------------------------------------------------
 
 /** 单数据源的用量分桶（cost 只有 owl 实测，其余来源本地记录不含费用，恒为 0）。 */
@@ -45,6 +45,8 @@ export interface CareerAgentUsage {
 export interface CareerGetRequest {
 	type: "career.get";
 	id: string;
+	/** true = 只读上一次完整结果（秒回；从未统计过时 result 为 null），不触发扫描。 */
+	cached?: boolean;
 }
 
 export interface CareerGetResult {

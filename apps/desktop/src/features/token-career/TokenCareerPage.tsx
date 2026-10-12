@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { getUiLanguage, useT, type TextKey } from "../../i18n/index.ts";
 import { heatmapCells } from "../../components/usage-heatmap.ts";
@@ -6,6 +6,7 @@ import {
 	agentColor,
 	buildBoard,
 	fetchCareer,
+	fetchCareerSnapshot,
 	formatTokens,
 	shortDate,
 	snapshotTime,
@@ -13,41 +14,57 @@ import {
 } from "./token-career.ts";
 import "./token-career.css";
 
-type LoadState = {
-	status: "idle" | "loading" | "ready" | "error";
-	data?: CareerGetResult;
-};
+/** 页面激活期间的后台增量刷新间隔（后端 mtime+size 缓存，增量一轮通常秒级）。 */
+const CAREER_REFRESH_MS = 2 * 60_000;
 
 /**
  * 「我的 Token 生涯」大屏看板（版式对齐 features/guide：页头 + 筛选 chips + 卡片墙 + 来源栏）。
  * 数据面是 owl-career 桥插件的 career.get（packages/owl-career/src/career-stats.ts）：owl 复用 usage-stats，
  * Claude Code / Codex 扫本地会话 JSONL；Agent chips 切换 scope 时纯前端重算，不重拉桥。
+ * 进入时先秒开上一次的结果快照，同时后台增量统计，回来后原地替换；激活期间定时再增量刷新。
  */
 export function TokenCareerPage({ active, client }: { active: boolean; client: BridgeClient }): React.JSX.Element {
 	const t = useT();
 	const lang = getUiLanguage();
-	const [state, setState] = useState<LoadState>({ status: "idle" });
+	const [data, setData] = useState<CareerGetResult>();
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState(false);
 	const [filter, setFilter] = useState("");
 	const [query, setQuery] = useState("");
+	const snapshotRequested = useRef(false);
+	const inflight = useRef(false);
 
-	const sync = (): void => {
-		setState((current) => ({ ...current, status: "loading" }));
+	const sync = useCallback((): void => {
+		if (inflight.current) return;
+		inflight.current = true;
+		setBusy(true);
+		setFailed(false);
 		fetchCareer(client)
-			.then((data) => setState({ status: "ready", data }))
-			.catch(() => setState((current) => ({ ...current, status: "error" })));
-	};
+			.then(setData)
+			.catch(() => setFailed(true))
+			.finally(() => {
+				inflight.current = false;
+				setBusy(false);
+			});
+	}, [client]);
 
 	useEffect(() => {
-		if (!active || state.status !== "idle") return;
+		if (!active) return;
+		if (!snapshotRequested.current) {
+			snapshotRequested.current = true;
+			fetchCareerSnapshot(client)
+				.then((snapshot) => {
+					if (snapshot) setData((current) => current ?? snapshot);
+				})
+				.catch(() => undefined);
+		}
 		sync();
-		// 只在首次激活时触发扫描；之后经「重新同步」手动刷新。
-	}, [active]);
+		const timer = setInterval(sync, CAREER_REFRESH_MS);
+		return () => clearInterval(timer);
+	}, [active, client, sync]);
 
-	const agents = state.data?.agents ?? [];
-	const board = useMemo(
-		() => (state.status === "ready" ? buildBoard(agents, filter) : null),
-		[state.status, state.data, filter],
-	);
+	const agents = data?.agents ?? [];
+	const board = useMemo(() => (data ? buildBoard(agents, filter) : null), [data, filter]);
 	const fmt = (value: number): string => formatTokens(value, lang);
 	const needle = query.trim().toLowerCase();
 	const models = board?.models.filter((model) => !needle || model.name.toLowerCase().includes(needle) || model.key.toLowerCase().includes(needle)) ?? [];
@@ -78,12 +95,13 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 					/>
 					{query && <button type="button" aria-label="×" onClick={() => setQuery("")}>×</button>}
 				</label>
-				<span className="owl-career-sync" data-status={state.status}>
-					{state.status === "loading" ? t("career.loading")
-						: state.status === "error" ? t("career.loadFailed")
-						: state.data ? t("career.snapshot", { time: snapshotTime(state.data.generatedAt) })
+				<span className="owl-career-sync" data-status={busy ? "loading" : failed ? "error" : data ? "ready" : "idle"}>
+					{busy && data ? t("career.refreshing", { time: snapshotTime(data.generatedAt) })
+						: busy ? t("career.loading")
+						: failed ? t("career.loadFailed")
+						: data ? t("career.snapshot", { time: snapshotTime(data.generatedAt) })
 						: ""}
-					{(state.status === "ready" || state.status === "error") && (
+					{!busy && (data || failed) && (
 						<button type="button" onClick={sync}>{t("career.resync")}</button>
 					)}
 				</span>
@@ -105,19 +123,19 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 			</div>
 
 			<div className="owl-career-main">
-				{state.status === "loading" && (
+				{!data && !failed && (
 					<div className="owl-career-state">
 						<p>{t("career.loading")}</p>
 						<div className="bar"><i /></div>
 					</div>
 				)}
-				{state.status === "error" && (
+				{!data && failed && (
 					<div className="owl-career-state">
 						<p className="err">{t("career.loadFailed")}</p>
 						<p><button type="button" className="owl-career-linkbtn" onClick={sync}>{t("career.retry")}</button></p>
 					</div>
 				)}
-				{state.status === "ready" && board && (
+				{board && (
 					<div className="owl-career-wall">
 						<section className="owl-career-mod">
 							<header className="mod-head">
@@ -287,7 +305,7 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 			</div>
 			<div className="owl-career-foot">
 				<span>{t("career.footSource")}</span>
-				<span className="right">{state.data ? t("career.footGenerated", { time: snapshotTime(state.data.generatedAt) }) : ""}</span>
+				<span className="right">{data ? t("career.footGenerated", { time: snapshotTime(data.generatedAt) }) : ""}</span>
 			</div>
 		</div>
 	);

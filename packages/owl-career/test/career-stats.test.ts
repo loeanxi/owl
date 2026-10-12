@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { collectUsageStats } from "../../coding-agent/src/modes/desktop/usage-stats.ts";
 import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../coding-agent/src/utils/atomic-file.ts";
-import { type CareerDirs, type CareerHost, collectCareerStats } from "../src/career-stats.ts";
+import { type CareerDirs, type CareerHost, collectCareerStats, readCareerSnapshot } from "../src/career-stats.ts";
 
 // 合成本机各 agent 的会话数据（与真实落盘格式同构），驱动多 Agent 扫描/聚合链路。
 // owl 侧注入空目录（totals=0 占位），不碰本机真实 ~/.owl。
@@ -57,6 +57,8 @@ function makeRoot(): CareerDirs {
 		dshDir: join(root, "dsh", "sessions"),
 		mimoDb: join(root, "mimo", "mimocode.db"),
 		cursorSessionsDir: join(root, "cursor", "acp-sessions"),
+		// 不存在的状态库 = 未登录：默认不读真实令牌、不发网络请求
+		cursorStateDb: join(root, "cursor-ide", "state.vscdb"),
 		kimiDesktopDir: join(root, "kimi-desktop", "sessions"),
 		mavisDir: join(root, "mavis", "sessions"),
 		reasonixDir: join(root, "reasonix", "projects"),
@@ -868,6 +870,158 @@ describe("career stats", () => {
 		expect(cursor.note).toContain("估算");
 	});
 
+	async function writeCursorLogin(dirs: CareerDirs, sub = "github|user_42"): Promise<string> {
+		mkdirSync(dirname(dirs.cursorStateDb!), { recursive: true });
+		const { DatabaseSync } = await import("node:sqlite");
+		const db = new DatabaseSync(dirs.cursorStateDb!);
+		db.exec("create table if not exists ItemTable (key text unique on conflict replace, value blob)");
+		const payload = Buffer.from(JSON.stringify({ sub, exp: 9_999_999_999 })).toString("base64url");
+		const token = `hdr.${payload}.sig`;
+		db.prepare("insert into ItemTable values (?,?)").run("cursorAuth/accessToken", token);
+		db.close();
+		return token;
+	}
+
+	function cursorEvent(daysAgo: number, conversationId: string, model: string, tokens: number[], cents: number) {
+		const [inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens] = tokens;
+		return {
+			timestamp: String(new Date(localIso(daysAgo)).getTime()),
+			model,
+			conversationId,
+			tokenUsage: { inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, totalCents: cents },
+		};
+	}
+
+	function cursorApi(pages: (() => Response)[]) {
+		const calls: { cookie: string; body: { startDate: string; endDate: string; page: number } }[] = [];
+		const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+			const headers = init?.headers as Record<string, string>;
+			calls.push({ cookie: headers.Cookie, body: JSON.parse(String(init?.body)) });
+			return pages[Math.min(calls.length - 1, pages.length - 1)]!();
+		}) as typeof fetch;
+		return { calls, fetchImpl };
+	}
+
+	const usagePage = (events: unknown[]) => () =>
+		new Response(JSON.stringify({ totalUsageEventsCount: events.length, usageEventsDisplay: events }), {
+			status: 200,
+		});
+
+	it("pulls official Cursor usage from cursor.com with the local IDE login", async () => {
+		const dirs = makeRoot();
+		const token = await writeCursorLogin(dirs);
+		const api = cursorApi([
+			usagePage([
+				cursorEvent(0, "conv-a", "default", [10, 200, 300, 4000], 50),
+				cursorEvent(1, "conv-a", "claude-opus-5-5-high", [20, 100, 0, 1000], 25),
+				cursorEvent(1, "conv-b", "default", [5, 50, 0, 500], 10),
+				// 早期按次计费事件没有 tokenUsage，不计入
+				{ timestamp: String(Date.now()), model: "default", conversationId: "conv-c" },
+			]),
+		]);
+		dirs.cursorFetch = api.fetchImpl;
+
+		const { byId } = await scan(dirs);
+		const cursor = byId.get("cursor")!;
+		expect(api.calls).toHaveLength(1);
+		expect(api.calls[0]!.cookie).toBe(`WorkosCursorSessionToken=${encodeURIComponent(`user_42::${token}`)}`);
+		expect(api.calls[0]!.body.startDate).toBe("0");
+		expect(cursor.status).toBe("ok");
+		expect(cursor.note).toContain("官方用量");
+		expect(cursor.sessions).toBe(2);
+		expect(cursor.totals).toMatchObject({ input: 35, output: 350, cacheWrite: 300, cacheRead: 5500 });
+		expect(cursor.totals.totalTokens).toBe(4510 + 1120 + 555);
+		expect(cursor.totals.cost).toBeCloseTo(0.85, 6);
+		expect(cursor.byModel).toEqual([
+			{ key: "auto", totalTokens: 4510 + 555 },
+			{ key: "claude-opus-5-5-high", totalTokens: 1120 },
+		]);
+		expect(cursor.byDay.map((day) => day.totalTokens)).toEqual([1120 + 555, 4510]);
+
+		// 节流窗口内再开看板不重复请求
+		await scan(dirs);
+		expect(api.calls).toHaveLength(1);
+	});
+
+	it("syncs Cursor incrementally, keeps older days, and falls back to the snapshot on failure", async () => {
+		const dirs = makeRoot();
+		await writeCursorLogin(dirs);
+		dirs.cursorSyncIntervalMs = 0;
+		const api = cursorApi([
+			usagePage([
+				cursorEvent(0, "conv-new", "default", [0, 100, 0, 0], 1),
+				cursorEvent(10, "conv-old", "default", [0, 1000, 0, 0], 2),
+			]),
+			// 增量窗口里今天的事件已完结、用量变大：整天替换而非累加
+			usagePage([cursorEvent(0, "conv-new", "default", [0, 300, 0, 0], 3)]),
+			() => new Response("unauthorized", { status: 401 }),
+		]);
+		dirs.cursorFetch = api.fetchImpl;
+
+		expect((await scan(dirs)).byId.get("cursor")!.totals.totalTokens).toBe(1100);
+		const second = (await scan(dirs)).byId.get("cursor")!;
+		expect(Number(api.calls[1]!.body.startDate)).toBeGreaterThan(0);
+		expect(second.totals.totalTokens).toBe(1300);
+		expect(second.sessions).toBe(2);
+
+		const third = (await scan(dirs)).byId.get("cursor")!;
+		expect(api.calls).toHaveLength(3);
+		expect(third.totals.totalTokens).toBe(1300);
+		expect(third.note).toContain("登录已失效");
+		expect(third.note).toContain("最后同步快照");
+	});
+
+	it("keeps a previous Cursor account's usage after switching accounts", async () => {
+		const dirs = makeRoot();
+		await writeCursorLogin(dirs, "github|user_42");
+		dirs.cursorSyncIntervalMs = 0;
+		const api = cursorApi([
+			usagePage([
+				cursorEvent(0, "conv-a1", "default", [0, 100, 0, 0], 1),
+				cursorEvent(10, "conv-a2", "default", [0, 1000, 0, 0], 2),
+			]),
+			usagePage([
+				cursorEvent(0, "conv-b1", "default", [0, 50, 0, 0], 1),
+				cursorEvent(20, "conv-b2", "default", [0, 500, 0, 0], 1),
+			]),
+		]);
+		dirs.cursorFetch = api.fetchImpl;
+		expect((await scan(dirs)).byId.get("cursor")!.totals.totalTokens).toBe(1100);
+
+		await writeCursorLogin(dirs, "auth0|user_77");
+		const cursor = (await scan(dirs)).byId.get("cursor")!;
+		// 新账号首次出现：全量拉它自己的历史；旧账号的天不被覆盖
+		expect(api.calls[1]!.body.startDate).toBe("0");
+		expect(cursor.totals.totalTokens).toBe(1100 + 550);
+		expect(cursor.sessions).toBe(4);
+		expect(cursor.byDay.at(-1)!.totalTokens).toBe(150);
+		expect(cursor.note).toContain("2 个账号");
+		const stored = JSON.parse(readFileSync(join(dirs.agentDir!, "career-stats.json"), "utf-8"));
+		expect(Object.keys(stored.cursorCloud).sort()).toEqual(["user_42", "user_77"]);
+	});
+
+	it("assigns a pre-account Cursor cache to the account that is logged in at the next sync", async () => {
+		const source = makeRoot();
+		await writeCursorLogin(source);
+		source.cursorFetch = cursorApi([usagePage([cursorEvent(3, "conv-a", "default", [0, 700, 0, 0], 1)])]).fetchImpl;
+		await scan(source);
+		const stored = JSON.parse(readFileSync(join(source.agentDir!, "career-stats.json"), "utf-8"));
+		stored.cursorCloud = stored.cursorCloud.user_42;
+
+		const dirs = makeRoot();
+		await writeCursorLogin(dirs);
+		writeFileSync(join(dirs.agentDir!, "career-stats.json"), JSON.stringify(stored));
+		const api = cursorApi([usagePage([])]);
+		dirs.cursorFetch = api.fetchImpl;
+		const cursor = (await scan(dirs)).byId.get("cursor")!;
+		// 刚同步过（节流内）：不请求，旧版单份缓存直接归到当前账号
+		expect(api.calls).toHaveLength(0);
+		expect(cursor.totals.totalTokens).toBe(700);
+		expect(cursor.note).not.toContain("个账号");
+		const migrated = JSON.parse(readFileSync(join(dirs.agentDir!, "career-stats.json"), "utf-8"));
+		expect(Object.keys(migrated.cursorCloud)).toEqual(["user_42"]);
+	});
+
 	it("keeps the last snapshot when a SQLite source app is deleted (never deletes history)", async () => {
 		const dirs = makeRoot();
 		mkdirSync(dirname(dirs.mimoDb!), { recursive: true });
@@ -906,6 +1060,99 @@ describe("career stats", () => {
 		expect(mimo.status).toBe("ok");
 		expect(mimo.totals.totalTokens).toBe(10_500);
 		expect(mimo.note).toContain("最后同步快照");
+	});
+
+	it("saves the last full result as a snapshot that reads back without scanning", async () => {
+		const dirs = makeRoot();
+		expect(readCareerSnapshot({ agentDir: dirs.agentDir! })).toBeNull();
+		writeFileSync(
+			join(dirs.claudeDir!, "projects", "D--proj", "s-claude-1.jsonl"),
+			`${claudeAssistantLine(localIso(1), "claude-sonnet-5.5", { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })}\n`,
+		);
+		const { result } = await scan(dirs);
+
+		const snapshot = readCareerSnapshot({ agentDir: dirs.agentDir! });
+		expect(snapshot).toEqual(result);
+		expect(snapshot!.agents.find((agent) => agent.id === "claude")!.totals.totalTokens).toBe(110);
+
+		writeFileSync(join(dirs.agentDir!, "career-snapshot.json"), "{ broken");
+		expect(readCareerSnapshot({ agentDir: dirs.agentDir! })).toBeNull();
+	});
+
+	it("never shrinks a JSONL record when its file is rewritten smaller", async () => {
+		const dirs = makeRoot();
+		const claudeFile = join(dirs.claudeDir!, "projects", "D--proj", "s-claude-1.jsonl");
+		const line = (daysAgo: number, input: number) =>
+			claudeAssistantLine(localIso(daysAgo), "claude-sonnet-5.5", {
+				input_tokens: input,
+				output_tokens: 0,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 0,
+			});
+		writeFileSync(claudeFile, `${[line(2, 100), line(1, 200)].join("\n")}\n`);
+		expect((await scan(dirs)).byId.get("claude")!.totals.totalTokens).toBe(300);
+
+		writeFileSync(claudeFile, `${line(1, 50)}\n`);
+		expect((await scan(dirs)).byId.get("claude")!.totals.totalTokens).toBe(300);
+
+		writeFileSync(claudeFile, `${[line(2, 100), line(1, 200), line(0, 400)].join("\n")}\n`);
+		expect((await scan(dirs)).byId.get("claude")!.totals.totalTokens).toBe(700);
+	});
+
+	it("never shrinks a SQLite source when sessions are deleted in the app, and still counts new usage", async () => {
+		const dirs = makeRoot();
+		mkdirSync(dirname(dirs.mimoDb!), { recursive: true });
+		const { DatabaseSync } = await import("node:sqlite");
+		const db = new DatabaseSync(dirs.mimoDb!);
+		db.exec(`
+			create table session (id text primary key, directory text, title text, time_created integer, time_updated integer);
+			create table message (id text primary key, session_id text, time_created integer, data text);
+		`);
+		const insert = (id: string, session: string, daysAgo: number, input: number) =>
+			db
+				.prepare("insert into message values (?,?,?,?)")
+				.run(
+					id,
+					session,
+					new Date(localIso(daysAgo)).getTime(),
+					JSON.stringify({ role: "assistant", providerID: "p", modelID: "m", tokens: { input, output: 0 } }),
+				);
+		insert("m1", "s1", 3, 1000);
+		insert("m2", "s2", 0, 500);
+		expect((await scan(dirs)).byId.get("mimo")!.totals.totalTokens).toBe(1500);
+
+		db.exec("delete from message where session_id = 's1'");
+		const afterDelete = (await scan(dirs)).byId.get("mimo")!;
+		expect(afterDelete.totals.totalTokens).toBe(1500);
+		expect(afterDelete.sessions).toBe(2);
+
+		insert("m3", "s2", 0, 200);
+		db.close();
+		const afterGrowth = (await scan(dirs)).byId.get("mimo")!;
+		expect(afterGrowth.totals.totalTokens).toBe(1700);
+		expect(afterGrowth.byDay.map((day) => day.totalTokens)).toEqual([1000, 700]);
+	});
+
+	it("never shrinks Cursor official usage when a resync returns less", async () => {
+		const dirs = makeRoot();
+		await writeCursorLogin(dirs);
+		dirs.cursorSyncIntervalMs = 0;
+		dirs.cursorFetch = cursorApi([
+			usagePage([
+				cursorEvent(0, "c1", "default", [0, 100, 0, 0], 1),
+				cursorEvent(1, "c2", "default", [0, 200, 0, 0], 1),
+				cursorEvent(10, "c3", "default", [0, 1000, 0, 0], 1),
+			]),
+			// 服务端这次少返回了：昨天整天缺失、今天变小
+			usagePage([cursorEvent(0, "c1", "default", [0, 50, 0, 0], 1)]),
+			usagePage([cursorEvent(0, "c1", "default", [0, 400, 0, 0], 1)]),
+		]).fetchImpl;
+
+		expect((await scan(dirs)).byId.get("cursor")!.totals.totalTokens).toBe(1300);
+		const shrunk = (await scan(dirs)).byId.get("cursor")!;
+		expect(shrunk.totals.totalTokens).toBe(1300);
+		expect(shrunk.sessions).toBe(3);
+		expect((await scan(dirs)).byId.get("cursor")!.totals.totalTokens).toBe(1600);
 	});
 
 	it("restores records from *.corrupt when the store file is damaged (never deletes history)", async () => {
