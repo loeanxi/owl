@@ -1,6 +1,7 @@
 import type { BridgeClient } from "../../bridge/client.ts";
+import { isResearchDiagnosis, RESEARCH_DIAGNOSIS_ENTRY } from "../../../../../packages/coding-agent/src/core/research/diagnosis.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
-import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchMode, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
+import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
 import { normPath, samePath } from "../../utils/paths.ts";
 import { t } from "../../i18n/index.ts";
@@ -11,11 +12,13 @@ type ResearchImage = { type: "image"; data: string; mimeType: string };
 type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent"> & Partial<Pick<BridgeClient, "watchSessionEvents">>;
 type ResearchStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export type ResearchPreferences = { model: string; thinkingLevel: string; approvalMode: ApprovalMode; mode: ResearchMode };
+export type ResearchPreferences = { model: string; thinkingLevel: string; approvalMode: ApprovalMode; agentPreset?: string };
 export type ResearchSessionState = ResearchPreferences & {
 	sessionId?: string;
+	sessionPreset?: string;
 	entries: ChatEntry[];
 	results: ResearchResult[];
+	diagnosis?: ResearchDiagnosis;
 	running: boolean;
 	busy: boolean;
 	ready: boolean;
@@ -43,6 +46,14 @@ export function eventsAfterSnapshot(snapshot: SessionSnapshotPayload, events: Se
 	return events.slice(covered + 1);
 }
 
+function researchDiagnosisFromEvent(event: unknown, sessionId: string | undefined): ResearchDiagnosis | undefined {
+	if (!event || typeof event !== "object") return undefined;
+	const payload = event as { type?: string; entry?: { type?: string; customType?: string; data?: unknown } };
+	const entry = payload.entry;
+	if (!sessionId || payload.type !== "entry_appended" || entry?.type !== "custom" || entry.customType !== RESEARCH_DIAGNOSIS_ENTRY) return undefined;
+	return isResearchDiagnosis(entry.data, sessionId) ? entry.data : undefined;
+}
+
 /** Owns one project's research thread and rejects stale asynchronous responses. */
 export class ResearchSessionController {
 	private state: ResearchSessionState;
@@ -59,6 +70,8 @@ export class ResearchSessionController {
 	private replayEvents: ServerEventMessage[] = [];
 	private runRevision = 0;
 	private settingsRevision = 0;
+	private defaultAgentPreset?: string;
+	private disabledPresetIds = new Set(["pi"]);
 	private reconcileTimer?: ReturnType<typeof setTimeout>;
 
 	constructor(client: ResearchBridge, storage: ResearchStorage, cwd: string, defaults: ResearchPreferences) {
@@ -66,7 +79,8 @@ export class ResearchSessionController {
 		this.sessionWatch = new SessionWatch(client);
 		this.storage = storage;
 		this.cwd = cwd;
-		let preferences = defaults;
+		this.defaultAgentPreset = defaults.agentPreset;
+		let preferences: ResearchPreferences = { model: defaults.model, thinkingLevel: defaults.thinkingLevel, approvalMode: defaults.approvalMode };
 		try {
 			const saved: unknown = JSON.parse(storage.getItem(`${researchSessionKey(cwd)}.preferences`) ?? "null");
 			if (saved && typeof saved === "object") {
@@ -75,7 +89,7 @@ export class ResearchSessionController {
 					model: typeof value.model === "string" ? value.model : defaults.model,
 					thinkingLevel: typeof value.thinkingLevel === "string" ? value.thinkingLevel : defaults.thinkingLevel,
 					approvalMode: ["confirm", "plan", "auto"].includes(String(value.approvalMode)) ? value.approvalMode as ApprovalMode : defaults.approvalMode,
-					mode: ["auto", "crawl", "web", "binary", "model", "osint"].includes(String(value.mode)) ? value.mode as ResearchMode : "auto",
+					...(typeof value.agentPreset === "string" && value.agentPreset ? { agentPreset: value.agentPreset } : {}),
 				};
 			}
 		} catch { /* Storage can be unavailable in restricted webviews. */ }
@@ -117,8 +131,17 @@ export class ResearchSessionController {
 	}
 
 	private persistPreferences(): void {
-		const { model, thinkingLevel, approvalMode, mode } = this.state;
-		try { this.storage.setItem(`${researchSessionKey(this.cwd)}.preferences`, JSON.stringify({ model, thinkingLevel, approvalMode, mode })); } catch { /* In-memory use remains available. */ }
+		const { model, thinkingLevel, approvalMode, agentPreset } = this.state;
+		try { this.storage.setItem(`${researchSessionKey(this.cwd)}.preferences`, JSON.stringify({ model, thinkingLevel, approvalMode, agentPreset })); } catch { /* In-memory use remains available. */ }
+	}
+
+	setDefaultAgentPreset(agentPreset: string, disabledPresetIds: readonly string[] = []): void {
+		this.disabledPresetIds = new Set(["pi", ...disabledPresetIds]);
+		this.defaultAgentPreset = this.disabledPresetIds.has(agentPreset) ? "standard" : agentPreset;
+		if (this.state.agentPreset && this.disabledPresetIds.has(this.state.agentPreset)) {
+			this.update({ agentPreset: undefined });
+			this.persistPreferences();
+		}
 	}
 
 	setConnected(connected: boolean): void {
@@ -140,9 +163,12 @@ export class ResearchSessionController {
 			results: mergeResearchResults(this.state.results, researchResultsFromEvent(message.event)),
 			retryStatus: applyRetryEvent(this.state.retryStatus, message),
 		};
+		const diagnosis = researchDiagnosisFromEvent(message.event, this.state.sessionId);
+		if (diagnosis) patch.diagnosis = diagnosis;
 		if (type === "agent_start" || type === "agent_settled") {
 			this.runRevision++;
 			patch.running = type === "agent_start";
+			if (type === "agent_start") patch.diagnosis = undefined;
 			if (type === "agent_settled") {
 				patch.busy = false;
 				void this.refreshStats();
@@ -190,11 +216,13 @@ export class ResearchSessionController {
 			if (snapshot.sessionId !== saved || !samePath(snapshot.cwd, this.cwd) || !snapshot.researchMode || !Array.isArray(snapshot.messages)) throw new Error(researchText("wrongWorkspace"));
 			let entries = rebuild(snapshot.messages as Record<string, unknown>[], snapshot.messageEntryIds);
 			let results = publishedResults(snapshot.messages);
+			let diagnosis = isResearchDiagnosis(snapshot.researchDiagnosis, saved) ? snapshot.researchDiagnosis : undefined;
 			for (const message of eventsAfterSnapshot(snapshot, this.replayEvents)) {
 				entries = applyEvent(entries, message);
 				results = mergeResearchResults(results, researchResultsFromEvent(message.event));
+				diagnosis = (message.event as { type?: string })?.type === "agent_start" ? undefined : researchDiagnosisFromEvent(message.event, saved) ?? diagnosis;
 			}
-			this.update({ entries, results, mode: snapshot.researchMode, ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
+			this.update({ entries, results, diagnosis, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
 			this.persistPreferences();
 			await this.reconcileRunning(epoch);
 			await this.refreshStats();
@@ -235,25 +263,28 @@ export class ResearchSessionController {
 			let sessionId = this.state.sessionId;
 			if (!sessionId) {
 				const slash = this.state.model.indexOf("/");
+				const selectedPreset = this.state.agentPreset ?? this.defaultAgentPreset;
+				const agentPreset = selectedPreset && this.disabledPresetIds.has(selectedPreset) ? "standard" : selectedPreset;
 				const response = await this.client.request<SessionSnapshotPayload>({
-					type: "session.create", cwd: this.cwd, approvalMode: this.state.approvalMode, thinkingLevel: this.state.thinkingLevel, researchMode: this.state.mode,
+					type: "session.create", cwd: this.cwd, approvalMode: this.state.approvalMode, thinkingLevel: this.state.thinkingLevel, researchMode: "auto",
 					...(slash > 0 ? { provider: this.state.model.slice(0, slash), model: this.state.model.slice(slash + 1) } : {}),
+					...(agentPreset ? { agentPreset } : {}),
 				});
 				if (!this.isCurrent(epoch)) return false;
 				if (!response.ok || !response.result?.sessionId) throw new Error(response.error ?? researchText("createFailed"));
 				sessionId = response.result.sessionId;
-				this.update({ sessionId });
+				this.update({ sessionId, sessionPreset: response.result.agentPreset ?? "standard" });
 				try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* In-memory binding is sufficient for the current run. */ }
 				void this.refreshStats();
 			}
 			optimisticEntry = { kind: "user", text, ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) };
 			submittedRunRevision = this.runRevision;
-			this.update({ entries: [...this.state.entries, optimisticEntry], running: true, retryStatus: null });
+			this.update({ entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, running: true, retryStatus: null });
 			const response = await this.client.request({
 				type: "session.prompt",
 				sessionId,
 				message: text,
-				researchMode: this.state.mode,
+				researchMode: "auto",
 				...(images?.length ? { images } : {}),
 				...(attachedPaths?.length ? { attachedPaths } : {}),
 			});
@@ -286,12 +317,13 @@ export class ResearchSessionController {
 		}
 	}
 
+	/** 任务运行中也允许新开对话：旧会话在后台继续跑，侧栏可切回（resume）续看。 */
 	newThread(): boolean {
-		if (this.state.running || this.state.busy || !this.state.connected) return false;
+		if (!this.state.connected) return false;
 		this.epoch++;
 		clearTimeout(this.reconcileTimer);
 		try { this.storage.removeItem(researchSessionKey(this.cwd)); } catch { /* Reset in-memory state even when storage is unavailable. */ }
-		this.update({ sessionId: undefined, entries: [], results: [], running: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, running: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
 		return true;
 	}
 
@@ -303,7 +335,7 @@ export class ResearchSessionController {
 		this.restoring = false;
 		this.replayEvents = [];
 		try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* The requested thread remains available in memory. */ }
-		this.update({ sessionId, entries: [], results: [], stats: undefined, ready: false, busy: false, running: false, error: undefined, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, stats: undefined, ready: false, busy: false, running: false, error: undefined, retryStatus: null, failedPrompt: undefined });
 		await this.attach();
 	}
 
@@ -311,9 +343,9 @@ export class ResearchSessionController {
 
 	async executeBuiltin(name: string, args: string): Promise<boolean> {
 		if (!["new", "model", "thinking", "compact"].includes(name)) return false;
+		if (name === "new") { if (this.state.connected) this.newThread(); return true; }
 		if (this.state.running || this.state.busy || !this.state.ready || !this.state.connected) return true;
-		if (name === "new") this.newThread();
-		else if (name === "model") {
+		if (name === "model") {
 			if (args.trim().includes("/")) await this.setModel(args.trim());
 			else this.update({ error: t("app.modelUsage") });
 		} else if (name === "thinking") {
@@ -323,12 +355,6 @@ export class ResearchSessionController {
 			await this.setting({ type: "session.compact", sessionId: this.state.sessionId }, {});
 		}
 		return true;
-	}
-
-	setMode(mode: ResearchMode): void {
-		if (this.state.running || this.state.busy) return;
-		this.update({ mode });
-		this.persistPreferences();
 	}
 
 	private async setting(request: DesktopClientRequestWithoutId, patch: Partial<ResearchPreferences>): Promise<void> {
@@ -366,5 +392,29 @@ export class ResearchSessionController {
 		if (this.state.running || this.state.busy) return;
 		if (!this.state.sessionId) { this.update({ approvalMode }); this.persistPreferences(); return; }
 		await this.setting({ type: "session.setApprovalMode", sessionId: this.state.sessionId, approvalMode }, { approvalMode });
+	}
+
+	async setAgentPreset(agentPreset: string): Promise<void> {
+		if (!agentPreset || !this.state.connected || !this.state.ready || this.state.busy) return;
+		if (this.disabledPresetIds.has(agentPreset)) { this.update({ error: researchText("piPresetUnavailable") }); return; }
+		const sessionId = this.state.sessionId;
+		if (!sessionId || this.state.entries.length > 0) {
+			this.update({ agentPreset });
+			this.persistPreferences();
+			return;
+		}
+		if (this.state.running) return;
+		const epoch = this.epoch;
+		this.settingsRevision++;
+		this.update({ busy: true, error: undefined });
+		try {
+			const response = await this.client.request<{ agentPreset: string }>({ type: "session.setPreset", sessionId, agentPreset });
+			if (!this.isCurrent(epoch, sessionId)) return;
+			if (!response.ok) throw new Error(response.error ?? researchText("settingsFailed"));
+			this.update({ agentPreset, sessionPreset: response.result?.agentPreset ?? agentPreset });
+			this.persistPreferences();
+		} catch (error) {
+			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error) });
+		} finally { if (this.isCurrent(epoch, sessionId)) this.update({ busy: false }); }
 	}
 }

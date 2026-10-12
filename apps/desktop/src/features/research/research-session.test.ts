@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DesktopClientRequestWithoutId, ResearchResult, ServerEventMessage, SessionStatsResult } from "../../bridge/protocol.ts";
+import type { DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionStatsResult } from "../../bridge/protocol.ts";
 import { ResearchSessionController, researchSessionKey } from "./research-session.ts";
 import { publishedResults, researchCsv, researchResultOf, safeSourceUrl } from "./research-results.ts";
 
@@ -25,9 +25,10 @@ class MemoryStorage {
 	removeItem(key: string): void { this.values.delete(key); }
 }
 
-const defaults = { model: "fixture/model", thinkingLevel: "high", approvalMode: "confirm" as const, mode: "auto" as const };
+const defaults = { model: "fixture/model", thinkingLevel: "high", approvalMode: "confirm" as const };
 const stats: SessionStatsResult = { model: { provider: "fixture", id: "model" }, thinkingLevel: "high", availableThinkingLevels: ["off", "high"], supportsThinking: true };
 const published: ResearchResult = { id: "result-1", createdAt: "2026-10-04T00:00:00Z", mode: "crawl", status: "sample", title: "真实样本", summary: "来自工具输出", columns: [{ key: "name", label: "名称" }], rows: [{ name: "记录" }], sources: [{ id: "source-1", title: "Example", url: "https://example.org" }], findings: [{ kind: "fact", text: "发现记录", sourceIds: ["source-1"] }] };
+const diagnosis: ResearchDiagnosis = { id: "11111111-1111-4111-8111-111111111111", version: 1, createdAt: "2026-10-12T00:00:00.000Z", ownerSessionId: "research-1", status: "textual_refusal_candidate", summary: "文本提示需要核对；没有明确审核标记。", evidence: [{ source: "agent", text: "我无法帮助提供该分析" }] };
 
 function fresh(respond?: FakeBridge["respond"]): { bridge: FakeBridge; store: MemoryStorage; controller: ResearchSessionController } {
 	const bridge = new FakeBridge(respond ?? ((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : request.type === "session.stats" ? { ok: true, result: stats } : { ok: true }));
@@ -37,6 +38,110 @@ function fresh(respond?: FakeBridge["respond"]): { bridge: FakeBridge; store: Me
 	controller.setConnected(true);
 	return { bridge, store, controller };
 }
+
+test("research forwards the chosen Home preset and displays the authoritative creation binding", async () => {
+	const { controller, bridge } = fresh((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1", agentPreset: "ptc" } } : { ok: true });
+	try {
+		await controller.attach();
+		await controller.setAgentPreset("ptc");
+		assert.equal(await controller.send("整理资料"), true);
+		const created = bridge.requests.find((request) => request.type === "session.create");
+		assert.equal(created?.type === "session.create" && created.agentPreset, "ptc");
+		assert.equal(controller.getSnapshot().sessionPreset, "ptc");
+	} finally { controller.dispose(); }
+});
+
+test("restoring research displays its bound preset while later choices apply to the next conversation", async () => {
+	const { controller, bridge, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", agentPreset: "minimal", messages: [{ role: "user", content: "已发送的问题" }], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.equal(controller.getSnapshot().sessionPreset, "minimal");
+		await controller.setAgentPreset("cordis");
+		assert.equal(controller.getSnapshot().sessionPreset, "minimal");
+		assert.equal(controller.getSnapshot().agentPreset, "cordis");
+		assert.equal(bridge.requests.some((request) => request.type === "session.setPreset"), false);
+		assert.equal(controller.newThread(), true);
+		assert.equal(controller.getSnapshot().sessionPreset, undefined);
+		assert.equal(controller.getSnapshot().agentPreset, "cordis");
+		const restored = new ResearchSessionController(bridge, store, "D:/owl", defaults);
+		assert.equal(restored.getSnapshot().agentPreset, "cordis");
+		restored.dispose();
+	} finally { controller.dispose(); }
+});
+
+test("an empty research session changes its actual preset only after the bridge accepts", async () => {
+	let rejected = false;
+	const { controller, bridge, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", agentPreset: "standard", messages: [], messageEntryIds: [] } } : request.type === "session.setPreset" ? rejected ? { ok: false, error: "preset rejected" } : { ok: true, result: { agentPreset: "ptc" } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		await controller.setAgentPreset("ptc");
+		assert.equal(controller.getSnapshot().sessionPreset, "ptc");
+		assert.ok(bridge.requests.some((request) => request.type === "session.setPreset" && request.agentPreset === "ptc"));
+		rejected = true;
+		await controller.setAgentPreset("minimal");
+		assert.equal(controller.getSnapshot().sessionPreset, "ptc");
+		assert.equal(controller.getSnapshot().agentPreset, "ptc");
+		assert.equal(controller.getSnapshot().error, "preset rejected");
+	} finally { controller.dispose(); }
+});
+
+test("a cached preset that now uses the Pi runtime falls back when the Home roster arrives", async () => {
+	const { controller, bridge, store } = fresh();
+	store.setItem(`${researchSessionKey("D:/owl")}.preferences`, JSON.stringify({ ...defaults, agentPreset: "custom-pi" }));
+	const restored = new ResearchSessionController(bridge, store, "D:/owl", { ...defaults, agentPreset: "standard" });
+	restored.start(); restored.setConnected(true);
+	try {
+		await restored.attach();
+		restored.setDefaultAgentPreset("standard", ["custom-pi"]);
+		assert.equal(restored.getSnapshot().agentPreset, undefined);
+		assert.equal(await restored.send("整理资料"), true);
+		const created = bridge.requests.find((request) => request.type === "session.create");
+		assert.equal(created?.type === "session.create" && created.agentPreset, "standard");
+	} finally { restored.dispose(); controller.dispose(); }
+});
+
+test("legacy category preferences are ignored while research model, thinking and approval settings survive", async () => {
+	const store = new MemoryStorage();
+	const preferencesKey = `${researchSessionKey("D:/owl")}.preferences`;
+	store.setItem(preferencesKey, JSON.stringify({ model: "saved/selected", thinkingLevel: "off", approvalMode: "plan", mode: "binary" }));
+	const bridge = new FakeBridge((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : { ok: true });
+	const controller = new ResearchSessionController(bridge, store, "D:/owl", defaults);
+	controller.start(); controller.setConnected(true);
+	try {
+		assert.equal(controller.getSnapshot().model, "saved/selected");
+		assert.equal(controller.getSnapshot().thinkingLevel, "off");
+		assert.equal(controller.getSnapshot().approvalMode, "plan");
+		assert.equal(Object.hasOwn(controller.getSnapshot(), "mode"), false);
+		await controller.attach();
+		await controller.setThinkingLevel("high");
+		assert.deepEqual(JSON.parse(store.getItem(preferencesKey) ?? "null"), { model: "saved/selected", thinkingLevel: "high", approvalMode: "plan" });
+		assert.equal(await controller.send("根据网址和文件组合分析"), true);
+		assert.deepEqual(bridge.requests.find((request) => request.type === "session.create"), { type: "session.create", cwd: "D:/owl", approvalMode: "plan", thinkingLevel: "high", researchMode: "auto", provider: "saved", model: "selected" });
+		assert.equal(bridge.requests.find((request) => request.type === "session.prompt")?.type === "session.prompt" && bridge.requests.find((request) => request.type === "session.prompt")?.researchMode, "auto");
+	} finally { controller.dispose(); }
+});
+
+test("old crawl and web research threads retain result evidence and continue with automatic routing", async () => {
+	for (const researchMode of ["crawl", "web"] as const) {
+		const store = new MemoryStorage();
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		const historical = { ...published, mode: researchMode };
+		const bridge = new FakeBridge((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode, messages: [{ role: "toolResult", toolName: "research_publish", details: { researchResult: historical } }], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : request.type === "session.stats" ? { ok: true, result: stats } : { ok: true });
+		const controller = new ResearchSessionController(bridge, store, "D:/owl", defaults);
+		controller.start(); controller.setConnected(true);
+		try {
+			await controller.attach();
+			assert.deepEqual(controller.getSnapshot().results, [historical]);
+			assert.equal(Object.hasOwn(controller.getSnapshot(), "mode"), false);
+			assert.equal(await controller.send("结合程序和网页继续分析"), true);
+			assert.deepEqual(bridge.requests.find((request) => request.type === "session.prompt"), { type: "session.prompt", sessionId: "research-1", message: "结合程序和网页继续分析", researchMode: "auto" });
+			assert.equal(bridge.requests.some((request) => request.type === "session.create"), false);
+			assert.deepEqual(controller.getSnapshot().results, [historical]);
+		} finally { controller.dispose(); }
+	}
+});
 
 test("rapid submissions create a single research thread with real settings and image data", async () => {
 	let releaseCreate: ((response: Response) => void) | undefined;
@@ -53,7 +158,6 @@ test("rapid submissions create a single research thread with real settings and i
 		assert.equal(store.getItem(researchSessionKey("d:\\owl\\")), "research-1");
 		assert.deepEqual(bridge.requests.find((request) => request.type === "session.create"), { type: "session.create", cwd: "D:/owl", approvalMode: "confirm", thinkingLevel: "high", researchMode: "auto", provider: "fixture", model: "model" });
 		assert.deepEqual(bridge.requests.find((request) => request.type === "session.prompt"), { type: "session.prompt", sessionId: "research-1", message: "整理资料", researchMode: "auto", images });
-		assert.equal(controller.newThread(), false);
 	} finally { controller.dispose(); }
 });
 
@@ -81,7 +185,41 @@ test("foreign session events cannot pollute research, streamed publish survives 
 	} finally { controller.dispose(); }
 });
 
-test("restore preserves real model, running state, research direction and persisted evidence", async () => {
+test("a new research chat can start while the previous thread keeps running", async () => {
+	let created = 0;
+	const store = new MemoryStorage();
+	const bridge = new FakeBridge((request) => {
+		if (request.type === "session.create") { created++; return { ok: true, result: { sessionId: `research-${created}` } }; }
+		if (request.type === "session.resume") return { ok: true, result: { sessionId: request.sessionId, cwd: "D:/owl", researchMode: "auto", messages: [], messageEntryIds: [] } };
+		if (request.type === "session.running") return { ok: true, result: { running: ["research-1"] } };
+		if (request.type === "session.stats") return { ok: true, result: stats };
+		return { ok: true };
+	});
+	const controller = new ResearchSessionController(bridge, store, "D:/owl", defaults);
+	controller.start(); controller.setConnected(true);
+	try {
+		await controller.attach();
+		assert.equal(await controller.send("长时间逆向"), true);
+		assert.equal(controller.getSnapshot().sessionId, "research-1");
+		assert.equal(controller.getSnapshot().running, true);
+		assert.equal(controller.newThread(), true);
+		assert.equal(controller.getSnapshot().sessionId, undefined);
+		assert.equal(controller.getSnapshot().running, false);
+		assert.equal(store.getItem(researchSessionKey("d:\\owl\\")), null);
+		bridge.emit("research-1", { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "旧线程仍在产出" } });
+		assert.equal(controller.getSnapshot().entries.length, 0);
+		assert.equal(await controller.send("换个话题"), true);
+		assert.equal(controller.getSnapshot().sessionId, "research-2");
+		assert.equal(bridge.requests.filter((request) => request.type === "session.create").length, 2);
+		// 切回仍在后台运行的旧会话：恢复绑定并带回运行状态。
+		await controller.resume("research-1");
+		assert.equal(controller.getSnapshot().sessionId, "research-1");
+		assert.equal(controller.getSnapshot().running, true);
+		assert.equal(store.getItem(researchSessionKey("d:\\owl\\")), "research-1");
+	} finally { controller.dispose(); }
+});
+
+test("restore preserves real model, running state and historical evidence without restoring the old category", async () => {
 	const store = new MemoryStorage();
 	store.setItem(researchSessionKey("D:/owl"), "research-1");
 	const bridge = new FakeBridge((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "d:\\OWL", researchMode: "crawl", approvalMode: "plan", messages: [{ role: "toolResult", toolName: "research_publish", details: { researchResult: published } }], messageEntryIds: [], header: {} } } : request.type === "session.running" ? { ok: true, result: { running: ["research-1"] } } : { ok: true, result: { ...stats, model: { provider: "restored", id: "actual" }, thinkingLevel: "off" } });
@@ -91,11 +229,13 @@ test("restore preserves real model, running state, research direction and persis
 		await controller.attach();
 		assert.equal(controller.getSnapshot().model, "restored/actual");
 		assert.equal(controller.getSnapshot().thinkingLevel, "off");
-		assert.equal(controller.getSnapshot().mode, "crawl");
+		assert.equal(Object.hasOwn(controller.getSnapshot(), "mode"), false);
 		assert.equal(controller.getSnapshot().approvalMode, "plan");
 		assert.equal(controller.getSnapshot().running, true);
 		assert.equal(controller.getSnapshot().results.length, 1);
-		assert.equal(controller.newThread(), false);
+		assert.equal(controller.getSnapshot().results[0].mode, "crawl");
+		// 恢复出的运行中会话也允许切去新对话：旧任务留在后台，不立即创建新会话。
+		assert.equal(controller.newThread(), true);
 		assert.equal(bridge.requests.some((request) => request.type === "session.create"), false);
 	} finally { controller.dispose(); }
 });
@@ -152,7 +292,7 @@ test("changing the restored thread ignores late responses and prohibits plain-ch
 		resolveOld({ ok: true, result: { sessionId: "old", cwd: "D:/owl", messages: [], messageEntryIds: [] } });
 		await old;
 		assert.equal(controller.getSnapshot().sessionId, "new");
-		assert.equal(controller.getSnapshot().mode, "web");
+		assert.equal(Object.hasOwn(controller.getSnapshot(), "mode"), false);
 	} finally { controller.dispose(); }
 });
 
@@ -190,15 +330,18 @@ test("a rejected prompt retains attachments for retry without leaving a false us
 	try {
 		await controller.attach();
 		const images = [{ type: "image" as const, data: "attached", mimeType: "image/png" }];
-		assert.equal(await controller.send("图片资料", images), false);
+		const attachedPaths = ["D:/owl/selected.exe"];
+		assert.equal(await controller.send("图片资料", images, attachedPaths), false);
 		assert.equal(controller.getSnapshot().entries.length, 0);
 		assert.deepEqual(controller.getSnapshot().failedPrompt?.images, images);
+		assert.deepEqual(controller.getSnapshot().failedPrompt?.attachedPaths, attachedPaths);
 		rejectPrompt = false;
 		const failed = controller.getSnapshot().failedPrompt;
 		assert.ok(failed);
-		assert.equal(await controller.send(failed.text, failed.images), true);
+		assert.equal(await controller.send(failed.text, failed.images, failed.attachedPaths), true);
 		assert.equal(controller.getSnapshot().entries.length, 1);
 		assert.deepEqual(bridge.requests.findLast((request) => request.type === "session.prompt")?.type === "session.prompt" && bridge.requests.findLast((request) => request.type === "session.prompt")?.images, images);
+		assert.deepEqual(bridge.requests.findLast((request) => request.type === "session.prompt")?.type === "session.prompt" && bridge.requests.findLast((request) => request.type === "session.prompt")?.attachedPaths, attachedPaths);
 	} finally { controller.dispose(); }
 });
 
@@ -254,4 +397,76 @@ test("publish validation refuses fake prose, dangling evidence and malformed cel
 	assert.ok(csv.includes('"\' \t=WEBSERVICE(""url"")"'));
 	assert.ok(csv.includes('"record,""quoted"""'));
 	assert.ok(csv.endsWith('"-42"'));
+});
+
+test("research restores a session-owned diagnosis without inferring refusal from ordinary messages", async () => {
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", researchDiagnosis: diagnosis, messages: [{ role: "assistant", content: [{ type: "text", text: "我无法帮助提供该分析" }] }], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.deepEqual(controller.getSnapshot().diagnosis, diagnosis);
+		assert.equal(controller.getSnapshot().diagnosis?.status, "textual_refusal_candidate");
+		assert.equal(controller.newThread(), true);
+		assert.equal(controller.getSnapshot().diagnosis, undefined);
+	} finally { controller.dispose(); }
+});
+
+test("research consumes only well-formed diagnostic custom entries owned by this session", async () => {
+	const { controller, bridge } = fresh();
+	try {
+		await controller.attach(); await controller.send("分析自己的源码");
+		const append = (data: unknown): Record<string, unknown> => ({ type: "entry_appended", entry: { type: "custom", customType: "owl-research-diagnosis", data } });
+		bridge.emit("ordinary-chat", append(diagnosis));
+		bridge.emit("research-1", append({ ...diagnosis, ownerSessionId: "ordinary-chat" }));
+		bridge.emit("research-1", append({ ...diagnosis, evidence: [{ source: "tool", text: { invented: true } }] }));
+		bridge.emit("research-1", append({ ...diagnosis, status: "complete" }));
+		assert.equal(controller.getSnapshot().diagnosis, undefined);
+		bridge.emit("research-1", append(diagnosis));
+		bridge.emit("research-1", { type: "agent_settled" });
+		assert.deepEqual(controller.getSnapshot().diagnosis, diagnosis);
+		assert.equal(controller.getSnapshot().entries.some((entry) => entry.kind === "assistant"), false);
+	} finally { controller.dispose(); }
+});
+
+test("research clears the prior turn diagnosis when sending or starting another turn", async () => {
+	const { controller, bridge } = fresh();
+	try {
+		await controller.attach(); await controller.send("第一轮");
+		const append = { type: "entry_appended", entry: { type: "custom", customType: "owl-research-diagnosis", data: diagnosis } };
+		bridge.emit("research-1", append); bridge.emit("research-1", { type: "agent_settled" });
+		assert.ok(controller.getSnapshot().diagnosis);
+		assert.equal(await controller.send("第二轮正常研究"), true);
+		assert.equal(controller.getSnapshot().diagnosis, undefined);
+		bridge.emit("research-1", append);
+		bridge.emit("research-1", { type: "agent_start" });
+		assert.equal(controller.getSnapshot().diagnosis, undefined);
+		bridge.emit("research-1", { type: "entry_appended", entry: { type: "custom", customType: "owl-research-diagnosis", data: { ...diagnosis, status: "unverified" } } });
+		bridge.emit("research-1", { type: "agent_settled" });
+		assert.equal(controller.getSnapshot().diagnosis?.status, "unverified");
+	} finally { controller.dispose(); }
+});
+
+test("reconnect keeps a diagnostic event newer than the atomic snapshot", async () => {
+	const cancelled: ResearchDiagnosis = { ...diagnosis, id: "22222222-2222-4222-8222-222222222222", status: "cancelled", summary: "本轮已停止", evidence: [{ source: "provider", text: "Operation aborted", rawStopReason: "aborted" }] };
+	const { controller, bridge, store } = fresh((request) => {
+		if (request.type === "session.resume") {
+			bridge.emit("research-1", { type: "entry_appended", entry: { type: "custom", customType: "owl-research-diagnosis", data: cancelled } });
+			return { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", researchDiagnosis: diagnosis, messages: [], messageEntryIds: [] } };
+		}
+		return request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats };
+	});
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.deepEqual(controller.getSnapshot().diagnosis, cancelled);
+	} finally { controller.dispose(); }
+});
+
+test("restoring plain refusal prose alone never creates a confirmed upstream refusal", async () => {
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", messages: [{ role: "assistant", content: [{ type: "text", text: "我无法帮助提供该分析" }] }], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.equal(controller.getSnapshot().diagnosis, undefined);
+	} finally { controller.dispose(); }
 });

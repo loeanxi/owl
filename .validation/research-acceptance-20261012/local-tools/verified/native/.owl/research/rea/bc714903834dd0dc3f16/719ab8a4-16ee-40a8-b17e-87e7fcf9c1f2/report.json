@@ -1,0 +1,49 @@
+{
+  "ownerSessionId": "acceptance-local-native",
+  "createdAt": "2026-10-11T22:00:47.343Z",
+  "action": "native_function",
+  "operation": "analyze_function",
+  "target": {
+    "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\native\\return42.exe",
+    "kind": "file",
+    "bytes": 1024,
+    "sha256": "30d35b06ab387cbfed984857742edcd800ff14893b4a088d8344c46111daebfb"
+  },
+  "evidenceId": "ev_be83efee5ca781c08b042aef8a920696034907ef657333b1caef9d03a92823f6",
+  "targetExecuted": false,
+  "status": "partial",
+  "artifacts": [
+    {
+      "kind": "完整 MCP 响应",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\native\\.owl\\research\\rea\\bc714903834dd0dc3f16\\719ab8a4-16ee-40a8-b17e-87e7fcf9c1f2\\response.json",
+      "bytes": 44640,
+      "sha256": "d5959069e52be259e7f6c0019d09ae405b9f3b5e99d1f96a7457721ccfaa9066"
+    },
+    {
+      "kind": "分析观测",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\native\\.owl\\research\\rea\\bc714903834dd0dc3f16\\719ab8a4-16ee-40a8-b17e-87e7fcf9c1f2\\analysis.json",
+      "bytes": 9082,
+      "sha256": "ecc272d21fd4a03401a51b896084fd9a30e5cc1e12874247ae8c9b3e04fdd5a2"
+    },
+    {
+      "kind": "完整会话证据包",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\native\\.owl\\research\\rea\\bc714903834dd0dc3f16\\719ab8a4-16ee-40a8-b17e-87e7fcf9c1f2\\session-evidence.json",
+      "bytes": 17039,
+      "sha256": "5fb33705f14ae260c3b9f4c124a7bd5bfe968daa0989c2622193c2b5d667795b"
+    }
+  ],
+  "warnings": [
+    "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+    "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+    "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+    "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+    "References cover the complete Ghidra function-body AddressSet and exact entry. Dossier incoming edges omit sources owned by that function; procedure_references also retains those internal edges.",
+    "The dossier combines Ghidra FunctionManager, Listing, ReferenceManager, BasicBlockModel, and decompiler observations; provider-specific pseudocode and assembly are not cross-provider text invariants.",
+    "Resolved reference metadata identifies computed, indirect, external, call, jump, and data edges; unresolved targetless flows remain unknown, and function classifications distinguish thunks and externals.",
+    "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+    "The Java bridge serializes one function request per Program and lets each decompilation run until it completes or the caller cancels.",
+    "Windows Ghidra P0 accepts approved native x86 and x86-64 PE applications and DLLs; managed, hostile, sensitive, and mutable-path targets are unsupported.",
+    "The Windows bridge uses authenticated IPv4 loopback because Node path-based IPC does not expose Java AF_UNIX sockets; the endpoint file contains no bearer token.",
+    "Windows sessions require the matching packaged Windows x64 native addon, local NTFS targets and runtimes, and Windows 10 or later. Native handles enforce path admission, private DACLs, and Job Object ownership automatically."
+  ]
+}

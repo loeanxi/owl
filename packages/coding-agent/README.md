@@ -43,6 +43,11 @@ For a built-in AI provider, run `/login` inside Pi to connect a subscription or 
 
 See the [documentation](docs/index.md) for full setup and usage instructions.
 
+## Documentation
+
+- [Pi documentation](docs/index.md): setup, usage, configuration, and extension references.
+- [REA in the research workbench](docs/research-rea.md): pinned REA 6.4.0 setup, static analysis, isolated sessions, retained Evidence, and exports.
+
 ## Development
 
 Clone the repository, install its dependencies, and run Pi from source:

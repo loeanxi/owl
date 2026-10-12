@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import type { ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchMode, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
+import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
 import { ChatStream, type ChatActivity } from "../../components/ChatStream.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
 import type { ConversationView } from "../../components/ConversationHeader.tsx";
 import { conversationTitleOf } from "../../components/conversation-title.ts";
 import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
-import { Menu } from "../../components/Menu.tsx";
 import { QuestionDock } from "../../components/QuestionDock.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
@@ -18,6 +17,9 @@ import { setSessionFeed } from "../../sidebar/feed.ts";
 import { useResearchText, type ResearchText } from "./research-copy.ts";
 import { researchCsv, safeSourceUrl } from "./research-results.ts";
 import { ResearchSessionController } from "./research-session.ts";
+import { ResearchPromptSettings } from "./ResearchPromptSettings.tsx";
+import { ResearchPromptController } from "./research-prompts.ts";
+import { ResearchDiagnosisNotice } from "./ResearchDiagnosisNotice.tsx";
 import "./research.css";
 
 export type ResearchPageProps = {
@@ -29,6 +31,9 @@ export type ResearchPageProps = {
 	defaultModel: string;
 	defaultThinkingLevel: string;
 	defaultApprovalMode: ApprovalMode;
+	agentPresets?: AgentPresetDefinition[];
+	defaultPresetId?: string;
+	defaultAgentPreset?: string;
 	projects?: string[];
 	onSwitchProject?: (path: string) => void;
 	onSessionIdChange?: (sessionId: string | undefined) => void;
@@ -49,7 +54,7 @@ export type ResearchPageProps = {
 	onTitleChange?: (title: string) => void;
 };
 
-const modeKeys = { auto: "modeAuto", crawl: "modeCrawl", web: "modeWeb", binary: "modeBinary", model: "modeModel", osint: "modeOsint" } as const;
+const resultMethodKeys = { crawl: "methodCrawl", web: "methodWeb", binary: "methodBinary", model: "methodModel", osint: "methodOsint" } as const;
 
 function ResearchMark(): React.JSX.Element {
 	return <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m10 2 2.2 5.8L18 10l-5.8 2.2L10 18l-2.2-5.8L2 10l5.8-2.2L10 2Z" /></svg>;
@@ -77,7 +82,7 @@ function ResultPanel({ result, sourcesOpen, onSources, onClose, onDraft, onOpenS
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
 	};
 	return <aside className="research-result-panel" aria-label={result.title}>
-		<header><div><span>{text(modeKeys[result.mode])} · {text(result.status)}</span><h2>{result.title}</h2></div><button type="button" aria-label={text("closeResults")} onClick={onClose}>×</button></header>
+		<header><div><span>{text(resultMethodKeys[result.mode])} · {text(result.status)}</span><h2>{result.title}</h2></div><button type="button" aria-label={text("closeResults")} onClick={onClose}>×</button></header>
 		<div className="research-result-body">
 			<p className="research-result-summary">{result.summary}</p>
 			<div className="research-result-actions research-export"><button type="button" onClick={() => download("json")}>{text("exportJson")}</button>{result.columns.length > 0 && <button type="button" onClick={() => download("csv")}>{text("exportCsv")}</button>}</div>
@@ -100,11 +105,19 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const { client, active, connected, cwd } = props;
 	const text = useResearchText();
 	const t = useT();
-	const controller = useMemo(() => new ResearchSessionController(client, localStorage, cwd, { model: props.defaultModel, thinkingLevel: props.defaultThinkingLevel, approvalMode: props.defaultApprovalMode, mode: "auto" }), [client, cwd]);
+	const disabledPresets = Object.fromEntries((props.agentPresets ?? []).filter((preset) => preset.runtime === "pi" || preset.id === "pi").map((preset) => [preset.id, text("piPresetUnavailable")]));
+	const homePreset = props.defaultAgentPreset || props.defaultPresetId || "standard";
+	const defaultPreset = homePreset === "pi" || Object.hasOwn(disabledPresets, homePreset) ? "standard" : homePreset;
+	const controller = useMemo(() => new ResearchSessionController(client, localStorage, cwd, { model: props.defaultModel, thinkingLevel: props.defaultThinkingLevel, approvalMode: props.defaultApprovalMode, agentPreset: defaultPreset }), [client, cwd]);
 	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+	const promptController = useMemo(() => new ResearchPromptController(client), [client]);
+	const promptState = useSyncExternalStore(promptController.subscribe, promptController.getSnapshot);
+	const stagedPreset = state.agentPreset ?? defaultPreset;
+	const selectedPreset = stagedPreset === "pi" || Object.hasOwn(disabledPresets, stagedPreset) ? defaultPreset : stagedPreset;
 	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
 	const [composerKey, setComposerKey] = useState(0);
 	const [selectedResultId, setSelectedResultId] = useState<string>();
+	const [promptsOpen, setPromptsOpen] = useState(false);
 	const [sourcesOpen, setSourcesOpen] = useState(false);
 	const [localError, setLocalError] = useState<string>();
 	const [todoPinVisible, setTodoPinVisible] = useState(false);
@@ -112,7 +125,9 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const draftSequence = useRef(0);
 	const newRequest = useRef(props.newConversationRequest);
 	const resumeRevision = useRef<string | undefined>(undefined);
+	const promptButton = useRef<HTMLButtonElement>(null);
 	const visibleResult = state.results.find((result) => result.id === selectedResultId);
+	const activePrompt = promptState.saved?.presets.find((preset) => preset.id === promptState.saved?.activePresetId);
 	const pendingQuestions = (props.questions ?? (props.question ? [props.question] : [])).filter((question) => question.sessionId === state.sessionId);
 	const activity: ChatActivity = !connected ? "disconnected" : props.waiting || pendingQuestions.length > 0 ? "waiting" : state.running ? "working" : "idle";
 	const owlPose = useSessionOwlPose(activity, state.entries);
@@ -120,6 +135,8 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	useEffect(() => { props.onTitleChange?.(title); }, [title, props.onTitleChange]);
 
 	useEffect(() => { controller.start(); return () => controller.dispose(); }, [controller]);
+	useEffect(() => { promptController.setConnected(connected); if (active && connected) void promptController.load(); }, [promptController, active, connected]);
+	useEffect(() => { controller.setDefaultAgentPreset(defaultPreset, Object.keys(disabledPresets)); }, [controller, defaultPreset, props.agentPresets]);
 	useEffect(() => { controller.setConnected(connected); if (active && connected) void controller.attach(); }, [controller, active, connected]);
 	useEffect(() => { props.onSessionIdChange?.(state.sessionId); }, [state.sessionId, props.onSessionIdChange]);
 	useEffect(() => {
@@ -132,8 +149,8 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	useEffect(() => {
 		if (!active || newRequest.current === props.newConversationRequest) return;
 		newRequest.current = props.newConversationRequest;
+		// 运行中也允许新开对话（旧任务留在后台），仅断线时新线程不可用（顶部已有断线提示）。
 		if (controller.newThread()) setComposerKey((key) => key + 1);
-		else setLocalError(text("newWhileRunning"));
 	}, [controller, active, props.newConversationRequest]);
 	useEffect(() => { setSelectedResultId(undefined); setLocalError(undefined); setDraftRequest(undefined); setComposerKey((key) => key + 1); }, [controller]);
 	useEffect(() => { if (props.sidebarOpen) setSelectedResultId(undefined); }, [props.sidebarOpen]);
@@ -146,11 +163,11 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 		return () => { cancelled = true; };
 	}, [client, cwd, state.sessionId, connected, active]);
 	useEffect(() => {
-		if (!visibleResult) return;
-		const escape = (event: KeyboardEvent): void => { if (event.key === "Escape") setSelectedResultId(undefined); };
+		if (!visibleResult && !promptsOpen) return;
+		const escape = (event: KeyboardEvent): void => { if (event.key === "Escape") { setSelectedResultId(undefined); if (promptsOpen) { setPromptsOpen(false); promptButton.current?.focus(); } } };
 		window.addEventListener("keydown", escape);
 		return () => window.removeEventListener("keydown", escape);
-	}, [visibleResult]);
+	}, [visibleResult, promptsOpen]);
 
 	const fillDraft = (value: string): void => { setDraftRequest({ id: ++draftSequence.current, text: value }); };
 	const newThread = (): void => { if (controller.newThread()) { setComposerKey((key) => key + 1); setSelectedResultId(undefined); setLocalError(undefined); } };
@@ -164,29 +181,31 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 			if (await controller.executeBuiltin(match[1], match[2] ?? "")) return;
 			return;
 		}
-		await controller.send(value, images);
+		await controller.send(value, images, attachedPaths);
 	};
 	const openSource = (url: string): void => {
 		void client.request({ type: "open.external", action: "url", target: url }).then((response) => { if (!response.ok) setLocalError(response.error ?? text("sourceFailed")); }).catch((error: unknown) => setLocalError(error instanceof Error ? error.message : String(error)));
 	};
-	const openResult = (id: string): void => { props.onOpenResults?.(); setSelectedResultId(id); setSourcesOpen(false); };
+	const openResult = (id: string): void => { props.onOpenResults?.(); setPromptsOpen(false); setSelectedResultId(id); setSourcesOpen(false); };
 	const error = localError ?? state.error;
 
 	return <section className="research-page" aria-label={text("title")}>
+		<div className="research-prompt-toolbar"><span>{promptState.ready ? promptState.saved?.enabled && activePrompt ? text("promptEnabled", { name: activePrompt.name }) : text("promptDefault") : ""}</span><button ref={promptButton} type="button" aria-expanded={promptsOpen} onClick={() => { setSelectedResultId(undefined); setPromptsOpen((open) => !open); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12" /><circle cx="7" cy="5" r="2" fill="var(--color-owl-bg)" /><circle cx="13" cy="10" r="2" fill="var(--color-owl-bg)" /><circle cx="8" cy="15" r="2" fill="var(--color-owl-bg)" /></svg>{text("promptManage")}</button></div>
 		<div className="research-content">
 			<div className="research-conversation">
-				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} artifacts={<ResultCards results={state.results} text={text} onOpen={openResult} onDraft={fillDraft} />} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p><div className="research-examples"><button type="button" onClick={() => fillDraft(text("crawlDraft"))}>{text("exampleCrawl")}</button><button type="button" onClick={() => fillDraft(text("webDraft"))}>{text("exampleWeb")}</button><button type="button" onClick={() => fillDraft(text("binaryDraft"))}>{text("exampleBinary")}</button><button type="button" onClick={() => fillDraft(text("modelDraft"))}>{text("exampleModel")}</button></div></div>}
-				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
+				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} artifacts={<ResultCards results={state.results} text={text} onOpen={openResult} onDraft={fillDraft} />} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
+				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus} onDismiss={() => controller.dismissRetry()} />
+				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
 				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} onVisibleChange={setTodoPinVisible} />
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
 					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideMascot={todoPinVisible} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
-						environmentAccessory={<div className="research-composer-mode"><Menu triggerClassName="research-mode-button" panelClassName="right-0 w-56" trigger={<><ResearchMark /><span>{text("modePrefix")} · {text(modeKeys[state.mode])}</span><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="research-mode-chevron" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg></>}>{(close) => <div>{(Object.keys(modeKeys) as ResearchMode[]).map((mode) => <button className="research-mode-option" type="button" aria-pressed={state.mode === mode} disabled={state.running || state.busy} key={mode} onClick={() => { controller.setMode(mode); close(); }}><span>{text(modeKeys[mode])}</span>{mode === state.mode && <span>✓</span>}</button>)}</div>}</Menu></div>}
+						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}
 						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} onSwitchProject={props.onSwitchProject ?? (() => undefined)} commands={commands}
 						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />
 				</QuestionDock>
 			</div>
-			{visibleResult && <ResultPanel result={visibleResult} sourcesOpen={sourcesOpen} onSources={setSourcesOpen} onClose={() => setSelectedResultId(undefined)} onDraft={fillDraft} onOpenSource={openSource} text={text} />}
+			{promptsOpen ? <ResearchPromptSettings controller={promptController} running={state.running} onClose={() => { setPromptsOpen(false); promptButton.current?.focus(); }} /> : visibleResult && <ResultPanel result={visibleResult} sourcesOpen={sourcesOpen} onSources={setSourcesOpen} onClose={() => setSelectedResultId(undefined)} onDraft={fillDraft} onOpenSource={openSource} text={text} />}
 		</div>
 	</section>;
 }

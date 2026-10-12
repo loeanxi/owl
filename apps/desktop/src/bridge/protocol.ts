@@ -77,6 +77,15 @@ export type {
 	SettingsSetRequest,
 	SystemPromptPreviewRequest,
 	SystemPromptPreviewResult,
+	ResearchPromptPreset,
+	ResearchPromptSettings,
+	ResearchPromptsResult,
+	ResearchPromptsGetRequest,
+	ResearchPromptsSaveRequest,
+	ResearchPromptsApplyRequest,
+	ResearchPromptsRestoreRequest,
+	ResearchPromptsExportRequest,
+	ResearchPromptsExportResult,
 	RewindTarget,
 	RewindTargetsRequest,
 	RewindTargetsResult,
@@ -178,6 +187,7 @@ export type * from "../../../../packages/coding-agent/src/core/news/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/mail/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/evaluation/types.ts";
 export type * from "../../../../packages/coding-agent/src/core/research/types.ts";
+export type * from "../../../../packages/coding-agent/src/core/research/diagnosis.ts";
 
 // 桥插件自带的 wire 类型（插件包随功能一起拥有自己的协议）
 export type * from "../../../../packages/owl-career/src/types.ts";

@@ -1,15 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { getQuestionChannel, registerPendingQuestion } from "../src/core/question-channel.ts";
-import { getResearchMode, RESEARCH_PUBLISH_TOOL } from "../src/core/research/agent.ts";
+import { defaultResearchPrompt, getResearchMode, RESEARCH_PUBLISH_TOOL } from "../src/core/research/agent.ts";
+import { RESEARCH_DECOMPILE_TOOL } from "../src/core/research/decompile-tools.ts";
+import { RESEARCH_EXECUTABLE_TOOL } from "../src/core/research/executable-tools.ts";
+import { RESEARCH_MODEL_LAB_TOOL } from "../src/core/research/model-lab.ts";
+import { ResearchReaClient } from "../src/core/research/rea-client.ts";
+import { RESEARCH_REA_TOOL } from "../src/core/research/rea-tools.ts";
+import { isReadOnlyDesktopTool } from "../src/modes/desktop/browser-permissions.ts";
 import type {
 	DesktopClientRequestWithoutId,
 	QuestionRequestMessage,
+	ResearchPromptsExportResult,
+	ResearchPromptsResult,
 	ServerResponseMessage,
 	SessionSnapshotPayload,
 } from "../src/modes/desktop/protocol.ts";
@@ -27,16 +35,23 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 	await mkdir(cwd);
 	await writeFile(join(agentDir, "settings.json"), JSON.stringify({ plugins: [], cacheWarming: { mode: "off" } }));
 	vi.stubEnv("OWL_CODING_AGENT_DIR", agentDir);
-	const observed: Array<{ sessionId: string; mode: string | undefined; tools: string[] }> = [];
+	const exportDir = join(root, "exports");
+	vi.stubEnv("OWL_EXPORT_DIR", exportDir);
+	const observed: Array<{ sessionId: string; mode: string | undefined; tools: string[]; instructions?: string }> = [];
+	const reaClose = vi.spyOn(ResearchReaClient.prototype, "close");
 	// Exercise bridge dispatch and persistence while guaranteeing no provider prompt can leave this process.
 	const prompt = vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (
 		this: AgentSession,
 		message,
 	) {
+		const prepared = await this.extensionRunner.emitBeforeAgentStart(String(message), undefined, {
+			cwd: this.sessionManager.getCwd(),
+		});
 		observed.push({
 			sessionId: this.sessionManager.getSessionId(),
 			mode: getResearchMode(this.sessionManager),
 			tools: this.getAllTools().map((tool) => tool.name),
+			instructions: prepared.systemPromptOptions.sections.owl_research,
 		});
 		this.sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
 	});
@@ -97,6 +112,61 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 	try {
 		bridge = await start();
 		const socket = await connect(bridge);
+		const defaultPrompts = await request<ResearchPromptsResult>(socket, { type: "research.prompts.get" });
+		expect(defaultPrompts).toMatchObject({
+			ok: true,
+			result: { settings: { enabled: false, activePresetId: null }, defaultPrompt: defaultResearchPrompt() },
+		});
+		if (!defaultPrompts.result) throw new Error("Missing research prompt defaults");
+		const customPrompt = "用户设置的研究方法：从当前材料先做最小复现。";
+		const promptSettings = {
+			...defaultPrompts.result.settings,
+			presets: [
+				...defaultPrompts.result.settings.presets,
+				{ id: "bridge-custom", name: "桥测试", content: customPrompt },
+			],
+		};
+		expect(await request(socket, { type: "research.prompts.save", settings: promptSettings })).toMatchObject({
+			ok: true,
+		});
+		const appliedPrompts = await request<ResearchPromptsResult>(socket, {
+			type: "research.prompts.apply",
+			presetId: "bridge-custom",
+		});
+		expect(appliedPrompts).toMatchObject({
+			ok: true,
+			result: {
+				settings: { enabled: true, activePresetId: "bridge-custom" },
+				defaultPrompt: defaultResearchPrompt(),
+			},
+		});
+		const exportedSnapshot = {
+			...promptSettings,
+			presets: [...promptSettings.presets, { id: "export-only", name: "未保存导出", content: "此草稿不写入配置。" }],
+		};
+		const exported = await request<ResearchPromptsExportResult>(socket, {
+			type: "research.prompts.export",
+			settings: exportedSnapshot,
+		});
+		expect(exported.ok).toBe(true);
+		if (!exported.result) throw new Error("Missing research prompt export file");
+		expect(dirname(exported.result.savedPath)).toBe(resolve(exportDir));
+		expect(basename(exported.result.savedPath)).toMatch(/^owl-research-prompts-.*\.json$/);
+		expect(JSON.parse(await readFile(exported.result.savedPath, "utf8"))).toEqual(exportedSnapshot);
+		expect(
+			await request(socket, { type: "research.prompts.export", settings: { ...promptSettings, enabled: true } }),
+		).toMatchObject({ ok: false });
+		expect(await readdir(exportDir)).toEqual([basename(exported.result.savedPath)]);
+		expect(await request(socket, { type: "research.prompts.apply", presetId: "missing" })).toMatchObject({
+			ok: false,
+			error: "选中的研究提示词预设不存在",
+		});
+		expect(
+			await request(socket, { type: "research.prompts.save", settings: { ...promptSettings, enabled: true } }),
+		).toMatchObject({ ok: false });
+		expect((await request<ResearchPromptsResult>(socket, { type: "research.prompts.get" })).result).toEqual(
+			appliedPrompts.result,
+		);
 		const invalid = await request(socket, { type: "session.create", researchMode: "unknown" as "auto" });
 		expect(invalid).toMatchObject({ ok: false, error: "无效的研究方向" });
 		const ordinary = await request<SessionSnapshotPayload>(socket, { type: "session.create" });
@@ -114,7 +184,12 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 		expect(prompt).not.toHaveBeenCalled();
 		await request(socket, { type: "session.prompt", sessionId: ordinary.result.sessionId, message: "ordinary" });
 		expect(observed[0].mode).toBeUndefined();
+		expect(observed[0].instructions).toBeUndefined();
 		expect(observed[0].tools).not.toContain(RESEARCH_PUBLISH_TOOL);
+		expect(observed[0].tools).not.toContain(RESEARCH_REA_TOOL);
+		for (const tool of [RESEARCH_EXECUTABLE_TOOL, RESEARCH_DECOMPILE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
+			expect(observed[0].tools).not.toContain(tool);
+		}
 		const research = await request<SessionSnapshotPayload>(socket, {
 			type: "session.create",
 			researchMode: "auto",
@@ -182,7 +257,14 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 			}),
 		).toMatchObject({ ok: true });
 		expect(observed[1]).toMatchObject({ sessionId: id, mode: "crawl" });
+		expect(observed[1].instructions).toContain(customPrompt);
+		expect(observed[1].instructions).not.toContain(defaultResearchPrompt());
+		expect(observed[1].instructions).toContain("审批模式和实际工具边界照常生效");
 		expect(observed[1].tools).toContain(RESEARCH_PUBLISH_TOOL);
+		expect(observed[1].tools).toContain(RESEARCH_REA_TOOL);
+		expect(observed[1].tools).toEqual(
+			expect.arrayContaining([RESEARCH_EXECUTABLE_TOOL, RESEARCH_DECOMPILE_TOOL, RESEARCH_MODEL_LAB_TOOL]),
+		);
 		expect(await request(socket, { type: "session.resume", sessionId: id })).toMatchObject({
 			ok: true,
 			result: { researchMode: "crawl" },
@@ -216,10 +298,21 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 			ok: false,
 			error: "无效的会话目录类型",
 		});
+		const restoredPrompts = await request<ResearchPromptsResult>(socket, { type: "research.prompts.restore" });
+		expect(restoredPrompts).toMatchObject({
+			ok: true,
+			result: { settings: { enabled: false, activePresetId: "bridge-custom", presets: promptSettings.presets } },
+		});
 		socket.close();
 		await bridge.close();
+		expect(reaClose).toHaveBeenCalled();
+		const originalClient = reaClose.mock.contexts[0];
+		reaClose.mockClear();
 		bridge = await start();
 		const reopened = await connect(bridge);
+		expect((await request<ResearchPromptsResult>(reopened, { type: "research.prompts.get" })).result).toEqual(
+			restoredPrompts.result,
+		);
 		const restartedResearchHistory = await request<Array<{ id: string; scope: string }>>(reopened, {
 			type: "session.list",
 			scope: "research",
@@ -246,13 +339,47 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 			}),
 		).toMatchObject({ ok: true });
 		expect(observed[2]).toMatchObject({ mode: "web" });
+		expect(observed[2].instructions).toContain(defaultResearchPrompt());
+		expect(observed[2].instructions).not.toContain(customPrompt);
 		expect(observed[2].tools).toContain(RESEARCH_PUBLISH_TOOL);
+		expect(observed[2].tools).toContain(RESEARCH_REA_TOOL);
+		expect(observed[2].tools).toEqual(
+			expect.arrayContaining([RESEARCH_EXECUTABLE_TOOL, RESEARCH_DECOMPILE_TOOL, RESEARCH_MODEL_LAB_TOOL]),
+		);
+		await bridge.close();
+		bridge = undefined;
+		expect(reaClose).toHaveBeenCalled();
+		expect(reaClose.mock.contexts[0]).not.toBe(originalClient);
 		expect(noFetch).not.toHaveBeenCalled();
 	} finally {
 		for (const socket of sockets) socket.close();
 		await bridge?.close();
 		prompt.mockRestore();
+		reaClose.mockRestore();
 		vi.unstubAllEnvs();
 		await rm(absolute, { recursive: true, force: true });
 	}
 }, 30_000);
+
+it("only permits rea inventory in desktop plan mode", () => {
+	expect(isReadOnlyDesktopTool(RESEARCH_REA_TOOL, { action: "inventory" })).toBe(true);
+	for (const action of [
+		"javascript",
+		"native_overview",
+		"native_functions",
+		"native_strings",
+		"native_function",
+		"native_references",
+		"native_call_graph",
+		"managed_metadata",
+		"managed_members",
+		"managed_native",
+		"view",
+		"close",
+	]) {
+		expect(isReadOnlyDesktopTool(RESEARCH_REA_TOOL, { action })).toBe(false);
+	}
+	for (const input of [undefined, {}, { action: "open" }, { action: "analyze" }, { action: "query" }]) {
+		expect(isReadOnlyDesktopTool(RESEARCH_REA_TOOL, input)).toBe(false);
+	}
+});

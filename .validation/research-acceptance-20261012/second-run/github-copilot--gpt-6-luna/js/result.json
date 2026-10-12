@@ -1,0 +1,95 @@
+{
+  "model": "github-copilot/gpt-6-luna",
+  "case": "js",
+  "sessionId": "01a12cfa-104b-7322-b5ce-7328bdd994c2",
+  "sessionFile": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\second-run\\github-copilot--gpt-6-luna\\js\\sessions\\2026-10-11T21-59-08-108Z_01a12cfa-104b-7322-b5ce-7328bdd994c2.jsonl",
+  "thinking": "off",
+  "requests": [
+    {
+      "attempt": 7,
+      "caseAttempt": 1,
+      "provider": "github-copilot",
+      "model": "gpt-6-luna",
+      "maxTokens": 1536,
+      "at": "2026-10-11T21:59:08.236Z"
+    }
+  ],
+  "diagnosis": {
+    "id": "0536ac92-2abb-4b9a-975a-9f880a21cf60",
+    "version": 1,
+    "createdAt": "2026-10-11T21:59:12.103Z",
+    "ownerSessionId": "01a12cfa-104b-7322-b5ce-7328bdd994c2",
+    "status": "provider_error",
+    "summary": "上游响应失败，但未提供明确拒绝标记；不能据此判为内容审核。",
+    "evidence": [
+      {
+        "source": "provider",
+        "text": "github-copilot API error (429): 429 quota exceeded\n"
+      }
+    ]
+  },
+  "passed": false,
+  "checks": [
+    {
+      "name": "unchanged:index.js",
+      "passed": true
+    },
+    {
+      "name": "unchanged:codec.js",
+      "passed": true
+    },
+    {
+      "name": "actual_static_tool_result",
+      "passed": false
+    },
+    {
+      "name": "tool_target_identity",
+      "passed": false
+    },
+    {
+      "name": "saved_analysis",
+      "passed": false
+    },
+    {
+      "name": "correct_result",
+      "passed": false
+    },
+    {
+      "name": "correct_chain",
+      "passed": false
+    },
+    {
+      "name": "existing_hashed_evidence",
+      "passed": false
+    },
+    {
+      "name": "evidence_contains_semantics",
+      "passed": false
+    }
+  ],
+  "roundBudgetReached": false,
+  "usage": [
+    {
+      "provider": "github-copilot",
+      "model": "gpt-6-luna",
+      "stopReason": "error",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  ],
+  "billing": "SDK costs are catalog estimates; actual subscription/API charges are not verified",
+  "systemPromptSha256": "8d44672af368baac1676f6c013bccc1840eb754d57d84cca857617b418f0ada7",
+  "cwd": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\second-run\\github-copilot--gpt-6-luna\\js"
+}

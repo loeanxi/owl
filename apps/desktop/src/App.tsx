@@ -2087,6 +2087,7 @@ export default function App(): React.JSX.Element {
 						}}
 				onSelect={(view) => { setShowSettings(false); setRailView(view); if (view === "mail") setMailMounted(true); if (view === "media") setMediaMounted(true); if (view === "research") setResearchMounted(true); if (view === "automation") setAutomationMounted(true); if (view === "myself") setMyselfMounted(true); if (view === "expert") setExpertMounted(true); if (view === "bagu") setBaguMounted(true); if (view === "market") setMarketMounted(true); }}
 			/>
+			<div className="owl-workspace-frame">
 			<SessionSidebar
 				key={sessionScope}
 				client={client}
@@ -2197,7 +2198,7 @@ export default function App(): React.JSX.Element {
 				<TokenCareerPage active={railView === "career" && !showSettings} client={client} />
 			</div>}
 			{automationMounted && <div data-owl-island-anchor="" style={{ display: railView === "automation" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
-				<AutomationPage client={client} active={railView === "automation" && !showSettings} onOpenSession={(id) => void openSession(id)} sessions={[
+				<AutomationPage client={client} active={railView === "automation" && !showSettings} model={selectedModel()} onOpenSession={(id) => void openSession(id)} sessions={[
 					...(sessionId ? [{ id: sessionId, title: sessionTitle }] : []),
 					...[...listedTitles.entries()].filter(([id]) => id !== sessionId).slice(0, 30).map(([id, title]) => ({ id, title })),
 				]} />
@@ -2267,6 +2268,7 @@ export default function App(): React.JSX.Element {
 							<ResearchPage
 								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
 								providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
+								agentPresets={agentPresets} defaultPresetId={defaultPresetId} defaultAgentPreset={stagedPreset}
 								projects={visibleResearchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
@@ -2407,6 +2409,7 @@ export default function App(): React.JSX.Element {
 					onSessionsChanged={() => setSidebarRev((v) => v + 1)}
 				/>
 			)}
+			</div>
 			</div>
 			</div>
 			{showProjectDialog && (

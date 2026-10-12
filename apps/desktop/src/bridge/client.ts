@@ -365,12 +365,11 @@ export class BridgeClient {
 					reject(new Error("Model evaluation request timed out"));
 				}, 60_000);
 			}
-			// 改动审批都是快查询/快操作：不设超时的话，桥假死（已连不回包）会让
-			// 审查面板永远停在「读取中」
-			if (request.type.startsWith("diffApproval.")) {
+			// 审查和提示词设置都是快操作；桥已连接但不回包时，应让面板退出等待并可重试。
+			if (request.type.startsWith("diffApproval.") || request.type.startsWith("research.prompts.")) {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new Error("Review request timed out"));
+					reject(new Error(request.type.startsWith("research.prompts.") ? "提示词设置请求超时，请重新连接后重试" : "Review request timed out"));
 				}, 15_000);
 			}
 			// 其余门控 UI 的快请求统一兜底：session.prompt 的应答是立即 ack（真正的

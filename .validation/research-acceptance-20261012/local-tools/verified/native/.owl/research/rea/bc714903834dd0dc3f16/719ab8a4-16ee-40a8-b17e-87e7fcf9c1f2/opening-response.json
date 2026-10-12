@@ -1,0 +1,17 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"result\":{\"path\":\"D:\\\\owl\\\\owl-re-v1\\\\owl-mono\\\\.validation\\\\research-acceptance-20261012\\\\local-tools\\\\verified\\\\native\\\\return42.exe\",\"format\":\"pe\",\"kind\":\"executable\",\"sha256\":\"30d35b06ab387cbfed984857742edcd800ff14893b4a088d8344c46111daebfb\",\"architecture\":\"x86_64\"}}"
+    }
+  ],
+  "structuredContent": {
+    "result": {
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\native\\return42.exe",
+      "format": "pe",
+      "kind": "executable",
+      "sha256": "30d35b06ab387cbfed984857742edcd800ff14893b4a088d8344c46111daebfb",
+      "architecture": "x86_64"
+    }
+  }
+}

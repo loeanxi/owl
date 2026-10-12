@@ -1,0 +1,448 @@
+{
+  "plan": {
+    "models": [
+      "github-copilot/gpt-6-luna"
+    ],
+    "cases": [
+      "js",
+      "native"
+    ],
+    "limits": {
+      "models": 2,
+      "cases": 2,
+      "rounds": 3,
+      "calls": 12,
+      "outputTokens": 1536
+    },
+    "retries": 0,
+    "cacheWarming": "off",
+    "targetExecuted": false,
+    "scope": "fresh source-owned static fixtures only",
+    "live": true
+  },
+  "attempts": 7,
+  "uncertainDelivery": true,
+  "priorResults": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\results.json",
+  "results": [
+    {
+      "model": "zai-coding-cn/glm-5.3-flash",
+      "case": "js",
+      "sessionId": "01a12cf6-7dea-762c-bf0d-28e6fab29f3a",
+      "sessionFile": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\sessions\\2026-10-11T21-55-14-026Z_01a12cf6-7dea-762c-bf0d-28e6fab29f3a.jsonl",
+      "thinking": "low",
+      "requests": [
+        {
+          "attempt": 1,
+          "caseAttempt": 1,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:14.071Z"
+        },
+        {
+          "attempt": 2,
+          "caseAttempt": 2,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:19.328Z"
+        },
+        {
+          "attempt": 3,
+          "caseAttempt": 3,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:27.031Z"
+        }
+      ],
+      "diagnosis": {
+        "id": "842a3d52-bf43-4fb9-ad5f-bb42b26168ff",
+        "version": 1,
+        "createdAt": "2026-10-11T21:55:32.931Z",
+        "ownerSessionId": "01a12cf6-7dea-762c-bf0d-28e6fab29f3a",
+        "status": "tool_error",
+        "summary": "工具执行失败，当前记录不足以进一步确认原因；不能据此判为上游模型内容审核。",
+        "evidence": [
+          {
+            "source": "tool",
+            "text": "ENOENT: no such file or directory, realpath 'C:\\Users\\李现\\.owl\\agent\\tools\\research-rea\\node_modules\\rea-agents'",
+            "toolName": "research_rea",
+            "toolCallId": "call_b037410a5e314628ab52b00c"
+          }
+        ]
+      },
+      "passed": false,
+      "checks": [
+        {
+          "name": "unchanged:index.js",
+          "passed": true
+        },
+        {
+          "name": "unchanged:codec.js",
+          "passed": true
+        },
+        {
+          "name": "actual_static_tool_result",
+          "passed": false
+        },
+        {
+          "name": "tool_target_identity",
+          "passed": false
+        },
+        {
+          "name": "saved_analysis",
+          "passed": true
+        },
+        {
+          "name": "correct_result",
+          "passed": true
+        },
+        {
+          "name": "correct_chain",
+          "passed": true
+        },
+        {
+          "name": "existing_hashed_evidence",
+          "passed": false
+        },
+        {
+          "name": "evidence_contains_semantics",
+          "passed": false
+        }
+      ],
+      "usage": [
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "toolUse",
+          "rawStopReason": "tool_calls",
+          "usage": {
+            "input": 7772,
+            "output": 77,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "totalTokens": 7849,
+            "cost": {
+              "input": 0.0011658,
+              "output": 0.0000385,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0.0012043
+            }
+          }
+        },
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "toolUse",
+          "rawStopReason": "tool_calls",
+          "usage": {
+            "input": 207,
+            "output": 291,
+            "cacheRead": 7744,
+            "cacheWrite": 0,
+            "reasoning": 56,
+            "totalTokens": 8242,
+            "cost": {
+              "input": 0.000031049999999999996,
+              "output": 0.00014549999999999999,
+              "cacheRead": 0.00023231999999999997,
+              "cacheWrite": 0,
+              "total": 0.00040887
+            }
+          }
+        },
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "stop",
+          "rawStopReason": "stop",
+          "usage": {
+            "input": 315,
+            "output": 146,
+            "cacheRead": 7936,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "totalTokens": 8397,
+            "cost": {
+              "input": 0.000047249999999999997,
+              "output": 0.000073,
+              "cacheRead": 0.00023807999999999997,
+              "cacheWrite": 0,
+              "total": 0.00035832999999999997
+            }
+          }
+        }
+      ],
+      "billing": "SDK costs are catalog estimates; actual subscription/API charges are not verified",
+      "systemPromptSha256": "c668c2a097e016d7c32b3915c6cf959d9944ca2ce69f237de0545a4de3f1caeb",
+      "cwd": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js"
+    },
+    {
+      "model": "zai-coding-cn/glm-5.3-flash",
+      "case": "native",
+      "sessionId": "01a12cf6-c7cc-762c-bf0d-28e8b99b2480",
+      "sessionFile": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\native\\sessions\\2026-10-11T21-55-32-941Z_01a12cf6-c7cc-762c-bf0d-28e8b99b2480.jsonl",
+      "thinking": "low",
+      "requests": [
+        {
+          "attempt": 4,
+          "caseAttempt": 1,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:32.976Z"
+        },
+        {
+          "attempt": 5,
+          "caseAttempt": 2,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:37.083Z"
+        },
+        {
+          "attempt": 6,
+          "caseAttempt": 3,
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:55:41.277Z"
+        }
+      ],
+      "diagnosis": {
+        "id": "275a3154-bec9-4b53-9810-ba0ca30aaef4",
+        "version": 1,
+        "createdAt": "2026-10-11T21:55:46.550Z",
+        "ownerSessionId": "01a12cf6-c7cc-762c-bf0d-28e8b99b2480",
+        "status": "provider_error",
+        "summary": "上游响应失败，但未提供明确拒绝标记；不能据此判为内容审核。",
+        "evidence": [
+          {
+            "source": "provider",
+            "text": "Acceptance request budget exhausted"
+          }
+        ]
+      },
+      "passed": false,
+      "checks": [
+        {
+          "name": "unchanged:return42.exe",
+          "passed": true
+        },
+        {
+          "name": "actual_static_tool_result",
+          "passed": false
+        },
+        {
+          "name": "tool_target_identity",
+          "passed": false
+        },
+        {
+          "name": "saved_analysis",
+          "passed": false
+        },
+        {
+          "name": "correct_result",
+          "passed": false
+        },
+        {
+          "name": "correct_chain",
+          "passed": false
+        },
+        {
+          "name": "existing_hashed_evidence",
+          "passed": false
+        },
+        {
+          "name": "evidence_contains_semantics",
+          "passed": false
+        }
+      ],
+      "usage": [
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "toolUse",
+          "rawStopReason": "tool_calls",
+          "usage": {
+            "input": 7767,
+            "output": 36,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 4,
+            "totalTokens": 7803,
+            "cost": {
+              "input": 0.00116505,
+              "output": 0.000018,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0.00118305
+            }
+          }
+        },
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "toolUse",
+          "rawStopReason": "tool_calls",
+          "usage": {
+            "input": 3170,
+            "output": 27,
+            "cacheRead": 4672,
+            "cacheWrite": 0,
+            "reasoning": 14,
+            "totalTokens": 7869,
+            "cost": {
+              "input": 0.00047549999999999996,
+              "output": 0.0000135,
+              "cacheRead": 0.00014015999999999999,
+              "cacheWrite": 0,
+              "total": 0.0006291599999999999
+            }
+          }
+        },
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "toolUse",
+          "rawStopReason": "tool_calls",
+          "usage": {
+            "input": 134,
+            "output": 72,
+            "cacheRead": 7808,
+            "cacheWrite": 0,
+            "reasoning": 34,
+            "totalTokens": 8014,
+            "cost": {
+              "input": 0.0000201,
+              "output": 0.000036,
+              "cacheRead": 0.00023423999999999998,
+              "cacheWrite": 0,
+              "total": 0.00029034
+            }
+          }
+        },
+        {
+          "provider": "zai-coding-cn",
+          "model": "glm-5.3-flash",
+          "stopReason": "error",
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        }
+      ],
+      "billing": "SDK costs are catalog estimates; actual subscription/API charges are not verified",
+      "systemPromptSha256": "aab562a048a1e6b8763e2ec71c1cac439d801d8b5f40d1c292beba2c455212ae",
+      "cwd": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\native"
+    },
+    {
+      "model": "github-copilot/gpt-6-luna",
+      "case": "js",
+      "sessionId": "01a12cfa-104b-7322-b5ce-7328bdd994c2",
+      "sessionFile": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\second-run\\github-copilot--gpt-6-luna\\js\\sessions\\2026-10-11T21-59-08-108Z_01a12cfa-104b-7322-b5ce-7328bdd994c2.jsonl",
+      "thinking": "off",
+      "requests": [
+        {
+          "attempt": 7,
+          "caseAttempt": 1,
+          "provider": "github-copilot",
+          "model": "gpt-6-luna",
+          "maxTokens": 1536,
+          "at": "2026-10-11T21:59:08.236Z"
+        }
+      ],
+      "diagnosis": {
+        "id": "0536ac92-2abb-4b9a-975a-9f880a21cf60",
+        "version": 1,
+        "createdAt": "2026-10-11T21:59:12.103Z",
+        "ownerSessionId": "01a12cfa-104b-7322-b5ce-7328bdd994c2",
+        "status": "provider_error",
+        "summary": "上游响应失败，但未提供明确拒绝标记；不能据此判为内容审核。",
+        "evidence": [
+          {
+            "source": "provider",
+            "text": "github-copilot API error (429): 429 quota exceeded\n"
+          }
+        ]
+      },
+      "passed": false,
+      "checks": [
+        {
+          "name": "unchanged:index.js",
+          "passed": true
+        },
+        {
+          "name": "unchanged:codec.js",
+          "passed": true
+        },
+        {
+          "name": "actual_static_tool_result",
+          "passed": false
+        },
+        {
+          "name": "tool_target_identity",
+          "passed": false
+        },
+        {
+          "name": "saved_analysis",
+          "passed": false
+        },
+        {
+          "name": "correct_result",
+          "passed": false
+        },
+        {
+          "name": "correct_chain",
+          "passed": false
+        },
+        {
+          "name": "existing_hashed_evidence",
+          "passed": false
+        },
+        {
+          "name": "evidence_contains_semantics",
+          "passed": false
+        }
+      ],
+      "roundBudgetReached": false,
+      "usage": [
+        {
+          "provider": "github-copilot",
+          "model": "gpt-6-luna",
+          "stopReason": "error",
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        }
+      ],
+      "billing": "SDK costs are catalog estimates; actual subscription/API charges are not verified",
+      "systemPromptSha256": "8d44672af368baac1676f6c013bccc1840eb754d57d84cca857617b418f0ada7",
+      "cwd": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\second-run\\github-copilot--gpt-6-luna\\js"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "native",
+  "owner": "Owl synthetic acceptance fixture",
+  "targetExecuted": false,
+  "inputs": [
+    {
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\native\\return42.exe",
+      "sha256": "30d35b06ab387cbfed984857742edcd800ff14893b4a088d8344c46111daebfb"
+    }
+  ]
+}

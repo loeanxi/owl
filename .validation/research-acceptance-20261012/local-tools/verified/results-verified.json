@@ -1,0 +1,91 @@
+{
+  "note": "Independent recheck includes the hashed full session Evidence; JS summary alone omits function names. Original tool outputs were retained without rerunning.",
+  "results": [
+    {
+      "kind": "js",
+      "passed": true,
+      "checks": [
+        {
+          "name": "unchanged:index.js",
+          "passed": true
+        },
+        {
+          "name": "unchanged:codec.js",
+          "passed": true
+        },
+        {
+          "name": "actual_static_tool_result",
+          "passed": true
+        },
+        {
+          "name": "tool_target_identity",
+          "passed": true
+        },
+        {
+          "name": "saved_analysis",
+          "passed": true
+        },
+        {
+          "name": "correct_result",
+          "passed": true
+        },
+        {
+          "name": "correct_chain",
+          "passed": true
+        },
+        {
+          "name": "existing_hashed_evidence",
+          "passed": true
+        },
+        {
+          "name": "evidence_contains_semantics",
+          "passed": true
+        }
+      ],
+      "modelCalls": 0,
+      "targetExecuted": false,
+      "evidenceId": "ev_60d89c95bca7d9a3c469a260184554aee9a6e1e165f3fdf3219bfcb4bc18353b"
+    },
+    {
+      "kind": "native",
+      "passed": true,
+      "checks": [
+        {
+          "name": "unchanged:return42.exe",
+          "passed": true
+        },
+        {
+          "name": "actual_static_tool_result",
+          "passed": true
+        },
+        {
+          "name": "tool_target_identity",
+          "passed": true
+        },
+        {
+          "name": "saved_analysis",
+          "passed": true
+        },
+        {
+          "name": "correct_result",
+          "passed": true
+        },
+        {
+          "name": "correct_chain",
+          "passed": true
+        },
+        {
+          "name": "existing_hashed_evidence",
+          "passed": true
+        },
+        {
+          "name": "evidence_contains_semantics",
+          "passed": true
+        }
+      ],
+      "modelCalls": 0,
+      "targetExecuted": false,
+      "evidenceId": "ev_be83efee5ca781c08b042aef8a920696034907ef657333b1caef9d03a92823f6"
+    }
+  ]
+}

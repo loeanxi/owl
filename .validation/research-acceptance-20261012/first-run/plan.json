@@ -1,0 +1,22 @@
+{
+  "models": [
+    "zai-coding-cn/glm-5.3-flash",
+    "github-copilot/gpt-6-luna"
+  ],
+  "cases": [
+    "js",
+    "native"
+  ],
+  "limits": {
+    "models": 2,
+    "cases": 2,
+    "rounds": 3,
+    "calls": 12,
+    "outputTokens": 1536
+  },
+  "retries": 0,
+  "cacheWarming": "off",
+  "targetExecuted": false,
+  "scope": "fresh source-owned static fixtures only",
+  "live": true
+}

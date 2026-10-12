@@ -1,0 +1,11 @@
+{
+  "status": "available",
+  "version": "6.4.0",
+  "packageRoot": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-rea\\node_modules\\rea-agents",
+  "nodePath": "D:\\developTool\\nvm\\v24.16.0\\node.exe",
+  "entryPath": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-rea\\node_modules\\rea-agents\\scripts\\rea.mjs",
+  "configPath": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-rea\\rea-toolchain.json",
+  "ghidraHome": "D:\\owl\\owl-re-v1\\data\\owl\\tools\\research-decompilers\\ghidra\\ghidra_12.1.4_PUBLIC",
+  "javaHome": "D:\\developTool\\java21",
+  "message": "REA 固定版本已就绪；原生分析可用性由会话查询核验"
+}

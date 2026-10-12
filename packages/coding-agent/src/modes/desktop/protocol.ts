@@ -12,11 +12,24 @@ export type { AgentPresetDefinition, PresetApprovalMode } from "../../core/agent
 
 import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/types.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
+import type { ResearchDiagnosis } from "../../core/research/diagnosis.ts";
+import type { ResearchPromptSettings } from "../../core/research/prompt-settings.ts";
 import type { ResearchMode } from "../../core/research/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
 export type * from "../../core/evaluation/types.ts";
 export type * from "../../core/mail/types.ts";
+export type {
+	ResearchDiagnosis,
+	ResearchDiagnosisEvidence,
+	ResearchDiagnosisStatus,
+} from "../../core/research/diagnosis.ts";
+export type {
+	ResearchPromptPreset,
+	ResearchPromptSettings,
+	ResearchPromptsExportResult,
+	ResearchPromptsResult,
+} from "../../core/research/prompt-settings.ts";
 export type * from "../../core/research/types.ts";
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
@@ -95,6 +108,35 @@ export interface SessionPromptRequest {
 	researchMode?: ResearchMode;
 	/** While the session is already streaming, queue this message instead of rejecting it. */
 	streamingBehavior?: "steer" | "followUp";
+}
+
+/** Profile-level preferences for research conversations; ordinary chats keep their own prompts. */
+export interface ResearchPromptsGetRequest {
+	type: "research.prompts.get";
+	id: string;
+}
+
+export interface ResearchPromptsSaveRequest {
+	type: "research.prompts.save";
+	id: string;
+	settings: ResearchPromptSettings;
+}
+
+export interface ResearchPromptsApplyRequest {
+	type: "research.prompts.apply";
+	id: string;
+	presetId: string;
+}
+
+export interface ResearchPromptsRestoreRequest {
+	type: "research.prompts.restore";
+	id: string;
+}
+
+export interface ResearchPromptsExportRequest {
+	type: "research.prompts.export";
+	id: string;
+	settings: ResearchPromptSettings;
 }
 
 /** Drop one pending line from the steering or follow-up queue. */
@@ -485,6 +527,8 @@ export interface SessionSnapshotPayload {
 	mailContext?: MailAgentContext;
 	/** Persisted research scope, restored from JSONL rather than inferred from UI state. */
 	researchMode?: ResearchMode;
+	/** Last diagnostic on the current research branch. It never certifies task completion. */
+	researchDiagnosis?: ResearchDiagnosis;
 	/** Authoritative approval for research conversations, including after a restart. */
 	approvalMode?: ApprovalMode;
 	/** 会话绑定的 Agent 预设 id（owl-agent-preset custom entry；未绑定为 undefined）。 */
@@ -1085,6 +1129,9 @@ export interface ScheduleTask {
 	sessionId: string;
 	/** 目标会话的展示名（创建时由 UI 带入）。 */
 	targetLabel: string;
+	/** "__new__" 任务新建会话用的模型（创建时由 UI 带入当前选中模型）；缺省走默认模型。 */
+	provider?: string;
+	model?: string;
 	repeat: ScheduleRepeat;
 	missed: ScheduleMissedPolicy;
 	enabled: boolean;
@@ -1126,6 +1173,8 @@ export interface ScheduleCreateRequest {
 	prompt: string;
 	sessionId: string;
 	targetLabel: string;
+	provider?: string;
+	model?: string;
 	repeat: ScheduleRepeat;
 	missed?: ScheduleMissedPolicy;
 }
@@ -1142,6 +1191,8 @@ export interface ScheduleUpdateRequest {
 	emoji?: string;
 	prompt?: string;
 	targetLabel?: string;
+	provider?: string;
+	model?: string;
 	repeat?: ScheduleRepeat;
 	missed?: ScheduleMissedPolicy;
 	/** 开关：false 暂停（时刻冻结），true 恢复（从当下重算）。 */
@@ -2039,6 +2090,11 @@ export type DesktopClientRequest =
 	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
+	| ResearchPromptsGetRequest
+	| ResearchPromptsSaveRequest
+	| ResearchPromptsApplyRequest
+	| ResearchPromptsRestoreRequest
+	| ResearchPromptsExportRequest
 	| SessionQueueRemoveRequest
 	| SessionQueuePromoteRequest
 	| OwlUiActionRequest

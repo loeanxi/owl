@@ -1,0 +1,169 @@
+{
+  "model": "zai-coding-cn/glm-5.3-flash",
+  "case": "native",
+  "sessionId": "01a12cf6-c7cc-762c-bf0d-28e8b99b2480",
+  "sessionFile": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\native\\sessions\\2026-10-11T21-55-32-941Z_01a12cf6-c7cc-762c-bf0d-28e8b99b2480.jsonl",
+  "thinking": "low",
+  "requests": [
+    {
+      "attempt": 4,
+      "caseAttempt": 1,
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "maxTokens": 1536,
+      "at": "2026-10-11T21:55:32.976Z"
+    },
+    {
+      "attempt": 5,
+      "caseAttempt": 2,
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "maxTokens": 1536,
+      "at": "2026-10-11T21:55:37.083Z"
+    },
+    {
+      "attempt": 6,
+      "caseAttempt": 3,
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "maxTokens": 1536,
+      "at": "2026-10-11T21:55:41.277Z"
+    }
+  ],
+  "diagnosis": {
+    "id": "275a3154-bec9-4b53-9810-ba0ca30aaef4",
+    "version": 1,
+    "createdAt": "2026-10-11T21:55:46.550Z",
+    "ownerSessionId": "01a12cf6-c7cc-762c-bf0d-28e8b99b2480",
+    "status": "provider_error",
+    "summary": "上游响应失败，但未提供明确拒绝标记；不能据此判为内容审核。",
+    "evidence": [
+      {
+        "source": "provider",
+        "text": "Acceptance request budget exhausted"
+      }
+    ]
+  },
+  "passed": false,
+  "checks": [
+    {
+      "name": "unchanged:return42.exe",
+      "passed": true
+    },
+    {
+      "name": "actual_static_tool_result",
+      "passed": false
+    },
+    {
+      "name": "tool_target_identity",
+      "passed": false
+    },
+    {
+      "name": "saved_analysis",
+      "passed": false
+    },
+    {
+      "name": "correct_result",
+      "passed": false
+    },
+    {
+      "name": "correct_chain",
+      "passed": false
+    },
+    {
+      "name": "existing_hashed_evidence",
+      "passed": false
+    },
+    {
+      "name": "evidence_contains_semantics",
+      "passed": false
+    }
+  ],
+  "usage": [
+    {
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "stopReason": "toolUse",
+      "rawStopReason": "tool_calls",
+      "usage": {
+        "input": 7767,
+        "output": 36,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "reasoning": 4,
+        "totalTokens": 7803,
+        "cost": {
+          "input": 0.00116505,
+          "output": 0.000018,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0.00118305
+        }
+      }
+    },
+    {
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "stopReason": "toolUse",
+      "rawStopReason": "tool_calls",
+      "usage": {
+        "input": 3170,
+        "output": 27,
+        "cacheRead": 4672,
+        "cacheWrite": 0,
+        "reasoning": 14,
+        "totalTokens": 7869,
+        "cost": {
+          "input": 0.00047549999999999996,
+          "output": 0.0000135,
+          "cacheRead": 0.00014015999999999999,
+          "cacheWrite": 0,
+          "total": 0.0006291599999999999
+        }
+      }
+    },
+    {
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "stopReason": "toolUse",
+      "rawStopReason": "tool_calls",
+      "usage": {
+        "input": 134,
+        "output": 72,
+        "cacheRead": 7808,
+        "cacheWrite": 0,
+        "reasoning": 34,
+        "totalTokens": 8014,
+        "cost": {
+          "input": 0.0000201,
+          "output": 0.000036,
+          "cacheRead": 0.00023423999999999998,
+          "cacheWrite": 0,
+          "total": 0.00029034
+        }
+      }
+    },
+    {
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash",
+      "stopReason": "error",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  ],
+  "billing": "SDK costs are catalog estimates; actual subscription/API charges are not verified",
+  "systemPromptSha256": "aab562a048a1e6b8763e2ec71c1cac439d801d8b5f40d1c292beba2c455212ae",
+  "cwd": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\native"
+}

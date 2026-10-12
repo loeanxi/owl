@@ -1,0 +1,69 @@
+.research-prompt-toolbar { display: flex; flex: none; justify-content: flex-end; align-items: center; gap: 12px; padding: 8px 20px; min-height: 42px; border-bottom: 1px solid var(--color-owl-border); }
+.research-prompt-toolbar > span { color: var(--color-owl-muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.research-prompt-toolbar > button { display: inline-flex; align-items: center; gap: 6px; color: var(--color-owl-muted); border-radius: 6px; padding: 5px 8px; font-size: 12px; flex: none; }
+.research-prompt-toolbar > button:hover, .research-prompt-toolbar > button[aria-expanded=true] { color: var(--color-owl-text); background: var(--color-owl-hover); }
+.research-prompt-toolbar svg { width: 16px; height: 16px; }
+.research-prompts-panel { display: flex; flex: 0 0 440px; flex-direction: column; min-width: 0; min-height: 0; max-width: 100%; background: var(--color-owl-bg); border-left: 1px solid var(--color-owl-border); color: var(--color-owl-text); font-size: 12px; }
+.research-prompts-panel > header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--color-owl-border); }
+.research-prompts-panel h2 { font-size: 15px; font-weight: 500; margin: 0; }
+.research-prompts-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; border-radius: 6px; padding: 6px 10px; background: var(--color-owl-panel); color: var(--color-owl-text); border: 1px solid var(--color-owl-border); line-height: 1.4; }
+.research-prompts-panel button:hover:not(:disabled) { border-color: var(--color-owl-accent); }
+.research-prompts-panel button:disabled { opacity: .45; cursor: default; }
+.research-prompts-panel > header button { background: transparent; border: 0; color: var(--color-owl-muted); padding-right: 0; }
+.research-prompts-panel > header button:hover:not(:disabled) { color: var(--color-owl-text); }
+.research-prompts-panel > header svg { width: 16px; height: 16px; flex: none; }
+.research-prompts-body { flex: 1; min-height: 0; overflow: auto; padding: 18px; scrollbar-color: var(--color-owl-border) transparent; scrollbar-width: thin; }
+.research-prompts-scope { margin: 0 0 18px; color: var(--color-owl-muted); line-height: 1.8; }
+.research-prompts-hint { color: var(--color-owl-muted); font-size: 11px; line-height: 1.8; margin: 10px 0; }
+.research-prompts-feedback { color: var(--color-owl-muted); line-height: 1.8; margin: 0 0 16px; overflow-wrap: anywhere; }
+.research-prompts-feedback p { margin: 0 0 8px; }
+.research-prompts-feedback[role=alert] { color: var(--color-owl-text); }
+.research-prompts-enable { padding-bottom: 20px; border-bottom: 1px solid var(--color-owl-border); margin-bottom: 20px; }
+.research-prompts-enable label { display: flex; align-items: center; gap: 9px; font-weight: 500; }
+.research-prompts-enable input { width: 16px; height: 16px; accent-color: var(--color-owl-accent); }
+.research-prompts-enable p { margin: 8px 0 4px 25px; color: var(--color-owl-muted); overflow-wrap: anywhere; line-height: 1.7; }
+.research-prompts-enable small { display: block; margin-left: 25px; color: var(--color-owl-muted); font-size: 11px; line-height: 1.7; }
+.research-prompts-picker > label, .research-prompts-editor > label, .research-prompts-filters > label { display: block; margin-bottom: 7px; font-weight: 500; }
+.research-prompts-filters { margin-bottom: 18px; }
+.research-prompts-filters > label:not(:first-child) { margin-top: 14px; }
+.research-prompts-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; min-height: 30px; color: var(--color-owl-muted); font-size: 11px; }
+.research-prompts-filter-summary button { background: transparent; color: var(--color-owl-muted); }
+.research-prompts-picker > div { display: flex; gap: 8px; }
+.research-prompts-picker select { flex: 1; min-width: 0; }
+.research-prompts-panel select, .research-prompts-filters > input, .research-prompts-editor > input, .research-prompts-editor > textarea { width: 100%; min-height: 34px; padding: 8px 10px; border: 1px solid var(--color-owl-border); border-radius: 6px; background: var(--color-owl-panel); color: var(--color-owl-text); font: inherit; caret-color: var(--color-owl-accent); }
+.research-prompts-panel select:disabled, .research-prompts-filters > input:disabled, .research-prompts-editor > input:disabled, .research-prompts-editor > textarea:disabled, .research-prompts-models:disabled { opacity: .6; }
+.research-prompts-editor { margin-top: 18px; }
+.research-prompts-editor > label:not(:first-child) { margin-top: 18px; }
+.research-prompts-editor > textarea { min-height: 210px; resize: vertical; line-height: 1.75; }
+.research-prompts-editor input::placeholder, .research-prompts-filters input::placeholder { color: var(--color-owl-muted); }
+.research-prompts-model-editor { margin: 16px 0 0; }
+.research-prompts-model-editor > summary { cursor: pointer; line-height: 1.7; overflow-wrap: anywhere; }
+.research-prompts-model-editor > summary small { margin-left: 8px; color: var(--color-owl-muted); font-size: 11px; }
+.research-prompts-models { margin: 12px 0 0; padding: 0; border: 0; min-width: 0; }
+.research-prompts-models legend { padding: 0; margin-bottom: 9px; font-weight: 500; }
+.research-prompts-models > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
+.research-prompts-models label { display: flex; gap: 6px; align-items: center; min-height: 26px; overflow-wrap: anywhere; }
+.research-prompts-models input { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--color-owl-accent); }
+.research-prompts-models small { display: block; margin-top: 8px; color: var(--color-owl-muted); font-size: 11px; line-height: 1.8; }
+.research-prompts-editor > small { display: block; margin-top: 6px; color: var(--color-owl-muted); font-size: 11px; line-height: 1.8; }
+.research-prompts-editor .research-prompts-delete { margin-top: 14px; color: var(--color-owl-muted); background: transparent; }
+.research-prompts-delete-confirm { margin-top: 14px; }
+.research-prompts-delete-confirm p { margin: 0 0 8px; line-height: 1.7; overflow-wrap: anywhere; }
+.research-prompts-delete-confirm button + button { margin-left: 8px; }
+.research-prompts-empty { margin: 18px 0; color: var(--color-owl-muted); line-height: 1.8; }
+.research-prompts-empty p { margin: 0 0 10px; }
+.research-prompts-transfer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--color-owl-border); }
+.research-prompts-transfer small { flex-basis: 100%; color: var(--color-owl-muted); font-size: 11px; line-height: 1.8; }
+.research-prompts-preview { margin-top: 22px; color: var(--color-owl-muted); }
+.research-prompts-preview summary { cursor: pointer; padding: 4px 0; line-height: 1.7; }
+.research-prompts-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; padding: 12px; max-height: 320px; overflow: auto; color: var(--color-owl-text); background: var(--color-owl-panel); border-radius: 6px; font-family: inherit; font-size: 11px; line-height: 1.8; }
+.research-prompts-panel > footer { flex: none; padding: 12px 18px 14px; border-top: 1px solid var(--color-owl-border); }
+.research-prompts-panel > footer > span { display: block; color: var(--color-owl-muted); font-size: 11px; line-height: 1.8; min-height: 20px; margin-bottom: 4px; }
+.research-prompts-panel > footer > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.research-prompts-panel button.research-prompts-primary { color: var(--color-owl-text); border-color: var(--color-owl-accent); }
+.research-prompts-panel button.research-prompts-restore { margin-top: 8px; background: transparent; color: var(--color-owl-muted); }
+.research-prompts-panel :is(input, textarea, select, summary):focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.research-prompts-panel ::selection { background: var(--color-owl-accent); color: var(--color-owl-bg); }
+@container (max-width: 1040px) { .research-prompts-panel { position: absolute; inset: 0 0 0 auto; width: 440px; max-width: 100%; z-index: 30; box-shadow: -8px 0 30px #0005; } }
+@container (max-width: 520px) { .research-prompt-toolbar { padding: 8px 12px; } .research-prompt-toolbar > span { display: none; } .research-prompts-panel { width: 100%; border-left: 0; box-shadow: none; } .research-prompts-panel > header { padding: 14px 16px; } .research-prompts-body { padding: 16px; } }
+@container (max-width: 360px) { .research-prompts-models > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

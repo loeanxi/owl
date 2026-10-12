@@ -14,6 +14,9 @@
 - Added explicit implementation acceptance checklists with observed evidence, one bounded completion reminder, and recovery guidance for repeated identical tool errors.
 - Added research Agent code recovery with a pinned V8 JSC decoder, width-aware disassembly normalization, approximate JavaScript reconstruction, readable source copies and configured Ghidra native pseudocode exports, including hashes, coverage and unresolved instructions.
 - Added research-only PE inspection, bounded Electron resource analysis, explicit ASAR extraction and an optional installed UPX adapter, with source-linked result cards and no target execution. Added fixed synthetic model boundary experiments with explicit model and call budgets.
+- Added a research-only REA 6.4.0 static-analysis integration with isolated MCP sessions, cancellation and deadline cleanup, retained Evidence views, and explicit pseudocode exports.
+- Added curated research operating rules and session-local progress checkpoints with branch-aware recovery, bounded records, and explicit evidence verification requirements.
+- Added per-turn research failure diagnostics with provider markers, approval/tool evidence, branch-local recovery and a compact desktop notice, plus an opt-in acceptance runner for source-owned static fixtures with shared call limits.
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
 - Added live model evaluation thinking, answers, generation phases and source output with automatic scroll following that pauses when reviewing earlier content.
 - Added independent model evaluation conversations with persistent follow-up turns, inline artifacts, attempt selection, and first-answer scoring drawers.
@@ -23,6 +26,8 @@
 
 ### Changed
 
+- Unified the research workbench entry for new and resumed sessions, removing the direction selector so the Agent can combine available research capabilities while preserving method/result categories and existing research history.
+- Research prompts now clarify missing functionality and runtime context for ambiguous labels, reassess user clarifications and repeated requests against actual history, and require concrete technical work on supplied self-developed offline targets within the existing authorization and tool boundaries. The intake contract stays at the end of both default and overridden research prompts.
 - Aligned the Pi preset prompt with Pi v1.1.0's four-tool configuration and current file-tool guidelines, including batch edits and current-turn read requirements.
 - Shell tasks now use verified available commands and avoid unnecessary output-directory deletion during repeated execution checks.
 - Coding tasks with numeric input requirements now validate raw values before conversion, preserve valid representations without adding unstated format restrictions, and check relevant uncovered boundaries before reporting completion.
@@ -36,6 +41,8 @@
 
 ### Fixed
 
+- Explicit provider refusals now retain their original response and stop automatic retries or context-overflow recovery, even when custom transient-error patterns match the refusal explanation.
+- Research REA clients now use the conversation's configured agent directory instead of silently resolving tools from the default profile.
 - Directory reads now return bounded shallow listings instead of EISDIR, without granting file-edit read evidence; coding checks now prepare compiler directories and encode verifier URLs before execution.
 - Default-only OpenAI completions reasoning requests can use a bounded temporary output ceiling after one thinking-only truncation, preserving explicit caps and the selected model/thinking level while retaining the one-recovery stop.
 - Compound browser requests now preload separate navigation, observation and form actions, preserve affirmative steps around negative clauses, and honor explicit native/MCP backend requirements without cross-backend fallback for unsupported actions.

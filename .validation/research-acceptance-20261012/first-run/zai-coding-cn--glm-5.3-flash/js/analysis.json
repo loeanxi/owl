@@ -1,0 +1,7 @@
+{
+  "kind": "js",
+  "result": "AB",
+  "callChain": ["lookupBadge", "decodeBadge"],
+  "evidencePaths": [],
+  "explanation": "research_rea action=javascript 失败：ENOENT realpath 'C:\\Users\\李现\\.owl\\agent\\tools\\research-rea\\node_modules\\rea-agents'（工具后端缺失），故无工具产物，evidencePaths 为空。结论基于直接读取的源文件：index.js 的 lookupBadge(hex) 返回 decodeBadge(hex).trim().toUpperCase()；codec.js 的 decodeBadge 将输入按两位 hex 拆分，每位与 43(0x2b) 异或后转字符。输入 \"6a69\"：0x6a^0x2b=0x41('A')，0x69^0x2b=0x42('B')，拼接为 \"AB\"，trim/toUpperCase 不改变结果。未运行任何代码，全部为静态推导。"
+}

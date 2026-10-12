@@ -1,0 +1,15 @@
+{
+  "kind": "js",
+  "owner": "Owl synthetic acceptance fixture",
+  "targetExecuted": false,
+  "inputs": [
+    {
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\index.js",
+      "sha256": "0e6d3f128ae1b462afe877a13be56499ea868181ce052472ce55c017ea52f925"
+    },
+    {
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\codec.js",
+      "sha256": "ca3909fb3d944a218cd539516367da52aac6efcc6f2438ef730651818d7fd160"
+    }
+  ]
+}

@@ -272,6 +272,7 @@ export function Composer({
 	defaultPresetId,
 	agentPreset,
 	agentPresetLocked,
+	agentPresetDisabledReasons,
 	onAgentPresetSelect,
 	sessionInfo,
 	workspaceDir,
@@ -331,6 +332,8 @@ export function Composer({
 	agentPreset?: string;
 	/** 会话跑过第一轮后预设锁定（DSH 的 blank-session-only 切换不变量）。 */
 	agentPresetLocked?: boolean;
+	/** Presets that this conversation type cannot run, with an explanation shown in the menu. */
+	agentPresetDisabledReasons?: Readonly<Record<string, string>>;
 	/** 选择预设：空白会话即时切换，新会话暂存到创建时生效。 */
 	onAgentPresetSelect?: (id: string) => void;
 	sessionInfo: SessionStatsResult | undefined;
@@ -1333,11 +1336,15 @@ export function Composer({
 										<p className="text-xs font-semibold text-owl-text">{t("composer.preset.menuTitle")}</p>
 										<p className="mt-0.5 text-[10.5px] leading-snug text-owl-faint">{t("composer.preset.menuDesc")}</p>
 									</div>
-									{agentPresets.map((preset) => (
+									{agentPresets.map((preset) => {
+										const disabledReason = agentPresetDisabledReasons && Object.hasOwn(agentPresetDisabledReasons, preset.id) ? agentPresetDisabledReasons[preset.id] : undefined;
+										return (
 										<button
 											key={preset.id}
 											type="button"
-											className={`${menuItemClass} items-start ${preset.id === agentPreset ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+											disabled={Boolean(disabledReason)}
+											title={disabledReason}
+											className={`${menuItemClass} items-start disabled:cursor-not-allowed disabled:opacity-50 ${preset.id === agentPreset ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
 											onClick={() => {
 												onAgentPresetSelect(preset.id);
 												close();
@@ -1362,10 +1369,12 @@ export function Composer({
 													<span className="text-[9px] tracking-wide text-owl-faint">{preset.id}</span>
 												</span>
 												<span className="mt-0.5 block text-[10.5px] leading-snug text-owl-faint">{preset.description}</span>
+												{disabledReason && <span className="mt-1 block text-[10.5px] leading-snug text-owl-muted">{disabledReason}</span>}
 											</span>
 											{preset.id === agentPreset && <span className="mt-0.5 text-owl-accent">✓</span>}
 										</button>
-									))}
+									);
+									})}
 									{agentPresetLocked && (
 										<p className="flex items-start gap-1.5 border-t border-owl-border px-3 pb-2.5 pt-2 text-[10px] leading-snug text-owl-faint">
 											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-px h-2.5 w-2.5 shrink-0">

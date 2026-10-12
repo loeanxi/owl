@@ -7,6 +7,14 @@
 import type { WebSocket } from "ws";
 import { getWorkspaceDiffApprovalStore } from "../../../core/diff-approval/registry.ts";
 import { resolveQuestion } from "../../../core/question-channel.ts";
+import { defaultResearchPrompt } from "../../../core/research/agent.ts";
+import {
+	applyResearchPromptPreset,
+	exportResearchPromptSettings,
+	loadResearchPromptSettings,
+	restoreResearchPromptDefaults,
+	saveResearchPromptSettings,
+} from "../../../core/research/prompt-settings.ts";
 import type { DesktopPermissionQueue } from "../permission-queue.ts";
 import type {
 	DesktopClientRequest,
@@ -14,6 +22,8 @@ import type {
 	DiffApprovalDiffResult,
 	DiffApprovalListResult,
 	DiffApprovalResolveResult,
+	ResearchPromptSettings,
+	ResearchPromptsResult,
 } from "../protocol.ts";
 import type { ScheduleService } from "../schedule-service.ts";
 
@@ -24,6 +34,44 @@ export interface WorkbenchHandlerContext {
 	defaultAgentDir: () => string;
 	pendingPermissions: DesktopPermissionQueue;
 	schedule: ScheduleService;
+}
+
+export type ResearchPromptsRequest = Extract<DesktopClientRequest, { type: `research.prompts.${string}` }>;
+
+/** Settings writes affect the next research turn, without restarting a run or changing its permissions. */
+export async function handleResearchPromptsRequest(
+	ws: WebSocket,
+	request: ResearchPromptsRequest,
+	ctx: WorkbenchHandlerContext,
+): Promise<void> {
+	try {
+		if (request.type === "research.prompts.export") {
+			ctx.reply(ws, request.id, { ok: true, result: exportResearchPromptSettings(request.settings) });
+			return;
+		}
+		const agentDir = ctx.defaultAgentDir();
+		let settings: ResearchPromptSettings;
+		switch (request.type) {
+			case "research.prompts.get":
+				settings = loadResearchPromptSettings(agentDir);
+				break;
+			case "research.prompts.save":
+				settings = saveResearchPromptSettings(agentDir, request.settings);
+				break;
+			case "research.prompts.apply":
+				settings = applyResearchPromptPreset(agentDir, request.presetId);
+				break;
+			case "research.prompts.restore":
+				settings = restoreResearchPromptDefaults(agentDir);
+				break;
+		}
+		ctx.reply(ws, request.id, {
+			ok: true,
+			result: { settings, defaultPrompt: defaultResearchPrompt() } satisfies ResearchPromptsResult,
+		});
+	} catch (error) {
+		ctx.reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+	}
 }
 
 /** DiffApproval 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
@@ -112,6 +160,8 @@ export async function handleScheduleRequest(
 				prompt: request.prompt,
 				sessionId: request.sessionId,
 				targetLabel: request.targetLabel,
+				...(request.provider !== undefined ? { provider: request.provider } : {}),
+				...(request.model !== undefined ? { model: request.model } : {}),
 				repeat: request.repeat,
 				...(request.missed !== undefined ? { missed: request.missed } : {}),
 			});

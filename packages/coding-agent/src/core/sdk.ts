@@ -77,6 +77,8 @@ export interface CreateAgentSessionOptions {
 	 * enabled.
 	 */
 	tools?: string[];
+	/** Initial active tools without restricting the registered tool catalog. Ignored when tools/noTools is set. */
+	initialActiveToolNames?: string[];
 	/** Optional denylist of tool names to disable. Applies after `tools` when both are provided. */
 	excludeTools?: string[];
 	/** Custom tools to register (in addition to built-in tools). */
@@ -278,11 +280,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
 	const initialActiveToolNames = (
-		options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))
+		options.tools ??
+		(options.noTools ? [] : (options.initialActiveToolNames ?? configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))
 	).filter((name) => !excludedToolNameSet?.has(name));
 	if (
 		options.toolActivation === "on-demand" &&
 		options.tools === undefined &&
+		options.initialActiveToolNames === undefined &&
 		!options.noTools &&
 		!replacesDefaultTools
 	) {
@@ -510,7 +514,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		cacheWarmer,
 		initialActiveToolNames,
 		toolActivation: options.toolActivation,
-		usesDefaultTools: options.tools === undefined && !options.noTools,
+		usesDefaultTools: options.tools === undefined && options.initialActiveToolNames === undefined && !options.noTools,
 		allowedToolNames,
 		excludedToolNames,
 		extensionRunnerRef,

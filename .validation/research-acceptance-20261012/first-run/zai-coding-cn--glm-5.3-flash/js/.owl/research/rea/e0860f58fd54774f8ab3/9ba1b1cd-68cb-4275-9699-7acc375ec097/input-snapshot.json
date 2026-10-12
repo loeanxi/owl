@@ -1,0 +1,40 @@
+{
+  "originalTarget": {
+    "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js",
+    "kind": "directory",
+    "bytes": null,
+    "sha256": null
+  },
+  "mappings": [
+    {
+      "source": {
+        "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\index.js",
+        "kind": "file",
+        "bytes": 125,
+        "sha256": "0e6d3f128ae1b462afe877a13be56499ea868181ce052472ce55c017ea52f925"
+      },
+      "snapshot": {
+        "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\.owl\\research\\rea\\e0860f58fd54774f8ab3\\9ba1b1cd-68cb-4275-9699-7acc375ec097\\input-snapshot\\index.js",
+        "kind": "file",
+        "bytes": 125,
+        "sha256": "0e6d3f128ae1b462afe877a13be56499ea868181ce052472ce55c017ea52f925"
+      }
+    },
+    {
+      "source": {
+        "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\codec.js",
+        "kind": "file",
+        "bytes": 129,
+        "sha256": "ca3909fb3d944a218cd539516367da52aac6efcc6f2438ef730651818d7fd160"
+      },
+      "snapshot": {
+        "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\first-run\\zai-coding-cn--glm-5.3-flash\\js\\.owl\\research\\rea\\e0860f58fd54774f8ab3\\9ba1b1cd-68cb-4275-9699-7acc375ec097\\input-snapshot\\codec.js",
+        "kind": "file",
+        "bytes": 129,
+        "sha256": "ca3909fb3d944a218cd539516367da52aac6efcc6f2438ef730651818d7fd160"
+      }
+    }
+  ],
+  "targetExecuted": false,
+  "limitation": "只分析明确选中的源码；未复制的依赖与模块关系保留为未知。"
+}

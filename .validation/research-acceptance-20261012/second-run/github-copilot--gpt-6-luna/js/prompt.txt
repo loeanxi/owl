@@ -1,0 +1,4 @@
+静态分析自建 index.js 与 codec.js，追踪 lookupBadge 到 decodeBadge 的调用链，推导输入 "6a69" 的返回值。用 research_rea action=javascript、path="."、sourcePaths=["index.js","codec.js"] 获取真实证据，并读取两份源文件核对。
+这是本次测试生成的自有微型样本；只处理当前目录。禁止运行目标或源码、网络访问、安装软件及调用其他模型。
+最多3次模型请求。第一轮可批量调用必要工具，随后尽快保存结论。不要先列计划或等待用户选研究方向。
+使用 write 把成果保存为 analysis.json。格式：{"kind":"js或native","result":实际返回值,"callChain":[JS函数名或入口地址],"evidencePaths":[工具实际返回的绝对产物路径],"explanation":"依据与局限"}。result 的类型与真实返回值一致。工具不存在或失败时如实说明，不编造产物。

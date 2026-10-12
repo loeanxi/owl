@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { type WebSocket, WebSocketServer } from "ws";
 import { getAgentDir, getGlobalSkillsDir } from "../../config.ts";
@@ -94,6 +94,9 @@ import {
 	RESEARCH_PUBLISH_TOOL,
 	updateResearchMode,
 } from "../../core/research/agent.ts";
+import { RESEARCH_CHECKPOINT_TOOL } from "../../core/research/checkpoint.ts";
+import { getResearchDiagnosis } from "../../core/research/diagnosis.ts";
+import { researchToolLoadout } from "../../core/research/tool-loadout.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
 import {
@@ -105,7 +108,7 @@ import {
 } from "../../core/session-export.ts";
 import type { SessionInfo } from "../../core/session-manager.ts";
 import { getDefaultSessionDirPath, SessionManager } from "../../core/session-manager.ts";
-import type { SettingsManager } from "../../core/settings-manager.ts";
+import { DEFAULT_TOOL_NAMES, type SettingsManager } from "../../core/settings-manager.ts";
 import { loadSkills } from "../../core/skills.ts";
 import { buildSystemPromptSections } from "../../core/system-prompt.ts";
 import { createAllToolDefinitions } from "../../core/tools/index.ts";
@@ -144,6 +147,7 @@ import { handleTermRequest, type TerminalHandlerContext } from "./handlers/termi
 import {
 	handleDialogRequest,
 	handleDiffApprovalRequest,
+	handleResearchPromptsRequest,
 	handleScheduleRequest,
 	type WorkbenchHandlerContext,
 } from "./handlers/workbench.ts";
@@ -649,13 +653,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	// 普通跟进消息送回目标会话（同 session.prompt 链路），会话没挂载按错过策略处理。
 	// sessionId === "__new__" 表示每次到点新建会话执行（周报这类「一期一会」的任务）：
 	// 无界面挂载（HEADLESS_WS 只用于吞掉 reply，事件仍全局 broadcast），默认工作目录、
-	// 默认模型、auto 审批——与 mail agent 会话同一套参数。
+	// 任务创建时记下的模型（旧任务没有则走默认模型）、auto 审批。
 	const HEADLESS_WS = { readyState: 0 } as unknown as WebSocket;
-	const createScheduledSession = async (): Promise<string> => {
+	const createScheduledSession = async (task: { provider?: string; model?: string }): Promise<string> => {
 		const sessionManager = SessionManager.create(options.cwd ?? process.cwd());
 		await mountSession(HEADLESS_WS, "schedule-new", {
 			sessionManager,
 			agentDir: defaultAgentDir(),
+			provider: task.provider,
+			model: task.model,
 			approvalMode: "auto",
 		});
 		return sessionManager.getSessionId();
@@ -664,17 +670,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		agentDir: defaultAgentDir(),
 		onDiagnostic,
 		onChanged: () => broadcast({ type: "schedule.changed" }),
-		deliver: async (sessionId, text) => {
-			let targetId = sessionId;
-			if (sessionId === "__new__") {
-				targetId = await createScheduledSession();
+		deliver: async (task, text) => {
+			let targetId = task.sessionId;
+			if (targetId === "__new__") {
+				targetId = await createScheduledSession(task);
 				onDiagnostic(`schedule created session ${targetId.slice(0, 8)} for a new-run task`);
 			}
 			const target = sessions.get(targetId);
 			if (!target) return null;
-			const behavior = streamingBehaviorForPrompt(target.runtime.session.isStreaming, "followUp");
-			await target.runtime.session.prompt(text, { ...(behavior ? { streamingBehavior: behavior } : {}) });
-			return targetId;
+			const session = target.runtime.session;
+			const behavior = streamingBehaviorForPrompt(session.isStreaming, "followUp");
+			const messagesBefore = session.messages.length;
+			await session.prompt(text, { ...(behavior ? { streamingBehavior: behavior } : {}) });
+			// 排在进行中的一轮后面：prompt() 在本任务那轮执行前就返回了，结果无从判断。
+			if (behavior) return { sessionId: targetId };
+			const last = session.messages.slice(messagesBefore).findLast((message) => message.role === "assistant") as
+				| AssistantMessage
+				| undefined;
+			if (last?.stopReason === "error") return { sessionId: targetId, error: last.errorMessage ?? "模型调用失败" };
+			return { sessionId: targetId };
 		},
 	});
 	schedule.start();
@@ -813,7 +827,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				resourceLoaderOptions: {
 					extensionFactories: [
 						...extensionFactories,
-						...(researchMode ? [createResearchExtension(runtimeOptions.sessionManager)] : []),
+						...(researchMode ? [createResearchExtension(runtimeOptions.sessionManager, agentDir)] : []),
 					],
 					...(preset.runtime === "pi"
 						? piResourceLoaderOptions(appendSystemPrompt)
@@ -833,6 +847,16 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				services,
 				sessionManager: runtimeOptions.sessionManager,
 				toolActivation: preset.runtime === "pi" ? "eager" : "on-demand",
+				...(researchMode
+					? {
+							initialActiveToolNames: researchToolLoadout(
+								applyPresetToolModifiers(
+									services.settingsManager.getDefaultTools() ?? DEFAULT_TOOL_NAMES,
+									preset.tools,
+								),
+							),
+						}
+					: {}),
 				...(preset.runtime === "pi"
 					? { tools: applyPresetToolModifiers(["read", "bash", "edit", "write"], preset.tools) }
 					: {}),
@@ -949,6 +973,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			agentPreset: getSessionPresetId(sessionManager),
 			...(mailContext ? { mailContext } : {}),
 			...(researchMode ? { researchMode } : {}),
+			...(researchMode ? { researchDiagnosis: getResearchDiagnosis(sessionManager) } : {}),
 			approvalMode:
 				sessions.get(sessionId)?.approvalMode.current ??
 				(researchMode ? getResearchApprovalMode(sessionManager) : undefined),
@@ -1177,11 +1202,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				() => defaultPresetId,
 			),
 		};
-		// Research conversations require their dedicated tools even when ordinary chats default to Pi.
+		// Research retains Home's preset while always adding its dedicated tools. Pi has a separate tool allowlist.
 		if (researchMode && presetHolder.current.runtime === "pi") {
+			if (args.agentPreset) throw new Error("研究会话需要专属工具，不能切换到 Pi 模式");
 			presetHolder.current = resolveAgentPreset(args.agentDir, "standard");
 		}
-		if (args.persistPreset) setSessionPresetEntry(sessionManager, presetHolder.current.id);
+		if (args.persistPreset || (researchMode && getSessionPresetId(sessionManager) !== presetHolder.current.id)) {
+			setSessionPresetEntry(sessionManager, presetHolder.current.id);
+		}
 		// 审批模式挂 holder：session.setApprovalMode 可在会话中途改写，扩展每次 tool_call 现读现判。
 		const approvalModeHolder: { current: ApprovalMode } = {
 			current:
@@ -1198,8 +1226,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const mode = approvalModeHolder.current;
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
 					if (event.toolName === "ask_user_question") return {};
-					// Publishing existing research material only changes the transcript, like an assistant reply.
-					if (researchMode && event.toolName === RESEARCH_PUBLISH_TOOL) return {};
+					// Publishing material and saving progress only change the research transcript, like an assistant reply.
+					if (
+						researchMode &&
+						(event.toolName === RESEARCH_PUBLISH_TOOL || event.toolName === RESEARCH_CHECKPOINT_TOOL)
+					)
+						return {};
 					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
 					if (mode === "plan" && !isReadOnlyDesktopTool(event.toolName, event.input)) {
 						return {
@@ -1287,6 +1319,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			runtime.session.setActiveToolsByName(
 				applyPresetToolModifiers(runtime.session.getActiveToolNames(), presetHolder.current.tools),
 			);
+		}
+		if (researchMode) {
+			runtime.session.setActiveToolsByName(researchToolLoadout(runtime.session.getActiveToolNames()));
 		}
 		const runStart: { priorEntryIds?: Set<string> } = {};
 		const unsubscribe = runtime.session.subscribe((event) => {
@@ -1710,7 +1745,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				const sessionManager = session.runtime.session.sessionManager;
 				if (getResearchMode(sessionManager) && preset.runtime === "pi") {
-					reply(ws, request.id, { ok: false, error: "研究会话需要专属工具，不能切换到 Pi 模式" });
+					reply(ws, request.id, {
+						ok: false,
+						error: "研究会话需要专属工具，不能切换到 Pi 模式",
+					});
 					return;
 				}
 				// 空白判定与快照同一投影：跑过第一轮的会话锁定预设（历史是原组合产生的）。
@@ -1721,10 +1759,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				setSessionPresetEntry(sessionManager, preset.id);
-				// Entering/leaving Pi must replace resources, extensions, tool allowlists and prompt together.
+				// Research preset changes rebuild prompts and the combined loadout; Pi transitions also replace resources.
 				if (
 					!getMailAgentContext(sessionManager) &&
-					(preset.runtime === "pi" || session.preset.current.runtime === "pi")
+					(getResearchMode(sessionManager) || preset.runtime === "pi" || session.preset.current.runtime === "pi")
 				) {
 					const model = session.runtime.session.model;
 					const thinkingLevel = session.runtime.session.thinkingLevel;
@@ -2797,6 +2835,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "memory.clear":
 			case "usage.get":
 				await handleSettingsRequest(ws, request);
+				return;
+			case "research.prompts.get":
+			case "research.prompts.save":
+			case "research.prompts.apply":
+			case "research.prompts.restore":
+			case "research.prompts.export":
+				await handleResearchPromptsRequest(ws, request, workbenchContext);
 				return;
 			case "schedule.list":
 			case "schedule.create":

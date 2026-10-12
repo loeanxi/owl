@@ -19,8 +19,14 @@ const result: ResearchResult = {
 };
 
 describe("research capability cards in the desktop", () => {
-	it("restores dedicated executable and model cards from persisted tool results without inferring prose", () => {
-		for (const toolName of ["research_publish", "research_executable", "research_decompile", "research_model_lab"]) {
+	it("restores dedicated research cards from persisted tool results without inferring prose", () => {
+		for (const toolName of [
+			"research_publish",
+			"research_executable",
+			"research_decompile",
+			"research_model_lab",
+			"research_rea",
+		]) {
 			const card = toolName === "research_model_lab" ? { ...result, mode: "model" as const } : result;
 			const message = { role: "toolResult", toolName, details: { researchResult: card }, isError: false };
 			expect(publishedResults([message, message])).toEqual([card]);
@@ -33,15 +39,23 @@ describe("research capability cards in the desktop", () => {
 		expect(publishedResults([{ role: "toolResult", toolName: "read", details: { researchResult: result } }])).toEqual(
 			[],
 		);
+		expect(
+			publishedResults([{ role: "toolResult", toolName: "mcp_rea_decompile", details: { researchResult: result } }]),
+		).toEqual([]);
 	});
 
 	it("ignores failed tools and rejects invalid source references or unsafe links", () => {
 		const event = {
 			type: "tool_execution_end",
-			toolName: "research_executable",
+			toolName: "research_rea",
 			result: { details: { researchResult: result } },
 		};
 		expect(researchResultsFromEvent({ ...event, isError: true })).toEqual([]);
+		expect(
+			publishedResults([
+				{ role: "toolResult", toolName: "research_rea", details: { researchResult: result }, isError: true },
+			]),
+		).toEqual([]);
 		for (const card of [
 			{ ...result, findings: [{ kind: "fact", text: "bad reference", sourceIds: ["missing"] }] },
 			{ ...result, sources: [{ id: "local", title: "bad link", url: "file:///private.exe" }] },

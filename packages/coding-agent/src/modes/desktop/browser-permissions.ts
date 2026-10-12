@@ -19,6 +19,8 @@ const READ_ONLY_TOOLS = new Set([
 	"map_search",
 	"map_nearby",
 	"map_reverse",
+	// Saving research progress only appends state to the conversation's own ledger.
+	"research_checkpoint",
 ]);
 
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {
@@ -27,6 +29,7 @@ export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean
 	if (toolName === "research_executable") return action === undefined || action === "inspect";
 	if (toolName === "research_model_lab") return action === undefined || action === "plan";
 	if (toolName === "research_decompile") return action === "inventory";
+	if (toolName === "research_rea") return action === "inventory";
 	if (toolName === "browser_tabs") return action === "list" || action === "select";
 	if (toolName === "browser_console") return action === undefined || action === "list";
 	if (toolName === "browser_network") return action === undefined || action === "list" || action === "detail";

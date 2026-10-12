@@ -1,0 +1,60 @@
+{
+  "ownerSessionId": "acceptance-local-js",
+  "createdAt": "2026-10-11T22:00:24.969Z",
+  "action": "javascript",
+  "operation": "analyze_javascript_application",
+  "target": {
+    "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\js",
+    "kind": "directory",
+    "bytes": null,
+    "sha256": null
+  },
+  "evidenceId": "ev_60d89c95bca7d9a3c469a260184554aee9a6e1e165f3fdf3219bfcb4bc18353b",
+  "targetExecuted": false,
+  "status": "partial",
+  "artifacts": [
+    {
+      "kind": "完整 MCP 响应",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\js\\.owl\\research\\rea\\e408bdf5b3721459e764\\ececc835-7218-4c1b-868f-cfc6e74959dd\\response.json",
+      "bytes": 25117,
+      "sha256": "a8ed857c1b127a543a86b732888523a2854dc5556c6a2962b638bc0fa2d77079"
+    },
+    {
+      "kind": "选中源码快照与哈希",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\js\\.owl\\research\\rea\\e408bdf5b3721459e764\\ececc835-7218-4c1b-868f-cfc6e74959dd\\input-snapshot.json",
+      "bytes": 1724,
+      "sha256": "55ba22dcfc646d9a2b2dddbad3b73c6d6fb780804be81a5b749dfd464b1940c1"
+    },
+    {
+      "kind": "分析观测",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\js\\.owl\\research\\rea\\e408bdf5b3721459e764\\ececc835-7218-4c1b-868f-cfc6e74959dd\\analysis.json",
+      "bytes": 9181,
+      "sha256": "56c24bfd80d8f0431051ffbe182687ffdddf56ccf92b02400b4fcb5abe7bf3ef"
+    },
+    {
+      "kind": "完整会话证据包",
+      "path": "D:\\owl\\owl-re-v1\\owl-mono\\.validation\\research-acceptance-20261012\\local-tools\\verified\\js\\.owl\\research\\rea\\e408bdf5b3721459e764\\ececc835-7218-4c1b-868f-cfc6e74959dd\\session-evidence.json",
+      "bytes": 127717,
+      "sha256": "77e1802bf705f77f4ee34f1cfc1495fb508fc5413d20efc0d6f8602c697d811a"
+    }
+  ],
+  "warnings": [
+    "分析使用已核验的源码副本；未复制的依赖、.owl、.git 或 node_modules 不属于本轮恢复范围。",
+    "Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.",
+    "Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.",
+    "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+    "Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.",
+    "Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.",
+    "Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.",
+    "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+    "Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.",
+    "Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.",
+    "Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.",
+    "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
+    "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+    "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+    "The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.",
+    "Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.",
+    "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."
+  ]
+}

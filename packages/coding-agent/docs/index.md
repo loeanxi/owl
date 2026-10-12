@@ -15,6 +15,10 @@ If Pi is already installed, choose what you want to do:
 - [Continue or branch a session](sessions.md) to resume work or explore another approach without losing history.
 - [Configure Pi](configuration.md) for your preferences, working folders, instructions, and reusable resources.
 - [Understand how Pi works](how-pi-works.md), including tools, context, sessions, and the agent loop.
+- [Use REA in the research workbench](research-rea.md) for session-isolated JavaScript, native PE and .NET static analysis with retained evidence.
+- [Research operating rules and checkpoints](research-operating-policy.md) for curated execution methods, bounded progress, and artifact checks before resuming.
+- [Manage research prompts](research-prompts.md) to edit presets, apply a research-only override, and restore the default instructions.
+- [Research failure diagnostics and acceptance](research-diagnosis.md) to distinguish provider refusal markers, approvals and tool failures, and validate normal research tasks against retained artifacts.
 
 ## Customize Pi
 
