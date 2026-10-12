@@ -9,6 +9,8 @@ export interface AppPlace {
 	chatSession?: string;
 	researchSession?: string;
 	workspace: string;
+	/** 研究工作台自己的当前项目，与主会话的 workspace 互不带动。 */
+	researchWorkspace: string;
 }
 
 export interface AppHistory {
@@ -25,13 +27,14 @@ export function samePlace(a: AppPlace, b: AppPlace): boolean {
 		&& a.settingsTab === b.settingsTab
 		&& a.chatSession === b.chatSession
 		&& a.researchSession === b.researchSession
-		&& normPath(a.workspace) === normPath(b.workspace);
+		&& normPath(a.workspace) === normPath(b.workspace)
+		&& normPath(a.researchWorkspace) === normPath(b.researchWorkspace);
 }
 
 /** 空白会话被真正创建出来时，只补上 id，不当成用户又走了一步。 */
 function isSessionFill(prev: AppPlace, next: AppPlace): boolean {
 	if (prev.rail !== next.rail || prev.settings !== next.settings || prev.settingsTab !== next.settingsTab) return false;
-	if (normPath(prev.workspace) !== normPath(next.workspace)) return false;
+	if (normPath(prev.workspace) !== normPath(next.workspace) || normPath(prev.researchWorkspace) !== normPath(next.researchWorkspace)) return false;
 	const chatFilled = prev.chatSession === undefined && next.chatSession !== undefined && prev.researchSession === next.researchSession;
 	const researchFilled = prev.researchSession === undefined && next.researchSession !== undefined && prev.chatSession === next.chatSession;
 	return chatFilled || researchFilled;

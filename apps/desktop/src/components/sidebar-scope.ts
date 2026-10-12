@@ -34,7 +34,13 @@ export function loadSidebarStrings(storage: Pick<Storage, "getItem">, key: strin
 	}
 }
 
-/** Copy only existing research pins into their new namespace; preserve the shared legacy keys. */
+const RESEARCH_PROJECTS_ISOLATED_KEY = "owl.research.sidebar.projectsIsolated";
+
+/**
+ * Copy only existing research pins into their new namespace; preserve the shared legacy keys.
+ * Research once shared the ordinary current project, so its project list may hold ordinary
+ * projects: keep only those with research history, once.
+ */
 export function initializeResearchSidebar(storage: SidebarStorage, rows: readonly ScopeRow[]): void {
 	// Wait for authoritative type metadata before splitting legacy preferences.
 	if (rows.some((row) => row.scope !== "chat" && row.scope !== "research")) return;
@@ -49,6 +55,12 @@ export function initializeResearchSidebar(storage: SidebarStorage, rows: readonl
 		}
 		if (storage.getItem(keys.pinnedProjects) === null) {
 			storage.setItem(keys.pinnedProjects, JSON.stringify(loadSidebarStrings(storage, ordinaryKeys.pinnedProjects).filter((path) => projects.has(normPath(path)))));
+		}
+		if (storage.getItem(RESEARCH_PROJECTS_ISOLATED_KEY) === null) {
+			if (storage.getItem(keys.projects) !== null) {
+				storage.setItem(keys.projects, JSON.stringify(loadSidebarStrings(storage, keys.projects).filter((path) => projects.has(normPath(path)))));
+			}
+			storage.setItem(RESEARCH_PROJECTS_ISOLATED_KEY, "1");
 		}
 	} catch { /* The current history still renders when preference storage is unavailable. */ }
 }

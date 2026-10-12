@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTracker } from "./bridge/permission-state.ts";
@@ -46,7 +46,7 @@ import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionShareDialog } from "./components/SessionShareDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
-import { loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
+import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { DynamicIsland } from "./components/DynamicIsland.tsx";
 import { islandQuestionChoices, islandSessionTitle, islandWhisper, type IslandOutcome } from "./components/dynamic-island-model.ts";
@@ -59,8 +59,9 @@ import { SettingsPage, type SettingsInitialTab } from "./components/SettingsPage
 import { TodoPin } from "./components/TodoPin.tsx";
 import { RetryPin } from "./components/RetryPin.tsx";
 import { BuildConsistencyBanner } from "./components/BuildConsistencyBanner.tsx";
-import { isThemePreference, setThemePreference } from "./theme.ts";
-import { applyOwlAppearance, parseOwlAppearance } from "./owl-appearance.ts";
+import { isThemePreference, setThemeLock, setThemePreference } from "./theme.ts";
+import { applyOwlAppearance, parseOwlAppearance, presetThemeLock } from "./owl-appearance.ts";
+import { syncWindowGlass } from "./window-glass.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
@@ -86,6 +87,9 @@ import "./desktop-shell.css";
 const WORKSPACE_KEY = "owl.workspaceDir";
 /** 是否选择了对话目录（"0" = 已叉掉，不选目录）：不选时会话进 DEFAULT_WORKSPACE_DIR。 */
 const WORKSPACE_SELECTED_KEY = "owl.workspaceSelected";
+/** 研究工作台自己的当前项目与选择状态：与主会话隔离，切换互不带动。 */
+const RESEARCH_WORKSPACE_KEY = "owl.research.workspaceDir";
+const RESEARCH_WORKSPACE_SELECTED_KEY = "owl.research.workspaceSelected";
 const MODEL_KEY = "owl.model";
 const THINKING_KEY = "owl.thinkingLevel";
 const APPROVAL_KEY = "owl.approvalMode";
@@ -204,7 +208,6 @@ export default function App(): React.JSX.Element {
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
 	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
-	const [todoPinVisible, setTodoPinVisible] = useState(false);
 	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
 	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
@@ -314,6 +317,14 @@ export default function App(): React.JSX.Element {
 	// 目录选择状态：叉掉 chip 后为 false——输入框不再绑定目录，会话默认进 DEFAULT_WORKSPACE_DIR。
 	const [workspaceSelected, setWorkspaceSelected] = useState(
 		() => localStorage.getItem(WORKSPACE_SELECTED_KEY) !== "0",
+	);
+	// 研究工作台的项目：首次使用时不绑定目录（会话进默认目录），避免把主会话的项目带进研究侧栏。
+	const [researchWorkspaceDir, setResearchWorkspaceDir] = useState(() => {
+		const saved = localStorage.getItem(RESEARCH_WORKSPACE_KEY);
+		return saved && !isValidationDir(saved) ? saved : DEFAULT_WORKSPACE_DIR;
+	});
+	const [researchWorkspaceSelected, setResearchWorkspaceSelected] = useState(
+		() => localStorage.getItem(RESEARCH_WORKSPACE_SELECTED_KEY) === "1",
 	);
 	const lifeProbe = useLifeProbe({ client, connected, cwd: workspaceDir, model: modelValue });
 	const lifeView = useMemo(() => presentLife(lifeProbe.channels, lifeProbe.round), [lifeProbe.channels, lifeProbe.round]);
@@ -486,6 +497,20 @@ export default function App(): React.JSX.Element {
 		setDeveloperLayoutPersisted(false);
 		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
 	};
+	// 工具侧栏绑定主会话项目：研究项目不同时，研究产物交给系统默认程序打开。
+	const openResearchFile = (path: string): void => {
+		const cwd = researchWorkspaceRef.current;
+		if (samePath(cwd, workspaceRef.current)) {
+			openTaskFile(path);
+			return;
+		}
+		const relative = workspaceArtifactPath(path, cwd);
+		if (!relative) return;
+		setFileOpenError(undefined);
+		void client.request({ type: "open.external", action: "url", target: fileUrlOf(cwd, relative) })
+			.then((result) => { if (!result.ok) setFileOpenError(result.error ?? t("app.fileOpenFailed")); })
+			.catch((error: unknown) => setFileOpenError(error instanceof Error ? error.message : String(error)));
+	};
 
 	// 面板开合的 ref 镜像：快捷键与卡片回调里免 stale closure。
 	const sidebarOpenRef = useRef(sidebarOpen);
@@ -522,6 +547,15 @@ export default function App(): React.JSX.Element {
 		requestOpenKind("review");
 	};
 
+	// 只用到稳定的 state setter，空依赖让工作台 tab props 不随 App 重渲染变化
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	const sendWorkbenchTextToChat = useCallback((text: string): void => {
+		setRailView("chat");
+		setShowSettings(false);
+		setConversationViewPersisted("chat");
+		setDraftRequest({ id: ++draftSequence.current, text });
+	}, []);
+
 	const openDeveloper = (): void => {
 		if (!openDeveloperWorkbench(workbenchStore, (kind) => isTabKindEnabled(kind))) return;
 		setRailView("chat");
@@ -544,6 +578,8 @@ export default function App(): React.JSX.Element {
 
 	const workspaceRef = useRef(workspaceDir);
 	workspaceRef.current = workspaceDir;
+	const researchWorkspaceRef = useRef(researchWorkspaceDir);
+	researchWorkspaceRef.current = researchWorkspaceDir;
 	const sessionIdRef = useRef(sessionId);
 	sessionIdRef.current = sessionId;
 	// 会话视图序号：openSession 的响应落地前用户可能又点了别的会话/新会话/切项目，
@@ -1006,7 +1042,10 @@ export default function App(): React.JSX.Element {
 				if (response.result?.agentDir) setAgentDir(response.result.agentDir);
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
-				applyOwlAppearance(parseOwlAppearance(settings?.owlAppearance));
+				const appearance = parseOwlAppearance(settings?.owlAppearance);
+				setThemeLock(presetThemeLock(appearance.preset));
+				applyOwlAppearance(appearance);
+				syncWindowGlass(appearance);
 				// 动态壁纸：写 <html data-owl-wallpaper> 门控属性 + 同步渲染层状态
 				const wallpaperSettings = parseOwlWallpaper(settings?.owlWallpaper);
 				applyOwlWallpaper(wallpaperSettings);
@@ -1028,6 +1067,14 @@ export default function App(): React.JSX.Element {
 				if (response.ok && response.result?.path) setWorkspaceDir(response.result.path);
 			})
 			.catch(() => {});
+		if (!samePath(researchWorkspaceRef.current, workspaceRef.current)) {
+			void client
+				.request<{ path: string }>({ type: "project.create", path: researchWorkspaceRef.current })
+				.then((response) => {
+					if (response.ok && response.result?.path) setResearchWorkspaceDir(response.result.path);
+				})
+				.catch(() => {});
+		}
 	}, [connected, client]);
 
 	useEffect(() => {
@@ -1242,9 +1289,6 @@ export default function App(): React.JSX.Element {
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在目标目录下创建会话。
 	const resetToWorkspace = (path: string): void => {
 		sessionViewSeq.current += 1;
-		setResearchConversationTitle(undefined);
-		setResearchResumeRequest(undefined);
-		setResearchSessionId(undefined);
 		sessionIdRef.current = undefined;
 		setWorkspaceDir(path);
 		localStorage.setItem(WORKSPACE_KEY, path);
@@ -1272,6 +1316,36 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKSPACE_SELECTED_KEY, "0");
 		if (samePath(workspaceRef.current, DEFAULT_WORKSPACE_DIR)) return;
 		resetToWorkspace(DEFAULT_WORKSPACE_DIR);
+	};
+
+	// 研究工作台换目录：只动研究侧（研究页按目录重建会话控制器），主会话原地不动。
+	const resetResearchWorkspace = (path: string): void => {
+		sessionViewSeq.current += 1;
+		setResearchConversationTitle(undefined);
+		setResearchResumeRequest(undefined);
+		setResearchSessionId(undefined);
+		setResearchWorkspaceDir(path);
+		localStorage.setItem(RESEARCH_WORKSPACE_KEY, path);
+	};
+
+	const switchResearchProject = (path: string): void => {
+		resetResearchWorkspace(path);
+		setResearchWorkspaceSelected(true);
+		localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
+	};
+
+	const clearResearchWorkspaceSelection = (): void => {
+		if (!researchWorkspaceSelected) return;
+		setResearchWorkspaceSelected(false);
+		localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "0");
+		if (samePath(researchWorkspaceRef.current, DEFAULT_WORKSPACE_DIR)) return;
+		resetResearchWorkspace(DEFAULT_WORKSPACE_DIR);
+	};
+
+	/** 侧栏、新建项目等共用入口：切的是当前所在视图（主会话 / 研究工作台）的项目。 */
+	const switchScopedProject = (path: string): void => {
+		if (railViewRef.current === "research") switchResearchProject(path);
+		else switchProject(path);
 	};
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
@@ -1315,7 +1389,7 @@ export default function App(): React.JSX.Element {
 		if (researchMode !== undefined) {
 			if (options?.preserveRail) return;
 			if (options?.silent && railViewRef.current !== "chat") return;
-			if (!samePath(cwd, workspaceRef.current)) switchProject(cwd);
+			if (!samePath(cwd, researchWorkspaceRef.current)) switchResearchProject(cwd);
 			setShowSettings(false);
 			setResearchMounted(true);
 			setRailView("research");
@@ -1347,8 +1421,9 @@ export default function App(): React.JSX.Element {
 			const scope = railViewRef.current === "research" ? "research" : "chat";
 			const response = await client.request<SessionRowLite[]>({ type: "session.list", scope });
 			if (!response.ok || !response.result) return;
+			const cwd = scope === "research" ? researchWorkspaceRef.current : workspaceRef.current;
 			const rows = response.result
-				.filter((row) => matchesSessionScope(row, scope) && row.id && typeof row.archivedAt !== "string" && samePath(row.cwd, workspaceRef.current))
+				.filter((row) => matchesSessionScope(row, scope) && row.id && typeof row.archivedAt !== "string" && samePath(row.cwd, cwd))
 				.sort((a, b) => rowTime(b).localeCompare(rowTime(a)));
 			if (rows.length === 0) return;
 			const index = rows.findIndex((row) => row.id === panelSessionIdRef.current);
@@ -1396,6 +1471,7 @@ export default function App(): React.JSX.Element {
 			.request<SessionRowLite[]>({ type: "session.list" })
 			.then((response) => {
 				if (!response.ok || !response.result || cancelled) return;
+				initializeResearchSidebar(localStorage, response.result);
 				for (const scope of ["chat", "research"] as const) {
 					const seen = new Map<string, string>();
 					const track = (path: string | undefined): void => {
@@ -1403,7 +1479,8 @@ export default function App(): React.JSX.Element {
 						const key = normPath(path);
 						if (!seen.has(key)) seen.set(key, path);
 					};
-					track(workspaceSelected ? workspaceRef.current : undefined);
+					if (scope === "research") track(researchWorkspaceSelected ? researchWorkspaceRef.current : undefined);
+					else track(workspaceSelected ? workspaceRef.current : undefined);
 					for (const row of response.result) if (matchesSessionScope(row, scope)) track(row.cwd);
 					for (const path of loadAndScrubProjects(localStorage, sidebarStorageKeys(scope).projects)) track(path);
 					if (scope === "research") setResearchProjects([...seen.values()]);
@@ -1414,7 +1491,7 @@ export default function App(): React.JSX.Element {
 		return () => {
 			cancelled = true;
 		};
-	}, [connected, client, workspaceDir, workspaceSelected, sidebarRev, railView, researchSessionId, sessionId]);
+	}, [connected, client, workspaceDir, workspaceSelected, researchWorkspaceDir, researchWorkspaceSelected, sidebarRev, railView, researchSessionId, sessionId]);
 
 	// 斜杠命令清单：随项目（技能/模板按 cwd 扫描）与会话（扩展命令挂在运行时上）刷新。
 	useEffect(() => {
@@ -1609,7 +1686,13 @@ export default function App(): React.JSX.Element {
 				...current,
 				// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
 				// 运行中的排队和追加不写进对话，等 queue_update 出现在输入框上方。
-				{ kind: "user", text: message, timestamp: Date.now(), ...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) },
+				{
+					kind: "user",
+					text: message,
+					timestamp: Date.now(),
+					...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+					...(hasAttachments ? { attachedPaths: [...attachedPaths!] } : {}),
+				},
 			]);
 			setPendingPrompts((current) => new Set(current).add(target!));
 		}
@@ -1806,6 +1889,7 @@ export default function App(): React.JSX.Element {
 		chatSession: sessionId,
 		researchSession: researchSessionId,
 		workspace: workspaceDir,
+		researchWorkspace: researchWorkspaceDir,
 	});
 	const navigationSeq = useRef(0);
 	const restorePlace = async (place: AppPlace, seq: number): Promise<void> => {
@@ -1840,6 +1924,10 @@ export default function App(): React.JSX.Element {
 			setSessionName(undefined);
 		}
 		if (seq !== navigationSeq.current) return;
+		if (normPath(place.researchWorkspace) !== normPath(researchWorkspaceRef.current)) {
+			setResearchWorkspaceDir(place.researchWorkspace);
+			localStorage.setItem(RESEARCH_WORKSPACE_KEY, place.researchWorkspace);
+		}
 		if (place.researchSession && place.researchSession !== researchSessionIdRef.current) {
 			setResearchMounted(true);
 			setResearchSessionId(place.researchSession);
@@ -2095,7 +2183,8 @@ export default function App(): React.JSX.Element {
 				connected={connected}
 				activeId={railView === "research" ? researchSessionId : sessionId}
 				// 未选目录时侧栏没有「当前项目」：保留目录也随之从「项目」分组隐藏，会话走「最近会话」。
-				activeProject={workspaceSelected ? workspaceDir : ""}
+				// 研究侧栏只认研究工作台自己的项目，两边的「项目」分组互不串。
+				activeProject={railView === "research" ? (researchWorkspaceSelected ? researchWorkspaceDir : "") : (workspaceSelected ? workspaceDir : "")}
 				refreshKey={(railView === "research" ? researchSessionId : sessionId) ?? ""}
 				revision={sidebarRev}
 				focus={railView}
@@ -2105,13 +2194,14 @@ export default function App(): React.JSX.Element {
 				runningSessions={runningSessions}
 				onNewChat={shortcuts.newChat}
 				onNewChatInProject={(path) => {
-					if (samePath(path, workspaceRef.current)) shortcuts.newChat();
-					else {
-						switchProject(path);
-						if (railViewRef.current === "research") setResearchNewConversationRequest((current) => current + 1);
-					}
+					const research = railViewRef.current === "research";
+					if (samePath(path, research ? researchWorkspaceRef.current : workspaceRef.current)) shortcuts.newChat();
+					else if (research) {
+						switchResearchProject(path);
+						setResearchNewConversationRequest((current) => current + 1);
+					} else switchProject(path);
 				}}
-				onSelectProject={switchProject}
+				onSelectProject={switchScopedProject}
 				onOpenSession={(id) => void openSession(id)}
 				onSessionRenamed={(id, name) => {
 					if (id === sessionIdRef.current) setSessionName(name);
@@ -2239,7 +2329,7 @@ export default function App(): React.JSX.Element {
 				<ConversationHeader
 					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
 					// 未选目录时顶栏不显示项目 chip（会话实际落在默认目录）。
-					workspaceDir={workspaceSelected ? workspaceDir : ""}
+					workspaceDir={railView === "research" ? (researchWorkspaceSelected ? researchWorkspaceDir : "") : (workspaceSelected ? workspaceDir : "")}
 					presetName={(() => {
 						if (railView === "research") return undefined;
 						const id = sessionId ? sessionPreset ?? stagedPreset : stagedPreset;
@@ -2266,15 +2356,15 @@ export default function App(): React.JSX.Element {
 					<div className="owl-shell-conversation">
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
-								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={workspaceDir}
+								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={researchWorkspaceDir}
 								providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
 								agentPresets={agentPresets} defaultPresetId={defaultPresetId} defaultAgentPreset={stagedPreset}
-								projects={visibleResearchProjects} onSwitchProject={switchProject} onSessionIdChange={setResearchSessionId}
+								projects={visibleResearchProjects} workspaceSelected={researchWorkspaceSelected} onSwitchProject={switchResearchProject} onClearProject={clearResearchWorkspaceSelection} onSessionIdChange={setResearchSessionId}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
 								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
-								onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview}
+								onOpenFile={openResearchFile} onOpenReview={openWorkbenchReview}
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
 							/>
 						</div>}
@@ -2294,10 +2384,9 @@ export default function App(): React.JSX.Element {
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 							)}
+							overlay={<TodoPin entries={entries} />}
 							beforeComposer={(
 							<>
-						{/* 任务清单常驻条：贴在输入框上方，实时提醒当前进度（无清单时自动隐藏） */}
-						<TodoPin entries={entries} onVisibleChange={setTodoPinVisible} />
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
 						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
@@ -2318,7 +2407,6 @@ export default function App(): React.JSX.Element {
 								disabled={submitting || !connected}
 								running={running}
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
-								hideMascot={todoPinVisible}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
 								onSend={(text, images, attachedPaths, delivery) => void sendPrompt(text, images, attachedPaths, delivery)}
 								queued={sessionId ? promptQueues[sessionId] : undefined}
@@ -2384,6 +2472,7 @@ export default function App(): React.JSX.Element {
 							onSetOpen={setSidebarOpenPersisted}
 							dock="right"
 							developerLayout={developerLayout}
+							onToChat={sendWorkbenchTextToChat}
 						/>
 					</BrowserSessionContext.Provider>
 				</div>
@@ -2426,7 +2515,7 @@ export default function App(): React.JSX.Element {
 						setSidebarRev((current) => current + 1);
 						return;
 					}
-					switchProject(path);
+					switchScopedProject(path);
 				}} />
 			)}
 			{permission && (

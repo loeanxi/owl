@@ -35,7 +35,9 @@ export type ResearchPageProps = {
 	defaultPresetId?: string;
 	defaultAgentPreset?: string;
 	projects?: string[];
+	workspaceSelected?: boolean;
 	onSwitchProject?: (path: string) => void;
+	onClearProject?: () => void;
 	onSessionIdChange?: (sessionId: string | undefined) => void;
 	question?: QuestionRequest;
 	questions?: readonly QuestionRequest[];
@@ -120,7 +122,6 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const [promptsOpen, setPromptsOpen] = useState(false);
 	const [sourcesOpen, setSourcesOpen] = useState(false);
 	const [localError, setLocalError] = useState<string>();
-	const [todoPinVisible, setTodoPinVisible] = useState(false);
 	const [commands, setCommands] = useState<SlashCommandEntry[]>([]);
 	const draftSequence = useRef(0);
 	const newRequest = useRef(props.newConversationRequest);
@@ -197,11 +198,11 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus} onDismiss={() => controller.dismissRetry()} />
 				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
-				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} onVisibleChange={setTodoPinVisible} />
+				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
-					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideMascot={todoPinVisible} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
+					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}
-						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} onSwitchProject={props.onSwitchProject ?? (() => undefined)} commands={commands}
+						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} workspaceSelected={props.workspaceSelected} onSwitchProject={props.onSwitchProject ?? (() => undefined)} onClearProject={props.onClearProject} commands={commands}
 						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />
 				</QuestionDock>
 			</div>

@@ -540,6 +540,7 @@ export function SessionSidebar({
 			if (sessionScope === "research") {
 				setPinned(loadPinned(keys.pinned));
 				setPinnedProjects(loadPinnedProjects(keys.pinnedProjects));
+				setKnownProjects(loadAndScrubProjects(localStorage, keys.projects));
 			}
 			setAllSessions(rows);
 		} catch {
@@ -752,6 +753,9 @@ export function SessionSidebar({
 
 	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
 
+	/** 置顶会话只在「置顶」区出现，其余分组一律排除，避免同一会话重复两行。 */
+	const isPinnedRow = (row: SessionRow): boolean => row.id !== undefined && pinned.includes(row.id);
+
 	const pinnedSessions = useMemo(() => {
 		const rows = sessions.filter((row) => row.id !== undefined && pinned.includes(row.id) && !isArchivedRow(row));
 		if (pinnedSort === "manual") {
@@ -805,13 +809,13 @@ export function SessionSidebar({
 	);
 
 	const recentSessions = useMemo(() => {
-		const rows = sessions.filter((row) => !isArchivedRow(row) && sessionMatches(row));
+		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && sessionMatches(row));
 		if (recentSort === "name") {
 			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
 		} else if (recentSort === "oldest") rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
 		else rows.sort(byLatest);
 		return rows.slice(0, RECENT_LIMIT);
-	}, [sessions, search, recentSort, projectRevision]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [sessions, search, recentSort, projectRevision, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	/** 行内操作保留键盘入口，样式统一在侧边栏内控制。 */
 	const rowBtn = "owl-sidebar-action";
@@ -823,7 +827,7 @@ export function SessionSidebar({
 	};
 
 	/**
-	 * 会话行（单行紧凑式）：空心圆 + 标题。没在跑是浅灰，运行中变绿。
+	 * 会话行（单行紧凑式）：状态点 + 标题。运行中绿点闪烁，跑完未看为实心绿点，看过后变浅灰。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string): React.JSX.Element => {
@@ -877,10 +881,8 @@ export function SessionSidebar({
 					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); } }}
 				>
 					<span
-						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : row.preset ? " is-preset" : ""}`}
-						data-preset={row.preset}
-						title={isRunning ? t("sidebar.runningTip") : unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : row.preset ?? undefined}
-						aria-label={unread && !isRunning ? (getUiLanguage() === "en" ? "Unread" : "未读") : undefined}
+						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
+						title={isRunning ? t("sidebar.runningTip") : unread ? t("sidebar.unreadTip") : t("sidebar.readTip")}
 					/>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
 					{time && <span className="owl-sidebar-row-time">{time}</span>}
@@ -919,7 +921,7 @@ export function SessionSidebar({
 	 * 没有手动顺序时，最新创建的会话固定第一位（新对话默认置顶），其余按当前排序偏好。
 	 */
 	const projectSessionRows = (path: string): SessionRow[] => {
-		const sorted = sessions.filter((row) => !isArchivedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const sorted = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
 		const manual = sessionOrder[normPath(path)];
 		if (manual && manual.length > 0) {
 			const rank = new Map(manual.map((id, index) => [id, index]));
@@ -994,7 +996,7 @@ export function SessionSidebar({
 	const renderProjectContents = (paths: string[], location: string): React.ReactNode => {
 		if (projectPreferences.view === "projects") return paths.map(projectRow);
 		const pathsSet = new Set(paths.map(normPath));
-		const rows = sessions.filter((row) => !isArchivedRow(row) && pathsSet.has(normPath(row.cwd)) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd)) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
 		return rows.length ? rows.map((row, index) => sessionRow(row, index, false, location)) : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
 	};
 	const defaultProjects = visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === undefined);

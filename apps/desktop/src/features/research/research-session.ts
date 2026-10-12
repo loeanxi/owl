@@ -277,7 +277,12 @@ export class ResearchSessionController {
 				try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* In-memory binding is sufficient for the current run. */ }
 				void this.refreshStats();
 			}
-			optimisticEntry = { kind: "user", text, ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) };
+			optimisticEntry = {
+				kind: "user",
+				text,
+				...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+				...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
+			};
 			submittedRunRevision = this.runRevision;
 			this.update({ entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, running: true, retryStatus: null });
 			const response = await this.client.request({

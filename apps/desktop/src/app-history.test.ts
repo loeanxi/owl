@@ -8,6 +8,7 @@ function place(patch: Partial<AppPlace> = {}): AppPlace {
 		settings: false,
 		settingsTab: "general",
 		workspace: "D:/owl",
+		researchWorkspace: "D:/research",
 		...patch,
 	};
 }

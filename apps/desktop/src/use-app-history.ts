@@ -15,10 +15,10 @@ export function useAppHistory(place: AppPlace): {
 	const checkpoint = useRef<AppHistory | null>(null);
 	const [, setRevision] = useState(0);
 	placeRef.current = place;
-	const { rail, settings, settingsTab, chatSession, researchSession, workspace } = place;
+	const { rail, settings, settingsTab, chatSession, researchSession, workspace, researchWorkspace } = place;
 
 	useEffect(() => {
-		const next: AppPlace = { rail, settings, settingsTab, chatSession, researchSession, workspace };
+		const next: AppPlace = { rail, settings, settingsTab, chatSession, researchSession, workspace, researchWorkspace };
 		if (applying.current) {
 			if (!samePlace(next, applying.current)) return;
 			applying.current = null;
@@ -28,7 +28,7 @@ export function useAppHistory(place: AppPlace): {
 		if (updated === historyRef.current) return;
 		historyRef.current = updated;
 		setRevision((value) => value + 1);
-	}, [rail, settings, settingsTab, chatSession, researchSession, workspace]);
+	}, [rail, settings, settingsTab, chatSession, researchSession, workspace, researchWorkspace]);
 
 	const move = (direction: "back" | "forward"): AppPlace | undefined => {
 		const previous = historyRef.current;

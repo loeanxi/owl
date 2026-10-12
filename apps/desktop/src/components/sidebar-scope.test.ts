@@ -53,6 +53,20 @@ test("existing mixed pins are copied by persisted session type without deleting 
 	assert.deepEqual(loadSidebarStrings(storage, research.pinnedProjects), []);
 });
 
+test("ordinary projects leaked into the research project list are pruned once", () => {
+	const storage = new MemoryStorage();
+	const ordinary = sidebarStorageKeys("chat");
+	const research = sidebarStorageKeys("research");
+	storage.setItem(ordinary.projects, JSON.stringify(["D:/hmdp", "D:/owl"]));
+	storage.setItem(research.projects, JSON.stringify(["D:/hmdp", "D:/owl", "D:\\Smoke"]));
+	initializeResearchSidebar(storage, [{ id: "chat", cwd: "D:/hmdp", scope: "chat" }, { id: "research", cwd: "d:/smoke/", scope: "research" }]);
+	assert.deepEqual(loadSidebarStrings(storage, research.projects), ["D:\\Smoke"]);
+	assert.deepEqual(loadSidebarStrings(storage, ordinary.projects), ["D:/hmdp", "D:/owl"]);
+	storage.setItem(research.projects, JSON.stringify(["D:\\Smoke", "D:/empty-research"]));
+	initializeResearchSidebar(storage, [{ id: "research", cwd: "D:/smoke", scope: "research" }]);
+	assert.deepEqual(loadSidebarStrings(storage, research.projects), ["D:\\Smoke", "D:/empty-research"]);
+});
+
 test("unavailable or malformed preference storage falls back safely", () => {
 	const storage = new MemoryStorage();
 	storage.setItem("bad", "{invalid");
