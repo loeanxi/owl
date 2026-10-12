@@ -6,6 +6,7 @@
  * - `pi --mode json "prompt"` - JSON event stream
  */
 
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";
@@ -26,6 +27,22 @@ export interface PrintModeOptions {
 	initialImages?: ImageContent[];
 }
 
+/** Visible notices appended after the last assistant message, e.g. the reason a guard stopped the run. */
+function trailingNotices(messages: readonly AgentMessage[]): string[] {
+	const notices: string[] = [];
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]!;
+		if (message.role === "assistant") break;
+		if (message.role !== "custom" || !message.display) continue;
+		const text =
+			typeof message.content === "string"
+				? message.content
+				: message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+		if (text.trim()) notices.unshift(text.trim());
+	}
+	return notices;
+}
+
 /**
  * Run in print (single-shot) mode.
  * Sends prompts to the agent and outputs the result.
@@ -37,6 +54,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	let unsubscribe: (() => void) | undefined;
 	let unsubscribeBackpressure: (() => void) | undefined;
 	let disposed = false;
+	let aborted = false;
 	const signalCleanupHandlers: Array<() => void> = [];
 
 	const disposeRuntime = async (): Promise<void> => {
@@ -106,6 +124,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		unsubscribe?.();
 		unsubscribeBackpressure?.();
 		unsubscribe = session.subscribe((event) => {
+			if (event.type === "agent_settled" && event.aborted) aborted = true;
 			if (mode === "json") {
 				writeRawStdout(`${JSON.stringify(toJsonEvent(event))}\n`);
 			}
@@ -152,8 +171,13 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 						}
 					}
 				}
+			} else if (aborted) {
+				const notices = trailingNotices(state.messages);
+				console.error(notices.length > 0 ? notices.join("\n") : "Request aborted");
 			}
 		}
+		// A guard (turn budget, repeated errors) can stop the run without an error message; scripts must see the task as unfinished.
+		if (aborted) exitCode = 1;
 
 		return exitCode;
 	} catch (error: unknown) {
