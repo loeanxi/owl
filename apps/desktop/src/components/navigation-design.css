@@ -8,22 +8,20 @@
 }
 
 .owl-desktop-shell .owl-activity-rail {
-	width: 52px;
-	flex-basis: 52px;
-	gap: 10px;
-	padding: 8px 0 14px;
-	/* 上面的合并规则给图标栏清了边框；图标栏与侧边栏之间保留一条分隔线 */
-	border-right: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	width: 56px;
+	flex-basis: 56px;
+	gap: 12px;
+	padding: 16px 0 12px;
 }
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-brand {
 	display: grid;
-	width: 34px;
-	height: 34px;
-	flex: 0 0 34px;
+	width: 40px;
+	height: 40px;
+	flex: 0 0 40px;
 	place-items: center;
 	margin-bottom: 4px;
-	border-radius: 8px;
+	border-radius: 9px;
 	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
@@ -41,7 +39,7 @@
 	flex: 0 0 auto;
 	flex-direction: column;
 	align-items: center;
-	gap: 10px;
+	gap: 12px;
 	padding-top: 2px;
 }
 
@@ -149,10 +147,10 @@
 
 .owl-rail-menu-trigger {
 	display: grid;
-	width: 34px;
-	height: 34px;
+	width: 40px;
+	height: 40px;
 	place-items: center;
-	border-radius: 8px;
+	border-radius: 9px;
 }
 
 .owl-rail-menu-trigger:hover,
@@ -320,9 +318,9 @@
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-button {
 	position: relative;
-	width: 32px;
-	height: 32px;
-	border-radius: 8px;
+	width: 40px;
+	height: 40px;
+	border-radius: 9px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
@@ -339,8 +337,8 @@
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-button.is-active::before {
 	position: absolute;
-	top: 9px;
-	left: -9px;
+	top: 13px;
+	left: -7px;
 	width: 2px;
 	height: 14px;
 	border-radius: 2px;
@@ -349,44 +347,55 @@
 }
 
 .owl-desktop-shell .owl-sidebar {
-	width: 226px;
-	flex-basis: 226px;
+	width: 264px;
+	flex-basis: 264px;
 	padding-right: 16px;
-	padding-left: 10px;
-	font-size: 12px;
+	padding-left: 16px;
+	font-size: 13px;
 }
 
-/* 右缘拖拽调宽手柄：骑在边框上（7px 命中区，一半在侧栏外），hover/拖动时亮线提示 */
+/* 同一工作区外框内的分界线由手柄绘制，避免再叠加侧栏边框。 */
 .owl-sidebar-resizer {
 	position: absolute;
 	top: 0;
-	right: -3px;
-	width: 7px;
+	right: -4px;
+	width: 8px;
 	height: 100%;
 	z-index: 40;
 	cursor: col-resize;
 	touch-action: none;
+	outline: none;
 }
 
 .owl-sidebar-resizer::after {
 	content: "";
 	position: absolute;
 	top: 0;
-	right: 3px;
+	left: 3px;
 	width: 1px;
 	height: 100%;
 	background: transparent;
 	pointer-events: none;
 }
 
+.owl-workspace-frame .owl-sidebar-resizer::after {
+	background: var(--owl-ui-border, var(--color-owl-sidebar-border));
+}
+
 .owl-sidebar-resizer:hover::after,
+.owl-sidebar-resizer:focus-visible::after,
 .owl-sidebar-resizer.is-active::after {
-	background: var(--color-owl-sidebar-selected);
+	background: var(--color-owl-accent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-owl-accent) 28%, transparent);
+}
+
+.owl-workspace-frame > .owl-sidebar {
+	align-self: stretch;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-header {
-	height: 60px;
-	flex-basis: 60px;
+	height: 80px;
+	flex-basis: 80px;
 	gap: 8px;
 	padding: 0;
 }
@@ -409,13 +418,14 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-search {
-	min-height: 34px;
+	height: 40px;
+	min-height: 40px;
 	flex: 0 0 auto;
-	gap: 7px;
+	gap: 9px;
 	margin: 0 0 10px;
-	padding: 6px 9px;
+	padding: 0 12px;
 	border-color: var(--owl-ui-border, var(--color-owl-sidebar-border));
-	border-radius: 7px;
+	border-radius: 9px;
 	background: transparent;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
@@ -457,14 +467,14 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat {
-	height: 34px;
-	gap: 8px;
-	padding: 0 10px;
+	height: 40px;
+	gap: 10px;
+	padding: 0 12px;
 	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
-	border-radius: 7px;
+	border-radius: 9px;
 	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
-	font-size: 12px;
+	font-size: 13px;
 	font-weight: 500;
 }
 
@@ -480,11 +490,12 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
-	margin-top: 14px;
+	margin-top: 22px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section-header {
-	padding: 0 7px;
+	height: 28px;
+	padding: 0 8px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section-toggle {
@@ -492,7 +503,7 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section-label {
-	font-size: 12px;
+	font-size: 11px;
 	font-weight: 600;
 	letter-spacing: 0.04em;
 }
@@ -502,10 +513,16 @@
 	pointer-events: auto;
 }
 
-.owl-desktop-shell .owl-sidebar .owl-sidebar-row {
-	height: 33px;
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-content {
 	gap: 4px;
-	padding: 0 7px;
+	padding-top: 4px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row {
+	height: 40px;
+	gap: 4px;
+	padding: 0 10px;
+	border-radius: 8px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 }
 
@@ -525,7 +542,7 @@
 .owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active::before {
 	content: "";
 	position: absolute;
-	top: 7px;
+	top: 12px;
 	left: 0;
 	width: 2px;
 	height: 16px;
@@ -553,7 +570,7 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-row-actions {
-	top: 3px;
+	top: 8px;
 	right: 4px;
 }
 
@@ -581,10 +598,12 @@
 	color: #f87171;
 }
 
-/* 会话行结构（行高/缩进/状态点）以 index.css 为准，这里只做主题色覆盖。 */
+/* 保留 index.css 中的项目层级缩进与会话状态点，统一导航行的节奏。 */
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-add-project {
-	padding: 0 7px;
+	height: 40px;
+	padding: 0 10px;
+	border-radius: 8px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 	font-size: 12px;
 }

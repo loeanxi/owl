@@ -1706,6 +1706,7 @@ export const en: Dict = {
 
 	// ---- Chat stream ----
 	"chat.cancelled": "Interrupted",
+	"chat.exitCode": "exit {code}",
 	"chat.pausedHint": "Paused",
 	"chat.runningAria": "Running",
 	"chat.thinkingLines": "Thinking · {n} lines",
@@ -1757,6 +1758,7 @@ export const en: Dict = {
 	"chat.emptyGreeting": "What shall we work on?",
 	"chat.backToLatest": "Back to latest",
 	"sum.runCommand": "Run a {shell} command",
+	"sum.commandInDir": "`{command}` · in `{dir}`",
 	"sum.readPath": "Read `{path}`",
 	"sum.read": "Read a file",
 	"sum.writePath": "Write `{path}`",
@@ -2229,6 +2231,8 @@ export const en: Dict = {
 	"automation.kvRepeat": "Repeat",
 	"automation.kvDeliver": "Delivery",
 	"automation.kvMissed": "Missed",
+	"automation.kvModel": "Model",
+	"automation.defaultModel": "default model",
 	"automation.kvCreated": "Created",
 	"automation.ranCount": "ran {count} times",
 	"automation.kvPrompt": "Prompt",

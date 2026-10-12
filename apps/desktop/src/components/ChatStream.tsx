@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
-import { toolRunLabel } from "../hooks/summarize.ts";
+import { exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal } from "./icons.tsx";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
@@ -193,6 +193,7 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 	const { preview, dropped } = output ? tailLines(output.text, OUTPUT_PREVIEW_LINES) : { preview: "", dropped: 0 };
 	const hasMore = (output?.totalLines ?? 0) > OUTPUT_PREVIEW_LINES;
 	const images = output?.images ?? [];
+	const exitCode = card.status === "error" ? exitCodeOf(output?.text) : undefined;
 
 	return (
 		<div className="owl-tool-row" data-status={card.status}>
@@ -209,6 +210,9 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 					<InlineSummary text={card.summary} />
 				</span>
 				{card.status === "cancelled" && <span className="text-xs text-owl-faint">{t("chat.cancelled")}</span>}
+				{exitCode !== undefined && (
+					<span className="shrink-0 text-xs text-red-400">{t("chat.exitCode", { code: exitCode })}</span>
+				)}
 				<IconChevron
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 				/>

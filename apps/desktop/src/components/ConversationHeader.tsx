@@ -37,17 +37,19 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 	const t = useT();
 	useProjectSidebarRevision();
 	return <header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
-		<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={title}>{title}</h1>
-		{/* 空目录 = 未选择对话目录（叉掉了 chip），此时不显示项目标签。 */}
-		{workspaceDir !== "" && (
-			<span className="owl-shell-project" title={workspaceDir}><IconFolder size={12} /><span className="owl-shell-project-label">{getProjectDisplayName(workspaceDir)}</span></span>
-		)}
-		{presetName && (
-			<span className="owl-shell-preset-tag" title={presetName}>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg>
-				{presetName}
-			</span>
-		)}
+		<div className="owl-shell-header-info">
+			<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={title}>{title}</h1>
+			{presetName && (
+				<span className="owl-shell-preset-tag" title={presetName}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg>
+					{presetName}
+				</span>
+			)}
+			{/* 空目录 = 未选择对话目录（叉掉了 chip），此时不显示项目标签。 */}
+			{workspaceDir !== "" && (
+				<span className="owl-shell-project" title={workspaceDir}><IconFolder size={12} /><span className="owl-shell-project-label">{getProjectDisplayName(workspaceDir)}</span></span>
+			)}
+		</div>
 		<div className="owl-view-tabs" role="tablist" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false">
 			<button type="button" role="tab" aria-selected={view === "chat"} title={t("app.viewChat")} onClick={() => onViewChange("chat")}>{t("app.viewChat")}</button>
 			<button type="button" role="tab" aria-selected={view === "context"} title={t("composer.context")} onClick={() => onViewChange("context")}>{t("composer.context")}</button>

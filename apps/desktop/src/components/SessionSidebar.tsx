@@ -55,10 +55,14 @@ const COLLAPSED_KEY = "owl.sidebar.collapsed";
 const WIDTH_KEY = "owl.sidebar.width";
 /** 非法/越界存储值按 CSS 默认宽度渲染（返回 null = 不写内联样式）。 */
 function loadSidebarWidth(): number | null {
-	const raw = localStorage.getItem(WIDTH_KEY);
-	const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10);
-	if (!Number.isFinite(parsed)) return null;
-	return Math.min(Math.max(parsed, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+	try {
+		const raw = localStorage.getItem(WIDTH_KEY);
+		const parsed = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+		if (!Number.isFinite(parsed)) return null;
+		return Math.min(Math.max(parsed, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+	} catch {
+		return null;
+	}
 }
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
 /** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
@@ -396,13 +400,25 @@ export function SessionSidebar({
 	const maxSidebarWidth = containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
 	/** 右缘拖拽调宽：null = 未拖过，走 CSS 默认宽度。 */
 	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
+	const [visibleSidebarWidth, setVisibleSidebarWidth] = useState<number | undefined>(undefined);
 	const [resizing, setResizing] = useState(false);
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
-	const resizeAria = getUiLanguage() === "en" ? "Drag to resize sidebar, double-click to reset" : "拖拽调整侧栏宽度，双击复位";
+	const resizeAria = getUiLanguage() === "en" ? "Drag or use Left/Right arrows to resize sidebar, double-click to reset" : "拖拽或按左右方向键调整侧栏宽度，双击复位";
+	useEffect(() => {
+		const aside = asideRef.current;
+		if (!aside) return;
+		const measure = (): void => setVisibleSidebarWidth(Math.round(aside.getBoundingClientRect().width));
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(aside);
+		return () => observer.disconnect();
+	}, []);
 	const beginSidebarResize = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
 		if (event.button !== 0 || !event.isPrimary) return;
 		const aside = asideRef.current;
 		if (!aside) return;
+		activeDrag.current?.();
+		const previousWidth = sidebarWidth;
 		const startWidth = aside.getBoundingClientRect().width;
 		const startX = event.clientX;
 		let latest = startWidth;
@@ -411,18 +427,45 @@ export function SessionSidebar({
 		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
 			cursor: "col-resize",
 			onMove: (moveEvent) => {
-				latest = Math.min(Math.max(startWidth + moveEvent.clientX - startX, SIDEBAR_MIN_WIDTH), maxSidebarWidth);
+				latest = Math.min(Math.max(Math.round(startWidth + moveEvent.clientX - startX), SIDEBAR_MIN_WIDTH), Math.floor(maxSidebarWidth));
 				setSidebarWidth(latest);
 			},
 			onFinish: (cancelled) => {
 				activeDrag.current = undefined;
 				setResizing(false);
-				// 取消（失焦/pointercancel）时回到已保存宽度；正常结束才落盘。
-				if (cancelled) { setSidebarWidth(loadSidebarWidth()); return; }
-				localStorage.setItem(WIDTH_KEY, String(latest));
+				// 取消时恢复手势开始前的偏好；窄窗口临时限宽不会覆盖原偏好。
+				if (cancelled) { setSidebarWidth(previousWidth); return; }
+				saveChoice(WIDTH_KEY, String(latest));
 			},
 		});
-	}, [maxSidebarWidth]);
+	}, [maxSidebarWidth, sidebarWidth]);
+	const resizeSidebarWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+		if (resizing || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+		const aside = asideRef.current;
+		if (!aside) return;
+		event.preventDefault();
+		const step = event.shiftKey ? 50 : 10;
+		const currentWidth = aside.getBoundingClientRect().width;
+		const requestedWidth = event.key === "Home" ? SIDEBAR_MIN_WIDTH : event.key === "End" ? maxSidebarWidth : currentWidth + (event.key === "ArrowLeft" ? -step : step);
+		const nextWidth = Math.min(Math.max(Math.round(requestedWidth), SIDEBAR_MIN_WIDTH), Math.floor(maxSidebarWidth));
+		setSidebarWidth(nextWidth);
+		saveChoice(WIDTH_KEY, String(nextWidth));
+	};
+	useEffect(() => {
+		if (minimized) activeDrag.current?.();
+	}, [minimized]);
+	useEffect(() => {
+		if (!resizing) return;
+		const document = asideRef.current?.ownerDocument;
+		if (!document) return;
+		const cancelWithEscape = (event: KeyboardEvent): void => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			activeDrag.current?.();
+		};
+		document.addEventListener("keydown", cancelWithEscape);
+		return () => document.removeEventListener("keydown", cancelWithEscape);
+	}, [resizing]);
 	useEffect(() => () => {
 		activeDrag.current?.();
 		activeDrag.current = undefined;
@@ -1298,11 +1341,20 @@ export function SessionSidebar({
 				className={`owl-sidebar-resizer${resizing ? " is-active" : ""}`}
 				data-tauri-drag-region="false"
 				role="separator"
+				tabIndex={0}
 				aria-orientation="vertical"
 				aria-label={resizeAria}
+				aria-controls="owl-session-sidebar"
+				aria-valuemin={Math.min(SIDEBAR_MIN_WIDTH, maxSidebarWidth)}
+				aria-valuemax={maxSidebarWidth}
+				aria-valuenow={visibleSidebarWidth}
 				title={resizeAria}
 				onPointerDown={beginSidebarResize}
-				onDoubleClick={() => { localStorage.removeItem(WIDTH_KEY); setSidebarWidth(null); }}
+				onKeyDown={resizeSidebarWithKeyboard}
+				onDoubleClick={() => {
+					try { localStorage.removeItem(WIDTH_KEY); } catch { /* 会话内仍可复位。 */ }
+					setSidebarWidth(null);
+				}}
 			/>
 		</aside>
 	);

@@ -12,7 +12,7 @@ export const DEFAULT_CHAT_APPEARANCE: Readonly<ChatAppearance> = Object.freeze({
 	fontSize: 14,
 	codeFontSize: 12,
 	lineHeight: 1.5,
-	width: 720,
+	width: 880,
 	toolRecords: "compact",
 	motion: true,
 });

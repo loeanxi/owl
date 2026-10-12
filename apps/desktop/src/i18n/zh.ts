@@ -1705,6 +1705,7 @@ export const zh = {
 
 	// ---- 聊天流 ----
 	"chat.cancelled": "已中断",
+	"chat.exitCode": "退出码 {code}",
 	"chat.pausedHint": "已暂停",
 	"chat.runningAria": "运行中",
 	"chat.thinkingLines": "思考过程 · {n} 行",
@@ -1756,6 +1757,7 @@ export const zh = {
 	"chat.emptyGreeting": "我们准备做什么",
 	"chat.backToLatest": "回到最新",
 	"sum.runCommand": "运行 {shell} 命令",
+	"sum.commandInDir": "`{command}` · 在 `{dir}`",
 	"sum.readPath": "读取 `{path}`",
 	"sum.read": "读取文件",
 	"sum.writePath": "写入 `{path}`",
@@ -2228,6 +2230,8 @@ export const zh = {
 	"automation.kvRepeat": "重复",
 	"automation.kvDeliver": "投递",
 	"automation.kvMissed": "错过",
+	"automation.kvModel": "模型",
+	"automation.defaultModel": "默认模型",
 	"automation.kvCreated": "创建于",
 	"automation.ranCount": "已跑 {count} 次",
 	"automation.kvPrompt": "提示词",

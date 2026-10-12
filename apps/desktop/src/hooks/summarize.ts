@@ -38,6 +38,27 @@ function firstString(args: Record<string, unknown>): string {
 	return "";
 }
 
+const LEADING_CD = /^\s*cd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|"']+))\s*(?:&&|;)\s*/;
+
+/**
+ * 拆出命令开头的 `cd <dir> &&`：模型每条命令几乎都以它开头，直接截断上屏时
+ * 摘要只剩一串路径，失败时看起来像是 cd 失败。
+ */
+export function splitLeadingCd(command: string): { dir?: string; rest: string } {
+	const match = LEADING_CD.exec(command);
+	const rest = match ? command.slice(match[0].length) : "";
+	if (!match || !rest.trim()) return { rest: command };
+	return { dir: match[1] ?? match[2] ?? match[3], rest };
+}
+
+/** 非零退出码：取输出里最后一条「Command exited with code N」。 */
+export function exitCodeOf(output: string | undefined): number | undefined {
+	if (!output) return undefined;
+	const matches = [...output.matchAll(/Command exited with code (\d+)/g)];
+	const last = matches[matches.length - 1];
+	return last ? Number(last[1]) : undefined;
+}
+
 /** 把一次工具调用的参数翻译成摘要。 */
 export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 	const a = (args ?? {}) as Record<string, unknown>;
@@ -46,7 +67,12 @@ export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 		case "powershell": {
 			const command = str(a.command);
 			if (!command) return { summary: t("sum.runCommand", { shell: name === "bash" ? "bash" : "PowerShell" }) };
-			return { summary: `\`${clip(trimSpaces(command), 80)}\``, detail: command };
+			const { dir, rest } = name === "bash" ? splitLeadingCd(command) : { rest: command };
+			const shown = clip(trimSpaces(rest), 80);
+			return {
+				summary: dir ? t("sum.commandInDir", { command: shown, dir: shortPath(dir) }) : `\`${shown}\``,
+				detail: command,
+			};
 		}
 		case "read": {
 			const path = str(a.path);
