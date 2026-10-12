@@ -20,7 +20,8 @@ function owlBuildInfo(buildId: string): Plugin {
 			const inputs = [...this.getModuleIds()]
 				.filter((id) => !id.startsWith("\0") && !id.includes("node_modules"))
 				.map((id) => toRepoPath(repoRoot, resolve(id.split("?")[0])))
-				.filter((path): path is string => path !== undefined);
+				// 每次提交都会改 CHANGELOG.md，算进指纹会让任何提交都报「UI 源码比 dist 新」
+				.filter((path): path is string => path !== undefined && path !== "CHANGELOG.md");
 			const info = createBuildInfo({ component: "ui", repoRoot, inputs, protocol: true, buildId });
 			this.emitFile({ type: "asset", fileName: BUILD_INFO_FILE, source: `${JSON.stringify(info, null, "\t")}\n` });
 		},

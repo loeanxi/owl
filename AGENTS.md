@@ -71,6 +71,7 @@ Committing:
 - Before committing, run `git status` and verify you are only staging your files.
 - `packages/ai/src/models.generated.ts` may always be included alongside your files.
 - Message format: follow `COMMIT_SPEC.md` in the repo root — `type(scope): subject` (Conventional Commits). Types: feat/fix/docs/refactor/perf/test/build/ci/chore/style/revert; scope = package/app directory (`coding-agent`, `desktop`, `ai`, `owl-*`, ...). Chinese subject, informative and concise. Never paste a conversational reply as the commit message; auto-commit hooks must follow the same spec.
+- Every commit, by any agent or tool, must add its entry to the Owl changelog `CHANGELOG.md` in the repo root in the same commit (see "Owl Changelog" below). Stage it with your other files. Pre-commit rejects commits without it.
 
 Never run (destroys other agents' work or bypasses checks):
 
@@ -110,7 +111,30 @@ When closing issues via commit:
 
 For testing pi's interactive mode, load and follow [.owl/skills/interactive-testing.md](.owl/skills/interactive-testing.md).
 
-## Changelog
+## Owl Changelog
+
+Location: `CHANGELOG.md` in the repo root. The desktop app bundles it and shows it under Settings > Changelog (更新日志). Required for every commit; `scripts/check-changelog-commit.mjs` (pre-commit) rejects commits that do not stage a new entry.
+
+Format (Chinese, one line per logical change, same wording as the commit subject is fine):
+
+```markdown
+## 2026-10-12
+
+### 新增
+
+- `desktop` 设置新增「更新日志」分区
+```
+
+Rules:
+
+- Date heading `## YYYY-MM-DD` is the commit date; newest date at the top. Reuse today's heading if it exists.
+- Category heading is exactly one of `新增` (feat) / `改进` (perf, user-visible refactor) / `修复` (fix) / `移除` (removed feature) / `维护` (docs, test, build, ci, chore, style, internal refactor), in that order. Reuse an existing category under the same date; append new entries to its end.
+- Entry: ``- `scope` description``; scope matches the commit header, omit it for cross-package changes. No conversational text, file paths outside the repo, or build status (same bans as commit subjects).
+- One commit may add several entries; split by logical change, not by file.
+- Concurrent sessions edit this file too: only add your own lines, and if another session's uncommitted lines are present, stage just your hunk (`git add -p CHANGELOG.md`).
+- Bypass (`OWL_SKIP_CHANGELOG=1 git commit ...`) only when the user explicitly asks in that turn.
+
+## Package Changelogs
 
 Location: `packages/*/CHANGELOG.md` (one per package).
 

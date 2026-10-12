@@ -130,15 +130,39 @@ fix(coding-agent): 文件变动面板识别 workspace 子目录仓库
 5. 任何自动提交机制（Stop 钩子等）生成的信息同样必须符合第 1 节；
    默认实现「把会话回复粘进去」即为本规范第 0 节禁止的行为，必须改造。
 
-## 5. 提交前自检
+## 5. 更新日志（每次提交必填）
+
+仓库根目录 `CHANGELOG.md` 是 Owl 自己的更新日志，桌面端「设置 → 更新日志」展示的就是它。
+任何人、任何 agent、任何自动机制提交时，都要在**同一个提交**里补上本次改动的条目；
+pre-commit 的 `scripts/check-changelog-commit.mjs` 会拒绝没有新增条目的提交。
+
+```markdown
+## 2026-10-12
+
+### 修复
+
+- `desktop` 停止按钮透传取消事件，修复无响应
+```
+
+- 日期标题 `## YYYY-MM-DD` 用提交当天，最新日期在最上面；当天标题已存在就复用。
+- 类别只用五个，顺序固定：`新增`（feat）/ `改进`（perf、用户可感知的重构）/ `修复`（fix）/
+  `移除`（删掉功能）/ `维护`（docs、test、build、ci、chore、style、内部重构）。同日同类别已存在就追加到末尾。
+- 条目 ``- `scope` 一句话``：scope 与提交 header 一致，跨包省略；内容可直接复用 subject，禁止项同 1.3。
+- 一个提交含多个逻辑改动时写多条；不要按文件拆。
+- 并发会话也在改这个文件：只写自己的条目；工作区里有别人未提交的条目时用 `git add -p CHANGELOG.md` 只暂存自己的块。
+- 跳过检查（`OWL_SKIP_CHANGELOG=1 git commit ...`）须用户当次明示。
+
+## 6. 提交前自检
 
 - [ ] header 是 `type(scope): subject` 形态？
+- [ ] `CHANGELOG.md` 补了本次条目并已暂存？
 - [ ] subject 独立可读、无对话腔、无句号、无 emoji？
 - [ ] 修 bug 写了根因？改动了什么、为什么、怎么验证的？
 - [ ] 只 stage 了自己的文件？没有 dist/截图/临时文件？
 - [ ] `git log --oneline -3` 里新提交夹在历史里不违和？
 
-## 6. 与其他文件的关系
+## 7. 与其他文件的关系
 
 - `AGENTS.md`「Git」一节：操作规则（禁用命令、staging 方式）；其 Message format 行已指向本文件。
-- CHANGELOG 条目按 `AGENTS.md`「Changelog」一节管理；本规范的 subject 可直接复用为条目文本。
+- 根目录 `CHANGELOG.md` 按本文件第 5 节与 `AGENTS.md`「Owl Changelog」一节管理；
+  各包 `packages/*/CHANGELOG.md` 仍按 `AGENTS.md`「Package Changelogs」一节管理。
