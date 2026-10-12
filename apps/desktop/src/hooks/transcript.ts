@@ -2,7 +2,9 @@ import type { ResearchResult, ServerEventMessage } from "../bridge/protocol.ts";
 import { researchResultOf } from "../features/research/research-results.ts";
 import { t } from "../i18n/index.ts";
 import { formatProviderError } from "./provider-error.ts";
+import { userSourceText } from "./skill-invocation.ts";
 import { summarizeToolCall } from "./summarize.ts";
+import { parseUserMessage } from "./user-message.ts";
 
 export { formatProviderError } from "./provider-error.ts";
 
@@ -54,11 +56,42 @@ export type ToolCard = {
 /** 单条 LLM 回复的 token 用量（消息操作栏的「用量」展示）。 */
 export type MessageUsage = { input: number; output: number; cacheRead: number; cacheWrite: number };
 
+/** 流式增量统计：首/末个增量的到达时刻（ms）与按字符估算的输出 tokens。 */
+export type StreamStats = { firstAt: number; lastAt: number; estTokens: number };
+
+/**
+ * 粗估一段文本的 token 数：中日韩字符按 1 个 token，其余按 4 字符 1 个 token。
+ * 用量要等 message_end 才回传，流式中的实时速度只能靠它。
+ */
+export function estimateTokens(text: string): number {
+	let wide = 0;
+	for (const char of text) {
+		const code = char.codePointAt(0)!;
+		if ((code >= 0x3000 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af) || (code >= 0xff00 && code <= 0xffef)) wide++;
+	}
+	return wide + (text.length - wide) / 4;
+}
+
+/** 单条回复每秒输出 tokens（起点取首个增量，跳过首字延迟）：结束且有用量用真实输出数，否则用流式估算；不足 1 秒不算。 */
+export function outputRate(entry: AssistantEntry): { tps: number; estimated: boolean } | undefined {
+	const stream = entry.stream;
+	if (!stream) return undefined;
+	const output = entry.endedAt !== undefined ? entry.usage?.output : undefined;
+	const seconds = ((output ? entry.endedAt! : stream.lastAt) - stream.firstAt) / 1000;
+	if (seconds < 1) return undefined;
+	return output ? { tps: output / seconds, estimated: false } : { tps: stream.estTokens / seconds, estimated: true };
+}
+
 export type ChatEntry =
 	| {
 			kind: "user";
+			/** 用户输入的正文；核心附加的附件清单与图片提示已拆到下面的字段。 */
 			text: string;
 			images?: ToolResultImage[];
+			/** `@` 文件芯片随本轮附带的路径。 */
+			attachedPaths?: string[];
+			/** 没能送达模型的附图张数。 */
+			omittedImages?: number;
 			/** 所属会话日志条目 id（会话回退按钮用；乐观追加的行等 entry_appended 事件补上） */
 			entryId?: string;
 			/** 消息时间戳（ms；乐观追加行取本地时钟，快照重建取会话文件里的值） */
@@ -85,6 +118,8 @@ export type ChatEntry =
 			usage?: MessageUsage;
 			/** 产生本条回复的模型 id */
 			model?: string;
+			/** 流式输出统计（本地时钟，状态行 TPS 用）：快照重建不带，仅本次运行内的实时流才有 */
+			stream?: StreamStats;
 	  }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
 	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
@@ -133,13 +168,14 @@ function retainUndeliveredFollowUps(before: ChatEntry[], next: ChatEntry[], mess
 			skippedOpeningUser = true;
 			continue;
 		}
-		const text = textOf(message.content);
+		const text = userSourceText(textOf(message.content));
 		delivered.set(text, (delivered.get(text) ?? 0) + 1);
 	}
 	const kept: ChatEntry[] = [];
 	for (const entry of pending) {
-		const count = delivered.get(entry.text) ?? 0;
-		if (count > 0) delivered.set(entry.text, count - 1);
+		const key = userSourceText(entry.text);
+		const count = delivered.get(key) ?? 0;
+		if (count > 0) delivered.set(key, count - 1);
 		else kept.push(entry);
 	}
 	if (kept.length === 0) return next;
@@ -365,17 +401,13 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// 空闲时发出的用户消息已有乐观行。排队/追加要等真正送达才进对话，
 			// 这时末尾还是助手气泡，补上这一行；和乐观行文本相同则不重复。
 			if (message?.role === "user") {
-				const text = textOf(message.content);
+				const delivered = userEntryOf(message);
 				const last = entries.at(-1);
-				if (last?.kind === "user" && last.text === text) return entries;
-				const images = contentImagesOf(message.content);
-				const timestamp = timestampOf(message);
-				return [...entries, {
-					kind: "user",
-					text,
-					...(images.length > 0 ? { images } : {}),
-					...(timestamp !== undefined ? { timestamp } : {}),
-				}];
+				if (last?.kind === "user" && userSourceText(last.text) === userSourceText(delivered.text)) {
+					if (!delivered.omittedImages || last.omittedImages) return entries;
+					return [...entries.slice(0, -1), { ...last, omittedImages: delivered.omittedImages }];
+				}
+				return [...entries, delivered];
 			}
 			// 只给 assistant 建流式气泡，否则每轮会多出带空"思考过程"的空气泡。
 			if (!message || message.role !== "assistant") return entries;
@@ -408,6 +440,11 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 				}
 				default:
 					break;
+			}
+			if ((ae.type === "text_delta" || ae.type === "thinking_delta" || ae.type === "toolcall_delta") && typeof ae.delta === "string" && ae.delta !== "") {
+				const now = Date.now();
+				const estTokens = (current.stream?.estTokens ?? 0) + estimateTokens(ae.delta);
+				current.stream = { firstAt: current.stream?.firstAt ?? now, lastAt: now, estTokens };
 			}
 			return [...entries.slice(0, index), { ...current }, ...entries.slice(index + 1)];
 		}
@@ -527,14 +564,7 @@ export function rebuild(
 		const message = messages[messageIndex]!;
 		const entryId = entryIds?.[messageIndex];
 		if (message.role === "user") {
-			const images = contentImagesOf(message.content);
-			entries.push({
-				kind: "user",
-				text: textOf(message.content),
-				...(typeof entryId === "string" ? { entryId } : {}),
-				...(images.length > 0 ? { images } : {}),
-				...(timestampOf(message) !== undefined ? { timestamp: timestampOf(message) } : {}),
-			});
+			entries.push(userEntryOf(message, entryId));
 		} else if (message.role === "assistant") {
 			const tools: ToolCard[] = (message.content ?? [])
 				.filter((part: AnyEvent) => part.type === "toolCall")
@@ -591,6 +621,22 @@ export function rebuild(
 	}
 	if (rawBoundary === messages.length) restoredRunBoundaries.set(entries, entries.length);
 	return entries;
+}
+
+/** 线上的用户消息带着核心拼的附件清单与图片提示，拆开后才是用户看到的那一行。 */
+function userEntryOf(message: AnyEvent, entryId?: string): Extract<ChatEntry, { kind: "user" }> {
+	const parsed = parseUserMessage(textOf(message.content));
+	const images = contentImagesOf(message.content);
+	const timestamp = timestampOf(message);
+	return {
+		kind: "user",
+		text: parsed.body,
+		...(typeof entryId === "string" ? { entryId } : {}),
+		...(images.length > 0 ? { images } : {}),
+		...(parsed.attachedPaths.length > 0 ? { attachedPaths: parsed.attachedPaths } : {}),
+		...(parsed.omittedImages > 0 ? { omittedImages: parsed.omittedImages } : {}),
+		...(timestamp !== undefined ? { timestamp } : {}),
+	};
 }
 
 /** 按 toolCallId 向前找所属工具卡（结果总在调用之后）。 */

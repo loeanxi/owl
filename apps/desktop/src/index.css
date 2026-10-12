@@ -100,6 +100,36 @@ html[data-owl-preset="codex"] {
 }
 
 /*
+ * 液态玻璃预设（settings.json owlAppearance.preset = "liquid-glass"）：仿 iOS Liquid Glass。
+ * 这里只放实色令牌——弹层、对话框等不做背景模糊的地方靠它保证可读；外壳流光底、
+ * 半透明玻璃面板与边缘高光在 desktop-shell.css 末尾「液态玻璃」段。
+ * 与浅色块同优先级，必须放在它前面；浅色档在浅色块之后单独覆盖。
+ */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) {
+	--owl-conversation-bg: #161827;
+	--color-owl-bg: #161827;
+	--color-owl-sidebar: #121421;
+	--color-owl-rail: #0f111c;
+	--color-owl-panel: #20233a;
+	--color-owl-bubble: #262a45;
+	--color-owl-hover: #2b2f4a;
+	--color-owl-border: #383d5c;
+	--color-owl-text: #f5f5f7;
+	--color-owl-muted: #a9abc0;
+	--color-owl-faint: #7d8099;
+	--color-owl-accent: #0a84ff;
+	--color-owl-accent-hover: #409cff;
+	--color-owl-sidebar-bg: #121421;
+	--color-owl-sidebar-surface: #20233a;
+	--color-owl-sidebar-hover: rgb(255 255 255 / 8%);
+	--color-owl-sidebar-selected: rgb(255 255 255 / 12%);
+	--color-owl-sidebar-border: rgb(255 255 255 / 12%);
+	--color-owl-sidebar-text: #f5f5f7;
+	--color-owl-sidebar-muted: #a9abc0;
+	--color-owl-sidebar-faint: #7d8099;
+}
+
+/*
  * 浅色主题：html[data-owl-theme="light"] 时整体覆盖 --color-owl-* 变量。
  * 工具类（bg-owl-bg 等）引用的是变量，所以所有组件无需改动即可换肤。
  * 暖纸色调，与深色的 Claude 风格同族；主色图标绿两套通用。
@@ -155,6 +185,30 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 	--color-owl-text: #1a1a1a;
 	--color-owl-muted: #6e6e6e;
 	--color-owl-faint: #8c8c8c;
+}
+
+/* 液态玻璃预设的浅色覆盖：放在默认浅色块之后同优先级覆盖。冷调雾白底 + iOS 系统蓝。 */
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"] {
+	--color-owl-accent: #007aff;
+	--color-owl-accent-hover: #0062cc;
+	--color-owl-bg: #f2f4fa;
+	--color-owl-sidebar: #eceff7;
+	--color-owl-rail: #e5e9f3;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #e9edf7;
+	--color-owl-hover: #e2e6f1;
+	--color-owl-border: #d3d9e6;
+	--color-owl-sidebar-bg: #eceff7;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: rgb(60 70 110 / 7%);
+	--color-owl-sidebar-selected: rgb(60 70 110 / 11%);
+	--color-owl-sidebar-border: rgb(60 70 110 / 14%);
+	--color-owl-sidebar-text: #1d1d1f;
+	--color-owl-sidebar-muted: #6e6e73;
+	--color-owl-sidebar-faint: #8e8e93;
+	--color-owl-text: #1d1d1f;
+	--color-owl-muted: #6e6e73;
+	--color-owl-faint: #8e8e93;
 }
 
 ::selection {
@@ -553,41 +607,31 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 	width: 7px;
 	height: 7px;
 	flex: 0 0 7px;
-	border: 1.5px solid var(--color-owl-sidebar-faint);
 	border-radius: 50%;
-	background: transparent;
+	background: var(--color-owl-sidebar-faint);
+	opacity: 0.6;
 }
 
-.owl-sidebar-session-dot.is-unread {
-	background: var(--color-owl-accent);
-	border-color: var(--color-owl-accent);
+.owl-sidebar-session-dot.is-unread,
+.owl-sidebar-session-dot.is-running {
+	background: #22c55e;
+	opacity: 1;
 }
 
 .owl-sidebar-session-dot.is-running {
-	border-color: #22c55e;
-	animation: owl-sidebar-dot-breathe 1.6s ease-in-out infinite;
+	animation: owl-sidebar-dot-blink 1s ease-in-out infinite;
 }
 
-/* 预设色点：会话绑定了 Agent 预设时（非运行/未读态）按预设身份着色 */
-.owl-sidebar-session-dot.is-preset {
-	border-color: transparent;
-}
-.owl-sidebar-session-dot[data-preset="standard"].is-preset { background: #268574; }
-.owl-sidebar-session-dot[data-preset="ptc"].is-preset { background: #7c5cd6; }
-.owl-sidebar-session-dot[data-preset="minimal"].is-preset { background: #b45309; }
-.owl-sidebar-session-dot[data-preset="pi"].is-preset { background: #475569; }
-.owl-sidebar-session-dot[data-preset="cordis"].is-preset { background: #c2477e; }
-.owl-sidebar-session-dot.is-preset:not([data-preset="standard"]):not([data-preset="ptc"]):not([data-preset="minimal"]):not([data-preset="pi"]):not([data-preset="cordis"]) { background: #8f948c; }
-
-@keyframes owl-sidebar-dot-breathe {
+@keyframes owl-sidebar-dot-blink {
 	50% {
-		opacity: 0.35;
+		opacity: 0.15;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.owl-sidebar-session-dot.is-running {
 		animation: none;
+		box-shadow: 0 0 0 2px rgb(34 197 94 / 0.3);
 	}
 }
 
@@ -722,6 +766,134 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 @media (prefers-reduced-motion: reduce) {
 	.owl-composer-action-glyph { transition: none; }
 }
+/* 上下文鱼缸：输入框底层的液面，随上下文占用从底部慢慢涨满。 */
+.owl-context-tank {
+	--owl-tank-color: var(--color-owl-accent);
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	border-radius: inherit;
+	pointer-events: none;
+}
+.owl-context-tank[data-tone="warn"] { --owl-tank-color: #f59e0b; }
+.owl-context-tank[data-tone="danger"] { --owl-tank-color: #ef4444; }
+.owl-context-tank__liquid {
+	position: absolute;
+	inset: auto 0 0 0;
+	background: color-mix(in srgb, var(--owl-tank-color) 14%, transparent);
+	transition: height 900ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease;
+}
+.owl-context-tank__wave {
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	width: 200%;
+	height: 5px;
+	fill: color-mix(in srgb, var(--owl-tank-color) 14%, transparent);
+	animation: owl-context-tank-wave 4s linear infinite;
+}
+@keyframes owl-context-tank-wave {
+	from { transform: translateX(0); }
+	to { transform: translateX(-50%); }
+}
+.owl-context-gauge {
+	display: flex;
+	height: 1.75rem;
+	flex: none;
+	align-items: center;
+	border-radius: 6px;
+	padding: 0 4px;
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	transition: background-color 160ms ease;
+}
+button.owl-context-gauge:hover { background: var(--color-owl-hover); }
+.owl-context-gauge.is-capacity { color: var(--owl-ui-muted); opacity: 0.75; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-context-tank__liquid { transition: none; }
+	.owl-context-tank__wave { animation: none; }
+}
+/* 任务清单入口：浮在对话区右上角（避开滚动条），清单面板宽度跟随对话区收缩。 */
+.owl-todo-anchor {
+	position: absolute;
+	top: 10px;
+	right: 20px;
+	left: 20px;
+	z-index: 15;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	pointer-events: none;
+}
+.owl-todo-anchor > * { pointer-events: auto; }
+.owl-todo-trigger {
+	position: relative;
+	display: flex;
+	height: 28px;
+	width: 28px;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--color-owl-panel) 88%, transparent);
+	color: var(--color-owl-muted);
+	box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+	backdrop-filter: blur(6px);
+	animation: owl-todo-trigger-in 220ms ease-out;
+	transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.owl-todo-trigger:hover,
+.owl-todo-trigger[aria-expanded="true"] {
+	background: var(--color-owl-hover);
+	color: var(--color-owl-text);
+}
+.owl-todo-trigger[data-state="active"] { color: var(--color-owl-accent); }
+.owl-todo-trigger[data-state="done"] { color: #10b981; }
+.owl-todo-trigger__dot {
+	position: absolute;
+	top: -3px;
+	right: -3px;
+	height: 8px;
+	width: 8px;
+	border: 1.5px solid var(--color-owl-panel);
+	border-radius: 999px;
+	background: var(--color-owl-accent);
+	animation: owl-todo-dot-pulse 1.6s ease-in-out infinite;
+}
+.owl-todo-popover {
+	margin-top: 6px;
+	width: min(360px, 100%);
+	max-height: min(60vh, 480px);
+	overflow-y: auto;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--color-owl-sidebar) 94%, transparent);
+	padding: 8px 12px;
+	font-size: 12px;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 0.25);
+	backdrop-filter: blur(8px);
+	animation: owl-todo-popover-in 160ms ease-out;
+	transform-origin: top right;
+}
+@keyframes owl-todo-trigger-in {
+	from { opacity: 0; transform: scale(0.8); }
+	to { opacity: 1; transform: scale(1); }
+}
+@keyframes owl-todo-popover-in {
+	from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+	to { opacity: 1; transform: none; }
+}
+@keyframes owl-todo-dot-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.45; }
+}
+@media (max-width: 760px) {
+	.owl-todo-anchor { top: 6px; right: 12px; left: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.owl-todo-trigger, .owl-todo-popover, .owl-todo-trigger__dot { animation: none; }
+}
 .owl-mention-chip {
 	display: inline-flex;
 	align-items: center;
@@ -851,6 +1023,11 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-row:hover .owl-rewind-trigger, .owl-rewind-trigger:focus-visible { opacity: 1; }
 .owl-rewind-trigger:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
 .owl-user-bubble { max-width: 85%; border-radius: 16px; background: var(--color-owl-bubble); padding: 10px 16px; font-size: max(14px, calc(var(--owl-chat-font-size, 14px) - 2px)); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owl-user-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-bottom: 6px; white-space: normal; }
+.owl-user-files:last-child { margin-bottom: 0; }
+.owl-user-file { padding-right: 8px; margin: 0; user-select: text; }
+.owl-user-note { margin-top: 4px; font-size: 12px; line-height: 1.4; color: var(--owl-reading-muted); white-space: normal; }
+.owl-skill-chip { display: inline-block; padding: 0 7px; border-radius: 6px; background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent); color: var(--color-owl-accent); font-weight: 600; white-space: nowrap; }
 .owl-user-queued { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin: 8px 0; }
 .owl-user-queued-hint { font-size: 12px; line-height: 1.4; color: var(--owl-reading-muted); }
 

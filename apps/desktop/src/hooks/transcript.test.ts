@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ServerEventMessage } from "../bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./transcript.ts";
+import { applyEvent, applyRetryEvent, estimateTokens, outputRate, rebuild, type ChatEntry, type RetryBannerState } from "./transcript.ts";
 
 const user = { role: "user", content: "检查项目" };
 const calls = [
@@ -181,6 +181,27 @@ test("user prompt images survive the authoritative rebuild", () => {
 	assert.deepEqual((replayed.at(0) as Extract<ChatEntry, { kind: "user" }>).images, [{ data: "aGk=", mimeType: "image/png" }]);
 });
 
+test("delivered user message with core-added attachments and image hints matches the optimistic row", () => {
+	const wireText = "[Attached files for this turn]\n- D:\\omp\\README.md\n\n帮我下这俩个产品\n\n[Image: original 2201x1296, displayed at 2000x1178. Multiply coordinates by 1.10 to map to original image.]";
+	const delivered = { role: "user", content: [{ type: "text", text: wireText }, { type: "image", data: "aGk=", mimeType: "image/png" }] };
+	let entries: ChatEntry[] = [{ kind: "user", text: "帮我下这俩个产品", images: [{ data: "aGk=", mimeType: "image/png" }], attachedPaths: ["D:\\omp\\README.md"] }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: delivered });
+	assert.equal(entries.filter((entry) => entry.kind === "user").length, 1);
+
+	const rebuilt = rebuild([delivered]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	assert.equal(rebuilt.text, "帮我下这俩个产品");
+	assert.deepEqual(rebuilt.attachedPaths, ["D:\\omp\\README.md"]);
+	assert.equal(rebuilt.omittedImages, undefined);
+
+	const imageOnly = rebuild([{ role: "user", content: [{ type: "text", text: "\n\n[Image omitted: could not be resized below the inline image size limit.]" }] }]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	assert.equal(imageOnly.text, "");
+	assert.equal(imageOnly.omittedImages, 1);
+
+	const typed = rebuild([{ role: "user", content: "说明\n[Image: 用户自己写的]" }]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	assert.equal(typed.text, "说明\n[Image: 用户自己写的]");
+});
+
 test("auto retry events drive the banner state independent of transcript entries", () => {
 	const wire = (payload: Record<string, unknown>) => ({ type: "event", sessionId: "session", event: payload }) as unknown as ServerEventMessage;
 	// 无关事件不影响横幅状态（返回原引用，React 可跳过重渲染）
@@ -314,6 +335,28 @@ test("a delivered queued message enters the transcript once, when the model rece
 	assert.equal(delivered.length, 1);
 	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
 	assert.equal(entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志").length, 1);
+});
+
+test("a /skill: command and its expanded skill block count as the same user message", () => {
+	const expanded = '<skill name="loean7-cosplay" location="D:/skills/loean7-cosplay/SKILL.md">\nReferences are relative to D:/skills/loean7-cosplay.\n\n# body\n</skill>';
+	let entries: ChatEntry[] = [{ kind: "user", text: "/skill:loean7-cosplay" }];
+	entries = event(entries, { type: "agent_start" });
+	entries = event(entries, { type: "message_start", message: { role: "user", content: expanded } });
+	assert.equal(entries.filter((entry) => entry.kind === "user").length, 1);
+
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries, { kind: "user", text: "/skill:loean7-cosplay 再来", queued: true }];
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: expanded },
+			{ role: "assistant", content: [{ type: "text", text: "好" }] },
+			{ role: "user", content: `${expanded}\n\n再来` },
+			{ role: "assistant", content: [{ type: "text", text: "完成" }] },
+		],
+	});
+	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
+	assert.equal(entries.some((entry) => entry.kind === "user" && entry.queued), false);
 });
 
 test("queued follow-up does not freeze the in-progress assistant", () => {
@@ -478,4 +521,32 @@ test("a restored user-less continuation cannot mark the previous reply before it
 	const stoppedAfterReply = event(rebuild(withReply, undefined, { running: true, runStartMessageIndex: 3 }), { type: "agent_settled", aborted: true });
 	assert.equal(current(stoppedAfterReply).aborted, true);
 	assert.equal(stoppedAfterReply[1]?.kind === "assistant" && stoppedAfterReply[1].aborted, undefined);
+});
+
+test("流式增量累计估算 TPS，message_end 带用量后改用真实输出数", (t) => {
+	let clock = 10_000;
+	t.mock.method(Date, "now", () => clock);
+	let entries: ChatEntry[] = [{ kind: "user", text: "写代码" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	clock = 12_000; // 首字延迟不计入速度
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "先想想" } });
+	assert.equal(outputRate(current(entries)), undefined, "不足 1 秒不出速度");
+	clock = 14_000;
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "好的" } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, delta: "{\"path\":\"a.ts\"}" } });
+	assert.deepEqual(current(entries).stream, { firstAt: 12_000, lastAt: 14_000, estTokens: 3 + 2 + estimateTokens("{\"path\":\"a.ts\"}") });
+	assert.deepEqual(outputRate(current(entries)), { tps: current(entries).stream!.estTokens / 2, estimated: true });
+
+	clock = 16_000;
+	entries = event(entries, {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "好的" }], stopReason: "stop", timestamp: 11_000, usage: { input: 10, output: 200 } },
+	});
+	assert.deepEqual(outputRate(current(entries)), { tps: 50, estimated: false });
+});
+
+test("estimateTokens：中日韩字符按 1 个，其余按 4 字符 1 个", () => {
+	assert.equal(estimateTokens("你好"), 2);
+	assert.equal(estimateTokens("abcdefgh"), 2);
+	assert.equal(estimateTokens(""), 0);
 });

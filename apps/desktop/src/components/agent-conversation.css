@@ -9,3 +9,12 @@
 .owl-agent-conversation[hidden] {
 	display: none;
 }
+
+.owl-agent-conversation__body {
+	position: relative;
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	flex-direction: column;
+}

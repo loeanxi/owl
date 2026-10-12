@@ -1,7 +1,7 @@
 /**
  * 输入框上方的「下次运行」常驻条 —— 当前会话有定时任务时的跟随标记：
  * 「⏱ 邮箱晨报 · 每天 09:00 · 下次 09:00（2 小时后）」，点击跳自动化任务页。
- * 与 TodoPin/RetryPin 同一挂点（App 的 composer 上方），轻量轮询 + 推送保活。
+ * 与 RetryPin 同一挂点（App 的 composer 上方），轻量轮询 + 推送保活。
  */
 import { useEffect, useMemo, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";

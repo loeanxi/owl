@@ -59,6 +59,26 @@ export function exitCodeOf(output: string | undefined): number | undefined {
 	return last ? Number(last[1]) : undefined;
 }
 
+/** 写入/编辑守卫拒绝时附带当前文件内容的标记（与 coding-agent edit-read-gate 的 GATE_SNAPSHOT_MARKER 一致）。 */
+const GATE_SNAPSHOT_MARKER = "[Current file content follows. It counts as your read of this file";
+
+/**
+ * 出错工具调用的种类：
+ * - exit：shell 命令跑完了、有输出，只是退出码非零（多为 grep 没搜到），不算失败；
+ *   126/127（不可执行/找不到命令）仍是真失败；
+ * - blocked：写入守卫拦下并已把当前内容交给模型，下一次调用即可成功；
+ * - failed：其它真失败。
+ */
+export function errorKindOf(name: string, outputText: string | undefined): "exit" | "blocked" | "failed" {
+	if (outputText?.includes(GATE_SNAPSHOT_MARKER)) return "blocked";
+	if (name === "bash" || name === "powershell") {
+		const code = exitCodeOf(outputText);
+		const printed = outputText?.replace(/Command exited with code \d+/g, "").trim();
+		if (code !== undefined && code !== 126 && code !== 127 && printed) return "exit";
+	}
+	return "failed";
+}
+
 /** 把一次工具调用的参数翻译成摘要。 */
 export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 	const a = (args ?? {}) as Record<string, unknown>;

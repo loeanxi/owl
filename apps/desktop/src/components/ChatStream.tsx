@@ -1,12 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import type { AssistantSegment, ChatEntry, MessageUsage, ToolCard, ToolResultImage, ToolStatus } from "../hooks/transcript.ts";
-import { exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
+import { outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
+import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal } from "./icons.tsx";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { pathCandidateFromCode } from "../utils/paths.ts";
+import { parseSkillInvocation, userSourceText } from "../hooks/skill-invocation.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import { UsageOverview } from "./UsageOverview.tsx";
@@ -97,7 +98,7 @@ function formatDuration(ms: number): string {
  * 阅读宽度居中）。公开说明、工具调用与答案保留消息中的先后顺序。
  *
  * 过程收成正文上方的一行「工作了 7m 23s」，点开才看步骤。正文下面是复制和时间。
- * 提问卡、渲染卡与错误仍原位可见。任务清单由输入区上方的 TodoPin 独占，时间轴不再重复。
+ * 提问卡、渲染卡与错误仍原位可见。任务清单由对话区右上角的 TodoPin 独占，时间轴不再重复。
  */
 
 /** 内容流的一行；提问行带 questionIndex 作跳转锚点，操作栏行用更紧凑的包装。 */
@@ -131,8 +132,15 @@ export function InlineSummary({ text }: { text: string }): React.JSX.Element {
 	);
 }
 
-/** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号。 */
-function StatusIcon({ status }: { status: ToolStatus }): React.JSX.Element {
+/** 只有真失败才标红、计入「N 个失败」；非零退出与守卫拦截各有自己的样式。 */
+function isHardFailure(card: ToolCard): boolean {
+	return card.status === "error" && errorKindOf(card.name, card.output?.text) === "failed";
+}
+
+/** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号 / 拦截黄叹号 / 非零退出灰勾。 */
+function StatusIcon({ status, errorKind }: { status: ToolStatus; errorKind?: ReturnType<typeof errorKindOf> }): React.JSX.Element {
+	if (status === "error" && errorKind === "blocked") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />;
+	if (status === "error" && errorKind === "exit") return <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "pending") return <IconClock className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label={t("chat.cancelled")}>—</span>;
 	if (status === "running") {
@@ -194,24 +202,28 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 	const hasMore = (output?.totalLines ?? 0) > OUTPUT_PREVIEW_LINES;
 	const images = output?.images ?? [];
 	const exitCode = card.status === "error" ? exitCodeOf(output?.text) : undefined;
+	const errorKind = card.status === "error" ? errorKindOf(card.name, output?.text) : undefined;
 
 	return (
-		<div className="owl-tool-row" data-status={card.status}>
+		<div className="owl-tool-row" data-status={card.status} data-error-kind={errorKind}>
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
 				className="owl-tool-summary"
 			>
-				<StatusIcon status={card.status} />
+				<StatusIcon status={card.status} errorKind={errorKind} />
 				<span
-					className={`min-w-0 flex-1 truncate ${card.status === "error" ? "text-red-400" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
+					className={`min-w-0 flex-1 truncate ${errorKind === "failed" ? "text-red-400" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
 				>
 					<InlineSummary text={card.summary} />
 				</span>
 				{card.status === "cancelled" && <span className="text-xs text-owl-faint">{t("chat.cancelled")}</span>}
-				{exitCode !== undefined && (
-					<span className="shrink-0 text-xs text-red-400">{t("chat.exitCode", { code: exitCode })}</span>
+				{errorKind === "blocked" && <span className="shrink-0 text-xs text-amber-500">{t("chat.toolBlocked")}</span>}
+				{errorKind !== "blocked" && exitCode !== undefined && (
+					<span className={`shrink-0 text-xs ${errorKind === "exit" ? "text-owl-faint" : "text-red-400"}`}>
+						{t("chat.exitCode", { code: exitCode })}
+					</span>
 				)}
 				<IconChevron
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
@@ -295,7 +307,7 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 function ToolGroupView({ label, cards, expanded = false }: { label: string; cards: ToolCard[]; expanded?: boolean }): React.JSX.Element {
 	const [open, setOpen] = useState(expanded);
 	useEffect(() => setOpen(expanded), [expanded]);
-	const errorCount = cards.filter((card) => card.status === "error").length;
+	const errorCount = cards.filter(isHardFailure).length;
 	const running = cards.some((card) => card.status === "running");
 
 	return (
@@ -522,6 +534,18 @@ function AssistantFooter({ entry, usage: usageOverride, requestCount, canRegener
 	);
 }
 
+/** 气泡正文：技能调用只亮技能名标签，不铺开 SKILL.md 全文。 */
+function UserText({ text }: { text: string }): React.JSX.Element {
+	const skill = parseSkillInvocation(text);
+	if (!skill) return <>{text}</>;
+	return (
+		<>
+			<span className="owl-skill-chip" title={`/skill:${skill.name}`}>{skill.name}</span>
+			{skill.rest && <>{" "}{skill.rest}</>}
+		</>
+	);
+}
+
 /** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡 + 悬停浮现的 编辑/复制/回退 按钮。 */
 function UserRowView({
 	entry,
@@ -536,8 +560,10 @@ function UserRowView({
 }): React.JSX.Element {
 	const [zoomed, setZoomed] = useState(false);
 	const [editing, setEditing] = useState(false);
-	const [draft, setDraft] = useState(entry.text);
+	const sourceText = userSourceText(entry.text);
+	const [draft, setDraft] = useState(sourceText);
 	const images = entry.images ?? [];
+	const attachedPaths = entry.attachedPaths ?? [];
 	const canRewind = Boolean(entry.entryId && onRewind);
 	// 编辑=重发：回退到这条消息再发新文本（会截断其后对话），必须带 entryId 且会话空闲
 	const canEdit = Boolean(entry.entryId && onEditMessage) && !busy;
@@ -545,7 +571,7 @@ function UserRowView({
 		const submit = (): void => {
 			const text = draft.trim();
 			setEditing(false);
-			if (!text || text === entry.text.trim() || !entry.entryId) return;
+			if (!text || text === sourceText.trim() || !entry.entryId) return;
 			onEditMessage?.(entry.entryId, text, images.length > 0 ? images : undefined);
 		};
 		return (
@@ -587,14 +613,14 @@ function UserRowView({
 					title={t("chat.msgEdit")}
 					aria-label={t("chat.msgEdit")}
 					onClick={() => {
-						setDraft(entry.text);
+						setDraft(sourceText);
 						setEditing(true);
 					}}
 				>
 					<IconCompose className="h-3.5 w-3.5" />
 				</button>
 			)}
-			<CopyButton text={entry.text} label={t("chat.msgCopy")} className="owl-user-quick" />
+			<CopyButton text={sourceText} label={t("chat.msgCopy")} className="owl-user-quick" />
 			{canRewind && (
 				<button
 					type="button"
@@ -608,7 +634,7 @@ function UserRowView({
 			)}
 			<div className="owl-user-bubble">
 				{images.length > 0 && (
-					<div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+					<div className={`flex flex-wrap justify-end gap-1.5${attachedPaths.length > 0 || entry.text.trim() !== "" ? " mb-1.5" : ""}`}>
 						{images.map((image, index) => (
 							<img
 								key={index}
@@ -620,7 +646,19 @@ function UserRowView({
 						))}
 					</div>
 				)}
-				{entry.text}
+				{attachedPaths.length > 0 && (
+					<div className="owl-user-files">
+						{attachedPaths.map((path) => (
+							<span key={path} className="owl-mention-chip owl-user-file" title={path}>
+								<span className="owl-mention-chip__label">{path.split(/[\\/]/).filter(Boolean).at(-1) ?? path}</span>
+							</span>
+						))}
+					</div>
+				)}
+				{entry.text.trim() !== "" && <UserText text={entry.text} />}
+				{(entry.omittedImages ?? 0) > 0 && (
+					<div className="owl-user-note">{t("chat.imagesOmitted", { n: entry.omittedImages! })}</div>
+				)}
 			</div>
 			{zoomed && images.length > 0 && (
 				<div
@@ -775,7 +813,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		workPendingTools = [];
 		workSubagents.push(...cards.filter((card) => card.name === "subagent"));
 		workSteps += cards.length;
-		workFailed += cards.filter((card) => card.status === "error").length;
+		workFailed += cards.filter(isHardFailure).length;
 		if (cards.some((card) => card.status === "running")) workRunning = true;
 		workRows.push({
 			key: "tools-" + cards[0]!.id,
@@ -818,7 +856,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 					key: "queued-" + index,
 					content: (
 						<div className="owl-user-queued">
-							<div className="owl-user-bubble">{entry.text}</div>
+							<div className="owl-user-bubble"><UserText text={entry.text} /></div>
 							<span className="owl-user-queued-hint">{t("composer.queuedHint")}</span>
 						</div>
 					),
@@ -870,8 +908,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 					turnShots.push({ key: card.id + "-" + turnShots.length, image });
 				}
 			}
-			// 任务清单的实时状态由输入区上方的常驻组件（TodoPin）独占展示：时间轴不再
-			// 上屏 todo 卡片（更新频繁，且与常驻条内容完全重复），也不计入折叠区步数
+			// 任务清单的实时状态由对话区右上角的入口（TodoPin）独占展示：时间轴不再
+			// 上屏 todo 卡片（更新频繁，且与清单内容完全重复），也不计入折叠区步数
 			if (card.name === "todo") return;
 			if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
 				// owl-genui：完成后留在结论下方（运行中还没有 spec，先走普通工具行）。
@@ -981,7 +1019,7 @@ type QuestionMark = { n: number; text: string; preview: string };
 
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
 	return entries.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && !entry.queued).map((entry, index) => {
-		const preview = entry.text.trim() || (entry.images?.length
+		const preview = userSourceText(entry.text).trim() || (entry.images?.length
 			? t("chat.questionImages", { n: entry.images.length })
 			: t("chat.questionFallback", { n: index + 1 }));
 		return { n: index + 1, text: preview.split("\n")[0], preview };
@@ -1052,7 +1090,8 @@ export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activity: ChatActivity }): React.JSX.Element | null {
 	// 实时状态行：流羽猫头鹰 + 「时长 · 本轮 tokens · 状态」。
 	// 时长从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示），tokens 为本轮
-	// 已回传用量之和。每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
+	// 已回传用量之和；末尾的 tok/s 取本轮最近一条可测速回复（流式中为估算，带 ~）。
+	// 每秒走一次状态更新，驱动文案跳动；组件只在会话忙时挂载，空闲自动卸载。
 	const pose = useSessionOwlPose(activity, entries);
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -1063,6 +1102,8 @@ function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activit
 	let executing = false;
 	let userTs: number | undefined;
 	let usage: MessageUsage | undefined;
+	let rate: ReturnType<typeof outputRate>;
+	let requestCount = 0;
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index]!;
 		if (entry.kind === "user") {
@@ -1071,21 +1112,33 @@ function ResponseActivity({ entries, activity }: { entries: ChatEntry[]; activit
 		}
 		if (entry.kind === "assistant") {
 			usage = addUsage(entry.usage, usage);
+			if (entry.usage) requestCount++;
+			rate ??= outputRate(entry);
 			if (entry.tools.some((tool) => tool.status === "running")) executing = true;
 		}
 	}
 	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
 	const elapsed = userTs !== undefined ? formatDuration(Math.max(0, now - userTs)) : undefined;
 	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
+	const usageTitle = usage
+		? t("chat.msgUsageTitle", {
+				calls: requestCount,
+				input: formatTokenCount(usage.input),
+				output: formatTokenCount(usage.output),
+				cacheRead: formatTokenCount(usage.cacheRead),
+				cacheWrite: formatTokenCount(usage.cacheWrite),
+			})
+		: undefined;
 	const parts = [
 		elapsed,
-		totalTokens > 0 ? t("chat.activityTokens", { n: formatTokenCount(totalTokens) }) : undefined,
+		totalTokens > 0 ? t("chat.activityTokens", { output: formatTokenCount(usage!.output), n: formatTokenCount(totalTokens) }) : undefined,
 		label,
+		rate ? t(rate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: compactNumber(rate.tps) }) : undefined,
 	].filter((part): part is string => part !== undefined);
 	return (
 		<div className="owl-response-activity" data-state={activity} role="status">
 			<OwlMascot pose={pose} inline />
-			<span>{parts.join(" · ")}</span>
+			<span title={usageTitle}>{parts.join(" · ")}</span>
 		</div>
 	);
 }

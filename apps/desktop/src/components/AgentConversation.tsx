@@ -10,6 +10,8 @@ export interface AgentConversationProps {
 	chat: ReactNode;
 	context: ReactNode;
 	trajectory: ReactNode;
+	/** Floating controls pinned to the top of the content area, below the header. */
+	overlay?: ReactNode;
 	/** Session task, schedule, retry, or recording notices above the composer. */
 	beforeComposer?: ReactNode;
 	composer: ReactNode;
@@ -25,6 +27,7 @@ export function AgentConversation({
 	chat,
 	context,
 	trajectory,
+	overlay,
 	beforeComposer,
 	composer,
 	questionDock,
@@ -34,7 +37,10 @@ export function AgentConversation({
 	return (
 		<div className={`owl-agent-conversation${className ? ` ${className}` : ""}`} hidden={hidden}>
 			{header}
-			{view === "trajectory" ? trajectory : view === "context" ? context : chat}
+			<div className="owl-agent-conversation__body">
+				{view === "trajectory" ? trajectory : view === "context" ? context : chat}
+				{overlay}
+			</div>
 			{beforeComposer}
 			{questionDock ? <QuestionDock {...questionDock}>{composer}</QuestionDock> : composer}
 		</div>

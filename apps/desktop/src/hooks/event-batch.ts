@@ -5,12 +5,12 @@
 
 import type { ServerEventMessage } from "../bridge/protocol.ts";
 
-/** 正文/思考增量：可按帧合并；其余事件应立即 flush 保序。 */
+/** 正文/思考/工具参数增量：可按帧合并；其余事件应立即 flush 保序。 */
 export function isStreamingDeltaEvent(message: ServerEventMessage): boolean {
 	const event = message.event as { type?: string; assistantMessageEvent?: { type?: string } } | undefined;
 	if (event?.type !== "message_update") return false;
 	const kind = event.assistantMessageEvent?.type;
-	return kind === "text_delta" || kind === "thinking_delta";
+	return kind === "text_delta" || kind === "thinking_delta" || kind === "toolcall_delta";
 }
 
 export type FrameBatcher<T> = {

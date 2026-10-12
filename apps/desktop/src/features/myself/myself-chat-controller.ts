@@ -1007,6 +1007,7 @@ export class MyselfChatController {
 						text,
 						timestamp: Date.now(),
 						...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+						...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
 					};
 			submittedRunRevision = this.runRevision;
 			this.update({

@@ -63,8 +63,8 @@ function ModeIcon({ mode, active }: { mode: ApprovalMode; active: boolean }): Re
 }
 
 function formatTokens(value: number): string {
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-	if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+	if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, "")}k`;
 	return String(value);
 }
 
@@ -75,26 +75,19 @@ function contextTone(percent: number | null): string {
 	return "text-emerald-400";
 }
 
-/** 上下文用量环形指示（套在上下文选择器左侧，随时可见余量）。 */
-function ContextRing({ percent }: { percent: number | null }): React.JSX.Element {
-	const clamped = Math.min(100, Math.max(0, percent ?? 0));
-	const circumference = 2 * Math.PI * 6;
+/** 上下文用量鱼缸：铺在输入框底层，液面高度 = 上下文占用比例。 */
+function ContextTank({ percent }: { percent: number | null }): React.JSX.Element | null {
+	if (percent === null) return null;
+	const level = Math.min(100, Math.max(0, percent));
+	const tone = level >= 85 ? "danger" : level >= 60 ? "warn" : "normal";
 	return (
-		<svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0">
-			<circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" className="stroke-owl-border" />
-			<circle
-				cx="8"
-				cy="8"
-				r="6"
-				fill="none"
-				strokeWidth="2"
-				strokeLinecap="round"
-				stroke="currentColor"
-				className={contextTone(percent)}
-				strokeDasharray={`${(circumference * clamped) / 100} ${circumference}`}
-				transform="rotate(-90 8 8)"
-			/>
-		</svg>
+		<div className="owl-context-tank" data-tone={tone} aria-hidden="true">
+			<div className="owl-context-tank__liquid" style={{ height: `${level}%` }}>
+				<svg className="owl-context-tank__wave" viewBox="0 0 120 8" preserveAspectRatio="none">
+					<path d="M0 4 Q15 0 30 4 T60 4 T90 4 T120 4 V8 H0 Z" />
+				</svg>
+			</div>
+		</div>
 	);
 }
 
@@ -777,13 +770,22 @@ export function Composer({
 	const acceptSlashCommand = (entry: SlashCommandEntry): void => {
 		// 填入命令留个空格：想带参数直接打字，不带就回车执行（此时菜单已因空格自动收起）
 		setDraftValue(`/${entry.name} `);
-		// 同步到 contenteditable：用零宽尾巴插在末尾，避免下一次 onInput 重复匹配旧内容。
-		if (editorRef.current) {
-			editorRef.current.appendChild(document.createTextNode("/" + entry.name + " "));
-		}
+		// 菜单只在整段输入是 `/查询` 时出现，所以整段换成命令，不能只往后追加。
+		const editor = editorRef.current;
+		clearEditorContent(editor);
+		insertPlainText(editor, `/${entry.name} `);
 		setSlashDismissed(false);
 		setSlashIndex(0);
-		editorRef.current?.focus();
+		if (!editor) return;
+		editor.focus();
+		const selection = window.getSelection();
+		if (selection) {
+			const caret = document.createRange();
+			caret.selectNodeContents(editor);
+			caret.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(caret);
+		}
 	};
 
 	// 菜单开着时点外部 = 收起（与 Menu 同款；菜单内点击用 onMouseDown 阻止抢焦点）。
@@ -805,13 +807,13 @@ export function Composer({
 	const slash = model.indexOf("/");
 	const activeProvider = slash > 0 ? model.slice(0, slash) : undefined;
 	const activeModelId = slash > 0 ? model.slice(slash + 1) : undefined;
-	const activeName =
-		providers
-			.find((provider) => provider.id === activeProvider)
-			?.models.find((entry) => entry.id === activeModelId)?.name ?? (activeModelId || t("composer.defaultModel"));
+	const activeModelEntry = providers
+		.find((provider) => provider.id === activeProvider)
+		?.models.find((entry) => entry.id === activeModelId);
+	const activeName = activeModelEntry?.name ?? (activeModelId || t("composer.defaultModel"));
 	const percent = sessionInfo?.contextUsage?.percent ?? null;
 	const contextTokens = sessionInfo?.contextUsage?.tokens ?? null;
-	const contextWindow = sessionInfo?.contextUsage?.contextWindow;
+	const contextWindow = sessionInfo?.contextUsage?.contextWindow ?? activeModelEntry?.contextWindow;
 	const levels = sessionInfo && sessionInfo.availableThinkingLevels.length > 0
 		? sessionInfo.availableThinkingLevels
 		: [...ALL_THINKING_LEVELS];
@@ -895,6 +897,61 @@ export function Composer({
 				<span className="flex-1">{t("composer.newProjectMenu")}</span>
 			</button>
 		</div>
+	);
+
+	const contextDetails = sessionInfo ? (
+		<div className="w-full px-3 py-2 text-xs text-owl-muted">
+			<div className="flex items-baseline justify-between gap-3 pb-1.5">
+				<p className="text-owl-text">{t("composer.contextWindow")}</p>
+				<p className="flex-none text-owl-faint">
+					{contextTokens !== null ? formatTokens(contextTokens) : "—"}
+					{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
+					{percent !== null ? ` · ${Math.round(percent)}%` : ""}
+				</p>
+			</div>
+			<div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
+				<div
+					className={`h-full rounded-full ${
+						(percent ?? 0) >= 85 ? "bg-red-500" : (percent ?? 0) >= 60 ? "bg-amber-500" : "bg-emerald-500"
+					}`}
+					style={{ width: `${Math.min(100, Math.max(2, percent ?? 0))}%` }}
+				/>
+			</div>
+			{breakdownRows.length > 0 && (
+				<div className="pb-1">
+					{breakdownRows.map((row) => (
+						<div key={row.label} className="flex items-center gap-1.5 py-0.5">
+							<span className={`h-1.5 w-1.5 flex-none rounded-full ${row.color}`} />
+							<span className="min-w-0 flex-1 truncate">{row.label}</span>
+							<span className="flex-none text-owl-faint">{row.percent.toFixed(1)}%</span>
+						</div>
+					))}
+				</div>
+			)}
+			{cacheHitRate !== null && (
+				<div className="mt-1 flex items-center justify-between border-t border-owl-border pt-1.5">
+					<span>{t("composer.cacheHitRate")}</span>
+					<span className="text-owl-faint">{cacheHitRate.toFixed(1)}%</span>
+				</div>
+			)}
+			{sessionInfo.stats && (
+				<>
+					<p className="pt-1.5 pb-1 text-owl-text">{t("composer.sessionTotals")}</p>
+					<p className="text-owl-faint">
+						{t("composer.statsTokens", {
+							input: formatTokens(sessionInfo.stats.tokens.input),
+							output: formatTokens(sessionInfo.stats.tokens.output),
+							cache: formatTokens(sessionInfo.stats.tokens.cacheRead + sessionInfo.stats.tokens.cacheWrite),
+						})}
+					</p>
+					<p className="text-owl-faint">
+						{t("composer.statsCost", { total: formatTokens(sessionInfo.stats.tokens.total), cost: sessionInfo.stats.cost.toFixed(4) })}
+					</p>
+				</>
+			)}
+		</div>
+	) : (
+		<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.contextEmptyHint")}</p>
 	);
 
 	const modelMenu = (close: () => void): React.JSX.Element => (
@@ -1079,7 +1136,10 @@ export function Composer({
 						{queued.steering.map((text, index) => (
 							<div className="owl-prompt-queue-row" key={`steer-${index}`}>
 								<span className="owl-prompt-queue-lane">{t("composer.steerLane")}</span>
-								<span className="owl-prompt-queue-text">{text}</span>
+								<div className="owl-prompt-queue-copy">
+									<span className="owl-prompt-queue-text">{text}</span>
+									<span className="owl-prompt-queue-wait">{t("composer.steerWaits")}</span>
+								</div>
 								<button type="button" className="owl-prompt-queue-action" onClick={() => onRemoveQueued?.("steering", index)}>{t("composer.removeQueued")}</button>
 							</div>
 						))}
@@ -1100,6 +1160,7 @@ export function Composer({
 					className={"relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
 				>
+					<ContextTank percent={percent} />
 					<OwlMascot pose={owlPose} hidden={hideMascot || Boolean(queued?.steering.length || queued?.followUp.length)} />
 					{slashExec !== null && (
 						<div
@@ -1133,7 +1194,7 @@ export function Composer({
 					)}
 					{/* 待发送附图：粘贴/拖入后悬在输入行上方（对齐 Claude/VS Code 的附件预览），可逐张移除 */}
 					{pendingImages.length > 0 && (
-						<div className="flex flex-wrap gap-2 px-3 pt-2.5">
+						<div className="relative flex flex-wrap gap-2 px-3 pt-2.5">
 							{pendingImages.map((image) => (
 								<div key={image.id} className="group relative h-16 w-16 overflow-hidden rounded-lg border border-owl-border bg-owl-sidebar">
 								<img
@@ -1157,7 +1218,7 @@ export function Composer({
 							))}
 						</div>
 					)}
-					{pasteHint && <p className="px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}
+					{pasteHint && <p className="relative px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}
 					{mentionOpen && (
 						<div
 							ref={mentionMenuRef}
@@ -1193,8 +1254,18 @@ export function Composer({
 							)}
 						</div>
 					)}
-					<div className="flex items-end gap-1.5 px-1.5 py-1">
-						<div className="flex-1">
+					<div className="relative flex items-end gap-1.5 px-1.5 py-1">
+						<Menu
+							triggerClassName={`owl-context-gauge ${contextTone(percent)}`}
+							triggerTitle={t("composer.viewContext")}
+							panelClassName="left-0 w-72"
+							trigger={
+								contextTokens !== null ? formatTokens(contextTokens) : sessionInfo?.contextUsage ? "—" : "0"
+							}
+						>
+							{contextDetails}
+						</Menu>
+						<div className="min-w-0 flex-1">
 							{chipEntries.length > 0 && (
 								<div className="mb-1.5 flex flex-wrap gap-1.5">
 									{chipEntries.map((chip) => (
@@ -1288,6 +1359,11 @@ export function Composer({
 								}}
 							/>
 						</div>
+						{contextWindow ? (
+							<span className="owl-context-gauge is-capacity" title={t("composer.contextWindow")}>
+								{formatTokens(contextWindow)}
+							</span>
+						) : null}
 						<button
 							type="button"
 							aria-label={t(actionLabel)}
@@ -1474,74 +1550,6 @@ export function Composer({
 						}
 					>
 						{(close: () => void) => modelMenu(close)}
-					</Menu>
-					<Menu
-						triggerClassName={ghostPillClass}
-						triggerTitle={t("composer.viewContext")}
-						panelClassName="right-0 w-72"
-						trigger={
-							<>
-								<ContextRing percent={percent} />
-								<span className={percent !== null ? contextTone(percent) : undefined}>
-									{percent !== null ? `${Math.round(percent)}%` : t("composer.context")}
-								</span>
-							</>
-						}
-					>
-						{sessionInfo ? (
-							<div className="w-full px-3 py-2 text-xs text-owl-muted">
-								<div className="flex items-baseline justify-between gap-3 pb-1.5">
-									<p className="text-owl-text">{t("composer.contextWindow")}</p>
-									<p className="flex-none text-owl-faint">
-										{contextTokens !== null ? formatTokens(contextTokens) : "—"}
-										{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
-										{percent !== null ? ` · ${Math.round(percent)}%` : ""}
-									</p>
-								</div>
-								<div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
-									<div
-										className={`h-full rounded-full ${
-											(percent ?? 0) >= 85 ? "bg-red-500" : (percent ?? 0) >= 60 ? "bg-amber-500" : "bg-emerald-500"
-										}`}
-										style={{ width: `${Math.min(100, Math.max(2, percent ?? 0))}%` }}
-									/>
-								</div>
-								{breakdownRows.length > 0 && (
-									<div className="pb-1">
-										{breakdownRows.map((row) => (
-											<div key={row.label} className="flex items-center gap-1.5 py-0.5">
-												<span className={`h-1.5 w-1.5 flex-none rounded-full ${row.color}`} />
-												<span className="min-w-0 flex-1 truncate">{row.label}</span>
-												<span className="flex-none text-owl-faint">{row.percent.toFixed(1)}%</span>
-											</div>
-										))}
-									</div>
-								)}
-								{cacheHitRate !== null && (
-									<div className="mt-1 flex items-center justify-between border-t border-owl-border pt-1.5">
-										<span>{t("composer.cacheHitRate")}</span>
-										<span className="text-owl-faint">{cacheHitRate.toFixed(1)}%</span>
-									</div>
-								)}
-								{sessionInfo.stats && (
-									<>
-										<p className="pt-1.5 pb-1 text-owl-text">{t("composer.sessionTotals")}</p>
-										<p className="text-owl-faint">
-											{t("composer.statsTokens", {
-												input: formatTokens(sessionInfo.stats.tokens.input),
-												output: formatTokens(sessionInfo.stats.tokens.output),
-												cache: formatTokens(sessionInfo.stats.tokens.cacheRead + sessionInfo.stats.tokens.cacheWrite),
-											})}
-										</p>
-										<p className="text-owl-faint">
-											{t("composer.statsCost", { total: formatTokens(sessionInfo.stats.tokens.total), cost: sessionInfo.stats.cost.toFixed(4) })}
-										</p>
-									</>
-								)}
-							</div>
-						) : (
-							<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.contextEmptyHint")}</p>
-						)}
 					</Menu>
 				</div>
 			</div>

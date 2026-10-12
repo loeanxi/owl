@@ -13,7 +13,7 @@ test("同一帧内的多条 delta 只 flush 一次（无 rAF 时走 setTimeout �
 	assert.deepEqual(batches, [[1, 2]]);
 });
 
-test("clear 丢弃待处理项；只把 text/thinking delta 当作可合并事件", () => {
+test("clear 丢弃待处理项；只把 text/thinking/toolcall delta 当作可合并事件", () => {
 	const batches: number[][] = [];
 	const batcher = createFrameBatcher<number>((items) => batches.push(items));
 	batcher.push(1);
@@ -26,5 +26,7 @@ test("clear 丢弃待处理项；只把 text/thinking delta 当作可合并事�
 		event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "a" } },
 	} as ServerEventMessage;
 	assert.equal(isStreamingDeltaEvent(delta), true);
+	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", delta: "{" } } } as ServerEventMessage), true);
+	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "message_update", assistantMessageEvent: { type: "toolcall_end" } } } as ServerEventMessage), false);
 	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "agent_start" } } as ServerEventMessage), false);
 });

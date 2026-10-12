@@ -3,7 +3,7 @@ import type { RetryBannerState } from "../hooks/transcript.ts";
 import { useT } from "../i18n/index.ts";
 
 /**
- * 自动重试横幅：贴在输入框上方（TodoPin 同位）。桥端的会话级 auto-retry
+ * 自动重试横幅：贴在输入框上方（SchedulePin 同位）。桥端的会话级 auto-retry
  * 一直在跑（settings.retry），但事件此前过线无人渲染——用户只能看到对话
  * "卡住"几秒后自己恢复，不知道发生了什么。retrying 阶段带退避倒计时；
  * failed 阶段（重试预算耗尽）常驻到用户下一次发言，可手动收起。
