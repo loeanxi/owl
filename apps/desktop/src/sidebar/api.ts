@@ -13,9 +13,14 @@ import type {
 	FsReadBinResult,
 	FsReadResult,
 	FsSearchHit,
+	GitCiState,
+	GitCommitDetail,
+	GitHistoryResult,
 	GitLogEntry,
 	GitStatusResult,
 } from "../bridge/protocol.ts";
+
+const withRepo = (repo: string | undefined) => (repo !== undefined && repo !== "" ? { repo } : {});
 
 /** 桥错误字符串按 "code: message" 过线（serve.ts 的 SidebarError 约定）。 */
 export function parseBridgeError(error: string | undefined): { code: string; message: string } {
@@ -88,6 +93,31 @@ export function createSidebarApi(client: BridgeClient) {
 			client
 				.request<GitLogEntry[]>({ type: "git.log", cwd, count })
 				.then((r) => unwrap(r, t("api.opGitLog"))),
+		gitHistory: (cwd: string, options: { repo?: string; all?: boolean; skip?: number; count?: number } = {}) =>
+			client
+				.request<GitHistoryResult>({
+					type: "git.history",
+					cwd,
+					...withRepo(options.repo),
+					...(options.all === true ? { all: true } : {}),
+					...(options.skip !== undefined ? { skip: options.skip } : {}),
+					...(options.count !== undefined ? { count: options.count } : {}),
+				})
+				.then((r) => unwrap(r, t("api.opGitLog"))),
+		gitShow: (cwd: string, hash: string, repo?: string) =>
+			client
+				.request<GitCommitDetail>({ type: "git.show", cwd, hash, ...withRepo(repo) })
+				.then((r) => unwrap(r, t("api.opGitShow"))),
+		gitShowDiff: (cwd: string, hash: string, paths: string[], against: "parent" | "worktree", repo?: string) =>
+			client
+				.request<{ diff: string }>({ type: "git.showDiff", cwd, hash, paths, against, ...withRepo(repo) })
+				.then((r) => unwrap(r, t("api.opGitDiff")).diff),
+		gitPush: (cwd: string, repo?: string) =>
+			client.request({ type: "git.push", cwd, ...withRepo(repo) }).then((r) => unwrap(r, t("api.opGitPush"))),
+		gitChecks: (cwd: string, hashes: string[], repo?: string) =>
+			client
+				.request<Record<string, GitCiState>>({ type: "git.checks", cwd, hashes, ...withRepo(repo) })
+				.then((r) => unwrap(r, t("api.opGitChecks"))),
 		diffApprovalList: (cwd: string) =>
 			client
 				.request<{ files: DiffApprovalFileSummary[] }>({ type: "diffApproval.list", cwd })

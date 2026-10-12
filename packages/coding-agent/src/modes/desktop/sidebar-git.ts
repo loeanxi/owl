@@ -3,7 +3,8 @@
  * 用户身份或改配置。移植自 dsh-better-sidebar 的 git.ts 的子集——owl 桌面
  * 端落 status / diff / stage / unstage / commit / discard / log 七个能力，
  * 外加子仓库聚合：workspace 根不是仓库时向下扫描有限深度的 .git，status
- * 聚合各仓库条目，其余操作按路径路由到所属仓库（worktree / 历史视图后续再加）。
+ * 聚合各仓库条目，其余操作按路径路由到所属仓库（worktree 后续再加）。
+ * 历史视图（history / show / showDiff / push）按单个仓库作用，路径为仓库根相对。
  *
  * 状态解析走 `status --porcelain=v1 -z`（NUL 分隔，路径不做引号转义，中文
  * 文件名安全）；diff 统一 `-U3 --no-color --no-ext-diff`；未跟踪文件的
@@ -14,19 +15,40 @@ import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { GitLogEntry, GitStatusEntry, GitStatusResult, GitWorkspaceRepo } from "./protocol.ts";
+import type {
+	GitCommitDetail,
+	GitCommitFile,
+	GitHistoryEntry,
+	GitHistoryResult,
+	GitLogEntry,
+	GitRef,
+	GitStatusEntry,
+	GitStatusResult,
+	GitWorkspaceRepo,
+} from "./protocol.ts";
 import { messageOf, SidebarError, toWirePath } from "./sidebar-fs.ts";
 
 const GIT_TIMEOUT_MS = 15_000;
 const GIT_MAX_BUFFER = 32 * 1024 * 1024;
 
 /** 跑一条 git 命令；非零退出抛 SidebarError（git-missing / git-error）。 */
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(
+	cwd: string,
+	args: string[],
+	options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<string> {
 	return await new Promise<string>((resolvePromise, reject) => {
 		execFile(
 			"git",
 			args,
-			{ cwd, windowsHide: true, maxBuffer: GIT_MAX_BUFFER, timeout: GIT_TIMEOUT_MS },
+			{
+				cwd,
+				windowsHide: true,
+				maxBuffer: GIT_MAX_BUFFER,
+				timeout: options.timeout ?? GIT_TIMEOUT_MS,
+				// status 默认会顺手回写 .git/index；git 状态 watcher 会把这次回写当成新变更，形成刷新循环。
+				env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", ...options.env },
+			},
 			(error, stdout, stderr) => {
 				if (error !== null) {
 					const code = (error as NodeJS.ErrnoException).code;
@@ -35,23 +57,14 @@ async function git(cwd: string, args: string[]): Promise<string> {
 						return;
 					}
 					const detail = String(stderr ?? "").trim() || messageOf(error);
-					reject(new SidebarError("git-error", `git ${args[0]} 失败：${detail}`));
+					const verb = args.find((arg, index) => !arg.startsWith("-") && args[index - 1] !== "-c") ?? args[0];
+					reject(new SidebarError("git-error", `git ${verb} 失败：${detail}`));
 					return;
 				}
 				resolvePromise(String(stdout));
 			},
 		);
 	});
-}
-
-/** 是否 git 仓库（ tolerates bare/worktree 上层检测交给 git 本身）。 */
-async function isRepo(cwd: string): Promise<boolean> {
-	try {
-		await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
-		return true;
-	} catch {
-		return false;
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -67,9 +80,10 @@ const repoScanCache = new Map<string, { at: number; roots: string[] }>();
 const REPO_SCAN_TTL_MS = 5_000;
 
 /**
- * BFS 找 workspace 下的子仓库根（绝对路径，排序稳定）。命中 `.git` 即为仓库
- * 根，不再下探（子模块按单条目呈现，与外层仓库口径一致）；单个候选仓库的
- * status 失败不拖垮聚合，全部失败才把错误抛给前端。
+ * BFS 找 workspace 下的仓库根（绝对路径，排序稳定）。命中 `.git` 即为仓库
+ * 根，不再下探（子模块按单条目呈现，与外层仓库口径一致）——workspace 根自身
+ * 除外：根是仓库时继续往下找嵌套的独立仓库。单个候选仓库的 status 失败不拖
+ * 垮聚合，全部失败才把错误抛给前端。
  */
 async function scanWorkspaceRepos(cwd: string): Promise<string[]> {
 	const key = resolve(cwd);
@@ -90,11 +104,9 @@ async function scanWorkspaceRepos(cwd: string): Promise<string[]> {
 				} catch {
 					return;
 				}
-				for (const dirent of dirents) {
-					if (dirent.name === ".git") {
-						roots.push(dir);
-						return;
-					}
+				if (dirents.some((dirent) => dirent.name === ".git")) {
+					roots.push(dir);
+					if (depth > 0) return;
 				}
 				if (depth >= REPO_SCAN_DEPTH) return;
 				for (const dirent of dirents) {
@@ -115,9 +127,47 @@ async function scanWorkspaceRepos(cwd: string): Promise<string[]> {
 	return roots;
 }
 
+function isInside(child: string, parent: string): boolean {
+	const rel = relative(parent, child);
+	return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/**
+ * 聚合模式下涉及的仓库根；undefined = 单仓库模式（cwd 在仓库内、其下没有嵌套
+ * 仓库）。workspace 根本身是仓库、里面又嵌套了独立仓库（各自 clone 的项目）时，
+ * 外层与嵌套仓库一起聚合，和 VS Code 的多仓库视图一致。workspace 开在仓库子目录
+ * 时仍按单仓库处理（外层仓库的根不在 workspace 之内）。
+ */
+async function aggregateRoots(cwd: string): Promise<string[] | undefined> {
+	const [top, scanned] = await Promise.all([repoToplevel(cwd), scanWorkspaceRepos(cwd)]);
+	if (top === undefined) return scanned;
+	if (relative(top, resolve(cwd)) !== "") return undefined;
+	const nested = scanned.filter((root) => relative(root, top) !== "");
+	return nested.length === 0 ? undefined : [top, ...nested];
+}
+
+/** 仓库根的线上形式：workspace 相对；workspace 根自身记作 "."（"" 留给前端表示全部仓库）。 */
+function wireRoot(cwd: string, root: string): string {
+	return toWirePath(cwd, root) || ".";
+}
+
+/** cwd 涉及的各仓库 .git 目录（绝对路径）；不能递归 watch 的平台只盯这些。 */
+export async function gitMetadataDirs(cwd: string): Promise<string[]> {
+	const roots = await aggregateRoots(cwd);
+	if (roots === undefined) {
+		try {
+			return [(await git(cwd, ["rev-parse", "--absolute-git-dir"])).trim()];
+		} catch {
+			return [];
+		}
+	}
+	return roots.map((root) => join(root, ".git"));
+}
+
 /** 子仓库模式的路径路由：workspace 相对路径 → 所属仓库根 + 仓库相对 POSIX 路径。 */
 async function repoForPath(cwd: string, target: string): Promise<{ root: string; repoRel: string }> {
-	const roots = await scanWorkspaceRepos(cwd);
+	// 嵌套时外层仓库也包含该路径，取最深的仓库
+	const roots = [...((await aggregateRoots(cwd)) ?? [])].sort((a, b) => b.length - a.length);
 	const absolute = resolve(cwd, target);
 	for (const root of roots) {
 		const rel = relative(root, absolute);
@@ -224,6 +274,25 @@ export function rebaseStatusEntriesToCwd(
 	return { ...parsed, entries };
 }
 
+const IGNORED_LIMIT = 5_000;
+
+/**
+ * 在 dir 下被忽略的路径（相对 dir，ls-files 只列 dir 之内）。`--directory` 把整
+ * 个被忽略的目录折叠成一条，node_modules 之类不会展开；失败只是少了置灰。
+ */
+async function ignoredUnder(dir: string): Promise<string[]> {
+	try {
+		const out = await git(dir, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]);
+		return out
+			.split("\0")
+			.filter((path) => path !== "")
+			.slice(0, IGNORED_LIMIT)
+			.map((path) => path.replace(/\/$/, ""));
+	} catch {
+		return [];
+	}
+}
+
 /** 取 cwd 所属仓库根；porcelain 的仓库根相对条目靠它重定基到 cwd 相对。 */
 async function repoToplevel(cwd: string): Promise<string | undefined> {
 	try {
@@ -244,26 +313,50 @@ async function repoToplevel(cwd: string): Promise<string | undefined> {
 export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 	// -uall：把整目录未跟踪展开成单文件条目。默认的目录折叠（`?? dir/`）在
 	// 子仓库聚合里没法重定基，点开也是合成不出内容的空 diff。
-	if (await isRepo(cwd)) {
-		const out = await git(cwd, ["status", "--porcelain=v1", "-z", "-b", "-uall"]);
+	const roots = await aggregateRoots(cwd);
+	if (roots === undefined) {
+		const [out, ignored] = await Promise.all([
+			git(cwd, ["status", "--porcelain=v1", "-z", "-b", "-uall"]),
+			ignoredUnder(cwd),
+		]);
 		const parsed = parseStatusZ(out);
 		const root = await repoToplevel(cwd);
-		if (root === undefined) return { repo: true, ...parsed };
-		return { repo: true, ...rebaseStatusEntriesToCwd(relative(root, resolve(cwd)).split(sep).join("/"), parsed) };
+		if (root === undefined) return { repo: true, ...parsed, ignored };
+		return {
+			repo: true,
+			...rebaseStatusEntriesToCwd(relative(root, resolve(cwd)).split(sep).join("/"), parsed),
+			ignored,
+		};
 	}
-	const roots = await scanWorkspaceRepos(cwd);
 	if (roots.length === 0) {
 		return { repo: false, entries: [] };
 	}
 	const repos: GitWorkspaceRepo[] = [];
 	const entries: GitStatusEntry[] = [];
+	const ignored: string[] = [];
 	let firstError: unknown;
 	for (const root of roots) {
+		// 外层仓库把嵌套仓库目录报成 `?? xmart-ai/`（或忽略项），这些归嵌套仓库自己展示
+		const nested = roots.filter((other) => isInside(other, root));
+		const ownedByNested = (raw: string): boolean => {
+			const absolute = resolve(root, raw.replace(/\/$/, ""));
+			return nested.some(
+				(other) => relative(other, absolute) === "" || isInside(absolute, other) || isInside(other, absolute),
+			);
+		};
 		try {
-			const parsed = parseStatusZ(await git(root, ["status", "--porcelain=v1", "-z", "-b", "-uall"]));
-			repos.push({ root: toWirePath(cwd, root), branch: parsed.branch, upstream: parsed.upstream });
+			const [out, repoIgnored] = await Promise.all([
+				git(root, ["status", "--porcelain=v1", "-z", "-b", "-uall"]),
+				ignoredUnder(root),
+			]);
+			const parsed = parseStatusZ(out);
+			repos.push({ root: wireRoot(cwd, root), branch: parsed.branch, upstream: parsed.upstream });
 			for (const entry of parsed.entries) {
-				entries.push(entryAt(cwd, root, entry));
+				if (!ownedByNested(entry.path)) entries.push(entryAt(cwd, root, entry));
+			}
+			for (const path of repoIgnored) {
+				if (ignored.length < IGNORED_LIMIT && !ownedByNested(path))
+					ignored.push(toWirePath(cwd, resolve(root, path)));
 			}
 		} catch (error) {
 			// 单个候选损坏（空 .git、dubious ownership 等）只跳过该仓库
@@ -275,6 +368,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 		repo: true,
 		entries,
 		repos,
+		ignored,
 		...(repos.length === 1 ? { branch: repos[0]!.branch, upstream: repos[0]!.upstream } : {}),
 	};
 }
@@ -285,7 +379,8 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
  * 子仓库模式下 path 为 workspace 相对，整工作区 diff 是各仓库 diff 的拼接。
  */
 export async function gitDiff(cwd: string, path?: string, staged = false): Promise<string> {
-	if (await isRepo(cwd)) {
+	const roots = await aggregateRoots(cwd);
+	if (roots === undefined) {
 		if (path !== undefined) {
 			if (!staged) {
 				const status = await gitStatus(cwd);
@@ -307,7 +402,6 @@ export async function gitDiff(cwd: string, path?: string, staged = false): Promi
 		return await git(cwd, ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "-U3"]);
 	}
 	if (path === undefined) {
-		const roots = await scanWorkspaceRepos(cwd);
 		const parts: string[] = [];
 		for (const root of roots) {
 			parts.push(await git(root, ["diff", ...(staged ? ["--cached"] : []), "--no-color", "--no-ext-diff", "-U3"]));
@@ -353,7 +447,7 @@ async function untrackedDiff(cwd: string, path: string): Promise<string> {
 
 export async function gitStage(cwd: string, paths: string[]): Promise<void> {
 	if (paths.length === 0) return;
-	if (!(await isRepo(cwd))) {
+	if ((await aggregateRoots(cwd)) !== undefined) {
 		for (const [root, repoPaths] of await groupByRepo(cwd, paths)) {
 			await git(root, ["add", "--", ...repoPaths]);
 		}
@@ -364,7 +458,7 @@ export async function gitStage(cwd: string, paths: string[]): Promise<void> {
 
 export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
 	if (paths.length === 0) return;
-	if (!(await isRepo(cwd))) {
+	if ((await aggregateRoots(cwd)) !== undefined) {
 		for (const [root, repoPaths] of await groupByRepo(cwd, paths)) {
 			await git(root, ["reset", "-q", "HEAD", "--", ...repoPaths]);
 		}
@@ -382,8 +476,8 @@ export async function gitCommit(cwd: string, message: string, repoRoot?: string)
 	if (message.trim() === "") {
 		throw new SidebarError("bad-request", "提交信息不能为空");
 	}
-	if (!(await isRepo(cwd))) {
-		let roots = await scanWorkspaceRepos(cwd);
+	let roots = await aggregateRoots(cwd);
+	if (roots !== undefined) {
 		if (roots.length === 0) {
 			throw new SidebarError("git-error", "当前目录不是 Git 仓库");
 		}
@@ -410,10 +504,10 @@ export async function gitCommit(cwd: string, message: string, repoRoot?: string)
 		for (const root of pending) {
 			try {
 				await git(root, ["commit", "-m", message]);
-				committed.push(toWirePath(cwd, root));
+				committed.push(wireRoot(cwd, root));
 			} catch (error) {
 				const done = committed.length > 0 ? `已提交 ${committed.join("、")}；` : "";
-				throw new SidebarError("git-error", `${done}「${toWirePath(cwd, root)}」提交失败：${messageOf(error)}`);
+				throw new SidebarError("git-error", `${done}「${wireRoot(cwd, root)}」提交失败：${messageOf(error)}`);
 			}
 		}
 		return;
@@ -427,7 +521,7 @@ export async function gitCommit(cwd: string, message: string, repoRoot?: string)
  * 已跟踪文件 checkout 回索引版本。子仓库模式下按路径路由到所属仓库。
  */
 export async function gitDiscard(cwd: string, path: string): Promise<void> {
-	if (!(await isRepo(cwd))) {
+	if ((await aggregateRoots(cwd)) !== undefined) {
 		const { root, repoRel } = await repoForPath(cwd, path);
 		const entry = await statusOfOne(root, repoRel);
 		if (entry !== undefined && entry.x === "?" && entry.y === "?") {
@@ -459,16 +553,16 @@ export function parseLog(out: string): GitLogEntry[] {
 
 /** 提交历史（新→旧）。子仓库模式拼接各仓库并按时间归并，repo 字段标来源。 */
 export async function gitLog(cwd: string, count = 50): Promise<GitLogEntry[]> {
-	if (await isRepo(cwd)) {
+	const roots = await aggregateRoots(cwd);
+	if (roots === undefined) {
 		const out = await git(cwd, ["log", `-n${count}`, "--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e"]);
 		return parseLog(out);
 	}
-	const roots = await scanWorkspaceRepos(cwd);
 	const all: GitLogEntry[] = [];
 	for (const root of roots) {
 		try {
 			const out = await git(root, ["log", `-n${count}`, "--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%at%x1e"]);
-			const repo = toWirePath(cwd, root);
+			const repo = wireRoot(cwd, root);
 			all.push(...parseLog(out).map((entry) => ({ ...entry, repo })));
 		} catch {
 			// 还没有任何提交的仓库：跳过
@@ -480,4 +574,333 @@ export async function gitLog(cwd: string, count = 50): Promise<GitLogEntry[]> {
 /** 把 git 报告的路径（仓库根相对）归一到 workspace 相对 POSIX 形式。 */
 export function wirePathOf(cwd: string, raw: string): string {
 	return toWirePath(resolve(cwd), resolve(cwd, raw));
+}
+
+// ---------------------------------------------------------------------------
+// 历史视图：单仓库作用域（提交列表 / 提交详情 / 提交 diff / 推送）
+// ---------------------------------------------------------------------------
+
+const HISTORY_FORMAT = "%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%at%x1f%P%x1f%D%x1e";
+const HISTORY_MAX_COUNT = 200;
+const UNPUSHED_SCAN_LIMIT = 1000;
+const SHOW_DIFF_MAX_PATHS = 200;
+const PUSH_TIMEOUT_MS = 120_000;
+// 用户开了 log.showSignature 时签名校验输出会混进 stdout，破坏格式解析
+const NO_SIGNATURE = ["-c", "log.showSignature=false"];
+
+/** 失败返回 undefined 的 git 查询（无上游、分离 HEAD、空仓库等都是正常状态）。 */
+async function gitOptional(cwd: string, args: string[]): Promise<string | undefined> {
+	try {
+		const out = (await git(cwd, args)).trim();
+		return out === "" ? undefined : out;
+	} catch {
+		return undefined;
+	}
+}
+
+function assertHash(hash: string): void {
+	if (!/^[0-9a-f]{4,64}$/i.test(hash)) throw new SidebarError("bad-request", `无效的提交哈希：${hash}`);
+}
+
+/**
+ * 历史视图的仓库根。显式 repo（workspace 相对）须是已识别的子仓库；缺省取
+ * cwd 所在仓库的根（workspace 开在子目录时也看整个仓库的历史），cwd 不是仓库
+ * 时取第一个子仓库。
+ */
+export async function historyRepoRoot(cwd: string, repo?: string): Promise<string> {
+	if (repo !== undefined && repo !== "") {
+		const absolute = resolve(cwd, repo);
+		const match = (await scanWorkspaceRepos(cwd)).find((root) => relative(root, absolute) === "");
+		if (match === undefined) throw new SidebarError("bad-request", `"${repo}" 不是已识别的子仓库，请刷新后重试`);
+		return match;
+	}
+	const top = await repoToplevel(cwd);
+	if (top !== undefined) return top;
+	const [first] = await scanWorkspaceRepos(cwd);
+	if (first === undefined) throw new SidebarError("git-error", "当前目录不是 Git 仓库");
+	return first;
+}
+
+/** GitHub 远程地址 → owner/repo（https、带 user@ 的 https、scp 风格、ssh://）。 */
+export function parseGitHubRemote(url: string | undefined): { owner: string; repo: string } | undefined {
+	const match =
+		/^(?:https:\/\/(?:[^@/\s]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(
+			(url ?? "").trim(),
+		);
+	return match ? { owner: match[1]!, repo: match[2]! } : undefined;
+}
+
+/** `%D` 装饰串 → 引用标记。origin/HEAD 这类远程默认分支指针不展示。 */
+export function parseRefs(decoration: string, remotes: ReadonlySet<string>): GitRef[] {
+	const refs: GitRef[] = [];
+	for (const raw of decoration.split(",")) {
+		const part = raw.trim();
+		if (part === "") continue;
+		if (part === "HEAD") {
+			refs.push({ kind: "head", name: "HEAD" });
+		} else if (part.startsWith("HEAD -> ")) {
+			refs.push({ kind: "head", name: part.slice("HEAD -> ".length) });
+		} else if (part.startsWith("tag: ")) {
+			refs.push({ kind: "tag", name: part.slice("tag: ".length) });
+		} else {
+			const slash = part.indexOf("/");
+			if (slash > 0 && remotes.has(part.slice(0, slash))) {
+				if (!part.endsWith("/HEAD")) refs.push({ kind: "remote", name: part });
+			} else {
+				refs.push({ kind: "local", name: part });
+			}
+		}
+	}
+	return refs;
+}
+
+/** `git log --pretty=HISTORY_FORMAT` 的纯解析。 */
+export function parseHistory(out: string, remotes: ReadonlySet<string>): GitHistoryEntry[] {
+	return out
+		.split("\u001e")
+		.filter((record) => record.trim() !== "")
+		.map((record) => {
+			const [hash = "", short = "", subject = "", author = "", email = "", time = "0", parents = "", refs = ""] =
+				record.replace(/^\s+/, "").split("\u001f");
+			return {
+				hash,
+				short,
+				subject,
+				author,
+				email,
+				time: Number(time) || 0,
+				parents: parents.trim() === "" ? [] : parents.trim().split(" "),
+				refs: parseRefs(refs, remotes),
+			};
+		});
+}
+
+async function listRemotes(root: string): Promise<Set<string>> {
+	const out = await gitOptional(root, ["remote"]);
+	return new Set(
+		(out ?? "")
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter((line) => line !== ""),
+	);
+}
+
+/** 历史视图关联的 GitHub 仓库：优先上游所在远程，其次 origin，再次第一个远程。 */
+export async function historyGithubRepo(
+	cwd: string,
+	repo?: string,
+): Promise<{ root: string; owner: string; repo: string } | undefined> {
+	const root = await historyRepoRoot(cwd, repo);
+	const remotes = await listRemotes(root);
+	const upstream = await gitOptional(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+	const upstreamRemote = upstream?.split("/")[0];
+	const candidates = [upstreamRemote, "origin", ...remotes].filter(
+		(name): name is string => name !== undefined && remotes.has(name),
+	);
+	for (const name of new Set(candidates)) {
+		const parsed = parseGitHubRemote(await gitOptional(root, ["remote", "get-url", name]));
+		if (parsed !== undefined) return { root, ...parsed };
+	}
+	return undefined;
+}
+
+/** 历史视图一页：提交（新→旧）+ 当前分支相对上游的领先/落后与未推送标记。 */
+export async function gitHistory(
+	cwd: string,
+	options: { repo?: string; all?: boolean; skip?: number; count?: number } = {},
+): Promise<GitHistoryResult> {
+	const root = await historyRepoRoot(cwd, options.repo);
+	const count = Math.min(Math.max(Math.trunc(options.count ?? 50), 1), HISTORY_MAX_COUNT);
+	const skip = Math.max(Math.trunc(options.skip ?? 0), 0);
+	const [branch, upstream, remotes, head] = await Promise.all([
+		gitOptional(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+		gitOptional(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
+		listRemotes(root),
+		gitOptional(root, ["rev-parse", "--verify", "--quiet", "HEAD"]),
+	]);
+
+	let ahead = 0;
+	let behind = 0;
+	let unpushed = new Set<string>();
+	if (upstream !== undefined) {
+		const [behindRaw, aheadRaw] = (
+			(await gitOptional(root, ["rev-list", "--left-right", "--count", "@{u}...HEAD"])) ?? ""
+		)
+			.split(/\s+/)
+			.map(Number);
+		behind = behindRaw || 0;
+		ahead = aheadRaw || 0;
+		if (ahead > 0) {
+			const list = await gitOptional(root, ["rev-list", `--max-count=${UNPUSHED_SCAN_LIMIT}`, "@{u}..HEAD"]);
+			unpushed = new Set((list ?? "").split(/\r?\n/).filter((line) => line !== ""));
+		}
+	}
+
+	let entries: GitHistoryEntry[] = [];
+	// 还没有任何提交时 `git log` 会报错；--all 在没有引用时正常返回空
+	if (head !== undefined || options.all === true) {
+		const out = await git(root, [
+			...NO_SIGNATURE,
+			"log",
+			...(options.all === true ? ["--all"] : []),
+			"--date-order",
+			"--no-color",
+			`--max-count=${count + 1}`,
+			`--skip=${skip}`,
+			`--pretty=${HISTORY_FORMAT}`,
+		]);
+		entries = parseHistory(out, remotes);
+	}
+	const hasMore = entries.length > count;
+	entries = entries.slice(0, count).map((entry) => (unpushed.has(entry.hash) ? { ...entry, unpushed: true } : entry));
+
+	const github = await historyGithubRepo(root).catch(() => undefined);
+	return {
+		...(branch !== undefined ? { branch } : {}),
+		...(upstream !== undefined ? { upstream } : {}),
+		ahead,
+		behind,
+		canPublish: upstream === undefined && branch !== undefined && remotes.size > 0,
+		entries,
+		hasMore,
+		...(github !== undefined ? { githubUrl: `https://github.com/${github.owner}/${github.repo}` } : {}),
+	};
+}
+
+/** `--name-status -z` 的纯解析：重命名/复制条目带旧、新两段路径。 */
+export function parseNameStatusZ(out: string): Array<{ status: string; path: string; origPath?: string }> {
+	const parts = out.split("\0");
+	const rows: Array<{ status: string; path: string; origPath?: string }> = [];
+	for (let index = 0; index < parts.length; index += 1) {
+		const token = parts[index]!.trim();
+		if (token === "") continue;
+		const status = token[0]!;
+		if (status === "R" || status === "C") {
+			const origPath = parts[index + 1] ?? "";
+			const path = parts[index + 2] ?? "";
+			index += 2;
+			rows.push({ status, path, origPath });
+		} else {
+			rows.push({ status, path: parts[index + 1] ?? "" });
+			index += 1;
+		}
+	}
+	return rows;
+}
+
+/** `--numstat -z` 的纯解析，按新路径索引；二进制文件（`-`）计数缺省。 */
+export function parseNumstatZ(out: string): Map<string, { additions?: number; deletions?: number }> {
+	const parts = out.split("\0");
+	const stats = new Map<string, { additions?: number; deletions?: number }>();
+	for (let index = 0; index < parts.length; index += 1) {
+		const token = parts[index]!.replace(/^\s+/, "");
+		if (token === "") continue;
+		const [addRaw = "", delRaw = "", inlinePath = ""] = token.split("\t");
+		let path = inlinePath;
+		// 重命名：路径字段为空，旧、新路径各占后续一段
+		if (path === "") {
+			path = parts[index + 2] ?? "";
+			index += 2;
+		}
+		stats.set(path, {
+			...(addRaw !== "-" ? { additions: Number(addRaw) || 0 } : {}),
+			...(delRaw !== "-" ? { deletions: Number(delRaw) || 0 } : {}),
+		});
+	}
+	return stats;
+}
+
+/** 单个提交的详情：完整说明 + 改动文件（合并提交与第一父提交比较）。 */
+export async function gitCommitDetail(cwd: string, hash: string, repo?: string): Promise<GitCommitDetail> {
+	assertHash(hash);
+	const root = await historyRepoRoot(cwd, repo);
+	const head = await git(root, [
+		...NO_SIGNATURE,
+		"show",
+		"-s",
+		"--no-color",
+		"--format=%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%B",
+		hash,
+	]);
+	const [full = "", short = "", parents = "", author = "", email = "", time = "0", ...rest] = head.split("\u001f");
+	const message = rest.join("\u001f").replace(/\s+$/, "");
+	const newline = message.indexOf("\n");
+	const filesArgs = [...NO_SIGNATURE, "show", "--format=", "--no-color", "--diff-merges=first-parent", "-M", "-z"];
+	const [statusOut, numstatOut] = await Promise.all([
+		git(root, [...filesArgs, "--name-status", full]),
+		git(root, [...filesArgs, "--numstat", full]),
+	]);
+	const stats = parseNumstatZ(numstatOut);
+	const files: GitCommitFile[] = parseNameStatusZ(statusOut).map((row) => ({ ...row, ...stats.get(row.path) }));
+	return {
+		hash: full,
+		short,
+		parents: parents.trim() === "" ? [] : parents.trim().split(" "),
+		author,
+		email,
+		time: Number(time) || 0,
+		subject: newline < 0 ? message : message.slice(0, newline),
+		body: newline < 0 ? "" : message.slice(newline + 1).trim(),
+		files,
+		additions: files.reduce((sum, file) => sum + (file.additions ?? 0), 0),
+		deletions: files.reduce((sum, file) => sum + (file.deletions ?? 0), 0),
+	};
+}
+
+/**
+ * 提交里若干文件的 unified diff（路径为仓库根相对）。parent = 该提交引入的改动
+ * （合并提交对第一父提交）；worktree = 该提交与当前工作区之间的差异。
+ */
+export async function gitCommitDiff(
+	cwd: string,
+	hash: string,
+	paths: string[],
+	against: "parent" | "worktree" = "parent",
+	repo?: string,
+): Promise<string> {
+	assertHash(hash);
+	const specs = paths.filter((path) => path.trim() !== "").slice(0, SHOW_DIFF_MAX_PATHS);
+	if (specs.length === 0) throw new SidebarError("bad-request", "至少需要一个文件路径");
+	const root = await historyRepoRoot(cwd, repo);
+	// 路径来自提交的文件列表，是真实文件名而非通配模式
+	const options = { env: { GIT_LITERAL_PATHSPECS: "1" } };
+	const out =
+		against === "worktree"
+			? await git(root, ["diff", "--no-color", "--no-ext-diff", "-U3", "-M", hash, "--", ...specs], options)
+			: await git(
+					root,
+					[
+						...NO_SIGNATURE,
+						"show",
+						"--format=",
+						"--no-color",
+						"--no-ext-diff",
+						"-U3",
+						"--diff-merges=first-parent",
+						"-M",
+						hash,
+						"--",
+						...specs,
+					],
+					options,
+				);
+	return out.replace(/^\s*\n/, "");
+}
+
+/** 推送当前分支；没有上游时发布到 origin（没有 origin 取第一个远程）并设为上游。 */
+export async function gitPush(cwd: string, repo?: string): Promise<void> {
+	const root = await historyRepoRoot(cwd, repo);
+	// 凭据缺失时立刻失败，不在无终端的子进程里等输入直到超时
+	const options = { timeout: PUSH_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: "0" } };
+	const upstream = await gitOptional(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+	if (upstream !== undefined) {
+		await git(root, ["push"], options);
+		return;
+	}
+	const branch = await gitOptional(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	if (branch === undefined) throw new SidebarError("bad-request", "分离 HEAD 状态下无法推送，请先切换到分支");
+	const remotes = await listRemotes(root);
+	const remote = remotes.has("origin") ? "origin" : [...remotes][0];
+	if (remote === undefined) throw new SidebarError("bad-request", "仓库没有配置远程，无法推送");
+	await git(root, ["push", "-u", remote, branch], options);
 }

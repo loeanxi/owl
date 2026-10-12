@@ -25,8 +25,21 @@ import {
 	toWirePath,
 	writeWorkspaceFile,
 } from "../sidebar-fs.ts";
-import { gitCommit, gitDiff, gitDiscard, gitLog, gitStage, gitStatus, gitUnstage } from "../sidebar-git.ts";
-import { createDirectoryWatchers, type DirectoryWatchers } from "../sidebar-watch.ts";
+import {
+	gitCommit,
+	gitCommitDetail,
+	gitCommitDiff,
+	gitDiff,
+	gitDiscard,
+	gitHistory,
+	gitLog,
+	gitPush,
+	gitStage,
+	gitStatus,
+	gitUnstage,
+} from "../sidebar-git.ts";
+import { githubCommitChecks } from "../sidebar-github.ts";
+import { createDirectoryWatchers, createGitStateWatcher, type DirectoryWatchers } from "../sidebar-watch.ts";
 
 export interface WorkspaceHandlerContext {
 	reply: (ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }) => void;
@@ -184,6 +197,46 @@ export async function handleGitRequest(
 			ctx.reply(ws, request.id, { ok: true, result: await gitLog(request.cwd, request.count) });
 			return;
 		}
+		case "git.history": {
+			ctx.reply(ws, request.id, {
+				ok: true,
+				result: await gitHistory(request.cwd, {
+					repo: request.repo,
+					all: request.all,
+					skip: request.skip,
+					count: request.count,
+				}),
+			});
+			return;
+		}
+		case "git.show": {
+			ctx.reply(ws, request.id, {
+				ok: true,
+				result: await gitCommitDetail(request.cwd, request.hash, request.repo),
+			});
+			return;
+		}
+		case "git.showDiff": {
+			ctx.reply(ws, request.id, {
+				ok: true,
+				result: {
+					diff: await gitCommitDiff(request.cwd, request.hash, request.paths, request.against, request.repo),
+				},
+			});
+			return;
+		}
+		case "git.push": {
+			await gitPush(request.cwd, request.repo);
+			ctx.reply(ws, request.id, { ok: true });
+			return;
+		}
+		case "git.checks": {
+			ctx.reply(ws, request.id, {
+				ok: true,
+				result: await githubCommitChecks(request.cwd, request.hashes, request.repo),
+			});
+			return;
+		}
 	}
 }
 
@@ -202,18 +255,28 @@ export async function handleWatchRequest(
 			const key = resolve(request.cwd);
 			let watchers = ctx.sidebarWatchers.get(key);
 			if (watchers === undefined) {
-				watchers = createDirectoryWatchers(
-					(dir) => {
-						ctx.broadcast({
-							type: "event",
-							sessionId: "",
-							event: { type: "fs_changed", cwd: key, dirs: [toWirePath(key, dir)] },
-						});
-					},
-					(dir, error) => {
-						ctx.onDiagnostic(`sidebar watch ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-					},
+				const report = (target: string, error: unknown): void => {
+					ctx.onDiagnostic(`sidebar watch ${target}: ${error instanceof Error ? error.message : String(error)}`);
+				};
+				const directories = createDirectoryWatchers((dir) => {
+					ctx.broadcast({
+						type: "event",
+						sessionId: "",
+						event: { type: "fs_changed", cwd: key, dirs: [toWirePath(key, dir)] },
+					});
+				}, report);
+				const gitState = createGitStateWatcher(
+					key,
+					() => ctx.broadcast({ type: "event", sessionId: "", event: { type: "git_changed", cwd: key } }),
+					report,
 				);
+				watchers = {
+					...directories,
+					close() {
+						directories.close();
+						gitState.close();
+					},
+				};
 				ctx.sidebarWatchers.set(key, watchers);
 			}
 			const wanted = new Set<string>();

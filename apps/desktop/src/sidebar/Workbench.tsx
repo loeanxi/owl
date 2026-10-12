@@ -50,6 +50,8 @@ export interface WorkbenchProps {
 	role?: WorkbenchRole;
 	/** Presentation preference only; the conversation and tool permissions stay in App. */
 	developerLayout?: boolean;
+	/** tab 内「让 Owl …」类操作：把文字填进对话输入框。 */
+	onToChat?: (text: string) => void;
 }
 
 const DESIGNED_TAB_KINDS = new Set(["files", "changes", "review", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
@@ -75,7 +77,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "tools", developerLayout = false }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "tools", developerLayout = false, onToChat }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
@@ -225,14 +227,36 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 		[beginPointerDrag, store],
 	);
 
-	// -- Git 状态快照：项目切换 / fs_changed（防抖）/ 主动刷新（终端底栏用不到） -
-	const refreshGit = useCallback(() => {
-		if (terminalOnly) return;
-		void api
-			.gitStatus(cwd)
-			.then((result) => setGitStatus(result))
-			.catch(() => setGitStatus({ repo: false, entries: [] }));
-	}, [api, cwd, terminalOnly]);
+	// -- Git 状态快照：项目切换 / fs_changed / git_changed（防抖）/ 主动刷新（终端底栏用不到） -
+	// 同一项目同时只跑一个 status：在途期间再来的刷新只记一笔，跑完补一次，变更风暴里不会排队堆请求。
+	const gitRun = useRef<{ cwd: string; dirty: boolean } | undefined>(undefined);
+	const refreshGit = useCallback(
+		function run(): void {
+			if (terminalOnly) return;
+			const current = gitRun.current;
+			if (current !== undefined && current.cwd === cwd) {
+				current.dirty = true;
+				return;
+			}
+			const flight = { cwd, dirty: false };
+			gitRun.current = flight;
+			const settle = (result: GitStatusResult): void => {
+				if (gitRun.current !== flight) return;
+				gitRun.current = undefined;
+				setGitStatus(result);
+				if (flight.dirty) run();
+			};
+			void api.gitStatus(cwd).then(settle, () => settle({ repo: false, entries: [] }));
+		},
+		[api, cwd, terminalOnly],
+	);
+	const scheduleGitRefresh = useCallback(
+		(delay: number) => {
+			if (gitTimer.current !== undefined) window.clearTimeout(gitTimer.current);
+			gitTimer.current = window.setTimeout(refreshGit, delay);
+		},
+		[refreshGit],
+	);
 
 	useEffect(() => {
 		const offStatus = client.onStatus((connected) => {
@@ -243,23 +267,25 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 	}, [client, refreshGit]);
 
 	useEffect(() => {
-		return store.onFsChanged(() => {
-			if (gitTimer.current !== undefined) window.clearTimeout(gitTimer.current);
-			gitTimer.current = window.setTimeout(refreshGit, 400);
-		});
-	}, [store, refreshGit]);
+		return store.onFsChanged(() => scheduleGitRefresh(400));
+	}, [store, scheduleGitRefresh]);
 
 	// -- 桥事件 → store 总线（终端底栏的 tab 不订阅 fs 变更，跳过） ------------
 	useEffect(() => {
 		if (terminalOnly) return;
 		return client.onSessionEvent((message) => {
 			const event = message.event as { type?: string; cwd?: string; dirs?: unknown };
-			if (event.type !== "fs_changed") return;
+			if (event.type !== "fs_changed" && event.type !== "git_changed") return;
 			if (event.cwd !== undefined && normProjectKey(String(event.cwd)) !== normProjectKey(cwd)) return;
+			// git_changed 在宿主侧已防抖，这里只合并与 fs_changed 同时到达的那一下。
+			if (event.type === "git_changed") {
+				scheduleGitRefresh(100);
+				return;
+			}
 			const dirs = Array.isArray(event.dirs) ? event.dirs.map(String) : [];
 			store.fsChanged(dirs);
 		});
-	}, [client, store, cwd, terminalOnly]);
+	}, [client, store, cwd, terminalOnly, scheduleGitRefresh]);
 
 	// -- 打开文件（viewer 匹配 + 侧边卡片停用回退） ------------------------------
 	const openFile = useCallback(
@@ -295,8 +321,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 			onOpenFile: openFile,
 			gitStatus,
 			onGitRefresh: refreshGit,
+			...(onToChat !== undefined ? { onToChat } : {}),
 		}),
-		[api, store, cwd, client, state.tabs, openFile, gitStatus, refreshGit],
+		[api, store, cwd, client, state.tabs, openFile, gitStatus, refreshGit, onToChat],
 	);
 
 	// -- 拖拽调宽 / 调高（工作台外壳；每次手势持有独立尺寸，结束时持久化） ----

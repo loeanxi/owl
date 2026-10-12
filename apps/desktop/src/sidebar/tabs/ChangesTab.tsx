@@ -5,6 +5,7 @@
  * 行级 stage/unstage/discard、吸底提交条（Ctrl+Enter）；点击文件在下半面板
  * 看 diff（parseUnifiedDiff + annotateCharDiff 字符级高亮，VS Code 同款视觉）。
  * "本轮 AI 改动"视角（会话事件折叠）依赖 owl 会话事件索引，后续接入。
+ * 头部「变动 / 历史」切换到提交历史视图（HistoryView）。
  */
 import { useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
@@ -12,6 +13,10 @@ import type { GitStatusEntry } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { DiffView } from "../DiffView.tsx";
 import { IconGitBranch, IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
+import { HistoryView, repoDisplayName } from "./HistoryView.tsx";
+
+const MODE_KEY = "owl.changes.mode";
+type ChangesMode = "changes" | "history";
 
 /** porcelain 字母 → 行色。 */
 function statusColor(entry: GitStatusEntry): string {
@@ -23,14 +28,24 @@ function statusColor(entry: GitStatusEntry): string {
 	return "text-amber-300";
 }
 
+/** 条目所属仓库：前缀匹配最深的仓库根；workspace 根自身是仓库时记作 "."，兜底其余条目。 */
+export function repoOfPath(path: string, roots: readonly string[]): string | undefined {
+	let owner = roots.includes(".") ? "." : undefined;
+	for (const root of roots) {
+		if (root === "." || (path !== root && !path.startsWith(`${root}/`))) continue;
+		if (owner === undefined || owner === "." || root.length > owner.length) owner = root;
+	}
+	return owner;
+}
 function statusLetter(entry: GitStatusEntry): string {
 	if (entry.y === "?") return "U";
 	const letter = entry.x !== " " && entry.x !== "?" ? entry.x : entry.y;
 	return letter === " " ? "M" : letter;
 }
 
-export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentProps): React.JSX.Element {
+export function ChangesTab({ api, cwd, gitStatus, onGitRefresh, onToChat }: TabComponentProps): React.JSX.Element {
 	const t = useT();
+	const [mode, setMode] = useState<ChangesMode>(() => (localStorage.getItem(MODE_KEY) === "history" ? "history" : "changes"));
 	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
 	const [diffLoading, setDiffLoading] = useState(false);
@@ -47,9 +62,9 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 	const repos = gitStatus?.repos ?? [];
 	const multiRepo = repos.length > 1;
 	const selectedRepo = multiRepo ? repos.find((repo) => repo.root === repoFilter) : undefined;
-	// 条目路径 = 仓库根前缀 + "/"，前缀匹配即完成按仓库过滤
+	const repoRoots = repos.map((repo) => repo.root);
 	const entries = (gitStatus?.entries ?? []).filter(
-		(entry) => !multiRepo || repoFilter === "" || entry.path.startsWith(`${repoFilter}/`),
+		(entry) => !multiRepo || repoFilter === "" || repoOfPath(entry.path, repoRoots) === repoFilter,
 	);
 	const branchLabel = multiRepo ? selectedRepo?.branch : gitStatus?.branch;
 	const upstreamLabel = multiRepo ? selectedRepo?.upstream : gitStatus?.upstream;
@@ -134,6 +149,43 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 		);
 	}
 
+	const changeCount = gitStatus?.entries.length ?? 0;
+	const modeSwitch = (
+		<div role="tablist" className="inline-flex shrink-0 rounded-lg border border-owl-border bg-owl-panel p-[2px]">
+			{(["changes", "history"] as const).map((value) => (
+				<button
+					key={value}
+					type="button"
+					role="tab"
+					aria-selected={mode === value}
+					className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 text-xs ${mode === value ? "bg-owl-bg text-owl-text shadow-[0_1px_0_rgba(0,0,0,0.25)]" : "text-owl-muted hover:text-owl-text"}`}
+					onClick={() => {
+						setMode(value);
+						localStorage.setItem(MODE_KEY, value);
+					}}
+				>
+					{value === "changes" ? t("changes.modeChanges") : t("changes.modeHistory")}
+					{value === "changes" && changeCount > 0 && <span className="rounded bg-owl-hover px-1 text-[10.5px] text-owl-muted">{changeCount}</span>}
+				</button>
+			))}
+		</div>
+	);
+
+	if (mode === "history") {
+		return (
+			<HistoryView
+				api={api}
+				cwd={cwd}
+				repos={repos}
+				{...(multiRepo && repoFilter !== "" ? { initialRepo: repoFilter } : {})}
+				modeSwitch={modeSwitch}
+				statusVersion={gitStatus}
+				onGitRefresh={onGitRefresh}
+				{...(onToChat !== undefined ? { onToChat } : {})}
+			/>
+		);
+	}
+
 	const group = (title: string, rows: GitStatusEntry[], stagedView: boolean): React.JSX.Element => (
 		<div className="px-1">
 			<div className="flex items-center justify-between px-2 py-1 text-[11px] text-owl-faint">
@@ -215,7 +267,8 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
-			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
+			<div className="flex items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
+				{modeSwitch}
 				{multiRepo && (
 					<select
 						aria-label={t("changes.repoFilter")}
@@ -226,7 +279,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh }: TabComponentPr
 						<option value="">{t("changes.allRepos", { n: repos.length })}</option>
 						{repos.map((repo) => (
 							<option key={repo.root} value={repo.root}>
-								{repo.root}
+								{repoDisplayName(repo.root, cwd)}
 								{repo.branch !== undefined ? ` ─ ${repo.branch}` : ""}
 							</option>
 						))}

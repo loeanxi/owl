@@ -20,14 +20,25 @@ import {
 } from "../src/modes/desktop/sidebar-fs.ts";
 import {
 	gitCommit,
+	gitCommitDetail,
+	gitCommitDiff,
 	gitDiff,
 	gitDiscard,
+	gitHistory,
+	gitPush,
 	gitStage,
 	gitStatus,
+	parseGitHubRemote,
+	parseHistory,
 	parseLog,
+	parseNameStatusZ,
+	parseNumstatZ,
+	parseRefs,
 	parseStatusZ,
 	rebaseStatusEntriesToCwd,
 } from "../src/modes/desktop/sidebar-git.ts";
+import { buildChecksQuery, rollupState } from "../src/modes/desktop/sidebar-github.ts";
+import { affectsGitState, createGitStateWatcher } from "../src/modes/desktop/sidebar-watch.ts";
 
 async function makeTempDir(): Promise<string> {
 	return await mkdtemp(join(tmpdir(), "owl-sidebar-test-"));
@@ -392,6 +403,90 @@ describe("git 子仓库聚合（workspace 根不是仓库）", () => {
 		}
 	});
 
+	it("ignored：整个被忽略的目录折叠成一条，路径归一到 workspace 相对", async () => {
+		const ws = await makeTempDir();
+		const repo = join(ws, "app");
+		try {
+			await mkdir(join(repo, "node_modules", "pkg"), { recursive: true });
+			await mkdir(join(repo, "src"), { recursive: true });
+			run("git", ["init", "-q"], { cwd: repo });
+			await writeFile(join(repo, ".gitignore"), "node_modules/\n*.log\n");
+			await writeFile(join(repo, "node_modules", "pkg", "index.js"), "x");
+			await writeFile(join(repo, "src", "debug.log"), "x");
+			await writeFile(join(repo, "src", "main.ts"), "x");
+
+			const aggregated = await gitStatus(ws);
+			expect(aggregated.ignored?.sort()).toEqual(["app/node_modules", "app/src/debug.log"]);
+			expect(aggregated.entries.map((entry) => entry.path)).not.toContain("app/src/debug.log");
+
+			const inRepo = await gitStatus(join(repo, "src"));
+			expect(inRepo.ignored).toEqual(["debug.log"]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
+
+	it("workspace 根是仓库且嵌套独立仓库：外层与嵌套仓库一起聚合，路径路由到最深的仓库", async () => {
+		const ws = await makeTempDir();
+		try {
+			const init = (dir: string, branch: string): void => {
+				run("git", ["init", "-q", "-b", branch], { cwd: dir });
+				run("git", ["config", "user.email", "t@owl.local"], { cwd: dir });
+				run("git", ["config", "user.name", "Owl Test"], { cwd: dir });
+				run("git", ["config", "commit.gpgsign", "false"], { cwd: dir });
+			};
+			init(ws, "master");
+			await writeFile(join(ws, "root.txt"), "root\n");
+			run("git", ["add", "-A"], { cwd: ws });
+			run("git", ["commit", "-q", "-m", "outer: init"], { cwd: ws });
+			const inner = join(ws, "xmart-web");
+			await mkdir(inner);
+			init(inner, "dev-agent");
+			await writeFile(join(inner, "app.ts"), "a\n");
+			run("git", ["add", "-A"], { cwd: inner });
+			run("git", ["commit", "-q", "-m", "inner: init"], { cwd: inner });
+
+			await writeFile(join(ws, "root.txt"), "root\nchanged\n");
+			await writeFile(join(inner, "app.ts"), "a\nb\n");
+			const status = await gitStatus(ws);
+			expect(status.repos).toEqual([
+				{ root: ".", branch: "master" },
+				{ root: "xmart-web", branch: "dev-agent" },
+			]);
+			// 外层仓库把嵌套仓库报成 `?? xmart-web/`，不应出现
+			expect(status.entries.map((entry) => entry.path).sort()).toEqual(["root.txt", "xmart-web/app.ts"]);
+
+			expect(await gitDiff(ws, "xmart-web/app.ts")).toContain("+b");
+			await gitStage(ws, ["xmart-web/app.ts", "root.txt"]);
+			await gitCommit(ws, "inner: change", "xmart-web");
+			expect(run("git", ["log", "-1", "--format=%s"], { cwd: inner }).trim()).toBe("inner: change");
+			// 外层的暂存保持不动，再单独提交外层
+			await gitCommit(ws, "outer: change", ".");
+			expect(run("git", ["log", "-1", "--format=%s"], { cwd: ws }).trim()).toBe("outer: change");
+
+			expect((await gitHistory(ws)).branch).toBe("master");
+			const innerHistory = await gitHistory(ws, { repo: "xmart-web" });
+			expect(innerHistory.branch).toBe("dev-agent");
+			expect(innerHistory.entries.map((entry) => entry.subject)).toEqual(["inner: change", "inner: init"]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
+
+	it("单仓库没有嵌套仓库时保持单仓库模式", async () => {
+		const ws = await makeTempDir();
+		try {
+			run("git", ["init", "-q"], { cwd: ws });
+			await mkdir(join(ws, "src"));
+			await writeFile(join(ws, "src", "a.ts"), "a");
+			const status = await gitStatus(ws);
+			expect(status.repos).toBeUndefined();
+			expect(status.entries.map((entry) => entry.path)).toEqual(["src/a.ts"]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
+
 	it("单个损坏的 .git 候选不拖垮聚合", async () => {
 		const ws = await makeTempDir();
 		try {
@@ -405,6 +500,209 @@ describe("git 子仓库聚合（workspace 根不是仓库）", () => {
 			expect(status.entries.map((entry) => entry.path)).toEqual(["good/g.txt"]);
 		} finally {
 			await rm(ws, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("git 状态 watcher", () => {
+	it("affectsGitState：工作区文件与 .git 的 index/HEAD/refs 算，objects、锁文件、node_modules 内部不算", () => {
+		expect(affectsGitState("src/deep/new.ts")).toBe(true);
+		expect(affectsGitState("pkg-a\\.git\\index")).toBe(true);
+		expect(affectsGitState(".git/HEAD")).toBe(true);
+		expect(affectsGitState(".git/refs/heads/main")).toBe(true);
+		expect(affectsGitState(".git/refs/heads/main.lock")).toBe(false);
+		expect(affectsGitState(".git/index.lock")).toBe(false);
+		expect(affectsGitState(".git/objects/ab/cdef")).toBe(false);
+		expect(affectsGitState(".git/logs/HEAD")).toBe(false);
+		expect(affectsGitState("node_modules")).toBe(true);
+		expect(affectsGitState("node_modules/pkg/index.js")).toBe(false);
+	});
+
+	it.runIf(process.platform === "win32" || process.platform === "darwin")(
+		"外部 stage 与未展开目录里的新文件都会推送，自己跑 status 不会",
+		async () => {
+			const repo = await makeTempDir();
+			let pushes = 0;
+			const watcher = createGitStateWatcher(
+				repo,
+				() => {
+					pushes += 1;
+				},
+				() => {},
+			);
+			const settle = (): Promise<void> => new Promise((done) => setTimeout(done, 700));
+			try {
+				run("git", ["init", "-q"], { cwd: repo });
+				await mkdir(join(repo, "a", "b"), { recursive: true });
+				await writeFile(join(repo, "a", "b", "deep.txt"), "x");
+				await settle();
+				expect(pushes).toBeGreaterThan(0);
+
+				pushes = 0;
+				await gitStatus(repo);
+				await gitStatus(repo);
+				await settle();
+				expect(pushes).toBe(0);
+
+				run("git", ["add", "."], { cwd: repo });
+				await settle();
+				expect(pushes).toBeGreaterThan(0);
+			} finally {
+				watcher.close();
+				await rm(repo, { recursive: true, force: true });
+			}
+		},
+	);
+});
+
+describe("提交历史解析（纯函数）", () => {
+	const remotes = new Set(["origin", "upstream"]);
+
+	it("parseRefs：HEAD 指向、本地/远程分支、标签，跳过远程 HEAD", () => {
+		expect(parseRefs("HEAD -> main, origin/main, origin/HEAD, tag: v1.0, feature/x", remotes)).toEqual([
+			{ kind: "head", name: "main" },
+			{ kind: "remote", name: "origin/main" },
+			{ kind: "tag", name: "v1.0" },
+			{ kind: "local", name: "feature/x" },
+		]);
+		expect(parseRefs("HEAD", remotes)).toEqual([{ kind: "head", name: "HEAD" }]);
+		expect(parseRefs("", remotes)).toEqual([]);
+	});
+
+	it("parseHistory：字段切分、父提交、合并提交、记录间换行", () => {
+		const record = (fields: string[]) => `${fields.join("\u001f")}\u001e`;
+		const out = [
+			record(["a".repeat(40), "aaaaaaa", "Merge x", "Alice", "a@x", "1700000100", "b1 c1", "HEAD -> main"]),
+			`\n${record(["b".repeat(40), "bbbbbbb", "feat: y", "Bob", "b@x", "1700000000", "", ""])}`,
+			"\n",
+		].join("");
+		const entries = parseHistory(out, remotes);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]).toMatchObject({
+			short: "aaaaaaa",
+			subject: "Merge x",
+			email: "a@x",
+			time: 1700000100,
+			parents: ["b1", "c1"],
+			refs: [{ kind: "head", name: "main" }],
+		});
+		expect(entries[1]).toMatchObject({ hash: "b".repeat(40), author: "Bob", parents: [], refs: [] });
+	});
+
+	it("parseNameStatusZ / parseNumstatZ：重命名两段路径、二进制计数缺省", () => {
+		const nameStatus = ["M", "src/a.ts", "R087", "old.ts", "new.ts", "A", "img.png", ""].join("\0");
+		expect(parseNameStatusZ(nameStatus)).toEqual([
+			{ status: "M", path: "src/a.ts" },
+			{ status: "R", path: "new.ts", origPath: "old.ts" },
+			{ status: "A", path: "img.png" },
+		]);
+		const numstat = ["3\t1\tsrc/a.ts", "2\t2\t", "old.ts", "new.ts", "-\t-\timg.png", ""].join("\0");
+		const stats = parseNumstatZ(numstat);
+		expect(stats.get("src/a.ts")).toEqual({ additions: 3, deletions: 1 });
+		expect(stats.get("new.ts")).toEqual({ additions: 2, deletions: 2 });
+		expect(stats.get("img.png")).toEqual({});
+	});
+
+	it("parseGitHubRemote：https / 带凭据 https / scp / ssh，非 GitHub 返回 undefined", () => {
+		const expected = { owner: "loeanxi", repo: "owl" };
+		expect(parseGitHubRemote("https://github.com/loeanxi/owl.git")).toEqual(expected);
+		expect(parseGitHubRemote("https://user@github.com/loeanxi/owl/")).toEqual(expected);
+		expect(parseGitHubRemote("git@github.com:loeanxi/owl.git")).toEqual(expected);
+		expect(parseGitHubRemote("ssh://git@github.com/loeanxi/owl")).toEqual(expected);
+		expect(parseGitHubRemote("https://gitlab.com/loeanxi/owl.git")).toBeUndefined();
+		expect(parseGitHubRemote(undefined)).toBeUndefined();
+	});
+
+	it("CI 查询：每个提交一个别名字段，rollup 状态折成三态", () => {
+		const query = buildChecksQuery(["a".repeat(40), "b".repeat(40)]);
+		expect(query).toContain(`c0: object(oid: "${"a".repeat(40)}")`);
+		expect(query).toContain(`c1: object(oid: "${"b".repeat(40)}")`);
+		expect(query).toContain("repository(owner: $owner, name: $name)");
+		expect(rollupState("SUCCESS")).toBe("success");
+		expect(rollupState("ERROR")).toBe("failure");
+		expect(rollupState("EXPECTED")).toBe("pending");
+		expect(rollupState(null)).toBeUndefined();
+	});
+});
+
+describe("提交历史真实仓库", () => {
+	it("发布 → 未推送标记 → 推送；分页、详情、提交 diff、GitHub 链接", async () => {
+		const repo = await makeTempDir();
+		const remote = await makeTempDir();
+		try {
+			run("git", ["init", "-q", "--bare"], { cwd: remote });
+			run("git", ["init", "-q", "-b", "main"], { cwd: repo });
+			run("git", ["config", "user.email", "t@owl.local"], { cwd: repo });
+			run("git", ["config", "user.name", "Owl Test"], { cwd: repo });
+			run("git", ["config", "commit.gpgsign", "false"], { cwd: repo });
+
+			// 还没有提交：空列表，不抛错
+			expect((await gitHistory(repo)).entries).toEqual([]);
+
+			await writeFile(join(repo, "old.txt"), "one\ntwo\nthree\n");
+			run("git", ["add", "-A"], { cwd: repo });
+			run("git", ["commit", "-q", "-m", "feat: first"], { cwd: repo });
+			run("git", ["remote", "add", "origin", remote], { cwd: repo });
+			run("git", ["remote", "add", "gh", "https://github.com/acme/widget.git"], { cwd: repo });
+
+			let history = await gitHistory(repo);
+			expect(history).toMatchObject({ branch: "main", ahead: 0, behind: 0, canPublish: true, hasMore: false });
+			expect(history.upstream).toBeUndefined();
+			expect(history.githubUrl).toBe("https://github.com/acme/widget");
+
+			await gitPush(repo);
+			history = await gitHistory(repo);
+			expect(history).toMatchObject({ upstream: "origin/main", canPublish: false, ahead: 0 });
+			expect(history.entries[0]?.refs).toContainEqual({ kind: "remote", name: "origin/main" });
+
+			run("git", ["mv", "old.txt", "renamed.txt"], { cwd: repo });
+			await writeFile(join(repo, "renamed.txt"), "one\ntwo\nthree\nfour\n");
+			await writeFile(join(repo, "added.txt"), "x\n");
+			run("git", ["add", "-A"], { cwd: repo });
+			run("git", ["commit", "-q", "-m", "refactor: rename\n\nlonger body"], { cwd: repo });
+
+			history = await gitHistory(repo);
+			expect(history.ahead).toBe(1);
+			expect(history.entries.map((entry) => [entry.subject, entry.unpushed === true])).toEqual([
+				["refactor: rename", true],
+				["feat: first", false],
+			]);
+			expect(history.entries[0]?.refs[0]).toEqual({ kind: "head", name: "main" });
+
+			const page = await gitHistory(repo, { count: 1 });
+			expect(page.entries).toHaveLength(1);
+			expect(page.hasMore).toBe(true);
+			const next = await gitHistory(repo, { count: 1, skip: 1 });
+			expect(next.entries[0]?.subject).toBe("feat: first");
+			expect(next.hasMore).toBe(false);
+
+			const head = history.entries[0]!;
+			const detail = await gitCommitDetail(repo, head.hash);
+			expect(detail).toMatchObject({ subject: "refactor: rename", body: "longer body", author: "Owl Test" });
+			expect(detail.files).toContainEqual({ status: "A", path: "added.txt", additions: 1, deletions: 0 });
+			expect(detail.files).toContainEqual(
+				expect.objectContaining({ status: "R", path: "renamed.txt", origPath: "old.txt", additions: 1 }),
+			);
+			expect(detail.additions).toBe(2);
+
+			const diff = await gitCommitDiff(repo, head.hash, ["old.txt", "renamed.txt"]);
+			expect(diff).toMatch(/^diff --git/);
+			expect(diff).toContain("rename to renamed.txt");
+			expect(diff).toContain("+four");
+
+			await writeFile(join(repo, "added.txt"), "x\ny\n");
+			const worktreeDiff = await gitCommitDiff(repo, head.hash, ["added.txt"], "worktree");
+			expect(worktreeDiff).toContain("+y");
+
+			await expect(gitCommitDetail(repo, "not-a-hash")).rejects.toMatchObject({ code: "bad-request" });
+
+			await gitPush(repo);
+			history = await gitHistory(repo);
+			expect(history.ahead).toBe(0);
+			expect(history.entries.some((entry) => entry.unpushed === true)).toBe(false);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+			await rm(remote, { recursive: true, force: true });
 		}
 	});
 });

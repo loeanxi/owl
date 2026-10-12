@@ -126,7 +126,14 @@ export type {
 	FsSearchHit,
 	GitStatusResult,
 	GitStatusEntry,
+	GitWorkspaceRepo,
 	GitLogEntry,
+	GitRef,
+	GitHistoryEntry,
+	GitHistoryResult,
+	GitCommitFile,
+	GitCommitDetail,
+	GitCiState,
 	DiffApprovalStatus,
 	DiffApprovalFileSummary,
 	DiffApprovalListRequest,
@@ -171,7 +178,21 @@ export type {
 	UiBuildFingerprint,
 } from "../../../../packages/coding-agent/src/modes/desktop/protocol.ts";
 // 上下文洞察的 wire 类型本体在 core/context-insight（内核 protocol 也只是转引）
-export type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../../../packages/coding-agent/src/core/context-insight.ts";
+export type {
+	ContextBrief,
+	ContextBriefItem,
+	ContextCategory,
+	ContextDetailCategory,
+	ContextDetailItem,
+	ContextDetailResult,
+	ContextEventKind,
+	ContextEventRow,
+	ContextFileOp,
+	ContextItemContent,
+	ContextRequestRow,
+	ContextTimingTotals,
+	ContextToolRef,
+} from "../../../../packages/coding-agent/src/core/context-insight.ts";
 export type {
 	ScheduleRepeat,
 	ScheduleMissedPolicy,

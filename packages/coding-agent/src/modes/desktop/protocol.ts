@@ -5,7 +5,7 @@
  */
 
 import type { AgentPresetDefinition } from "../../core/agent-presets.ts";
-import type { ContextEventRow, ContextRequestRow, ContextToolRef } from "../../core/context-insight.ts";
+import type { ContextDetailResult, ContextInsightWire, ContextItemContent } from "../../core/context-insight.ts";
 import type { EvaluationRequest } from "../../core/evaluation/types.ts";
 
 export type { AgentPresetDefinition, PresetApprovalMode } from "../../core/agent-presets.ts";
@@ -804,13 +804,31 @@ export interface ContextGetRequest {
 	sessionId?: string;
 }
 
-export interface ContextGetResult {
+export interface ContextGetResult extends ContextInsightWire {
 	sessionId?: string;
-	requests: ContextRequestRow[];
-	events: ContextEventRow[];
-	tools: ContextToolRef[];
 	/** 注册表没有现采数据、本结果是按会话转录重建的（历史会话兜底展示）。 */
 	reconstructed?: boolean;
+}
+
+/** 上下文浏览器：某一步（缺省 = 当前 · 下一次请求）按七类拆开的条目。 */
+export interface ContextDetailRequest {
+	type: "context.detail";
+	id: string;
+	cwd: string;
+	sessionId?: string;
+	seq?: number;
+}
+
+export type { ContextDetailResult, ContextItemContent };
+
+/** 上下文浏览器：单个条目的完整内容（找不到时 result 为 null）。 */
+export interface ContextItemRequest {
+	type: "context.item";
+	id: string;
+	cwd: string;
+	sessionId?: string;
+	seq?: number;
+	key: string;
 }
 
 export interface ProjectCreateRequest {
@@ -1444,6 +1462,11 @@ export interface GitStatusResult {
 	 * 单仓库（cwd 在仓库内）缺省；恰好发现一个子仓库时也填，root 标明仓库位置。
 	 */
 	repos?: GitWorkspaceRepo[];
+	/**
+	 * 被 .gitignore 忽略的 workspace 相对路径（文件树置灰用）。整个被忽略的目录
+	 * 只给目录本身，不展开其内容；数量有上限，取不到时缺省。
+	 */
+	ignored?: string[];
 }
 
 export interface GitLogEntry {
@@ -1455,6 +1478,68 @@ export interface GitLogEntry {
 	/** 子仓库模式下标明提交来自哪个仓库（workspace 相对根）；单仓库缺省。 */
 	repo?: string;
 }
+
+/** 提交上的一个引用标记（`git log %D` 解析）。head = HEAD 所在的本地分支。 */
+export interface GitRef {
+	kind: "head" | "local" | "remote" | "tag";
+	name: string;
+}
+
+export interface GitHistoryEntry {
+	hash: string;
+	short: string;
+	subject: string;
+	author: string;
+	email: string;
+	time: number;
+	parents: string[];
+	refs: GitRef[];
+	/** 本地领先上游、尚未推送的提交。 */
+	unpushed?: boolean;
+}
+
+/** 历史视图一页：提交按时间新→旧，附当前分支与上游的同步状态。 */
+export interface GitHistoryResult {
+	/** 当前分支；分离 HEAD 时缺省。 */
+	branch?: string;
+	upstream?: string;
+	ahead: number;
+	behind: number;
+	/** 当前分支还没有上游、但仓库有远程可以发布。 */
+	canPublish: boolean;
+	entries: GitHistoryEntry[];
+	hasMore: boolean;
+	/** 远程指向 GitHub 时的仓库主页（https://github.com/owner/repo）。 */
+	githubUrl?: string;
+}
+
+/** 提交改动的单个文件；additions/deletions 缺省表示二进制文件。路径为仓库根相对。 */
+export interface GitCommitFile {
+	status: string;
+	path: string;
+	origPath?: string;
+	additions?: number;
+	deletions?: number;
+}
+
+export interface GitCommitDetail {
+	hash: string;
+	short: string;
+	parents: string[];
+	author: string;
+	email: string;
+	time: number;
+	subject: string;
+	/** 标题之后的正文（已去首尾空行）。 */
+	body: string;
+	/** 合并提交按第一父提交比较。 */
+	files: GitCommitFile[];
+	additions: number;
+	deletions: number;
+}
+
+/** GitHub 上某提交的检查汇总（statusCheckRollup）。没有检查的提交不出现在结果里。 */
+export type GitCiState = "success" | "failure" | "pending";
 
 /** 全局文件名搜索的命中行。 */
 export interface FsSearchHit {
@@ -1577,6 +1662,57 @@ export interface GitLogRequest {
 	id: string;
 	cwd: string;
 	count?: number;
+}
+
+/**
+ * 历史视图的请求都针对单个仓库：`repo` 为子仓库模式下的 workspace 相对根，
+ * 缺省 = cwd 所在仓库（cwd 不是仓库时取第一个子仓库）。
+ */
+export interface GitHistoryRequest {
+	type: "git.history";
+	id: string;
+	cwd: string;
+	repo?: string;
+	/** true = 所有分支；缺省只看 HEAD。 */
+	all?: boolean;
+	skip?: number;
+	count?: number;
+}
+
+export interface GitShowRequest {
+	type: "git.show";
+	id: string;
+	cwd: string;
+	repo?: string;
+	hash: string;
+}
+
+/** 某提交里若干文件的 diff：parent = 与第一父提交比较；worktree = 与当前工作区比较。路径为仓库根相对。 */
+export interface GitShowDiffRequest {
+	type: "git.showDiff";
+	id: string;
+	cwd: string;
+	repo?: string;
+	hash: string;
+	paths: string[];
+	against?: "parent" | "worktree";
+}
+
+/** 推送当前分支；没有上游时发布到远程并设为上游。 */
+export interface GitPushRequest {
+	type: "git.push";
+	id: string;
+	cwd: string;
+	repo?: string;
+}
+
+/** 经 gh 查询若干提交在 GitHub 上的检查状态；结果为 hash → GitCiState。 */
+export interface GitChecksRequest {
+	type: "git.checks";
+	id: string;
+	cwd: string;
+	repo?: string;
+	hashes: string[];
 }
 
 /**
@@ -1963,6 +2099,15 @@ export interface FsChangedEvent {
 }
 
 /**
+ * 服务端广播：git 状态可能变了（外部 stage/commit/checkout，或未展开目录里的
+ * 文件变化）。客户端按 cwd 过滤后只重取 git.status，不重列目录。
+ */
+export interface GitChangedEvent {
+	type: "git_changed";
+	cwd: string;
+}
+
+/**
  * sidebar_open 工具触发：模型请求在侧边工作台打开一个文件。path 是相对
  * cwd 的 workspace 相对 POSIX 路径（与 fs 层同一围栏：越出工作区的路径在
  * 工具侧就拒绝，不会过线）。UI 只在当前项目与 cwd 一致时处理。
@@ -2099,6 +2244,8 @@ export type DesktopClientRequest =
 	| SessionQueuePromoteRequest
 	| OwlUiActionRequest
 	| ContextGetRequest
+	| ContextDetailRequest
+	| ContextItemRequest
 	| SessionAbortRequest
 	| SessionContinueRequest
 	| SessionDeleteRequest
@@ -2191,6 +2338,11 @@ export type DesktopClientRequest =
 	| GitCommitRequest
 	| GitDiscardRequest
 	| GitLogRequest
+	| GitHistoryRequest
+	| GitShowRequest
+	| GitShowDiffRequest
+	| GitPushRequest
+	| GitChecksRequest
 	| WatchSetRequest
 	| OpenExternalRequest
 	| TermCreateRequest

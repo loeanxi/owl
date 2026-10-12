@@ -72,23 +72,56 @@ function fileColor(path: string): string {
 	return "text-owl-muted";
 }
 
+interface GitDecoration {
+	color: string;
+	letter: string;
+	/** 文件夹沿用子项里最显眼的那种颜色。 */
+	rank: number;
+}
+
+interface GitDecorations {
+	files: Map<string, GitDecoration>;
+	dirs: Map<string, GitDecoration>;
+	ignored: Set<string>;
+}
+
 /** Git 状态 → 行色与状态字母（VS Code 同款映射）。 */
-function gitDecoration(path: string, git: TabComponentProps["gitStatus"]): { color: string; letter: string } | undefined {
-	if (git === undefined || !git.repo) return undefined;
+function decorationOf(x: string, y: string): GitDecoration {
+	const letter = x !== " " && x !== "?" ? x : y;
+	if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D"))
+		return { color: "text-red-400", letter: "!", rank: 6 };
+	if (y === "?") return { color: "text-emerald-300/80", letter: "U", rank: 1 };
+	if (letter === "A") return { color: "text-emerald-300", letter: "A", rank: 2 };
+	if (letter === "D") return { color: "text-red-400", letter: "D", rank: 4 };
+	if (letter === "R" || letter === "C") return { color: "text-sky-300", letter: "R", rank: 3 };
+	if (letter === "M" || letter === "T") return { color: "text-amber-300", letter: "M", rank: 5 };
+	return { color: "text-owl-muted", letter, rank: 0 };
+}
+
+function buildGitDecorations(git: TabComponentProps["gitStatus"]): GitDecorations {
+	const files = new Map<string, GitDecoration>();
+	const dirs = new Map<string, GitDecoration>();
+	if (git === undefined || !git.repo) return { files, dirs, ignored: new Set() };
 	for (const entry of git.entries) {
-		const entryPath = entry.path.split("\\").join("/");
-		if (entryPath !== path && !path.startsWith(`${entryPath}/`)) continue;
-		const x = entry.x;
-		const y = entry.y;
-		const letter = x !== " " && x !== "?" ? x : y;
-		if (y === "?") return { color: "text-emerald-300/80", letter: "U" };
-		if (letter === "A") return { color: "text-emerald-300", letter: "A" };
-		if (letter === "D") return { color: "text-red-400", letter: "D" };
-		if (letter === "R" || letter === "C") return { color: "text-sky-300", letter: "R" };
-		if (letter === "M" || letter === "T") return { color: "text-amber-300", letter: "M" };
-		return { color: "text-owl-muted", letter };
+		const path = entry.path.split("\\").join("/").replace(/\/$/, "");
+		const decoration = decorationOf(entry.x, entry.y);
+		files.set(path, decoration);
+		for (let slash = path.lastIndexOf("/"); slash > 0; slash = path.lastIndexOf("/", slash - 1)) {
+			const dir = path.slice(0, slash);
+			const current = dirs.get(dir);
+			if (current === undefined || current.rank < decoration.rank) dirs.set(dir, decoration);
+		}
 	}
-	return undefined;
+	const ignored = new Set((git.ignored ?? []).map((path) => path.split("\\").join("/")));
+	return { files, dirs, ignored };
+}
+
+function isIgnored(path: string, ignored: ReadonlySet<string>): boolean {
+	if (ignored.size === 0) return false;
+	for (let end = path.length; end > 0; end = path.lastIndexOf("/", end - 1)) {
+		if (ignored.has(path.slice(0, end))) return true;
+	}
+	return false;
 }
 
 export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: TabComponentProps): React.JSX.Element {
@@ -221,6 +254,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 		flatten(cacheRef.current.get(""), 0, expanded, cacheRef.current, out);
 		return out;
 	}, [version, expanded]);
+	const decorations = useMemo(() => buildGitDecorations(gitStatus), [gitStatus]);
 
 	const doRename = async (): Promise<void> => {
 		if (renaming === undefined) return;
@@ -427,7 +461,10 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 						{rows.map(({ entry, depth }) => {
 							const isOpen = expanded.has(entry.path);
 							const isRenaming = renaming?.path === entry.path;
-							const decoration = gitDecoration(entry.path, gitStatus);
+							const decoration = entry.isDir
+								? (decorations.dirs.get(entry.path) ?? decorations.files.get(entry.path))
+								: decorations.files.get(entry.path);
+							const ignored = decoration === undefined && isIgnored(entry.path, decorations.ignored);
 							return (
 								<div key={entry.path} style={{ paddingLeft: depth * 12 }}>
 									{isRenaming ? (
@@ -454,18 +491,24 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 											onKeyDown={(e) => {
 												if (e.key === "Enter") onRowClick(entry);
 											}}
-											className={`group flex cursor-pointer items-center gap-1 rounded-md py-[3px] pr-2 hover:bg-owl-hover ${entry.hidden ? "opacity-60" : ""}`}
+											className={`group flex cursor-pointer items-center gap-1 rounded-md py-[3px] pr-2 hover:bg-owl-hover ${entry.hidden || ignored ? "opacity-60" : ""}`}
 										>
 											<span className="flex w-4 shrink-0 justify-center text-owl-faint">
 												{entry.isDir ? (isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />) : null}
 											</span>
 											{rowIcon(entry, isOpen)}
-											<span className={`truncate text-xs ${decoration?.color ?? "text-owl-text"}`} title={entry.path}>
+											<span
+												className={`truncate text-xs ${decoration?.color ?? (ignored ? "text-owl-faint" : "text-owl-text")}`}
+												title={entry.path}
+											>
 												{entry.name}
 											</span>
-											{decoration !== undefined && (
-												<span className={`ml-auto shrink-0 text-[10px] font-semibold ${decoration.color}`}>{decoration.letter}</span>
-											)}
+											{decoration !== undefined &&
+												(entry.isDir ? (
+													<span className={`ml-auto size-1.5 shrink-0 rounded-full bg-current ${decoration.color}`} />
+												) : (
+													<span className={`ml-auto shrink-0 text-[10px] font-semibold ${decoration.color}`}>{decoration.letter}</span>
+												))}
 											{loading.has(entry.path) && <IconLoader size={11} className="ml-auto shrink-0 animate-spin text-owl-faint" />}
 										</div>
 									)}
