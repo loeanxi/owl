@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type {
 	ApprovalMode,
@@ -26,6 +26,7 @@ import { MyselfChatController, type MyselfChatIntent, type MyselfChatState } fro
 import {
 	addTodoInRaw,
 	appendChatLine,
+	dayKeyOf,
 	listMyselfDays,
 	MYSELF_DIR_LS_KEY,
 	type MyselfDay,
@@ -48,7 +49,6 @@ import {
 } from "./myself-data.ts";
 import "./myself.css";
 import { MyselfChatHistory } from "./MyselfChatHistory.tsx";
-import { useMyselfPaneResize } from "./myself-pane-resize.ts";
 
 type DirState = { status: "probing" } | { status: "missing" } | { status: "ready"; dir: string };
 type Notice = { tone: "ok" | "error"; text: string } | undefined;
@@ -72,6 +72,8 @@ const EMPTY_CHAT: MyselfChatState = {
 	retryStatus: null,
 };
 const DAY_READ_CAP = 120;
+/** Chat height that stays visible above the open day sheet. */
+const SHEET_CHAT_REVEAL = 160;
 const noopSubscribe = (): (() => void) => () => {};
 const noop = (): void => {};
 const STATUS_LABELS: Record<MyselfTodoStatus, TextKey> = {
@@ -84,20 +86,19 @@ const STATUS_LABELS: Record<MyselfTodoStatus, TextKey> = {
 function MyselfIcon({
 	name,
 }: {
-	name: "calendar" | "check" | "plus" | "close" | "arrow" | "clock" | "link" | "leaf" | "target" | "message" | "panel";
+	name: "calendar" | "plus" | "close" | "arrow" | "clock" | "link" | "left" | "right" | "up" | "sync";
 }): React.JSX.Element {
 	const paths = {
 		calendar: "M3 5h18v16H3ZM7 3v4M17 3v4M3 10h18",
-		check: "m5 12 4 4L19 6",
 		plus: "M12 4v16M4 12h16",
 		close: "m6 6 12 12M6 18 18 6",
 		arrow: "M4 12h16m-6-6 6 6-6 6",
 		clock: "M12 7v5l3 2",
 		link: "m10 13 4-4m-5 6-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0",
-		leaf: "M20 3c0 12-6 17-12 16-5-1-6-7-2-11 4-4 8-3 14-5ZM4 21 16 9",
-		target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z",
-		message: "M21 14a3 3 0 0 1-3 3H8l-5 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3ZM7 8h10M7 12h7",
-		panel: "M3 4h18v16H3ZM15 4v16",
+		left: "m15 6-6 6 6 6",
+		right: "m9 6 6 6-6 6",
+		up: "m6 15 6-6 6 6",
+		sync: "M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4",
 	};
 	return (
 		<svg
@@ -122,6 +123,12 @@ function hhmm(): string {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function shiftDay(date: string, delta: number): string {
+	const next = new Date(`${date}T12:00:00`);
+	next.setDate(next.getDate() + delta);
+	return dayKeyOf(next);
 }
 
 /** The daily workspace uses Home's conversation components with its own persistent session. */
@@ -156,7 +163,6 @@ export function MyselfPanel({
 }): React.JSX.Element {
 	const t = useT();
 	const lang = getUiLanguage();
-	const [tab, setTab] = useState<"day" | "chat">("day");
 	const [dirState, setDirState] = useState<DirState>({ status: "probing" });
 	const [days, setDays] = useState<string[]>([]);
 	const [selected, setSelected] = useState(todayKey);
@@ -171,14 +177,10 @@ export function MyselfPanel({
 	const [sharedDraft, setSharedDraft] = useState("");
 	const sharedDraftRef = useRef(sharedDraft);
 	const [composerKey, setComposerKey] = useState(0);
-	const [todoPinVisible, setTodoPinVisible] = useState(false);
-	const [assistantOpen, setAssistantOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1100);
-	const paneContainerRef = useRef<HTMLDivElement>(null);
-	const paneResize = useMyselfPaneResize(
-		paneContainerRef,
-		active && tab === "day" && dirState.status === "ready",
-		assistantOpen,
-	);
+	const [dayOpen, setDayOpen] = useState(false);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const dayDockRef = useRef<HTMLDivElement>(null);
+	const sheetRef = useRef<HTMLElement>(null);
 	const [completedOpen, setCompletedOpen] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const [newTodo, setNewTodo] = useState("");
@@ -203,8 +205,8 @@ export function MyselfPanel({
 	const pendingEdits = useRef(0);
 	const newTodoRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
-		if (adding && tab === "day") newTodoRef.current?.focus();
-	}, [adding, tab]);
+		if (adding) newTodoRef.current?.focus();
+	}, [adding]);
 
 	const flash = useCallback((text: string, tone: "ok" | "error"): void => {
 		clearTimeout(noticeTimer.current);
@@ -496,10 +498,6 @@ export function MyselfPanel({
 		setIntent(mode);
 		setDraftRequest({ id: Date.now(), text: value });
 	};
-	const askAssistant = (value: string, mode: MyselfChatIntent): void => {
-		setAssistantOpen(true);
-		fillDraft(value, mode);
-	};
 	const day = loaded.get(selected) ?? parseDay(newDayTemplate(selected, lang), selected);
 	const today = todayKey();
 	const todos = day.todos.filter((todo) => todo.text !== "");
@@ -578,7 +576,12 @@ export function MyselfPanel({
 				aria-expanded={expanded === todo.text}
 				onClick={() => setExpanded(expanded === todo.text ? undefined : todo.text)}
 			>
-				<strong>{todo.text}</strong>
+				<strong>
+					{todo.text}
+					{(todo.status === "doing" || todo.status === "waiting") && (
+						<em className={`is-${todo.status}`}>{t(STATUS_LABELS[todo.status])}</em>
+					)}
+				</strong>
 				{(todo.category || todo.goal) && (
 					<span>
 						{todo.category && <i>{todo.category}</i>}
@@ -666,7 +669,7 @@ export function MyselfPanel({
 							type="button"
 							disabled={!connected || chat.running || chat.busy}
 							onClick={() => {
-								setTab("chat");
+								setDayOpen(false);
 								fillDraft(t("myself.processTaskPrompt", { task: todo.text }), "process");
 							}}
 						>
@@ -708,38 +711,382 @@ export function MyselfPanel({
 			onSelect={restoreConversation}
 		/>
 	);
-	const conversation = (compact: boolean): React.JSX.Element => (
-		<AgentConversation
-			className={compact ? "owl-myself-compact-conversation" : "owl-myself-full-conversation"}
-			view={compact ? "chat" : chatView}
-			header={
-				compact ? undefined : (
-					<ConversationHeader
-						title="Owl Si"
-						workspaceDir={dir ?? ""}
-						view={chatView}
-						onViewChange={setChatView}
-						terminalOpen={false}
-						sidebarOpen={false}
-						onToggleTerminal={noop}
-						onToggleSidebar={noop}
-						onExport={noop}
-						onExportTurns={noop}
-						actions={
-							<>
-								{historyControl}
-								<button
-									type="button"
-									className="owl-myself-new-session"
-									disabled={chat.running || chat.busy}
-									onClick={newThread}
-								>
-									{t("myself.chatNew")}
+	const hasEntries = chat.entries.length > 0;
+	const sheetJustOpened = useRef(false);
+	// The sheet floats over the chat: cap it so some conversation stays visible, and pad the chat by its height.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the chat node above the dock is replaced when the view or empty state changes.
+	useLayoutEffect(() => {
+		const root = rootRef.current;
+		const sheet = sheetRef.current;
+		const chatArea = dayDockRef.current?.previousElementSibling;
+		if (!dayOpen || !root || !sheet || !(chatArea instanceof HTMLElement)) return;
+		const fit = (): void => {
+			sheet.style.maxHeight = `${Math.max(160, chatArea.clientHeight - SHEET_CHAT_REVEAL)}px`;
+			root.style.setProperty("--owl-myself-sheet-height", `${sheet.offsetHeight}px`);
+		};
+		fit();
+		if (sheetJustOpened.current) {
+			sheetJustOpened.current = false;
+			const scroller = root.querySelector<HTMLElement>(".owl-chat-scroll");
+			if (scroller) scroller.scrollTop = scroller.scrollHeight;
+		}
+		const observer = new ResizeObserver(fit);
+		observer.observe(chatArea);
+		observer.observe(sheet);
+		return () => {
+			observer.disconnect();
+			root.style.removeProperty("--owl-myself-sheet-height");
+		};
+	}, [dayOpen, chatView, hasEntries]);
+	useEffect(() => {
+		if (!dayOpen || !active) return;
+		const onKey = (event: KeyboardEvent): void => {
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']"))
+				return;
+			setDayOpen(false);
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [dayOpen, active]);
+	const toggleDay = (): void => {
+		sheetJustOpened.current = !dayOpen;
+		setDayOpen(!dayOpen);
+	};
+	const isToday = selected === today;
+	const openTodos = (["doing", "todo", "waiting"] as const).flatMap((status) =>
+		todos.filter((todo) => todo.status === status),
+	);
+	const nextTodo = schedule[0];
+	const cardOrder = (index: number): React.CSSProperties => ({ "--owl-myself-card-index": index }) as React.CSSProperties;
+	const dayDock = (
+		<div ref={dayDockRef} className={`owl-myself-daydock${dayOpen ? " is-open" : ""}`}>
+			{dayOpen && (
+				<section ref={sheetRef} className="owl-myself-sheet" aria-label={fmtDay(selected)}>
+					<header className="owl-myself-sheet-head">
+						<h2>
+							{fmtDay(selected)}
+							<i>
+								{fmtWeekday(selected)}
+								{isToday ? ` · ${t("myself.groupToday")}` : ""}
+							</i>
+						</h2>
+						<div className="owl-myself-sheet-tools">
+							{saving && <span>{t("myself.saving")}</span>}
+							{!isToday && (
+								<button type="button" className="owl-myself-back-today" onClick={() => setSelected(today)}>
+									{t("myself.backToday")}
 								</button>
-							</>
-						}
-					/>
-				)
+							)}
+							<button
+								type="button"
+								aria-label={t("myself.prevDay")}
+								title={t("myself.prevDay")}
+								onClick={() => setSelected(shiftDay(selected, -1))}
+							>
+								<MyselfIcon name="left" />
+							</button>
+							<button
+								type="button"
+								aria-label={t("myself.nextDay")}
+								title={t("myself.nextDay")}
+								onClick={() => setSelected(shiftDay(selected, 1))}
+							>
+								<MyselfIcon name="right" />
+							</button>
+							<button
+								type="button"
+								aria-label={t("myself.resync")}
+								title={t("myself.resync")}
+								disabled={saving || !connected}
+								onClick={() => {
+									if (dir) void loadDays(dir);
+								}}
+							>
+								<MyselfIcon name="sync" />
+							</button>
+						</div>
+					</header>
+					<div className="owl-myself-sheet-body">
+						<div className="owl-myself-sheet-col">
+							<section className="owl-myself-card owl-myself-todos" style={cardOrder(0)}>
+								<div className="owl-myself-card-head">
+									<h3>{t("myself.todos")}</h3>
+									<button type="button" disabled={!canEdit} onClick={() => setAdding(!adding)}>
+										<MyselfIcon name="plus" />
+										{t("myself.addTodo")}
+									</button>
+								</div>
+								{adding && (
+									<form
+										className="owl-myself-quick-add"
+										onSubmit={(event) => {
+											event.preventDefault();
+											const text = newTodo.trim();
+											if (!text) return;
+											void mutateDay(selected, (raw) => addTodoInRaw(raw, text)).then((saved) => {
+												if (saved) {
+													setNewTodo("");
+													setAdding(false);
+												}
+											});
+										}}
+									>
+										<input
+											ref={newTodoRef}
+											value={newTodo}
+											onChange={(event) => setNewTodo(event.target.value)}
+											placeholder={t("myself.newTodoHint")}
+											aria-label={t("myself.addTodo")}
+										/>
+										<button type="submit" disabled={!canEdit || !newTodo.trim()}>
+											{t("myself.add")}
+										</button>
+										<button type="button" onClick={() => setAdding(false)} aria-label={t("myself.cancel")}>
+											<MyselfIcon name="close" />
+										</button>
+									</form>
+								)}
+								{openTodos.length ? (
+									<ul>{openTodos.map(taskRow)}</ul>
+								) : (
+									<p className="owl-myself-card-empty">{todos.length ? t("myself.allDone") : t("myself.noTodos")}</p>
+								)}
+								{doneTodos.length > 0 && (
+									<div className="owl-myself-completed">
+										<button type="button" aria-expanded={completedOpen} onClick={() => setCompletedOpen(!completedOpen)}>
+											{t("myself.completedCount", { n: doneTodos.length })}
+										</button>
+										{completedOpen && <ul>{doneTodos.map(taskRow)}</ul>}
+									</div>
+								)}
+							</section>
+							<section className="owl-myself-card" style={cardOrder(1)}>
+								<h3>{t("myself.thisWeek")}</h3>
+								<div className="owl-myself-week">
+									{week.map((date) => (
+										<button
+											key={date}
+											type="button"
+											aria-label={`${fmtDay(date)} ${fmtWeekday(date)}`}
+											aria-pressed={selected === date}
+											className={`${selected === date ? "is-selected" : ""}${days.includes(date) ? " has-record" : ""}`}
+											onClick={() => setSelected(date)}
+										>
+											<span>{fmtWeekday(date).replace(/^周|星期/, "")}</span>
+											<b>{new Date(`${date}T12:00:00`).getDate()}</b>
+										</button>
+									))}
+								</div>
+							</section>
+						</div>
+						<div className="owl-myself-sheet-col">
+							<section className="owl-myself-card owl-myself-goals" style={cardOrder(2)}>
+								<h3>{t("myself.goals")}</h3>
+								{day.goals.length ? (
+									day.goals.map((goal, index) => {
+										const linked = todos.filter((todo) => todo.goal === goal.title);
+										return (
+											<article key={`${goal.title}:${index}`} className={index === 0 ? "is-priority" : ""}>
+												<div>
+													<strong>{goal.title}</strong>
+													{goal.detail && <p>{goal.detail}</p>}
+												</div>
+												{linked.length > 0 && (
+													<button type="button" onClick={() => setExpanded(linked[0]!.text)}>
+														<MyselfIcon name="link" />
+														{t("myself.linkedProgress", {
+															done: linked.filter((todo) => todo.done).length,
+															total: linked.length,
+														})}
+													</button>
+												)}
+											</article>
+										);
+									})
+								) : (
+									<p className="owl-myself-card-empty">
+										{t("myself.noGoals")}
+										<button
+											type="button"
+											disabled={!connected || chat.running}
+											onClick={() => fillDraft(t("myself.planGoalsPrompt"), "plan")}
+										>
+											{t("myself.planTogether")}
+										</button>
+									</p>
+								)}
+							</section>
+							<section className="owl-myself-card owl-myself-schedule" style={cardOrder(3)}>
+								<h3>{t("myself.timeSchedule")}</h3>
+								{schedule.length ? (
+									<ol>
+										{schedule.map((todo) => (
+											<li key={todo.text}>
+												<time>{todo.time}</time>
+												<span>{todo.text}</span>
+											</li>
+										))}
+									</ol>
+								) : (
+									<p className="owl-myself-card-empty">
+										{t("myself.noTimeSchedule")}
+										<button
+											type="button"
+											disabled={!connected || chat.running}
+											onClick={() => fillDraft(t("myself.planTimePrompt"), "plan")}
+										>
+											{t("myself.planTogether")}
+										</button>
+									</p>
+								)}
+							</section>
+							<section className="owl-myself-card owl-myself-summary" style={cardOrder(4)}>
+								<div className="owl-myself-card-head">
+									<h3>{t(selected < today ? "myself.dayReview" : "myself.summary")}</h3>
+									<button
+										type="button"
+										disabled={!connected || chat.running || chat.busy}
+										onClick={() => {
+											setIntent("plan");
+											void sendChat(t("myself.summaryPrompt", { date: selected }), undefined, undefined, "plan");
+										}}
+									>
+										{t(day.summary ? "myself.updateSummary" : "myself.generateSummary")}
+									</button>
+								</div>
+								{editingSummary ? (
+									<form
+										className="owl-myself-summary-edit"
+										onSubmit={(event) => {
+											event.preventDefault();
+											void mutateDay(selected, (raw) => updateSummaryInRaw(raw, summaryDraft)).then((saved) => {
+												if (saved) setEditingSummary(false);
+											});
+										}}
+									>
+										<textarea
+											value={summaryDraft}
+											onChange={(event) => setSummaryDraft(event.target.value)}
+											aria-label={t("myself.editSummary")}
+											rows={4}
+										/>
+										<div>
+											<button type="button" onClick={() => setEditingSummary(false)}>
+												{t("myself.cancel")}
+											</button>
+											<button type="submit" disabled={!canEdit}>
+												{t("myself.saveSummary")}
+											</button>
+										</div>
+									</form>
+								) : (
+									<>
+										<p className={day.summary ? "owl-myself-summary-text" : "owl-myself-card-empty"}>
+											{day.summary || t("myself.summaryEmpty")}
+										</p>
+										<button
+											type="button"
+											className="owl-myself-summary-edit-button"
+											disabled={!canEdit}
+											onClick={() => {
+												setSummaryDraft(day.summary);
+												setEditingSummary(true);
+											}}
+										>
+											{t("myself.editSummary")}
+										</button>
+									</>
+								)}
+							</section>
+							{day.notes.length > 0 && (
+								<section className="owl-myself-card" style={cardOrder(5)}>
+									<details className="owl-myself-notes">
+										<summary>{t("myself.otherNotes")}</summary>
+										{day.notes.map((line, index) => (
+											<p key={`${index}:${line}`}>{line}</p>
+										))}
+									</details>
+								</section>
+							)}
+						</div>
+					</div>
+				</section>
+			)}
+			{notice && (
+				<div className="owl-myself-notice" data-tone={notice.tone} role={notice.tone === "error" ? "alert" : "status"}>
+					<span>{notice.text}</span>
+					{undo && (
+						<button
+							type="button"
+							disabled={!canEdit}
+							onClick={() => {
+								const previous = undo;
+								setUndo(undefined);
+								void mutateDay(previous.date, (raw) => updateTodoStatusInRaw(raw, previous.text, previous.status));
+							}}
+						>
+							{t("myself.undo")}
+						</button>
+					)}
+				</div>
+			)}
+			<button
+				type="button"
+				className="owl-myself-day-trigger"
+				aria-expanded={dayOpen}
+				title={t(dayOpen ? "myself.collapseDay" : "myself.openDay")}
+				onClick={toggleDay}
+			>
+				{dayOpen ? (
+					<b>{t("myself.collapseDay")}</b>
+				) : (
+					<>
+						<b>{isToday ? t("myself.groupToday") : fmtDay(selected)}</b>
+						<span>{openTodos.length ? t("myself.todayLeft", { n: openTodos.length }) : t("myself.todayAllDone")}</span>
+						{nextTodo && (
+							<span className="owl-myself-day-next">
+								{t("myself.todayNext", { time: nextTodo.time ?? "", task: nextTodo.text })}
+							</span>
+						)}
+					</>
+				)}
+				<span className="owl-myself-day-chevron">
+					<MyselfIcon name="up" />
+				</span>
+			</button>
+		</div>
+	);
+	const conversation = (
+		<AgentConversation
+			className="owl-myself-full-conversation"
+			view={chatView}
+			header={
+				<ConversationHeader
+					title="Owl Si"
+					workspaceDir={dir ?? ""}
+					view={chatView}
+					onViewChange={setChatView}
+					terminalOpen={false}
+					sidebarOpen={false}
+					onToggleTerminal={noop}
+					onToggleSidebar={noop}
+					onExport={noop}
+					onExportTurns={noop}
+					actions={
+						<>
+							{historyControl}
+							<button
+								type="button"
+								className="owl-myself-new-session"
+								disabled={chat.running || chat.busy}
+								onClick={newThread}
+							>
+								{t("myself.chatNew")}
+							</button>
+						</>
+					}
+				/>
 			}
 			chat={
 				<GenuiSessionProvider client={client} sessionId={chat.sessionId}>
@@ -807,12 +1154,14 @@ export function MyselfPanel({
 					cwd={dir ?? ""}
 					sessionId={chat.sessionId}
 					requireSession
-					active={active && connected && !compact && chatView === "context"}
+					active={active && connected && chatView === "context"}
 				/>
 			}
-			trajectory={<TrajectoryView entries={chat.entries} active={active && !compact && chatView === "trajectory"} />}
+			trajectory={<TrajectoryView entries={chat.entries} active={active && chatView === "trajectory"} />}
+			overlay={<TodoPin key={`myself-todos:${chat.sessionId ?? dir}`} entries={chat.entries} />}
 			beforeComposer={
 				<>
+					{chatView === "chat" && dayDock}
 					{unsentRecord && (
 						<div className="owl-myself-chatnotice">
 							<span>{t("myself.unsentRecord")}</span>
@@ -835,11 +1184,6 @@ export function MyselfPanel({
 						</div>
 					)}
 					<RetryPin status={chat.retryStatus} onDismiss={() => chatController?.dismissRetry()} />
-					<TodoPin
-						key={`myself-todos:${chat.sessionId ?? dir}`}
-						entries={chat.entries}
-						onVisibleChange={setTodoPinVisible}
-					/>
 					{(!connected || !chat.ready || chat.error) && (
 						<div className="owl-myself-chatnotice" role={chat.error ? "alert" : "status"}>
 							{chat.error ?? (!connected ? t("myself.chatOffline") : t("myself.chatRestore"))}
@@ -861,12 +1205,11 @@ export function MyselfPanel({
 			composer={
 				<Composer
 					environmentAccessory={intentControls}
-					key={`${dir}:${composerKey}:${compact ? "quick" : "full"}`}
+					key={`${dir}:${composerKey}`}
 					client={client}
 					connected={connected}
 					disabled={!connected || !chat.ready || chat.running || chat.busy || saving}
 					running={chat.running}
-					hideMascot={compact || todoPinVisible}
 					onSend={(value, images, attachedPaths) => {
 						void sendChat(value, images, attachedPaths);
 					}}
@@ -913,68 +1256,7 @@ export function MyselfPanel({
 	);
 
 	return (
-		<div className={`owl-myself${active ? " is-active" : ""}`}>
-			<header className="owl-myself-head">
-				<span className="owl-myself-avatar">
-					<MyselfIcon name="calendar" />
-				</span>
-				<h1>{t("rail.myself")}</h1>
-				<span className="owl-myself-location">{t("myself.mySchedule")}</span>
-				<div className="owl-myself-tabs" role="tablist" aria-label={t("rail.myself")}>
-					<button type="button" role="tab" aria-selected={tab === "day"} onClick={() => setTab("day")}>
-						{t("myself.tabDay")}
-					</button>
-					<button type="button" role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}>
-						{t("myself.tabChat")}
-					</button>
-				</div>
-				<div className="owl-myself-sync">
-					<span>{saving ? t("myself.saving") : t("myself.statusDays", { n: days.length })}</span>
-					{tab === "day" && (
-						<button
-							type="button"
-							aria-label={t(assistantOpen ? "myself.closeAssistant" : "myself.openAssistant")}
-							aria-expanded={assistantOpen}
-							onClick={() => setAssistantOpen(!assistantOpen)}
-						>
-							<MyselfIcon name="panel" />
-						</button>
-					)}
-					<button
-						type="button"
-						disabled={saving || !connected}
-						onClick={() => {
-							if (dir) void loadDays(dir);
-						}}
-					>
-						{t("myself.resync")}
-					</button>
-				</div>
-			</header>
-			{notice && (
-				<div
-					className="owl-myself-notice"
-					data-tone={notice.tone}
-					role={notice.tone === "error" ? "alert" : "status"}
-				>
-					<span>{notice.text}</span>
-					{undo && (
-						<button
-							type="button"
-							disabled={!canEdit}
-							onClick={() => {
-								const previous = undo;
-								setUndo(undefined);
-								void mutateDay(previous.date, (raw) =>
-									updateTodoStatusInRaw(raw, previous.text, previous.status),
-								);
-							}}
-						>
-							{t("myself.undo")}
-						</button>
-					)}
-				</div>
-			)}
+		<div ref={rootRef} className={`owl-myself${active ? " is-active" : ""}${dayOpen ? " has-day-sheet" : ""}`}>
 			{dirState.status === "missing" ? (
 				<div className="owl-myself-missing">
 					<p className="big">{t("myself.noDirTitle")}</p>
@@ -999,336 +1281,8 @@ export function MyselfPanel({
 				</div>
 			) : dirState.status === "probing" ? (
 				<output className="owl-myself-empty">{t("myself.loading")}</output>
-			) : tab === "chat" ? (
-				<div className="owl-myself-chatpage">{conversation(false)}</div>
 			) : (
-				<div
-					ref={paneContainerRef}
-					style={paneResize.style}
-					className={`owl-myself-main${assistantOpen ? " has-assistant" : ""}`}
-				>
-					<input
-						{...paneResize.handleProps("days")}
-						aria-label={lang === "en" ? "Date sidebar width" : "日期栏宽度"}
-						title={lang === "en" ? "Drag to resize, double-click to reset" : "拖拽调整宽度，双击复位"}
-						data-tauri-drag-region="false"
-					/>
-					<nav className="owl-myself-days" aria-label={t("myself.dateNavigation")}>
-						<div className="owl-myself-month">
-							{new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", {
-								year: "numeric",
-								month: "long",
-							}).format(new Date(`${selected}T12:00:00`))}
-						</div>
-						<div className="owl-myself-week">
-							{week.map((date) => (
-								<button
-									key={date}
-									type="button"
-									aria-label={`${fmtDay(date)} ${fmtWeekday(date)}`}
-									aria-pressed={selected === date}
-									className={selected === date ? "is-selected" : ""}
-									onClick={() => setSelected(date)}
-								>
-									<span>{fmtWeekday(date).replace(/^周|星期/, "")}</span>
-									<b>{new Date(`${date}T12:00:00`).getDate()}</b>
-								</button>
-							))}
-						</div>
-						<div className="owl-myself-group-head">{t("myself.thisWeek")}</div>
-						<button
-							type="button"
-							className={`owl-myself-day${selected === today ? " is-on" : ""}`}
-							onClick={() => setSelected(today)}
-						>
-							<MyselfIcon name="calendar" />
-							<span>
-								{t("myself.groupToday")}
-								<small>{fmtDay(today)}</small>
-							</span>
-						</button>
-						{days
-							.filter((date) => date !== today)
-							.map((date) => (
-								<button
-									key={date}
-									type="button"
-									className={`owl-myself-day${selected === date ? " is-on" : ""}`}
-									onClick={() => setSelected(date)}
-								>
-									<MyselfIcon name="clock" />
-									<span>
-										{fmtDay(date)}
-										<small>{fmtWeekday(date)}</small>
-									</span>
-									<i>{loaded.get(date)?.todos.filter((todo) => todo.text && !todo.done).length || ""}</i>
-								</button>
-							))}
-						<div className="owl-myself-week-note">
-							<MyselfIcon name="leaf" />
-							<p>{t("myself.weekNote")}</p>
-						</div>
-					</nav>
-					<main className={`owl-myself-stream${selected < today ? " is-history" : ""}`}>
-						<div className="owl-myself-day-content">
-							<header className="owl-myself-day-head">
-								<div>
-									<h2>
-										{fmtDay(selected)}{" "}
-										<i>
-											{fmtWeekday(selected)}
-											{selected === today ? ` · ${t("myself.groupToday")}` : ""}
-										</i>
-									</h2>
-									<p>{t("myself.remaining", { n: todos.length - doneTodos.length })}</p>
-								</div>
-								{selected !== today && (
-									<button type="button" onClick={() => setSelected(today)}>
-										{t("myself.backToday")}
-										<MyselfIcon name="arrow" />
-									</button>
-								)}
-							</header>
-							<div className="owl-myself-day-sections">
-								<section className="owl-myself-goals">
-									<div className="owl-myself-section-head">
-										<h3>{t("myself.goals")}</h3>
-										<span>{t("myself.goalsHint")}</span>
-									</div>
-									{day.goals.length ? (
-										day.goals.map((goal, index) => {
-											const linked = todos.filter((todo) => todo.goal === goal.title);
-											return (
-												<article
-													key={`${goal.title}:${index}`}
-													className={index === 0 ? "is-priority" : ""}
-												>
-													<MyselfIcon name={index === 0 ? "target" : "check"} />
-													<div>
-														<strong>{goal.title}</strong>
-														{goal.detail && <p>{goal.detail}</p>}
-													</div>
-													{linked.length > 0 && (
-														<button type="button" onClick={() => setExpanded(linked[0]!.text)}>
-															<MyselfIcon name="link" />
-															{t("myself.linkedProgress", {
-																done: linked.filter((todo) => todo.done).length,
-																total: linked.length,
-															})}
-														</button>
-													)}
-												</article>
-											);
-										})
-									) : (
-										<p className="owl-myself-section-empty">
-											{t("myself.noGoals")}
-											<button
-												type="button"
-												disabled={!connected || chat.running}
-												onClick={() => askAssistant(t("myself.planGoalsPrompt"), "plan")}
-											>
-												{t("myself.planTogether")}
-											</button>
-										</p>
-									)}
-								</section>
-								<section className="owl-myself-todos">
-									<div className="owl-myself-section-head">
-										<h3>{t("myself.todos")}</h3>
-										<button type="button" disabled={!canEdit} onClick={() => setAdding(!adding)}>
-											<MyselfIcon name="plus" />
-											{t("myself.addTodo")}
-										</button>
-									</div>
-									{adding && (
-										<form
-											className="owl-myself-quick-add"
-											onSubmit={(event) => {
-												event.preventDefault();
-												const text = newTodo.trim();
-												if (!text) return;
-												void mutateDay(selected, (raw) => addTodoInRaw(raw, text)).then((saved) => {
-													if (saved) {
-														setNewTodo("");
-														setAdding(false);
-													}
-												});
-											}}
-										>
-											<input
-												ref={newTodoRef}
-												value={newTodo}
-												onChange={(event) => setNewTodo(event.target.value)}
-												placeholder={t("myself.newTodoHint")}
-												aria-label={t("myself.addTodo")}
-											/>
-											<button type="submit" disabled={!canEdit || !newTodo.trim()}>
-												{t("myself.add")}
-											</button>
-											<button type="button" onClick={() => setAdding(false)} aria-label={t("myself.cancel")}>
-												<MyselfIcon name="close" />
-											</button>
-										</form>
-									)}
-									{(["doing", "todo", "waiting"] as const).map((status) => {
-										const items = todos.filter((todo) => todo.status === status);
-										return items.length ? (
-											<div key={status} className={`owl-myself-task-group is-${status}`}>
-												<div className="owl-myself-task-group-label">
-													<span />
-													{t(STATUS_LABELS[status])}
-													<i>{items.length}</i>
-												</div>
-												<ul>{items.map(taskRow)}</ul>
-											</div>
-										) : null;
-									})}
-									{!todos.some((todo) => !todo.done) && (
-										<p className="owl-myself-section-empty">
-											{todos.length ? t("myself.allDone") : t("myself.noTodos")}
-										</p>
-									)}
-									<div className="owl-myself-completed">
-										<button
-											type="button"
-											aria-expanded={completedOpen}
-											onClick={() => setCompletedOpen(!completedOpen)}
-										>
-											<span>{completedOpen ? "−" : "+"}</span>
-											{t("myself.completedCount", { n: doneTodos.length })}
-										</button>
-										{completedOpen && <ul>{doneTodos.map(taskRow)}</ul>}
-									</div>
-								</section>
-								<section className="owl-myself-summary">
-									<div className="owl-myself-section-head">
-										<h3>{t(selected < today ? "myself.dayReview" : "myself.summary")}</h3>
-										<button
-											type="button"
-											disabled={!connected || chat.running || chat.busy}
-											onClick={() => {
-												setAssistantOpen(true);
-												setIntent("plan");
-												void sendChat(
-													t("myself.summaryPrompt", { date: selected }),
-													undefined,
-													undefined,
-													"plan",
-												);
-											}}
-										>
-											{t(day.summary ? "myself.updateSummary" : "myself.generateSummary")}
-										</button>
-									</div>
-									{editingSummary ? (
-										<form
-											className="owl-myself-summary-edit"
-											onSubmit={(event) => {
-												event.preventDefault();
-												void mutateDay(selected, (raw) => updateSummaryInRaw(raw, summaryDraft)).then(
-													(saved) => {
-														if (saved) setEditingSummary(false);
-													},
-												);
-											}}
-										>
-											<textarea
-												value={summaryDraft}
-												onChange={(event) => setSummaryDraft(event.target.value)}
-												aria-label={t("myself.editSummary")}
-												rows={5}
-											/>
-											<div>
-												<button type="button" onClick={() => setEditingSummary(false)}>
-													{t("myself.cancel")}
-												</button>
-												<button type="submit" disabled={!canEdit}>
-													{t("myself.saveSummary")}
-												</button>
-											</div>
-										</form>
-									) : (
-										<>
-											<p className={day.summary ? "owl-myself-summary-text" : "owl-myself-section-empty"}>
-												{day.summary || t("myself.summaryEmpty")}
-											</p>
-											<button
-												type="button"
-												className="owl-myself-summary-edit-button"
-												disabled={!canEdit}
-												onClick={() => {
-													setSummaryDraft(day.summary);
-													setEditingSummary(true);
-												}}
-											>
-												{t("myself.editSummary")}
-											</button>
-										</>
-									)}
-								</section>
-							</div>
-							{day.notes.length > 0 && (
-								<details className="owl-myself-notes">
-									<summary>{t("myself.otherNotes")}</summary>
-									{day.notes.map((line, index) => (
-										<p key={`${index}:${line}`}>{line}</p>
-									))}
-								</details>
-							)}
-						</div>
-					</main>
-					{assistantOpen && (
-						<aside className="owl-myself-assistant" aria-label="Owl Si">
-							<input
-								{...paneResize.handleProps("assistant")}
-								aria-label={lang === "en" ? "Assistant pane width" : "助理栏宽度"}
-								title={lang === "en" ? "Drag to resize, double-click to reset" : "拖拽调整宽度，双击复位"}
-								data-tauri-drag-region="false"
-							/>
-							<div className="owl-myself-assistant-head">
-								<strong>Owl Si</strong>
-								<div className="owl-myself-assistant-actions">
-									{historyControl}
-									<button
-										type="button"
-										onClick={() => setAssistantOpen(false)}
-										aria-label={t("myself.closeAssistant")}
-									>
-										<MyselfIcon name="close" />
-									</button>
-								</div>
-							</div>
-							<button type="button" className="owl-myself-open-full" onClick={() => setTab("chat")}>
-								{t("myself.openFull")}
-								<MyselfIcon name="arrow" />
-							</button>
-							<section className="owl-myself-schedule">
-								<div className="owl-myself-section-head">
-									<h3>{t("myself.timeSchedule")}</h3>
-									<button
-										type="button"
-										disabled={!connected || chat.running}
-										onClick={() => askAssistant(t("myself.planTimePrompt"), "plan")}
-									>
-										{t("myself.planTogether")}
-									</button>
-								</div>
-								{schedule.length ? (
-									schedule.map((todo) => (
-										<div key={todo.text}>
-											<time>{todo.time}</time>
-											<span>{todo.text}</span>
-										</div>
-									))
-								) : (
-									<p>{t("myself.noTimeSchedule")}</p>
-								)}
-							</section>
-							{conversation(true)}
-						</aside>
-					)}
-				</div>
+				<div className="owl-myself-chatpage">{conversation}</div>
 			)}
 		</div>
 	);
