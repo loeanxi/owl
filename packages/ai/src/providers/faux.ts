@@ -83,6 +83,8 @@ export function fauxAssistantMessage(
 		errorMessage?: string;
 		responseId?: string;
 		timestamp?: number;
+		rawStopReason?: AssistantMessage["rawStopReason"];
+		refusal?: AssistantMessage["refusal"];
 	} = {},
 ): AssistantMessage {
 	return {
@@ -96,6 +98,8 @@ export function fauxAssistantMessage(
 		...(options.deferred === undefined ? {} : { deferred: options.deferred }),
 		...(options.errorMessage === undefined ? {} : { errorMessage: options.errorMessage }),
 		...(options.responseId === undefined ? {} : { responseId: options.responseId }),
+		...(options.rawStopReason === undefined ? {} : { rawStopReason: options.rawStopReason }),
+		...(options.refusal === undefined ? {} : { refusal: options.refusal }),
 		timestamp: options.timestamp ?? Date.now(),
 	};
 }

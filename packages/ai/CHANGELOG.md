@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- OpenAI Responses explicit refusals retain provider metadata and original text, including terminal-only and truncated streams, and end as errors instead of successful answers. Provider-native stop reasons remain available for diagnosis.
 - Fixed cancelled requests discarding rotated OAuth credentials while a refresh is already in progress ([upstream fix](https://github.com/earendil-works/pi/commit/bde882c7471c47dc31af3c622496df66c4fae010)).
 - Fixed `server_busy` and `servers are currently busy` provider errors ending requests instead of using the existing bounded retry policy ([#10543](https://github.com/earendil-works/pi/issues/10543)).
 - Billing and credit-limit errors are no longer retried as transient failures when a gateway wraps them in HTTP 429 or 5xx.

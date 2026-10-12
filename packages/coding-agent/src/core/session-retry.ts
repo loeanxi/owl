@@ -20,6 +20,16 @@ import {
 import { sleep } from "../utils/sleep.ts";
 import type { AgentSessionEvent } from "./agent-session.ts";
 
+/** Provider-native refusal markers take precedence over text-based recovery heuristics. */
+export function isExplicitProviderRefusal(message: AssistantMessage): boolean {
+	return (
+		message.refusal?.source === "provider" ||
+		message.rawStopReason === "refusal" ||
+		message.rawStopReason === "content_filter" ||
+		message.rawStopReason === "incomplete.content_filter"
+	);
+}
+
 /** Narrow dependency surface AgentSession provides to the retry controller. */
 export interface SessionRetryDeps {
 	/** Live `settings.retry` budget; re-read on each decision so settings changes apply. */
@@ -59,9 +69,12 @@ export class SessionRetryController {
 	 * Check if an error is retryable (overloaded, rate limit, server errors).
 	 * Context overflow errors are NOT retryable (handled by compaction instead).
 	 * User-configured `retry.retryableErrorPatterns` take precedence over the
-	 * built-in non-retryable rules.
+	 * built-in non-retryable rules, except for explicit provider refusals.
 	 */
 	isRetryableError(message: AssistantMessage): boolean {
+		// A provider refusal is a final decision, even if its explanation matches a
+		// configured transient-error substring. Keep the rejected response in history.
+		if (isExplicitProviderRefusal(message)) return false;
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, this.deps.resolveContextWindow(message))) return false;
 		return isRetryableAssistantError(message, this.deps.getErrorPatterns());

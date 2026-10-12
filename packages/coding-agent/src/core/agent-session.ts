@@ -126,7 +126,7 @@ import {
 	type SessionProjection,
 } from "./session-manager.ts";
 import { SessionQueueTracker } from "./session-queue.ts";
-import { SessionRetryController } from "./session-retry.ts";
+import { isExplicitProviderRefusal, SessionRetryController } from "./session-retry.ts";
 import { computeContextUsage, computeSessionStats } from "./session-stats.ts";
 import { SessionTreeNavigationController } from "./session-tree.ts";
 import { type CacheWarmingMode, DEFAULT_TOOL_NAMES, type SettingsManager } from "./settings-manager.ts";
@@ -3213,6 +3213,8 @@ export class AgentSession {
 		skipAbortedCheck = true,
 		toolResults: AgentMessage[] = [],
 	): Promise<boolean> {
+		// Refusal explanations can mention context limits; they are not overflow recovery requests.
+		if (isExplicitProviderRefusal(assistantMessage)) return false;
 		const settings = this.settingsManager.getCompactionSettings(this.model);
 		if (!settings.enabled) return false;
 

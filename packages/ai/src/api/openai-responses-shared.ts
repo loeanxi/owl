@@ -429,6 +429,7 @@ type ResponsesOutputSlot =
 	| { type: "toolCall"; block: StreamingToolCall; contentIndex: number };
 
 type ToolCallOutputSlot = Extract<ResponsesOutputSlot, { type: "toolCall" }>;
+type TextOutputSlot = Extract<ResponsesOutputSlot, { type: "text" }>;
 
 export async function processResponsesStream<TApi extends Api>(
 	openaiStream: AsyncIterable<ResponseStreamEvent>,
@@ -439,11 +440,20 @@ export async function processResponsesStream<TApi extends Api>(
 ): Promise<void> {
 	let sawTerminalResponseEvent = false;
 	const outputSlots = new Map<number, ResponsesOutputSlot>();
+	const messageSlots = new Map<number, TextOutputSlot>();
+	const textParts = new Map<number, Map<number, string>>();
+	const refusalParts = new Map<string, string>();
 	const reasoningBlocksById = new Map<string, ThinkingContent>();
 	const applyMessagePhaseStopReason = (item: ResponseOutputItem): void => {
-		if (item.type === "message" && item.phase === "final_answer") {
+		if (item.type === "message" && item.phase === "final_answer" && !output.refusal) {
 			output.stopReason = "stop";
 		}
+	};
+	const recordRefusal = (outputIndex: number, contentIndex: number, text: string): void => {
+		refusalParts.set(`${outputIndex}:${contentIndex}`, text);
+		output.refusal = { source: "provider", text: [...refusalParts.values()].join("") };
+		output.stopReason = "error";
+		output.errorMessage = "Provider refusal";
 	};
 	const getSlot = <TType extends ResponsesOutputSlot["type"]>(
 		outputIndex: number,
@@ -480,6 +490,7 @@ export async function processResponsesStream<TApi extends Api>(
 			output.content.push(block);
 			const slot = { type: "text", block, contentIndex: output.content.length - 1 } satisfies ResponsesOutputSlot;
 			outputSlots.set(outputIndex, slot);
+			messageSlots.set(outputIndex, slot);
 			stream.push({ type: "text_start", contentIndex: slot.contentIndex, partial: output });
 			return slot;
 		}
@@ -531,6 +542,49 @@ export async function processResponsesStream<TApi extends Api>(
 	const getOrCreateSlot = (outputIndex: number, item: ResponseOutputItem): ResponsesOutputSlot | undefined => {
 		return outputSlots.get(outputIndex) ?? createSlot(outputIndex, item);
 	};
+	const updateTextPart = (
+		outputIndex: number,
+		contentIndex: number,
+		itemId: string,
+		text: string,
+		append: boolean,
+		refusal: boolean,
+	): void => {
+		const parts = textParts.get(outputIndex) ?? new Map<number, string>();
+		const nextText = append ? (parts.get(contentIndex) ?? "") + text : text;
+		parts.set(contentIndex, nextText);
+		textParts.set(outputIndex, parts);
+		if (refusal) recordRefusal(outputIndex, contentIndex, nextText);
+		const slot =
+			messageSlots.get(outputIndex) ??
+			createSlot(outputIndex, {
+				type: "message",
+				id: itemId,
+				role: "assistant",
+				status: "in_progress",
+				content: [],
+			});
+		if (slot?.type !== "text") return;
+		const previous = slot.block.text;
+		slot.block.text = [...parts.entries()]
+			.sort(([left], [right]) => left - right)
+			.map(([, part]) => part)
+			.join("");
+		if (slot.block.text.startsWith(previous)) {
+			const delta = slot.block.text.slice(previous.length);
+			if (delta.length > 0) {
+				stream.push({ type: "text_delta", contentIndex: slot.contentIndex, delta, partial: output });
+			}
+		} else {
+			stream.push({ type: "text_end", contentIndex: slot.contentIndex, content: slot.block.text, partial: output });
+		}
+	};
+	const recordMessageRefusals = (outputIndex: number, item: ResponseOutputMessage): void => {
+		for (let index = 0; index < item.content.length; index++) {
+			const part = item.content[index];
+			if (part.type === "refusal") recordRefusal(outputIndex, index, part.refusal);
+		}
+	};
 	// Azure OpenAI can omit reasoning.encrypted_content from response.output_item.done
 	// and provide it only in response.completed.response.output. Backfill the
 	// persisted reasoning signature from the terminal response to keep store:false
@@ -554,6 +608,28 @@ export async function processResponsesStream<TApi extends Api>(
 	): void => {
 		sawTerminalResponseEvent = true;
 		backfillReasoningSignatures(response.output ?? []);
+		// Some compatible servers omit refusal deltas or output_item.done. The terminal
+		// output is authoritative, including an empty refusal, and must not become success.
+		for (const [outputIndex, item] of (response.output ?? []).entries()) {
+			if (item.type !== "message" || !item.content.some((part) => part.type === "refusal")) continue;
+			recordMessageRefusals(outputIndex, item);
+			const slot = messageSlots.get(outputIndex) ?? createSlot(outputIndex, item);
+			if (slot?.type !== "text") continue;
+			const previousText = slot.block.text;
+			slot.block.text = item.content
+				.map((part) => (part.type === "output_text" ? part.text : part.refusal))
+				.join("");
+			slot.block.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
+			if (slot.block.text !== previousText || outputSlots.has(outputIndex)) {
+				stream.push({
+					type: "text_end",
+					contentIndex: slot.contentIndex,
+					content: slot.block.text,
+					partial: output,
+				});
+			}
+			outputSlots.delete(outputIndex);
+		}
 		if (response?.id) {
 			output.responseId = response.id;
 		}
@@ -593,6 +669,10 @@ export async function processResponsesStream<TApi extends Api>(
 		else output.errorMessage = mappedStop.errorMessage;
 		if (output.content.some((b) => b.type === "toolCall") && output.stopReason === "stop") {
 			output.stopReason = "toolUse";
+		}
+		if (output.refusal) {
+			output.stopReason = "error";
+			output.errorMessage = "Provider refusal";
 		}
 	};
 
@@ -635,23 +715,16 @@ export async function processResponsesStream<TApi extends Api>(
 		} else if (event.type === "response.output_text.delta") {
 			const slot = getSlot(event.output_index, "text");
 			if (!slot) continue;
-			slot.block.text += event.delta;
-			stream.push({
-				type: "text_delta",
-				contentIndex: slot.contentIndex,
-				delta: event.delta,
-				partial: output,
-			});
+			updateTextPart(event.output_index, event.content_index, event.item_id, event.delta, true, false);
 		} else if (event.type === "response.refusal.delta") {
-			const slot = getSlot(event.output_index, "text");
-			if (!slot) continue;
-			slot.block.text += event.delta;
-			stream.push({
-				type: "text_delta",
-				contentIndex: slot.contentIndex,
-				delta: event.delta,
-				partial: output,
-			});
+			updateTextPart(event.output_index, event.content_index, event.item_id, event.delta, true, true);
+		} else if (event.type === "response.refusal.done") {
+			updateTextPart(event.output_index, event.content_index, event.item_id, event.refusal, false, true);
+		} else if (
+			(event.type === "response.content_part.added" || event.type === "response.content_part.done") &&
+			event.part.type === "refusal"
+		) {
+			updateTextPart(event.output_index, event.content_index, event.item_id, event.part.refusal, false, true);
 		} else if (event.type === "response.function_call_arguments.delta") {
 			const slot = getSlot(event.output_index, "toolCall");
 			if (!slot || slot.block.partialJson === undefined) continue;
@@ -699,6 +772,7 @@ export async function processResponsesStream<TApi extends Api>(
 				});
 				outputSlots.delete(event.output_index);
 			} else if (item.type === "message" && slot?.type === "text") {
+				recordMessageRefusals(event.output_index, item);
 				slot.block.text = item.content?.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("") || "";
 				slot.block.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
 				stream.push({

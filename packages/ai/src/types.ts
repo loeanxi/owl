@@ -560,6 +560,8 @@ export interface AssistantMessage {
 	deferred?: DeferredHandle;
 	errorMessage?: string;
 	rawStopReason?: string;
+	/** Explicit provider refusal marker. Ordinary assistant text does not imply a provider refusal. */
+	refusal?: { source: "provider"; text?: string };
 	/**
 	 * Provider indication of whether the model explicitly ended its turn.
 	 * Preserved for debugging and does not currently affect agent control flow.
