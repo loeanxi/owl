@@ -38,6 +38,7 @@
 - `coding-agent` print 模式被守卫中止时输出原因并以失败退出
 - `coding-agent` 编辑前必读在文件未变时跨轮次有效，结构化 oldText 给出可执行报错
 - `coding-agent` 覆盖写入前必读只拦 write，cat 输出与自身编辑也算读过；read 按 wc -l 计行，中文破折号可匹配
+- `coding-agent` bash 的 grep 无匹配、diff 有差异等答案型非零退出不再标为错误，Shell 补 Maven 路径与 UTF-8 locale
 
 ### 维护
 

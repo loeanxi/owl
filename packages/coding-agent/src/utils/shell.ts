@@ -208,6 +208,30 @@ function getPythonPathDirs(): string[] {
 	return pythonPathCache.dirs;
 }
 
+/**
+ * 设了 MAVEN_HOME/M2_HOME 却没把 bin 加进 PATH 很常见（IDE、Maven Wrapper 的发行目录），
+ * 模型只能满盘找 mvn（会话记录实测）。PATH 上确实没有 mvn 时把它前置；按变量值键控缓存，
+ * 因为未命中时 findExecutableOnPath 会落到 where.exe。
+ */
+let mavenPathCache: { key: string; dirs: string[] } | undefined;
+
+function discoverMavenPathDirs(): string[] {
+	const executable = process.platform === "win32" ? "mvn.cmd" : "mvn";
+	const homes = [process.env.MAVEN_HOME, process.env.M2_HOME].filter((home): home is string => !!home);
+	const bin = homes.map((home) => join(home, "bin")).find((dir) => existsSync(join(dir, executable)));
+	if (!bin || findExecutableOnPath(executable)) return [];
+	return [bin];
+}
+
+function getMavenPathDirs(): string[] {
+	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+	const key = [process.env.MAVEN_HOME, process.env.M2_HOME, process.env[pathKey]].join("\0");
+	if (!mavenPathCache || mavenPathCache.key !== key) {
+		mavenPathCache = { key, dirs: discoverMavenPathDirs() };
+	}
+	return mavenPathCache.dirs;
+}
+
 export function getShellEnv(): NodeJS.ProcessEnv {
 	const binDir = getBinDir();
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
@@ -217,6 +241,8 @@ export function getShellEnv(): NodeJS.ProcessEnv {
 	let updatedPath = hasBinDir ? pathEntries : [binDir, ...pathEntries];
 	const pythonDirs = getPythonPathDirs();
 	if (pythonDirs.length > 0) updatedPath = [...pythonDirs, ...updatedPath];
+	const mavenDirs = getMavenPathDirs();
+	if (mavenDirs.length > 0) updatedPath = [...updatedPath, ...mavenDirs];
 
 	return {
 		...process.env,
@@ -226,6 +252,11 @@ export function getShellEnv(): NodeJS.ProcessEnv {
 		// 注入 UTF-8 默认值，不覆盖用户自己的编码配置。
 		...(process.env.PYTHONUTF8 === undefined ? { PYTHONUTF8: "1" } : {}),
 		...(process.env.PYTHONIOENCODING === undefined ? { PYTHONIOENCODING: "utf-8" } : {}),
+		// 非登录的 Git Bash 没有 locale，find/ls 会把中文路径（如中文用户名）转义成
+		// '\235\216' 这类乱码。同样只在用户没设 LANG/LC_ALL 时补 UTF-8。
+		...(process.platform === "win32" && process.env.LANG === undefined && process.env.LC_ALL === undefined
+			? { LANG: "C.UTF-8" }
+			: {}),
 	};
 }
 

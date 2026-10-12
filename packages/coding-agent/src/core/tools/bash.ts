@@ -69,51 +69,146 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 
 const GREP_NO_MATCH_STATUS =
 	'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
+const DIFF_STATUS =
+	"Command exited with code 1 (diff/cmp: the inputs differ — that is the comparison result shown above, not an execution error).";
+const SIGPIPE_STATUS =
+	"Command exited with code 141 (SIGPIPE: a later pipeline stage such as head stopped reading early and cut off the producer — expected under pipefail, not a failure; the output above is what that stage kept).";
+
+/** 清空引号内的文字（保留引号），其中的 `;`、`|`、`&` 不是 shell 分隔符。 */
+function withoutQuotedText(command: string): string {
+	return command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (quoted) => `${quoted[0]}${quoted[0]}`);
+}
 
 /** 去掉 2>&1、2>/dev/null 这类重定向，避免其中的 & 被当成命令分隔。 */
 function withoutRedirections(command: string): string {
 	return command.replace(/\d*>&\d+|\d*(?:>>?|<)\s*[^\s;&|]+/g, " ");
 }
 
-function pipelineEndsWithGrep(statement: string): boolean {
-	const last = statement.split("|").pop()?.trim() ?? "";
-	return /^(grep|rg)(\s|$)/.test(last);
+/** 去掉 `VAR=x` 前缀和循环/分支关键字后的命令名。 */
+function commandName(stage: string): string {
+	const words = stage.trim().split(/\s+/);
+	let i = 0;
+	while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!) || /^(?:do|then|else)$/.test(words[i]!))) i++;
+	return words[i] ?? "";
+}
+
+/** 失败时不输出任何内容的命令；空输出不能说明它们成功了。 */
+const SILENT_FAILURE_COMMAND = /^(?:test|\[|\[\[|false|grep|egrep|fgrep|rg|diff|cmp|exit|return)$/;
+
+/** 只透传或截断输入、自身几乎不会以 1 失败的下游过滤器。 */
+const PASSTHROUGH_STAGE = /^(?:head|tail|sort|uniq|wc|cut|tr|cat|nl|column|tee)$/;
+
+/**
+ * pipefail 下管道退出码取最右边的非零阶段。grep/rg（1 = 没匹配）或 diff/cmp（1 = 有差异）
+ * 之后只剩透传过滤器时，1 就是它的答案；更前面的生产者沿用旧规则不细究。
+ */
+function pipelineAnswerKind(pipeline: string): "grep" | "diff" | undefined {
+	const stages = pipeline.split("|");
+	for (let i = stages.length - 1; i >= 0; i--) {
+		const name = commandName(stages[i]!);
+		if (/^(?:grep|egrep|fgrep|rg)$/.test(name)) return "grep";
+		if (/^(?:diff|cmp)$/.test(name)) return "diff";
+		if (!PASSTHROUGH_STAGE.test(name)) return undefined;
+	}
+	return undefined;
+}
+
+/** 下游阶段提前退出（head、grep -m/-q）时，上游写入会收到 SIGPIPE。 */
+function pipelineStopsEarly(pipeline: string): boolean {
+	return pipeline
+		.split("|")
+		.slice(1)
+		.some((stage) => {
+			const name = commandName(stage);
+			return (
+				name === "head" ||
+				(/^(?:grep|egrep|fgrep|rg)$/.test(name) && /\s-(?:[a-zA-Z]*[qm]|-max-count|-quiet)/.test(stage))
+			);
+		});
 }
 
 /**
- * grep/rg 的退出码语义：1 = 没有匹配行（正常的空结果，`grep -c` 还会先打出 0），
- * 2 = 真正的执行错误。
- * `;` 与换行的退出码来自最后一条语句：最后一条是 grep/rg 时，1 就是没匹配。
- * `&&` / `||` 可能短路，只有整段都是 grep/rg 才认定退出码来自 grep。
- * `echo boom; exit 1` 这类复合失败仍是错误。命令替换无法静态判断，不纳入。
+ * 退出码只来自 `;`/换行分隔的最后一条语句（`a && b; c` 是 `(a && b); c`）；
+ * 以 `done` 收尾的循环取循环体最后一条。命令替换、后台 `&` 无法静态判断，不纳入。
  */
-function grepNoMatchStatus(command: string): string | undefined {
-	const cleaned = withoutRedirections(command.trim());
-	if (/`|\$\(/.test(cleaned)) return undefined;
-	const withoutLogic = cleaned.replace(/&&|\|\|/g, " ");
-	if (/&/.test(withoutLogic)) return undefined;
+function statusStatement(command: string): string | undefined {
+	if (/`|\$\(/.test(command.replace(/'[^']*'/g, "''"))) return undefined;
+	const cleaned = withoutRedirections(withoutQuotedText(command.trim()));
+	if (/&/.test(cleaned.replace(/&&|\|\|/g, " "))) return undefined;
 	const statements = cleaned
-		.split(/\n|&&|\|\||;/)
+		.split(/\n|;/)
 		.map((statement) => statement.trim())
 		.filter(Boolean);
-	if (statements.length === 0) return undefined;
-	const shortCircuit = /&&|\|\|/.test(cleaned);
-	if (shortCircuit) {
-		return statements.every(pipelineEndsWithGrep) ? GREP_NO_MATCH_STATUS : undefined;
-	}
-	return pipelineEndsWithGrep(statements[statements.length - 1] ?? "") ? GREP_NO_MATCH_STATUS : undefined;
+	while (statements.length > 0 && statements[statements.length - 1] === "done") statements.pop();
+	return statements[statements.length - 1];
 }
+
+/**
+ * 答案型非零退出：grep/rg 没匹配、diff/cmp 有差异、管道下游提前收工导致的 141。
+ * `&&` / `||` 可能短路，最后一条语句里的每一段都要说得通；`cd <dir>` 段在输出里
+ * 没有 cd 报错时视为成功；输出为空时，失败会报错的准备段（`jar xf`、`mkdir`）也视为成功。
+ * `echo boom; exit 1` 这类复合失败仍是错误。
+ */
+function benignExitStatus(command: string, exitCode: number, output: string): string | undefined {
+	if (exitCode !== 1 && exitCode !== 141) return undefined;
+	const statement = statusStatement(command);
+	if (!statement) return undefined;
+	const pieces = statement
+		.split(/&&|\|\|/)
+		.map((piece) => piece.trim())
+		.filter(Boolean);
+	if (exitCode === 141) return pieces.some(pipelineStopsEarly) ? SIGPIPE_STATUS : undefined;
+	const cdSucceeded = !/(?:^|\s)cd: /m.test(output);
+	const silent = output.trim() === "";
+	let kind: "grep" | "diff" | undefined;
+	for (const piece of pieces) {
+		const pieceKind = pipelineAnswerKind(piece);
+		if (pieceKind) {
+			kind = kind === "diff" ? kind : pieceKind;
+			continue;
+		}
+		const name = commandName(piece);
+		if (name === "cd" && cdSucceeded) continue;
+		if (silent && !piece.includes("|") && !SILENT_FAILURE_COMMAND.test(name)) continue;
+		return undefined;
+	}
+	if (!kind) return undefined;
+	return kind === "diff" ? DIFF_STATUS : GREP_NO_MATCH_STATUS;
+}
+
+/** 只读 git 查询；允许 git -C / --git-dir 这类选项出现在子命令前，commit、push 等写操作对不上子命令名。 */
+const READ_ONLY_GIT = /\bgit\b(?:\s+-[^\s;|&]+)*\s+(?:status|log|rev-parse|diff|show|ls-files|branch|remote)\b/;
+
+/** 自身不会以 128 退出的探路段。 */
+const PATH_PROBE_COMMAND = /^(?:cd|ls|echo|pwd|printf)$/;
 
 /**
  * 只读 git 查询报「不是仓库」是探路答案。commit/push 等写操作的 128 仍是失败。
+ * `git log 2>/dev/null` 会把报错压掉：最后一条语句以带 `2>/dev/null` 的只读 git 收尾、
+ * 前面只有 cd/ls/echo 这类探路段或只读 git 时，128 只能来自 git 拒绝该目录，同样是答案。
  */
 function gitNotRepositoryStatus(command: string, exitCode: number, output: string): string | undefined {
-	if (exitCode !== 128 || !/not a git repository/i.test(output)) return undefined;
-	// 允许 git -C / --git-dir 这类选项出现在子命令前；commit、push 等写操作对不上子命令名。
-	if (!/\bgit\b(?:\s+-[^\s;|&]+)*\s+(?:status|log|rev-parse|diff|show|ls-files|branch|remote)\b/.test(command)) {
-		return undefined;
+	if (exitCode !== 128) return undefined;
+	if (/not a git repository/i.test(output)) {
+		if (!READ_ONLY_GIT.test(command)) return undefined;
+		return "Command exited with code 128 (not a git repository — an answer, not a shell failure). Don't retry the same git command in this directory; cd to the repo root or inspect the path.";
 	}
-	return "Command exited with code 128 (not a git repository — an answer, not a shell failure). Don't retry the same git command in this directory; cd to the repo root or inspect the path.";
+	const statement = withoutQuotedText(command.trim())
+		.split(/\n|;/)
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.pop();
+	const pieces = (statement ?? "")
+		.split(/&&|\|\|/)
+		.map((piece) => piece.trim())
+		.filter(Boolean);
+	const last = pieces.pop();
+	if (!last || !/2>\s*\/dev\/null/.test(last) || !READ_ONLY_GIT.test(last)) return undefined;
+	const probesOnly = pieces.every(
+		(piece) => READ_ONLY_GIT.test(piece) || PATH_PROBE_COMMAND.test(commandName(withoutRedirections(piece))),
+	);
+	if (!probesOnly) return undefined;
+	return "Command exited with code 128 (git refused this directory with stderr silenced by 2>/dev/null — most likely not a git repository; an answer, not a shell failure). Don't retry the same git command here; run it without 2>/dev/null or cd to the repo root.";
 }
 
 /**
@@ -167,8 +262,10 @@ export const bashToolSystemPromptContribution = {
 		"You can inspect PI_* environment variables for current model and session details.",
 		"Each bash call starts a new shell in the session working directory; a `cd` does not carry over to the next call. Use paths relative to the working directory or absolute paths, and prefix `cd <dir> &&` only when the command must run inside that directory (e.g. a package's npm or test scripts).",
 		"Verify with the narrowest check that covers your change: run the test files for the code you touched, not a whole package or the full suite, unless the user asks for it. Do not rerun an identical command expecting a different result; change something first.",
-		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers — read the output instead of retrying the same command.",
+		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. diff/cmp exit 1 when the inputs differ, and `cmd | head` can end with 141 (SIGPIPE) once head has enough lines; both are answers. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers too — read the output instead of retrying the same command.",
 		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
+		"Java on Windows: JDK 8 defaults to the GBK code page, so compile with `javac -encoding UTF-8 -J-Dfile.encoding=UTF-8`, run with `java -Dfile.encoding=UTF-8`, and give javap/jar `-J-Dfile.encoding=UTF-8` too; otherwise UTF-8 sources with Chinese fail to compile and diagnostics come back garbled. A throwaway main() that creates a thread pool or other non-daemon threads must end with System.exit(0), or the JVM never exits and the call hangs.",
+		"Ask the build tool where its files are instead of searching the disk: for a Maven project's jars run `mvn dependency:build-classpath -Dmdep.outputFile=<file>` (settings.xml can move the local repository away from ~/.m2). Never run find over a whole drive or home directory. If `mvn -o` fails on a missing artifact or plugin, rerun once without -o.",
 		"Bash runs with `set -o pipefail`: a failing producer in a pipeline (`cmd | head`) makes the whole command fail even if head exits 0. Prefer that over relying on PIPESTATUS.",
 		"When handing files from Git Bash to native Windows Node/Python, quote paths and prefer workspace-relative paths; shell /tmp/MSYS aliases can refer to a different native directory.",
 		"Match Node module format to the file: use .cjs for require/module.exports and .mjs for import/export; check package.json type when using .js.",
@@ -671,18 +768,18 @@ export function createShellToolDefinition(
 						/^(?:[^\r\n]*:[ \t]*command not found(?:[ \t]*:[^\r\n]*)?|(?:[^\r\n]*[\\/])?(?:ba|da|z|k)?sh(?:\.exe)?:[^\r\n]*:[ \t]*not found)[ \t]*\r?$/im.test(
 							fullOutput.content,
 						);
-					const grepStatus = exitCode === 1 ? grepNoMatchStatus(command) : undefined;
+					const answerStatus = benignExitStatus(command, exitCode, fullOutput.content);
 					const gitStatus = gitNotRepositoryStatus(command, exitCode, outputText);
 					const status = commandNotFound
 						? "Command exited with code 127 (the shell reported a missing command). Check the command named in the diagnostic with `command -v <cmd>` and use an available alternative."
-						: (grepStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
-					// 探测类非零退出（grep 无匹配、路径不存在、不是 git 仓库等）对模型仍附带状态行，
-					// 但不再标记为错误：它们是探测得到的答案，UI 不应计成失败。
+						: (answerStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
+					// 探测类非零退出（grep 无匹配、diff 有差异、head 截断的 SIGPIPE、路径不存在、
+					// 不是 git 仓库等）对模型仍附带状态行，但不再标记为错误：它们是答案，UI 不应计成失败。
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,
 						structuredContent,
-						isError: !(grepStatus !== undefined || gitStatus !== undefined || isProbeExit(command, exitCode)),
+						isError: !(answerStatus !== undefined || gitStatus !== undefined || isProbeExit(command, exitCode)),
 					};
 				}
 				return { content: [{ type: "text", text: outputText }], details, structuredContent };

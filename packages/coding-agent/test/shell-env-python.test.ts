@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getShellEnv } from "../src/utils/shell.ts";
+import { getShellConfig, getShellEnv } from "../src/utils/shell.ts";
 
 const tempDirs: string[] = [];
 
@@ -76,5 +76,69 @@ describe.skipIf(process.platform !== "win32")("getShellEnv python discovery", ()
 		console.log("=== python 中文输出 ===", JSON.stringify(cn.stdout));
 		expect(cn.status).toBe(0);
 		expect(cn.stdout).toContain("高性价比人生指南");
+	});
+});
+
+describe.skipIf(process.platform !== "win32")("getShellEnv maven and locale", () => {
+	const SYSTEM32 = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+
+	it("appends MAVEN_HOME/bin when mvn is not on PATH", () => {
+		const temp = mkdtempSync(join(tmpdir(), "owl-mvn-"));
+		tempDirs.push(temp);
+		const home = join(temp, "apache-maven-3.9.9");
+		mkdirSync(join(home, "bin"), { recursive: true });
+		writeFileSync(join(home, "bin", "mvn.cmd"), "");
+
+		vi.stubEnv("MAVEN_HOME", home);
+		vi.stubEnv("M2_HOME", undefined);
+		vi.stubEnv("PATH", `${SYSTEM32};${join(temp, "nothing")}`);
+
+		const pathValue = (getShellEnv().PATH ?? "").split(";");
+		expect(pathValue[pathValue.length - 1]).toBe(join(home, "bin"));
+	});
+
+	it("leaves PATH alone when mvn already resolves or MAVEN_HOME has no mvn", () => {
+		const temp = mkdtempSync(join(tmpdir(), "owl-mvn-"));
+		tempDirs.push(temp);
+		const home = join(temp, "maven-home");
+		mkdirSync(join(home, "bin"), { recursive: true });
+		const onPath = join(temp, "on-path");
+		mkdirSync(onPath, { recursive: true });
+		writeFileSync(join(onPath, "mvn.cmd"), "");
+
+		vi.stubEnv("MAVEN_HOME", home);
+		vi.stubEnv("M2_HOME", undefined);
+		vi.stubEnv("PATH", `${SYSTEM32};${join(temp, "nothing")}`);
+		expect(getShellEnv().PATH).not.toContain("maven-home");
+
+		writeFileSync(join(home, "bin", "mvn.cmd"), "");
+		vi.stubEnv("PATH", `${SYSTEM32};${onPath}`);
+		expect(getShellEnv().PATH).not.toContain("maven-home");
+	});
+
+	it("sets a UTF-8 LANG only when the user has none", () => {
+		vi.stubEnv("LANG", undefined);
+		vi.stubEnv("LC_ALL", undefined);
+		expect(getShellEnv().LANG).toBe("C.UTF-8");
+
+		vi.stubEnv("LANG", "zh_CN.GBK");
+		expect(getShellEnv().LANG).toBe("zh_CN.GBK");
+
+		vi.stubEnv("LANG", undefined);
+		vi.stubEnv("LC_ALL", "C");
+		expect(getShellEnv().LANG).toBeUndefined();
+	});
+
+	it("end-to-end: Git Bash prints Chinese paths readably under the owl env", () => {
+		vi.stubEnv("LANG", undefined);
+		vi.stubEnv("LC_ALL", undefined);
+		const temp = mkdtempSync(join(tmpdir(), "owl-中文路径-"));
+		tempDirs.push(temp);
+		const missing = join(temp, "no-such-dir").replace(/\\/g, "/");
+		const result = spawnSync(getShellConfig().shell, ["-c", `find '${missing}' 2>&1; true`], {
+			env: getShellEnv(),
+			encoding: "utf-8",
+		});
+		expect(result.stdout).toContain("owl-中文路径-");
 	});
 });
