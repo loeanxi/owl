@@ -3,7 +3,7 @@ import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } fr
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
-import { assertFullFileReadThisTurn } from "./edit-read-gate.ts";
+import { assertFullFileRead } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -17,7 +17,7 @@ export const writeToolSystemPromptContribution = {
 	snippet: "Create or overwrite files",
 	guidelines: [
 		"Use write only for new files or complete rewrites.",
-		"Overwriting an existing file requires a read of the whole file in the current turn, or a successful complete write whose exact bytes are still on disk. That write stays valid after a later user message until compaction drops it or a later successful mutation of the same file. A failed write does not count. Earlier reads become stale after a mutation. New files can be written directly.",
+		"Overwriting an existing file requires a read of the whole file whose content still matches the disk (a read from an earlier turn counts while the file is unchanged), or a successful complete write whose exact bytes are still on disk. That write stays valid after a later user message until compaction drops it or a later successful mutation of the same file. A failed write does not count. Earlier reads become stale after a mutation. New files can be written directly.",
 	],
 } as const;
 
@@ -59,7 +59,7 @@ export function createWriteToolDefinition(
 		name: "write",
 		label: "write",
 		description:
-			"Write content to a file. Creates the file if it doesn't exist. Overwriting requires a full read in this turn, or a successful complete write whose exact bytes are still on disk (including a write from an earlier user turn). Automatically creates parent directories.",
+			"Write content to a file. Creates the file if it doesn't exist. Overwriting requires a full read of the current content (earlier turns count while the file is unchanged), or a successful complete write whose exact bytes are still on disk (including a write from an earlier user turn). Automatically creates parent directories.",
 		promptSnippet: writeToolSystemPromptContribution.snippet,
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		parameters: writeSchema,
@@ -85,7 +85,7 @@ export function createWriteToolDefinition(
 				throwIfAborted();
 				if (ctx?.sessionManager && (await exists(absolutePath))) {
 					throwIfAborted();
-					assertFullFileReadThisTurn(
+					assertFullFileRead(
 						ctx.sessionManager,
 						absolutePath,
 						ctx.cwd || cwd,

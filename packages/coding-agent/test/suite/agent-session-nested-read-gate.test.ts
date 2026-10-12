@@ -108,11 +108,11 @@ await tools.write({ path: "file.txt", content: "replacement" });`,
 		]);
 		await harness.session.prompt("Rewrite the file.");
 		expect(getToolResult(harness, "codemode").isError).toBe(true);
-		expect(getMessageText(getToolResult(harness, "codemode"))).toContain("did not read the whole file");
+		expect(getMessageText(getToolResult(harness, "codemode"))).toContain("no read of the whole current file");
 		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("old text\nsecond line\n");
 	});
 
-	it("does not carry a nested read into a later user turn", async () => {
+	it("carries a nested read into a later user turn while the file is unchanged", async () => {
 		const harness = await makeHarness();
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("codemode", { code: 'await tools.read({ path: "file.txt" });' }), {
@@ -126,8 +126,27 @@ await tools.write({ path: "file.txt", content: "replacement" });`,
 		]);
 		await harness.session.prompt("Read the file.");
 		await harness.session.prompt("Rewrite it now.");
+		expect(getToolResult(harness, "write").isError).toBe(false);
+		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("replacement");
+	});
+
+	it("does not carry a nested read into a later user turn after the file changed on disk", async () => {
+		const harness = await makeHarness();
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("codemode", { code: 'await tools.read({ path: "file.txt" });' }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("read complete"),
+			fauxAssistantMessage(fauxToolCall("write", { path: "file.txt", content: "replacement" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+		await harness.session.prompt("Read the file.");
+		await writeFile(join(harness.tempDir, "file.txt"), "changed outside\n");
+		await harness.session.prompt("Rewrite it now.");
 		expect(getToolResult(harness, "write").isError).toBe(true);
-		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("old text\n");
+		expect(await readFile(join(harness.tempDir, "file.txt"), "utf8")).toBe("changed outside\n");
 	});
 
 	it("keeps nested read evidence on resume of the same user turn", async () => {

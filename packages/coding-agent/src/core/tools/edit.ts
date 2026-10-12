@@ -12,7 +12,7 @@ import {
 	normalizeToLF,
 	restoreMixedLineEndings,
 } from "./edit-diff.ts";
-import { assertEditSeenThisTurn } from "./edit-read-gate.ts";
+import { assertEditTargetRead } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -46,7 +46,8 @@ export const editToolSystemPromptContribution = {
 		"When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
 		"Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
 		"Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
-		"Before editing an existing file, read the region you will change in the current turn. Each edits[].oldText must appear in that read, or in a successful complete write verified against current bytes. Read again after an edit.",
+		"Before editing an existing file, read the region you will change. A read from an earlier turn still counts while the file is unchanged. Each edits[].oldText must appear in that read, or in a successful complete write verified against current bytes. Read again after an edit.",
+		"If an edit is refused for a missing read, the refusal includes the current file content: retry the edit against that content directly instead of calling read.",
 	],
 } as const;
 
@@ -79,12 +80,12 @@ function mergeLooseEditItems(edits: unknown[]): { edits: unknown[]; count: numbe
 		const continuation =
 			typeof item === "string"
 				? item
-				: isPlainObject(item) && typeof item.newText === "string" && typeof item.oldText !== "string"
+				: isPlainObject(item) && typeof item.newText === "string" && item.oldText === undefined
 					? item.newText
 					: isPlainObject(item) &&
 							typeof (item as { $text?: unknown }).$text === "string" &&
-							typeof item.newText !== "string" &&
-							typeof item.oldText !== "string"
+							item.newText === undefined &&
+							item.oldText === undefined
 						? (item as { $text: string }).$text
 						: undefined;
 		if (continuation !== undefined && isPlainObject(previous) && typeof previous.newText === "string") {
@@ -95,6 +96,24 @@ function mergeLooseEditItems(edits: unknown[]): { edits: unknown[]; count: numbe
 		merged.push(item);
 	}
 	return { edits: merged, count };
+}
+
+/**
+ * Some models serialize HTML/XML inside oldText/newText as nested objects
+ * ({"div": {...}, "$text": "..."}). The original text cannot be rebuilt from
+ * that, and the generic schema error makes them resend the same shape.
+ */
+function assertNoStructuredEditText(edits: unknown[]): void {
+	edits.forEach((item, index) => {
+		if (!isPlainObject(item)) return;
+		for (const key of ["oldText", "newText"] as const) {
+			const value = item[key];
+			if (value === null || typeof value !== "object") continue;
+			throw new Error(
+				`edits[${index}].${key} arrived as a JSON ${Array.isArray(value) ? "array" : "object"}, not a string: markup in the text was encoded as structured fields, so the original text is lost. Resend ${key} as one JSON string with the exact file text (escape quotes and newlines). If the text contains HTML/XML tags and this keeps happening, rewrite the file with the write tool instead.`,
+			);
+		}
+	});
 }
 
 function isSingleEditInput(value: unknown): value is SingleEditInput {
@@ -172,6 +191,7 @@ function prepareEditArguments(input: unknown): EditToolInput {
 			args.edits = merged.edits;
 			args[MERGED_CONTINUATIONS_KEY] = merged.count;
 		}
+		assertNoStructuredEditText(merged.edits);
 	}
 
 	const legacy = args as LegacyEditToolInput;
@@ -201,7 +221,7 @@ export function createEditToolDefinition(
 		name: "edit",
 		label: "edit",
 		description:
-			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Each oldText must appear in this turn's read or a successful complete write verified against current bytes.",
+			"Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes. Each oldText must appear in a read of the file's current content (earlier turns count while the file is unchanged) or a successful complete write verified against current bytes.",
 		promptSnippet: editToolSystemPromptContribution.snippet,
 		promptGuidelines: [...editToolSystemPromptContribution.guidelines],
 		parameters: editSchema,
@@ -237,7 +257,7 @@ export function createEditToolDefinition(
 				const buffer = await ops.readFile(absolutePath);
 				throwIfAborted();
 				if (ctx?.sessionManager) {
-					assertEditSeenThisTurn(
+					assertEditTargetRead(
 						ctx.sessionManager,
 						absolutePath,
 						ctx.cwd || cwd,

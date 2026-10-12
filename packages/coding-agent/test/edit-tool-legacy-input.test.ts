@@ -162,6 +162,25 @@ describe("edit tool loose edit items (continuation chunks)", () => {
 		expect(prepared).toBe(input);
 	});
 
+	it("rejects markup that arrived as structured oldText/newText with an actionable message", () => {
+		const definition = createEditToolDefinition(process.cwd());
+		expect(() =>
+			definition.prepareArguments!({
+				path: "plan.html",
+				edits: [{ oldText: { "doc-claim": { p: "上限" }, $text: "\n  " }, newText: "x" }],
+			}),
+		).toThrow(/edits\[0\]\.oldText arrived as a JSON object, not a string/);
+		expect(() =>
+			definition.prepareArguments!({
+				path: "plan.html",
+				edits: [
+					{ oldText: "a", newText: "b" },
+					{ oldText: "c", newText: ["<p>", "d"] },
+				],
+			}),
+		).toThrow(/edits\[1\]\.newText arrived as a JSON array/);
+	});
+
 	it("keeps valid edits between continuations in place", () => {
 		const definition = createEditToolDefinition(process.cwd());
 		const prepared = definition.prepareArguments!({

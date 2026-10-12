@@ -9,7 +9,7 @@ describe("Pi coding prompt", () => {
 		expect(PI_SYSTEM_PROMPT).toContain("edits[].oldText");
 		expect(PI_SYSTEM_PROMPT).toContain("original file");
 		expect(PI_SYSTEM_PROMPT).toContain("overlapping or nested edits");
-		expect(PI_SYSTEM_PROMPT).toContain("whole file in the current turn");
+		expect(PI_SYSTEM_PROMPT).toContain("whole file whose content still matches the disk");
 		for (const unavailable of ["codemode", "tool_search", "skill_search", "process tool", "powershell"]) {
 			expect(PI_SYSTEM_PROMPT).not.toContain(unavailable);
 		}

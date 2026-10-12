@@ -5,7 +5,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionToolContext } from "../src/core/extensions/types.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
-import { fileWasReadThisTurn } from "../src/core/tools/edit-read-gate.ts";
+import { fileWasReadThisTurn, GATE_SNAPSHOT_MARKER } from "../src/core/tools/edit-read-gate.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 
 const tempDirs: string[] = [];
@@ -181,7 +181,7 @@ describe("edit tool read gate", () => {
 
 		await expect(
 			tool.execute("edit-2", { path: file, edits: [{ oldText: "old", newText: "new" }] }, undefined, undefined, ctx),
-		).rejects.toThrow(/has not been read in this turn/);
+		).rejects.toThrow(/no read of its current content/);
 		expect(await readFile(file, "utf-8")).toBe("old text");
 	});
 
@@ -222,8 +222,117 @@ describe("edit tool read gate", () => {
 
 		await expect(
 			tool.execute("edit-1", { path: file, edits: [{ oldText: "old", newText: "new" }] }, undefined, undefined, ctx),
-		).rejects.toThrow(/has not been read in this turn/);
+		).rejects.toThrow(/no read of its current content/);
 		expect(await readFile(file, "utf-8")).toBe("old text");
+	});
+
+	it("edits from an earlier-turn read while the file is unchanged", async () => {
+		const dir = await createTempDir();
+		const file = join(dir, "a.txt");
+		await writeFile(file, "old text\r\nsecond\r\n");
+		const tool = createEditToolDefinition(dir);
+		const ctx = {
+			cwd: dir,
+			sessionManager: session([
+				{ role: "user", content: "look at it", timestamp: 1 } as AgentMessage,
+				...readMessages(file, { text: "old text\nsecond\n" }),
+				{ role: "user", content: "继续", timestamp: 3 } as AgentMessage,
+			]),
+		} as ExtensionToolContext;
+
+		await tool.execute(
+			"edit-1",
+			{ path: file, edits: [{ oldText: "old", newText: "new" }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		expect(await readFile(file, "utf-8")).toBe("new text\r\nsecond\r\n");
+	});
+
+	it("edits from an earlier-turn partial read whose lines are still in the file", async () => {
+		const dir = await createTempDir();
+		const file = join(dir, "a.txt");
+		await writeFile(file, "alpha\nbeta\ngamma\n");
+		const tool = createEditToolDefinition(dir);
+		const ctx = {
+			cwd: dir,
+			sessionManager: session([
+				...readMessages(file, { text: "beta\n\n[1 more lines in file. Use offset=3 to continue.]", offset: 2 }),
+				{ role: "user", content: "继续", timestamp: 3 } as AgentMessage,
+			]),
+		} as ExtensionToolContext;
+
+		await tool.execute(
+			"edit-1",
+			{ path: file, edits: [{ oldText: "beta", newText: "BETA" }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+
+		expect(await readFile(file, "utf-8")).toBe("alpha\nBETA\ngamma\n");
+	});
+
+	it("refuses an earlier-turn read after the file changed on disk and attaches the current content", async () => {
+		const dir = await createTempDir();
+		const file = join(dir, "a.txt");
+		await writeFile(file, "changed outside\n");
+		const tool = createEditToolDefinition(dir);
+		const ctx = {
+			cwd: dir,
+			sessionManager: session([
+				...readMessages(file, { text: "old text\n" }),
+				{ role: "user", content: "继续", timestamp: 3 } as AgentMessage,
+			]),
+		} as ExtensionToolContext;
+
+		const failure = tool.execute(
+			"edit-1",
+			{ path: file, edits: [{ oldText: "old", newText: "new" }] },
+			undefined,
+			undefined,
+			ctx,
+		);
+		await expect(failure).rejects.toThrow(/no read of its current content/);
+		await expect(failure).rejects.toThrow(GATE_SNAPSHOT_MARKER);
+		await expect(failure).rejects.toThrow(/changed outside/);
+		expect(await readFile(file, "utf-8")).toBe("changed outside\n");
+	});
+
+	it("treats the content attached to a refusal as a read, so the retry succeeds", async () => {
+		const dir = await createTempDir();
+		const file = join(dir, "a.txt");
+		await writeFile(file, "old text\n");
+		const tool = createEditToolDefinition(dir);
+		const messages: AgentMessage[] = [{ role: "user", content: "edit it", timestamp: 1 } as AgentMessage];
+		const ctx = { cwd: dir, sessionManager: session(messages) } as ExtensionToolContext;
+		const args = { path: file, edits: [{ oldText: "old", newText: "new" }] };
+
+		const refusal = await tool.execute("edit-1", args, undefined, undefined, ctx).then(
+			() => undefined,
+			(error: Error) => error.message,
+		);
+		expect(refusal).toContain(GATE_SNAPSHOT_MARKER);
+		messages.push(
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: args }],
+			} as unknown as AgentMessage,
+			{
+				role: "toolResult",
+				toolCallId: "edit-1",
+				toolName: "edit",
+				content: [{ type: "text", text: refusal }],
+				isError: true,
+				timestamp: 2,
+			} as AgentMessage,
+		);
+
+		await tool.execute("edit-2", args, undefined, undefined, ctx);
+
+		expect(await readFile(file, "utf-8")).toBe("new text\n");
 	});
 
 	it("still edits when the call has no session", async () => {
@@ -273,6 +382,24 @@ describe("write tool read gate", () => {
 		expect(await readFile(file, "utf-8")).toBe("old text");
 	});
 
+	it("overwrites after a full read from an earlier turn while the file is unchanged", async () => {
+		const dir = await createTempDir();
+		const file = join(dir, "a.txt");
+		await writeFile(file, "old text");
+		const tool = createWriteToolDefinition(dir);
+		const ctx = {
+			cwd: dir,
+			sessionManager: session([
+				...readMessages(file, { text: "old text" }),
+				{ role: "user", content: "rewrite it", timestamp: 3 } as AgentMessage,
+			]),
+		} as ExtensionToolContext;
+
+		await tool.execute("write-1", { path: "a.txt", content: "rewritten" }, undefined, undefined, ctx);
+
+		expect(await readFile(file, "utf-8")).toBe("rewritten");
+	});
+
 	it("creates a new file without a read", async () => {
 		const dir = await createTempDir();
 		const tool = createWriteToolDefinition(dir);
@@ -298,7 +425,7 @@ describe("write tool read gate", () => {
 
 		await expect(
 			tool.execute("write-1", { path: file, content: "rewritten" }, undefined, undefined, ctx),
-		).rejects.toThrow(/did not read the whole file/);
+		).rejects.toThrow(/no read of the whole current file/);
 		expect(await readFile(file, "utf-8")).toBe("old text");
 	});
 
@@ -316,7 +443,7 @@ describe("write tool read gate", () => {
 
 		await expect(
 			tool.execute("write-1", { path: file, content: "rewritten" }, undefined, undefined, ctx),
-		).rejects.toThrow(/did not read the whole file/);
+		).rejects.toThrow(/no read of the whole current file/);
 		expect(await readFile(file, "utf-8")).toBe("old text");
 	});
 
@@ -332,7 +459,7 @@ describe("write tool read gate", () => {
 
 		await expect(
 			tool.execute("write-1", { path: file, content: "rewritten" }, undefined, undefined, ctx),
-		).rejects.toThrow(/has not been read in this turn/);
+		).rejects.toThrow(/no read of its current content/);
 		expect(await readFile(file, "utf-8")).toBe("old text");
 	});
 });
