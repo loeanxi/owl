@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
 import { ChatStream, type ChatActivity } from "../../components/ChatStream.tsx";
@@ -12,14 +12,16 @@ import { RetryPin } from "../../components/RetryPin.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
+import type { ToolCard } from "../../hooks/transcript.ts";
 import { TrajectoryView } from "../trajectory/TrajectoryView.tsx";
 import { setSessionFeed } from "../../sidebar/feed.ts";
 import { useResearchText, type ResearchText } from "./research-copy.ts";
-import { researchCsv, safeSourceUrl } from "./research-results.ts";
+import { researchCsv, researchResultsForTurn, safeSourceUrl } from "./research-results.ts";
 import { ResearchSessionController } from "./research-session.ts";
 import { ResearchPromptSettings } from "./ResearchPromptSettings.tsx";
 import { ResearchPromptController } from "./research-prompts.ts";
 import { ResearchDiagnosisNotice } from "./ResearchDiagnosisNotice.tsx";
+import { ResearchTaskNotice } from "./ResearchTaskNotice.tsx";
 import "./research.css";
 
 export type ResearchPageProps = {
@@ -53,6 +55,8 @@ export type ResearchPageProps = {
 	conversationView?: ConversationView;
 	/** 会话内任务卡的「任务页」跳转（主区共享）。 */
 	onOpenAutomation?: () => void;
+	onOpenSubagent?: (card: ToolCard) => void;
+	subagentControl?: ReactNode;
 	onTitleChange?: (title: string) => void;
 };
 
@@ -104,7 +108,7 @@ function ResultPanel({ result, sourcesOpen, onSources, onClose, onDraft, onOpenS
 }
 
 export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
-	const { client, active, connected, cwd } = props;
+	const { client, active, connected, cwd, onOpenSubagent } = props;
 	const text = useResearchText();
 	const t = useT();
 	const disabledPresets = Object.fromEntries((props.agentPresets ?? []).filter((preset) => preset.runtime === "pi" || preset.id === "pi").map((preset) => [preset.id, text("piPresetUnavailable")]));
@@ -194,11 +198,12 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 		<div className="research-prompt-toolbar"><span>{promptState.ready ? promptState.saved?.enabled && activePrompt ? text("promptEnabled", { name: activePrompt.name }) : text("promptDefault") : ""}</span><button ref={promptButton} type="button" aria-expanded={promptsOpen} onClick={() => { setSelectedResultId(undefined); setPromptsOpen((open) => !open); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12" /><circle cx="7" cy="5" r="2" fill="var(--color-owl-bg)" /><circle cx="13" cy="10" r="2" fill="var(--color-owl-bg)" /><circle cx="8" cy="15" r="2" fill="var(--color-owl-bg)" /></svg>{text("promptManage")}</button></div>
 		<div className="research-content">
 			<div className="research-conversation">
-				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} artifacts={<ResultCards results={state.results} text={text} onOpen={openResult} onDraft={fillDraft} />} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
+				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
 				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus} onDismiss={() => controller.dismissRetry()} />
 				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
-				<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />
+				<ResearchTaskNotice task={state.task} sessionId={state.sessionId} running={state.running} />
+				<div className="owl-conversation-pins"><TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />{props.subagentControl}</div>
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
 					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}

@@ -1,4 +1,5 @@
 import type { ResearchResult } from "../../bridge/protocol.ts";
+import type { ChatEntry } from "../../hooks/transcript.ts";
 
 const RESULT_TOOLS = new Set(["research_publish", "research_executable", "research_decompile", "research_model_lab", "research_rea"]);
 
@@ -66,6 +67,19 @@ export function mergeResearchResults(current: ResearchResult[], next: ResearchRe
 	const values = new Map(current.map((result) => [result.id, result]));
 	for (const result of next) values.set(result.id, result);
 	return [...values.values()];
+}
+
+/** Keep cards with the turn whose successful tools produced them, including restored transcripts. */
+export function researchResultsForTurn(entries: ChatEntry[]): ResearchResult[] {
+	const results: ResearchResult[] = [];
+	for (const entry of entries) {
+		if (entry.kind === "toolResult" && entry.ok && RESULT_TOOLS.has(entry.toolName) && entry.researchResult) results.push(entry.researchResult);
+		if (entry.kind !== "assistant") continue;
+		for (const tool of entry.tools) {
+			if (tool.status === "ok" && RESULT_TOOLS.has(tool.name) && tool.output?.researchResult) results.push(tool.output.researchResult);
+		}
+	}
+	return mergeResearchResults([], results);
 }
 
 export function safeSourceUrl(value: string | undefined): string | undefined {

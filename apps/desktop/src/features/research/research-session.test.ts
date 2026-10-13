@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
+import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
 import type { DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionStatsResult } from "../../bridge/protocol.ts";
 import { ResearchSessionController, researchSessionKey } from "./research-session.ts";
 import { publishedResults, researchCsv, researchResultOf, safeSourceUrl } from "./research-results.ts";
@@ -29,6 +31,88 @@ const defaults = { model: "fixture/model", thinkingLevel: "high", approvalMode: 
 const stats: SessionStatsResult = { model: { provider: "fixture", id: "model" }, thinkingLevel: "high", availableThinkingLevels: ["off", "high"], supportsThinking: true };
 const published: ResearchResult = { id: "result-1", createdAt: "2026-10-04T00:00:00Z", mode: "crawl", status: "sample", title: "真实样本", summary: "来自工具输出", columns: [{ key: "name", label: "名称" }], rows: [{ name: "记录" }], sources: [{ id: "source-1", title: "Example", url: "https://example.org" }], findings: [{ kind: "fact", text: "发现记录", sourceIds: ["source-1"] }] };
 const diagnosis: ResearchDiagnosis = { id: "11111111-1111-4111-8111-111111111111", version: 1, createdAt: "2026-10-12T00:00:00.000Z", ownerSessionId: "research-1", status: "textual_refusal_candidate", summary: "文本提示需要核对；没有明确审核标记。", evidence: [{ source: "agent", text: "我无法帮助提供该分析" }] };
+
+function taskRecord(revision = 1): ResearchTaskRecord {
+	const originalRequest = "编写 Lua 5.1 解密器。";
+	const inputHash = createHash("sha256").update(originalRequest).digest("hex");
+	return {
+		id: "33333333-3333-4333-8333-333333333333", version: 1, taskId: "44444444-4444-4444-8444-444444444444", revision, ownerSessionId: "research-1", updatedAt: "2026-10-13T00:00:00.000Z", originalRequest, inputHash,
+		inputs: [{ id: "input-1", text: originalRequest, sha256: inputHash, truncated: false }],
+		facts: { target: { state: "unreviewed", value: null, evidence: [] }, function: { state: "unreviewed", value: null, evidence: [] }, environment: { state: "unreviewed", value: null, evidence: [] }, dataSource: { state: "unknown", value: null, evidence: [] }, authorization: { state: "unreviewed", value: null, evidence: [] }, deliverable: { state: "user_stated", value: "Lua 5.1 解密器", evidence: [{ inputId: "input-1", quote: originalRequest }] }, acceptance: { state: "unreviewed", value: null, evidence: [] } },
+		missingMaterials: ["原始加密脚本", "输入样本"], toolMatches: [],
+		modelFit: { selected: { provider: "fixture", id: "model", inputTypes: ["text"], inputCompatible: true }, candidates: [{ provider: "other", id: "candidate", inputCompatible: true }], basis: "按已注册模型的输入类型核对，尚未验证生成正确性。" },
+		response: { state: "not_started", summary: "尚未收到响应" }, acceptance: { state: "not_run", goalVerified: false, checks: [] }, status: "needs_input",
+	};
+}
+
+test("research restores authoritative task facts alongside diagnosis and keeps them through restart", async () => {
+	const task = taskRecord();
+	assert.equal(isResearchTaskRecord(task, "research-1"), true);
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", researchTask: task, researchDiagnosis: diagnosis, messages: [], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.deepEqual(controller.getSnapshot().task, task);
+		assert.deepEqual(controller.getSnapshot().diagnosis, diagnosis);
+		controller.setConnected(false); controller.setConnected(true); await controller.attach();
+		assert.deepEqual(controller.getSnapshot().task, task);
+	} finally { controller.dispose(); }
+});
+
+test("research task events reject foreign or invalid data and never switch the selected model", async () => {
+	const task = taskRecord();
+	const { controller, bridge } = fresh();
+	const append = (data: unknown): Record<string, unknown> => ({ type: "entry_appended", entry: { type: "custom", customType: RESEARCH_TASK_ENTRY, data } });
+	try {
+		await controller.attach(); await controller.send("当前任务");
+		bridge.emit("ordinary-chat", append(task));
+		bridge.emit("research-1", append({ ...task, ownerSessionId: "ordinary-chat" }));
+		bridge.emit("research-1", append({ ...task, acceptance: { ...task.acceptance, goalVerified: true } }));
+		bridge.emit("research-1", append({ ...task, facts: { ...task.facts, target: { state: "user_stated", value: "编造的目标", evidence: [] } } }));
+		assert.equal(controller.getSnapshot().task, undefined);
+		bridge.emit("research-1", append(task));
+		bridge.emit("research-1", { type: "agent_start" });
+		assert.deepEqual(controller.getSnapshot().task, task);
+		assert.equal(controller.getSnapshot().model, "fixture/model");
+		assert.equal(bridge.requests.some((request) => request.type === "session.setModel"), false);
+		assert.equal(controller.newThread(), true);
+		assert.equal(controller.getSnapshot().task, undefined);
+		bridge.emit("research-1", append(task));
+		assert.equal(controller.getSnapshot().task, undefined);
+	} finally { controller.dispose(); }
+});
+
+test("a newer task event survives an older snapshot and late revisions cannot replace it", async () => {
+	const older = taskRecord(1);
+	const latest = { ...taskRecord(3), response: { state: "received" as const, summary: "模型响应已记录，目标仍未验收。" }, status: "unverified" as const };
+	const append = (data: unknown): Record<string, unknown> => ({ type: "entry_appended", entry: { type: "custom", customType: RESEARCH_TASK_ENTRY, data } });
+	const { controller, bridge, store } = fresh((request) => {
+		if (request.type === "session.resume") {
+			bridge.emit("research-1", append(latest));
+			return { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", researchTask: older, messages: [], messageEntryIds: [] } };
+		}
+		return request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats };
+	});
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.deepEqual(controller.getSnapshot().task, latest);
+		bridge.emit("research-1", append(older));
+		assert.deepEqual(controller.getSnapshot().task, latest);
+		assert.equal(await controller.send("下一轮补充材料"), true);
+		assert.equal(controller.getSnapshot().task, undefined);
+	} finally { controller.dispose(); }
+});
+
+test("foreign snapshot task records and task-looking prose never create task facts", async () => {
+	const task = { ...taskRecord(), ownerSessionId: "ordinary-chat" };
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", researchTask: task, messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify(taskRecord()) }] }], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1");
+		await controller.attach();
+		assert.equal(controller.getSnapshot().task, undefined);
+	} finally { controller.dispose(); }
+});
 
 function fresh(respond?: FakeBridge["respond"]): { bridge: FakeBridge; store: MemoryStorage; controller: ResearchSessionController } {
 	const bridge = new FakeBridge(respond ?? ((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : request.type === "session.stats" ? { ok: true, result: stats } : { ok: true }));

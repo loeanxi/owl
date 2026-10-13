@@ -1,5 +1,6 @@
 import type { BridgeClient } from "../../bridge/client.ts";
 import { isResearchDiagnosis, RESEARCH_DIAGNOSIS_ENTRY } from "../../../../../packages/coding-agent/src/core/research/diagnosis.ts";
+import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
@@ -19,6 +20,7 @@ export type ResearchSessionState = ResearchPreferences & {
 	entries: ChatEntry[];
 	results: ResearchResult[];
 	diagnosis?: ResearchDiagnosis;
+	task?: ResearchTaskRecord;
 	running: boolean;
 	busy: boolean;
 	ready: boolean;
@@ -52,6 +54,18 @@ function researchDiagnosisFromEvent(event: unknown, sessionId: string | undefine
 	const entry = payload.entry;
 	if (!sessionId || payload.type !== "entry_appended" || entry?.type !== "custom" || entry.customType !== RESEARCH_DIAGNOSIS_ENTRY) return undefined;
 	return isResearchDiagnosis(entry.data, sessionId) ? entry.data : undefined;
+}
+
+function researchTaskFromEvent(event: unknown, sessionId: string | undefined): ResearchTaskRecord | undefined {
+	if (!event || typeof event !== "object") return undefined;
+	const payload = event as { type?: string; entry?: { type?: string; customType?: string; data?: unknown } };
+	const entry = payload.entry;
+	if (!sessionId || payload.type !== "entry_appended" || entry?.type !== "custom" || entry.customType !== RESEARCH_TASK_ENTRY) return undefined;
+	return isResearchTaskRecord(entry.data, sessionId) ? entry.data : undefined;
+}
+
+function newerResearchTask(current: ResearchTaskRecord | undefined, next: ResearchTaskRecord): ResearchTaskRecord {
+	return current?.taskId === next.taskId && current.revision > next.revision ? current : next;
 }
 
 /** Owns one project's research thread and rejects stale asynchronous responses. */
@@ -165,6 +179,8 @@ export class ResearchSessionController {
 		};
 		const diagnosis = researchDiagnosisFromEvent(message.event, this.state.sessionId);
 		if (diagnosis) patch.diagnosis = diagnosis;
+		const task = researchTaskFromEvent(message.event, this.state.sessionId);
+		if (task) patch.task = newerResearchTask(this.state.task, task);
 		if (type === "agent_start" || type === "agent_settled") {
 			this.runRevision++;
 			patch.running = type === "agent_start";
@@ -217,12 +233,15 @@ export class ResearchSessionController {
 			let entries = rebuild(snapshot.messages as Record<string, unknown>[], snapshot.messageEntryIds);
 			let results = publishedResults(snapshot.messages);
 			let diagnosis = isResearchDiagnosis(snapshot.researchDiagnosis, saved) ? snapshot.researchDiagnosis : undefined;
+			let task = isResearchTaskRecord(snapshot.researchTask, saved) ? snapshot.researchTask : undefined;
 			for (const message of eventsAfterSnapshot(snapshot, this.replayEvents)) {
 				entries = applyEvent(entries, message);
 				results = mergeResearchResults(results, researchResultsFromEvent(message.event));
 				diagnosis = (message.event as { type?: string })?.type === "agent_start" ? undefined : researchDiagnosisFromEvent(message.event, saved) ?? diagnosis;
+				const updatedTask = researchTaskFromEvent(message.event, saved);
+				if (updatedTask) task = newerResearchTask(task, updatedTask);
 			}
-			this.update({ entries, results, diagnosis, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
+			this.update({ entries, results, diagnosis, task, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
 			this.persistPreferences();
 			await this.reconcileRunning(epoch);
 			await this.refreshStats();
@@ -284,7 +303,7 @@ export class ResearchSessionController {
 				...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
 			};
 			submittedRunRevision = this.runRevision;
-			this.update({ entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, running: true, retryStatus: null });
+			this.update({ entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, task: undefined, running: true, retryStatus: null });
 			const response = await this.client.request({
 				type: "session.prompt",
 				sessionId,
@@ -328,7 +347,7 @@ export class ResearchSessionController {
 		this.epoch++;
 		clearTimeout(this.reconcileTimer);
 		try { this.storage.removeItem(researchSessionKey(this.cwd)); } catch { /* Reset in-memory state even when storage is unavailable. */ }
-		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, running: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, running: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
 		return true;
 	}
 
@@ -340,7 +359,7 @@ export class ResearchSessionController {
 		this.restoring = false;
 		this.replayEvents = [];
 		try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* The requested thread remains available in memory. */ }
-		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, stats: undefined, ready: false, busy: false, running: false, error: undefined, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, stats: undefined, ready: false, busy: false, running: false, error: undefined, retryStatus: null, failedPrompt: undefined });
 		await this.attach();
 	}
 

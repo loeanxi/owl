@@ -1,5 +1,5 @@
 import type { ResearchResult, ServerEventMessage } from "../bridge/protocol.ts";
-import { researchResultOf } from "../features/research/research-results.ts";
+import { publishedResults, researchResultOf } from "../features/research/research-results.ts";
 import { t } from "../i18n/index.ts";
 import { formatProviderError } from "./provider-error.ts";
 import { userSourceText } from "./skill-invocation.ts";
@@ -122,7 +122,7 @@ export type ChatEntry =
 			stream?: StreamStats;
 	  }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
-	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string };
+	| { kind: "toolResult"; toolName: string; ok: boolean; brief: string; researchResult?: ResearchResult };
 
 type AnyEvent = Record<string, any>; // wire events are forward-compat; render defensively
 
@@ -238,21 +238,44 @@ function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: s
 	else segments.push({ kind, text });
 }
 
-function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyEvent, isError: boolean): ChatEntry[] {
-	if (typeof toolCallId !== "string") return entries;
+function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyEvent, isError: boolean, toolName?: string): ChatEntry[] {
+	if (typeof toolCallId === "string") {
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index];
+			if (sealsActiveTurn(entry)) break;
+			if (entry.kind !== "assistant" || !entry.tools.some((tool) => tool.id === toolCallId)) continue;
+			const updated = cloneAssistant(entry);
+			const card = updated.tools.find((tool) => tool.id === toolCallId)!;
+			card.status = resultStatus(result, isError);
+			card.output = toolOutputOf(result);
+			card.finishedAt = typeof result.timestamp === "number" ? result.timestamp : card.finishedAt ?? Date.now();
+			applyNestedCallRecords(updated, toolCallId, result);
+			return [...entries.slice(0, index), updated, ...entries.slice(index + 1)];
+		}
+		// A result from a sealed turn cannot become an artifact of the current question.
+		if (entries.some((entry) => entry.kind === "assistant" && entry.tools.some((tool) => tool.id === toolCallId))) return entries;
+	}
+	if (resultStatus(result, isError) !== "ok") return entries;
+	const sourceName = toolName ?? result.toolName ?? "tool";
+	if (publishedResults([{ ...result, role: "toolResult", toolName: sourceName, isError }]).length === 0) return entries;
+	const output = toolOutputOf(result);
+	if (!output.researchResult) return entries;
+	const orphan: Extract<ChatEntry, { kind: "toolResult" }> = {
+		kind: "toolResult",
+		toolName: sourceName,
+		ok: true,
+		brief: firstTextLine(output.text) || t("err.briefNoOutput", { status: t("err.completed") }),
+		researchResult: output.researchResult,
+	};
+	// Execution and persisted-message events describe the same successful publication.
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
 		if (sealsActiveTurn(entry)) break;
-		if (entry.kind !== "assistant" || !entry.tools.some((tool) => tool.id === toolCallId)) continue;
-		const updated = cloneAssistant(entry);
-		const card = updated.tools.find((tool) => tool.id === toolCallId)!;
-		card.status = resultStatus(result, isError);
-		card.output = toolOutputOf(result);
-		card.finishedAt = typeof result.timestamp === "number" ? result.timestamp : card.finishedAt ?? Date.now();
-		applyNestedCallRecords(updated, toolCallId, result);
-		return [...entries.slice(0, index), updated, ...entries.slice(index + 1)];
+		if (entry.kind === "toolResult" && entry.toolName === orphan.toolName && entry.researchResult?.id === orphan.researchResult?.id) {
+			return [...entries.slice(0, index), orphan, ...entries.slice(index + 1)];
+		}
 	}
-	return entries;
+	return [...entries, orphan];
 }
 
 function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string, result: AnyEvent): void {
@@ -467,11 +490,11 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			return [...entries.slice(0, index), current, ...entries.slice(index + 1)];
 		}
 		case "tool_execution_end":
-			return applyToolResult(entries, event.toolCallId, event.result ?? {}, event.isError === true);
+			return applyToolResult(entries, event.toolCallId, event.result ?? {}, event.isError === true, event.toolName);
 		case "message_end": {
 			const message = event.message as AnyEvent | undefined;
 			if (!message) return entries;
-			if (message.role === "toolResult") return applyToolResult(entries, message.toolCallId, message, message.isError === true);
+			if (message.role === "toolResult") return applyToolResult(entries, message.toolCallId, message, message.isError === true, message.toolName);
 			if (message.role !== "assistant") return entries;
 			const previous = lastAssistant(entries);
 			if (!previous) return entries;
@@ -615,6 +638,7 @@ export function rebuild(
 					toolName: message.toolName ?? "tool",
 					ok: !message.isError,
 					brief: firstTextLine(output.text) || t("err.briefNoOutput", { status: message.isError ? t("err.failed") : t("err.completed") }),
+					...(resultStatus(message, message.isError === true) === "ok" && output.researchResult ? { researchResult: output.researchResult } : {}),
 				});
 			}
 		}
