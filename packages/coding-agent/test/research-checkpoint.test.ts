@@ -197,6 +197,22 @@ describe("research checkpoint persistence and branch ownership", () => {
 		expect(append).not.toHaveBeenCalled();
 	});
 
+	it("gives weak models a copyable template when the call arrives bare or partially filled", async () => {
+		const manager = SessionManager.inMemory();
+		const tool = createResearchCheckpointTool(manager);
+		const append = vi.spyOn(manager, "appendCustomEntry");
+		// 回归：glm-5.3-flash 曾连续 6 次发出 arguments {}，报错必须附带可直接照抄的模板
+		for (const value of [{}, { action: "save" }, { action: "save", goal: "只有目标" }]) {
+			const error = await tool
+				.execute("bare", value as Static<typeof researchCheckpointSchema>, undefined, undefined, context(manager))
+				.catch((reason: unknown) => reason as Error);
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain("标准格式");
+			expect((error as Error).message).toContain('"action":"save"');
+		}
+		expect(append).not.toHaveBeenCalled();
+	});
+
 	it("rejects the malformed latest record instead of falling back to an older checkpoint or hiding corruption", async () => {
 		const manager = SessionManager.inMemory();
 		const tool = createResearchCheckpointTool(manager);

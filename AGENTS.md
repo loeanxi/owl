@@ -107,6 +107,10 @@ When closing issues via commit:
 
 - Include `fixes #<number>` or `closes #<number>` in the message so merging auto-closes the issue. For multiple issues, repeat the keyword per issue (`closes #1, closes #2`); a shared keyword (`closes #1, #2`) only closes the first.
 
+## Tool Schema Contract
+
+When adding or changing a tool's parameter schema or its validation errors, load and follow [.owl/skills/tool-schema-contract.md](.owl/skills/tool-schema-contract.md). Check with `npm run check:tool-contract`.
+
 ## Testing pi Interactive Mode with tmux
 
 For testing pi's interactive mode, load and follow [.owl/skills/interactive-testing.md](.owl/skills/interactive-testing.md).

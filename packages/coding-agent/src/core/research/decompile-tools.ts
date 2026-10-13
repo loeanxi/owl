@@ -24,24 +24,26 @@ export const RESEARCH_DECOMPILE_TOOL = "research_decompile";
 const decompilePath = Type.String({
 	minLength: 1,
 	maxLength: 4096,
-	description: "用户明确选中的本地 EXE、DLL、ASAR、JSC/CJSC 或 JavaScript 文件。",
+	description: "用户明确选中的本地 EXE、DLL、ASAR、JSC/CJSC 或 JavaScript 文件；action=decompile 时必填。",
 });
 const decompileTimeout = Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 }));
-const decompileAction = Type.Optional(Type.Literal("decompile"));
-const decompileNativeSchema = Type.Object(
+// 面向模型的已发布 schema 必须是单个扁平 object：anyOf(union-of-objects) 会让弱模型发出裸调用
+// （实测 glm-5.3-flash 对同类 schema 连续发出 arguments {}，且报错不含可自愈模板）。
+// 分支约束（decompile 必填 path、native 不接受 names、inventory 只探测）仍在 runResearchDecompile 内强制，行为不变。
+export const researchDecompileSchema = Type.Object(
 	{
-		action: decompileAction,
-		path: decompilePath,
-		engine: Type.Literal("native"),
-		timeoutMs: decompileTimeout,
-	},
-	{ additionalProperties: false, description: "原生 PE 静态反编译；不接受 names。" },
-);
-const decompileResourceSchema = Type.Object(
-	{
-		action: decompileAction,
-		path: decompilePath,
-		engine: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("bytecode"), Type.Literal("javascript")])),
+		action: Type.Optional(
+			Type.Union([Type.Literal("decompile"), Type.Literal("inventory")], {
+				description: "decompile=静态代码恢复（默认）；inventory=只探测工具链，不接受目标文件或分析参数。",
+			}),
+		),
+		path: Type.Optional(decompilePath),
+		engine: Type.Optional(
+			Type.Union(
+				[Type.Literal("auto"), Type.Literal("native"), Type.Literal("bytecode"), Type.Literal("javascript")],
+				{ description: "auto=按实际文件识别（默认）；native=原生 PE；bytecode=JSC/CJSC；javascript=已有 JS。" },
+			),
+		),
 		/** For an application, explicit names are relative to resources/app or its ASAR root. */
 		names: Type.Optional(
 			Type.Array(Type.String({ minLength: 1, maxLength: 1024 }), {
@@ -53,13 +55,13 @@ const decompileResourceSchema = Type.Object(
 		),
 		timeoutMs: decompileTimeout,
 	},
-	{ additionalProperties: false, description: "Electron、JavaScript 或字节码静态恢复。" },
+	{
+		additionalProperties: false,
+		description: "action=decompile 时 path 必填；engine=native 时省略 names；inventory 只接受 action。",
+	},
 );
-const inventorySchema = Type.Object(
-	{ action: Type.Literal("inventory") },
-	{ additionalProperties: false, description: "只检查可用工具链，不接受目标文件或分析参数。" },
-);
-export const researchDecompileSchema = Type.Union([inventorySchema, decompileNativeSchema, decompileResourceSchema]);
+const DECOMPILE_TEMPLATE =
+	'标准格式：{"action":"decompile","path":"<用户选中的本地 EXE、DLL、ASAR、JSC 或 JS>","engine":"auto","timeoutMs":60000}；只探测工具链用 {"action":"inventory"}；engine=native 时省略 names。';
 
 export interface ResearchDecompileReport {
 	createdAt: string;
@@ -115,11 +117,11 @@ export async function runResearchDecompile(
 				: undefined;
 		if (candidate?.engine === "native" && Object.hasOwn(candidate, "names"))
 			throw new Error("native 不接受 names；请移除 names 后重试");
-		throw new Error("反编译参数无效");
+		throw new Error(`反编译参数无效，不接受其它字段。${DECOMPILE_TEMPLATE}`);
 	}
 	const input = value as Static<typeof researchDecompileSchema>;
 	if (input.action === "inventory") throw new Error("inventory 不进行反编译");
-	if (!input.path) throw new Error("反编译需要用户明确选中的本地路径");
+	if (!input.path) throw new Error(`反编译需要用户明确选中的本地路径。${DECOMPILE_TEMPLATE}`);
 	const names = "names" in input ? input.names : undefined;
 	signal?.throwIfAborted();
 	const path = await selectedFile(input.path, workspace);

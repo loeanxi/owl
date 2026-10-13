@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
 import { Readability } from "@mozilla/readability";
-import { DOMParser } from "linkedom";
+import { DOMParser, type HTMLElement as LinkedomHTMLElement } from "linkedom";
 import { Agent, fetch as transportFetch } from "undici";
 import { resolvePublicNewsHost } from "./dns.ts";
 import type { NewsMaterial, NewsSourceInput } from "./types.ts";
@@ -237,7 +237,7 @@ export async function fetchNewsText(
 export function newsPlainText(value: string): string {
 	const document = new DOMParser().parseFromString(`<html><body>${value}</body></html>`, "text/html");
 	for (const element of document.querySelectorAll("script,style,iframe,object,embed")) element.remove();
-	return document.body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+	return (document.body as LinkedomHTMLElement).textContent?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function safeArticleUrl(value: string, base: string): string | null {
@@ -396,7 +396,7 @@ export function extractNewsBody(html: string, url: string): { title: string; bod
 	for (const node of doc.querySelectorAll("script,style,iframe,object,embed,form")) node.remove();
 	const base = doc.createElement("base", {});
 	base.setAttribute("href", url);
-	doc.head.prepend(base);
+	(doc.head as LinkedomHTMLElement).prepend(base);
 	const result = new Readability(doc as unknown as ConstructorParameters<typeof Readability>[0], {
 		charThreshold: 80,
 		maxElemsToParse: 50000,

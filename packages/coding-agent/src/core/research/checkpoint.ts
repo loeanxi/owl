@@ -66,7 +66,29 @@ const readSchema = Type.Object(
 	{ action: Type.Literal("read") },
 	{ additionalProperties: false, description: "读取当前分支最近的检查点，不接受其它字段。" },
 );
-export const researchCheckpointSchema = Type.Union([progressSaveSchema, completeSaveSchema, readSchema]);
+// 面向模型的已发布 schema 必须是单个扁平 object：anyOf(union-of-objects) 会让弱模型发出裸调用
+// （实测 glm-5.3-flash 连续 6 次发出 arguments {}，output 仅 6 token）。字段级必填约束
+// 仍由 execute 内的 saveSchema/readSchema 强制，行为不变。
+export const researchCheckpointSchema = Type.Object(
+	{
+		action: Type.Union([Type.Literal("save"), Type.Literal("read")], {
+			description: "save=保存当前研究进展，read=读取当前分支最近的检查点",
+		}),
+		goal: Type.Optional(checkpointContentFields.goal),
+		completed: Type.Optional(checkpointContentFields.completed),
+		findings: Type.Optional(checkpointContentFields.findings),
+		nextActions: Type.Optional(checkpointContentFields.nextActions),
+		evidenceRefs: Type.Optional(checkpointContentFields.evidenceRefs),
+		status: Type.Optional(businessFields.status),
+		blockers: Type.Optional(blockerList),
+	},
+	{
+		additionalProperties: false,
+		description: "action=save 时必须提供全部业务字段，没有内容的列表传 []；action=read 时只接受 action 字段。",
+	},
+);
+const SAVE_TEMPLATE =
+	'标准格式：{"action":"save","goal":"<研究目标>","status":"in_progress","completed":["<已完成事项>"],"findings":["<关键发现>"],"nextActions":["<下一步>"],"blockers":[],"evidenceRefs":["<证据引用>"]}；没有内容的列表传 []';
 const recordSchema = Type.Object(
 	{
 		id: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }),
@@ -99,7 +121,12 @@ function normalizedCheckpoint(value: unknown): ResearchCheckpoint {
 	const serialized = JSON.stringify(checkpoint);
 	if (Buffer.byteLength(serialized, "utf8") > MAX_CHECKPOINT_BYTES)
 		throw new Error("研究检查点超过 16 KiB，请保留关键进展并引用已有证据");
-	return JSON.parse(serialized) as ResearchCheckpoint;
+	try {
+		return JSON.parse(serialized) as ResearchCheckpoint;
+	} catch (error) {
+		// recordSchema 已校验结构，理论上不可达；防御性包装，避免原始 SyntaxError 直接外泄
+		throw new Error("研究检查点记录格式无效，不能恢复该记录", { cause: error });
+	}
 }
 
 /** Only the current branch participates; a malformed latest checkpoint never falls back to an older one. */
@@ -137,12 +164,12 @@ export function createResearchCheckpointTool(
 			ctx.signal?.throwIfAborted();
 			const action = input.action;
 			const rawInput: unknown = input;
-			if (input.action === "save" && input.status === "complete" && input.blockers.length > 0)
+			if (input.action === "save" && input.status === "complete" && (input.blockers?.length ?? 0) > 0)
 				throw new Error("研究检查点 complete 状态不能包含未解决 blockers；请用 in_progress 或 blocked");
 			if (!Value.Check(researchCheckpointSchema, rawInput)) {
-				if (action === "save")
-					throw new Error("保存研究检查点必须提供全部业务字段，且 complete 状态不能包含未解决 blockers");
-				throw new Error("研究检查点参数无效");
+				if (action === "save" || action === undefined)
+					throw new Error(`保存研究检查点必须提供全部业务字段，不接受其它字段。${SAVE_TEMPLATE}`);
+				throw new Error('研究检查点参数无效，不接受其它字段；读取当前分支用 {"action":"read"}。');
 			}
 			if (input.action === "read") {
 				if (!Value.Check(readSchema, input)) throw new Error("读取研究检查点只接受 action=read");
@@ -161,7 +188,7 @@ export function createResearchCheckpointTool(
 					details: { researchCheckpoint: checkpoint },
 				};
 			}
-			if (!Value.Check(saveSchema, input)) throw new Error("保存研究检查点必须提供全部业务字段，不接受其它字段");
+			if (!Value.Check(saveSchema, input)) throw new Error(`保存研究检查点必须提供全部业务字段。${SAVE_TEMPLATE}`);
 			// Refuse to overwrite a corrupt current record with an apparently valid newer status.
 			const previous = getResearchCheckpoint(sessionManager);
 			if (previous && previous.ownerSessionId !== ownerSessionId) throw new Error("研究检查点记录的会话归属无效");

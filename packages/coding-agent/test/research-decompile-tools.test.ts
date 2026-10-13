@@ -359,6 +359,13 @@ describe("research decompile routing and evidence", () => {
 		for (const value of [{}, { path: "toy.exe", command: "never" }, { path: "toy.exe", engine: "execute" }]) {
 			await expect(runResearchDecompile(value, root)).rejects.toThrow();
 		}
+		// 回归：弱模型裸调用/带未知字段时，报错必须带可照抄 JSON 模板（glm-5.3-flash 对 anyOf schema 曾连续 6 次发空参数）
+		for (const value of [{}, { path: "toy.exe", command: "never" }]) {
+			const error = await runResearchDecompile(value, root).catch((reason: unknown) => reason as Error);
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain("标准格式");
+			expect((error as Error).message).toContain('"action":"decompile"');
+		}
 		const path = join(root, "directory.exe");
 		await mkdir(path);
 		await expect(runResearchDecompile({ path }, root)).rejects.toThrow("普通文件");
