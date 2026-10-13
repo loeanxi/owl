@@ -43,17 +43,19 @@ export interface LoopGuardStop {
 	count: number;
 }
 
-/** A total model-round budget, independent of successful operations or failure fingerprints. */
+/** An optional explicit model-round cap, independent of successful operations or failure fingerprints. */
 export class TaskTurnBudget {
-	private limit = 64;
+	private limit: number | undefined;
 	private count = 0;
 
 	reset(value?: unknown): void {
-		this.limit = typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 1024 ? value : 64;
+		this.limit =
+			typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 1024 ? value : undefined;
 		this.count = 0;
 	}
 
 	completeTurn(): LoopGuardStop | undefined {
+		if (this.limit === undefined) return undefined;
 		this.count++;
 		return this.count >= this.limit ? { reason: "turn-budget", toolName: "agent", count: this.count } : undefined;
 	}

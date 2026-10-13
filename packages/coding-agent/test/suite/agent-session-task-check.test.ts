@@ -519,13 +519,24 @@ describe("bounded error recovery feedback", () => {
 				.some((entry) => entry.type === "custom_message" && entry.customType === "owl-loop-guard-stop"),
 		).toBe(false);
 	});
-	it.each([undefined, null, false, "4", 0, -1, 1.5, 1025, Number.NaN, Infinity])(
-		"invalid turn budget %s falls back to a finite 64",
+	it.each([undefined, null, false, "4", -1, 1.5, 1025, Number.NaN, Infinity])(
+		"unset or invalid turn budget %s keeps the request unlimited",
 		(value) => {
 			const budget = new TaskTurnBudget();
 			budget.reset(value);
-			for (let turn = 1; turn < 64; turn++) expect(budget.completeTurn()).toBeUndefined();
-			expect(budget.completeTurn()).toEqual({ reason: "turn-budget", toolName: "agent", count: 64 });
+			for (let turn = 1; turn <= 1025; turn++) expect(budget.completeTurn()).toBeUndefined();
+		},
+	);
+
+	it.each([undefined, 0])(
+		"keeps the default unlimited before and after disabling an explicit cap with %s",
+		(value) => {
+			const budget = new TaskTurnBudget();
+			for (let turn = 1; turn <= 65; turn++) expect(budget.completeTurn()).toBeUndefined();
+			budget.reset(1);
+			expect(budget.completeTurn()).toMatchObject({ reason: "turn-budget", count: 1 });
+			budget.reset(value);
+			for (let turn = 1; turn <= 65; turn++) expect(budget.completeTurn()).toBeUndefined();
 		},
 	);
 
@@ -596,18 +607,30 @@ describe("bounded error recovery feedback", () => {
 		expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: true }]);
 	});
 
-	it("allows a legitimate long local workflow below the default 64 rounds", async () => {
-		const harness = await setup();
-		harness.setResponses([
-			...Array.from({ length: 48 }, (_, offset) =>
-				fauxAssistantMessage(fauxToolCall("probe", { offset }), { stopReason: "toolUse" }),
-			),
-			fauxAssistantMessage("The local workflow completed."),
-		]);
-		await harness.session.prompt("Perform and verify the long local workflow.");
-		expect(harness.getPendingResponseCount()).toBe(0);
-		expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: false }]);
-	});
+	it.each([undefined, 0])(
+		"completes a legitimate local workflow beyond 64 rounds with agentMaxTurns=%s",
+		async (agentMaxTurns) => {
+			const harness = await setup();
+			harness.settingsManager.applyOverrides({ agentMaxTurns });
+			harness.setResponses([
+				...Array.from({ length: 80 }, (_, offset) =>
+					fauxAssistantMessage(fauxToolCall("probe", { offset }), { stopReason: "toolUse" }),
+				),
+				fauxAssistantMessage("The local workflow completed."),
+			]);
+			await harness.session.prompt("Perform and verify the long local workflow.");
+			expect(harness.getPendingResponseCount()).toBe(0);
+			expect(
+				harness.session.messages.filter((message) => message.role === "toolResult" && message.toolName === "probe"),
+			).toHaveLength(80);
+			expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: false }]);
+			expect(
+				harness.sessionManager
+					.getEntries()
+					.some((entry) => entry.type === "custom_message" && entry.customType === "owl-loop-guard-stop"),
+			).toBe(false);
+		},
+	);
 	it("caps different successful operations at the snapshotted user-turn model budget", async () => {
 		const harness = await setup();
 		harness.settingsManager.applyOverrides({ agentMaxTurns: 4 });

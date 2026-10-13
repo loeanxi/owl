@@ -2,15 +2,15 @@ import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-work
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTaskCheckExtension } from "../../src/extensions/task-check/index.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
 afterEach(() => {
 	for (const harness of harnesses.splice(0)) harness.cleanup();
 });
 
-function thinkingOnlyLength() {
-	const message = fauxAssistantMessage(fauxThinking("Continue analyzing the source without producing an action."), {
+function thinkingOnlyLength(thinking = "Continue analyzing the source without producing an action.") {
+	const message = fauxAssistantMessage(fauxThinking(thinking), {
 		stopReason: "length",
 	});
 	message.usage = { ...message.usage, output: 18432, totalTokens: 18432 };
@@ -20,6 +20,7 @@ function thinkingOnlyLength() {
 async function setup(options: { compactionEnabled?: boolean; agentMaxTurns?: number; guard?: boolean } = {}) {
 	let reads = 0;
 	let writes = 0;
+	const recoveryContexts: string[][] = [];
 	const harness = await createHarness({
 		models: [{ id: "faux-1", maxTokens: 16384, contextWindow: 196608, reasoning: true }],
 		settings: {
@@ -31,6 +32,15 @@ async function setup(options: { compactionEnabled?: boolean; agentMaxTurns?: num
 		extensionFactories: [
 			...(options.guard ? [createTaskCheckExtension()] : []),
 			(pi) => {
+				pi.on("context", async (event) => {
+					recoveryContexts.push(
+						event.messages
+							.filter(
+								(message) => message.role === "custom" && message.customType === "owl-empty-length-recovery",
+							)
+							.map(getMessageText),
+					);
+				});
 				pi.registerTool({
 					name: "read",
 					label: "Read",
@@ -55,7 +65,7 @@ async function setup(options: { compactionEnabled?: boolean; agentMaxTurns?: num
 		],
 	});
 	harnesses.push(harness);
-	return { harness, reads: () => reads, writes: () => writes };
+	return { harness, reads: () => reads, writes: () => writes, recoveryContexts };
 }
 
 describe("thinking-only output truncation", () => {
@@ -91,20 +101,24 @@ describe("thinking-only output truncation", () => {
 		},
 	);
 
-	it("reports incomplete and settles aborted when the one recovery is also thinking-only length", async () => {
+	it("keeps recovering across consecutive thinking-only truncations and later tool progress", async () => {
 		const fixture = await setup();
 		fixture.harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("read", { path: "src/process.py" }), { stopReason: "toolUse" }),
 			thinkingOnlyLength(),
 			thinkingOnlyLength(),
-			fauxAssistantMessage("This false completion must remain unused."),
+			fauxAssistantMessage(fauxToolCall("write", { path: "src/process.py", content: "Fixed implementation" }), {
+				stopReason: "toolUse",
+			}),
+			thinkingOnlyLength(),
+			fauxAssistantMessage("The implementation is complete."),
 		]);
 		await fixture.harness.session.prompt("Repair the local data processor.");
-		expect(fixture.harness.faux.state.callCount).toBe(3);
-		expect(fixture.harness.getPendingResponseCount()).toBe(1);
+		expect(fixture.harness.faux.state.callCount).toBe(6);
+		expect(fixture.harness.getPendingResponseCount()).toBe(0);
 		expect(fixture.reads()).toBe(1);
-		expect(fixture.writes()).toBe(0);
-		expect(fixture.harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: true }]);
+		expect(fixture.writes()).toBe(1);
+		expect(fixture.harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: false }]);
 		expect(
 			fixture.harness.sessionManager
 				.getEntries()
@@ -112,7 +126,58 @@ describe("thinking-only output truncation", () => {
 					(entry) =>
 						entry.type === "custom_message" && entry.display && entry.customType === "owl-empty-length-stop",
 				),
-		).toBe(true);
+		).toBe(false);
+		expect(fixture.recoveryContexts.every((messages) => messages.length <= 1)).toBe(true);
+	});
+
+	it("carries only the bounded latest thinking checkpoint while preserving raw history", async () => {
+		const fixture = await setup();
+		const latestThinking = `DISCARDED_CHECKPOINT_HEAD${"x".repeat(15000)}LATEST_CHECKPOINT_TAIL`;
+		fixture.harness.setResponses([
+			thinkingOnlyLength("OLDER_CHECKPOINT_TAIL"),
+			thinkingOnlyLength(latestThinking),
+			fauxAssistantMessage(fauxToolCall("write", { path: "source", content: "Finished once" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("Completed."),
+		]);
+		await fixture.harness.session.prompt("Complete the local source change.");
+		expect(fixture.writes()).toBe(1);
+		expect(fixture.harness.getPendingResponseCount()).toBe(0);
+		expect(fixture.recoveryContexts).toHaveLength(4);
+		expect(fixture.recoveryContexts.every((messages) => messages.length <= 1)).toBe(true);
+		const checkpoint = fixture.recoveryContexts[2][0];
+		expect(checkpoint).toContain(latestThinking.slice(-12000));
+		expect(checkpoint).toContain("LATEST_CHECKPOINT_TAIL");
+		expect(checkpoint).not.toContain("DISCARDED_CHECKPOINT_HEAD");
+		expect(checkpoint).not.toContain("OLDER_CHECKPOINT_TAIL");
+		expect(checkpoint.length).toBeLessThan(14000);
+		expect(
+			fixture.harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "owl-empty-length-recovery",
+			),
+		).toHaveLength(1);
+		const rawLengthEntries = fixture.harness.sessionManager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "message" && entry.message.role === "assistant" && entry.message.stopReason === "length",
+			);
+		expect(rawLengthEntries).toHaveLength(2);
+		expect(JSON.stringify(rawLengthEntries)).toContain("DISCARDED_CHECKPOINT_HEAD");
+	});
+
+	it("bounds the encoded checkpoint even when its draft needs extensive JSON escaping", async () => {
+		const fixture = await setup();
+		fixture.harness.setResponses([
+			thinkingOnlyLength(`${'"\n'.repeat(10000)}LATEST_ESCAPED_TAIL`),
+			fauxAssistantMessage("Completed."),
+		]);
+		await fixture.harness.session.prompt("Complete the local source change.");
+		const checkpoint = fixture.recoveryContexts[1][0];
+		expect(checkpoint.length).toBeLessThan(14000);
+		const encodedDraft = checkpoint.split("\n").at(-1)!;
+		expect(JSON.parse(encodedDraft)).toMatch(/LATEST_ESCAPED_TAIL$/);
 	});
 
 	it("never recovers past a user abort", async () => {
@@ -159,19 +224,23 @@ describe("thinking-only output truncation", () => {
 		).toBe(false);
 	});
 
-	it("starts a fresh recovery allowance only when a new user request is delivered", async () => {
+	it("recovers independent real user requests without imposing a one-recovery allowance", async () => {
 		const fixture = await setup();
-		fixture.harness.setResponses([thinkingOnlyLength(), thinkingOnlyLength()]);
+		fixture.harness.setResponses([
+			thinkingOnlyLength(),
+			thinkingOnlyLength(),
+			fauxAssistantMessage("First task done."),
+		]);
 		await fixture.harness.session.prompt("Inspect the first task.");
 		fixture.harness.setResponses([
 			thinkingOnlyLength(),
 			fauxAssistantMessage("The new request has an actionable answer."),
 		]);
 		await fixture.harness.session.prompt("Now inspect the second task.");
-		expect(fixture.harness.faux.state.callCount).toBe(4);
+		expect(fixture.harness.faux.state.callCount).toBe(5);
 		expect(fixture.harness.getPendingResponseCount()).toBe(0);
 		expect(fixture.harness.eventsOfType("agent_settled")).toEqual([
-			{ type: "agent_settled", aborted: true },
+			{ type: "agent_settled", aborted: false },
 			{ type: "agent_settled", aborted: false },
 		]);
 	});

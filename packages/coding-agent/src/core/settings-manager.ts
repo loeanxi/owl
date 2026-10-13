@@ -184,7 +184,7 @@ export interface Settings {
 	defaultThinkingLevel?: ThinkingLevel;
 	/** Ordinary reply budget, separate from model output capability. Thinking may add its own budget. Default: 16384. */
 	requestMaxTokens?: number;
-	/** Completed model rounds per real user turn. Integer 1..1024; invalid values fall back to 64. */
+	/** Optional model-round cap per real user turn. Default/0/invalid: unlimited; integer 1..1024 sets a cap. */
 	agentMaxTurns?: number;
 	modelThinkingLevels?: Record<string, ThinkingLevel>; // per-model default thinking level overrides keyed by "provider/modelId"
 	transport?: TransportSetting; // default: "auto"

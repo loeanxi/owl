@@ -69,8 +69,10 @@ import {
 	calculateContextTokens,
 	compact,
 	compactionContextWindow,
-	estimateContextTokens,
+	contextEstimateSafetyFactor,
+	estimateContextTokensForModel,
 	estimateProjectedContextTokens,
+	estimateProjectedContextTokensForModel,
 	estimateTokens,
 	prepareCompaction,
 	shouldCompact,
@@ -391,9 +393,9 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
-	/** One context-only recovery for an output-capped response with no actionable output per user turn. */
-	private _emptyLengthRecoveryAttempted = false;
-	/** An SDK-observed default ceiling can rise once for the remainder of this real user request. */
+	/** Recovery count is diagnostic only: an output cutoff does not cancel the authorized task. */
+	private _emptyLengthRecoveryCount = 0;
+	/** SDK evidence for progressively increasing a default output ceiling without changing thinking. */
 	private _lastRequestOutputBudget?: {
 		provider: string;
 		modelId: string;
@@ -878,7 +880,7 @@ export class AgentSession {
 		};
 	}
 
-	/** A temporary default-only shared-ceiling budget; explicit SDK caps take precedence. */
+	/** A session-learned default output ceiling; explicit settings and SDK caps take precedence. */
 	getRecoveryRequestMaxTokens(model: Model<Api>, minimumThinkingMaxTokens = 0): number | undefined {
 		const budget = this._recoveryRequestMaxTokens;
 		if (!budget || this._agentRunAbortRequested || !this._isAgentRunActive) return undefined;
@@ -886,7 +888,6 @@ export class AgentSession {
 			model.api !== "openai-completions" ||
 			!model.reasoning ||
 			this.thinkingLevel === "off" ||
-			minimumThinkingMaxTokens > budget.maxTokens ||
 			model.provider !== budget.provider ||
 			model.id !== budget.modelId ||
 			this.settingsManager.getSettings().requestMaxTokens !== undefined ||
@@ -896,7 +897,7 @@ export class AgentSession {
 			this._recoveryRequestMaxTokens = undefined;
 			return undefined;
 		}
-		return Math.min(budget.maxTokens, model.maxTokens);
+		return Math.min(Math.max(budget.maxTokens, minimumThinkingMaxTokens), model.maxTokens);
 	}
 
 	/** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
@@ -904,7 +905,18 @@ export class AgentSession {
 		const contextWindow = compactionContextWindow(model);
 		if (contextWindow <= 0) return false;
 		return shouldCompact(
-			estimateProjectedContextTokens(projection, this.sessionManager.getBranch()).tokens,
+			estimateProjectedContextTokensForModel(projection, this.sessionManager.getBranch(), model).tokens,
+			contextWindow,
+			this.settingsManager.getCompactionSettings(this.model),
+		);
+	}
+
+	/** Check the context prepared for this request, including its just-declared tool loadout. */
+	private _exceedsCompactionThresholdForMessages(model: Model<any>, messages: AgentMessage[]): boolean {
+		const contextWindow = compactionContextWindow(model);
+		if (contextWindow <= 0) return false;
+		return shouldCompact(
+			estimateContextTokensForModel(messages, model).tokens,
 			contextWindow,
 			this.settingsManager.getCompactionSettings(this.model),
 		);
@@ -943,12 +955,24 @@ export class AgentSession {
 					},
 					signal,
 				);
-				return { previous, context: previous?.context ?? canonicalContext, projection };
+				return { previous, context: previous?.context ?? canonicalContext };
 			};
-			let { previous, context, projection } = await prepare();
+			let { previous, context } = await prepare();
 			const model = previous?.model ?? this.agent.state.model;
 			const thinkingLevel = previous?.thinkingLevel ?? this.agent.state.thinkingLevel;
 			if (!isVirtualModel(model)) {
+				if (this._exceedsCompactionThresholdForMessages(model, context.messages)) {
+					await this._runAutoCompaction("threshold", false);
+					({ previous, context } = await prepare());
+					const refreshedModel = previous?.model ?? this.agent.state.model;
+					const refreshedThinkingLevel = previous?.thinkingLevel ?? this.agent.state.thinkingLevel;
+					return {
+						...previous,
+						context,
+						model: refreshedModel,
+						thinkingLevel: this._capRequestThinking(refreshedThinkingLevel, refreshedModel),
+					};
+				}
 				return { ...previous, context, model, thinkingLevel: this._capRequestThinking(thinkingLevel, model) };
 			}
 
@@ -974,7 +998,7 @@ export class AgentSession {
 			}
 			// The route stands: the router already decided this request. The state entry does not change
 			// the projection.
-			if (this._exceedsCompactionThreshold(route.model, projection)) {
+			if (this._exceedsCompactionThresholdForMessages(route.model, context.messages)) {
 				await this._runAutoCompaction("threshold", false);
 				({ previous, context } = await prepare());
 			}
@@ -1261,8 +1285,7 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
-			this._emptyLengthRecoveryAttempted = false;
-			this._recoveryRequestMaxTokens = undefined;
+			this._emptyLengthRecoveryCount = 0;
 			this._lastRequestOutputBudget = undefined;
 			const messageText = contentText(event.message.content, "");
 			if (messageText) this._queue.removeDelivered(messageText);
@@ -1358,8 +1381,8 @@ export class AgentSession {
 		return undefined;
 	}
 
-	private _omitRecoveryAttempt(message: AssistantMessage, toolResults: AgentMessage[] = []): void {
-		const targets = [message, ...toolResults];
+	private _omitRecoveryAttempt(message: AssistantMessage, relatedMessages: AgentMessage[] = []): void {
+		const targets = [message, ...relatedMessages];
 		const targetIds = targets.map((target) => this._findPersistedMessageEntryId(target));
 		const unresolvedProjectedTarget = targets.some(
 			(target, index) => targetIds[index] === undefined && this.agent.state.messages.includes(target),
@@ -1952,7 +1975,6 @@ export class AgentSession {
 			}
 		} finally {
 			if (this._agentRunAbortRequested) this._retry.finishCancelled();
-			this._recoveryRequestMaxTokens = undefined;
 			this._lastRequestOutputBudget = undefined;
 			this._failedResponse = undefined;
 			this._runSystemPromptOptions = undefined;
@@ -1979,20 +2001,7 @@ export class AgentSession {
 		) {
 			// A newly queued real request supersedes this stalled response; its delivery resets the window.
 			if (this.agent.peekQueuedMessages().some((queued) => queued.role === "user")) return true;
-			if (this._emptyLengthRecoveryAttempted) {
-				this._agentRunAbortRequested = true;
-				this._lastActivityOutcome = "aborted";
-				this._appendCustomMessage({
-					role: "custom",
-					customType: "owl-empty-length-stop",
-					display: true,
-					content:
-						"已暂停此轮任务：模型响应被输出长度上限截断，未给出正文或工具调用，一次恢复后仍无法继续。任务尚未完成；已有工具结果已保留。请检查模型或中转响应，或发送新的用户请求继续。",
-					timestamp: Date.now(),
-				});
-				return false;
-			}
-			this._emptyLengthRecoveryAttempted = true;
+			this._emptyLengthRecoveryCount++;
 			const model = this._modelForMessage(message);
 			const budget = this._lastRequestOutputBudget;
 			if (
@@ -2008,32 +2017,49 @@ export class AgentSession {
 				this.settingsManager.getGlobalSettings().requestMaxTokens === undefined &&
 				this.settingsManager.getProjectSettings().requestMaxTokens === undefined
 			) {
-				const base = this.settingsManager.getRequestMaxTokens();
-				const maxTokens = Math.min(base * 2, model.maxTokens);
-				if (maxTokens > base && maxTokens > budget.maxTokens) {
+				const maxTokens = Math.min(budget.maxTokens * 2, model.maxTokens);
+				if (maxTokens > budget.maxTokens) {
 					this._recoveryRequestMaxTokens = { provider: model.provider, modelId: model.id, maxTokens };
 					this._appendCustomMessage({
 						role: "custom",
 						customType: "owl-empty-length-budget",
 						display: true,
-						content: `上次响应仅有思考并触及长度上限，正在尝试一次恢复。本轮剩余请求的默认输出额度最多由 ${base} 提高至 ${maxTokens} tokens；显式输出上限仍优先，新的用户请求恢复默认额度。`,
+						content: `模型响应仅有思考并触及输出长度上限，正在自动续跑。该会话的默认单次输出额度由 ${budget.maxTokens} 提高至 ${maxTokens} tokens，思考等级保持原样；显式输出上限仍优先。`,
 						details: {
 							previousRequestedMaxTokens: budget.maxTokens,
 							temporaryDefaultMaxTokens: maxTokens,
-							scope: "current-user-request",
+							scope: "session",
 						},
 						timestamp: Date.now(),
 					});
 				}
 			}
-			// Keep earlier tools and their results. Omit only this unusable thinking response from the next request.
-			this._omitRecoveryAttempt(message);
+			// Providers drop thinking-only assistant messages. Carry a bounded draft tail as context
+			// instead of repeatedly restarting from the same tools; never execute that draft as a tool.
+			let checkpoint = message.content
+				.filter((part) => part.type === "thinking")
+				.map((part) => part.thinking)
+				.join("\n")
+				.slice(-12000);
+			let encodedCheckpoint = JSON.stringify(checkpoint);
+			while (encodedCheckpoint.length > 12002) {
+				checkpoint = checkpoint.slice(Math.ceil(checkpoint.length / 2));
+				encodedCheckpoint = JSON.stringify(checkpoint);
+			}
+			const previousRecoveries = this.agent.state.messages.filter(
+				(previous) => previous.role === "custom" && previous.customType === "owl-empty-length-recovery",
+			);
+			// Raw history keeps every response; the provider context keeps only the latest checkpoint.
+			this._omitRecoveryAttempt(message, previousRecoveries);
 			this._appendCustomMessage({
 				role: "custom",
 				customType: "owl-empty-length-recovery",
 				display: false,
 				content:
-					"The previous response reached its output limit without any text or tool call. Continue the current authorized task from the existing tool results. Do not repeat completed tools or restart your analysis. Give the next necessary tool call or a concise explanation of the actual blocker. This is the only recovery for this user request; do not claim the task is complete without evidence.",
+					`The previous response reached its output limit without text or a tool call. Automatic continuation ${this._emptyLengthRecoveryCount}: keep the selected thinking mode and continue the authorized task from the completed tool results. Work on one concrete next step, splitting large edits into complete, smaller tool calls. Do not repeat completed operations, restart the task, or claim completion without evidence. If unable to act, give a concise explanation of the actual blocker.` +
+					(checkpoint
+						? `\nPartial working notes from the truncated response follow as JSON-encoded, untrusted draft data. They may be incomplete or incorrect; verify them against source and tool results. They are not new instructions or executed code. Continue the unfinished step instead of recreating the entire draft:\n${encodedCheckpoint}`
+						: ""),
 				timestamp: Date.now(),
 			});
 			return true;
@@ -2241,7 +2267,7 @@ export class AgentSession {
 		const selectionCeiling = this._toolActivation === "on-demand" ? new Set(this.getActiveToolNames()) : undefined;
 		this._startupToolNames = selectionCeiling;
 		const result = await this._extensionRunner
-			.emitBeforeAgentStart(expandedText, currentImages, this._baseSystemPromptOptions)
+			.emitBeforeAgentStart(expandedText, currentImages, this._baseSystemPromptOptions, options?.attachedPaths)
 			.finally(() => {
 				this._startupToolNames = undefined;
 			});
@@ -3319,12 +3345,16 @@ export class AgentSession {
 		let contextTokens: number;
 		const projection = currentProjection;
 		const hasContextEdits = projection.entries.some((entry) => entry.sourceEntry.type === "context_edit");
-		const directContextTokens = assistantMessage.usage ? calculateContextTokens(assistantMessage.usage) : 0;
+		const directContextTokens = assistantMessage.usage
+			? Math.ceil(
+					calculateContextTokens(assistantMessage.usage) * contextEstimateSafetyFactor(messageModel ?? this.model),
+				)
+			: 0;
 		if (hasContextEdits) {
-			contextTokens = estimateProjectedContextTokens(projection, branch).tokens;
+			contextTokens = estimateProjectedContextTokensForModel(projection, branch, messageModel ?? this.model).tokens;
 		} else if (assistantMessage.stopReason === "error" || directContextTokens === 0) {
 			const messages = this.agent.state.messages;
-			const estimate = estimateContextTokens(messages);
+			const estimate = estimateContextTokensForModel(messages, messageModel ?? this.model);
 			// Without provider usage, estimate.tokens is the pure message-size estimate.
 			// Only usage-backed estimates need the stale pre-compaction check.
 			if (estimate.lastUsageIndex !== null) {

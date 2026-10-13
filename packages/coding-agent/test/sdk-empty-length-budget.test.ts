@@ -221,7 +221,7 @@ const sequence: Response[] = [
 ];
 
 describe("default-only output budget after thinking-only truncation", () => {
-	it("raises only the remaining current-user SDK/payload budget and preserves completed effects and thinking", async () => {
+	it("raises the default SDK/payload budget and preserves completed effects and thinking", async () => {
 		const fixture = await setup();
 		fixture.respond(sequence);
 		await fixture.session.prompt("Complete the authorized local task.");
@@ -235,9 +235,63 @@ describe("default-only output budget after thinking-only truncation", () => {
 		expect(fixture.transportCalls()).toBe(0);
 	});
 
+	it("doubles each failed default ceiling through repeated truncations without reducing thinking", async () => {
+		const fixture = await setup({ maxTokens: 131072 });
+		fixture.respond([
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "action", phase: "completed" },
+			{ kind: "done" },
+		]);
+		await fixture.session.prompt("Finish the authorized source change.");
+		expect(fixture.calls.map((call) => call.sdkMaxTokens)).toEqual([16384, 32768, 65536, 131072, 131072]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 32768, 65536, 131072, 131072]);
+		expect(fixture.calls.every((call) => call.thinking === "max")).toBe(true);
+		expect(fixture.session.thinkingLevel).toBe("max");
+		expect(fixture.records).toEqual(["completed"]);
+		expect(fixture.pending()).toBe(0);
+		expect(fixture.manager.getSettings().requestMaxTokens).toBeUndefined();
+		expect(fixture.transportCalls()).toBe(0);
+	});
+
+	it("keeps recovering at the model output maximum until a tool can execute", async () => {
+		const fixture = await setup({ maxTokens: 20000 });
+		fixture.respond([
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "action", phase: "at-cap" },
+			{ kind: "done" },
+		]);
+		await fixture.session.prompt("Complete this task at the model's output limit.");
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 20000, 20000, 20000, 20000]);
+		expect(fixture.calls.every((call) => call.thinking === "max")).toBe(true);
+		expect(fixture.records).toEqual(["at-cap"]);
+		expect(fixture.pending()).toBe(0);
+		expect(fixture.transportCalls()).toBe(0);
+	});
+
+	it("continues escalation after successful tools without replaying their side effects", async () => {
+		const fixture = await setup();
+		fixture.respond([
+			{ kind: "action", phase: "first" },
+			{ kind: "length" },
+			{ kind: "action", phase: "second" },
+			{ kind: "length" },
+			{ kind: "action", phase: "third" },
+			{ kind: "done" },
+		]);
+		await fixture.session.prompt("Complete each required local step.");
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 16384, 32768, 32768, 65536, 65536]);
+		expect(fixture.records).toEqual(["first", "second", "third"]);
+		expect(fixture.pending()).toBe(0);
+		expect(fixture.transportCalls()).toBe(0);
+	});
+
 	it.each([16384, 4096])("keeps explicitly configured cap %s unchanged", async (requestMaxTokens) => {
 		const fixture = await setup({ settings: { requestMaxTokens } });
-		fixture.respond(sequence);
+		fixture.respond([{ kind: "length" }, { kind: "length" }, { kind: "action", phase: "capped" }, { kind: "done" }]);
 		await fixture.session.prompt("Complete the local task.");
 		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([
 			requestMaxTokens,
@@ -245,6 +299,9 @@ describe("default-only output budget after thinking-only truncation", () => {
 			requestMaxTokens,
 			requestMaxTokens,
 		]);
+		expect(fixture.records).toEqual(["capped"]);
+		expect(fixture.pending()).toBe(0);
+		expect(fixture.calls.every((call) => call.thinking === "max")).toBe(true);
 	});
 
 	it("protects explicit SDK stream caps", async () => {
@@ -252,9 +309,16 @@ describe("default-only output budget after thinking-only truncation", () => {
 		const previous = fixture.session.agent.streamFunction;
 		fixture.session.agent.streamFunction = (model, context, options) =>
 			previous(model, context, { ...options, maxTokens: 4096 });
-		fixture.respond(sequence);
+		fixture.respond([
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "action", phase: "sdk-capped" },
+			{ kind: "done" },
+		]);
 		await fixture.session.prompt("Complete the local task.");
 		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([4096, 4096, 4096, 4096]);
+		expect(fixture.records).toEqual(["sdk-capped"]);
+		expect(fixture.pending()).toBe(0);
 	});
 
 	it("does not earn uplift from a failure explicitly capped by its SDK caller", async () => {
@@ -269,11 +333,18 @@ describe("default-only output budget after thinking-only truncation", () => {
 
 	it("keeps a raw project output cap authoritative", async () => {
 		const fixture = await setup({ projectRequestMaxTokens: 4096 });
-		fixture.respond(sequence);
+		fixture.respond([
+			{ kind: "length" },
+			{ kind: "length" },
+			{ kind: "action", phase: "project-capped" },
+			{ kind: "done" },
+		]);
 		await fixture.session.prompt("Complete the local task.");
 		expect(fixture.manager.getGlobalSettings().requestMaxTokens).toBeUndefined();
 		expect(fixture.manager.getProjectSettings().requestMaxTokens).toBe(4096);
 		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([4096, 4096, 4096, 4096]);
+		expect(fixture.records).toEqual(["project-capped"]);
+		expect(fixture.pending()).toBe(0);
 	});
 
 	it("does not raise the budget for an empty length response without positive thinking evidence", async () => {
@@ -301,15 +372,15 @@ describe("default-only output budget after thinking-only truncation", () => {
 			);
 		fixture.respond([...sequence.slice(0, 3), { kind: "action", phase: "explicit-thinking" }, { kind: "done" }]);
 		await fixture.session.prompt("Complete the local task.");
-		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([17408, 17408, 32768, 66560, 17408]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([17408, 17408, 34816, 66560, 34816]);
 		expect(fixture.calls.every((call) => call.thinking === "max")).toBe(true);
 	});
 
-	it("does not lower an already larger default SDK budget and call that an uplift", async () => {
+	it("doubles an already larger actual default SDK budget up to the model limit", async () => {
 		const fixture = await setup({ budgetDialect: true, settings: { thinkingBudgets: { high: 65536 } } });
 		fixture.respond(sequence);
 		await fixture.session.prompt("Complete the local task.");
-		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([66560, 66560, 66560, 66560]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([66560, 66560, 128000, 128000]);
 	});
 
 	it.each([{ reasoning: false }, { thinking: "off" as const }, { api: "anthropic-messages" as const }])(
@@ -322,16 +393,17 @@ describe("default-only output budget after thinking-only truncation", () => {
 		},
 	);
 
-	it("resets uplift on a fresh real user request", async () => {
+	it("retains the learned ceiling on a fresh real user request without persisting settings", async () => {
 		const fixture = await setup();
 		fixture.respond(sequence);
 		await fixture.session.prompt("First task.");
 		fixture.respond([{ kind: "done" }]);
 		await fixture.session.prompt("Second task.");
-		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 16384, 32768, 32768, 16384]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 16384, 32768, 32768, 32768]);
+		expect(fixture.manager.getSettings().requestMaxTokens).toBeUndefined();
 	});
 
-	it("ends incomplete on a second length response without another escalation", async () => {
+	it("continues after a second length response with another escalation", async () => {
 		const fixture = await setup();
 		fixture.respond([{ kind: "length" }, { kind: "length" }, { kind: "done" }]);
 		const settled: boolean[] = [];
@@ -339,12 +411,12 @@ describe("default-only output budget after thinking-only truncation", () => {
 			if (event.type === "agent_settled") settled.push(event.aborted);
 		});
 		await fixture.session.prompt("Task that cannot yet complete.");
-		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 32768]);
-		expect(fixture.pending()).toBe(1);
-		expect(settled).toEqual([true]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 32768, 65536]);
+		expect(fixture.pending()).toBe(0);
+		expect(settled).toEqual([false]);
 	});
 
-	it("does not inherit uplift into a queued real user request", async () => {
+	it("inherits the learned ceiling into a queued real user request", async () => {
 		const fixture = await setup();
 		fixture.respond([...sequence, { kind: "done" }]);
 		fixture.hook((index, session) => {
@@ -352,7 +424,7 @@ describe("default-only output budget after thinking-only truncation", () => {
 				session.agent.followUp({ role: "user", content: "Now answer this new question.", timestamp: Date.now() });
 		});
 		await fixture.session.prompt("Original task.");
-		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 16384, 32768, 32768, 16384]);
+		expect(fixture.calls.map((call) => call.rawMaxTokens)).toEqual([16384, 16384, 32768, 32768, 32768]);
 	});
 
 	it("clears uplift after a selected-model change", async () => {
@@ -397,7 +469,7 @@ describe("default-only output budget after thinking-only truncation", () => {
 		expect(fixture.pending()).toBe(2);
 	});
 
-	it("keeps the default 64-round guard despite the recovery and visible budget messages", async () => {
+	it("continues beyond 64 rounds by default until authorized tool work completes", async () => {
 		const fixture = await setup({ guard: true });
 		fixture.respond([
 			{ kind: "action", phase: "before" },
@@ -410,10 +482,10 @@ describe("default-only output budget after thinking-only truncation", () => {
 			if (event.type === "agent_settled") settled.push(event.aborted);
 		});
 		await fixture.session.prompt("Many authorized local steps.");
-		expect(fixture.calls).toHaveLength(64);
+		expect(fixture.calls).toHaveLength(65);
 		expect(fixture.calls.slice(2).every((call) => call.rawMaxTokens === 32768)).toBe(true);
-		expect(fixture.pending()).toBe(1);
-		expect(settled).toEqual([true]);
+		expect(fixture.pending()).toBe(0);
+		expect(settled).toEqual([false]);
 		expect(fixture.transportCalls()).toBe(0);
 	});
 
