@@ -137,15 +137,9 @@ const NON_OVERFLOW_PATTERNS = [
 export function isContextOverflow(message: AssistantMessage, contextWindow?: number): boolean {
 	// Case 1: Check error message patterns
 	if (message.stopReason === "error" && message.errorMessage) {
-		// Skip messages matching known non-overflow patterns (e.g. throttling / rate-limit)
-		const isNonOverflow = NON_OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!));
-		if (!isNonOverflow) {
-			if (OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!))) {
-				return true;
-			}
-			if (message.provider === "cerebras" && CEREBRAS_BODYLESS_OVERFLOW_PATTERN.test(message.errorMessage)) {
-				return true;
-			}
+		if (isContextOverflowErrorMessage(message.errorMessage)) return true;
+		if (message.provider === "cerebras" && CEREBRAS_BODYLESS_OVERFLOW_PATTERN.test(message.errorMessage)) {
+			return true;
 		}
 	}
 
@@ -168,6 +162,12 @@ export function isContextOverflow(message: AssistantMessage, contextWindow?: num
 	}
 
 	return false;
+}
+
+/** Match explicit context-window overflow text without requiring an AssistantMessage. */
+export function isContextOverflowErrorMessage(errorMessage: string): boolean {
+	if (NON_OVERFLOW_PATTERNS.some((pattern) => pattern.test(errorMessage))) return false;
+	return OVERFLOW_PATTERNS.some((pattern) => pattern.test(errorMessage));
 }
 
 /**

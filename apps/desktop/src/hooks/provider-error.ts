@@ -1,6 +1,8 @@
 import { isProviderLimitError } from "../../../../packages/ai/src/utils/provider-limit.ts";
 import { getUiLanguage, t } from "../i18n/index.ts";
 
+const CONTEXT_OVERFLOW_ERROR_PATTERN = /prompt (?:is )?too long|context[_ ]length[_ ]exceeded/i;
+
 const LIMIT_COPY = {
 	zh: {
 		account: "账户额度或计费校验未通过：",
@@ -19,6 +21,7 @@ const LIMIT_COPY = {
 /** Preserve the gateway's detail, but classify billing failures before HTTP status. */
 export function formatProviderError(raw: string | undefined): string | undefined {
 	if (!raw) return undefined;
+	if (CONTEXT_OVERFLOW_ERROR_PATTERN.test(raw)) return t("err.contextOverflow");
 	const match = raw.match(/^\s*(\d{3})(?:\s*[:-]\s*|\s+)([\s\S]*)$/);
 	const status = match?.[1];
 	const detail = match?.[2] ?? raw;

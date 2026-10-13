@@ -160,6 +160,11 @@ function mergeInputLimits(
 	};
 }
 
+function contextWindowWithUpstreamCeiling(model: Model<Api>, requested: number | undefined): number {
+	const configured = requested ?? model.contextWindow;
+	return model.contextWindowConfirmed === true ? Math.min(configured, model.contextWindow) : configured;
+}
+
 function applyModelOverride(model: Model<Api>, override: ModelsJsonModelOverride): Model<Api> {
 	return {
 		...model,
@@ -180,7 +185,7 @@ function applyModelOverride(model: Model<Api>, override: ModelsJsonModelOverride
 				}
 			: model.cost,
 		promptCache: override.promptCache ? { ...model.promptCache, ...override.promptCache } : model.promptCache,
-		contextWindow: override.contextWindow ?? model.contextWindow,
+		contextWindow: contextWindowWithUpstreamCeiling(model, override.contextWindow),
 		maxTokens: override.maxTokens ?? model.maxTokens,
 		samplingParams: override.samplingParams
 			? { ...model.samplingParams, ...override.samplingParams }
@@ -212,6 +217,10 @@ function modelFromJson(
 	// A same-ID entry replaces the existing model, but fields it omits keep the existing values;
 	// otherwise a partial entry silently drops capabilities such as image input.
 	const inherited = defaults?.id === definition.id && defaults.api === api ? defaults : undefined;
+	const requestedContextWindow = definition.contextWindow ?? inherited?.contextWindow ?? 128000;
+	const contextWindow = inherited
+		? contextWindowWithUpstreamCeiling(inherited, requestedContextWindow)
+		: requestedContextWindow;
 	return {
 		id: definition.id,
 		name: definition.name ?? inherited?.name ?? definition.id,
@@ -224,7 +233,10 @@ function modelFromJson(
 		inputLimits: definition.inputLimits ?? inherited?.inputLimits,
 		cost: definition.cost ?? inherited?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		promptCache: definition.promptCache ?? inherited?.promptCache,
-		contextWindow: definition.contextWindow ?? inherited?.contextWindow ?? 128000,
+		contextWindow,
+		...(inherited?.contextWindowConfirmed !== undefined
+			? { contextWindowConfirmed: inherited.contextWindowConfirmed }
+			: {}),
 		maxTokens: definition.maxTokens ?? inherited?.maxTokens ?? 16384,
 		samplingParams: definition.samplingParams ?? inherited?.samplingParams,
 		headers: undefined,

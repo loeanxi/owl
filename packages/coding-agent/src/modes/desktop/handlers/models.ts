@@ -27,6 +27,8 @@ export interface ModelsHandlerContext {
 // ---------------------------------------------------------------------------
 
 const SUPPORTED_MODEL_APIS = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
+const LOEAN_CATALOG_REFRESH_INTERVAL_MS = 60_000;
+const dynamicCatalogRefreshAt = new Map<string, number>();
 
 interface ModelFileEntry {
 	id: string;
@@ -214,7 +216,7 @@ async function credentialedProviderGroups(ctx: ModelsHandlerContext): Promise<Pr
 }
 
 /**
- * 模型列表的完整视图：models.json 声明 ∪ 有凭据的内置供应商（声明优先）。
+ * 模型列表的完整视图：models.json 声明 ∪ 有凭据的内置供应商；动态目录限制已声明能力。
  * 供应商增删的落盘操作也用同一视图回包，否则凭据分组会在界面凭空消失/复活。
  */
 async function mergedProviderGroups(ctx: ModelsHandlerContext, agentDir: string): Promise<ProviderModelsMessage[]> {
@@ -225,6 +227,20 @@ async function mergedProviderGroups(ctx: ModelsHandlerContext, agentDir: string)
 		// 声明里没写 input 的模型沿用内置目录能力；按运行时实际值展示，避免界面与发送行为不一致。
 		const runtime = (await ctx.getListingServices()).modelRuntime;
 		for (const group of declared) {
+			const provider = runtime.getProvider(group.id);
+			const liveGroup = credentialed.find((candidate) => candidate.id === group.id);
+			if (provider?.refreshModels && liveGroup) {
+				for (const liveModel of liveGroup.models) {
+					const declaredModel = group.models.find((model) => model.id === liveModel.id);
+					if (!declaredModel) {
+						group.models.push(liveModel);
+					} else if (liveModel.contextWindow) {
+						declaredModel.contextWindow = declaredModel.contextWindow
+							? Math.min(declaredModel.contextWindow, liveModel.contextWindow)
+							: liveModel.contextWindow;
+					}
+				}
+			}
 			for (const model of group.models) {
 				model.input ??= runtime.getModels(group.id).find((entry) => entry.id === model.id)?.input;
 			}
@@ -266,16 +282,29 @@ export async function handleModelsRequest(
 					const runtime = (await ctx.getListingServices()).modelRuntime;
 					const staleDynamic = runtime
 						.getProviders()
-						.filter(
-							(provider) =>
-								provider.refreshModels &&
-								provider.getModels().length === 0 &&
-								runtime.getProviderAuthStatus(provider.id).source === "stored",
-						)
+						.filter((provider) => {
+							if (!provider.refreshModels || runtime.getProviderAuthStatus(provider.id).source !== "stored") {
+								return false;
+							}
+							if (provider.id === "loean") {
+								return (
+									Date.now() - (dynamicCatalogRefreshAt.get(provider.id) ?? 0) >=
+									LOEAN_CATALOG_REFRESH_INTERVAL_MS
+								);
+							}
+							return provider.getModels().length === 0;
+						})
 						.map((provider) => provider.id);
 					for (const providerId of staleDynamic) {
 						try {
-							await runtime.refresh({ providers: [providerId], allowNetwork: true });
+							const refresh = await runtime.refresh({
+								providers: [providerId],
+								allowNetwork: true,
+								...(providerId === "loean" ? { force: true } : {}),
+							});
+							if (!refresh.aborted && !refresh.errors.has(providerId)) {
+								dynamicCatalogRefreshAt.set(providerId, Date.now());
+							}
 						} catch {
 							// 单个厂商拉取失败不挡列表（内部已捕获到 errors）
 						}

@@ -262,6 +262,49 @@ export function estimateProjectedContextTokens(
 }
 
 /**
+ * The Loean gateway reports WorkBuddy's hard window, but its provider-side prompt expands well
+ * beyond the local character-based estimate (observed 54,247 estimated vs 100,001 upstream).
+ * Keep a 2x safety estimate for both the context meter and pre-send compaction so the UI and
+ * compactor act before WorkBuddy rejects the request. This does not change the published window.
+ */
+export const LOEAN_CONTEXT_ESTIMATE_SAFETY_FACTOR = 2;
+
+export function contextEstimateSafetyFactor(model: { provider?: string } | undefined): number {
+	return model?.provider === "loean" ? LOEAN_CONTEXT_ESTIMATE_SAFETY_FACTOR : 1;
+}
+
+function applyContextEstimateSafetyFactor(
+	estimate: ContextUsageEstimate,
+	model: { provider?: string } | undefined,
+): ContextUsageEstimate {
+	const factor = contextEstimateSafetyFactor(model);
+	if (factor === 1) return estimate;
+	return {
+		tokens: Math.ceil(estimate.tokens * factor),
+		usageTokens: Math.ceil(estimate.usageTokens * factor),
+		trailingTokens: Math.ceil(estimate.trailingTokens * factor),
+		lastUsageIndex: estimate.lastUsageIndex,
+	};
+}
+
+/** Estimate projected tokens with the route-specific safety factor for approximate local counts. */
+export function estimateProjectedContextTokensForModel(
+	projection: SessionProjection,
+	branchEntries: SessionEntry[],
+	model: { provider?: string } | undefined,
+): ContextUsageEstimate {
+	return applyContextEstimateSafetyFactor(estimateProjectedContextTokens(projection, branchEntries), model);
+}
+
+/** Estimate request messages with the route-specific safety factor for approximate local counts. */
+export function estimateContextTokensForModel(
+	messages: AgentMessage[],
+	model: { provider?: string } | undefined,
+): ContextUsageEstimate {
+	return applyContextEstimateSafetyFactor(estimateContextTokens(messages), model);
+}
+
+/**
  * Check if compaction should trigger based on context usage.
  */
 export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
@@ -305,8 +348,8 @@ function estimateTextAndImageContentChars(content: string | Array<{ type: string
 }
 
 /**
- * Estimate token count for a message using chars/4 heuristic.
- * This is conservative (overestimates tokens).
+ * Estimate token count for a message using a chars/4 heuristic.
+ * This is approximate and can undercount CJK, image, and provider-expanded prompt content.
  */
 export function estimateTokens(message: AgentMessage): number {
 	let chars = 0;
