@@ -378,7 +378,7 @@ export class BridgeClient {
 			const fallbackTimeout =
 				request.type === "session.resume" ? 30_000
 				: request.type === "models.discover" ? 30_000
-				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "models.list", "build.hello"].includes(request.type)
+				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "subagent.list", "subagent.get", "models.list", "build.hello"].includes(request.type)
 					? 15_000
 					: undefined;
 			if (fallbackTimeout !== undefined) {

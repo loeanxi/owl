@@ -3,7 +3,7 @@ import MarkdownIt from "markdown-it";
 import { outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
 import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconRefresh, IconTerminal } from "./icons.tsx";
+import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
 import { collectHistoricalArtifacts, workspaceArtifactPath, type FileArtifact } from "../hooks/artifacts.ts";
 import { pathCandidateFromCode } from "../utils/paths.ts";
@@ -15,6 +15,7 @@ import { OwlMascot, useSessionOwlPose } from "./OwlMascot.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
 import { ScheduleDeliveryCard } from "../features/automation/ScheduleDeliveryCard.tsx";
 import { parseScheduleDelivery } from "../features/automation/schedule-delivery.ts";
+import { useSubagentText } from "./subagent-copy.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -139,7 +140,7 @@ function isHardFailure(card: ToolCard): boolean {
 
 /** 工具状态图标：运行中转圈 / 成功绿勾 / 失败红叹号 / 拦截黄叹号 / 非零退出灰勾。 */
 function StatusIcon({ status, errorKind }: { status: ToolStatus; errorKind?: ReturnType<typeof errorKindOf> }): React.JSX.Element {
-	if (status === "error" && errorKind === "blocked") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />;
+	if (status === "error" && errorKind === "blocked") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-warning" />;
 	if (status === "error" && errorKind === "exit") return <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "pending") return <IconClock className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label={t("chat.cancelled")}>—</span>;
@@ -151,7 +152,7 @@ function StatusIcon({ status, errorKind }: { status: ToolStatus; errorKind?: Ret
 			/>
 		);
 	}
-	if (status === "error") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-red-400" />;
+	if (status === "error") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-danger" />;
 	return <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 }
 
@@ -186,7 +187,8 @@ function tailLines(text: string, count: number): { preview: string; dropped: num
  * 输出（默认末 10 行，可看全文）。autoOpen=false（工作过程折叠区内）时不因带图
  * 自动弹开。失败只标红、不自动展开：自动弹开会抢走用户当前注意力，展开交给用户。
  */
-function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCard; expanded?: boolean; autoOpen?: boolean }): React.JSX.Element {
+function ToolRowView({ card, expanded = false, autoOpen = true, onOpenSubagent }: { card: ToolCard; expanded?: boolean; autoOpen?: boolean; onOpenSubagent?: (card: ToolCard) => void }): React.JSX.Element {
+	const subagentCopy = useSubagentText();
 	const [fullOutput, setFullOutput] = useState(false);
 	// 点击图片/「查看完整大图」打开屏幕居中灯箱（不再卡片内撑开把时间轴挤跳）。
 	const [zoomIndex, setZoomIndex] = useState<number | null>(null);
@@ -203,25 +205,28 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 	const images = output?.images ?? [];
 	const exitCode = card.status === "error" ? exitCodeOf(output?.text) : undefined;
 	const errorKind = card.status === "error" ? errorKindOf(card.name, output?.text) : undefined;
+	const opensSubagent = card.name === "subagent" && onOpenSubagent !== undefined;
 
 	return (
 		<div className="owl-tool-row" data-status={card.status} data-error-kind={errorKind}>
+			<div className="flex items-center gap-1">
 			<button
 				type="button"
-				aria-expanded={open}
-				onClick={() => setOpen((value) => !value)}
-				className="owl-tool-summary"
+				aria-expanded={opensSubagent ? undefined : open}
+				title={opensSubagent ? subagentCopy.open : undefined}
+				onClick={() => opensSubagent ? onOpenSubagent(card) : setOpen((value) => !value)}
+				className="owl-tool-summary min-w-0 flex-1"
 			>
 				<StatusIcon status={card.status} errorKind={errorKind} />
 				<span
-					className={`min-w-0 flex-1 truncate ${errorKind === "failed" ? "text-red-400" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
+					className={`min-w-0 flex-1 truncate ${errorKind === "failed" ? "text-owl-danger" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
 				>
 					<InlineSummary text={card.summary} />
 				</span>
 				{card.status === "cancelled" && <span className="text-xs text-owl-faint">{t("chat.cancelled")}</span>}
-				{errorKind === "blocked" && <span className="shrink-0 text-xs text-amber-500">{t("chat.toolBlocked")}</span>}
+				{errorKind === "blocked" && <span className="shrink-0 text-xs text-owl-warning">{t("chat.toolBlocked")}</span>}
 				{errorKind !== "blocked" && exitCode !== undefined && (
-					<span className={`shrink-0 text-xs ${errorKind === "exit" ? "text-owl-faint" : "text-red-400"}`}>
+					<span className={`shrink-0 text-xs ${errorKind === "exit" ? "text-owl-faint" : "text-owl-danger"}`}>
 						{t("chat.exitCode", { code: exitCode })}
 					</span>
 				)}
@@ -229,6 +234,8 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
 				/>
 			</button>
+			{opensSubagent && <button type="button" className="owl-msg-action" title={subagentCopy.toolDetails} aria-label={subagentCopy.toolDetails} aria-expanded={open} onClick={() => setOpen((value) => !value)}><IconMore className="h-3.5 w-3.5" /></button>}
+			</div>
 			{open && (
 				<div className="owl-tool-detail">
 					{card.detail && (
@@ -304,7 +311,7 @@ function ToolRowView({ card, expanded = false, autoOpen = true }: { card: ToolCa
 }
 
 /** 连续工具调用的合组（名称可不同）：失败只标红计数，不自动弹开。 */
-function ToolGroupView({ label, cards, expanded = false }: { label: string; cards: ToolCard[]; expanded?: boolean }): React.JSX.Element {
+function ToolGroupView({ label, cards, expanded = false, onOpenSubagent }: { label: string; cards: ToolCard[]; expanded?: boolean; onOpenSubagent?: (card: ToolCard) => void }): React.JSX.Element {
 	const [open, setOpen] = useState(expanded);
 	useEffect(() => setOpen(expanded), [expanded]);
 	const errorCount = cards.filter(isHardFailure).length;
@@ -328,7 +335,7 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 						{t("chat.groupRunning")}
 					</span>
 				) : errorCount > 0 ? (
-					<span className="shrink-0 text-red-400">
+					<span className="shrink-0 text-owl-danger">
 						{t("chat.groupFailed", { n: errorCount })}
 					</span>
 				) : null}
@@ -336,7 +343,7 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
 			{open && (
 				<div className="owl-tool-group-body">
 					{cards.map((card) => (
-						<ToolRowView key={card.id} card={card} />
+						<ToolRowView key={card.id} card={card} onOpenSubagent={onOpenSubagent} />
 					))}
 				</div>
 			)}
@@ -349,7 +356,7 @@ function ToolGroupView({ label, cards, expanded = false }: { label: string; card
  * 一条「工作过程 · N 步」，永远默认收起，用户点击才展开（失败也不例外，只在摘要行
  * 标红计数）；回合进行中显示实时步数。活动指示统一由底部 Owl 状态行承担，这里不再转圈。
  */
-function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, subagents = [] }: {
+function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, subagents = [], onOpenSubagent }: {
 	items: Array<{ key: string; content: React.JSX.Element }>;
 	steps: number;
 	failed: number;
@@ -359,6 +366,7 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 	finishedAt?: number;
 	/** 本段派出的子智能体卡；有在跑的就常显在标题下（ZCode 式彩色实时行）。 */
 	subagents?: ToolCard[];
+	onOpenSubagent?: (card: ToolCard) => void;
 }): React.JSX.Element {
 	const [open, setOpen] = useState(false);
 	const [now, setNow] = useState(() => Date.now());
@@ -384,14 +392,14 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 				<span className="min-w-0 flex-1 truncate">
 					{label}
 				</span>
-				{failed > 0 && <span className="shrink-0 text-red-400">{t("chat.groupFailed", { n: failed })}</span>}
+				{failed > 0 && <span className="shrink-0 text-owl-danger">{t("chat.groupFailed", { n: failed })}</span>}
 			</button>
 			{subagents.some((card) => card.status === "running" || card.status === "pending") && (
 				<div className="mt-1 space-y-0.5">
 					{subagents
 						.filter((card) => card.status === "running" || card.status === "pending")
 						.map((card) => (
-							<SubagentLiveLine key={card.id} card={card} onOpen={() => setOpen(true)} />
+							<SubagentLiveLine key={card.id} card={card} onOpen={() => onOpenSubagent ? onOpenSubagent(card) : setOpen(true)} />
 						))}
 				</div>
 			)}
@@ -406,7 +414,7 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 	);
 }
 
-/** 子智能体实时行：正在工作标题下常显，强调色标 agent 名，点击展开工作过程看详情。 */
+/** 子智能体实时行：打开该次委派的活动记录，未接入查看入口时展开工作过程。 */
 function SubagentLiveLine({ card, onOpen }: { card: ToolCard; onOpen: () => void }): React.JSX.Element {
 	let agent = "";
 	let task = "";
@@ -440,7 +448,7 @@ function SubagentLiveLine({ card, onOpen }: { card: ToolCard; onOpen: () => void
 function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolResult" }> }): React.JSX.Element {
 	return (
 		<div className="flex items-center gap-2 text-xs">
-			<span className={entry.ok ? "text-emerald-500" : "text-red-400"}>{entry.ok ? "✓" : "✗"}</span>
+			<span className={entry.ok ? "text-owl-success" : "text-owl-danger"}>{entry.ok ? "✓" : "✗"}</span>
 			<span className="font-mono text-owl-accent">{entry.toolName}</span>
 			<span className="min-w-0 flex-1 text-owl-faint">{entry.brief}</span>
 		</div>
@@ -687,6 +695,8 @@ type RowOptions = {
 	cwd?: string;
 	onOpenFile?: (path: string) => void;
 	turnCard?: (artifacts: FileArtifact[]) => React.JSX.Element | null;
+	/** Specialized artifacts belong to their producing turn, including the active one. */
+	renderTurnArtifacts?: (entries: ChatEntry[]) => React.ReactNode;
 	/** 最新一轮回答还在流式：最后一条 assistant 不渲染操作栏。 */
 	streaming: boolean;
 	/** 会话空闲且最后一条用户消息带 entryId：最后一条回答可「重新生成」。 */
@@ -697,6 +707,7 @@ type RowOptions = {
 	onBranch?: (entryId: string) => void;
 	/** 会话内任务卡的「任务页」跳转（自动化任务 Rail 视图）。 */
 	onOpenAutomation?: () => void;
+	onOpenSubagent?: (card: ToolCard) => void;
 	/** 桥客户端：任务卡的「暂停任务」需要。 */
 	client?: BridgeClient;
 	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
@@ -704,7 +715,7 @@ type RowOptions = {
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, client, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -789,6 +800,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		turnFooters = [];
 	};
 	let turn = 0;
+	let turnEntries: ChatEntry[] = [];
 	// 本轮用户消息的发出时刻，用来写「工作了 7m 23s」。
 	let turnStartedAt: number | undefined;
 	// 结论出现前先把工作行放到正文上面，一轮只放一次。
@@ -818,8 +830,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		workRows.push({
 			key: "tools-" + cards[0]!.id,
 			content: cards.length === 1
-				? <ToolRowView card={cards[0]!} expanded={expandedTools} autoOpen={false} />
-				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} />,
+				? <ToolRowView card={cards[0]!} expanded={expandedTools} autoOpen={false} onOpenSubagent={onOpenSubagent} />
+				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} onOpenSubagent={onOpenSubagent} />,
 		});
 	};
 	// 收口当前工作段；live 表示回合仍在进行（摘要行显示「正在工作」）。
@@ -846,8 +858,13 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		rows.push({
 			key: "work-" + workSeq,
 			quiet: true,
-			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} startedAt={startedAt} finishedAt={running ? undefined : finishedAt} subagents={subagents} />,
+			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} startedAt={startedAt} finishedAt={running ? undefined : finishedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />,
 		});
+	};
+	const flushTurnArtifacts = (): void => {
+		if (!renderTurnArtifacts || turnEntries.length === 0) return;
+		const content = renderTurnArtifacts(turnEntries);
+		if (content != null) rows.push({ key: "turn-artifacts-" + turn, quiet: true, content: <>{content}</> });
 	};
 		entries.forEach((entry, index) => {
 			if (entry.kind === "user" && entry.queued) {
@@ -866,6 +883,8 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			if (entry.kind === "user") {
 				finishTurnFooters();
 				flushWork();
+				flushTurnArtifacts();
+				turnEntries = [entry];
 				turnShots = [];
 				turnStartedAt = entry.timestamp;
 				answerWorkFlushed = false;
@@ -886,6 +905,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				});
 				return;
 			}
+		turnEntries.push(entry);
 		if (entry.kind === "toolResult") {
 			flushWork();
 			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
@@ -1008,6 +1028,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		});
 	flushWork(streaming && lastUserIndex !== -1);
 	finishTurnFooters();
+	flushTurnArtifacts();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
 	if (lastFooter && canRegenerate && onRegenerate) {
 		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage, lastFooter.requestCount);
@@ -1197,6 +1218,7 @@ function TurnScreenshotStrip({ shots }: { shots: Array<{ key: string; image: Too
 export function ChatStream({
 	entries,
 	artifacts,
+	renderTurnArtifacts,
 	cwd,
 	onOpenFile,
 	onOpenUrl,
@@ -1208,6 +1230,7 @@ export function ChatStream({
 	onEditMessage,
 	onBranch,
 	onOpenAutomation,
+	onOpenSubagent,
 }: {
 	entries: ChatEntry[];
 	activity?: ChatActivity;
@@ -1216,6 +1239,8 @@ export function ChatStream({
 	onPromptExample?: (text: string) => void;
 	onOpenDeveloper?: () => void;
 	artifacts?: React.ReactNode;
+	/** Render each turn's artifacts before the next delivered user message instead of at the session tail. */
+	renderTurnArtifacts?: (entries: ChatEntry[]) => React.ReactNode;
 	cwd?: string;
 	onOpenFile?: (path: string) => void;
 	/** 行内 code 芯片里的 http(s) 链接：交给侧边栏浏览器（未传则维持纯文本）。 */
@@ -1234,6 +1259,8 @@ export function ChatStream({
 	onBranch?: (entryId: string) => void;
 	/** 会话内任务卡的「任务页」跳转（自动化任务 Rail 视图）。 */
 	onOpenAutomation?: () => void;
+	/** Open the delegated run without resuming or mutating its child session. */
+	onOpenSubagent?: (card: ToolCard) => void;
 }): React.JSX.Element {
 	const t = useT();
 	const emptyHeadingId = useId();
@@ -1296,16 +1323,18 @@ export function ChatStream({
 				cwd,
 				onOpenFile,
 				turnCard,
+				renderTurnArtifacts,
 				streaming: activity === "working",
 				canRegenerate,
 				onRegenerate,
 				onEditMessage,
 				onBranch,
 				onOpenAutomation,
+				onOpenSubagent,
 				client,
 				busy,
 			}),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, client, busy],
+		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy],
 	);
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------

@@ -4,10 +4,12 @@ import { BridgeClient } from "./bridge/client.ts";
 import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTracker } from "./bridge/permission-state.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "./hooks/transcript.ts";
+import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
+import { useSubagents } from "./hooks/use-subagents.ts";
 import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
 import { settledRunStatus } from "./hooks/agent-settlement.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
+import { AccountProfilePage } from "./components/AccountProfilePage.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
 import type { NewsTarget } from "./features/news/NewsReading.tsx";
@@ -46,6 +48,8 @@ import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
 import { SessionShareDialog } from "./components/SessionShareDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
+import { selectedSubagent, SubagentView, type SubagentSelection } from "./components/SubagentView.tsx";
+import { SubagentPin } from "./components/SubagentPin.tsx";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { DynamicIsland } from "./components/DynamicIsland.tsx";
@@ -152,7 +156,7 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "manager" || view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "projects" || view === "research" || view === "guide" || view === "career" || view === "monitor" || view === "myself" || view === "expert" || view === "bagu" || view === "market" ? view : "chat";
+		return view === "manager" || view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "projects" || view === "research" || view === "guide" || view === "career" || view === "monitor" || view === "myself" || view === "expert" || view === "bagu" || view === "market" || view === "account" ? view : "chat";
 	});
 	const sessionScope = railView === "research" ? "research" : "chat";
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
@@ -246,6 +250,28 @@ export default function App(): React.JSX.Element {
 	/** 被用户主动暂停的会话：这些会话的输入框按钮显示「继续」，点击即从断点续跑。 */
 	const [pausedSessions, setPausedSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+	const [subagentSelection, setSubagentSelection] = useState<SubagentSelection>();
+	const [subagentView, setSubagentView] = useState<ConversationView>("chat");
+	const subagentParentId = railView === "research" ? researchSessionId : sessionId;
+	const subagents = useSubagents(client, connected, subagentParentId, !showSettings && (railView === "chat" || railView === "research"));
+	const visibleSubagent = subagentSelection?.parentSessionId === subagentParentId ? subagentSelection : undefined;
+	const activeSubagent = visibleSubagent ? selectedSubagent(subagents.runs, visibleSubagent) : undefined;
+	const openSubagentCard = (card: ToolCard): void => {
+		if (!subagentParentId) return;
+		setSubagentSelection({ parentSessionId: subagentParentId, toolCallId: card.id, card });
+		setSubagentView("chat");
+		subagents.refresh();
+	};
+	const openSubagent = (id: string): void => {
+		if (!subagentParentId) return;
+		setSubagentSelection({ parentSessionId: subagentParentId, id });
+		setSubagentView("chat");
+	};
+	useEffect(() => setSubagentSelection(undefined), [subagentParentId]);
+	useEffect(() => {
+		if (!visibleSubagent || visibleSubagent.id || !activeSubagent) return;
+		setSubagentSelection((current) => current?.parentSessionId === activeSubagent.parentSessionId && current.toolCallId === activeSubagent.toolCallId ? { ...current, id: activeSubagent.id } : current);
+	}, [visibleSubagent, activeSubagent?.id]);
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
 	const permission = permissions.find((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ?? permissions[0];
@@ -1251,6 +1277,7 @@ export default function App(): React.JSX.Element {
 	}
 
 	const newChat = (): void => {
+		setSubagentSelection(undefined);
 		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
 		setSessionId(undefined);
@@ -1351,6 +1378,7 @@ export default function App(): React.JSX.Element {
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
 	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
 	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean }): Promise<void> => {
+		setSubagentSelection(undefined);
 		const requestSeq = ++sessionViewSeq.current;
 		const response = await client.request<{
 			sessionId: string;
@@ -2159,6 +2187,7 @@ export default function App(): React.JSX.Element {
 			/>
 			<div className="owl-desktop-body">
 			<ActivityRail
+				client={client}
 				view={railView}
 				settingsOpen={showSettings}
 				onHome={() => {
@@ -2188,7 +2217,7 @@ export default function App(): React.JSX.Element {
 				refreshKey={(railView === "research" ? researchSessionId : sessionId) ?? ""}
 				revision={sidebarRev}
 				focus={railView}
-				conversationVisible={!showSettings && (railView === "chat" ? conversationView === "chat" : railView === "research" && researchConversationView === "chat")}
+				conversationVisible={!showSettings && !visibleSubagent && (railView === "chat" ? conversationView === "chat" : railView === "research" && researchConversationView === "chat")}
 				minimized={sidebarMinimized || showSettings || (railView !== "chat" && railView !== "research")}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
@@ -2296,6 +2325,10 @@ export default function App(): React.JSX.Element {
 			{monitorMounted && <div data-owl-island-anchor="" style={{ display: railView === "monitor" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<LifeMonitorPage view={lifeView} round={lifeProbe.round} active={railView === "monitor" && !showSettings} />
 			</div>}
+			{/* 个人主页（Codex 式）：rail 左下角头像菜单的账号块进入。 */}
+			{railView === "account" && !showSettings && <div data-owl-island-anchor="" style={{ display: "flex", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
+				<AccountProfilePage client={client} />
+			</div>}
 			{/* 「我的助理」：owl-myself 目录每天一个 md，左侧日历排序 + 当天提炼/待办/对话。 */}
 			{myselfMounted && <div data-owl-island-anchor="" style={{ display: railView === "myself" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MyselfPanel
@@ -2320,26 +2353,33 @@ export default function App(): React.JSX.Element {
 				<MarketPage active={railView === "market" && !showSettings} connected={connected} agentDir={agentDir ?? ""} workspaceDir={workspaceDir} onImport={(text) => importPluginToNewSession(text)} />
 			</div>}
 			{/* 号池 Manager：与 news/mail 同层。不能放进 owl-main-frame——那个框在非对话视图下是 display:none。 */}
-			<div data-owl-island-anchor="" style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column", background: "#fff" }}>
+			<div data-owl-island-anchor="" style={{ display: railView === "manager" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column", background: "var(--owl-ui-canvas, var(--color-owl-bg))" }}>
 				<PanelErrorBoundary label="号池 Manager">
-					<ManagerTab onOpenExternal={async (url) => { await managerApi.openExternal("url", url); }} />
+					<ManagerTab
+						onOpenExternal={async (url) => { await managerApi.openExternal("url", url); }}
+						onThemeChange={async (theme) => {
+							const response = await client.request({ type: "settings.set", values: { theme } });
+							if (!response.ok) throw new Error(response.error ?? "保存主题失败");
+							setThemePreference(theme);
+						}}
+					/>
 				</PanelErrorBoundary>
 			</div>
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
-					title={railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
+					title={visibleSubagent ? activeSubagent?.agent ?? t("chat.subagentPlain") : railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
 					// 未选目录时顶栏不显示项目 chip（会话实际落在默认目录）。
 					workspaceDir={railView === "research" ? (researchWorkspaceSelected ? researchWorkspaceDir : "") : (workspaceSelected ? workspaceDir : "")}
 					presetName={(() => {
-						if (railView === "research") return undefined;
+						if (railView === "research" || visibleSubagent) return undefined;
 						const id = sessionId ? sessionPreset ?? stagedPreset : stagedPreset;
 						return id ? agentPresets.find((preset) => preset.id === id)?.name : undefined;
 					})()}
-					view={railView === "research" ? researchConversationView : conversationView}
-					onViewChange={railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
+					view={visibleSubagent ? subagentView : railView === "research" ? researchConversationView : conversationView}
+					onViewChange={visibleSubagent ? setSubagentView : railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
 					terminalOpen={terminalOpen} sidebarOpen={sidebarOpen}
 					onToggleTerminal={toggleTerminalPanel} onToggleSidebar={toggleSidebarPanel}
-					sessionId={railView === "research" ? researchSessionId : sessionId}
+					sessionId={visibleSubagent ? undefined : railView === "research" ? researchSessionId : sessionId}
 					exporting={exportingLog}
 					onExport={exportSessionLog}
 					onExportTurns={() => setShareTurnsSession(railView === "research" ? researchSessionId : sessionIdRef.current)}
@@ -2354,8 +2394,11 @@ export default function App(): React.JSX.Element {
 				<div className={"owl-shell-content" + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
 					<div className="owl-shell-content-main">
 					<div className="owl-shell-conversation">
-						{researchMounted && <div style={{ display: railView === "research" && !showSettings ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
+						{visibleSubagent && <SubagentView client={client} connected={connected} selection={visibleSubagent} runs={subagents.runs} listLoading={subagents.loading} listError={subagents.error} view={subagentView} onBack={() => setSubagentSelection(undefined)} onRefresh={subagents.refresh} onSelect={openSubagent} onOpenUrl={openUrlInSidebarBrowser} headerActions={<SubagentPin key={subagentParentId} runs={subagents.runs} activeId={activeSubagent?.id ?? visibleSubagent.id} onSelect={openSubagent} />} />}
+						{researchMounted && <div style={{ display: railView === "research" && !showSettings && !visibleSubagent ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
+								subagentControl={<SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} />}
+								onOpenSubagent={openSubagentCard}
 								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={researchWorkspaceDir}
 								providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
 								agentPresets={agentPresets} defaultPresetId={defaultPresetId} defaultAgentPreset={stagedPreset}
@@ -2369,7 +2412,7 @@ export default function App(): React.JSX.Element {
 							/>
 						</div>}
 						<AgentConversation
-							hidden={railView === "research"}
+							hidden={railView === "research" || Boolean(visibleSubagent)}
 							view={conversationView}
 							trajectory={(
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
@@ -2379,12 +2422,12 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 							)}
-							overlay={<TodoPin entries={entries} />}
+							overlay={<div className="owl-conversation-pins"><TodoPin entries={entries} /><SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} /></div>}
 							beforeComposer={(
 							<>
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />

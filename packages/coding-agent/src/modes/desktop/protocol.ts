@@ -14,6 +14,7 @@ import type { MailAgentContext, MailDraft, MailRequest } from "../../core/mail/t
 import type { NewsRequest } from "../../core/news/types.ts";
 import type { ResearchDiagnosis } from "../../core/research/diagnosis.ts";
 import type { ResearchPromptSettings } from "../../core/research/prompt-settings.ts";
+import type { ResearchTaskRecord } from "../../core/research/task-state.ts";
 import type { ResearchMode } from "../../core/research/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 
@@ -30,6 +31,7 @@ export type {
 	ResearchPromptsExportResult,
 	ResearchPromptsResult,
 } from "../../core/research/prompt-settings.ts";
+export type { ResearchTaskRecord } from "../../core/research/task-state.ts";
 export type * from "../../core/research/types.ts";
 export type { WorkspaceViewerInfo, WorkspaceViewerOpenResult } from "../../core/workspace-viewers.ts";
 
@@ -275,6 +277,58 @@ export interface SessionListRequest {
 	sessionDir?: string;
 	/** Limit history to one conversation type. Omit for the complete history inventory. */
 	scope?: "chat" | "research";
+}
+
+/** Read-only child inspection never mounts a second runtime for the child. */
+export interface DesktopSubagentSummary {
+	id: string;
+	runId: string;
+	childIndex: number;
+	parentSessionId: string;
+	toolCallId?: string;
+	agent: string;
+	task: string;
+	cwd: string;
+	status: "running" | "completed" | "failed" | "paused" | "stopped" | "unknown";
+	/** ISO 8601 timestamps. */
+	startedAt?: string;
+	updatedAt: string;
+	currentTool?: string;
+	model?: string;
+	sessionId?: string;
+}
+
+export interface DesktopSubagentActivity {
+	id: string;
+	type: "message" | "tool_start" | "tool_end" | "stdout" | "stderr";
+	timestamp: string;
+	text?: string;
+	toolName?: string;
+	args?: Record<string, unknown>;
+	isError?: boolean;
+}
+
+export interface DesktopSubagentDetail extends DesktopSubagentSummary {
+	messages: unknown[];
+	activity: DesktopSubagentActivity[];
+	error?: string;
+	truncated: boolean;
+}
+
+export interface SubagentListRequest {
+	type: "subagent.list";
+	id: string;
+	sessionId: string;
+	cwd?: string;
+	toolCallId?: string;
+}
+
+export interface SubagentGetRequest {
+	type: "subagent.get";
+	id: string;
+	sessionId: string;
+	runId: string;
+	childIndex?: number;
 }
 
 /** 查询当前 agent run 活跃的已挂载会话 id：UI 刷新后据此恢复侧边栏的运行状态点。 */
@@ -529,6 +583,8 @@ export interface SessionSnapshotPayload {
 	researchMode?: ResearchMode;
 	/** Last diagnostic on the current research branch. It never certifies task completion. */
 	researchDiagnosis?: ResearchDiagnosis;
+	/** Source-backed task facts and independent component checks; never a completion certificate. */
+	researchTask?: ResearchTaskRecord;
 	/** Authoritative approval for research conversations, including after a restart. */
 	approvalMode?: ApprovalMode;
 	/** 会话绑定的 Agent 预设 id（owl-agent-preset custom entry；未绑定为 undefined）。 */
@@ -2285,6 +2341,8 @@ export type DesktopClientRequest =
 	| SkillsGroupsSaveRequest
 	| SkillsProjectExtrasRequest
 	| SessionListRequest
+	| SubagentListRequest
+	| SubagentGetRequest
 	| SessionRunningRequest
 	| ProjectCreateRequest
 	| ModelsListRequest
@@ -2294,6 +2352,13 @@ export type DesktopClientRequest =
 	| ModelsRemoveProviderRequest
 	| ModelsDiscoverRequest
 	| AuthProvidersRequest
+	| AccountCurrentRequest
+	| AccountListRequest
+	| AccountCreateRequest
+	| AccountSwitchRequest
+	| AccountAvatarGetRequest
+	| AccountAvatarPutRequest
+	| AccountAvatarRemoveRequest
 	| AuthLoginRequest
 	| AuthPromptRespondRequest
 	| AuthCancelRequest
@@ -2401,7 +2466,6 @@ export interface CursorAccountsListRequest {
 	type: "cursor.accounts.list";
 	id: string;
 }
-
 /** Cursor 多账号：切换当前活跃账号（写入 auth.json 的 cursor 槽）。 */
 export interface CursorAccountsSwitchRequest {
 	type: "cursor.accounts.switch";
@@ -2414,6 +2478,63 @@ export interface CursorAccountsRemoveRequest {
 	type: "cursor.accounts.remove";
 	id: string;
 	accountId: string;
+}
+
+/** 应用用户账号：查询当前账号状态（正在运行的 + 下次启动的）。 */
+export interface AccountCurrentRequest {
+	type: "account.current";
+	id: string;
+}
+
+/** 应用用户账号：列出注册表里的全部账号（不含密码哈希）。 */
+export interface AccountListRequest {
+	type: "account.list";
+	id: string;
+}
+
+/** 应用用户账号：新建账号（密码可选；数据目录 ~/.owl/users/<id>/agent）。 */
+export interface AccountCreateRequest {
+	type: "account.create";
+	id: string;
+	name: string;
+	password?: string;
+}
+
+/** 应用用户账号：切换账号（校验密码后写 currentId，需壳重启桥进程生效）。 */
+export interface AccountSwitchRequest {
+	type: "account.switch";
+	id: string;
+	accountId: string;
+	password?: string;
+}
+
+/** 应用用户账号：读当前账号自定义头像（无则 null）。 */
+export interface AccountAvatarGetRequest {
+	type: "account.avatar.get";
+	id: string;
+}
+
+/** 应用用户账号：写头像（PNG data URL，写当前账号 agentDir/avatar.png）。 */
+export interface AccountAvatarPutRequest {
+	type: "account.avatar.put";
+	id: string;
+	/** `data:image/png;base64,...`；前端已压缩到 256px。 */
+	data: string;
+}
+
+/** 应用用户账号：删除自定义头像（回落首字母）。 */
+export interface AccountAvatarRemoveRequest {
+	type: "account.avatar.remove";
+	id: string;
+}
+
+/** 应用用户账号（不含密码哈希，只暴露是否设了密码）。 */
+export interface DesktopAccountInfo {
+	id: string;
+	name: string;
+	dataDir: string;
+	createdAt: number;
+	hasPassword: boolean;
 }
 
 export interface CursorAccountInfo {

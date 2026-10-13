@@ -1,0 +1,19 @@
+import { useSyncExternalStore } from "react";
+import { getUiLanguage, subscribeUiLanguage } from "../i18n/index.ts";
+
+const zh = {
+	title: "子智能体", open: "查看子智能体活动", back: "返回父会话", loading: "正在读取子智能体活动…", retry: "重新加载", noActivity: "暂未记录活动", task: "任务", currentTool: "正在调用", statusRunning: "运行中", statusCompleted: "已完成", statusFailed: "失败", statusPaused: "已暂停", statusStopped: "已停止", statusUnknown: "状态未知",
+	waiting: "正在等待子智能体的运行记录", unavailable: "这次委派尚未找到可查看的运行记录。", offline: "连接已断开，重新连接后会更新活动。", readOnly: "正在查看子智能体活动", toolDetails: "查看委派参数与输出", messages: "对话", activity: "工具活动", emptyMessages: "尚无对话记录", truncated: "当前显示最近的活动记录。", error: "读取子智能体活动失败", batch: "本次委派", lastUpdated: "最近更新", noMatch: "没有匹配的子智能体",
+	activityStart: "开始调用", activityEnd: "调用结束", activityMessage: "消息", activityOutput: "输出", activityError: "错误输出",
+	expand: "展开子智能体列表", collapse: "收起子智能体列表",
+};
+const en: Record<keyof typeof zh, string> = {
+	title: "Subagents", open: "View subagent activity", back: "Back to parent chat", loading: "Loading subagent activity…", retry: "Reload", noActivity: "No activity recorded yet", task: "Task", currentTool: "Running tool", statusRunning: "Running", statusCompleted: "Completed", statusFailed: "Failed", statusPaused: "Paused", statusStopped: "Stopped", statusUnknown: "Unknown status",
+	waiting: "Waiting for the subagent run record", unavailable: "No viewable run record was found for this delegation yet.", offline: "Disconnected. Activity will update after reconnecting.", readOnly: "Viewing subagent activity", toolDetails: "View delegation arguments and output", messages: "Conversation", activity: "Tool activity", emptyMessages: "No conversation recorded yet", truncated: "Showing the most recent activity records.", error: "Could not load subagent activity", batch: "This delegation", lastUpdated: "Last updated", noMatch: "No matching subagents",
+	activityStart: "Tool started", activityEnd: "Tool finished", activityMessage: "Message", activityOutput: "Output", activityError: "Error output",
+	expand: "Expand subagent list", collapse: "Collapse subagent list",
+};
+
+export function useSubagentText(): typeof en {
+	return useSyncExternalStore(subscribeUiLanguage, getUiLanguage, getUiLanguage) === "en" ? en : zh;
+}

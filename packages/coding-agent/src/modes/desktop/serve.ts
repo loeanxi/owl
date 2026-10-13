@@ -99,6 +99,7 @@ import {
 } from "../../core/research/agent.ts";
 import { RESEARCH_CHECKPOINT_TOOL } from "../../core/research/checkpoint.ts";
 import { getResearchDiagnosis } from "../../core/research/diagnosis.ts";
+import { getResearchTask, RESEARCH_TASK_TOOL } from "../../core/research/task.ts";
 import { researchToolLoadout } from "../../core/research/tool-loadout.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
@@ -142,6 +143,7 @@ import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
 import { DesktopEventFanout } from "./event-fanout.ts";
+import { type AccountHandlerContext, handleAccountRequest } from "./handlers/account.ts";
 import { type AuthHandlerContext, createAuthLoginState, handleAuthRequest } from "./handlers/auth.ts";
 import { type BrowserHandlerContext, handleIabRequest } from "./handlers/browser.ts";
 import { handleMirrorRequest, type MirrorHandlerContext } from "./handlers/mirror.ts";
@@ -197,6 +199,7 @@ import {
 	setSkillEnabled,
 	updateSkill,
 } from "./skills-center.ts";
+import { getDesktopSubagent, listDesktopSubagents } from "./subagents.ts";
 import { TerminalManager } from "./terminals.ts";
 import { isTrustedDesktopOrigin, resolveUiRoot, serveUi } from "./ui-static.ts";
 
@@ -318,6 +321,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			approvalMode: { current: ApprovalMode };
 			preset: { current: AgentPresetDefinition };
 			runStart: { priorEntryIds?: Set<string> };
+			subagentDetails: Map<string, unknown>;
 		}
 	>();
 	/** Requests for a session wait until its preset runtime has finished being replaced. */
@@ -972,6 +976,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			...(mailContext ? { mailContext } : {}),
 			...(researchMode ? { researchMode } : {}),
 			...(researchMode ? { researchDiagnosis: getResearchDiagnosis(sessionManager) } : {}),
+			...(researchMode ? { researchTask: getResearchTask(sessionManager) } : {}),
 			approvalMode:
 				sessions.get(sessionId)?.approvalMode.current ??
 				(researchMode ? getResearchApprovalMode(sessionManager) : undefined),
@@ -1227,7 +1232,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					// Publishing material and saving progress only change the research transcript, like an assistant reply.
 					if (
 						researchMode &&
-						(event.toolName === RESEARCH_PUBLISH_TOOL || event.toolName === RESEARCH_CHECKPOINT_TOOL)
+						(event.toolName === RESEARCH_PUBLISH_TOOL ||
+							event.toolName === RESEARCH_CHECKPOINT_TOOL ||
+							(event.toolName === RESEARCH_TASK_TOOL &&
+								event.input.action !== "check" &&
+								event.input.artifactPath === undefined))
 					)
 						return {};
 					// plan：只放行只读工具，写类调用直接拒绝（拒绝理由同时是给模型的模式提示）
@@ -1322,12 +1331,30 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			runtime.session.setActiveToolsByName(researchToolLoadout(runtime.session.getActiveToolNames()));
 		}
 		const runStart: { priorEntryIds?: Set<string> } = {};
+		const subagentDetails = new Map<string, unknown>();
 		const unsubscribe = runtime.session.subscribe((event) => {
 			if (event.type === "agent_start") {
 				// Include all raw IDs: compaction may retain old entries absent from today's projection.
 				runStart.priorEntryIds = new Set(runtime.session.sessionManager.getEntries().map((entry) => entry.id));
 			}
 			if (event.type === "agent_settled") runStart.priorEntryIds = undefined;
+			if (
+				(event.type === "tool_execution_update" || event.type === "tool_execution_end") &&
+				event.toolName === "subagent"
+			) {
+				const value: unknown = event.type === "tool_execution_update" ? event.partialResult : event.result;
+				if (value !== null && typeof value === "object" && "details" in value) {
+					subagentDetails.set(event.toolCallId, value.details);
+					if (subagentDetails.size > 100) subagentDetails.delete(subagentDetails.keys().next().value!);
+				}
+			}
+			if (
+				event.type === "message_end" &&
+				event.message.role === "toolResult" &&
+				event.message.toolName === "subagent"
+			) {
+				subagentDetails.delete(event.message.toolCallId);
+			}
 			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
 		});
 		sessions.set(sessionId, {
@@ -1336,6 +1363,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			approvalMode: approvalModeHolder,
 			preset: presetHolder,
 			runStart,
+			subagentDetails,
 		});
 		void schedule.onSessionMounted(sessionId);
 		reply(ws, requestId, {
@@ -2750,6 +2778,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		getListingServices,
 		login: createAuthLoginState(),
 	};
+	const accountContext: AccountHandlerContext = { reply, defaultAgentDir };
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
 		if ("sessionId" in request && typeof request.sessionId === "string") {
@@ -2757,6 +2786,28 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			if (transition) await transition;
 		}
 		switch (request.type) {
+			case "subagent.list":
+			case "subagent.get": {
+				const mounted = sessions.get(request.sessionId);
+				const parentFile =
+					mounted?.runtime.session.sessionManager.getSessionFile() ?? (await findSessionFile(request.sessionId));
+				if (!parentFile) throw new Error(`Unknown session: ${request.sessionId}`);
+				const source = {
+					parentSessionId: request.sessionId,
+					parentFile,
+					parentRunning: mounted?.runtime.session.isStreaming ?? false,
+					liveToolResults: [...(mounted?.subagentDetails ?? [])].map(([toolCallId, details]) => ({
+						toolCallId,
+						details,
+					})),
+				};
+				const result =
+					request.type === "subagent.list"
+						? await listDesktopSubagents(source, { toolCallId: request.toolCallId, cwd: request.cwd })
+						: await getDesktopSubagent(source, request.runId, request.childIndex);
+				reply(ws, request.id, { ok: true, result });
+				return;
+			}
 			case "evaluation.request":
 			case "mail.request":
 			case "mail.agent.start":
@@ -2861,6 +2912,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "auth.prompt.respond":
 			case "auth.cancel":
 				await handleAuthRequest(ws, request, authContext);
+				return;
+			case "account.current":
+			case "account.list":
+			case "account.create":
+			case "account.switch":
+			case "account.avatar.get":
+			case "account.avatar.put":
+			case "account.avatar.remove":
+				await handleAccountRequest(ws, request, accountContext);
 				return;
 			case "settings.get":
 			case "memory.list":
