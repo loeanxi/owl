@@ -7,6 +7,5 @@
 .owl-project-menu-icon,.owl-project-menu-trailing { display: flex; align-items: center; }
 .owl-project-menu-icon svg { width: 14px; height: 14px; }
 .owl-project-menu-trailing svg { width: 12px; height: 12px; }
-.owl-project-menu-item.is-danger { color: #f87171; }
-html[data-owl-theme="light"] .owl-project-menu-item.is-danger { color: #b42318; }
+.owl-project-menu-item.is-danger { color: var(--owl-ui-danger, var(--color-owl-danger)); }
 .owl-project-menu-divider { height: 1px; margin: 4px 6px; background: var(--color-owl-sidebar-border); }

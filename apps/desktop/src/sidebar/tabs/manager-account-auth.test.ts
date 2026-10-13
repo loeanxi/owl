@@ -29,6 +29,7 @@ function renderManager() {
 	const react = {
 		useState: (initial: unknown) => [initial === "checking" ? "up" : typeof initial === "function" ? initial() : initial, () => {}],
 		useRef: (initial: unknown) => ({ current: initial }),
+		useMemo: (factory: () => unknown) => factory(),
 		useCallback: (callback: unknown) => callback,
 		useEffect: (effect: () => (() => void) | undefined) => {
 			const dispose = effect();
@@ -44,9 +45,13 @@ function renderManager() {
 		format: "cjs",
 		platform: "node",
 		jsx: "automatic",
+		loader: { ".css": "empty" },
 		external: ["react", "react/jsx-runtime"],
 	});
-	const module = { exports: {} as { ManagerTab?: (props: { onOpenExternal: (url: string) => Promise<void> }) => unknown } };
+	const module = { exports: {} as { ManagerTab?: (props: {
+		onOpenExternal: (url: string) => Promise<void>;
+		onThemeChange: (theme: "dark" | "light") => Promise<void>;
+	}) => unknown } };
 	runInNewContext(built.outputFiles[0].text, {
 		module,
 		exports: module.exports,
@@ -54,13 +59,15 @@ function renderManager() {
 		URL,
 		AbortSignal,
 		fetch: () => Promise.resolve({ ok: true }),
+		document: { documentElement: { dataset: { owlTheme: "dark" } } },
 		window: {
-			addEventListener: (_type: string, listener: (event: MessageEventFixture) => void) => listeners.add(listener),
-			removeEventListener: (_type: string, listener: (event: MessageEventFixture) => void) => listeners.delete(listener),
+			location: { origin: "http://127.0.0.1:18901" },
+			addEventListener: (type: string, listener: (event: MessageEventFixture) => void) => { if (type === "message") listeners.add(listener); },
+			removeEventListener: (type: string, listener: (event: MessageEventFixture) => void) => { if (type === "message") listeners.delete(listener); },
 		},
 	});
 	assert.ok(module.exports.ManagerTab);
-	module.exports.ManagerTab({ onOpenExternal: async (url) => { opened.push(url); } });
+	module.exports.ManagerTab({ onOpenExternal: async (url) => { opened.push(url); }, onThemeChange: async () => {} });
 	return {
 		frame, opened, replies,
 		emit: (data: unknown) => { for (const listener of listeners) listener({ source: frame, origin: "http://127.0.0.1:8790", data }); },

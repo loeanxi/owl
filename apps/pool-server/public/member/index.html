@@ -8,12 +8,12 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <script src="/theme.js?v=20261013-owl-theme1"></script>
   <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定 -->
   <script src="/i18n.js?v=20261002-member-keys1"></script>
   <!-- 共用 helpers（$ / t / locale / errorText / escapeHtml），须先于 member.js -->
   <script src="/shared.js?v=20260929-secfix"></script>
-  <link rel="stylesheet" href="/site-theme.css?v=20260926-18" />
+  <link rel="stylesheet" href="/site-theme.css?v=20261013-owl-theme1" />
   <link rel="stylesheet" href="/member/member.css?v=20260929-mp1" />
   <link rel="stylesheet" href="/key-management.css?v=20261002-1" />
 </head>
@@ -606,7 +606,6 @@
   </dialog>
 
   <div id="member-toast" class="member-login-error" hidden style="position:fixed;right:20px;bottom:20px;z-index:100;max-width:min(400px,calc(100vw - 40px));box-shadow:0 8px 24px var(--shadow-raised)"></div>
-  <script src="/theme.js?v=20260925-4"></script>
   <script src="/date-picker.js?v=20260926-1"></script>
   <script src="/key-budget.js?v=20261002-1"></script>
   <script src="/member/member-keys.js?v=20261002-1"></script>

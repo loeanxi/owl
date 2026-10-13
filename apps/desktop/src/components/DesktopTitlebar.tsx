@@ -23,7 +23,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "monitor" | "automation" | "bagu";
+	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "monitor" | "automation" | "bagu" | "account";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	terminalOpen: boolean;
 	sidebarOpen: boolean;

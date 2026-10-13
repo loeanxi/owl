@@ -69,7 +69,7 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 					setMissed(false);
 				}}
 			/>
-			{missed && <span className="text-[11px] whitespace-nowrap text-red-400" role="status">{t("find.notFound")}</span>}
+			{missed && <span className="text-[11px] whitespace-nowrap text-owl-danger" role="status">{t("find.notFound")}</span>}
 			<button type="button" className="owl-chrome-button" title={t("find.prev")} aria-label={t("find.prev")} onClick={() => findNext(true)}>↑</button>
 			<button type="button" className="owl-chrome-button" title={t("find.next")} aria-label={t("find.next")} onClick={() => findNext(false)}>↓</button>
 			<button type="button" className="owl-chrome-button" title={t("app.closeAria")} aria-label={t("app.closeAria")} onClick={onClose}>✕</button>

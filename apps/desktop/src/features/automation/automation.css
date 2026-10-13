@@ -37,11 +37,11 @@
 	padding: 0 12px;
 	border-radius: 8px;
 	background: var(--color-owl-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 	font-weight: 600;
 	white-space: nowrap;
 }
-.owl-automation-create:hover { filter: brightness(1.08); }
+.owl-automation-create:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-automation-create:disabled { opacity: 0.45; cursor: default; filter: none; }
 .owl-automation-ghost {
 	height: 28px;
@@ -119,7 +119,7 @@
 	transition: left 0.15s;
 }
 .owl-automation-switch.is-on { background: var(--color-owl-accent); }
-.owl-automation-switch.is-on::after { left: 15px; background: #fff; }
+.owl-automation-switch.is-on::after { left: 15px; background: var(--color-owl-on-accent); }
 
 .owl-automation-card-target { margin-top: 6px; color: var(--owl-ui-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owl-automation-card-foot { display: flex; align-items: center; gap: 12px; margin-top: 8px; color: var(--owl-ui-muted); font-size: 11px; }
@@ -363,7 +363,7 @@
 	padding: 1px 7px;
 	border-radius: 999px;
 	background: var(--color-owl-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 	font-size: 10px;
 	font-weight: 700;
 }

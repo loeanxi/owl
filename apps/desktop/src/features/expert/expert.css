@@ -203,7 +203,7 @@
 	white-space: nowrap;
 }
 .owl-expert-card .go { flex: 0 0 auto; padding: 3px 10px; border-radius: 7px; background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent); color: var(--color-owl-accent); font-size: 11px; font-weight: 600; }
-.owl-expert-card .go:hover { background: var(--color-owl-accent); color: #fff; }
+.owl-expert-card .go:hover { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 .owl-expert-empty { padding: 30px 0; color: var(--color-owl-faint); font-size: 12px; text-align: center; }
 
 /* ---- 人格档案抽屉 ---- */
@@ -280,7 +280,7 @@
 	border: none;
 	border-radius: 8px;
 	background: var(--color-owl-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 	font: inherit;
 	font-size: 11.5px;
 	font-weight: 600;
@@ -342,8 +342,9 @@
 	z-index: 5;
 	padding: 5px 12px;
 	border-radius: 9px;
-	background: color-mix(in srgb, var(--color-owl-text) 82%, transparent);
-	color: #eee;
+	border: 1px solid var(--owl-ui-border);
+	background: var(--owl-ui-panel);
+	color: var(--owl-ui-text);
 	font-size: 11px;
 	transform: translateX(-50%);
 	white-space: nowrap;
@@ -472,7 +473,7 @@
 .owl-expert-team .tf { display: flex; gap: 6px; }
 .owl-expert-team .tf .ghost { height: 26px; padding: 0 10px; border: 1px solid var(--color-owl-border); border-radius: 8px; background: transparent; color: var(--color-owl-text); font: inherit; font-size: 11px; cursor: pointer; }
 .owl-expert-team .tf .ghost:hover { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
-.owl-expert-team .tf .primary { height: 26px; padding: 0 11px; border: none; border-radius: 8px; background: var(--color-owl-accent); color: #fff; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: auto; }
+.owl-expert-team .tf .primary { height: 26px; padding: 0 11px; border: none; border-radius: 8px; background: var(--color-owl-accent); color: var(--color-owl-on-accent); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: auto; }
 
 /* ---- 会话页快捷 chips（@专家 / 主持人综合）---- */
 .owl-expert-cctools { position: relative; display: flex; flex: 0 0 auto; gap: 6px; align-items: center; padding: 6px 18px 0; }

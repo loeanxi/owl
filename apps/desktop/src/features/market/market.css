@@ -126,11 +126,11 @@
 	height: 18px; padding: 0 7px; border-radius: 9px;
 	font-size: 10px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
 }
-.owl-market-badge.is-pi { background: color-mix(in srgb, #4a7db3 20%, transparent); color: #85b3e0; }
-.owl-market-badge.is-adapt { background: color-mix(in srgb, #d99131 18%, transparent); color: #e0aa62; }
+.owl-market-badge.is-pi { background: color-mix(in srgb, #4a7db3 20%, transparent); color: var(--owl-ui-text); }
+.owl-market-badge.is-adapt { background: color-mix(in srgb, #d99131 18%, transparent); color: var(--owl-ui-warning); }
 .owl-market-badge.is-done { background: color-mix(in srgb, var(--color-owl-accent) 18%, transparent); color: var(--color-owl-accent); }
 .owl-market-badge.is-cap { background: var(--color-owl-hover); border: 1px solid var(--color-owl-border); color: var(--color-owl-muted); font-weight: 500; }
-.owl-market-badge.is-red { background: color-mix(in srgb, #e5484d 16%, transparent); color: #e5808a; }
+.owl-market-badge.is-red { background: color-mix(in srgb, #e5484d 16%, transparent); color: var(--owl-ui-danger); }
 
 /* ---------- 详情抽屉 ---------- */
 .owl-market-drawer { display: flex; flex: 0 0 360px; flex-direction: column; padding: 16px 18px 24px; border-left: 1px solid var(--color-owl-border); background: var(--color-owl-panel); overflow-y: auto; }
@@ -142,14 +142,14 @@
 .owl-market-kv { display: grid; grid-template-columns: 76px 1fr; gap: 5px 10px; margin: 10px 0; font-size: 11.5px; }
 .owl-market-kv-k { color: var(--color-owl-faint); }
 .owl-market-caps { display: flex; flex-wrap: wrap; gap: 5px; }
-.owl-market-hint { margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: color-mix(in srgb, #d99131 12%, transparent); color: #e0aa62; font-size: 11px; line-height: 1.5; }
+.owl-market-hint { margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: color-mix(in srgb, #d99131 12%, transparent); color: var(--owl-ui-warning); font-size: 11px; line-height: 1.5; }
 .owl-market-acts { display: flex; gap: 8px; margin-top: 14px; }
 .owl-market-import {
 	display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 6px;
 	height: 30px; padding: 0 14px; border-radius: 7px;
-	background: var(--color-owl-accent); color: #fff; font-weight: 600;
+	background: var(--color-owl-accent); color: var(--color-owl-on-accent); font-weight: 600;
 }
-.owl-market-import:hover { background: var(--color-owl-accent-hover); }
+.owl-market-import:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-market-import:disabled { opacity: 0.55; cursor: default; }
 .owl-market-repo {
 	display: inline-flex; align-items: center; justify-content: center;
@@ -157,7 +157,7 @@
 	color: var(--color-owl-accent); font-weight: 600;
 }
 .owl-market-repo:hover { border-color: var(--color-owl-accent); }
-.owl-market-import-error { margin-top: 8px; padding: 8px 11px; border-radius: 8px; background: color-mix(in srgb, #e5484d 14%, transparent); color: #e5808a; font-size: 11px; line-height: 1.5; }
+.owl-market-import-error { margin-top: 8px; padding: 8px 11px; border-radius: 8px; background: color-mix(in srgb, #e5484d 14%, transparent); color: var(--owl-ui-danger); font-size: 11px; line-height: 1.5; }
 
 /* 改造流水线（静态说明：真实执行发生在引入后的会话里） */
 .owl-market-pipe { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--color-owl-border); }

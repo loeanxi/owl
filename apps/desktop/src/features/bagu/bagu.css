@@ -147,7 +147,7 @@
 	font-size: 10px;
 	color: var(--color-owl-faint);
 }
-.owl-bagu-queue-item.is-done .owl-bagu-queue-no { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: #fff; }
+.owl-bagu-queue-item.is-done .owl-bagu-queue-no { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 .owl-bagu-queue-item.is-current .owl-bagu-queue-no { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
 .owl-bagu-queue-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .owl-bagu-queue-score { flex: 0 0 auto; color: var(--color-owl-accent); font-weight: 700; font-size: 12px; }
@@ -284,7 +284,7 @@
 	font-size: 12px;
 	cursor: pointer;
 }
-.owl-bagu-mode-btn.is-on { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: #fff; font-weight: 600; }
+.owl-bagu-mode-btn.is-on { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: var(--color-owl-on-accent); font-weight: 600; }
 .owl-bagu-mode-hint { margin-left: auto; font-size: 10.5px; color: var(--color-owl-faint); }
 .owl-bagu-inputrow { display: flex; align-items: flex-end; gap: 9px; }
 .owl-bagu-input {
@@ -316,8 +316,8 @@
 	cursor: pointer;
 }
 .owl-bagu-btn:hover { border-color: var(--color-owl-accent); color: var(--color-owl-accent); }
-.owl-bagu-btn.is-primary { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: #fff; font-weight: 600; }
-.owl-bagu-btn.is-primary:hover { background: var(--color-owl-accent-hover); border-color: var(--color-owl-accent-hover); color: #fff; }
+.owl-bagu-btn.is-primary { border-color: var(--color-owl-accent); background: var(--color-owl-accent); color: var(--color-owl-on-accent); font-weight: 600; }
+.owl-bagu-btn.is-primary:hover { background: var(--color-owl-accent-hover); border-color: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-bagu-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
 /* ---------- 复盘浮层 ---------- */

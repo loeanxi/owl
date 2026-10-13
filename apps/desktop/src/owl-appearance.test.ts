@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_OWL_APPEARANCE, isGlassPreset, normalizeHexColor, parseOwlAppearance, presetThemeLock } from "./owl-appearance.ts";
+import { accentTextColor, applyOwlAppearance, DEFAULT_OWL_APPEARANCE, isGlassPreset, normalizeHexColor, parseOwlAppearance, presetThemeLock, resolveSurfaceTheme } from "./owl-appearance.ts";
 
 test("normalizeHexColor accepts only #rgb and #rrggbb and normalizes to lowercase #rrggbb", () => {
 	assert.equal(normalizeHexColor("#ABC"), "#aabbcc");
@@ -66,4 +66,66 @@ test("frost shares the glass family and locks the dark theme", () => {
 	assert.equal(presetThemeLock("frost"), "dark");
 	assert.equal(presetThemeLock("liquid-glass"), null);
 	assert.equal(presetThemeLock(""), null);
+});
+
+test("accent text stays readable on bright, dark and middle-tone custom colors and hover shades", () => {
+	const luminance = (hex: string, shade = 1): number => {
+		const channels = [1, 3, 5].map((offset) => {
+			const channel = Number.parseInt(hex.slice(offset, offset + 2), 16) * shade / 255;
+			return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+		});
+		return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+	};
+	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#ffff00", "#111111", "#777777", "#bd3473"]) {
+		for (const shade of [1, 0.84]) {
+			const bg = luminance(color, shade);
+			const fg = luminance(accentTextColor(color, shade));
+			assert.ok((Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05) >= 4.5, `${color} at ${shade}`);
+		}
+	}
+});
+
+test("appearance changes update accent foregrounds and clear custom colors when switching back to defaults", (t) => {
+	const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+	const values = new Map<string, string>();
+	const events: string[] = [];
+	const root = {
+		dataset: { owlTheme: "dark" },
+		style: { setProperty: (name: string, value: string) => values.set(name, value), removeProperty: (name: string) => values.delete(name), getPropertyValue: (name: string) => values.get(name) ?? "" },
+	};
+	Object.defineProperty(globalThis, "document", { configurable: true, value: { documentElement: root } });
+	Object.defineProperty(globalThis, "window", { configurable: true, value: {
+		getComputedStyle: () => ({ getPropertyValue: (name: string) => values.get(name) ?? (name.endsWith("accent-hover") ? "#428e7a" : "#50a992") }),
+		dispatchEvent: (event: Event) => { events.push(event.type); },
+	} });
+	t.after(() => {
+		if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+		else Reflect.deleteProperty(globalThis, "document");
+		if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+		else Reflect.deleteProperty(globalThis, "window");
+	});
+	applyOwlAppearance(parseOwlAppearance({ accent: "#ffff00", dark: { background: "#20202a", foreground: "#eee8f0" } }));
+	assert.equal(values.get("--color-owl-on-accent"), "#111111");
+	assert.equal(values.get("--color-owl-on-accent-hover"), "#111111");
+	assert.equal(values.get("--owl-ui-canvas-override"), "#20202a");
+	assert.equal(values.get("--owl-preview-dark-bg"), "#20202a");
+	assert.equal(values.get("--owl-preview-dark-fg"), "#eee8f0");
+	assert.equal(values.get("--owl-preview-light-bg"), "#faf9f5");
+	applyOwlAppearance(parseOwlAppearance({ accent: "#111111" }));
+	assert.equal(values.get("--color-owl-on-accent"), "#ffffff");
+	assert.equal(values.has("--owl-ui-canvas-override"), false);
+	applyOwlAppearance(parseOwlAppearance({}));
+	assert.equal(values.has("--color-owl-accent"), false);
+	assert.equal(values.get("--color-owl-on-accent"), "#111111");
+	assert.equal(values.get("--owl-preview-dark-bg"), "#1e1e1e");
+	assert.deepEqual(events, ["owl-appearance-change", "owl-appearance-change", "owl-appearance-change"]);
+});
+
+test("surface theme follows a loaded wallpaper palette and falls back when wallpaper is disabled", () => {
+	assert.equal(resolveSurfaceTheme({ owlTheme: "dark", owlWallpaper: "on", owlGlassTheme: "light" }), "light");
+	assert.equal(resolveSurfaceTheme({ owlTheme: "light", owlWallpaper: "on", owlGlassTheme: "dark" }), "dark");
+	assert.equal(resolveSurfaceTheme({ owlTheme: "light", owlWallpaper: "off", owlGlassTheme: "dark" }), "light");
+	assert.equal(resolveSurfaceTheme({ owlTheme: "dark", owlWallpaper: "on" }), "dark");
+	assert.equal(resolveSurfaceTheme({ owlTheme: "light", owlGlassTheme: "invalid" }), "light");
 });

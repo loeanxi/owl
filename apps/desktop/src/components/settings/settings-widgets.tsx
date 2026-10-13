@@ -208,8 +208,8 @@ export function Switch({
 			}`}
 		>
 			<span
-				className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] duration-150 ${
-					checked ? "left-[18px]" : "left-0.5"
+				className={`absolute top-0.5 h-4 w-4 rounded-full shadow transition-[left] duration-150 ${
+					checked ? "left-[18px] bg-owl-on-accent" : "left-0.5 bg-owl-text"
 				}`}
 			/>
 		</button>

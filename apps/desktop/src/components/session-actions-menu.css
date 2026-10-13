@@ -1,5 +1,5 @@
 .owl-session-actions-menu {
-	--owl-session-menu-danger: #f87171;
+	--owl-session-menu-danger: var(--owl-ui-danger, var(--color-owl-danger));
 	position: fixed;
 	z-index: 60;
 	width: 180px;
@@ -15,10 +15,6 @@
 	font-family: var(--font-sans);
 	font-size: 12px;
 	line-height: 1.5;
-}
-
-html[data-owl-theme="light"] .owl-session-actions-menu {
-	--owl-session-menu-danger: #b42318;
 }
 
 .owl-session-actions-menu-item {

@@ -195,7 +195,7 @@ export function QuestionDialog({
 				<div className="owl-question-card__heading">
 					<p id={questionId} className="owl-question-card__question">{question.question}</p>
 				</div>
-				{unanswered && <p className="mt-1 text-xs text-red-400">{t("question.missingWarning")}</p>}
+				{unanswered && <p className="mt-1 text-xs text-owl-danger">{t("question.missingWarning")}</p>}
 				<div className="owl-question-card__options" role={question.multiSelect ? "group" : "radiogroup"} aria-labelledby={questionId}>
 					{question.options.map((option) => {
 						const picked = state.picked.has(option.label);
@@ -223,7 +223,7 @@ export function QuestionDialog({
 									}}
 								>
 									<span
-										className={`owl-question-card__indicator mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border text-[10px] text-white ${
+										className={`owl-question-card__indicator mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border text-[10px] text-owl-on-accent ${
 											question.multiSelect ? "rounded-sm" : "rounded-full"
 										} ${picked ? "border-owl-accent bg-owl-accent" : "border-owl-border"}`}
 									>
@@ -336,7 +336,7 @@ export function QuestionDialog({
 					)}
 					<button
 						type="button"
-						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover"
+						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-owl-on-accent transition-colors hover:bg-owl-accent-hover hover:text-owl-on-accent-hover"
 						onClick={advance}
 					>
 						{qi < total - 1 ? t("question.next") : t("question.submit")}

@@ -114,7 +114,7 @@
 	color: var(--color-owl-muted);
 }
 .owl-myself-notice[data-tone="error"] {
-	color: #a85134;
+	color: var(--color-owl-danger);
 }
 .owl-myself-notice button {
 	border: 0;
@@ -477,7 +477,7 @@
 .owl-myself-task.is-done .owl-myself-check {
 	background: var(--color-owl-accent);
 	border-color: var(--color-owl-accent);
-	color: var(--color-owl-panel);
+	color: var(--color-owl-on-accent);
 }
 .owl-myself-task-label {
 	display: block;
@@ -501,7 +501,7 @@
 	color: var(--color-owl-accent);
 }
 .owl-myself-task-label strong em.is-waiting {
-	color: #ad8144;
+	color: var(--color-owl-warning);
 }
 .owl-myself-task-label > span {
 	display: flex;
@@ -624,7 +624,7 @@
 	border: 0;
 	border-radius: 5px;
 	background: var(--color-owl-accent);
-	color: var(--color-owl-panel);
+	color: var(--color-owl-on-accent);
 	font-size: 12px;
 	padding: 6px 10px;
 }
@@ -956,7 +956,7 @@
 	border: 0;
 	border-radius: 7px;
 	background: var(--color-owl-accent);
-	color: var(--color-owl-panel);
+	color: var(--color-owl-on-accent);
 }
 .owl-myself-missing .candidates {
 	font-size: 11px;

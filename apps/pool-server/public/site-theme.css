@@ -550,3 +550,84 @@ html[data-theme="light"] {
 }
 
 html[data-theme="light"] .dp-input::-webkit-calendar-picker-indicator { filter: none; opacity: .65; }
+
+/* 内嵌管理台复用 Owl 的实际配色；独立网页继续使用上面的品牌主题。 */
+html[data-owl-embedded="true"][data-theme] {
+  --bg: var(--owl-canvas);
+  --bg-2: var(--owl-sidebar);
+  --surface: var(--owl-panel);
+  --surface-2: var(--owl-hover);
+  --surface-3: var(--owl-hover);
+  --line: var(--owl-border);
+  --line-soft: color-mix(in srgb, var(--owl-border) 65%, transparent);
+  --ink: var(--owl-text);
+  --ink-2: color-mix(in srgb, var(--owl-text) 80%, var(--owl-muted));
+  --muted: var(--owl-muted);
+  --accent: var(--owl-accent);
+  --accent-2: var(--owl-accent);
+  --accent-deep: var(--owl-accent-hover);
+  --gold: var(--owl-muted);
+  --accent-soft: color-mix(in srgb, var(--owl-accent) 10%, transparent);
+  --accent-glow: color-mix(in srgb, var(--owl-accent) 18%, transparent);
+  --accent-border: color-mix(in srgb, var(--owl-accent) 30%, var(--owl-border));
+  --accent-border-strong: color-mix(in srgb, var(--owl-accent) 55%, var(--owl-border));
+  --accent-veil: color-mix(in srgb, var(--owl-accent) 5%, transparent);
+  --ambient-primary: color-mix(in srgb, var(--owl-accent) 6%, transparent);
+  --ambient-secondary: color-mix(in srgb, var(--owl-accent) 3%, transparent);
+  --ambient-center: transparent;
+  --grid-line: transparent;
+  --hover-spotlight: color-mix(in srgb, var(--owl-accent) 8%, transparent);
+  --wave-fill: color-mix(in srgb, var(--owl-accent) 10%, transparent);
+  --wave-stroke: var(--owl-accent);
+  --wave-shadow: color-mix(in srgb, var(--owl-accent) 25%, transparent);
+  --cursor-glow: radial-gradient(circle, color-mix(in srgb, var(--owl-accent) 9%, transparent) 0%, transparent 70%);
+  --cursor-shade: radial-gradient(circle, color-mix(in srgb, var(--owl-accent) 7%, transparent) 0%, transparent 70%);
+  --panel-head-overlay: color-mix(in srgb, var(--owl-hover) 30%, transparent);
+  --table-head-overlay: color-mix(in srgb, var(--owl-hover) 50%, transparent);
+  --overlay-bg: color-mix(in srgb, var(--owl-canvas) 94%, transparent);
+  --fresh-row-start: color-mix(in srgb, var(--owl-accent) 18%, transparent);
+  --fresh-row-end: color-mix(in srgb, var(--owl-accent) 5%, transparent);
+  --pa-bg: var(--owl-canvas);
+  --pa-paper: var(--owl-panel);
+  --pa-paper-2: var(--owl-hover);
+  --pa-ink: var(--owl-text);
+  --pa-ink-2: var(--ink-2);
+  --pa-ink-3: var(--owl-muted);
+  --pa-green: var(--owl-accent);
+  --pa-green-hover: var(--owl-accent-hover);
+  --pa-green-2: var(--owl-accent);
+  --pa-green-ink: var(--on-accent);
+  --pa-line: var(--line-soft);
+  --pa-line-strong: var(--owl-border);
+  --pa-card-border: var(--owl-border);
+  --pa-card-shadow: 0 18px 40px var(--shadow-float);
+  --pa-frame: var(--owl-muted);
+  --pa-link-line: var(--owl-muted);
+  --pa-handle: var(--owl-accent);
+  --pa-stroke: var(--owl-text);
+  --pa-fill-soft: var(--accent-soft);
+  --pa-grain: transparent;
+  --pa-footer-bg: var(--owl-sidebar);
+  --pa-footer-ink: var(--owl-muted);
+}
+
+html[data-owl-embedded="true"][data-theme] body { background: var(--owl-canvas); }
+html[data-owl-embedded="true"][data-theme] .nav { background: var(--owl-sidebar); }
+html[data-owl-embedded="true"][data-theme] .btn.primary,
+html[data-owl-embedded="true"][data-theme] button.chip.active,
+html[data-owl-embedded="true"][data-theme] .member-button.primary,
+html[data-owl-embedded="true"][data-theme] .home-button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+html[data-owl-embedded="true"] body::before,
+html[data-owl-embedded="true"] body::after {
+  content: none;
+  animation: none;
+}
+html[data-owl-embedded="true"][data-theme] .pa-footer .big i,
+html[data-owl-embedded="true"][data-theme] .pa-footer .meta a:hover,
+html[data-owl-embedded="true"][data-theme] .pa-footer .meta .home-contact-copy:hover {
+  color: var(--owl-accent);
+}

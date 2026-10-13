@@ -91,6 +91,56 @@ export function normalizeHexColor(value: unknown): string {
 	return /^#[0-9a-f]{6}$/.test(text) ? text : "";
 }
 
+/** Keep text readable on both preset and custom accent backgrounds. */
+export function accentTextColor(value: string, shade = 1): "#111111" | "#ffffff" | "#000000" {
+	const hex = normalizeHexColor(value);
+	if (!hex) return "#ffffff";
+	const channels = [1, 3, 5].map((offset) => {
+		const channel = (Number.parseInt(hex.slice(offset, offset + 2), 16) * shade) / 255;
+		return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+	});
+	const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+	const darkContrast = (luminance + 0.05) / 0.055605;
+	const lightContrast = 1.05 / (luminance + 0.05);
+	if (Math.max(darkContrast, lightContrast) < 4.5) return "#000000";
+	return darkContrast >= lightContrast ? "#111111" : "#ffffff";
+}
+
+/** Wallpaper palettes can be lighter or darker than the saved theme preference. */
+export function resolveSurfaceTheme(dataset: Record<string, string | undefined>): "dark" | "light" {
+	if (dataset.owlWallpaper === "on" && (dataset.owlGlassTheme === "dark" || dataset.owlGlassTheme === "light")) return dataset.owlGlassTheme;
+	return dataset.owlTheme === "light" ? "light" : "dark";
+}
+
+function syncAccentText(): void {
+	if (typeof document === "undefined" || typeof window === "undefined" || typeof window.getComputedStyle !== "function") return;
+	const root = document.documentElement;
+	const style = window.getComputedStyle(root);
+	const foreground = (color: string): string => {
+		const hex = normalizeHexColor(color);
+		if (hex) return accentTextColor(hex);
+		if (typeof document.createElement === "function") {
+			const canvas = document.createElement("canvas");
+			canvas.width = canvas.height = 1;
+			const context = canvas.getContext("2d", { willReadFrequently: true });
+			if (context) {
+				context.fillStyle = color;
+				context.fillRect(0, 0, 1, 1);
+				const rgb = context.getImageData(0, 0, 1, 1).data;
+				return accentTextColor(`#${Array.from(rgb).slice(0, 3).map((value) => value.toString(16).padStart(2, "0")).join("")}`);
+			}
+		}
+		return current.accent ? accentTextColor(current.accent, 0.84) : "#ffffff";
+	};
+	for (const [token, source] of [
+		["--color-owl-on-accent", "--color-owl-accent"],
+		["--color-owl-on-accent-hover", "--color-owl-accent-hover"],
+	]) {
+		const next = foreground(style.getPropertyValue(source).trim());
+		if (root.style.getPropertyValue(token) !== next) root.style.setProperty(token, next);
+	}
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
 		? value as Record<string, unknown>
@@ -139,6 +189,8 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 		"--color-owl-text",
 		"--owl-ui-canvas-override",
 		"--owl-ui-text-override",
+		"--color-owl-on-accent",
+		"--color-owl-on-accent-hover",
 	]) {
 		root.style.removeProperty(name);
 	}
@@ -148,6 +200,11 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 	if (colors.accent) {
 		root.style.setProperty("--color-owl-accent", colors.accent);
 		root.style.setProperty("--color-owl-accent-hover", `color-mix(in srgb, ${colors.accent} 84%, #000)`);
+	}
+	for (const mode of ["dark", "light"] as const) {
+		const defaults = PRESET_DEFAULT_COLORS[colors.preset][mode];
+		root.style.setProperty(`--owl-preview-${mode}-bg`, colors[mode].background || defaults.background);
+		root.style.setProperty(`--owl-preview-${mode}-fg`, colors[mode].foreground || defaults.foreground);
 	}
 	const mode = resolvedTheme();
 	const perMode = colors[mode];
@@ -161,6 +218,10 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 		root.style.setProperty("--color-owl-text", perMode.foreground);
 		root.style.setProperty("--owl-ui-text-override", perMode.foreground);
 	}
+	if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+		syncAccentText();
+		window.dispatchEvent(new Event("owl-appearance-change"));
+	}
 }
 
 /** 应用一整套外观设置：先存模块级副本（供主题切档时重放），再立即落变量与预设属性。 */
@@ -171,4 +232,9 @@ export function applyOwlAppearance(colors: OwlAppearanceColors): void {
 
 if (typeof window !== "undefined") {
 	window.addEventListener("owl-theme-change", () => applyToDocument(current));
+	window.addEventListener("owl-appearance-change", syncAccentText);
+	if (typeof MutationObserver !== "undefined" && typeof document !== "undefined") {
+		const observer = new MutationObserver(syncAccentText);
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme"] });
+	}
 }

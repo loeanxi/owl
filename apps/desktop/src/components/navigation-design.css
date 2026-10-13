@@ -246,7 +246,7 @@
 }
 
 .owl-rail-update-status.is-error {
-	color: var(--color-owl-danger, #f87171);
+	color: var(--owl-ui-danger, var(--color-owl-danger));
 }
 
 .owl-rail-menu-spinner {
@@ -595,7 +595,7 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-action--danger:hover {
-	color: #f87171;
+	color: var(--owl-ui-danger, var(--color-owl-danger));
 }
 
 /* 保留 index.css 中的项目层级缩进与会话状态点，统一导航行的节奏。 */

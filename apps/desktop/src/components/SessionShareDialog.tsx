@@ -91,7 +91,7 @@ export function SessionShareDialog({
 				</div>
 				<div className="flex-1 overflow-y-auto px-4 py-3">
 					{loadError && (
-						<p className="rounded-lg border border-red-400/40 bg-red-400/10 px-2.5 py-1.5 text-xs text-red-400" role="alert">
+						<p className="rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger" role="alert">
 							{loadError}
 						</p>
 					)}
@@ -154,7 +154,7 @@ export function SessionShareDialog({
 						<button
 							type="button"
 							disabled={selected.size === 0 || exporting}
-							className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:cursor-default disabled:opacity-50"
+							className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-owl-on-accent transition-colors hover:bg-owl-accent-hover hover:text-owl-on-accent-hover disabled:cursor-default disabled:opacity-50"
 							onClick={() => onExport([...selected])}
 						>
 							{exporting ? t("app.exportingSession") : t("shareTurns.exportSelected", { n: selected.size })}

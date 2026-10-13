@@ -8,6 +8,7 @@
  */
 import { lazy } from "react";
 import { t } from "../i18n/index.ts";
+import { setThemePreference } from "../theme.ts";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
@@ -84,7 +85,16 @@ const DEFINITIONS: TabDefinition[] = [
 		kind: "manager",
 		title: "号池 Manager",
 		icon: quickIcon("mirror"),
-		component: ({ api }) => <ManagerTab onOpenExternal={async (url) => { await api.openExternal("url", url); }} />,
+		component: ({ api, client }) => (
+			<ManagerTab
+				onOpenExternal={async (url) => { await api.openExternal("url", url); }}
+				onThemeChange={async (theme) => {
+					const response = await client.request({ type: "settings.set", values: { theme } });
+					if (!response.ok) throw new Error(response.error ?? "保存主题失败");
+					setThemePreference(theme);
+				}}
+			/>
+		),
 	},
 	{
 		kind: "tasks",

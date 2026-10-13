@@ -496,7 +496,7 @@ html[data-owl-theme="light"] .owl-map-workspace {
 	width: 29px;
 	height: 29px;
 	background: var(--color-owl-accent) !important;
-	color: white !important;
+	color: var(--color-owl-on-accent) !important;
 	display: grid;
 	place-items: center;
 	margin-left: auto;
@@ -1099,19 +1099,20 @@ html[data-owl-theme="light"] .owl-map-workspace {
 }
 
 .owl-map-workspace .map-pin.selected .pin-body {
-	background: #bce4be;
-	color: #203728;
-	border-color: #d3f1d4;
+	background: var(--color-owl-accent);
+	color: var(--color-owl-on-accent);
+	border-color: var(--color-owl-accent);
 }
 
 .owl-map-workspace .map-pin.selected .pin-body:after {
-	background: #bce4be;
-	border-color: #d3f1d4;
+	background: var(--color-owl-accent);
+	border-color: var(--color-owl-accent);
 }
 
 .owl-map-workspace .map-pin.selected .pin-num {
-	background: #8fc599;
-	color: #203728;
+	background: transparent;
+	border: 1px solid color-mix(in srgb, var(--color-owl-on-accent) 25%, transparent);
+	color: var(--color-owl-on-accent);
 }
 
 .owl-map-workspace .map-dot {
@@ -1535,7 +1536,7 @@ html[data-owl-theme="light"] .owl-map-workspace {
 .owl-map-workspace .detail-actions .primary {
 	background: var(--color-owl-accent);
 	border-color: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 }
 
 .owl-map-workspace .detail-ask {
@@ -1595,7 +1596,7 @@ html[data-owl-theme="light"] .owl-map-workspace {
 	font-size: 10px;
 	border-radius: 5px;
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 }
 
 .owl-map-workspace .compare-overlay {
@@ -1707,7 +1708,7 @@ html[data-owl-theme="light"] .owl-map-workspace {
 }
 
 .owl-map-workspace .dialog-footer .primary {
-	color: white;
+	color: var(--color-owl-on-accent);
 	background: var(--color-owl-accent);
 	border-color: var(--color-owl-accent);
 }
@@ -2214,6 +2215,7 @@ html[data-owl-theme="light"] .owl-map-workspace .map-world > .map-art-light {
 .owl-map-workspace .primary:hover,
 .owl-map-workspace .send-btn:hover {
 	background: var(--color-owl-accent-hover) !important;
+	color: var(--color-owl-on-accent-hover) !important;
 }
 
 .owl-map-workspace .followup-box {
@@ -2675,10 +2677,14 @@ html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
 }
 .owl-map-workspace .live-place-search > button {
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 	text-align: center;
 	border-radius: 7px;
 	font-size: 12px;
+}
+.owl-map-workspace .live-place-search > button:hover:not(:disabled) {
+	background: var(--color-owl-accent-hover);
+	color: var(--color-owl-on-accent-hover);
 }
 .owl-map-workspace .live-location-results > button {
 	padding: 10px 8px !important;
@@ -2963,7 +2969,7 @@ html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
 }
 .owl-map-workspace .map-position-settings .primary {
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 }
 .owl-map-workspace .map-position-settings button:disabled {
 	opacity: .45;
@@ -2998,7 +3004,11 @@ html[data-owl-theme="light"] .owl-map-workspace .map-conversation-error {
 }
 .owl-map-workspace .map-question-dock .owl-question-card__actions .bg-owl-accent {
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
+}
+.owl-map-workspace .map-question-dock .owl-question-card__actions .bg-owl-accent:hover:not(:disabled) {
+	background: var(--color-owl-accent-hover);
+	color: var(--color-owl-on-accent-hover);
 }
 
 /* Explore and conversation occupy the same main workspace. */

@@ -1,18 +1,17 @@
 .owl-map-workspace .owl-real-map-canvas {
-	--real-map-surface: #fff;
+	--real-map-surface: var(--owl-ui-panel, var(--color-owl-panel));
 	--real-map-land: #e9efec;
-	--real-map-text: #273b3f;
-	--real-map-muted: #5c7278;
-	--real-map-border: #d8e2e4;
-	--real-map-accent: #347988;
-	--real-map-hover: #edf4f5;
+	--real-map-text: var(--owl-ui-text, var(--color-owl-text));
+	--real-map-muted: var(--owl-ui-muted, var(--color-owl-muted));
+	--real-map-border: var(--owl-ui-border, var(--color-owl-border));
+	--real-map-accent: var(--color-owl-accent);
+	--real-map-hover: var(--owl-ui-hover, var(--color-owl-hover));
 	position: absolute;
 	inset: 0;
 	isolation: isolate;
 	overflow: hidden;
 	background: var(--real-map-land);
 	color: var(--real-map-text);
-	color-scheme: light;
 }
 
 .owl-map-workspace .owl-real-map-viewport {
@@ -30,7 +29,7 @@
 
 .owl-map-workspace .owl-real-map-viewport .leaflet-control-attribution {
 	padding: 3px 6px;
-	background: rgb(255 255 255 / 95%);
+	background: color-mix(in srgb, var(--real-map-surface) 95%, transparent);
 	color: var(--real-map-muted);
 	font-size: 10px;
 	line-height: 1.5;
@@ -66,7 +65,7 @@
 .owl-map-workspace .owl-real-map-viewport .owl-real-map-marker.is-selected {
 	border-color: #fff;
 	background: var(--real-map-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 	box-shadow: 0 4px 12px rgb(30 56 61 / 24%);
 }
 
@@ -220,10 +219,10 @@
 	align-items: flex-start;
 	gap: 7px;
 	padding: 10px 11px;
-	border: 1px solid #ead7cb;
+	border: 1px solid color-mix(in srgb, var(--color-owl-danger) 35%, var(--real-map-border));
 	border-radius: 8px;
-	background: #fff8f3;
-	color: #8c4c3a;
+	background: color-mix(in srgb, var(--color-owl-danger) 8%, var(--real-map-surface));
+	color: var(--color-owl-danger);
 	box-shadow: 0 4px 14px rgb(30 56 61 / 10%);
 	font-size: 11px;
 	line-height: 1.7;

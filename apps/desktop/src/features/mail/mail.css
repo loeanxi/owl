@@ -77,13 +77,14 @@
 .owl-mail-button.is-primary {
 	background: var(--color-owl-accent);
 	border-color: var(--color-owl-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 }
 .owl-mail-button.is-primary:hover:not(:disabled) {
 	background: var(--color-owl-accent-hover);
+	color: var(--color-owl-on-accent-hover);
 }
 .owl-mail-button.is-danger {
-	color: #d48080;
+	color: var(--owl-ui-danger);
 }
 .owl-mail-icon-button {
 	display: grid;
@@ -113,7 +114,7 @@
 	text-decoration: underline;
 }
 .owl-mail-link-button.is-danger {
-	color: #d48080;
+	color: var(--owl-ui-danger);
 }
 .owl-mail-eyebrow {
 	color: var(--owl-ui-muted);
@@ -129,16 +130,16 @@
 	background: var(--color-owl-accent);
 }
 .owl-mail-dot.is-offline {
-	background: #d48080;
+	background: var(--owl-ui-danger);
 }
 .owl-mail-error {
-	color: #d48080;
+	color: var(--owl-ui-danger);
 	font-size: 11px;
 	line-height: 1.7;
 	overflow-wrap: anywhere;
 }
 .owl-mail-warning {
-	color: #c7984c !important;
+	color: var(--owl-ui-warning) !important;
 }
 .owl-mail-spinner {
 	display: inline-block;
@@ -437,7 +438,7 @@
 	gap: 8px;
 	padding: 8px 16px;
 	border-bottom: 1px solid var(--owl-ui-border);
-	background: color-mix(in srgb, #c7984c 9%, var(--owl-ui-canvas));
+	background: color-mix(in srgb, var(--owl-ui-warning) 9%, var(--owl-ui-canvas));
 	font-size: 11px;
 }
 .owl-mail-expired-banner span,
@@ -446,12 +447,12 @@
 	overflow-wrap: anywhere;
 }
 .owl-mail-expired-banner .owl-mail-link-button {
-	color: #c7984c;
+	color: var(--owl-ui-warning);
 	flex-shrink: 0;
 }
 .owl-mail-top-error {
-	background: color-mix(in srgb, #d48080 9%, var(--owl-ui-canvas));
-	color: #d48080;
+	background: color-mix(in srgb, var(--owl-ui-danger) 9%, var(--owl-ui-canvas));
+	color: var(--owl-ui-danger);
 }
 .owl-mail-columns {
 	display: flex;
@@ -631,7 +632,7 @@
 .owl-mail-list-errors {
 	padding: 12px;
 	border-bottom: 1px solid var(--owl-ui-border);
-	color: #c7984c;
+	color: var(--owl-ui-warning);
 	font-size: 10px;
 	overflow-wrap: anywhere;
 }
@@ -1028,7 +1029,7 @@
 	flex-shrink: 0;
 	border-radius: 50%;
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 	font-size: 18px !important;
 }
 .owl-mail-draft {
@@ -1268,7 +1269,7 @@
 	line-height: 1.8;
 }
 .owl-mail-dialog > p.owl-mail-error {
-	color: #d48080;
+	color: var(--owl-ui-danger);
 }
 .owl-mail-dialog-callout {
 	padding: 12px;

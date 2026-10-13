@@ -28,11 +28,11 @@
 	/* 文字：正文 → 次级 → 弱化 */
 	--color-owl-text: #e8e8e8;
 	--color-owl-muted: #a3a3a3;
-	--color-owl-faint: #8a8a8a;
+	--color-owl-faint: #909090;
 
 	/* 界面强调色按主题区分；原版 owl.svg 保留品牌颜色。 */
-	--color-owl-accent: #50a992;
-	--color-owl-accent-hover: #428e7a;
+	--color-owl-accent: var(--owl-preset-accent);
+	--color-owl-accent-hover: var(--owl-preset-accent-hover);
 
 	--font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 	/*
@@ -45,6 +45,8 @@
 }
 
 html {
+	--owl-preset-accent: #50a992;
+	--owl-preset-accent-hover: #428e7a;
 	--owl-conversation-bg: #171717;
 	color-scheme: dark;
 	background-color: var(--color-owl-bg);
@@ -66,7 +68,7 @@ html[data-owl-preset="owl-green"] {
 	--color-owl-border: #45443e;
 	--color-owl-text: #e9e7e0;
 	--color-owl-muted: #a6a399;
-	--color-owl-faint: #8a867c;
+	--color-owl-faint: #9c998f;
 }
 
 /*
@@ -86,9 +88,9 @@ html[data-owl-preset="codex"] {
 	--color-owl-border: #3a3a3a;
 	--color-owl-text: #ededed;
 	--color-owl-muted: #9a9a9a;
-	--color-owl-faint: #6e6e6e;
-	--color-owl-accent: #4d9aff;
-	--color-owl-accent-hover: #6babff;
+	--color-owl-faint: #929292;
+	--owl-preset-accent: #4d9aff;
+	--owl-preset-accent-hover: #6babff;
 	--color-owl-sidebar-bg: #1a1a1a;
 	--color-owl-sidebar-surface: #2a2a2a;
 	--color-owl-sidebar-hover: #2e2e2e;
@@ -116,9 +118,9 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) {
 	--color-owl-border: #383d5c;
 	--color-owl-text: #f5f5f7;
 	--color-owl-muted: #a9abc0;
-	--color-owl-faint: #7d8099;
-	--color-owl-accent: #0a84ff;
-	--color-owl-accent-hover: #409cff;
+	--color-owl-faint: #9093aa;
+	--owl-preset-accent: #0a84ff;
+	--owl-preset-accent-hover: #409cff;
 	--color-owl-sidebar-bg: #121421;
 	--color-owl-sidebar-surface: #20233a;
 	--color-owl-sidebar-hover: rgb(255 255 255 / 8%);
@@ -136,8 +138,8 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) {
  */
 html[data-owl-theme="light"] {
 	--owl-conversation-bg: var(--color-owl-bg);
-	--color-owl-accent: #268574;
-	--color-owl-accent-hover: #207061;
+	--owl-preset-accent: #268574;
+	--owl-preset-accent-hover: #207061;
 	color-scheme: light;
 	--color-owl-bg: #faf9f5;
 	--color-owl-sidebar: #f1efe8;
@@ -157,7 +159,7 @@ html[data-owl-theme="light"] {
 
 	--color-owl-text: #3d3a32;
 	--color-owl-muted: #6e6a5e;
-	--color-owl-faint: #9a9585;
+	--color-owl-faint: #716d61;
 }
 
 /*
@@ -165,8 +167,8 @@ html[data-owl-theme="light"] {
  * 不被默认暖纸色调吞掉。暖灰白底 + 蓝紫强调色。
  */
 html[data-owl-preset="codex"][data-owl-theme="light"] {
-	--color-owl-accent: #0066cc;
-	--color-owl-accent-hover: #0052a3;
+	--owl-preset-accent: #0066cc;
+	--owl-preset-accent-hover: #0052a3;
 	--color-owl-bg: #f7f6f3;
 	--color-owl-sidebar: #efeeeb;
 	--color-owl-rail: #e7e6e3;
@@ -184,13 +186,13 @@ html[data-owl-preset="codex"][data-owl-theme="light"] {
 	--color-owl-sidebar-faint: #8c8c8c;
 	--color-owl-text: #1a1a1a;
 	--color-owl-muted: #6e6e6e;
-	--color-owl-faint: #8c8c8c;
+	--color-owl-faint: #6c6c6c;
 }
 
 /* 液态玻璃预设的浅色覆盖：放在默认浅色块之后同优先级覆盖。冷调雾白底 + iOS 系统蓝。 */
 html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-theme="light"] {
-	--color-owl-accent: #007aff;
-	--color-owl-accent-hover: #0062cc;
+	--owl-preset-accent: #007aff;
+	--owl-preset-accent-hover: #0062cc;
 	--color-owl-bg: #f2f4fa;
 	--color-owl-sidebar: #eceff7;
 	--color-owl-rail: #e5e9f3;
@@ -208,7 +210,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	--color-owl-sidebar-faint: #8e8e93;
 	--color-owl-text: #1d1d1f;
 	--color-owl-muted: #6e6e73;
-	--color-owl-faint: #8e8e93;
+	--color-owl-faint: #6b6b70;
 }
 
 ::selection {
@@ -554,7 +556,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 }
 
 .owl-sidebar-action--danger:hover {
-	color: #f87171;
+	color: var(--color-owl-danger);
 }
 
 .owl-sidebar-project-toggle {
@@ -728,8 +730,8 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 .owl-prompt-queue-wait { font-size: 11px; line-height: 1.3; color: var(--owl-ui-muted, var(--owl-reading-muted)); }
 .owl-prompt-queue-action { flex: none; border: 0; background: transparent; padding: 0 2px; font-size: 11px; color: var(--owl-ui-muted, var(--owl-reading-muted)); cursor: pointer; }
 .owl-prompt-queue-action:hover { color: var(--owl-ui-text, var(--owl-reading-text)); }
-.owl-prompt-queue-action.is-primary { border-radius: 999px; background: var(--color-owl-accent); padding: 4px 10px; color: white; font-weight: 600; }
-.owl-prompt-queue-action.is-primary:hover { background: var(--color-owl-accent-hover); color: white; }
+.owl-prompt-queue-action.is-primary { border-radius: 999px; background: var(--color-owl-accent); padding: 4px 10px; color: var(--color-owl-on-accent); font-weight: 600; }
+.owl-prompt-queue-action.is-primary:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-composer-editor:empty::before {
 	content: attr(data-placeholder);
 	color: var(--owl-ui-muted);
@@ -745,10 +747,10 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	justify-content: center;
 	border-radius: 999px;
 	background: var(--color-owl-accent);
-	color: white;
+	color: var(--color-owl-on-accent);
 	transition: background-color 160ms ease, opacity 160ms ease;
 }
-.owl-composer-action:hover { background: var(--color-owl-accent-hover); }
+.owl-composer-action:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-composer-action:disabled { cursor: not-allowed; opacity: 0.4; }
 .owl-composer-action-stage { position: relative; height: 1rem; width: 1rem; }
 .owl-composer-action-glyph {
@@ -849,7 +851,7 @@ button.owl-context-gauge:hover { background: var(--color-owl-hover); }
 	color: var(--color-owl-text);
 }
 .owl-todo-trigger[data-state="active"] { color: var(--color-owl-accent); }
-.owl-todo-trigger[data-state="done"] { color: #10b981; }
+.owl-todo-trigger[data-state="done"] { color: var(--color-owl-success); }
 .owl-todo-trigger__dot {
 	position: absolute;
 	top: -3px;
@@ -1056,8 +1058,8 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .owl-user-editor-button { padding: 5px 12px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: transparent; color: var(--owl-reading-muted); font-size: 12px; cursor: pointer; transition: background-color .12s ease, color .12s ease; }
 .owl-user-editor-button:hover { background: var(--owl-reading-panel); color: var(--owl-reading-text); }
-.owl-user-editor-button.is-primary { border-color: transparent; background: var(--color-owl-accent); color: #fff; }
-.owl-user-editor-button.is-primary:hover { background: var(--color-owl-accent-hover); color: #fff; }
+.owl-user-editor-button.is-primary { border-color: transparent; background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
+.owl-user-editor-button.is-primary:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-user-editor-button:disabled { opacity: .5; cursor: default; }
 .owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 14px); line-height: var(--owl-chat-line-height, 1.5); color: var(--owl-reading-text); overflow-wrap: anywhere; }
 .owl-answer > :first-child { margin-top: 0; }
@@ -1124,7 +1126,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }
 .owl-tool-detail img { margin: 8px 0; }
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }
-.owl-chat-error { color: #e78080; font-size: 13px; line-height: 1.7; }
+.owl-chat-error { color: var(--color-owl-danger); font-size: 13px; line-height: 1.7; }
 .owl-chat-paused { color: var(--owl-reading-muted); font-size: 12px; line-height: 1.7; }
 .owl-response-activity { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 18px 0 8px; color: var(--owl-reading-muted); font-size: 12px; }
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }

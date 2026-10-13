@@ -34,21 +34,15 @@
 }
 
 /* ── 改动审批卡（ReviewChangesCard）：实心面板容器 + 类型色芯片行 ──
-	 状态色走组件级变量：深浅主题分别取 emerald/red/amber 的 300 / 600 档，
-	 保证浅色面板上加减数字与比例条仍有对比度。 */
+	 加减数字与比例条保留绿/红语义，使用深浅主题各自的可读状态色。 */
 .owl-changes-card {
-	--owl-changes-add: #6ee7b7;
-	--owl-changes-del: #fca5a5;
+	--owl-changes-add: var(--color-owl-success);
+	--owl-changes-del: var(--color-owl-danger);
 
 	overflow: hidden;
 	border: 1px solid var(--color-owl-border);
 	border-radius: 12px;
 	background: color-mix(in srgb, var(--color-owl-panel) 72%, transparent);
-}
-
-html[data-owl-theme="light"] .owl-changes-card {
-	--owl-changes-add: #059669;
-	--owl-changes-del: #dc2626;
 }
 
 .owl-changes-card button:focus-visible {
@@ -339,6 +333,14 @@ html[data-owl-theme="light"] .owl-changes-card {
 .owl-changes-type.t-cyan { --chip-c: #4fb3c4; }
 .owl-changes-type.t-orange { --chip-c: #c87e4f; }
 .owl-changes-type.t-grey { --chip-c: var(--color-owl-muted); }
+
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-blue { --chip-c: #205a9d; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-green { --chip-c: #236341; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-amber { --chip-c: #76530d; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-red { --chip-c: #a13d30; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-purple { --chip-c: #6c47a0; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-cyan { --chip-c: #236776; }
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-changes-type.t-orange { --chip-c: #8c4720; }
 
 .owl-changes-file {
 	display: flex;

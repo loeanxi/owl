@@ -6,6 +6,12 @@
 	--settings-text: var(--owl-ui-text, var(--color-owl-text));
 	--settings-muted: var(--owl-ui-muted, var(--color-owl-muted));
 	--settings-hover: var(--owl-ui-hover, var(--color-owl-hover));
+	--settings-danger: var(--owl-ui-danger, var(--color-owl-danger));
+	--settings-warning: var(--owl-ui-warning, var(--color-owl-warning));
+	--settings-success: var(--owl-ui-success, var(--color-owl-success));
+	--settings-info: #8bb5f7;
+	--settings-wallpaper-scene: #d8a24a;
+	--settings-wallpaper-application: #d96a6a;
 	--settings-accent-soft: color-mix(in srgb, var(--color-owl-accent) 11%, transparent);
 	position: absolute;
 	inset: 0;
@@ -19,6 +25,12 @@
 	font-size: 14px;
 	line-height: 1.6;
 	container-type: inline-size;
+}
+
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page {
+	--settings-info: #1d4ed8;
+	--settings-wallpaper-scene: #87651e;
+	--settings-wallpaper-application: #a93232;
 }
 
 .owl-settings-page .owl-settings-frame {
@@ -235,18 +247,19 @@
 .owl-settings-page .owl-settings-button.is-primary {
 	border-color: var(--color-owl-accent);
 	background: var(--color-owl-accent);
-	color: #fff;
+	color: var(--color-owl-on-accent);
 }
 
 .owl-settings-page .owl-settings-button.is-primary:hover:not(:disabled) {
 	border-color: var(--color-owl-accent-hover);
 	background: var(--color-owl-accent-hover);
+	color: var(--color-owl-on-accent-hover);
 }
 
 .owl-settings-page .owl-settings-button.is-danger {
-	border-color: color-mix(in srgb, #d86e6e 35%, transparent);
-	background: color-mix(in srgb, #d86e6e 8%, transparent);
-	color: #d86e6e;
+	border-color: color-mix(in srgb, var(--settings-danger) 35%, transparent);
+	background: color-mix(in srgb, var(--settings-danger) 8%, transparent);
+	color: var(--settings-danger);
 }
 
 .owl-settings-page .owl-settings-content input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
@@ -314,6 +327,21 @@
 .owl-settings-page .owl-settings-content .text-owl-faint,
 .owl-settings-page .owl-settings-content .text-owl-muted {
 	color: var(--settings-muted);
+}
+
+/* 技能来源与分组徽标保留各自色相，浅色面板使用更深的文字档。 */
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page .text-emerald-300,
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page .text-emerald-400 {
+	color: var(--settings-success);
+}
+
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page .text-sky-300,
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page .text-sky-400 {
+	color: var(--settings-info);
+}
+
+html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-theme="dark"]), [data-owl-wallpaper="on"][data-owl-glass-theme="light"]) .owl-settings-page .text-violet-300 {
+	color: #7546bb;
 }
 
 .owl-settings-page .owl-settings-card,
@@ -461,7 +489,7 @@
 }
 
 .owl-settings-page .owl-settings-link.is-danger:hover:not(:disabled) {
-	color: #d86e6e;
+	color: var(--settings-danger);
 }
 
 .owl-settings-page .owl-settings-link:disabled {
@@ -530,14 +558,14 @@
 }
 
 .owl-settings-page .owl-settings-notice.is-error {
-	border-color: color-mix(in srgb, #d86e6e 42%, var(--settings-border));
-	background: color-mix(in srgb, #d86e6e 9%, transparent);
-	color: #d86e6e;
+	border-color: color-mix(in srgb, var(--settings-danger) 42%, var(--settings-border));
+	background: color-mix(in srgb, var(--settings-danger) 9%, transparent);
+	color: var(--settings-danger);
 }
 
 .owl-settings-page .owl-settings-notice.is-warning {
-	border-color: color-mix(in srgb, #bd944b 34%, var(--settings-border));
-	background: color-mix(in srgb, #bd944b 8%, transparent);
+	border-color: color-mix(in srgb, var(--settings-warning) 34%, var(--settings-border));
+	background: color-mix(in srgb, var(--settings-warning) 8%, transparent);
 	color: var(--settings-text);
 }
 
@@ -615,24 +643,26 @@
 }
 
 .owl-settings-page .owl-settings-mode-preview {
+	--mode-bg: var(--owl-preview-light-bg, #faf9f5);
+	--mode-fg: var(--owl-preview-light-fg, #3d3a32);
 	position: relative;
 	display: block;
 	width: 64px;
 	height: 42px;
 	overflow: hidden;
-	border: 1px solid #d6ded7;
+	border: 1px solid color-mix(in srgb, var(--mode-fg) 22%, var(--mode-bg));
 	border-radius: 5px;
-	background: #f8faf8;
+	background: var(--mode-bg);
 }
 
-/* 深色缩略图用令牌驱动：跟随当前主题预设的配色，不用写死。 */
+/* 两档缩略图分别展示该预设的深浅配色，切档时不互相覆盖。 */
 .owl-settings-page .owl-settings-mode-preview.is-dark {
-	border-color: var(--color-owl-border);
-	background: var(--color-owl-bg);
+	--mode-bg: var(--owl-preview-dark-bg, #1e1e1e);
+	--mode-fg: var(--owl-preview-dark-fg, #e8e8e8);
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-system {
-	background: linear-gradient(125deg, #f8faf8 50%, var(--color-owl-bg) 50%);
+	background: linear-gradient(125deg, var(--owl-preview-light-bg, #faf9f5) 50%, var(--owl-preview-dark-bg, #1e1e1e) 50%);
 }
 
 .owl-settings-page .owl-settings-mode-preview i {
@@ -641,19 +671,15 @@
 	left: 7px;
 	height: 3px;
 	border-radius: 2px;
-	background: #c8d2c9;
-}
-
-.owl-settings-page .owl-settings-mode-preview.is-dark i {
-	background: var(--color-owl-border);
+	background: color-mix(in srgb, var(--mode-fg) 25%, var(--mode-bg));
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-dark i.is-input {
-	background: var(--color-owl-panel);
+	background: color-mix(in srgb, var(--mode-fg) 10%, var(--mode-bg));
 }
 
 .owl-settings-page .owl-settings-mode-preview.is-system i {
-	background: rgb(128 128 128 / 0.75);
+	background: linear-gradient(125deg, color-mix(in srgb, var(--owl-preview-light-fg, #3d3a32) 25%, var(--owl-preview-light-bg, #faf9f5)) 50%, color-mix(in srgb, var(--owl-preview-dark-fg, #e8e8e8) 25%, var(--owl-preview-dark-bg, #1e1e1e)) 50%);
 }
 
 .owl-settings-page .owl-settings-mode-preview i.is-accent {
@@ -925,7 +951,7 @@
 }
 
 .owl-settings-page .owl-settings-archive-warning {
-	color: #d86e6e;
+	color: var(--settings-danger);
 	font-size: 12px;
 }
 
@@ -982,7 +1008,7 @@
 	align-items: center;
 	justify-content: center;
 	padding: 24px;
-	background: #09190f66;
+	background: rgb(0 0 0 / 40%);
 	backdrop-filter: blur(3px);
 }
 
@@ -1023,7 +1049,7 @@
 }
 
 .owl-settings-page .owl-usage-live.is-on {
-	color: #4ade80;
+	color: var(--settings-success);
 }
 
 .owl-settings-page .owl-usage-live-dot {
@@ -1035,7 +1061,7 @@
 }
 
 .owl-settings-page .owl-usage-live.is-on .owl-usage-live-dot {
-	background: #4ade80;
+	background: var(--settings-success);
 	animation: owl-usage-breathe 2s ease-in-out infinite;
 }
 
@@ -1056,15 +1082,15 @@
 	height: 7px;
 	margin-left: 9px;
 	border-radius: 999px;
-	background: #4ade80;
-	box-shadow: 0 0 0 0 color-mix(in srgb, #4ade80 55%, transparent);
+	background: var(--settings-success);
+	box-shadow: 0 0 0 0 color-mix(in srgb, var(--settings-success) 55%, transparent);
 	animation: owl-usage-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 	vertical-align: super;
 }
 
 @keyframes owl-usage-ping {
 	0% {
-		box-shadow: 0 0 0 0 color-mix(in srgb, #4ade80 55%, transparent);
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--settings-success) 55%, transparent);
 	}
 	70% {
 		box-shadow: 0 0 0 7px transparent;
@@ -1422,8 +1448,8 @@
 	color: var(--settings-text);
 	background: color-mix(in srgb, var(--settings-canvas) 78%, transparent);
 }
-.owl-settings-page .owl-wallpaper-badge.is-scene { color: #d8a24a; }
-.owl-settings-page .owl-wallpaper-badge.is-application { color: #d96a6a; }
+.owl-settings-page .owl-wallpaper-badge.is-scene { color: var(--settings-wallpaper-scene); }
+.owl-settings-page .owl-wallpaper-badge.is-application { color: var(--settings-wallpaper-application); }
 .owl-settings-page .owl-wallpaper-name {
 	display: block;
 	margin-top: 6px;
@@ -1526,16 +1552,16 @@
 	--settings-kind-fg: var(--color-owl-accent);
 }
 .owl-settings-page .owl-changelog-kind[data-kind="improved"] {
-	--settings-kind-bg: color-mix(in srgb, #5b8def 13%, transparent);
-	--settings-kind-fg: #5b8def;
+	--settings-kind-bg: color-mix(in srgb, var(--settings-info) 13%, transparent);
+	--settings-kind-fg: var(--settings-info);
 }
 .owl-settings-page .owl-changelog-kind[data-kind="fixed"] {
-	--settings-kind-bg: color-mix(in srgb, #bd944b 15%, transparent);
-	--settings-kind-fg: #bd944b;
+	--settings-kind-bg: color-mix(in srgb, var(--settings-warning) 15%, transparent);
+	--settings-kind-fg: var(--settings-warning);
 }
 .owl-settings-page .owl-changelog-kind[data-kind="removed"] {
-	--settings-kind-bg: color-mix(in srgb, #d86e6e 13%, transparent);
-	--settings-kind-fg: #d86e6e;
+	--settings-kind-bg: color-mix(in srgb, var(--settings-danger) 13%, transparent);
+	--settings-kind-fg: var(--settings-danger);
 }
 .owl-settings-page .owl-changelog-group ul {
 	display: flex;

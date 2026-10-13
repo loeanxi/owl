@@ -102,4 +102,8 @@
 
 .owl-browser-stage {
 	overscroll-behavior: contain;
+	background: var(--workbench-chrome, var(--owl-ui-sidebar, var(--color-owl-sidebar)));
 }
+
+/* This colors only the empty canvas; captured website pixels remain untouched. */
+.owl-browser-stage canvas { background: var(--workbench-canvas, var(--owl-ui-canvas, var(--color-owl-bg))); }

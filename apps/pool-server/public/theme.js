@@ -1,7 +1,33 @@
-/* Shared loean theme switcher. The current theme is local to this browser. */
+/* Standalone pages keep their theme; an embedded manager follows Owl's appearance. */
 (function () {
   const STORAGE_KEY = "loean-ui-theme";
+  const SESSION_KEY = "owl-embedded-theme";
   const root = document.documentElement;
+  const params = new URLSearchParams(window.location.search);
+  const colorNames = ["canvas", "panel", "sidebar", "hover", "border", "text", "muted", "accent", "accentHover"];
+  let parentOrigin = "";
+  let embeddedTheme = "dark";
+  if (window.parent !== window) {
+    let config;
+    try {
+      config = params.has("owlParentOrigin")
+        ? { origin: params.get("owlParentOrigin"), theme: params.get("owlTheme") }
+        : JSON.parse(window.sessionStorage.getItem(SESSION_KEY));
+    } catch {
+      // Disabled storage must not stop an explicitly configured Owl iframe.
+    }
+    if (config && typeof config === "object" && !Array.isArray(config) && typeof config.origin === "string") {
+      try {
+        const origin = new URL(config.origin).origin;
+        if (origin !== "null" && config.origin === origin) {
+          parentOrigin = origin;
+          embeddedTheme = normalize(config.theme);
+        }
+      } catch {
+        // Unconfigured or invalid embedding contexts keep the standalone theme.
+      }
+    }
+  }
 
   function normalize(theme) {
     return theme === "light" ? "light" : "dark";
@@ -37,6 +63,10 @@
 
   function setTheme(next, persist) {
     const theme = normalize(next);
+    if (persist !== false && parentOrigin) {
+      window.parent.postMessage({ type: "owl:theme:set", theme }, parentOrigin);
+      return;
+    }
     root.dataset.theme = theme;
     if (persist !== false) {
       try {
@@ -64,8 +94,54 @@
     toggle: () => setTheme(root.dataset.theme === "light" ? "dark" : "light", true),
   };
 
-  if (!root.dataset.theme) {
-    root.dataset.theme = readStored();
+  root.dataset.theme = parentOrigin ? embeddedTheme : readStored();
+  function rememberEmbeddedTheme(theme) {
+    try {
+      window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ origin: parentOrigin, theme }));
+    } catch {
+      // The current page still receives its palette when session storage is disabled.
+    }
+  }
+  if (parentOrigin) {
+    rememberEmbeddedTheme(embeddedTheme);
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || event.origin !== parentOrigin) return;
+      const data = event.data;
+      if (!data || typeof data !== "object" || Array.isArray(data) || data.type !== "owl:theme") return;
+      if (data.theme !== "dark" && data.theme !== "light") return;
+      const colors = data.colors;
+      if (!colors || typeof colors !== "object" || Array.isArray(colors)) return;
+      if (!colorNames.every((name) => typeof colors[name] === "string" && CSS.supports("color", colors[name]))) return;
+      for (const name of colorNames) {
+        const token = name === "accentHover" ? "accent-hover" : name;
+        root.style.setProperty(`--owl-${token}`, colors[name]);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (context) {
+        // Browser color parsing also handles rgb(), color-mix(), and translucent custom accents.
+        for (const color of [data.theme === "light" ? "#ffffff" : "#1e1e1e", colors.canvas, colors.accent]) {
+          context.fillStyle = color;
+          context.fillRect(0, 0, 1, 1);
+        }
+        const pixel = context.getImageData(0, 0, 1, 1).data;
+        const channels = Array.from(pixel).slice(0, 3).map((value) => {
+          const channel = value / 255;
+          return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+        });
+        const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+        const darkContrast = (luminance + 0.05) / (0.005605 + 0.05);
+        const lightContrast = 1.05 / (luminance + 0.05);
+        const foreground = Math.max(darkContrast, lightContrast) < 4.5
+          ? "#000000" : darkContrast >= lightContrast ? "#111111" : "#ffffff";
+        root.style.setProperty("--on-accent", foreground);
+      }
+      root.dataset.owlEmbedded = "true";
+      rememberEmbeddedTheme(data.theme);
+      setTheme(data.theme, false);
+    });
+    window.parent.postMessage({ type: "owl:theme:request" }, parentOrigin);
   }
   /* 语言切换后，主题按钮上的「浅色/深色」也随之刷新 */
   document.addEventListener("loean:langchange", () => updateControls(normalize(root.dataset.theme)));

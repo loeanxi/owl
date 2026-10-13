@@ -181,7 +181,7 @@ export function AgentPresetsSection({ client, agentDir, onAskAgent }: {
 							<button type="button" className={opBtn} onClick={() => openEdit(preset)}>{t("settings.presets.edit")}</button>
 							<button
 								type="button"
-								className={`${opBtn} hover:!border-red-400 hover:!text-red-400`}
+								className={`${opBtn} hover:!border-owl-danger hover:!text-owl-danger`}
 								disabled={busy}
 								onClick={() => {
 									if (confirmingDelete === preset.id) remove(preset);
@@ -217,7 +217,7 @@ export function AgentPresetsSection({ client, agentDir, onAskAgent }: {
 							<button type="button" className="text-owl-faint hover:text-owl-text" onClick={() => setDrawer(null)} aria-label={t("settings.presets.close")}>✕</button>
 						</div>
 						{drawer.mode === "view" && drawer.draft.builtin && (
-							<p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[10.5px] leading-snug text-amber-600">
+							<p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg border border-owl-warning/30 bg-owl-warning/10 px-2.5 py-2 text-[10.5px] leading-snug text-owl-warning">
 								{t("settings.presets.readonlyBanner")}
 							</p>
 						)}
@@ -264,9 +264,9 @@ export function AgentPresetsSection({ client, agentDir, onAskAgent }: {
 						</div>
 						<div className="flex gap-2 border-t border-owl-border px-4 py-3">
 							{drawer.mode === "edit" ? (
-								<button type="button" className="rounded-lg bg-owl-accent px-3.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={busy} onClick={saveDraft}>{t("settings.presets.form.save")}</button>
+								<button type="button" className="rounded-lg bg-owl-accent px-3.5 py-1.5 text-xs font-semibold text-owl-on-accent disabled:opacity-50" disabled={busy} onClick={saveDraft}>{t("settings.presets.form.save")}</button>
 							) : (
-								<button type="button" className="rounded-lg bg-owl-accent px-3.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={busy} onClick={() => duplicate(drawer.draft)}>{t("settings.presets.duplicate")}</button>
+								<button type="button" className="rounded-lg bg-owl-accent px-3.5 py-1.5 text-xs font-semibold text-owl-on-accent disabled:opacity-50" disabled={busy} onClick={() => duplicate(drawer.draft)}>{t("settings.presets.duplicate")}</button>
 							)}
 							<button type="button" className="rounded-lg border border-owl-border px-3.5 py-1.5 text-xs text-owl-muted hover:text-owl-text" onClick={() => setDrawer(null)}>{t("settings.presets.form.cancel")}</button>
 						</div>

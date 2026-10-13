@@ -15,7 +15,7 @@ export function PermissionDialog({
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<div className="w-[560px] rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
-				<h2 className="text-sm font-semibold text-amber-400">{t("perm.title")}</h2>
+				<h2 className="text-sm font-semibold text-owl-warning">{t("perm.title")}</h2>
 				{contextLabel && <p className="mt-1 text-xs text-owl-muted">{contextLabel}</p>}
 				<p className="mt-1 text-sm">
 					{t("perm.wantsToRun")} <span className="font-mono text-owl-accent">{request.toolName}</span>
@@ -34,7 +34,7 @@ export function PermissionDialog({
 					</button>
 					<button
 						type="button"
-						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover"
+						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-owl-on-accent transition-colors hover:bg-owl-accent-hover hover:text-owl-on-accent-hover"
 						onClick={() => onDecide(true)}
 					>
 						{t("perm.allow")}

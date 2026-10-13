@@ -1,0 +1,59 @@
+/* Shared semantic colors; surfaces and accent still come from the selected Owl preset. */
+@theme static {
+	--color-owl-on-accent: #111111;
+	--color-owl-on-accent-hover: #111111;
+	--color-owl-danger: #f08b8b;
+	--color-owl-warning: #e3ba65;
+	--color-owl-success: #7fc79f;
+	--color-owl-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}
+
+:root {
+	--owl-ui-danger: var(--color-owl-danger);
+	--owl-ui-warning: var(--color-owl-warning);
+	--owl-ui-success: var(--color-owl-success);
+}
+
+html[data-owl-theme="light"] {
+	--color-owl-on-accent: #ffffff;
+	--color-owl-on-accent-hover: #ffffff;
+	--color-owl-danger: #b33d3d;
+	--color-owl-warning: #8a650e;
+	--color-owl-success: #1f7548;
+}
+
+html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] {
+	color-scheme: light;
+	--color-owl-danger: #b33d3d;
+	--color-owl-warning: #8a650e;
+	--color-owl-success: #1f7548;
+}
+
+html[data-owl-wallpaper="on"][data-owl-glass-theme="dark"] {
+	color-scheme: dark;
+	--color-owl-danger: #f08b8b;
+	--color-owl-warning: #e3ba65;
+	--color-owl-success: #7fc79f;
+}
+
+:is(.owl-settings-page, .owl-sidebar, .owl-desktop-shell) button.bg-red-500 {
+	background-color: #b33d3d;
+	color: #ffffff;
+}
+
+@media (hover: hover) {
+	:is(.owl-settings-page, .owl-sidebar, .owl-desktop-shell) button.bg-red-500.hover\:bg-red-600:hover {
+		background-color: #963232;
+	}
+}
+
+/* Accent fills share the same contrast rule even when a component uses utilities. */
+.bg-owl-accent {
+	color: var(--color-owl-on-accent);
+}
+
+@media (hover: hover) {
+	.bg-owl-accent.hover\:bg-owl-accent-hover:hover {
+		color: var(--color-owl-on-accent-hover);
+	}
+}

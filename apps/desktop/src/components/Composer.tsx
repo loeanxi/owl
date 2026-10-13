@@ -70,9 +70,9 @@ function formatTokens(value: number): string {
 
 function contextTone(percent: number | null): string {
 	if (percent === null) return "text-owl-faint";
-	if (percent >= 85) return "text-red-400";
-	if (percent >= 60) return "text-amber-400";
-	return "text-emerald-400";
+	if (percent >= 85) return "text-owl-danger";
+	if (percent >= 60) return "text-owl-warning";
+	return "text-owl-success";
 }
 
 /** 上下文用量鱼缸：铺在输入框底层，液面高度 = 上下文占用比例。 */
@@ -912,7 +912,7 @@ export function Composer({
 			<div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-owl-hover">
 				<div
 					className={`h-full rounded-full ${
-						(percent ?? 0) >= 85 ? "bg-red-500" : (percent ?? 0) >= 60 ? "bg-amber-500" : "bg-emerald-500"
+						(percent ?? 0) >= 85 ? "bg-owl-danger" : (percent ?? 0) >= 60 ? "bg-owl-warning" : "bg-owl-success"
 					}`}
 					style={{ width: `${Math.min(100, Math.max(2, percent ?? 0))}%` }}
 				/>
@@ -1045,7 +1045,7 @@ export function Composer({
 						panelClassName="w-64"
 						trigger={
 							<>
-								<LocalEnvironmentIcon tone={connected ? "text-owl-accent" : "text-red-400"} />
+								<LocalEnvironmentIcon tone={connected ? "text-owl-accent" : "text-owl-danger"} />
 								<span>{t("composer.runLocation.local")}</span>
 							</>
 						}
@@ -1057,13 +1057,13 @@ export function Composer({
 									<LocalEnvironmentIcon tone="text-owl-text" />
 									<span className="flex-1">{t("composer.runLocation.localFull")}</span>
 									{connected ? (
-										<span className="flex items-center gap-1 text-[10px] text-emerald-400">
-											<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+										<span className="flex items-center gap-1 text-[10px] text-owl-success">
+											<span className="h-1.5 w-1.5 rounded-full bg-owl-success" />
 											{t("composer.connected")}
 										</span>
 									) : (
-										<span className="flex items-center gap-1 text-[10px] text-red-400">
-											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+										<span className="flex items-center gap-1 text-[10px] text-owl-danger">
+											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-owl-danger" />
 											{t("composer.reconnecting")}
 										</span>
 									)}
@@ -1218,7 +1218,7 @@ export function Composer({
 							))}
 						</div>
 					)}
-					{pasteHint && <p className="relative px-2.5 pt-1 text-[11px] text-amber-400">{pasteHint}</p>}
+					{pasteHint && <p className="relative px-2.5 pt-1 text-[11px] text-owl-warning">{pasteHint}</p>}
 					{mentionOpen && (
 						<div
 							ref={mentionMenuRef}

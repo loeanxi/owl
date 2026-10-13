@@ -1316,7 +1316,7 @@ export function SessionSidebar({
 						<p className="mb-3 break-all text-xs text-owl-muted">
 							{t("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) })}
 						</p>
-						{deleteError && <p className="mt-2 text-xs text-red-400">{deleteError}</p>}
+						{deleteError && <p className="mt-2 text-xs text-owl-danger">{deleteError}</p>}
 						<div className="mt-4 flex justify-end gap-2">
 							<button
 								type="button"

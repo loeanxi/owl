@@ -93,7 +93,7 @@ export function RewindDialog({
 					<p className="mt-1 line-clamp-2 rounded-lg bg-owl-sidebar px-2.5 py-1.5 text-xs text-owl-muted">{brief}</p>
 				</div>
 				<div className="flex-1 overflow-y-auto px-4 py-3">
-					{error && <p className="mb-2 rounded-lg border border-red-400/40 bg-red-400/10 px-2.5 py-1.5 text-xs text-red-400">{error}</p>}
+					{error && <p className="mb-2 rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger">{error}</p>}
 					{stage === "choose" ? (
 						<div className="space-y-2">
 							<button
@@ -141,7 +141,7 @@ export function RewindDialog({
 									<button
 										type="button"
 										disabled={executing}
-										className="flex-1 rounded-lg bg-owl-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-owl-accent-hover disabled:opacity-50"
+										className="flex-1 rounded-lg bg-owl-accent px-3 py-2 text-sm font-medium text-owl-on-accent transition-colors hover:bg-owl-accent-hover hover:text-owl-on-accent-hover disabled:opacity-50"
 										onClick={() => void execute("both")}
 									>
 										{executing ? t("rewind.executing") : t("rewind.confirmCode")}
@@ -181,7 +181,7 @@ function ImpactFileRow({ file }: { file: RewindImpactFile }): React.JSX.Element 
 		<li className="flex items-center gap-2 rounded-lg border border-owl-border px-2.5 py-1.5">
 			<span
 				className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-					file.action === "delete" ? "bg-red-400/15 text-red-400" : "bg-owl-accent/15 text-owl-accent"
+					file.action === "delete" ? "bg-owl-danger/15 text-owl-danger" : "bg-owl-accent/15 text-owl-accent"
 				}`}
 			>
 				{file.action === "delete" ? t("rewind.actionDelete") : t("rewind.actionRestore")}

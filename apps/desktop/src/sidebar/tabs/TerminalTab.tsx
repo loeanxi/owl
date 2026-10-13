@@ -12,15 +12,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TabComponentProps } from "../registry.ts";
-
-/** owl 深色 token（与 index.css 的 --color-owl-* 同源，xterm 需要字面量）。 */
-const XTERM_THEME = {
-	background: "#1a1918",
-	foreground: "#e9e7e0",
-	cursor: "#2f9e5a",
-	cursorAccent: "#1a1918",
-	selectionBackground: "#2f9e5a55",
-};
+import { observeWorkbenchTheme, readWorkbenchPalette, resolveSurfaceTheme } from "../theme-observer.ts";
+import { terminalTheme } from "./terminal-theme.ts";
 
 type Status = "connecting" | "ready" | "exited" | "error";
 
@@ -42,6 +35,19 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 		let alive = false;
 		let lastCols = 0;
 		let lastRows = 0;
+		// xterm accepts literal RGB colors, while CSS tokens may contain color-mix().
+		const colors = document.createElement("canvas").getContext("2d");
+		const readTheme = () => terminalTheme(
+			readWorkbenchPalette(getComputedStyle(el), resolveSurfaceTheme(document.documentElement.dataset)),
+			(color) => {
+				if (!colors) return color;
+				colors.clearRect(0, 0, 1, 1);
+				colors.fillStyle = color;
+				colors.fillRect(0, 0, 1, 1);
+				const bytes = colors.getImageData(0, 0, 1, 1).data;
+				return `#${Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+			},
+		);
 
 		const term = new Terminal({
 			fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
@@ -49,11 +55,14 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 			lineHeight: 1.15,
 			cursorBlink: true,
 			scrollback: 4000,
-			theme: XTERM_THEME,
+			theme: readTheme(),
+			minimumContrastRatio: 4.5,
 		});
 		const fit = new FitAddon();
 		term.loadAddon(fit);
 		term.open(el);
+		// Update the existing renderer without restarting the PTY or losing scrollback.
+		const offTheme = observeWorkbenchTheme(el, () => { term.options.theme = readTheme(); });
 		try {
 			fit.fit();
 		} catch {
@@ -128,6 +137,7 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 			disposed = true;
 			alive = false;
 			offTerm();
+			offTheme();
 			observer.disconnect();
 			if (termId) void client.request({ type: "term.kill", termId }).catch(() => {});
 			term.dispose();

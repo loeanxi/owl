@@ -73,15 +73,15 @@
 .eval-composer textarea{display:block;width:100%;height:42px;resize:none;border:0;outline:none;background:transparent;font-size:13px;line-height:1.65}
 .eval-composer textarea::placeholder{color:var(--owl-ui-muted)}
 .eval-composer-actions{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--owl-ui-muted)}
-.eval-send,.eval-chat-stop{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:0;font-size:17px;background:var(--color-owl-accent)!important;color:white}
+.eval-send,.eval-chat-stop{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:0;font-size:17px;background:var(--color-owl-accent)!important;color:var(--color-owl-on-accent)}
 .eval-chat-stop{background:var(--owl-ui-hover)!important;border:1px solid var(--owl-ui-border);color:var(--owl-ui-text);font-size:10px}
 .eval-window-footer{flex:none;display:flex;align-items:center;gap:8px;height:41px;border-top:1px solid var(--owl-ui-border);padding:0 14px;background:color-mix(in srgb,var(--owl-ui-panel) 35%,transparent)}
 .eval-window-footer button{display:flex;align-items:center;gap:5px;border:0;padding:3px 0;font-size:12px;color:var(--owl-ui-text)}
 .eval-window-footer .eval-check-link{color:var(--color-owl-accent);font-size:11px}
 .eval-window-footer svg{width:13px;height:13px}
-.eval-chat-failure{padding:13px;border:1px solid color-mix(in srgb,#d88181 35%,var(--owl-ui-border));background:color-mix(in srgb,#d88181 6%,transparent);border-radius:8px;font-size:13px;line-height:1.75;margin-top:12px}
+.eval-chat-failure{padding:13px;border:1px solid color-mix(in srgb,var(--owl-ui-danger) 35%,var(--owl-ui-border));background:color-mix(in srgb,var(--owl-ui-danger) 6%,transparent);border-radius:8px;font-size:13px;line-height:1.75;margin-top:12px}
 .eval-chat-failure p{margin:5px 0 10px;color:var(--owl-ui-muted)}
-.eval-chat-local-error{color:#d88181;font-size:12px;line-height:1.7;margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.eval-chat-local-error{color:var(--owl-ui-danger);font-size:12px;line-height:1.7;margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .eval-attempt-bar{flex:none;padding:7px 14px;border-bottom:1px solid var(--owl-ui-border)}
 .eval-attempt-bar label{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--owl-ui-muted)}
 .eval-attempt-bar select{width:auto;flex:1;padding:4px 6px;font-size:11px!important}

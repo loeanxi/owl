@@ -244,7 +244,7 @@ function deriveGlassPalette(schemeColor: string | undefined): GlassPalette {
 			border: hsl(0.78, s, 0.16),
 			text: hsl(0.93, s * 0.4),
 			muted: hsl(0.68, s * 0.45),
-			faint: hsl(0.56, s * 0.4),
+			faint: hsl(0.6, s * 0.4),
 			code: hsl(0.13),
 			accentSoft: hsl(0.5, s, 0.13),
 		};
@@ -262,7 +262,7 @@ function deriveGlassPalette(schemeColor: string | undefined): GlassPalette {
 		border: hsl(0.22, s * 0.6, 0.18),
 		text: hsl(0.16, s * 0.6),
 		muted: hsl(0.36, s * 0.35),
-		faint: hsl(0.46, s * 0.3),
+		faint: hsl(0.36, s * 0.3),
 		code: hsl(0.89, s * 0.4),
 		accentSoft: hsl(0.45, s * 0.7, 0.12),
 	};
@@ -303,6 +303,7 @@ export function applyOwlGlassTheme(schemeColor: string | undefined): void {
 	const root = document.documentElement;
 	if (document.documentElement.dataset.owlWallpaper !== "on") return;
 	const p = deriveGlassPalette(schemeColor);
+	root.dataset.owlGlassTheme = p.dark ? "dark" : "light";
 	root.style.setProperty("--owl-glass-accent", p.accent);
 	root.style.setProperty("--owl-glass-accent-hover", p.accentHover);
 	root.style.setProperty("--owl-glass-accent-soft", p.accentSoft);
@@ -323,13 +324,16 @@ export function applyOwlGlassTheme(schemeColor: string | undefined): void {
 			? "0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45)"
 			: "0 1px 2px rgba(255, 255, 255, 0.6)",
 	);
+	if (typeof window !== "undefined") window.dispatchEvent(new Event("owl-appearance-change"));
 }
 
 /** 清掉染色玻璃变量（关壁纸/换回无主题色时），界面回到用户主题。 */
 export function clearOwlGlassTheme(): void {
 	if (typeof document === "undefined") return;
 	const root = document.documentElement;
+	delete root.dataset.owlGlassTheme;
 	for (const name of GLASS_VARS) root.style.removeProperty(name);
+	if (typeof window !== "undefined") window.dispatchEvent(new Event("owl-appearance-change"));
 }
 
 /** 网页壁纸 iframe 的沙箱属性（allow-scripts = opaque origin，与上游一致的防逃逸）。 */

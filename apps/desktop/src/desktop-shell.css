@@ -177,6 +177,8 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 
 /* 灵动岛：底边贴着会话栏顶边，水平中心由组件写成 left。 */
 .owl-island {
+	/* The island keeps a dark surface in both modes, so its small accent text needs a light tint. */
+	--owl-island-accent: color-mix(in srgb, var(--color-owl-accent) 30%, #f4f1ea);
 	position: absolute;
 	top: auto;
 	bottom: 7px;
@@ -282,7 +284,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	height: 8px;
 	flex: none;
 	border-radius: 999px;
-	background: var(--color-owl-accent);
+	background: var(--owl-island-accent);
 }
 .owl-island-pips { display: flex; gap: 3px; flex: none; align-items: center; }
 .owl-island-pips span {
@@ -291,7 +293,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	border-radius: 999px;
 	background: rgb(244 241 234 / 32%);
 }
-.owl-island-pips span.is-lead { width: 8px; height: 8px; background: var(--color-owl-accent); }
+.owl-island-pips span.is-lead { width: 8px; height: 8px; background: var(--owl-island-accent); }
 .owl-island-pips span.is-wait { background: transparent; box-shadow: inset 0 0 0 1.5px #f4f1ea; }
 .owl-island-whisper {
 	flex: none;
@@ -306,7 +308,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 }
 .owl-island-count {
 	flex: none;
-	color: var(--color-owl-accent);
+	color: var(--owl-island-accent);
 	font-size: 12px;
 	font-variant-numeric: tabular-nums;
 }
@@ -362,7 +364,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	white-space: nowrap;
 	cursor: pointer;
 }
-.owl-island-chip.is-allow { color: var(--color-owl-accent); border-color: var(--color-owl-accent); }
+.owl-island-chip.is-allow { color: var(--owl-island-accent); border-color: var(--owl-island-accent); }
 .owl-island-chip:hover,
 .owl-island-chip:focus-visible { background: rgb(255 255 255 / 14%); }
 .owl-island-reply input {
@@ -379,7 +381,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 .owl-island-face-main:focus-visible,
 .owl-island-row-main:focus-visible,
 .owl-island-check:focus-visible,
-.owl-island-row:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-island-row:focus-visible { outline: 2px solid var(--owl-island-accent); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) {
 	.owl-island-drawer { transition: none; }
 }
@@ -397,7 +399,7 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 /* 「高性价比人生指南」外链入口：保持工具栏按钮尺寸（不被上面 45px 窗口按钮通栏样式吞掉）；
    面板打开时点亮为强调色。 */
 .owl-desktop-window-controls .owl-desktop-life-guide { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
-.owl-desktop-life-guide.is-active { background: var(--color-owl-accent); color: #fff; }
+.owl-desktop-life-guide.is-active { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 
 /* 生命监护：标题栏只放一颗状态点。红优先于黄，灰和绿不带数字。打开大屏时描一圈，不盖住点的颜色。 */
 .owl-desktop-window-controls .owl-desktop-life-monitor { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
@@ -409,9 +411,9 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 
 /* 「我的 Token 生涯」看板入口：与火柴人同尺寸并排（在看板打开时点亮）。 */
 .owl-desktop-window-controls .owl-desktop-manager { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
-.owl-desktop-manager.is-active { background: var(--color-owl-accent); color: #fff; }
+.owl-desktop-manager.is-active { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 .owl-desktop-window-controls .owl-desktop-token-career { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
-.owl-desktop-token-career.is-active { background: var(--color-owl-accent); color: #fff; }
+.owl-desktop-token-career.is-active { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 
 .owl-desktop-body { display: flex; position: relative; z-index: 0; flex: 1; min-height: 0; min-width: 0; }
 .owl-workspace-frame {
@@ -645,7 +647,6 @@ html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-xl {
  * 全部色彩引用 --owl-glass-* 变量(wallpaper.ts 从壁纸主题色派生,含亮暗自适应),
  * 换壁纸 = 整个 UI 换气质;强调色跟随壁纸,不再用设置页的 accent。 */
 html[data-owl-theme][data-owl-wallpaper="on"] {
-	color-scheme: dark;
 	--owl-conversation-bg: var(--owl-glass-panel, #202020);
 	--color-owl-bg: var(--owl-glass-panel, #202020);
 	--color-owl-sidebar: var(--owl-glass-panel-2, #1b1b1b);
@@ -665,9 +666,11 @@ html[data-owl-theme][data-owl-wallpaper="on"] {
 	--color-owl-text: var(--owl-glass-text, #ececec);
 	--color-owl-muted: var(--owl-glass-muted, #a8a8a8);
 	--color-owl-faint: var(--owl-glass-faint, #909090);
-	--color-owl-accent: var(--owl-glass-accent, var(--color-owl-accent));
-	--color-owl-accent-hover: var(--owl-glass-accent-hover, var(--color-owl-accent));
+	--color-owl-accent: var(--owl-glass-accent, var(--owl-preset-accent));
+	--color-owl-accent-hover: var(--owl-glass-accent-hover, var(--owl-preset-accent-hover));
 }
+html[data-owl-wallpaper="on"][data-owl-glass-theme="dark"] { color-scheme: dark; }
+html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] { color-scheme: light; }
 html[data-owl-theme][data-owl-wallpaper="on"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, var(--owl-glass-panel, #202020));
 	--owl-ui-panel: var(--owl-glass-panel-3, #2a2a2a);
@@ -947,20 +950,21 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-wi
 /* ---------------------------------------------------------------- 毛玻璃2 ----
  * 预设 "frost"：液态玻璃深色档（主题锁定，见 owl-appearance.ts presetThemeLock）。
  * 标题栏与图标栏不在面板里，直接压在浅色系统背板上，深色档的浅灰图标几乎看不见，改用深色墨水。
+ * 仅在系统背板成功启用后使用深墨水；浏览器/旧系统的自绘深色流光仍用浅色图标。
  * 选中项（.is-active）保留强调色；下拉菜单面板是深色玻璃，不在此范围内。 */
 html[data-owl-preset="frost"] {
 	--owl-frost-ink: rgb(24 26 38 / 80%);
 	--owl-frost-ink-strong: #10111a;
 }
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active),
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger,
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active) {
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active),
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger,
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active) {
 	color: var(--owl-frost-ink);
 	text-shadow: none;
 }
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active, .owl-window-close):hover:not(:disabled),
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger:is(:hover, .is-open),
-html[data-owl-preset="frost"]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active):hover:not(:disabled) {
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-chrome-button:not(.is-active, .owl-window-close):hover:not(:disabled),
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-desktop-menu-trigger:is(:hover, .is-open),
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-shell .owl-activity-rail .owl-rail-button:not(.is-active):hover:not(:disabled) {
 	color: var(--owl-frost-ink-strong);
 	background: rgb(24 26 38 / 8%);
 }
