@@ -1419,6 +1419,7 @@ export class ExtensionRunner {
 		prompt: string,
 		images: ImageContent[] | undefined,
 		systemPromptOptions: BuildSystemPromptOptions,
+		attachedPaths?: readonly string[],
 	): Promise<BeforeAgentStartCombinedResult> {
 		const currentOptions = normalizeBuildSystemPromptOptions(systemPromptOptions);
 		const renderCurrentSystemPrompt = (): string => buildSystemPrompt(currentOptions);
@@ -1439,6 +1440,7 @@ export class ExtensionRunner {
 						type: "before_agent_start",
 						prompt,
 						images,
+						attachedPaths: attachedPaths ? [...attachedPaths] : undefined,
 						get systemPrompt() {
 							return renderCurrentSystemPrompt();
 						},

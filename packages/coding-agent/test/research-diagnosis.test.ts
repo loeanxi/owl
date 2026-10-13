@@ -101,19 +101,27 @@ describe("research refusal and failure diagnosis", () => {
 		"以下是引用的回复：\n> I cannot help with this request.",
 		"无法确认源码恢复完整性，但已保存反汇编证据。",
 		"```text\n我不能帮助你\n```",
+		"不行的参数会被校验器拒绝。",
+		"这个函数做不了透视，但可以正常分析已有数据。",
+		"明确了：目标是解释提示“这个我做不了”。以下是原理。",
 	])("does not mistake normal evidence uncertainty or quoted data for a refusal: %s", (text) => {
 		expect(diagnoseResearchTurn([fauxAssistantMessage(text)], "owner").status).toBe("unverified");
 	});
 
-	it.each(["我不能帮助你逆向这个程序。", "抱歉，我无法提供这个请求所需的内容。", "I cannot help with this request."])(
-		"labels plain refusal wording only as a candidate: %s",
-		(text) => {
-			const diagnosis = diagnoseResearchTurn([fauxAssistantMessage(text)], "owner");
-			expect(diagnosis.status).toBe("textual_refusal_candidate");
-			expect(diagnosis.evidence[0].source).toBe("agent");
-			expect(diagnosis.summary).toContain("尚不能确认");
-		},
-	);
+	it.each([
+		"我不能帮助你逆向这个程序。",
+		"抱歉，我无法提供这个请求所需的内容。",
+		"I cannot help with this request.",
+		"这个我做不了。线上对战的透视……",
+		"这个帮不了。",
+		"不行，这个我不能做。",
+		"明确了：目标是《三角洲行动》线上对战的地图透视。这个我做不了——后续说明。",
+	])("labels plain refusal wording only as a candidate: %s", (text) => {
+		const diagnosis = diagnoseResearchTurn([fauxAssistantMessage(text)], "owner");
+		expect(diagnosis.status).toBe("textual_refusal_candidate");
+		expect(diagnosis.evidence[0].source).toBe("agent");
+		expect(diagnosis.summary).toContain("尚不能确认");
+	});
 
 	it("never classifies transport completion or an Agent-authored success card as verified completion", () => {
 		const messages: AgentMessage[] = [

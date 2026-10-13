@@ -210,6 +210,11 @@ function refusalCandidate(message: AssistantMessage): string | undefined {
 		.trim();
 	const firstParagraph = text.split(/\n\s*\n/)[0];
 	if (
+		/^(?:明确了|目标(?:是|已明确)|你要(?:做|实现)的(?:是)?)[：:，,][^。\n]{0,240}。[ \t]*(?:这个|这件事|这项任务)[，,\s]*(?:我)?(?:做不了|帮不了|无法完成|不能做)/.test(
+			firstParagraph,
+		) ||
+		/^(?:这个|这件事|这项任务)[，,\s]*(?:我)?(?:做不了|帮不了|无法完成|不能做)/.test(firstParagraph) ||
+		/^不行[，,。\s]+(?:这(?:个|件事|项任务)[，,\s]*)?(?:我)?(?:不能做|做不了|不能帮|帮不了)/.test(firstParagraph) ||
 		/^(?:(?:很)?抱歉[，,：:\s]*)?(?:我)?(?:不能|无法|不会|不可以)(?:帮助|帮你|协助|提供|执行|完成|进行|支持|参与)/.test(
 			firstParagraph,
 		) ||

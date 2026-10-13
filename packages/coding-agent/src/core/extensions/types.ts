@@ -919,6 +919,8 @@ export interface BeforeAgentStartEvent {
 	prompt: string;
 	/** Images attached to the user prompt, if any. */
 	images?: ImageContent[];
+	/** User-selected file paths for this turn, before their header is added to the model message. */
+	attachedPaths?: readonly string[];
 	/** The current system prompt, rendered from systemPromptOptions and earlier handler changes. */
 	readonly systemPrompt: string;
 	/** Mutable prompt sections. Later handlers observe mutations made by earlier handlers. */

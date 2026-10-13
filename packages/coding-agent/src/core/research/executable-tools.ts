@@ -87,7 +87,10 @@ export async function runResearchExecutable(
 	workspace: string,
 	signal?: AbortSignal,
 ): Promise<ResearchExecutableReport> {
-	if (!Value.Check(researchExecutableSchema, value)) throw new Error("EXE 研究参数无效");
+	if (!Value.Check(researchExecutableSchema, value))
+		throw new Error(
+			'EXE 研究参数无效，不接受其它字段。标准格式：{"action":"inspect","path":"<用户选中的 EXE／DLL／ASAR>"}；提取 ASAR 条目用 {"action":"extract","path":"<同上>","names":["<已观察到的条目相对路径>"]}；解压 UPX 用 {"action":"unpack","path":"<PE EXE>"}。',
+		);
 	const input = value as ResearchExecutableInput;
 	signal?.throwIfAborted();
 	const selected = await selectedApplication(input.path, workspace);

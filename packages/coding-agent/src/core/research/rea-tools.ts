@@ -391,7 +391,10 @@ export function createResearchReaTool(client: ReaBackend): ToolDefinition<typeof
 		executionMode: "sequential",
 		annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 		execute: async (_id, input, signal, update, ctx) => {
-			if (!Value.Check(researchReaSchema, input)) throw new Error("REA 研究参数无效");
+			if (!Value.Check(researchReaSchema, input))
+				throw new Error(
+					'REA 研究参数无效。标准格式：{"action":"inventory"}；{"action":"javascript","path":"<本地程序、ASAR、JS 或应用目录>"}；{"action":"native_overview","path":"<PE EXE／DLL>"}；查看已返回证据用 {"action":"view","evidenceId":"ev_<本会话返回的 ID>"}；释放后端用 {"action":"close"}。',
+				);
 			signal?.throwIfAborted();
 			if (!ctx?.sessionManager || ctx.sessionManager.getSessionId() !== client.ownerSessionId)
 				throw new Error("REA 后端不属于当前研究会话");

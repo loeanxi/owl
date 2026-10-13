@@ -40,6 +40,7 @@ const READ_ONLY_TOOLS = new Set([
 	"github_release_view",
 	// Saving research progress only appends state to the conversation's own ledger.
 	"research_checkpoint",
+	"research_task",
 ]);
 
 export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean {

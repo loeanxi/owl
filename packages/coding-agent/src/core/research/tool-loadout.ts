@@ -4,6 +4,7 @@ import { RESEARCH_DECOMPILE_TOOL } from "./decompile-tools.ts";
 import { RESEARCH_EXECUTABLE_TOOL } from "./executable-tools.ts";
 import { RESEARCH_MODEL_LAB_TOOL } from "./model-lab.ts";
 import { RESEARCH_REA_TOOL } from "./rea-tools.ts";
+import { RESEARCH_TASK_TOOL } from "./task.ts";
 
 /** Research sessions expose their core capabilities and retain discovery of browser, MCP and plugin tools. */
 export function researchToolLoadout(active: readonly string[]): string[] {
@@ -12,6 +13,7 @@ export function researchToolLoadout(active: readonly string[]): string[] {
 			...active,
 			RESEARCH_PUBLISH_TOOL,
 			RESEARCH_CHECKPOINT_TOOL,
+			RESEARCH_TASK_TOOL,
 			RESEARCH_EXECUTABLE_TOOL,
 			RESEARCH_DECOMPILE_TOOL,
 			RESEARCH_MODEL_LAB_TOOL,

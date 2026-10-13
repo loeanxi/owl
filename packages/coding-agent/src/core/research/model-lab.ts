@@ -179,7 +179,9 @@ export function buildResearchModelLabSuite(): { canary: string; cases: ResearchM
 /** Validate again for direct callers, in addition to normal tool argument validation. */
 export function normalizeResearchModelLabInput(value: unknown): ResearchModelLabInput {
 	if (!Value.Check(researchModelLabSchema, value))
-		throw new Error("模型实验参数无效：只接受固定实验、1..4 次调用和 32..1024 输出 token。");
+		throw new Error(
+			'模型实验参数无效：只接受固定实验、1..4 次调用和 32..1024 输出 token。标准格式：{"action":"plan"}；执行用 {"action":"run","provider":"<provider>","model":"<model>","maxCalls":1,"maxOutputTokens":256,"authorizationScope":"<授权范围>"}。',
+		);
 	const input = value as ResearchModelLabInput;
 	for (const key of ["provider", "model", "authorizationScope"] as const) {
 		if (input[key] !== undefined && !input[key].trim()) throw new Error(`模型实验 ${key} 不能为空白。`);

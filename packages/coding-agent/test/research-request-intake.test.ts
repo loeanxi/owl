@@ -18,6 +18,8 @@ import {
 	saveResearchPromptSettings,
 } from "../src/core/research/prompt-settings.ts";
 import { researchRequestIntakeInstructions } from "../src/core/research/request-intake.ts";
+import { getResearchTask } from "../src/core/research/task.ts";
+import { RESEARCH_TASK_ENTRY } from "../src/core/research/task-state.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 
@@ -64,6 +66,43 @@ describe("research request intake runtime contract", () => {
 		expect(overridden).toContain(preference);
 		expect(overridden).not.toContain(defaultResearchPrompt());
 		expectIntake(overridden);
+	});
+
+	it("separates the latest explicit new goal from prior facts before any model response", async () => {
+		const manager = SessionManager.inMemory();
+		manager.appendCustomEntry(RESEARCH_MODE_ENTRY, { mode: "auto" });
+		const harness = await createHarness({
+			sessionManager: manager,
+			extensionFactories: [createResearchExtension(manager, profile())],
+		});
+		harnesses.push(harness);
+		await prepare(harness, "分析线上应用接口");
+		const previous = getResearchTask(manager);
+		if (!previous) throw new Error("Missing previous task");
+		previous.facts.environment = {
+			state: "user_stated",
+			value: "线上",
+			evidence: [{ inputId: previous.inputs[0].id, quote: "分析线上应用接口" }],
+		};
+		previous.missingMaterials = ["接口日志"];
+		manager.appendCustomEntry(RESEARCH_TASK_ENTRY, previous);
+		const latest = "上一个任务结束，现在换个独立目标：给自己的CSV写本地去重脚本";
+		const prepared = await harness.session.extensionRunner.emitBeforeAgentStart(latest, undefined, {
+			cwd: manager.getCwd(),
+			sections: {},
+		});
+		const section = prepared.systemPromptOptions.sections.owl_research_task;
+		if (!section) throw new Error("Missing turn context");
+		const payload = JSON.parse(section.split("<research_task_data>\n")[1].split("\n</research_task_data>")[0]);
+		expect(payload.latestInput.text).toBe(latest);
+		expect(payload.previousTask.originalRequest).toBe("分析线上应用接口");
+		expect(payload.previousTask.facts.environment.value).toBe("线上");
+		expect(payload.previousTask.missingMaterials).toEqual(["接口日志"]);
+		expect(payload.latestInput).not.toHaveProperty("facts");
+		expect(section).toContain("newTask=true");
+		expect(section).not.toContain("保持当前 taskId，澄清不是新任务");
+		expect(getResearchTask(manager)?.taskId).toBe(previous.taskId);
+		expect(harness.faux.state.callCount).toBe(0);
 	});
 
 	it("keeps intake on each turn through override activation, hot updates and default restoration", async () => {
