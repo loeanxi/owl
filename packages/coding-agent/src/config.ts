@@ -577,8 +577,15 @@ export function getCustomThemesDir(): string {
  * Get path to the user's global skills directory (e.g., ~/.owl/skills/).
  * Sibling of the agent dir: cross-project skills shared by every session,
  * distinct from the personal ~/.owl/agent/skills directory.
+ *
+ * 多账号：壳 spawn 用户空间的桥时经 OWL_GLOBAL_SKILLS_DIR 注入基础（账号无关）
+ * 技能目录，避免新账号落到 ~/.owl/users/<id>/skills 变成空技能库。
  */
 export function getGlobalSkillsDir(): string {
+	const envDir = process.env.OWL_GLOBAL_SKILLS_DIR;
+	if (envDir) {
+		return expandTildePath(envDir);
+	}
 	return join(getAgentDir(), "..", "skills");
 }
 

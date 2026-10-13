@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { hasTauri, startDebugRebuild } from "../bridge/native.ts";
+import { hasTauri, startDebugRebuild, switchAccountBridge } from "../bridge/native.ts";
+import type { BridgeClient } from "../bridge/client.ts";
+import type { DesktopAccountInfo } from "../bridge/protocol.ts";
 import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
+import { AccountAvatar, useAccountAvatar } from "./AccountAvatar.tsx";
+import "./account.css";
 import { IconFolder, IconHome, IconNews, IconPin, IconSelf, IconSettings } from "./icons.tsx";
 import { loadRailPins, RAIL_PINNABLE_VIEWS, saveRailPins, toggleRailPin } from "./rail-pins.ts";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market";
+export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market" | "account";
 
 /** 菜单底部通知条：调试更新流程的进度 / 结果。 */
 type UpdateNotice = {
@@ -240,6 +244,7 @@ export function ActivityRail({
 	onOpenGuide,
 	onShowShortcuts,
 	onPersistUiLanguage,
+	client,
 }: {
 	view: RailView;
 	settingsOpen?: boolean;
@@ -251,12 +256,17 @@ export function ActivityRail({
 	onShowShortcuts: () => void;
 	/** 界面语言在菜单里直选后持久化到 settings.json（App 侧接 settings.set）。 */
 	onPersistUiLanguage?: (next: UiLanguageSetting) => void;
+	/** 桥客户端：账号菜单拉账号列表 / 切换账号（Codex 式左下角头像入口）。 */
+	client: BridgeClient;
 }): React.JSX.Element {
 	const t = useT();
 	const mediaPlaying = useMediaPlayingDot();
 	const itemClass = (active: boolean): string => `owl-rail-button${active ? " is-active" : ""}`;
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [toolsOpen, setToolsOpen] = useState(false);
+	const [accountInfo, setAccountInfo] = useState<{ accounts: DesktopAccountInfo[]; runningId: string | null }>();
+	const [switcherOpen, setSwitcherOpen] = useState(false);
+	const [switchBusy, setSwitchBusy] = useState(false);
 	const [pins, setPins] = useState<RailView[]>(() => loadRailPins());
 	const menuRootRef = useRef<HTMLDivElement>(null);
 	const menuPanelRef = useRef<HTMLDivElement>(null);
@@ -347,6 +357,49 @@ export function ActivityRail({
 			updateBusyRef.current = false;
 			setUpdateAction(undefined);
 		}
+	};
+
+	// 菜单打开时拉账号列表（Codex 式账号菜单的数据面：当前账号 + 可切换账号）
+	useEffect(() => {
+		if (!menuOpen) return;
+		let cancelled = false;
+		void client
+			.request<{ accounts: DesktopAccountInfo[]; runningId: string | null }>({ type: "account.list" })
+			.then((response) => {
+				if (!cancelled && response.ok && response.result) setAccountInfo(response.result);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [client, menuOpen]);
+
+	const currentAccount = accountInfo?.accounts.find((entry) => entry.id === accountInfo.runningId);
+	// 菜单每次打开重拉头像，换头像后回来即最新
+	const accountAvatar = useAccountAvatar(client, menuOpen);
+
+	/** 免密账号直接切换；有密码的引导到设置页账号分区输入。 */
+	const switchToAccount = (account: DesktopAccountInfo): void => {
+		if (switchBusy) return;
+		if (account.hasPassword) {
+			setMenuOpen(false);
+			onOpenSettings("accounts");
+			return;
+		}
+		setSwitchBusy(true);
+		void (async () => {
+			try {
+				const response = await client.request({ type: "account.switch", accountId: account.id });
+				if (!response.ok) return;
+				await switchAccountBridge(account.dataDir);
+				window.location.reload();
+			} catch (error) {
+				// 注册表已切但桥没起来：重启应用后仍会落到新账号目录
+				console.error("[owl] account switch failed:", error);
+			} finally {
+				setSwitchBusy(false);
+			}
+		})();
 	};
 
 	const menuGroups: RailMenuItem[][] = [
@@ -540,7 +593,7 @@ export function ActivityRail({
 						}
 					}}
 				>
-					<img src="/owl.svg" alt="" className="h-6 w-6" draggable={false} />
+					<AccountAvatar name={currentAccount?.name} src={accountAvatar} size={24} />
 				</button>
 				{menuOpen && (
 					<div
@@ -563,7 +616,71 @@ export function ActivityRail({
 							items[next]?.focus();
 						}}
 					>
-						<div className="owl-rail-menu-header"><strong>Owl</strong></div>
+						<button
+							type="button"
+							role="menuitem"
+							className="owl-rail-account-head"
+							title={t("profile.aria")}
+							onClick={() => {
+								setMenuOpen(false);
+								onSelect("account");
+							}}
+						>
+							<AccountAvatar name={currentAccount?.name} src={accountAvatar} size={34} />
+							<span className="owl-rail-account-meta">
+								<strong>{currentAccount?.name ?? t("account.unknown")}</strong>
+								<small>{currentAccount?.id === "local" ? t("account.localBadge") : t("account.badge")}</small>
+							</span>
+						</button>
+						<div className="owl-rail-menu-separator" role="separator" />
+						<button
+							type="button"
+							role="menuitem"
+							aria-expanded={switcherOpen}
+							onClick={() => setSwitcherOpen((open) => !open)}
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10 3 14l4 4" /><path d="M17 14H3" /><path d="m17 4 4 4-4 4" /><path d="M7 8h14" /></svg>
+							<span>{t("account.switch")}</span>
+						</button>
+						{switcherOpen && (accountInfo?.accounts ?? []).map((account) => (
+							<button
+								key={account.id}
+								type="button"
+								role="menuitem"
+								className={`owl-rail-account-row${account.id === currentAccount?.id ? " is-current" : ""}`}
+								title={account.hasPassword ? t("account.switchPasswordHint") : undefined}
+								onClick={() => {
+									if (account.id === currentAccount?.id) return;
+									switchToAccount(account);
+								}}
+							>
+								<AccountAvatar name={account.name} size={20} />
+								<span>{account.name}</span>
+								{account.hasPassword && <span aria-hidden="true">🔒</span>}
+								{account.id === currentAccount?.id && <span className="owl-rail-account-check" aria-hidden="true">✓</span>}
+							</button>
+						))}
+						{switcherOpen && (
+							<button type="button" role="menuitem" className="owl-rail-account-row" onClick={() => { setMenuOpen(false); onOpenSettings("accounts"); }}>
+								<span aria-hidden="true">＋</span>
+								<span>{t("account.manage")}</span>
+							</button>
+						)}
+						<div className="owl-rail-menu-separator" role="separator" />
+						<button
+							type="button"
+							role="menuitem"
+							aria-busy={switchBusy || undefined}
+							disabled={!currentAccount || currentAccount.id === "local" || switchBusy}
+							title={currentAccount?.id === "local" ? t("account.logoutLocalTitle") : undefined}
+							onClick={() => {
+								if (currentAccount) switchToAccount(currentAccount);
+							}}
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4" /><path d="m13 8 4 4-4 4" /><path d="M17 12H7" /></svg>
+							<span>{t("account.logout")}</span>
+						</button>
+						<div className="owl-rail-menu-separator" role="separator" />
 						{menuGroups.map((group, index) => (
 							<div key={index} role="group">
 								{index > 0 && <div className="owl-rail-menu-separator" role="separator" />}

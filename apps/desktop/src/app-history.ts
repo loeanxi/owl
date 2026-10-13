@@ -5,7 +5,7 @@ import { normPath } from "./utils/paths.ts";
 export interface AppPlace {
 	rail: RailView;
 	settings: boolean;
-	settingsTab: "general" | "models" | "about";
+	settingsTab: "general" | "accounts" | "usage" | "models" | "about";
 	chatSession?: string;
 	researchSession?: string;
 	workspace: string;

@@ -29,7 +29,7 @@ import { getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, use
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconActivity, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconActivity, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import {
 	isModelMarkedInUse,
@@ -44,13 +44,14 @@ import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL,
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, daysLeft, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
+import { AccountsSection } from "./settings/AccountsSection.tsx";
 import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
 import { ChangelogSection, useChangelogCopy } from "./settings/ChangelogSection.tsx";
 import "./settings-redesign.css";
 
-type SettingsSection = "general" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "changelog" | "about";
+type SettingsSection = "general" | "accounts" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "changelog" | "about";
 
-export type SettingsInitialTab = "general" | "models" | "about";
+export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "about";
 
 /** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
@@ -1314,6 +1315,7 @@ export function SettingsPage({
 					<nav className="owl-settings-nav" aria-label={t("settings.navAria")}>
 						<div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>
 						<NavItem icon={<IconSettings />} label={t("settings.navGeneral")} active={section === "general"} onClick={() => setSection("general")} />
+						<NavItem icon={<IconSelf />} label={t("settings.navAccounts")} active={section === "accounts"} onClick={() => setSection("accounts")} />
 						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => setSection("models")} />
 						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => setSection("plugins")} />
 						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => setSection("skills")} />
@@ -1346,6 +1348,7 @@ export function SettingsPage({
 						{error && <div className="owl-settings-notice is-error" role="alert">{error}</div>}
 
 						{/* -------- 常规 -------- */}
+						{section === "accounts" && <AccountsSection client={client} />}
 						{section === "general" && (
 							<>
 								<SectionHeader title={t("settings.general.title")} desc={t("settings.general.desc")} />
@@ -1573,7 +1576,7 @@ export function SettingsPage({
 									)}
 									{loginAsk && (
 												<div className="owl-settings-notice is-warning">
-													<div className="text-[11px] text-amber-200">{loginAsk.message ?? t("settings.models.loginNeedsInput")}</div>
+													<div className="text-[11px] text-owl-warning">{loginAsk.message ?? t("settings.models.loginNeedsInput")}</div>
 													{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
 														<div className="mt-1.5 flex gap-2">
 															<input
@@ -1604,7 +1607,7 @@ export function SettingsPage({
 													<div className="mt-1.5 text-right">
 														<button
 															type="button"
-															className="text-[11px] text-owl-faint transition-colors hover:text-red-400"
+															className="text-[11px] text-owl-faint transition-colors hover:text-owl-danger"
 															onClick={() => {
 																setLoginAsk(null);
 																void client.request({ type: "auth.cancel" }).then(() => setQuickHint(t("settings.models.loginCanceled")));
@@ -2069,7 +2072,7 @@ export function SettingsPage({
 												<div className="ml-2 flex shrink-0 items-center gap-2.5">
 													<button
 														type="button"
-														className={`text-[11px] transition-colors disabled:opacity-40 ${disabled ? "text-owl-faint hover:text-owl-text" : "text-emerald-400 hover:text-emerald-300"}`}
+														className={`text-[11px] transition-colors disabled:opacity-40 ${disabled ? "text-owl-faint hover:text-owl-text" : "text-owl-success hover:text-owl-success"}`}
 														disabled={busy}
 														title={disabled ? t("settings.plugins.enableTitle") : t("settings.plugins.disableTitle")}
 														onClick={() => {
@@ -2082,7 +2085,7 @@ export function SettingsPage({
 													</button>
 													<button
 														type="button"
-														className="text-[11px] text-owl-faint transition-colors hover:text-red-400 disabled:opacity-40"
+														className="text-[11px] text-owl-faint transition-colors hover:text-owl-danger disabled:opacity-40"
 														disabled={busy}
 														onClick={() => void saveSettings({ plugins: plugins.filter((_, i) => i !== index) })}
 													>
@@ -2458,7 +2461,7 @@ export function SettingsPage({
 													</div>
 												</div>
 												<div className="ml-2 flex shrink-0 items-center gap-2.5">
-													<span className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-emerald-400"}`}>
+													<span className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-owl-success"}`}>
 														{entry.disabled ? t("settings.skills.manualOnly") : t("settings.skills.modelAvailable")}
 													</span>
 													<Switch
@@ -3828,7 +3831,7 @@ export function SettingsPage({
 											) : (
 												<button
 													type="button"
-													className={`${btn} hover:border-red-500/60 hover:text-red-300`}
+													className={`${btn} hover:border-owl-danger/60 hover:text-owl-danger`}
 													disabled={busy}
 													onClick={() => setConfirmClearMemory(true)}
 												>
@@ -3875,7 +3878,7 @@ export function SettingsPage({
 													) : (
 														<button
 															type="button"
-															className={`${btn} shrink-0 hover:border-red-500/60 hover:text-red-300`}
+														className={`${btn} shrink-0 hover:border-owl-danger/60 hover:text-owl-danger`}
 															disabled={busy}
 															onClick={() => setConfirmDelMemoryId(entry.id)}
 															title={t("settings.memory.deleteTitle")}
@@ -4182,7 +4185,7 @@ export function SettingsPage({
 																	)}
 																	<button
 																		type="button"
-																		className={`${btn} shrink-0 hover:border-red-500/60 hover:text-red-300`}
+																		className={`${btn} shrink-0 hover:border-owl-danger/60 hover:text-owl-danger`}
 																		disabled={busy}
 																		onClick={() => {
 																			const rest = workflows.filter((w) => w.name !== workflow.name);
@@ -4399,7 +4402,7 @@ export function SettingsPage({
 						aria-label={authSuccess.title}
 						onClick={(e) => e.stopPropagation()}
 					>
-						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-lg text-emerald-400">✓</div>
+						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-owl-success/15 text-lg text-owl-success">✓</div>
 						<div className="mt-3 text-sm font-semibold text-owl-text">{authSuccess.title}</div>
 						<div className="mt-1 text-xs leading-relaxed text-owl-muted">{authSuccess.message}</div>
 						<button type="button" className={`${btnAccent} mt-4 w-full py-1.5`} onClick={() => setAuthSuccess(null)}>

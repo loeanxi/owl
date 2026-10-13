@@ -1,0 +1,409 @@
+/**
+ * 账号 UI 样式：rail 左下角头像触发钮 + Codex 式账号菜单区 + 个人主页。
+ * 配色走桌面端 CSS 变量（--color-*），浅色侧栏纯白底。
+ */
+
+/* ---------- 头像 ---------- */
+
+.owl-account-avatar {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	border-radius: 50%;
+	background: var(--color-owl-accent, #e56ba0);
+	color: var(--color-owl-on-accent);
+	font-weight: 600;
+	line-height: 1;
+	user-select: none;
+	overflow: hidden;
+}
+
+.owl-account-avatar.is-fallback {
+	background: transparent;
+}
+
+.owl-account-avatar.is-image {
+	object-fit: cover;
+	background: transparent;
+}
+
+/* ---------- 个人主页头像（可点击换图） ---------- */
+
+.owl-profile-avatar {
+	position: relative;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	cursor: pointer;
+}
+
+.owl-profile-avatar-mask {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.45);
+	color: #fff;
+	font-size: 12px;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+
+.owl-profile-avatar:hover .owl-profile-avatar-mask {
+	opacity: 1;
+}
+
+/* ---------- 换头像弹窗 ---------- */
+
+.owl-avatar-modal-shade {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.35);
+}
+
+.owl-avatar-modal {
+	width: 320px;
+	padding: 20px;
+	border-radius: 16px;
+	background: var(--owl-ui-panel, var(--color-owl-panel));
+	color: var(--owl-ui-text, var(--color-owl-text));
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.owl-avatar-modal h3 {
+	margin: 0 0 14px;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.owl-avatar-modal-preview {
+	display: flex;
+	justify-content: center;
+	padding: 6px 0 12px;
+}
+
+.owl-avatar-modal-hint {
+	margin: 0 0 10px;
+	font-size: 12px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-avatar-modal-error {
+	margin: 0 0 10px;
+	font-size: 12px;
+	color: var(--color-owl-danger);
+}
+
+.owl-avatar-modal-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.owl-avatar-modal-spacer {
+	flex: 1;
+}
+
+.owl-avatar-modal-actions button {
+	padding: 6px 14px;
+	border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+	border-radius: 9px;
+	background: transparent;
+	font-size: 12.5px;
+	color: inherit;
+	cursor: pointer;
+}
+
+.owl-avatar-modal-actions button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.owl-avatar-modal-actions button.is-primary {
+	border-color: transparent;
+	background: var(--color-owl-accent, #e56ba0);
+	color: var(--color-owl-on-accent);
+}
+
+.owl-avatar-modal-actions button.is-primary:hover:not(:disabled) {
+	background: var(--color-owl-accent-hover);
+	color: var(--color-owl-on-accent-hover);
+}
+
+.owl-avatar-modal-actions button:focus-visible,
+.owl-profile-avatar:focus-visible,
+.owl-profile-ranges button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}
+
+/* ---------- rail 左下角账号菜单 ---------- */
+
+.owl-rail-app-menu .owl-rail-menu-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.owl-rail-account-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: calc(100% - 16px);
+	margin: 8px;
+	padding: 8px;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	cursor: pointer;
+	text-align: left;
+}
+
+.owl-rail-account-head:hover {
+	background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.owl-rail-account-meta {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.owl-rail-account-meta strong {
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-rail-account-meta small {
+	font-size: 11px;
+	opacity: 0.6;
+}
+
+.owl-rail-account-sub {
+	font-size: 12px;
+	opacity: 0.75;
+	padding: 3px 16px;
+}
+
+.owl-rail-account-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 16px;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+	font-size: 12.5px;
+	text-align: left;
+}
+
+.owl-rail-account-row:hover {
+	background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.owl-rail-account-row .owl-rail-account-check {
+	margin-left: auto;
+	opacity: 0.7;
+}
+
+.owl-rail-account-row.is-current {
+	font-weight: 600;
+}
+
+/* ---------- 个人主页（模仿 Codex Profile） ---------- */
+
+.owl-profile {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	background: var(--owl-ui-canvas, var(--color-owl-bg));
+	color: var(--owl-ui-text, var(--color-owl-text));
+}
+
+.owl-profile-topbar {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	padding: 14px 20px 0;
+}
+
+.owl-profile-topbar button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 12px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	font-size: 12.5px;
+	cursor: default;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-profile-scroll {
+	width: 100%;
+	max-width: 860px;
+	margin: 0 auto;
+	padding: 12px 32px 64px;
+	overflow-y: auto;
+}
+
+.owl-profile-head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	padding: 28px 0 8px;
+}
+
+.owl-profile-head h1 {
+	margin: 10px 0 0;
+	font-size: 26px;
+	font-weight: 700;
+}
+
+.owl-profile-head p {
+	margin: 0;
+	font-size: 13px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-profile-stats {
+	display: flex;
+	margin: 26px 0 8px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-border));
+	border-radius: 14px;
+	background: var(--owl-ui-panel, var(--color-owl-panel));
+}
+
+.owl-profile-stat {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	padding: 16px 8px;
+}
+
+.owl-profile-stat + .owl-profile-stat {
+	border-left: 1px solid var(--owl-ui-border, var(--color-owl-border));
+}
+
+.owl-profile-stat strong {
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.owl-profile-stat span {
+	font-size: 12px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-profile h2 {
+	margin: 34px 0 14px;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.owl-profile-activity-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin: 34px 0 14px;
+}
+
+.owl-profile-activity-head h2 {
+	margin: 0;
+}
+
+.owl-profile-ranges {
+	display: flex;
+	gap: 2px;
+	font-size: 12px;
+}
+
+.owl-profile-ranges button {
+	padding: 3px 10px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	cursor: pointer;
+}
+
+.owl-profile-ranges button.is-active {
+	opacity: 1;
+	background: var(--owl-ui-hover, var(--color-owl-hover));
+	color: var(--owl-ui-text, var(--color-owl-text));
+	font-weight: 600;
+}
+
+/* ---------- 每周柱状 / 累计曲线 ---------- */
+
+.owl-profile-chart {
+	display: block;
+	width: 100%;
+	height: 170px;
+}
+
+.owl-profile-chart-bar {
+	fill: color-mix(in srgb, var(--color-owl-accent, #e56ba0) 78%, transparent);
+}
+
+.owl-profile-chart-bar.is-empty {
+	fill: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.owl-profile-chart-line {
+	stroke: var(--color-owl-accent, #e56ba0);
+	stroke-width: 2;
+}
+
+.owl-profile-chart-dot {
+	fill: var(--color-owl-accent, #e56ba0);
+}
+
+.owl-profile-chart-axis {
+	fill: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 11px;
+}
+
+.owl-profile .owl-usage-heatmap {
+	margin-bottom: 6px;
+}
+
+.owl-profile-insights {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.owl-profile-insights li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 11px 2px;
+	font-size: 13.5px;
+}
+
+.owl-profile-insights li + li {
+	border-top: 1px solid color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.owl-profile-insights li span:last-child {
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-variant-numeric: tabular-nums;
+}

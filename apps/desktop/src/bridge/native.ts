@@ -21,6 +21,12 @@ export async function startDebugRebuild(): Promise<boolean> {
 	return true;
 }
 
+/** 切换账号后以新数据目录重启桥进程（kill + spawn，端口不变）；返回时新桥已监听。 */
+export async function switchAccountBridge(agentDir: string): Promise<void> {
+	if (!hasTauri()) throw new Error("账号切换需要桌面壳支持");
+	await invoke("switch_account_bridge", { agentDir });
+}
+
 /** 打开系统文件夹选择对话框（资源管理器），取消返回 null。 */
 export async function pickFolder(title: string): Promise<string | null> {
 	if (!hasTauri()) return null;

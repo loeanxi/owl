@@ -62,7 +62,9 @@ fn quit_app(app: tauri::AppHandle) {
 #[tauri::command]
 fn set_window_glass(window: tauri::WebviewWindow, mode: String) -> Result<(), String> {
     use tauri::window::{Effect, EffectsBuilder};
-    window.set_effects(None).map_err(|error| error.to_string())?;
+    window
+        .set_effects(None)
+        .map_err(|error| error.to_string())?;
     let effect = match mode.as_str() {
         "acrylic" => Effect::Acrylic,
         "blur" => Effect::Blur,
@@ -114,10 +116,12 @@ struct LocalImage {
 
 fn encode_base64(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     let mut index = 0;
     while index + 3 <= input.len() {
-        let value = ((input[index] as u32) << 16) | ((input[index + 1] as u32) << 8) | (input[index + 2] as u32);
+        let value = ((input[index] as u32) << 16)
+            | ((input[index + 1] as u32) << 8)
+            | (input[index + 2] as u32);
         out.push(TABLE[((value >> 18) & 63) as usize] as char);
         out.push(TABLE[((value >> 12) & 63) as usize] as char);
         out.push(TABLE[((value >> 6) & 63) as usize] as char);
@@ -149,7 +153,10 @@ fn reveal_in_file_manager(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
-        let wide: Vec<u16> = std::ffi::OsStr::new(&path).encode_wide().chain(Some(0)).collect();
+        let wide: Vec<u16> = std::ffi::OsStr::new(&path)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
         #[link(name = "ole32")]
         extern "system" {
             fn CoInitializeEx(reserved: *const core::ffi::c_void, model: u32) -> i32;
@@ -187,7 +194,8 @@ fn reveal_in_file_manager(path: String) -> Result<(), String> {
             let result = (|| {
                 let mut pidl: *mut core::ffi::c_void = std::ptr::null_mut();
                 let mut attrs: u32 = 0;
-                let parsed = SHParseDisplayName(wide.as_ptr(), std::ptr::null(), &mut pidl, 0, &mut attrs);
+                let parsed =
+                    SHParseDisplayName(wide.as_ptr(), std::ptr::null(), &mut pidl, 0, &mut attrs);
                 if parsed >= 0 && !pidl.is_null() {
                     let opened = SHOpenFolderAndSelectItems(pidl, 0, std::ptr::null(), 0);
                     ILFree(pidl);
@@ -196,8 +204,11 @@ fn reveal_in_file_manager(path: String) -> Result<(), String> {
                     }
                 }
                 // 兜底：ShellExecuteW 打开所在文件夹（与双击文件夹同语义）
-                let parent = std::path::Path::new(&path).parent().unwrap_or_else(|| std::path::Path::new(""));
-                let parent_wide: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
+                let parent = std::path::Path::new(&path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(""));
+                let parent_wide: Vec<u16> =
+                    parent.as_os_str().encode_wide().chain(Some(0)).collect();
                 let open_wide: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
                 let executed = ShellExecuteW(
                     0,
@@ -319,6 +330,23 @@ fn spawn_debug_update_helper(repo: &Path, helper: &Path) -> Result<(), String> {
 #[cfg(not(windows))]
 fn spawn_debug_update_helper(_repo: &Path, _helper: &Path) -> Result<(), String> {
     Err("调试更新目前只支持 Windows。".to_owned())
+}
+
+/// 前端切换账号后调用：以新 agentDir 重启桥进程（kill + spawn，端口不变，
+/// 页面随后 reload 重连）。watchdog 沿用更新后的 agent_dir，崩溃自愈也不串数据。
+#[tauri::command]
+fn switch_account_bridge(
+    bridge: tauri::State<'_, Arc<Mutex<BridgeState>>>,
+    agent_dir: String,
+) -> Result<(), String> {
+    if agent_dir.is_empty() {
+        return Err("agent_dir 不能为空".into());
+    }
+    let mut state = bridge
+        .lock()
+        .map_err(|_| "bridge state poisoned".to_owned())?;
+    state.agent_dir = PathBuf::from(&agent_dir);
+    state.restart()
 }
 
 #[tauri::command]
@@ -512,14 +540,8 @@ fn resolve_pool_port() -> u16 {
     DEFAULT_POOL_PORT
 }
 
-/// Locate the agent data directory (OWL_CODING_AGENT_DIR).
-fn resolve_agent_dir() -> PathBuf {
-    // 1. OWL_CODING_AGENT_DIR override
-    if let Ok(path) = std::env::var("OWL_CODING_AGENT_DIR") {
-        return PathBuf::from(path);
-    }
-
-    // 2. Search upwards for data/owl
+/// 账号无关的基础数据目录（向上搜索 + 兑底），也是全局技能库的锚点。
+fn resolve_base_agent_dir() -> PathBuf {
     if let Ok(mut dir) = std::env::current_dir() {
         for _ in 0..6 {
             let cand = dir.join("data").join("owl");
@@ -536,8 +558,64 @@ fn resolve_agent_dir() -> PathBuf {
         }
     }
 
-    // 3. Fallback to dev path（同上：开发机兜底，别在打包产物上依赖它）
+    // Fallback to dev path（同上：开发机兑底，别在打包产物上依赖它）
     PathBuf::from("D:/owl/owl-re-v1/data/owl")
+}
+
+/// 全局技能库（账号无关）：基础目录的兄弟 skills 目录。用户空间的桥经
+/// OWL_GLOBAL_SKILLS_DIR 注入这个目录，新账号不落空技能库。
+fn base_global_skills_dir() -> Option<PathBuf> {
+    resolve_base_agent_dir()
+        .parent()
+        .map(|parent| parent.join("skills"))
+}
+
+/// Locate the agent data directory (OWL_CODING_AGENT_DIR).
+fn resolve_agent_dir() -> PathBuf {
+    // 1. OWL_CODING_AGENT_DIR override
+    if let Ok(path) = std::env::var("OWL_CODING_AGENT_DIR") {
+        return PathBuf::from(path);
+    }
+
+    // 2. 多账号：~/.owl/accounts.json 里 currentId 对应账号的 dataDir
+    if let Some(dir) = accounts_agent_dir() {
+        return dir;
+    }
+
+    // 3. 基础目录（向上搜索 + 兜底）
+    resolve_base_agent_dir()
+}
+/// 多账号注册表（由桥端 account.* handler 维护）：读 currentId → dataDir。
+/// 读不到 / 损坏 / 未 seed 时返回 None，走原有目录发现逻辑。桥首次响应
+/// account.* 请求时会 seed「本地」账号，dataDir 即本次 resolve 出的目录，
+/// 所以老用户首次升级后仍落回原目录，数据无感。
+fn accounts_agent_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("USERPROFILE")?;
+    let path = PathBuf::from(home).join(".owl").join("accounts.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    #[derive(serde::Deserialize)]
+    struct AccountEntry {
+        #[serde(default)]
+        id: String,
+        #[serde(rename = "dataDir", default)]
+        data_dir: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct AccountsFile {
+        #[serde(rename = "currentId", default)]
+        current_id: String,
+        #[serde(default)]
+        accounts: Vec<AccountEntry>,
+    }
+    let file: AccountsFile = serde_json::from_str(&raw).ok()?;
+    let entry = file
+        .accounts
+        .iter()
+        .find(|account| account.id == file.current_id)?;
+    if entry.data_dir.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(&entry.data_dir))
 }
 
 /// Find a free port, preferring `preferred` if available.
@@ -619,7 +697,12 @@ fn tie_child_to_self(child: &Child) {
     }
 }
 
-fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> std::io::Result<Child> {
+fn spawn_bridge(
+    script: &Path,
+    agent_dir: &Path,
+    base_skills_dir: Option<&Path>,
+    port: u16,
+) -> std::io::Result<Child> {
     let (stdout, stderr) = bridge_log_stdio();
     let mut cmd = Command::new("node");
     cmd.args([
@@ -631,6 +714,12 @@ fn spawn_bridge(script: &Path, agent_dir: &Path, port: u16) -> std::io::Result<C
     .stdin(Stdio::null())
     .stdout(stdout)
     .stderr(stderr);
+    if let Some(skills_dir) = base_skills_dir {
+        cmd.env(
+            "OWL_GLOBAL_SKILLS_DIR",
+            skills_dir.to_string_lossy().as_ref(),
+        );
+    }
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let child = cmd.spawn()?;
@@ -680,6 +769,8 @@ struct BridgeState {
     port: u16,
     script: PathBuf,
     agent_dir: PathBuf,
+    /// 账号无关的全局技能目录（OWL_GLOBAL_SKILLS_DIR）；重启桥时继续传。
+    base_skills_dir: Option<PathBuf>,
     /// 桥应当在跑：退出应用时置 false，巡检据此区分"被我们停掉"和"自己挂了"。
     wanted: bool,
 }
@@ -717,8 +808,13 @@ impl BridgeState {
     fn restart(&mut self) -> Result<(), String> {
         self.kill();
         self.wanted = true;
-        let mut child = spawn_bridge(&self.script, &self.agent_dir, self.port)
-            .map_err(|error| format!("failed to spawn owl bridge (is node on PATH?): {error}"))?;
+        let mut child = spawn_bridge(
+            &self.script,
+            &self.agent_dir,
+            self.base_skills_dir.as_deref(),
+            self.port,
+        )
+        .map_err(|error| format!("failed to spawn owl bridge (is node on PATH?): {error}"))?;
         if !wait_for_port(self.port, BRIDGE_START_TIMEOUT) {
             let _ = child.kill();
             let _ = child.wait();
@@ -765,10 +861,19 @@ fn spawn_bridge_watchdog(app: tauri::AppHandle, bridge: Arc<Mutex<BridgeState>>)
                 // 重新拉起会截断桥日志，先把崩溃现场另存一份
                 let crash_log = bridge_log_path().with_file_name("owl-bridge.crash.log");
                 let _ = std::fs::copy(bridge_log_path(), &crash_log);
-                eprintln!("[owl] bridge exited unexpectedly (code {code:?}); log saved to {}", crash_log.display());
+                eprintln!(
+                    "[owl] bridge exited unexpectedly (code {code:?}); log saved to {}",
+                    crash_log.display()
+                );
                 last_code = code;
                 gave_up = false;
-                let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "exited", code });
+                let _ = app.emit(
+                    "owl-bridge",
+                    BridgeWatchdogEvent {
+                        state: "exited",
+                        code,
+                    },
+                );
             }
             if state.child.is_some() {
                 // 托盘「重启后台服务」成功后重新计数
@@ -784,15 +889,31 @@ fn spawn_bridge_watchdog(app: tauri::AppHandle, bridge: Arc<Mutex<BridgeState>>)
             restarts.retain(|at| at.elapsed() < BRIDGE_RESTART_WINDOW);
             if restarts.len() >= BRIDGE_MAX_RESTARTS {
                 gave_up = true;
-                eprintln!("[owl] bridge crash loop ({} restarts within {:?}); giving up", restarts.len(), BRIDGE_RESTART_WINDOW);
-                let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "down", code: last_code });
+                eprintln!(
+                    "[owl] bridge crash loop ({} restarts within {:?}); giving up",
+                    restarts.len(),
+                    BRIDGE_RESTART_WINDOW
+                );
+                let _ = app.emit(
+                    "owl-bridge",
+                    BridgeWatchdogEvent {
+                        state: "down",
+                        code: last_code,
+                    },
+                );
                 continue;
             }
             restarts.push(Instant::now());
             match state.restart() {
                 Ok(()) => {
                     eprintln!("[owl] bridge restarted on port {}", state.port);
-                    let _ = app.emit("owl-bridge", BridgeWatchdogEvent { state: "restarted", code: last_code });
+                    let _ = app.emit(
+                        "owl-bridge",
+                        BridgeWatchdogEvent {
+                            state: "restarted",
+                            code: last_code,
+                        },
+                    );
                 }
                 Err(error) => eprintln!("[owl] bridge restart failed: {error}"),
             }
@@ -842,10 +963,7 @@ impl PoolState {
                     ));
                 }
                 if matches!(child.try_wait(), Ok(Some(_))) {
-                    return Err(format!(
-                        "号池进程已退出；见 {}",
-                        pool_log_path().display()
-                    ));
+                    return Err(format!("号池进程已退出；见 {}", pool_log_path().display()));
                 }
                 self.child = Some(child);
                 self.owned = true;
@@ -955,12 +1073,14 @@ fn main() {
     let port = find_available_port(DEFAULT_PORT);
     let script = resolve_serve_script();
     let agent_dir = resolve_agent_dir();
+    let base_skills_dir = base_global_skills_dir();
     let pool_port = resolve_pool_port();
     let pool_script = resolve_pool_script();
 
     let pool = Arc::new(Mutex::new(ensure_pool(pool_script, pool_port)));
 
-    let child = spawn_bridge(&script, &agent_dir, port).expect("failed to spawn owl bridge (is node on PATH?)");
+    let child = spawn_bridge(&script, &agent_dir, base_skills_dir.as_deref(), port)
+        .expect("failed to spawn owl bridge (is node on PATH?)");
     eprintln!(
         "[owl] bridge spawning on port {port} (script: {}, log: {})",
         script.display(),
@@ -978,6 +1098,7 @@ fn main() {
         port,
         script,
         agent_dir,
+        base_skills_dir,
         wanted: true,
     }));
 
@@ -994,8 +1115,10 @@ fn main() {
             reveal_in_file_manager,
             read_local_image,
             gps::gps_location,
+            switch_account_bridge,
             debug_rebuild_and_restart
         ])
+        .manage(bridge.clone())
         .setup(move |app| {
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
