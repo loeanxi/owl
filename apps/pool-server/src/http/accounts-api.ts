@@ -14,6 +14,12 @@ import {
 	type Platform,
 	parseCredentials,
 } from "owl-pool";
+import { traeTokenExpiresAt } from "../account/trae-auth.ts";
+import {
+	type LocalTraeCredential,
+	requireLocalTraeCredential,
+	scanLocalTraeCredentials,
+} from "../account/trae-local.ts";
 import { probeAccount } from "../catalog/discovery.ts";
 import type { RequestContext, Router } from "./router.ts";
 
@@ -26,6 +32,8 @@ export interface AccountRoutesDeps {
 	pingAccount?(account: Account): Promise<Record<string, unknown>>;
 	/** Cursor OAuth 凭证可能只在独立 SDK 文件中，健康检查需要真实上游验证。 */
 	probeCredential?(account: Account): Promise<Record<string, unknown> | null>;
+	/** 本机 Trae IDE 凭证扫描；测试注入用，缺省扫 %APPDATA%。 */
+	traeLocalScan?(options?: { appDataRoot?: string; extraPaths?: string[] }): LocalTraeCredential[];
 	login?: {
 		login(account: Account): Promise<Record<string, unknown>>;
 		status(account: Account): Promise<Record<string, unknown>>;
@@ -43,7 +51,8 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 	router.post("/api/accounts", async (ctx) => {
 		const body = await ctx.readBody<Record<string, unknown>>();
 		const input = parseAccountInput(body, {});
-		return maskCredentials(deps.accounts.create(input, Date.now()), deps.checkin);
+		const created = deps.accounts.create(input, Date.now());
+		return maskCredentials(syncCredentialExpiry(deps.accounts, created), deps.checkin);
 	});
 
 	router.get("/api/accounts/:id", async (ctx) => maskCredentials(deps.accounts.require(ctx.params.id!), deps.checkin));
@@ -52,7 +61,8 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 		const body = await ctx.readBody<Record<string, unknown>>();
 		const current = deps.accounts.require(ctx.params.id!);
 		const input = parseAccountInput(body, current);
-		return maskCredentials(deps.accounts.updateFields(ctx.params.id!, input, Date.now()), deps.checkin);
+		const saved = deps.accounts.updateFields(ctx.params.id!, input, Date.now());
+		return maskCredentials(syncCredentialExpiry(deps.accounts, saved), deps.checkin);
 	});
 
 	router.patch("/api/accounts/:id/enabled", async (ctx) => {
@@ -69,6 +79,36 @@ export function registerAccountRoutes(router: Router, deps: AccountRoutesDeps): 
 	router.post("/api/accounts/:id/ping", async (ctx) => {
 		const account = deps.accounts.require(ctx.params.id!);
 		return deps.pingAccount !== undefined ? deps.pingAccount(account) : probeAccount(account);
+	});
+
+	// 本机 Trae IDE 凭证导入：LIST 只回脱敏视图，绑定在服务端完成、密钥不出服务。
+	router.get("/api/trae/local", async () => {
+		const scan = (deps.traeLocalScan ?? scanLocalTraeCredentials)();
+		return scan.map(({ credentials: _credentials, ...view }) => view);
+	});
+
+	router.post("/api/accounts/:id/trae/import-local", async (ctx) => {
+		const body: unknown = await ctx.readBody<Record<string, unknown>>().catch(() => ({}));
+		const payload = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+		const selector = {
+			edition: typeof payload.edition === "string" ? payload.edition : undefined,
+			storagePath: typeof payload.storagePath === "string" ? payload.storagePath : undefined,
+		};
+		const matched = requireLocalTraeCredential((deps.traeLocalScan ?? scanLocalTraeCredentials)(), selector);
+		const account = deps.accounts.require(ctx.params.id!);
+		if (account.platform !== "TRAE") {
+			throw BusinessError.of("trae.importWrongPlatform", "只有 TRAE 账号能导入本机 Trae 凭证");
+		}
+		const merged: Record<string, unknown> = { ...parseCredentials(account), ...matched.credentials };
+		deps.accounts.updateFields(account.id, { credentials: merged }, Date.now());
+		const expires = traeTokenExpiresAt(merged);
+		const patched = deps.accounts.patchState(account.id, {
+			...(expires !== null ? { credentialExpiresAt: expires } : {}),
+			credentialStatus: "OK",
+			credentialMessage: `已导入本机 ${matched.label} 凭证，将由号池自动续期`,
+			credentialCheckedAt: Date.now(),
+		});
+		return maskCredentials(patched, deps.checkin);
 	});
 
 	router.post("/api/accounts/:id/auth/login", async (ctx) => {
@@ -211,6 +251,24 @@ function parseAccountInput(body: Record<string, unknown>, current: Partial<Accou
 		enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
 		remark: body.remark === undefined ? undefined : body.remark === null ? null : String(body.remark),
 	};
+}
+
+/**
+ * Trae IDE 凭证自带 expiredAt（token 过期时间），同步进 credentialExpiresAt
+ * 让「检凭证」的到期徽章可用；续期由 trae-auth 在使用时刷新该列。其他平台不动。
+ */
+function syncCredentialExpiry(accounts: AccountStore, account: Account): Account {
+	if (account.platform !== "TRAE") {
+		return account;
+	}
+	const expires = traeTokenExpiresAt(parseCredentials(account));
+	if (expires === null) {
+		return account;
+	}
+	if (account.credentialExpiresAt !== null && Math.abs((account.credentialExpiresAt ?? 0) - expires) < 1000) {
+		return account;
+	}
+	return accounts.patchState(account.id, { credentialExpiresAt: expires });
 }
 
 /** 凭证脱敏：字符串值一律打码（阶段 2 移植 AccountResponse 的按平台精细脱敏）。 */

@@ -56,7 +56,8 @@ export class AccountLoginService {
 				platform: "TRAE",
 				requestId: `trae-${account.id}`,
 				status: "FAILED",
-				message: "Trae 请在独立浏览器窗口完成登录后，把新的 session 写入账号。当前服务没有内嵌浏览器。",
+				message:
+					"本服务没有内嵌浏览器。点击下方「扫描本机 Trae」导入本机已登录的 Trae CN 凭证；或在浏览器登录 trae.cn 后点「编辑」把新 session 写入账号凭证。",
 				url: "https://www.trae.cn/",
 				userCode: "",
 				authenticated: false,

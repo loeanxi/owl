@@ -24,6 +24,7 @@ import { refreshCredit } from "./account/credits.ts";
 import { AccountLoginService } from "./account/login.ts";
 import { pingAccount } from "./account/ping.ts";
 import { QoderCheckInProvider } from "./account/qoder-checkin.ts";
+import { TraeTokenService } from "./account/trae-auth.ts";
 import { probeAccount } from "./catalog/discovery.ts";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
@@ -167,6 +168,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		supportsModel: (account, model) => workBuddySupports(db, account.id, model),
 	});
 	upstreams.set(workbuddy.platform(), workbuddy);
+	const traeTokens = new TraeTokenService({ accounts });
 	const trae = new TraeChatClient({
 		config: {
 			chatBaseUrl: config.gateway.trae.chatBaseUrl,
@@ -179,6 +181,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			timeoutMs: config.gateway.upstreamTimeoutMs,
 		},
 		functionFor: (account, model) => traeFunctionFor(db, account.id, model),
+		resolveJwt: (account) => traeTokens.resolveJwt(account),
 	});
 	upstreams.set(trae.platform(), trae);
 	const gemini = new GeminiChatClient({
@@ -212,7 +215,11 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 				baseUrl: config.workbuddyBaseUrl,
 				authFileRoots: config.workbuddyAuthFileRoots,
 			}),
-			new TraeCheckInProvider({ baseUrl: config.traeBaseUrl }),
+			new TraeCheckInProvider({
+				baseUrl: config.traeBaseUrl,
+				resolveJwt: (account) => traeTokens.resolveJwt(account),
+				refreshJwt: (account) => traeTokens.refresh(account),
+			}),
 			new QoderCheckInProvider(async (account) => {
 				const client = await bridgeManager.clientFor(account);
 				return client.request("checkin", {}, 60_000);
@@ -246,6 +253,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		workbuddyBaseUrl: config.gateway.workbuddy.baseUrl,
 		workbuddyAuthRoots: config.workbuddyAuthFileRoots,
 		exchangeTraeToken: (session: string) => trae.exchangeToken(session),
+		resolveTraeJwt: (account: Parameters<typeof traeTokens.resolveJwt>[0]) => traeTokens.resolveJwt(account),
+		refreshTraeJwt: (account: Parameters<typeof traeTokens.refresh>[0]) => traeTokens.refresh(account),
 		codexQuota: (account: Parameters<typeof codex.quota>[0]) => codex.quota(account),
 		mimoPing: (account: Parameters<typeof mimoClient.ping>[0]) => mimoClient.ping(account),
 		sdkQuota: async (account: Parameters<typeof bridgeManager.clientFor>[0]) => {
@@ -263,6 +272,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		workbuddyBaseUrl: config.gateway.workbuddy.baseUrl,
 		workbuddyAuthRoots: config.workbuddyAuthFileRoots,
 		exchangeTraeToken: (session: string) => trae.exchangeToken(session),
+		resolveTraeJwt: (account: Parameters<typeof traeTokens.resolveJwt>[0]) => traeTokens.resolveJwt(account),
 		codexPing: (account: Parameters<typeof codex.ping>[0]) => codex.ping(account),
 		mimoPing: (account: Parameters<typeof mimoClient.ping>[0]) => mimoClient.ping(account),
 		sdkStatus: async (account: Parameters<typeof bridgeManager.clientFor>[0]) => {

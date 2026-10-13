@@ -11,7 +11,7 @@ export interface RequestContext {
 	params: Record<string, string>;
 	query: URLSearchParams;
 	/** 已解析的 JSON 请求体（按需读取，避免 GET 也吃流）。 */
-	readBody<T = unknown>(): Promise<T>;
+	readBody<T = unknown>(maxBytes?: number): Promise<T>;
 }
 
 export type RouteHandler = (ctx: RequestContext) => Promise<unknown>;

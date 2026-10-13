@@ -8,10 +8,10 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <script>try{document.documentElement.dataset.theme=localStorage.getItem("loean-ui-theme")==="light"?"light":"dark"}catch(e){}</script>
+  <script src="/theme.js?v=20261013-owl-theme1"></script>
   <!-- i18n.js 必须在 <head> 同步加载（不可加 defer）：语言需在首次绘制前判定 -->
   <script src="/i18n.js?v=20261008-cursor4"></script>
-  <link rel="stylesheet" href="/site-theme.css?v=20260926-16" />
+  <link rel="stylesheet" href="/site-theme.css?v=20261013-owl-theme1" />
   <link rel="stylesheet" href="/style.css?v=20260927-1" />
   <link rel="stylesheet" href="/pool-admin.css?v=20260929-usdcny" />
   <link rel="stylesheet" href="/account-cards.css?v=20261008-1" />
@@ -713,6 +713,11 @@
     <p id="pool-auth-open-status" class="hint" role="status" aria-live="polite" hidden></p>
     <div id="pool-auth-code-wrap" class="pool-auth-code" hidden><span data-i18n="pool.deviceCode">设备码</span><code id="pool-auth-code"></code><button type="button" id="btn-pool-code-copy" class="btn" data-i18n="member.copy.short">复制</button></div>
     <div id="pool-auth-input-wrap"><label><span data-i18n="pool.authInput">粘贴官方授权码或回调内容（可选）</span><textarea id="pool-auth-input" rows="3" autocomplete="off" spellcheck="false"></textarea></label><button type="button" id="btn-pool-auth-input" class="btn" data-i18n="pool.submitAuthInput">提交授权内容</button></div>
+    <div id="pool-auth-trae-import" hidden>
+      <div class="pool-section-head"><h4 data-i18n="pool.traeImportTitle">从本机 Trae 导入凭证</h4><button type="button" id="btn-pool-trae-scan" class="btn" data-i18n="pool.traeImportScan">扫描本机 Trae</button></div>
+      <p class="hint" data-i18n="pool.traeImportHint">自动读取本机已登录的 Trae CN / TRAE SOLO CN 凭证并绑定到该账号；绑定后由号池自动续期，不再依赖浏览器 Cookie。</p>
+      <div id="pool-trae-local-list" class="pool-trae-local-list"></div>
+    </div>
     <div class="dlg-actions"><button type="button" id="btn-pool-auth-cancel" class="btn danger" data-i18n="pool.cancelAuth">取消授权</button><button type="button" id="btn-pool-auth-retry" class="btn" hidden data-i18n="pool.retryAuth">重新发起</button><button type="button" class="btn ghost" data-close-dlg data-i18n="pool.close">关闭</button></div>
   </dialog>
 
@@ -1080,7 +1085,6 @@
   </dialog>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/theme.js?v=20260925-5"></script>
   <script src="/date-picker.js?v=20261008-1"></script>
   <script src="/pool-admin.js?v=20261008-cursor4"></script>
   <script src="/model-diagnostics.js?v=20261002-1"></script>

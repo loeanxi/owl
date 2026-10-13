@@ -53,6 +53,13 @@ const CRED_FIELDS = {
     { name: "authFile", labelKey: "admin.cred.authFile.label", type: "text", placeholderKey: "admin.cred.authFile.ph" },
   ],
   TRAE: [
+    { name: "token", labelKey: "admin.cred.traeToken.label", type: "password", placeholderKey: "admin.cred.traeToken.ph" },
+    { name: "refreshToken", labelKey: "admin.cred.traeRefresh.label", type: "password", placeholderKey: "admin.cred.traeRefresh.ph" },
+    { name: "userId", labelKey: "admin.cred.traeUserId.label", type: "text", placeholderKey: "admin.cred.traeUserId.ph" },
+    { name: "storageFile", labelKey: "admin.cred.traeStorage.label", type: "text", placeholderKey: "admin.cred.traeStorage.ph" },
+    { name: "host", type: "hidden" },
+    { name: "expiredAt", type: "hidden" },
+    { name: "refreshExpiredAt", type: "hidden" },
     { name: "deviceId", labelKey: "admin.cred.deviceId.label", type: "text", placeholderKey: "admin.cred.deviceId.ph" },
     { name: "session", labelKey: "admin.cred.session.label", type: "password", placeholderKey: "admin.cred.session.ph" },
   ],
@@ -551,7 +558,8 @@ function credentialPill(a) {
 // health.code 是稳定枚举，用于逻辑判断；label 只给眼睛看，可随语言变化。
 function accountHealth(a) {
   if (!a.enabled) return { key: "BAD", kind: "warn", code: "DISABLED", label: t("admin.health.DISABLED") };
-  if (a.platform === "TRAE" && !a.credentialsMasked?.session) {
+  if (a.platform === "TRAE" && !a.credentialsMasked?.session && !a.credentialsMasked?.token
+      && !a.credentialsMasked?.refreshToken && !a.credentialsMasked?.storageFile) {
     return { key: "BAD", kind: "warn", code: "LOGIN_REQUIRED", label: t("pool.traeLoginRequired") };
   }
   const cred = a.credentialStatus || "";
@@ -2786,8 +2794,9 @@ function renderCredFields(platform, values = {}) {
       : `<input name="cred_${f.name}" type="${f.type}" ${f.required ? "required" : ""}
           autocomplete="${f.type === "password" ? "new-password" : "off"}"
           placeholder="${escapeHtml(f.placeholderKey ? t(f.placeholderKey) : "")}" value="${escapeHtml(values[f.name] || "")}" />`;
+    if (f.type === "hidden") return field;
     const row = `<label>${escapeHtml(t(f.labelKey))}${field}</label>`;
-    return platform === "TRAE" && f.name === "session"
+    return platform === "TRAE" && (f.name === "session" || f.name === "deviceId")
       ? `<details><summary>${escapeHtml(t("pool.traeManualAdvanced"))}</summary>${row}</details>` : row;
   }).join("");
 }
@@ -2805,6 +2814,33 @@ function openAccountDialog(account = null) {
       ? account.credentialsMasked || {} : poolLoginPlatform(account?.platform) ? { runtimeHome: account?.credentialsMasked?.runtimeHome || "" } : {};
   renderCredFields(form.platform.value, values);
   $("#dlg-account").showModal();
+}
+
+/* Trae token 框整段凭据 JSON 粘贴：{token, refreshToken, userId, …} 自动分字段填充。
+   不是 JSON（普通 token）时不动，保持原有逐格粘贴方式。 */
+function autoFillTraeJson() {
+  const container = document.getElementById("cred-fields");
+  const tokenInput = container?.querySelector('[name="cred_token"]');
+  if (!tokenInput) return;
+  const value = String(tokenInput.value || "").trim();
+  if (!value.startsWith("{")) return;
+  let parsed;
+  try { parsed = JSON.parse(value); } catch { return; }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return;
+  if (typeof parsed.token !== "string" || parsed.token.trim().length === 0) return;
+  const set = (name, v) => {
+    if (v === undefined || v === null || v === "") return;
+    const el = container.querySelector(`[name="cred_${name}"]`);
+    if (el) el.value = String(v);
+  };
+  tokenInput.value = parsed.token;
+  set("refreshToken", parsed.refreshToken);
+  set("userId", parsed.userId);
+  set("host", parsed.host);
+  set("expiredAt", parsed.expiredAt);
+  set("refreshExpiredAt", parsed.refreshExpiredAt);
+  set("storageFile", parsed.storageFile);
+  toast(t("pool.traePasteFilled"), "ok");
 }
 
 async function submitAccount(event) {
@@ -3163,6 +3199,9 @@ function bind() {
 
   $("#sel-platform").addEventListener("change", (e) => renderCredFields(e.target.value));
   $("#form-account").addEventListener("submit", submitAccount);
+  /* Trae token 框支持整段凭据 JSON 粘贴：识别后自动分字段填充 */
+  document.getElementById("cred-fields")?.addEventListener("paste", () => setTimeout(autoFillTraeJson, 0));
+  document.getElementById("cred-fields")?.addEventListener("change", autoFillTraeJson);
   $("#form-key").addEventListener("submit", submitKey);
 
   $("#account-category-filters").addEventListener("click", (e) => {

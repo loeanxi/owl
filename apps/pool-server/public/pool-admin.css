@@ -25,6 +25,12 @@
 .pool-auth-url { display: block; margin: 12px 0; overflow-wrap: anywhere; color: var(--accent-2); }
 .pool-auth-code { display: flex; gap: 12px; align-items: center; padding: 12px 0; }
 .pool-auth-code code { font-size: 22px; letter-spacing: .1em; }
+.pool-trae-local-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; }
+.pool-trae-local-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); }
+.pool-trae-local-row.disabled { opacity: .62; }
+.pool-trae-local-row .pool-trae-local-info { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.pool-trae-local-row .pool-trae-local-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.pool-trae-local-row button { flex-shrink: 0; }
 .pool-capabilities { display: flex; gap: 5px; flex-wrap: wrap; }
 .pool-capabilities .pill { font-size: 10px; }
 .pool-meta { margin-top: 5px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }

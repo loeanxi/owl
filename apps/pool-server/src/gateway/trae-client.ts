@@ -40,17 +40,21 @@ export interface TraeClientOptions {
 	fetchImpl?: typeof fetch;
 	/** 账号模型 → SOLO function 名；快照域就位前默认恒等。 */
 	functionFor?(account: Account, model: string): string | null;
+	/** IDE token 凭证直取/续期（trae-auth）；返回 null 时回落 session 交换。 */
+	resolveJwt?(account: Account): Promise<string | null>;
 }
 
 export class TraeChatClient implements UpstreamChatClient {
 	readonly #config: TraeChatConfig;
 	readonly #fetchImpl: typeof fetch;
 	readonly #functionFor: (account: Account, model: string) => string | null;
+	readonly #resolveJwt: ((account: Account) => Promise<string | null>) | null;
 
 	constructor(options: TraeClientOptions) {
 		this.#config = options.config;
 		this.#fetchImpl = options.fetchImpl ?? fetch;
 		this.#functionFor = options.functionFor ?? ((_, model) => model);
+		this.#resolveJwt = options.resolveJwt ?? null;
 	}
 
 	platform(): Platform {
@@ -67,18 +71,27 @@ export class TraeChatClient implements UpstreamChatClient {
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
 	): Promise<void> {
-		const credentials = parseCredentials(account);
-		const session = typeof credentials.session === "string" ? credentials.session : "";
-		if (session.trim().length === 0) {
-			throw new UpstreamException("AUTH", "Trae 账号缺少 session");
-		}
 		let jwt: string;
-		try {
-			jwt = await this.exchangeToken(session);
-		} catch (error) {
-			const message =
-				error instanceof UpstreamException ? error.message : error instanceof Error ? error.message : String(error);
-			throw new UpstreamException("AUTH", `Trae 会话换 JWT 失败: ${message}`);
+		const credentials = parseCredentials(account);
+		const ideJwt = this.#resolveJwt === null ? null : await this.#resolveJwt(account);
+		if (ideJwt !== null) {
+			jwt = ideJwt;
+		} else {
+			const session = typeof credentials.session === "string" ? credentials.session : "";
+			if (session.trim().length === 0) {
+				throw new UpstreamException("AUTH", "Trae 账号缺少 session");
+			}
+			try {
+				jwt = await this.exchangeToken(session);
+			} catch (error) {
+				const message =
+					error instanceof UpstreamException
+						? error.message
+						: error instanceof Error
+							? error.message
+							: String(error);
+				throw new UpstreamException("AUTH", `Trae 会话换 JWT 失败: ${message}`);
+			}
 		}
 
 		const model = stripModelPrefix(typeof payload.model === "string" ? payload.model : "");

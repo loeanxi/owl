@@ -33,6 +33,8 @@ import { jsonRespond } from "./respond.ts";
 import type { RequestContext, Router } from "./router.ts";
 
 const KEEPALIVE_MS = 15_000;
+// 多模态会话可能把历史截图作为 base64 一并提交；聊天入口允许更大的有限请求体。
+const MAX_GATEWAY_BODY_BYTES = 64 * 1024 * 1024;
 
 function callerCancellation(ctx: RequestContext): { signal: AbortSignal; dispose(): void } {
 	const controller = new AbortController();
@@ -65,7 +67,7 @@ export function registerGatewayRoutes(router: Router, deps: GatewayRoutesDeps): 
 		}
 		const { auth } = verdict;
 		ctx.response.setHeader("X-Request-Id", auth.requestId);
-		const payload = await ctx.readBody<Record<string, unknown>>();
+		const payload = await ctx.readBody<Record<string, unknown>>(MAX_GATEWAY_BODY_BYTES);
 		if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
 			writeGatewayError(ctx.response, 400, "invalid_request", "请求体必须是 JSON 对象");
 			return;
@@ -137,7 +139,7 @@ async function handleResponses(ctx: RequestContext, deps: GatewayRoutesDeps): Pr
 	}
 	const { auth } = verdict;
 	ctx.response.setHeader("X-Request-Id", auth.requestId);
-	const body = await ctx.readBody<Record<string, unknown>>();
+	const body = await ctx.readBody<Record<string, unknown>>(MAX_GATEWAY_BODY_BYTES);
 	if (body === null || typeof body !== "object" || Array.isArray(body)) {
 		writeGatewayError(ctx.response, 400, "invalid_request", "请求体必须是 JSON 对象");
 		return;
@@ -458,7 +460,7 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 		}
 		const { auth } = verdict;
 		ctx.response.setHeader("X-Request-Id", auth.requestId);
-		const anthropicPayload = await ctx.readBody<Record<string, unknown>>();
+		const anthropicPayload = await ctx.readBody<Record<string, unknown>>(MAX_GATEWAY_BODY_BYTES);
 		if (anthropicPayload === null || typeof anthropicPayload !== "object" || Array.isArray(anthropicPayload)) {
 			writeAnthropicError(ctx.response, 400, "invalid_request_error", "请求体必须是 JSON 对象", auth.requestId);
 			return;
@@ -567,7 +569,7 @@ export function registerAnthropicGatewayRoutes(router: Router, deps: GatewayRout
 			);
 			return;
 		}
-		const payload = await ctx.readBody<Record<string, unknown>>();
+		const payload = await ctx.readBody<Record<string, unknown>>(MAX_GATEWAY_BODY_BYTES);
 		if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
 			writeAnthropicError(
 				ctx.response,

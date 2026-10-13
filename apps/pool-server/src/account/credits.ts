@@ -7,6 +7,7 @@ import { type CreditExpiry, parseCredentials, UpstreamException } from "owl-pool
 import { workBuddyToken } from "../catalog/workbuddy-catalog.ts";
 import { queryMimoQuota } from "./mimo-quota.ts";
 import { qoderQuotaPersonalToken, queryQoderQuota } from "./qoder-quota.ts";
+import { traeIdeRefreshable } from "./trae-auth.ts";
 import { queryZcodeQuota } from "./zcode-quota.ts";
 
 export const UNLIMITED_NOTE = "积分池不限量";
@@ -42,6 +43,10 @@ export interface CreditHooks {
 	workbuddyBaseUrl: string;
 	workbuddyAuthRoots: string[];
 	exchangeTraeToken(session: string): Promise<string>;
+	/** IDE token 凭证直取/续期；null = 账号没有 IDE 凭证，继续走 session 交换。 */
+	resolveTraeJwt?(account: Account): Promise<string | null>;
+	/** 强制用 refreshToken 续期（401 后重试用）；无 IDE 凭证时调用方不应调用。 */
+	refreshTraeJwt?(account: Account): Promise<string>;
 	codexQuota?(account: Account): Promise<CreditSnapshot>;
 	mimoPing?(account: Account): Promise<string>;
 	sdkQuota?(account: Account): Promise<Record<string, unknown>>;
@@ -133,36 +138,71 @@ function persist(accounts: AccountStore, account: Account, snapshot: CreditSnaps
 async function queryTrae(account: Account, hooks: CreditHooks): Promise<CreditSnapshot> {
 	const credentials = parseCredentials(account);
 	const session = text(credentials.session);
-	if (session === null) {
-		return fail("Trae 尚未登录，请点击「登录」完成授权");
-	}
-	const deviceId = text(credentials.deviceId) ?? randomDeviceId();
-	let jwt: string;
-	try {
-		jwt = await hooks.exchangeTraeToken(session);
-	} catch (error) {
-		if (error instanceof UpstreamException && error.kind === "AUTH") {
-			return authRejected("Trae 登录已失效，请点击「重新登录」完成授权");
+	let jwt: string | null = null;
+	let ideFailure: string | null = null;
+	if (hooks.resolveTraeJwt !== undefined) {
+		try {
+			jwt = await hooks.resolveTraeJwt(account);
+		} catch (error) {
+			// 刷新链路失效时若还有 session 仍可回落；都没有才报这个更具体的错
+			if (error instanceof UpstreamException && error.kind === "AUTH") {
+				ideFailure = error.message;
+			} else {
+				throw error;
+			}
 		}
-		return fail(`Trae 会话换 JWT 失败: ${error instanceof Error ? error.message : "unknown"}`);
+	}
+	if (jwt === null) {
+		if (session === null) {
+			if (ideFailure !== null) {
+				return authRejected(ideFailure);
+			}
+			return fail("Trae 尚未登录，请点击「登录」完成授权");
+		}
+		try {
+			jwt = await hooks.exchangeTraeToken(session);
+		} catch (error) {
+			if (error instanceof UpstreamException && error.kind === "AUTH") {
+				return authRejected("Trae 登录已失效，请点击「重新登录」完成授权");
+			}
+			return fail(`Trae 会话换 JWT 失败: ${error instanceof Error ? error.message : "unknown"}`);
+		}
 	}
 	const fetchImpl = hooks.fetchImpl ?? fetch;
+	const callUsage = (path: string, token: string): Promise<Response> =>
+		fetchImpl(`https://api.trae.cn${path}`, {
+			method: "POST",
+			headers: {
+				Authorization: `Cloud-IDE-JWT ${token}`,
+				"X-User-Region": "cn",
+				"x-device-id": text(credentials.deviceId) ?? randomDeviceId(),
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				"User-Agent": "ManagerCheckIn/0.1",
+			},
+			body: '{"require_usage":true,"req_source":2}',
+			signal: AbortSignal.timeout(20_000),
+		});
 	let last = "未返回积分包数据";
 	for (const path of ["/trae/api/v2/pay/ide_user_ent_usage", "/trae/api/v2/pay/web_user_ent_usage"]) {
 		try {
-			const response = await fetchImpl(`https://api.trae.cn${path}`, {
-				method: "POST",
-				headers: {
-					Authorization: `Cloud-IDE-JWT ${jwt}`,
-					"X-User-Region": "cn",
-					"x-device-id": deviceId,
-					"Content-Type": "application/json",
-					Accept: "application/json",
-					"User-Agent": "ManagerCheckIn/0.1",
-				},
-				body: '{"require_usage":true,"req_source":2}',
-				signal: AbortSignal.timeout(20_000),
-			});
+			let response = await callUsage(path, jwt);
+			if (
+				(response.status === 401 || response.status === 403) &&
+				traeIdeRefreshable(credentials) &&
+				hooks.refreshTraeJwt !== undefined
+			) {
+				// 本地没过期但服务端已吊销：强刷一次再试
+				try {
+					jwt = await hooks.refreshTraeJwt(account);
+					response = await callUsage(path, jwt);
+				} catch (error) {
+					if (error instanceof UpstreamException && error.kind === "AUTH") {
+						return authRejected(error.message);
+					}
+					return fail(`Trae 凭证续期失败: ${error instanceof Error ? error.message : "unknown"}`);
+				}
+			}
 			if (response.status === 401 || response.status === 403) {
 				return authRejected("Trae 登录已失效，请点击「重新登录」完成授权");
 			}

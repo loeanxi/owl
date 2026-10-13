@@ -137,7 +137,7 @@ owl-mono/
 | 6 | `ClientIpResolver` 全站唯一 IP 结论;`trusted-proxy-count=0` 不信 XFF | `security/client-ip` | **2 已做** |
 | 7 | 限流三层:全局 600/min(可 Redis)→ 单 IP 300/min → 单 Key | `security/rate-limit`(挂在网关过滤器,manager 亦然) | 3 |
 | 8 | Key 明文只出现一次、库存 SHA-256;吊销与停用分离;IP 白名单 CIDR | `owl-pool/src/apikey` | 3 |
-| 9 | 请求体按实际字节限 32MB(不信任 Content-Length) | `pool-server/src/http/body.ts` | **1 已做** |
+| 9 | 通用请求体按实际字节限 32MB(不信任 Content-Length);多模态模型请求单独限 64MB | `apps/pool-server/src/store/db.ts` + `apps/pool-server/src/http/gateway-api.ts` | **1 已做** |
 | 10 | `GatewayAdmission` 并发租约(有界排队) | `owl-pool/src/gateway` | 3 |
 | 11 | 非回环绑定且无 TLS 启动告警;默认绑 127.0.0.1 | `pool-server/src/index.ts` | **1 已做(绑定)** |
 | 12 | `Masker`/`UpstreamMessages` 凭证与上游消息脱敏收口 | `owl-pool/src/common` | **1 起随用随移植** |

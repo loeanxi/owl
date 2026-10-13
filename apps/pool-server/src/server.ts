@@ -200,7 +200,7 @@ export function createPoolServer(deps: PoolServerDeps): Server {
 				return;
 			}
 
-			const readBody = <T>() => readJsonBody(request, maxBodyBytes) as Promise<T>;
+			const readBody = <T>(limit = maxBodyBytes) => readJsonBody(request, limit) as Promise<T>;
 			const handled = await router.handle(request, response, url, readBody);
 			if (!handled) {
 				respondErr(response, "common.notFound", `路径不存在: ${request.method} ${url.pathname}`);

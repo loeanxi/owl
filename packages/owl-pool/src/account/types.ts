@@ -3,6 +3,8 @@
  * credentials 是按平台解释的灵活 JSON：
  * - WORKBUDDY：{"accessToken":"..."} 或 {"authFile":"C:/path/workbuddy-desktop.info"}
  * - TRAE：{"session":"<X-Cloudide-Session>","deviceId":"<16位数字，可选>"}
+ *   或 Trae CN IDE 导出的 {"token","refreshToken","userId","host","expiredAt"}（token 优先，
+ *   临期自动用 refreshToken 续期；见 pool-server account/trae-auth.ts）
  * 对外 API 只回脱敏视图（后续阶段补 AccountResponse）。
  */
 import type { Platform } from "../platform.ts";

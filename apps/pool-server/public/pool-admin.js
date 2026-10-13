@@ -613,7 +613,65 @@ function renderAccountAuth(data) {
   $("#btn-pool-auth-cancel").hidden = terminal;
   $("#pool-auth-input-wrap").hidden = trae || terminal;
   $("#btn-pool-auth-retry").hidden = !terminal || complete;
+  $("#pool-auth-trae-import").hidden = !trae;
   return { terminal, complete };
+}
+
+// ---------- 本机 Trae 凭证导入 ----------
+
+function renderTraeLocalList(entries) {
+  const wrap = $("#pool-trae-local-list");
+  if (!entries.length) {
+    wrap.innerHTML = `<p class="hint">${escapeHtml(t("pool.traeImportNone"))}</p>`;
+    return;
+  }
+  wrap.innerHTML = entries.map(entry => {
+    const expired = entry.tokenExpiresAt && new Date(entry.tokenExpiresAt) < new Date();
+    const canBind = !entry.error && entry.refreshExpiresAt;
+    const status = entry.error
+      ? `<span class="err-text">${escapeHtml(entry.error)}</span>`
+      : expired
+        ? `<span class="err-text">${escapeHtml(t("pool.traeImportExpired"))}</span>`
+        : `<span>${escapeHtml(t("pool.traeImportUntil", { time: formatTime(entry.tokenExpiresAt) }))}</span>`;
+    return `<div class="pool-trae-local-row${canBind ? "" : " disabled"}">
+      <div class="pool-trae-local-info"><strong>${escapeHtml(entry.label)}</strong> <span class="hint">${escapeHtml(entry.username || entry.userId || "")}</span><br />
+      <span class="hint">${escapeHtml(entry.storagePath)}</span></div>
+      <div class="pool-trae-local-meta">${status}</div>
+      <button type="button" class="btn ${canBind ? "primary" : ""}" data-trae-import="${escapeHtml(entry.edition)}" ${canBind ? "" : "disabled"}>${escapeHtml(t("pool.traeImportBind"))}</button>
+    </div>`;
+  }).join("");
+}
+
+async function loadTraeLocalCredentials() {
+  const button = $("#btn-pool-trae-scan");
+  button.disabled = true;
+  try {
+    const entries = poolArray(await api("/api/trae/local"));
+    renderTraeLocalList(entries);
+  } catch (error) {
+    $("#pool-trae-local-list").innerHTML = `<p class="hint err-text">${escapeHtml(error.message)}</p>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function importTraeLocalCredentials(edition) {
+  const account = poolState.loginAccount;
+  if (!account) return;
+  try {
+    await api(`/api/accounts/${encodeURIComponent(account.id)}/trae/import-local`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ edition }),
+    });
+    toast(t("pool.traeImportDone", { name: account.name }), "ok");
+    $("#pool-auth-message").classList.remove("error");
+    $("#pool-auth-message").textContent = t("pool.traeImportDoneMessage");
+    await refreshOneCredit(account.id, null, account.name);
+    await loadAccounts();
+  } catch (error) {
+    toast(error.message, "err");
+  }
 }
 
 function renderAccountAuthCopy() {
@@ -675,6 +733,10 @@ async function startAccountAuth(account) {
   renderAccountAuth({ status: "STARTING", message: t("pool.authStarting") });
   $("#btn-pool-auth-cancel").disabled = true;
   if (!$("#dlg-pool-auth").open) $("#dlg-pool-auth").showModal();
+  if (account.platform === "TRAE") {
+    void loadTraeLocalCredentials();
+    $("#pool-auth-message").textContent = "";
+  }
   try {
     // Refreshing the desktop UI must not restart an authorization already waiting in the backend.
     const existing = account.platform === "TRAE" ? null : await api(`/api/accounts/${encodeURIComponent(account.id)}/auth/status`).catch(() => null);
@@ -845,6 +907,13 @@ function bindPoolUI() {
     finally { $("#btn-pool-auth-input").disabled = false; }
   });
   $("#btn-pool-auth-retry").addEventListener("click", () => startAccountAuth(poolState.loginAccount));
+  $("#btn-pool-trae-scan").addEventListener("click", () => void loadTraeLocalCredentials());
+  $("#pool-trae-local-list").addEventListener("click", event => {
+    const button = event.target.closest?.("[data-trae-import]");
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    void importTraeLocalCredentials(button.dataset.traeImport).finally(() => { button.disabled = false; });
+  });
   $("#btn-pool-auth-cancel").addEventListener("click", async event => {
     event.currentTarget.disabled = true;
     const account = poolState.loginAccount;

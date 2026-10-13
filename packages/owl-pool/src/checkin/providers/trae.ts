@@ -1,13 +1,14 @@
 /**
  * Trae 每日积分签到 —— 移植自 manager
  * `checkin/provider/TraeApiClient` + `TraeCheckInProvider`。
- * 凭证：{"session":"<X-Cloudide-Session>","deviceId":"<可选 16 位数字>"}
- * 流程：Cookie 换 JWT → JWT 调积分领取；命中 9074 风控换随机设备号重试（最多 5 次）。
+ * 凭证：{"session":"<X-Cloudide-Session>"} 或 IDE 导出的 {"token","refreshToken","userId"}（二选一，token 优先）。
+ * 流程：IDE token 直取（过期自动续）或 Cookie 换 JWT → JWT 调积分领取；命中 9074 风控换随机设备号重试（最多 5 次）。
  */
 import type { Account } from "../../account/types.ts";
 import { asInt, asString, parseCredentials } from "../../account/types.ts";
 import { randomInt, sleep } from "../../common/business-time.ts";
 import { describeUpstreamError, UpstreamHttpError } from "../../common/upstream.ts";
+import { UpstreamException } from "../../gateway/upstream.ts";
 import type { Platform } from "../../platform.ts";
 import type { CheckInProvider } from "../provider.ts";
 import { type CheckInResult, checkInAlready, checkInAuthError, checkInFailed, checkInSuccess } from "../types.ts";
@@ -25,6 +26,10 @@ export interface TraeProviderOptions {
 	randomDeviceIdImpl?: () => string;
 	/** 可注入 sleep（测试不等真实退避）。 */
 	sleepImpl?: (ms: number) => Promise<void>;
+	/** IDE token 凭证直取/续期（pool-server trae-auth 注入）；null = 没有 IDE 凭证，走 session 交换。 */
+	resolveJwt?(account: Account): Promise<string | null>;
+	/** 强制用 refreshToken 续期（claim 401 后重试用）。 */
+	refreshJwt?(account: Account): Promise<string>;
 }
 
 interface ResolvedTraeOptions {
@@ -32,6 +37,8 @@ interface ResolvedTraeOptions {
 	fetchImpl: typeof fetch;
 	randomDeviceIdImpl: () => string;
 	sleepImpl: (ms: number) => Promise<void>;
+	resolveJwt?: (account: Account) => Promise<string | null>;
+	refreshJwt?: (account: Account) => Promise<string>;
 }
 
 /** 16 位随机数字设备号（对齐 Java randomDeviceId：1e15 + nextLong(9e15)）。 */
@@ -48,6 +55,8 @@ export class TraeCheckInProvider implements CheckInProvider {
 			fetchImpl: options.fetchImpl ?? fetch,
 			randomDeviceIdImpl: options.randomDeviceIdImpl ?? randomDeviceId,
 			sleepImpl: options.sleepImpl ?? sleep,
+			resolveJwt: options.resolveJwt,
+			refreshJwt: options.refreshJwt,
 		};
 	}
 
@@ -56,31 +65,83 @@ export class TraeCheckInProvider implements CheckInProvider {
 	}
 
 	isConfigured(account: Account): boolean {
-		return (asString(parseCredentials(account).session)?.trim().length ?? 0) > 0;
+		const credentials = parseCredentials(account);
+		if ((asString(credentials.token)?.trim().length ?? 0) > 0) {
+			return true;
+		}
+		if ((asString(credentials.storageFile)?.trim().length ?? 0) > 0) {
+			return true;
+		}
+		return (asString(credentials.session)?.trim().length ?? 0) > 0;
 	}
 
 	async checkIn(account: Account): Promise<CheckInResult> {
 		const credentials = parseCredentials(account);
+		const deviceId = asString(credentials.deviceId)?.trim() || this.#options.randomDeviceIdImpl();
+		// IDE token 凭证优先；没有或链路失效时回落 session 交换
+		let ideFailure: string | null = null;
+		if (this.#options.resolveJwt !== undefined) {
+			try {
+				const ideJwt = await this.#options.resolveJwt(account);
+				if (ideJwt !== null) {
+					return this.claim(ideJwt, deviceId, account, true);
+				}
+			} catch (error) {
+				if (error instanceof UpstreamException && error.kind === "AUTH") {
+					ideFailure = error.message;
+				} else if (error instanceof Error) {
+					return checkInFailed(`Trae 签到失败: ${error.message}`, error.message);
+				} else {
+					return checkInFailed("Trae 签到失败: unknown", "unknown");
+				}
+			}
+		}
 		const session = asString(credentials.session);
 		if (!session || session.trim().length === 0) {
+			if (ideFailure !== null) {
+				return checkInAuthError(ideFailure);
+			}
 			return checkInAuthError("缺少 session（X-Cloudide-Session）");
 		}
-		const deviceId = asString(credentials.deviceId)?.trim() || this.#options.randomDeviceIdImpl();
 		try {
 			const jwt = await this.exchangeToken(session);
-			try {
-				const body = await this.claimWithRiskRetry(jwt, deviceId);
-				return this.interpret(body);
-			} catch (error) {
-				const msg = describeUpstreamError(error);
-				return checkInFailed(`Trae 签到失败: ${msg}`, msg);
-			}
+			return this.claim(jwt, deviceId, account, false);
 		} catch (error) {
 			const msg = describeUpstreamError(error);
 			const authRejected = error instanceof UpstreamHttpError && (error.status === 401 || error.status === 403);
 			return authRejected
 				? checkInAuthError("Trae 登录已失效，请在账号行点击「重新登录」")
 				: checkInFailed(`Trae 登录令牌获取失败: ${msg}`, msg);
+		}
+	}
+
+	/** 用 JWT 领取积分；IDE 凭证 claim 命中 401/403 时强刷一次重试。 */
+	private async claim(jwt: string, deviceId: string, account: Account, ide: boolean): Promise<CheckInResult> {
+		try {
+			return this.interpret(await this.claimWithRiskRetry(jwt, deviceId));
+		} catch (error) {
+			const authRejected = error instanceof UpstreamHttpError && (error.status === 401 || error.status === 403);
+			if (!ide || this.#options.refreshJwt === undefined || !authRejected) {
+				const msg = describeUpstreamError(error);
+				return checkInFailed(`Trae 签到失败: ${msg}`, msg);
+			}
+			// 本地没过期但服务端已吊销：强刷一次再试
+			let fresh: string;
+			try {
+				fresh = await this.#options.refreshJwt(account);
+			} catch (refreshError) {
+				if (refreshError instanceof UpstreamException && refreshError.kind === "AUTH") {
+					return checkInAuthError(refreshError.message);
+				}
+				const msg = describeUpstreamError(refreshError);
+				return checkInFailed(`Trae 凭证续期失败: ${msg}`, msg);
+			}
+			try {
+				return this.interpret(await this.claimWithRiskRetry(fresh, deviceId));
+			} catch (retryError) {
+				const msg = describeUpstreamError(retryError);
+				return checkInFailed(`Trae 签到失败: ${msg}`, msg);
+			}
 		}
 	}
 

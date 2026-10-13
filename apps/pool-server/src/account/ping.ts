@@ -12,6 +12,8 @@ export interface PingHooks {
 	workbuddyBaseUrl: string;
 	workbuddyAuthRoots: string[];
 	exchangeTraeToken(session: string): Promise<string>;
+	/** IDE token 凭证直取/续期；null = 账号没有 IDE 凭证，继续走 session 交换。 */
+	resolveTraeJwt?(account: Account): Promise<string | null>;
 	codexPing?(account: Account): Promise<string>;
 	mimoPing?(account: Account): Promise<string>;
 	sdkStatus?(account: Account): Promise<Record<string, unknown>>;
@@ -91,8 +93,27 @@ async function pingWorkBuddy(account: Account, hooks: PingHooks): Promise<string
 }
 
 async function pingTrae(account: Account, hooks: PingHooks): Promise<string> {
+	let ideFailure: string | null = null;
+	if (hooks.resolveTraeJwt !== undefined) {
+		try {
+			const jwt = await hooks.resolveTraeJwt(account);
+			if (jwt !== null) {
+				return "Trae IDE 凭证可用";
+			}
+		} catch (error) {
+			// 刷新链路失效时若还有 session 仍可回落；都没有才抛这个更具体的错
+			if (error instanceof UpstreamException && error.kind === "AUTH") {
+				ideFailure = error.message;
+			} else {
+				throw error;
+			}
+		}
+	}
 	const session = parseCredentials(account).session;
 	if (typeof session !== "string" || session.trim().length === 0) {
+		if (ideFailure !== null) {
+			throw new Error(ideFailure);
+		}
 		throw new Error("缺少 session");
 	}
 	try {
