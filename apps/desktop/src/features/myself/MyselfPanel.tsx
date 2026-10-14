@@ -146,6 +146,7 @@ export function MyselfPanel({
 	questions = [],
 	permissions = [],
 	onQuestionAnswer,
+	openRequest,
 }: {
 	active: boolean;
 	client: BridgeClient;
@@ -160,6 +161,8 @@ export function MyselfPanel({
 	questions?: readonly QuestionRequest[];
 	permissions?: readonly PermissionRequest[];
 	onQuestionAnswer?: (requestId: string, answers: QuestionAnswerPayload[], cancelled: boolean) => void;
+	/** 外部（灵动岛）要求打开某条助理会话；revision 变化才处理一次。 */
+	openRequest?: { id: string; revision: number };
 }): React.JSX.Element {
 	const t = useT();
 	const lang = getUiLanguage();
@@ -489,6 +492,15 @@ export function MyselfPanel({
 		}
 		return restored;
 	};
+	const handledOpenRequest = useRef<number | undefined>(undefined);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: restoreConversation is recreated every render; the revision guard runs it once.
+	useEffect(() => {
+		if (!openRequest || handledOpenRequest.current === openRequest.revision) return;
+		if (!chatController || !connected || saving || chat.busy || (!chat.ready && !chat.error)) return;
+		handledOpenRequest.current = openRequest.revision;
+		setDayOpen(false);
+		void restoreConversation(openRequest.id);
+	}, [openRequest, chatController, connected, saving, chat.busy, chat.ready, chat.error]);
 	const handleDraftChange = useCallback((value: string): void => {
 		setSharedDraft(value);
 		sharedDraftRef.current = value;

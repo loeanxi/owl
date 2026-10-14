@@ -9,14 +9,20 @@ import {
 	islandJumpTarget,
 	islandPips,
 	orderedRunning,
-	rememberFinished,
 	visibleFinished,
 	type IslandOutcome,
 	type IslandSession,
 } from "./dynamic-island-model.ts";
+import { emptyIslandMemory, loadIslandMemory, mergeIslandMemory, reconcileIslandMemory, rememberIslandCompletion, saveIslandMemory, type IslandMemorySnapshot } from "./dynamic-island-memory.ts";
 
 export interface DynamicIslandProps {
 	running: readonly IslandSession[];
+	/** 本地 agent 数据目录。尚未确认身份时不读取或写入缓存。 */
+	memoryScope?: string;
+	/** 后端已完成恢复并校准运行清单；断连期间为 false。 */
+	runningReady?: boolean;
+	/** 已知的会话显示名，用于同步重命名，不能包含临时的未命名回退值。 */
+	knownTitles?: ReadonlyMap<string, string>;
 	/** 一段会话结束时递增 seq。同一 seq 只记一次。 */
 	notice: { seq: number; id: string; outcome: IslandOutcome } | null;
 	titleOf: (sessionId: string) => string;
@@ -37,38 +43,63 @@ interface IslandLayout {
 }
 
 /** 顶栏里的胶囊。水平中心对齐会话栏顶边的中点，底边贴着这条线。 */
-export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, permissionFor, choicesFor, onPermission, onChoose, onReply }: DynamicIslandProps): React.JSX.Element {
+export function DynamicIsland(props: DynamicIslandProps): React.JSX.Element {
+	const seenNotice = useRef<number | null>(null);
+	const pendingMemory = useRef<IslandMemorySnapshot | null>(null);
+	return <DynamicIslandContent key={props.memoryScope ?? ""} {...props} seenNotice={seenNotice} pendingMemory={pendingMemory} />;
+}
+
+function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, permissionFor, choicesFor, onPermission, onChoose, onReply, memoryScope, runningReady = true, knownTitles, seenNotice, pendingMemory }: DynamicIslandProps & { seenNotice: { current: number | null }; pendingMemory: { current: IslandMemorySnapshot | null } }): React.JSX.Element {
 	const t = useT();
 	const root = useRef<HTMLDivElement>(null);
-	const seenNotice = useRef<number | null>(null);
-	const [finished, setFinished] = useState<readonly { id: string; at: number; outcome: IslandOutcome }[]>([]);
+	const [memory, setMemory] = useState(() => {
+		const saved = memoryScope ? loadIslandMemory(window.localStorage, memoryScope) ?? emptyIslandMemory() : emptyIslandMemory();
+		return memoryScope && pendingMemory.current ? mergeIslandMemory(saved, pendingMemory.current) : saved;
+	});
+	const titleFor = useRef(titleOf);
+	titleFor.current = titleOf;
 	const [landing, setLanding] = useState(false);
-	const [expanded, setExpanded] = useState(false);
-	const [replyFor, setReplyFor] = useState<string | null>(null);
-	const [replyDraft, setReplyDraft] = useState("");
+	const { expanded, replyFor, replyDraft } = memory;
+	const setExpanded = (value: boolean | ((current: boolean) => boolean)): void => setMemory((current) => ({ ...current, expanded: typeof value === "function" ? value(current.expanded) : value }));
+	const setReplyFor = (value: string | null): void => setMemory((current) => ({ ...current, replyFor: value }));
+	const setReplyDraft = (value: string): void => setMemory((current) => ({ ...current, replyDraft: value }));
 	const replyInput = useRef<HTMLInputElement>(null);
 	const [layout, setLayout] = useState<IslandLayout>({ center: 0, max: 360, ready: false });
 
 	useEffect(() => {
 		if (!notice || seenNotice.current === notice.seq) return;
 		seenNotice.current = notice.seq;
-		setFinished((current) => rememberFinished(current, notice.id, Date.now(), notice.outcome));
+		setMemory((current) => rememberIslandCompletion(current, notice.id, titleFor.current(notice.id), Date.now(), notice.outcome));
 		setLanding(true);
 		const timer = window.setTimeout(() => setLanding(false), 720);
 		return () => window.clearTimeout(timer);
-	}, [notice]);
+	}, [notice, seenNotice]);
+
+	useEffect(() => {
+		setMemory((current) => reconcileIslandMemory(current, running, runningReady, Date.now(), knownTitles));
+	}, [running, runningReady, knownTitles]);
+
+	useLayoutEffect(() => {
+		if (!memoryScope) {
+			pendingMemory.current = memory;
+			return;
+		}
+		pendingMemory.current = null;
+		saveIslandMemory(window.localStorage, memoryScope, memory);
+	}, [memoryScope, memory, pendingMemory]);
 
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
-		if (running.length === 0) return;
+		if (running.length === 0 && memory.running.length === 0) return;
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
 		return () => window.clearInterval(timer);
-	}, [running.length]);
+	}, [running.length, memory.running.length]);
 
-	const done = visibleFinished(running, finished.map((item) => ({ id: item.id, title: titleOf(item.id), finishedAt: item.at, outcome: item.outcome })));
-	const face = islandFace(running, done);
+	const presentation = reconcileIslandMemory(memory, running, runningReady, now, knownTitles);
+	const done = visibleFinished(presentation.running, presentation.finished);
+	const face = islandFace(presentation.running, done);
 	const action = islandCompactAction(face);
-	const rows = orderedRunning(running);
+	const rows = orderedRunning(presentation.running);
 	const pips = islandPips(rows);
 	const open = expanded && (rows.length > 0 || done.length > 0);
 
@@ -195,7 +226,7 @@ export function DynamicIsland({ running, notice, titleOf, onOpen, jumpToFace, pe
 	};
 
 	const acknowledge = (id: string): void => {
-		setFinished((current) => dismissFinished(current, id));
+		setMemory((current) => ({ ...current, finished: dismissFinished(current.finished, id) }));
 		if (replyFor === id) setReplyFor(null);
 	};
 
