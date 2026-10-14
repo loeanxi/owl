@@ -7,7 +7,7 @@
  * - Wire events are the same JsonAgentSessionEvent stream print mode emits
  *   (partials stripped, tool calls carry id + name).
  * - Tool approvals: approvalMode "confirm" routes every tool_call through a
- *   permission_request round-trip to the UI; "plan" only lets read-only tools
+ *   permission_request round-trip to the UI (computer observation/cleanup is exempt); "plan" only lets read-only tools
  *   through; "auto" runs everything without asking.
  * - v1 scope: create / prompt / abort / list / models / settings. Resume, fork,
  *   and diff-level approvals land with the desktop UI.
@@ -182,9 +182,16 @@ import type {
 	RewindImpactFile,
 	RewindImpactResult,
 	RewindTargetsResult,
+	SessionRecoveryState,
 	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
+import {
+	DesktopRunRecovery,
+	desktopQueuedMessages,
+	prepareInterruptedRun,
+	RESTART_RESUME_MESSAGE,
+} from "./run-recovery.ts";
 import { ScheduleService } from "./schedule-service.ts";
 import { SidebarError } from "./sidebar-fs.ts";
 import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
@@ -209,7 +216,7 @@ const THINKING_LEVEL_VALUES = new Set(["off", "minimal", "low", "medium", "high"
 /** plan 模式的系统提示词附录：创建会话时即告知模型只读约束与目标（产出计划）。 */
 const PLAN_MODE_ADDENDUM = [
 	"<plan_mode>",
-	"当前会话处于「计划（plan）模式」：只允许读取文件、观察已有浏览器页面和读取控制台/网络证据。",
+	"当前会话处于「计划（plan）模式」：只允许读取文件、观察已有浏览器页面或应用窗口，以及读取控制台/网络证据。",
 	"浏览器标签页只允许 list / select；不能新开、关闭、导航、输入或清空证据。",
 	"创建、修改、删除文件或执行有副作用的命令都会被直接拒绝。",
 	"请完成调研后给出一份清晰、可执行的实施计划，等用户确认后再动手；不要尝试绕过只读约束。",
@@ -326,6 +333,24 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	>();
 	/** Requests for a session wait until its preset runtime has finished being replaced. */
 	const presetTransitions = new Map<string, Promise<void>>();
+	const sessionMounts = new Map<string, Promise<void>>();
+	const runRecovery = new DesktopRunRecovery(options.agentDir ?? getAgentDir(), onDiagnostic);
+	const recoveryStates = new Map<string, SessionRecoveryState>();
+	let recoveryReady: Promise<void> = Promise.resolve();
+	let closing = false;
+	function checkpoint(action: () => void): void {
+		try {
+			action();
+		} catch (error) {
+			onDiagnostic(`运行检查点保存失败：${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+	function saveSessionQueue(session: AgentSession, discardedIds: readonly string[] = []): void {
+		checkpoint(() => runRecovery.captureQueue(session.sessionManager, session.agent, discardedIds));
+		const queue = runRecovery.queue(session.sessionId);
+		if (queue && !closing)
+			broadcast({ type: "event", sessionId: session.sessionId, event: { type: "queue_update", ...queue } });
+	}
 	const clients = new Set<WebSocket>();
 	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
 	/**
@@ -521,6 +546,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
 	async function unmountSessionRuntime(sessionId: string): Promise<void> {
+		if (!closing) checkpoint(() => runRecovery.finish(sessionId));
 		const mounted = sessions.get(sessionId);
 		pendingPermissions.cancelSession(sessionId);
 		cancelPendingQuestionsForSession(sessionId);
@@ -683,7 +709,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = target.runtime.session;
 			const behavior = streamingBehaviorForPrompt(session.isStreaming, "followUp");
 			const messagesBefore = session.messages.length;
-			await session.prompt(text, { ...(behavior ? { streamingBehavior: behavior } : {}) });
+			await session.prompt(text, {
+				...(behavior ? { streamingBehavior: behavior } : {}),
+				preflightResult: (disposition) => {
+					if (disposition === "queued") saveSessionQueue(session);
+				},
+			});
 			// 排在进行中的一轮后面：prompt() 在本任务那轮执行前就返回了，结果无从判断。
 			if (behavior) return { sessionId: targetId };
 			const last = session.messages.slice(messagesBefore).findLast((message) => message.role === "assistant") as
@@ -941,7 +972,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function sessionSnapshot(sessionId: string, sessionManager: SessionManager): SessionSnapshotPayload {
 		const projection = sessionManager.buildSessionProjection();
 		const mounted = sessions.get(sessionId);
-		const running = mounted?.runtime.session.isStreaming ?? false;
+		const running =
+			(mounted?.runtime.session.isStreaming ?? false) || recoveryStates.get(sessionId)?.status === "resuming";
+		const run = running ? runRecovery.timing(sessionId) : undefined;
 		const mailContext = getMailAgentContext(sessionManager);
 		const researchMode = getResearchMode(sessionManager);
 		const messages: unknown[] = [];
@@ -967,6 +1000,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			cwd: sessionManager.getCwd(),
 			messages,
 			running,
+			...(run ? { run } : {}),
+			...(recoveryStates.has(sessionId) ? { recovery: recoveryStates.get(sessionId) } : {}),
 			...(running ? { runStartMessageIndex: runStartMessageIndex ?? messages.length } : {}),
 			messageEntryIds,
 			thinkingLevel: projection.thinkingLevel,
@@ -1133,7 +1168,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				tokens: stats.tokens,
 				cost: stats.cost,
 			},
-			queue: {
+			queue: runRecovery.queue(session.sessionId) ?? {
 				steering: [...session.getSteeringMessages()],
 				followUp: [...session.getFollowUpMessages()],
 			},
@@ -1229,6 +1264,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					const mode = approvalModeHolder.current;
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
 					if (event.toolName === "ask_user_question") return {};
+					// Computer observation and own-session cleanup do not need an input approval.
+					if (event.toolName.startsWith("computer_") && isReadOnlyDesktopTool(event.toolName, event.input))
+						return {};
 					// Publishing material and saving progress only change the research transcript, like an assistant reply.
 					if (
 						researchMode &&
@@ -1333,11 +1371,44 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const runStart: { priorEntryIds?: Set<string> } = {};
 		const subagentDetails = new Map<string, unknown>();
 		const unsubscribe = runtime.session.subscribe((event) => {
+			// AgentSession's text mirror excludes raw queues restored after a restart; publish the durable projection.
+			if (event.type === "queue_update") return;
 			if (event.type === "agent_start") {
 				// Include all raw IDs: compaction may retain old entries absent from today's projection.
 				runStart.priorEntryIds = new Set(runtime.session.sessionManager.getEntries().map((entry) => entry.id));
+				checkpoint(() => runRecovery.begin(runtime.session.sessionManager, args.agentDir));
 			}
-			if (event.type === "agent_settled") runStart.priorEntryIds = undefined;
+			if (event.type === "agent_settled") {
+				runStart.priorEntryIds = undefined;
+				checkpoint(() => runRecovery.finish(sessionId));
+				const recovery = recoveryStates.get(sessionId);
+				if (recovery?.status === "resuming" && !closing) {
+					const lastAssistant = runtime.session.messages.findLast((message) => message.role === "assistant");
+					if (lastAssistant?.role === "assistant" && lastAssistant.stopReason === "error") {
+						recovery.status = "failed";
+						recovery.error = lastAssistant.errorMessage ?? "模型调用失败";
+					} else {
+						recovery.status = "resumed";
+					}
+				}
+			}
+			if (event.type === "entry_appended" || event.type === "turn_start" || event.type === "turn_end") {
+				checkpoint(() => runRecovery.boundary(runtime.session.sessionManager));
+				saveSessionQueue(runtime.session);
+			}
+			if (event.type === "tool_execution_end") {
+				checkpoint(() =>
+					runRecovery.toolCompleted(sessionId, {
+						role: "toolResult",
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						content: event.result.content,
+						details: event.result.details,
+						isError: event.isError,
+						timestamp: Date.now(),
+					}),
+				);
+			}
 			if (
 				(event.type === "tool_execution_update" || event.type === "tool_execution_end") &&
 				event.toolName === "subagent"
@@ -1355,7 +1426,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			) {
 				subagentDetails.delete(event.message.toolCallId);
 			}
-			broadcast({ type: "event", sessionId, event: toJsonEvent(event) });
+			const run = event.type === "agent_start" ? runRecovery.timing(sessionId) : undefined;
+			broadcast({ type: "event", sessionId, event: run ? { ...toJsonEvent(event), ...run } : toJsonEvent(event) });
 		});
 		sessions.set(sessionId, {
 			runtime,
@@ -1395,6 +1467,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 
 	async function resumeSession(ws: WebSocket, request: SessionResumeRequest): Promise<void> {
+		await recoveryReady;
+		const mounting = sessionMounts.get(request.sessionId);
+		if (mounting) await mounting;
 		// 幂等：已挂载的会话直接回快照（重复点击安全）；顺带同步请求里带的审批模式
 		const existing = sessions.get(request.sessionId);
 		if (existing) {
@@ -1412,34 +1487,85 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			replayPendingSessionRequests(ws, request.sessionId);
 			return;
 		}
-		// 定位历史文件：header/文件名定位，不扫全文
-		const sessionPath = await findSessionFile(request.sessionId);
-		if (!sessionPath || !existsSync(sessionPath)) {
-			reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+		// Register the whole lookup/mount before its first await; two connections cannot create two runtimes.
+		const pendingMount = (async () => {
+			try {
+				const sessionPath = await findSessionFile(request.sessionId);
+				if (!sessionPath || !existsSync(sessionPath)) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const sessionManager = SessionManager.open(sessionPath);
+				const researchMode = getResearchMode(sessionManager);
+				await mountSession(ws, request.id, {
+					sessionManager,
+					agentDir: defaultAgentDir(),
+					provider: researchMode ? undefined : request.provider,
+					model: researchMode ? undefined : request.model,
+					thinkingLevel: researchMode ? undefined : request.thinkingLevel,
+					approvalMode: researchMode
+						? getResearchApprovalMode(sessionManager)
+						: (request.approvalMode ??
+							sessionApprovalMode(sessionManager) ??
+							request.approvalModeFallback ??
+							"auto"),
+				});
+			} catch (error) {
+				reply(ws, request.id, {
+					ok: false,
+					error: `无法恢复会话：${error instanceof Error ? error.message : String(error)}`,
+				});
+			}
+		})();
+		sessionMounts.set(request.sessionId, pendingMount);
+		try {
+			await pendingMount;
+		} finally {
+			sessionMounts.delete(request.sessionId);
+		}
+	}
+
+	async function restoreInterruptedRuns(): Promise<void> {
+		let interrupted: ReturnType<DesktopRunRecovery["claimInterrupted"]>;
+		try {
+			interrupted = runRecovery.claimInterrupted();
+		} catch (error) {
+			onDiagnostic(`运行检查点接管失败：${error instanceof Error ? error.message : String(error)}`);
 			return;
 		}
-		try {
-			// open() 自行读会话头恢复 cwd（找不到头时回落 process.cwd，与 TUI 行为一致）
-			const sessionManager = SessionManager.open(sessionPath);
-			const researchMode = getResearchMode(sessionManager);
-			await mountSession(ws, request.id, {
-				sessionManager,
-				agentDir: defaultAgentDir(),
-				provider: researchMode ? undefined : request.provider,
-				model: researchMode ? undefined : request.model,
-				thinkingLevel: researchMode ? undefined : request.thinkingLevel,
-				approvalMode: researchMode
-					? getResearchApprovalMode(sessionManager)
-					: (request.approvalMode ??
-						sessionApprovalMode(sessionManager) ??
-						request.approvalModeFallback ??
-						"auto"),
-			});
-		} catch (error) {
-			reply(ws, request.id, {
-				ok: false,
-				error: `无法恢复会话：${error instanceof Error ? error.message : String(error)}`,
-			});
+		for (const run of interrupted) {
+			const state: SessionRecoveryState = { status: "resuming", runId: run.runId, interruptedAt: run.updatedAt };
+			recoveryStates.set(run.sessionId, state);
+			try {
+				if (readArchiveMeta(defaultAgentDir()).sessions?.[run.sessionId]) {
+					checkpoint(() => runRecovery.finish(run.sessionId));
+					recoveryStates.delete(run.sessionId);
+					continue;
+				}
+				if (!existsSync(run.sessionPath)) throw new Error("会话文件不存在");
+				const manager = SessionManager.open(run.sessionPath);
+				if (manager.getSessionId() !== run.sessionId) throw new Error("会话检查点与文件不匹配");
+				prepareInterruptedRun(manager, run);
+				await mountSession(HEADLESS_WS, "restart-recovery", { sessionManager: manager, agentDir: run.agentDir });
+				const mounted = sessions.get(run.sessionId);
+				if (!mounted) throw new Error("会话运行时未挂载");
+				for (const queued of run.pendingMessages ?? []) {
+					if (queued.lane === "steering") mounted.runtime.session.agent.steer(queued.message);
+					else mounted.runtime.session.agent.followUp(queued.message);
+				}
+				saveSessionQueue(mounted.runtime.session);
+				void mounted.runtime.session.resumeAfterPause(RESTART_RESUME_MESSAGE).catch((error: unknown) => {
+					state.status = "failed";
+					state.error = error instanceof Error ? error.message : String(error);
+					checkpoint(() => runRecovery.finish(run.sessionId));
+					onDiagnostic(`会话自动续跑失败（${run.sessionId}）：${state.error}`);
+				});
+			} catch (error) {
+				state.status = "failed";
+				state.error = error instanceof Error ? error.message : String(error);
+				checkpoint(() => runRecovery.finish(run.sessionId));
+				onDiagnostic(`会话自动恢复失败（${run.sessionId}）：${state.error}`);
+			}
 		}
 	}
 
@@ -1495,6 +1621,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						...(request.images ? { images: request.images as ImageContent[] } : {}),
 						...(request.attachedPaths?.length ? { attachedPaths: request.attachedPaths } : {}),
 						...(streamingBehavior ? { streamingBehavior } : {}),
+						preflightResult: (disposition) => {
+							if (disposition === "queued") saveSessionQueue(session.runtime.session);
+						},
 					});
 				} catch (error) {
 					onDiagnostic(error instanceof Error ? error.message : String(error));
@@ -1507,7 +1636,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
+				saveSessionQueue(session.runtime.session);
+				const queued = desktopQueuedMessages(session.runtime.session.agent)[request.lane][request.index];
 				const removed = session.runtime.session.removeQueuedMessage(request.lane, request.index);
+				const discardedId =
+					queued && "owlQueueId" in queued && typeof queued.owlQueueId === "string"
+						? queued.owlQueueId
+						: undefined;
+				saveSessionQueue(session.runtime.session, removed && discardedId ? [discardedId] : []);
 				reply(ws, request.id, removed ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
 				return;
 			}
@@ -1518,6 +1654,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				const promoted = session.runtime.session.promoteQueuedFollowUp(request.index);
+				saveSessionQueue(session.runtime.session);
 				reply(ws, request.id, promoted ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
 				return;
 			}
@@ -1555,6 +1692,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "session.abort": {
+				checkpoint(() => runRecovery.finish(request.sessionId));
 				const session = sessions.get(request.sessionId);
 				if (!session) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
@@ -2616,11 +2754,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "session.running": {
+				await recoveryReady;
 				// 已挂载且 agent run 活跃的会话 id 列表（UI 刷新后恢复侧边栏绿点状态）
 				const running = [...sessions.entries()]
-					.filter(([, entry]) => entry.runtime.session.isStreaming)
+					.filter(
+						([id, entry]) => entry.runtime.session.isStreaming || recoveryStates.get(id)?.status === "resuming",
+					)
 					.map(([sessionId]) => sessionId);
-				reply(ws, request.id, { ok: true, result: { running } });
+				const runs = running.flatMap((sessionId) => {
+					const run = runRecovery.timing(sessionId);
+					return run ? [{ sessionId, ...run }] : [];
+				});
+				reply(ws, request.id, { ok: true, result: { running, runs } });
 				return;
 			}
 		}
@@ -3156,10 +3301,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const unsubscribeViewers = subscribeWorkspaceViewers((viewers) => broadcast({ type: "viewer.changed", viewers }));
 	const address = httpServer.address();
 	const actualPort = address && typeof address === "object" ? address.port : port;
+	recoveryReady = restoreInterruptedRuns();
+	await recoveryReady;
 
 	return {
 		port: actualPort,
 		async close() {
+			closing = true;
+			runRecovery.preserveForRestart();
 			unsubscribeViewers();
 			if (archiveTimer) clearInterval(archiveTimer);
 			closingEvaluation = true;
@@ -3173,6 +3322,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			pendingPermissions.cancelAll();
 			eventFanout.flushAll();
 			await Promise.all([...sessions.keys()].map(unmountSessionRuntime));
+			checkpoint(() => runRecovery.releaseAfterShutdown());
 			await mail?.dispose();
 			setQuestionChannel(undefined);
 			setDiffApprovalBroadcaster(undefined);

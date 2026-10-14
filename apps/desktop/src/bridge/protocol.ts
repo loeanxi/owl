@@ -9,6 +9,8 @@ export type {
 	NewsOpenMessage,
 	ApprovalMode,
 	DesktopApprovalEvent,
+	DesktopRunTiming,
+	DesktopAgentStartEvent,
 	AuthCancelRequest,
 	AuthLoginRequest,
 	AuthPromptRespondRequest,

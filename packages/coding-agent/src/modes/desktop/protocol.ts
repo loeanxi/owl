@@ -339,6 +339,21 @@ export interface SessionRunningRequest {
 
 export interface SessionRunningResult {
 	running: string[];
+	/** Authoritative logical run clocks, retained through bridge restarts. Omitted by older bridges. */
+	runs?: Array<DesktopRunTiming & { sessionId: string }>;
+}
+
+export interface DesktopRunTiming {
+	runId: string;
+	/** Epoch milliseconds; a restart continuation retains the original run's start. */
+	startedAt: number;
+}
+
+export interface DesktopAgentStartEvent {
+	type: "agent_start";
+	/** Older bridges emit agent_start without a run clock. */
+	runId?: string;
+	startedAt?: number;
 }
 
 /** 会话进行中切换模型（对应 AgentSession.setModel，含鉴权检查与思考级别自适应）。 */
@@ -562,6 +577,13 @@ export interface DiffApprovalChangedMessage {
 	cwd: string;
 }
 
+export interface SessionRecoveryState {
+	status: "resuming" | "resumed" | "failed";
+	runId: string;
+	interruptedAt: number;
+	error?: string;
+}
+
 /** 会话快照（session.create/resume/rewind 共用）：消息 + 对齐的会话条目 id。 */
 export interface SessionSnapshotPayload {
 	sessionId: string;
@@ -569,6 +591,10 @@ export interface SessionSnapshotPayload {
 	messages: unknown[];
 	/** Whether the run, including its post-response settlement, was active when this snapshot was read. */
 	running?: boolean;
+	/** Same clock published in session.running and agent_start, independent of UI caches. */
+	run?: DesktopRunTiming;
+	/** Restart recovery restores only durable running intent; UI reconnects never trigger a new run. */
+	recovery?: SessionRecoveryState;
 	/** First assistant of the active run in messages, or messages.length until one exists. */
 	runStartMessageIndex?: number;
 	/** 与 messages 按下标对齐的会话条目 id（回退按钮需要；无条目来源的消息为 undefined） */
