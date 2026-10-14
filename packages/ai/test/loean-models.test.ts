@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { stream } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 import {
 	DEFAULT_LOEAN_BASE_URL,
@@ -57,6 +58,27 @@ describe("loean thinking level mapping", () => {
 });
 
 describe("loean catalog mapping", () => {
+	it("requests the published 1M capacity for gateway admission before any upstream fetch", async () => {
+		const [model] = loeanModelsFromCatalog("loean", DEFAULT_LOEAN_BASE_URL, [
+			{ id: "deepseek-v4.1-flash", context_window: 1_000_000 },
+		]);
+		let captured: Record<string, unknown> | undefined;
+		await stream(
+			model!,
+			{ messages: [{ role: "user", content: "capacity probe", timestamp: 1 }] },
+			{
+				apiKey: "fixture-key",
+				maxTokens: 16,
+				onPayload(payload) {
+					captured = payload as Record<string, unknown>;
+					throw new Error("offline payload captured");
+				},
+			},
+		).result();
+		expect(model?.contextWindow).toBe(1_000_000);
+		expect(captured?.context_window).toBe(1_000_000);
+	});
+
 	it("maps published capability values into openai-completions models", () => {
 		const models = loeanModelsFromCatalog("loean", DEFAULT_LOEAN_BASE_URL, {
 			data: [

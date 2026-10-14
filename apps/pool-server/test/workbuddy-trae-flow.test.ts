@@ -1,6 +1,7 @@
 import {
 	type Account,
 	AccountPoolRouter,
+	ApiKeyService,
 	GatewayFault,
 	InMemoryAccountStore,
 	MemoryGatewayState,
@@ -8,12 +9,16 @@ import {
 	type ResolvedModel,
 	type ResolvedRouteTarget,
 	RouteGeneration,
+	resolveModel,
 	StickySessionService,
 	type UpstreamChatClient,
 } from "owl-pool";
 import { describe, expect, it } from "vitest";
+import { loadConfig } from "../src/config.ts";
 import { normalizeTraePayload, TraeChatClient } from "../src/gateway/trae-client.ts";
 import { normalizeWorkBuddyPayload, WorkBuddyChatClient } from "../src/gateway/workbuddy-client.ts";
+import { openDb } from "../src/store/db.ts";
+import { SqliteApiKeyStore, SqliteCatalogStore } from "../src/store/gateway-stores.ts";
 
 function sse(frames: string[]): Response {
 	// 带 event: 行的帧原样成帧；纯 data 帧加 data: 前缀
@@ -56,18 +61,11 @@ describe("WorkBuddyChatClient", () => {
 		expect(body.reasoning_effort).toBe("high");
 	});
 
-	it("流式：请求带渠道铁律头；SSE 转 OpenAI chunk + 收尾 chunk（finish+usage）", async () => {
+	it("流式：默认 WorkBuddy 端点和原生通道头；SSE 转 OpenAI chunk + 收尾 chunk（finish+usage）", async () => {
 		const requests: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
 		let call = 0;
 		const client = new WorkBuddyChatClient({
-			config: {
-				baseUrl: "https://copilot.tencent.com",
-				chatPath: "/v2/chat/completions",
-				userAgent: "CLI/2.63.2 CodeBuddy/2.63.2",
-				origin: "https://www.codebuddy.cn",
-				referer: "https://www.codebuddy.cn/",
-				timeoutMs: 5000,
-			},
+			config: loadConfig({}).gateway.workbuddy,
 			fetchImpl: (async (input: string | URL, init?: RequestInit) => {
 				call++;
 				const headers: Record<string, string> = {};
@@ -105,10 +103,14 @@ describe("WorkBuddyChatClient", () => {
 		);
 
 		const request = requests[0]!;
-		expect(request.url).toBe("https://copilot.tencent.com/v2/chat/completions");
+		expect(request.url).toBe("https://www.workbuddy.cn/v2/chat/completions");
 		expect(request.headers.authorization).toBe("Bearer wb-tok");
+		expect(request.headers["user-agent"]).toBe("CLI/2.63.2 CodeBuddy/2.63.2");
 		expect(request.headers.origin).toBe("https://www.codebuddy.cn");
+		expect(request.headers.referer).toBe("https://www.codebuddy.cn/");
 		expect(request.headers["x-product"]).toBe("SaaS");
+		expect(request.headers["x-private-data"]).toBe("true");
+		expect(request.headers["x-agent-intent"]).toBe("craft");
 		expect(request.headers["x-no-user-id"]).toBe("1");
 		expect(request.headers["x-refresh-token"]).toBeUndefined();
 		expect(request.body.stream).toBe(true);
@@ -131,6 +133,139 @@ describe("WorkBuddyChatClient", () => {
 			role: "assistant",
 			content: "聚合",
 		});
+	});
+
+	it("环境覆盖的端点和身份头传到实际请求，同时保留原生 WorkBuddy 通道头", async () => {
+		const config = loadConfig({
+			OWL_POOL_WB_CHAT_BASE_URL: "https://override.invalid/",
+			OWL_POOL_WB_CHAT_PATH: "/override/chat",
+			OWL_POOL_WB_USER_AGENT: "override-agent",
+			OWL_POOL_WB_ORIGIN: "https://origin.invalid",
+			OWL_POOL_WB_REFERER: "https://origin.invalid/custom",
+		}).gateway.workbuddy;
+		const requests: Array<{ url: string; headers: Headers }> = [];
+		const client = new WorkBuddyChatClient({
+			config,
+			fetchImpl: async (input, init) => {
+				requests.push({ url: String(input), headers: new Headers(init?.headers) });
+				return sse([
+					JSON.stringify({ choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] }),
+					"[DONE]",
+				]);
+			},
+		});
+		await client.chatCompletionStream(
+			account({ accessToken: "faux-token" }),
+			{ model: "hy3", messages: [] },
+			() => {},
+		);
+		expect(requests).toHaveLength(1);
+		const request = requests[0]!;
+		expect(request.url).toBe("https://override.invalid/override/chat");
+		expect(request.headers.get("user-agent")).toBe("override-agent");
+		expect(request.headers.get("origin")).toBe("https://origin.invalid");
+		expect(request.headers.get("referer")).toBe("https://origin.invalid/custom");
+		expect(request.headers.get("x-private-data")).toBe("true");
+		expect(request.headers.get("x-agent-intent")).toBe("craft");
+	});
+
+	it("1M 窗口只准入 WorkBuddy，不降级到 200k Trae，原生请求剥网关窗口并保留通道头", async () => {
+		const db = openDb(":memory:");
+		try {
+			const modelId = "deepseek-v4.1-flash";
+			const catalog = new SqliteCatalogStore(db);
+			catalog.saveModel({
+				id: modelId,
+				publicId: modelId,
+				name: modelId,
+				description: null,
+				modelVersion: null,
+				contextWindow: 1_000_000,
+				defaultContextWindow: 300_000,
+				defaultReasoningEffort: null,
+				maxOutputTokens: 32_000,
+				supportsImages: false,
+				supportsTools: true,
+				reasoningEfforts: [],
+				published: true,
+				sortOrder: 0,
+				updatedAt: 0,
+			});
+			// The smaller route would win by priority if the requested window were lost.
+			for (const entry of [
+				{ platform: "TRAE" as const, contextWindow: 200_000, priority: 0 },
+				{ platform: "WORKBUDDY" as const, contextWindow: 1_000_000, priority: 1 },
+			]) {
+				catalog.saveRoute({
+					id: `route-${entry.platform}`,
+					modelId,
+					platform: entry.platform,
+					upstreamModel: modelId,
+					priority: entry.priority,
+					enabled: true,
+					supportsImages: false,
+					supportsTools: true,
+					reasoningEfforts: [],
+				});
+				catalog.saveCapacity({
+					platform: entry.platform,
+					upstreamModel: modelId,
+					available: true,
+					contextWindow: entry.contextWindow,
+					maxOutputTokens: 32_000,
+				});
+			}
+			const keys = new ApiKeyService({ store: new SqliteApiKeyStore(db) });
+			const key = keys.authenticate(keys.create({ name: "faux-window-route" }).plaintext)!;
+			const payload = { model: modelId, context_window: 1_000_000, messages: [{ role: "user", content: "faux" }] };
+			const resolution = resolveModel(key, modelId, payload, catalog.snapshotCatalog());
+			expect(resolution.requestedContextWindow).toBe(1_000_000);
+			expect(resolution.routes.map((route) => route.platform)).toEqual(["WORKBUDDY"]);
+
+			const requests: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
+			const client = new WorkBuddyChatClient({
+				config: loadConfig({}).gateway.workbuddy,
+				fetchImpl: async (_input, init) => {
+					requests.push({ headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+					return sse([
+						JSON.stringify({ choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] }),
+						"[DONE]",
+					]);
+				},
+			});
+			const accounts = new InMemoryAccountStore();
+			for (const platform of ["WORKBUDDY", "TRAE"] as const) {
+				accounts.create(
+					{ name: `faux-${platform}`, platform, credentials: { accessToken: "faux" }, enabled: true },
+					0,
+				);
+			}
+			const generation = new RouteGeneration({
+				accounts,
+				router: new AccountPoolRouter({
+					accounts,
+					accountCooldownMs: 60_000,
+					cooldownState: new MemoryGatewayState(),
+				}),
+				sticky: new StickySessionService({ enabled: false, ttlSeconds: 900 }),
+				upstreams: new Map<Platform, UpstreamChatClient>([["WORKBUDDY", client]]),
+				maxRotate: 1,
+			});
+			const attempted: Platform[] = [];
+			await generation.route({ key, payload, resolution, sessionId: null }, async (selected, target, forwarded) => {
+				attempted.push(target.platform);
+				await client.chatCompletionStream(selected, forwarded, () => {});
+			});
+			expect(attempted).toEqual(["WORKBUDDY"]);
+			expect(requests).toHaveLength(1);
+			expect(requests[0]!.body.context_window).toBeUndefined();
+			expect(requests[0]!.body.model).toBe(modelId);
+			expect(requests[0]!.headers.get("x-private-data")).toBe("true");
+			expect(requests[0]!.headers.get("x-agent-intent")).toBe("craft");
+			expect(payload.context_window).toBe(1_000_000);
+		} finally {
+			db.close();
+		}
 	});
 
 	it("加密信封 accessToken → AUTH", async () => {

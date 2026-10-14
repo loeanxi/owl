@@ -7,7 +7,7 @@ import type { AssistantMessage, Model } from "@earendil-works/pi-ai/compat";
 import {
 	calculateContextTokens,
 	estimateContextBreakdown,
-	estimateProjectedContextTokensForModel,
+	estimateProjectedContextTokens,
 } from "./compaction/index.ts";
 import type { ContextUsage, ContextUsageBreakdown } from "./extensions/index.ts";
 import {
@@ -131,7 +131,7 @@ export function computeContextUsage(options: {
 		if (!hasPostCompactionUsage) return { tokens: null, contextWindow, percent: null };
 	}
 
-	const estimate = estimateProjectedContextTokensForModel(projection, branch, model);
+	const estimate = estimateProjectedContextTokens(projection, branch);
 	const percent = (estimate.tokens / contextWindow) * 100;
 
 	const raw = estimateContextBreakdown(projection.messages as AgentMessage[]);

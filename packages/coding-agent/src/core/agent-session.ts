@@ -69,10 +69,8 @@ import {
 	calculateContextTokens,
 	compact,
 	compactionContextWindow,
-	contextEstimateSafetyFactor,
-	estimateContextTokensForModel,
+	estimateContextTokens,
 	estimateProjectedContextTokens,
-	estimateProjectedContextTokensForModel,
 	estimateTokens,
 	prepareCompaction,
 	shouldCompact,
@@ -905,7 +903,7 @@ export class AgentSession {
 		const contextWindow = compactionContextWindow(model);
 		if (contextWindow <= 0) return false;
 		return shouldCompact(
-			estimateProjectedContextTokensForModel(projection, this.sessionManager.getBranch(), model).tokens,
+			estimateProjectedContextTokens(projection, this.sessionManager.getBranch()).tokens,
 			contextWindow,
 			this.settingsManager.getCompactionSettings(this.model),
 		);
@@ -916,7 +914,7 @@ export class AgentSession {
 		const contextWindow = compactionContextWindow(model);
 		if (contextWindow <= 0) return false;
 		return shouldCompact(
-			estimateContextTokensForModel(messages, model).tokens,
+			estimateContextTokens(messages).tokens,
 			contextWindow,
 			this.settingsManager.getCompactionSettings(this.model),
 		);
@@ -3345,16 +3343,12 @@ export class AgentSession {
 		let contextTokens: number;
 		const projection = currentProjection;
 		const hasContextEdits = projection.entries.some((entry) => entry.sourceEntry.type === "context_edit");
-		const directContextTokens = assistantMessage.usage
-			? Math.ceil(
-					calculateContextTokens(assistantMessage.usage) * contextEstimateSafetyFactor(messageModel ?? this.model),
-				)
-			: 0;
+		const directContextTokens = assistantMessage.usage ? calculateContextTokens(assistantMessage.usage) : 0;
 		if (hasContextEdits) {
-			contextTokens = estimateProjectedContextTokensForModel(projection, branch, messageModel ?? this.model).tokens;
+			contextTokens = estimateProjectedContextTokens(projection, branch).tokens;
 		} else if (assistantMessage.stopReason === "error" || directContextTokens === 0) {
 			const messages = this.agent.state.messages;
-			const estimate = estimateContextTokensForModel(messages, messageModel ?? this.model);
+			const estimate = estimateContextTokens(messages);
 			// Without provider usage, estimate.tokens is the pure message-size estimate.
 			// Only usage-backed estimates need the stale pre-compaction check.
 			if (estimate.lastUsageIndex !== null) {

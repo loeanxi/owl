@@ -255,6 +255,9 @@ export function loeanModelsFromCatalog(
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: publishedWindow ?? FALLBACK_CONTEXT_WINDOW,
 			contextWindowConfirmed: publishedWindow !== undefined,
+			// 网关准入要求路由承载整个选定窗口，避免 1M 会话回退到 200k 通道。
+			// 固定窗口上游由网关剥掉这个字段；它不是 WorkBuddy 的 HTTP 选窗旋钮。
+			...(publishedWindow !== undefined ? { samplingParams: { context_window: publishedWindow } } : {}),
 			maxTokens: positiveInt(row.max_output_tokens) ?? FALLBACK_MAX_TOKENS,
 			reasoning,
 			...(reasoning ? { thinkingLevelMap: thinkingLevelMapFromEfforts(efforts) } : {}),

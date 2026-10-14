@@ -16,6 +16,10 @@
 - `owl-life-guide` 人生指南检索接入《程序员延寿指南》：life_guide_search 支持 guide 与 longevity 双数据源，按关键词/小节/单条查询全因死亡率长寿清单
 - `desktop` 人生指南面板增加「程序员延寿指南」标签页：单篇 README 长文、小节目录筛选与跳转，jsDelivr 拉取与本地缓存
 
+### 修复
+
+- `pool` WorkBuddy 1M 窗口会话不再降级到 200k 通道；上下文估算去掉 Loean 的 2 倍系数，600k 请求不会被提前压缩
+
 ## 2026-10-13
 
 ### 新增

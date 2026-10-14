@@ -191,6 +191,9 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 						"Content-Type": "application/json",
 						"X-Requested-With": "XMLHttpRequest",
 						"X-Product": "SaaS",
+						// WorkBuddy 原生请求使用私有数据通道与 craft 意图，避免落入通用优化通道。
+						"X-Private-Data": "true",
+						"X-Agent-Intent": "craft",
 						// 三铁律：缺省身份头显式占位；绝不携带 X-Refresh-Token
 						"X-No-User-Id": "1",
 						"X-No-Enterprise-Id": "1",

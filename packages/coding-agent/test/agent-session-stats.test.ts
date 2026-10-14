@@ -7,7 +7,7 @@ import {
 	type Usage,
 } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { AgentSession } from "../src/core/agent-session.ts";
+import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -67,17 +67,17 @@ function createToolResultMessage(usage: Usage): ToolResultMessage {
 	};
 }
 
-async function createSession() {
+async function createSession(selectedModel = model) {
 	const settingsManager = SettingsManager.inMemory();
 	const sessionManager = SessionManager.inMemory();
 	const authStorage = AuthStorage.inMemory();
-	await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
+	await authStorage.modify(selectedModel.provider, async () => ({ type: "api_key", key: "test-key" }));
 	const session = new AgentSession({
 		agent: new Agent({
 			getApiKey: () => "test-key",
 			streamFn: streamSimple,
 			initialState: {
-				model,
+				model: selectedModel,
 				systemPrompt: "You are a helpful assistant.",
 				tools: [],
 				thinkingLevel: "high",
@@ -98,6 +98,51 @@ function syncAgentMessages(session: AgentSession, sessionManager: SessionManager
 }
 
 describe("AgentSession.getSessionStats", () => {
+	it("preserves Loean usage and prepares a 600k request within a 1M window without premature compaction", async () => {
+		const loeanModel = {
+			...model,
+			id: "deepseek-v4.1-flash",
+			provider: "loean",
+			contextWindow: 1_000_000,
+			contextWindowConfirmed: true,
+		};
+		const { session, sessionManager } = await createSession(loeanModel);
+		const events: AgentSessionEvent[] = [];
+		session.subscribe((event) => events.push(event));
+		// This check only prepares the request; an unexpected summary must never call an upstream.
+		session.agent.streamFunction = () => {
+			throw new Error("Unexpected model call while preparing an in-window request");
+		};
+
+		try {
+			sessionManager.appendMessage(createUserMessage("hello", 1));
+			sessionManager.appendMessage({
+				...createAssistantMessage("hi", 600_000, 2),
+				provider: loeanModel.provider,
+				model: loeanModel.id,
+			});
+			syncAgentMessages(session, sessionManager);
+			expect(session.getSessionStats().contextUsage).toMatchObject({
+				tokens: 600_000,
+				contextWindow: 1_000_000,
+				percent: 60,
+			});
+
+			sessionManager.appendMessage(createUserMessage("continue", 3));
+			syncAgentMessages(session, sessionManager);
+			expect(session.getContextUsage()?.tokens).toBe(600_002);
+			const prepared = await session.agent.prepareRequest?.({
+				context: { messages: session.messages, tools: [] },
+				model: loeanModel,
+				thinkingLevel: "off",
+			});
+			expect(prepared?.model?.contextWindow).toBe(1_000_000);
+			expect(events.filter((event) => event.type === "compaction_start")).toEqual([]);
+		} finally {
+			session.dispose();
+		}
+	});
+
 	it("exposes the current context usage alongside token totals", async () => {
 		const { session, sessionManager } = await createSession();
 

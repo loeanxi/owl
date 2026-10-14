@@ -69,3 +69,31 @@ test("account guidance uses the selected interface language", () => {
 		setUiLanguage("zh");
 	}
 });
+
+test("context overflow reports the enabled window without claiming that recovery has started", () => {
+	const raw =
+		'WorkBuddy HTTP 400: {"code":11115,"msg":"prompt is too long: 100001 tokens > 100000 maximum","extError":{"code":"context_length_exceeded"}}';
+	const wire = (event: Record<string, unknown>) =>
+		({ type: "event", sessionId: "fixture", event }) as unknown as ServerEventMessage;
+	try {
+		for (const [language, expected] of [
+			["zh", "本轮请求超过当前上游已启用的上下文窗口。"],
+			["en", "This request exceeded the context window currently enabled by the upstream service."],
+		] as const) {
+			setUiLanguage(language);
+			for (const error of [raw, "context_length_exceeded", "prompt too long"]) {
+				assert.equal(formatProviderError(error), expected);
+			}
+			const replay = rebuild([{ role: "assistant", content: [], stopReason: "error", errorMessage: raw }])[0];
+			assert.ok(replay?.kind === "assistant");
+			assert.equal(replay.error, expected);
+			assert.equal(
+				applyRetryEvent(null, wire({ type: "auto_retry_end", success: false, attempt: 1, finalError: raw }))
+					?.reason,
+				expected,
+			);
+		}
+	} finally {
+		setUiLanguage("zh");
+	}
+});

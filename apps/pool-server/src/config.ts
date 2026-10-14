@@ -135,7 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 						: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
 				streamIdleTimeoutMs: intOr(env.OWL_POOL_WB_STREAM_IDLE_TIMEOUT_MS, 120_000),
 				streamMaxDurationMs: intOr(env.OWL_POOL_WB_STREAM_MAX_DURATION_MS, 600_000),
-				baseUrl: env.OWL_POOL_WB_CHAT_BASE_URL ?? "https://copilot.tencent.com",
+				baseUrl: env.OWL_POOL_WB_CHAT_BASE_URL ?? "https://www.workbuddy.cn",
 				chatPath: env.OWL_POOL_WB_CHAT_PATH ?? "/v2/chat/completions",
 				userAgent: env.OWL_POOL_WB_USER_AGENT ?? "CLI/2.63.2 CodeBuddy/2.63.2",
 				origin: env.OWL_POOL_WB_ORIGIN ?? "https://www.codebuddy.cn",
