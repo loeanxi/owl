@@ -102,6 +102,9 @@
 .owl-market-prow {
 	display: flex; gap: 12px; align-items: center;
 	width: 100%; padding: 8px 10px; border-radius: 8px; text-align: left;
+	/* 数千行：屏幕外的行跳过布局与绘制 */
+	content-visibility: auto;
+	contain-intrinsic-size: auto 52px;
 }
 .owl-market-prow:hover { background: var(--color-owl-hover); }
 .owl-market-prow.is-sel { background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent); }

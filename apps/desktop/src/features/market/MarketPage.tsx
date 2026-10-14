@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
 import {
 	buildImportPrompt,
@@ -55,6 +55,41 @@ function SourceBadge({ plugin }: { plugin: MarketPlugin }): React.JSX.Element {
 	const t = useT();
 	return <span className={`owl-market-badge ${plugin.src === "pi" ? "is-pi" : "is-adapt"}`}>{t(plugin.src === "pi" ? "market.badgePi" : "market.badgeDsh")}</span>;
 }
+
+/** 列表有数千行：memo 后切换选中只重渲染新旧两行。 */
+const MarketRow = memo(function MarketRow({ plugin: p, selected, imported, lang, onSelect }: {
+	plugin: MarketPlugin;
+	selected: boolean;
+	imported: boolean;
+	lang: "zh" | "en";
+	onSelect: (key: string) => void;
+}): React.JSX.Element {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			role="option"
+			aria-selected={selected}
+			className={`owl-market-prow${selected ? " is-sel" : ""}`}
+			onClick={() => onSelect(p.key)}
+		>
+			<span className="owl-market-ico">{initials(p.name)}</span>
+			<span className="owl-market-prow-mid">
+				<span className="owl-market-prow-l1">
+					<span className="owl-market-prow-nm">{p.name}</span>
+					{p.ver && <span className="owl-market-prow-v">{p.ver}</span>}
+					<SourceBadge plugin={p} />
+					{imported && <span className="owl-market-badge is-done">{t("market.importedBadge")}</span>}
+				</span>
+				<span className="owl-market-prow-ds">{(lang === "zh" ? p.descZh : p.descEn) || p.descEn}</span>
+			</span>
+			<span className="owl-market-prow-st">
+				<b>{fmtCount(p.dl)}</b>/mo
+				<span className="owl-market-prow-stars">★ {fmtCount(p.stars || 0)}</span>
+			</span>
+		</button>
+	);
+});
 
 /**
  * 「插件市场」：实时聚合 pi 生态与 DSH 社区插件；目录列表 + 右侧详情抽屉。
@@ -153,7 +188,18 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 		}
 	};
 
-	const catCount = (key: string): number => snapshot.plugins.filter((p) => (source === "all" || p.src === source) && (key === "all" || p.cat === key)).length;
+	const catCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		let all = 0;
+		for (const p of snapshot.plugins) {
+			if (source !== "all" && p.src !== source) continue;
+			all++;
+			counts.set(p.cat, (counts.get(p.cat) ?? 0) + 1);
+		}
+		counts.set("all", all);
+		return counts;
+	}, [snapshot, source]);
+	const catCount = (key: string): number => catCounts.get(key) ?? 0;
 
 	return (
 		<div className="owl-market" data-active={active ? "true" : "false"} data-imported-bump={importedBump}>
@@ -267,34 +313,16 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 						</div>
 					)}
 					{snapshot.plugins.length > 0 && filtered.length === 0 && <div className="owl-market-state">{t("market.empty")}</div>}
-					{filtered.map((p) => {
-						const state = importState(p.key);
-						return (
-							<button
-								key={p.key}
-								type="button"
-								role="option"
-								aria-selected={selected?.key === p.key}
-								className={`owl-market-prow${selected?.key === p.key ? " is-sel" : ""}`}
-								onClick={() => setSelKey(p.key)}
-							>
-								<span className="owl-market-ico">{initials(p.name)}</span>
-								<span className="owl-market-prow-mid">
-									<span className="owl-market-prow-l1">
-										<span className="owl-market-prow-nm">{p.name}</span>
-										{p.ver && <span className="owl-market-prow-v">{p.ver}</span>}
-										<SourceBadge plugin={p} />
-										{state === "ok" && <span className="owl-market-badge is-done">{t("market.importedBadge")}</span>}
-									</span>
-									<span className="owl-market-prow-ds">{(lang === "zh" ? p.descZh : p.descEn) || p.descEn}</span>
-								</span>
-								<span className="owl-market-prow-st">
-									<b>{fmtCount(p.dl)}</b>/mo
-									<span className="owl-market-prow-stars">★ {fmtCount(p.stars || 0)}</span>
-								</span>
-							</button>
-						);
-					})}
+					{filtered.map((p) => (
+						<MarketRow
+							key={p.key}
+							plugin={p}
+							selected={selected?.key === p.key}
+							imported={importedKeys.has(p.key)}
+							lang={lang}
+							onSelect={setSelKey}
+						/>
+					))}
 				</div>
 
 				<aside className="owl-market-drawer">
