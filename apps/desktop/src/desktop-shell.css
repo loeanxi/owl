@@ -1,6 +1,9 @@
 /* UI chrome has its own palette. Shared chat/composer variables stay unchanged. */
 /* canvas/text 两项留 override 口：外观设置的自定义背景/前景经 <html> 内联变量穿透到这里。 */
 .owl-desktop-shell {
+	--owl-shell-gutter: 8px;
+	--owl-shell-top-inset: 4px;
+	--owl-shell-rail-size: 40px;
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #1c1c1c);
 	--owl-ui-panel: #252525;
 	--owl-ui-sidebar: #161616;
@@ -98,7 +101,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	position: relative;
 	height: 44px;
 	flex: 0 0 44px;
-	padding: 0 8px;
+	padding: 0 var(--owl-shell-gutter);
 	align-items: center;
 	overflow: visible;
 	color: var(--owl-ui-muted);
@@ -107,7 +110,7 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 }
 
 .owl-desktop-menu-row { display: flex; position: relative; z-index: 2; align-items: center; gap: 1px; }
-.owl-desktop-sidebar-toggle { width: 32px; height: 28px; margin-right: 2px; }
+.owl-desktop-titlebar .owl-desktop-sidebar-toggle { width: var(--owl-shell-rail-size); height: 28px; margin-right: 2px; }
 .owl-desktop-history-nav { display: flex; align-items: center; margin-right: 6px; }
 .owl-desktop-history-nav .owl-chrome-button { width: 28px; height: 28px; color: var(--owl-ui-muted); }
 .owl-desktop-history-nav .owl-chrome-button:hover:not(:disabled) { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
@@ -401,13 +404,11 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 .owl-desktop-window-controls .owl-desktop-life-guide { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
 .owl-desktop-life-guide.is-active { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 
-/* 生命监护：标题栏只放一颗状态点。红优先于黄，灰和绿不带数字。打开大屏时描一圈，不盖住点的颜色。 */
+/* 诊断提醒：只在有异常时出现，红优先于黄，数字是异常项数。 */
 .owl-desktop-window-controls .owl-desktop-life-monitor { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
-.owl-desktop-window-controls .owl-chrome-button.owl-desktop-life-monitor.is-active { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-owl-accent); }
-.owl-life-dot { display: inline-flex; align-items: center; justify-content: center; min-width: 10px; height: 10px; border-radius: 99px; font-size: 10px; font-weight: 650; line-height: 1; background: var(--color-owl-accent); color: transparent; }
-.owl-life-dot.bad { min-width: 16px; height: 16px; padding: 0 4px; background: #9f2d2d; color: #fff; }
-.owl-life-dot.warn { min-width: 16px; height: 16px; padding: 0 4px; background: #f3d19a; color: #3d3a32; }
-.owl-life-dot.idle { background: #b7b2a6; color: transparent; }
+.owl-life-dot { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; font-size: 10px; font-weight: 650; line-height: 1; }
+.owl-life-dot.bad { background: #9f2d2d; color: #fff; }
+.owl-life-dot.warn { background: #f3d19a; color: #3d3a32; }
 
 /* 「我的 Token 生涯」看板入口：与火柴人同尺寸并排（在看板打开时点亮）。 */
 .owl-desktop-window-controls .owl-desktop-manager { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
@@ -415,14 +416,24 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 .owl-desktop-window-controls .owl-desktop-token-career { width: 28px; height: 28px; border-radius: 7px; align-self: center; margin-right: 5px; }
 .owl-desktop-token-career.is-active { background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 
-.owl-desktop-body { display: flex; position: relative; z-index: 0; flex: 1; min-height: 0; min-width: 0; }
+/* One gutter owns the window inset and rail-to-workspace gap, without stacked margins. */
+.owl-desktop-body {
+	display: flex;
+	position: relative;
+	z-index: 0;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	gap: var(--owl-shell-gutter);
+	padding: var(--owl-shell-top-inset) var(--owl-shell-gutter) var(--owl-shell-gutter);
+}
 .owl-workspace-frame {
 	display: flex;
 	position: relative;
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
-	margin: 12px;
+	margin: 0;
 	border: 1px solid var(--owl-ui-border);
 	border-radius: 16px;
 	overflow: hidden;
@@ -534,7 +545,7 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 }
 
 @media (max-width: 760px) {
-	.owl-workspace-frame { margin: 8px; border-radius: 12px; }
+	.owl-workspace-frame { border-radius: 12px; }
 }
 
 /* ---------------------------------------------------------------- 动态壁纸 ----

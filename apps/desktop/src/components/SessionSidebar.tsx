@@ -20,11 +20,13 @@ import {
 	IconFolder,
 	IconGrip,
 	IconMore,
+	IconPanelLeft,
 	IconPlus,
 	IconSearch,
 } from "./icons.tsx";
 import type { RailView } from "./ActivityRail.tsx";
 import "./navigation-design.css";
+import "./session-sidebar-responsive.css";
 
 type SessionRow = {
 	id?: string;
@@ -53,7 +55,7 @@ const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 侧栏宽度（localStorage）：右缘拖拽调整，双击手柄复位为 CSS 默认值。 */
 const WIDTH_KEY = "owl.sidebar.width";
-/** 非法/越界存储值按 CSS 默认宽度渲染（返回 null = 不写内联样式）。 */
+/** 未存储或非法值使用自适应默认宽度，合法手动偏好只在当前窗口内限宽。 */
 function loadSidebarWidth(): number | null {
 	try {
 		const raw = localStorage.getItem(WIDTH_KEY);
@@ -396,14 +398,81 @@ export function SessionSidebar({
 	const [dropHint, setDropHint] = useState<{ path: string; index: number } | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const asideRef = useRef<HTMLElement>(null);
+	const drawerTriggerRef = useRef<HTMLButtonElement>(null);
 	const containerSize = usePaneContainer(asideRef, true);
-	const maxSidebarWidth = containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
-	/** 右缘拖拽调宽：null = 未拖过，走 CSS 默认宽度。 */
+	const drawerMode = containerSize !== null && containerSize.width <= 680;
+	const [drawerOpen, setDrawerOpen] = useState(false);
+	const previousMinimized = useRef(minimized);
+	const sidebarHidden = minimized || (drawerMode && !drawerOpen);
+	const paneWidthLimit = containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
+	const maxSidebarWidth = drawerMode
+		? Math.min(360, Math.max(0, containerSize.width - 40))
+		: containerSize !== null
+			? Math.min(paneWidthLimit, Math.max(216, Math.round(containerSize.width * 0.28 + Math.max(0, containerSize.width - 1000) * 0.52)))
+			: paneWidthLimit;
+	const defaultSidebarWidth = drawerMode ? 288 : containerSize === null ? 264 : Math.min(280, Math.max(216, Math.round(containerSize.width * 0.15 + 100)));
+	/** 右缘拖拽调宽：null = 未拖过，使用自适应默认宽度。 */
 	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
+	const renderedSidebarWidth = Math.min(sidebarWidth ?? defaultSidebarWidth, maxSidebarWidth);
 	const [visibleSidebarWidth, setVisibleSidebarWidth] = useState<number | undefined>(undefined);
 	const [resizing, setResizing] = useState(false);
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
 	const resizeAria = getUiLanguage() === "en" ? "Drag or use Left/Right arrows to resize sidebar, double-click to reset" : "拖拽或按左右方向键调整侧栏宽度，双击复位";
+	const closeDrawer = useCallback((): void => {
+		setDrawerOpen(false);
+		setOpenMenu(null);
+		setProjectPopup(null);
+		setSessionMenu(null);
+		requestAnimationFrame(() => drawerTriggerRef.current?.focus({ preventScroll: true }));
+	}, []);
+	useEffect(() => {
+		if (drawerMode && previousMinimized.current && !minimized) setDrawerOpen(true);
+		if (!drawerMode || minimized) setDrawerOpen(false);
+		previousMinimized.current = minimized;
+	}, [drawerMode, minimized]);
+	// A narrow-window drawer is transient UI; resizing never replaces the saved collapse preference.
+	useEffect(() => {
+		const toggleDrawer = (event: Event): void => {
+			if (!drawerMode || minimized) return;
+			event.preventDefault();
+			if (drawerOpen) closeDrawer();
+			else setDrawerOpen(true);
+		};
+		window.addEventListener("owl:toggle-session-drawer", toggleDrawer);
+		return () => window.removeEventListener("owl:toggle-session-drawer", toggleDrawer);
+	}, [drawerMode, minimized, drawerOpen, closeDrawer]);
+	useEffect(() => {
+		window.dispatchEvent(new CustomEvent("owl:session-drawer-state", { detail: { enabled: drawerMode && !minimized, open: drawerMode && !sidebarHidden } }));
+		return () => { window.dispatchEvent(new CustomEvent("owl:session-drawer-state", { detail: { enabled: false, open: false } })); };
+	}, [drawerMode, minimized, sidebarHidden]);
+	useEffect(() => {
+		if (!drawerMode || sidebarHidden) return;
+		const frame = requestAnimationFrame(() => asideRef.current?.querySelector<HTMLInputElement>(".owl-sidebar-search-input")?.focus({ preventScroll: true }));
+		return () => cancelAnimationFrame(frame);
+	}, [drawerMode, sidebarHidden]);
+	useEffect(() => {
+		if (!drawerMode || sidebarHidden || openMenu || showNewProject || editingProject || sectionDialog || projectConfirm || renaming || confirmDelete || resizing) return;
+		const onKey = (event: KeyboardEvent): void => {
+			if (event.defaultPrevented) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				closeDrawer();
+				return;
+			}
+			if (event.key !== "Tab") return;
+			const aside = asideRef.current;
+			const controls = aside ? [...aside.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')].filter((control) => control.getClientRects().length > 0) : [];
+			const first = controls[0];
+			const last = controls.at(-1);
+			if (!first || !last) return;
+			if (!aside?.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+				event.preventDefault();
+				(event.shiftKey ? last : first).focus({ preventScroll: true });
+			}
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [drawerMode, sidebarHidden, closeDrawer, openMenu, showNewProject, editingProject, sectionDialog, projectConfirm, renaming, confirmDelete, resizing]);
 	useEffect(() => {
 		const aside = asideRef.current;
 		if (!aside) return;
@@ -452,8 +521,8 @@ export function SessionSidebar({
 		saveChoice(WIDTH_KEY, String(nextWidth));
 	};
 	useEffect(() => {
-		if (minimized) activeDrag.current?.();
-	}, [minimized]);
+		if (sidebarHidden || drawerMode) activeDrag.current?.();
+	}, [sidebarHidden, drawerMode]);
 	useEffect(() => {
 		if (!resizing) return;
 		const document = asideRef.current?.ownerDocument;
@@ -878,7 +947,7 @@ export function SessionSidebar({
 					className="owl-sidebar-row-main"
 					title={sessionRowTip(row)}
 					aria-current={id === activeId ? "page" : undefined}
-					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); } }}
+					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); if (drawerMode) setDrawerOpen(false); } }}
 				>
 					<span
 						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
@@ -946,13 +1015,13 @@ export function SessionSidebar({
 		return <div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
 			<div className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}>
 				<button type="button" className="owl-sidebar-project-toggle" aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path, location)}><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /></button>
-				<button type="button" className="owl-sidebar-row-main" title={path} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => isCurrent ? toggleProjectGroup(path, location) : onSelectProject(path)}><IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /><span className="owl-sidebar-row-label">{name}</span></button>
+				<button type="button" className="owl-sidebar-row-main" title={path} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => { if (isCurrent) toggleProjectGroup(path, location); else { onSelectProject(path); if (drawerMode) setDrawerOpen(false); } }}><IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /><span className="owl-sidebar-row-label">{name}</span></button>
 				<div data-menu-root className="owl-sidebar-row-actions">
 					<button type="button" className={`owl-sidebar-action ${pinnedLocation ? "owl-sidebar-action--persistent" : ""}`} title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActionsAria", { project: name })} aria-haspopup="menu" aria-expanded={openMenu === menuId} aria-controls={openMenu === menuId ? projectMenuId : undefined} onClick={(event) => {
 						if (openMenu === menuId) closeProjectPopup();
 						else { setProjectPopup({ key: menuId, kind: "project", path, anchor: event.currentTarget }); setOpenMenu(menuId); }
 					}}><IconMore className="h-3.5 w-3.5" /></button>
-					<button type="button" className="owl-sidebar-action" title={t("sidebar.newChatInProject")} aria-label={t("sidebar.newChatInProjectAria", { project: name })} onClick={() => { setOpenMenu(null); onNewChatInProject(path); }}><IconCompose className="h-3.5 w-3.5" /></button>
+					<button type="button" className="owl-sidebar-action" title={t("sidebar.newChatInProject")} aria-label={t("sidebar.newChatInProjectAria", { project: name })} onClick={() => { setOpenMenu(null); onNewChatInProject(path); if (drawerMode) setDrawerOpen(false); }}><IconCompose className="h-3.5 w-3.5" /></button>
 				</div>
 			</div>
 			{expanded && <div
@@ -1078,13 +1147,33 @@ export function SessionSidebar({
 	};
 
 	return (
+		<>
+		{drawerMode && !minimized && !drawerOpen && <button
+			ref={drawerTriggerRef}
+			type="button"
+			className="owl-sidebar-drawer-trigger"
+			aria-label={t("sidebar.aria")}
+			aria-controls="owl-session-sidebar"
+			aria-expanded={false}
+			title={t("sidebar.aria")}
+			onClick={() => setDrawerOpen(true)}
+		><IconPanelLeft className="h-4 w-4" /></button>}
+		{drawerMode && !sidebarHidden && <button
+			type="button"
+			className="owl-sidebar-backdrop"
+			tabIndex={-1}
+			aria-label={t("sidebar.collapseSidebar")}
+			onClick={closeDrawer}
+		/>}
 		<aside
 			ref={asideRef}
 			id="owl-session-sidebar"
-			className="owl-sidebar"
+			className={`owl-sidebar${drawerMode ? " owl-sidebar--drawer" : ""}${renderedSidebarWidth <= 264 ? " owl-sidebar--compact" : ""}`}
+			role={drawerMode ? "dialog" : undefined}
+			aria-modal={drawerMode && !sidebarHidden ? true : undefined}
 			aria-label={t("sidebar.aria")}
-			hidden={minimized}
-			style={{ ...(sidebarWidth === null ? {} : { width: sidebarWidth, flexBasis: sidebarWidth }), maxWidth: maxSidebarWidth }}
+			hidden={sidebarHidden}
+			style={{ width: renderedSidebarWidth, flexBasis: renderedSidebarWidth, maxWidth: maxSidebarWidth }}
 		>
 			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
 				<button
@@ -1099,6 +1188,7 @@ export function SessionSidebar({
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>
+				{drawerMode && <button type="button" className="owl-sidebar-drawer-close" aria-label={t("sidebar.collapseSidebar")} title={t("sidebar.collapseSidebar")} onClick={closeDrawer}><IconPanelLeft className="h-4 w-4" /></button>}
 			</div>
 
 			<div className="owl-sidebar-search">
@@ -1111,7 +1201,7 @@ export function SessionSidebar({
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
 					onKeyDown={(event) => {
-						if (event.key === "Escape") setQuery("");
+						if (event.key === "Escape" && query) { setQuery(""); event.stopPropagation(); }
 					}}
 				/>
 				{query && (
@@ -1122,7 +1212,7 @@ export function SessionSidebar({
 			</div>
 
 			<div className="owl-sidebar-shortcuts">
-				<button type="button" className="owl-sidebar-new-chat" aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")} onClick={onNewChat}>
+				<button type="button" className="owl-sidebar-new-chat" aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")} onClick={() => { onNewChat(); if (drawerMode) setDrawerOpen(false); }}>
 					<IconPlus className="h-4 w-4 shrink-0" />
 					<span>{sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}</span>
 				</button>
@@ -1228,7 +1318,7 @@ export function SessionSidebar({
 							>
 								<IconMore className="h-3.5 w-3.5" />
 							</button>
-							<button type="button" className={actionBtn} title={t("sidebar.newChatBtn")} aria-label={t("sidebar.newChatBtn")} onClick={onNewChat}>
+							<button type="button" className={actionBtn} title={t("sidebar.newChatBtn")} aria-label={t("sidebar.newChatBtn")} onClick={() => { onNewChat(); if (drawerMode) setDrawerOpen(false); }}>
 								<IconCompose className="h-3.5 w-3.5" />
 							</button>
 						</>
@@ -1241,7 +1331,7 @@ export function SessionSidebar({
 				{noMatch && <p className="owl-sidebar-empty">{t("sidebar.emptyResults")}</p>}
 				{projectNotice && <p className="owl-sidebar-notice" role="status">{projectNotice}</p>}
 			</div>
-			{!minimized && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? <ProjectActionsMenu
+			{!sidebarHidden && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? <ProjectActionsMenu
 				anchor={projectPopup.anchor} menuId={projectMenuId} label={t("sidebar.projectActionsAria", { project: projectLabel(projectPopup.path) })} pinned={isProjectPinned(projectPopup.path)} sections={projectPreferences.sections} sectionId={projectPreferences.assignments[normPath(projectPopup.path)] ?? null} onClose={closeProjectPopup}
 				onPin={() => { if (projectPopup.path) toggleProjectPin(projectPopup.path); }}
 				onEdit={() => setEditingProject(projectPopup.path ?? null)}
@@ -1252,7 +1342,7 @@ export function SessionSidebar({
 				onArchive={() => setProjectConfirm({ type: "archive", path: projectPopup.path })}
 				onRemove={() => setProjectConfirm({ type: "remove", path: projectPopup.path })}
 			/> : projectPopup.kind === "projects" || projectPopup.kind === "recent" ? <ProjectsSectionMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={t(projectPopup.kind === "recent" ? "sidebar.recentOptions" : "sidebar.projectOptions")} organize={projectPopup.kind === "recent" ? projectPreferences.recentView : projectPreferences.view} sort={recentSort} onClose={closeProjectPopup} onOrganize={(view) => savePreferences(projectPopup.kind === "recent" ? { ...projectPreferences, recentView: view } : { ...projectPreferences, view })} onSort={switchRecentSort} /> : <SectionActionsMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={pt("section")} onClose={closeProjectPopup} onEdit={() => { setSectionError(""); setSectionDialog({ id: projectPopup.sectionId }); }} onRemove={() => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId })} />)}
-			{!minimized && sessionMenu !== null && openMenu === sessionMenu.key && (
+			{!sidebarHidden && sessionMenu !== null && openMenu === sessionMenu.key && (
 				<SessionActionsMenu
 					key={sessionMenu.key}
 					anchor={sessionMenu.anchor}
@@ -1283,6 +1373,7 @@ export function SessionSidebar({
 						restoreProject(path, sessionScope);
 						setKnownProjects((current) => { const next = current.some((entry) => samePath(entry, path)) ? current : [...current, path]; localStorage.setItem(keys.projects, JSON.stringify(next)); return next; });
 						onSelectProject(path);
+						if (drawerMode) setDrawerOpen(false);
 					}}
 				/>
 			)}
@@ -1341,6 +1432,7 @@ export function SessionSidebar({
 
 			<div
 				className={`owl-sidebar-resizer${resizing ? " is-active" : ""}`}
+				hidden={drawerMode}
 				data-tauri-drag-region="false"
 				role="separator"
 				tabIndex={0}
@@ -1359,5 +1451,6 @@ export function SessionSidebar({
 				}}
 			/>
 		</aside>
+		</>
 	);
 }

@@ -11,6 +11,7 @@ import { AttachedFileChip, extractPlainText } from "./AttachedFileChip.tsx";
 import { classifyHtmlDrop, dropPointHits, fileBasename, imageMimeOfName, splitDroppedPaths } from "./composer-drop.ts";
 import { PresetAvatar } from "./agent-preset-meta.tsx";
 import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
+import "./composer-responsive.css";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -164,7 +165,7 @@ function Chevron(): React.JSX.Element {
  * 运行位置 / 项目 / 添加项目。
  */
 const envChipClass =
-	"flex h-6 items-center gap-1 whitespace-nowrap rounded-md bg-owl-hover/40 px-2 text-[11px] text-owl-muted " +
+	"owl-composer-env-chip flex h-6 items-center gap-1 whitespace-nowrap rounded-md bg-owl-hover/40 px-2 text-[11px] text-owl-muted " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40";
 
 /** 环境行的纯图标 chip（添加项目）。 */
@@ -177,7 +178,7 @@ const envIconButtonClass =
  * 审批模式 / 思考强度 / 模型 / 上下文。
  */
 const ghostPillClass =
-	"flex h-6 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-[11px] text-owl-faint " +
+	"owl-composer-choice flex h-6 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-[11px] text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
@@ -955,7 +956,7 @@ export function Composer({
 	);
 
 	const modelMenu = (close: () => void): React.JSX.Element => (
-		<div className="max-h-72 w-72 overflow-y-auto">
+		<div className="max-h-72 w-full overflow-y-auto">
 			{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noModels")}</p>}
 			{providers.map((provider) => (
 				<div key={provider.id}>
@@ -975,7 +976,7 @@ export function Composer({
 									close();
 								}}
 							>
-								<span className="flex-1 truncate">
+								<span className="min-w-0 flex-1 truncate" title={entry.name}>
 									{entry.name}
 									{entry.contextWindow ? (
 										<span className="ml-1.5 text-owl-faint">{Math.round(entry.contextWindow / 1000)}k</span>
@@ -1005,7 +1006,7 @@ export function Composer({
 
 	return (
 		<div
-			className="owl-composer-surface px-3 pt-1 pb-2"
+			className="owl-composer-surface owl-composer-responsive px-3 pt-1 pb-2"
 			ref={dropZoneRef}
 			onDragOver={(event) => {
 				if (!transferHasFiles(event.dataTransfer)) return;
@@ -1036,13 +1037,13 @@ export function Composer({
 				if (classified.unnamedCount > 0) showHint(t("composer.dropNoPath", { count: classified.unnamedCount }));
 			}}
 		>
-			<div className="mx-auto max-w-3xl">
+			<div className="owl-composer-column mx-auto max-w-3xl">
 				{/* 环境行：搭在对话框上方（Claude 同款，与盒子左缘对齐） */}
-				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1 px-0.5 pb-1">
+				{!hideEnvironment && <div className="owl-composer-environment flex flex-wrap items-center gap-1 px-0.5 pb-1" data-has-mascot={!hideMascot && !queued?.steering.length && !queued?.followUp.length || undefined}>
 					<Menu
 						triggerClassName={envChipClass}
 						triggerTitle={connected ? t("composer.runLocationLocalConnected") : t("composer.runLocationLocalDisconnected")}
-						panelClassName="w-64"
+						panelClassName="owl-composer-menu left-0 w-64"
 						trigger={
 							<>
 								<LocalEnvironmentIcon tone={connected ? "text-owl-accent" : "text-owl-danger"} />
@@ -1077,15 +1078,15 @@ export function Composer({
 						)}
 					</Menu>
 					{workspaceSelected ? (
-						<div className="flex items-center gap-0.5">
+						<div className="owl-composer-project flex items-center gap-0.5">
 							<Menu
 								triggerClassName={envChipClass}
 								triggerTitle={t("composer.projectChipTitle", { dir: workspaceDir })}
-								panelClassName="w-64"
+								panelClassName="owl-composer-menu left-0 w-64"
 								trigger={
 									<>
 										<FolderIcon />
-										<span className="max-w-40 truncate">{getProjectDisplayName(workspaceDir)}</span>
+										<span className="owl-composer-label max-w-40 truncate">{getProjectDisplayName(workspaceDir)}</span>
 										<Chevron />
 									</>
 								}
@@ -1108,11 +1109,11 @@ export function Composer({
 						<Menu
 							triggerClassName={envChipClass}
 							triggerTitle={t("composer.projectChooseTitle")}
-							panelClassName="w-64"
+							panelClassName="owl-composer-menu left-0 w-64"
 							trigger={
 								<>
 									<FolderIcon />
-									<span className="max-w-40 truncate">{t("composer.projectChoose")}</span>
+									<span className="owl-composer-label max-w-40 truncate">{t("composer.projectChoose")}</span>
 									<Chevron />
 								</>
 							}
@@ -1129,7 +1130,7 @@ export function Composer({
 					>
 						<FolderPlusIcon />
 					</button>
-					{environmentAccessory}
+					{environmentAccessory && <div className="owl-composer-environment-accessory">{environmentAccessory}</div>}
 				</div>}
 				{(queued?.steering.length || queued?.followUp.length) ? (
 					<div className="owl-prompt-queue" aria-label={t("composer.queueTray")}>
@@ -1157,7 +1158,7 @@ export function Composer({
 				) : null}
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div
-					className={"relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
+					className={"owl-composer-input relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
 				>
 					<ContextTank percent={percent} />
@@ -1254,18 +1255,18 @@ export function Composer({
 							)}
 						</div>
 					)}
-					<div className="relative flex items-end gap-1.5 px-1.5 py-1">
+					<div className="owl-composer-input-row relative flex items-end gap-1.5 px-1.5 py-1">
 						<Menu
 							triggerClassName={`owl-context-gauge ${contextTone(percent)}`}
 							triggerTitle={t("composer.viewContext")}
-							panelClassName="left-0 w-72"
+							panelClassName="owl-composer-menu left-0 w-72"
 							trigger={
 								contextTokens !== null ? formatTokens(contextTokens) : sessionInfo?.contextUsage ? "—" : "0"
 							}
 						>
 							{contextDetails}
 						</Menu>
-						<div className="min-w-0 flex-1">
+						<div className="owl-composer-draft min-w-0 flex-1">
 							{chipEntries.length > 0 && (
 								<div className="mb-1.5 flex flex-wrap gap-1.5">
 									{chipEntries.map((chip) => (
@@ -1383,12 +1384,13 @@ export function Composer({
 					</div>
 				</div>
 				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
-				<div className="flex flex-wrap items-center gap-0.5 px-0.5 pt-1">
+				<div className="owl-composer-options flex flex-wrap items-center gap-0.5 px-0.5 pt-1">
+					<div className="owl-composer-primary-controls">
 					{agentPresets && agentPresets.length > 0 && onAgentPresetSelect && (
 						<Menu
 							triggerClassName={ghostPillClass}
 							triggerTitle={t("composer.preset.aria")}
-							panelClassName="left-0 w-80"
+							panelClassName="owl-composer-menu left-0 w-80"
 							trigger={
 								<>
 									{(() => {
@@ -1401,7 +1403,7 @@ export function Composer({
 											</svg>
 										);
 									})()}
-									<span>{agentPresets.find((preset) => preset.id === agentPreset)?.name ?? agentPreset}</span>
+									<span className="owl-composer-label">{agentPresets.find((preset) => preset.id === agentPreset)?.name ?? agentPreset}</span>
 									<Chevron />
 								</>
 							}
@@ -1467,11 +1469,11 @@ export function Composer({
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={activeMode ? t(activeMode.titleKey) : undefined}
-						panelClassName="left-0 w-64"
+						panelClassName="owl-composer-menu left-0 w-64"
 						trigger={
 							<>
 								<ModeIcon mode={approvalMode} active={approvalMode !== "confirm"} />
-								<span>{activeMode ? t(activeMode.labelKey) : approvalMode}</span>
+								<span className="owl-composer-label">{activeMode ? t(activeMode.labelKey) : approvalMode}</span>
 								<Chevron />
 							</>
 						}
@@ -1497,11 +1499,12 @@ export function Composer({
 							</div>
 						)}
 					</Menu>
-					<div className="flex-1" />
+					</div>
+					<div className="owl-composer-model-controls">
 					<Menu
 						triggerClassName={ghostPillClass}
 						triggerTitle={thinkingDisabled ? t("composer.thinkingUnsupported") : t("composer.thinkingTitle")}
-						panelClassName="right-0 w-36"
+						panelClassName="owl-composer-menu right-0 w-36"
 						trigger={
 							<>
 								<svg
@@ -1514,7 +1517,7 @@ export function Composer({
 									<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
 									<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
 								</svg>
-								<span>{t("composer.thinkingChip", { level: THINKING_LABELS[thinkingLevel] ? t(THINKING_LABELS[thinkingLevel]) : thinkingLevel })}</span>
+								<span className="owl-composer-label">{t("composer.thinkingChip", { level: THINKING_LABELS[thinkingLevel] ? t(THINKING_LABELS[thinkingLevel]) : thinkingLevel })}</span>
 								<Chevron />
 							</>
 						}
@@ -1540,17 +1543,18 @@ export function Composer({
 					</Menu>
 					<Menu
 						triggerClassName={ghostPillClass}
-						triggerTitle={t("composer.switchModel")}
-						panelClassName="right-0 w-72"
+						triggerTitle={`${t("composer.switchModel")} · ${activeName}`}
+						panelClassName="owl-composer-menu right-0 w-72"
 						trigger={
 							<>
-								<span className="max-w-44 truncate">{activeName}</span>
+								<span className="owl-composer-label max-w-44 truncate">{activeName}</span>
 								<Chevron />
 							</>
 						}
 					>
 						{(close: () => void) => modelMenu(close)}
 					</Menu>
+					</div>
 				</div>
 			</div>
 			{zoomedImage && (

@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/index.ts";
-import { IconNavBack, IconNavForward, IconPanelLeft, IconPool, IconStickFigure, IconTokenCareer } from "./icons.tsx";
+import { IconMore, IconNavBack, IconNavForward, IconPanelLeft, IconPool, IconStickFigure, IconTokenCareer } from "./icons.tsx";
 import { WindowControls } from "./WindowControls.tsx";
 import { useEvaluationText } from "../features/evaluation/evaluation-copy.ts";
 import { useResearchEntryText } from "../features/research/research-entry-copy.ts";
 import "./evaluation-entry.css";
+import "./titlebar-responsive.css";
 
 type MenuKey = "file" | "edit" | "view" | "help";
+type OpenMenuKey = MenuKey | "more";
+
+const MENU_LABELS = [["file", "titlebar.menuFile"], ["edit", "titlebar.menuEdit"], ["view", "titlebar.menuView"], ["help", "titlebar.menuHelp"]] as const;
 
 interface MenuEntry {
 	label: string;
 	/** 右侧对齐的快捷键提示（如 "Ctrl+Shift+S"）。 */
 	hint?: string;
+	submenu?: MenuKey;
 	disabled?: boolean;
 	/** 开关型条目的当前状态：定义了就渲染勾选列（true = 开启中，✓ + 强调色）。 */
 	active?: boolean;
@@ -23,7 +28,7 @@ type MenuRow = MenuEntry | "separator";
 interface DesktopTitlebarProps {
 	connected: boolean;
 	sidebarCollapsed: boolean;
-	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "monitor" | "automation" | "bagu" | "account";
+	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "automation" | "bagu" | "account";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	terminalOpen: boolean;
 	sidebarOpen: boolean;
@@ -61,7 +66,8 @@ interface DesktopTitlebarProps {
 	onOpenLifeGuide: () => void;
 	onOpenTokenCareer: () => void;
 	onOpenManager: () => void;
-	onOpenLifeMonitor: () => void;
+	/** 设置 →「诊断」。标题栏只在有异常（lifeCount > 0）时露出入口。 */
+	onOpenDiagnostics: () => void;
 	lifeDot: "ok" | "bad" | "warn" | "idle";
 	lifeCount: number;
 	island?: React.ReactNode;
@@ -83,21 +89,49 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 	const t = useT();
 	const evaluationText = useEvaluationText();
 	const researchTitle = useResearchEntryText();
+	const [sessionDrawer, setSessionDrawer] = useState({ enabled: false, open: false });
+	const sidebarCollapsed = sessionDrawer.enabled ? !sessionDrawer.open : props.sidebarCollapsed;
 	const sidebarLabel = props.sidebarView === "evaluation"
 		? evaluationText("title")
 		: props.sidebarView === "mail"
-		? props.sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
+		? sidebarCollapsed ? t("mail.showSidebar") : t("mail.hideSidebar")
 		: props.sidebarView === "news"
-		? t(props.sidebarCollapsed ? "news.showNavigation" : "news.hideNavigation")
+		? t(sidebarCollapsed ? "news.showNavigation" : "news.hideNavigation")
 		: props.sidebarView === "map"
-		? props.sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
-		: props.sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");
-	const [menu, setMenu] = useState<MenuKey | undefined>();
+		? sidebarCollapsed ? t("titlebar.showMapSidebar") : t("titlebar.hideMapSidebar")
+		: sidebarCollapsed ? t("titlebar.showSessions") : t("titlebar.hideSessions");
+	const [menu, setMenu] = useState<OpenMenuKey | undefined>();
+	const [compactMenus, setCompactMenus] = useState(() => window.matchMedia("(max-width: 899px)").matches);
 	const [menuError, setMenuError] = useState("");
 	const root = useRef<HTMLElement>(null);
+	const menuTrigger = useRef<HTMLButtonElement | null>(null);
 	// 打开菜单那一刻焦点会移到触发按钮上；先把正在输入的可编辑元素记下来，
 	// 编辑菜单项执行前把焦点还给它（execCommand 只作用于焦点元素）。
 	const capturedEditableRef = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		const update = (event: Event): void => {
+			const state = (event as CustomEvent<{ enabled: boolean; open: boolean }>).detail;
+			if (state && typeof state.enabled === "boolean" && typeof state.open === "boolean") setSessionDrawer(state);
+		};
+		window.addEventListener("owl:session-drawer-state", update);
+		return () => window.removeEventListener("owl:session-drawer-state", update);
+	}, []);
+
+	useEffect(() => {
+		const compact = window.matchMedia("(max-width: 899px)");
+		const overflow = window.matchMedia("(max-width: 1239px)");
+		const update = (): void => {
+			setCompactMenus(compact.matches);
+			setMenu(undefined);
+		};
+		compact.addEventListener("change", update);
+		overflow.addEventListener("change", update);
+		return () => {
+			compact.removeEventListener("change", update);
+			overflow.removeEventListener("change", update);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!menu) return;
@@ -105,7 +139,10 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			if (!root.current?.contains(event.target as Node)) setMenu(undefined);
 		};
 		const onKey = (event: KeyboardEvent): void => {
-			if (event.key === "Escape") setMenu(undefined);
+			if (event.key === "Escape") {
+				setMenu(undefined);
+				menuTrigger.current?.focus({ preventScroll: true });
+			}
 		};
 		document.addEventListener("pointerdown", dismiss);
 		document.addEventListener("keydown", onKey);
@@ -119,6 +156,10 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 	const rightOpen = props.sidebarOpen;
 	const editTarget = capturedEditableRef.current;
 	const selectionText = window.getSelection()?.toString() ?? "";
+	const toggleSidebar = (): void => {
+		if (!window.dispatchEvent(new Event("owl:toggle-session-drawer", { cancelable: true }))) return;
+		props.onToggleSidebar();
+	};
 
 	const runEditCommand = (command: string): void => {
 		const el = capturedEditableRef.current;
@@ -174,6 +215,15 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 	};
 
 	const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+		if (event.key === "ArrowLeft" && compactMenus && menu !== "more") {
+			event.preventDefault();
+			setMenu("more");
+			requestAnimationFrame(() => {
+				const panel = document.getElementById("owl-desktop-menu-more");
+				if (panel) moveMenuFocus(panel, "first");
+			});
+			return;
+		}
 		const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
 		if (step === undefined) return;
 		event.preventDefault();
@@ -202,7 +252,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("titlebar.settings"), hint: "Ctrl+,", action: props.onOpenSettings },
 		],
 		view: [
-			{ label: sidebarLabel, hint: "Ctrl+Shift+S", active: !props.sidebarCollapsed, action: props.onToggleSidebar },
+			{ label: sidebarLabel, hint: "Ctrl+Shift+S", active: !sidebarCollapsed, action: toggleSidebar },
 			{ label: bottomOpen ? t("view.hideBottomPanel") : t("view.showBottomPanel"), hint: "Ctrl+J", active: bottomOpen, action: props.onToggleBottomPanel },
 			{ label: rightOpen ? t("view.hideRightPanel") : t("view.showRightPanel"), hint: "Ctrl+Shift+E", active: rightOpen, action: props.onToggleRightPanel },
 			{ label: t("titlebar.openDeveloperWorkbench"), action: props.onOpenDeveloper },
@@ -232,9 +282,83 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("titlebar.aboutOwl"), action: props.onOpenAbout },
 		],
 	};
+	const menuLabels: Record<OpenMenuKey, string> = {
+		file: t("titlebar.menuFile"),
+		edit: t("titlebar.menuEdit"),
+		view: t("titlebar.menuView"),
+		help: t("titlebar.menuHelp"),
+		more: t("rail.more"),
+	};
+	const overflowActions: MenuRow[] = [
+		...(compactMenus ? [
+			...MENU_LABELS.map(([key, labelKey]) => ({ label: t(labelKey), submenu: key, action: () => {
+				setMenu(key);
+				requestAnimationFrame(() => {
+					const panel = document.getElementById(`owl-desktop-menu-${key}`);
+					if (panel) moveMenuFocus(panel, "first");
+				});
+			} })),
+			"separator" as const,
+		] : []),
+		{ label: evaluationText("title"), active: props.sidebarView === "evaluation", action: props.onOpenEvaluation },
+		{ label: researchTitle, active: props.sidebarView === "research", action: props.onOpenResearch },
+		"separator",
+		{ label: "号池 Manager", active: props.sidebarView === "manager", action: props.onOpenManager },
+		{ label: t("titlebar.tokenCareer"), active: props.sidebarView === "career", action: props.onOpenTokenCareer },
+		{ label: t("titlebar.lifeGuide"), active: props.sidebarView === "guide", action: props.onOpenLifeGuide },
+	];
+	const renderMenuPanel = (key: OpenMenuKey): React.JSX.Element => (
+		<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={menuLabels[key]} onKeyDown={onMenuKeyDown}>
+			{compactMenus && key !== "more" && (
+				<div className="owl-desktop-compact-menu-heading">
+					<button type="button" role="menuitem" onClick={() => {
+						setMenu("more");
+						requestAnimationFrame(() => {
+							const panel = document.getElementById("owl-desktop-menu-more");
+							if (panel) moveMenuFocus(panel, "first");
+						});
+					}}><IconNavBack /><span>{t("rail.more")}</span></button>
+					<span>{menuLabels[key]}</span>
+				</div>
+			)}
+			{(key === "more" ? overflowActions : actions[key]).map((row, index) => (
+				row === "separator" ? (
+					<div className="owl-desktop-menu-separator" key={`sep-${index}`} role="separator" />
+				) : (
+					<button
+						key={row.label}
+						type="button"
+						role={row.active !== undefined ? "menuitemcheckbox" : "menuitem"}
+						aria-checked={row.active !== undefined ? Boolean(row.active) : undefined}
+						aria-haspopup={row.submenu ? "menu" : undefined}
+						className={row.active ? "is-active" : undefined}
+						disabled={row.disabled}
+						onKeyDown={(event) => {
+							if (event.key === "ArrowRight" && row.submenu) {
+								event.preventDefault();
+								row.action();
+							}
+						}}
+						onClick={() => {
+							setMenu(undefined);
+							row.action();
+						}}
+					>
+						<span className="owl-desktop-menu-left">
+							{row.active !== undefined && (
+								<span className="owl-desktop-menu-check" aria-hidden="true">{row.active ? "✓" : ""}</span>
+							)}
+							<span className="owl-desktop-menu-label">{row.label}</span>
+						</span>
+						{row.hint ? <span className="owl-desktop-menu-hint">{row.hint}</span> : row.submenu ? <IconNavForward /> : null}
+					</button>
+				)
+			))}
+		</div>
+	);
 
 	return (
-		<header className="owl-desktop-titlebar" ref={root} data-tauri-drag-region="deep">
+		<header className="owl-desktop-titlebar owl-desktop-titlebar-responsive" ref={root} data-tauri-drag-region="deep">
 				{props.island}
 				<div className="owl-desktop-menu-row" data-tauri-drag-region="false">
 				<button
@@ -243,9 +367,9 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 					className="owl-chrome-button owl-desktop-sidebar-toggle"
 					aria-label={sidebarLabel}
 					title={sidebarLabel}
-					aria-expanded={!props.sidebarCollapsed}
+					aria-expanded={!sidebarCollapsed}
 					aria-controls={props.sidebarView === "evaluation" ? "owl-evaluation-sidebar" : props.sidebarView === "mail" ? "owl-mail-sidebar" : props.sidebarView === "news" ? "owl-news-sidebar" : props.sidebarView === "map" ? "owl-map-sidebar" : "owl-session-sidebar"}
-					onClick={props.onToggleSidebar}
+					onClick={toggleSidebar}
 				>
 					<IconPanelLeft className="h-4 w-4" />
 				</button>
@@ -271,7 +395,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 						<IconNavForward className="h-4 w-4" />
 					</button>
 				</div>
-				{([['file', 'titlebar.menuFile'], ['edit', 'titlebar.menuEdit'], ['view', 'titlebar.menuView'], ['help', 'titlebar.menuHelp']] as const).map(([key, labelKey]) => (
+				{!compactMenus && MENU_LABELS.map(([key, labelKey]) => (
 					<div className="owl-desktop-menu" key={key}>
 						<button
 							type="button"
@@ -287,6 +411,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 								// 键盘用户：↓ 直接展开并选中第一项（鼠标用户保持原样，不抢焦点）
 								if (event.key === "ArrowDown" && menu !== key) {
 									event.preventDefault();
+									menuTrigger.current = event.currentTarget;
 									capturedEditableRef.current = captureEditableTarget();
 									setMenuError("");
 									setMenu(key);
@@ -296,43 +421,15 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 									});
 								}
 							}}
-							onClick={() => {
+							onClick={(event) => {
+								menuTrigger.current = event.currentTarget;
 								setMenuError("");
 								setMenu((current) => current === key ? undefined : key);
 							}}
 						>
 							{t(labelKey)}
 						</button>
-						{menu === key && (
-							<div className="owl-desktop-menu-panel" role="menu" id={`owl-desktop-menu-${key}`} aria-label={t(labelKey)} onKeyDown={onMenuKeyDown}>
-								{actions[key].map((row, index) => (
-									row === "separator" ? (
-										<div className="owl-desktop-menu-separator" key={`sep-${index}`} role="separator" />
-									) : (
-										<button
-											key={row.label}
-											type="button"
-											role={row.active !== undefined ? "menuitemcheckbox" : "menuitem"}
-											aria-checked={row.active !== undefined ? Boolean(row.active) : undefined}
-											className={row.active ? "is-active" : undefined}
-											disabled={row.disabled}
-											onClick={() => {
-												setMenu(undefined);
-												row.action();
-											}}
-										>
-											<span className="owl-desktop-menu-left">
-												{row.active !== undefined && (
-													<span className="owl-desktop-menu-check" aria-hidden="true">{row.active ? "✓" : ""}</span>
-												)}
-												<span className="owl-desktop-menu-label">{row.label}</span>
-											</span>
-											{row.hint && <span className="owl-desktop-menu-hint">{row.hint}</span>}
-										</button>
-									)
-								))}
-							</div>
-						)}
+						{menu === key && renderMenuPanel(key)}
 					</div>
 				))}
 				<button
@@ -347,6 +444,36 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 				<button type="button" className={`owl-desktop-menu-trigger owl-desktop-evaluation-entry${props.sidebarView === "research" ? " is-active" : ""}`} aria-pressed={props.sidebarView === "research"} data-fd-id="research-workbench-entry" onClick={() => { setMenu(undefined); props.onOpenResearch(); }}>
 					{researchTitle}
 				</button>
+				<div className="owl-desktop-menu owl-desktop-compact-menu">
+					<button
+						type="button"
+						className={`owl-desktop-menu-trigger owl-desktop-more-trigger${menu === "more" || (compactMenus && menu) ? " is-open" : ""}`}
+						aria-label={t("rail.more")}
+						title={t("rail.more")}
+						aria-haspopup="menu"
+						aria-expanded={menu === "more" || Boolean(compactMenus && menu)}
+						aria-controls={`owl-desktop-menu-${compactMenus && menu ? menu : "more"}`}
+						onPointerDown={() => { capturedEditableRef.current = captureEditableTarget(); }}
+						onKeyDown={(event) => {
+							if (event.key !== "ArrowDown") return;
+							event.preventDefault();
+							menuTrigger.current = event.currentTarget;
+							capturedEditableRef.current = captureEditableTarget();
+							setMenuError("");
+							setMenu("more");
+							requestAnimationFrame(() => {
+								const panel = document.getElementById("owl-desktop-menu-more");
+								if (panel) moveMenuFocus(panel, "first");
+							});
+						}}
+						onClick={(event) => {
+							menuTrigger.current = event.currentTarget;
+							setMenuError("");
+							setMenu((current) => current === "more" || (compactMenus && current) ? undefined : "more");
+						}}
+					><IconMore /></button>
+					{menu && (menu === "more" || compactMenus) && renderMenuPanel(menu)}
+				</div>
 			</div>
 			{menuError && <span className="owl-desktop-copy-error" role="status">{menuError}</span>}
 			<div className="owl-desktop-window-controls" data-tauri-drag-region="false">
@@ -380,16 +507,17 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 				>
 					<IconStickFigure />
 				</button>
-				<button
-					type="button"
-					className={`owl-chrome-button owl-desktop-life-monitor${props.sidebarView === "monitor" ? " is-active" : ""}`}
-					aria-label={props.lifeCount > 0 ? `${t("titlebar.lifeMonitor")} ${props.lifeCount}` : t("titlebar.lifeMonitor")}
-					title={t("titlebar.lifeMonitor")}
-					aria-pressed={props.sidebarView === "monitor"}
-					onClick={props.onOpenLifeMonitor}
-				>
-					<span className={`owl-life-dot ${props.lifeDot}`} aria-hidden="true">{props.lifeCount > 0 ? props.lifeCount : ""}</span>
-				</button>
+				{props.lifeCount > 0 && (
+					<button
+						type="button"
+						className="owl-chrome-button owl-desktop-life-monitor"
+						aria-label={t("titlebar.lifeMonitor", { n: props.lifeCount })}
+						title={t("titlebar.lifeMonitor", { n: props.lifeCount })}
+						onClick={props.onOpenDiagnostics}
+					>
+						<span className={`owl-life-dot ${props.lifeDot}`} aria-hidden="true">{props.lifeCount}</span>
+					</button>
+				)}
 				<WindowControls />
 			</div>
 		</header>

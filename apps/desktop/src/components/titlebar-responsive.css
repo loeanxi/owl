@@ -1,0 +1,130 @@
+/* Keep the island in its own grid column so resizing never makes chrome overlap. */
+.owl-desktop-titlebar.owl-desktop-titlebar-responsive {
+	display: grid;
+	grid-template-columns: max-content minmax(150px, 1fr) max-content;
+	grid-template-rows: minmax(0, 1fr);
+	column-gap: 12px;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-menu-row {
+	grid-column: 1;
+	grid-row: 1;
+	min-width: 0;
+	flex-wrap: nowrap;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-menu,
+.owl-desktop-titlebar-responsive .owl-desktop-menu-trigger,
+.owl-desktop-titlebar-responsive .owl-desktop-history-nav,
+.owl-desktop-titlebar-responsive .owl-chrome-button {
+	flex-shrink: 0;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-menu-trigger {
+	white-space: nowrap;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-window-controls {
+	grid-column: 3;
+	grid-row: 1;
+	margin-left: 0;
+	justify-self: end;
+}
+
+.owl-desktop-titlebar-responsive > .owl-island {
+	position: relative;
+	grid-column: 2;
+	grid-row: 1;
+	top: auto;
+	bottom: auto;
+	left: auto !important;
+	min-width: min(150px, 100%);
+	max-width: min(280px, 100%);
+	justify-self: center;
+	align-self: center;
+	transform: none;
+}
+
+.owl-desktop-titlebar-responsive > .owl-island.is-open {
+	width: min(320px, 100%);
+	max-width: min(360px, 100%);
+}
+
+.owl-desktop-titlebar-responsive > .owl-island.is-landing {
+	animation-name: owl-titlebar-island-land;
+}
+
+@keyframes owl-titlebar-island-land {
+	0% { transform: scale(0.86); filter: brightness(1.4); }
+	100% { transform: scale(1); filter: brightness(1); }
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-menu-panel {
+	width: max-content;
+	max-width: min(360px, calc(100vw - 32px));
+	max-height: min(560px, calc(100dvh - 72px));
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-compact-menu {
+	display: none;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-more-trigger {
+	display: grid;
+	width: 30px;
+	height: 28px;
+	padding: 0;
+	place-items: center;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-compact-menu-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	padding-right: 11px;
+	color: var(--owl-ui-muted);
+	font-size: 12px;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-compact-menu-heading button {
+	width: auto;
+	justify-content: flex-start;
+	gap: 6px;
+}
+
+.owl-desktop-titlebar-responsive .owl-desktop-copy-error {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: var(--owl-shell-gutter);
+	margin-left: 0;
+	max-width: calc(100% - 24px);
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: var(--owl-ui-panel);
+	color: var(--owl-ui-text);
+	box-shadow: 0 4px 14px rgb(0 0 0 / 14%);
+}
+
+@media (max-width: 1239px) {
+	.owl-desktop-titlebar-responsive .owl-desktop-evaluation-entry,
+	.owl-desktop-titlebar-responsive .owl-desktop-window-controls > .owl-chrome-button {
+		display: none;
+	}
+
+	.owl-desktop-titlebar-responsive .owl-desktop-compact-menu {
+		display: block;
+	}
+}
+
+@media (max-width: 899px) {
+	.owl-desktop-titlebar.owl-desktop-titlebar-responsive {
+		column-gap: 8px;
+	}
+
+	.owl-desktop-titlebar-responsive .owl-desktop-history-nav {
+		margin-right: 2px;
+	}
+}

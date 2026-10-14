@@ -3,6 +3,7 @@ import { useT } from "../i18n/index.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { IconDownload, IconFolder, IconPanelBottom, IconPanelRight } from "../sidebar/icons.tsx";
 import { Menu } from "./Menu.tsx";
+import "./conversation-responsive.css";
 
 export type ConversationView = "chat" | "context" | "trajectory";
 export type SessionExportFormat = "jsonl" | "markdown";

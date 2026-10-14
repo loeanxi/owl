@@ -8,15 +8,15 @@
 }
 
 .owl-desktop-shell .owl-activity-rail {
-	width: 56px;
-	flex-basis: 56px;
+	width: var(--owl-shell-rail-size);
+	flex-basis: var(--owl-shell-rail-size);
 	gap: 12px;
-	padding: 16px 0 12px;
+	padding: 0;
 }
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-brand {
 	display: grid;
-	width: 40px;
+	width: var(--owl-shell-rail-size);
 	height: 40px;
 	flex: 0 0 40px;
 	place-items: center;
@@ -147,7 +147,7 @@
 
 .owl-rail-menu-trigger {
 	display: grid;
-	width: 40px;
+	width: var(--owl-shell-rail-size);
 	height: 40px;
 	place-items: center;
 	border-radius: 9px;
@@ -318,7 +318,7 @@
 
 .owl-desktop-shell .owl-activity-rail .owl-rail-button {
 	position: relative;
-	width: 40px;
+	width: var(--owl-shell-rail-size);
 	height: 40px;
 	border-radius: 9px;
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));

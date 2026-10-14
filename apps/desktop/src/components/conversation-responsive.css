@@ -1,0 +1,137 @@
+/* Keep the reading column and chrome proportional to the space left by panels. */
+.owl-desktop-shell .owl-main-frame > .owl-chat-header,
+.owl-desktop-shell .owl-agent-conversation > .owl-chat-header {
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	height: 60px;
+	min-height: 60px;
+	flex-basis: 60px;
+	gap: 12px;
+	padding: 0 20px;
+}
+
+.owl-desktop-shell .owl-chat-header .owl-shell-header-info {
+	gap: 8px;
+}
+
+.owl-desktop-shell .owl-shell-session-title {
+	flex: 1 1 auto;
+}
+
+.owl-desktop-shell .owl-shell-project {
+	flex: 0 1 auto;
+	max-width: 100px;
+}
+
+.owl-desktop-shell .owl-shell-preset-tag {
+	flex: 0 1 auto;
+	max-width: 100px;
+}
+
+.owl-desktop-shell .owl-chat-header .owl-view-tabs {
+	grid-column: 2;
+	grid-row: 1;
+	justify-self: end;
+}
+
+.owl-desktop-shell .owl-chat-header .owl-shell-header-actions {
+	grid-column: 3;
+	grid-row: 1;
+}
+
+.owl-desktop-shell .owl-chat-header .owl-view-tabs button {
+	padding-inline: 12px;
+}
+
+.owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
+	padding: 28px clamp(20px, 4cqw, 48px) 24px;
+}
+
+.owl-desktop-shell .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll {
+	padding-inline: clamp(36px, 4cqw, 48px);
+}
+
+.owl-desktop-shell .owl-chat-column {
+	max-width: var(--owl-chat-width, 880px);
+}
+
+/* Code paths in a table retain readable columns; wide tables scroll locally. */
+.owl-desktop-shell .owl-answer table {
+	width: 100%;
+	overflow-wrap: normal;
+	overscroll-behavior-inline: contain;
+}
+
+.owl-desktop-shell .owl-answer :is(th, td) {
+	min-width: 9rem;
+}
+
+.owl-desktop-shell .owl-answer table code {
+	white-space: nowrap;
+}
+
+@container owl-conversation (max-width: 660px) {
+	.owl-desktop-shell .owl-main-frame > .owl-chat-header,
+	.owl-desktop-shell .owl-agent-conversation > .owl-chat-header {
+		grid-template-columns: minmax(0, 1fr) auto;
+		height: auto;
+		min-height: 88px;
+		flex-basis: auto;
+		gap: 8px 12px;
+		padding: 12px 16px;
+	}
+
+	.owl-desktop-shell .owl-chat-header .owl-shell-header-actions {
+		grid-column: 2;
+		grid-row: 1;
+	}
+
+	.owl-desktop-shell .owl-chat-header .owl-view-tabs {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		justify-self: start;
+	}
+
+	.owl-desktop-shell .owl-shell-project {
+		max-width: 64px;
+	}
+}
+
+@container owl-chat (max-width: 520px) {
+	.owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
+		padding: 20px 16px;
+		scrollbar-gutter: auto;
+	}
+
+	.owl-desktop-shell .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll {
+		padding-left: 30px;
+	}
+
+	.owl-desktop-shell .owl-chat-minimap,
+	.owl-desktop-shell .owl-chat-minimap-marks,
+	.owl-desktop-shell .owl-chat-minimap-marks button {
+		width: 20px;
+	}
+
+	.owl-desktop-shell .owl-chat-minimap {
+		left: 2px;
+	}
+
+	.owl-desktop-shell .owl-chat-minimap-preview {
+		left: 24px;
+	}
+
+	.owl-desktop-shell .owl-user-bubble {
+		max-width: 94%;
+	}
+}
+
+@media (max-height: 720px) {
+	.owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
+		padding-top: 16px;
+		padding-bottom: 16px;
+	}
+
+	.owl-desktop-shell .owl-chat-empty {
+		margin-top: clamp(16px, 5vh, 48px);
+	}
+}

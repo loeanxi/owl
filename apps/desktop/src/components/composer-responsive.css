@@ -1,0 +1,240 @@
+/* The composer adapts to its own column, including when a workbench is open. */
+.owl-composer-surface.owl-composer-responsive,
+.owl-agent-conversation .owl-composer-surface.owl-composer-responsive {
+	container: owl-composer / inline-size;
+	min-width: 0;
+	padding: 10px 24px 12px;
+}
+
+.owl-composer-surface.owl-composer-responsive > .owl-composer-column.mx-auto {
+	width: 100%;
+	min-width: 0;
+	max-width: var(--owl-chat-width, 880px);
+}
+
+.owl-composer-responsive .owl-composer-environment {
+	position: relative;
+	min-width: 0;
+	gap: 4px;
+	padding-bottom: 6px;
+}
+
+.owl-composer-responsive .owl-composer-environment[data-has-mascot] {
+	padding-right: 56px;
+}
+
+.owl-composer-responsive .owl-composer-environment > .relative,
+.owl-composer-responsive .owl-composer-project > .relative,
+.owl-composer-responsive .owl-composer-primary-controls > .relative,
+.owl-composer-responsive .owl-composer-model-controls > .relative,
+.owl-composer-responsive .owl-composer-input-row > .relative {
+	position: static;
+	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-project {
+	min-width: 0;
+	max-width: min(18rem, calc(100% - 100px));
+}
+
+.owl-composer-responsive .owl-composer-project > .relative {
+	flex: 1;
+}
+
+.owl-composer-responsive .owl-composer-env-chip {
+	max-width: 100%;
+	min-width: 0;
+	height: 26px;
+}
+
+.owl-composer-responsive .owl-composer-environment-accessory {
+	min-width: 0;
+	max-width: 100%;
+}
+
+.owl-composer-responsive .owl-composer-input-row {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto auto;
+	align-items: end;
+	gap: 6px;
+	padding: 6px 8px;
+}
+
+.owl-composer-responsive .owl-composer-draft {
+	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-editor:empty::before {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-composer-responsive .owl-composer-options {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+	align-items: center;
+	gap: 4px 12px;
+	min-width: 0;
+	padding-top: 6px;
+}
+
+.owl-composer-responsive .owl-composer-primary-controls,
+.owl-composer-responsive .owl-composer-model-controls {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-primary-controls > .relative {
+	flex: 0 1 auto;
+	max-width: 14rem;
+}
+
+.owl-composer-responsive .owl-composer-model-controls {
+	justify-content: flex-end;
+}
+
+.owl-composer-responsive .owl-composer-model-controls > .relative:first-child {
+	flex: 0 1 auto;
+	max-width: 12rem;
+}
+
+.owl-composer-responsive .owl-composer-model-controls > .relative:last-child {
+	flex: 0 1 14rem;
+	max-width: 16rem;
+}
+
+.owl-composer-responsive .owl-composer-choice {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	height: 28px;
+	gap: 5px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-composer-responsive .owl-composer-choice > svg {
+	flex-shrink: 0;
+}
+
+.owl-composer-responsive .owl-composer-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-composer-responsive .owl-composer-menu {
+	max-width: min(100%, calc(100vw - 32px));
+	max-height: min(380px, 60dvh);
+	min-width: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.owl-composer-responsive .owl-composer-menu button {
+	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-menu .flex-1 {
+	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-choice:focus-visible,
+.owl-composer-responsive .owl-composer-env-chip:focus-visible,
+.owl-composer-responsive .owl-composer-environment > button:focus-visible,
+.owl-composer-responsive .owl-composer-project > button:focus-visible,
+.owl-composer-responsive .owl-context-gauge:focus-visible,
+.owl-composer-responsive .owl-composer-action:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 2px;
+}
+
+@container owl-composer (max-width: 620px) {
+	.owl-composer-responsive .owl-composer-options {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 2px;
+	}
+
+	.owl-composer-responsive .owl-composer-model-controls {
+		justify-content: flex-start;
+	}
+
+	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child {
+		flex: 1 1 0;
+		max-width: none;
+	}
+
+	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child > button {
+		justify-content: flex-end;
+	}
+
+	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child .owl-composer-label {
+		max-width: none;
+	}
+}
+
+@container owl-composer (max-width: 540px) {
+	.owl-composer-responsive .owl-composer-input-row {
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		gap: 2px 6px;
+		padding: 8px 10px;
+	}
+
+	.owl-composer-responsive .owl-composer-draft {
+		grid-column: 1 / -1;
+		grid-row: 1;
+	}
+
+	.owl-composer-responsive .owl-composer-editor {
+		min-height: 30px;
+		padding-inline: 0;
+	}
+
+	.owl-composer-responsive .owl-composer-input-row > .relative {
+		grid-column: 1;
+		grid-row: 2;
+	}
+
+	.owl-composer-responsive .owl-context-gauge.is-capacity {
+		grid-column: 2;
+		grid-row: 2;
+	}
+
+	.owl-composer-responsive .owl-composer-action {
+		grid-column: 3;
+		grid-row: 2;
+	}
+
+	.owl-composer-responsive .owl-composer-environment-accessory {
+		flex-basis: 100%;
+	}
+}
+
+@container owl-conversation (max-width: 520px) {
+	.owl-composer-surface.owl-composer-responsive,
+	.owl-agent-conversation .owl-composer-surface.owl-composer-responsive {
+		padding-inline: 16px;
+	}
+}
+
+@media (pointer: coarse) {
+	.owl-composer-responsive .owl-composer-choice,
+	.owl-composer-responsive .owl-composer-env-chip,
+	.owl-composer-responsive .owl-composer-environment > button,
+	.owl-composer-responsive .owl-composer-project > button,
+	.owl-composer-responsive .owl-context-gauge,
+	.owl-composer-responsive .owl-composer-action {
+		min-height: 44px;
+	}
+
+	.owl-composer-responsive .owl-composer-environment > button,
+	.owl-composer-responsive .owl-composer-project > button,
+	.owl-composer-responsive .owl-composer-action {
+		min-width: 44px;
+	}
+}

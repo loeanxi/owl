@@ -1,0 +1,103 @@
+/* Pane widths are fitted to the workspace in SessionSidebar without replacing saved preferences. */
+.owl-desktop-shell .owl-workspace-frame > .owl-sidebar {
+	min-width: 0;
+	padding-right: clamp(12px, 1.2vw, 16px);
+	padding-left: clamp(12px, 1.2vw, 16px);
+}
+
+.owl-desktop-shell .owl-workspace-frame > .owl-sidebar[hidden] {
+	display: none;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-header {
+	height: 64px;
+	flex-basis: 64px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-brand {
+	letter-spacing: -0.03em;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-shortcuts {
+	padding-bottom: 16px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
+	margin-top: 18px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Relative times remain in each row's full tooltip while the title gets the narrow column. */
+.owl-desktop-shell .owl-sidebar--compact .owl-sidebar-row-time {
+	display: none;
+}
+
+.owl-desktop-shell .owl-sidebar--compact .owl-sidebar-project-sessions {
+	margin-left: 6px;
+	padding-left: 6px;
+}
+
+.owl-desktop-shell .owl-workspace-frame > .owl-sidebar--drawer {
+	position: absolute;
+	inset: 0 auto 0 0;
+	z-index: 45;
+	height: 100%;
+	border-right: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	border-radius: 0;
+	background: var(--owl-ui-sidebar, var(--color-owl-sidebar-bg));
+	box-shadow: 8px 0 28px rgb(0 0 0 / 18%);
+	--owl-lg-fill-soft: var(--owl-ui-sidebar, var(--color-owl-sidebar-bg));
+}
+
+.owl-desktop-shell .owl-sidebar-drawer-trigger,
+.owl-desktop-shell .owl-sidebar-drawer-close {
+	display: grid;
+	width: 36px;
+	height: 36px;
+	flex: 0 0 36px;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+}
+
+.owl-desktop-shell .owl-workspace-frame > .owl-sidebar-drawer-trigger {
+	position: absolute;
+	top: 14px;
+	left: 12px;
+	z-index: 30;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
+	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
+}
+
+.owl-desktop-shell .owl-sidebar-drawer-trigger:hover,
+.owl-desktop-shell .owl-sidebar-drawer-close:hover {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-desktop-shell .owl-sidebar-drawer-trigger:focus-visible,
+.owl-desktop-shell .owl-sidebar-drawer-close:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 2px;
+}
+
+.owl-desktop-shell .owl-workspace-frame > .owl-sidebar-backdrop {
+	position: absolute;
+	inset: 0;
+	z-index: 44;
+	background: rgb(0 0 0 / 20%);
+	cursor: default;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-resizer[hidden] {
+	display: none;
+}
+
+.owl-desktop-shell .owl-workspace-frame:has(> .owl-sidebar-drawer-trigger) .owl-main-frame > .owl-chat-header,
+.owl-desktop-shell .owl-workspace-frame:has(> .owl-sidebar-drawer-trigger) .owl-agent-conversation > .owl-chat-header {
+	padding-left: 58px;
+}
