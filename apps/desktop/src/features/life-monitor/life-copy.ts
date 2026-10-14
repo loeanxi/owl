@@ -24,8 +24,8 @@ const enNames: Record<string, string> = {
 const zhGroups: Record<string, string> = { link: "连接", agent: "智能体", bench: "工作台", power: "能力", desk: "桌面", body: "机体" };
 const enGroups: Record<string, string> = { link: "Link", agent: "Agent", bench: "Workbench", power: "Capabilities", desk: "Desk", body: "Shell" };
 
-const zhLevel: Record<LifeLevel, string> = { ok: "平稳", bad: "危急", warn: "注意", idle: "未测", off: "停用" };
-const enLevel: Record<LifeLevel, string> = { ok: "Steady", bad: "Critical", warn: "Attention", idle: "Unchecked", off: "Off" };
+const zhLevel: Record<LifeLevel, string> = { ok: "正常", bad: "故障", warn: "注意", idle: "未测", off: "停用" };
+const enLevel: Record<LifeLevel, string> = { ok: "OK", bad: "Broken", warn: "Attention", idle: "Unchecked", off: "Off" };
 
 const zhNote: Record<string, string> = {
 	"bridge.down": "本地桥没有连上。",
@@ -38,10 +38,9 @@ const zhNote: Record<string, string> = {
 	"last-run.wrote": "当前项目最近一次写出了结果。",
 	"model.unselected": "输入框里没有选中模型。",
 	"model.no-key": "这个供应商没有配好 key。不显示 key。",
-	"model.no-url": "这个供应商没有地址。",
 	"model.unknown": "模型库里没有这个供应商。",
 	"model.unknown-model": "这个供应商下没有选中的模型。",
-	"model.ok": "供应商和地址都在。不显示 key。",
+	"model.ok": "供应商和模型都在。不显示 key。",
 	"mail.no-account": "还没有配好发信账号。不显示地址。",
 	"myself.absent": "默认助理目录不在。不显示路径。",
 	"myself.ok": "助理记录目录在。",
@@ -77,10 +76,9 @@ const enNote: Record<string, string> = {
 	"last-run.wrote": "The latest subagent run in this project produced output.",
 	"model.unselected": "No model is selected in the composer.",
 	"model.no-key": "This provider has no key configured. The key is not shown.",
-	"model.no-url": "This provider has no base URL.",
 	"model.unknown": "This provider is not in the model catalog.",
 	"model.unknown-model": "The selected model is not under this provider.",
-	"model.ok": "The provider and address are configured. The key is not shown.",
+	"model.ok": "The provider and model are configured. The key is not shown.",
 	"mail.no-account": "No sending account is configured. Addresses are not shown.",
 	"myself.absent": "The default assistant folder is missing. The path is not shown.",
 	"myself.ok": "The assistant notes folder is present.",
@@ -106,38 +104,46 @@ const enNote: Record<string, string> = {
 };
 
 const zhShell = {
-	title: "OWL 生命监护",
-	cadence: "整台 {n} 处 · 每 15 秒一轮 · 只读",
-	alarms: "{n} 个告警",
-	noAlarms: "没有告警",
-	critical: "危急",
-	attention: "注意",
-	steady: "平稳",
-	unchecked: "未测",
-	open: "打开生命监护",
-	back: "回到会话",
-	bannerDown: "本地桥没有连上。下面仍留着上一轮。",
-	bannerFailed: "这一轮没查完。下面仍留着上一轮。",
-	bannerSteady: "{n} 处都在墙上。停用和未接通不算告警。",
-	changed: "变化",
-	round: "这一轮",
+	title: "诊断",
+	desc: "对本机 Owl 做一轮只读体检：设置、插件、模型和会话目录。不发模型请求，不显示 key 和完整路径。后台每 5 分钟查一次，有异常时标题栏才会亮。",
+	recheck: "重新检查",
+	checking: "检查中…",
+	copy: "复制报告",
+	copied: "已复制",
+	checkedAt: "上次检查 {time}",
+	never: "还没查过",
+	issues: "{n} 项需要处理",
+	allClear: "{n} 项都正常。停用和未配置的不算异常。",
+	down: "本地桥没有连上，下面是上一轮的结果。",
+	failed: "这一轮没查完，下面是上一轮的结果。",
+	rest: "其余 {n} 项",
+	notSetUp: "未配置",
+	fixModels: "去模型设置",
+	fixPlugins: "去插件设置",
+	fixSkills: "去技能设置",
+	reportTitle: "Owl 诊断报告",
+	reportRest: "其余正常",
 };
 const enShell: { [K in keyof typeof zhShell]: string } = {
-	title: "OWL life monitor",
-	cadence: "{n} channels · every 15 seconds · read only",
-	alarms: "{n} alarms",
-	noAlarms: "No alarms",
-	critical: "Critical",
-	attention: "Attention",
-	steady: "Steady",
-	unchecked: "Unchecked",
-	open: "Open life monitor",
-	back: "Back to chat",
-	bannerDown: "The local bridge is down. The previous round is still shown.",
-	bannerFailed: "This round did not finish. The previous round is still shown.",
-	bannerSteady: "All {n} channels are on the wall. Off and unwired channels are not alarms.",
-	changed: "Changed",
-	round: "This round",
+	title: "Diagnostics",
+	desc: "A read-only checkup of this Owl install: settings, plugins, models and session folders. No model requests; keys and full paths are never shown. It runs in the background every 5 minutes and lights up the title bar only when something is wrong.",
+	recheck: "Check again",
+	checking: "Checking…",
+	copy: "Copy report",
+	copied: "Copied",
+	checkedAt: "Last checked {time}",
+	never: "Not checked yet",
+	issues: "{n} need attention",
+	allClear: "All {n} checks pass. Off and not-set-up items are not problems.",
+	down: "The local bridge is down. Showing the previous round.",
+	failed: "This round did not finish. Showing the previous round.",
+	rest: "Other {n} checks",
+	notSetUp: "Not set up",
+	fixModels: "Open model settings",
+	fixPlugins: "Open plugin settings",
+	fixSkills: "Open skill settings",
+	reportTitle: "Owl diagnostics report",
+	reportRest: "Passing",
 };
 
 function pick(zh: string, en: string): string {
@@ -154,6 +160,7 @@ export function lifeGroup(id: string): string {
 
 export function lifeLevel(level: LifeLevel, note: string): string {
 	if (note === "unwired") return pick("未接通", "Not wired");
+	if (level === "off" && note !== "disabled") return lifeShell("notSetUp");
 	return pick(zhLevel[level], enLevel[level]);
 }
 

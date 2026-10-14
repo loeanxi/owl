@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTracker } from "./bridge/permission-state.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
-import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
 import { useSubagents } from "./hooks/use-subagents.ts";
 import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
@@ -16,6 +16,7 @@ import type { NewsTarget } from "./features/news/NewsReading.tsx";
 import { MailPage } from "./features/mail/MailPage.tsx";
 import { EvaluationPage } from "./features/evaluation/EvaluationPage.tsx";
 import { ResearchPage } from "./features/research/ResearchPage.tsx";
+import { researchSessionKey } from "./features/research/research-session.ts";
 import { ManagerTab } from "./sidebar/tabs/ManagerTab.tsx";
 import { PanelErrorBoundary } from "./components/PanelErrorBoundary.tsx";
 import { useResearchEntryText } from "./features/research/research-entry-copy.ts";
@@ -26,10 +27,10 @@ import { TokenCareerPage } from "./features/token-career/TokenCareerPage.tsx";
 import { AutomationPage } from "./features/automation/AutomationPage.tsx";
 import { SchedulePin } from "./features/automation/SchedulePin.tsx";
 import { MyselfPanel } from "./features/myself/MyselfPanel.tsx";
+import { myselfDirCandidates } from "./features/myself/myself-data.ts";
 import { ExpertPanel } from "./features/expert/ExpertPanel.tsx";
 import { BaguPage } from "./features/bagu/BaguPage.tsx";
 import { MarketPage } from "./features/market/MarketPage.tsx";
-import { LifeMonitorPage } from "./features/life-monitor/LifeMonitorPage.tsx";
 import { presentLife } from "./features/life-monitor/present.ts";
 import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
@@ -53,8 +54,12 @@ import { SubagentPin } from "./components/SubagentPin.tsx";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./components/sidebar-scope.ts";
 import { DesktopTitlebar } from "./components/DesktopTitlebar.tsx";
 import { DynamicIsland } from "./components/DynamicIsland.tsx";
+import { loadIslandMemory } from "./components/dynamic-island-memory.ts";
 import { islandQuestionChoices, islandSessionTitle, islandWhisper, type IslandOutcome } from "./components/dynamic-island-model.ts";
 import { useAppHistory } from "./use-app-history.ts";
+import { useWorkspaceMemory } from "./use-workspace-memory.ts";
+import { resolveSessionRunTiming, type SessionRunTiming, type SessionRunTimingWire } from "./session-run-timing.ts";
+import { resolveWorkspaceMemory, type WorkspaceSettingsSection } from "./workspace-memory.ts";
 import type { AppPlace } from "./app-history.ts";
 import { ShortcutsDialog, type HelpSection } from "./components/ShortcutsDialog.tsx";
 import { FindBar } from "./components/FindBar.tsx";
@@ -145,6 +150,7 @@ export default function App(): React.JSX.Element {
 	const [connected, setConnected] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>("general");
+	const [settingsSection, setSettingsSection] = useState<WorkspaceSettingsSection>("general");
 	const [settingsMountKey, setSettingsMountKey] = useState(0);
 	// 动态壁纸（owlWallpaper）：设置页保存时同步到这里，WallpaperLayer 随之重渲。
 	const [wallpaper, setWallpaper] = useState<OwlWallpaperSettings>(() => parseOwlWallpaper(undefined));
@@ -156,7 +162,7 @@ export default function App(): React.JSX.Element {
 	const [newsTarget, setNewsTarget] = useState<NewsTarget & { revision: number }>();
 	const [railView, setRailView] = useState<RailView>(() => {
 		const view = new URLSearchParams(window.location.search).get("view");
-		return view === "manager" || view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "projects" || view === "research" || view === "guide" || view === "career" || view === "monitor" || view === "myself" || view === "expert" || view === "bagu" || view === "market" || view === "account" ? view : "chat";
+		return view === "manager" || view === "mail" || view === "map" || view === "evaluation" || view === "media" || view === "projects" || view === "research" || view === "guide" || view === "career" || view === "myself" || view === "expert" || view === "bagu" || view === "market" || view === "account" ? view : "chat";
 	});
 	const sessionScope = railView === "research" ? "research" : "chat";
 	const [mailMounted, setMailMounted] = useState(railView === "mail");
@@ -169,6 +175,7 @@ export default function App(): React.JSX.Element {
 	const [researchResumeRequest, setResearchResumeRequest] = useState<{ id: string; revision: number }>();
 	const [researchNewConversationRequest, setResearchNewConversationRequest] = useState(0);
 	const researchActionSequence = useRef(0);
+	const pendingResearchRestoreId = useRef<string | undefined>(undefined);
 	const railViewRef = useRef(railView);
 	railViewRef.current = railView;
 	// 媒体桥视图懒挂载：首次点开 Rail「音乐」才渲染，之后保活（保留 tab/滚动位置）。
@@ -184,9 +191,10 @@ export default function App(): React.JSX.Element {
 		setAutomationMounted(true);
 		setRailView("automation");
 	};
-	const [monitorMounted, setMonitorMounted] = useState(railView === "monitor");
 	// 「我的助理」同样懒挂载保活：owl-myself 的天文件读一次留在内存，勾选即时回写。
 	const [myselfMounted, setMyselfMounted] = useState(railView === "myself");
+	const [myselfOpenRequest, setMyselfOpenRequest] = useState<{ id: string; revision: number }>();
+	const myselfOpenSequence = useRef(0);
 	// 「专家顾问」懒挂载保活：owl-expert 的人格目录与群清单留在内存。
 	const [expertMounted, setExpertMounted] = useState(railView === "expert");
 	// 「八股对练」懒挂载保活：题库与面试线程留在内存，切走再回来不丢进度。
@@ -220,11 +228,19 @@ export default function App(): React.JSX.Element {
 	const [promptQueues, setPromptQueues] = useState<Record<string, { steering: string[]; followUp: string[] }>>({});
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
+	const [runningReady, setRunningReady] = useState(false);
+	const runningReadyRef = useRef(runningReady);
+	runningReadyRef.current = runningReady;
 	const runningSessionsRef = useRef(runningSessions);
 	runningSessionsRef.current = runningSessions;
 	/** 每个正在跑的会话最近一次有动静的时间。只在「谁排第一」变化时写进 state。 */
 	const activityAtRef = useRef(new Map<string, number>());
-	const startedAtRef = useRef(new Map<string, number>());
+	const runTimingRef = useRef(new Map<string, SessionRunTiming>());
+	const authoritativeRunTimings = useRef(new Set<string>());
+	const updateRunTiming = (id: string, incoming: SessionRunTimingWire = {}, fallbackStartedAt = 0): void => {
+		runTimingRef.current.set(id, resolveSessionRunTiming(runTimingRef.current.get(id), incoming, fallbackStartedAt));
+		if (typeof incoming.startedAt === "number" && Number.isFinite(incoming.startedAt) && incoming.startedAt > 0) authoritativeRunTimings.current.add(id);
+	};
 	const stepRef = useRef(new Map<string, string>());
 	const [stepRev, setStepRev] = useState(0);
 	const noteStepRef = useRef<(id: string, step: string) => void>(() => {});
@@ -240,6 +256,7 @@ export default function App(): React.JSX.Element {
 	const outcomeRef = useRef(new Map<string, IslandOutcome>());
 	const islandJumpRef = useRef<(() => void) | null>(null);
 	const [listedTitles, setListedTitles] = useState<ReadonlyMap<string, string>>(() => new Map());
+	const listedCwdsRef = useRef<ReadonlyMap<string, string>>(new Map());
 	const titleForRef = useRef<(id: string) => string>((id) => id);
 	const publishActivityRef = useRef<(ids: ReadonlySet<string>) => void>(() => {});
 	publishActivityRef.current = (ids) => {
@@ -377,10 +394,10 @@ export default function App(): React.JSX.Element {
 	);
 	// 主区视图（顶栏 tab 切换）：对话 / 上下文（owl-context 插件供数）
 	const [conversationView, setConversationView] = useState<ConversationView>(() =>
-		localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
+		localStorage.getItem(CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
 	const [researchConversationView, setResearchConversationView] = useState<ConversationView>(() =>
-		localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
+		localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
 	const setResearchConversationViewPersisted = (view: ConversationView): void => {
 		setResearchConversationView(view);
@@ -780,6 +797,7 @@ export default function App(): React.JSX.Element {
 		const offStatus = client.onStatus((up) => {
 			setConnected(up);
 			if (!up) {
+				setRunningReady(false);
 				submitInFlight.current = false;
 				setSubmitting(false);
 			}
@@ -815,7 +833,12 @@ export default function App(): React.JSX.Element {
 			}
 			if (eventType === "agent_start") {
 				outcomeRef.current.delete(message.sessionId);
-				startedAtRef.current.set(message.sessionId, now);
+				const continuing = runningSessionsRef.current.has(message.sessionId);
+				if (!continuing && runningReadyRef.current) {
+					runTimingRef.current.delete(message.sessionId);
+					authoritativeRunTimings.current.delete(message.sessionId);
+				}
+				updateRunTiming(message.sessionId, message.event as SessionRunTimingWire, continuing ? 0 : now);
 				stepRef.current.delete(message.sessionId);
 				const next = new Set(runningSessionsRef.current);
 				next.add(message.sessionId);
@@ -829,7 +852,8 @@ export default function App(): React.JSX.Element {
 				const next = new Set(runningSessionsRef.current);
 				if (next.delete(message.sessionId)) {
 					runningSessionsRef.current = next;
-					startedAtRef.current.delete(message.sessionId);
+					runTimingRef.current.delete(message.sessionId);
+					authoritativeRunTimings.current.delete(message.sessionId);
 					stepRef.current.delete(message.sessionId);
 					setRunningSessions(next);
 					publishActivityRef.current(next);
@@ -1043,19 +1067,25 @@ export default function App(): React.JSX.Element {
 
 	useEffect(() => {
 		if (!connected) return;
+		let cancelled = false;
 		// 连接后拉一次运行中的会话：UI 刷新或桥重连后恢复侧边栏的运行状态点。
 		void client
 			.request<SessionRunningResult>({ type: "session.running" })
 			.then((response) => {
-				if (!response.ok) return;
+				if (cancelled || !response.ok) return;
 				const ids = response.result?.running ?? [];
 				const now = Date.now();
-				for (const id of ids) if (!activityAtRef.current.has(id)) activityAtRef.current.set(id, now);
+				const timings = new Map(response.result?.runs?.map((run) => [run.sessionId, run]));
+				for (const id of ids) {
+					if (!activityAtRef.current.has(id)) activityAtRef.current.set(id, now);
+					updateRunTiming(id, timings.get(id));
+				}
 				const next = new Set(ids);
 				runningSessionsRef.current = next;
 				setRunningSessions(next);
 				publishActivityRef.current(next);
 				setPendingPrompts(new Set());
+				setRunningReady(true);
 			})
 			.catch(() => {});
 		// 主题偏好存放在 settings.json（dark / light / system），连上桥后立即应用；
@@ -1064,7 +1094,7 @@ export default function App(): React.JSX.Element {
 		void client
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
 			.then((response) => {
-				if (!response.ok) return;
+				if (cancelled || !response.ok) return;
 				if (response.result?.agentDir) setAgentDir(response.result.agentDir);
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
@@ -1101,7 +1131,24 @@ export default function App(): React.JSX.Element {
 				})
 				.catch(() => {});
 		}
+		return () => { cancelled = true; };
 	}, [connected, client]);
+
+	useEffect(() => {
+		if (!agentDir) return;
+		const saved = loadIslandMemory(localStorage, agentDir);
+		if (!saved) return;
+		for (const item of saved.running) {
+			if (!authoritativeRunTimings.current.has(item.id) && !runTimingRef.current.get(item.id)?.runId) {
+				runTimingRef.current.set(item.id, resolveSessionRunTiming(runTimingRef.current.get(item.id), { startedAt: item.startedAt }));
+			}
+			if (!activityAtRef.current.has(item.id)) activityAtRef.current.set(item.id, item.lastActivityAt);
+			if (item.step && !stepRef.current.has(item.id)) stepRef.current.set(item.id, item.step);
+		}
+		setListedTitles((current) => new Map([...saved.finished, ...saved.running].map((item) => [item.id, item.title] as const).concat([...current])));
+		setStepRev((current) => current + 1);
+		publishActivityRef.current(runningSessionsRef.current);
+	}, [agentDir]);
 
 	useEffect(() => {
 		if (!connected) return;
@@ -1109,14 +1156,17 @@ export default function App(): React.JSX.Element {
 		void client.request<SessionRowLite[]>({ type: "session.list" }).then((response) => {
 			if (cancelled || !response.ok || !response.result) return;
 			const next = new Map<string, string>();
+			const cwds = new Map<string, string>();
 			for (const row of response.result) {
 				if (!row.id) continue;
+				if (row.cwd) cwds.set(row.id, row.cwd);
 				next.set(row.id, islandSessionTitle(row, {
 					unnamed: t("sidebar.sessionUnnamed"),
 					branch: t("app.branchSuffix"),
 					fallback: t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }),
 				}));
 			}
+			listedCwdsRef.current = cwds;
 			setListedTitles(next);
 		}).catch(() => {});
 		return () => { cancelled = true; };
@@ -1348,6 +1398,7 @@ export default function App(): React.JSX.Element {
 	// 研究工作台换目录：只动研究侧（研究页按目录重建会话控制器），主会话原地不动。
 	const resetResearchWorkspace = (path: string): void => {
 		sessionViewSeq.current += 1;
+		pendingResearchRestoreId.current = undefined;
 		setResearchConversationTitle(undefined);
 		setResearchResumeRequest(undefined);
 		setResearchSessionId(undefined);
@@ -1377,7 +1428,7 @@ export default function App(): React.JSX.Element {
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
 	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
-	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean }): Promise<void> => {
+	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean; canApply?: () => boolean }): Promise<void> => {
 		setSubagentSelection(undefined);
 		const requestSeq = ++sessionViewSeq.current;
 		const response = await client.request<{
@@ -1386,6 +1437,7 @@ export default function App(): React.JSX.Element {
 			messages: Record<string, unknown>[];
 			messageEntryIds?: (string | undefined)[];
 			running?: boolean;
+			run?: DesktopRunTiming;
 			runStartMessageIndex?: number;
 			researchMode?: ResearchMode;
 			/** 会话头（含 parentSession）：分支出来的无名会话顶栏标题要加「· 分支」后缀 */
@@ -1403,9 +1455,10 @@ export default function App(): React.JSX.Element {
 		});
 		// 响应落地前用户又做了新的会话切换：这份过期响应整体丢弃（含错误横幅，
 		// 免得旧会话的失败盖在别的会话视图上）
-		if (requestSeq !== sessionViewSeq.current) return;
+		if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
 		if (!response.ok || !response.result) {
 			console.error("session.resume failed:", response.error);
+			if (options?.canApply) throw new Error(response.error ?? t("app.sessionRestoreFailed"));
 			if (!options?.silent) {
 				setEntries([
 					{ kind: "toolResult", toolName: t("app.sessionRestoreFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
@@ -1414,6 +1467,7 @@ export default function App(): React.JSX.Element {
 			return;
 		}
 		const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
+		if (response.result.run) updateRunTiming(resumedId, response.result.run);
 		if (researchMode !== undefined) {
 			if (options?.preserveRail) return;
 			if (options?.silent && railViewRef.current !== "chat") return;
@@ -1442,6 +1496,23 @@ export default function App(): React.JSX.Element {
 		void refreshStats(resumedId);
 	};
 
+	// 助理会话由「我的助理」面板的独立线程承载：灵动岛要跳回那里，不能装进主页对话。
+	const openIslandSession = async (id: string): Promise<void> => {
+		setShowSettings(false);
+		let cwd = listedCwdsRef.current.get(id);
+		if (cwd === undefined) {
+			const response = await client.request<SessionRowLite[]>({ type: "session.list" }).catch(() => undefined);
+			cwd = response?.ok ? response.result?.find((row) => row.id === id)?.cwd : undefined;
+		}
+		if (cwd && myselfDirCandidates(workspaceRef.current, agentDir).some((dir) => samePath(dir, cwd))) {
+			setMyselfMounted(true);
+			setRailView("myself");
+			setMyselfOpenRequest({ id, revision: ++myselfOpenSequence.current });
+			return;
+		}
+		await openSession(id);
+	};
+
 	// 上一个/下一个会话（Ctrl+Shift+[ / ]）：当前项目内按最近活跃排序循环切换。
 	// 与侧边栏同源（session.list），排除归档行；桥瞬断时静默放弃。
 	const cycleSession = async (direction: 1 | -1): Promise<void> => {
@@ -1465,29 +1536,76 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	// 启动自动续聊：连接后自动恢复当前项目最近一个有消息的会话（Claude Desktop 同款行为）。
-	// 每次启动只尝试一次；若用户抢先发消息/点会话（sessionId 已就位），则不打扰。
-	const restoreTriedRef = useRef(railView === "research");
-	useEffect(() => {
-		if (!connected || restoreTriedRef.current || railView === "research") return;
-		restoreTriedRef.current = true;
-		void (async () => {
-			try {
-				const response = await client.request<SessionRowLite[]>({ type: "session.list", scope: "chat" });
-				if (!response.ok || !response.result) return;
-				const rows = response.result.filter((row) => matchesSessionScope(row, "chat") && row.id && samePath(row.cwd, workspaceRef.current));
-				if (rows.length === 0) return;
-				// 优先有消息的会话：新会话按钮创建的空会话不算「上次正在聊的内容」。
-				const withMessages = rows.filter((row) => (row.messageCount ?? 0) > 0);
-				const pool = withMessages.length > 0 ? withMessages : rows;
-				const latest = pool.reduce((a, b) => (rowTime(a) >= rowTime(b) ? a : b));
-				if (sessionIdRef.current) return;
-				await openSession(String(latest.id), { silent: true });
-			} catch {
-				// 桥瞬断时静默放弃，侧边栏手动点会话仍可恢复
+	useWorkspaceMemory({
+		profile: agentDir,
+		connected,
+		place: {
+			rail: railView, settings: showSettings, settingsTab: settingsSection,
+			chatSession: sessionId, researchSession: researchSessionId,
+			workspace: workspaceDir, workspaceSelected, researchWorkspace: researchWorkspaceDir, researchWorkspaceSelected,
+			conversationView, researchConversationView, sidebarMinimized, newsSidebarMinimized, sidebarOpen, terminalOpen, developerLayout,
+		},
+		cancelRestore: () => { sessionViewSeq.current += 1; pendingResearchRestoreId.current = undefined; },
+		restore: async (saved, canApply) => {
+			const response = await client.request<SessionRowLite[]>({ type: "session.list" });
+			if (!response.ok || !response.result) throw new Error(response.error ?? "Session list unavailable");
+			if (!canApply()) return;
+			if (!saved) {
+				// First upgrade keeps the incumbent recent-session fallback until an exact location is saved.
+				if (railViewRef.current === "research" || sessionIdRef.current) return;
+				const rows = response.result.filter((row) => matchesSessionScope(row, "chat") && row.id && typeof row.archivedAt !== "string" && samePath(row.cwd, workspaceRef.current));
+				const populated = rows.filter((row) => (row.messageCount ?? 0) > 0);
+				const latest = (populated.length ? populated : rows).sort((a, b) => rowTime(b).localeCompare(rowTime(a)))[0];
+				if (latest?.id) await openSession(latest.id, { silent: true, preserveRail: true, canApply });
+				return;
 			}
-		})();
-	}, [connected, client, railView]); // eslint-disable-line react-hooks/exhaustive-deps
+			const snapshot = resolveWorkspaceMemory(saved, response.result);
+			const requestedView = new URLSearchParams(window.location.search).get("view") || /^#news\/(item|story|daily|weekly|monthly)\/[^/]+$/.test(window.location.hash.replace(/^#\//, "#"));
+			const view = requestedView ? railViewRef.current : snapshot.rail;
+			const researchKey = researchSessionKey(snapshot.researchWorkspace);
+			if (snapshot.researchSession) localStorage.setItem(researchKey, snapshot.researchSession);
+			else localStorage.removeItem(researchKey);
+			if (view === "mail") setMailMounted(true);
+			if (view === "media") setMediaMounted(true);
+			if (view === "guide") setGuideMounted(true);
+			if (view === "career") setCareerMounted(true);
+			if (view === "automation") setAutomationMounted(true);
+			if (view === "myself") setMyselfMounted(true);
+			if (view === "expert") setExpertMounted(true);
+			if (view === "bagu") setBaguMounted(true);
+			if (view === "market") setMarketMounted(true);
+			if (view === "evaluation") setEvaluationMounted(true);
+			if (view === "research" || snapshot.researchSession) setResearchMounted(true);
+			setWorkspaceDir(snapshot.workspace);
+			workspaceRef.current = snapshot.workspace;
+			localStorage.setItem(WORKSPACE_KEY, snapshot.workspace);
+			setWorkspaceSelected(snapshot.workspaceSelected);
+			localStorage.setItem(WORKSPACE_SELECTED_KEY, snapshot.workspaceSelected ? "1" : "0");
+			setResearchWorkspaceDir(snapshot.researchWorkspace);
+			researchWorkspaceRef.current = snapshot.researchWorkspace;
+			localStorage.setItem(RESEARCH_WORKSPACE_KEY, snapshot.researchWorkspace);
+			setResearchWorkspaceSelected(snapshot.researchWorkspaceSelected);
+			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, snapshot.researchWorkspaceSelected ? "1" : "0");
+			setConversationViewPersisted(snapshot.conversationView);
+			setResearchConversationViewPersisted(snapshot.researchConversationView);
+			setSidebarMinimized(snapshot.sidebarMinimized);
+			localStorage.setItem(SIDEBAR_MINIMIZED_KEY, snapshot.sidebarMinimized ? "1" : "0");
+			setNewsSidebarMinimized(snapshot.newsSidebarMinimized);
+			localStorage.setItem(NEWS_SIDEBAR_MINIMIZED_KEY, snapshot.newsSidebarMinimized ? "1" : "0");
+			setSidebarOpenPersisted(snapshot.sidebarOpen);
+			setTerminalOpenPersisted(snapshot.terminalOpen);
+			setDeveloperLayoutPersisted(snapshot.developerLayout);
+			setSettingsSection(snapshot.settingsTab);
+			setShowSettings(requestedView ? false : snapshot.settings);
+			setRailView(view);
+			if (snapshot.researchSession) {
+				pendingResearchRestoreId.current = snapshot.researchSession;
+				setResearchSessionId(snapshot.researchSession);
+				setResearchResumeRequest({ id: snapshot.researchSession, revision: ++researchActionSequence.current });
+			}
+			if (snapshot.chatSession) await openSession(snapshot.chatSession, { silent: true, preserveRail: true, canApply });
+		},
+	});
 
 	// 输入框项目选择器的候选列表：session.list 的项目 ∪ 到访过的项目 ∪ 当前项目（与侧边栏同源）。
 	// 保留目录（默认目录/助理目录）一律不进候选（当前位置由输入框 chip 标识）；切项目 / 侧边栏重拉
@@ -1904,6 +2022,7 @@ export default function App(): React.JSX.Element {
 
 	const openSettings = (tab: SettingsInitialTab): void => {
 		setSettingsInitialTab(tab);
+		setSettingsSection(tab);
 		setShowSettings(true);
 	};
 
@@ -1928,7 +2047,6 @@ export default function App(): React.JSX.Element {
 			if (place.rail === "guide") setGuideMounted(true);
 		if (place.rail === "career") setCareerMounted(true);
 		if (place.rail === "automation") setAutomationMounted(true);
-		if (place.rail === "monitor") setMonitorMounted(true);
 		if (place.rail === "myself") setMyselfMounted(true);
 		if (place.rail === "expert") setExpertMounted(true);
 		if (place.rail === "bagu") setBaguMounted(true);
@@ -1968,6 +2086,7 @@ export default function App(): React.JSX.Element {
 			localStorage.setItem(WORKSPACE_KEY, place.workspace);
 		}
 		setSettingsInitialTab(place.settingsTab);
+		setSettingsSection(place.settingsTab);
 		if (place.settings) setSettingsMountKey((key) => key + 1);
 		setShowSettings(place.settings);
 		setRailView(place.rail);
@@ -1981,6 +2100,8 @@ export default function App(): React.JSX.Element {
 		newChat: (): void => {
 			setShowSettings(false);
 			if (railView === "research") {
+				pendingResearchRestoreId.current = undefined;
+				setResearchResumeRequest(undefined);
 				setResearchNewConversationRequest((current) => current + 1);
 				return;
 			}
@@ -2066,7 +2187,7 @@ export default function App(): React.JSX.Element {
 			id,
 			title: titleForRef.current(id),
 			lastActivityAt: activityAtRef.current.get(id) ?? 0,
-			startedAt: startedAtRef.current.get(id) ?? activityAtRef.current.get(id) ?? 0,
+			startedAt: runTimingRef.current.get(id)?.startedAt ?? 0,
 			step: stepRev >= 0 ? stepRef.current.get(id) ?? "" : "",
 			waiting: needsPermission || needsQuestion,
 			waitKind: needsPermission ? "permission" as const : needsQuestion ? "question" as const : "" as const,
@@ -2142,17 +2263,14 @@ export default function App(): React.JSX.Element {
 					setShowSettings(false);
 					setRailView(railViewRef.current === "manager" ? "chat" : "manager");
 				}}
-				onOpenLifeMonitor={() => {
-					const opening = railViewRef.current !== "monitor";
-					setShowSettings(false);
-					setMonitorMounted(true);
-					setRailView(opening ? "monitor" : "chat");
-					if (opening) lifeProbe.refresh();
-				}}
+				onOpenDiagnostics={() => openSettings("diagnostics")}
 				lifeDot={lifeView.summary.dot}
 				lifeCount={lifeView.summary.count}
 				island={(
 					<DynamicIsland
+						memoryScope={agentDir}
+						runningReady={runningReady}
+						knownTitles={listedTitles}
 						running={islandRunning}
 						notice={doneNotice}
 						titleOf={(id) => titleForRef.current(id)}
@@ -2178,10 +2296,7 @@ export default function App(): React.JSX.Element {
 							answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, [{ index: 0, selectedLabels: [label] }], false));
 						}}
 						onReply={replyToSession}
-						onOpen={(id) => {
-							setShowSettings(false);
-							void openSession(id);
-						}}
+						onOpen={(id) => void openIslandSession(id)}
 					/>
 				)}
 			/>
@@ -2257,6 +2372,7 @@ export default function App(): React.JSX.Element {
 			<div data-owl-island-anchor="" style={{ display: railView === "news" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 }}>
 				<NewsPage client={client} active={railView === "news" && !showSettings} sidebarCollapsed={newsSidebarMinimized} initialTarget={newsTarget} onOpenModelSettings={() => {
 					setSettingsInitialTab("models");
+					setSettingsSection("models");
 					setShowSettings(true);
 				}} onToChat={(text) => {
 					setRailView("chat"); setShowSettings(false); setConversationViewPersisted("chat");
@@ -2322,9 +2438,6 @@ export default function App(): React.JSX.Element {
 					...[...listedTitles.entries()].filter(([id]) => id !== sessionId).slice(0, 30).map(([id, title]) => ({ id, title })),
 				]} />
 			</div>}
-			{monitorMounted && <div data-owl-island-anchor="" style={{ display: railView === "monitor" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
-				<LifeMonitorPage view={lifeView} round={lifeProbe.round} active={railView === "monitor" && !showSettings} />
-			</div>}
 			{/* 个人主页（Codex 式）：rail 左下角头像菜单的账号块进入。 */}
 			{railView === "account" && !showSettings && <div data-owl-island-anchor="" style={{ display: "flex", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<AccountProfilePage client={client} />
@@ -2332,7 +2445,7 @@ export default function App(): React.JSX.Element {
 			{/* 「我的助理」：owl-myself 目录每天一个 md，左侧日历排序 + 当天提炼/待办/对话。 */}
 			{myselfMounted && <div data-owl-island-anchor="" style={{ display: railView === "myself" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MyselfPanel
-					active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir}
+					active={railView === "myself" && !showSettings} client={client} connected={connected} workspaceDir={workspaceDir} agentDir={agentDir} openRequest={myselfOpenRequest}
 					providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode} onOpenSettings={openSettings}
 					questions={questions} permissions={permissions}
 					onQuestionAnswer={(requestId, answers, cancelled) => {
@@ -2402,7 +2515,11 @@ export default function App(): React.JSX.Element {
 								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={researchWorkspaceDir}
 								providers={chatProviders} defaultModel={modelValue} defaultThinkingLevel={thinkingLevel} defaultApprovalMode={approvalMode}
 								agentPresets={agentPresets} defaultPresetId={defaultPresetId} defaultAgentPreset={stagedPreset}
-								projects={visibleResearchProjects} workspaceSelected={researchWorkspaceSelected} onSwitchProject={switchResearchProject} onClearProject={clearResearchWorkspaceSelection} onSessionIdChange={setResearchSessionId}
+								projects={visibleResearchProjects} workspaceSelected={researchWorkspaceSelected} onSwitchProject={switchResearchProject} onClearProject={clearResearchWorkspaceSelection} onSessionIdChange={(id) => {
+									if (pendingResearchRestoreId.current && id !== pendingResearchRestoreId.current) return;
+									if (id === pendingResearchRestoreId.current) pendingResearchRestoreId.current = undefined;
+									setResearchSessionId(id);
+								}}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
 								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
@@ -2525,7 +2642,10 @@ export default function App(): React.JSX.Element {
 					client={client}
 					workspaceDir={workspaceDir}
 					initialTab={settingsInitialTab}
+					restoreSection={settingsSection}
+					onSectionChange={setSettingsSection}
 					onAskAgentCreatePreset={handleAskAgentCreatePreset}
+					lifeProbe={lifeProbe}
 					wallpaper={wallpaper}
 					onWallpaperChange={(next) => {
 						setWallpaper(next);

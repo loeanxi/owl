@@ -231,11 +231,15 @@ function modelChannel(input: LifeProbeInput, now: number): LifeChannel {
 	const models = readJson<{ providers?: Record<string, ProviderFile> }>(join(input.agentDir, "models.json"));
 	const provider = models?.providers?.[providerId];
 	if (!provider) return channel("model", "warn", "unknown", providerId, now);
-	if (!provider.baseUrl?.trim()) return channel("model", "warn", "no-url", providerId, now);
-	const local = /^https?:\/\/(127\.0\.0\.1|localhost)\b/i.test(provider.baseUrl);
-	const declaredKey = typeof provider.apiKey === "string" && provider.apiKey.trim().length > 0;
-	if (!declaredKey && !local && !authReady(input.agentDir, providerId)) {
-		return channel("model", "warn", "no-key", providerId, now);
+	// 没写 baseUrl 的条目是在覆盖内置供应商：地址和 key 由运行时补（内置默认值、环境变量），这里核不了；
+	// 纯自定义供应商缺 baseUrl 时模型库加载就会报错，根本选不中。
+	const baseUrl = provider.baseUrl?.trim();
+	if (baseUrl) {
+		const local = /^https?:\/\/(127\.0\.0\.1|localhost)\b/i.test(baseUrl);
+		const declaredKey = typeof provider.apiKey === "string" && provider.apiKey.trim().length > 0;
+		if (!declaredKey && !local && !authReady(input.agentDir, providerId)) {
+			return channel("model", "warn", "no-key", providerId, now);
+		}
 	}
 	if (!(provider.models ?? []).some((item) => item.id === modelId)) {
 		return channel("model", "warn", "unknown-model", modelId, now);
@@ -322,9 +326,9 @@ function codemodeChannel(settings: SettingsFile | undefined, now: number): LifeC
 function mailChannel(agentDir: string, now: number): LifeChannel {
 	const path = join(agentDir, "mail", "accounts.json");
 	const data = readJson<{ accounts?: unknown[] }>(path);
-	if (!data) return channel("mail", "warn", "no-account", "0", now);
+	if (!data) return channel("mail", "off", "no-account", "0", now);
 	const count = Array.isArray(data.accounts) ? data.accounts.length : 0;
-	if (count === 0) return channel("mail", "warn", "no-account", "0", now);
+	if (count === 0) return channel("mail", "off", "no-account", "0", now);
 	return channel("mail", "ok", "ok", String(count), mtime(path));
 }
 
@@ -397,7 +401,7 @@ function knownDir(id: "myself" | "expert" | "bagu", input: LifeProbeInput, now: 
 		candidates.push(join(input.agentDir, "myself"));
 	}
 	const found = candidates.find((path) => existsSync(path));
-	if (!found) return channel(id, "warn", "absent", folder, now);
+	if (!found) return channel(id, "off", "absent", folder, now);
 	return channel(id, "ok", "ok", folder, mtime(found));
 }
 

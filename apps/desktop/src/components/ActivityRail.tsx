@@ -12,7 +12,7 @@ import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "monitor" | "bagu" | "market" | "account";
+export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "bagu" | "market" | "account";
 
 /** 菜单底部通知条：调试更新流程的进度 / 结果。 */
 type UpdateNotice = {

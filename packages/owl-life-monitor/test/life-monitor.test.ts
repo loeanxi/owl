@@ -80,4 +80,14 @@ describe("probeLife", () => {
 		expect(byId.get("myself")?.note).not.toBe("unwired");
 		expect(result.channels.map((item) => item.id).sort()).toEqual(LIFE_CHANNELS.map((item) => item.id).sort());
 	});
+
+	it("leaves built-in provider overrides and unused features out of the alarms", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "owl-life-"));
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({}));
+		writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { loean: { models: [{ id: "m" }] } } }));
+		const result = probeLife({ agentDir, model: "loean/m", sessionDirFor: (cwd) => join(agentDir, cwd) });
+		const byId = new Map(result.channels.map((item) => [item.id, item]));
+		expect(byId.get("model")?.level).toBe("ok");
+		expect(byId.get("mail")).toMatchObject({ level: "off", note: "no-account" });
+	});
 });

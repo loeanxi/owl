@@ -47,11 +47,15 @@ import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import { AccountsSection } from "./settings/AccountsSection.tsx";
 import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
 import { ChangelogSection, useChangelogCopy } from "./settings/ChangelogSection.tsx";
+import { DiagnosticsSection } from "../features/life-monitor/DiagnosticsSection.tsx";
+import { lifeShell } from "../features/life-monitor/life-copy.ts";
+import type { LifeProbe } from "../features/life-monitor/use-life-probe.ts";
+import type { WorkspaceSettingsSection } from "../workspace-memory.ts";
 import "./settings-redesign.css";
 
-type SettingsSection = "general" | "accounts" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "changelog" | "about";
+type SettingsSection = WorkspaceSettingsSection;
 
-export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "about";
+export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "diagnostics" | "about";
 
 /** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
@@ -61,9 +65,12 @@ export function SettingsPage({
 	onClose,
 	onSessionsChanged,
 	initialTab = "general",
+	restoreSection,
+	onSectionChange,
 	wallpaper,
 	onWallpaperChange,
 	onAskAgentCreatePreset,
+	lifeProbe,
 }: {
 	client: BridgeClient;
 	workspaceDir: string;
@@ -72,16 +79,25 @@ export function SettingsPage({
 	/** 会话列表发生变化（恢复/删除归档会话）：让侧边栏同步重拉，避免两边状态对不上。 */
 	onSessionsChanged?: () => void;
 	initialTab?: SettingsInitialTab;
+	/** 重启恢复支持所有设置分区；菜单仍可用 initialTab 直接进入常用页。 */
+	restoreSection?: WorkspaceSettingsSection;
+	onSectionChange?: (section: WorkspaceSettingsSection) => void;
 	/** 动态壁纸设置：App 持有状态（渲染层也要用），设置页只做编辑 + 落盘。 */
 	wallpaper: OwlWallpaperSettings;
 	onWallpaperChange: (next: OwlWallpaperSettings) => void;
 	/** 「让 Agent 帮我创建预设模式」：切到创造模式开新会话并填入引导草稿（App 实现）。 */
 	onAskAgentCreatePreset?: () => void;
+	/** 「诊断」分区：App 持有探测（标题栏的异常提醒也用它）。 */
+	lifeProbe: LifeProbe;
 }): React.JSX.Element {
 	const t = useT();
 	const changelogCopy = useChangelogCopy();
 	useProjectSidebarRevision();
-	const [section, setSection] = useState<SettingsSection>(initialTab);
+	const [section, setSection] = useState<SettingsSection>(restoreSection ?? initialTab);
+	const selectSection = (next: SettingsSection): void => {
+		setSection(next);
+		onSectionChange?.(next);
+	};
 	const [agentDir, setAgentDir] = useState("");
 	const [settingsObj, setSettingsObj] = useState<Record<string, unknown>>({});
 	const [chatAppearance, setChatAppearance] = useState<ChatAppearance>(() => ({ ...DEFAULT_CHAT_APPEARANCE }));
@@ -294,7 +310,7 @@ export function SettingsPage({
 		};
 	}, []);
 
-	useEffect(() => setSection(initialTab), [initialTab]);
+	useEffect(() => setSection(restoreSection ?? initialTab), [initialTab, restoreSection]);
 
 	// 主题解析档变化（手动切档 / system 跟随操作系统）：背景与前景两行切换编辑目标。
 	useEffect(() => {
@@ -1314,11 +1330,11 @@ export function SettingsPage({
 					{/* ============ 左侧分类导航 ============ */}
 					<nav className="owl-settings-nav" aria-label={t("settings.navAria")}>
 						<div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>
-						<NavItem icon={<IconSettings />} label={t("settings.navGeneral")} active={section === "general"} onClick={() => setSection("general")} />
-						<NavItem icon={<IconSelf />} label={t("settings.navAccounts")} active={section === "accounts"} onClick={() => setSection("accounts")} />
-						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => setSection("models")} />
-						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => setSection("plugins")} />
-						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => setSection("skills")} />
+						<NavItem icon={<IconSettings />} label={t("settings.navGeneral")} active={section === "general"} onClick={() => selectSection("general")} />
+						<NavItem icon={<IconSelf />} label={t("settings.navAccounts")} active={section === "accounts"} onClick={() => selectSection("accounts")} />
+						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => selectSection("models")} />
+						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => selectSection("plugins")} />
+						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => selectSection("skills")} />
 						<NavItem
 							icon={
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
@@ -1327,24 +1343,34 @@ export function SettingsPage({
 							}
 							label={t("settings.presets.nav")}
 							active={section === "presets"}
-							onClick={() => setSection("presets")}
+							onClick={() => selectSection("presets")}
 						/>
-						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => setSection("sidebar")} />
-						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => setSection("appearance")} />
-						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => setSection("notifications")} />
-						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => setSection("prompts")} />
-					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => setSection("memory")} />
-						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => setSection("image")} />
+						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => selectSection("sidebar")} />
+						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => selectSection("appearance")} />
+						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => selectSection("notifications")} />
+						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => selectSection("prompts")} />
+					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => selectSection("memory")} />
+						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => selectSection("image")} />
 						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
-						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => setSection("usage")} />
-						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => setSection("archived")} />
-						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => setSection("json")} />
-						<NavItem icon={<IconClock />} label={changelogCopy.nav} active={section === "changelog"} onClick={() => setSection("changelog")} />
-						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => setSection("about")} />
+						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => selectSection("usage")} />
+						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => selectSection("archived")} />
+						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => selectSection("json")} />
+						<NavItem
+							icon={
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+									<path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
+								</svg>
+							}
+							label={lifeShell("title")}
+							active={section === "diagnostics"}
+							onClick={() => selectSection("diagnostics")}
+						/>
+						<NavItem icon={<IconClock />} label={changelogCopy.nav} active={section === "changelog"} onClick={() => selectSection("changelog")} />
+						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => selectSection("about")} />
 					</nav>
 
 					{/* ============ 右侧内容区 ============ */}
-					<div className="owl-settings-content" key={section}>
+					<div className="owl-settings-content" key={section} data-owl-settings-section={section}>
 						{error && <div className="owl-settings-notice is-error" role="alert">{error}</div>}
 
 						{/* -------- 常规 -------- */}
@@ -4340,6 +4366,7 @@ export function SettingsPage({
 							</>
 						)}
 
+						{section === "diagnostics" && <DiagnosticsSection probe={lifeProbe} onFix={selectSection} />}
 						{section === "changelog" && <ChangelogSection />}
 
 						{/* -------- 关于 -------- */}
