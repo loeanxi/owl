@@ -89,6 +89,16 @@ describe("news assistant without collected articles", () => {
 	);
 });
 
+describe("news model configuration", () => {
+	it("falls back to the default model when a capability is set to null", async () => {
+		const { service } = fixture();
+		const model = { provider: "fixture", id: "picked" };
+		await service.handle({ action: "configure", patch: { models: { assistant: model, score: model } } });
+		const saved = await service.handle({ action: "configure", patch: { models: { assistant: null } } });
+		expect(saved.models).toEqual({ score: model });
+	});
+});
+
 describe("manual news model connection test", () => {
 	it("really calls an unsaved model on every click while leaving background settings and saved model alone", async () => {
 		const { service, callModel } = fixture();

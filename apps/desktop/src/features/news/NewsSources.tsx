@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+	NewsFeedDiscovery,
 	NewsMaterial,
 	NewsParticipation,
 	NewsSource,
@@ -8,8 +9,67 @@ import type {
 	NewsTier,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { type TextKey, useT } from "../../i18n/index.ts";
+import { useNewsToast } from "./NewsToast.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
+
+type Translate = ReturnType<typeof useT>;
+
+/** The interval most sources already use, so a newly added source follows the chosen frequency. */
+export function commonInterval(sources: NewsSource[]): number {
+	const counts = new Map<number, number>();
+	for (const source of sources) counts.set(source.intervalMinutes, (counts.get(source.intervalMinutes) ?? 0) + 1);
+	return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 60;
+}
+
+function timeAgo(iso: string, t: Translate): string {
+	const minutes = Math.floor((Date.now() - Date.parse(iso)) / 60_000);
+	if (minutes < 1) return t("news.justNow");
+	if (minutes < 60) return t("news.minutesAgo", { n: minutes });
+	if (minutes < 1440) return t("news.hoursAgo", { n: Math.floor(minutes / 60) });
+	return t("news.daysAgo", { n: Math.floor(minutes / 1440) });
+}
+
+function diagnose(error: string, t: Translate): { text: string; help?: string } {
+	if (error.includes("SOCIALDATA_API_KEY"))
+		return { text: t("news.errNeedKey", { key: t("news.keyX") }), help: t("news.errNeedKeyHelp") };
+	if (error.includes("DAJIALA_KEY"))
+		return { text: t("news.errNeedKey", { key: t("news.keyMp") }), help: t("news.errNeedKeyHelp") };
+	const status = Number(/HTTP (\d{3})/.exec(error)?.[1]);
+	if (status === 401 || status === 403) return { text: t("news.errBlocked"), help: t("news.errBlockedHelp") };
+	if (status === 404 || status === 410) return { text: t("news.errGone"), help: t("news.errGoneHelp") };
+	if (status === 429) return { text: t("news.errRateLimited"), help: t("news.errTransientHelp") };
+	if (status >= 500) return { text: t("news.errServer"), help: t("news.errTransientHelp") };
+	if (error.includes("不是 RSS/Atom")) return { text: t("news.errNotFeed"), help: t("news.errGoneHelp") };
+	if (/abort|timeout|timed out|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|socket/i.test(error))
+		return { text: t("news.errNetwork"), help: t("news.errTransientHelp") };
+	return { text: error };
+}
+
+function explainError(error: string, t: Translate): string {
+	return diagnose(error, t).text;
+}
+
+function sourceStatus(source: NewsSource, t: Translate): string {
+	if (!source.enabled) return t("news.sourceOff");
+	if (source.lastError) return explainError(source.lastError, t);
+	return source.lastCollectedAt
+		? t("news.collectedAgo", { time: timeAgo(source.lastCollectedAt, t) })
+		: t("news.neverCollected");
+}
+
+function SourceNote({ source }: { source: NewsSource }): React.JSX.Element {
+	const t = useT();
+	const help = source.lastError ? diagnose(source.lastError, t).help : undefined;
+	const { feedUrl, url, query, ghid, wxid } = source.config;
+	return (
+		<p>
+			{help}
+			{help && <br />}
+			<span>{source.lastError ?? String(feedUrl ?? url ?? query ?? ghid ?? wxid ?? "")}</span>
+		</p>
+	);
+}
 
 const KINDS: { id: NewsSourceKind; label: TextKey }[] = [
 	{ id: "rss", label: "news.kindRss" },
@@ -84,6 +144,11 @@ export function NewsSources({
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
 	const [deleting, setDeleting] = useState<string>();
+	const [address, setAddress] = useState("");
+	const [found, setFound] = useState<NewsFeedDiscovery>();
+	const [discovering, setDiscovering] = useState(false);
+	const [expanded, setExpanded] = useState<string>();
+	const [toast, showToast] = useNewsToast();
 	const root = useRef<HTMLElement>(null);
 	const nameInput = useRef<HTMLInputElement>(null);
 	const feedback = useRef<HTMLDivElement>(null);
@@ -112,6 +177,11 @@ export function NewsSources({
 	useEffect(() => {
 		if (editorOpen && (error || notice || preview)) feedback.current?.scrollIntoView({ block: "nearest" });
 	}, [editorOpen, error, notice, preview]);
+	useEffect(() => {
+		if (editorOpen || !notice) return;
+		showToast(notice);
+		setNotice("");
+	}, [editorOpen, notice, showToast]);
 	function edit(source?: NewsSource): void {
 		if (inFlight.current) return;
 		returnFocusId.current = source ? `owl-news-edit-source-${source.id}` : "owl-news-add-source";
@@ -194,33 +264,120 @@ export function NewsSources({
 			setBusy(false);
 		}
 	}
+	const list = sources.data ?? [];
+	const groups = [
+		{ tone: "bad", label: "news.groupProblem", entries: list.filter((source) => source.enabled && source.lastError) },
+		{ tone: "ok", label: "news.groupOk", entries: list.filter((source) => source.enabled && !source.lastError) },
+		{ tone: "off", label: "news.groupOff", entries: list.filter((source) => !source.enabled) },
+	] as const;
+	function addFound(feed: NewsFeedDiscovery): void {
+		const host = new URL(feed.feedUrl).hostname.replace(/^www\./, "");
+		const base = host.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 90) || "source";
+		const taken = new Set(list.map((source) => source.id));
+		let id = base;
+		for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+		const name = feed.title || host;
+		void perform(
+			async () => {
+				await api.query({
+					action: "saveSource",
+					source: {
+						id,
+						name,
+						kind: "rss",
+						config: { feedUrl: feed.feedUrl },
+						tier: "T2",
+						participation: "editorial",
+						enabled: true,
+						intervalMinutes: commonInterval(list),
+						siteFulltext: false,
+						syndicateFulltext: false,
+					},
+				});
+				setFound(undefined);
+				setAddress("");
+			},
+			t("news.sourceAdded", { name }),
+		);
+	}
 	return (
-		<section ref={root}>
-			<div className="owl-news-heading">
-				<div>
-					<h1>{t("news.sources")}</h1>
-					<p>{t("news.sourcesHint")}</p>
-				</div>
-				{!draft && (
-					<button
-						id="owl-news-add-source"
-						type="button"
-						className="owl-news-primary"
-						disabled={busy}
-						onClick={() => edit()}
+		<section ref={root} className={draft ? undefined : "owl-news-settings"}>
+			{toast}
+			{!draft && (
+				<>
+					<form
+						className="owl-news-add"
+						onSubmit={(event) => {
+							event.preventDefault();
+							if (!address.trim()) return;
+							setFound(undefined);
+							void perform(
+								async () => {
+									setDiscovering(true);
+									try {
+										setFound(await api.query({ action: "discoverSource", url: address }));
+									} catch (failure) {
+										throw new Error(explainError(errorText(failure), t));
+									} finally {
+										setDiscovering(false);
+									}
+								},
+								"",
+								false,
+							);
+						}}
 					>
-						{t("news.addSource")}
-					</button>
-				)}
-			</div>
+						<input
+							value={address}
+							aria-label={t("news.addByUrl")}
+							placeholder={t("news.addByUrl")}
+							onChange={(event) => {
+								setAddress(event.target.value);
+								setFound(undefined);
+							}}
+						/>
+						<button type="submit" className="owl-news-primary" disabled={busy || !address.trim()}>
+							{discovering ? t("news.discovering") : t("news.discover")}
+						</button>
+					</form>
+					{found ? (
+						<div className="owl-news-found">
+							<div>
+								<div>
+									<b>{found.title || new URL(found.feedUrl).hostname}</b>
+									<small>{t("news.feedFound", { url: found.feedUrl.replace(/^https?:\/\//, "") })}</small>
+								</div>
+								<button
+									type="button"
+									className="owl-news-primary"
+									disabled={busy}
+									onClick={() => addFound(found)}
+								>
+									{t("common.add")}
+								</button>
+							</div>
+							<ul>
+								{found.items.map((item) => (
+									<li key={item.url}>
+										{item.title}
+										{item.publishedAt && <span>{new Date(item.publishedAt).toLocaleDateString()}</span>}
+									</li>
+								))}
+							</ul>
+						</div>
+					) : (
+						<p className="owl-news-add-hint">
+							{t("news.discoverHint")}
+							<button id="owl-news-add-source" type="button" disabled={busy} onClick={() => edit()}>
+								{t("news.addManually")}
+							</button>
+						</p>
+					)}
+				</>
+			)}
 			{((!draft && error) || sources.error) && (
 				<p role="alert" className="owl-news-error">
 					{error || sources.error}
-				</p>
-			)}
-			{notice && !draft && (
-				<p aria-live="polite" className="owl-news-notice">
-					{notice}
 				</p>
 			)}
 			{sources.loading && <p aria-live="polite">{t("news.loading")}</p>}
@@ -230,75 +387,113 @@ export function NewsSources({
 					<p>{t("news.noSourcesHint")}</p>
 				</div>
 			)}
-			{!draft && (
-				<div className="owl-news-source-list">
-					{sources.data?.map((source) => (
-						<article key={source.id} className="owl-news-source-row">
-							<div>
-								<strong>{source.name}</strong>
-								<small>
-									{t(KINDS.find((kind) => kind.id === source.kind)?.label ?? "news.kindExternal")} ·{" "}
-									{source.tier} · {source.intervalMinutes} {t("news.minutes")}
-								</small>
-								{source.lastError && <p className="owl-news-error">{source.lastError}</p>}
-							</div>
-							<button
-								type="button"
-								disabled={busy}
-								onClick={() =>
-									void perform(
-										() =>
-											api.query({ action: "saveSource", source: { ...source, enabled: !source.enabled } }),
-										t("common.saved"),
-									)
-								}
-							>
-								{source.enabled ? t("news.pause") : t("news.enable")}
-							</button>
-							<button
-								type="button"
-								disabled={busy}
-								onClick={() =>
-									void perform(() => api.query({ action: "run", sourceId: source.id }), t("news.queued"))
-								}
-							>
-								{t("news.collectNow")}
-							</button>
-							<button
-								id={`owl-news-edit-source-${source.id}`}
-								type="button"
-								disabled={busy}
-								onClick={() => edit(source)}
-							>
-								{t("common.edit")}
-							</button>
-							<button type="button" disabled={busy} onClick={() => setDeleting(source.id)}>
-								{t("common.delete")}
-							</button>
-							{deleting === source.id && (
-								<div className="owl-news-confirm">
-									<span>{t("news.deleteSourceConfirm")}</span>
-									<button
-										type="button"
-										disabled={busy}
-										onClick={() =>
-											void perform(async () => {
-												await api.query({ action: "deleteSource", id: source.id });
-												setDeleting(undefined);
-											}, t("news.deleted"))
-										}
-									>
-										{t("common.confirmDelete")}
-									</button>
-									<button type="button" onClick={() => setDeleting(undefined)}>
-										{t("common.cancel")}
-									</button>
+			{!draft &&
+				groups.map(
+					(group) =>
+						group.entries.length > 0 && (
+							<div key={group.tone}>
+								<div className="owl-news-group">{t(group.label, { n: group.entries.length })}</div>
+								<div className="owl-news-src-list">
+									{group.entries.map((source) => (
+										<div key={source.id} className={`owl-news-src is-${group.tone}`}>
+											<div className="owl-news-src-row">
+												<button
+													type="button"
+													className="owl-news-src-main"
+													aria-expanded={expanded === source.id}
+													onClick={() => {
+														setExpanded(expanded === source.id ? undefined : source.id);
+														setDeleting(undefined);
+													}}
+												>
+													<span className="owl-news-dot" />
+													<span>
+														<b>{source.name}</b>
+														<small>{sourceStatus(source, t)}</small>
+													</span>
+												</button>
+												<button
+													type="button"
+													role="switch"
+													className="owl-news-switch"
+													aria-checked={source.enabled}
+													aria-label={t("news.sourceSwitch", { name: source.name })}
+													disabled={busy}
+													onClick={() =>
+														void perform(
+															() =>
+																api.query({
+																	action: "saveSource",
+																	source: { ...source, enabled: !source.enabled },
+																}),
+															t("common.saved"),
+														)
+													}
+												/>
+											</div>
+											{expanded === source.id && (
+												<div className="owl-news-src-more">
+													{deleting === source.id ? (
+														<>
+															<p>{t("news.deleteSourceConfirm")}</p>
+															<button
+																type="button"
+																className="is-danger"
+																disabled={busy}
+																onClick={() =>
+																	void perform(async () => {
+																		await api.query({ action: "deleteSource", id: source.id });
+																		setDeleting(undefined);
+																	}, t("news.deleted"))
+																}
+															>
+																{t("common.confirmDelete")}
+															</button>
+															<button type="button" onClick={() => setDeleting(undefined)}>
+																{t("common.cancel")}
+															</button>
+														</>
+													) : (
+														<>
+															<SourceNote source={source} />
+															<button
+																type="button"
+																disabled={busy}
+																onClick={() =>
+																	void perform(
+																		() => api.query({ action: "run", sourceId: source.id }),
+																		t("news.queued"),
+																	)
+																}
+															>
+																{t("news.collectNow")}
+															</button>
+															<button
+																id={`owl-news-edit-source-${source.id}`}
+																type="button"
+																disabled={busy}
+																onClick={() => edit(source)}
+															>
+																{t("common.edit")}
+															</button>
+															<button
+																type="button"
+																className="is-danger"
+																disabled={busy}
+																onClick={() => setDeleting(source.id)}
+															>
+																{t("common.delete")}
+															</button>
+														</>
+													)}
+												</div>
+											)}
+										</div>
+									))}
 								</div>
-							)}
-						</article>
-					))}
-				</div>
-			)}
+							</div>
+						),
+				)}
 			{draft && (
 				<form
 					className="owl-news-form owl-news-source-editor"

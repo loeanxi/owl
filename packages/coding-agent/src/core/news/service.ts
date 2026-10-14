@@ -19,6 +19,7 @@ import { DEFAULT_NEWS_CONFIGURATION, DEMO_NEWS_SOURCES, NEWS_CATEGORIES, NEWS_TO
 import { newsModelFailureMessage } from "./model-error.ts";
 import {
 	collectNewsSource,
+	discoverNewsFeed,
 	extractNewsArticleResponse,
 	fetchNewsText,
 	isNewsChallengeContent,
@@ -1174,12 +1175,16 @@ export class NewsService {
 						this.cachedSourceResponse(source, `source:${source.id}`, purpose, identity, run),
 				});
 			}
+			case "discoverSource":
+				return discoverNewsFeed(request.url, this.fetchOptions());
 			case "configure": {
 				const patch = request.patch;
 				const config: NewsConfiguration = {
 					...this.configuration,
 					...patch,
-					models: { ...this.configuration.models, ...patch.models },
+					models: Object.fromEntries(
+						Object.entries({ ...this.configuration.models, ...patch.models }).filter(([, model]) => model),
+					),
 					thresholds: { ...this.configuration.thresholds, ...patch.thresholds },
 					budget: { ...this.configuration.budget, ...patch.budget },
 					embedding: { ...this.configuration.embedding, ...patch.embedding },

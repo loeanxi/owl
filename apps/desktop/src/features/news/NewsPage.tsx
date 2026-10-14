@@ -6,10 +6,9 @@ import type {
 	NewsSnapshot,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { IconNews, IconSearch } from "../../components/icons.tsx";
+import { IconSearch } from "../../components/icons.tsx";
 import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import { NewsAssistant, type NewsContext } from "./NewsAssistant.tsx";
-import { NewsContentManagement } from "./NewsContentManagement.tsx";
 import { NewsManagement } from "./NewsManagement.tsx";
 import { NewsItemReader, NewsReportReader, NewsStoryReader, type NewsTarget } from "./NewsReading.tsx";
 import { NewsSources } from "./NewsSources.tsx";
@@ -18,36 +17,16 @@ import { errorText, NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 import "./news.css";
 
-type NewsSection =
-	| "selected"
-	| "all"
-	| "hot"
-	| NewsReportKind
-	| "saved"
-	| "topics"
-	| "sources"
-	| "content"
-	| "configuration"
-	| "operations"
-	| "evaluation"
-	| "exports";
+type NewsSection = "selected" | "all" | NewsReportKind | "saved" | "sources" | "configuration";
 const SECTIONS: { id: NewsSection; key: TextKey }[] = [
 	{ id: "selected", key: "news.selected" },
 	{ id: "all", key: "news.all" },
-	{ id: "hot", key: "news.hot" },
 	{ id: "daily", key: "news.daily" },
-	{ id: "weekly", key: "news.weekly" },
-	{ id: "monthly", key: "news.monthly" },
 	{ id: "saved", key: "news.saved" },
-	{ id: "topics", key: "news.topics" },
 ];
 const MANAGEMENT: { id: NewsSection; key: TextKey }[] = [
-	{ id: "content", key: "news.contentManagement" },
 	{ id: "sources", key: "news.sources" },
 	{ id: "configuration", key: "news.configuration" },
-	{ id: "operations", key: "news.operations" },
-	{ id: "evaluation", key: "news.evaluation" },
-	{ id: "exports", key: "news.exports" },
 ];
 
 export function NewsPage({
@@ -75,7 +54,6 @@ export function NewsPage({
 	const [error, setError] = useState("");
 	const [connected, setConnected] = useState(true);
 	const [category, setCategory] = useState("");
-	const [topic, setTopic] = useState("");
 	const [query, setQuery] = useState("");
 	const [queryInput, setQueryInput] = useState("");
 	const [context, setContext] = useState<NewsContext>({ items: [] });
@@ -86,6 +64,16 @@ export function NewsPage({
 	const snapshotRevision = useRef(0);
 	const contentRef = useRef<HTMLElement>(null);
 	const refreshed = (): void => setRevision((current) => current + 1);
+	const savedList = useNewsQuery(api, { action: "list", query: { mode: "saved", limit: 1 } }, revision);
+	const [savedTotal, setSavedTotal] = useState(0);
+	useEffect(() => {
+		if (savedList.data) setSavedTotal(savedList.data.total);
+	}, [savedList.data]);
+	const isEmptySection = (id: NewsSection): boolean =>
+		id !== section &&
+		((id === "saved" && savedTotal === 0) || (id === "daily" && !!snapshot && snapshot.status.reportCount === 0));
+	const feedMode = section === "all" || section === "saved" ? section : "selected";
+	const categoryCounts = useCategoryCounts(api, feedMode, snapshot?.categories, revision);
 	useEffect(() => {
 		if (!MANAGEMENT.some((entry) => entry.id === section)) return;
 		const compact = window.matchMedia("(max-width: 1100px)");
@@ -174,7 +162,6 @@ export function NewsPage({
 	function selectSection(next: NewsSection): void {
 		setSection(next);
 		setTarget(undefined);
-		setTopic("");
 		contentRef.current?.scrollTo({ top: 0 });
 	}
 	function discuss(next: NewsContext): void {
@@ -197,13 +184,6 @@ export function NewsPage({
 		onDiscuss: discuss,
 		onChanged: refreshed,
 	};
-	const title = target
-		? target.kind === "item"
-			? t("news.reading")
-			: target.kind === "story"
-				? t("news.event")
-				: t(`news.${target.kind}`)
-		: t([...SECTIONS, ...MANAGEMENT].find((entry) => entry.id === section)?.key ?? "news.selected");
 	return (
 		<div className="owl-news-module">
 			<nav
@@ -212,17 +192,7 @@ export function NewsPage({
 				style={{ display: sidebarCollapsed ? "none" : undefined }}
 				aria-label={t("news.navigation")}
 			>
-				<div className="owl-news-brand">
-					<IconNews />
-					<strong>Owl</strong>
-					<span>{t("news.local")}</span>
-				</div>
-				<div className="owl-news-sidebar-intro">
-					<h2>{t("news.titleName")}</h2>
-					<p>{t("news.subtitle")}</p>
-				</div>
-				<div className="owl-news-nav-caption">{t("news.reading")}</div>
-				{SECTIONS.map((entry) => (
+				{SECTIONS.filter((entry) => !isEmptySection(entry.id)).map((entry) => (
 					<button
 						type="button"
 						key={entry.id}
@@ -234,7 +204,7 @@ export function NewsPage({
 						{entry.id === "selected" && snapshot && <small>{snapshot.status.selectedCount}</small>}
 					</button>
 				))}
-				<div className="owl-news-nav-caption">{t("news.management")}</div>
+				<hr className="owl-news-nav-divider" />
 				{MANAGEMENT.map((entry) => (
 					<button
 						type="button"
@@ -245,27 +215,9 @@ export function NewsPage({
 						{t(entry.key)}
 					</button>
 				))}
-				<div className="owl-news-sidebar-status">
-					<span className={connected ? "owl-news-status-dot" : "owl-news-status-dot is-offline"} />
-					{connected ? t("composer.connected") : t("news.disconnected")}
-					{snapshot && (
-						<>
-							<p>
-								{t("news.sourceCount", { n: snapshot.status.sourceCount })} ·{" "}
-								{t("news.pendingCount", { n: snapshot.status.pendingCount })}
-							</p>
-							<p>{snapshot.status.collectEnabled ? t("news.collectOn") : t("news.collectOff")}</p>
-						</>
-					)}
-				</div>
 			</nav>
 			<div className="owl-news-frame">
 				<header className="owl-news-topbar">
-					<div>
-						<span>{t("news.titleName")}</span>
-						<span>/</span>
-						<strong>{title}</strong>
-					</div>
 					<div>
 						<button type="button" onClick={refreshed} disabled={loading}>
 							{t("common.refresh")}
@@ -326,22 +278,6 @@ export function NewsPage({
 							<>
 								{(section === "selected" || section === "all" || section === "saved") && (
 									<>
-										<div className="owl-news-heading">
-											<div>
-												<div className="owl-news-eyebrow">
-													{section === "selected" ? "OWL NEWS / FOR YOU" : "OWL NEWS"}
-												</div>
-												<h1>{section === "selected" ? t("news.todayHeadline") : title}</h1>
-												<p>{t(section === "saved" ? "news.savedHint" : section === "selected" ? "news.todayFeedHint" : "news.feedHint")}</p>
-											</div>
-											<span className="owl-news-muted">
-												{snapshot?.status.lastUpdatedAt
-													? new Date(snapshot.status.lastUpdatedAt).toLocaleDateString()
-													: section === "selected"
-														? new Date().toLocaleDateString()
-														: ""}
-											</span>
-										</div>
 										<form
 											className="owl-news-search"
 											onSubmit={(event) => {
@@ -377,24 +313,23 @@ export function NewsPage({
 											>
 												{t("news.allCategories")}
 											</button>
-											{snapshot?.categories.map((entry) => (
-												<button
-													type="button"
-													className={category === entry.id ? "is-active" : ""}
-													key={entry.id}
-													onClick={() => setCategory(entry.id)}
-												>
-													{entry.label}
-												</button>
-											))}
+											{snapshot?.categories
+												.filter((entry) => entry.id === category || categoryCounts?.[entry.id] !== 0)
+												.map((entry) => (
+													<button
+														type="button"
+														className={category === entry.id ? "is-active" : ""}
+														key={entry.id}
+														onClick={() => setCategory(entry.id)}
+													>
+														{entry.label}
+													</button>
+												))}
 										</div>
-										{section === "selected" && !query && (
-											<NewsHotStrip api={api} revision={revision} onStory={reading.onStory} />
-										)}
 										<NewsFeed
 											api={api}
 											revision={revision}
-											query={{ mode: section, query, category, ...(topic ? { topic } : {}) }}
+											query={{ mode: section, query, category }}
 											categories={snapshot?.categories}
 											context={context}
 											onItem={openItem}
@@ -408,49 +343,20 @@ export function NewsPage({
 										/>
 									</>
 								)}
-								{section === "hot" && <NewsHotView api={api} revision={revision} onStory={reading.onStory} />}
 								{(section === "daily" || section === "weekly" || section === "monthly") && (
 									<NewsReportReader key={section} kind={section} {...reading} />
 								)}
-								{section === "topics" && (
-									<NewsTopics
-										api={api}
-										revision={revision}
-										topic={topic}
-										categories={snapshot?.categories}
-										onTopic={setTopic}
-										context={context}
-										onItem={openItem}
-										onToggleContext={toggleContext}
-										onDiscuss={discuss}
-										onChanged={refreshed}
-									/>
-								)}
 								{section === "sources" && <NewsSources api={api} revision={revision} onChanged={refreshed} />}
-								{section === "content" && (
-									<NewsContentManagement
+								{snapshot && section === "configuration" && (
+									<NewsManagement
+										section="configuration"
 										api={api}
 										revision={revision}
 										snapshot={snapshot}
 										onChanged={refreshed}
-										onItem={(id) => setTarget({ kind: "item", id, management: true })}
+										onOpenModelSettings={onOpenModelSettings}
 									/>
 								)}
-								{snapshot &&
-									(section === "configuration" ||
-										section === "operations" ||
-										section === "evaluation" ||
-										section === "exports") && (
-											<NewsManagement
-											key={section}
-											section={section}
-											api={api}
-											revision={revision}
-											snapshot={snapshot}
-												onChanged={refreshed}
-												onOpenModelSettings={onOpenModelSettings}
-										/>
-									)}
 								{!snapshot && !loading && (
 									<div className="owl-news-empty">
 										<h2>{t("news.unavailable")}</h2>
@@ -563,12 +469,6 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 				</p>
 			)}
 			{result.loading && <p aria-live="polite">{t("news.loading")}</p>}
-			{result.data && (
-				<div className="owl-news-small-row">
-					<span>{t("news.itemTotal", { n: result.data.total })}</span>
-					<span>{t("news.sourceTraceable")}</span>
-				</div>
-			)}
 			{result.data?.items.length === 0 && (
 				<div className={`owl-news-empty${isUnfilteredSelected ? " owl-news-first-run" : ""}`}>
 					<div>
@@ -677,124 +577,35 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 	);
 }
 
-function NewsHotStrip({
-	api,
-	revision,
-	onStory,
-}: {
-	api: NewsClient;
-	revision: number;
-	onStory: (id: string) => void;
-}): React.JSX.Element | null {
-	const t = useT();
-	const result = useNewsQuery(api, { action: "hot", limit: 3 }, revision);
-	if (!result.data?.length) return null;
-	return (
-		<section className="owl-news-hot-strip">
-			<h2>{t("news.todayHot")}</h2>
-			{result.data.map((event, index) => (
-				<button type="button" key={event.story.id} onClick={() => onStory(event.story.id)}>
-					<span className="owl-news-rank">{String(index + 1).padStart(2, "0")}</span>
-					<span>{event.story.title}</span>
-					<small>{t("news.sourceCount", { n: event.story.sourceCount })}</small>
-				</button>
-			))}
-		</section>
-	);
-}
-
-function NewsHotView({
-	api,
-	revision,
-	onStory,
-}: {
-	api: NewsClient;
-	revision: number;
-	onStory: (id: string) => void;
-}): React.JSX.Element {
-	const t = useT();
-	const result = useNewsQuery(api, { action: "hot", limit: 10 }, revision);
-	return (
-		<section>
-			<div className="owl-news-heading">
-				<div>
-					<div className="owl-news-eyebrow">OWL NEWS</div>
-					<h1>{t("news.hot")}</h1>
-					<p>{t("news.hotHint")}</p>
-				</div>
-			</div>
-			{result.loading && <p aria-live="polite">{t("news.loading")}</p>}
-			{result.error && (
-				<p role="alert" className="owl-news-error">
-					{result.error}
-				</p>
-			)}
-			{result.data?.length === 0 && <div className="owl-news-empty">{t("news.noHot")}</div>}
-			{result.data?.map((event, index) => (
-				<article className="owl-news-hot-event" key={event.story.id}>
-					<span className="owl-news-rank">{String(index + 1).padStart(2, "0")}</span>
-					<div>
-						<button type="button" className="owl-news-title-link" onClick={() => onStory(event.story.id)}>
-							{event.story.title}
-						</button>
-						<p>{event.story.summary}</p>
-						<div className="owl-news-meta">
-							<span>{t("news.sourceCount", { n: event.story.sourceCount })}</span>
-							<span>{t("news.reportCount", { n: event.story.reports.length })}</span>
-							<span className="owl-news-accent">{t(`news.trend.${event.trend}`)}</span>
-							<span>
-								{t("news.heat")} {event.heat.toFixed(1)}
-							</span>
-							{event.change !== null && (
-								<span>
-									{event.change > 0 ? "+" : ""}
-									{(event.change * 100).toFixed(0)}%
-								</span>
-							)}
-						</div>
-					</div>
-				</article>
-			))}
-		</section>
-	);
-}
-
-function NewsTopics({
-	topic,
-	onTopic,
-	...props
-}: FeedProps & { topic: string; onTopic: (id: string) => void }): React.JSX.Element {
-	const t = useT();
-	const result = useNewsQuery(props.api, { action: "topics" }, props.revision);
-	return (
-		<section>
-			<div className="owl-news-heading">
-				<div>
-					<h1>{t("news.topics")}</h1>
-					<p>{t("news.topicsHint")}</p>
-				</div>
-			</div>
-			{result.error && (
-				<p className="owl-news-error" role="alert">
-					{result.error}
-				</p>
-			)}
-			{result.loading && <p aria-live="polite">{t("news.loading")}</p>}
-			{result.data?.length === 0 && <p className="owl-news-empty">{t("news.noTopics")}</p>}
-			<div className="owl-news-topic-grid">
-				{result.data?.map((entry) => (
-					<button
-						type="button"
-						key={entry.id}
-						className={topic === entry.id ? "is-active" : ""}
-						onClick={() => onTopic(entry.id)}
-					>
-						<span>{entry.name}</span>
-						<small>{entry.count}</small>
-					</button>
-				))}
-			</div>
-			{topic && <NewsFeed {...props} query={{ mode: "all", topic }} />}
-		</section>
-	);
+/** Per-category totals for the current feed mode; undefined until the first load so no chip is hidden prematurely. */
+function useCategoryCounts(
+	api: NewsClient,
+	mode: NonNullable<NewsListQuery["mode"]>,
+	categories: NewsSnapshot["categories"] | undefined,
+	revision: number,
+): Record<string, number> | undefined {
+	const [counts, setCounts] = useState<Record<string, number>>();
+	const ids = categories?.map((entry) => entry.id).join(",") ?? "";
+	useEffect(() => {
+		if (!ids) return;
+		let current = true;
+		void Promise.all(
+			ids.split(",").map((id) =>
+				api
+					.query({ action: "list", query: { mode, category: id, limit: 1 } })
+					.then((result) => [id, result.total] as const),
+			),
+		).then(
+			(entries) => {
+				if (current) setCounts(Object.fromEntries(entries));
+			},
+			() => {
+				if (current) setCounts(undefined);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [api, mode, ids, revision]);
+	return counts;
 }

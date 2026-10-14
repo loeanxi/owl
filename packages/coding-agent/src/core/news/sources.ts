@@ -5,7 +5,7 @@ import { Readability } from "@mozilla/readability";
 import { DOMParser, type HTMLElement as LinkedomHTMLElement } from "linkedom";
 import { Agent, fetch as transportFetch } from "undici";
 import { resolvePublicNewsHost } from "./dns.ts";
-import type { NewsMaterial, NewsSourceInput } from "./types.ts";
+import type { NewsFeedDiscovery, NewsMaterial, NewsSourceInput } from "./types.ts";
 
 export const NEWS_SECRET_KEYS = [
 	"SOCIALDATA_API_KEY",
@@ -293,6 +293,49 @@ export function parseNewsFeed(text: string, base: string, summaryIsBody = false)
 			},
 		];
 	});
+}
+
+const CONVENTIONAL_FEED_PATHS = ["/feed", "/rss.xml", "/feed.xml", "/rss", "/atom.xml", "/index.xml"];
+
+/** Resolve a pasted address to a feed: the address itself, a feed its page advertises, or a conventional feed path. */
+export async function discoverNewsFeed(address: string, options: NewsFetchOptions = {}): Promise<NewsFeedDiscovery> {
+	const trimmed = address.trim();
+	let start: URL;
+	try {
+		start = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+	} catch {
+		throw new Error("网址格式不对");
+	}
+	const headers = { accept: "application/rss+xml,application/atom+xml,application/xml;q=0.9,text/html;q=0.8" };
+	const fetchOk = async (url: string): Promise<NewsFetchedText> => {
+		const result = await fetchNewsText(url, { headers }, { timeoutMs: 15000, ...options });
+		if (result.status < 200 || result.status >= 300) throw new NewsHttpRejectedError(result.status);
+		return result;
+	};
+	const asFeed = (result: NewsFetchedText): NewsFeedDiscovery | undefined => {
+		try {
+			const items = parseNewsFeed(result.text, result.url);
+			const doc = new DOMParser().parseFromString(result.text, "text/xml");
+			const title = newsPlainText(doc.querySelector("channel > title, feed > title")?.textContent ?? "");
+			return { feedUrl: result.url, title, items: items.slice(0, 3) };
+		} catch {
+			return undefined;
+		}
+	};
+	const page = await fetchOk(start.toString());
+	const direct = asFeed(page);
+	if (direct) return { ...direct, title: direct.title || new URL(page.url).hostname };
+	const html = new DOMParser().parseFromString(page.text, "text/html");
+	const siteTitle = newsPlainText(html.querySelector("title")?.textContent ?? "") || new URL(page.url).hostname;
+	const advertised = [...html.querySelectorAll("link[rel~='alternate']")]
+		.filter((node) => /rss|atom/i.test(node.getAttribute("type") ?? ""))
+		.flatMap((node) => safeArticleUrl(node.getAttribute("href") ?? "", page.url) ?? []);
+	const conventional = CONVENTIONAL_FEED_PATHS.map((path) => new URL(path, page.url).toString());
+	for (const candidate of new Set([...advertised, ...conventional])) {
+		const found = await fetchOk(candidate).then(asFeed, () => undefined);
+		if (found) return { ...found, title: found.title || siteTitle };
+	}
+	throw new Error("这个网站没有找到订阅源（RSS），暂时无法自动添加");
 }
 
 export function parseNewsWebList(html: string, base: string, config: Record<string, unknown>): NewsMaterial[] {

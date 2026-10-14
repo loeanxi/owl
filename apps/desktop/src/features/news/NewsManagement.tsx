@@ -8,6 +8,7 @@ import type {
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { useT } from "../../i18n/index.ts";
 import { NewsModelTest } from "./NewsModelTest.tsx";
+import { NewsQuickSettings } from "./NewsQuickSettings.tsx";
 import { downloadNews, errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 
@@ -52,6 +53,7 @@ export function NewsManagement({
 	const [backup, setBackup] = useState<{ path: string; createdAt: string }>();
 	const [fulltext, setFulltext] = useState(false);
 	const [exportMode, setExportMode] = useState<"selected" | "all" | "saved">("selected");
+	const [advanced, setAdvanced] = useState(false);
 	async function perform(operation: () => Promise<unknown>, message = t("common.done")): Promise<void> {
 		if (busy) return;
 		setBusy(true);
@@ -67,20 +69,29 @@ export function NewsManagement({
 			setBusy(false);
 		}
 	}
-	const titles = {
-		configuration: t("news.configuration"),
-		operations: t("news.operations"),
-		evaluation: t("news.evaluation"),
-		exports: t("news.exports"),
-	};
 	return (
-		<section>
-			<div className="owl-news-heading">
-				<div>
-					<h1>{titles[section]}</h1>
-					<p>{t("news.managementHint")}</p>
-				</div>
-			</div>
+		<section className={section === "configuration" ? "owl-news-settings" : undefined}>
+			{section === "configuration" && (
+				<>
+					<NewsQuickSettings
+						api={api}
+						snapshot={snapshot}
+						config={config}
+						capabilities={CAPABILITIES}
+						revision={revision}
+						onSaved={setConfig}
+						onChanged={onChanged}
+					/>
+					<button
+						type="button"
+						className="owl-news-advanced-toggle"
+						aria-expanded={advanced}
+						onClick={() => setAdvanced(!advanced)}
+					>
+						{advanced ? "▾" : "▸"} {t("news.advanced")}
+					</button>
+				</>
+			)}
 			{error && (
 				<p className="owl-news-error" role="alert">
 					{error}
@@ -91,15 +102,20 @@ export function NewsManagement({
 					{notice}
 				</p>
 			)}
-			{section === "configuration" && (
+			{section === "configuration" && advanced && (
 				<form
-					className="owl-news-form"
+					className="owl-news-form owl-news-advanced"
 					onSubmit={(event) => {
 						event.preventDefault();
 						void perform(async () => {
 							const saved = await api.query({
 								action: "configure",
-								patch: config,
+								patch: {
+									...config,
+									models: Object.fromEntries(
+										CAPABILITIES.map((capability) => [capability, config.models[capability] ?? null]),
+									),
+								},
 								secrets: Object.fromEntries(Object.entries(secrets).filter(([, value]) => value.trim())),
 							});
 							setConfig(saved);

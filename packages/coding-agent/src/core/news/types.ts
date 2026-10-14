@@ -180,6 +180,10 @@ export interface NewsConfiguration {
 	serviceStatus: Record<string, boolean>;
 	allowPrivateNetwork: boolean;
 }
+/** A model set to `null` falls back to Owl's default model for that capability. */
+export type NewsConfigurationPatch = Partial<Omit<NewsConfiguration, "models">> & {
+	models?: Partial<Record<NewsCapability, NewsModelRef | null>>;
+};
 export interface NewsUsage {
 	input: number;
 	output: number;
@@ -305,6 +309,12 @@ export interface NewsModelTestResult {
 	usage?: NewsUsage;
 	durationMs: number;
 }
+export interface NewsFeedDiscovery {
+	feedUrl: string;
+	title: string;
+	items: NewsMaterial[];
+}
+
 export type NewsRequest =
 	| { action: "adminItems"; query?: NewsListQuery; status?: NewsItem["status"] | "withdrawn" }
 	| { action: "adminItem"; id: string }
@@ -320,7 +330,8 @@ export type NewsRequest =
 	| { action: "saveSource"; source: NewsSourceInput }
 	| { action: "deleteSource"; id: string }
 	| { action: "previewSource"; source: NewsSourceInput }
-	| { action: "configure"; patch: Partial<NewsConfiguration>; secrets?: Record<string, string> }
+	| { action: "discoverSource"; url: string }
+	| { action: "configure"; patch: NewsConfigurationPatch; secrets?: Record<string, string> }
 	| { action: "run"; sourceId?: string }
 	| { action: "retry"; itemId?: string; jobId?: string; receiptId?: string }
 	| { action: "ingest"; sourceId: string; items: NewsMaterial[]; itemId?: string; expectedRevision?: number }
@@ -357,6 +368,7 @@ export interface NewsResultByAction {
 	saveSource: NewsSource;
 	deleteSource: { ok: boolean };
 	previewSource: NewsMaterial[];
+	discoverSource: NewsFeedDiscovery;
 	configure: NewsConfiguration;
 	run: { queued: number };
 	retry: { queued: number };
