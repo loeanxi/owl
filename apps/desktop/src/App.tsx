@@ -2301,7 +2301,7 @@ export default function App(): React.JSX.Element {
 			{mediaMounted && <div data-owl-island-anchor="" style={{ display: railView === "media" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<MediaView active={railView === "media" && !showSettings} />
 			</div>}
-			{/* 人生指南视图（双 tab）：高性价比人生指南 + 人生进阶指南，内容 jsDelivr 拉取 + 本地缓存（署名与许可在各自底栏）。 */}
+			{/* 人生指南视图（三 tab）：高性价比人生指南 + 人生进阶指南 + 程序员延寿指南，内容 jsDelivr 拉取 + 本地缓存（署名与许可在各自底栏）。 */}
 			{guideMounted && <div data-owl-island-anchor="" style={{ display: railView === "guide" && !showSettings ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0, flexDirection: "column" }}>
 				<GuidePanel
 					active={railView === "guide" && !showSettings}

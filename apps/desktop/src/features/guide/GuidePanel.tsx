@@ -12,11 +12,12 @@ import {
 	type GuideTip,
 } from "./guide-content.ts";
 import "./guide.css";
+import { LongevityGuidePanel } from "./LongevityGuidePanel.tsx";
 import { UpGuidePanel } from "./UpGuidePanel.tsx";
 
 type GradeFilter = "all" | "A" | "B" | "C" | "disputed";
-/** 人生指南视图内的两份指南；选择跨会话记忆。 */
-type GuideTab = "better" | "up";
+/** 人生指南视图内的三份指南；选择跨会话记忆。 */
+type GuideTab = "better" | "up" | "longevity";
 const GUIDE_TAB_KEY = "owl.guide.tab.v1";
 
 interface GuidePanelProps {
@@ -53,11 +54,14 @@ function linkify(text: string, onOpenUrl: (url: string) => void, keyBase: string
 	return nodes;
 }
 
-/** 人生指南阅读面板：头部双 tab 切换「高性价比人生指南」与「人生进阶指南」，
- *  两个面板懒加载保活（内容抓一次留在内存与 localStorage）。 */
+/** 人生指南阅读面板：头部三 tab 切换「高性价比人生指南」「人生进阶指南」「程序员延寿指南」，
+ *  三个面板懒加载保活（内容抓一次留在内存与 localStorage）。 */
 export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.Element {
 	const t = useT();
-	const [tab, setTab] = useState<GuideTab>(() => (localStorage.getItem(GUIDE_TAB_KEY) === "up" ? "up" : "better"));
+	const [tab, setTab] = useState<GuideTab>(() => {
+		const saved = localStorage.getItem(GUIDE_TAB_KEY);
+		return saved === "up" || saved === "longevity" ? saved : "better";
+	});
 	const selectTab = (next: GuideTab): void => {
 		setTab(next);
 		try {
@@ -155,6 +159,7 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 				<div className="owl-guide-tabs" role="tablist">
 					<button type="button" role="tab" aria-selected={tab === "better"} className={tab === "better" ? "on" : ""} onClick={() => selectTab("better")}>{t("guide.tabBetter")}</button>
 					<button type="button" role="tab" aria-selected={tab === "up"} className={tab === "up" ? "on" : ""} onClick={() => selectTab("up")}>{t("guide.tabUp")}</button>
+					<button type="button" role="tab" aria-selected={tab === "longevity"} className={tab === "longevity" ? "on" : ""} onClick={() => selectTab("longevity")}>{t("guide.tabLongevity")}</button>
 				</div>
 				{tab === "better" && (
 					<>
@@ -180,7 +185,7 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 					</>
 				)}
 			</div>
-			{/* 两个 tab 都保活：display:contents 让可见面板的子元素直接参与 .owl-guide 布局。 */}
+			{/* 三个 tab 都保活：display:contents 让可见面板的子元素直接参与 .owl-guide 布局。 */}
 			<div style={{ display: tab === "better" ? "contents" : "none" }}>
 				<div className="owl-guide-filters" role="group">
 					<FilterChip current={grade} value="all" label={t("guide.filterAll")} count={counts.total} onPick={setGrade} />
@@ -253,6 +258,9 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 			</div>
 			<div style={{ display: tab === "up" ? "contents" : "none" }}>
 				<UpGuidePanel active={active && tab === "up"} onOpenUrl={onOpenUrl} />
+			</div>
+			<div style={{ display: tab === "longevity" ? "contents" : "none" }}>
+				<LongevityGuidePanel active={active && tab === "longevity"} onOpenUrl={onOpenUrl} />
 			</div>
 		</div>
 	);

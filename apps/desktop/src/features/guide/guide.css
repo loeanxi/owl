@@ -1,5 +1,5 @@
-/* 人生指南视图（features/guide/GuidePanel.tsx + UpGuidePanel.tsx）：
-   头部双 tab，「高性价比人生指南」条目卡片流 + 「人生进阶指南」长文阅读。
+/* 人生指南视图（features/guide/GuidePanel.tsx + UpGuidePanel.tsx + LongevityGuidePanel.tsx）：
+   头部三 tab，「高性价比人生指南」条目卡片流 + 「人生进阶指南」长文阅读 + 「程序员延寿指南」单篇长文。
    表面/文字色用应用 token 随主题走；证据等级徽章用固定色相 + 半透明底，
    深色主题下单独提亮文字。 */
 
@@ -361,4 +361,93 @@ html:not([data-owl-theme="light"]) .grade.disputed { color: #ef9273; }
 @media (max-width: 1100px) {
 	.owl-upguide-toc { width: 200px; flex-basis: 200px; }
 	.owl-upguide-doc { padding: 0 22px; }
+}
+
+/* 「延寿指南」（features/guide/LongevityGuidePanel.tsx）：单篇长文，左侧小节目录（按标题级别
+   缩进）+ 右侧阅读列；正文 markdown 样式显式复用 .owl-upguide-content。 */
+
+.owl-longevity {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.owl-longevity-main { display: flex; flex: 1; min-height: 0; }
+
+.owl-longevity-toc {
+	display: flex;
+	flex-direction: column;
+	width: 232px;
+	flex: 0 0 232px;
+	border-right: 1px solid var(--color-owl-border);
+	background: var(--color-owl-bubble);
+}
+.owl-longevity-tocfilter {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 6px;
+	align-items: center;
+	margin: 8px;
+	padding: 5px 10px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 9px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-faint);
+}
+.owl-longevity-tocfilter svg { flex: 0 0 auto; width: 13px; height: 13px; }
+.owl-longevity-tocfilter input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 12px inherit; font-family: inherit; color: var(--color-owl-text); }
+.owl-longevity-tocfilter input::placeholder { color: var(--color-owl-faint); }
+.owl-longevity-tocfilter button { padding: 0 2px; border: 0; background: transparent; color: var(--color-owl-faint); cursor: pointer; font-size: 13px; line-height: 1; }
+.owl-longevity-tocfilter button:hover { color: var(--color-owl-text); }
+
+.owl-longevity-toclist { flex: 1; padding: 0 8px 10px; overflow-y: auto; }
+.owl-longevity-tocb {
+	display: block;
+	width: 100%;
+	padding: 5px 9px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font: 12px/1.45 inherit;
+	font-family: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 120ms, color 120ms;
+}
+.owl-longevity-tocb:hover { background: var(--color-owl-hover); color: var(--color-owl-text); }
+.owl-longevity-tocb.on { background: var(--color-owl-text); color: var(--color-owl-bg); font-weight: 600; }
+.owl-longevity-tocb.lv4 { padding-left: 18px; }
+.owl-longevity-tocb.lv5 { padding-left: 28px; }
+.owl-longevity-tocb.lv6 { padding-left: 38px; }
+.owl-longevity-tocempty { padding: 16px 10px; color: var(--color-owl-faint); font-size: 11.5px; text-align: center; }
+
+.owl-longevity-tocfoot {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	padding: 7px 10px;
+	border-top: 1px solid var(--color-owl-border);
+	color: var(--color-owl-faint);
+	font-size: 10.5px;
+}
+.owl-longevity-tocfoot span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-longevity-tocfoot[data-status="loading"]::before,
+.owl-longevity-tocfoot[data-status="ready"]::before { content: ""; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #2f8f6b; }
+.owl-longevity-tocfoot[data-status="error"]::before { content: ""; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #dc2626; }
+.owl-longevity-tocfoot button { flex: 0 0 auto; margin-left: auto; padding: 0; border: 0; background: transparent; color: var(--color-owl-accent); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+.owl-longevity-reader { flex: 1; min-width: 0; padding: 24px 0 44px; overflow-y: auto; }
+.owl-longevity-doc { max-width: 760px; margin: 0 auto; padding: 0 34px; }
+.owl-longevity-doc-head { margin-bottom: 18px; }
+.owl-longevity-doc-head h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; line-height: 1.4; }
+.owl-longevity-doc-head .meta { display: flex; gap: 12px; align-items: baseline; color: var(--color-owl-faint); font-size: 11px; }
+.owl-longevity-doc-head .meta a { color: var(--color-owl-accent); text-decoration: none; white-space: nowrap; }
+.owl-longevity-doc-head .meta a:hover { text-decoration: underline; }
+.owl-longevity-content h2, .owl-longevity-content h3, .owl-longevity-content h4, .owl-longevity-content h5, .owl-longevity-content h6 { scroll-margin-top: 10px; }
+
+@media (max-width: 1100px) {
+	.owl-longevity-toc { width: 200px; flex-basis: 200px; }
+	.owl-longevity-doc { padding: 0 22px; }
 }
