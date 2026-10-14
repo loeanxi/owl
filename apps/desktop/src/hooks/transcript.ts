@@ -132,6 +132,11 @@ const runBoundaries = new WeakMap<ChatEntry[], number>();
 /** Resumed snapshots identify an assistant range for cancellation, not agent_end replacement. */
 const restoredRunBoundaries = new WeakMap<ChatEntry[], number>();
 
+/** UI-only run ownership, including continuation without a new user message. */
+export function currentRunStartIndex(entries: ChatEntry[]): number | undefined {
+	return runBoundaries.get(entries) ?? restoredRunBoundaries.get(entries);
+}
+
 /**
  * assistant 消息的真实结束时刻（message_end 到达的本地时钟）。wire 上的
  * message.timestamp 是响应「开始」时刻（pi-ai 构造消息时取 Date.now()），
@@ -434,7 +439,7 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			}
 			// 只给 assistant 建流式气泡，否则每轮会多出带空"思考过程"的空气泡。
 			if (!message || message.role !== "assistant") return entries;
-			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [], segments: [] }];
+			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [], segments: [], timestamp: timestampOf(message) ?? Date.now() }];
 		}
 		case "message_update": {
 			const ae = event.assistantMessageEvent as AnyEvent | undefined;

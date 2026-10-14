@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
-import { outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
+import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
 import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconBranch, IconCheck, IconChevron, IconClock, IconCopy, IconCompose, IconLightbulb, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
@@ -37,7 +37,7 @@ md.renderer.rules.code_inline = (tokens, idx, _options, _env, self): string => {
 const OUTPUT_PREVIEW_LINES = 10;
 
 /** 截图类工具：产物是「给用户看的屏幕画面」，进最新截图 Dock 与轮末截图条。 */
-const SCREENSHOT_TOOL_PATTERN = /^(computer_screenshot|browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
+const SCREENSHOT_TOOL_PATTERN = /^(computer_screenshot|computer_observe|computer_act|browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
 
 export function renderMarkdown(text: string): string {
 	return md.render(text);
@@ -375,8 +375,8 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
 		return () => window.clearInterval(timer);
 	}, [running, startedAt]);
-	const end = running ? now : finishedAt ?? now;
-	const elapsed = startedAt !== undefined ? Math.max(0, end - startedAt) : undefined;
+	const end = running ? now : finishedAt;
+	const elapsed = startedAt !== undefined && end !== undefined ? Math.max(0, end - startedAt) : undefined;
 	const label = elapsed !== undefined
 		? t(running ? "chat.workingFor" : "chat.workedFor", { time: formatDuration(elapsed) })
 		: t(running ? "chat.workRunning" : "chat.workProcess", { n: steps });
@@ -699,6 +699,8 @@ type RowOptions = {
 	renderTurnArtifacts?: (entries: ChatEntry[]) => React.ReactNode;
 	/** 最新一轮回答还在流式：最后一条 assistant 不渲染操作栏。 */
 	streaming: boolean;
+	/** The run also remains active while waiting for approval. */
+	runActive: boolean;
 	/** 会话空闲且最后一条用户消息带 entryId：最后一条回答可「重新生成」。 */
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
@@ -715,7 +717,7 @@ type RowOptions = {
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -745,6 +747,11 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			break;
 		}
 	}
+	let activeRunIndex = currentRunStartIndex(entries) ?? (lastUserIndex >= 0 ? lastUserIndex : entries.length);
+	entries.forEach((entry, index) => {
+		if (index >= activeRunIndex && entry.kind === "assistant" && (entry.aborted || entry.error))
+			activeRunIndex = index + 1;
+	});
 	// 每轮（两条用户消息之间）的「最终回答」= 该轮最后一条带正文的 assistant。
 	// 上屏顺序：结论（正文 + 操作栏）在上，工作过程折叠在中，改动文件在下（下一问到来前，
 	// 或最新一轮的 artifacts 槽）。思考、中间说明、普通工具和提问工具都进折叠行。
@@ -803,6 +810,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	let turnEntries: ChatEntry[] = [];
 	// 本轮用户消息的发出时刻，用来写「工作了 7m 23s」。
 	let turnStartedAt: number | undefined;
+	let resumeWorkClock = false;
 	// 结论出现前先把工作行放到正文上面，一轮只放一次。
 	let answerWorkFlushed = false;
 	// 轮内截图（截图类工具的产物）：最终回答之后平铺成「本轮截图」条，免翻折叠行
@@ -815,10 +823,18 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	let workRows: Array<{ key: string; content: React.JSX.Element }> = [];
 	let workSteps = 0;
 	let workFailed = 0;
-	let workRunning = false;
 	let workPendingTools: ToolCard[] = [];
 	let workSubagents: ToolCard[] = [];
 	let workSeq = 0;
+	let workFinishedAt: number | undefined;
+	let workLastEntryIndex = -1;
+	const workSegments: { row: TimelineRow; props: React.ComponentProps<typeof WorkProcessRow>; lastEntryIndex: number }[] = [];
+	const recordWork = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, tool?: ToolCard): void => {
+		workLastEntryIndex = index;
+		for (const time of [entry.endedAt, tool?.finishedAt]) {
+			if (time !== undefined && Number.isFinite(time)) workFinishedAt = Math.max(workFinishedAt ?? time, time);
+		}
+	};
 	const flushWorkTools = (): void => {
 		if (workPendingTools.length === 0) return;
 		const cards = workPendingTools;
@@ -826,7 +842,6 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		workSubagents.push(...cards.filter((card) => card.name === "subagent"));
 		workSteps += cards.length;
 		workFailed += cards.filter(isHardFailure).length;
-		if (cards.some((card) => card.status === "running")) workRunning = true;
 		workRows.push({
 			key: "tools-" + cards[0]!.id,
 			content: cards.length === 1
@@ -834,9 +849,9 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} expanded={expandedTools} onOpenSubagent={onOpenSubagent} />,
 		});
 	};
-	// 收口当前工作段；live 表示回合仍在进行（摘要行显示「正在工作」）。
+	// Preserve emitted segment order. Only the latest segment owned by the active run is live.
 	// 交互卡先于折叠行，并且在没有工具步时也要落盘。
-	const flushWork = (live = false, finishedAt?: number): void => {
+	const flushWork = (finishedAt?: number): void => {
 		flushWorkTools();
 		if (visibleCards.length > 0) {
 			rows.push(...visibleCards);
@@ -846,20 +861,25 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const items = workRows;
 		const steps = workSteps;
 		const failed = workFailed;
-		const running = workRunning || live;
 		const startedAt = turnStartedAt;
 		const subagents = workSubagents;
+		if (finishedAt !== undefined && Number.isFinite(finishedAt)) workFinishedAt = Math.max(workFinishedAt ?? finishedAt, finishedAt);
+		const props = { items, steps, failed, running: false, startedAt, finishedAt: workFinishedAt, subagents, onOpenSubagent };
+		const lastEntryIndex = workLastEntryIndex;
 		workRows = [];
 		workSteps = 0;
 		workFailed = 0;
-		workRunning = false;
 		workSubagents = [];
+		workFinishedAt = undefined;
+		workLastEntryIndex = -1;
 		workSeq += 1;
-		rows.push({
+		const row: TimelineRow = {
 			key: "work-" + workSeq,
 			quiet: true,
-			content: <WorkProcessRow items={items} steps={steps} failed={failed} running={running} startedAt={startedAt} finishedAt={running ? undefined : finishedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />,
-		});
+			content: <WorkProcessRow {...props} />,
+		};
+		rows.push(row);
+		workSegments.push({ row, props, lastEntryIndex });
 	};
 	const flushTurnArtifacts = (): void => {
 		if (!renderTurnArtifacts || turnEntries.length === 0) return;
@@ -867,8 +887,12 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		if (content != null) rows.push({ key: "turn-artifacts-" + turn, quiet: true, content: <>{content}</> });
 	};
 		entries.forEach((entry, index) => {
+			if (index === activeRunIndex && entry.kind !== "user") {
+				flushWork();
+				turnStartedAt = entry.kind === "assistant" ? entry.timestamp : undefined;
+			}
 			if (entry.kind === "user" && entry.queued) {
-				flushWork(true);
+				flushWork();
 				rows.push({
 					key: "queued-" + index,
 					content: (
@@ -887,6 +911,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				turnEntries = [entry];
 				turnShots = [];
 				turnStartedAt = entry.timestamp;
+				resumeWorkClock = false;
 				answerWorkFlushed = false;
 				const artifacts = historicalArtifacts?.get(index);
 				if (artifacts && onOpenFile) {
@@ -911,6 +936,10 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
 			return;
 		}
+		if (resumeWorkClock) {
+			turnStartedAt = entry.timestamp;
+			resumeWorkClock = false;
+		}
 		const seenTools = new Set<string>();
 		// 整轮用量累计：纯工具调用的 LLM 轮没有正文、不上屏操作栏，但同样是整轮成本
 		turnUsage = addUsage(turnUsage, entry.usage);
@@ -931,13 +960,13 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			// 任务清单的实时状态由对话区右上角的入口（TodoPin）独占展示：时间轴不再
 			// 上屏 todo 卡片（更新频繁，且与清单内容完全重复），也不计入折叠区步数
 			if (card.name === "todo") return;
+			recordWork(entry, index, card);
 			if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
 				// owl-genui：完成后留在结论下方（运行中还没有 spec，先走普通工具行）。
 				// 正在问的问题由输入框上的提问卡负责，工具记录留在折叠里，不另占一行。
 				visibleCards.push({ key: "genui-" + card.id, content: <GenuiToolCardView card={card} /> });
 			} else {
 				workPendingTools.push(card);
-				if (card.status === "running") workRunning = true;
 			}
 		};
 		const answerCard = (segmentIndex: number, text: string): React.JSX.Element => (
@@ -970,6 +999,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				// 思考进折叠区：不再打断工具聚合，也不再占独立整行
 				flushWorkTools();
 				workSteps += 1;
+				recordWork(entry, index);
 				workRows.push({ key: "think-" + index + "-" + segmentIndex, content: <ThinkingRow thinking={segment.text} /> });
 				return;
 			}
@@ -977,6 +1007,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				// 中间说明（轮内非最终回答的正文）进折叠区
 				flushWorkTools();
 				workSteps += 1;
+				recordWork(entry, index);
 				workRows.push({
 					key: "note-" + index + "-" + segmentIndex,
 					content: answerCard(segmentIndex, segment.text),
@@ -988,19 +1019,22 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			// 响应开始时刻，用它会把「生成了 3s」收成「工作了 1s」。
 			if (!answerWorkFlushed) {
 				answerWorkFlushed = true;
-				const live = streaming && lastUserIndex !== -1 && index > lastUserIndex;
-				flushWork(live, entry.endedAt ?? entry.timestamp);
+				flushWork(entry.endedAt);
 			}
 			answerParts.push(answerCard(segmentIndex, segment.text));
 		});
 		pushAnswer();
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
 		if (entry.error) {
-			flushWork();
+			flushWork(entry.endedAt);
+			turnStartedAt = undefined;
+			resumeWorkClock = true;
 			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		} else if (entry.aborted) {
 			// 用户暂停：只留一行置灰小字（provider 的中止报错不上屏），继续入口在输入框按钮上。
-			flushWork();
+			flushWork(entry.endedAt);
+			turnStartedAt = undefined;
+			resumeWorkClock = true;
 			rows.push({ key: "paused-" + index, content: <div className="owl-chat-paused">{t("chat.pausedHint")}</div> });
 		}
 		// 回答底部操作栏：只挂在每轮最终回答上（纯工具调用与中间说明不上屏）。流式中的
@@ -1026,7 +1060,11 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			}
 		}
 		});
-	flushWork(streaming && lastUserIndex !== -1);
+	flushWork();
+	if (runActive) {
+		const active = workSegments.findLast(segment => segment.lastEntryIndex >= activeRunIndex);
+		if (active) active.row.content = <WorkProcessRow {...active.props} running />;
+	}
 	finishTurnFooters();
 	flushTurnArtifacts();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
@@ -1325,6 +1363,7 @@ export function ChatStream({
 				turnCard,
 				renderTurnArtifacts,
 				streaming: activity === "working",
+				runActive: activity === "working" || activity === "waiting",
 				canRegenerate,
 				onRegenerate,
 				onEditMessage,
