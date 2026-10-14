@@ -19,6 +19,7 @@
 ### 修复
 
 - `pool` WorkBuddy 1M 窗口会话不再降级到 200k 通道；上下文估算去掉 Loean 的 2 倍系数，600k 请求不会被提前压缩
+- `owl-career` MiniMax Code 用量改读 ~/.minimax 会话目录，旧名 ~/.mavis 的目录联接不再让同一批文件重复计数
 
 ## 2026-10-13
 

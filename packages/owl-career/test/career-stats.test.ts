@@ -741,7 +741,7 @@ describe("career stats", () => {
 		expect(dsh.byModel).toEqual([{ key: "wb/deepseek-v4.1-flash", totalTokens: 16_055 }]);
 	});
 
-	it("aggregates Mavis (MiniMax Code) and Reasonix telemetry", async () => {
+	it("aggregates MiniMax Code and Reasonix telemetry", async () => {
 		const dirs = makeRoot();
 		const mavisDir = join(dirs.mavisDir!, "2026", "10", "01");
 		mkdirSync(mavisDir, { recursive: true });
@@ -786,6 +786,7 @@ describe("career stats", () => {
 
 		const { byId } = await scan(dirs);
 		const mavis = byId.get("mavis")!;
+		expect(mavis.name).toBe("MiniMax Code");
 		expect(mavis.status).toBe("ok");
 		expect(mavis.totals.input).toBe(27_367);
 		expect(mavis.totals.cacheRead).toBe(128);

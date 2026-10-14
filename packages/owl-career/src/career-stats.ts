@@ -35,7 +35,7 @@
  * - Kimi 桌面端：%APPDATA%/kimi-desktop 的 runtime wire.jsonl（与 CLI 同构），并入 Kimi 行；
  * - DeepSeek Harness：~/.dsh/sessions 的 session.v4.jsonl.zstd（多帧 zstd）。用量在
  *   assistant/message 行的 data.usage（inputTokens 含缓存读 cacheReadTokens）。
- * - Mavis：~/.mavis/v2/sessions/…/messages.jsonl（递归 glob；MiniMax Code），message.usage 与
+ * - MiniMax Code：~/.minimax/v2/sessions/…/messages.jsonl（递归 glob；旧名 ~/.mavis），message.usage 与
  *   owl 同口径分列（四桶直加），含实测费用；模型在 message.model。
  * - Reasonix：%APPDATA%/reasonix/projects 的 *.telemetry.json（每会话官方汇总：
  *   promptTokens=cacheHit+cacheMiss+completion，含 sessionCostUsd 实测费用）。
@@ -51,7 +51,7 @@
  * - Antigravity：会话在 ~/.gemini/antigravity/conversations/*.db（SQLite），但内容是
  *   私有 protobuf 字节流，无明文用量；
  * - Trae：会话库（ModularData/ai-agent/database.db）为加密私有格式，无法解析；
- * - CodeBuddy / MiniMax Agent / Grok / Junie / 通义灵码：检测到数据目录，但本地明文无
+ * - CodeBuddy / Grok / Junie / 通义灵码：检测到数据目录，但本地明文无
  *   token 用量（各自注明的具体原因）。
  *
  * 缓存与 usage-stats.ts 同构：<agentDir>/career-stats.json 按路径键存每个 JSONL 文件的
@@ -106,7 +106,7 @@ export interface CareerDirs {
 	zcodeDb?: string;
 	/** WorkBuddy 会话目录（默认 ~/.workbuddy/projects）。 */
 	workbuddyDir?: string;
-	/** Mavis（MiniMax Code）会话目录（默认 ~/.mavis/v2/sessions）。 */
+	/** MiniMax Code 会话目录（默认 ~/.minimax/v2/sessions，不存在时回退旧名 ~/.mavis/v2/sessions）。 */
 	mavisDir?: string;
 	/** Reasonix 项目目录（默认 %APPDATA%/reasonix/projects）。 */
 	reasonixDir?: string;
@@ -1399,8 +1399,29 @@ function foldCursorCloud(accounts: Record<string, CursorCloudCache>): ReturnType
 }
 
 // ---------------------------------------------------------------------------
-// Mavis（MiniMax Code，~/.mavis/v2/sessions/**/messages.jsonl）
+// MiniMax Code（内部代号 Mavis，~/.minimax/v2/sessions/**/messages.jsonl）
 // ---------------------------------------------------------------------------
+
+/**
+ * MiniMax Code 会话根：数据实体在 ~/.minimax，~/.mavis 是旧名（常为指向前者的目录联接）。
+ * 两者只取其一，否则联接会让同一批文件被计两次。
+ */
+function minimaxCodeSessions(): { dir: string; root: string } {
+	const current = join(homedir(), ".minimax", "v2", "sessions");
+	if (existsSync(current)) return { dir: current, root: "~/.minimax/v2/sessions" };
+	return { dir: join(homedir(), ".mavis", "v2", "sessions"), root: "~/.mavis/v2/sessions" };
+}
+
+/** 缓存按文件路径记键；会话根换名后把旧键挪到新根下，否则同一文件会以两个键各计一次。 */
+function rekeyPrefix(files: Record<string, CareerFileRecord>, from: string, to: string): void {
+	if (from === to) return;
+	for (const key of Object.keys(files)) {
+		if (!key.startsWith(from)) continue;
+		const moved = to + key.slice(from.length);
+		files[moved] ??= files[key];
+		delete files[key];
+	}
+}
 
 /** Mavis 消息行：message.usage 与 owl 同口径（input/output/cacheRead/cacheWrite 分列，四者和 = total），实测费用也在。 */
 interface MavisEntry {
@@ -2210,13 +2231,6 @@ const DETECTED_SOURCES: DetectedSource[] = [
 		status: "nodata",
 		note: "会话记录（projects/*.jsonl）不含 token 用量字段",
 	},
-	{
-		id: "minimax",
-		name: "MiniMax Agent",
-		candidates: [".minimax"],
-		status: "nodata",
-		note: "本地会话记录与后台任务日志均不含 token 用量",
-	},
 	{ id: "grok", name: "Grok", candidates: [".grokbot"], status: "nodata", note: "本地无会话用量记录" },
 ];
 
@@ -2262,6 +2276,7 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 	const opencodeDir = dirs?.opencodeDir ?? join(homedir(), ".local", "share", "opencode");
 	const geminiDir = dirs?.geminiDir ?? join(homedir(), ".gemini");
 	const detectRoot = dirs?.detectRoot ?? homedir();
+	const minimaxCode = dirs?.mavisDir ? { dir: dirs.mavisDir, root: dirs.mavisDir } : minimaxCodeSessions();
 
 	const run = chain
 		.catch(() => undefined)
@@ -2293,12 +2308,10 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 					"sessions",
 				);
 			await refreshSource(store.kimi, [join(kimiDir, "sessions"), kimiDesktopDir], jsonl, scanKimiFile);
-			await refreshSource(
-				store.mavis,
-				[dirs?.mavisDir ?? join(homedir(), ".mavis", "v2", "sessions")],
-				jsonl,
-				scanMavisFile,
-			);
+			if (!dirs?.mavisDir) {
+				rekeyPrefix(store.mavis, join(homedir(), ".mavis", "v2", "sessions"), minimaxCode.dir);
+			}
+			await refreshSource(store.mavis, [minimaxCode.dir], jsonl, scanMavisFile);
 			await refreshSource(
 				store.reasonix,
 				[
@@ -2676,15 +2689,10 @@ export async function collectCareerStats(host: CareerHost, dirs?: CareerDirs): P
 				},
 				{
 					id: "mavis",
-					name: "Mavis（MiniMax Code）",
-					status:
-						mavisFold.sessions > 0
-							? "ok"
-							: existsSync(join(homedir(), ".mavis", "v2", "sessions"))
-								? "nodata"
-								: "unavailable",
+					name: "MiniMax Code",
+					status: mavisFold.sessions > 0 ? "ok" : existsSync(minimaxCode.dir) ? "nodata" : "unavailable",
 					...(mavisFold.sessions > 0 ? {} : { note: "本地会话目录存在，但其中没有 token 用量记录" }),
-					root: "~/.mavis/v2/sessions",
+					root: minimaxCode.root,
 					sessions: mavisFold.sessions,
 					...(mavisFold.firstAt ? { firstAt: mavisFold.firstAt } : {}),
 					...(mavisFold.lastAt ? { lastAt: mavisFold.lastAt } : {}),
