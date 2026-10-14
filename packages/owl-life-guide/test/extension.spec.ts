@@ -59,12 +59,37 @@ afterEach(async () => {
 	if (dataDir) await rm(dataDir, { recursive: true, force: true });
 });
 
+const LONGEVITY_SAMPLE = [
+	"# 程序员延寿指南",
+	"",
+	"### 6. 证据",
+	"",
+	"#### 6.1. 输入",
+	"",
+	"##### 6.1.2. 液体",
+	"",
+	"* 牛奶",
+	"  * [《柳叶刀》调研21个国家13万人](https://example.com/milk)",
+	"  * 全因死亡风险下降了17%",
+	"",
+	"#### 6.2. 输出",
+	"",
+	"##### 6.2.1. 挥拍运动",
+	"",
+	"* [哪种运动性价比最高？](https://example.com/racket)",
+	"  * 一周三次，每次45-60分钟，降低~47%全因死亡率",
+	"",
+].join("\n");
+
 async function stubUpstream(): Promise<void> {
 	dataDir = await mkdtemp(join(tmpdir(), "owl-life-guide-ext-"));
 	vi.stubEnv("OWL_CODING_AGENT_DIR", dataDir);
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (url: string | URL) => {
+			if (String(url).includes("HowToLiveLonger")) {
+				return { ok: true, status: 200, text: async () => LONGEVITY_SAMPLE };
+			}
 			const file = decodeURIComponent(String(url).split("/").pop() ?? "").replace(/\.md$/, "");
 			const meta = GUIDE_CHAPTERS.find((c) => c.file === file);
 			if (!meta) throw new Error(`unexpected url ${url}`);
@@ -132,5 +157,57 @@ describe("life_guide_search 扩展", () => {
 		const result = await tool.execute("t1", { key: "99.9" });
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("99.9");
+	});
+});
+
+describe("life_guide_search 扩展 — longevity 源", () => {
+	it("source=longevity：概览/检索/key 三种形态，与 guide 各自缓存", async () => {
+		await stubUpstream();
+		const tool = register();
+
+		const updates: string[] = [];
+		const overview = await tool.execute("t1", { source: "longevity" }, undefined, (partial) => {
+			updates.push(partial.content[0]?.text ?? "");
+		});
+		expect(updates.some((u) => u.includes("程序员延寿指南"))).toBe(true);
+		expect(overview.content[0].text).toContain("全书概览");
+		expect(overview.content[0].text).toContain("6.1.2 液体（1 条）");
+
+		const search = await tool.execute("t2", { source: "longevity", query: "牛奶" });
+		expect(search.content[0].text).toContain("〔6.1.2/牛奶〕");
+		expect(search.content[0].text).toContain("全因死亡风险下降了17%");
+
+		const single = await tool.execute("t3", { source: "longevity", key: "6.1.2/牛奶" });
+		expect(single.content[0].text).toContain("〔6.1.2/牛奶〕");
+		expect(single.content[0].text).toContain("github.com/geekan/HowToLiveLonger");
+
+		// 缓存已落盘：再次调用不再触发 fetch。
+		const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+		await tool.execute("t4", { source: "longevity", query: "牛奶" });
+		expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls);
+	});
+
+	it("source=longevity：key 不存在 → isError 并给示例格式", async () => {
+		await stubUpstream();
+		const tool = register();
+		const result = await tool.execute("t1", { source: "longevity", key: "9.9/不存在" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("9.9/不存在");
+		expect(result.content[0].text).toContain("6.1.2/牛奶");
+	});
+
+	it("source=longevity：无缓存且抓取失败 → isError，提示网络问题", async () => {
+		dataDir = await mkdtemp(join(tmpdir(), "owl-life-guide-ext-"));
+		vi.stubEnv("OWL_CODING_AGENT_DIR", dataDir);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new Error("network down");
+			}),
+		);
+		const tool = register();
+		const result = await tool.execute("t1", { source: "longevity", query: "牛奶" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("拉取失败");
 	});
 });

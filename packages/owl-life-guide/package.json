@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "owl「高性价比人生指南」检索插件：life_guide_search 工具，按关键词/章节/证据等级检索 HowToLiveBetter 全书 665 条建议",
+	"description": "owl 生活指南检索插件：life_guide_search 工具，内置《高性价比人生指南》（HowToLiveBetter，665 条证据分级）与《程序员延寿指南》（HowToLiveLonger，全因死亡率清单）双数据源",
 	"license": "MIT",
 	"owl": {
 		"extensions": ["./src/index.ts"]
