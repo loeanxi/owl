@@ -43,7 +43,7 @@ export interface BoardModelRow {
 
 export interface BoardMilestone {
 	date: string;
-	key: "start" | "t10m" | "t100m" | "t1b" | "peak" | "streak" | "launch";
+	key: "start" | "t10m" | "t100m" | "t1b" | "t10b" | "peak" | "streak" | "launch";
 	/** 里程碑的量值（峰值 tokens / 连续天数），展示时随 key 取用。 */
 	value?: number;
 }
@@ -59,6 +59,8 @@ export interface Board {
 	activeDays: number;
 	currentStreak: number;
 	longestStreak: number;
+	/** 最长连续那一段的最后一天。 */
+	longestStreakEnd?: string;
 	avgPerDay: number;
 	peak: BoardDay | null;
 	sessions: number;
@@ -85,18 +87,22 @@ function diffDays(from: string, to: string): number {
 	return Math.max(0, Math.round((b - a) / 86_400_000));
 }
 
-/** Agent 卡片上的标识色（owl 用主题强调色，不写死）。 */
+/** 趋势/构成里「其余 Agent」合并成的一组。 */
+export const OTHER_GROUP = "__other";
+
+/** Agent 卡片上的标识色（owl 用主题强调色，不写死；Cursor/其他走 CSS 变量随深浅色提亮）。 */
 export const AGENT_COLORS: Record<string, string | null> = {
 	owl: null,
+	[OTHER_GROUP]: "var(--owl-career-other)",
 	zcode: "#2F8F6B",
 	pi: "#8B5CF6",
 	claude: "#D97757",
 	codex: "#10A37F",
 	gemini: "#4E8DF5",
-	cursor: "#3D434D",
+	cursor: "var(--owl-career-cursor)",
 	kimi: "#9B7EF5",
 	opencode: "#E0A33E",
-	kilo: "#2F8F6B",
+	kilo: "#14B8A6",
 	qoder: "#4D9FD8",
 	copilot: "#6E7B8B",
 	roo: "#E05D3D",
@@ -187,6 +193,7 @@ export function buildBoard(agents: CareerAgentUsage[], filterId: string, today =
 		{ key: "t10m", limit: 10_000_000 },
 		{ key: "t100m", limit: 100_000_000 },
 		{ key: "t1b", limit: 1_000_000_000 },
+		{ key: "t10b", limit: 10_000_000_000 },
 	];
 	let cumulative = 0;
 	let crossed = 0;
@@ -210,12 +217,214 @@ export function buildBoard(agents: CareerAgentUsage[], filterId: string, today =
 		activeDays: byDay.length,
 		currentStreak,
 		longestStreak,
+		...(streakEnd ? { longestStreakEnd: streakEnd } : {}),
 		avgPerDay: careerDays > 0 ? totals.totalTokens / careerDays : 0,
 		peak,
 		sessions,
 		models,
 		milestones,
 		firstDate,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// 使用趋势：可切范围，按 Agent 堆叠（前 5 名 + 其他），长范围按周聚合
+// ---------------------------------------------------------------------------
+
+export type TrendRange = "30" | "90" | "year" | "all";
+
+export interface TrendBucket {
+	/** 日粒度时 start === end；周粒度为周一 ~ 周日。 */
+	start: string;
+	end: string;
+	total: number;
+	/** 分组 id（Agent id 或 OTHER_GROUP）→ tokens。 */
+	parts: Record<string, number>;
+}
+
+export interface Trend {
+	buckets: TrendBucket[];
+	/** 堆叠顺序（底 → 顶），按范围内用量降序。 */
+	groups: string[];
+	weekly: boolean;
+	total: number;
+	/** 有用量的桶数（天或周）。 */
+	activeBuckets: number;
+}
+
+/** 超过这个天数就按周聚合，避免柱子细成线。 */
+const TREND_WEEKLY_AFTER_DAYS = 120;
+const TREND_TOP_GROUPS = 5;
+
+function mondayKey(key: string): string {
+	const date = new Date(`${key}T12:00:00`);
+	date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+	return dateKey(date);
+}
+
+function shiftDays(key: string, days: number): string {
+	const date = new Date(`${key}T12:00:00`);
+	date.setDate(date.getDate() + days);
+	return dateKey(date);
+}
+
+export function buildTrend(
+	agents: CareerAgentUsage[],
+	filterId: string,
+	range: TrendRange,
+	today = localToday(),
+): Trend {
+	const scope = (filterId ? agents.filter((agent) => agent.id === filterId) : agents).filter(
+		(agent) => agent.byDay.length > 0,
+	);
+	let firstDate: string | undefined;
+	for (const agent of scope) {
+		for (const day of agent.byDay) if (day.totalTokens > 0 && (!firstDate || day.date < firstDate)) firstDate = day.date;
+	}
+	const start =
+		range === "30"
+			? shiftDays(today, -29)
+			: range === "90"
+				? shiftDays(today, -89)
+				: range === "year"
+					? `${today.slice(0, 4)}-01-01`
+					: (firstDate ?? shiftDays(today, -29));
+	const weekly = diffDays(start, today) + 1 > TREND_WEEKLY_AFTER_DAYS;
+
+	const buckets: TrendBucket[] = [];
+	const indexOf = new Map<string, number>();
+	if (weekly) {
+		for (let monday = mondayKey(start); monday <= today; monday = shiftDays(monday, 7)) {
+			const end = shiftDays(monday, 6);
+			for (let day = monday; day <= end; day = shiftDays(day, 1)) indexOf.set(day, buckets.length);
+			buckets.push({ start: monday, end, total: 0, parts: {} });
+		}
+	} else {
+		for (let day = start; day <= today; day = shiftDays(day, 1)) {
+			indexOf.set(day, buckets.length);
+			buckets.push({ start: day, end: day, total: 0, parts: {} });
+		}
+	}
+
+	const sums = new Map<string, number>();
+	for (const agent of scope) {
+		let sum = 0;
+		for (const day of agent.byDay) if (day.date >= start && day.date <= today) sum += day.totalTokens;
+		if (sum > 0) sums.set(agent.id, sum);
+	}
+	const ranked = [...sums.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+	const top = new Set(ranked.slice(0, TREND_TOP_GROUPS));
+	const groups = [...top, ...(ranked.length > TREND_TOP_GROUPS ? [OTHER_GROUP] : [])];
+
+	for (const agent of scope) {
+		const group = top.has(agent.id) ? agent.id : OTHER_GROUP;
+		for (const day of agent.byDay) {
+			if (day.date < start || day.date > today) continue;
+			const index = indexOf.get(day.date);
+			if (index === undefined) continue;
+			const bucket = buckets[index]!;
+			bucket.parts[group] = (bucket.parts[group] ?? 0) + day.totalTokens;
+			bucket.total += day.totalTokens;
+		}
+	}
+	return {
+		buckets,
+		groups,
+		weekly,
+		total: buckets.reduce((sum, bucket) => sum + bucket.total, 0),
+		activeBuckets: buckets.filter((bucket) => bucket.total > 0).length,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// 近一年热力：53 周、周一起排，按自己用量的分位分档；附带本月/最猛月份/星期分布
+// ---------------------------------------------------------------------------
+
+export interface YearHeatCell {
+	date: string;
+	tokens: number;
+	/** -1 = 今天之后的占位格；0 = 无用量；1-4 = 分位档。 */
+	level: number;
+}
+
+export interface YearHeat {
+	/** 按列（周）展开：weeks[w][0..6] = 周一 .. 周日。 */
+	weeks: YearHeatCell[][];
+	/** 月份刻度：该月第一次出现的周序号。 */
+	months: { week: number; month: number }[];
+	activeDays: number;
+	total: number;
+	monthToDate: number;
+	/** 上月同期（1 号到今天同一日）。 */
+	lastMonthToDate: number;
+	bestMonth: { month: string; tokens: number } | null;
+	/** 周一 .. 周日的累计用量。 */
+	weekday: number[];
+}
+
+export const YEAR_HEAT_WEEKS = 53;
+
+export function buildYearHeat(byDay: BoardDay[], today = localToday()): YearHeat {
+	const tokensByDate = new Map(byDay.map((day) => [day.date, day.tokens]));
+	const start = shiftDays(mondayKey(today), -(YEAR_HEAT_WEEKS - 1) * 7);
+	const values: number[] = [];
+	for (let day = start; day <= today; day = shiftDays(day, 1)) {
+		const tokens = tokensByDate.get(day) ?? 0;
+		if (tokens > 0) values.push(tokens);
+	}
+	values.sort((a, b) => a - b);
+	const quantile = (p: number): number => values[Math.floor((values.length - 1) * p)] ?? 0;
+	const cuts = [quantile(0.25), quantile(0.5), quantile(0.8)];
+	const level = (tokens: number): number =>
+		tokens <= 0 ? 0 : tokens <= cuts[0]! ? 1 : tokens <= cuts[1]! ? 2 : tokens <= cuts[2]! ? 3 : 4;
+
+	const thisMonth = today.slice(0, 7);
+	const lastMonthDate = new Date(`${thisMonth}-01T12:00:00`);
+	lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+	const lastMonth = dateKey(lastMonthDate).slice(0, 7);
+	const dayOfMonth = today.slice(8);
+
+	const weeks: YearHeatCell[][] = [];
+	const months: YearHeat["months"] = [];
+	const monthSums = new Map<string, number>();
+	const weekday = [0, 0, 0, 0, 0, 0, 0];
+	let total = 0;
+	let monthToDate = 0;
+	let lastMonthToDate = 0;
+	let lastSeenMonth = "";
+	for (let week = 0; week < YEAR_HEAT_WEEKS; week++) {
+		const monday = shiftDays(start, week * 7);
+		if (monday.slice(0, 7) !== lastSeenMonth) {
+			if (week > 0) months.push({ week, month: Number(monday.slice(5, 7)) });
+			lastSeenMonth = monday.slice(0, 7);
+		}
+		const column: YearHeatCell[] = [];
+		for (let offset = 0; offset < 7; offset++) {
+			const date = shiftDays(monday, offset);
+			if (date > today) {
+				column.push({ date, tokens: 0, level: -1 });
+				continue;
+			}
+			const tokens = tokensByDate.get(date) ?? 0;
+			column.push({ date, tokens, level: level(tokens) });
+			total += tokens;
+			weekday[offset]! += tokens;
+			monthSums.set(date.slice(0, 7), (monthSums.get(date.slice(0, 7)) ?? 0) + tokens);
+			if (date.startsWith(thisMonth)) monthToDate += tokens;
+			if (date.startsWith(lastMonth) && date.slice(8) <= dayOfMonth) lastMonthToDate += tokens;
+		}
+		weeks.push(column);
+	}
+	const best = [...monthSums.entries()].sort((a, b) => b[1] - a[1])[0];
+	return {
+		weeks,
+		months,
+		activeDays: values.length,
+		total,
+		monthToDate,
+		lastMonthToDate,
+		bestMonth: best && best[1] > 0 ? { month: best[0], tokens: best[1] } : null,
+		weekday,
 	};
 }
 
