@@ -20,6 +20,7 @@
 ### 改进
 
 - `evaluation` 测评可继续未完成的结果、只重试每组最新一次尝试，匿名期间可隐藏耗时，打分在揭晓前保存在本机，可导出结果与删除运行；按供应商限流、取消时连带停掉排队的后续调用，SVG 预览按 viewBox 比例适配
+- `evaluation` 测评历史每行直接提供打开与删除，删除在行内二次确认（Esc 取消），操作列固定宽度不再挤压表格
 - `desktop` 外观新增 6 个取色自 VS Code 内置深色主题的预设：Monokai、Solarized、Abyss、Tomorrow Night Blue、Kimbie Dark、Red，弱化文字按 WCAG 4.5:1 调亮
 - `owl-computer-use` 电脑操作改为 computer_observe / computer_act / computer_release 三个工具：观察令牌驱动的单步动作与结果回读，有等价 UIA 控件操作时后台执行，用户接管目标窗口会中断动作并可恢复；观察与清理在计划和确认模式下免审批
 - `desktop` 输入框发送改版：模型与思考强度合并为一个控件，暂停时有草稿可选「插入当前任务」或「下一轮发送」，发送失败草稿与附件原样退回，确认期间防重复发送

@@ -1,0 +1,13 @@
+.eval-history-actions-col{width:184px}
+.eval-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
+.eval-row-action{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 10px;border:1px solid var(--owl-ui-border);border-radius:6px;background:transparent;color:var(--owl-ui-text,inherit);font-size:11px;line-height:1;cursor:pointer;transition:background .12s,border-color .12s,color .12s}
+.eval-row-action:hover:not(:disabled){background:var(--owl-ui-hover)}
+.eval-row-action:focus-visible{outline:2px solid var(--color-owl-accent);outline-offset:1px}
+.eval-row-action:disabled{opacity:.45;cursor:not-allowed}
+.eval-row-action.open{border-color:color-mix(in srgb,var(--color-owl-accent) 45%,var(--owl-ui-border));color:var(--color-owl-accent)}
+.eval-row-action.open:hover:not(:disabled){background:color-mix(in srgb,var(--color-owl-accent) 12%,transparent)}
+.eval-row-action.quiet{border-color:transparent;color:var(--owl-ui-muted)}
+.eval-row-action.quiet:hover:not(:disabled){color:var(--owl-ui-danger);background:color-mix(in srgb,var(--owl-ui-danger) 10%,transparent)}
+.eval-row-action.confirm{border-color:var(--owl-ui-danger);background:var(--owl-ui-danger);color:#fff}
+.eval-row-action.confirm:hover:not(:disabled){background:color-mix(in srgb,var(--owl-ui-danger) 85%,#000)}
+.eval-table tr.is-confirming{background:color-mix(in srgb,var(--owl-ui-danger) 6%,transparent)}
