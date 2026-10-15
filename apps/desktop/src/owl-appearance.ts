@@ -2,6 +2,8 @@
  * 外观自定义颜色与主题预设（settings.json 的 owlAppearance 字段）。
  * - preset：整套配色方案。"" = 经典黑（默认，中性黑灰），"owl-green" = 猫头鹰绿
  *   （旧版暖绿灰配色，经 <html data-owl-preset> 切换 index.css / desktop-shell.css 的令牌块）。
+ *   monokai / solarized / abyss / tomorrow-night-blue / kimbie-dark / red 取色自 VS Code 内置主题（MIT），
+ *   只有 solarized 带浅色档，其余浅色档回落默认浅色。
  * - accent：自定义强调色全局一份，深浅主题通用；空值跟随主题默认松石绿。
  * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随当前预设的默认）。
  * 应用方式：在 <html> 上写内联 CSS 变量覆盖 index.css 的 --color-owl-* 令牌，
@@ -12,7 +14,7 @@
  */
 
 /** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
-export const OWL_PRESET_IDS = ["", "owl-green", "codex", "liquid-glass", "frost"] as const;
+export const OWL_PRESET_IDS = ["", "owl-green", "codex", "liquid-glass", "frost", "monokai", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red"] as const;
 
 export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
 
@@ -68,6 +70,30 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 	frost: {
 		dark: { background: "#0b0d1a", foreground: "#f5f5f7" },
 		light: { background: "#0b0d1a", foreground: "#f5f5f7" },
+	},
+	monokai: {
+		dark: { background: "#272822", foreground: "#f8f8f2" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	solarized: {
+		dark: { background: "#002b36", foreground: "#ced6d6" },
+		light: { background: "#fdf6e3", foreground: "#44575e" },
+	},
+	abyss: {
+		dark: { background: "#000c18", foreground: "#c6d0e8" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"tomorrow-night-blue": {
+		dark: { background: "#002451", foreground: "#eef3ff" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"kimbie-dark": {
+		dark: { background: "#221a0f", foreground: "#e8d5bb" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	red: {
+		dark: { background: "#390000", foreground: "#f8f8f8" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
 	},
 };
 

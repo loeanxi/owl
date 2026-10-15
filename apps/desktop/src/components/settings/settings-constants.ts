@@ -60,6 +60,12 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 			panel: "rgb(40 42 58 / 55%)",
 		},
 	},
+	{ id: "monokai", labelKey: "settings.appearance.presetMonokai", preview: { bg: "#272822", rail: "#191a17", line: "#414339", panel: "#34352f" } },
+	{ id: "solarized", labelKey: "settings.appearance.presetSolarized", preview: { bg: "#002b36", rail: "#001b23", line: "#0f4a58", panel: "#073642" } },
+	{ id: "abyss", labelKey: "settings.appearance.presetAbyss", preview: { bg: "#000c18", rail: "#03061a", line: "#2b2b4a", panel: "#10192c" } },
+	{ id: "tomorrow-night-blue", labelKey: "settings.appearance.presetTomorrowNightBlue", preview: { bg: "#002451", rail: "#001733", line: "#2a4373", panel: "#003064" } },
+	{ id: "kimbie-dark", labelKey: "settings.appearance.presetKimbieDark", preview: { bg: "#221a0f", rail: "#17110a", line: "#51412c", panel: "#362712" } },
+	{ id: "red", labelKey: "settings.appearance.presetRed", preview: { bg: "#390000", rail: "#2a0000", line: "#6b1a1a", panel: "#480000" } },
 ];
 
 export const GLASS_MODE_LABEL_KEYS: Record<OwlGlassMode, TextKey> = {

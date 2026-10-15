@@ -61,6 +61,73 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) .owl-deskto
 	--owl-ui-menu-hover: rgb(255 255 255 / 12%);
 }
 
+/* VS Code 内置主题取色的深色档，与 index.css 同名预设同语义；浅色档除 Solarized 外回落默认浅色。 */
+html[data-owl-preset="monokai"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #272822);
+	--owl-ui-panel: #34352f;
+	--owl-ui-sidebar: #1e1f1c;
+	--owl-ui-border: #3a3b34;
+	--owl-ui-text: var(--owl-ui-text-override, #f8f8f2);
+	--owl-ui-muted: #b0ad9a;
+	--owl-ui-hover: #3e3d32;
+	--owl-ui-menu-hover: #49483e;
+}
+
+html[data-owl-preset="solarized"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #002b36);
+	--owl-ui-panel: #073642;
+	--owl-ui-sidebar: #00212b;
+	--owl-ui-border: #0b4452;
+	--owl-ui-text: var(--owl-ui-text-override, #ced6d6);
+	--owl-ui-muted: #93a1a1;
+	--owl-ui-hover: #003847;
+	--owl-ui-menu-hover: #004c5e;
+}
+
+html[data-owl-preset="abyss"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #000c18);
+	--owl-ui-panel: #10192c;
+	--owl-ui-sidebar: #060621;
+	--owl-ui-border: #1f2440;
+	--owl-ui-text: var(--owl-ui-text-override, #c6d0e8);
+	--owl-ui-muted: #8c9ccc;
+	--owl-ui-hover: #0c1a3c;
+	--owl-ui-menu-hover: #152a55;
+}
+
+html[data-owl-preset="tomorrow-night-blue"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #002451);
+	--owl-ui-panel: #003064;
+	--owl-ui-sidebar: #001c40;
+	--owl-ui-border: #17396b;
+	--owl-ui-text: var(--owl-ui-text-override, #eef3ff);
+	--owl-ui-muted: #b4c6e6;
+	--owl-ui-hover: #0b2d5a;
+	--owl-ui-menu-hover: #1a3c6c;
+}
+
+html[data-owl-preset="kimbie-dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #221a0f);
+	--owl-ui-panel: #362712;
+	--owl-ui-sidebar: #1d160d;
+	--owl-ui-border: #423523;
+	--owl-ui-text: var(--owl-ui-text-override, #e8d5bb);
+	--owl-ui-muted: #c0a07a;
+	--owl-ui-hover: #33261a;
+	--owl-ui-menu-hover: #51412c;
+}
+
+html[data-owl-preset="red"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #390000);
+	--owl-ui-panel: #480000;
+	--owl-ui-sidebar: #300000;
+	--owl-ui-border: #5a1414;
+	--owl-ui-text: var(--owl-ui-text-override, #f8f8f8);
+	--owl-ui-muted: #e3b4b4;
+	--owl-ui-hover: #4f0505;
+	--owl-ui-menu-hover: #700000;
+}
+
 html[data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafbf9);
 	--owl-ui-panel: #ffffff;
@@ -94,6 +161,18 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"])[data-owl-th
 	--owl-ui-muted: #6e6e73;
 	--owl-ui-hover: rgb(60 70 110 / 7%);
 	--owl-ui-menu-hover: rgb(60 70 110 / 11%);
+}
+
+/* Solarized 预设的浅色档（Solarized Light）：比默认浅色块靠后以覆盖之。 */
+html[data-owl-preset="solarized"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fdf6e3);
+	--owl-ui-panel: #fffaeb;
+	--owl-ui-sidebar: #eee8d5;
+	--owl-ui-border: #ddd6c1;
+	--owl-ui-text: var(--owl-ui-text-override, #44575e);
+	--owl-ui-muted: #586e75;
+	--owl-ui-hover: #e9e2cc;
+	--owl-ui-menu-hover: #ddd6c1;
 }
 
 .owl-desktop-titlebar {

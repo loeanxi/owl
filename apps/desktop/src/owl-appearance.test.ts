@@ -44,8 +44,13 @@ test("known presets are kept and unknown ones fall back to the default preset", 
 	assert.equal(parseOwlAppearance({ preset: "codex" }).preset, "codex");
 	assert.equal(parseOwlAppearance({ preset: "liquid-glass" }).preset, "liquid-glass");
 	assert.equal(parseOwlAppearance({ preset: "frost" }).preset, "frost");
+	for (const preset of ["monokai", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red"]) {
+		assert.equal(parseOwlAppearance({ preset }).preset, preset);
+		assert.equal(presetThemeLock(parseOwlAppearance({ preset }).preset), null);
+		assert.equal(isGlassPreset(parseOwlAppearance({ preset }).preset), false);
+	}
 	assert.equal(parseOwlAppearance({ preset: "" }).preset, "");
-	for (const bad of ["green", "OWL-GREEN", "CODEX", "liquid_glass", 42, {}, null]) {
+	for (const bad of ["green", "OWL-GREEN", "CODEX", "liquid_glass", "Monokai", "solarized-dark", 42, {}, null]) {
 		assert.equal(parseOwlAppearance({ preset: bad }).preset, "");
 	}
 });
@@ -76,7 +81,7 @@ test("accent text stays readable on bright, dark and middle-tone custom colors a
 		});
 		return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 	};
-	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#ffff00", "#111111", "#777777", "#bd3473"]) {
+	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#a6e22e", "#2aa198", "#1a6fa8", "#4a8ee0", "#bbdaff", "#f79a32", "#ff6666", "#ffff00", "#111111", "#777777", "#bd3473"]) {
 		for (const shade of [1, 0.84]) {
 			const bg = luminance(color, shade);
 			const fg = luminance(accentTextColor(color, shade));
