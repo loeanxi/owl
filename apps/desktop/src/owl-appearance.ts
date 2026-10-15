@@ -2,8 +2,9 @@
  * 外观自定义颜色与主题预设（settings.json 的 owlAppearance 字段）。
  * - preset：整套配色方案。"" = 经典黑（默认，中性黑灰），"owl-green" = 猫头鹰绿
  *   （旧版暖绿灰配色，经 <html data-owl-preset> 切换 index.css / desktop-shell.css 的令牌块）。
- *   monokai / solarized / abyss / tomorrow-night-blue / kimbie-dark / red 取色自 VS Code 内置主题（MIT），
- *   只有 solarized 带浅色档，其余浅色档回落默认浅色。
+ *   ink / polar-night / ink-hc 为中性灰与北欧冷色系；其余编辑器系预设取色自 VS Code 内置主题（MIT），
+ *   vscode-classic 合并了 Visual Studio 与 Dark+/Light+（两者只差代码高亮）。
+ *   无官方浅色版的预设浅色档回落默认浅色；quiet-light 只有浅色版，锁定浅色档。
  * - accent：自定义强调色全局一份，深浅主题通用；空值跟随主题默认松石绿。
  * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随当前预设的默认）。
  * 应用方式：在 <html> 上写内联 CSS 变量覆盖 index.css 的 --color-owl-* 令牌，
@@ -14,7 +15,27 @@
  */
 
 /** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
-export const OWL_PRESET_IDS = ["", "owl-green", "codex", "liquid-glass", "frost", "monokai", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red"] as const;
+export const OWL_PRESET_IDS = [
+	"",
+	"owl-green",
+	"codex",
+	"liquid-glass",
+	"frost",
+	"ink",
+	"polar-night",
+	"ink-hc",
+	"vscode-modern",
+	"vscode-classic",
+	"monokai",
+	"monokai-dimmed",
+	"solarized",
+	"abyss",
+	"tomorrow-night-blue",
+	"kimbie-dark",
+	"red",
+	"quiet-light",
+	"high-contrast",
+] as const;
 
 export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
 
@@ -28,8 +49,9 @@ export function isGlassPreset(preset: OwlPresetId): boolean {
 }
 
 /** 预设锁定的深浅档；null = 跟随用户主题设置。 */
-export function presetThemeLock(preset: OwlPresetId): "dark" | null {
-	return preset === "frost" ? "dark" : null;
+export function presetThemeLock(preset: OwlPresetId): "dark" | "light" | null {
+	if (preset === "frost") return "dark";
+	return preset === "quiet-light" ? "light" : null;
 }
 
 /**
@@ -71,8 +93,32 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 		dark: { background: "#0b0d1a", foreground: "#f5f5f7" },
 		light: { background: "#0b0d1a", foreground: "#f5f5f7" },
 	},
+	ink: {
+		dark: { background: "#181818", foreground: "#f0f0f0" },
+		light: { background: "#fcfcfc", foreground: "#141414" },
+	},
+	"polar-night": {
+		dark: { background: "#1e2127", foreground: "#d8dee9" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"ink-hc": {
+		dark: { background: "#0a0a0a", foreground: "#f0f0f0" },
+		light: { background: "#ffffff", foreground: "#141414" },
+	},
+	"vscode-modern": {
+		dark: { background: "#1f1f1f", foreground: "#cccccc" },
+		light: { background: "#ffffff", foreground: "#3b3b3b" },
+	},
+	"vscode-classic": {
+		dark: { background: "#1e1e1e", foreground: "#cccccc" },
+		light: { background: "#ffffff", foreground: "#333333" },
+	},
 	monokai: {
 		dark: { background: "#272822", foreground: "#f8f8f2" },
+		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"monokai-dimmed": {
+		dark: { background: "#1e1e1e", foreground: "#c5c8c6" },
 		light: { background: "#faf9f5", foreground: "#3d3a32" },
 	},
 	solarized: {
@@ -94,6 +140,14 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 	red: {
 		dark: { background: "#390000", foreground: "#f8f8f8" },
 		light: { background: "#faf9f5", foreground: "#3d3a32" },
+	},
+	"quiet-light": {
+		dark: { background: "#f5f5f5", foreground: "#333333" },
+		light: { background: "#f5f5f5", foreground: "#333333" },
+	},
+	"high-contrast": {
+		dark: { background: "#000000", foreground: "#ffffff" },
+		light: { background: "#ffffff", foreground: "#292929" },
 	},
 };
 

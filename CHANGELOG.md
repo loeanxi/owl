@@ -24,6 +24,7 @@
 - `desktop` 外观新增 6 个取色自 VS Code 内置深色主题的预设：Monokai、Solarized、Abyss、Tomorrow Night Blue、Kimbie Dark、Red，弱化文字按 WCAG 4.5:1 调亮
 - `owl-computer-use` 电脑操作改为 computer_observe / computer_act / computer_release 三个工具：观察令牌驱动的单步动作与结果回读，有等价 UIA 控件操作时后台执行，用户接管目标窗口会中断动作并可恢复；观察与清理在计划和确认模式下免审批
 - `desktop` 输入框发送改版：模型与思考强度合并为一个控件，暂停时有草稿可选「插入当前任务」或「下一轮发送」，发送失败草稿与附件原样退回，确认期间防重复发送
+- `desktop` 外观再增 8 个预设：墨石、极夜、墨石高对比度、现代深色/浅色、深色+/浅色+、Monokai Dimmed、Quiet Light、高对比度；有官方浅色版的预设浅色档同步取色，Quiet Light 锁定浅色
 
 ### 修复
 

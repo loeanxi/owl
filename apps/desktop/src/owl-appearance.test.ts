@@ -44,13 +44,14 @@ test("known presets are kept and unknown ones fall back to the default preset", 
 	assert.equal(parseOwlAppearance({ preset: "codex" }).preset, "codex");
 	assert.equal(parseOwlAppearance({ preset: "liquid-glass" }).preset, "liquid-glass");
 	assert.equal(parseOwlAppearance({ preset: "frost" }).preset, "frost");
-	for (const preset of ["monokai", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red"]) {
+	for (const preset of ["ink", "polar-night", "ink-hc", "vscode-modern", "vscode-classic", "monokai", "monokai-dimmed", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red", "high-contrast"]) {
 		assert.equal(parseOwlAppearance({ preset }).preset, preset);
 		assert.equal(presetThemeLock(parseOwlAppearance({ preset }).preset), null);
 		assert.equal(isGlassPreset(parseOwlAppearance({ preset }).preset), false);
 	}
 	assert.equal(parseOwlAppearance({ preset: "" }).preset, "");
-	for (const bad of ["green", "OWL-GREEN", "CODEX", "liquid_glass", "Monokai", "solarized-dark", 42, {}, null]) {
+	assert.equal(parseOwlAppearance({ preset: "quiet-light" }).preset, "quiet-light");
+	for (const bad of ["green", "OWL-GREEN", "CODEX", "liquid_glass", "Monokai", "solarized-dark", "cursor", "vscode", 42, {}, null]) {
 		assert.equal(parseOwlAppearance({ preset: bad }).preset, "");
 	}
 });
@@ -73,6 +74,11 @@ test("frost shares the glass family and locks the dark theme", () => {
 	assert.equal(presetThemeLock(""), null);
 });
 
+test("quiet light only has a light palette, so it locks the light theme", () => {
+	assert.equal(presetThemeLock("quiet-light"), "light");
+	assert.equal(isGlassPreset("quiet-light"), false);
+});
+
 test("accent text stays readable on bright, dark and middle-tone custom colors and hover shades", () => {
 	const luminance = (hex: string, shade = 1): number => {
 		const channels = [1, 3, 5].map((offset) => {
@@ -81,7 +87,7 @@ test("accent text stays readable on bright, dark and middle-tone custom colors a
 		});
 		return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 	};
-	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#a6e22e", "#2aa198", "#1a6fa8", "#4a8ee0", "#bbdaff", "#f79a32", "#ff6666", "#ffff00", "#111111", "#777777", "#bd3473"]) {
+	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#a6e22e", "#2aa198", "#1a6fa8", "#4a8ee0", "#bbdaff", "#f79a32", "#ff6666", "#81a1c1", "#2778c1", "#88c0d0", "#0064b0", "#0078d4", "#005fb8", "#007acc", "#6a92c0", "#705697", "#f38518", "#006bbd", "#ffff00", "#111111", "#777777", "#bd3473"]) {
 		for (const shade of [1, 0.84]) {
 			const bg = luminance(color, shade);
 			const fg = luminance(accentTextColor(color, shade));

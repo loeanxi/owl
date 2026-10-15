@@ -132,11 +132,179 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]) {
 }
 
 /*
- * 取色自 VS Code 内置深色主题（MIT）的预设：Monokai / Solarized / Abyss /
- * Tomorrow Night Blue / Kimbie Dark / Red。层级沿用 owl 习惯（图标栏 < 侧栏 < 主背景），
- * 次级/弱化文字按 WCAG 4.5:1 调亮过。与浅色块同优先级，必须放在它前面：
- * 浅色档默认回落经典浅色，只有 Solarized 在浅色块之后另有覆盖。
+ * 编辑器主题系预设：参考常见编辑器配色，次级/弱化文字按 WCAG 4.5:1 调亮过。
+ * 多数沿用 owl 层级（图标栏 < 侧栏 < 主背景）；vscode-classic、monokai-dimmed 保留原主题
+ * 「侧栏比编辑区亮」的观感。与浅色块同优先级，必须放在它前面：浅色档默认回落经典浅色，
+ * 有官方浅色版的在浅色块之后另有覆盖；quiet-light 锁定浅色，整块放在浅色块之后。
  */
+html[data-owl-preset="ink"] {
+	--owl-conversation-bg: #181818;
+	--color-owl-bg: #181818;
+	--color-owl-sidebar: #141414;
+	--color-owl-rail: #101010;
+	--color-owl-panel: #1f1f1f;
+	--color-owl-bubble: #1d1d1d;
+	--color-owl-hover: #262626;
+	--color-owl-border: #2c2c2c;
+	--color-owl-text: #f0f0f0;
+	--color-owl-muted: #b8b8b8;
+	--color-owl-faint: #8f8f8f;
+	--owl-preset-accent: #81a1c1;
+	--owl-preset-accent-hover: #94b1ce;
+	--color-owl-sidebar-bg: #141414;
+	--color-owl-sidebar-surface: #1f1f1f;
+	--color-owl-sidebar-hover: #232323;
+	--color-owl-sidebar-selected: #2f2f2f;
+	--color-owl-sidebar-border: #262626;
+	--color-owl-sidebar-text: #f0f0f0;
+	--color-owl-sidebar-muted: #b8b8b8;
+	--color-owl-sidebar-faint: #8f8f8f;
+}
+
+html[data-owl-preset="polar-night"] {
+	--owl-conversation-bg: #1e2127;
+	--color-owl-bg: #1e2127;
+	--color-owl-sidebar: #191c22;
+	--color-owl-rail: #15171c;
+	--color-owl-panel: #272c36;
+	--color-owl-bubble: #22262e;
+	--color-owl-hover: #2a2f3a;
+	--color-owl-border: #323743;
+	--color-owl-text: #d8dee9;
+	--color-owl-muted: #a3acbd;
+	--color-owl-faint: #8a94a8;
+	--owl-preset-accent: #88c0d0;
+	--owl-preset-accent-hover: #9fcfdc;
+	--color-owl-sidebar-bg: #191c22;
+	--color-owl-sidebar-surface: #21242b;
+	--color-owl-sidebar-hover: #232731;
+	--color-owl-sidebar-selected: #2c313c;
+	--color-owl-sidebar-border: #262a32;
+	--color-owl-sidebar-text: #d8dee9;
+	--color-owl-sidebar-muted: #a3acbd;
+	--color-owl-sidebar-faint: #8a94a8;
+}
+
+html[data-owl-preset="ink-hc"] {
+	--owl-conversation-bg: #0a0a0a;
+	--color-owl-bg: #0a0a0a;
+	--color-owl-sidebar: #0a0a0a;
+	--color-owl-rail: #000000;
+	--color-owl-panel: #141414;
+	--color-owl-bubble: #161616;
+	--color-owl-hover: #2a2a2a;
+	--color-owl-border: #3a3a3a;
+	--color-owl-text: #f0f0f0;
+	--color-owl-muted: #c8c8c8;
+	--color-owl-faint: #a8a8a8;
+	--owl-preset-accent: #88c0d0;
+	--owl-preset-accent-hover: #a3d0dc;
+	--color-owl-sidebar-bg: #0a0a0a;
+	--color-owl-sidebar-surface: #141414;
+	--color-owl-sidebar-hover: #222222;
+	--color-owl-sidebar-selected: #434c5e;
+	--color-owl-sidebar-border: #333333;
+	--color-owl-sidebar-text: #f0f0f0;
+	--color-owl-sidebar-muted: #c8c8c8;
+	--color-owl-sidebar-faint: #a8a8a8;
+}
+
+html[data-owl-preset="vscode-modern"] {
+	--owl-conversation-bg: #1f1f1f;
+	--color-owl-bg: #1f1f1f;
+	--color-owl-sidebar: #181818;
+	--color-owl-rail: #141414;
+	--color-owl-panel: #282828;
+	--color-owl-bubble: #262626;
+	--color-owl-hover: #2a2d2e;
+	--color-owl-border: #333333;
+	--color-owl-text: #cccccc;
+	--color-owl-muted: #9d9d9d;
+	--color-owl-faint: #969696;
+	--owl-preset-accent: #0078d4;
+	--owl-preset-accent-hover: #1a8ae0;
+	--color-owl-sidebar-bg: #181818;
+	--color-owl-sidebar-surface: #202020;
+	--color-owl-sidebar-hover: #2a2d2e;
+	--color-owl-sidebar-selected: #37373d;
+	--color-owl-sidebar-border: #2b2b2b;
+	--color-owl-sidebar-text: #cccccc;
+	--color-owl-sidebar-muted: #9d9d9d;
+	--color-owl-sidebar-faint: #8b8b8b;
+}
+
+html[data-owl-preset="vscode-classic"] {
+	--owl-conversation-bg: #1e1e1e;
+	--color-owl-bg: #1e1e1e;
+	--color-owl-sidebar: #252526;
+	--color-owl-rail: #333333;
+	--color-owl-panel: #2d2d2d;
+	--color-owl-bubble: #2a2a2b;
+	--color-owl-hover: #2a2d2e;
+	--color-owl-border: #3c3c3c;
+	--color-owl-text: #cccccc;
+	--color-owl-muted: #a0a0a0;
+	--color-owl-faint: #999999;
+	--owl-preset-accent: #007acc;
+	--owl-preset-accent-hover: #1c8ddb;
+	--color-owl-sidebar-bg: #252526;
+	--color-owl-sidebar-surface: #2d2d2d;
+	--color-owl-sidebar-hover: #2a2d2e;
+	--color-owl-sidebar-selected: #37373d;
+	--color-owl-sidebar-border: #3c3c3c;
+	--color-owl-sidebar-text: #cccccc;
+	--color-owl-sidebar-muted: #a0a0a0;
+	--color-owl-sidebar-faint: #8c8c8c;
+}
+
+html[data-owl-preset="monokai-dimmed"] {
+	--owl-conversation-bg: #1e1e1e;
+	--color-owl-bg: #1e1e1e;
+	--color-owl-sidebar: #272727;
+	--color-owl-rail: #353535;
+	--color-owl-panel: #303030;
+	--color-owl-bubble: #2a2a2a;
+	--color-owl-hover: #444444;
+	--color-owl-border: #404040;
+	--color-owl-text: #c5c8c6;
+	--color-owl-muted: #a0a3a1;
+	--color-owl-faint: #9a9d9b;
+	--owl-preset-accent: #6a92c0;
+	--owl-preset-accent-hover: #82a5cd;
+	--color-owl-sidebar-bg: #272727;
+	--color-owl-sidebar-surface: #303030;
+	--color-owl-sidebar-hover: #353535;
+	--color-owl-sidebar-selected: #4e4e4e;
+	--color-owl-sidebar-border: #353535;
+	--color-owl-sidebar-text: #c5c8c6;
+	--color-owl-sidebar-muted: #a0a3a1;
+	--color-owl-sidebar-faint: #8f9290;
+}
+
+html[data-owl-preset="high-contrast"] {
+	--owl-conversation-bg: #000000;
+	--color-owl-bg: #000000;
+	--color-owl-sidebar: #000000;
+	--color-owl-rail: #000000;
+	--color-owl-panel: #0b0b0b;
+	--color-owl-bubble: #0b0b0b;
+	--color-owl-hover: #1a1a1a;
+	--color-owl-border: #6fc3df;
+	--color-owl-text: #ffffff;
+	--color-owl-muted: #e0e0e0;
+	--color-owl-faint: #c8c8c8;
+	--owl-preset-accent: #f38518;
+	--owl-preset-accent-hover: #f59c45;
+	--color-owl-sidebar-bg: #000000;
+	--color-owl-sidebar-surface: #000000;
+	--color-owl-sidebar-hover: #1a1a1a;
+	--color-owl-sidebar-selected: #0f3a4a;
+	--color-owl-sidebar-border: #6fc3df;
+	--color-owl-sidebar-text: #ffffff;
+	--color-owl-sidebar-muted: #e0e0e0;
+	--color-owl-sidebar-faint: #c8c8c8;
+}
+
 html[data-owl-preset="monokai"] {
 	--owl-conversation-bg: #272822;
 	--color-owl-bg: #272822;
@@ -385,6 +553,148 @@ html[data-owl-preset="solarized"][data-owl-theme="light"] {
 	--color-owl-text: #44575e;
 	--color-owl-muted: #586e75;
 	--color-owl-faint: #5e7279;
+}
+
+/* 有官方浅色版的编辑器主题预设：放在默认浅色块之后同优先级覆盖。 */
+html[data-owl-preset="ink"][data-owl-theme="light"] {
+	--owl-preset-accent: #2778c1;
+	--owl-preset-accent-hover: #1f64a3;
+	--color-owl-bg: #fcfcfc;
+	--color-owl-sidebar: #f3f3f3;
+	--color-owl-rail: #ebebeb;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f3f3f3;
+	--color-owl-hover: #e9e9e9;
+	--color-owl-border: #e2e2e2;
+	--color-owl-sidebar-bg: #f3f3f3;
+	--color-owl-sidebar-surface: #fcfcfc;
+	--color-owl-sidebar-hover: #e8e8e8;
+	--color-owl-sidebar-selected: #dedede;
+	--color-owl-sidebar-border: #e2e2e2;
+	--color-owl-sidebar-text: #141414;
+	--color-owl-sidebar-muted: #505050;
+	--color-owl-sidebar-faint: #666666;
+	--color-owl-text: #141414;
+	--color-owl-muted: #505050;
+	--color-owl-faint: #666666;
+}
+
+html[data-owl-preset="ink-hc"][data-owl-theme="light"] {
+	--owl-preset-accent: #0064b0;
+	--owl-preset-accent-hover: #00528f;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #ffffff;
+	--color-owl-rail: #f5f5f5;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f2f2f2;
+	--color-owl-hover: #dddddd;
+	--color-owl-border: #b8b8b8;
+	--color-owl-sidebar-bg: #ffffff;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #e6e6e6;
+	--color-owl-sidebar-selected: #d6d6d6;
+	--color-owl-sidebar-border: #c4c4c4;
+	--color-owl-sidebar-text: #141414;
+	--color-owl-sidebar-muted: #3a3a3a;
+	--color-owl-sidebar-faint: #505050;
+	--color-owl-text: #141414;
+	--color-owl-muted: #3a3a3a;
+	--color-owl-faint: #505050;
+}
+
+html[data-owl-preset="vscode-modern"][data-owl-theme="light"] {
+	--owl-preset-accent: #005fb8;
+	--owl-preset-accent-hover: #0258a8;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f8f8f8;
+	--color-owl-rail: #f0f0f0;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f8f8f8;
+	--color-owl-hover: #f2f2f2;
+	--color-owl-border: #e5e5e5;
+	--color-owl-sidebar-bg: #f8f8f8;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #f2f2f2;
+	--color-owl-sidebar-selected: #e8e8e8;
+	--color-owl-sidebar-border: #e5e5e5;
+	--color-owl-sidebar-text: #3b3b3b;
+	--color-owl-sidebar-muted: #616161;
+	--color-owl-sidebar-faint: #6e6e6e;
+	--color-owl-text: #3b3b3b;
+	--color-owl-muted: #616161;
+	--color-owl-faint: #6e6e6e;
+}
+
+html[data-owl-preset="vscode-classic"][data-owl-theme="light"] {
+	--owl-preset-accent: #007acc;
+	--owl-preset-accent-hover: #0062a3;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f3f3f3;
+	--color-owl-rail: #e8e8e8;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f3f3f3;
+	--color-owl-hover: #e8e8e8;
+	--color-owl-border: #d4d4d4;
+	--color-owl-sidebar-bg: #f3f3f3;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #e8e8e8;
+	--color-owl-sidebar-selected: #e4e6f1;
+	--color-owl-sidebar-border: #e0e0e0;
+	--color-owl-sidebar-text: #333333;
+	--color-owl-sidebar-muted: #616161;
+	--color-owl-sidebar-faint: #6a6a6a;
+	--color-owl-text: #333333;
+	--color-owl-muted: #616161;
+	--color-owl-faint: #6a6a6a;
+}
+
+html[data-owl-preset="high-contrast"][data-owl-theme="light"] {
+	--owl-preset-accent: #006bbd;
+	--owl-preset-accent-hover: #00569a;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #ffffff;
+	--color-owl-rail: #ffffff;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f5f5f5;
+	--color-owl-hover: #e8eef5;
+	--color-owl-border: #0f4a85;
+	--color-owl-sidebar-bg: #ffffff;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #e8eef5;
+	--color-owl-sidebar-selected: #cfe2f5;
+	--color-owl-sidebar-border: #0f4a85;
+	--color-owl-sidebar-text: #292929;
+	--color-owl-sidebar-muted: #3a3a3a;
+	--color-owl-sidebar-faint: #4d4d4d;
+	--color-owl-text: #292929;
+	--color-owl-muted: #3a3a3a;
+	--color-owl-faint: #4d4d4d;
+}
+
+/* Quiet Light 只有浅色版（presetThemeLock 锁定浅色档），不分档整块覆盖。 */
+html[data-owl-preset="quiet-light"] {
+	--owl-conversation-bg: #f5f5f5;
+	--owl-preset-accent: #705697;
+	--owl-preset-accent-hover: #5e4880;
+	color-scheme: light;
+	--color-owl-bg: #f5f5f5;
+	--color-owl-sidebar: #f2f2f2;
+	--color-owl-rail: #ededf5;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #ececec;
+	--color-owl-hover: #e0e0e0;
+	--color-owl-border: #d6d6d6;
+	--color-owl-sidebar-bg: #f2f2f2;
+	--color-owl-sidebar-surface: #ffffff;
+	--color-owl-sidebar-hover: #e0e0e0;
+	--color-owl-sidebar-selected: #c4d9b1;
+	--color-owl-sidebar-border: #dcdcdc;
+	--color-owl-sidebar-text: #333333;
+	--color-owl-sidebar-muted: #5c5c5c;
+	--color-owl-sidebar-faint: #666666;
+	--color-owl-text: #333333;
+	--color-owl-muted: #5c5c5c;
+	--color-owl-faint: #666666;
 }
 
 ::selection {
