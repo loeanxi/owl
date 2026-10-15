@@ -43,6 +43,7 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 	const prompt = vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (
 		this: AgentSession,
 		message,
+		options,
 	) {
 		const prepared = await this.extensionRunner.emitBeforeAgentStart(String(message), undefined, {
 			cwd: this.sessionManager.getCwd(),
@@ -54,6 +55,7 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 			instructions: prepared.systemPromptOptions.sections.owl_research,
 		});
 		this.sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
+		options?.preflightResult?.("handled");
 	});
 	const noFetch = vi.fn<typeof fetch>(async () => {
 		throw new Error("External requests forbidden in research bridge tests");

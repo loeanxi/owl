@@ -344,11 +344,12 @@ function alignMessageEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (str
  * 每次重试轮的 agent_end 权威重建会重排条目，横幅状态不能寄存在 entries 里。 */
 export type RetryBannerState =
 	| { phase: "retrying"; attempt: number; maxAttempts: number; delayMs: number; startedAt: number; reason?: string }
-	| { phase: "failed"; attempt: number; reason?: string };
+	| { phase: "failed"; attempt: number; reason?: string; requestFailed?: boolean };
 
 /** 从桥事件流提取自动重试横幅状态；无关事件返回原引用（React 可跳过重渲染）。 */
 export function applyRetryEvent(state: RetryBannerState | null, message: ServerEventMessage): RetryBannerState | null {
 	const event = (message.event ?? {}) as AnyEvent;
+	if (event.type === "agent_start" || (event.type === "agent_settled" && event.aborted === true)) return null;
 	if (event.type === "auto_retry_start") {
 		return {
 			phase: "retrying",
@@ -368,6 +369,7 @@ export function applyRetryEvent(state: RetryBannerState | null, message: ServerE
 			phase: "failed",
 			attempt: typeof event.attempt === "number" ? event.attempt : 0,
 			reason: formatProviderError(typeof event.finalError === "string" ? event.finalError : undefined),
+			...(event.requestFailed === true ? { requestFailed: true } : {}),
 		};
 	}
 	return state;

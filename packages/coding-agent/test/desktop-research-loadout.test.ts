@@ -137,7 +137,11 @@ it.each([
 		vi.stubGlobal("fetch", noFetch);
 		const observed = new Map<string, { session: AgentSession; snapshots: string[][] }>();
 		const permission = vi.spyOn(DesktopPermissionQueue.prototype, "request").mockResolvedValue(false);
-		vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (this: AgentSession, message) {
+		vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (
+			this: AgentSession,
+			message,
+			options,
+		) {
 			if (message === "reload" || message === "reload blank") await this.reload();
 			if (message === "discover browser") {
 				this.setActiveToolsByName([...this.getActiveToolNames(), "browser_network"]);
@@ -149,6 +153,7 @@ it.each([
 			observed.set(sessionId, record);
 			if (message !== "inspect blank" && message !== "reload blank")
 				this.sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
+			options?.preflightResult?.("handled");
 		});
 		let bridge: DesktopServerHandle | undefined;
 		const sockets: WebSocket[] = [];

@@ -2155,6 +2155,22 @@ export class AgentSession {
 		return { images: normalizedImages, hints };
 	}
 
+	private async _validatePromptModel(): Promise<void> {
+		if (!this.model) throw new Error(formatNoModelSelectedMessage());
+		const hasConfiguredAuth =
+			this._modelRuntime.hasConfiguredAuth(this.model.provider) ||
+			(await this._modelRuntime.checkAuth(this.model.provider)) !== undefined;
+		if (hasConfiguredAuth) return;
+		if (this._modelRuntime.isUsingOAuth(this.model.provider)) {
+			throw new Error(
+				`Authentication failed for "${this.model.provider}". ` +
+					`Credentials may have expired or network is unavailable. ` +
+					`Run '/login ${this.model.provider}' to re-authenticate.`,
+			);
+		}
+		throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
+	}
+
 	/**
 	 * Send a prompt to the agent.
 	 * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
@@ -2232,25 +2248,7 @@ export class AgentSession {
 		this._flushPendingBashMessages();
 		this._flushPendingCustomMessages();
 
-		// Validate model
-		if (!this.model) {
-			throw new Error(formatNoModelSelectedMessage());
-		}
-
-		const hasConfiguredAuth =
-			this._modelRuntime.hasConfiguredAuth(this.model.provider) ||
-			(await this._modelRuntime.checkAuth(this.model.provider)) !== undefined;
-		if (!hasConfiguredAuth) {
-			const isOAuth = this._modelRuntime.isUsingOAuth(this.model.provider);
-			if (isOAuth) {
-				throw new Error(
-					`Authentication failed for "${this.model.provider}". ` +
-						`Credentials may have expired or network is unavailable. ` +
-						`Run '/login ${this.model.provider}' to re-authenticate.`,
-				);
-			}
-			throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
-		}
+		await this._validatePromptModel();
 
 		// Check if we need to compact before sending (catches aborted responses).
 		// The user's new prompt is sent below, so do not call agent.continue() here.
@@ -2603,7 +2601,9 @@ export class AgentSession {
 	 * 相比 agent.continue()，这条路径不要求末条消息是 user/toolResult：中止后
 	 * 末条消息常是被中断的 assistant 回复，custom 消息补在它后面即合法序列。
 	 */
-	async resumeAfterPause(message: string): Promise<void> {
+	async resumeAfterPause(message: string, options?: Pick<PromptOptions, "preflightResult">): Promise<void> {
+		await this._validatePromptModel();
+		options?.preflightResult?.("started");
 		await this.sendCustomMessage(
 			{ customType: "owl.resume", content: message, display: false },
 			{ triggerTurn: true },

@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import * as runtimeModule from "../src/core/agent-session-runtime.ts";
 import { getDefaultSessionDirPath } from "../src/core/session-manager.ts";
 import type { DesktopClientRequestWithoutId, ServerResponseMessage } from "../src/modes/desktop/protocol.ts";
 import { startDesktopServer } from "../src/modes/desktop/serve.ts";
+import { createHarness, type Harness } from "./suite/harness.ts";
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.unstubAllEnvs();
 });
 
@@ -64,18 +68,17 @@ it("session.continue persists a hidden custom_message entry without appending a 
 				timestamp: 2,
 			},
 		},
-		{
-			// 让挂载恢复一个不存在的模型：续跑的 LLM 调用快速失败，测试不碰真实网络
-			// （否则会话回落到全局默认模型，那台机器上的默认模型可能真的可用）。
-			type: "model_change",
-			id: "e-model-1",
-			parentId: "e-assistant-1",
-			timestamp: iso,
-			provider: "owl-test-missing",
-			modelId: "none",
-		},
 	];
 	await writeFile(sourceFile, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+	let harness: Harness | undefined;
+	const createRuntime = runtimeModule.createAgentSessionRuntime;
+	vi.spyOn(runtimeModule, "createAgentSessionRuntime").mockImplementation(async (create, options) => {
+		const runtime = await createRuntime(create, options);
+		harness = await createHarness({ sessionManager: runtime.session.sessionManager });
+		harness.setResponses([fauxAssistantMessage("remaining work completed")]);
+		await runtime.dispose();
+		return new runtimeModule.AgentSessionRuntime(harness.session, runtime.services, create);
+	});
 
 	const bridge = await startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
 	const sockets: WebSocket[] = [];
@@ -182,6 +185,7 @@ it("session.continue persists a hidden custom_message entry without appending a 
 	} finally {
 		for (const open of sockets) open.terminate();
 		await bridge.close();
+		harness?.cleanup();
 		await rm(absolute, { recursive: true, force: true });
 	}
 });

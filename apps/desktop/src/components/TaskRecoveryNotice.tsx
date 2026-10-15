@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ProviderModelsMessage } from "../bridge/protocol.ts";
 import type { TaskRecovery } from "../hooks/task-recovery.ts";
 import { useT } from "../i18n/index.ts";
@@ -20,12 +20,14 @@ export function TaskRecoveryNotice(props: TaskRecoveryNoticeProps): React.JSX.El
 function RecoveryCard({ recovery, providers = [], model, disabled, onContinue, onOpenSettings }: TaskRecoveryNoticeProps & { recovery: TaskRecovery }): React.JSX.Element {
 	const t = useT();
 	const [busy, setBusy] = useState(false);
+	const busyRef = useRef(false);
 	const [choosingModel, setChoosingModel] = useState(false);
 	const [selectedModel, setSelectedModel] = useState("");
 	const [error, setError] = useState<string>();
 	const alternatives = providers.map((provider) => ({ ...provider, models: provider.models.filter((candidate) => `${provider.id}/${candidate.id}` !== model) })).filter((provider) => provider.models.length > 0);
 	const resume = async (nextModel?: string): Promise<void> => {
-		if (busy || disabled) return;
+		if (busyRef.current || disabled) return;
+		busyRef.current = true;
 		setBusy(true);
 		setError(undefined);
 		try {
@@ -33,6 +35,7 @@ function RecoveryCard({ recovery, providers = [], model, disabled, onContinue, o
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
+			busyRef.current = false;
 			setBusy(false);
 		}
 	};

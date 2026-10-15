@@ -556,7 +556,18 @@ test("restoring plain refusal prose alone never creates a confirmed upstream ref
 });
 
 test("research sends additional material into the selected running lane without replacing current task evidence", async () => {
-	const { controller, bridge } = fresh();
+	let streaming = false;
+	const { controller, bridge } = fresh((request) => {
+		if (request.type === "session.create") return { ok: true, result: { sessionId: "research-1" } };
+		if (request.type === "session.stats") return { ok: true, result: stats };
+		if (request.type === "session.prompt") {
+			// The desktop bridge rejects research-direction changes during an active stream.
+			if (streaming && request.researchMode !== undefined) throw new Error("请先停止当前处理，再调整研究方向");
+			if (!streaming) assert.equal(request.researchMode, "auto");
+			streaming = true;
+		}
+		return { ok: true };
+	});
 	try {
 		await controller.attach();
 		await controller.send("当前研究任务");
@@ -566,7 +577,7 @@ test("research sends additional material into the selected running lane without 
 		const paths = ["D:/owl/evidence.json"];
 		assert.equal(await controller.send("补充这份材料", images, paths, "steer"), true);
 		assert.deepEqual(bridge.requests.findLast((request) => request.type === "session.prompt"), {
-			type: "session.prompt", sessionId: "research-1", message: "补充这份材料", researchMode: "auto", images, attachedPaths: paths, streamingBehavior: "steer",
+			type: "session.prompt", sessionId: "research-1", message: "补充这份材料", images, attachedPaths: paths, streamingBehavior: "steer",
 		});
 		assert.deepEqual(controller.getSnapshot().entries, before);
 		assert.deepEqual(controller.getSnapshot().task, taskRecord());
@@ -645,6 +656,62 @@ test("a failed research model switch does not issue continuation or change the s
 	} finally { controller.dispose(); }
 });
 
+test("research keeps an acknowledged model switch when continuation fails", async () => {
+	const changedStats = { ...stats, model: { provider: "other", id: "replacement" } };
+	const { controller, bridge, store } = fresh((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.stats" ? { ok: true, result: stats } : request.type === "session.setModel" ? { ok: true, result: changedStats } : request.type === "session.continue" ? { ok: false, error: "bridge reconnect" } : { ok: true });
+	try {
+		await controller.attach(); await controller.send("保留资料");
+		bridge.emit("research-1", { type: "agent_settled" });
+		assert.equal(await controller.continue("other/replacement"), false);
+		assert.equal(controller.getSnapshot().model, "other/replacement");
+		assert.equal(controller.getSnapshot().stats?.model?.id, "replacement");
+		assert.equal(controller.getSnapshot().error, "bridge reconnect");
+		assert.equal(controller.getSnapshot().running, false);
+		assert.equal(JSON.parse(store.getItem(`${researchSessionKey("D:/owl")}.preferences`)!).model, "other/replacement");
+	} finally { controller.dispose(); }
+});
+
+test("a rejected paused research draft preserves pause and all materials for retry", async () => {
+	let reject = false;
+	const { controller } = fresh((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : request.type === "session.stats" ? { ok: true, result: stats } : request.type === "session.prompt" && reject ? { ok: false, error: "prompt rejected" } : { ok: true });
+	try {
+		await controller.attach(); await controller.send("原任务");
+		await controller.pause();
+		reject = true;
+		const images = [{ type: "image" as const, data: "paused-image", mimeType: "image/png" }];
+		const attachedPaths = ["D:/owl/paused.txt"];
+		assert.equal(await controller.send("暂停后改方向", images, attachedPaths), false);
+		assert.equal(controller.getSnapshot().paused, true);
+		assert.equal(controller.getSnapshot().running, false);
+		assert.deepEqual(controller.getSnapshot().failedPrompt, { text: "暂停后改方向", images, attachedPaths });
+		assert.equal(controller.getSnapshot().entries.filter((entry) => entry.kind === "user").length, 1);
+	} finally { controller.dispose(); }
+});
+
+test("research model acknowledgement rejects stats captured during the pending switch", async () => {
+	let deferStats = false;
+	let modelAck: ((response: Response) => void) | undefined;
+	let staleStats: ((response: Response) => void) | undefined;
+	const { controller, bridge } = fresh((request) => {
+		if (request.type === "session.create") return { ok: true, result: { sessionId: "research-1" } };
+		if (request.type === "session.setModel") return new Promise<Response>((resolve) => { modelAck = resolve; });
+		if (request.type === "session.stats") return deferStats ? new Promise<Response>((resolve) => { staleStats = resolve; }) : { ok: true, result: stats };
+		return { ok: true };
+	});
+	try {
+		await controller.attach(); await controller.send("已有资料");
+		bridge.emit("research-1", { type: "agent_settled" });
+		const continuing = controller.continue("other/replacement");
+		deferStats = true;
+		bridge.emit("research-1", { type: "agent_settled" });
+		assert.ok(modelAck); modelAck({ ok: true, result: { ...stats, model: { provider: "other", id: "replacement" } } });
+		assert.equal(await continuing, true);
+		assert.ok(staleStats); staleStats({ ok: true, result: stats });
+		await Promise.resolve(); await Promise.resolve();
+		assert.equal(controller.getSnapshot().model, "other/replacement");
+	} finally { controller.dispose(); }
+});
+
 test("late research continuation responses cannot mark a different thread as running", async () => {
 	let complete: ((response: Response) => void) | undefined;
 	const { controller, bridge } = fresh((request) => request.type === "session.create" ? { ok: true, result: { sessionId: "research-1" } } : request.type === "session.stats" ? { ok: true, result: stats } : request.type === "session.continue" ? new Promise<Response>((resolve) => { complete = resolve; }) : { ok: true });
@@ -659,5 +726,63 @@ test("late research continuation responses cannot mark a different thread as run
 		assert.equal(controller.getSnapshot().running, false);
 		assert.equal(controller.getSnapshot().busy, false);
 		assert.equal(controller.getSnapshot().sessionId, undefined);
+	} finally { controller.dispose(); }
+});
+
+for (const action of ["send", "continue"] as const) {
+	test(`research keeps ${action} locked until acknowledgement even if settlement arrives first`, async () => {
+		let waitForAck = false;
+		let complete: ((response: Response) => void) | undefined;
+		const { controller, bridge } = fresh((request) => {
+			if (request.type === "session.create") return { ok: true, result: { sessionId: "research-1" } };
+			if (request.type === "session.stats") return { ok: true, result: stats };
+			if (waitForAck && request.type === `session.${action === "send" ? "prompt" : "continue"}`) return new Promise<Response>((resolve) => { complete = resolve; });
+			return { ok: true };
+		});
+		try {
+			await controller.attach(); await controller.send("原任务");
+			bridge.emit("research-1", { type: "agent_settled" });
+			waitForAck = true;
+			const pending = action === "send" ? controller.send("新指令") : controller.continue();
+			bridge.emit("research-1", { type: "agent_settled" });
+			assert.equal(controller.getSnapshot().busy, true);
+			const requests = bridge.requests.length;
+			assert.equal(await controller.send("重复提交"), false);
+			assert.equal(await controller.continue(), false);
+			assert.equal(bridge.requests.length, requests);
+			assert.ok(complete); complete({ ok: true });
+			assert.equal(await pending, true);
+			assert.equal(controller.getSnapshot().busy, false);
+		} finally { controller.dispose(); }
+	});
+}
+
+test("an old prompt acknowledgement cannot release the new thread submission lock", async () => {
+	const completions: ((response: Response) => void)[] = [];
+	let created = 0;
+	const { controller, bridge } = fresh((request) => {
+		if (request.type === "session.create") return { ok: true, result: { sessionId: `research-${++created}` } };
+		if (request.type === "session.stats") return { ok: true, result: stats };
+		if (request.type === "session.prompt") return new Promise<Response>((resolve) => completions.push(resolve));
+		return { ok: true };
+	});
+	try {
+		await controller.attach();
+		const old = controller.send("旧会话材料");
+		await Promise.resolve(); await Promise.resolve();
+		assert.equal(completions.length, 1);
+		assert.equal(controller.newThread(), true);
+		const next = controller.send("新会话材料");
+		await Promise.resolve(); await Promise.resolve();
+		assert.equal(completions.length, 2);
+		completions[0]!({ ok: true });
+		assert.equal(await old, false);
+		assert.equal(controller.getSnapshot().sessionId, "research-2");
+		assert.equal(controller.getSnapshot().busy, true);
+		bridge.emit("research-2", { type: "agent_settled" });
+		assert.equal(await controller.send("不能重复发"), false);
+		completions[1]!({ ok: true });
+		assert.equal(await next, true);
+		assert.equal(controller.getSnapshot().busy, false);
 	} finally { controller.dispose(); }
 });

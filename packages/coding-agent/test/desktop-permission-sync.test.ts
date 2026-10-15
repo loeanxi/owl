@@ -319,8 +319,10 @@ it("real bridge observer resume preserves auto and returns actual mode while exp
 	const prompt = vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (
 		this: AgentSession,
 		message,
+		options,
 	) {
 		this.sessionManager.appendMessage({ role: "user", content: message, timestamp: Date.now() });
+		options?.preflightResult?.("handled");
 	});
 	const start = () => startDesktopServer({ port: 0, agentDir, cwd, mcpServers: {}, onDiagnostic: () => {} });
 	let server = await start();

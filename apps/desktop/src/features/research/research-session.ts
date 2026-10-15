@@ -87,6 +87,7 @@ export class ResearchSessionController {
 	private replayEvents: ServerEventMessage[] = [];
 	private runRevision = 0;
 	private settingsRevision = 0;
+	private submissionEpoch?: number;
 	private defaultAgentPreset?: string;
 	private disabledPresetIds = new Set(["pi"]);
 	private reconcileTimer?: ReturnType<typeof setTimeout>;
@@ -193,7 +194,7 @@ export class ResearchSessionController {
 			patch.running = type === "agent_start";
 			if (type === "agent_start") { patch.diagnosis = undefined; patch.paused = false; }
 			if (type === "agent_settled") {
-				patch.busy = false;
+				patch.busy = this.submissionEpoch === this.epoch;
 				void this.refreshStats();
 			}
 		}
@@ -280,9 +281,11 @@ export class ResearchSessionController {
 	}
 
 	async send(text: string, images?: ResearchImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> {
-		if (!this.state.connected || !this.state.ready || this.state.busy || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
+		if (!this.state.connected || !this.state.ready || this.state.busy || this.submissionEpoch === this.epoch || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
 		const epoch = this.epoch;
+		this.submissionEpoch = epoch;
 		const queueing = this.state.running;
+		const wasPaused = this.state.paused;
 		let optimisticEntry: Extract<ChatEntry, { kind: "user" }> | undefined;
 		let submittedRunRevision = this.runRevision;
 		this.update({ busy: true, error: undefined, failedPrompt: undefined });
@@ -315,7 +318,7 @@ export class ResearchSessionController {
 				type: "session.prompt",
 				sessionId,
 				message: text,
-				researchMode: "auto",
+				...(!queueing ? { researchMode: "auto" as const } : {}),
 				...(queueing ? { streamingBehavior: delivery === "steer" ? "steer" as const : "followUp" as const } : {}),
 				...(images?.length ? { images } : {}),
 				...(attachedPaths?.length ? { attachedPaths } : {}),
@@ -327,11 +330,12 @@ export class ResearchSessionController {
 			return true;
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({
-				error: error instanceof Error ? error.message : String(error), ...(!queueing && this.runRevision === submittedRunRevision ? { running: false } : {}), failedPrompt: { text, images, attachedPaths, ...(delivery ? { delivery } : {}) },
+				error: error instanceof Error ? error.message : String(error), ...(!queueing && this.runRevision === submittedRunRevision ? { running: false, paused: wasPaused } : {}), failedPrompt: { text, images, attachedPaths, ...(delivery ? { delivery } : {}) },
 				...(this.runRevision === submittedRunRevision && optimisticEntry ? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) } : {}),
 			});
 			return false;
 		} finally {
+			if (this.submissionEpoch === epoch) this.submissionEpoch = undefined;
 			if (this.isCurrent(epoch)) this.update({ busy: false });
 		}
 	}
@@ -360,23 +364,31 @@ export class ResearchSessionController {
 
 	async continue(model?: string): Promise<boolean> {
 		const sessionId = this.state.sessionId;
-		if (!sessionId || !this.state.connected || !this.state.ready || this.state.running || this.state.busy) return false;
+		if (!sessionId || !this.state.connected || !this.state.ready || this.state.running || this.state.busy || this.submissionEpoch === this.epoch) return false;
 		const epoch = this.epoch;
+		this.submissionEpoch = epoch;
 		const paused = this.state.paused;
 		const runRevision = this.runRevision;
 		this.settingsRevision++;
 		this.update({ busy: true, running: true, paused: false, error: undefined, retryStatus: null, failedPrompt: undefined });
 		try {
-			const stats = await continueTask(this.client, sessionId, model);
+			await continueTask(this.client, sessionId, model, (stats, selectedModel) => {
+				if (!this.isCurrent(epoch, sessionId)) return;
+				this.settingsRevision++;
+				if (stats) this.applyStats(stats);
+				else { this.update({ model: selectedModel }); this.persistPreferences(); }
+			});
 			if (!this.isCurrent(epoch, sessionId)) return false;
-			if (stats) this.applyStats(stats);
 			clearTimeout(this.reconcileTimer);
 			this.reconcileTimer = setTimeout(() => { void this.reconcileRunning(epoch).catch(() => {}); }, 2000);
 			return true;
 		} catch (error) {
 			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error), ...(this.runRevision === runRevision ? { running: false, paused } : {}) });
 			return false;
-		} finally { if (this.isCurrent(epoch, sessionId)) this.update({ busy: false }); }
+		} finally {
+			if (this.submissionEpoch === epoch) this.submissionEpoch = undefined;
+			if (this.isCurrent(epoch, sessionId)) this.update({ busy: false });
+		}
 	}
 
 	async changeQueue(lane: "steering" | "followUp", index: number, promote = false): Promise<void> {

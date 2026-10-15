@@ -27,8 +27,13 @@ it("applies memory settings to mounted sessions without reloading them and prese
 	vi.stubEnv("OWL_CODING_AGENT_DIR", agentDir);
 	const mounted = new Map<string, AgentSession>();
 	// Exercise real bridge mounting and settings propagation without entering a provider request.
-	const prompt = vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (this: AgentSession) {
+	const prompt = vi.spyOn(AgentSession.prototype, "prompt").mockImplementation(async function (
+		this: AgentSession,
+		_message,
+		options,
+	) {
 		mounted.set(this.sessionManager.getSessionId(), this);
+		options?.preflightResult?.("handled");
 	});
 	const reload = vi.spyOn(AgentSession.prototype, "reload");
 	const abort = vi.spyOn(AgentSession.prototype, "abort");
