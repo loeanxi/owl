@@ -4,6 +4,7 @@ import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } fr
 import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
+import { continueTask } from "../../hooks/task-recovery.ts";
 import { normPath, samePath } from "../../utils/paths.ts";
 import { t } from "../../i18n/index.ts";
 import { mergeResearchResults, publishedResults, researchResultsFromEvent } from "./research-results.ts";
@@ -22,13 +23,15 @@ export type ResearchSessionState = ResearchPreferences & {
 	diagnosis?: ResearchDiagnosis;
 	task?: ResearchTaskRecord;
 	running: boolean;
+	paused: boolean;
+	queue: { steering: string[]; followUp: string[] };
 	busy: boolean;
 	ready: boolean;
 	connected: boolean;
 	stats?: SessionStatsResult;
 	error?: string;
 	retryStatus: RetryBannerState | null;
-	failedPrompt?: { text: string; images?: ResearchImage[]; attachedPaths?: string[] };
+	failedPrompt?: { text: string; images?: ResearchImage[]; attachedPaths?: string[]; delivery?: "queue" | "steer" };
 };
 
 export function researchSessionKey(cwd: string): string {
@@ -107,7 +110,7 @@ export class ResearchSessionController {
 				};
 			}
 		} catch { /* Storage can be unavailable in restricted webviews. */ }
-		this.state = { ...preferences, entries: [], results: [], running: false, busy: false, ready: false, connected: false, retryStatus: null };
+		this.state = { ...preferences, entries: [], results: [], running: false, paused: false, queue: { steering: [], followUp: [] }, busy: false, ready: false, connected: false, retryStatus: null };
 	}
 
 	getSnapshot = (): ResearchSessionState => this.state;
@@ -181,10 +184,14 @@ export class ResearchSessionController {
 		if (diagnosis) patch.diagnosis = diagnosis;
 		const task = researchTaskFromEvent(message.event, this.state.sessionId);
 		if (task) patch.task = newerResearchTask(this.state.task, task);
+		if (type === "queue_update") {
+			const queue = message.event as { steering?: string[]; followUp?: string[] };
+			patch.queue = { steering: [...(queue.steering ?? [])], followUp: [...(queue.followUp ?? [])] };
+		}
 		if (type === "agent_start" || type === "agent_settled") {
 			this.runRevision++;
 			patch.running = type === "agent_start";
-			if (type === "agent_start") patch.diagnosis = undefined;
+			if (type === "agent_start") { patch.diagnosis = undefined; patch.paused = false; }
 			if (type === "agent_settled") {
 				patch.busy = false;
 				void this.refreshStats();
@@ -268,13 +275,14 @@ export class ResearchSessionController {
 	}
 
 	private applyStats(stats: SessionStatsResult): void {
-		this.update({ stats, ...(stats.model ? { model: `${stats.model.provider}/${stats.model.id}` } : {}), thinkingLevel: stats.thinkingLevel });
+		this.update({ stats, ...(stats.queue ? { queue: stats.queue } : {}), ...(stats.model ? { model: `${stats.model.provider}/${stats.model.id}` } : {}), thinkingLevel: stats.thinkingLevel });
 		this.persistPreferences();
 	}
 
-	async send(text: string, images?: ResearchImage[], attachedPaths?: string[]): Promise<boolean> {
-		if (!this.state.connected || !this.state.ready || this.state.running || this.state.busy || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
+	async send(text: string, images?: ResearchImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> {
+		if (!this.state.connected || !this.state.ready || this.state.busy || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
 		const epoch = this.epoch;
+		const queueing = this.state.running;
 		let optimisticEntry: Extract<ChatEntry, { kind: "user" }> | undefined;
 		let submittedRunRevision = this.runRevision;
 		this.update({ busy: true, error: undefined, failedPrompt: undefined });
@@ -296,19 +304,19 @@ export class ResearchSessionController {
 				try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* In-memory binding is sufficient for the current run. */ }
 				void this.refreshStats();
 			}
-			optimisticEntry = {
-				kind: "user",
-				text,
+			if (!queueing) optimisticEntry = {
+				kind: "user", text,
 				...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
 				...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
 			};
 			submittedRunRevision = this.runRevision;
-			this.update({ entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, task: undefined, running: true, retryStatus: null });
+			this.update({ ...(optimisticEntry ? { entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, task: undefined, running: true } : {}), paused: false, retryStatus: null });
 			const response = await this.client.request({
 				type: "session.prompt",
 				sessionId,
 				message: text,
 				researchMode: "auto",
+				...(queueing ? { streamingBehavior: delivery === "steer" ? "steer" as const : "followUp" as const } : {}),
 				...(images?.length ? { images } : {}),
 				...(attachedPaths?.length ? { attachedPaths } : {}),
 			});
@@ -319,7 +327,7 @@ export class ResearchSessionController {
 			return true;
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({
-				error: error instanceof Error ? error.message : String(error), running: false, failedPrompt: { text, images, attachedPaths },
+				error: error instanceof Error ? error.message : String(error), ...(!queueing && this.runRevision === submittedRunRevision ? { running: false } : {}), failedPrompt: { text, images, attachedPaths, ...(delivery ? { delivery } : {}) },
 				...(this.runRevision === submittedRunRevision && optimisticEntry ? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) } : {}),
 			});
 			return false;
@@ -328,16 +336,59 @@ export class ResearchSessionController {
 		}
 	}
 
-	async abort(): Promise<void> {
-		if (!this.state.sessionId || !this.state.connected) return;
+	async abort(): Promise<boolean> {
+		if (!this.state.sessionId || !this.state.connected) return false;
 		const epoch = this.epoch;
 		try {
 			const response = await this.client.request({ type: "session.abort", sessionId: this.state.sessionId });
-			if (!this.isCurrent(epoch)) return;
+			if (!this.isCurrent(epoch)) return false;
 			if (!response.ok) throw new Error(response.error ?? researchText("stopFailed"));
 			await this.reconcileRunning(epoch);
+			return true;
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({ error: error instanceof Error ? error.message : String(error) });
+			return false;
+		}
+	}
+
+	async pause(): Promise<void> {
+		if (!this.state.running || !this.state.connected) return;
+		const epoch = this.epoch;
+		this.update({ paused: true });
+		if (!(await this.abort()) && this.isCurrent(epoch)) this.update({ paused: false });
+	}
+
+	async continue(model?: string): Promise<boolean> {
+		const sessionId = this.state.sessionId;
+		if (!sessionId || !this.state.connected || !this.state.ready || this.state.running || this.state.busy) return false;
+		const epoch = this.epoch;
+		const paused = this.state.paused;
+		const runRevision = this.runRevision;
+		this.settingsRevision++;
+		this.update({ busy: true, running: true, paused: false, error: undefined, retryStatus: null, failedPrompt: undefined });
+		try {
+			const stats = await continueTask(this.client, sessionId, model);
+			if (!this.isCurrent(epoch, sessionId)) return false;
+			if (stats) this.applyStats(stats);
+			clearTimeout(this.reconcileTimer);
+			this.reconcileTimer = setTimeout(() => { void this.reconcileRunning(epoch).catch(() => {}); }, 2000);
+			return true;
+		} catch (error) {
+			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error), ...(this.runRevision === runRevision ? { running: false, paused } : {}) });
+			return false;
+		} finally { if (this.isCurrent(epoch, sessionId)) this.update({ busy: false }); }
+	}
+
+	async changeQueue(lane: "steering" | "followUp", index: number, promote = false): Promise<void> {
+		const sessionId = this.state.sessionId;
+		if (!sessionId || !this.state.connected) return;
+		const epoch = this.epoch;
+		try {
+			const response = await this.client.request(promote ? { type: "session.queue.promote", sessionId, index } : { type: "session.queue.remove", sessionId, lane, index });
+			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
+			if (this.isCurrent(epoch, sessionId)) await this.refreshStats();
+		} catch (error) {
+			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error) });
 		}
 	}
 
@@ -347,7 +398,7 @@ export class ResearchSessionController {
 		this.epoch++;
 		clearTimeout(this.reconcileTimer);
 		try { this.storage.removeItem(researchSessionKey(this.cwd)); } catch { /* Reset in-memory state even when storage is unavailable. */ }
-		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, running: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, running: false, paused: false, queue: { steering: [], followUp: [] }, busy: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
 		return true;
 	}
 
@@ -359,7 +410,7 @@ export class ResearchSessionController {
 		this.restoring = false;
 		this.replayEvents = [];
 		try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* The requested thread remains available in memory. */ }
-		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, stats: undefined, ready: false, busy: false, running: false, error: undefined, retryStatus: null, failedPrompt: undefined });
+		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, stats: undefined, ready: false, busy: false, running: false, paused: false, queue: { steering: [], followUp: [] }, error: undefined, retryStatus: null, failedPrompt: undefined });
 		await this.attach();
 	}
 

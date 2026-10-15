@@ -98,14 +98,10 @@
 	justify-content: flex-end;
 }
 
-.owl-composer-responsive .owl-composer-model-controls > .relative:first-child {
-	flex: 0 1 auto;
-	max-width: 12rem;
-}
-
-.owl-composer-responsive .owl-composer-model-controls > .relative:last-child {
+/* 模型 + 思考强度合并后的单一控件 */
+.owl-composer-responsive .owl-composer-model-controls > .relative {
 	flex: 0 1 14rem;
-	max-width: 16rem;
+	max-width: 18rem;
 }
 
 .owl-composer-responsive .owl-composer-choice {
@@ -164,16 +160,16 @@
 		justify-content: flex-start;
 	}
 
-	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child {
+	.owl-composer-responsive .owl-composer-model-controls > .relative {
 		flex: 1 1 0;
 		max-width: none;
 	}
 
-	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child > button {
+	.owl-composer-responsive .owl-composer-model-controls > .relative > button {
 		justify-content: flex-end;
 	}
 
-	.owl-composer-responsive .owl-composer-model-controls > .relative:last-child .owl-composer-label {
+	.owl-composer-responsive .owl-composer-model-controls > .relative .owl-composer-label {
 		max-width: none;
 	}
 }

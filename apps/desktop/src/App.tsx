@@ -41,7 +41,10 @@ import { ContextView } from "./components/ContextView.tsx";
 import { TrajectoryView } from "./features/trajectory/TrajectoryView.tsx";
 import { ConversationHeader, type ConversationView, type SessionExportFormat } from "./components/ConversationHeader.tsx";
 import { conversationTitleOf } from "./components/conversation-title.ts";
-import { Composer, type ComposerImage } from "./components/Composer.tsx";
+import { Composer, type ComposerDraftRequest, type ComposerImage } from "./components/Composer.tsx";
+import { TaskRecoveryNotice } from "./components/TaskRecoveryNotice.tsx";
+import { continueTask, taskRecovery } from "./hooks/task-recovery.ts";
+import { messageInputOf } from "./hooks/message-input.ts";
 import { useSessionOwlPose } from "./components/OwlMascot.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
@@ -220,7 +223,7 @@ export default function App(): React.JSX.Element {
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
 	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
-	const [draftRequest, setDraftRequest] = useState<{ id: number; text: string; replace?: boolean }>();
+	const [draftRequest, setDraftRequest] = useState<ComposerDraftRequest>();
 	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
@@ -696,10 +699,11 @@ export default function App(): React.JSX.Element {
 	};
 
 	const handleRewindDone = (result: RewindExecuteResult, affectedFiles: RewindImpactFile[] = []): void => {
+		const original = entries.find((entry) => entry.kind === "user" && entry.entryId === rewindTarget?.entryId);
 		setRewindTarget(undefined);
 		applyRewindSnapshot(result, affectedFiles);
 		if (typeof result.editorText === "string") {
-			setDraftRequest({ id: ++draftSequence.current, text: result.editorText, replace: true });
+			setDraftRequest({ id: ++draftSequence.current, ...(original?.kind === "user" ? messageInputOf(original, result.editorText) : { text: result.editorText }), replace: true });
 		}
 	};
 
@@ -722,10 +726,13 @@ export default function App(): React.JSX.Element {
 	};
 
 	const handleEditMessage = async (entryId: string, text: string, images?: { data: string; mimeType: string }[]): Promise<void> => {
+		const original = entries.find((entry) => entry.kind === "user" && entry.entryId === entryId);
+		if (original?.kind !== "user") return;
+		const input = messageInputOf({ ...original, images: images ?? original.images }, text);
 		const result = await rewindConversation(entryId);
 		if (!result) return;
 		applyRewindSnapshot(result);
-		await sendPrompt(text, images?.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })));
+		if (!(await sendPrompt(input.text, input.images, input.attachedPaths))) setDraftRequest({ id: ++draftSequence.current, ...input });
 	};
 
 	const handleRegenerate = async (): Promise<void> => {
@@ -736,8 +743,9 @@ export default function App(): React.JSX.Element {
 			if (!entry.entryId) return;
 			const result = await rewindConversation(entry.entryId);
 			if (!result) return;
+			const input = messageInputOf(entry, result.editorText ?? entry.text);
 			applyRewindSnapshot(result);
-			await sendPrompt(result.editorText ?? entry.text);
+			if (!(await sendPrompt(input.text, input.images, input.attachedPaths))) setDraftRequest({ id: ++draftSequence.current, ...input });
 			return;
 		}
 	};
@@ -1801,14 +1809,16 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<void> => {
+	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> => {
 		const hasImages = (images?.length ?? 0) > 0;
 		const hasAttachments = (attachedPaths?.length ?? 0) > 0;
 		const queueing = running;
-		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return;
+		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return false;
 		submitInFlight.current = true;
 		setSubmitting(true);
 		let target: string | undefined;
+		let optimisticEntry: ChatEntry | undefined;
+		const wasPaused = Boolean(sessionId && pausedSessions.has(sessionId));
 		try {
 		// "/命令 参数" 形态先过内置命令表：只拦 kind=builtin 且当前清单里确实是内置的
 		// 名字（扩展命令若与内置同名，桥端清单里它是 extension，让位给扩展）。
@@ -1816,10 +1826,10 @@ export default function App(): React.JSX.Element {
 		if (match) {
 			const [, name, args] = match;
 			const entry = slashCommands.find((candidate) => candidate.name === name);
-			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return;
+			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return true;
 		}
 		target = await ensureSession();
-		if (!target) return;
+		if (!target) return false;
 		// 新消息接管会话：若该会话此前被暂停，解除暂停态（按钮回到发送/暂停的常规轮转）。
 		setPausedSessions((current) => {
 			if (!current.has(target!)) return current;
@@ -1828,18 +1838,16 @@ export default function App(): React.JSX.Element {
 			return next;
 		});
 		if (!queueing) {
-			setEntries((current) => [
-				...current,
 				// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
 				// 运行中的排队和追加不写进对话，等 queue_update 出现在输入框上方。
-				{
+				optimisticEntry = {
 					kind: "user",
 					text: message,
 					timestamp: Date.now(),
 					...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
 					...(hasAttachments ? { attachedPaths: [...attachedPaths!] } : {}),
-				},
-			]);
+				};
+			setEntries((current) => [...current, optimisticEntry!]);
 			setPendingPrompts((current) => new Set(current).add(target!));
 		}
 		// 用户亲自发言：旧的"重试中/重试失败"横幅已过时（会话由新消息接管）
@@ -1866,16 +1874,20 @@ export default function App(): React.JSX.Element {
 				});
 			}).catch(() => {});
 		}, 2000);
+		return true;
 		} catch (error) {
 			if (target) setPendingPrompts((current) => {
 				const next = new Set(current);
 				next.delete(target!);
 				return next;
 			});
-			if (queueing) setDraftRequest({ id: ++draftSequence.current, text: message });
+			if (wasPaused && target) setPausedSessions((current) => new Set(current).add(target!));
+			// Only remove an unacknowledged optimistic row; an entry_appended replacement is real history.
+			if (optimisticEntry && target === sessionIdRef.current) setEntries((current) => current.filter((entry) => entry !== optimisticEntry));
 			if (!target || target === sessionIdRef.current) setEntries((current) => [...current, {
 				kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 			}]);
+			return false;
 		} finally {
 			submitInFlight.current = false;
 			setSubmitting(false);
@@ -1960,9 +1972,10 @@ export default function App(): React.JSX.Element {
 
 	// 继续 = 解开暂停态并以隐藏消息续跑（session.continue）：模型带着被中断的完整
 	// 上下文从断点接着做，转录里不出现伪造的「继续」用户消息，界面对此无感。
-	const resumePaused = async (): Promise<void> => {
+	const resumePaused = async (nextModel?: string): Promise<boolean> => {
 		const target = sessionId;
-		if (!target || !connected || running || submitInFlight.current) return;
+		if (!target || !connected || running || submitInFlight.current) return false;
+		const wasPaused = pausedSessions.has(target);
 		submitInFlight.current = true;
 		setSubmitting(true);
 		// 乐观状态：暂停态解除 + 运行指示先挂起，按钮立即回到暂停图标，agent_start 随后接管
@@ -1982,12 +1995,12 @@ export default function App(): React.JSX.Element {
 			});
 		};
 		try {
-			const response = await client.request({
-				type: "session.continue",
-				sessionId: target,
-				message: t("app.resumePrompt"),
-			});
-			if (!response.ok) throw new Error(response.error ?? t("app.unknownError"));
+			const stats = await continueTask(client, target, nextModel);
+			if (target === sessionIdRef.current) {
+				setRetryStatus(null);
+				if (nextModel) { setModelValue(nextModel); localStorage.setItem(MODEL_KEY, nextModel); }
+				if (stats) setSessionInfo(stats);
+			}
 			// 与 sendPrompt 同款对账：续跑迟迟没有 agent_start 时靠 running 查询解开指示灯
 			setTimeout(() => {
 				void client.request<SessionRunningResult>({ type: "session.running" }).then((state) => {
@@ -1995,13 +2008,15 @@ export default function App(): React.JSX.Element {
 					reconcile();
 				}).catch(() => {});
 			}, 2000);
+			return true;
 		} catch (error) {
 			reconcile();
 			// 续跑失败（桥断开/会话消失）：恢复暂停态让「继续」按钮可重试，并把失败摆出来
-			setPausedSessions((current) => new Set(current).add(target));
-			setEntries((current) => [...current, {
+			if (wasPaused) setPausedSessions((current) => new Set(current).add(target));
+			if (target === sessionIdRef.current) setEntries((current) => [...current, {
 				kind: "toolResult", toolName: t("app.resumeFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 			}]);
+			return false;
 		} finally {
 			submitInFlight.current = false;
 			setSubmitting(false);
@@ -2549,7 +2564,8 @@ export default function App(): React.JSX.Element {
 							<>
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
-						<RetryPin status={retryStatus} onDismiss={() => setRetryStatus(null)} />
+						<RetryPin status={retryStatus?.phase === "retrying" ? retryStatus : null} />
+						<TaskRecoveryNotice key={sessionId} recovery={!running && !submitting && retryStatus?.phase !== "retrying" ? taskRecovery(entries, retryStatus) : undefined} providers={chatProviders} model={sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue} disabled={!connected} onContinue={resumePaused} onOpenSettings={() => openSettings("models")} />
 							</>
 							)}
 							questionDock={{
@@ -2568,7 +2584,7 @@ export default function App(): React.JSX.Element {
 								running={running}
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
-								onSend={(text, images, attachedPaths, delivery) => void sendPrompt(text, images, attachedPaths, delivery)}
+								onSend={sendPrompt}
 								queued={sessionId ? promptQueues[sessionId] : undefined}
 								onRemoveQueued={(lane, index) => {
 									const target = sessionIdRef.current;

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type SetStateAction } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { AgentPresetDefinition, ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
@@ -12,6 +12,7 @@ import { classifyHtmlDrop, dropPointHits, fileBasename, imageMimeOfName, splitDr
 import { PresetAvatar } from "./agent-preset-meta.tsx";
 import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
 import "./composer-responsive.css";
+import "./composer-send.css";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -174,14 +175,202 @@ const envIconButtonClass =
 	"transition-colors hover:bg-owl-hover hover:text-owl-text";
 
 /**
- * 输入框底部选择器（精简 ghost 风）：无边框文字按钮，悬停才浮出底色。
- * 审批模式 / 思考强度 / 模型 / 上下文。
+ * 输入框底部选择器（精简 ghost 风）：无边框按钮，悬停才浮出底色。
+ * 左侧预设/审批模式只显示图标（名称走悬停提示），右侧模型+思考强度带文字。
  */
 const ghostPillClass =
 	"owl-composer-choice flex h-6 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-[11px] text-owl-faint " +
 	"transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
 
 const menuItemClass = "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition-colors hover:bg-owl-hover";
+
+/**
+ * 模型选择菜单（模型 + 思考强度一体）：触发器把当前强度挂在模型名后方；面板里
+ * 悬停推理模型行时，强度选项以浮层挂在行的右侧（贴窗口边缘放不下就翻到行的
+ * 左侧），选强度即选中该模型并应用。浮层是 fixed 定位（面板 overflow 剪不到）。
+ */
+function ModelPickerMenu({
+	providers,
+	model,
+	levels,
+	thinkingLevel,
+	thinkingDisabled,
+	onModel,
+	onThinkingLevel,
+}: {
+	providers: ProviderModelsMessage[];
+	model: string;
+	levels: string[];
+	thinkingLevel: string;
+	thinkingDisabled: boolean;
+	onModel: (value: string) => void;
+	onThinkingLevel: (level: string) => void;
+}): React.JSX.Element {
+	const t = useT();
+
+	const slash = model.indexOf("/");
+	const activeProviderId = slash > 0 ? model.slice(0, slash) : undefined;
+	const activeModelId = slash > 0 ? model.slice(slash + 1) : undefined;
+	const activeName =
+		providers
+			.find((provider) => provider.id === activeProviderId)
+			?.models.find((entry) => entry.id === activeModelId)?.name ?? (activeModelId || t("composer.defaultModel"));
+
+	return (
+		<Menu
+			triggerClassName={ghostPillClass}
+			triggerTitle={`${t("composer.switchModel")} · ${activeName}${thinkingDisabled ? ` · ${t("composer.thinkingUnsupported")}` : ""}`}
+			panelClassName="owl-composer-menu right-0 w-56"
+			trigger={
+				<>
+					<span className="owl-composer-label max-w-44 truncate">{activeName}</span>
+					<svg
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.3"
+						className={`h-3 w-3 shrink-0 ${thinkingDisabled ? "text-owl-faint" : "text-owl-accent"}`}
+					>
+						<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
+						<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
+					</svg>
+					<span className={`shrink-0 text-[11px] ${thinkingDisabled ? "text-owl-faint" : "text-owl-accent"}`}>
+						{THINKING_LABELS[thinkingLevel] ? t(THINKING_LABELS[thinkingLevel]) : thinkingLevel}
+					</span>
+					<Chevron />
+				</>
+			}
+		>
+			{(close: () => void) => (
+				<ModelPickerBody
+					close={close}
+					providers={providers}
+					model={model}
+					levels={levels}
+					thinkingLevel={thinkingLevel}
+					thinkingDisabled={thinkingDisabled}
+					onModel={onModel}
+					onThinkingLevel={onThinkingLevel}
+				/>
+			)}
+		</Menu>
+	);
+}
+
+/** 菜单面板体：随菜单开合挂载/卸载，思考浮层的悬停状态在这里，不会跨开关残留。 */
+function ModelPickerBody({
+	close,
+	providers,
+	model,
+	levels,
+	thinkingLevel,
+	thinkingDisabled,
+	onModel,
+	onThinkingLevel,
+}: {
+	close: () => void;
+	providers: ProviderModelsMessage[];
+	model: string;
+	levels: string[];
+	thinkingLevel: string;
+	thinkingDisabled: boolean;
+	onModel: (value: string) => void;
+	onThinkingLevel: (level: string) => void;
+}): React.JSX.Element {
+	const t = useT();
+	const [flyout, setFlyout] = useState<{ x: number; y: number; value: string } | null>(null);
+	const flyoutClose = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+	// 浮层贴行右上；右侧放不下翻到行的左侧。纵向按行顶对齐并夹在窗口内。
+	const openFlyout = (value: string, row: HTMLElement): void => {
+		if (flyoutClose.current) clearTimeout(flyoutClose.current);
+		const rect = row.getBoundingClientRect();
+		const width = 132;
+		const height = 44 + levels.length * 28;
+		const x = rect.right + width + 12 <= window.innerWidth ? rect.right + 6 : rect.left - width - 6;
+		const y = Math.max(8, Math.min(rect.top - 2, window.innerHeight - height - 8));
+		setFlyout({ x, y, value });
+	};
+	// 行 → 浮层之间有几像素缝隙：延迟关、进入即保活，指针穿过缝隙不闪断。
+	const scheduleFlyoutClose = (): void => {
+		if (flyoutClose.current) clearTimeout(flyoutClose.current);
+		flyoutClose.current = setTimeout(() => setFlyout(null), 120);
+	};
+	const keepFlyout = (): void => {
+		if (flyoutClose.current) clearTimeout(flyoutClose.current);
+	};
+
+	return (
+		<>
+			<div className="w-full" onMouseLeave={scheduleFlyoutClose}>
+				{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noModels")}</p>}
+				{providers.map((provider) => (
+					<div key={provider.id}>
+						<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">
+							{provider.name ?? provider.id}
+						</p>
+						{provider.models.map((entry) => {
+							const value = `${provider.id}/${entry.id}`;
+							const active = value === model;
+							return (
+								<div
+									key={entry.id}
+									className="relative"
+									onMouseEnter={entry.reasoning ? (event) => openFlyout(value, event.currentTarget) : undefined}
+									onMouseLeave={entry.reasoning ? scheduleFlyoutClose : undefined}
+								>
+									<button
+										type="button"
+										className={`${menuItemClass} ${active ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+										onClick={() => {
+											onModel(value);
+											close();
+										}}
+									>
+									<span className="min-w-0 flex-1 truncate" title={entry.name}>
+										{entry.name}
+										{entry.contextWindow ? (
+											<span className="ml-1.5 text-owl-faint">{Math.round(entry.contextWindow / 1000)}k</span>
+										) : null}
+									</span>
+									{active && <span className="text-owl-accent">✓</span>}
+									</button>
+								</div>
+							);
+						})}
+					</div>
+				))}
+			</div>
+			{flyout && (
+				<div
+					className="fixed z-30 w-32 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
+					style={{ left: flyout.x, top: flyout.y }}
+					onMouseEnter={keepFlyout}
+					onMouseLeave={scheduleFlyoutClose}
+				>
+					<p className="px-2.5 pb-0.5 pt-1 text-[10px] tracking-wide text-owl-faint uppercase">{t("composer.thinkingSection")}</p>
+					{levels.map((level) => (
+						<button
+							key={level}
+							type="button"
+							disabled={thinkingDisabled}
+							title={thinkingDisabled ? t("composer.thinkingUnsupported") : undefined}
+							className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-50 ${level === thinkingLevel ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
+							onClick={() => {
+								onThinkingLevel(level);
+								if (flyout.value !== model) onModel(flyout.value);
+								close();
+							}}
+						>
+							<span className="flex-1">{THINKING_LABELS[level] ? t(THINKING_LABELS[level]) : level}</span>
+							{level === thinkingLevel && <span className="text-owl-accent">✓</span>}
+						</button>
+					))}
+				</div>
+			)}
+		</>
+	);
+}
 
 /** 目录 chip 尾部的 ✕（叉掉目录，不选目录对话）。 */
 const envChipClearClass =
@@ -198,6 +387,14 @@ const SLASH_KIND_LABELS: Record<SlashCommandEntry["kind"], TextKey> = {
 
 /** 随消息发送的图片附件（base64；与后端 ImageContent 同形）。 */
 export type ComposerImage = { type: "image"; data: string; mimeType: string };
+
+export type ComposerDraftRequest = {
+	id: number;
+	text: string;
+	images?: ComposerImage[];
+	attachedPaths?: string[];
+	replace?: boolean;
+};
 
 /** 待发送区里的附图：额外带本地 id 供列表 key 与单张移除。 */
 type PendingImage = ComposerImage & { id: string };
@@ -299,7 +496,8 @@ export function Composer({
 	hideEnvironment?: boolean;
 	/** Optional mode control that shares the existing environment row's alignment. */
 	environmentAccessory?: ReactNode;
-	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer") => void;
+	/** false or rejection leaves the complete draft intact; void preserves synchronous callers. */
+	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer") => boolean | void | Promise<boolean | void>;
 	/** Pending lines while the session is running. Steering is delivered at the next tool boundary. */
 	queued?: { steering: readonly string[]; followUp: readonly string[] };
 	onRemoveQueued?: (lane: "steering" | "followUp", index: number) => void;
@@ -349,7 +547,7 @@ export function Composer({
 	searchFiles: (cwd: string, query: string) => Promise<FsSearchHit[]>;
 	/** Start-page examples fill a draft without submitting or replacing existing text.
 	 *  replace: 会话回退后的「文本回填」——整体替换输入框内容而不是追加。 */
-	draftRequest?: { id: number; text: string; replace?: boolean };
+	draftRequest?: ComposerDraftRequest;
 	/** Restore a caller-owned text draft when this composer mounts; later prop changes do not move the caret. */
 	initialDraft?: string;
 	/** Observe edits, draft inserts, and send/clear so another view can restore the same text draft. */
@@ -361,13 +559,26 @@ export function Composer({
 	useProjectSidebarRevision();
 	const [value, setValue] = useState(() => initialDraft ?? "");
 	const initialDraftRef = useRef(initialDraft);
+	const draftRevision = useRef(0);
+	const submitInFlight = useRef(false);
+	const mounted = useRef(true);
+	const [sending, setSending] = useState(false);
+	useEffect(() => {
+		mounted.current = true;
+		return () => { mounted.current = false; };
+	}, []);
 	const setDraftValue = (text: string): void => {
+		draftRevision.current++;
 		setValue(text);
 		onDraftChange?.(text);
 	};
 	const [showNewProject, setShowNewProject] = useState(false);
 	// 待发送附图：Ctrl+V 粘贴或拖入图片先进这里，随下一条消息一起发出。
-	const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+	const [pendingImages, updatePendingImages] = useState<PendingImage[]>([]);
+	const setPendingImages = (next: SetStateAction<PendingImage[]>): void => {
+		draftRevision.current++;
+		updatePendingImages(next);
+	};
 	// 点击缩略图查看完整大图（与 ChatStream 的看图体验一致），点遮罩关闭。
 	const [zoomedImage, setZoomedImage] = useState<PendingImage | null>(null);
 	const [pasteHint, setPasteHint] = useState<string | undefined>(undefined);
@@ -385,7 +596,11 @@ export function Composer({
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	const [slashIndex, setSlashIndex] = useState(0);
 	// @ 文件引用：attachedPaths 与 DOM 中的芯片同步（哨兵推到、点 X 清掉它们）。
-	const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
+	const [attachedPaths, updateAttachedPaths] = useState<string[]>([]);
+	const setAttachedPaths = (next: SetStateAction<string[]>): void => {
+		draftRevision.current++;
+		updateAttachedPaths(next);
+	};
 	const [mentionOpen, setMentionOpen] = useState(false);
 	const [mentionQuery, setMentionQuery] = useState("");
 	const [mentionItems, setMentionItems] = useState<FsSearchHit[]>([]);
@@ -395,38 +610,54 @@ export function Composer({
 		clearEditorContent(editorRef.current);
 		insertPlainText(editorRef.current, initialDraftRef.current);
 	}, []);
-	// 发送或草稿重置后从外部清理附文。
+	// Restore the complete draft. Appending examples or recovered input preserves existing materials.
 	useEffect(() => {
 		if (!draftRequest) return;
+		const images = (draftRequest.images ?? []).map((image) => ({ ...image, id: `img-${++imageSeq}` }));
 		if (draftRequest.replace) {
 			setDraftValue(draftRequest.text);
+			setPendingImages(images);
+			setAttachedPaths([...(draftRequest.attachedPaths ?? [])]);
 			clearEditorContent(editorRef.current);
 			insertPlainText(editorRef.current, draftRequest.text);
 		} else {
 			const next = value.trim() ? `${value}\n\n${draftRequest.text}` : draftRequest.text;
 			setDraftValue(next);
+			if (images.length > 0) setPendingImages((current) => [...current, ...images]);
+			if (draftRequest.attachedPaths?.length) setAttachedPaths((current) => [...new Set([...current, ...draftRequest.attachedPaths!])]);
 			if (editorRef.current) {
 				appendPlainText(editorRef.current, draftRequest.text, value.trim().length > 0);
 			}
 		}
-		setAttachedPaths([]);
 		setMentionOpen(false);
 		setSlashDismissed(true);
 		editorRef.current?.focus();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draftRequest]);
-	const submit = (delivery?: "queue" | "steer"): void => {
-		if (disabled) return;
+	const submit = async (delivery?: "queue" | "steer"): Promise<void> => {
+		if (disabled || submitInFlight.current) return;
 		const text = value.trim();
 		const hasImages = pendingImages.length > 0;
 		const hasAttachments = attachedPaths.length > 0;
 		if (!text && !hasImages && !hasAttachments) return;
-		onSend(text, hasImages ? pendingImages : undefined, hasAttachments ? attachedPaths : undefined, running ? delivery ?? "queue" : undefined);
-		setDraftValue("");
-		setAttachedPaths([]);
-		setMentionOpen(false);
-		clearEditorContent(editorRef.current);
-		setPendingImages([]);
+		const revision = draftRevision.current;
+		submitInFlight.current = true;
+		setSending(true);
+		try {
+			const accepted = await onSend(text, hasImages ? pendingImages.map(({ type, data, mimeType }) => ({ type, data, mimeType })) : undefined, hasAttachments ? [...attachedPaths] : undefined, running ? delivery ?? "queue" : undefined);
+			// A later edit or externally restored draft belongs to the user, not this request.
+			if (accepted === false || !mounted.current || draftRevision.current !== revision) return;
+			setDraftValue("");
+			setAttachedPaths([]);
+			setMentionOpen(false);
+			clearEditorContent(editorRef.current);
+			setPendingImages([]);
+		} catch {
+			// The caller owns visible failure feedback. Keep every part of the draft for retry.
+		} finally {
+			submitInFlight.current = false;
+			if (mounted.current) setSending(false);
+		}
 	};
 
 	// 附图提示自动消退（超限/超大时给一句人话反馈，不打断输入）。
@@ -811,7 +1042,6 @@ export function Composer({
 	const activeModelEntry = providers
 		.find((provider) => provider.id === activeProvider)
 		?.models.find((entry) => entry.id === activeModelId);
-	const activeName = activeModelEntry?.name ?? (activeModelId || t("composer.defaultModel"));
 	const percent = sessionInfo?.contextUsage?.percent ?? null;
 	const contextTokens = sessionInfo?.contextUsage?.tokens ?? null;
 	const contextWindow = sessionInfo?.contextUsage?.contextWindow ?? activeModelEntry?.contextWindow;
@@ -955,54 +1185,13 @@ export function Composer({
 		<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.contextEmptyHint")}</p>
 	);
 
-	const modelMenu = (close: () => void): React.JSX.Element => (
-		<div className="max-h-72 w-full overflow-y-auto">
-			{providers.length === 0 && <p className="px-3 py-2 text-xs text-owl-faint">{t("composer.noModels")}</p>}
-			{providers.map((provider) => (
-				<div key={provider.id}>
-					<p className="px-3 pt-2 pb-1 text-[10px] tracking-wide text-owl-faint uppercase">
-						{provider.name ?? provider.id}
-					</p>
-					{provider.models.map((entry) => {
-						const value = `${provider.id}/${entry.id}`;
-						const active = value === model;
-						return (
-							<button
-								key={entry.id}
-								type="button"
-								className={`${menuItemClass} ${active ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
-								onClick={() => {
-									onModel(value);
-									close();
-								}}
-							>
-								<span className="min-w-0 flex-1 truncate" title={entry.name}>
-									{entry.name}
-									{entry.contextWindow ? (
-										<span className="ml-1.5 text-owl-faint">{Math.round(entry.contextWindow / 1000)}k</span>
-									) : null}
-								</span>
-								{entry.reasoning ? <span className="text-[10px] text-owl-accent/80">{t("composer.reasoningBadge")}</span> : null}
-								{active && <span className="text-owl-accent">✓</span>}
-							</button>
-						);
-					})}
-				</div>
-			))}
-		</div>
-	);
-
 	const hasDraft = value.trim().length > 0 || pendingImages.length > 0 || attachedPaths.length > 0;
 	const action: ComposerAction = running
-		? hasDraft
-			? "queue"
-			: onPause
-				? "pause"
-				: "abort"
-		: paused && onResume
+		? onPause ? "pause" : "abort"
+		: paused && !hasDraft && onResume
 			? "resume"
 			: "send";
-	const actionLabel = action === "queue" ? "composer.queue" : action === "pause" ? "composer.pause" : action === "abort" ? "composer.abort" : action === "resume" ? "composer.resume" : "composer.send";
+	const actionLabel = action === "pause" ? "composer.pause" : action === "abort" ? "composer.abort" : action === "resume" ? "composer.resume" : paused && hasDraft ? "composer.sendAndResume" : "composer.send";
 
 	return (
 		<div
@@ -1343,7 +1532,7 @@ export function Composer({
 											event.preventDefault();
 											const picked = slashItems[slashActive]!;
 											acceptSlashCommand(picked);
-											if (event.key === "Enter" && `/${picked.name}` === value.trim()) submit();
+											if (event.key === "Enter" && `/${picked.name}` === value.trim()) void submit();
 											return;
 										}
 										if (event.key === "Escape") {
@@ -1354,8 +1543,9 @@ export function Composer({
 									}
 									if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 										event.preventDefault();
-										if (running && (event.ctrlKey || event.metaKey)) submit("steer");
-										else submit(running ? "queue" : undefined);
+										if (running && (event.ctrlKey || event.metaKey)) void submit("steer");
+										else if (action === "resume" && !disabled && !sending) onResume?.();
+										else void submit(running ? "queue" : undefined);
 									}
 								}}
 							/>
@@ -1368,12 +1558,11 @@ export function Composer({
 						<button
 							type="button"
 							aria-label={t(actionLabel)}
-							title={action === "queue" ? t("composer.queueHint") : t(actionLabel)}
+							title={t(actionLabel)}
 							className="owl-composer-action"
-							disabled={(action === "send" || action === "resume") && disabled}
+							disabled={(action === "send" || action === "resume") && (disabled || sending || (action === "send" && !hasDraft))}
 							onClick={() => {
-								if (action === "queue") submit("queue");
-								else if (action === "send") submit();
+								if (action === "send") void submit();
 								else if (action === "pause") onPause?.();
 								else if (action === "resume") onResume?.();
 								else onAbort();
@@ -1382,6 +1571,17 @@ export function Composer({
 							<ComposerActionIcon action={action} />
 						</button>
 					</div>
+					{running && hasDraft && (
+						<div className="owl-composer-delivery">
+							<button type="button" className="owl-composer-delivery-button" title={t("composer.steerCurrentHint")} disabled={disabled || sending} onClick={() => void submit("steer")}>
+								{t("composer.steerCurrent")}
+							</button>
+							<button type="button" className="owl-composer-delivery-button is-primary" title={t("composer.queueHint")} disabled={disabled || sending} onClick={() => void submit("queue")}>
+								{t("composer.sendNextTurn")}
+								<ComposerActionIcon action="queue" />
+							</button>
+						</div>
+					)}
 				</div>
 				{/* 选择行：搭在对话框下方（Claude 的 + Manual / 模型名同位） */}
 				<div className="owl-composer-options flex flex-wrap items-center gap-0.5 px-0.5 pt-1">
@@ -1403,8 +1603,6 @@ export function Composer({
 											</svg>
 										);
 									})()}
-									<span className="owl-composer-label">{agentPresets.find((preset) => preset.id === agentPreset)?.name ?? agentPreset}</span>
-									<Chevron />
 								</>
 							}
 						>
@@ -1473,8 +1671,6 @@ export function Composer({
 						trigger={
 							<>
 								<ModeIcon mode={approvalMode} active={approvalMode !== "confirm"} />
-								<span className="owl-composer-label">{activeMode ? t(activeMode.labelKey) : approvalMode}</span>
-								<Chevron />
 							</>
 						}
 					>
@@ -1501,59 +1697,15 @@ export function Composer({
 					</Menu>
 					</div>
 					<div className="owl-composer-model-controls">
-					<Menu
-						triggerClassName={ghostPillClass}
-						triggerTitle={thinkingDisabled ? t("composer.thinkingUnsupported") : t("composer.thinkingTitle")}
-						panelClassName="owl-composer-menu right-0 w-36"
-						trigger={
-							<>
-								<svg
-									viewBox="0 0 16 16"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="1.3"
-									className={`h-3.5 w-3.5 shrink-0 ${thinkingDisabled ? "text-owl-faint" : "text-owl-accent"}`}
-								>
-									<path d="M8 1.5c2 2.2 4.5 3.8 4.5 7a4.5 4.5 0 1 1-9 0c0-3.2 2.5-4.8 4.5-7Z" />
-									<circle cx="8" cy="9" r="1.6" fill="currentColor" stroke="none" />
-								</svg>
-								<span className="owl-composer-label">{t("composer.thinkingChip", { level: THINKING_LABELS[thinkingLevel] ? t(THINKING_LABELS[thinkingLevel]) : thinkingLevel })}</span>
-								<Chevron />
-							</>
-						}
-					>
-						{(close) => (
-							<div>
-								{levels.map((level) => (
-									<button
-										key={level}
-										type="button"
-										className={`${menuItemClass} ${level === thinkingLevel ? "bg-owl-hover text-owl-text" : "text-owl-muted"}`}
-										onClick={() => {
-											onThinkingLevel(level);
-											close();
-										}}
-									>
-										<span className="flex-1">{THINKING_LABELS[level] ? t(THINKING_LABELS[level]) : level}</span>
-										{level === thinkingLevel && <span className="text-owl-accent">✓</span>}
-									</button>
-								))}
-							</div>
-						)}
-					</Menu>
-					<Menu
-						triggerClassName={ghostPillClass}
-						triggerTitle={`${t("composer.switchModel")} · ${activeName}`}
-						panelClassName="owl-composer-menu right-0 w-72"
-						trigger={
-							<>
-								<span className="owl-composer-label max-w-44 truncate">{activeName}</span>
-								<Chevron />
-							</>
-						}
-					>
-						{(close: () => void) => modelMenu(close)}
-					</Menu>
+						<ModelPickerMenu
+							providers={providers}
+							model={model}
+							levels={levels}
+							thinkingLevel={thinkingLevel}
+							thinkingDisabled={thinkingDisabled}
+							onModel={onModel}
+							onThinkingLevel={onThinkingLevel}
+						/>
 					</div>
 				</div>
 			</div>

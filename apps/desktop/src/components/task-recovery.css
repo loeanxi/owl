@@ -1,0 +1,30 @@
+.owl-task-recovery {
+	margin: 6px 16px;
+	padding: 12px 14px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 12px;
+	background: var(--color-owl-panel, var(--color-owl-bg));
+	color: var(--color-owl-text);
+	font-size: 12px;
+	line-height: 1.6;
+	min-width: 0;
+}
+.owl-task-recovery p { margin: 4px 0; }
+.owl-task-recovery summary { cursor: pointer; color: var(--color-owl-muted); }
+.owl-task-recovery-reason { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+.owl-task-recovery-actions, .owl-task-recovery-model { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.owl-task-recovery button, .owl-task-recovery select {
+	padding: 6px 10px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 7px;
+	color: var(--color-owl-text);
+	background: var(--color-owl-bg);
+	font: inherit;
+	cursor: pointer;
+}
+.owl-task-recovery button:hover:not(:disabled) { background: var(--color-owl-hover); }
+.owl-task-recovery .owl-task-recovery-primary { font-weight: 600; }
+.owl-task-recovery button:disabled, .owl-task-recovery select:disabled { opacity: 0.5; cursor: default; }
+.owl-task-recovery :is(button, select, summary):focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-task-recovery-model label { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.owl-task-recovery select { min-width: 0; max-width: 260px; }

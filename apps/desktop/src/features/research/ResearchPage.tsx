@@ -9,10 +9,12 @@ import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
 import { QuestionDock } from "../../components/QuestionDock.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
+import { TaskRecoveryNotice } from "../../components/TaskRecoveryNotice.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
 import type { ToolCard } from "../../hooks/transcript.ts";
+import { taskRecovery } from "../../hooks/task-recovery.ts";
 import { TrajectoryView } from "../trajectory/TrajectoryView.tsx";
 import { setSessionFeed } from "../../sidebar/feed.ts";
 import { useResearchText, type ResearchText } from "./research-copy.ts";
@@ -175,39 +177,40 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	}, [visibleResult, promptsOpen]);
 
 	const fillDraft = (value: string): void => { setDraftRequest({ id: ++draftSequence.current, text: value }); };
-	const newThread = (): void => { if (controller.newThread()) { setComposerKey((key) => key + 1); setSelectedResultId(undefined); setLocalError(undefined); } };
-	const send = async (value: string, images?: ComposerImage[], attachedPaths?: string[]): Promise<void> => {
+	const newThread = (): boolean => { const created = controller.newThread(); if (created) { setComposerKey((key) => key + 1); setSelectedResultId(undefined); setLocalError(undefined); } return created; };
+	const send = async (value: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> => {
 		setLocalError(undefined);
 		const match = /^\/([a-zA-Z0-9:_-]+)(?:\s+([\s\S]*))?$/.exec(value.trim());
 		const matchedCommand = match && commands.find((command) => command.name === match[1]);
 		if (match && (matchedCommand?.kind === "builtin" || (!matchedCommand && ["new", "settings", "model", "thinking", "compact"].includes(match[1])))) {
-			if (match[1] === "settings") { props.onOpenSettings?.(); return; }
-			if (match[1] === "new") { newThread(); return; }
-			if (await controller.executeBuiltin(match[1], match[2] ?? "")) return;
-			return;
+			if (match[1] === "settings") { props.onOpenSettings?.(); return true; }
+			if (match[1] === "new") return newThread();
+			return controller.executeBuiltin(match[1], match[2] ?? "");
 		}
-		await controller.send(value, images, attachedPaths);
+		return controller.send(value, images, attachedPaths, delivery);
 	};
 	const openSource = (url: string): void => {
 		void client.request({ type: "open.external", action: "url", target: url }).then((response) => { if (!response.ok) setLocalError(response.error ?? text("sourceFailed")); }).catch((error: unknown) => setLocalError(error instanceof Error ? error.message : String(error)));
 	};
 	const openResult = (id: string): void => { props.onOpenResults?.(); setPromptsOpen(false); setSelectedResultId(id); setSourcesOpen(false); };
 	const error = localError ?? state.error;
+	const recovery = !state.running && !state.failedPrompt ? taskRecovery(state.entries, state.retryStatus) : undefined;
 
 	return <section className="research-page" aria-label={text("title")}>
 		<div className="research-prompt-toolbar"><span>{promptState.ready ? promptState.saved?.enabled && activePrompt ? text("promptEnabled", { name: activePrompt.name }) : text("promptDefault") : ""}</span><button ref={promptButton} type="button" aria-expanded={promptsOpen} onClick={() => { setSelectedResultId(undefined); setPromptsOpen((open) => !open); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12" /><circle cx="7" cy="5" r="2" fill="var(--color-owl-bg)" /><circle cx="13" cy="10" r="2" fill="var(--color-owl-bg)" /><circle cx="8" cy="15" r="2" fill="var(--color-owl-bg)" /></svg>{text("promptManage")}</button></div>
 		<div className="research-content">
 			<div className="research-conversation">
 				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
-				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.running || state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
-				<RetryPin status={state.retryStatus} onDismiss={() => controller.dismissRetry()} />
+				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths, failed.delivery); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
+				<RetryPin status={state.retryStatus?.phase === "retrying" ? state.retryStatus : null} onDismiss={() => controller.dismissRetry()} />
+				<TaskRecoveryNotice recovery={recovery} providers={props.providers} model={state.model} disabled={!connected || !state.ready || state.busy} onContinue={(model) => controller.continue(model)} onOpenSettings={props.onOpenSettings} />
 				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
 				<ResearchTaskNotice task={state.task} sessionId={state.sessionId} running={state.running} />
 				<div className="owl-conversation-pins"><TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />{props.subagentControl}</div>
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
-					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.running || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
+					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} paused={state.paused} queued={state.queue} onPause={() => void controller.pause()} onResume={() => void controller.continue()} onRemoveQueued={(lane, index) => void controller.changeQueue(lane, index)} onPromoteQueued={(index) => void controller.changeQueue("followUp", index, true)} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}
-						onSend={(value, images, attachedPaths) => void send(value, images, attachedPaths)} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} workspaceSelected={props.workspaceSelected} onSwitchProject={props.onSwitchProject ?? (() => undefined)} onClearProject={props.onClearProject} commands={commands}
+						onSend={send} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} workspaceSelected={props.workspaceSelected} onSwitchProject={props.onSwitchProject ?? (() => undefined)} onClearProject={props.onClearProject} commands={commands}
 						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />
 				</QuestionDock>
 			</div>
