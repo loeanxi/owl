@@ -8,12 +8,28 @@ import type {
 	NewsSourceKind,
 	NewsTier,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
-import { type TextKey, useT } from "../../i18n/index.ts";
+import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import { useNewsToast } from "./NewsToast.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 
 type Translate = ReturnType<typeof useT>;
+const sourceCopy = {
+	zh: {
+		waiting: "等待首次更新",
+		publicUpdate: "更新公开信源",
+		publicRequested: "已请求更新公开信源，结果会自动显示",
+		nextUpdate: "下次自动更新",
+		nextRetry: "将自动重试",
+	},
+	en: {
+		waiting: "Waiting for the first update",
+		publicUpdate: "Update public feeds",
+		publicRequested: "Public feed update requested; results will appear automatically",
+		nextUpdate: "Next automatic update",
+		nextRetry: "Automatic retry",
+	},
+};
 
 /** The interval most sources already use, so a newly added source follows the chosen frequency. */
 export function commonInterval(sources: NewsSource[]): number {
@@ -52,21 +68,35 @@ function explainError(error: string, t: Translate): string {
 
 function sourceStatus(source: NewsSource, t: Translate): string {
 	if (!source.enabled) return t("news.sourceOff");
-	if (source.lastError) return explainError(source.lastError, t);
-	return source.lastCollectedAt
-		? t("news.collectedAgo", { time: timeAgo(source.lastCollectedAt, t) })
+	const health = source.reader ?? source;
+	if (health.lastError) return explainError(health.lastError, t);
+	return health.lastCollectedAt
+		? t("news.collectedAgo", { time: timeAgo(health.lastCollectedAt, t) })
 		: t("news.neverCollected");
 }
 
 function SourceNote({ source }: { source: NewsSource }): React.JSX.Element {
 	const t = useT();
-	const help = source.lastError ? diagnose(source.lastError, t).help : undefined;
+	const language = getUiLanguage();
+	const copy = sourceCopy[language];
+	const health = source.reader ?? source;
+	const help = health.lastError ? diagnose(health.lastError, t).help : undefined;
 	const { feedUrl, url, query, ghid, wxid } = source.config;
+	const nextUpdate = source.enabled ? source.reader?.nextCollectedAt : undefined;
 	return (
 		<p>
 			{help}
 			{help && <br />}
-			<span>{source.lastError ?? String(feedUrl ?? url ?? query ?? ghid ?? wxid ?? "")}</span>
+			<span>{health.lastError ?? String(feedUrl ?? url ?? query ?? ghid ?? wxid ?? "")}</span>
+			{nextUpdate && Number.isFinite(Date.parse(nextUpdate)) && (
+				<>
+					<br />
+					<span>
+						{health.lastError ? copy.nextRetry : copy.nextUpdate} ·{" "}
+						{new Date(nextUpdate).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
+					</span>
+				</>
+			)}
 		</p>
 	);
 }
@@ -134,6 +164,7 @@ export function NewsSources({
 	onChanged: () => void;
 }): React.JSX.Element {
 	const t = useT();
+	const copy = sourceCopy[getUiLanguage()];
 	const sources = useNewsQuery(api, { action: "sources" }, revision);
 	const [draft, setDraft] = useState<NewsSourceInput>();
 	const [editingId, setEditingId] = useState<string>();
@@ -266,8 +297,27 @@ export function NewsSources({
 	}
 	const list = sources.data ?? [];
 	const groups = [
-		{ tone: "bad", label: "news.groupProblem", entries: list.filter((source) => source.enabled && source.lastError) },
-		{ tone: "ok", label: "news.groupOk", entries: list.filter((source) => source.enabled && !source.lastError) },
+		{
+			tone: "bad",
+			label: "news.groupProblem",
+			entries: list.filter((source) => source.enabled && (source.reader ?? source).lastError),
+		},
+		{
+			tone: "ok",
+			label: "news.groupOk",
+			entries: list.filter((source) => {
+				const health = source.reader ?? source;
+				return source.enabled && !health.lastError && health.lastCollectedAt;
+			}),
+		},
+		{
+			tone: "pending",
+			label: undefined,
+			entries: list.filter((source) => {
+				const health = source.reader ?? source;
+				return source.enabled && !health.lastError && !health.lastCollectedAt;
+			}),
+		},
 		{ tone: "off", label: "news.groupOff", entries: list.filter((source) => !source.enabled) },
 	] as const;
 	function addFound(feed: NewsFeedDiscovery): void {
@@ -347,12 +397,7 @@ export function NewsSources({
 									<b>{found.title || new URL(found.feedUrl).hostname}</b>
 									<small>{t("news.feedFound", { url: found.feedUrl.replace(/^https?:\/\//, "") })}</small>
 								</div>
-								<button
-									type="button"
-									className="owl-news-primary"
-									disabled={busy}
-									onClick={() => addFound(found)}
-								>
+								<button type="button" className="owl-news-primary" disabled={busy} onClick={() => addFound(found)}>
 									{t("common.add")}
 								</button>
 							</div>
@@ -392,7 +437,11 @@ export function NewsSources({
 					(group) =>
 						group.entries.length > 0 && (
 							<div key={group.tone}>
-								<div className="owl-news-group">{t(group.label, { n: group.entries.length })}</div>
+								<div className="owl-news-group">
+									{group.label
+										? t(group.label, { n: group.entries.length })
+										: `${copy.waiting} · ${group.entries.length}`}
+								</div>
 								<div className="owl-news-src-list">
 									{group.entries.map((source) => (
 										<div key={source.id} className={`owl-news-src is-${group.tone}`}>
@@ -406,7 +455,10 @@ export function NewsSources({
 														setDeleting(undefined);
 													}}
 												>
-													<span className="owl-news-dot" />
+													<span
+														className="owl-news-dot"
+														style={group.tone === "pending" ? { background: "var(--owl-ui-border)" } : undefined}
+													/>
 													<span>
 														<b>{source.name}</b>
 														<small>{sourceStatus(source, t)}</small>
@@ -458,15 +510,18 @@ export function NewsSources({
 															<SourceNote source={source} />
 															<button
 																type="button"
-																disabled={busy}
+																disabled={busy || (!!source.reader && !source.enabled)}
 																onClick={() =>
 																	void perform(
-																		() => api.query({ action: "run", sourceId: source.id }),
-																		t("news.queued"),
+																		() =>
+																			source.reader
+																				? api.ready(true)
+																				: api.query({ action: "run", sourceId: source.id }),
+																		source.reader ? copy.publicRequested : t("news.queued"),
 																	)
 																}
 															>
-																{t("news.collectNow")}
+																{source.reader ? copy.publicUpdate : t("news.collectNow")}
 															</button>
 															<button
 																id={`owl-news-edit-source-${source.id}`}
@@ -584,9 +639,7 @@ export function NewsSources({
 								{t("news.participation")}
 								<select
 									value={draft.participation}
-									onChange={(event) =>
-										setDraft({ ...draft, participation: event.target.value as NewsParticipation })
-									}
+									onChange={(event) => setDraft({ ...draft, participation: event.target.value as NewsParticipation })}
 								>
 									<option value="editorial">{t("news.editorial")}</option>
 									<option value="hot_signal">{t("news.hotSignal")}</option>

@@ -5,6 +5,22 @@ import { setUiLanguage } from "../../src/i18n/index.ts";
 import "../../src/desktop-shell.css";
 
 const calls = [];
+const snapshotPolls = new Map();
+const nativeSetInterval = window.setInterval.bind(window);
+const nativeClearInterval = window.clearInterval.bind(window);
+window.setInterval = (callback, interval, ...args) => {
+	const id = nativeSetInterval(callback, interval, ...args);
+	if (interval === 10_000 || interval === 30_000 || interval === 2_000) snapshotPolls.set(id, callback);
+	return id;
+};
+window.clearInterval = (id) => {
+	snapshotPolls.delete(id);
+	nativeClearInterval(id);
+};
+let readDelay = 0;
+let pendingFeedReads = 0;
+let pendingDetailReads = 0;
+let failReads = false;
 const now = "2026-10-15T03:00:00.000Z";
 const items = [
 	{
@@ -43,6 +59,8 @@ const board = (id, title, category) => ({
 	scoreUnit: "%",
 	updatedAt: "2026-10-15",
 	checkedAt: now,
+	tabLabel: title,
+	freshness: { state: "current", ageDays: 0, reason: null },
 	stale: false,
 	error: null,
 	entries: Array.from({ length: 25 }, (_, index) => ({
@@ -57,7 +75,18 @@ const board = (id, title, category) => ({
 let leaderboard = {
 	boards: [
 		board("livebench-overall", "LiveBench", "general"),
-		board("swe-bench-verified", "SWE-bench Verified", "coding"),
+		board("arena-code", "Arena 编程", "coding"),
+		{
+			...board("artificial-analysis", "Artificial Analysis", "general"),
+			updatedAt: null,
+			freshness: { state: "unknown", ageDays: null, reason: "来源未提供统一更新时间" },
+		},
+		{
+			...board("swe-bench-verified", "SWE-bench 历史参考", "coding"),
+			updatedAt: "2026-02-26",
+			reference: true,
+			freshness: { state: "outdated", ageDays: 231, reason: "仅作历史参考" },
+		},
 	],
 	refreshIntervalMinutes: 30,
 };
@@ -81,6 +110,12 @@ const client = {
 				result = { queued: 0, refreshing: false, lastUpdatedAt: now, enabledSourceCount: 8, failedSourceCount: 0 };
 				break;
 			case "list": {
+				if (request.query?.limit === 20 && readDelay) {
+					pendingFeedReads++;
+					await new Promise((resolve) => setTimeout(resolve, readDelay));
+					pendingFeedReads--;
+				}
+				if (failReads) return { ok: false, error: "模拟资讯读取失败" };
 				const filtered = items
 					.filter((item) =>
 						request.query?.mode === "selected" ? item.selected : request.query?.mode === "saved" ? item.saved : true,
@@ -95,6 +130,12 @@ const client = {
 				break;
 			}
 			case "item":
+				if (readDelay) {
+					pendingDetailReads++;
+					await new Promise((resolve) => setTimeout(resolve, readDelay));
+					pendingDetailReads--;
+				}
+				if (failReads) return { ok: false, error: "模拟资讯读取失败" };
 				result = items.find((item) => item.id === request.id);
 				break;
 			case "bookmark":
@@ -127,6 +168,24 @@ const client = {
 };
 window.newsHarness = {
 	calls,
+	setReadDelay(value) {
+		readDelay = value;
+	},
+	setReadFailure(value) {
+		failReads = value;
+	},
+	get pendingFeedReads() {
+		return pendingFeedReads;
+	},
+	get pendingDetailReads() {
+		return pendingDetailReads;
+	},
+	pollSnapshot(changed = true) {
+		if (changed)
+			snapshot.status.lastUpdatedAt = new Date(Date.parse(snapshot.status.lastUpdatedAt) + 1000).toISOString();
+		else snapshot.status.running = !snapshot.status.running;
+		for (const callback of snapshotPolls.values()) callback();
+	},
 	setStale(value) {
 		stale = value;
 	},
@@ -137,7 +196,12 @@ window.newsHarness = {
 		leaderboard = value;
 	},
 	setUiLanguage,
+	setActive(active) {
+		render(active);
+	},
 };
-createRoot(document.getElementById("root")).render(
-	React.createElement(NewsPage, { client, onToChat: () => {}, onOpenModelSettings: () => {} }),
-);
+const root = createRoot(document.getElementById("root"));
+function render(active = true) {
+	root.render(React.createElement(NewsPage, { client, active, onToChat: () => {}, onOpenModelSettings: () => {} }));
+}
+render(new URLSearchParams(location.search).get("inactive") !== "1");

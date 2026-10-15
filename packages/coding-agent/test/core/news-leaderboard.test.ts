@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	leaderboardFreshness,
 	NewsLeaderboardService,
 	parseLiveBenchLeaderboard,
 	parseSweBenchLeaderboard,
@@ -36,6 +37,35 @@ const swe = {
 		},
 	],
 };
+const currentMap = {
+	sources: ["lib/constants.js", "Table/modelLinks.js"],
+	sourcesContent: [
+		'export const RELEASES = ["2026-09-02"]; const RELEASE_LABELS = {"2026-09-02":"2026-10-14"};',
+		metadata,
+	],
+};
+const arenaDate = "2026-10-13T13:00:00.000Z";
+const arenaData = {
+	arenaSlug: "code",
+	leaderboardSlug: "overall",
+	id: "snapshots/webdev-overall-current",
+	voteCutoffISOString: arenaDate,
+	totalModels: 1,
+	entries: [
+		{
+			modelKey: "current-coder",
+			modelDisplayName: "Current Coder",
+			rating: 1800,
+			ratingUpper: 1810,
+			ratingLower: 1790,
+			rank: 1,
+			votes: 500,
+		},
+	],
+};
+const arenaHtml = `<time datetime="${arenaDate}"></time><script>self.__next_f.push(${JSON.stringify([1, `a:${JSON.stringify(["$", "$L", null, { leaderboard: arenaData }])}\n`])})</script>`;
+const aaHtml =
+	"<table><thead><tr><th>Model</th><th>Creator</th><th>Artificial Analysis Intelligence Index</th></tr></thead><tbody><tr><td>Current Reasoner</td><td>Example</td><td>58</td></tr></tbody></table>";
 
 function setup() {
 	const cache = new Map<string, unknown>();
@@ -48,10 +78,12 @@ function setup() {
 	const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
 		const url = String(input);
 		if (url.endsWith("leaderboards.json")) return Response.json(swe);
-		if (url.endsWith("constants.js")) return new Response('export const RELEASES = ["2025-04-02", "2026-06-25"];');
-		if (url.endsWith("table_2026_06_25.csv")) return new Response(csv);
-		if (url.endsWith("categories_2026_06_25.json")) return Response.json(categories);
-		if (url.endsWith("modelLinks.js")) return new Response(metadata);
+		if (url === "https://livebench.ai/") return new Response('<script src="/static/js/main.current.js"></script>');
+		if (url.endsWith("main.current.js.map")) return Response.json(currentMap);
+		if (url.includes("table_2026_09_02.csv")) return new Response(csv);
+		if (url.includes("categories_2026_09_02.json")) return Response.json(categories);
+		if (url === "https://arena.ai/leaderboard/code/webdev") return new Response(arenaHtml);
+		if (url === "https://artificialanalysis.ai/leaderboards/models") return new Response(aaHtml);
 		return new Response("Not found", { status: 404 });
 	});
 	const options = { fetch, resolveHost: async () => ["8.8.8.8"] };
@@ -124,21 +156,44 @@ describe("public model leaderboard parsing", () => {
 });
 
 describe("public model leaderboard lifecycle", () => {
+	it("does not present a freshly downloaded old benchmark as current model rankings", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+		const { service } = setup();
+		const result = await service.get();
+		const historical = result.boards.find((board) => board.id === "swe-bench-verified");
+		expect(historical).toMatchObject({ reference: true, stale: false, freshness: { state: "outdated" } });
+		expect(historical?.freshness?.ageDays).toBeGreaterThan(200);
+		expect(result.boards.filter((board) => !board.reference).map((board) => board.id)).toEqual([
+			"livebench-overall",
+			"arena-code",
+			"artificial-analysis",
+		]);
+		expect(result.boards[0]).toMatchObject({ updatedAt: "2026-10-14", freshness: { state: "current" } });
+		expect(result.boards[2]).toMatchObject({ updatedAt: null, freshness: { state: "unknown" } });
+	});
+	it("does not mistake missing or future source dates for a fresh assessment", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+		expect(leaderboardFreshness(null).state).toBe("unknown");
+		expect(leaderboardFreshness("invalid").state).toBe("unknown");
+		expect(leaderboardFreshness("2027-01-01").state).toBe("unknown");
+	});
 	it("discovers the latest release, fetches without credentials, and serves persistent cache", async () => {
 		const { store, service, fetch, options } = setup();
 		const result = await service.get();
 		expect(result.refreshIntervalMinutes).toBe(30);
-		expect(result.boards.map((board) => board.entries.length)).toEqual([3, 1]);
-		expect(result.boards[0]).toMatchObject({ updatedAt: "2026-06-25", stale: false, error: null });
+		expect(result.boards.map((board) => board.entries.length)).toEqual([3, 1, 1, 1]);
+		expect(result.boards[0]).toMatchObject({ updatedAt: "2026-10-14", stale: false, error: null });
 		expect(result.boards[0]?.checkedAt).toBeTruthy();
-		expect(fetch).toHaveBeenCalledTimes(5);
+		expect(fetch).toHaveBeenCalledTimes(7);
 		for (const [, init] of fetch.mock.calls) {
 			expect(new Headers(init?.headers).has("authorization")).toBe(false);
 			expect(new Headers(init?.headers).has("cookie")).toBe(false);
 		}
 		const reopened = new NewsLeaderboardService(store, options);
 		expect(await reopened.get()).toEqual(result);
-		expect(fetch).toHaveBeenCalledTimes(5);
+		expect(fetch).toHaveBeenCalledTimes(7);
 	});
 
 	it("shares concurrent refresh work and keeps one source working when the other fails", async () => {
@@ -151,9 +206,14 @@ describe("public model leaderboard lifecycle", () => {
 		);
 		const [first, second] = await Promise.all([service.get(), service.get(true)]);
 		expect(first).toEqual(second);
-		expect(fetch).toHaveBeenCalledTimes(5);
+		expect(fetch).toHaveBeenCalledTimes(7);
 		expect(first.boards[0]?.entries).toHaveLength(3);
-		expect(first.boards[1]).toMatchObject({ stale: true, checkedAt: null, entries: [], error: "信源返回 HTTP 503" });
+		expect(first.boards.find((board) => board.id === "swe-bench-verified")).toMatchObject({
+			stale: true,
+			checkedAt: null,
+			entries: [],
+			error: "信源返回 HTTP 503",
+		});
 	});
 
 	it("retains last successful entries and timestamp on refresh failure and bounds retry frequency", async () => {
@@ -170,12 +230,12 @@ describe("public model leaderboard lifecycle", () => {
 			expect(board.stale).toBe(true);
 			expect(board.error).toBe("offline");
 		}
-		expect(fetch).toHaveBeenCalledTimes(7);
+		const callsAfterFailure = fetch.mock.calls.length;
 		await service.get();
-		expect(fetch).toHaveBeenCalledTimes(7);
+		expect(fetch).toHaveBeenCalledTimes(callsAfterFailure);
 		vi.setSystemTime(new Date("2026-10-15T01:03:00Z"));
 		await service.get();
-		expect(fetch).toHaveBeenCalledTimes(9);
+		expect(fetch.mock.calls.length).toBeGreaterThan(callsAfterFailure);
 	});
 
 	it("supports explicit refresh during cache TTL and never replaces good rows with broken source data", async () => {
@@ -186,9 +246,25 @@ describe("public model leaderboard lifecycle", () => {
 			String(input).endsWith("leaderboards.json") ? Response.json({ leaderboards: [] }) : original(input, init),
 		);
 		const next = await service.get(true);
-		expect(fetch).toHaveBeenCalledTimes(10);
-		expect(next.boards[1]?.entries).toEqual(first.boards[1]?.entries);
-		expect(next.boards[1]?.stale).toBe(true);
+		expect(fetch).toHaveBeenCalledTimes(14);
+		expect(next.boards[3]?.entries).toEqual(first.boards[3]?.entries);
+		expect(next.boards[3]?.stale).toBe(true);
 		expect(next.boards[0]?.stale).toBe(false);
+	});
+	it("discards v1 source cache and recomputes freshness even when using a fresh local cache", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+		const { service, store, options, fetch } = setup();
+		store.saveResponseCache("news-leaderboard:v1:livebench-overall", {
+			board: { id: "livebench-overall", entries: [{ id: "archived", model: "Archived model", score: 99 }] },
+			attemptedAt: new Date().toISOString(),
+		});
+		const first = await service.get();
+		expect(first.boards[0]?.entries.some((entry) => entry.model === "Archived model")).toBe(false);
+		expect(first.boards[1]?.entries[0]?.score).toBe(1800);
+		const cached = new NewsLeaderboardService(store, options);
+		const before = fetch.mock.calls.length;
+		expect((await cached.get()).boards[1]?.entries[0]?.score).toBe(1800);
+		expect(fetch.mock.calls.length).toBe(before);
 	});
 });

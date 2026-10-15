@@ -82,6 +82,94 @@ try {
 		);
 	});
 	await page.screenshot({ path: join(output, "news-latest-desktop.png") });
+	await check("background article refresh keeps cards mounted and does not flash a loading screen", async () => {
+		await page.evaluate(() => {
+			window.newsHarness.retainedCard = document.querySelector(".owl-news-card");
+			window.newsHarness.setReadDelay(250);
+			window.newsHarness.pollSnapshot(true);
+		});
+		await page.waitForFunction(() => window.newsHarness.pendingFeedReads > 0);
+		assert.equal(await page.locator(".owl-news-card").count(), 1, "Background refresh removed the visible article");
+		assert.equal(await page.evaluate(() => window.newsHarness.retainedCard.isConnected), true);
+		await page.waitForFunction(() => window.newsHarness.pendingFeedReads === 0);
+		await page.getByText("测试资讯：公开来源可以直接阅读", { exact: true }).waitFor();
+		assert.equal(
+			await page.evaluate(() => window.newsHarness.retainedCard === document.querySelector(".owl-news-card")),
+			true,
+		);
+		const before = await page.evaluate(
+			() => window.newsHarness.calls.filter((call) => call.request?.action === "list").length,
+		);
+		await page.evaluate(() => window.newsHarness.pollSnapshot(false));
+		await page.waitForTimeout(100);
+		assert.equal(
+			await page.evaluate(() => window.newsHarness.calls.filter((call) => call.request?.action === "list").length),
+			before,
+			"Worker activity invalidated unchanged news content",
+		);
+		await page.evaluate(() => {
+			window.newsHarness.setReadDelay(0);
+			window.newsHarness.pollSnapshot(false);
+		});
+	});
+	await check("a failed background read keeps cached news and recovers without user reconfiguration", async () => {
+		await page.evaluate(() => {
+			window.newsHarness.setReadDelay(100);
+			window.newsHarness.setReadFailure(true);
+			window.newsHarness.pollSnapshot();
+		});
+		await page.getByText("模拟资讯读取失败", { exact: false }).first().waitFor();
+		assert.equal(await page.locator(".owl-news-card").count(), 1);
+		await page.evaluate(() => {
+			window.newsHarness.setReadFailure(false);
+			window.newsHarness.pollSnapshot();
+		});
+		await page.getByText("模拟资讯读取失败", { exact: false }).first().waitFor({ state: "hidden" });
+		await page.waitForFunction(() => window.newsHarness.pendingFeedReads === 0);
+		await page.evaluate(() => window.newsHarness.setReadDelay(0));
+	});
+	await check("reader detail remains mounted across automatic refresh", async () => {
+		await page.getByRole("button", { name: "测试资讯：公开来源可以直接阅读", exact: true }).click();
+		await page.locator(".owl-news-reading h1").waitFor();
+		await page.evaluate(() => {
+			window.newsHarness.retainedDetail = document.querySelector(".owl-news-reading");
+			window.newsHarness.setReadDelay(200);
+			window.newsHarness.pollSnapshot();
+		});
+		await page.waitForFunction(() => window.newsHarness.pendingDetailReads > 0);
+		assert.equal(await page.evaluate(() => window.newsHarness.retainedDetail.isConnected), true);
+		await page.waitForFunction(() => window.newsHarness.pendingDetailReads === 0);
+		assert.equal(
+			await page.evaluate(() => window.newsHarness.retainedDetail === document.querySelector(".owl-news-reading")),
+			true,
+		);
+		await page.evaluate(() => window.newsHarness.setReadDelay(0));
+		await page.locator(".owl-news-back").click();
+		await page.locator(".owl-news-card").waitFor();
+	});
+	await check("inactive news view does not poll or read hidden panels", async () => {
+		await page.evaluate(() => window.newsHarness.setActive(false));
+		await page.waitForTimeout(30);
+		const before = await page.evaluate(() => window.newsHarness.calls.length);
+		await page.evaluate(() => window.newsHarness.pollSnapshot());
+		await page.waitForTimeout(70);
+		assert.equal(await page.evaluate(() => window.newsHarness.calls.length), before);
+		await page.evaluate(() => window.newsHarness.setActive(true));
+		await page.locator(".owl-news-card").waitFor();
+	});
+	await check("cold application startup does not query news before the reader is opened", async () => {
+		const hidden = await browser.newPage();
+		try {
+			await hidden.goto(`http://127.0.0.1:${server.address().port}/?inactive=1`);
+			await hidden.waitForFunction(() => Boolean(window.newsHarness));
+			await hidden.waitForTimeout(50);
+			assert.equal(await hidden.evaluate(() => window.newsHarness.calls.length), 0);
+			await hidden.evaluate(() => window.newsHarness.setActive(true));
+			await hidden.locator(".owl-news-card").waitFor();
+		} finally {
+			await hidden.close();
+		}
+	});
 	await check("manual news update reaches the collector", async () => {
 		await page.getByRole("button", { name: "更新资讯", exact: true }).first().click();
 		assert.ok(
@@ -116,7 +204,22 @@ try {
 		assert.equal(await page.locator(".owl-leaderboard tbody tr").count(), 25);
 		await page.evaluate(() => window.newsHarness.setFailure(false));
 		await page.getByRole("button", { name: "同步榜单", exact: true }).click();
-		await page.getByText("已同步 · 测试来源", { exact: true }).waitFor();
+		await page.getByText("同步成功 · 测试来源", { exact: true }).waitFor();
+	});
+	await check("current, unknown and historical source dates are never confused with sync time", async () => {
+		assert.equal(await page.locator(".owl-leaderboard > .owl-leaderboard-tabs button").count(), 3);
+		await page.getByRole("button", { name: "Artificial Analysis Artificial Analysis", exact: true }).click();
+		await page.getByText("同步成功，来源未提供更新时间", { exact: true }).waitFor();
+		assert.equal(await page.locator(".owl-leaderboard-status").getAttribute("data-freshness"), "unknown");
+		assert.equal(await page.getByText("SWE-bench 历史参考", { exact: true }).first().isVisible(), false);
+		await page.getByText("历史与参考榜单", { exact: true }).click();
+		await page.getByRole("button", { name: "SWE-bench 历史参考 SWE-bench 历史参考", exact: true }).click();
+		await page.getByText("同步成功，测评数据较旧", { exact: true }).waitFor();
+		assert.equal(await page.locator(".owl-leaderboard-status").getAttribute("data-freshness"), "outdated");
+		assert.ok((await page.locator(".owl-leaderboard-status").innerText()).includes("231"));
+		await page.getByRole("button", { name: "LiveBench LiveBench", exact: true }).click();
+		await page.getByText("同步成功 · 测试来源", { exact: true }).waitFor();
+		await page.getByText("历史与参考榜单", { exact: true }).click();
 	});
 	const capture = join(output, "leaderboard-live.json");
 	if (existsSync(capture)) {
@@ -125,8 +228,11 @@ try {
 			JSON.parse(await readFile(capture, "utf8")),
 		);
 		await page.getByRole("button", { name: "同步榜单", exact: true }).click();
-		await page.getByText("已同步 · 测试来源", { exact: true }).waitFor({ state: "hidden" });
+		await page.getByText("同步成功 · 测试来源", { exact: true }).waitFor({ state: "hidden" });
 	}
+	await page.locator(".owl-news-content").evaluate((element) => {
+		element.scrollTop = 0;
+	});
 	await page.screenshot({ path: join(output, "leaderboard-desktop.png") });
 	await check("compact viewport keeps all primary controls inside the page", async () => {
 		await page.setViewportSize({ width: 900, height: 800 });
@@ -134,6 +240,9 @@ try {
 		await page.getByRole("searchbox").fill("no matching model");
 		await page.getByText("没有匹配的模型", { exact: true }).waitFor();
 		await page.getByRole("button", { name: "清空搜索", exact: true }).click();
+	});
+	await page.locator(".owl-news-content").evaluate((element) => {
+		element.scrollTop = 0;
 	});
 	await page.screenshot({ path: join(output, "leaderboard-compact.png") });
 	await check("English labels update without losing board data", async () => {

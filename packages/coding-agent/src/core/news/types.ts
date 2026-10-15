@@ -10,8 +10,15 @@ export interface NewsLeaderboardEntry {
 }
 
 export interface NewsLeaderboardBoard {
-	id: "livebench-overall" | "swe-bench-verified";
+	id: "livebench-overall" | "arena-code" | "artificial-analysis" | "swe-bench-verified";
 	title: string;
+	tabLabel?: string;
+	reference?: boolean;
+	freshness?: {
+		state: "current" | "outdated" | "unknown";
+		ageDays: number | null;
+		reason: string | null;
+	};
 	category: "general" | "coding";
 	description: string;
 	sourceName: string;
@@ -49,6 +56,11 @@ export type NewsCapability =
 	| "translate"
 	| "assistant";
 export type NewsReportKind = "daily" | "weekly" | "monthly";
+export interface NewsReaderSourceStatus {
+	lastCollectedAt: string | null;
+	nextCollectedAt: string | null;
+	lastError: string | null;
+}
 export interface NewsModelRef {
 	provider: string;
 	id: string;
@@ -71,10 +83,12 @@ export interface NewsSource {
 	lastError: string | null;
 	createdAt: string;
 	updatedAt: string;
+	/** Public feed health is independent from optional editorial collection. */
+	reader?: NewsReaderSourceStatus;
 }
 export type NewsSourceInput = Omit<
 	NewsSource,
-	"lastCollectedAt" | "nextCollectedAt" | "lastError" | "createdAt" | "updatedAt"
+	"lastCollectedAt" | "nextCollectedAt" | "lastError" | "createdAt" | "updatedAt" | "reader"
 >;
 export interface NewsMaterial {
 	title: string;
@@ -301,6 +315,9 @@ export interface NewsReaderStatus {
 	lastUpdatedAt: string | null;
 	enabledSourceCount: number;
 	failedSourceCount: number;
+	active?: boolean;
+	refreshing?: boolean;
+	nextRefreshAt?: string | null;
 }
 export interface NewsReadyResult extends NewsReaderStatus {
 	queued: number;

@@ -18,6 +18,7 @@ import { exportNewsItems } from "./export.ts";
 import { DEFAULT_NEWS_CONFIGURATION, DEMO_NEWS_SOURCES, NEWS_CATEGORIES, NEWS_TOPICS } from "./industry.ts";
 import { NewsLeaderboardService } from "./leaderboard.ts";
 import { newsModelFailureMessage } from "./model-error.ts";
+import { enrichNewsReaderExcerpts, type ReaderExcerptCacheEntry } from "./reader-excerpt.ts";
 import {
 	collectNewsSource,
 	discoverNewsFeed,
@@ -47,6 +48,7 @@ import type {
 	NewsItem,
 	NewsListQuery,
 	NewsListResult,
+	NewsMaterial,
 	NewsModelCall,
 	NewsModelCaller,
 	NewsModelRef,
@@ -77,6 +79,13 @@ export interface NewsServiceOptions extends Pick<NewsFetchOptions, "fetch" | "re
 interface NewsHeatSnapshot {
 	at: number;
 	values: Record<string, number>;
+}
+interface NewsReaderSourceState {
+	sourceFingerprint: string;
+	lastAttemptAt: number;
+	lastCollectedAt: string | null;
+	lastError: string | null;
+	failures: number;
 }
 
 const READER_SOURCE_IDS = new Set([
@@ -149,7 +158,9 @@ function validateSource(source: NewsSourceInput): NewsSourceInput {
 			if (!/^https?:$/.test(url.protocol) || url.username || url.password) throw new Error("信源 URL 不合法");
 		}
 	if (JSON.stringify(source.config).length > 64000) throw new Error("信源配置过大");
-	return source;
+	const validated = { ...source } as NewsSourceInput & Pick<NewsSource, "reader">;
+	delete validated.reader;
+	return validated;
 }
 
 /** Application-owned singleton, separate from every chat's extension lifecycle. */
@@ -244,15 +255,56 @@ export class NewsService {
 			);
 	}
 	private readReaderStatus(sources = this.readerSources()): NewsReaderStatus {
+		const states = sources.map((source) => this.readerState(source));
+		const active = this.store.getMeta("reader-sources-v1") === true;
 		return {
 			lastUpdatedAt:
-				sources
-					.map((source) => source.lastCollectedAt)
+				states
+					.map((state) => state?.lastCollectedAt)
 					.filter((at): at is string => !!at)
 					.sort()
 					.at(-1) ?? null,
 			enabledSourceCount: sources.length,
-			failedSourceCount: sources.filter((source) => !!source.lastError).length,
+			failedSourceCount: states.filter((state) => !!state?.lastError).length,
+			active,
+			refreshing: !!this.readerLoop,
+			nextRefreshAt:
+				active && sources.length
+					? new Date(
+							Math.max(Date.now(), Math.min(...sources.map((source) => this.readerNextAttemptAt(source)))),
+						).toISOString()
+					: null,
+		};
+	}
+	private readerState(source: NewsSource): NewsReaderSourceState | null {
+		const state = this.store.getMeta<NewsReaderSourceState>(`reader-source-state:${source.id}`);
+		return state?.sourceFingerprint === newsHash([source.kind, source.config]) ? state : null;
+	}
+	private readerNextAttemptAt(source: NewsSource): number {
+		const state = this.readerState(source);
+		if (!state) return 0;
+		const delay = state.failures
+			? Math.min(3600000, 120000 * 2 ** Math.min(state.failures - 1, 5))
+			: source.intervalMinutes * 60000;
+		return state.lastAttemptAt + delay;
+	}
+	private publicSource(source: NewsSource): NewsSource {
+		const state = this.readerState(source);
+		const readable =
+			source.kind === "rss" &&
+			source.participation === "editorial" &&
+			JSON.stringify(publicNewsSource(source).config) === JSON.stringify(source.config);
+		return {
+			...publicNewsSource(source),
+			...(readable
+				? {
+						reader: {
+							lastCollectedAt: state?.lastCollectedAt ?? null,
+							nextCollectedAt: state ? new Date(this.readerNextAttemptAt(source)).toISOString() : null,
+							lastError: state?.lastError ?? null,
+						},
+					}
+				: {}),
 		};
 	}
 	/** Opening the reader enables only untouched public feed defaults, never paid processing. */
@@ -276,103 +328,178 @@ export class NewsService {
 			this.store.setMeta("reader-sources-v1", true);
 		}
 		const sources = this.readerSources();
-		let queued = 0;
-		if (!this.readerLoop && !this.lostLease) {
-			const now = Date.now();
-			const due = sources.filter((source) => {
-				const attempted = this.store.getMeta<number>(`reader-attempt:${source.id}`) ?? 0;
-				return now - attempted >= (force ? 60000 : source.lastError ? 120000 : 30 * 60000);
-			});
-			if (due.length && this.store.acquireLease(this.owner)) {
-				this.lease = true;
-				queued = due.length;
-				for (const source of due) this.store.setMeta(`reader-attempt:${source.id}`, now);
-				this.readerLoop = this.refreshReaderSources(due)
-					.catch((error) => this.store.audit("reader.error", "reader", { error: this.message(error) }))
-					.finally(() => {
-						this.readerLoop = null;
-						this.changed();
-					});
-			}
-		}
+		const queued = this.queueReaderSources(sources, force);
 		return {
 			...this.readReaderStatus(sources),
 			queued,
 			refreshing: !!this.readerLoop,
 		};
 	}
+	private queueReaderSources(sources: NewsSource[], force = false): number {
+		if (!this.readerLoop && !this.stopping && !this.lostLease) {
+			const now = Date.now();
+			const due = sources.filter((source) => {
+				const state = this.readerState(source);
+				return force ? !state || now - state.lastAttemptAt >= 60000 : now >= this.readerNextAttemptAt(source);
+			});
+			if (due.length && this.store.acquireLease(this.owner)) {
+				this.lease = true;
+				this.readerLoop = this.refreshReaderSources(due)
+					.catch((error) => this.store.audit("reader.error", "reader", { error: this.message(error) }))
+					.finally(() => {
+						this.readerLoop = null;
+						this.changed();
+					});
+				return due.length;
+			}
+		}
+		return 0;
+	}
 	private async refreshReaderSources(sources: NewsSource[]): Promise<void> {
 		const queue = [...sources];
+		let excerptCache = Object.fromEntries(
+			Object.entries(this.store.getMeta<Record<string, ReaderExcerptCacheEntry>>("reader-excerpts-v1") ?? {})
+				.filter(([, entry]) => entry.expiresAt > Date.now())
+				.sort((a, b) => b[1].expiresAt - a[1].expiresAt)
+				.slice(0, 300),
+		);
+		const excerptOptions = {
+			...this.fetchOptions(),
+			budget: { remaining: 12 },
+			readCache: (key: string) => excerptCache[key] ?? null,
+			writeCache: (key: string, entry: ReaderExcerptCacheEntry) => {
+				this.ensureLease();
+				excerptCache[key] = entry;
+				excerptCache = Object.fromEntries(
+					Object.entries(excerptCache)
+						.sort((a, b) => b[1].expiresAt - a[1].expiresAt)
+						.slice(0, 300),
+				);
+				this.store.setMeta("reader-excerpts-v1", excerptCache);
+			},
+		};
 		await Promise.all(
 			Array.from({ length: Math.min(3, sources.length) }, async () => {
 				for (;;) {
-					const source = queue.shift();
-					if (!source || this.stopping || this.lostLease) return;
+					const queuedSource = queue.shift();
+					if (!queuedSource || this.stopping || this.lostLease) return;
+					const source = this.store.source(queuedSource.id);
+					if (!source?.enabled || newsHash(source.config) !== newsHash(queuedSource.config)) continue;
+					const previous = this.readerState(source);
+					const state: NewsReaderSourceState = {
+						sourceFingerprint: newsHash([source.kind, source.config]),
+						lastAttemptAt: Date.now(),
+						lastCollectedAt: previous?.lastCollectedAt ?? null,
+						lastError: previous?.lastError ?? null,
+						failures: previous?.failures ?? 0,
+					};
 					try {
 						this.ensureLease();
-						let cursor = this.store.getMeta<Record<string, unknown>>(`reader-source-cursor:${source.id}`) ?? {};
-						const materials = await collectNewsSource(source, {
+						this.store.setMeta(`reader-source-state:${source.id}`, state);
+						let cursor = previous
+							? (this.store.getMeta<Record<string, unknown>>(`reader-source-cursor:${source.id}`) ?? {})
+							: {};
+						const collected = await collectNewsSource(source, {
 							...this.fetchOptions(),
 							allowPrivateNetwork: false,
 							timeoutMs: 15000,
-							maxItems: Math.min(30, this.configuration.maxItemsPerSource),
+							maxItems: 30,
 							cursor,
 							onCursor: (value) => {
 								cursor = value;
 							},
 						});
+						// Reapply cached publisher excerpts before publication, without waiting for article requests.
+						const materials = await enrichNewsReaderExcerpts(collected, {
+							...excerptOptions,
+							budget: { remaining: 0 },
+						});
 						this.ensureLease();
 						const currentSource = this.store.source(source.id);
 						if (!currentSource?.enabled || newsHash(currentSource.config) !== newsHash(source.config)) continue;
 						this.store.transaction(() => {
-							for (const material of materials) {
-								const result = this.store.ingest(currentSource, material, false);
-								if (!result.changed && ["ready", "blocked", "processing"].includes(result.item.status))
-									continue;
-								const excerpt = newsPlainText(material.summary || material.body || "");
-								const title = material.title;
-								const category = /\b(model|gpt|claude|gemini|llama|qwen|deepseek)\b|模型/i.test(title)
-									? "ai-models"
-									: /\b(paper|research|benchmark|study)\b|论文|研究|基准/i.test(title)
-										? "paper"
-										: /\b(tutorial|guide|how to)\b|教程|指南/i.test(title)
-											? "tip"
-											: /\b(api|app|tool|release|launch|introducing)\b|产品|工具/i.test(title)
-												? "ai-products"
-												: "industry";
-								this.store.commitAnalysis(result.item.id, result.item.revision, {
-									relevance: "pass",
-									scores: [],
-									score: null,
-									selectionCandidate: false,
-									title,
-									summary: excerpt.length > 600 ? `${excerpt.slice(0, 600)}…` : excerpt,
-									reason: "信源原文摘录，未进行 AI 改写或评分。",
-									category,
-									tags: [],
-									entities: [],
-									contentKind: "unknown",
-									fact: null,
-								});
-								this.store.editItem(result.item.id, { contentOrigin: "source" });
-							}
-							this.store.writeSource({
-								...currentSource,
+							this.publishReaderMaterials(currentSource, materials);
+							this.store.setMeta(`reader-source-state:${source.id}`, {
+								...state,
 								lastCollectedAt: new Date().toISOString(),
 								lastError: null,
+								failures: 0,
 							});
 							this.store.setMeta(`reader-source-cursor:${source.id}`, cursor);
 						});
+						this.changed();
+						try {
+							// A 304 feed can still finish excerpt work left over from a previous bounded refresh.
+							const pending = this.store
+								.items()
+								.filter(
+									(item) =>
+										item.sourceId === source.id &&
+										item.contentOrigin === "source" &&
+										item.status === "ready" &&
+										!item.withdrawn &&
+										newsPlainText(item.summary).length < 24,
+								)
+								.sort((a, b) => b.timelineAt.localeCompare(a.timelineAt))
+								.slice(0, 30)
+								.map((item) => this.store.material(item.id))
+								.filter((material): material is NewsMaterial => !!material);
+							const enriched = await enrichNewsReaderExcerpts(pending, excerptOptions);
+							this.ensureLease();
+							const latestSource = this.store.source(source.id);
+							if (latestSource?.enabled && newsHash(latestSource.config) === newsHash(source.config))
+								this.store.transaction(() => this.publishReaderMaterials(latestSource, enriched));
+						} catch (error) {
+							if (this.lostLease) return;
+							this.store.audit("reader.excerpt.error", source.id, { error: this.message(error) });
+						}
 					} catch (error) {
 						if (this.lostLease) return;
 						const current = this.store.source(source.id);
-						if (current) this.store.writeSource({ ...current, lastError: this.message(error) });
+						if (current?.enabled && newsHash(current.config) === newsHash(source.config))
+							this.store.setMeta(`reader-source-state:${source.id}`, {
+								...state,
+								lastError: this.message(error),
+								failures: state.failures + 1,
+							});
 					} finally {
 						this.changed();
 					}
 				}
 			}),
 		);
+	}
+	private publishReaderMaterials(source: NewsSource, materials: NewsMaterial[]): void {
+		for (const material of materials) {
+			const result = this.store.ingest(source, material, false);
+			if (!result.changed && ["ready", "blocked", "processing"].includes(result.item.status)) continue;
+			const excerpt = newsPlainText(material.summary || material.body || "");
+			const title = material.title;
+			const category = /\b(model|gpt|claude|gemini|llama|qwen|deepseek)\b|模型/i.test(title)
+				? "ai-models"
+				: /\b(paper|research|benchmark|study)\b|论文|研究|基准/i.test(title)
+					? "paper"
+					: /\b(tutorial|guide|how to)\b|教程|指南/i.test(title)
+						? "tip"
+						: /\b(api|app|tool|release|launch|introducing)\b|产品|工具/i.test(title)
+							? "ai-products"
+							: "industry";
+			this.store.commitAnalysis(result.item.id, result.item.revision, {
+				relevance: "pass",
+				scores: [],
+				score: null,
+				selectionCandidate: false,
+				title,
+				summary: excerpt.length > 600 ? `${excerpt.slice(0, 600)}…` : excerpt,
+				reason: "信源原文摘录，未进行 AI 改写或评分。",
+				category,
+				tags: [],
+				entities: [],
+				contentKind: "unknown",
+				fact: null,
+			});
+			this.store.editItem(result.item.id, { contentOrigin: "source" });
+		}
 	}
 	private kick(): void {
 		if (!this.started || this.stopping || this.lostLease || this.loop) return;
@@ -410,6 +537,7 @@ export class NewsService {
 		this.lease = this.store.acquireLease(this.owner);
 		if (!this.lease) return;
 		if (!hadLease) this.store.recover();
+		if (this.store.getMeta("reader-sources-v1")) this.queueReaderSources(this.readerSources());
 		this.schedule();
 		// Small batches yield to the bridge between steps. A transport is never retried inside a step.
 		for (let count = 0; count < 8 && !this.stopping; count++) {
@@ -1313,7 +1441,7 @@ export class NewsService {
 				return report ? this.publicReport(report) : null;
 			}
 			case "sources":
-				return this.store.sources().map((source) => publicNewsSource(source));
+				return this.store.sources().map((source) => this.publicSource(source));
 			case "saveSource": {
 				const old = this.store.source(request.source.id);
 				const source = this.store.saveSource(
@@ -1334,7 +1462,7 @@ export class NewsService {
 							});
 						}
 					});
-				return publicNewsSource(source);
+				return this.publicSource(source);
 			}
 			case "deleteSource":
 				this.store.deleteSource(request.id);

@@ -7,9 +7,10 @@ import "./leaderboard.css";
 const copy = {
 	zh: {
 		title: "模型测评排行榜",
-		intro: "跟踪公开测评的最新结果。每个榜单单独排名，分数不能跨榜比较。",
-		general: "综合能力",
-		coding: "代码修复",
+		intro: "直接查看公开测评结果，并标明来源更新时间。每个榜单单独排名，分数不能跨榜比较。",
+		references: "历史与参考榜单",
+		referenceHint: "这些榜单保留作测评参考，可能未覆盖近期发布的模型。",
+		reference: "参考榜单",
 		loading: "正在同步官方榜单…",
 		refresh: "同步榜单",
 		retry: "重试同步",
@@ -19,13 +20,18 @@ const copy = {
 		score: "得分",
 		detail: "测评说明",
 		checked: "最近同步",
-		version: "测评版本",
-		submitted: "最近评测提交",
-		unknown: "来源未提供",
+		published: "来源数据更新",
+		unknown: "来源未提供更新时间",
 		never: "尚未同步成功",
 		source: "查看官方榜单",
 		stale: "本次同步未成功，保留上次结果",
-		fresh: "已同步",
+		fresh: "同步成功",
+		outdated: "同步成功，测评数据较旧",
+		unknownAge: "同步成功，来源未提供更新时间",
+		outdatedData: "测评数据较旧",
+		agePrefix: "距离来源最近一次更新已过",
+		ageSuffix: "天",
+		unknownHint: "已获取来源结果，但无法核验评测数据的新旧。",
 		unavailable: "暂时无法获取这个榜单",
 		empty: "没有匹配的模型",
 		clear: "清空搜索",
@@ -40,9 +46,10 @@ const copy = {
 	en: {
 		title: "Model leaderboards",
 		intro:
-			"Follow the latest public evaluations. Each benchmark ranks independently; scores are not comparable across boards.",
-		general: "General capability",
-		coding: "Code repair",
+			"View public evaluations with their source update dates. Each benchmark ranks independently; scores are not comparable across boards.",
+		references: "Historical and reference leaderboards",
+		referenceHint: "Retained for reference; these evaluations may not cover recently released models.",
+		reference: "Reference leaderboard",
 		loading: "Syncing official results…",
 		refresh: "Sync results",
 		retry: "Retry sync",
@@ -52,13 +59,18 @@ const copy = {
 		score: "Score",
 		detail: "Evaluation notes",
 		checked: "Last synced",
-		version: "Benchmark version",
-		submitted: "Latest submission",
-		unknown: "Not provided",
+		published: "Source data updated",
+		unknown: "Source update date not provided",
 		never: "Not yet synced",
 		source: "Official leaderboard",
 		stale: "Sync failed; showing the previous results",
-		fresh: "Synced",
+		fresh: "Sync successful",
+		outdated: "Sync successful; evaluation data is older",
+		unknownAge: "Sync successful; source update date not provided",
+		outdatedData: "Older evaluation data",
+		agePrefix: "Source last updated",
+		ageSuffix: "days ago",
+		unknownHint: "Results were retrieved, but the age of the evaluation data could not be verified.",
 		unavailable: "This leaderboard is currently unavailable",
 		empty: "No matching models",
 		clear: "Clear search",
@@ -86,11 +98,12 @@ export function NewsLeaderboard({
 	const language = getUiLanguage();
 	const text = copy[language];
 	const [data, setData] = useState<NewsLeaderboardResponse>();
-	const [selected, setSelected] = useState("livebench-overall");
+	const [selected, setSelected] = useState("");
 	const [query, setQuery] = useState("");
 	const [expanded, setExpanded] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const [syncError, setSyncError] = useState(false);
 	const [reload, setReload] = useState(0);
 	const previousRevision = useRef(revision);
 	const previousReload = useRef(reload);
@@ -108,9 +121,15 @@ export function NewsLeaderboard({
 			setError("");
 			try {
 				const next = await api.query({ action: "leaderboard", force: forceRefresh });
-				if (current) setData(next);
+				if (current) {
+					setData(next);
+					setSyncError(false);
+				}
 			} catch (failure) {
-				if (current) setError(errorText(failure));
+				if (current) {
+					setError(errorText(failure));
+					setSyncError(true);
+				}
 			} finally {
 				pending = false;
 				if (current) setBusy(false);
@@ -125,17 +144,25 @@ export function NewsLeaderboard({
 			clearInterval(timer);
 		};
 	}, [api, active, revision, reload]);
-	const board = data?.boards.find((entry) => entry.id === selected) ?? data?.boards[0];
+	const primaryBoards = data?.boards.filter((entry) => !entry.reference) ?? [];
+	const referenceBoards = data?.boards.filter((entry) => entry.reference) ?? [];
+	const board =
+		data?.boards.find((entry) => entry.id === selected) ??
+		primaryBoards.find((entry) => entry.freshness?.state === "current") ??
+		primaryBoards[0] ??
+		referenceBoards[0];
+	const freshness = board?.freshness?.state ?? "unknown";
+	const syncFailed = Boolean(syncError || board?.stale || board?.error);
 	const normalized = query.trim().toLowerCase();
 	const entries =
 		board?.entries.filter((entry) => `${entry.model} ${entry.organization ?? ""}`.toLowerCase().includes(normalized)) ??
 		[];
 	const visible = expanded || normalized ? entries : entries.slice(0, 20);
-	function formatDate(value: string | null, fallback: string): string {
+	function formatDate(value: string | null, fallback: string, includeTime = true): string {
 		if (!value || !Number.isFinite(Date.parse(value))) return fallback;
 		return new Date(value).toLocaleString(language === "zh" ? "zh-CN" : "en-US", {
 			dateStyle: "medium",
-			timeStyle: "short",
+			...(includeTime ? { timeStyle: "short" } : /^\d{4}-\d{2}-\d{2}$/.test(value) ? { timeZone: "UTC" } : {}),
 		});
 	}
 	function open(url: string): void {
@@ -158,26 +185,43 @@ export function NewsLeaderboard({
 				</button>
 			</div>
 			<div className="owl-leaderboard-tabs" aria-label={text.title}>
-				{(
-					data?.boards ?? [
-						{ id: "livebench-overall", category: "general", title: "LiveBench" },
-						{ id: "swe-bench-verified", category: "coding", title: "SWE-bench Verified" },
-					]
-				).map((entry) => (
+				{primaryBoards.map((entry) => (
 					<button
 						type="button"
 						key={entry.id}
-						aria-pressed={(board?.id ?? selected) === entry.id}
+						aria-pressed={board?.id === entry.id}
 						onClick={() => {
 							setSelected(entry.id);
 							setExpanded(false);
 						}}
 					>
-						<strong>{entry.category === "general" ? text.general : text.coding}</strong>
+						<strong>{entry.tabLabel ?? entry.sourceName}</strong>
 						<span>{entry.title}</span>
 					</button>
 				))}
 			</div>
+			{referenceBoards.length > 0 && (
+				<details className="owl-leaderboard-references">
+					<summary>{text.references}</summary>
+					<p>{text.referenceHint}</p>
+					<div className="owl-leaderboard-tabs" aria-label={text.references}>
+						{referenceBoards.map((entry) => (
+							<button
+								type="button"
+								key={entry.id}
+								aria-pressed={board?.id === entry.id}
+								onClick={() => {
+									setSelected(entry.id);
+									setExpanded(false);
+								}}
+							>
+								<strong>{entry.tabLabel ?? entry.sourceName}</strong>
+								<span>{entry.title}</span>
+							</button>
+						))}
+					</div>
+				</details>
+			)}
 			{error && (
 				<p className="owl-news-error" role="alert">
 					{error}
@@ -196,6 +240,7 @@ export function NewsLeaderboard({
 					<div className="owl-leaderboard-source">
 						<div>
 							<h2>{board.title}</h2>
+							{board.reference && <span className="owl-leaderboard-reference-label">{text.reference}</span>}
 							<p>{board.description}</p>
 						</div>
 						<button type="button" onClick={() => open(board.sourceUrl)}>
@@ -208,8 +253,8 @@ export function NewsLeaderboard({
 							<dd>{formatDate(board.checkedAt, text.never)}</dd>
 						</div>
 						<div>
-							<dt>{board.category === "coding" ? text.submitted : text.version}</dt>
-							<dd>{board.updatedAt ?? text.unknown}</dd>
+							<dt>{text.published}</dt>
+							<dd>{formatDate(board.updatedAt, text.unknown, false)}</dd>
 						</div>
 						<div>
 							<dt>{text.score}</dt>
@@ -219,18 +264,37 @@ export function NewsLeaderboard({
 							</dd>
 						</div>
 					</dl>
-					{board.stale || board.error ? (
-						<div className="owl-news-notice" role="status">
-							<strong>{board.entries.length ? text.stale : text.unavailable}</strong>
-							{board.error && <p>{board.error}</p>}
-						</div>
-					) : (
-						board.checkedAt && (
-							<p className="owl-leaderboard-status">
-								{text.fresh} · {board.sourceName}
+					<div
+						className="owl-leaderboard-status"
+						data-freshness={freshness}
+						data-sync={syncFailed || !board.entries.length ? "failed" : board.checkedAt ? "success" : "pending"}
+						role="status"
+					>
+						<strong>
+							{!board.entries.length
+								? text.unavailable
+								: syncFailed
+									? text.stale
+									: !board.checkedAt
+										? text.never
+										: freshness === "outdated"
+											? text.outdated
+											: freshness === "unknown"
+												? text.unknownAge
+												: `${text.fresh} · ${board.sourceName}`}
+						</strong>
+						{freshness === "outdated" && (
+							<p>
+								{syncFailed ? `${text.outdatedData} · ` : ""}
+								{board.freshness?.ageDays != null
+									? `${text.agePrefix} ${board.freshness.ageDays} ${text.ageSuffix}`
+									: board.freshness?.reason}
 							</p>
-						)
-					)}
+						)}
+						{freshness === "unknown" && board.entries.length > 0 && <p>{text.unknownHint}</p>}
+						{board.freshness?.reason && board.freshness.ageDays != null && <p>{board.freshness.reason}</p>}
+						{board.error && <p>{board.error}</p>}
+					</div>
 					{board.entries.length > 0 ? (
 						<>
 							<div className="owl-leaderboard-tools">

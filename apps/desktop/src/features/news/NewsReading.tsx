@@ -117,7 +117,7 @@ export function NewsItemReader({
 		}
 	}
 	if (result.loading) return <p aria-live="polite">{t("news.loading")}</p>;
-	if (result.error)
+	if (result.error && !result.data)
 		return (
 			<p role="alert" className="owl-news-error">
 				{result.error}
@@ -139,16 +139,20 @@ export function NewsItemReader({
 					setQuote(selection.toString().trim().slice(0, 3000));
 			}}
 		>
+			{result.error && (
+				<p role="alert" className="owl-news-error">
+					{result.error}
+					<button type="button" onClick={props.onChanged}>
+						{t("news.retry")}
+					</button>
+				</p>
+			)}
 			<div className="owl-news-meta">
 				<span>{item.sourceName}</span>
 				<time>{new Date(item.publishedAt).toLocaleString()}</time>
 				{categoryLabel && <span>{categoryLabel}</span>}
 				<span>
-					{sourceExcerpt
-						? getUiLanguage() === "zh"
-							? "原文摘录"
-							: "Source excerpt"
-						: t(`news.status.${item.status}`)}
+					{sourceExcerpt ? (getUiLanguage() === "zh" ? "原文摘录" : "Source excerpt") : t(`news.status.${item.status}`)}
 				</span>
 			</div>
 			<h1>{item.title || item.originalTitle}</h1>
@@ -271,12 +275,7 @@ export function NewsItemReader({
 							{bodyCopy.limit}
 						</p>
 						<div className="owl-news-actions">
-							<button
-								type="submit"
-								data-testid="news-body-save"
-								className="owl-news-primary"
-								disabled={!bodyCanWrite}
-							>
+							<button type="submit" data-testid="news-body-save" className="owl-news-primary" disabled={!bodyCanWrite}>
 								{busy ? bodyCopy.saving : bodyCopy.save}
 							</button>
 							<button
@@ -529,7 +528,7 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 	const result = useNewsQuery(props.api, { action: "story", id }, props.revision);
 	const [order, setOrder] = useState<"latest" | "oldest">("latest");
 	if (result.loading) return <p aria-live="polite">{t("news.loading")}</p>;
-	if (result.error)
+	if (result.error && !result.data)
 		return (
 			<p role="alert" className="owl-news-error">
 				{result.error}
@@ -542,6 +541,14 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 	);
 	return (
 		<article className="owl-news-reading">
+			{result.error && (
+				<p role="alert" className="owl-news-error">
+					{result.error}
+					<button type="button" onClick={props.onChanged}>
+						{t("news.retry")}
+					</button>
+				</p>
+			)}
 			<div className="owl-news-eyebrow">{t("news.event")}</div>
 			<h1>{story.title}</h1>
 			<p className="owl-news-reading-summary">{story.summary}</p>
@@ -586,12 +593,7 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 				<>
 					<h2>{t("news.relatedEvents")}</h2>
 					{story.relatedStoryIds.map((related) => (
-						<button
-							key={related}
-							type="button"
-							className="owl-news-history"
-							onClick={() => props.onStory(related)}
-						>
+						<button key={related} type="button" className="owl-news-history" onClick={() => props.onStory(related)}>
 							{t("news.openRelatedEvent")} · {related.slice(0, 12)}
 						</button>
 					))}
@@ -716,12 +718,7 @@ export function NewsReportReader({
 						<section>
 							<h2>{t("news.briefs")}</h2>
 							{result.data.briefs.map((item) => (
-								<button
-									type="button"
-									className="owl-news-history"
-									key={item.id}
-									onClick={() => props.onItem(item.id)}
-								>
+								<button type="button" className="owl-news-history" key={item.id} onClick={() => props.onItem(item.id)}>
 									{item.title}
 								</button>
 							))}

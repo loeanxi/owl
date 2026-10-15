@@ -19,6 +19,7 @@
 }
 .owl-leaderboard-tabs {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 24px;
 	border-bottom: 1px solid var(--owl-ui-border);
 	margin-bottom: 24px;
@@ -26,6 +27,8 @@
 .owl-leaderboard-tabs button {
 	display: grid;
 	gap: 4px;
+	min-width: 0;
+	max-width: 100%;
 	text-align: left;
 	padding: 0 4px 12px;
 	border-bottom: 2px solid transparent;
@@ -44,6 +47,29 @@
 }
 .owl-leaderboard-tabs button:hover {
 	color: var(--color-owl-accent);
+}
+.owl-leaderboard-references {
+	margin: -8px 0 24px;
+	color: var(--owl-ui-muted);
+	font-size: 12px;
+}
+.owl-leaderboard-references summary {
+	width: fit-content;
+	cursor: pointer;
+	padding: 4px 0;
+}
+.owl-leaderboard-references p {
+	margin: 10px 0 16px;
+	max-width: 75ch;
+}
+.owl-leaderboard-references .owl-leaderboard-tabs {
+	margin-bottom: 0;
+}
+.owl-leaderboard-reference-label {
+	display: inline-block;
+	margin-bottom: 8px;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
 }
 .owl-leaderboard-source {
 	display: flex;
@@ -86,7 +112,26 @@
 }
 .owl-leaderboard-status {
 	color: var(--owl-ui-muted);
-	font-size: 11px;
+	font-size: 12px;
+	padding: 12px 0;
+	border-block: 1px solid var(--owl-ui-border);
+}
+.owl-leaderboard-status strong {
+	font-weight: 550;
+}
+.owl-leaderboard-status p {
+	margin: 5px 0 0;
+	max-width: 80ch;
+	overflow-wrap: anywhere;
+}
+.owl-leaderboard-status[data-freshness="outdated"] strong,
+.owl-leaderboard-status[data-sync="failed"] strong {
+	color: var(--owl-ui-warning);
+}
+.owl-leaderboard button:focus-visible,
+.owl-leaderboard summary:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 4px;
 }
 .owl-leaderboard-tools {
 	display: flex;
@@ -195,6 +240,9 @@
 	opacity: 1;
 }
 @media (max-width: 850px) {
+	.owl-leaderboard-tabs {
+		gap: 14px 20px;
+	}
 	.owl-leaderboard-heading {
 		flex-direction: column;
 		gap: 12px;
