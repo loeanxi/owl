@@ -61,10 +61,11 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 		}
 		let disposed = false;
 		const saved = readWorkspaceMemory(localStorage, normalizedProfile);
+		// Navigation may cancel hydration. Keep all saved reading positions in that case.
+		scroll.current = saved?.scroll ?? {};
 		const canApply = (): boolean => !disposed && activeProfile.current === normalizedProfile && restoreGate.canApply(token);
 		void callbacks.current.restore(saved, canApply).then(() => {
 			if (!canApply()) return;
-			scroll.current = saved?.scroll ?? {};
 			restoreGate.finish(token);
 			setReadyProfile(normalizedProfile);
 		}).catch(() => {
@@ -86,36 +87,60 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 		if (!normalizedProfile || readyProfile !== normalizedProfile) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let frame = 0;
+		let disposed = false;
 		const startedAt = Date.now();
 		const applied = new WeakMap<HTMLElement, string>();
+		const observed = new WeakSet<HTMLElement>();
 		const save = (): void => {
 			if (timer) clearTimeout(timer);
 			timer = undefined;
-			writeWorkspaceMemory(localStorage, normalizedProfile, { ...current.current, version: 1, savedAt: Date.now(), scroll: scroll.current });
+			// Cleanup belongs to this place/profile even after the next render has begun.
+			writeWorkspaceMemory(localStorage, normalizedProfile, { ...place, version: 1, savedAt: Date.now(), scroll: scroll.current });
 		};
-		const visibleSurfaces = (): Array<{ element: HTMLElement; key: string }> => SCROLL_SURFACES.flatMap(([surface, selector]) =>
+		const visibleSurfaces = (): Array<{ element: HTMLElement; key: string; surface: string }> => SCROLL_SURFACES.flatMap(([surface, selector]) =>
 			[...document.querySelectorAll<HTMLElement>(selector)]
 				.filter((element) => element.clientWidth > 0 && element.clientHeight > 0)
-				.map((element) => ({ element, key: workspaceScrollKey(current.current, surface) })),
+				.map((element) => ({ element, key: workspaceScrollKey(place, surface), surface })),
 		);
 		const restoreScroll = (): void => {
 			frame = 0;
-			for (const { element, key } of visibleSurfaces()) {
-				if (applied.get(element) === key) continue;
+			if (disposed) return;
+			for (const { element, key, surface } of visibleSurfaces()) {
+				for (const node of [element, element.firstElementChild]) {
+					if (!(node instanceof HTMLElement) || observed.has(node)) continue;
+					observed.add(node);
+					resizes.observe(node);
+				}
+				if (applied.get(element) === key) {
+					if (element.hasAttribute("data-owl-scroll-restoring")) {
+						element.removeAttribute("data-owl-scroll-restoring");
+						element.dispatchEvent(new Event("scroll"));
+					}
+					continue;
+				}
+				if (surface === "chat" && element.hasAttribute("data-owl-search-navigation")) {
+					applied.set(element, key);
+					scroll.current = { ...scroll.current, [key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false } };
+					element.removeAttribute("data-owl-scroll-restoring");
+					save();
+					continue;
+				}
+				if (surface === "chat" && element.getAttribute("data-owl-scroll-restoring") !== "true") element.setAttribute("data-owl-scroll-restoring", "true");
 				const saved = scroll.current[key];
 				if (saved) {
 					const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
 					if (!saved.atBottom && saved.top > maxTop + 1 && Date.now() - startedAt < 3000) continue;
 					element.scrollTop = saved.atBottom ? maxTop : Math.min(saved.top, maxTop);
 					element.scrollLeft = saved.left;
-					// ChatStream must also turn off follow-latest when restoring history reading.
-					element.dispatchEvent(new Event("scroll"));
-				}
+				} else if (surface === "chat") element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
 				applied.set(element, key);
+				element.removeAttribute("data-owl-scroll-restoring");
+				// ChatStream follows the restored position, including an explicit search target.
+				element.dispatchEvent(new Event("scroll"));
 			}
 		};
 		const scheduleScrollRestore = (): void => {
-			if (!frame) frame = requestAnimationFrame(restoreScroll);
+			if (!disposed && !frame) frame = requestAnimationFrame(restoreScroll);
 		};
 		const onScroll = (event: Event): void => {
 			for (const { element, key } of visibleSurfaces()) {
@@ -125,24 +150,43 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 				timer = setTimeout(save, 160);
 			}
 		};
-		const keepUserScroll = (): void => {
-			for (const { element, key } of visibleSurfaces()) applied.set(element, key);
+		const keepUserScroll = (event: Event): void => {
+			if (!(event.target instanceof Node)) return;
+			for (const { element, key } of visibleSurfaces()) {
+				if (!element.contains(event.target)) continue;
+				applied.set(element, key);
+				element.removeAttribute("data-owl-scroll-restoring");
+			}
 		};
+		const onSearchNavigation = (event: Event): void => {
+			for (const { element, key } of visibleSurfaces()) {
+				if (event.target !== element) continue;
+				applied.set(element, key);
+				element.removeAttribute("data-owl-scroll-restoring");
+				scroll.current = { ...scroll.current, [key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false } };
+				save();
+			}
+		};
+		const resizes = new ResizeObserver(scheduleScrollRestore);
 		const mutations = new MutationObserver(scheduleScrollRestore);
 		const root = document.querySelector(".owl-workspace-frame");
-		if (root) mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "hidden"] });
+		if (root) mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "hidden", "data-owl-scroll-restoring", "data-owl-search-navigation"] });
 		document.addEventListener("scroll", onScroll, true);
 		document.addEventListener("wheel", keepUserScroll, { passive: true });
+		document.addEventListener("owl-chat-search-navigation", onSearchNavigation);
 		window.addEventListener("pagehide", save);
 		window.addEventListener("beforeunload", save);
 		scheduleScrollRestore();
 		const settle = setTimeout(scheduleScrollRestore, 3100);
 		return () => {
+			disposed = true;
 			cancelAnimationFrame(frame);
 			clearTimeout(settle);
 			mutations.disconnect();
+			resizes.disconnect();
 			document.removeEventListener("scroll", onScroll, true);
 			document.removeEventListener("wheel", keepUserScroll);
+			document.removeEventListener("owl-chat-search-navigation", onSearchNavigation);
 			window.removeEventListener("pagehide", save);
 			window.removeEventListener("beforeunload", save);
 			save();

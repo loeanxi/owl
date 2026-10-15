@@ -6,7 +6,7 @@ const zh = {
 	standalone: "未关联项目",
 	sectionName: "分区名称", createSection: "创建分区", renameSection: "重命名分区", removeSection: "移除分区", cancel: "取消", save: "保存", confirm: "确认", close: "关闭",
 	sectionDuplicate: "已存在同名分区，请换一个名称。", sectionRequired: "请输入分区名称。", removeSectionHint: "移除分区后，项目会回到默认项目分组。",
-	archiveTitle: "归档项目聊天", archiveHint: "归档该项目中已结束的聊天。可在设置中恢复，之后按归档保留期自动清理。正在运行的聊天将保留。",
+	archiveTitle: "归档项目聊天", archiveHint: "归档该项目中已结束的聊天。可在设置中恢复，归档后会一直保留。正在运行的聊天将保留。",
 	removeTitle: "移除项目", removeHint: "从侧栏移除此项目，文件夹和聊天记录会保留。", working: "处理中…", archiveResult: "已归档 {done} 个聊天，{failed} 个失败，保留 {running} 个运行中的聊天。", allRead: "该项目的聊天已全部标为已读。",
 } as const;
 const en: Record<keyof typeof zh, string> = {
@@ -16,7 +16,7 @@ const en: Record<keyof typeof zh, string> = {
 	standalone: "No project",
 	sectionName: "Section name", createSection: "Create section", renameSection: "Rename section", removeSection: "Remove section", cancel: "Cancel", save: "Save", confirm: "Confirm", close: "Close",
 	sectionDuplicate: "A section with this name already exists. Choose another name.", sectionRequired: "Enter a section name.", removeSectionHint: "Projects return to the default Projects section when this section is removed.",
-	archiveTitle: "Archive project chats", archiveHint: "Archive finished chats in this project. They can be restored in Settings and will later be cleaned up according to the archive retention policy. Running chats will be kept.",
+	archiveTitle: "Archive project chats", archiveHint: "Archive finished chats in this project. They can be restored in Settings and are kept indefinitely. Running chats will be kept.",
 	removeTitle: "Remove project", removeHint: "Remove this project from the sidebar. Its folder and chat history will be kept.", working: "Working…", archiveResult: "Archived {done} chats; {failed} failed; kept {running} running chats.", allRead: "All chats in this project are marked as read.",
 };
 export type ProjectSidebarTextKey = keyof typeof zh;

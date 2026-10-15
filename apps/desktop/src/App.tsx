@@ -34,7 +34,9 @@ import { MarketPage } from "./features/market/MarketPage.tsx";
 import { presentLife } from "./features/life-monitor/present.ts";
 import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
-import { ChatStream, type ChatActivity } from "./components/ChatStream.tsx";
+import { ChatStream, type ChatActivity, type MessageSearchTarget } from "./components/ChatStream.tsx";
+import type { SessionSearchHit, SessionSearchMessageResult } from "./bridge/protocol.ts";
+import { rememberProjectSession, resolveProjectSession } from "./project-session-memory.ts";
 import { AgentConversation } from "./components/AgentConversation.tsx";
 import { GenuiSessionProvider } from "./components/Genui.tsx";
 import { ContextView } from "./components/ContextView.tsx";
@@ -72,8 +74,10 @@ import { TodoPin } from "./components/TodoPin.tsx";
 import { RetryPin } from "./components/RetryPin.tsx";
 import { BuildConsistencyBanner } from "./components/BuildConsistencyBanner.tsx";
 import { isThemePreference, setThemeLock, setThemePreference } from "./theme.ts";
+import { parseFileIconTheme, setFileIconTheme } from "./file-icons/file-icon-theme.ts";
 import { applyOwlAppearance, parseOwlAppearance, presetThemeLock } from "./owl-appearance.ts";
 import { syncWindowGlass } from "./window-glass.ts";
+import { useStartupWindow } from "./startup-window.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
@@ -151,6 +155,7 @@ export default function App(): React.JSX.Element {
 	const client = useMemo(() => new BridgeClient(), []);
 	const managerApi = useMemo(() => createSidebarApi(client), [client]);
 	const [connected, setConnected] = useState(false);
+	const completeStartupAppearance = useStartupWindow();
 	const [showSettings, setShowSettings] = useState(false);
 	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>("general");
 	const [settingsSection, setSettingsSection] = useState<WorkspaceSettingsSection>("general");
@@ -205,6 +210,13 @@ export default function App(): React.JSX.Element {
 	const [marketMounted, setMarketMounted] = useState(railView === "market");
 	// owl agent 数据目录（settings.get 带出）：我的助理的兜底数据根。
 	const [agentDir, setAgentDir] = useState<string>();
+	const agentDirRef = useRef(agentDir);
+	agentDirRef.current = agentDir;
+	const [searchTarget, setSearchTarget] = useState<MessageSearchTarget>();
+	const [searchHistory, setSearchHistory] = useState<{ sessionId: string; result: SessionSearchMessageResult }>();
+	const searchSequence = useRef(0);
+	const [projectRestoring, setProjectRestoring] = useState<{ scope: "chat" | "research"; path: string; token: number }>();
+	const [projectNotice, setProjectNotice] = useState<string>();
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -349,6 +361,7 @@ export default function App(): React.JSX.Element {
 	// ensureSession 闭包要读最新暂存值：经 ref 中转（设置页代创会先改暂存再开会话）。
 	const stagedPresetRef = useRef(stagedPreset);
 	const [sessionInfo, setSessionInfo] = useState<SessionStatsResult | undefined>(undefined);
+	const recoveryModelRevision = useRef(0);
 	/** 当前会话是否由别的会话分支而来（快照 header.parentSession）：无名分支的顶栏标题加「· 分支」。 */
 	const [sessionBranched, setSessionBranched] = useState(false);
 	/** 当前会话的持久化显示名（session_info，如分支的「fork2 · 来自「你好」」）；顶栏优先用它。 */
@@ -711,13 +724,16 @@ export default function App(): React.JSX.Element {
 	// 两者都是「仅回退对话」到目标用户消息再重发：不动文件，模型看到的历史回到该条之前。
 	const rewindConversation = async (entryId: string): Promise<RewindExecuteResult | undefined> => {
 		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return undefined;
+		const origin = sessionIdRef.current;
+		const viewSeq = sessionViewSeq.current;
 		try {
 			const response = await client.request<RewindExecuteResult>({
 				type: "rewind.execute",
-				sessionId: sessionIdRef.current,
+				sessionId: origin,
 				entryId,
 				mode: "conversation",
 			});
+			if (origin !== sessionIdRef.current || viewSeq !== sessionViewSeq.current) return undefined;
 			if (response.ok && response.result) return response.result;
 		} catch {
 			// 回退失败（会话已卸载等）：放弃本次操作，转录保持原样
@@ -1101,7 +1117,7 @@ export default function App(): React.JSX.Element {
 		// 侧边卡片配置（owlSidebar）同源拉取，供工作台/快捷入口即时生效。
 		void client
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
-			.then((response) => {
+			.then(async (response) => {
 				if (cancelled || !response.ok) return;
 				if (response.result?.agentDir) setAgentDir(response.result.agentDir);
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
@@ -1109,20 +1125,23 @@ export default function App(): React.JSX.Element {
 				const appearance = parseOwlAppearance(settings?.owlAppearance);
 				setThemeLock(presetThemeLock(appearance.preset));
 				applyOwlAppearance(appearance);
-				syncWindowGlass(appearance);
+				const glassReady = syncWindowGlass(appearance);
 				// 动态壁纸：写 <html data-owl-wallpaper> 门控属性 + 同步渲染层状态
 				const wallpaperSettings = parseOwlWallpaper(settings?.owlWallpaper);
 				applyOwlWallpaper(wallpaperSettings);
 				setWallpaper(wallpaperSettings);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
+				setFileIconTheme(parseFileIconTheme(settings?.fileIconTheme));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
 				// 界面语言随 settings.json 启动加载；设置页/左下角菜单切换后经 settings.set 持久化。
 				setUiLanguageSetting(parseUiLanguageSetting(settings?.uiLanguage));
 				// 通知偏好（owlNotifications）：启动时同步进模块级缓存，notifyAgentStatus 据此门控
 				setNotificationPrefs(parseNotificationPrefs(settings?.owlNotifications));
 				setEnabledModels(parseEnabledModels(settings?.enabledModels));
+				await glassReady;
 			})
-			.catch(() => {});
+			.catch(() => {})
+			.finally(() => { if (!cancelled) completeStartupAppearance(); });
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
 		// project.create 即 mkdir -p：目录已有时是幂等空操作，顺带把路径规范化后回填显示。
 		void client
@@ -1140,7 +1159,7 @@ export default function App(): React.JSX.Element {
 				.catch(() => {});
 		}
 		return () => { cancelled = true; };
-	}, [connected, client]);
+	}, [connected, client, completeStartupAppearance]);
 
 	useEffect(() => {
 		if (!agentDir) return;
@@ -1207,10 +1226,11 @@ export default function App(): React.JSX.Element {
 	async function refreshStats(id?: string): Promise<void> {
 		const target = id ?? sessionIdRef.current;
 		if (!target) return;
+		const modelRevision = recoveryModelRevision.current;
 		try {
 			const response = await client.request<SessionStatsResult>({ type: "session.stats", sessionId: target });
 			// 落地时会话可能已切走：过期统计画进当前会话就是用量环/模型名串话
-			if (response.ok && target === sessionIdRef.current) {
+			if (response.ok && target === sessionIdRef.current && modelRevision === recoveryModelRevision.current) {
 				setSessionInfo(response.result ?? undefined);
 				if (response.result?.queue) {
 					setPromptQueues((current) => ({ ...current, [target]: response.result!.queue! }));
@@ -1302,6 +1322,7 @@ export default function App(): React.JSX.Element {
 	async function ensureSession(): Promise<string | undefined> {
 		if (sessionIdRef.current) return sessionIdRef.current;
 		if (creatingSessionRef.current) return undefined;
+		const viewSeq = sessionViewSeq.current;
 		creatingSessionRef.current = true;
 		try {
 			const response = await client.request<{ sessionId: string }>({
@@ -1312,6 +1333,7 @@ export default function App(): React.JSX.Element {
 				approvalMode,
 				...(stagedPresetRef.current ? { agentPreset: stagedPresetRef.current } : {}),
 			});
+			if (viewSeq !== sessionViewSeq.current || sessionIdRef.current) return undefined;
 			if (!response.ok || !response.result) {
 				console.error("session.create failed:", response.error);
 				setEntries([
@@ -1335,6 +1357,10 @@ export default function App(): React.JSX.Element {
 	}
 
 	const newChat = (): void => {
+		setSearchHistory(undefined);
+		setSearchTarget(undefined);
+		setProjectNotice(undefined);
+		setProjectRestoring(undefined);
 		setSubagentSelection(undefined);
 		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
@@ -1373,8 +1399,12 @@ export default function App(): React.JSX.Element {
 	// 换工作目录 = 从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在目标目录下创建会话。
 	const resetToWorkspace = (path: string): void => {
+		setProjectRestoring(undefined);
+		setSearchHistory(undefined);
 		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
+		workspaceRef.current = path;
+		setSearchTarget(undefined);
 		setWorkspaceDir(path);
 		localStorage.setItem(WORKSPACE_KEY, path);
 		setSessionId(undefined);
@@ -1388,9 +1418,7 @@ export default function App(): React.JSX.Element {
 
 	// 切换项目：绑定目录（chip 显示）并从新会话开始。
 	const switchProject = (path: string): void => {
-		resetToWorkspace(path);
-		setWorkspaceSelected(true);
-		localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
+		void restoreProjectConversation(path, "chat");
 	};
 
 	// 叉掉目录（输入框 chip 上的 ✕）：不选目录对话，会话默认进 DEFAULT_WORKSPACE_DIR。
@@ -1405,7 +1433,11 @@ export default function App(): React.JSX.Element {
 
 	// 研究工作台换目录：只动研究侧（研究页按目录重建会话控制器），主会话原地不动。
 	const resetResearchWorkspace = (path: string): void => {
+		setProjectRestoring(undefined);
+		setSearchHistory(undefined);
 		sessionViewSeq.current += 1;
+		researchWorkspaceRef.current = path;
+		setSearchTarget(undefined);
 		pendingResearchRestoreId.current = undefined;
 		setResearchConversationTitle(undefined);
 		setResearchResumeRequest(undefined);
@@ -1415,10 +1447,72 @@ export default function App(): React.JSX.Element {
 	};
 
 	const switchResearchProject = (path: string): void => {
-		resetResearchWorkspace(path);
-		setResearchWorkspaceSelected(true);
-		localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
+		void restoreProjectConversation(path, "research");
 	};
+
+	/** Project names resume work; the adjacent compose action always opens a fresh conversation. */
+	const newChatInProject = (path: string, scope: "chat" | "research"): void => {
+		setProjectRestoring(undefined);
+		setProjectNotice(undefined);
+		if (scope === "research") {
+			try { localStorage.removeItem(researchSessionKey(path)); } catch { /* In-memory reset remains available. */ }
+			resetResearchWorkspace(path);
+			setResearchWorkspaceSelected(true);
+			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
+			setResearchNewConversationRequest((current) => current + 1);
+		} else {
+			resetToWorkspace(path);
+			setWorkspaceSelected(true);
+			localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
+		}
+	};
+
+	async function restoreProjectConversation(path: string, scope: "chat" | "research"): Promise<void> {
+		if (!connected) return;
+		const currentPath = scope === "research" ? researchWorkspaceRef.current : workspaceRef.current;
+		const currentId = scope === "research" ? researchSessionIdRef.current : sessionIdRef.current;
+		if (samePath(path, currentPath) && currentId) return;
+		const profile = agentDirRef.current;
+		if (scope === "research") {
+			resetResearchWorkspace(path);
+			setResearchWorkspaceSelected(true);
+			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
+		} else {
+			resetToWorkspace(path);
+			setWorkspaceSelected(true);
+			localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
+		}
+		const token = sessionViewSeq.current;
+		setProjectRestoring({ scope, path, token });
+		setProjectNotice(undefined);
+		try {
+			const response = await client.request<SessionRowLite[]>({ type: "session.list", scope });
+			if (token !== sessionViewSeq.current || profile !== agentDirRef.current) return;
+			if (!response.ok || !response.result) throw new Error(response.error ?? t("app.projectRestoreFailed"));
+			const choice = resolveProjectSession(localStorage, profile, scope, path, response.result);
+			if (scope === "research") {
+				if (choice.sessionId) {
+					try { localStorage.setItem(researchSessionKey(path), choice.sessionId); } catch { /* The explicit resume request is authoritative. */ }
+					pendingResearchRestoreId.current = choice.sessionId;
+					setResearchSessionId(choice.sessionId);
+					setResearchResumeRequest({ id: choice.sessionId, revision: ++researchActionSequence.current });
+				} else {
+					try { localStorage.removeItem(researchSessionKey(path)); } catch { /* Controller reset also clears the in-memory binding. */ }
+					setResearchNewConversationRequest((current) => current + 1);
+				}
+			} else if (choice.sessionId) {
+				const opening = openSession(choice.sessionId, { silent: true, projectRestore: true });
+				const restoreSeq = sessionViewSeq.current;
+				await opening;
+				if (restoreSeq !== sessionViewSeq.current || sessionIdRef.current !== choice.sessionId) return;
+			}
+			if (choice.fallback) setProjectNotice(t(choice.sessionId ? "app.projectRestoreFallback" : "app.projectRestoreEmpty"));
+		} catch (error) {
+			if (token === sessionViewSeq.current) setProjectNotice(`${t("app.projectRestoreFailed")} ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setProjectRestoring((current) => current?.token === token ? undefined : current);
+		}
+	}
 
 	const clearResearchWorkspaceSelection = (): void => {
 		if (!researchWorkspaceSelected) return;
@@ -1436,7 +1530,11 @@ export default function App(): React.JSX.Element {
 
 	// 恢复历史会话：回放消息快照、切到该会话的项目视图，后续 prompt 直接续聊。
 	// silent：自动恢复专用——失败不留错误横幅，退回空白新会话即可（用户没主动点过它）。
-	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean; canApply?: () => boolean }): Promise<void> => {
+	const openSession = async (targetSessionId: string, options?: { silent?: boolean; preserveRail?: boolean; projectRestore?: boolean; canApply?: () => boolean }): Promise<void> => {
+		if (!options?.projectRestore) setProjectRestoring(undefined);
+		setSearchHistory(undefined);
+		setSearchTarget(undefined);
+		setProjectNotice(undefined);
 		setSubagentSelection(undefined);
 		const requestSeq = ++sessionViewSeq.current;
 		const response = await client.request<{
@@ -1479,10 +1577,13 @@ export default function App(): React.JSX.Element {
 		if (researchMode !== undefined) {
 			if (options?.preserveRail) return;
 			if (options?.silent && railViewRef.current !== "chat") return;
-			if (!samePath(cwd, researchWorkspaceRef.current)) switchResearchProject(cwd);
+			if (!samePath(cwd, researchWorkspaceRef.current)) resetResearchWorkspace(cwd);
 			setShowSettings(false);
 			setResearchMounted(true);
 			setRailView("research");
+			pendingResearchRestoreId.current = resumedId;
+			researchSessionIdRef.current = resumedId;
+			setResearchSessionId(resumedId);
 			setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
 			return;
 		}
@@ -1503,6 +1604,32 @@ export default function App(): React.JSX.Element {
 		if (response.result.approvalMode) setObservedApprovalMode({ sessionId: resumedId, mode: response.result.approvalMode });
 		void refreshStats(resumedId);
 	};
+
+	const openSearchHit = async (hit: SessionSearchHit, query: string): Promise<void> => {
+		const requestId = ++searchSequence.current;
+		await openSession(hit.sessionId);
+		if (requestId !== searchSequence.current) return;
+		if (hit.scope === "research" ? pendingResearchRestoreId.current !== hit.sessionId && researchSessionIdRef.current !== hit.sessionId : sessionIdRef.current !== hit.sessionId) return;
+		setShowSettings(false);
+		if (hit.scope === "research") setResearchConversationViewPersisted("chat");
+		else { setRailView("chat"); setConversationViewPersisted("chat"); }
+		if (!hit.entryId) return;
+		setSearchTarget({ sessionId: hit.sessionId, entryId: hit.entryId, query, requestId });
+		const viewSeq = sessionViewSeq.current;
+		try {
+			const response = await client.request<SessionSearchMessageResult>({ type: "session.searchMessage", sessionId: hit.sessionId, entryId: hit.entryId });
+			if (viewSeq !== sessionViewSeq.current || requestId !== searchSequence.current) return;
+			if (response.ok && response.result) setSearchHistory({ sessionId: hit.sessionId, result: response.result });
+			else setProjectNotice(t("app.searchMessageUnavailable"));
+		} catch {
+			if (viewSeq === sessionViewSeq.current && requestId === searchSequence.current) setProjectNotice(t("app.searchMessageUnavailable"));
+		}
+	};
+
+	useEffect(() => {
+		if (projectRestoring?.scope !== "chat") rememberProjectSession(localStorage, agentDir, "chat", workspaceDir, sessionId);
+		if (projectRestoring?.scope !== "research") rememberProjectSession(localStorage, agentDir, "research", researchWorkspaceDir, researchSessionId);
+	}, [agentDir, workspaceDir, sessionId, researchWorkspaceDir, researchSessionId, projectRestoring]);
 
 	// 助理会话由「我的助理」面板的独立线程承载：灵动岛要跳回那里，不能装进主页对话。
 	const openIslandSession = async (id: string): Promise<void> => {
@@ -1813,6 +1940,7 @@ export default function App(): React.JSX.Element {
 		const hasImages = (images?.length ?? 0) > 0;
 		const hasAttachments = (attachedPaths?.length ?? 0) > 0;
 		const queueing = running;
+		const viewSeq = sessionViewSeq.current;
 		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return false;
 		submitInFlight.current = true;
 		setSubmitting(true);
@@ -1829,7 +1957,7 @@ export default function App(): React.JSX.Element {
 			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return true;
 		}
 		target = await ensureSession();
-		if (!target) return false;
+		if (!target || viewSeq !== sessionViewSeq.current || target !== sessionIdRef.current) return false;
 		// 新消息接管会话：若该会话此前被暂停，解除暂停态（按钮回到发送/暂停的常规轮转）。
 		setPausedSessions((current) => {
 			if (!current.has(target!)) return current;
@@ -1976,6 +2104,7 @@ export default function App(): React.JSX.Element {
 		const target = sessionId;
 		if (!target || !connected || running || submitInFlight.current) return false;
 		const wasPaused = pausedSessions.has(target);
+		if (nextModel) recoveryModelRevision.current++;
 		submitInFlight.current = true;
 		setSubmitting(true);
 		// 乐观状态：暂停态解除 + 运行指示先挂起，按钮立即回到暂停图标，agent_start 随后接管
@@ -1995,11 +2124,15 @@ export default function App(): React.JSX.Element {
 			});
 		};
 		try {
-			const stats = await continueTask(client, target, nextModel);
+			await continueTask(client, target, nextModel, (changed, model) => {
+				if (target !== sessionIdRef.current) return;
+				recoveryModelRevision.current++;
+				setModelValue(model);
+				localStorage.setItem(MODEL_KEY, model);
+				if (changed) setSessionInfo(changed);
+			});
 			if (target === sessionIdRef.current) {
 				setRetryStatus(null);
-				if (nextModel) { setModelValue(nextModel); localStorage.setItem(MODEL_KEY, nextModel); }
-				if (stats) setSessionInfo(stats);
 			}
 			// 与 sendPrompt 同款对账：续跑迟迟没有 agent_start 时靠 running 查询解开指示灯
 			setTimeout(() => {
@@ -2352,15 +2485,9 @@ export default function App(): React.JSX.Element {
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
 				onNewChat={shortcuts.newChat}
-				onNewChatInProject={(path) => {
-					const research = railViewRef.current === "research";
-					if (samePath(path, research ? researchWorkspaceRef.current : workspaceRef.current)) shortcuts.newChat();
-					else if (research) {
-						switchResearchProject(path);
-						setResearchNewConversationRequest((current) => current + 1);
-					} else switchProject(path);
-				}}
+				onNewChatInProject={(path) => newChatInProject(path, railViewRef.current === "research" ? "research" : "chat")}
 				onSelectProject={switchScopedProject}
+				onOpenSearchHit={(hit, query) => void openSearchHit(hit, query)}
 				onOpenSession={(id) => void openSession(id)}
 				onSessionRenamed={(id, name) => {
 					if (id === sessionIdRef.current) setSessionName(name);
@@ -2410,11 +2537,8 @@ export default function App(): React.JSX.Element {
 					}}
 					onNewChatInProject={(path) => {
 						setShowSettings(false);
-						if (samePath(path, workspaceRef.current)) shortcuts.newChat();
-						else {
-							switchProject(path);
-							setRailView("chat");
-						}
+						newChatInProject(path, "chat");
+						setRailView("chat");
 					}}
 					onCreateProject={() => {
 						setProjectDialogStay(true);
@@ -2517,6 +2641,8 @@ export default function App(): React.JSX.Element {
 						{exportNotice.text}
 					</p>
 				)}
+				{projectRestoring && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{t("app.projectRestoring")}</p>}
+				{projectNotice && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{projectNotice}</p>}
 				{/* 双面板常挂载：owl-shell-content-main 是「对话 + 终端底栏」的纵列，
 				    工具侧栏是右列 —— 底栏与侧栏互不依赖，可同时展开。 */}
 				<div className={"owl-shell-content" + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
@@ -2525,6 +2651,10 @@ export default function App(): React.JSX.Element {
 						{visibleSubagent && <SubagentView client={client} connected={connected} selection={visibleSubagent} runs={subagents.runs} listLoading={subagents.loading} listError={subagents.error} view={subagentView} onBack={() => setSubagentSelection(undefined)} onRefresh={subagents.refresh} onSelect={openSubagent} onOpenUrl={openUrlInSidebarBrowser} headerActions={<SubagentPin key={subagentParentId} runs={subagents.runs} activeId={activeSubagent?.id ?? visibleSubagent.id} onSelect={openSubagent} />} />}
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings && !visibleSubagent ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
+								profile={agentDir}
+								searchTarget={searchTarget}
+								searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === researchSessionId ? searchHistory.result : undefined}
+								restorePending={projectRestoring?.scope === "research"}
 								subagentControl={<SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} />}
 								onOpenSubagent={openSubagentCard}
 								onOpenAutomation={openAutomation} client={client} active={railView === "research" && !showSettings} connected={connected} cwd={researchWorkspaceDir}
@@ -2554,7 +2684,7 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
@@ -2580,7 +2710,7 @@ export default function App(): React.JSX.Element {
 								client={client}
 								sessionScope="chat"
 								connected={connected}
-								disabled={submitting || !connected}
+								disabled={submitting || !connected || projectRestoring?.scope === "chat"}
 								running={running}
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
