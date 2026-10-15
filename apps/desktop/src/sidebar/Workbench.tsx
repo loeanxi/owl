@@ -11,6 +11,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
+import { FileIcon } from "../file-icons/FileIcon.tsx";
 import { useT } from "../i18n/index.ts";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
@@ -425,7 +426,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 									}}
 									className={`owl-workbench-tab group ${isActive ? "is-active" : ""}`}
 								>
-									{def?.icon(14)}
+									{tab.path === undefined ? def?.icon(14) : <FileIcon name={tab.path.split(/[\\/]/).pop() ?? tab.path} size={14} minimal={def?.icon(14)} />}
 									<span className="min-w-0 truncate">{tab.title}</span>
 									{state.dirty[tab.id] === true && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title={t("wb.unsaved")} />}
 									<button

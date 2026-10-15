@@ -1,4 +1,5 @@
 import type { OwlImageProvider, SkillCenterTab } from "../../bridge/protocol.ts";
+import type { FileIconThemeId } from "../../file-icons/file-icon-theme.ts";
 import type { TextKey } from "../../i18n/index.ts";
 import { type OwlGlassMode, type OwlPresetId, PRESET_DEFAULT_COLORS } from "../../owl-appearance.ts";
 
@@ -60,18 +61,33 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 			panel: "rgb(40 42 58 / 55%)",
 		},
 	},
+	{ id: "ink", labelKey: "settings.appearance.presetInk", preview: { bg: "#181818", rail: "#101010", line: "#2c2c2c", panel: "#1f1f1f" } },
+	{ id: "polar-night", labelKey: "settings.appearance.presetPolarNight", preview: { bg: "#1e2127", rail: "#15171c", line: "#323743", panel: "#272c36" } },
+	{ id: "ink-hc", labelKey: "settings.appearance.presetInkHc", preview: { bg: "#0a0a0a", rail: "#000000", line: "#3a3a3a", panel: "#141414" } },
+	{ id: "vscode-modern", labelKey: "settings.appearance.presetVscodeModern", preview: { bg: "#1f1f1f", rail: "#141414", line: "#333333", panel: "#282828" } },
+	{ id: "vscode-classic", labelKey: "settings.appearance.presetVscodeClassic", preview: { bg: "#1e1e1e", rail: "#333333", line: "#3c3c3c", panel: "#252526" } },
 	{ id: "monokai", labelKey: "settings.appearance.presetMonokai", preview: { bg: "#272822", rail: "#191a17", line: "#414339", panel: "#34352f" } },
+	{ id: "monokai-dimmed", labelKey: "settings.appearance.presetMonokaiDimmed", preview: { bg: "#1e1e1e", rail: "#353535", line: "#404040", panel: "#272727" } },
 	{ id: "solarized", labelKey: "settings.appearance.presetSolarized", preview: { bg: "#002b36", rail: "#001b23", line: "#0f4a58", panel: "#073642" } },
 	{ id: "abyss", labelKey: "settings.appearance.presetAbyss", preview: { bg: "#000c18", rail: "#03061a", line: "#2b2b4a", panel: "#10192c" } },
 	{ id: "tomorrow-night-blue", labelKey: "settings.appearance.presetTomorrowNightBlue", preview: { bg: "#002451", rail: "#001733", line: "#2a4373", panel: "#003064" } },
 	{ id: "kimbie-dark", labelKey: "settings.appearance.presetKimbieDark", preview: { bg: "#221a0f", rail: "#17110a", line: "#51412c", panel: "#362712" } },
 	{ id: "red", labelKey: "settings.appearance.presetRed", preview: { bg: "#390000", rail: "#2a0000", line: "#6b1a1a", panel: "#480000" } },
+	{ id: "quiet-light", labelKey: "settings.appearance.presetQuietLight", preview: { bg: "#f5f5f5", rail: "#ededf5", line: "#d6d6d6", panel: "#ffffff" } },
+	{ id: "high-contrast", labelKey: "settings.appearance.presetHighContrast", preview: { bg: "#000000", rail: "#000000", line: "#6fc3df", panel: "#0b0b0b" } },
 ];
 
 export const GLASS_MODE_LABEL_KEYS: Record<OwlGlassMode, TextKey> = {
 	clear: "settings.appearance.glassClear",
 	blur: "settings.appearance.glassBlur",
 	acrylic: "settings.appearance.glassAcrylic",
+};
+
+export const FILE_ICON_THEME_LABEL_KEYS: Record<FileIconThemeId, TextKey> = {
+	none: "settings.appearance.fileIconNone",
+	minimal: "settings.appearance.fileIconMinimal",
+	seti: "settings.appearance.fileIconSeti",
+	material: "settings.appearance.fileIconMaterial",
 };
 
 /** 当前预设下某深浅档的默认底色/文字色（预设无自定义时的拾色器兜底与 hex 展示）。 */

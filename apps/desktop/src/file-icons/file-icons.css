@@ -1,0 +1,26 @@
+@font-face {
+	font-family: "owl-seti";
+	src: url("./seti/seti.woff") format("woff");
+	font-weight: normal;
+	font-style: normal;
+	font-display: block;
+}
+
+.owl-file-icon-seti {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	overflow: visible;
+	font-family: "owl-seti";
+	font-style: normal;
+	font-weight: normal;
+	line-height: 1;
+	-webkit-font-smoothing: antialiased;
+}
+
+.owl-file-icon-img {
+	display: inline-block;
+	flex-shrink: 0;
+	object-fit: contain;
+}

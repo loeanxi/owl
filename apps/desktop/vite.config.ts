@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -28,6 +30,31 @@ function owlBuildInfo(buildId: string): Plugin {
 	};
 }
 
+/**
+ * Material Icon Theme 的 SVG（1200+ 个）挂到 /file-icons/material/：dev 直接读依赖目录，build 原样输出到 dist。
+ * 不走 import ?url，否则 4KB 以下的图标会被内联进 JS。
+ */
+function owlMaterialIcons(): Plugin {
+	const iconsDir = join(dirname(createRequire(import.meta.url).resolve("material-icon-theme/package.json")), "icons");
+	return {
+		name: "owl-material-icons",
+		configureServer(server) {
+			server.middlewares.use("/file-icons/material/", (req, res, next) => {
+				const name = (req.url ?? "").split("?")[0].replace(/^\//, "");
+				const file = join(iconsDir, name);
+				if (!/^[\w.-]+\.svg$/.test(name) || !existsSync(file)) return next();
+				res.setHeader("Content-Type", "image/svg+xml");
+				res.end(readFileSync(file));
+			});
+		},
+		generateBundle() {
+			for (const name of readdirSync(iconsDir)) {
+				if (name.endsWith(".svg")) this.emitFile({ type: "asset", fileName: `file-icons/material/${name}`, source: readFileSync(join(iconsDir, name)) });
+			}
+		},
+	};
+}
+
 export default defineConfig(({ command }) => {
 	const buildId = randomUUID();
 	const uiBuild = command === "build" ? { buildId, protocolHash: computeProtocolHash(repoRoot) } : { buildId: "dev" };
@@ -35,7 +62,7 @@ export default defineConfig(({ command }) => {
 		define: { __OWL_UI_BUILD__: JSON.stringify(uiBuild) },
 		// TEMP debug entry（owl-genui 引擎调试页 + 轨迹/自动化任务调试页）；问题排查完可移除
 		build: { rollupOptions: { input: { main: "index.html", debug: "debug-genui.html", trajectory: "debug-trajectory.html", automation: "debug-automation.html" } } },
-		plugins: [react(), tailwindcss(), owlBuildInfo(buildId)],
+		plugins: [react(), tailwindcss(), owlMaterialIcons(), owlBuildInfo(buildId)],
 		server: {
 			port: 5188,
 			// 端口被占直接失败：vite 默认会静默换端口，而 tauri devUrl 固定 5188，

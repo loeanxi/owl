@@ -40,7 +40,9 @@ import {
 } from "../utils/enabled-models.ts";
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
-import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
+import { FILE_ICON_THEMES, parseFileIconTheme, setFileIconTheme, type FileIconThemeId } from "../file-icons/file-icon-theme.ts";
+import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
+import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, FILE_ICON_THEME_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
@@ -105,6 +107,7 @@ export function SettingsPage({
 	// 外观自定义颜色（owlAppearance）：accent 全局、背景/前景按深浅档分开
 	const [owlAppearance, setOwlAppearance] = useState<OwlAppearanceColors>(() => parseOwlAppearance(DEFAULT_OWL_APPEARANCE));
 	const [owlAppearanceLoaded, setOwlAppearanceLoaded] = useState(false);
+	const fileIconTheme = useFileIconTheme();
 	// 当前实际生效的深浅档（system 已解析）：决定背景/前景两行正在编辑哪一套颜色
 	const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">(() => getResolvedTheme());
 	// 动态壁纸（owlWallpaper）：清单从桥端 /wallpaper/inventory 拉，改 customDir/customPath 或手动刷新时重扫
@@ -382,6 +385,7 @@ export function SettingsPage({
 					setChatAppearanceLoaded(true);
 					setOwlAppearance(parseOwlAppearance(obj.owlAppearance));
 					setOwlAppearanceLoaded(true);
+					setFileIconTheme(parseFileIconTheme(obj.fileIconTheme));
 				setRaw(JSON.stringify(obj, null, 2));
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
@@ -1168,6 +1172,12 @@ export function SettingsPage({
 		applyOwlAppearance(next);
 		syncWindowGlass(next);
 		void saveSettings({ owlAppearance: next });
+	}
+
+	/** 保存文件图标主题：先切模块状态让文件树即时重绘，再落盘 settings.json 的 fileIconTheme。 */
+	function saveFileIconTheme(next: FileIconThemeId): void {
+		setFileIconTheme(next);
+		void saveSettings({ fileIconTheme: next });
 	}
 
 	/**
@@ -2913,6 +2923,23 @@ export function SettingsPage({
 												</div>
 											</SettingRow>
 										)}
+										<SettingRow title={t("settings.appearance.fileIconTheme")} desc={t("settings.appearance.fileIconThemeDesc")}>
+											<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.fileIconTheme")}>
+												{FILE_ICON_THEMES.map((id) => (
+													<button
+														key={id}
+														type="button"
+														role="radio"
+														aria-checked={fileIconTheme === id}
+														className={`owl-settings-mode-thumb is-text ${fileIconTheme === id ? "is-active" : ""}`}
+														disabled={busy}
+														onClick={() => saveFileIconTheme(id)}
+													>
+														<span className="owl-settings-mode-label">{t(FILE_ICON_THEME_LABEL_KEYS[id])}</span>
+													</button>
+												))}
+											</div>
+										</SettingRow>
 									</div>
 
 									{/* 动态壁纸（Wallpaper Engine 适配）：video/web 直渲、scene 用预览图降级。 */}

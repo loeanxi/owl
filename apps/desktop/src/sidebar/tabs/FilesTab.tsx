@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
 import type { FsEntry, FsListing, FsSearchHit } from "../../bridge/protocol.ts";
+import { FileIcon } from "../../file-icons/FileIcon.tsx";
 import type { TabComponentProps } from "../registry.ts";
 import { useSidebarState } from "../store.ts";
 import {
@@ -358,11 +359,11 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 
 	const rowIcon = (entry: FsEntry, isOpen: boolean): React.ReactNode => {
 		if (entry.isSymlink && entry.broken) return <IconFile size={14} className="text-red-400" />;
-		if (entry.isDir) return isOpen ? <IconFolderOpen size={14} className="text-owl-accent" /> : <IconFolder size={14} className="text-owl-accent" />;
-		if (!entry.isDir && /\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|avif)$/i.test(entry.name)) {
-			return <IconImage size={14} className={fileColor(entry.path)} />;
-		}
-		return <IconFile size={14} className={fileColor(entry.path)} />;
+		let minimal: React.ReactNode;
+		if (entry.isDir) minimal = isOpen ? <IconFolderOpen size={14} className="text-owl-accent" /> : <IconFolder size={14} className="text-owl-accent" />;
+		else if (/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|avif)$/i.test(entry.name)) minimal = <IconImage size={14} className={fileColor(entry.path)} />;
+		else minimal = <IconFile size={14} className={fileColor(entry.path)} />;
+		return <FileIcon name={entry.name} folder={entry.isDir} open={isOpen} size={14} minimal={minimal} />;
 	};
 
 	return (
@@ -447,7 +448,12 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 									}
 								}}
 							>
-								{hit.isDir ? <IconFolder size={13} className="text-owl-accent" /> : <IconFile size={13} className={fileColor(hit.path)} />}
+								<FileIcon
+									name={hit.path.split("/").pop() ?? hit.path}
+									folder={hit.isDir}
+									size={13}
+									minimal={hit.isDir ? <IconFolder size={13} className="text-owl-accent" /> : <IconFile size={13} className={fileColor(hit.path)} />}
+								/>
 								<span className="truncate">{hit.path}</span>
 							</button>
 						))}
