@@ -4,7 +4,8 @@
  * 未知工具(websearch_search 等)走兜底:工具名 + 第一个字符串参数。
  */
 
-import { t } from "../i18n/index.ts";
+import { getUiLanguage, t } from "../i18n/index.ts";
+import { computerUseSummary } from "./computer-use-summary.ts";
 
 export type ToolSummary = {
 	/** 一行摘要,如「`ls -la src`」 */
@@ -82,6 +83,8 @@ export function errorKindOf(name: string, outputText: string | undefined): "exit
 /** 把一次工具调用的参数翻译成摘要。 */
 export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 	const a = (args ?? {}) as Record<string, unknown>;
+	const computer = computerUseSummary(name, a, getUiLanguage());
+	if (computer !== undefined) return { summary: computer };
 	switch (name) {
 		case "bash":
 		case "powershell": {

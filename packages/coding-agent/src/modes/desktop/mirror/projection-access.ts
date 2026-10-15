@@ -1,3 +1,4 @@
+import { interruptDesktopControl } from "../../../core/desktop-control-channel.ts";
 import type { MirrorInputRequest, MirrorProjectionGeometry } from "../protocol.ts";
 
 interface ProjectionTarget {
@@ -64,6 +65,8 @@ export class MirrorProjectionAccess {
 		if (request.action !== "cancel" && (!claim.active || !subscribed)) {
 			throw new Error("mirror input requires an active projection subscription");
 		}
+		if (request.action !== "cancel")
+			interruptDesktopControl({ reason: "user-projection-input", windowId: request.windowId });
 		this.target.inputWindow(request);
 	}
 

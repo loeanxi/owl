@@ -290,6 +290,18 @@ function browserToolPrefix(name: string): string | undefined {
 	return name.startsWith("browser_") ? "browser_" : name.match(/^mcp_.+_browser_/)?.[0];
 }
 
+/** Registered names in a request are stronger lookup evidence than incidental tool descriptions. */
+function mentionedTools(text: string, tools: readonly ToolInfo[]): ToolInfo[] {
+	return tools
+		.flatMap((tool) => {
+			const escaped = tool.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			const match = new RegExp(`(?:^|[^a-z0-9_])(${escaped})(?=$|[^a-z0-9_])`, "i").exec(text);
+			return match ? [{ tool, position: match.index }] : [];
+		})
+		.sort((left, right) => left.position - right.position)
+		.map(({ tool }) => tool);
+}
+
 /**
  * Rank the searchable tools that are not active yet and activate the matches, so the next model
  * call declares them. Activation is recorded in the transcript like any tool change.
@@ -319,14 +331,11 @@ function searchAndLoad(
 	const candidates = tools
 		.getAllTools()
 		.filter((tool) => isSearchable(tool.exposure) && tool.name !== TOOL_SEARCH_TOOL_NAME);
-	const exact =
-		!input.steps && input.query
-			? candidates.find((tool) => tool.name.toLowerCase() === input.query?.trim().toLowerCase())
-			: undefined;
-	const intents =
+	const named = input.steps ? [] : mentionedTools(input.query ?? "", candidates);
+	const intents: ToolIntentStep[] =
 		input.steps ??
-		(exact
-			? [{ capability: "tool", action: "inspect", target: exact.name, query: exact.name }]
+		(named.length > 1 || (named.length === 1 && named[0]!.name.toLowerCase() === input.query?.trim().toLowerCase())
+			? named.map((tool) => ({ capability: "tool", action: "inspect", target: tool.name, query: tool.name }))
 			: deriveIntentSteps(input.query ?? ""));
 	if (intents.length > 4) throw new Error("Split this task into batches of at most 4 discovery steps.");
 	const documents = candidates.map((tool) => createToolSearchDocument(tool, tool.namespace));
@@ -334,6 +343,11 @@ function searchAndLoad(
 	const pending = new Set<string>();
 	const results: ToolSearchStepResult[] = [];
 	for (const intent of intents) {
+		const requested = mentionedTools([intent.query, intent.target].filter(Boolean).join(" "), candidates);
+		const exact =
+			requested.length === 1 && /^(inspect|unknown|act|observe|release)$/i.test(intent.action)
+				? requested[0]
+				: undefined;
 		const queries = [
 			...new Set(
 				[

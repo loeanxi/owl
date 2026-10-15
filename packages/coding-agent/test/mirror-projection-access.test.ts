@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { subscribeDesktopControlInterruption } from "../src/core/desktop-control-channel.ts";
 import { MirrorProjectionAccess } from "../src/modes/desktop/mirror/projection-access.ts";
 import type { MirrorInputRequest, MirrorProjectionGeometry } from "../src/modes/desktop/protocol.ts";
 
@@ -27,6 +28,23 @@ function fixture() {
 }
 
 describe("mirror projection ownership", () => {
+	it("revokes agent input before owned user input, without revoking for an unowned request", async () => {
+		const { target, access, owner, stranger } = fixture();
+		const order: string[] = [];
+		const unsubscribe = subscribeDesktopControlInterruption(() => order.push("agent-stopped"));
+		target.inputWindow.mockImplementation(() => {
+			order.push("user-input");
+		});
+		try {
+			await access.project(owner, "123");
+			expect(() => access.input(stranger, input, true)).toThrow("requires this connection");
+			expect(order).toEqual([]);
+			access.input(owner, input, true);
+			expect(order).toEqual(["agent-stopped", "user-input"]);
+		} finally {
+			unsubscribe();
+		}
+	});
 	it("requires this connection to own an active projection and subscribe before input", async () => {
 		const { target, access, owner, stranger } = fixture();
 		expect(() => access.input(owner, input, true)).toThrow("requires this connection");

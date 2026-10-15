@@ -7,6 +7,10 @@ const READ_ONLY_TOOLS = new Set([
 	"browser_snapshot",
 	"browser_screenshot",
 	"browser_wait",
+	"computer_observe",
+	// Release only cancels this session's work and disposes its own control resources.
+	"computer_release",
+	"computer_screenshot",
 	"univer_status",
 	"univer_inspect",
 	"univer_api",
@@ -51,6 +55,7 @@ export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean
 	if (toolName === "research_decompile") return action === "inventory";
 	if (toolName === "research_rea") return action === "inventory";
 	if (toolName === "browser_tabs") return action === "list" || action === "select";
+	if (toolName === "computer_windows") return action === "list";
 	if (toolName === "browser_console") return action === undefined || action === "list";
 	if (toolName === "browser_network") return action === undefined || action === "list" || action === "detail";
 	return false;

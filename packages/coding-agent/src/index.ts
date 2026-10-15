@@ -79,6 +79,11 @@ export {
 	recordContextUsage,
 } from "./core/context-insight.ts";
 export {
+	type DesktopControlInterruption,
+	interruptDesktopControl,
+	subscribeDesktopControlInterruption,
+} from "./core/desktop-control-channel.ts";
+export {
 	getWorkspaceDiffApprovalStore,
 	notifyDiffApprovalChanged,
 	setDiffApprovalBroadcaster,

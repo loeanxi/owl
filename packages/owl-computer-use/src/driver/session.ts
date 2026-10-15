@@ -1,100 +1,92 @@
 /**
- * computer-use 驱动会话：管理长驻 PowerShell 侧车（computer-driver.ps1）。
- *
- * 协议：stdin/stdout JSON 行（UTF-8）。请求 {id, cmd, ...} → 响应
- * {id, ok, data|error}；worker 启动后先广播 {"event":"ready"}（内核编译 +
- * 加载完成），ready 之前发出的请求排队等待。worker 崩溃自动重建，空闲
- * 60s 自停 —— 全部照 owl-media-bridge 的 powershell-runner 模式，差异点：
- * 带请求 id（防串线）、ready 门、会话级「最近截图」坐标映射（截图像素
- * 空间 → 虚拟屏幕坐标），映射存 Node 侧，worker 重启不丢。
- * @module owl-computer-use/driver/session
+ * 严格串行的 computer-use JSON 行会话；队列、ready、执行分别计时。
+ * 取消已下发命令时终止 worker，清除观察；未知动作从不自动重放。
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+	ClickButton,
+	NativeActInput,
+	NativeActResult,
+	NativeObservation,
+	ScreenshotMeta,
+	WindowRef,
+	WindowRow,
+} from "./protocol.ts";
 
-export interface ScreenshotMeta {
-	/** 截图（可能已缩放）的像素尺寸。 */
-	imageWidth: number;
-	imageHeight: number;
-	/** 截图对应的屏幕区域（虚拟屏幕坐标）。 */
-	screenWidth: number;
-	screenHeight: number;
-	originX: number;
-	originY: number;
-}
-
-export type ClickButton = "left" | "right" | "middle";
-
-export interface WindowRow {
-	hwnd: number;
-	title: string;
-	class: string;
-	process: string;
-	pid: number;
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	minimized: boolean;
-	foreground: boolean;
-}
-
-/** click 命中的窗口 / type·key 时的前台窗口（驱动的自纠错反馈）。 */
-export interface WindowRef {
-	hwnd: number;
-	title: string;
-	process: string;
-	pid: number;
-	minimized?: boolean;
-	foreground?: boolean;
-}
+export type { ClickButton, ScreenshotMeta, WindowRef, WindowRow } from "./protocol.ts";
 
 export interface DriverSpawnOptions {
-	/** 每个命令的超时毫秒（默认 20s）。 */
+	/** 下发后的执行超时，默认 20s。 */
 	requestTimeoutMs?: number;
-	/** 等待 worker ready 的毫秒（默认 120s，覆盖冷启动 csc 编译）。 */
+	/** 编译、加载并 ready 的超时，默认 120s。 */
 	readyTimeoutMs?: number;
-	/** 空闲多少毫秒后自停 worker（默认 60s；0 = 不自停）。 */
+	/** 排队等待超时，默认 120s；0 禁用。 */
+	queueTimeoutMs?: number;
+	/** 空闲自停，默认 60s；0 禁用。 */
 	idleTimeoutMs?: number;
+	/** 单条协议行的最大字符数，默认 16 MiB（含 JPEG base64）。 */
+	maxResponseChars?: number;
 }
 
-/** 仅测试注入用：返回一个 stdout/stderr/stdin 齐全的伪 worker。 */
 export type DriverWorkerFactory = () => ChildProcessWithoutNullStreams;
+type PayloadFactory = () => Record<string, unknown>;
+
+interface QueuedCommand {
+	buildPayload: PayloadFactory;
+	accept?: (data: Record<string, unknown>) => void;
+	resolve: (value: Record<string, unknown>) => void;
+	reject: (error: Error) => void;
+	signal?: AbortSignal;
+	onAbort?: () => void;
+	queueTimer?: NodeJS.Timeout;
+	started: boolean;
+	settled: boolean;
+	epoch: number;
+}
 
 interface PendingRequest {
-	readonly id: number;
+	id: number;
 	resolve: (value: Record<string, unknown>) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
 }
 
-interface QueuedCommand {
-	run: () => void;
+interface DriverWorker {
+	process: ChildProcessWithoutNullStreams;
+	generation: number;
+	ready: Promise<void>;
+	resolveReady: () => void;
+	rejectReady: (error: Error) => void;
+	readySettled: boolean;
+	readyTimer?: NodeJS.Timeout;
+	pending?: PendingRequest;
+	stdoutBuffer: string;
+	stderrBuffer: string;
+	detach: () => void;
 }
-
-const READY_TIMEOUT_DEFAULT = 120_000;
-const REQUEST_TIMEOUT_DEFAULT = 20_000;
-const IDLE_TIMEOUT_DEFAULT = 60_000;
 
 export class ComputerDriverSession {
 	private readonly scriptPath = fileURLToPath(new URL("./computer-driver.ps1", import.meta.url));
+	private readonly captureKernelPath = fileURLToPath(
+		new URL("../../../coding-agent/src/modes/desktop/mirror/windows-capture.cs", import.meta.url),
+	);
 	private readonly workerFactory: DriverWorkerFactory;
 	private readonly readyTimeoutMs: number;
 	private readonly requestTimeoutMs: number;
+	private readonly queueTimeoutMs: number;
 	private readonly idleTimeoutMs: number;
-
-	private worker: ChildProcessWithoutNullStreams | undefined;
-	private readyPromise: Promise<void> | undefined;
+	private readonly maxResponseChars: number;
+	private worker: DriverWorker | undefined;
+	private generation = 0;
+	private epoch = 0;
 	private nextRequestId = 1;
-	private readonly pending = new Map<number, PendingRequest>();
 	private readonly queue: QueuedCommand[] = [];
+	private active: QueuedCommand | undefined;
 	private draining = false;
-	private stdoutBuffer = "";
-	private stderrBuffer = "";
 	private idleTimer: NodeJS.Timeout | undefined;
-
-	/** 最近一次截图的坐标映射；click/scroll 用来换算截图像素 → 屏幕坐标。 */
 	private lastScreenshot: ScreenshotMeta | undefined;
+	private observationId: string | undefined;
 
 	constructor(workerFactory?: DriverWorkerFactory, options: DriverSpawnOptions = {}) {
 		this.workerFactory =
@@ -105,14 +97,67 @@ export class ComputerDriverSession {
 					["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", this.scriptPath],
 					{ windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
 				));
-		this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_DEFAULT;
-		this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_DEFAULT;
-		this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_DEFAULT;
+		this.requestTimeoutMs = options.requestTimeoutMs ?? 20_000;
+		this.readyTimeoutMs = options.readyTimeoutMs ?? 120_000;
+		this.queueTimeoutMs = options.queueTimeoutMs ?? 120_000;
+		this.idleTimeoutMs = options.idleTimeoutMs ?? 60_000;
+		this.maxResponseChars = options.maxResponseChars ?? 16 * 1024 * 1024;
 	}
 
-	// ------------------------------------------------------------------
-	// 对工具层暴露的语义命令
-	// ------------------------------------------------------------------
+	async observe(
+		input: { hwnd?: number; includeImage?: boolean; maxWidth?: number } = {},
+		signal?: AbortSignal,
+	): Promise<NativeObservation> {
+		return (await this.command(
+			() => {
+				this.invalidateObservation();
+				return {
+					cmd: "observe",
+					...input,
+					includeImage: input.includeImage ?? true,
+					maxWidth: input.maxWidth ?? 1568,
+					quality: 80,
+					captureKernelPath: this.captureKernelPath,
+				};
+			},
+			signal,
+			(data) => this.acceptObservation(data as unknown as NativeObservation),
+		)) as unknown as NativeObservation;
+	}
+
+	async act(input: NativeActInput, signal?: AbortSignal): Promise<NativeActResult> {
+		return (await this.command(
+			() => {
+				if (this.observationId !== input.observationId)
+					throw new Error("Observation is stale or unavailable; call computer_observe again before acting.");
+				if (input.x !== undefined || input.y !== undefined) {
+					if (input.x === undefined || input.y === undefined)
+						throw new Error("Coordinate actions require both x and y.");
+					this.toScreenSpace(input.x, input.y);
+				}
+				this.invalidateObservation();
+				return { cmd: "act", ...input };
+			},
+			signal,
+			(data) => {
+				const result = data as unknown as NativeActResult;
+				if (result.observation !== undefined) this.acceptObservation(result.observation);
+			},
+		)) as unknown as NativeActResult;
+	}
+
+	async release(signal?: AbortSignal): Promise<void> {
+		// abort/close 会先停止 worker，再让 drain 异步退出。此时即使 active 尚未
+		// 清空，也已经没有原生资源可释放；cleanup 不能为 release 重启进程。
+		if (this.worker === undefined) {
+			this.invalidateObservation();
+			return;
+		}
+		await this.command(() => {
+			this.invalidateObservation();
+			return { cmd: "release" };
+		}, signal);
+	}
 
 	async screenshot(
 		monitor: number,
@@ -120,19 +165,14 @@ export class ComputerDriverSession {
 		quality: number,
 		signal?: AbortSignal,
 	): Promise<ScreenshotMeta & { jpeg: string }> {
-		const data = (await this.command(
-			{ cmd: "screenshot", monitor, maxWidth, quality },
+		return (await this.command(
+			() => {
+				this.invalidateObservation();
+				return { cmd: "screenshot", monitor, maxWidth, quality };
+			},
 			signal,
+			(data) => this.acceptScreenshot(data as unknown as ScreenshotMeta),
 		)) as unknown as ScreenshotMeta & { jpeg: string };
-		this.lastScreenshot = {
-			imageWidth: data.imageWidth,
-			imageHeight: data.imageHeight,
-			screenWidth: data.screenWidth,
-			screenHeight: data.screenHeight,
-			originX: data.originX,
-			originY: data.originY,
-		};
-		return data;
 	}
 
 	async click(
@@ -143,14 +183,11 @@ export class ComputerDriverSession {
 		signal?: AbortSignal,
 		expectHwnd?: number,
 	): Promise<{ clicked: boolean; blocked?: boolean; x: number; y: number; window?: WindowRef | null }> {
-		const screen = this.toScreenSpace(x, y);
-		return (await this.command({ cmd: "click", x: screen.x, y: screen.y, button, double, expectHwnd }, signal)) as {
-			clicked: boolean;
-			blocked?: boolean;
-			x: number;
-			y: number;
-			window?: WindowRef | null;
-		};
+		return (await this.command(() => {
+			const screen = this.toScreenSpace(x, y);
+			this.observationId = undefined;
+			return { cmd: "click", x: screen.x, y: screen.y, button, double, expectHwnd };
+		}, signal)) as { clicked: boolean; blocked?: boolean; x: number; y: number; window?: WindowRef | null };
 	}
 
 	async type(
@@ -165,7 +202,6 @@ export class ComputerDriverSession {
 		};
 	}
 
-	/** down = 按住不放的修饰键 VK 序列，tap = 依次敲击的 VK 序列。 */
 	async key(
 		down: number[],
 		tap: number[],
@@ -187,14 +223,11 @@ export class ComputerDriverSession {
 		signal?: AbortSignal,
 		expectHwnd?: number,
 	): Promise<{ scrolled: boolean; blocked?: boolean }> {
-		const screen = this.toScreenSpace(x, y);
-		return (await this.command(
-			{ cmd: "scroll", x: screen.x, y: screen.y, delta, horizontal, expectHwnd },
-			signal,
-		)) as {
-			scrolled: boolean;
-			blocked?: boolean;
-		};
+		return (await this.command(() => {
+			const screen = this.toScreenSpace(x, y);
+			this.observationId = undefined;
+			return { cmd: "scroll", x: screen.x, y: screen.y, delta, horizontal, expectHwnd };
+		}, signal)) as { scrolled: boolean; blocked?: boolean };
 	}
 
 	async windows(signal?: AbortSignal): Promise<WindowRow[]> {
@@ -216,234 +249,322 @@ export class ComputerDriverSession {
 		return (await this.command({ cmd: "cursor" }, signal)) as { x: number; y: number };
 	}
 
-	/**
-	 * 把最近一张截图的像素坐标换算成虚拟屏幕坐标。工具参数默认在截图像素
-	 * 空间里；没有截图底子时直接报错，逼模型先 screenshot。
-	 */
+	/** 图像坐标必须在观察内；输出物理坐标支持副显示器的负原点。 */
 	toScreenSpace(x: number, y: number): { x: number; y: number } {
 		const meta = this.lastScreenshot;
 		if (meta === undefined)
-			throw new Error("No screenshot yet; call computer_screenshot first to establish coordinates.");
-		const scaleX = meta.screenWidth / meta.imageWidth;
-		const scaleY = meta.screenHeight / meta.imageHeight;
-		const screenX = Math.round(meta.originX + x * scaleX);
-		const screenY = Math.round(meta.originY + y * scaleY);
-		return { x: screenX, y: screenY };
+			throw new Error(
+				"No screenshot yet; call computer_screenshot or computer_observe first to establish coordinates.",
+			);
+		if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= meta.imageWidth || y >= meta.imageHeight)
+			throw new Error("Coordinates must be finite and within the current screenshot bounds.");
+		return {
+			x: Math.min(
+				meta.originX + meta.screenWidth - 1,
+				Math.round(meta.originX + (x * meta.screenWidth) / meta.imageWidth),
+			),
+			y: Math.min(
+				meta.originY + meta.screenHeight - 1,
+				Math.round(meta.originY + (y * meta.screenHeight) / meta.imageHeight),
+			),
+		};
 	}
 
 	get screenshotMeta(): ScreenshotMeta | undefined {
-		return this.lastScreenshot;
+		return this.lastScreenshot === undefined ? undefined : { ...this.lastScreenshot };
 	}
 
-	/** 显式停掉 worker（测试清理 / 扩展卸载用）。 */
+	/** 拒绝当前及排队请求；后续独立调用可以新建 worker。 */
 	close(): void {
-		this.stopWorker(new Error("computer-use driver closed."));
+		this.stopWorker(new Error("computer-use driver closed; any issued action outcome may be unknown."));
 	}
 
-	// ------------------------------------------------------------------
-	// 协议层
-	// ------------------------------------------------------------------
+	private acceptScreenshot(meta: ScreenshotMeta): void {
+		if (
+			![meta.imageWidth, meta.imageHeight, meta.screenWidth, meta.screenHeight].every(
+				(value) => Number.isSafeInteger(value) && value > 0,
+			) ||
+			![meta.originX, meta.originY].every(Number.isSafeInteger)
+		)
+			throw new Error("Driver returned invalid screenshot geometry.");
+		this.lastScreenshot = {
+			imageWidth: meta.imageWidth,
+			imageHeight: meta.imageHeight,
+			screenWidth: meta.screenWidth,
+			screenHeight: meta.screenHeight,
+			originX: meta.originX,
+			originY: meta.originY,
+		};
+	}
 
-	private command(payload: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+	private acceptObservation(observation: NativeObservation): void {
+		this.invalidateObservation();
+		if (typeof observation.observationId !== "string" || observation.observationId.length === 0)
+			throw new Error("Driver returned an invalid observation id.");
+		if (observation.screenshot !== undefined) this.acceptScreenshot(observation.screenshot);
+		this.observationId = observation.observationId;
+	}
+
+	private invalidateObservation(): void {
+		this.lastScreenshot = undefined;
+		this.observationId = undefined;
+	}
+
+	private command(
+		payload: Record<string, unknown> | PayloadFactory,
+		signal?: AbortSignal,
+		accept?: (data: Record<string, unknown>) => void,
+	): Promise<Record<string, unknown>> {
+		if (signal?.aborted === true) return Promise.reject(abortError(signal));
+		this.clearIdleShutdown();
 		return new Promise<Record<string, unknown>>((resolve, reject) => {
-			this.queue.push({
-				run: () => {
-					void this.dispatch(payload, signal).then(resolve, reject);
-				},
-			});
+			const item: QueuedCommand = {
+				buildPayload: typeof payload === "function" ? payload : () => payload,
+				accept,
+				resolve,
+				reject,
+				signal,
+				started: false,
+				settled: false,
+				epoch: this.epoch,
+			};
+			item.onAbort = () => {
+				if (item.settled) return;
+				if (item.started) this.stopWorker(abortError(signal));
+				else {
+					const index = this.queue.indexOf(item);
+					if (index >= 0) this.queue.splice(index, 1);
+					this.finishCommand(item, abortError(signal));
+				}
+			};
+			if (this.queueTimeoutMs > 0) {
+				item.queueTimer = setTimeout(() => {
+					const index = this.queue.indexOf(item);
+					if (index >= 0) this.queue.splice(index, 1);
+					this.finishCommand(
+						item,
+						new Error("computer-use command timed out while waiting in the queue; nothing was issued."),
+					);
+				}, this.queueTimeoutMs);
+				item.queueTimer.unref();
+			}
+			signal?.addEventListener("abort", item.onAbort, { once: true });
+			this.queue.push(item);
 			void this.drain();
 		});
 	}
 
-	/** 串行执行：鼠标/键盘操作必须按调用顺序落机。 */
 	private async drain(): Promise<void> {
 		if (this.draining) return;
 		this.draining = true;
 		try {
 			while (this.queue.length > 0) {
-				const next = this.queue.shift();
-				if (next === undefined) continue;
-				next.run();
+				const item = this.queue.shift();
+				if (item === undefined || item.settled) continue;
+				if (item.epoch !== this.epoch || item.signal?.aborted === true) {
+					this.finishCommand(item, abortError(item.signal));
+					continue;
+				}
+				this.active = item;
+				item.started = true;
+				if (item.queueTimer !== undefined) clearTimeout(item.queueTimer);
+				try {
+					const data = await this.dispatch(item.buildPayload());
+					if (!item.settled && item.epoch === this.epoch) {
+						item.accept?.(data);
+						this.finishCommand(item, undefined, data);
+					}
+				} catch (error) {
+					this.finishCommand(item, error instanceof Error ? error : new Error(String(error)));
+				} finally {
+					this.active = undefined;
+				}
 			}
 		} finally {
 			this.draining = false;
+			this.scheduleIdleShutdown();
 		}
 	}
 
-	private async dispatch(payload: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
-		// 经由函数调用读取 aborted：TS 会把 readonly 属性的收窄跨语句传播，
-		// 二次比较会被误报 TS2367。
-		const isAborted = () => signal?.aborted === true;
-		if (isAborted()) throw abortError(signal);
-		const worker = this.ensureWorker();
-		try {
-			await this.readyPromise;
-		} catch (error) {
-			// ready 失败（如 csc 缺失）：弃尸重建，下一个请求重新拉起。
-			this.stopWorker(error instanceof Error ? error : new Error(String(error)));
-			throw error;
-		}
-		if (isAborted()) throw abortError(signal);
+	private finishCommand(item: QueuedCommand, error?: Error, data?: Record<string, unknown>): void {
+		if (item.settled) return;
+		item.settled = true;
+		if (item.queueTimer !== undefined) clearTimeout(item.queueTimer);
+		if (item.onAbort !== undefined) item.signal?.removeEventListener("abort", item.onAbort);
+		if (error !== undefined) item.reject(error);
+		else item.resolve(data ?? {});
+	}
 
+	private async dispatch(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+		if (["click", "type", "key", "scroll", "focus", "restore"].includes(String(payload.cmd)))
+			this.observationId = undefined;
+		const state = this.ensureWorker();
+		await state.ready;
+		if (this.worker !== state) throw new Error("computer-use worker changed before request dispatch.");
 		const id = this.nextRequestId++;
-		this.clearIdleShutdown();
-		const workerAlive = worker;
-		return await new Promise<Record<string, unknown>>((resolve, reject) => {
-			let settled = false;
-			let timer: NodeJS.Timeout | undefined;
-			const onAbort = () => {
-				if (settled) return;
-				this.pending.delete(id);
-				finish(reject, abortError(signal));
-			};
-			const finish = (settle: (value: never) => void, value: unknown) => {
-				if (settled) return;
-				settled = true;
-				if (signal !== undefined) signal.removeEventListener("abort", onAbort);
-				if (timer !== undefined) clearTimeout(timer);
-				settle(value as never);
-			};
-			timer = setTimeout(() => {
-				this.pending.delete(id);
-				const error = new Error(`computer-use driver request timed out: ${String(payload.cmd)}`);
-				// 超时后 worker 状态不可信（可能已执行一半），弃尸。
-				this.stopWorker(error);
-				finish(reject, error);
+		return new Promise<Record<string, unknown>>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				if (this.worker !== state || state.pending?.id !== id) return;
+				this.stopWorker(
+					new Error(
+						"computer-use driver request timed out: " +
+							String(payload.cmd) +
+							"; issued action outcome may be unknown.",
+					),
+				);
 			}, this.requestTimeoutMs);
 			timer.unref();
-			if (signal !== undefined) signal.addEventListener("abort", onAbort, { once: true });
-			this.pending.set(id, {
-				id,
-				resolve: (value) => finish(resolve, value),
-				reject: (error) => finish(reject, error),
-				timer,
-			});
-			workerAlive.stdin.write(`${JSON.stringify({ id, ...payload })}\n`, "utf8", (error) => {
-				if (error !== null && error !== undefined) this.stopWorker(error);
-			});
+			state.pending = { id, resolve, reject, timer };
+			try {
+				state.process.stdin.write(JSON.stringify({ id, ...payload }) + "\n", "utf8", (error) => {
+					if (error !== null && error !== undefined && this.worker === state) this.stopWorker(error);
+				});
+			} catch (error) {
+				if (this.worker === state) this.stopWorker(error instanceof Error ? error : new Error(String(error)));
+			}
 		});
 	}
 
-	private ensureWorker(): ChildProcessWithoutNullStreams {
-		if (this.worker !== undefined && this.worker.exitCode === null && !this.worker.killed) return this.worker;
-		const worker = this.workerFactory();
-		this.worker = worker;
-		this.stdoutBuffer = "";
-		this.stderrBuffer = "";
-		this.nextRequestId = 1;
-		worker.stdout.setEncoding("utf8");
-		worker.stderr.setEncoding("utf8");
-		worker.stdout.on("data", (chunk: string) => this.consumeStdout(chunk));
-		worker.stderr.on("data", (chunk: string) => {
-			this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-8192);
+	private ensureWorker(): DriverWorker {
+		if (this.worker !== undefined) return this.worker;
+		const process = this.workerFactory();
+		let resolveReady = () => {};
+		let rejectReady = (_error: Error) => {};
+		const ready = new Promise<void>((resolve, reject) => {
+			resolveReady = resolve;
+			rejectReady = reject;
 		});
-		this.readyPromise = this.awaitReady(worker);
-		worker.once("error", (error) => {
-			if (this.worker === worker) this.stopWorker(error, false);
-		});
-		worker.once("exit", (code, signal) => {
-			if (this.worker !== worker) return;
-			const detail = this.stderrBuffer.trim();
-			const suffix = detail === "" ? "" : ` ${detail.slice(-400)}`;
-			this.stopWorker(new Error(`computer-use driver exited (${signal ?? code ?? "unknown"}).${suffix}`), false);
-		});
-		return worker;
+		const state: DriverWorker = {
+			process,
+			generation: ++this.generation,
+			ready,
+			resolveReady,
+			rejectReady,
+			readySettled: false,
+			stdoutBuffer: "",
+			stderrBuffer: "",
+			detach: () => {},
+		};
+		this.worker = state;
+		process.stdout.setEncoding("utf8");
+		process.stderr.setEncoding("utf8");
+		const onStdout = (chunk: string) => {
+			if (this.worker === state && state.generation === this.generation) this.consumeStdout(state, chunk);
+		};
+		const onStderr = (chunk: string) => {
+			if (this.worker === state) state.stderrBuffer = (state.stderrBuffer + chunk).slice(-8192);
+		};
+		const onError = (error: Error) => {
+			if (this.worker === state) this.stopWorker(error);
+		};
+		const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+			if (this.worker !== state) return;
+			const detail = state.stderrBuffer.trim().slice(-400);
+			this.stopWorker(
+				new Error(
+					"computer-use driver exited (" +
+						String(signal ?? code ?? "unknown") +
+						"); issued action outcome may be unknown." +
+						(detail === "" ? "" : " " + detail),
+				),
+				false,
+			);
+		};
+		state.detach = () => {
+			process.stdout.off("data", onStdout);
+			process.stderr.off("data", onStderr);
+			process.stdin.off("error", onError);
+			process.off("error", onError);
+			process.off("exit", onExit);
+		};
+		process.stdout.on("data", onStdout);
+		process.stderr.on("data", onStderr);
+		process.stdin.on("error", onError);
+		process.on("error", onError);
+		process.once("exit", onExit);
+		state.readyTimer = setTimeout(() => {
+			if (this.worker === state) this.stopWorker(new Error("computer-use driver did not signal ready in time."));
+		}, this.readyTimeoutMs);
+		state.readyTimer.unref();
+		return state;
 	}
 
-	private awaitReady(worker: ChildProcessWithoutNullStreams): Promise<void> {
-		return new Promise<void>((resolve, reject) => {
-			const timer = setTimeout(() => {
-				reject(new Error("computer-use driver did not signal ready in time."));
-			}, this.readyTimeoutMs);
-			timer.unref();
-			let readyBuffer = "";
-			const cleanup = () => {
-				clearTimeout(timer);
-				worker.stdout.off("data", onData);
-				worker.off("exit", onExit);
-			};
-			const onExit = () => {
-				cleanup();
-				reject(new Error("computer-use driver exited before ready."));
-			};
-			const onData = (chunk: string) => {
-				readyBuffer += chunk;
-				let newline = readyBuffer.indexOf("\n");
-				while (newline >= 0) {
-					const line = readyBuffer.slice(0, newline).replace(/\r$/, "").trim();
-					readyBuffer = readyBuffer.slice(newline + 1);
-					if (line === "") continue;
-					let event: Record<string, unknown>;
-					try {
-						event = JSON.parse(line) as Record<string, unknown>;
-					} catch {
-						continue;
-					}
-					if (event.event === "ready") {
-						cleanup();
-						resolve();
-						return;
-					}
-					if (event.event === "error") {
-						cleanup();
-						reject(new Error(`computer-use driver failed to start: ${String(event.message ?? "unknown")}`));
-						return;
-					}
-					newline = readyBuffer.indexOf("\n");
-				}
-			};
-			worker.stdout.on("data", onData);
-			worker.once("exit", onExit);
-		});
-	}
-
-	private consumeStdout(chunk: string): void {
-		this.stdoutBuffer += chunk;
-		let newline = this.stdoutBuffer.indexOf("\n");
-		while (newline >= 0) {
-			const line = this.stdoutBuffer.slice(0, newline).replace(/\r$/, "");
-			this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
-			if (line.trim() !== "") this.consumeResponse(line);
-			newline = this.stdoutBuffer.indexOf("\n");
+	private consumeStdout(state: DriverWorker, chunk: string): void {
+		state.stdoutBuffer += chunk;
+		let newline = state.stdoutBuffer.indexOf("\n");
+		while (newline >= 0 && this.worker === state) {
+			if (newline > this.maxResponseChars) {
+				this.stopWorker(new Error("computer-use driver exceeded the protocol line limit."));
+				return;
+			}
+			const line = state.stdoutBuffer.slice(0, newline).replace(/\r$/, "");
+			state.stdoutBuffer = state.stdoutBuffer.slice(newline + 1);
+			if (line.trim() !== "") this.consumeResponse(state, line);
+			newline = state.stdoutBuffer.indexOf("\n");
 		}
+		if (this.worker === state && state.stdoutBuffer.length > this.maxResponseChars)
+			this.stopWorker(new Error("computer-use driver exceeded the protocol buffer limit."));
 	}
 
-	private consumeResponse(line: string): void {
+	private consumeResponse(state: DriverWorker, line: string): void {
 		let payload: Record<string, unknown>;
 		try {
-			payload = JSON.parse(line) as Record<string, unknown>;
+			const parsed: unknown = JSON.parse(line);
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+			payload = parsed as Record<string, unknown>;
 		} catch {
-			return; // 非协议行（如意外告警），忽略。
+			return;
 		}
-		if (payload.event !== undefined) return; // ready/error 之外的事件留给 ready 监听器
-		const id = typeof payload.id === "number" ? payload.id : Number.NaN;
-		const pending = this.pending.get(id);
-		if (pending === undefined) return;
-		this.pending.delete(id);
+		if (payload.event !== undefined) {
+			if (!state.readySettled && payload.event === "ready") {
+				state.readySettled = true;
+				if (state.readyTimer !== undefined) clearTimeout(state.readyTimer);
+				state.resolveReady();
+			} else if (payload.event === "error")
+				this.stopWorker(new Error("computer-use driver failed: " + String(payload.message ?? "unknown")));
+			return;
+		}
+		const pending = state.pending;
+		if (pending === undefined || payload.id !== pending.id) return;
+		state.pending = undefined;
 		clearTimeout(pending.timer);
-		if (payload.ok === true) pending.resolve(payload.data as Record<string, unknown>);
-		else pending.reject(new Error(String(payload.error ?? "computer-use driver command failed")));
-		this.scheduleIdleShutdown();
+		if (payload.ok !== true) pending.reject(new Error(String(payload.error ?? "computer-use driver command failed")));
+		else if (typeof payload.data !== "object" || payload.data === null || Array.isArray(payload.data))
+			pending.reject(new Error("computer-use driver returned invalid response data."));
+		else pending.resolve(payload.data as Record<string, unknown>);
 	}
 
 	private stopWorker(error: Error, kill = true): void {
 		this.clearIdleShutdown();
-		const worker = this.worker;
+		const state = this.worker;
 		this.worker = undefined;
-		this.readyPromise = undefined;
-		this.stdoutBuffer = "";
-		this.stderrBuffer = "";
-		for (const pending of this.pending.values()) {
-			clearTimeout(pending.timer);
-			pending.reject(error);
+		this.epoch++;
+		this.invalidateObservation();
+		if (state !== undefined) {
+			if (state.readyTimer !== undefined) clearTimeout(state.readyTimer);
+			if (!state.readySettled) {
+				state.readySettled = true;
+				state.rejectReady(error);
+			}
+			if (state.pending !== undefined) {
+				clearTimeout(state.pending.timer);
+				state.pending.reject(error);
+				state.pending = undefined;
+			}
+			state.detach();
+			// 终止进程后迟到的 error 不得成为未处理事件。
+			state.process.on("error", () => {});
+			state.process.stdin.on("error", () => {});
+			if (kill && state.process.exitCode === null && !state.process.killed) state.process.kill();
 		}
-		this.pending.clear();
-		if (kill && worker !== undefined && worker.exitCode === null && !worker.killed) worker.kill();
+		if (this.active !== undefined) this.finishCommand(this.active, error);
+		for (const item of this.queue.splice(0)) this.finishCommand(item, error);
 	}
 
 	private scheduleIdleShutdown(): void {
 		this.clearIdleShutdown();
-		if (this.pending.size > 0 || this.idleTimeoutMs <= 0) return;
+		if (this.worker === undefined || this.active !== undefined || this.queue.length > 0 || this.idleTimeoutMs <= 0)
+			return;
 		this.idleTimer = setTimeout(() => {
 			this.idleTimer = undefined;
 			this.stopWorker(new Error("computer-use driver became idle."));
@@ -458,5 +579,7 @@ export class ComputerDriverSession {
 }
 
 function abortError(signal: AbortSignal | undefined): Error {
-	return signal?.reason instanceof Error ? signal.reason : new Error("computer-use request aborted.");
+	return signal?.reason instanceof Error
+		? signal.reason
+		: new Error("computer-use request aborted; issued action outcome may be unknown.");
 }

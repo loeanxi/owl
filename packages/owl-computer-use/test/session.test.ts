@@ -5,16 +5,38 @@
  * 覆盖：ready 门、请求/响应关联、错误响应、worker 崩溃重建、坐标换算。
  * @module owl-computer-use/test/session
  */
-import { spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComputerDriverSession } from "../src/driver/session.ts";
 import { parseKeyCombo } from "../src/plugin/tools.ts";
 
 const fakeDriverPath = fileURLToPath(new URL("./fake-driver.mjs", import.meta.url));
 
-function fakeFactory(mode: "normal" | "flaky" = "normal") {
-	return () => spawn(process.execPath, [fakeDriverPath, mode], { stdio: ["pipe", "pipe", "pipe"] });
+interface DriverAudit {
+	workers: ChildProcessWithoutNullStreams[];
+	requests: Record<string, unknown>[];
+}
+
+function fakeFactory(mode = "normal", audit?: DriverAudit) {
+	return () => {
+		const worker = spawn(process.execPath, [fakeDriverPath, mode], { stdio: ["pipe", "pipe", "pipe"] });
+		audit?.workers.push(worker);
+		let buffer = "";
+		worker.stderr.setEncoding("utf8");
+		worker.stderr.on("data", (chunk: string) => {
+			buffer += chunk;
+			let newline = buffer.indexOf("\n");
+			while (newline >= 0) {
+				const line = buffer.slice(0, newline);
+				buffer = buffer.slice(newline + 1);
+				if (line.startsWith("request:")) audit?.requests.push(JSON.parse(line.slice(8)) as Record<string, unknown>);
+				newline = buffer.indexOf("\n");
+			}
+		});
+		return worker;
+	};
 }
 
 describe("ComputerDriverSession", () => {
@@ -79,6 +101,296 @@ describe("ComputerDriverSession", () => {
 		} finally {
 			flaky.close();
 		}
+	});
+
+	it("awaits each response before issuing the next command", async () => {
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("serial-check"), { idleTimeoutMs: 0 });
+		const results = await Promise.all([session.cursor(), session.type("one"), session.cursor()]);
+		expect(results).toEqual([{ x: 111, y: 222 }, { typed: true }, { x: 111, y: 222 }]);
+	});
+
+	it("does not count ready or queue waiting against execution timeout", async () => {
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("delayed-ready"), {
+			readyTimeoutMs: 2000,
+			requestTimeoutMs: 60,
+			queueTimeoutMs: 2000,
+			idleTimeoutMs: 0,
+		});
+		expect(await Promise.all([session.cursor(), session.cursor()])).toEqual([
+			{ x: 111, y: 222 },
+			{ x: 111, y: 222 },
+		]);
+	});
+
+	it("expires a queued command without sending it or stopping the active command", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), {
+			queueTimeoutMs: 25,
+			requestTimeoutMs: 2000,
+			idleTimeoutMs: 0,
+		});
+		await session.cursor();
+		const first = session.type("slow");
+		const waiting = session.type("must-not-run");
+		await expect(waiting).rejects.toThrow(/queue/);
+		expect(await first).toEqual({ typed: true });
+		expect(audit.requests.some((request) => request.text === "must-not-run")).toBe(false);
+		expect(audit.workers).toHaveLength(1);
+	});
+
+	it("removes aborted queued commands before dispatch", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		await session.cursor();
+		const first = session.type("slow");
+		const controller = new AbortController();
+		const queued = session.type("must-not-run", controller.signal);
+		const rejected = expect(queued).rejects.toThrow(/aborted/);
+		controller.abort();
+		await rejected;
+		await first;
+		expect(audit.requests.some((request) => request.text === "must-not-run")).toBe(false);
+		expect(audit.workers[0].killed).toBe(false);
+	});
+
+	it("aborts issued input by stopping its worker and invalidating screenshots", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		await session.screenshot(-1, 1568, 80);
+		const controller = new AbortController();
+		const active = session.type("hang", controller.signal);
+		const rejected = expect(active).rejects.toThrow(/aborted/);
+		await vi.waitFor(() => expect(audit.requests.some((request) => request.text === "hang")).toBe(true));
+		controller.abort();
+		await rejected;
+		expect(audit.workers[0].killed).toBe(true);
+		expect(session.screenshotMeta).toBeUndefined();
+		await expect(session.click(1, 1, "left", false)).rejects.toThrow(/screenshot/);
+		expect(await session.cursor()).toEqual({ x: 111, y: 222 });
+		expect(audit.workers).toHaveLength(2);
+		expect(audit.requests.filter((request) => request.text === "hang")).toHaveLength(1);
+	});
+
+	it("cancels a command while waiting for ready without waiting for the ready timeout", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("no-ready", audit), { readyTimeoutMs: 5000, idleTimeoutMs: 0 });
+		const controller = new AbortController();
+		const pending = session.cursor(controller.signal);
+		const rejected = expect(pending).rejects.toThrow(/aborted/);
+		controller.abort();
+		await rejected;
+		expect(audit.requests).toEqual([]);
+		expect(audit.workers[0].killed).toBe(true);
+	});
+
+	it("close rejects queued work and allows a later independent restart", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		await session.cursor();
+		const active = session.type("hang");
+		const queued = session.type("must-not-run");
+		const failures = Promise.all([
+			expect(active).rejects.toThrow(/closed/),
+			expect(queued).rejects.toThrow(/closed/),
+		]);
+		await vi.waitFor(() => expect(audit.requests.some((request) => request.text === "hang")).toBe(true));
+		session.close();
+		await failures;
+		expect(await session.cursor()).toEqual({ x: 111, y: 222 });
+		expect(audit.requests.some((request) => request.text === "must-not-run")).toBe(false);
+		expect(audit.workers).toHaveLength(2);
+	});
+
+	it("times out issued work without replaying it or dispatching queued actions", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { requestTimeoutMs: 100, idleTimeoutMs: 0 });
+		await session.cursor();
+		const active = session.type("hang");
+		const queued = session.type("must-not-run");
+		await Promise.all([expect(active).rejects.toThrow(/unknown/), expect(queued).rejects.toThrow(/unknown/)]);
+		expect(audit.workers[0].killed).toBe(true);
+		expect(audit.requests.filter((request) => request.text === "hang")).toHaveLength(1);
+		expect(audit.requests.some((request) => request.text === "must-not-run")).toBe(false);
+	});
+
+	it("cleans up ready listeners and can recover after ready timeout", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		let count = 0;
+		session.close();
+		session = new ComputerDriverSession(() => fakeFactory(count++ === 0 ? "no-ready" : "normal", audit)(), {
+			readyTimeoutMs: 200,
+			idleTimeoutMs: 0,
+		});
+		await expect(session.cursor()).rejects.toThrow(/ready/);
+		expect(audit.workers[0].stdout.listenerCount("data")).toBe(0);
+		expect(audit.workers[0].listenerCount("exit")).toBe(0);
+		expect(await session.cursor()).toEqual({ x: 111, y: 222 });
+	});
+
+	it("ignores output from a terminated worker after a new one starts", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		await session.cursor();
+		const old = audit.workers[0];
+		session.close();
+		const controller = new AbortController();
+		const current = session.type("hang", controller.signal);
+		const failure = expect(current).rejects.toThrow(/aborted/);
+		await vi.waitFor(() => expect(audit.requests.some((request) => request.text === "hang")).toBe(true));
+		const id = audit.requests.find((request) => request.text === "hang")?.id;
+		old.stdout.emit("data", JSON.stringify({ id, ok: true, data: { typed: true } }) + "\n");
+		controller.abort();
+		await failure;
+	});
+
+	it("bounds the protocol buffer even when no newline arrives", async () => {
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("flood"), { maxResponseChars: 1024, idleTimeoutMs: 0 });
+		await expect(session.cursor()).rejects.toThrow(/buffer limit/);
+	});
+
+	it("rejects invalid image coordinates while preserving negative physical origins", async () => {
+		await session.screenshot(-2, 1568, 80);
+		expect(session.toScreenSpace(100, 50)).toEqual({ x: -1368, y: -684 });
+		for (const [x, y] of [
+			[-1, 0],
+			[0, -1],
+			[784, 0],
+			[0, 392],
+			[Number.NaN, 0],
+			[0, Number.POSITIVE_INFINITY],
+		])
+			expect(() => session.toScreenSpace(x, y)).toThrow(/bounds/);
+	});
+
+	it("discards the previous mapping when a new screenshot fails validation", async () => {
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("bad-screenshot"), { idleTimeoutMs: 0 });
+		await session.screenshot(-1, 1568, 80);
+		await expect(session.screenshot(-1, 1568, 80)).rejects.toThrow(/geometry/);
+		expect(session.screenshotMeta).toBeUndefined();
+	});
+
+	it("converts queued coordinates after the queued screenshot has completed", async () => {
+		const shot = session.screenshot(-2, 1568, 80);
+		const clicked = session.click(10, 10, "left", false);
+		await shot;
+		expect(await clicked).toEqual({ clicked: true, x: -1548, y: -764 });
+	});
+
+	it("forwards native observe capabilities and resolves the shared WGC source", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		const observation = await session.observe({ hwnd: 123, maxWidth: 900 });
+		expect(observation.observationId).toBe("obs_1");
+		expect(observation.capabilities.uia).toBe(true);
+		const request = audit.requests[0];
+		expect(request).toMatchObject({ cmd: "observe", hwnd: 123, maxWidth: 900, quality: 80, includeImage: true });
+		expect(typeof request.captureKernelPath).toBe("string");
+		expect(existsSync(String(request.captureKernelPath))).toBe(true);
+	});
+
+	it("consumes native observations and requires a new observation after act", async () => {
+		const observation = await session.observe();
+		expect(await session.act({ observationId: observation.observationId, action: "click", x: 10, y: 10 })).toEqual({
+			status: "issued",
+		});
+		await expect(
+			session.act({ observationId: observation.observationId, action: "type", text: "again" }),
+		).rejects.toThrow(/stale/);
+	});
+
+	it("forwards automatic mode and application launch once through the observation fence", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		const observation = await session.observe({ includeImage: false });
+		await session.act({
+			observationId: observation.observationId,
+			action: "open_app",
+			app: "notepad.exe",
+			inputMode: "auto",
+		});
+		expect(audit.requests.filter((request) => request.cmd === "act")).toEqual([
+			expect.objectContaining({
+				action: "open_app",
+				app: "notepad.exe",
+				inputMode: "auto",
+				observationId: observation.observationId,
+			}),
+		]);
+		await expect(
+			session.act({
+				observationId: observation.observationId,
+				action: "open_app",
+				app: "notepad.exe",
+				inputMode: "auto",
+			}),
+		).rejects.toThrow(/stale/);
+		expect(audit.requests.filter((request) => request.cmd === "act")).toHaveLength(1);
+	});
+
+	it("clears image mappings for image-free native observations and on release", async () => {
+		await session.observe();
+		const observation = await session.observe({ includeImage: false });
+		expect(session.screenshotMeta).toBeUndefined();
+		await expect(
+			session.act({ observationId: observation.observationId, action: "click", x: 1, y: 1 }),
+		).rejects.toThrow(/screenshot/);
+		expect(
+			await session.act({ observationId: observation.observationId, action: "invoke", elementId: "e1" }),
+		).toEqual({ status: "issued" });
+		const next = await session.observe();
+		await session.release();
+		await expect(session.act({ observationId: next.observationId, action: "focus" })).rejects.toThrow(/stale/);
+		expect(session.screenshotMeta).toBeUndefined();
+	});
+
+	it("release does not start a worker when the session has no resources", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit));
+		await session.release();
+		expect(audit.workers).toEqual([]);
+	});
+
+	it("release immediately after an active abort does not restart the stopped worker", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 0 });
+		await session.cursor();
+		const controller = new AbortController();
+		const active = session.type("hang", controller.signal);
+		const rejected = expect(active).rejects.toThrow(/aborted/);
+		await vi.waitFor(() => expect(audit.requests.some((request) => request.text === "hang")).toBe(true));
+		controller.abort();
+		// release 与 drain 的 await unwind 同时发生，不能为 cleanup 新建 worker。
+		await Promise.all([session.release(), rejected]);
+		expect(audit.workers).toHaveLength(1);
+		expect(audit.workers[0].killed).toBe(true);
+		expect(audit.requests.some((request) => request.cmd === "release")).toBe(false);
+		expect(await session.cursor()).toEqual({ x: 111, y: 222 });
+		expect(audit.workers).toHaveLength(2);
+	});
+
+	it("invalidates observations when its worker idles out", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("normal", audit), { idleTimeoutMs: 20 });
+		const observation = await session.observe();
+		await vi.waitFor(() => expect(audit.workers[0].killed).toBe(true));
+		await expect(session.act({ observationId: observation.observationId, action: "focus" })).rejects.toThrow(/stale/);
+		expect(session.screenshotMeta).toBeUndefined();
 	});
 });
 
