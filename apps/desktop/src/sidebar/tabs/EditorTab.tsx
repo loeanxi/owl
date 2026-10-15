@@ -25,7 +25,7 @@ import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
 import { indentUnit, HighlightStyle, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
-import { EditorState, type Extension, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, EditorView, keymap, lineNumbers, WidgetType } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { samePath } from "../api.ts";
@@ -33,26 +33,27 @@ import type { TabComponentProps } from "../registry.ts";
 import { consumeEditorDiffFocus, EDITOR_DIFF_FOCUS_EVENT, peekEditorDiffFocus } from "../editor-diff-focus.ts";
 import { editorDiffMarks, type EditorDiffMarks } from "../editor-diff.ts";
 import { IconLoader, IconRefresh, IconSave } from "../icons.tsx";
+import { MARKDOWN_PATH, MarkdownPreview } from "./MarkdownPreview.tsx";
+import { observeWorkbenchTheme, resolveSurfaceTheme } from "../theme-observer.ts";
 
 /** CodeMirror follows scoped workbench tokens without rebuilding the editor on theme changes. */
 const owlTheme = EditorView.theme(
 	{
 		"&": { color: "var(--workbench-text, #e9e7e0)", backgroundColor: "transparent", height: "100%", fontSize: "13px" },
 		".cm-scroller": { fontFamily: "Consolas, 'JetBrains Mono', 'Cascadia Code', monospace", lineHeight: "1.55" },
-		".cm-content": { caretColor: "#2f9e5a", paddingBottom: "40px" },
+		".cm-content": { caretColor: "var(--color-owl-accent)", paddingBottom: "40px" },
 		".cm-gutters": { backgroundColor: "transparent", color: "var(--workbench-muted, #8a867c)", border: "none" },
-		".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.035)" },
+		".cm-activeLine": { backgroundColor: "var(--workbench-hover)" },
 		".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--workbench-text, #a6a399)" },
 		"&.cm-focused": { outline: "none" },
-		".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "rgba(47,158,90,0.28)" },
-		".cm-cursor": { borderLeftColor: "#2f9e5a" },
+		".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 28%, transparent)" },
+		".cm-cursor": { borderLeftColor: "var(--color-owl-accent)" },
 		// diff 装饰（改动卡点文件名进来的待审改动高亮）：配色与 DiffView 同源
 		// （emerald/red-500 调，10% 上下），左缘条用 inset box-shadow 避免行宽抖动
 		".cm-owl-diff-add": { backgroundColor: "rgba(16,185,129,0.12)", boxShadow: "inset 2px 0 0 rgba(16,185,129,0.55)" },
 		".cm-owl-diff-del": { backgroundColor: "rgba(239,68,68,0.08)", boxShadow: "inset 2px 0 0 rgba(239,68,68,0.5)", cursor: "default" },
 		".cm-owl-diff-del > div": { whiteSpace: "pre", color: "var(--workbench-muted, #8a867c)" },
 	},
-	{ dark: true },
 );
 
 const owlHighlight = HighlightStyle.define([
@@ -64,7 +65,7 @@ const owlHighlight = HighlightStyle.define([
 	{ tag: [t.typeName, t.className], color: "var(--owl-code-type, #ffcb6b)" },
 	{ tag: [t.variableName, t.propertyName], color: "var(--workbench-text, #e9e7e0)" },
 	{ tag: [t.operator, t.punctuation, t.separator], color: "var(--workbench-muted, #a6a399)" },
-	{ tag: t.heading, color: "#2f9e5a", fontWeight: "bold" },
+	{ tag: t.heading, color: "var(--color-owl-accent)", fontWeight: "bold" },
 	{ tag: t.link, color: "var(--owl-code-function, #82aaff)" },
 	{ tag: t.emphasis, fontStyle: "italic" },
 	{ tag: t.strong, fontWeight: "bold" },
@@ -131,6 +132,21 @@ function languageFor(path: string): LanguageSupport | undefined {
 /** 自己保存的写盘也会触发 watcher 推送（sidebar-watch 防抖 150ms + 回路余量），宽限掉。 */
 const SELF_SAVE_GRACE_MS = 1500;
 
+type MarkdownMode = "edit" | "split" | "preview";
+const MARKDOWN_MODES: readonly MarkdownMode[] = ["edit", "split", "preview"];
+const MARKDOWN_MODE_KEY = "owl.editor.markdownMode";
+/** 预览随输入重渲染整篇 Markdown，按键间隔内合并。 */
+const MARKDOWN_PREVIEW_DEBOUNCE_MS = 150;
+
+function readMarkdownMode(): MarkdownMode {
+	try {
+		const saved = localStorage.getItem(MARKDOWN_MODE_KEY);
+		return MARKDOWN_MODES.includes(saved as MarkdownMode) ? (saved as MarkdownMode) : "edit";
+	} catch {
+		return "edit";
+	}
+}
+
 // -- 待审改动装饰（改动卡点文件名 → focusEditorDiff → 这里消费）--------------
 
 /** 置入/清除 diff 标记：undefined = 清除（条目被保留/回滚后重校验会走到）。 */
@@ -196,7 +212,7 @@ const editorDiffField = StateField.define<DecorationSet>({
 	provide: (field) => EditorView.decorations.from(field),
 });
 
-export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): React.JSX.Element {
+export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
@@ -208,6 +224,18 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 	const [stale, setStale] = useState(false);
 	const [savedAt, setSavedAt] = useState<number | undefined>(undefined);
 	const path = tab.path ?? "";
+	const isMarkdown = MARKDOWN_PATH.test(path);
+	const [markdownMode, setMarkdownMode] = useState<MarkdownMode>(readMarkdownMode);
+	const [previewText, setPreviewText] = useState("");
+	const mode: MarkdownMode = isMarkdown ? markdownMode : "edit";
+	const changeMarkdownMode = (next: MarkdownMode): void => {
+		setMarkdownMode(next);
+		try {
+			localStorage.setItem(MARKDOWN_MODE_KEY, next);
+		} catch {
+			// 存储不可用时只在本次会话生效
+		}
+	};
 	// diff 装饰状态：marks 是最近一次算出的标记；docReady 表示文档已载入
 	// （标记必须在真实文档上构建，空文档时先行到达的标记挂起等载入）；
 	// focusSeen 表示本 tab 消费过一次聚焦（此后 refresh/推送都按活口径重校验）；
@@ -284,6 +312,8 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 		let cancelled = false;
 		let initialized = false;
 		let readVersion = 0;
+		let previewTimer: ReturnType<typeof setTimeout> | undefined;
+		setPreviewText("");
 
 		const save = (): void => {
 			const view = viewRef.current;
@@ -301,6 +331,8 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 			})();
 		};
 		saveRef.current = save;
+		const themeMode = new Compartment();
+		let dark = resolveSurfaceTheme(document.documentElement.dataset) === "dark";
 
 		const extensions: Extension[] = [
 			lineNumbers(),
@@ -309,16 +341,30 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 			keymap.of([indentWithTab, { key: "Mod-s", run: () => (save(), true) }, ...defaultKeymap, ...historyKeymap]),
 			indentUnit.of("    "),
 			owlTheme,
+			themeMode.of(EditorView.darkTheme.of(dark)),
 			syntaxHighlighting(owlHighlight),
 			editorDiffField,
 			EditorView.updateListener.of((update) => {
-				if (update.docChanged) store.setDirty(tab.id, true);
+				if (!update.docChanged) return;
+				store.setDirty(tab.id, true);
+				if (!isMarkdown) return;
+				if (previewTimer !== undefined) clearTimeout(previewTimer);
+				previewTimer = setTimeout(() => {
+					previewTimer = undefined;
+					if (!cancelled) setPreviewText(update.state.doc.toString());
+				}, MARKDOWN_PREVIEW_DEBOUNCE_MS);
 			}),
 		];
 		const language = languageFor(path);
 		if (language !== undefined) extensions.push(language);
 		const view = new EditorView({ state: EditorState.create({ doc: "", extensions }), parent: host });
 		viewRef.current = view;
+		const offTheme = observeWorkbenchTheme(host, () => {
+			const next = resolveSurfaceTheme(document.documentElement.dataset) === "dark";
+			if (dark === next) return;
+			dark = next;
+			view.dispatch({ effects: themeMode.reconfigure(EditorView.darkTheme.of(next)) });
+		});
 
 		setStale(false);
 		const load = (): void => {
@@ -359,7 +405,9 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 		return () => {
 			cancelled = true;
 			readVersion += 1;
+			if (previewTimer !== undefined) clearTimeout(previewTimer);
 			offStatus();
+			offTheme();
 			saveRef.current = null;
 			docReadyRef.current = false;
 			view.destroy();
@@ -399,6 +447,11 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 		});
 	}, [store, path]);
 
+	// 编辑器从 display:none 恢复可见时重新量尺寸（行号槽宽、视口行）
+	useEffect(() => {
+		if (mode !== "preview") viewRef.current?.requestMeasure();
+	}, [mode]);
+
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
@@ -408,6 +461,21 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 				</span>
 				{savedAt !== undefined && !stale && <span className="text-[11px] text-emerald-300/80">{t("editor.saved")}</span>}
 				{loading && <IconLoader size={13} className="animate-spin text-owl-faint" />}
+				{isMarkdown && (
+					<div role="group" aria-label={t("editor.mdModeLabel")} className="flex items-center rounded-md border border-owl-border/40 p-0.5">
+						{MARKDOWN_MODES.map((item) => (
+							<button
+								key={item}
+								type="button"
+								aria-pressed={mode === item}
+								className={`rounded px-1.5 py-0.5 text-[11px] ${mode === item ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:text-owl-text"}`}
+								onClick={() => changeMarkdownMode(item)}
+							>
+								{t(item === "edit" ? "editor.mdEdit" : item === "split" ? "editor.mdSplit" : "editor.mdPreview")}
+							</button>
+						))}
+					</div>
+				)}
 				<button type="button" title={t("editor.reloadTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={refresh}>
 					<IconRefresh size={14} />
 				</button>
@@ -432,7 +500,18 @@ export function EditorTab({ api, client, store, cwd, tab }: TabComponentProps): 
 					{t("editor.tooLarge")}
 				</div>
 			)}
-			<div ref={hostRef} className="min-h-0 flex-1 overflow-hidden px-2" />
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<div ref={hostRef} className={`min-h-0 min-w-0 flex-1 overflow-hidden px-2 ${mode === "preview" ? "hidden" : ""}`} />
+				{mode !== "edit" && (
+					<MarkdownPreview
+						content={previewText}
+						path={path}
+						cwd={cwd}
+						onOpenFile={onOpenFile}
+						className={`min-w-0 ${mode === "split" ? "border-l border-owl-border/40" : ""}`}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }
