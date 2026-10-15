@@ -41,7 +41,7 @@ import {
 import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
-import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, daysLeft, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
+import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import { AccountsSection } from "./settings/AccountsSection.tsx";
@@ -212,9 +212,8 @@ export function SettingsPage({
 		{ id: string; label: string; email?: string; active: boolean; expires: number }[]
 	>([]);
 
-	// 归档：保留期 + 已归档会话列表（session.list 拿标题，两步确认删除）
-	const [archiveCfg, setArchiveCfg] = useState<ArchiveConfigResult>({ retentionDays: 15, sessions: [] });
-	const [retentionInput, setRetentionInput] = useState("15");
+	// 归档：长期保留会话列表（session.list 拿标题，两步确认删除）
+	const [archiveCfg, setArchiveCfg] = useState<ArchiveConfigResult>({ sessions: [] });
 	const [sessionTitles, setSessionTitles] = useState<Record<string, SessionListRow>>({});
 	const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
 
@@ -990,7 +989,7 @@ export function SettingsPage({
 		}
 	}
 
-	/** 拉取归档配置 + 会话列表（只为了拿标题）。 */
+	/** 拉取归档列表 + 会话标题。 */
 	async function loadArchive(): Promise<void> {
 		const [cfg, list] = await Promise.all([
 			client.request<ArchiveConfigResult>({ type: "session.archiveConfig" }),
@@ -998,7 +997,6 @@ export function SettingsPage({
 		]);
 		if (cfg.ok && cfg.result) {
 			setArchiveCfg(cfg.result);
-			setRetentionInput(String(cfg.result.retentionDays));
 		}
 		if (list.ok && Array.isArray(list.result)) {
 			const map: Record<string, SessionListRow> = {};
@@ -1006,32 +1004,6 @@ export function SettingsPage({
 				if (row.id) map[row.id] = row;
 			}
 			setSessionTitles(map);
-		}
-	}
-
-	/** 保存保留期：桥端写 archive.json 并立即巡检一次。 */
-	async function saveRetention(): Promise<void> {
-		const days = Number(retentionInput);
-		if (!Number.isInteger(days) || days < 1) {
-			setError(t("settings.archive.retentionInvalid"));
-			return;
-		}
-		setBusy(true);
-		setError("");
-		try {
-			const response = await client.request<ArchiveConfigResult>({
-				type: "session.archiveConfig",
-				retentionDays: days,
-			});
-			if (response.ok && response.result) {
-				setArchiveCfg(response.result);
-				setRetentionInput(String(response.result.retentionDays));
-				flashSaved();
-			} else {
-				setError(response.error ?? t("common.saveFailed"));
-			}
-		} finally {
-			setBusy(false);
 		}
 	}
 
@@ -3639,28 +3611,7 @@ export function SettingsPage({
 									title={t("settings.archive.title")}
 										desc={t("settings.archive.desc")}
 								/>
-								<SettingRow
-									title={t("settings.archive.retention")}
-									desc={t("settings.archive.retentionDesc", { n: archiveCfg.retentionDays })}
-									control={
-										<div className="flex items-center gap-1.5">
-											<input
-												className="w-16 rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1 text-right font-mono text-xs text-owl-text outline-none transition-colors focus:border-owl-accent"
-												value={retentionInput}
-												disabled={busy}
-												onChange={(event) => setRetentionInput(event.target.value.replace(/\D/g, ""))}
-												onKeyDown={(event) => {
-													if (event.key === "Enter") void saveRetention();
-												}}
-											/>
-											<span className="text-[11px] text-owl-faint">{t("settings.archive.days")}</span>
-											<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveRetention()}>
-												{t("common.save")}
-											</button>
-										</div>
-									}
-								/>
-								<div className="owl-settings-notice is-warning">{t("settings.archive.notice")}</div>
+								<div className="owl-settings-notice">{t("settings.archive.notice")}</div>
 								<SettingRow title={t("settings.archive.listTitle", { n: archiveCfg.sessions.length })} desc={t("settings.archive.listDesc")}>
 									{archiveCfg.sessions.length === 0 ? (
 										<p className="text-[11px] text-owl-faint">{t("settings.archive.none")}</p>
@@ -3670,7 +3621,6 @@ export function SettingsPage({
 											{[...archiveCfg.sessions]
 												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
 												.map((entry) => {
-													const left = daysLeft(entry.archivedAt, archiveCfg.retentionDays);
 													const row = sessionTitles[entry.sessionId];
 													const title = sessionDisplayName(row ?? { id: entry.sessionId });
 													const origin = row?.cwd ? getProjectDisplayName(row.cwd) : "";
@@ -3689,8 +3639,8 @@ export function SettingsPage({
 																</div>
 															</div>
 															<div className="text-right">
-																<div className={`mb-2 text-xs ${left <= 2 ? "owl-settings-archive-warning" : "text-owl-muted"}`}>
-																	{left > 0 ? t("settings.archive.deleteIn", { n: left }) : t("settings.archive.pendingCleanup")}
+																<div className="mb-2 text-xs text-owl-muted">
+																	{t("settings.archive.kept")}
 																</div>
 																<div className="owl-settings-archive-actions">
 																	<button

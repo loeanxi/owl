@@ -218,14 +218,10 @@ export interface SessionUnarchiveRequest {
 	sessionId: string;
 }
 
-/**
- * 读取/修改归档自动清理配置。带 retentionDays = 设置（并立即巡检一次），
- * 缺省 = 仅读取。归档超过保留期的会话由桥端定时任务自动删除。
- */
+/** 读取长期保留的归档会话列表；归档不会自动删除。 */
 export interface SessionArchiveConfigRequest {
 	type: "session.archiveConfig";
 	id: string;
-	retentionDays?: number;
 }
 
 export interface SessionArchiveEntry {
@@ -234,7 +230,6 @@ export interface SessionArchiveEntry {
 }
 
 export interface SessionArchiveConfigResult {
-	retentionDays: number;
 	sessions: SessionArchiveEntry[];
 }
 

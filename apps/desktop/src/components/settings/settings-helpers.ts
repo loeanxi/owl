@@ -17,7 +17,7 @@ export type PluginType = "npm" | "git" | "local-file" | "local-dir";
 
 export type ArchiveEntry = { sessionId: string; archivedAt: string };
 
-export type ArchiveConfigResult = { retentionDays: number; sessions: ArchiveEntry[] };
+export type ArchiveConfigResult = { sessions: ArchiveEntry[] };
 
 export type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string; parentSessionPath?: string };
 
@@ -32,13 +32,6 @@ export function sessionDisplayName(row: SessionListRow): string {
 	else if (row.id) base = t("settings.sessionFallback", { id: row.id.slice(0, 8) });
 	else base = t("settings.sessionUnnamed");
 	return row.parentSessionPath ? `${base} · ${t("app.branchSuffix")}` : base;
-}
-
-/** 距自动删除还剩几天（保留期 - 已归档天数）。 */
-export function daysLeft(archivedAt: string, retentionDays: number): number {
-	const t = Date.parse(archivedAt);
-	if (!Number.isFinite(t)) return retentionDays;
-	return retentionDays - Math.floor((Date.now() - t) / 86_400_000);
 }
 
 export function formatDateTime(iso: string): string {

@@ -123,13 +123,7 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import { type JsonAgentSessionEvent, toJsonEvent } from "../json-event.ts";
 import { DESKTOP_AGENT_INSTRUCTIONS, desktopAgentPromptOptions } from "./agent-instructions.ts";
 import { saveSessionApprovalMode, sessionApprovalMode } from "./approval-history.ts";
-import {
-	ARCHIVE_PURGE_INTERVAL_MS,
-	archiveRetentionDays,
-	DEFAULT_ARCHIVE_RETENTION_DAYS,
-	readArchiveMeta,
-	writeArchiveMeta,
-} from "./archive-meta.ts";
+import { readArchiveMeta, writeArchiveMeta } from "./archive-meta.ts";
 import {
 	type BridgeRequest,
 	bridgePluginSessionTools,
@@ -253,7 +247,7 @@ export type {
 	ServerEventMessage,
 	ServerResponseMessage,
 } from "./protocol.ts";
-export { DEFAULT_ARCHIVE_RETENTION_DAYS, isTrustedDesktopOrigin };
+export { isTrustedDesktopOrigin };
 
 // ---------------------------------------------------------------------------
 // Server
@@ -435,8 +429,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	let mcp: McpConnections | undefined;
 	/** 侧边栏文件树 watcher：项目（resolved cwd）→ watcher 集。 */
 	const sidebarWatchers = new Map<string, DirectoryWatchers>();
-	/** 归档过期巡检定时器（close() 时清理）。 */
-	let archiveTimer: ReturnType<typeof setInterval> | undefined;
 	let news: NewsService | undefined;
 	let closingNews = false;
 	let mail: MailService | undefined;
@@ -566,54 +558,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		}
 		// Runtime disposal settles extension shutdown before releasing session browser resources.
 		await iab.disposeSession(sessionId);
-	}
-
-	/**
-	 * 巡检归档：删掉归档超过保留期的会话 JSONL（先卸载运行时），顺带清掉
-	 * 文件已不存在的幽灵记录。任何一条失败都留着下轮再试。
-	 */
-	async function purgeExpiredArchivedSessions(): Promise<number> {
-		const agentDir = defaultAgentDir();
-		const meta = readArchiveMeta(agentDir);
-		const entries = meta.sessions ?? {};
-		const cutoff = Date.now() - archiveRetentionDays(meta) * 86_400_000;
-		let purged = 0;
-		let removedGhosts = 0;
-		for (const [sessionId, entry] of Object.entries(entries)) {
-			const archivedAt = Date.parse(entry.archivedAt);
-			const expired = archivedAt > 0 && archivedAt <= cutoff;
-			const path =
-				entry.path && existsSync(entry.path) ? entry.path : expired ? await findSessionFile(sessionId) : undefined;
-			if (!path) {
-				if (!existsSync(entry.path ?? "")) {
-					// 文件已不在（手动删过）：无论到期与否，记录清掉
-					delete entries[sessionId];
-					removedGhosts++;
-				}
-				continue;
-			}
-			if (!expired) continue;
-			await unmountSessionRuntime(sessionId);
-			try {
-				unlinkSync(path);
-				purged++;
-				delete entries[sessionId];
-			} catch (error) {
-				onDiagnostic(`归档清理失败（${sessionId}）：${error instanceof Error ? error.message : String(error)}`);
-			}
-		}
-		if (purged > 0 || removedGhosts > 0) {
-			meta.sessions = entries;
-			writeArchiveMeta(agentDir, meta);
-		}
-		return purged;
-	}
-
-	function startArchivePurgeTimer(): void {
-		void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
-		archiveTimer = setInterval(() => {
-			void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
-		}, ARCHIVE_PURGE_INTERVAL_MS);
 	}
 
 	function resolveMcpServerConfigs(): Record<string, McpServerConfig> {
@@ -1802,24 +1746,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.archiveConfig": {
 				const agentDir = defaultAgentDir();
 				const meta = readArchiveMeta(agentDir);
-				if (request.retentionDays !== undefined) {
-					const days = request.retentionDays;
-					if (!Number.isInteger(days) || days < 1 || days > 3650) {
-						reply(ws, request.id, { ok: false, error: "保留天数必须是 1-3650 的整数" });
-						return;
-					}
-					meta.retentionDays = days;
-					writeArchiveMeta(agentDir, meta);
-					// 改完立刻巡检一次：新保留期可能立即过期若干会话
-					void purgeExpiredArchivedSessions().catch((error) => onDiagnostic(`归档巡检失败：${String(error)}`));
-				}
 				const sessions = Object.entries(meta.sessions ?? {}).map(([sessionId, entry]) => ({
 					sessionId,
 					archivedAt: entry.archivedAt,
 				}));
 				reply(ws, request.id, {
 					ok: true,
-					result: { retentionDays: archiveRetentionDays(meta), sessions },
+					result: { sessions },
 				});
 				return;
 			}
@@ -3292,7 +3225,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		httpServer.once("error", reject);
 		httpServer.listen(port, host, resolve);
 	});
-	startArchivePurgeTimer();
 	try {
 		getNewsService();
 	} catch (error) {
@@ -3310,7 +3242,6 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			closing = true;
 			runRecovery.preserveForRestart();
 			unsubscribeViewers();
-			if (archiveTimer) clearInterval(archiveTimer);
 			closingEvaluation = true;
 			await evaluation?.close();
 			await closeNews();
