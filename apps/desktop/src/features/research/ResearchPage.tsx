@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
+import type { SessionSearchMessageResult } from "../../bridge/protocol.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
-import { ChatStream, type ChatActivity } from "../../components/ChatStream.tsx";
+import { ChatStream, type ChatActivity, type MessageSearchTarget } from "../../components/ChatStream.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
 import type { ConversationView } from "../../components/ConversationHeader.tsx";
 import { conversationTitleOf } from "../../components/conversation-title.ts";
@@ -31,6 +32,10 @@ export type ResearchPageProps = {
 	active: boolean;
 	connected: boolean;
 	cwd: string;
+	profile?: string;
+	searchTarget?: MessageSearchTarget;
+	searchHistoryMessage?: SessionSearchMessageResult;
+	restorePending?: boolean;
 	providers: ProviderModelsMessage[];
 	defaultModel: string;
 	defaultThinkingLevel: string;
@@ -144,21 +149,21 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	useEffect(() => { controller.start(); return () => controller.dispose(); }, [controller]);
 	useEffect(() => { promptController.setConnected(connected); if (active && connected) void promptController.load(); }, [promptController, active, connected]);
 	useEffect(() => { controller.setDefaultAgentPreset(defaultPreset, Object.keys(disabledPresets)); }, [controller, defaultPreset, props.agentPresets]);
-	useEffect(() => { controller.setConnected(connected); if (active && connected) void controller.attach(); }, [controller, active, connected]);
+	useEffect(() => { controller.setConnected(connected); if (active && connected && !props.restorePending) void controller.attach(); }, [controller, active, connected, props.restorePending]);
 	useEffect(() => { props.onSessionIdChange?.(state.sessionId); }, [state.sessionId, props.onSessionIdChange]);
 	useEffect(() => {
-		if (!props.resumeRequest || !active) return;
+		if (!props.resumeRequest || !active || props.restorePending) return;
 		const revision = `${cwd}:${props.resumeRequest.id}:${props.resumeRequest.revision}`;
 		if (resumeRevision.current === revision) return;
 		resumeRevision.current = revision;
 		void controller.resume(props.resumeRequest.id);
-	}, [controller, active, props.resumeRequest]);
+	}, [controller, active, props.resumeRequest, props.restorePending]);
 	useEffect(() => {
-		if (!active || newRequest.current === props.newConversationRequest) return;
+		if (!active || props.restorePending || newRequest.current === props.newConversationRequest) return;
 		newRequest.current = props.newConversationRequest;
 		// 运行中也允许新开对话（旧任务留在后台），仅断线时新线程不可用（顶部已有断线提示）。
 		if (controller.newThread()) setComposerKey((key) => key + 1);
-	}, [controller, active, props.newConversationRequest]);
+	}, [controller, active, props.newConversationRequest, props.restorePending]);
 	useEffect(() => { setSelectedResultId(undefined); setLocalError(undefined); setDraftRequest(undefined); setComposerKey((key) => key + 1); }, [controller]);
 	useEffect(() => { if (props.sidebarOpen) setSelectedResultId(undefined); }, [props.sidebarOpen]);
 	useEffect(() => { if (props.conversationView === "context") setSelectedResultId(undefined); }, [props.conversationView]);
@@ -200,7 +205,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 		<div className="research-prompt-toolbar"><span>{promptState.ready ? promptState.saved?.enabled && activePrompt ? text("promptEnabled", { name: activePrompt.name }) : text("promptDefault") : ""}</span><button ref={promptButton} type="button" aria-expanded={promptsOpen} onClick={() => { setSelectedResultId(undefined); setPromptsOpen((open) => !open); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12" /><circle cx="7" cy="5" r="2" fill="var(--color-owl-bg)" /><circle cx="13" cy="10" r="2" fill="var(--color-owl-bg)" /><circle cx="8" cy="15" r="2" fill="var(--color-owl-bg)" /></svg>{text("promptManage")}</button></div>
 		<div className="research-content">
 			<div className="research-conversation">
-				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
+				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream key={state.sessionId ?? cwd} sessionId={state.sessionId} profile={props.profile} searchHistoryMessage={props.searchHistoryMessage && !state.entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === props.searchHistoryMessage!.entryId) ? props.searchHistoryMessage : undefined} searchTarget={props.searchTarget?.sessionId === state.sessionId ? props.searchTarget : undefined} entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
 				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths, failed.delivery); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus?.phase === "retrying" ? state.retryStatus : null} onDismiss={() => controller.dismissRetry()} />
 				<TaskRecoveryNotice recovery={recovery} providers={props.providers} model={state.model} disabled={!connected || !state.ready || state.busy} onContinue={(model) => controller.continue(model)} onOpenSettings={props.onOpenSettings} />

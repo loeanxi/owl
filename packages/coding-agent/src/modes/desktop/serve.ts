@@ -187,6 +187,7 @@ import {
 	RESTART_RESUME_MESSAGE,
 } from "./run-recovery.ts";
 import { ScheduleService } from "./schedule-service.ts";
+import { DesktopSessionSearch } from "./session-search.ts";
 import { SidebarError } from "./sidebar-fs.ts";
 import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
 import type { DirectoryWatchers } from "./sidebar-watch.ts";
@@ -594,6 +595,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	/** 同时到达的 session.list 共享同一次扫描；目录不同则分开。 */
 	const sessionListInflight = new Map<string, Promise<SessionInfo[]>>();
+	const sessionSearch = new DesktopSessionSearch(defaultAgentDir());
 	async function listSessionsShared(sessionDir: string | undefined): Promise<SessionInfo[]> {
 		const key = sessionDir ?? "";
 		const existing = sessionListInflight.get(key);
@@ -678,6 +680,22 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function reply(ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }): void {
 		if (ws.readyState === ws.OPEN) {
 			ws.send(JSON.stringify({ type: "response", id, ...result }));
+		}
+	}
+
+	/** An accepted request cannot send a second response; expose later failures through the session event stream. */
+	function reportAcceptedRunError(session: AgentSession, error: unknown): void {
+		const finalError = error instanceof Error ? error.message : String(error);
+		onDiagnostic(finalError);
+		broadcast({
+			type: "event",
+			sessionId: session.sessionId,
+			event: { type: "auto_retry_end", success: false, attempt: 0, finalError, requestFailed: true },
+		});
+		// A failure before agent_start has no natural settled event to release the UI's optimistic running state.
+		if (session.isIdle) {
+			checkpoint(() => runRecovery.finish(session.sessionId));
+			broadcast({ type: "event", sessionId: session.sessionId, event: { type: "agent_settled", aborted: false } });
 		}
 	}
 
@@ -1559,18 +1577,21 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					session.runtime.session.isStreaming,
 					request.streamingBehavior,
 				);
-				reply(ws, request.id, { ok: true });
+				let accepted = false;
 				try {
 					await session.runtime.session.prompt(request.message, {
 						...(request.images ? { images: request.images as ImageContent[] } : {}),
 						...(request.attachedPaths?.length ? { attachedPaths: request.attachedPaths } : {}),
 						...(streamingBehavior ? { streamingBehavior } : {}),
 						preflightResult: (disposition) => {
+							accepted = true;
+							reply(ws, request.id, { ok: true });
 							if (disposition === "queued") saveSessionQueue(session.runtime.session);
 						},
 					});
 				} catch (error) {
-					onDiagnostic(error instanceof Error ? error.message : String(error));
+					if (accepted) reportAcceptedRunError(session.runtime.session, error);
+					else reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
 				}
 				return;
 			}
@@ -1627,11 +1648,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: true });
 					return;
 				}
-				reply(ws, request.id, { ok: true });
+				let accepted = false;
 				try {
-					await session.runtime.session.resumeAfterPause(request.message);
+					await session.runtime.session.resumeAfterPause(request.message, {
+						preflightResult: () => {
+							accepted = true;
+							reply(ws, request.id, { ok: true });
+						},
+					});
 				} catch (error) {
-					onDiagnostic(error instanceof Error ? error.message : String(error));
+					if (accepted) reportAcceptedRunError(session.runtime.session, error);
+					else reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
 				}
 				return;
 			}
@@ -2556,7 +2583,15 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	/** SessionLifecycle 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
 	type SessionLifecycleRequest = Extract<
 		DesktopClientRequest,
-		{ type: "session.resume" | "session.fork" | "session.list" | "session.running" }
+		{
+			type:
+				| "session.resume"
+				| "session.fork"
+				| "session.list"
+				| "session.search"
+				| "session.searchMessage"
+				| "session.running";
+		}
 	>;
 
 	async function handleSessionLifecycleRequest(ws: WebSocket, request: SessionLifecycleRequest): Promise<void> {
@@ -2684,6 +2719,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						})
 						.filter((row) => request.scope === undefined || row.scope === request.scope),
 				});
+				return;
+			}
+			case "session.search": {
+				reply(ws, request.id, { ok: true, result: await sessionSearch.search(request) });
+				return;
+			}
+			case "session.searchMessage": {
+				reply(ws, request.id, { ok: true, result: await sessionSearch.readMessage(request) });
 				return;
 			}
 			case "session.running": {
@@ -2968,6 +3011,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.resume":
 			case "session.fork":
 			case "session.list":
+			case "session.search":
+			case "session.searchMessage":
 			case "session.running":
 				await handleSessionLifecycleRequest(ws, request);
 				return;

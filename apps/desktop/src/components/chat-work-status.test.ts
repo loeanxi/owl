@@ -48,6 +48,7 @@ describe("chat work segment status", () => {
 		expect(labels).toHaveLength(2);
 		expect(live).toHaveLength(1);
 		expect(labels[0]).toBe("工作了 5s");
+		expect(live[0]).toBe("正在工作 24s");
 		expect(html.indexOf(labels[0]!)).toBeLessThan(html.indexOf("重新观察当前窗口"));
 		expect(html.indexOf("重新观察当前窗口")).toBeLessThan(html.indexOf(live[0]!));
 	});
@@ -103,6 +104,17 @@ describe("chat work segment status", () => {
 			assistant([], { text: "完成", timestamp: 6000, endedAt: 10_000 }),
 		];
 		expect(render(entries, "idle").labels).toEqual(["工作了 9s"]);
+	});
+
+	it("times each completed segment on its own instead of from the turn start", () => {
+		const entries: ChatEntry[] = [
+			{ kind: "user", text: "test", timestamp: 1000 },
+			assistant([tool("first", "ok", 5000), tool("second", "ok", 9000)], {
+				text: "继续", endedAt: 6000,
+				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
+			}),
+		];
+		expect(render(entries, "idle").labels).toEqual(["工作了 5s", "工作了 3s"]);
 	});
 
 	it("uses the real continuation run boundary even without a new user or an aborted message", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
 import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
 import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
@@ -13,9 +13,15 @@ import { TurnArtifacts } from "./ReviewChangesCard.tsx";
 import { UsageOverview } from "./UsageOverview.tsx";
 import { OwlMascot, useSessionOwlPose } from "./OwlMascot.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
+import type { SessionSearchMessageResult } from "../bridge/protocol.ts";
 import { ScheduleDeliveryCard } from "../features/automation/ScheduleDeliveryCard.tsx";
 import { parseScheduleDelivery } from "../features/automation/schedule-delivery.ts";
 import { useSubagentText } from "./subagent-copy.ts";
+import { highlightMessageMatches, messageElement, messageScrollTop, type MessageSearchTarget } from "./chat-message-navigation.ts";
+import "./chat-message-navigation.css";
+import "./chat-history-message.css";
+
+export type { MessageSearchTarget } from "./chat-message-navigation.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
@@ -106,6 +112,7 @@ function formatDuration(ms: number): string {
 type TimelineRow = {
 	key: string;
 	content: React.JSX.Element;
+	entryId?: string;
 	questionIndex?: number;
 	compact?: boolean;
 	/** 贴在结论下面的附属行（工作过程、截图、改动）：不另起一块，避免回答被切成好几截。 */
@@ -356,8 +363,8 @@ function ToolGroupView({ label, cards, expanded = false, onOpenSubagent }: { lab
  * 一条「工作过程 · N 步」，永远默认收起，用户点击才展开（失败也不例外，只在摘要行
  * 标红计数）；回合进行中显示实时步数。活动指示统一由底部 Owl 状态行承担，这里不再转圈。
  */
-function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, subagents = [], onOpenSubagent }: {
-	items: Array<{ key: string; content: React.JSX.Element }>;
+function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, subagents = [], onOpenSubagent, searchTarget }: {
+	items: Array<{ key: string; content: React.JSX.Element; entryId?: string }>;
 	steps: number;
 	failed: number;
 	running: boolean;
@@ -367,8 +374,13 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 	/** 本段派出的子智能体卡；有在跑的就常显在标题下（ZCode 式彩色实时行）。 */
 	subagents?: ToolCard[];
 	onOpenSubagent?: (card: ToolCard) => void;
+	searchTarget?: MessageSearchTarget;
 }): React.JSX.Element {
-	const [open, setOpen] = useState(false);
+	const revealsHit = Boolean(searchTarget && items.some((item) => item.entryId === searchTarget.entryId));
+	const [open, setOpen] = useState(revealsHit);
+	useEffect(() => {
+		if (revealsHit) setOpen(true);
+	}, [revealsHit, searchTarget?.requestId]);
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		if (!running || startedAt === undefined) return;
@@ -406,7 +418,7 @@ function WorkProcessRow({ items, steps, failed, running, startedAt, finishedAt, 
 			{open && (
 				<div className="owl-tool-group-body owl-work-process-body">
 					{items.map((item) => (
-						<div key={item.key} className="owl-work-process-item">{item.content}</div>
+						<div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item">{item.content}</div>
 					))}
 				</div>
 			)}
@@ -690,6 +702,7 @@ function UserRowView({
 /** buildRows 的上下文：渲染回调 + 消息操作（编辑/分支/重新生成）的可用性。 */
 type RowOptions = {
 	entries: ChatEntry[];
+	searchTarget?: MessageSearchTarget;
 	expandedTools: boolean;
 	onRewind?: (entryId: string) => void;
 	cwd?: string;
@@ -717,7 +730,7 @@ type RowOptions = {
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, searchTarget, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	// 改动卡要含代码文件（includeCode），与「成果文件」卡的默认口径不同
 	const historicalArtifacts = cwd && onOpenFile ? collectHistoricalArtifacts(entries, cwd, { includeCode: true }) : undefined;
@@ -808,8 +821,9 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	};
 	let turn = 0;
 	let turnEntries: ChatEntry[] = [];
-	// 本轮用户消息的发出时刻，用来写「工作了 7m 23s」。
-	let turnStartedAt: number | undefined;
+	// 当前这段工作的起点，用来写「工作了 7m 23s」：本轮第一段从用户发消息算起，
+	// 后续每段从上一段收口时算起，各段只显示自己的耗时，不累计。
+	let workStartedAt: number | undefined;
 	let resumeWorkClock = false;
 	// 结论出现前先把工作行放到正文上面，一轮只放一次。
 	let answerWorkFlushed = false;
@@ -820,7 +834,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 	// 这样阅读顺序是「结论 → 工作过程 → 改动文件」。todo 不进时间轴。
 	// 交互渲染卡先暂存，跟工作过程一起排到结论下面，避免把工具日志顶到结论上方。
 	let visibleCards: TimelineRow[] = [];
-	let workRows: Array<{ key: string; content: React.JSX.Element }> = [];
+	let workRows: Array<{ key: string; content: React.JSX.Element; entryId?: string }> = [];
 	let workSteps = 0;
 	let workFailed = 0;
 	let workPendingTools: ToolCard[] = [];
@@ -861,11 +875,13 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		const items = workRows;
 		const steps = workSteps;
 		const failed = workFailed;
-		const startedAt = turnStartedAt;
+		const startedAt = workStartedAt;
 		const subagents = workSubagents;
 		if (finishedAt !== undefined && Number.isFinite(finishedAt)) workFinishedAt = Math.max(workFinishedAt ?? finishedAt, finishedAt);
-		const props = { items, steps, failed, running: false, startedAt, finishedAt: workFinishedAt, subagents, onOpenSubagent };
+		const props = { items, steps, failed, running: false, startedAt, finishedAt: workFinishedAt, subagents, onOpenSubagent, searchTarget };
 		const lastEntryIndex = workLastEntryIndex;
+		workStartedAt = workFinishedAt;
+		resumeWorkClock = workFinishedAt === undefined;
 		workRows = [];
 		workSteps = 0;
 		workFailed = 0;
@@ -889,12 +905,13 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		entries.forEach((entry, index) => {
 			if (index === activeRunIndex && entry.kind !== "user") {
 				flushWork();
-				turnStartedAt = entry.kind === "assistant" ? entry.timestamp : undefined;
+				workStartedAt = entry.kind === "assistant" ? entry.timestamp : undefined;
 			}
 			if (entry.kind === "user" && entry.queued) {
 				flushWork();
 				rows.push({
 					key: "queued-" + index,
+					entryId: entry.entryId,
 					content: (
 						<div className="owl-user-queued">
 							<div className="owl-user-bubble"><UserText text={entry.text} /></div>
@@ -910,7 +927,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				flushTurnArtifacts();
 				turnEntries = [entry];
 				turnShots = [];
-				turnStartedAt = entry.timestamp;
+				workStartedAt = entry.timestamp;
 				resumeWorkClock = false;
 				answerWorkFlushed = false;
 				const artifacts = historicalArtifacts?.get(index);
@@ -923,6 +940,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				const delivery = parseScheduleDelivery(entry.text);
 				rows.push({
 					key: "q" + turn,
+					entryId: entry.entryId,
 					questionIndex: turn,
 					content: delivery
 						? <ScheduleDeliveryCard info={delivery} client={client} onOpenAutomation={onOpenAutomation} />
@@ -937,7 +955,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			return;
 		}
 		if (resumeWorkClock) {
-			turnStartedAt = entry.timestamp;
+			workStartedAt = entry.timestamp;
 			resumeWorkClock = false;
 		}
 		const seenTools = new Set<string>();
@@ -985,6 +1003,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 			const parts = answerParts.splice(0, answerParts.length);
 			rows.push({
 				key: "message-" + index,
+				entryId: entry.entryId,
 				content: parts.length === 1 ? parts[0]! : <div className="owl-turn-answer">{parts}</div>,
 			});
 		};
@@ -1010,6 +1029,7 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 				recordWork(entry, index);
 				workRows.push({
 					key: "note-" + index + "-" + segmentIndex,
+					entryId: entry.entryId,
 					content: answerCard(segmentIndex, segment.text),
 				});
 				return;
@@ -1027,13 +1047,13 @@ function buildRows({ entries, expandedTools, onRewind, cwd, onOpenFile, turnCard
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
 		if (entry.error) {
 			flushWork(entry.endedAt);
-			turnStartedAt = undefined;
+			workStartedAt = undefined;
 			resumeWorkClock = true;
-			rows.push({ key: "error-" + index, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
+			rows.push({ key: "error-" + index, entryId: entry.entryId, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		} else if (entry.aborted) {
 			// 用户暂停：只留一行置灰小字（provider 的中止报错不上屏），继续入口在输入框按钮上。
 			flushWork(entry.endedAt);
-			turnStartedAt = undefined;
+			workStartedAt = undefined;
 			resumeWorkClock = true;
 			rows.push({ key: "paused-" + index, content: <div className="owl-chat-paused">{t("chat.pausedHint")}</div> });
 		}
@@ -1255,6 +1275,10 @@ function TurnScreenshotStrip({ shots }: { shots: Array<{ key: string; image: Too
 
 export function ChatStream({
 	entries,
+	sessionId,
+	profile,
+	searchTarget,
+	searchHistoryMessage,
 	artifacts,
 	renderTurnArtifacts,
 	cwd,
@@ -1271,6 +1295,11 @@ export function ChatStream({
 	onOpenSubagent,
 }: {
 	entries: ChatEntry[];
+	sessionId?: string;
+	profile?: string;
+	searchTarget?: MessageSearchTarget;
+	/** A searched message preceding the compacted transcript; display-only, never a live turn. */
+	searchHistoryMessage?: SessionSearchMessageResult;
 	activity?: ChatActivity;
 	/** 空会话开始页的菜单卡回调（打开工作台对应面板）。 */
 	onQuickAction?: (kind: string) => void;
@@ -1305,10 +1334,33 @@ export function ChatStream({
 	const container = useRef<HTMLElement>(null);
 	// 跟随新内容滚动的开关。用户的向上滚动意图（滚轮/触控板/拖滚动条/翻页键）立即关闭，
 	// 只有视口真正回到贴底位置才重新打开——流式输出期间翻历史不会被拽回底部。
-	const stick = useRef(true);
+	const stick = useRef(!sessionId);
 	const navigationTarget = useRef<number | null>(null);
 	const prevEntries = useRef<ChatEntry[]>([]);
 	const [showLatest, setShowLatest] = useState(false);
+	const handledSearch = useRef<string | undefined>(undefined);
+	const activeSearch = searchTarget?.sessionId === sessionId ? searchTarget : undefined;
+	const searchRequest = activeSearch ? JSON.stringify([sessionId, activeSearch.entryId, activeSearch.requestId]) : undefined;
+	const historyMessage = activeSearch && searchHistoryMessage?.entryId === activeSearch.entryId
+		&& !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === activeSearch.entryId)
+		? searchHistoryMessage : undefined;
+	const historyText = historyMessage ? typeof historyMessage.message.content === "string" ? historyMessage.message.content : historyMessage.message.content.map((block) => block.text).join("\n") : "";
+	const historyLabel = getUiLanguage() === "en" ? "Earlier message" : "较早的历史消息";
+
+	useLayoutEffect(() => {
+		stick.current = !sessionId;
+		navigationTarget.current = null;
+		handledSearch.current = undefined;
+		prevEntries.current = entries;
+		container.current?.removeAttribute("data-owl-search-navigation");
+		if (sessionId) container.current?.setAttribute("data-owl-scroll-restoring", "true");
+		else container.current?.removeAttribute("data-owl-scroll-restoring");
+	}, [profile, sessionId, cwd]);
+	useLayoutEffect(() => {
+		if (!searchRequest || handledSearch.current === searchRequest) return;
+		stick.current = false;
+		container.current?.removeAttribute("data-owl-search-navigation");
+	}, [searchRequest]);
 
 	const onWheel = (event: React.WheelEvent<HTMLElement>): void => {
 		navigationTarget.current = null;
@@ -1320,8 +1372,9 @@ export function ChatStream({
 	useEffect(() => {
 		const last = entries[entries.length - 1];
 		const prevLast = prevEntries.current[prevEntries.current.length - 1];
-		const userJustSent = last?.kind === "user" && last !== prevLast;
+		const userJustSent = last?.kind === "user" && !last.queued && entries.length > prevEntries.current.length && last !== prevLast;
 		prevEntries.current = entries;
+		if (container.current?.dataset.owlScrollRestoring === "true" || (searchRequest && handledSearch.current !== searchRequest)) return;
 		if (!stick.current && !userJustSent) return;
 		// 直接设 scrollTop：瞬时定位，不与用户滚动抢平滑动画队列。
 		const el = container.current;
@@ -1356,6 +1409,7 @@ export function ChatStream({
 		() =>
 			buildRows({
 				entries,
+				searchTarget: activeSearch,
 				expandedTools,
 				onRewind,
 				cwd,
@@ -1373,8 +1427,36 @@ export function ChatStream({
 				client,
 				busy,
 			}),
-		[entries, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy],
+		[entries, activeSearch, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy],
 	);
+
+	useEffect(() => {
+		const el = container.current;
+		if (!el || !activeSearch || !searchRequest) return;
+		let clearHighlight = (): void => undefined;
+		let target: HTMLElement | undefined;
+		const frame = requestAnimationFrame(() => {
+			target = messageElement(el, activeSearch.entryId, activeSearch.query);
+			if (!target) return;
+			target.dataset.searchMatch = "true";
+			clearHighlight = highlightMessageMatches(target, activeSearch.query);
+			if (handledSearch.current === searchRequest) return;
+			handledSearch.current = searchRequest;
+			stick.current = false;
+			navigationTarget.current = null;
+			// Workspace memory owns scroll persistence. Explicit search cancels its old reading position.
+			el.dataset.owlSearchNavigation = String(activeSearch.requestId);
+			el.dispatchEvent(new Event("owl-chat-search-navigation", { bubbles: true }));
+			el.removeAttribute("data-owl-scroll-restoring");
+			el.scrollTo({ top: messageScrollTop(el, target), behavior: "instant" });
+			el.dispatchEvent(new Event("scroll"));
+		});
+		return () => {
+			cancelAnimationFrame(frame);
+			clearHighlight();
+			target?.removeAttribute("data-search-match");
+		};
+	}, [rows, activeSearch, searchRequest, historyMessage]);
 
 	// -- 提问导航：视口所在的提问高亮，点击项平滑滚动到该提问 -------------------
 	const uiLanguage = getUiLanguage();
@@ -1423,11 +1505,12 @@ export function ChatStream({
 	// 会话切换/恢复后立即校准高亮，不等首次滚动
 	useEffect(() => {
 		updateActiveQuestion();
-	}, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [questions, searchRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const onScrollWithTracking = (): void => {
 		const el = container.current;
 		if (!el) return;
+		if (el.dataset.owlScrollRestoring === "true") return;
 		// 平滑跳转第一帧仍靠近底部，抵达目标前不能重新开启贴底跟随。
 		if (navigationTarget.current !== null) {
 			if (Math.abs(el.scrollTop - navigationTarget.current) > 1) return;
@@ -1444,6 +1527,7 @@ export function ChatStream({
 		if (!el) return;
 		const observer = new ResizeObserver(() => {
 			if (el.clientHeight === 0 || el.clientWidth === 0) return;
+			if (el.dataset.owlScrollRestoring === "true" || (searchRequest && handledSearch.current !== searchRequest)) return;
 			// 提问卡展开或收起会改变聊天视口：贴底时跟随，翻历史或导航时保留位置。
 			const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
 			if (stick.current && navigationTarget.current === null && Math.abs(el.scrollTop - bottom) > 1) {
@@ -1458,13 +1542,13 @@ export function ChatStream({
 		const content = el.firstElementChild;
 		if (content) observer.observe(content);
 		return () => observer.disconnect();
-	}, [questions]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [questions, searchRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	return (
 		<div className="owl-chat-surface" data-activity={activity}>
 			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />}
 			<div className="owl-chat-layout">
-				<main ref={container} onWheel={onWheel} onScroll={onScrollWithTracking} onScrollEnd={() => { navigationTarget.current = null; onScrollWithTracking(); }} onPointerDown={() => { navigationTarget.current = null; }} onTouchStart={() => { navigationTarget.current = null; }} onKeyDown={() => { navigationTarget.current = null; }} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
+				<main ref={container} data-owl-scroll-restoring={sessionId ? "true" : undefined} onWheel={onWheel} onScroll={onScrollWithTracking} onScrollEnd={() => { navigationTarget.current = null; onScrollWithTracking(); }} onPointerDown={() => { navigationTarget.current = null; }} onTouchStart={() => { navigationTarget.current = null; }} onKeyDown={() => { navigationTarget.current = null; }} className="owl-chat-scroll" aria-label={t("chat.messagesAria")} onClick={(event) => {
 					if (!(event.target instanceof Element)) return;
 					const anchor = event.target.closest<HTMLAnchorElement>(".owl-answer a[href]");
 					const href = anchor?.getAttribute("href");
@@ -1505,9 +1589,13 @@ export function ChatStream({
 					}
 				}}>
 					<div className="owl-chat-column">
+						{historyMessage && <section className="owl-chat-history-message" data-entry-id={historyMessage.entryId} data-owl-search-history="true" data-history-role={historyMessage.message.role} aria-label={historyLabel}>
+							<p className="owl-chat-history-message-label">{historyLabel} · {historyMessage.message.role === "user" ? getUiLanguage() === "en" ? "You" : "你" : "Owl"}</p>
+							{historyMessage.message.role === "assistant" ? <div className="owl-answer" dangerouslySetInnerHTML={{ __html: renderMarkdown(historyText) }} /> : <div className="owl-chat-history-message-user">{historyText}</div>}
+						</section>}
 						{/* 空会话开始页：问候语 + 使用概览面板（Claude Desktop 同款，桥的 usage.get 供数） */}
-						{entries.length === 0 && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1>{client && <UsageOverview client={client} />}</section>}
-						{rows.map((row) => <div key={row.key} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : row.quiet ? "owl-chat-row owl-chat-row-quiet" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
+						{entries.length === 0 && !historyMessage && <section className="owl-chat-empty" data-fd-id="chat-empty" aria-labelledby={emptyHeadingId}><img src="/owl.svg" alt="" aria-hidden="true" className="owl-chat-empty-mark" draggable={false} /><h1 id={emptyHeadingId}>{t("chat.emptyGreeting")}</h1>{client && <UsageOverview client={client} />}</section>}
+						{rows.map((row) => <div key={row.key} data-entry-id={row.entryId} data-qidx={row.questionIndex} className={row.questionIndex ? "owl-chat-question" : row.quiet ? "owl-chat-row owl-chat-row-quiet" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
 						{artifacts != null && <div className="owl-chat-row owl-chat-row-quiet">{artifacts}</div>}
 						<ResponseActivity entries={entries} activity={activity} />
 					</div>

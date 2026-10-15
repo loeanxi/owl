@@ -1,0 +1,11 @@
+::highlight(owl-message-search) {
+	background-color: #ffd76a;
+	color: #241c05;
+}
+
+.owl-chat-scroll [data-search-match="true"] {
+	outline: 2px solid var(--color-owl-accent, #b08b56);
+	outline-offset: 6px;
+	border-radius: 6px;
+	scroll-margin-block: 16px;
+}

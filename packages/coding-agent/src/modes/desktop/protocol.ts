@@ -274,6 +274,56 @@ export interface SessionListRequest {
 	scope?: "chat" | "research";
 }
 
+/** Search only the current account's visible conversation text without mounting sessions. */
+export interface SessionSearchRequest {
+	type: "session.search";
+	id: string;
+	query: string;
+	cwd?: string;
+	scope?: "chat" | "research";
+	includeArchived?: boolean;
+	limit?: number;
+}
+
+export interface SessionSearchHit {
+	sessionId: string;
+	cwd: string;
+	title: string;
+	scope: "chat" | "research";
+	archived: boolean;
+	modified: string;
+	/** Stable source entry ID on the active branch; compacted messages remain readable via session.searchMessage. */
+	entryId: string;
+	role: "user" | "assistant";
+	excerpt: string;
+	/** UTF-16 offsets in excerpt, suitable for slicing the original text. */
+	matchRanges: { start: number; end: number }[];
+}
+
+export interface SessionSearchResult {
+	hits: SessionSearchHit[];
+	hasMore: boolean;
+}
+
+export interface SessionSearchMessageRequest {
+	type: "session.searchMessage";
+	id: string;
+	sessionId: string;
+	entryId: string;
+}
+
+/** Display-only historical text. Never inserted into model context. */
+export interface SessionSearchMessage {
+	role: "user" | "assistant";
+	content: string | { type: "text"; text: string }[];
+	timestamp: number;
+}
+
+export interface SessionSearchMessageResult {
+	entryId: string;
+	message: SessionSearchMessage;
+}
+
 /** Read-only child inspection never mounts a second runtime for the child. */
 export interface DesktopSubagentSummary {
 	id: string;
@@ -2362,6 +2412,8 @@ export type DesktopClientRequest =
 	| SkillsGroupsSaveRequest
 	| SkillsProjectExtrasRequest
 	| SessionListRequest
+	| SessionSearchRequest
+	| SessionSearchMessageRequest
 	| SubagentListRequest
 	| SubagentGetRequest
 	| SessionRunningRequest
