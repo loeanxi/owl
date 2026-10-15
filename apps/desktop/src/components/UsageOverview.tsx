@@ -37,14 +37,26 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 
 	useEffect(() => {
 		let cancelled = false;
-		void client
-			.request<UsageGetResult>({ type: "usage.get", days: range, ...(project ? { cwd: project } : {}) })
-			.then((response) => {
-				if (!cancelled && response.ok && response.result) setData(response.result);
-			})
-			.catch(() => undefined);
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		// 面板挂载常早于桥 WebSocket 建连（connect 在 App 的 effect 里，握手本身也是异步），
+		// 首发请求几乎必然 reject("bridge not connected")。失败不能定格在「统计中」：
+		// 3s 后重试直到拿到数据（桥每 1.5s 自动重连，连上后的下一轮必然成功）。
+		const load = (): void => {
+			void client
+				.request<UsageGetResult>({ type: "usage.get", days: range, ...(project ? { cwd: project } : {}) })
+				.then((response) => {
+					if (cancelled) return;
+					if (response.ok && response.result) setData(response.result);
+					else retry = setTimeout(load, 3000);
+				})
+				.catch(() => {
+					if (!cancelled) retry = setTimeout(load, 3000);
+				});
+		};
+		load();
 		return () => {
 			cancelled = true;
+			if (retry) clearTimeout(retry);
 		};
 	}, [client, range, project]);
 

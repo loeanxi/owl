@@ -59,14 +59,28 @@ export function useAccountAvatar(client: BridgeClient, refreshKey?: unknown): st
 	const [avatar, setAvatar] = useState<string | null>(null);
 	useEffect(() => {
 		let cancelled = false;
-		void client
-			.request<{ data: string | null }>({ type: "account.avatar.get" })
-			.then((response) => {
-				if (!cancelled && response.ok && response.result) setAvatar(response.result.data);
-			})
-			.catch(() => undefined);
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		// 应用刚启动时桥 WebSocket 往往还没连上（connect 在 App 的 effect 里），首发
+		// 请求几乎必然失败；失败不能定格成「无头像」的吉祥物占位，3s 后重试直到拿到
+		// 结果（桥每 1.5s 自动重连，连上后的下一轮必然成功）。
+		const load = (): void => {
+			void client
+				.request<{ data: string | null }>({ type: "account.avatar.get" })
+				.then((response) => {
+					if (cancelled) return;
+					if (response.ok && response.result) {
+						setAvatar(response.result.data);
+						if (retry) clearTimeout(retry);
+					} else retry = setTimeout(load, 3000);
+				})
+				.catch(() => {
+					if (!cancelled) retry = setTimeout(load, 3000);
+				});
+		};
+		load();
 		return () => {
 			cancelled = true;
+			if (retry) clearTimeout(retry);
 		};
 	}, [client, refreshKey]);
 	return avatar;

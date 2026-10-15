@@ -359,6 +359,32 @@ export function ActivityRail({
 		}
 	};
 
+	// 刚启动就把当前账号拉回来（左下角按钮要显示名字/首字符头像）：桥连上前请求
+	// 会失败，3s 重试直到拿到第一份；之后以菜单打开时的重拉为准。
+	useEffect(() => {
+		let cancelled = false;
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		const load = (): void => {
+			void client
+				.request<{ accounts: DesktopAccountInfo[]; runningId: string | null }>({ type: "account.list" })
+				.then((response) => {
+					if (cancelled) return;
+					if (response.ok && response.result) {
+						setAccountInfo((current) => current ?? response.result);
+						if (retry) clearTimeout(retry);
+					} else retry = setTimeout(load, 3000);
+				})
+				.catch(() => {
+					if (!cancelled) retry = setTimeout(load, 3000);
+				});
+		};
+		load();
+		return () => {
+			cancelled = true;
+			if (retry) clearTimeout(retry);
+		};
+	}, [client]);
+
 	// 菜单打开时拉账号列表（Codex 式账号菜单的数据面：当前账号 + 可切换账号）
 	useEffect(() => {
 		if (!menuOpen) return;
