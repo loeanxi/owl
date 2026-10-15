@@ -9,6 +9,7 @@ import type { BridgeClient } from "../../bridge/client.ts";
 import { IconSearch } from "../../components/icons.tsx";
 import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import { NewsAssistant, type NewsContext } from "./NewsAssistant.tsx";
+import { NewsLeaderboard } from "./NewsLeaderboard.tsx";
 import { NewsManagement } from "./NewsManagement.tsx";
 import { NewsItemReader, NewsReportReader, NewsStoryReader, type NewsTarget } from "./NewsReading.tsx";
 import { NewsSources } from "./NewsSources.tsx";
@@ -17,10 +18,11 @@ import { errorText, NewsClient } from "./news-client.ts";
 import { useNewsQuery } from "./use-news-query.ts";
 import "./news.css";
 
-type NewsSection = "selected" | "all" | NewsReportKind | "saved" | "sources" | "configuration";
-const SECTIONS: { id: NewsSection; key: TextKey }[] = [
+type NewsSection = "selected" | "all" | "leaderboard" | NewsReportKind | "saved" | "sources" | "configuration";
+const SECTIONS: { id: NewsSection; key?: TextKey }[] = [
+	{ id: "all" },
 	{ id: "selected", key: "news.selected" },
-	{ id: "all", key: "news.all" },
+	{ id: "leaderboard" },
 	{ id: "daily", key: "news.daily" },
 	{ id: "saved", key: "news.saved" },
 ];
@@ -45,11 +47,46 @@ export function NewsPage({
 	initialTarget?: NewsTarget & { revision: number };
 }): React.JSX.Element {
 	const t = useT();
+	const language = getUiLanguage();
+	const emptyCopy = newsEmptyCopy[language];
+	const copy =
+		language === "zh"
+			? {
+					latest: "最新资讯",
+					leaderboard: "模型排行榜",
+					readingSettings: "阅读设置",
+					sources: "信源订阅",
+					advanced: "AI 与高级设置",
+					updateRanking: "更新榜单",
+					checking: "正在获取更新",
+					automatic: "公开资讯，打开即读",
+					updated: "内容更新于",
+					enabledSources: "个已启用信源",
+					sourcesLabel: "个信源",
+					sourceFailures: "个信源暂不可用",
+					leaderboardHint: "公开测评数据 · 自动更新 · 无需 API Key",
+				}
+			: {
+					latest: "Latest news",
+					leaderboard: "Model rankings",
+					readingSettings: "Reading settings",
+					sources: "Source subscriptions",
+					advanced: "AI & advanced",
+					updateRanking: "Update rankings",
+					checking: "Checking for updates",
+					automatic: "Public news, ready to read",
+					updated: "Content updated",
+					enabledSources: "enabled sources",
+					sourcesLabel: "sources",
+					sourceFailures: "sources unavailable",
+					leaderboardHint: "Public benchmark data · Automatic updates · No API key",
+				};
 	const api = useMemo(() => new NewsClient(client), [client]);
 	const [snapshot, setSnapshot] = useState<NewsSnapshot>();
-	const [section, setSection] = useState<NewsSection>("selected");
+	const [section, setSection] = useState<NewsSection>("all");
 	const [target, setTarget] = useState<NewsTarget>();
 	const [revision, setRevision] = useState(0);
+	const [leaderboardRevision, setLeaderboardRevision] = useState(0);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 	const [connected, setConnected] = useState(true);
@@ -57,7 +94,12 @@ export function NewsPage({
 	const [query, setQuery] = useState("");
 	const [queryInput, setQueryInput] = useState("");
 	const [context, setContext] = useState<NewsContext>({ items: [] });
-	const [assistantOpen, setAssistantOpen] = useState(true);
+	const [assistantOpen, setAssistantOpen] = useState(false);
+	const [managementOpen, setManagementOpen] = useState(false);
+	const [updating, setUpdating] = useState(false);
+	const [readerRefreshing, setReaderRefreshing] = useState(false);
+	const [sourceStatus, setSourceStatus] = useState<{ enabledSourceCount: number; failedSourceCount: number }>();
+	const updateInFlight = useRef(false);
 	const [prefill, setPrefill] = useState<{ id: number; text: string }>();
 	const prefillSeq = useRef(0);
 	const lastStatus = useRef("");
@@ -69,11 +111,33 @@ export function NewsPage({
 	useEffect(() => {
 		if (savedList.data) setSavedTotal(savedList.data.total);
 	}, [savedList.data]);
-	const isEmptySection = (id: NewsSection): boolean =>
-		id !== section &&
-		((id === "saved" && savedTotal === 0) || (id === "daily" && !!snapshot && snapshot.status.reportCount === 0));
 	const feedMode = section === "all" || section === "saved" ? section : "selected";
 	const categoryCounts = useCategoryCounts(api, feedMode, snapshot?.categories, revision);
+	const isUpdating = updating || readerRefreshing || !!snapshot?.status.running;
+	const readingStatus = snapshot?.status.reader ?? sourceStatus;
+	async function updateNews(force: boolean): Promise<void> {
+		if (updateInFlight.current) return;
+		updateInFlight.current = true;
+		setUpdating(true);
+		setError("");
+		try {
+			const result = await api.ready(force);
+			setSourceStatus(result);
+			setReaderRefreshing(result.refreshing);
+			refreshed();
+		} catch (failure) {
+			setError(errorText(failure));
+		} finally {
+			updateInFlight.current = false;
+			setUpdating(false);
+		}
+	}
+	useEffect(() => {
+		if (!active || !connected) return;
+		void updateNews(false);
+		const timer = setInterval(() => void updateNews(false), 5 * 60_000);
+		return () => clearInterval(timer);
+	}, [api, active, connected]);
 	useEffect(() => {
 		if (!MANAGEMENT.some((entry) => entry.id === section)) return;
 		const compact = window.matchMedia("(max-width: 1100px)");
@@ -103,6 +167,7 @@ export function NewsPage({
 				(value) => {
 					if (!current || serial !== snapshotRevision.current) return;
 					setSnapshot(value);
+					setReaderRefreshing(value.status.running);
 					lastStatus.current = JSON.stringify(value.status);
 				},
 				(failure: unknown) => {
@@ -130,6 +195,7 @@ export function NewsPage({
 					(value) => {
 						if (!current || serial !== snapshotRevision.current) return;
 						setSnapshot(value);
+						setReaderRefreshing(value.status.running);
 						const status = JSON.stringify(value.status);
 						if (lastStatus.current !== status) {
 							lastStatus.current = status;
@@ -162,7 +228,14 @@ export function NewsPage({
 	function selectSection(next: NewsSection): void {
 		setSection(next);
 		setTarget(undefined);
+		if (MANAGEMENT.some((entry) => entry.id === next)) setManagementOpen(true);
 		contentRef.current?.scrollTo({ top: 0 });
+	}
+	function viewLatestNews(): void {
+		setQuery("");
+		setQueryInput("");
+		setCategory("");
+		selectSection("all");
 	}
 	function discuss(next: NewsContext): void {
 		setContext(next);
@@ -184,6 +257,16 @@ export function NewsPage({
 		onDiscuss: discuss,
 		onChanged: refreshed,
 	};
+	const sectionTitle =
+		section === "all"
+			? copy.latest
+			: section === "leaderboard"
+				? copy.leaderboard
+				: section === "sources"
+					? copy.sources
+					: section === "configuration"
+						? copy.advanced
+						: t(`news.${section}`);
 	return (
 		<div className="owl-news-module">
 			<nav
@@ -192,7 +275,7 @@ export function NewsPage({
 				style={{ display: sidebarCollapsed ? "none" : undefined }}
 				aria-label={t("news.navigation")}
 			>
-				{SECTIONS.filter((entry) => !isEmptySection(entry.id)).map((entry) => (
+				{SECTIONS.map((entry) => (
 					<button
 						type="button"
 						key={entry.id}
@@ -200,27 +283,64 @@ export function NewsPage({
 						aria-current={section === entry.id ? "page" : undefined}
 						onClick={() => selectSection(entry.id)}
 					>
-						<span>{t(entry.key)}</span>
+						<span>{entry.key ? t(entry.key) : entry.id === "all" ? copy.latest : copy.leaderboard}</span>
 						{entry.id === "selected" && snapshot && <small>{snapshot.status.selectedCount}</small>}
+						{entry.id === "saved" && savedTotal > 0 && <small>{savedTotal}</small>}
 					</button>
 				))}
 				<hr className="owl-news-nav-divider" />
-				{MANAGEMENT.map((entry) => (
-					<button
-						type="button"
-						key={entry.id}
-						className={section === entry.id ? "is-active" : ""}
-						onClick={() => selectSection(entry.id)}
-					>
-						{t(entry.key)}
-					</button>
-				))}
+				<details
+					className="owl-news-nav-settings"
+					open={managementOpen}
+					onToggle={(event) => setManagementOpen(event.currentTarget.open)}
+				>
+					<summary>{copy.readingSettings}</summary>
+					{MANAGEMENT.map((entry) => (
+						<button
+							type="button"
+							key={entry.id}
+							className={section === entry.id ? "is-active" : ""}
+							aria-current={section === entry.id ? "page" : undefined}
+							onClick={() => selectSection(entry.id)}
+						>
+							{entry.id === "sources" ? copy.sources : copy.advanced}
+						</button>
+					))}
+				</details>
 			</nav>
 			<div className="owl-news-frame">
 				<header className="owl-news-topbar">
-					<div>
-						<button type="button" onClick={refreshed} disabled={loading}>
-							{t("common.refresh")}
+					<div className="owl-news-topbar-heading">
+						<h1>{sectionTitle}</h1>
+						<p aria-live="polite">
+							{section === "leaderboard" ? (
+								copy.leaderboardHint
+							) : (
+								<>
+									{readingStatus
+										? `${readingStatus.enabledSourceCount} ${copy.enabledSources}`
+										: snapshot
+											? `${snapshot.status.sourceCount} ${copy.sourcesLabel}`
+											: copy.automatic}
+									{isUpdating
+										? ` · ${copy.checking}`
+										: snapshot?.status.lastUpdatedAt
+											? ` · ${copy.updated} ${new Date(snapshot.status.lastUpdatedAt).toLocaleString(language === "zh" ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+											: ""}
+									{!!readingStatus?.failedSourceCount && ` · ${readingStatus.failedSourceCount} ${copy.sourceFailures}`}
+								</>
+							)}
+						</p>
+					</div>
+					<div className="owl-news-topbar-actions">
+						<button
+							type="button"
+							onClick={() =>
+								section === "leaderboard" ? setLeaderboardRevision((current) => current + 1) : void updateNews(true)
+							}
+							disabled={loading || !connected || (section !== "leaderboard" && isUpdating)}
+						>
+							{section === "leaderboard" ? copy.updateRanking : isUpdating ? emptyCopy.updating : emptyCopy.update}
 						</button>
 						<button
 							type="button"
@@ -242,7 +362,7 @@ export function NewsPage({
 						{error && (
 							<p className="owl-news-error" role="alert">
 								{error}
-								<button type="button" onClick={refreshed}>
+								<button type="button" onClick={() => void updateNews(true)} disabled={isUpdating}>
 									{t("news.retry")}
 								</button>
 							</p>
@@ -270,6 +390,7 @@ export function NewsPage({
 										key={`${target.kind}-${target.key}`}
 										kind={target.kind}
 										initialKey={target.key}
+										onViewAll={viewLatestNews}
 										{...reading}
 									/>
 								)}
@@ -277,7 +398,7 @@ export function NewsPage({
 						) : (
 							<>
 								{(section === "selected" || section === "all" || section === "saved") && (
-									<>
+									<div className="owl-news-feed-view">
 										<form
 											className="owl-news-search"
 											onSubmit={(event) => {
@@ -306,11 +427,7 @@ export function NewsPage({
 											)}
 										</form>
 										<div className="owl-news-filters">
-											<button
-												type="button"
-												className={!category ? "is-active" : ""}
-												onClick={() => setCategory("")}
-											>
+											<button type="button" className={!category ? "is-active" : ""} onClick={() => setCategory("")}>
 												{t("news.allCategories")}
 											</button>
 											{snapshot?.categories
@@ -337,14 +454,22 @@ export function NewsPage({
 											onDiscuss={discuss}
 											onChanged={refreshed}
 											itemCount={snapshot?.status.itemCount}
-											onViewAll={() => selectSection("all")}
-											onSetupSources={() => selectSection("sources")}
-											onSetupModels={() => selectSection("configuration")}
+											onViewAll={viewLatestNews}
+											onUpdate={() => void updateNews(true)}
+											updating={isUpdating}
+											onClearFilters={() => {
+												setQuery("");
+												setQueryInput("");
+												setCategory("");
+											}}
 										/>
-									</>
+									</div>
+								)}
+								{section === "leaderboard" && (
+									<NewsLeaderboard api={api} active={active && connected} revision={leaderboardRevision} />
 								)}
 								{(section === "daily" || section === "weekly" || section === "monthly") && (
-									<NewsReportReader key={section} kind={section} {...reading} />
+									<NewsReportReader key={section} kind={section} onViewAll={viewLatestNews} {...reading} />
 								)}
 								{section === "sources" && <NewsSources api={api} revision={revision} onChanged={refreshed} />}
 								{snapshot && section === "configuration" && (
@@ -360,7 +485,7 @@ export function NewsPage({
 								{!snapshot && !loading && (
 									<div className="owl-news-empty">
 										<h2>{t("news.unavailable")}</h2>
-										<button type="button" onClick={refreshed}>
+										<button type="button" onClick={() => void updateNews(true)} disabled={isUpdating}>
 											{t("news.retry")}
 										</button>
 									</div>
@@ -429,14 +554,16 @@ interface FeedProps {
 	onDiscuss: (context: NewsContext) => void;
 	onChanged: () => void;
 	itemCount?: number;
-	onViewAll?: () => void;
-	onSetupSources?: () => void;
-	onSetupModels?: () => void;
+	onViewAll: () => void;
+	onUpdate: () => void;
+	updating: boolean;
+	onClearFilters: () => void;
 }
 function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): React.JSX.Element {
 	const t = useT();
 	const emptyCopy = newsEmptyCopy[getUiLanguage()];
 	const isUnfilteredSelected = query.mode === "selected" && !query.query && !query.category && !query.topic;
+	const hasFilters = !!query.query || !!query.category || !!query.topic;
 	const hasCollectedNews = (props.itemCount ?? 0) > 0;
 	const [offset, setOffset] = useState(0);
 	const [error, setError] = useState("");
@@ -466,43 +593,47 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 			{result.error && (
 				<p className="owl-news-error" role="alert">
 					{result.error}
+					<button type="button" onClick={props.onChanged}>
+						{t("news.retry")}
+					</button>
 				</p>
 			)}
 			{result.loading && <p aria-live="polite">{t("news.loading")}</p>}
-			{result.data?.items.length === 0 && (
-				<div className={`owl-news-empty${isUnfilteredSelected ? " owl-news-first-run" : ""}`}>
+			{!result.loading && result.data?.items.length === 0 && (
+				<div className="owl-news-empty owl-news-first-run">
 					<div>
-						{isUnfilteredSelected ? (
+						{hasFilters ? (
 							<>
-								<div className="owl-news-eyebrow">AIHOT · OWL NEWS</div>
-								<h2>{hasCollectedNews ? emptyCopy.collectedTitle : t("news.firstRunTitle")}</h2>
-								<p>{hasCollectedNews ? emptyCopy.collectedHint : t("news.firstRunHint")}</p>
+								<h2>{emptyCopy.filteredTitle}</h2>
+								<p>{emptyCopy.filteredHint}</p>
+							</>
+						) : query.mode === "saved" ? (
+							<>
+								<h2>{emptyCopy.savedTitle}</h2>
+								<p>{emptyCopy.savedHint}</p>
 							</>
 						) : (
 							<>
-								<h2>{t("news.noItems")}</h2>
-								<p>{t("news.noItemsHint")}</p>
+								<h2>{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedTitle : emptyCopy.emptyTitle}</h2>
+								<p>{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedHint : emptyCopy.emptyHint}</p>
 							</>
 						)}
 					</div>
-					{isUnfilteredSelected && (
-						<div className="owl-news-first-run-actions">
-							{hasCollectedNews ? (
-								<button type="button" className="owl-news-primary" onClick={props.onViewAll}>
-									{emptyCopy.viewAll}
-								</button>
-							) : (
-								<>
-									<button type="button" className="owl-news-primary" onClick={props.onSetupSources}>
-										{t("news.setupSources")}
-									</button>
-									<button type="button" onClick={props.onSetupModels}>
-										{t("news.setupModels")}
-									</button>
-								</>
-							)}
-						</div>
-					)}
+					<div className="owl-news-first-run-actions">
+						{hasFilters ? (
+							<button type="button" className="owl-news-primary" onClick={props.onClearFilters}>
+								{emptyCopy.clearFilters}
+							</button>
+						) : query.mode === "saved" || (isUnfilteredSelected && hasCollectedNews) ? (
+							<button type="button" className="owl-news-primary" onClick={props.onViewAll}>
+								{emptyCopy.viewAll}
+							</button>
+						) : (
+							<button type="button" className="owl-news-primary" onClick={props.onUpdate} disabled={props.updating}>
+								{props.updating ? emptyCopy.updating : emptyCopy.update}
+							</button>
+						)}
+					</div>
 				</div>
 			)}
 			<div className="owl-news-feed">
@@ -514,11 +645,21 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 						<div className="owl-news-meta">
 							<span className="owl-news-source-letter">{item.sourceName.slice(0, 1)}</span>
 							<span>{item.sourceName}</span>
-							<time>{new Date(item.publishedAt).toLocaleString()}</time>
+							<time dateTime={item.publishedAt}>
+								{new Date(item.publishedAt).toLocaleString(getUiLanguage() === "zh" ? "zh-CN" : "en-US", {
+									month: "short",
+									day: "numeric",
+									hour: "2-digit",
+									minute: "2-digit",
+								})}
+							</time>
 							{props.categories?.find((category) => category.id === item.category)?.label && (
 								<span>{props.categories.find((category) => category.id === item.category)?.label}</span>
 							)}
 							{item.selected && <span className="owl-news-accent">{t("news.selected")}</span>}
+							{item.contentOrigin === "source" && (
+								<span>{getUiLanguage() === "zh" ? "原文摘录" : "Source excerpt"}</span>
+							)}
 							{item.status !== "ready" && <span>{t(`news.status.${item.status}`)}</span>}
 						</div>
 						<button type="button" className="owl-news-title-link" onClick={() => props.onItem(item.id)}>
@@ -590,11 +731,13 @@ function useCategoryCounts(
 		if (!ids) return;
 		let current = true;
 		void Promise.all(
-			ids.split(",").map((id) =>
-				api
-					.query({ action: "list", query: { mode, category: id, limit: 1 } })
-					.then((result) => [id, result.total] as const),
-			),
+			ids
+				.split(",")
+				.map((id) =>
+					api
+						.query({ action: "list", query: { mode, category: id, limit: 1 } })
+						.then((result) => [id, result.total] as const),
+				),
 		).then(
 			(entries) => {
 				if (current) setCounts(Object.fromEntries(entries));

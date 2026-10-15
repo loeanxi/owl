@@ -148,6 +148,13 @@ export class NewsStore {
 		const row = this.db.prepare("SELECT data FROM news_sources WHERE id=?").get(id);
 		return row ? (JSON.parse(String(row.data)) as NewsSource) : null;
 	}
+	/** Legacy seed writes once; any later save is an explicit source preference. */
+	sourceHasUserEdits(id: string): boolean {
+		const row = this.db
+			.prepare("SELECT count(*) AS n FROM news_audit WHERE action='source.save' AND subject=?")
+			.get(id);
+		return Number(row?.n ?? 0) > 1;
+	}
 	saveSource(input: NewsSourceInput): NewsSource {
 		const old = this.source(input.id);
 		const now = new Date().toISOString();
@@ -194,7 +201,7 @@ export class NewsStore {
 		this.db.prepare("UPDATE news_items SET data=? WHERE id=?").run(JSON.stringify(item), item.id);
 	}
 	/** Source identity distinguishes independent publishers; URL tracking never creates another revision. */
-	ingest(source: NewsSource, input: NewsMaterial): { item: NewsItem; changed: boolean } {
+	ingest(source: NewsSource, input: NewsMaterial, enqueueAnalysis = true): { item: NewsItem; changed: boolean } {
 		return this.transaction(() => {
 			const material = {
 				...input,
@@ -225,8 +232,19 @@ export class NewsStore {
 				material.body ?? null,
 				material.publishedAt ?? null,
 				material.author ?? null,
+				...(material.summary ? [material.summary] : []),
 			]);
 			if (old && oldRow?.fingerprint === fingerprint) return { item: old, changed: false };
+			// The free reader never reopens an editorial decision or races a running model.
+			// The explicitly enabled editorial collector owns revisions of these records.
+			if (
+				!enqueueAnalysis &&
+				old &&
+				(old.status === "blocked" ||
+					old.status === "processing" ||
+					(old.status === "ready" && old.contentOrigin !== "source"))
+			)
+				return { item: old, changed: false };
 			const now = new Date().toISOString();
 			const revision = (old?.revision ?? 0) + 1;
 			const parsedPublished = material.publishedAt ? Date.parse(material.publishedAt) : Number.NaN;
@@ -272,7 +290,7 @@ export class NewsStore {
 			this.db
 				.prepare("INSERT INTO news_revisions VALUES(?,?,?,?)")
 				.run(item.id, revision, JSON.stringify(material), now);
-			this.enqueue("analyze", item.id, { revision }, `analyze:${item.id}:${revision}`);
+			if (enqueueAnalysis) this.enqueue("analyze", item.id, { revision }, `analyze:${item.id}:${revision}`);
 			return { item, changed: true };
 		});
 	}
@@ -283,6 +301,7 @@ export class NewsStore {
 		const updated: NewsItem = {
 			...item,
 			...analysis,
+			contentOrigin: "editorial",
 			status: analysis.relevance === "block" ? "blocked" : "ready",
 			body: item.fulltextAllowed ? item.originalBody : null,
 			updatedAt: new Date().toISOString(),

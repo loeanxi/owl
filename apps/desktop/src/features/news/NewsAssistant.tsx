@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import type { NewsAssistantResult, NewsItem, NewsSnapshot } from "../../../../../packages/coding-agent/src/core/news/types.ts";
-import { useT } from "../../i18n/index.ts";
+import type {
+	NewsAssistantResult,
+	NewsItem,
+	NewsSnapshot,
+} from "../../../../../packages/coding-agent/src/core/news/types.ts";
+import { getUiLanguage, useT } from "../../i18n/index.ts";
 import { NewsModelTest } from "./NewsModelTest.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
 
@@ -44,6 +48,21 @@ export function NewsAssistant({
 	prefill?: { id: number; text: string };
 }): React.JSX.Element {
 	const t = useT();
+	const copy =
+		getUiLanguage() === "zh"
+			? {
+					contextEmpty: "选择一条资讯的「问 Owl」，即可结合来源讨论。",
+					emptyTitle: "把感兴趣的资讯聊明白",
+					emptyHint: "解读影响、核对证据，或选两条资讯进行比较。也可以直接输入问题。",
+					settings: "助手设置与连接测试",
+				}
+			: {
+					contextEmpty: "Choose Ask Owl on a story to discuss it with its sources.",
+					emptyTitle: "Take a closer look at a story",
+					emptyHint:
+						"Explore its impact, review the evidence, or compare two stories. You can also ask a question directly.",
+					settings: "Assistant settings & connection test",
+				};
 	const [question, setQuestion] = useState("");
 	const [turns, setTurns] = useState<AssistantTurn[]>([]);
 	const [busy, setBusy] = useState(false);
@@ -51,7 +70,9 @@ export function NewsAssistant({
 	const [error, setError] = useState("");
 	const hasContext = context.items.length > 0 || !!context.storyId || !!context.reportId;
 	const model = snapshot?.configuration.models.assistant;
-	const modelName = snapshot?.models.find((entry) => entry.provider === model?.provider && entry.id === model?.id)?.name;
+	const modelName = snapshot?.models.find(
+		(entry) => entry.provider === model?.provider && entry.id === model?.id,
+	)?.name;
 	useEffect(() => {
 		if (prefill) setQuestion(prefill.text);
 	}, [prefill]);
@@ -146,11 +167,10 @@ export function NewsAssistant({
 					</div>
 				)}
 				{context.items.length === 0 && !context.storyId && !context.reportId && (
-					<p className="owl-news-muted">{t("news.contextEmpty")}</p>
+					<p className="owl-news-muted">{copy.contextEmpty}</p>
 				)}
 			</div>
 			<div className="owl-news-assistant-messages" aria-live="polite">
-				<NewsModelTest api={api} model={model} modelName={modelName} disabled={busy || !connected || !snapshot} onBusyChange={setTesting} />
 				{turns.length === 0 && hasContext && (
 					<>
 						<h3>{t("news.assistantGreeting")}</h3>
@@ -166,13 +186,9 @@ export function NewsAssistant({
 					</>
 				)}
 				{turns.length === 0 && !hasContext && (
-					<div className="owl-news-assistant-setup">
-						<h3>{t("news.assistantFirstRunTitle")}</h3>
-						<p className="owl-news-muted">{t("news.assistantFirstRunHint")}</p>
-						<button type="button" onClick={onConfigureSources}>{t("news.setupSources")}</button>
-						<button type="button" onClick={onOpenModelSettings}>{t("news.manageModelServices")}</button>
-						<button type="button" onClick={onConfigureModels}>{t("news.chooseAssistantModel")}</button>
-						<button type="button" onClick={() => setQuestion(t("news.assistantSetupPrompt"))}>{t("news.assistantSetupPrompt")}</button>
+					<div className="owl-news-assistant-welcome">
+						<h3>{copy.emptyTitle}</h3>
+						<p className="owl-news-muted">{copy.emptyHint}</p>
 					</div>
 				)}
 				{turns.map((turn, index) => (
@@ -192,9 +208,37 @@ export function NewsAssistant({
 				{error && (
 					<p className="owl-news-error" role="alert">
 						{error}
-						{!snapshot?.configuration.modelCallsEnabled && <button type="button" onClick={onConfigureModels}>{t("news.chooseAssistantModel")}</button>}
+						{!snapshot?.configuration.modelCallsEnabled && (
+							<button type="button" onClick={onConfigureModels}>
+								{t("news.chooseAssistantModel")}
+							</button>
+						)}
 					</p>
 				)}
+				<details className="owl-news-assistant-options">
+					<summary>{copy.settings}</summary>
+					<NewsModelTest
+						api={api}
+						model={model}
+						modelName={modelName}
+						disabled={busy || !connected || !snapshot}
+						onBusyChange={setTesting}
+					/>
+					<div className="owl-news-assistant-setup">
+						<button type="button" onClick={onConfigureModels}>
+							{t("news.chooseAssistantModel")}
+						</button>
+						<button type="button" onClick={onOpenModelSettings}>
+							{t("news.manageModelServices")}
+						</button>
+						<button type="button" onClick={onConfigureSources}>
+							{t("news.setupSources")}
+						</button>
+						<button type="button" onClick={() => setQuestion(t("news.assistantSetupPrompt"))}>
+							{t("news.assistantSetupPrompt")}
+						</button>
+					</div>
+				</details>
 			</div>
 			<form
 				className="owl-news-assistant-composer"
@@ -212,10 +256,18 @@ export function NewsAssistant({
 					rows={3}
 				/>
 				<div className="owl-news-small-row">
-					<button type="button" disabled={busy || testing || (!hasContext && !turns.length && !question.trim())} onClick={toChat}>
+					<button
+						type="button"
+						disabled={busy || testing || (!hasContext && !turns.length && !question.trim())}
+						onClick={toChat}
+					>
 						{t("news.toChat")}
 					</button>
-					<button type="submit" className="owl-news-primary" disabled={busy || testing || !connected || !question.trim()}>
+					<button
+						type="submit"
+						className="owl-news-primary"
+						disabled={busy || testing || !connected || !question.trim()}
+					>
 						{t("composer.send")}
 					</button>
 				</div>

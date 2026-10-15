@@ -280,6 +280,12 @@ export async function handleNewsHttp(
 				info: { title: "Owl 资讯本地接口", version: "1.0.0" },
 				servers: [{ url: "/api/news/v1" }],
 				paths: {
+					"/leaderboard": {
+						get: {
+							summary: "公开模型测评榜单与同步状态",
+							responses: { "200": { description: "独立榜单、来源、时间与缓存状态" } },
+						},
+					},
 					"/items": {
 						get: {
 							summary: "精选、全部动态与搜索",
@@ -372,7 +378,8 @@ export async function handleNewsHttp(
 		}
 		const path = url.pathname.replace("/api/news/v1/", "").split("/").filter(Boolean).map(decodeURIComponent);
 		let query: NewsRequest;
-		if (path[0] === "items" && !path[1]) query = { action: "list", query: listQuery(url) };
+		if (path[0] === "leaderboard" && !path[1]) query = { action: "leaderboard" };
+		else if (path[0] === "items" && !path[1]) query = { action: "list", query: listQuery(url) };
 		else if (path[0] === "items" && path[1]) query = { action: "item", id: path[1] };
 		else if (path[0] === "stories" && path[1]) query = { action: "story", id: path[1] };
 		else if (path[0] === "hot") query = { action: "hot", limit: limit(url.searchParams.get("limit"), 10) };

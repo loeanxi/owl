@@ -8,9 +8,10 @@ export class NewsClient {
 	constructor(bridge: BridgeClient) {
 		this.bridge = bridge;
 	}
-	query<A extends NewsRequest["action"]>(
-		request: Extract<NewsRequest, { action: A }>,
-	): Promise<NewsResultByAction[A]> {
+	ready(force = false): Promise<NewsResultByAction["ready"]> {
+		return this.query({ action: "ready", force });
+	}
+	query<A extends NewsRequest["action"]>(request: Extract<NewsRequest, { action: A }>): Promise<NewsResultByAction[A]> {
 		return new Promise<NewsResultByAction[A]>((resolve, reject) => {
 			const timer = setTimeout(
 				() => reject(new Error(t("news.timeout"))),

@@ -16,6 +16,7 @@ import {
 } from "./editorial.ts";
 import { exportNewsItems } from "./export.ts";
 import { DEFAULT_NEWS_CONFIGURATION, DEMO_NEWS_SOURCES, NEWS_CATEGORIES, NEWS_TOPICS } from "./industry.ts";
+import { NewsLeaderboardService } from "./leaderboard.ts";
 import { newsModelFailureMessage } from "./model-error.ts";
 import {
 	collectNewsSource,
@@ -28,6 +29,7 @@ import {
 	type NewsFetchOptions,
 	NewsHttpRejectedError,
 	NewsPaidOutputError,
+	newsPlainText,
 	publicNewsSource,
 } from "./sources.ts";
 import {
@@ -51,6 +53,8 @@ import type {
 	NewsModelResponse,
 	NewsModelResponseCache,
 	NewsModelTestResult,
+	NewsReaderStatus,
+	NewsReadyResult,
 	NewsReport,
 	NewsReportKind,
 	NewsRequest,
@@ -74,6 +78,17 @@ interface NewsHeatSnapshot {
 	at: number;
 	values: Record<string, number>;
 }
+
+const READER_SOURCE_IDS = new Set([
+	"rss-openai-news",
+	"rss-google-deepmind",
+	"rss-google-research",
+	"rss-hugging-face",
+	"rss-microsoft-research",
+	"rss-github-ai",
+	"rss-ars-technica-ai",
+	"rss-the-decoder",
+]);
 
 function bounded(value: unknown, minimum: number, maximum: number, label: string): number {
 	const number = Number(value);
@@ -147,6 +162,8 @@ export class NewsService {
 	private secrets: Record<string, string> = {};
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private loop: Promise<void> | null = null;
+	private readerLoop: Promise<void> | null = null;
+	private leaderboard: NewsLeaderboardService;
 	private pending = new Set<Promise<unknown>>();
 	private responseReceipts = new WeakMap<object, { id: string; attempt: number }>();
 	private sourceResponseFlights = new Map<string, Promise<unknown>>();
@@ -160,6 +177,7 @@ export class NewsService {
 		this.directory = join(options.agentDir, "news");
 		this.store = new NewsStore(join(this.directory, "news.sqlite"));
 		this.configuration = this.store.configuration(DEFAULT_NEWS_CONFIGURATION);
+		this.leaderboard = new NewsLeaderboardService(this.store, this.fetchOptions());
 		const secretsPath = join(this.directory, "secrets.json");
 		if (existsSync(secretsPath)) {
 			const loaded = JSON.parse(readFileSync(secretsPath, "utf8")) as Record<string, unknown>;
@@ -198,7 +216,11 @@ export class NewsService {
 		this.stopping = true;
 		const abortTimer = setTimeout(() => this.controller.abort(new Error("资讯服务关闭")), 195000);
 		try {
-			await Promise.allSettled([...(this.loop ? [this.loop] : []), ...this.pending]);
+			await Promise.allSettled([
+				...(this.loop ? [this.loop] : []),
+				...(this.readerLoop ? [this.readerLoop] : []),
+				...this.pending,
+			]);
 		} finally {
 			if (this.timer) clearInterval(this.timer);
 			clearTimeout(abortTimer);
@@ -209,6 +231,148 @@ export class NewsService {
 	}
 	private changed(): void {
 		this.options.onChanged?.();
+	}
+	private readerSources(): NewsSource[] {
+		return this.store
+			.sources()
+			.filter(
+				(source) =>
+					source.enabled &&
+					source.kind === "rss" &&
+					source.participation === "editorial" &&
+					JSON.stringify(publicNewsSource(source).config) === JSON.stringify(source.config),
+			);
+	}
+	private readReaderStatus(sources = this.readerSources()): NewsReaderStatus {
+		return {
+			lastUpdatedAt:
+				sources
+					.map((source) => source.lastCollectedAt)
+					.filter((at): at is string => !!at)
+					.sort()
+					.at(-1) ?? null,
+			enabledSourceCount: sources.length,
+			failedSourceCount: sources.filter((source) => !!source.lastError).length,
+		};
+	}
+	/** Opening the reader enables only untouched public feed defaults, never paid processing. */
+	private ready(force = false): NewsReadyResult {
+		if (!this.store.getMeta("reader-sources-v1")) {
+			for (const seed of DEMO_NEWS_SOURCES) {
+				if (!READER_SOURCE_IDS.has(seed.id)) continue;
+				const source = this.store.source(seed.id);
+				if (
+					source &&
+					!source.enabled &&
+					!source.lastCollectedAt &&
+					source.createdAt === source.updatedAt &&
+					!this.store.sourceHasUserEdits(source.id) &&
+					newsHash(source.config) === newsHash(seed.config) &&
+					source.kind === seed.kind &&
+					source.participation === seed.participation
+				)
+					this.store.writeSource({ ...source, enabled: true });
+			}
+			this.store.setMeta("reader-sources-v1", true);
+		}
+		const sources = this.readerSources();
+		let queued = 0;
+		if (!this.readerLoop && !this.lostLease) {
+			const now = Date.now();
+			const due = sources.filter((source) => {
+				const attempted = this.store.getMeta<number>(`reader-attempt:${source.id}`) ?? 0;
+				return now - attempted >= (force ? 60000 : source.lastError ? 120000 : 30 * 60000);
+			});
+			if (due.length && this.store.acquireLease(this.owner)) {
+				this.lease = true;
+				queued = due.length;
+				for (const source of due) this.store.setMeta(`reader-attempt:${source.id}`, now);
+				this.readerLoop = this.refreshReaderSources(due)
+					.catch((error) => this.store.audit("reader.error", "reader", { error: this.message(error) }))
+					.finally(() => {
+						this.readerLoop = null;
+						this.changed();
+					});
+			}
+		}
+		return {
+			...this.readReaderStatus(sources),
+			queued,
+			refreshing: !!this.readerLoop,
+		};
+	}
+	private async refreshReaderSources(sources: NewsSource[]): Promise<void> {
+		const queue = [...sources];
+		await Promise.all(
+			Array.from({ length: Math.min(3, sources.length) }, async () => {
+				for (;;) {
+					const source = queue.shift();
+					if (!source || this.stopping || this.lostLease) return;
+					try {
+						this.ensureLease();
+						let cursor = this.store.getMeta<Record<string, unknown>>(`reader-source-cursor:${source.id}`) ?? {};
+						const materials = await collectNewsSource(source, {
+							...this.fetchOptions(),
+							allowPrivateNetwork: false,
+							timeoutMs: 15000,
+							maxItems: Math.min(30, this.configuration.maxItemsPerSource),
+							cursor,
+							onCursor: (value) => {
+								cursor = value;
+							},
+						});
+						this.ensureLease();
+						const currentSource = this.store.source(source.id);
+						if (!currentSource?.enabled || newsHash(currentSource.config) !== newsHash(source.config)) continue;
+						this.store.transaction(() => {
+							for (const material of materials) {
+								const result = this.store.ingest(currentSource, material, false);
+								if (!result.changed && ["ready", "blocked", "processing"].includes(result.item.status))
+									continue;
+								const excerpt = newsPlainText(material.summary || material.body || "");
+								const title = material.title;
+								const category = /\b(model|gpt|claude|gemini|llama|qwen|deepseek)\b|模型/i.test(title)
+									? "ai-models"
+									: /\b(paper|research|benchmark|study)\b|论文|研究|基准/i.test(title)
+										? "paper"
+										: /\b(tutorial|guide|how to)\b|教程|指南/i.test(title)
+											? "tip"
+											: /\b(api|app|tool|release|launch|introducing)\b|产品|工具/i.test(title)
+												? "ai-products"
+												: "industry";
+								this.store.commitAnalysis(result.item.id, result.item.revision, {
+									relevance: "pass",
+									scores: [],
+									score: null,
+									selectionCandidate: false,
+									title,
+									summary: excerpt.length > 600 ? `${excerpt.slice(0, 600)}…` : excerpt,
+									reason: "信源原文摘录，未进行 AI 改写或评分。",
+									category,
+									tags: [],
+									entities: [],
+									contentKind: "unknown",
+									fact: null,
+								});
+								this.store.editItem(result.item.id, { contentOrigin: "source" });
+							}
+							this.store.writeSource({
+								...currentSource,
+								lastCollectedAt: new Date().toISOString(),
+								lastError: null,
+							});
+							this.store.setMeta(`reader-source-cursor:${source.id}`, cursor);
+						});
+					} catch (error) {
+						if (this.lostLease) return;
+						const current = this.store.source(source.id);
+						if (current) this.store.writeSource({ ...current, lastError: this.message(error) });
+					} finally {
+						this.changed();
+					}
+				}
+			}),
+		);
 	}
 	private kick(): void {
 		if (!this.started || this.stopping || this.lostLease || this.loop) return;
@@ -561,8 +725,8 @@ export class NewsService {
 				});
 				this.ensureLease();
 				this.store.transaction(() => {
-					for (const material of items)
-						this.store.ingest(source, {
+					for (const material of items) {
+						const ingested = this.store.ingest(source, {
 							...material,
 							backfill:
 								material.backfill ||
@@ -570,6 +734,14 @@ export class NewsService {
 									!!material.publishedAt &&
 									Date.now() - Date.parse(material.publishedAt) > 7 * 86400000),
 						});
+						if (ingested.item.contentOrigin === "source")
+							this.store.enqueue(
+								"analyze",
+								ingested.item.id,
+								{ revision: ingested.item.revision },
+								`analyze:${ingested.item.id}:${ingested.item.revision}`,
+							);
+					}
 					this.store.writeSource({
 						...source,
 						lastCollectedAt: new Date().toISOString(),
@@ -1013,9 +1185,10 @@ export class NewsService {
 		const items = this.store.items();
 		return {
 			status: {
+				reader: this.readReaderStatus(),
 				collectEnabled: this.configuration.collectEnabled,
 				modelCallsEnabled: this.configuration.modelCallsEnabled,
-				running: !!this.loop,
+				running: !!this.loop || !!this.readerLoop,
 				sourceCount: this.store.sources().length,
 				itemCount: items.length,
 				selectedCount: items.filter((item) => this.visible(item) && item.selected).length,
@@ -1064,6 +1237,10 @@ export class NewsService {
 	}
 	private async dispatch(request: NewsRequest): Promise<NewsResultByAction[NewsRequest["action"]]> {
 		switch (request.action) {
+			case "ready":
+				return this.ready(request.force === true);
+			case "leaderboard":
+				return this.leaderboard.get(request.force === true);
 			case "snapshot":
 				return this.snapshot();
 			case "list":

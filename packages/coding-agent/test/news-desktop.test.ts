@@ -46,6 +46,16 @@ const model: Model<"openai-completions"> = {
 };
 
 describe("Owl news desktop seams", () => {
+	it("public leaderboard exposes provenance without enabling refresh or management writes", async () => {
+		const handle = vi.fn(async (_request: NewsRequest) => ({ boards: [], refreshIntervalMinutes: 30 }));
+		const base = await http(handle);
+		const response = await fetch(`${base}/api/news/v1/leaderboard?force=true`);
+		expect(response.status).toBe(200);
+		expect(handle).toHaveBeenCalledExactlyOnceWith({ action: "leaderboard" });
+		expect(await response.json()).toMatchObject({ data: { boards: [], refreshIntervalMinutes: 30 } });
+		expect((await fetch(`${base}/api/news/v1/leaderboard`, { method: "POST" })).status).toBe(405);
+		expect((await fetch(`${base}/api/news/v1/ready`)).status).toBe(404);
+	});
 	it("public HTTP reads select the publication interface and reject write methods", async () => {
 		const handle = vi.fn(async (_request: NewsRequest) => ({ items: [], total: 0 }));
 		const base = await http(handle);

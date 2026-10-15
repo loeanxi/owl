@@ -51,8 +51,7 @@ export function NewsItemReader({
 		bodyInputRef.current?.focus({ preventScroll: true });
 	}, [bodyImportOpen]);
 	useEffect(() => {
-		if (!result.loading && (bodyError || bodyNotice))
-			bodyFeedbackRef.current?.scrollIntoView({ block: "nearest" });
+		if (!result.loading && (bodyError || bodyNotice)) bodyFeedbackRef.current?.scrollIntoView({ block: "nearest" });
 	}, [bodyError, bodyNotice, result.loading]);
 	async function mutate(operation: () => Promise<unknown>): Promise<void> {
 		setBusy(true);
@@ -127,10 +126,10 @@ export function NewsItemReader({
 	const item = result.data;
 	if (!item) return <div className="owl-news-empty">{t("news.itemUnavailable")}</div>;
 	const originalBodyAvailable = item.originalBodyAvailable ?? !!item.originalBody;
-	const bodyCanWrite =
-		management && !originalBodyAvailable && (item.status === "pending" || item.status === "failed");
+	const bodyCanWrite = management && !originalBodyAvailable && (item.status === "pending" || item.status === "failed");
 	const bodyCanOpen = bodyCanWrite || (management && !originalBodyAvailable && item.status === "processing");
 	const categoryLabel = props.snapshot?.categories.find((category) => category.id === item.category)?.label;
+	const sourceExcerpt = item.contentOrigin === "source";
 	return (
 		<article
 			className="owl-news-reading"
@@ -144,7 +143,13 @@ export function NewsItemReader({
 				<span>{item.sourceName}</span>
 				<time>{new Date(item.publishedAt).toLocaleString()}</time>
 				{categoryLabel && <span>{categoryLabel}</span>}
-				<span>{t(`news.status.${item.status}`)}</span>
+				<span>
+					{sourceExcerpt
+						? getUiLanguage() === "zh"
+							? "原文摘录"
+							: "Source excerpt"
+						: t(`news.status.${item.status}`)}
+				</span>
 			</div>
 			<h1>{item.title || item.originalTitle}</h1>
 			{item.withdrawn && <p className="owl-news-notice">{t("news.withdrawn")}</p>}
@@ -314,7 +319,7 @@ export function NewsItemReader({
 					{t("news.recommendation")}: {item.reason}
 				</p>
 			)}
-			{item.originalBody && item.fulltextAllowed && (
+			{!sourceExcerpt && item.originalBody && item.fulltextAllowed && (
 				<div className="owl-news-tabs">
 					<button type="button" className={!original ? "is-active" : ""} onClick={() => setOriginal(false)}>
 						{t("news.translation")}
@@ -326,7 +331,12 @@ export function NewsItemReader({
 			)}
 			<div className="owl-news-prose">
 				{item.fulltextAllowed
-					? (original ? item.originalBody : item.body) || t("news.bodyPending")
+					? (original ? item.originalBody : item.body) ||
+						(sourceExcerpt
+							? getUiLanguage() === "zh"
+								? "该信源未提供完整正文，可以打开原文继续阅读。"
+								: "The source did not include the full article. Open the original to continue reading."
+							: t("news.bodyPending"))
 					: t("news.summaryOnly")}
 			</div>
 			{item.tags.length > 0 && (
@@ -594,8 +604,9 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 export function NewsReportReader({
 	kind,
 	initialKey = "",
+	onViewAll,
 	...props
-}: ReadingProps & { kind: NewsReportKind; initialKey?: string }): React.JSX.Element {
+}: ReadingProps & { kind: NewsReportKind; initialKey?: string; onViewAll?: () => void }): React.JSX.Element {
 	const t = useT();
 	const [key, setKey] = useState(initialKey);
 	const archive = useNewsQuery(props.api, { action: "reports", kind, limit: 60 }, props.revision);
@@ -617,18 +628,33 @@ export function NewsReportReader({
 			{archive.error && (
 				<p className="owl-news-error" role="alert">
 					{archive.error}
+					<button type="button" onClick={props.onChanged}>
+						{t("news.retry")}
+					</button>
 				</p>
 			)}
 			{result.loading && <p aria-live="polite">{t("news.loading")}</p>}
 			{result.error && (
 				<p className="owl-news-error" role="alert">
 					{result.error}
+					<button type="button" onClick={props.onChanged}>
+						{t("news.retry")}
+					</button>
 				</p>
 			)}
 			{!result.loading && !result.error && !result.data && (
 				<div className="owl-news-empty">
 					<h2>{t("news.noReports")}</h2>
-					<p>{t("news.noReportsHint")}</p>
+					<p>
+						{getUiLanguage() === "zh"
+							? "这个时间段还没有刊物。可以先浏览最新资讯，或选择已有的往期刊物。"
+							: "There is no edition for this period. Browse the latest news or choose an available edition."}
+					</p>
+					{onViewAll && (
+						<button type="button" className="owl-news-primary owl-news-empty-action" onClick={onViewAll}>
+							{getUiLanguage() === "zh" ? "查看最新资讯" : "View latest news"}
+						</button>
+					)}
 				</div>
 			)}
 			{result.data && (

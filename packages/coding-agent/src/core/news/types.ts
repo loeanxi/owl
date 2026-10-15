@@ -1,4 +1,38 @@
 /** Shared desktop/news contracts. No credentials or Node-only imports cross this interface. */
+export interface NewsLeaderboardEntry {
+	id: string;
+	rank: number;
+	model: string;
+	organization?: string;
+	score: number;
+	url?: string;
+	detail?: string;
+}
+
+export interface NewsLeaderboardBoard {
+	id: "livebench-overall" | "swe-bench-verified";
+	title: string;
+	category: "general" | "coding";
+	description: string;
+	sourceName: string;
+	sourceUrl: string;
+	dataUrl: string;
+	metric: string;
+	scoreUnit: string;
+	/** Benchmark release date, or the latest included submission date; never the fetch date. */
+	updatedAt: string | null;
+	/** Last successful fetch, independent of the benchmark's release date. */
+	checkedAt: string | null;
+	stale: boolean;
+	error: string | null;
+	entries: NewsLeaderboardEntry[];
+}
+
+export interface NewsLeaderboardResponse {
+	boards: NewsLeaderboardBoard[];
+	refreshIntervalMinutes: number;
+}
+
 export type NewsSourceKind = "rss" | "web_list" | "json_list" | "x_search" | "mp_account" | "external";
 export type NewsTier = "T1" | "T1_5" | "T2" | "EXCLUDE_MP";
 export type NewsParticipation = "editorial" | "hot_signal" | "isolated";
@@ -45,6 +79,8 @@ export type NewsSourceInput = Omit<
 export interface NewsMaterial {
 	title: string;
 	url: string;
+	/** Publisher-provided feed excerpt; never treated as a complete article body. */
+	summary?: string;
 	body?: string;
 	publishedAt?: string;
 	author?: string;
@@ -75,6 +111,7 @@ export interface NewsAnalysis {
 	fact: NewsFactFrame | null;
 }
 export interface NewsItem extends NewsAnalysis {
+	contentOrigin?: "source" | "editorial";
 	id: string;
 	sourceId: string;
 	sourceName: string;
@@ -240,6 +277,7 @@ export interface NewsReceipt {
 	error: string | null;
 }
 export interface NewsStatus {
+	reader?: NewsReaderStatus;
 	collectEnabled: boolean;
 	modelCallsEnabled: boolean;
 	running: boolean;
@@ -258,6 +296,15 @@ export interface NewsSnapshot {
 	configuration: NewsConfiguration;
 	categories: { id: string; label: string }[];
 	models: { provider: string; id: string; name: string }[];
+}
+export interface NewsReaderStatus {
+	lastUpdatedAt: string | null;
+	enabledSourceCount: number;
+	failedSourceCount: number;
+}
+export interface NewsReadyResult extends NewsReaderStatus {
+	queued: number;
+	refreshing: boolean;
 }
 export interface NewsListQuery {
 	mode?: "selected" | "all" | "saved";
@@ -316,6 +363,8 @@ export interface NewsFeedDiscovery {
 }
 
 export type NewsRequest =
+	| { action: "ready"; force?: boolean }
+	| { action: "leaderboard"; force?: boolean }
 	| { action: "adminItems"; query?: NewsListQuery; status?: NewsItem["status"] | "withdrawn" }
 	| { action: "adminItem"; id: string }
 	| { action: "snapshot" }
@@ -354,6 +403,8 @@ export type NewsRequest =
 	| { action: "backup" };
 
 export interface NewsResultByAction {
+	ready: NewsReadyResult;
+	leaderboard: NewsLeaderboardResponse;
 	adminItems: NewsListResult;
 	adminItem: NewsItem | null;
 	snapshot: NewsSnapshot;

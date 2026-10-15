@@ -286,6 +286,7 @@ export function parseNewsFeed(text: string, base: string, summaryIsBody = false)
 			{
 				title,
 				url,
+				summary: newsPlainText(nodeText(["description", "summary"])) || undefined,
 				body: rawBody ? newsPlainText(rawBody) : undefined,
 				publishedAt: Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined,
 				author: direct(["creator", "author"])?.textContent?.trim() || undefined,

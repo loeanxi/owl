@@ -1,0 +1,213 @@
+.owl-leaderboard {
+	max-width: 1120px;
+	margin: 0 auto;
+}
+.owl-leaderboard-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 24px;
+	margin-bottom: 26px;
+}
+.owl-leaderboard-heading p {
+	color: var(--owl-ui-muted);
+	margin-top: 8px;
+	max-width: 70ch;
+}
+.owl-leaderboard-heading > button {
+	flex-shrink: 0;
+}
+.owl-leaderboard-tabs {
+	display: flex;
+	gap: 24px;
+	border-bottom: 1px solid var(--owl-ui-border);
+	margin-bottom: 24px;
+}
+.owl-leaderboard-tabs button {
+	display: grid;
+	gap: 4px;
+	text-align: left;
+	padding: 0 4px 12px;
+	border-bottom: 2px solid transparent;
+	color: var(--owl-ui-muted);
+}
+.owl-leaderboard-tabs strong {
+	font-size: 15px;
+	font-weight: 600;
+}
+.owl-leaderboard-tabs span {
+	font-size: 11px;
+}
+.owl-leaderboard-tabs button[aria-pressed="true"] {
+	color: var(--owl-ui-text);
+	border-bottom-color: var(--color-owl-accent);
+}
+.owl-leaderboard-tabs button:hover {
+	color: var(--color-owl-accent);
+}
+.owl-leaderboard-source {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 20px;
+}
+.owl-leaderboard-source h2 {
+	margin: 0 0 8px;
+	font-size: 20px;
+}
+.owl-leaderboard-source p {
+	max-width: 75ch;
+	color: var(--owl-ui-muted);
+}
+.owl-leaderboard-source > button,
+.owl-leaderboard-footer button {
+	flex-shrink: 0;
+	color: var(--color-owl-accent);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+.owl-leaderboard-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px 32px;
+	margin: 20px 0 10px;
+	font-size: 12px;
+}
+.owl-leaderboard-meta div {
+	display: grid;
+	gap: 4px;
+}
+.owl-leaderboard-meta dt {
+	color: var(--owl-ui-muted);
+}
+.owl-leaderboard-meta dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+.owl-leaderboard-status {
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+}
+.owl-leaderboard-tools {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin: 24px 0 14px;
+}
+.owl-leaderboard-tools input {
+	width: min(100%, 340px);
+}
+.owl-leaderboard-tools span {
+	color: var(--owl-ui-muted);
+	font-size: 12px;
+	white-space: nowrap;
+}
+.owl-leaderboard-scroll {
+	overflow: auto;
+	scrollbar-color: var(--owl-ui-border) transparent;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 12px;
+}
+.owl-leaderboard table {
+	width: 100%;
+	border-collapse: collapse;
+	background: var(--owl-ui-panel);
+}
+.owl-leaderboard caption {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+.owl-leaderboard th,
+.owl-leaderboard td {
+	padding: 14px 16px;
+	text-align: left;
+	border-bottom: 1px solid var(--owl-ui-border);
+}
+.owl-leaderboard thead th {
+	color: var(--owl-ui-muted);
+	background: var(--owl-ui-sidebar);
+	font-size: 11px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+.owl-leaderboard tbody th {
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+.owl-leaderboard tbody th strong {
+	display: block;
+	font-weight: 550;
+}
+.owl-leaderboard tbody th small {
+	display: block;
+	font-size: 11px;
+	margin-top: 3px;
+	color: var(--owl-ui-muted);
+}
+.owl-leaderboard tbody tr:last-child > * {
+	border-bottom: 0;
+}
+.owl-leaderboard tbody tr:hover {
+	background: var(--owl-ui-hover);
+}
+.owl-leaderboard .owl-leaderboard-score {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.owl-leaderboard tbody .owl-leaderboard-score {
+	font-size: 16px;
+	font-weight: 600;
+}
+.owl-leaderboard-rank {
+	width: 56px;
+	color: var(--owl-ui-muted);
+	font-variant-numeric: tabular-nums;
+}
+.owl-leaderboard-detail {
+	max-width: 220px;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+	overflow-wrap: anywhere;
+}
+.owl-leaderboard-more {
+	display: block;
+	margin: 14px auto;
+	padding: 8px 14px;
+	border-radius: 6px;
+	color: var(--owl-ui-text);
+	background: var(--owl-ui-hover);
+}
+.owl-leaderboard-footer {
+	margin-top: 22px;
+	color: var(--owl-ui-muted);
+	font-size: 11px;
+}
+.owl-leaderboard-footer p {
+	margin-bottom: 6px;
+	max-width: 85ch;
+}
+.owl-leaderboard input::placeholder {
+	opacity: 1;
+}
+@media (max-width: 850px) {
+	.owl-leaderboard-heading {
+		flex-direction: column;
+		gap: 12px;
+	}
+	.owl-leaderboard-source {
+		flex-direction: column;
+		gap: 10px;
+	}
+	.owl-leaderboard th,
+	.owl-leaderboard td {
+		padding: 12px 10px;
+	}
+	.owl-leaderboard-detail {
+		min-width: 120px;
+	}
+}
