@@ -178,6 +178,35 @@ describe("completion-prioritized evaluation requests", () => {
 		expect(stopped.error).not.toMatch(/时间上限|超过时间/);
 	});
 
+	it("measures idle progress from scratch after a stream cut off midway is repeated", async () => {
+		vi.useFakeTimers();
+		let calls = 0;
+		let invoked: EvaluationInvocation | undefined;
+		const { service } = await fixture(async (request) => {
+			calls++;
+			invoked = request;
+			if (calls === 1) {
+				request.onPartial("", "long reasoning ".repeat(50));
+				throw new Error("Connect error unavailable: Cursor GOAWAY (errorCode=0): upstream connection closed");
+			}
+			request.onPartial("", "short");
+			return new Promise(() => {});
+		});
+		const run = await start(service);
+		await flush();
+		await vi.advanceTimersByTimeAsync(2_000);
+		await flush();
+		expect(calls).toBe(2);
+		expect((await read(service, run.id)).results[0]).toMatchObject({ status: "running", thinking: "short" });
+		for (let step = 1; step <= 3; step++) {
+			await vi.advanceTimersByTimeAsync(90_000);
+			invoked?.onPartial("", "short".repeat(step + 1));
+			expect((await read(service, run.id)).results[0].status).toBe("running");
+		}
+		await service.handle({ action: "run.cancel", runId: run.id });
+		await flush();
+	});
+
 	it("stops the content watchdog after invocation so checking is not mistaken for idle model output", async () => {
 		vi.useFakeTimers();
 		let finishChecking: (() => void) | undefined;

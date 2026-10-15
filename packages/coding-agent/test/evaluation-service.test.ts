@@ -574,14 +574,26 @@ describe("evaluation queue and lifecycle", () => {
 		expect(none.results.every((result) => result.contentOmitted === true)).toBe(true);
 	});
 
-	it("retries transient failures that returned nothing, but not failures that already streamed content", async () => {
+	it("repeats transiently failed calls from scratch, including streams cut off midway, within the retry budget", async () => {
 		const calls = new Map<string, number>();
+		const restartedFrom: string[] = [];
 		const { service } = await setup(
 			async (request) => {
 				const count = (calls.get(request.profile.modelId) ?? 0) + 1;
 				calls.set(request.profile.modelId, count);
 				if (request.profile.modelId === "model-one") {
 					if (count === 1) throw new Error("429 Too Many Requests");
+					if (count === 2) {
+						request.onPartial("", "long reasoning");
+						throw new Error("网关内部错误：terminated");
+					}
+					const [summary] = (await service.handle({ action: "run.list" })) as EvaluationRunSummary[];
+					const view = (await service.handle({
+						action: "run.get",
+						runId: summary.id,
+						focus: { taskId: task.id, sample: 1 },
+					})) as EvaluationRunView;
+					restartedFrom.push(view.results.map((result) => result.thinking).join("|"));
 					return structuredClone(reply);
 				}
 				request.onPartial("partial body", "");
@@ -601,11 +613,49 @@ describe("evaluation queue and lifecycle", () => {
 		})) as EvaluationRunView;
 		const byModel = (id: string) => revealed.results.find((result) => result.profile?.modelId === id);
 		expect(byModel("model-one")?.status).toBe("completed");
+		expect(restartedFrom).toHaveLength(1);
+		expect(restartedFrom[0]).not.toContain("long reasoning");
 		expect(byModel("model-two")).toMatchObject({ status: "failed", output: "partial body" });
-		expect(calls.get("model-one")).toBe(2);
-		expect(calls.get("model-two")).toBe(1);
+		expect(calls.get("model-one")).toBe(3);
+		expect(calls.get("model-two")).toBe(3);
 		expect(isTransientEvaluationError("fake provider rejected")).toBe(false);
 		expect(isTransientEvaluationError("fetch failed")).toBe(true);
+		expect(
+			isTransientEvaluationError(
+				"Connect error unavailable: Cursor GOAWAY (errorCode=0): upstream connection closed",
+			),
+		).toBe(true);
+		expect(isTransientEvaluationError("上游流中断，费用待核对：terminated")).toBe(true);
+		expect(isTransientEvaluationError("输出达到长度限制，答案可能不完整")).toBe(false);
+	});
+
+	it("draws again when a call ends normally without any answer, then reports the empty answer once the budget is spent", async () => {
+		const calls = new Map<string, number>();
+		const { service } = await setup(
+			async (request) => {
+				const count = (calls.get(request.profile.modelId) ?? 0) + 1;
+				calls.set(request.profile.modelId, count);
+				if (request.profile.modelId === "model-one" && count > 1) return structuredClone(reply);
+				request.onPartial("", "planning only");
+				return { ...structuredClone(reply), text: "", thinking: "planning only" };
+			},
+			1000,
+			undefined,
+			{ transientRetryDelaysMs: [0] },
+		);
+		const done = await settle(service, (await start(service)).id);
+		const revealed = (await service.handle({
+			action: "run.reveal",
+			runId: done.id,
+			taskId: task.id,
+			sample: 1,
+			mode: "skip",
+		})) as EvaluationRunView;
+		const byModel = (id: string) => revealed.results.find((result) => result.profile?.modelId === id);
+		expect(byModel("model-one")?.status).toBe("completed");
+		expect(byModel("model-two")).toMatchObject({ status: "failed", error: "模型未输出答案" });
+		expect(calls.get("model-one")).toBe(2);
+		expect(calls.get("model-two")).toBe(2);
 	});
 
 	it("limits calls per provider while other providers keep running", async () => {

@@ -25,6 +25,14 @@ export class EvaluationIdleWatchdog {
 		this.arm();
 	}
 
+	/** A repeated call streams from scratch, so progress is measured against the new attempt only. */
+	restart(): void {
+		if (this.stopped) return;
+		this.bodyLength = 0;
+		this.thinkingLength = 0;
+		this.arm();
+	}
+
 	stop(): void {
 		this.stopped = true;
 		if (this.timer !== undefined) clearTimeout(this.timer);

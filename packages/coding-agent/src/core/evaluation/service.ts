@@ -35,9 +35,9 @@ import type {
 /** Partial answers are already visible from memory; disk saves only bound what a crash can lose. */
 const STREAM_PERSIST_INTERVAL_MS = 5000;
 const TRANSIENT_ERROR =
-	/\b(?:429|500|502|503|504|529)\b|rate.?limit|too many requests|overloaded|temporarily unavailable|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network error|connection (?:error|reset|closed)/i;
+	/\b(?:429|500|502|503|504|529)\b|rate.?limit|too many requests|overloaded|temporarily unavailable|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network error|connection (?:error|reset|closed)|\bterminated\b|other side closed|GOAWAY|retriable|upstream_stream_interrupted|流中断/i;
 
-/** Rate limits, overload and dropped connections; deterministic rejections are not retried. */
+/** Rate limits, overload and dropped connections or streams; deterministic rejections are not retried. */
 export function isTransientEvaluationError(message: string): boolean {
 	return TRANSIENT_ERROR.test(message);
 }
@@ -60,7 +60,7 @@ export interface EvaluationServiceOptions {
 	concurrency?: number;
 	/** Simultaneous model calls per provider, so one account's rate limit does not take every slot; default 2. */
 	providerConcurrency?: number;
-	/** Waits before retrying a call that failed transiently before returning any content; one entry per retry. */
+	/** Waits before repeating a transiently failed call from scratch, even one cut off mid-stream; one entry per retry. */
 	transientRetryDelaysMs?: number[];
 	idleTimeoutMs?: number;
 }
@@ -841,11 +841,16 @@ export class EvaluationService {
 			};
 			let invoked: EvaluationInvocationResult | undefined;
 			for (let retry = 0; !invoked; retry++) {
-				let received = false;
 				const delay = this.transientRetryDelaysMs[retry];
-				// Only a call that returned nothing is repeated, so a retry never discards visible content.
 				const retryable = (message: string) =>
-					delay !== undefined && !received && !controller.signal.aborted && isTransientEvaluationError(message);
+					delay !== undefined && !controller.signal.aborted && isTransientEvaluationError(message);
+				if (retry > 0) {
+					result.output = "";
+					result.thinking = "";
+					result.generationPhase = "waiting";
+					idle.restart();
+					this.persist(run);
+				}
 				try {
 					const attempt = await Promise.race([
 						this.invoke({
@@ -856,7 +861,6 @@ export class EvaluationService {
 							signal: controller.signal,
 							onPartial: (text, thinking) => {
 								if (controller.signal.aborted || !acceptingPartials) return;
-								if (text || thinking) received = true;
 								idle?.observe(text, thinking);
 								result.output = text;
 								result.thinking = thinking;
@@ -869,7 +873,13 @@ export class EvaluationService {
 						}),
 						aborted,
 					]);
-					if (attempt.stopReason !== "error" || !retryable(attempt.error ?? "")) invoked = attempt;
+					// Agent backends can end a turn without an answer after their built-in tools are refused.
+					const unanswered = attempt.stopReason === "stop" && !attempt.text.trim();
+					const again =
+						attempt.stopReason === "error"
+							? retryable(attempt.error ?? "")
+							: unanswered && delay !== undefined && !controller.signal.aborted;
+					if (!again) invoked = attempt;
 				} catch (error) {
 					if (!retryable(error instanceof Error ? error.message : String(error))) throw error;
 				}
