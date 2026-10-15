@@ -14,6 +14,7 @@ fn main() {
 				"read_local_image",
 				"gps_location",
 				"debug_rebuild_and_restart",
+				"main_window_ready",
 			])),
 	)
 	.expect("failed to run tauri-build");

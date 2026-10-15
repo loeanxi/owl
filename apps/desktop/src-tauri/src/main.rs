@@ -47,6 +47,42 @@ const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 
 static DEBUG_UPDATE_STARTED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Default)]
+struct MainWindowStartup(AtomicBool);
+
+/// 托盘和通知也必须等首屏准备好，不能提前露出透明空窗。
+fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if !app.state::<MainWindowStartup>().0.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_owned())?;
+    window.show().map_err(|error| error.to_string())?;
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+/// 前端完成外观恢复和首帧后才首次显示；桥重连/页面刷新不重复抢焦。
+#[tauri::command]
+fn main_window_ready(
+    window: tauri::WebviewWindow,
+    startup: tauri::State<'_, MainWindowStartup>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("only the main window can finish startup".to_owned());
+    }
+    if startup.0.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    if let Err(error) = show_main_window(window.app_handle()) {
+        startup.0.store(false, Ordering::SeqCst);
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// 前端「退出 Owl」入口（帮助/文件菜单的 Ctrl+Q）：
 /// RunEvent::Exit 钩子会顺带走 bridge.kill()，桥子进程不残留。
 #[tauri::command]
@@ -1116,14 +1152,19 @@ fn main() {
             read_local_image,
             gps::gps_location,
             switch_account_bridge,
-            debug_rebuild_and_restart
+            debug_rebuild_and_restart,
+            main_window_ready
         ])
         .manage(bridge.clone())
+        .manage(MainWindowStartup::default())
         .setup(move |app| {
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
                     .title("owl")
                     .inner_size(1280.0, 860.0)
+                    .center()
+                    .visible(false)
+                    .focused(false)
                     .resizable(true)
                     .decorations(false)
                     // 液态玻璃要透出桌面，透明只能建窗时定；其余预设由页面铺满不透明底色。
@@ -1154,11 +1195,7 @@ fn main() {
                 .tooltip("Owl - AI 编程助手")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                        }
+                        let _ = show_main_window(app);
                     }
                     "restart" => {
                         if let Ok(mut b) = bridge_for_tray.lock() {
@@ -1183,17 +1220,7 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(w) = app.get_webview_window("main") {
-                            if let Ok(visible) = w.is_visible() {
-                                if visible {
-                                    let _ = w.set_focus();
-                                } else {
-                                    let _ = w.show();
-                                    let _ = w.unminimize();
-                                    let _ = w.set_focus();
-                                }
-                            }
-                        }
+                        let _ = show_main_window(app);
                     }
                 });
 

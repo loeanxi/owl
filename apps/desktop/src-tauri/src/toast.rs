@@ -5,7 +5,7 @@
 //! 审批类带「同意 / 拒绝」按钮，点击经 Activated 回调（进程内触发）转成 Tauri
 //! 事件发回前端应答。因此仅在 owl 运行期间可点，与桌面壳常驻形态一致。
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use windows::core::{IInspectable, Interface, HSTRING};
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::Foundation::TypedEventHandler;
@@ -35,11 +35,7 @@ fn escape_xml(value: &str) -> String {
 }
 
 fn focus_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    let _ = crate::show_main_window(app);
 }
 
 /// 弹一条系统 Toast。

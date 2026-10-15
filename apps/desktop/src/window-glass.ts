@@ -7,19 +7,17 @@ import { isGlassPreset, type OwlAppearanceColors } from "./owl-appearance.ts";
  * 并按档位调面板薄厚。挂不上（浏览器模式 / 老系统）就不写属性，页面继续用自绘流光兜底。
  */
 let wanted = "off";
+let pending = Promise.resolve();
 
-export function syncWindowGlass(appearance: Pick<OwlAppearanceColors, "preset" | "glass">): void {
+export function syncWindowGlass(appearance: Pick<OwlAppearanceColors, "preset" | "glass">): Promise<void> {
 	const next = isGlassPreset(appearance.preset) ? appearance.glass : "off";
-	if (next === wanted) return;
+	if (next === wanted) return pending;
 	wanted = next;
 	const root = document.documentElement;
-	if (next === "off") {
-		delete root.dataset.owlWindowGlass;
-		void setWindowGlass("off");
-		return;
-	}
-	void setWindowGlass(next).then((ok) => {
-		if (!ok || wanted !== next) return;
+	if (next === "off") delete root.dataset.owlWindowGlass;
+	pending = setWindowGlass(next).then((ok) => {
+		if (!ok || wanted !== next || next === "off") return;
 		root.dataset.owlWindowGlass = next;
 	});
+	return pending;
 }

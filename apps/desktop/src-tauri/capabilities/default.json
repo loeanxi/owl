@@ -28,6 +28,7 @@
 		"allow-read-local-image",
 		"allow-gps-location",
 		"allow-debug-rebuild-and-restart",
+		"allow-main-window-ready",
 		"dialog:allow-open",
 		"allow-show-approval-toast",
 		"core:webview:allow-create-webview-window",
