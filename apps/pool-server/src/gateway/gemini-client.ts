@@ -14,12 +14,12 @@ import {
 	type UpstreamChatClient,
 	UpstreamException,
 } from "owl-pool";
+import { UpstreamDeadline, type UpstreamDeadlineConfig } from "./stream-deadline.ts";
 
-export interface GeminiChatConfig {
+export interface GeminiChatConfig extends UpstreamDeadlineConfig {
 	baseUrl: string;
 	apiVersion: string;
 	defaultMaxTokens: number;
-	timeoutMs?: number;
 }
 
 export interface GeminiClientOptions {
@@ -41,11 +41,30 @@ export class GeminiChatClient implements UpstreamChatClient {
 		return "GEMINI";
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
 		const model = upstreamModel(payload);
 		const request = this.#mapper.toGeminiRequest(payload, this.#config.defaultMaxTokens);
-		const response = await this.post(account, `/models/${model}:generateContent`, request, "application/json");
-		const body = await response.text();
+		const deadline = new UpstreamDeadline("Gemini", this.#config, { caller: signal, streaming: false });
+		let body: string;
+		try {
+			const response = await this.post(
+				account,
+				`/models/${model}:generateContent`,
+				request,
+				"application/json",
+				deadline,
+			);
+			body = await deadline.race(response.text());
+		} catch (error) {
+			deadline.throwIfAborted();
+			throw error;
+		} finally {
+			deadline.dispose();
+		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(body) as unknown;
@@ -71,6 +90,7 @@ export class GeminiChatClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
 		const model = upstreamModel(payload);
 		const request = this.#mapper.toGeminiRequest(payload, this.#config.defaultMaxTokens);
@@ -81,19 +101,22 @@ export class GeminiChatClient implements UpstreamChatClient {
 				emitted = true;
 				onChunk(chunk);
 			});
+			const deadline = new UpstreamDeadline("Gemini", this.#config, { caller: signal, streaming: true });
 			try {
 				const response = await this.post(
 					account,
 					`/models/${model}:streamGenerateContent?alt=sse`,
 					request,
 					"text/event-stream",
+					deadline,
 				);
 				if (!response.body) {
 					throw new UpstreamException("SERVER", "Gemini 流式响应为空");
 				}
-				await decodeSse(response.body, decoder);
+				await decodeSse(deadline.watch(response.body), decoder);
 				return;
 			} catch (error) {
+				deadline.throwIfAborted();
 				if (error instanceof UpstreamException) {
 					throw error;
 				}
@@ -103,32 +126,41 @@ export class GeminiChatClient implements UpstreamChatClient {
 					continue;
 				}
 				throw new UpstreamException("SERVER", `Gemini 转发失败: ${message}`);
+			} finally {
+				deadline.dispose();
 			}
 		}
 		throw new UpstreamException("SERVER", `Gemini 转发失败: ${lastIo?.message ?? "unknown"}`);
 	}
 
-	async post(account: Account, path: string, body: unknown, accept: string): Promise<Response> {
+	async post(
+		account: Account,
+		path: string,
+		body: unknown,
+		accept: string,
+		deadline: UpstreamDeadline,
+	): Promise<Response> {
+		deadline.throwIfAborted();
 		const apiKey = requireApiKey(account);
 		let response: Response;
 		try {
-			response = await this.#fetchImpl(
-				`${this.#config.baseUrl.replace(/\/+$/, "")}/${this.#config.apiVersion}${path}`,
-				{
+			response = await deadline.race(
+				this.#fetchImpl(`${this.#config.baseUrl.replace(/\/+$/, "")}/${this.#config.apiVersion}${path}`, {
 					method: "POST",
 					headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json", Accept: accept },
 					body: JSON.stringify(body),
-					signal: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
-				},
+					signal: deadline.signal,
+				}),
 			);
 		} catch (error) {
+			deadline.throwIfAborted();
 			throw new UpstreamException(
 				"SERVER",
 				`Gemini 请求失败: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 		if (!response.ok) {
-			const text = await response.text();
+			const text = await deadline.race(response.text());
 			const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
 			const exception = this.#mapper.httpError(response.status, text);
 			if (!Number.isNaN(retryAfter)) {

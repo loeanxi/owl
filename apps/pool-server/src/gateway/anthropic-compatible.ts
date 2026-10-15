@@ -19,6 +19,7 @@ import {
 	type UpstreamChatClient,
 	UpstreamException,
 } from "owl-pool";
+import { UpstreamDeadline, type UpstreamDeadlineConfig } from "./stream-deadline.ts";
 
 /** ZCode 通道 → 端点基址（对齐 manager gateway.zcode.*）。 */
 export const ZCODE_CHANNEL_BASE_URLS: Record<string, string> = {
@@ -27,7 +28,7 @@ export const ZCODE_CHANNEL_BASE_URLS: Record<string, string> = {
 	ZCODE_PLAN: "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
 };
 
-export interface AnthropicCompatibleConfig {
+export interface AnthropicCompatibleConfig extends UpstreamDeadlineConfig {
 	platform: Platform;
 	label: string;
 	/** 固定基址（Claude）；ZCode 用凭据 channel 动态解析，此字段留空。 */
@@ -40,7 +41,6 @@ export interface AnthropicCompatibleConfig {
 	thinkingBudgets?: { low: number; medium: number; high: number };
 	exposeThinking?: boolean;
 	foldCacheTokens?: boolean;
-	timeoutMs?: number;
 	/** Claude OAuth：返回当前可用 accessToken，必要时先刷新。 */
 	refreshOauth?: (account: Account) => Promise<string>;
 	/** 上游 401 时标记这枚 token 已失效，下次解析会刷新。 */
@@ -82,8 +82,17 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		const auth = await this.authOf(account);
 		const request = this.#mapper.toAnthropicRequest(payload, this.#config.defaultMaxTokens);
 		request.stream = false;
-		const response = await this.post(auth, request, "application/json", signal);
-		const body = await response.text();
+		const deadline = new UpstreamDeadline(this.#config.label, this.#config, { caller: signal, streaming: false });
+		let body: string;
+		try {
+			const response = await this.post(auth, request, "application/json", deadline);
+			body = await deadline.race(response.text());
+		} catch (error) {
+			deadline.throwIfAborted();
+			throw error;
+		} finally {
+			deadline.dispose();
+		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(body) as unknown;
@@ -115,11 +124,12 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		let lastIo: Error | null = null;
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			const decoder = this.#mapper.newStreamDecoder(String(request.model), guarded);
+			const deadline = new UpstreamDeadline(this.#config.label, this.#config, { caller: signal, streaming: true });
 			try {
-				await this.postStream(auth, request, decoder, signal);
+				await this.postStream(auth, request, decoder, deadline);
 				return;
 			} catch (error) {
-				signal?.throwIfAborted();
+				deadline.throwIfAborted();
 				if (error instanceof UpstreamException) {
 					throw error;
 				}
@@ -129,25 +139,27 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 					continue;
 				}
 				throw new UpstreamException("SERVER", `${this.#config.label} 转发失败: ${message}`);
+			} finally {
+				deadline.dispose();
 			}
 		}
 		throw new UpstreamException("SERVER", `${this.#config.label} 转发失败: ${lastIo?.message ?? "unknown"}`);
 	}
 
-	async post(auth: AuthContext, body: unknown, accept: string, signal?: AbortSignal): Promise<Response> {
-		signal?.throwIfAborted();
+	async post(auth: AuthContext, body: unknown, accept: string, deadline: UpstreamDeadline): Promise<Response> {
+		deadline.throwIfAborted();
 		let response: Response;
 		try {
-			response = await this.#fetchImpl(`${this.baseUrlOf(auth.account)}/v1/messages`, {
-				method: "POST",
-				headers: { ...this.headersOf(auth), Accept: accept },
-				body: JSON.stringify(body),
-				signal: signal
-					? AbortSignal.any([signal, AbortSignal.timeout(this.#config.timeoutMs ?? 120_000)])
-					: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
-			});
+			response = await deadline.race(
+				this.#fetchImpl(`${this.baseUrlOf(auth.account)}/v1/messages`, {
+					method: "POST",
+					headers: { ...this.headersOf(auth), Accept: accept },
+					body: JSON.stringify(body),
+					signal: deadline.signal,
+				}),
+			);
 		} catch (error) {
-			signal?.throwIfAborted();
+			deadline.throwIfAborted();
 			throw new UpstreamException(
 				"SERVER",
 				`${this.#config.label} 请求失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -157,7 +169,7 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 			if (response.status === 401 && auth.oauth && this.#config.rejectOauth !== undefined) {
 				this.#config.rejectOauth(auth.account.id, auth.secret);
 			}
-			const text = await response.text();
+			const text = await deadline.race(response.text());
 			const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
 			const exception = this.#mapper.httpError(response.status, text);
 			if (!Number.isNaN(retryAfter)) {
@@ -172,14 +184,14 @@ export class AnthropicCompatibleClient implements UpstreamChatClient {
 		auth: AuthContext,
 		request: Record<string, unknown>,
 		decoder: ReturnType<AnthropicUpstreamMapper["newStreamDecoder"]>,
-		signal?: AbortSignal,
+		deadline: UpstreamDeadline,
 	): Promise<void> {
-		const response = await this.post(auth, request, "text/event-stream", signal);
+		const response = await this.post(auth, request, "text/event-stream", deadline);
 		if (!response.body) {
 			throw new UpstreamException("SERVER", `${this.#config.label} 流式响应为空`);
 		}
 		// 原生或兼容终止证据都要求具备，才允许产出收尾 chunk
-		const reader = response.body.getReader();
+		const reader = deadline.watch(response.body).getReader();
 		const sse = new SseEventReader();
 		const decoder2 = decoder as unknown as {
 			onEvent(data: string): boolean;

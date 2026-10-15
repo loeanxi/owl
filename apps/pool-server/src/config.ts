@@ -46,6 +46,8 @@ export interface PoolConfig {
 		/** 临期积分优先的窗口毫秒；0 关闭。 */
 		expiringWindowMs: number;
 		upstreamTimeoutMs: number;
+		/** Trae/ZCode/Claude/Gemini/Grok 的期限；timeoutMs 仅在显式设置时作为绝对期限。 */
+		upstreamDeadline: { timeoutMs?: number; streamIdleTimeoutMs: number; streamMaxDurationMs: number };
 		stickyEnabled: boolean;
 		stickyTtlSeconds: number;
 		grokBaseUrl?: string;
@@ -125,6 +127,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PoolConfig {
 			accountCooldownMs: intOr(env.OWL_POOL_GATEWAY_COOLDOWN_MS, 60_000),
 			expiringWindowMs: intOr(env.OWL_POOL_GATEWAY_EXPIRING_WINDOW_HOURS, 72) * 3_600_000,
 			upstreamTimeoutMs: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
+			upstreamDeadline: {
+				timeoutMs:
+					blankToUndefined(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS) === undefined
+						? undefined
+						: intOr(env.OWL_POOL_GATEWAY_UPSTREAM_TIMEOUT_MS, 120_000),
+				streamIdleTimeoutMs: intOr(env.OWL_POOL_GATEWAY_STREAM_IDLE_TIMEOUT_MS, 120_000),
+				streamMaxDurationMs: intOr(env.OWL_POOL_GATEWAY_STREAM_MAX_DURATION_MS, 1_800_000),
+			},
 			stickyEnabled: boolOr(env.OWL_POOL_GATEWAY_STICKY_ENABLED, true),
 			stickyTtlSeconds: intOr(env.OWL_POOL_GATEWAY_STICKY_TTL, 3600),
 			grokBaseUrl: blankToUndefined(env.OWL_POOL_GROK_BASE_URL),

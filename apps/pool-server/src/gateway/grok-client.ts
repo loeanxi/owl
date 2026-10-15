@@ -5,27 +5,36 @@
  * 显式请求流末尾 usage chunk，保证 KNOWN 结算口径。429 → RATE 换号；401/403 → AUTH。
  */
 import type { Account } from "owl-pool";
-import { type Platform, parseCredentials, type UpstreamChatClient, UpstreamException } from "owl-pool";
+import {
+	IncompleteUpstreamStreamException,
+	type Platform,
+	parseCredentials,
+	type UpstreamChatClient,
+	UpstreamException,
+} from "owl-pool";
+import { UpstreamDeadline, type UpstreamDeadlineConfig } from "./stream-deadline.ts";
 
 /** 内部路由/能力扩展字段，不属于上游契约，转发前剥掉。 */
 const STRIPPED_KEYS = new Set(["_managerAccountId", "context_window", "reasoning_effort", "reasoning"]);
 
-export interface GrokClientOptions {
+export interface GrokClientOptions extends UpstreamDeadlineConfig {
 	baseUrl?: string;
 	fetchImpl?: typeof fetch;
-	/** 上游超时毫秒（manager: upstream-timeout-seconds=120）。 */
-	timeoutMs?: number;
 }
 
 export class GrokUpstreamClient implements UpstreamChatClient {
 	readonly #baseUrl: string;
 	readonly #fetchImpl: typeof fetch;
-	readonly #timeoutMs: number;
+	readonly #deadline: UpstreamDeadlineConfig;
 
 	constructor(options: GrokClientOptions = {}) {
 		this.#baseUrl = (options.baseUrl ?? "https://api.x.ai").replace(/\/+$/, "");
 		this.#fetchImpl = options.fetchImpl ?? fetch;
-		this.#timeoutMs = options.timeoutMs ?? 120_000;
+		this.#deadline = {
+			timeoutMs: options.timeoutMs,
+			streamIdleTimeoutMs: options.streamIdleTimeoutMs,
+			streamMaxDurationMs: options.streamMaxDurationMs,
+		};
 	}
 
 	platform(): Platform {
@@ -37,8 +46,17 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		payload: Record<string, unknown>,
 		signal?: AbortSignal,
 	): Promise<Record<string, unknown>> {
-		const response = await this.post(account, sanitized(payload), "application/json", signal);
-		const body = await response.text();
+		const deadline = new UpstreamDeadline("Grok", this.#deadline, { caller: signal, streaming: false });
+		let body: string;
+		try {
+			const response = await this.post(account, sanitized(payload), "application/json", deadline);
+			body = await deadline.race(response.text());
+		} catch (error) {
+			deadline.throwIfAborted();
+			throw error;
+		} finally {
+			deadline.dispose();
+		}
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(body) as unknown;
@@ -66,58 +84,66 @@ export class GrokUpstreamClient implements UpstreamChatClient {
 		if (request.stream_options === null || request.stream_options === undefined) {
 			request.stream_options = { include_usage: true };
 		}
-		const response = await this.post(account, request, "text/event-stream", signal);
-		if (!response.body) {
-			throw new UpstreamException("SERVER", "Grok 流式响应为空");
-		}
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) {
-				break;
+		const deadline = new UpstreamDeadline("Grok", this.#deadline, { caller: signal, streaming: true });
+		try {
+			const response = await this.post(account, request, "text/event-stream", deadline);
+			if (!response.body) {
+				throw new UpstreamException("SERVER", "Grok 流式响应为空");
 			}
-			buffer += decoder.decode(value, { stream: true });
-			let boundary = buffer.indexOf("\n");
-			while (boundary >= 0) {
-				const line = buffer.slice(0, boundary).replace(/\r$/, "");
-				buffer = buffer.slice(boundary + 1);
-				relayLine(line, onChunk);
-				boundary = buffer.indexOf("\n");
+			const reader = deadline.watch(response.body).getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			for (;;) {
+				const chunk = await reader.read().catch((error: unknown) => {
+					deadline.throwIfAborted();
+					throw new IncompleteUpstreamStreamException(error instanceof Error ? error.message : String(error));
+				});
+				if (chunk.done) {
+					break;
+				}
+				buffer += decoder.decode(chunk.value, { stream: true });
+				let boundary = buffer.indexOf("\n");
+				while (boundary >= 0) {
+					const line = buffer.slice(0, boundary).replace(/\r$/, "");
+					buffer = buffer.slice(boundary + 1);
+					relayLine(line, onChunk);
+					boundary = buffer.indexOf("\n");
+				}
 			}
-		}
-		if (buffer.length > 0) {
-			relayLine(buffer.replace(/\r$/, ""), onChunk);
+			if (buffer.length > 0) {
+				relayLine(buffer.replace(/\r$/, ""), onChunk);
+			}
+		} finally {
+			deadline.dispose();
 		}
 	}
 
-	async post(account: Account, body: unknown, accept: string, signal?: AbortSignal): Promise<Response> {
-		signal?.throwIfAborted();
+	async post(account: Account, body: unknown, accept: string, deadline: UpstreamDeadline): Promise<Response> {
+		deadline.throwIfAborted();
 		const apiKey = requireApiKey(account);
 		let response: Response;
 		try {
-			response = await this.#fetchImpl(`${this.#baseUrl}/v1/chat/completions`, {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${apiKey}`,
-					"Content-Type": "application/json",
-					Accept: accept,
-				},
-				body: JSON.stringify(body),
-				signal: signal
-					? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
-					: AbortSignal.timeout(this.#timeoutMs),
-			});
+			response = await deadline.race(
+				this.#fetchImpl(`${this.#baseUrl}/v1/chat/completions`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+						Accept: accept,
+					},
+					body: JSON.stringify(body),
+					signal: deadline.signal,
+				}),
+			);
 		} catch (error) {
-			signal?.throwIfAborted();
+			deadline.throwIfAborted();
 			// IO 瞬断按 SERVER 分类（换号路径据 reason 判定短冷却）
 			const message = error instanceof Error ? error.message : String(error);
 			throw new UpstreamException("SERVER", `Grok 转发失败: ${message}`);
 		}
 		if (!response.ok) {
 			const retryAfter = Number.parseInt(response.headers.get("retry-after") ?? "", 10);
-			const text = await response.text();
+			const text = await deadline.race(response.text());
 			const exception = httpError(response.status, text);
 			if (!Number.isNaN(retryAfter)) {
 				throw new UpstreamException(exception.kind, exception.message, retryAfter);

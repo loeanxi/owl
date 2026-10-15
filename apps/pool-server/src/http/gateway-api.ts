@@ -4,7 +4,14 @@
  * SSE：15s keepalive 注释帧；客户端断开即停止输出。
  */
 import type { ServerResponse } from "node:http";
-import { type ApiKeyService, BusinessError, GatewayFault, ModelAccessException, UpstreamException } from "owl-pool";
+import {
+	type ApiKeyService,
+	BusinessError,
+	GatewayFault,
+	IncompleteUpstreamStreamException,
+	ModelAccessException,
+	UpstreamException,
+} from "owl-pool";
 import {
 	coalesceTextForStatelessClient,
 	deleteResponse,
@@ -386,6 +393,14 @@ function normalize(error: unknown): GatewayFailure {
 	}
 	if (error instanceof UpstreamException) {
 		return { status: 502, code: "upstream_error", message: `上游调用失败：${error.message}` };
+	}
+	if (error instanceof IncompleteUpstreamStreamException) {
+		return {
+			status: 502,
+			code: "upstream_stream_interrupted",
+			message: `上游流中断，费用待核对：${error.message}`,
+			billingState: "unknown",
+		};
 	}
 	const message = error instanceof Error ? error.message : String(error);
 	return { status: 500, code: "internal_error", message: `网关内部错误：${message}` };

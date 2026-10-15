@@ -28,6 +28,7 @@
 ### 修复
 
 - `desktop` 启动时桥还没连上导致的空白：头像、左下角账号与用量概览首发失败后每 3 秒重试，不再定格在占位或「统计中」
+- `pool` Trae、ZCode、Claude、Gemini、Grok 的长推理不再被固定 120 秒截断：流式请求改为连续无数据 120 秒才判超时、总时长上限 30 分钟，上游流中断报 upstream_stream_interrupted
 
 ### 移除
 

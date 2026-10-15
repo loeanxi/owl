@@ -21,8 +21,9 @@ import {
 	UpstreamException,
 } from "owl-pool";
 import { aggregateStreamToCompletion } from "./aggregate.ts";
+import { UpstreamDeadline, type UpstreamDeadlineConfig } from "./stream-deadline.ts";
 
-export interface TraeChatConfig {
+export interface TraeChatConfig extends UpstreamDeadlineConfig {
 	chatBaseUrl: string;
 	chatPath: string;
 	appId: string;
@@ -32,7 +33,6 @@ export interface TraeChatConfig {
 	appVersion?: string;
 	/** x-icube-product。Work 才会返回 step-5 这类 SOLO 配置。 */
 	product?: string;
-	timeoutMs?: number;
 }
 
 export interface TraeClientOptions {
@@ -61,8 +61,12 @@ export class TraeChatClient implements UpstreamChatClient {
 		return "TRAE";
 	}
 
-	async chatCompletion(account: Account, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const { body } = await aggregateStreamToCompletion(this, account, payload);
+	async chatCompletion(
+		account: Account,
+		payload: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<Record<string, unknown>> {
+		const { body } = await aggregateStreamToCompletion(this, account, payload, signal);
 		return body;
 	}
 
@@ -70,7 +74,9 @@ export class TraeChatClient implements UpstreamChatClient {
 		account: Account,
 		payload: Record<string, unknown>,
 		onChunk: (chunkJson: string) => void,
+		signal?: AbortSignal,
 	): Promise<void> {
+		signal?.throwIfAborted();
 		let jwt: string;
 		const credentials = parseCredentials(account);
 		const ideJwt = this.#resolveJwt === null ? null : await this.#resolveJwt(account);
@@ -101,22 +107,46 @@ export class TraeChatClient implements UpstreamChatClient {
 		}
 		const body = normalizeTraePayload(payload, model, fn);
 		const headers = this.agentHeaders(account, credentials, jwt);
+		const deadline = new UpstreamDeadline("Trae", this.#config, { caller: signal, streaming: true });
+		try {
+			await this.#post(body, headers, deadline, onChunk);
+		} catch (error) {
+			deadline.throwIfAborted();
+			throw error;
+		} finally {
+			deadline.dispose();
+		}
+	}
+
+	async #post(
+		body: Record<string, unknown>,
+		headers: Record<string, string>,
+		deadline: UpstreamDeadline,
+		onChunk: (chunkJson: string) => void,
+	): Promise<void> {
 		let response: Response;
 		try {
-			response = await this.#fetchImpl(`${this.#config.chatBaseUrl.replace(/\/+$/, "")}${this.#config.chatPath}`, {
-				method: "POST",
-				headers: { ...headers, "Content-Type": "application/json", Accept: "text/event-stream, application/json" },
-				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(this.#config.timeoutMs ?? 120_000),
-			});
+			response = await deadline.race(
+				this.#fetchImpl(`${this.#config.chatBaseUrl.replace(/\/+$/, "")}${this.#config.chatPath}`, {
+					method: "POST",
+					headers: {
+						...headers,
+						"Content-Type": "application/json",
+						Accept: "text/event-stream, application/json",
+					},
+					body: JSON.stringify(body),
+					signal: deadline.signal,
+				}),
+			);
 		} catch (error) {
+			deadline.throwIfAborted();
 			throw new UpstreamException(
 				"SERVER",
 				`Trae 转发失败: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 		if (!response.ok) {
-			const text = await response.text();
+			const text = await deadline.race(response.text());
 			const kind =
 				response.status === 400
 					? "BAD_REQUEST"
@@ -135,7 +165,7 @@ export class TraeChatClient implements UpstreamChatClient {
 		if (!response.body) {
 			throw new UpstreamException("SERVER", "Trae 流式响应为空");
 		}
-		await parseSoloSse(response.body, String(body.model ?? "trae"), onChunk);
+		await parseSoloSse(deadline.watch(response.body), String(body.model ?? "trae"), onChunk);
 	}
 
 	/** 会话 Cookie → Cloud-IDE-JWT（与签到域同一端点）。 */

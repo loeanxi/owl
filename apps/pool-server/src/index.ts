@@ -121,7 +121,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 	const upstreams = new Map<Platform, UpstreamChatClient>();
 	const grok = new GrokUpstreamClient({
 		baseUrl: config.gateway.grokBaseUrl,
-		timeoutMs: config.gateway.upstreamTimeoutMs,
+		...config.gateway.upstreamDeadline,
 	});
 	upstreams.set(grok.platform(), grok);
 	const zcode = new AnthropicCompatibleClient({
@@ -130,7 +130,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		anthropicVersion: config.gateway.zcode.anthropicVersion,
 		defaultMaxTokens: config.gateway.zcode.defaultMaxTokens,
 		foldCacheTokens: true,
-		timeoutMs: config.gateway.upstreamTimeoutMs,
+		...config.gateway.upstreamDeadline,
 	});
 	upstreams.set(zcode.platform(), zcode);
 	const claudeTokens = createClaudeTokenResolver(accounts, {
@@ -150,7 +150,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		thinkingBudgets: config.gateway.claude.thinkingBudgets,
 		exposeThinking: true,
 		foldCacheTokens: true,
-		timeoutMs: config.gateway.upstreamTimeoutMs,
+		...config.gateway.upstreamDeadline,
 	});
 	upstreams.set(claude.platform(), claude);
 	const workbuddy = new WorkBuddyChatClient({
@@ -178,7 +178,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			ideVersionCode: config.gateway.trae.ideVersionCode,
 			appVersion: config.gateway.trae.appVersion,
 			product: config.gateway.trae.product,
-			timeoutMs: config.gateway.upstreamTimeoutMs,
+			...config.gateway.upstreamDeadline,
 		},
 		functionFor: (account, model) => traeFunctionFor(db, account.id, model),
 		resolveJwt: (account) => traeTokens.resolveJwt(account),
@@ -189,7 +189,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			baseUrl: config.gateway.gemini.baseUrl,
 			apiVersion: config.gateway.gemini.apiVersion,
 			defaultMaxTokens: config.gateway.gemini.defaultMaxTokens,
-			timeoutMs: config.gateway.upstreamTimeoutMs,
+			...config.gateway.upstreamDeadline,
 		},
 	});
 	upstreams.set(gemini.platform(), gemini);
