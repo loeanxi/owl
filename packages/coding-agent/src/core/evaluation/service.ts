@@ -1,5 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { getAgentDir } from "../../config.ts";
+import { closeEvaluationBrowser } from "./check-browser.ts";
 import { checkEvaluationArtifact, extractEvaluationArtifact } from "./checkers.ts";
 import {
 	createEvaluationModelAccess,
@@ -28,7 +29,22 @@ import type {
 	EvaluationRunSummary,
 	EvaluationRunView,
 	EvaluationTask,
+	EvaluationViewFocus,
 } from "./types.ts";
+
+/** Partial answers are already visible from memory; disk saves only bound what a crash can lose. */
+const STREAM_PERSIST_INTERVAL_MS = 5000;
+const TRANSIENT_ERROR =
+	/\b(?:429|500|502|503|504|529)\b|rate.?limit|too many requests|overloaded|temporarily unavailable|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network error|connection (?:error|reset|closed)/i;
+
+/** Rate limits, overload and dropped connections; deterministic rejections are not retried. */
+export function isTransientEvaluationError(message: string): boolean {
+	return TRANSIENT_ERROR.test(message);
+}
+
+function isLive(status: EvaluationResult["status"]): boolean {
+	return status === "queued" || status === "running";
+}
 
 export interface EvaluationServiceOptions {
 	agentDir?: string;
@@ -40,8 +56,12 @@ export interface EvaluationServiceOptions {
 		output: string,
 		signal?: AbortSignal,
 	) => Promise<{ artifact: EvaluationArtifact | null; checks: EvaluationCheck[] }>;
-	/** The production limit is two simultaneous model calls. */
+	/** Simultaneous model calls across all providers; default 4, at most 8. */
 	concurrency?: number;
+	/** Simultaneous model calls per provider, so one account's rate limit does not take every slot; default 2. */
+	providerConcurrency?: number;
+	/** Waits before retrying a call that failed transiently before returning any content; one entry per retry. */
+	transientRetryDelaysMs?: number[];
 	idleTimeoutMs?: number;
 }
 
@@ -98,7 +118,7 @@ function evaluationErrorView(error: string | null, revealed: boolean, fallback: 
 	}
 }
 
-function followupView(turn: EvaluationFollowup, revealed: boolean, now: number): EvaluationFollowupView {
+function followupView(turn: EvaluationFollowup, revealed: boolean, now: number, omit: boolean): EvaluationFollowupView {
 	const {
 		startedAt,
 		finishedAt,
@@ -108,15 +128,20 @@ function followupView(turn: EvaluationFollowup, revealed: boolean, now: number):
 		actualModel,
 		generationPhase,
 		requestPolicy,
+		output,
+		thinking,
+		artifact,
 		...publicTurn
 	} = turn;
 	return {
 		...structuredClone(publicTurn),
-		thinking: turn.thinking ?? "",
+		output: omit ? "" : output,
+		thinking: omit ? "" : (thinking ?? ""),
+		artifact: omit ? null : structuredClone(artifact),
 		elapsedMs: evaluationElapsedMs(turn, now),
 		error: evaluationErrorView(turn.error, revealed, "本次追问未完成；揭晓后可查看详细原因"),
-		...(turn.status === "queued" || turn.status === "running"
-			? { generationPhase: generationPhase ?? (turn.output ? "answering" : turn.thinking ? "thinking" : "waiting") }
+		...(isLive(turn.status)
+			? { generationPhase: generationPhase ?? (output ? "answering" : thinking ? "thinking" : "waiting") }
 			: {}),
 		...(revealed
 			? {
@@ -132,13 +157,19 @@ function followupView(turn: EvaluationFollowup, revealed: boolean, now: number):
 	};
 }
 
-/** The stored run contains identities; every browser response goes through this projection. */
-export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
+/**
+ * The stored run contains identities; every browser response goes through this projection.
+ * A focus keeps answer content for one task sample only, so polling a large run stays small.
+ */
+export function evaluationRunView(run: EvaluationRun, focus?: EvaluationViewFocus): EvaluationRunView {
 	const now = Date.now();
+	const byId = new Map(run.results.map((result) => [result.id, result]));
 	const results: EvaluationResultView[] = [];
 	for (const group of run.groups) {
+		const omit =
+			focus !== undefined && (focus === null || group.taskId !== focus.taskId || group.sample !== focus.sample);
 		for (const [index, id] of group.resultIds.entries()) {
-			const result = run.results.find((entry) => entry.id === id);
+			const result = byId.get(id);
 			if (!result) continue;
 			let anonymousLabel = "";
 			for (let number = index + 1; number > 0; number = Math.floor((number - 1) / 26)) {
@@ -156,20 +187,24 @@ export function evaluationRunView(run: EvaluationRun): EvaluationRunView {
 				actualModel,
 				followups,
 				requestPolicy,
+				output,
+				artifact,
 				...anonymous
 			} = result;
 			results.push({
 				...structuredClone(anonymous),
+				output: omit ? "" : output,
 				// The user requested live supplier reasoning as well as live answer text.
-				thinking: thinking ?? "",
+				thinking: omit ? "" : (thinking ?? ""),
+				artifact: omit ? null : structuredClone(artifact),
 				elapsedMs: evaluationElapsedMs(result, now),
-				followups: (followups ?? []).map((turn) => followupView(turn, group.revealed, now)),
-				...(result.status === "queued" || result.status === "running"
+				followups: (followups ?? []).map((turn) => followupView(turn, group.revealed, now, omit)),
+				...(isLive(result.status)
 					? {
-							generationPhase:
-								generationPhase ?? (result.output ? "answering" : thinking ? "thinking" : "waiting"),
+							generationPhase: generationPhase ?? (output ? "answering" : thinking ? "thinking" : "waiting"),
 						}
 					: {}),
+				...(omit ? { contentOmitted: true as const } : {}),
 				error: evaluationErrorView(result.error, group.revealed, "本次生成未完成；揭晓后可查看详细原因"),
 				anonymousLabel,
 				revealed: group.revealed,
@@ -246,8 +281,13 @@ export class EvaluationService {
 	private readonly invoke: EvaluationInvoker;
 	private readonly check: NonNullable<EvaluationServiceOptions["check"]>;
 	private readonly concurrency: number;
+	private readonly providerConcurrency: number;
+	private readonly transientRetryDelaysMs: number[];
 	private readonly idleTimeoutMs: number;
-	private readonly active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
+	private readonly active = new Map<
+		string,
+		{ controller: AbortController; promise: Promise<void>; provider: string }
+	>();
 	private closing = false;
 
 	constructor(options: EvaluationServiceOptions = {}) {
@@ -258,7 +298,11 @@ export class EvaluationService {
 		this.listModels = options.listModels ?? access.listModels;
 		this.invoke = options.invoke ?? access.invoke;
 		this.check = options.check ?? checkEvaluationArtifact;
-		this.concurrency = Math.max(1, Math.min(options.concurrency ?? 2, 2));
+		this.concurrency = Math.max(1, Math.min(Math.floor(options.concurrency ?? 4), 8));
+		this.providerConcurrency = Math.max(1, Math.min(Math.floor(options.providerConcurrency ?? 2), this.concurrency));
+		this.transientRetryDelaysMs = (options.transientRetryDelaysMs ?? [2000, 5000]).filter(
+			(delay) => Number.isSafeInteger(delay) && delay >= 0,
+		);
 		this.idleTimeoutMs = options.idleTimeoutMs ?? EVALUATION_IDLE_TIMEOUT_MS;
 		if (!Number.isSafeInteger(this.idleTimeoutMs) || this.idleTimeoutMs < 1 || this.idleTimeoutMs > 2_147_483_647)
 			throw new Error("内容空闲等待时间必须是有效正整数");
@@ -272,6 +316,7 @@ export class EvaluationService {
 					tasks: this.tasks(),
 					models: await this.listModels(),
 					runs: this.store.listRuns().map(runSummary),
+					warnings: [...this.store.warnings],
 				};
 			case "task.save": {
 				validateTask(request.task);
@@ -305,31 +350,60 @@ export class EvaluationService {
 				this.store.saveTask(task);
 				return task;
 			}
+			case "task.delete": {
+				if (this.builtinTasks.some((task) => task.id === request.taskId)) throw new Error("内置题不能删除");
+				// Existing runs keep their own task snapshots, so their results stay readable.
+				this.store.deleteTask(request.taskId);
+				return this.tasks();
+			}
 			case "run.start":
 				return this.start(request);
 			case "run.list":
 				return this.store.listRuns().map(runSummary);
 			case "run.get":
-				return evaluationRunView(this.store.getRun(request.runId));
+				return evaluationRunView(this.store.getRun(request.runId), request.focus);
 			case "run.cancel": {
 				const run = this.store.getRun(request.runId);
+				const reason = new Error("用户取消测评");
 				for (const result of run.results) {
 					if (result.status === "queued") {
 						result.status = "cancelled";
-						result.error = "用户取消测评";
+						result.error = reason.message;
 						result.finishedAt = new Date().toISOString();
+						delete result.generationPhase;
 					}
-					if (result.status === "running") this.active.get(result.id)?.controller.abort(new Error("用户取消测评"));
+					if (result.status === "running") this.active.get(result.id)?.controller.abort(reason);
+					for (const turn of result.followups ?? []) {
+						if (turn.status === "queued") {
+							turn.status = "cancelled";
+							turn.error = "用户停止追问";
+							turn.finishedAt = new Date().toISOString();
+							delete turn.generationPhase;
+						}
+						if (turn.status === "running") this.active.get(turn.id)?.controller.abort(new Error("用户停止追问"));
+					}
 				}
 				run.status = "cancelled";
 				this.persist(run);
 				return evaluationRunView(run);
 			}
+			case "run.delete": {
+				const run = this.store.getRun(request.runId);
+				if (
+					run.results.some(
+						(result) => isLive(result.status) || result.followups?.some((turn) => isLive(turn.status)),
+					)
+				)
+					throw new Error("测评仍有调用在运行，请先取消后再删除");
+				this.store.deleteRun(run.id);
+				return this.store.listRuns().map(runSummary);
+			}
 			case "run.append": {
+				const models = await this.listModels();
 				const run = this.store.getRun(request.runId);
 				if (![3, 5].includes(request.samples) || request.samples <= run.samples)
 					throw new Error("追加次数必须为 3 或 5，且大于当前次数");
-				const policies = this.requestPolicies(run, await this.listModels());
+				const policies = this.requestPolicies(run, models);
 				for (let sample = run.samples + 1; sample <= request.samples; sample++)
 					this.addSample(run, sample, policies);
 				run.samples = request.samples;
@@ -339,30 +413,46 @@ export class EvaluationService {
 				return evaluationRunView(run);
 			}
 			case "run.retry": {
+				const models = await this.listModels();
 				const run = this.store.getRun(request.runId);
 				const previous = run.results.find((result) => result.id === request.resultId);
-				if (!previous || previous.status === "queued" || previous.status === "running")
-					throw new Error("该结果还在运行或不存在");
+				if (!previous || isLive(previous.status)) throw new Error("该结果还在运行或不存在");
+				if (run.results.some((result) => result.retryOf === previous.id))
+					throw new Error("这次尝试已经重试过，请在最新一次尝试上操作");
 				const group = run.groups.find(
 					(entry) => entry.taskId === previous.taskId && entry.sample === previous.sample,
 				);
 				if (!group) throw new Error("结果分组不存在");
-				const profile = run.profiles.find((entry) => entry.id === previous.profileId);
-				const task = run.tasks.find((entry) => entry.id === previous.taskId);
-				if (!profile || !task) throw new Error("题目或模型快照丢失");
-				const policy = this.currentRequestPolicy(profile, task, await this.listModels());
-				const result = this.newResult(
-					previous.taskId,
-					previous.profileId,
-					previous.sample,
-					previous.attempt + 1,
-					previous.id,
-					policy,
-				);
-				run.results.push(result);
-				// Keep earlier anonymous labels and order stable when an attempt is added.
-				group.resultIds.push(result.id);
-				// Previously exposed identities cannot be made blind again; retained attempts keep that fact.
+				// A revealed group can no longer be scored anonymously, so a new attempt there could never be rated.
+				if (group.revealed) throw new Error("这一组已揭晓，新结果无法再匿名评分；请追加采样次数后重新比较");
+				this.addRetry(run, previous, group, models);
+				run.status = "running";
+				this.persist(run);
+				queueMicrotask(() => this.pump());
+				return evaluationRunView(run);
+			}
+			case "run.resume": {
+				const models = await this.listModels();
+				const run = this.store.getRun(request.runId);
+				const retried = new Set(run.results.map((result) => result.retryOf));
+				const byId = new Map(run.results.map((result) => [result.id, result]));
+				let added = 0;
+				let lastError = "";
+				for (const group of run.groups) {
+					if (group.revealed) continue;
+					for (const id of [...group.resultIds]) {
+						const previous = byId.get(id);
+						if (!previous || retried.has(previous.id)) continue;
+						if (previous.status !== "interrupted" && previous.status !== "cancelled") continue;
+						try {
+							this.addRetry(run, previous, group, models);
+							added++;
+						} catch (error) {
+							lastError = error instanceof Error ? error.message : String(error);
+						}
+					}
+				}
+				if (!added) throw new Error(lastError || "没有中断或取消的结果需要继续");
 				run.status = "running";
 				this.persist(run);
 				queueMicrotask(() => this.pump());
@@ -488,6 +578,29 @@ export class EvaluationService {
 			costUsd: null,
 			rating: null,
 		};
+	}
+
+	private addRetry(
+		run: EvaluationRun,
+		previous: EvaluationResult,
+		group: EvaluationGroup,
+		models: EvaluationModel[],
+	): void {
+		const profile = run.profiles.find((entry) => entry.id === previous.profileId);
+		const task = run.tasks.find((entry) => entry.id === previous.taskId);
+		if (!profile || !task) throw new Error("题目或模型快照丢失");
+		const policy = this.currentRequestPolicy(profile, task, models);
+		const result = this.newResult(
+			previous.taskId,
+			previous.profileId,
+			previous.sample,
+			previous.attempt + 1,
+			previous.id,
+			policy,
+		);
+		run.results.push(result);
+		// Keep earlier anonymous labels and order stable when an attempt is added.
+		group.resultIds.push(result.id);
 	}
 
 	private currentRequestPolicy(
@@ -633,31 +746,40 @@ export class EvaluationService {
 		return evaluationRunView(run);
 	}
 
+	private nextWork():
+		| { run: EvaluationRun; result: EvaluationResult; followup?: EvaluationFollowup; provider: string }
+		| undefined {
+		const busy = new Map<string, number>();
+		for (const entry of this.active.values()) busy.set(entry.provider, (busy.get(entry.provider) ?? 0) + 1);
+		const provider = (run: EvaluationRun, result: EvaluationResult) =>
+			run.profiles.find((profile) => profile.id === result.profileId)?.provider ?? "";
+		const free = (name: string) => (busy.get(name) ?? 0) < this.providerConcurrency;
+		// Oldest first: a new evaluation must not starve one that was started earlier.
+		const runs = this.store.listRuns().reverse();
+		// A user turn receives the next free slot without interrupting existing model calls.
+		for (const run of runs)
+			for (const result of run.results) {
+				const followup = result.followups?.find((turn) => turn.status === "queued");
+				const name = provider(run, result);
+				if (followup && free(name)) return { run, result, followup, provider: name };
+			}
+		for (const run of runs) {
+			if (run.status !== "running") continue;
+			for (const result of run.results) {
+				if (result.status !== "queued") continue;
+				const name = provider(run, result);
+				if (free(name)) return { run, result, provider: name };
+			}
+		}
+		return undefined;
+	}
+
 	private pump(): void {
 		if (this.closing) return;
 		while (this.active.size < this.concurrency) {
-			const runs = this.store.listRuns();
-			let run: EvaluationRun | undefined;
-			let result: EvaluationResult | undefined;
-			let followup: EvaluationFollowup | undefined;
-			// A user turn receives the next free slot without interrupting existing model calls.
-			for (const entry of runs) {
-				const candidate = entry.results.find((original) =>
-					original.followups?.some((turn) => turn.status === "queued"),
-				);
-				if (!candidate) continue;
-				run = entry;
-				result = candidate;
-				followup = candidate.followups?.find((turn) => turn.status === "queued");
-				break;
-			}
-			if (!result) {
-				run = runs.find(
-					(entry) => entry.status === "running" && entry.results.some((item) => item.status === "queued"),
-				);
-				result = run?.results.find((entry) => entry.status === "queued");
-			}
-			if (!run || !result) return;
+			const work = this.nextWork();
+			if (!work) return;
+			const { run, result, followup, provider } = work;
 			const target = followup ?? result;
 			const controller = new AbortController();
 			target.status = "running";
@@ -667,7 +789,7 @@ export class EvaluationService {
 				this.active.delete(target.id);
 				this.pump();
 			});
-			this.active.set(target.id, { controller, promise });
+			this.active.set(target.id, { controller, promise, provider });
 			// Disk failures are exceptional; terminate this work item without an unhandled rejection.
 			void promise.catch(() => {});
 		}
@@ -717,27 +839,42 @@ export class EvaluationService {
 				timeoutMs: 0,
 				idleTimeoutMs: policy.idleTimeoutMs,
 			};
-			const invoked: EvaluationInvocationResult = await Promise.race([
-				this.invoke({
-					task: structuredClone(task),
-					profile: structuredClone(requestProfile),
-					requestPolicy: structuredClone(policy),
-					...(followup ? { conversation: this.conversation(original, followup) } : {}),
-					signal: controller.signal,
-					onPartial: (text, thinking) => {
-						if (controller.signal.aborted || !acceptingPartials) return;
-						idle?.observe(text, thinking);
-						result.output = text;
-						result.thinking = thinking;
-						result.generationPhase = text ? "answering" : thinking ? "thinking" : "waiting";
-						if (Date.now() - lastSave > 500) {
-							lastSave = Date.now();
-							this.persist(run);
-						}
-					},
-				}),
-				aborted,
-			]);
+			let invoked: EvaluationInvocationResult | undefined;
+			for (let retry = 0; !invoked; retry++) {
+				let received = false;
+				const delay = this.transientRetryDelaysMs[retry];
+				// Only a call that returned nothing is repeated, so a retry never discards visible content.
+				const retryable = (message: string) =>
+					delay !== undefined && !received && !controller.signal.aborted && isTransientEvaluationError(message);
+				try {
+					const attempt = await Promise.race([
+						this.invoke({
+							task: structuredClone(task),
+							profile: structuredClone(requestProfile),
+							requestPolicy: structuredClone(policy),
+							...(followup ? { conversation: this.conversation(original, followup) } : {}),
+							signal: controller.signal,
+							onPartial: (text, thinking) => {
+								if (controller.signal.aborted || !acceptingPartials) return;
+								if (text || thinking) received = true;
+								idle?.observe(text, thinking);
+								result.output = text;
+								result.thinking = thinking;
+								result.generationPhase = text ? "answering" : thinking ? "thinking" : "waiting";
+								if (Date.now() - lastSave > STREAM_PERSIST_INTERVAL_MS) {
+									lastSave = Date.now();
+									this.persist(run);
+								}
+							},
+						}),
+						aborted,
+					]);
+					if (attempt.stopReason !== "error" || !retryable(attempt.error ?? "")) invoked = attempt;
+				} catch (error) {
+					if (!retryable(error instanceof Error ? error.message : String(error))) throw error;
+				}
+				if (!invoked) await Promise.race([new Promise((done) => setTimeout(done, delay)), aborted]);
+			}
 			acceptingPartials = false;
 			idle.stop();
 			generationEnded = Date.now();
@@ -835,5 +972,6 @@ export class EvaluationService {
 		}
 		for (const { controller } of this.active.values()) controller.abort(new Error("应用关闭，测评中断"));
 		await Promise.allSettled([...this.active.values()].map((entry) => entry.promise));
+		await closeEvaluationBrowser();
 	}
 }

@@ -38,6 +38,8 @@ const zh = {
 	model: "模型配置", sampleCount: "结果数", scoredCount: "已评分", uncheckedCount: "未检查", failures: "失败", noSummary: "这一题型没有已揭晓结果。",
 	partialCost: "{n} 个结果费用未知", partialTime: "{n} 个结果耗时未知", duplicateProfile: "已经选择此模型与档位", edit: "编辑", clear: "清空选择", score: "{n} 分",
 	ready: "已完成，待评价", allReviewed: "已评价", scope: "{tasks} 题 · {profiles} 个配置 · {samples} 次", rawUsage: "输入 {input} / 输出 {output}", selectLimit: "每次最多选择 30 道题与 12 个模型配置。", actualRequest: "实际请求模型", responseModel: "供应商返回模型", forwardedThinking: "已转发思考参数", providerDefault: "供应商默认", modelMismatch: "返回模型：{model}",
+	storageWarning: "部分本地测评数据无法读取，已单独保留，其余数据正常可用：", resume: "继续未完成（{n}）", resumeHint: "为中断或取消的结果各新增一次调用，原尝试记录保留。", export: "导出结果", exportHint: "下载这次测评的完整数据（JSON），已揭晓分组包含模型与指标。",
+	hideTiming: "匿名期间隐藏耗时", hideTimingHint: "速度差异可能暗示是哪个模型；揭晓后照常显示。", delete: "删除", confirmDelete: "确认删除", deleteRunning: "测评仍在运行，请先取消后再删除", deleteTaskHint: "已有测评保留各自的题目快照，不受影响。",
 } as const;
 
 const en: { [K in keyof typeof zh]: string } = {
@@ -78,6 +80,8 @@ const en: { [K in keyof typeof zh]: string } = {
 	model: "Model configuration", sampleCount: "Results", scoredCount: "Scored", uncheckedCount: "Unchecked", failures: "Failures", noSummary: "No revealed results in this category.",
 	partialCost: "{n} results have unknown cost", partialTime: "{n} results have unknown duration", duplicateProfile: "This model and thinking level is already selected", edit: "Edit", clear: "Clear selection", score: "{n} points",
 	ready: "Completed, awaiting review", allReviewed: "Reviewed", scope: "{tasks} tasks · {profiles} configurations · {samples} samples", rawUsage: "Input {input} / output {output}", selectLimit: "Select up to 30 tasks and 12 model configurations per evaluation.", actualRequest: "Requested model", responseModel: "Provider response model", forwardedThinking: "Forwarded thinking parameter", providerDefault: "Provider default", modelMismatch: "Response model: {model}",
+	storageWarning: "Some local evaluation data could not be read and was set aside; everything else is available:", resume: "Continue unfinished ({n})", resumeHint: "Adds one new call for each interrupted or cancelled result and keeps the earlier attempts.", export: "Export results", exportHint: "Download this evaluation's full data (JSON). Revealed groups include models and metrics.",
+	hideTiming: "Hide timing while anonymous", hideTimingHint: "Speed differences can hint at which model is which; timing shows again after reveal.", delete: "Delete", confirmDelete: "Confirm delete", deleteRunning: "This evaluation is still running. Cancel it before deleting.", deleteTaskHint: "Existing evaluations keep their own task snapshots and are unaffected.",
 };
 
 export type EvaluationText = (key: keyof typeof zh, vars?: Record<string, string | number>) => string;

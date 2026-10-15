@@ -31,16 +31,19 @@ export function EvaluationDialog({ title, children, footer, onClose, preview = f
 	return <div className="eval-modal"><div ref={panel} tabIndex={-1} className={`eval-modal-panel${preview ? " is-preview" : ""}`} role="dialog" aria-modal="true" aria-label={title}><div className="eval-modal-head"><h2>{title}</h2><span className="eval-spacer" /><button className="eval-button" onClick={onClose} aria-label="Close">×</button></div><div className="eval-modal-body">{children}</div>{footer && <div className="eval-modal-foot">{footer}</div>}</div></div>;
 }
 
-export function EvaluationTaskDetails({ task, t, onClose, onCopy, onEdit, onAdd, onSource }: {
+export function EvaluationTaskDetails({ task, t, busy, onClose, onCopy, onEdit, onDelete, onAdd, onSource }: {
 	task: EvaluationTask;
 	t: EvaluationText;
+	busy: boolean;
 	onClose: () => void;
 	onCopy: () => void;
 	onEdit: () => void;
+	onDelete: () => void;
 	onAdd: () => void;
 	onSource: (url: string) => void;
 }): React.JSX.Element {
-	return <EvaluationDialog title={task.title} onClose={onClose} footer={<><button className="eval-button" onClick={onCopy}>{t("copy")}</button>{!task.builtin && <button className="eval-button" onClick={onEdit}>{t("edit")}</button>}<button className="eval-button primary" onClick={onAdd}>{t("addTask")}</button></>}>
+	const [confirming, setConfirming] = useState(false);
+	return <EvaluationDialog title={task.title} onClose={onClose} footer={<>{!task.builtin && (confirming ? <><button className="eval-button danger" disabled={busy} title={t("deleteTaskHint")} onClick={onDelete}>{t("confirmDelete")}</button><button className="eval-button" onClick={() => setConfirming(false)}>{t("cancelEdit")}</button></> : <button className="eval-button" disabled={busy} onClick={() => setConfirming(true)}>{t("delete")}</button>)}<span className="eval-spacer" /><button className="eval-button" onClick={onCopy}>{t("copy")}</button>{!task.builtin && <button className="eval-button" onClick={onEdit}>{t("edit")}</button>}<button className="eval-button primary" onClick={onAdd}>{t("addTask")}</button></>}>
 		<div className="eval-task-meta"><span className="eval-pill">{task.id}</span><span className="eval-pill">{t(task.category)}</span><span className="eval-pill">v{task.version}</span><span className="eval-muted">{t("output")}: {task.outputType}</span></div>
 		{task.source && <p className="eval-muted">{t("origin")}: {task.source.url ? <button className="eval-link" onClick={() => onSource(task.source?.url ?? "")}>{task.source.label}</button> : task.source.label}</p>}
 		<h3>{t("prompt")}</h3><div className="eval-prompt">{task.prompt}</div>{task.input && <><h3>{t("input")}</h3><div className="eval-prompt">{task.input}</div></>}

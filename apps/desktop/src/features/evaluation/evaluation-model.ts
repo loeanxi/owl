@@ -1,3 +1,4 @@
+import { evaluationSvgAspect, evaluationSvgFitSize } from "../../../../../packages/coding-agent/src/core/evaluation/preview-fit.ts";
 import type {
 	EvaluationCategory, EvaluationProfileInput, EvaluationResultView, EvaluationRunView, EvaluationThinkingLevel,
 } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
@@ -25,6 +26,20 @@ export function groupResults(run: EvaluationRunView, taskId: string, sample: num
 	});
 }
 
+/** Only the newest attempt in an unrevealed group can be retried; the server rejects anything else. */
+export function canRetryResult(run: EvaluationRunView, result: EvaluationResultView): boolean {
+	return !result.revealed && FINISHED_STATUSES.has(result.status) && !run.results.some((entry) => entry.retryOf === result.id);
+}
+
+/** Interrupted or cancelled newest attempts in unrevealed groups, which "continue" requeues. */
+export function resumableCount(run: EvaluationRunView): number {
+	return run.results.filter((result) => (result.status === "interrupted" || result.status === "cancelled") && canRetryResult(run, result)).length;
+}
+
+export function firstSummaryCategory(run: EvaluationRunView): EvaluationCategory {
+	return CATEGORIES.find((category) => run.tasks.some((task) => task.category === category)) ?? "svg";
+}
+
 export interface EvaluationCriterionStatistics {
 	key: string;
 	id: string;
@@ -41,12 +56,14 @@ export interface EvaluationStatistics {
 	name: string;
 	thinkingLevel: EvaluationThinkingLevel;
 	count: number;
+	completed: number;
 	passed: number;
 	checked: number;
 	unchecked: number;
 	failed: number;
 	scored: number;
 	criterionStats: EvaluationCriterionStatistics[];
+	/** Completed results only: an early cancellation or failure is not a measurement of generation speed. */
 	durationTotal: number;
 	durationCount: number;
 	costTotal: number;
@@ -64,7 +81,7 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 		const profile = result.profile;
 		let stats = groups.get(profile.id);
 		if (!stats) {
-			stats = { key: profile.id, name: profile.model.name, thinkingLevel: profile.thinkingLevel, count: 0, passed: 0, checked: 0, unchecked: 0, failed: 0, scored: 0, criterionStats: [], durationTotal: 0, durationCount: 0, costTotal: 0, costCount: 0 };
+			stats = { key: profile.id, name: profile.model.name, thinkingLevel: profile.thinkingLevel, count: 0, completed: 0, passed: 0, checked: 0, unchecked: 0, failed: 0, scored: 0, criterionStats: [], durationTotal: 0, durationCount: 0, costTotal: 0, costCount: 0 };
 			groups.set(profile.id, stats);
 		}
 		stats.count++;
@@ -76,6 +93,8 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 			if (result.checks.every((check) => check.status === "passed")) stats.passed++;
 		}
 		if (result.status === "completed") {
+			stats.completed++;
+			if (typeof result.durationMs === "number") { stats.durationTotal += result.durationMs; stats.durationCount++; }
 			let scored = false;
 			for (const item of task.rubric) {
 				// A familiar label can hide a different scoring rule; never combine those standards.
@@ -96,7 +115,6 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 			}
 			if (scored) stats.scored++;
 		}
-		if (typeof result.durationMs === "number") { stats.durationTotal += result.durationMs; stats.durationCount++; }
 		if (typeof result.costUsd === "number") { stats.costTotal += result.costUsd; stats.costCount++; }
 	}
 	return [...groups.values()];
@@ -120,18 +138,22 @@ export function isolatedPreview(content: string, type: "svg" | "html"): string {
 		const svg = document.querySelector<SVGElement>("svg");
 		if (svg) {
 			// Fit the preview viewport, keeping the original stored artifact and its viewBox intact.
-			if (!svg.hasAttribute("viewBox")) {
-				const width = svg.getAttribute("width")?.match(/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i)?.[1];
-				const height = svg.getAttribute("height")?.match(/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i)?.[1];
-				if (width && height && Number(width) > 0 && Number(height) > 0) svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-			}
+			const aspect = evaluationSvgAspect(svg.getAttribute("viewBox"), svg.getAttribute("width"), svg.getAttribute("height"));
+			if (!svg.hasAttribute("viewBox") && aspect) svg.setAttribute("viewBox", `0 0 ${aspect.width} ${aspect.height}`);
 			svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-			for (const property of ["width", "height", "max-width", "max-height"]) svg.style.setProperty(property, "100%", "important");
+			const size = aspect ? evaluationSvgFitSize(aspect) : { width: "100%", height: "100%" };
+			svg.style.setProperty("width", size.width, "important");
+			svg.style.setProperty("height", size.height, "important");
+			for (const property of ["max-width", "max-height"]) svg.style.setProperty(property, "100%", "important");
 			for (const property of ["min-width", "min-height"]) svg.style.setProperty(property, "0", "important");
 		}
 	}
-	const markup = type === "svg" ? `<style>html,body{margin:0;padding:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}body{display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:0 1 100%;width:100%;height:100%;min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain}</style>${document.body.innerHTML}` : document.documentElement.outerHTML;
+	const markup = type === "svg" ? `<style>html,body{margin:0;padding:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}body{display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:none;min-width:0;min-height:0;max-width:100%;max-height:100%}</style>${document.body.innerHTML}` : document.documentElement.outerHTML;
 	return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">${markup}`;
+}
+
+export function exportEvaluationRun(run: EvaluationRunView): void {
+	downloadEvaluationArtifact(JSON.stringify(run, null, 2), `${run.name}-${run.id.slice(0, 8)}.json`, "json");
 }
 
 export function downloadEvaluationArtifact(content: string, filename: string, type: string): void {

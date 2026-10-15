@@ -1,10 +1,82 @@
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { type Browser, type BrowserContext, chromium, type Frame, type Page } from "playwright-core";
+import { evaluationSvgAspect, evaluationSvgFitSize } from "./preview-fit.ts";
 import { EVALUATION_BOARD, EVALUATION_ORDERS, EVALUATION_RECORDS } from "./tasks.ts";
 import type { EvaluationArtifact, EvaluationCheck, EvaluationCheckSpec, EvaluationTask } from "./types.ts";
 
 const WORK_BUDGET_MS = 12_500;
+const CONTEXT_CLOSE_MS = 1800;
+const BROWSER_IDLE_MS = 30_000;
+
+/** Launching Chromium costs seconds; checks share one process and each gets its own isolated context. */
+interface SharedBrowser {
+	path: string;
+	browser: Promise<Browser>;
+	launched?: Browser;
+	users: number;
+	idle?: ReturnType<typeof setTimeout>;
+}
+let shared: SharedBrowser | undefined;
+
+async function acquireBrowser(path: string): Promise<Browser> {
+	if (shared && (shared.path !== path || (shared.launched && !shared.launched.isConnected())))
+		discardBrowser(shared.browser);
+	if (!shared) {
+		const browser = chromium.launch({
+			executablePath: path,
+			headless: true,
+			timeout: 5000,
+			args: ["--disable-background-networking", "--disable-component-update", "--no-first-run"],
+		});
+		const entry: SharedBrowser = { path, browser, users: 0 };
+		shared = entry;
+		browser.then(
+			(launched) => {
+				entry.launched = launched;
+				launched.on("disconnected", () => discardBrowser(browser));
+			},
+			() => discardBrowser(browser),
+		);
+	}
+	const current = shared;
+	current.users++;
+	if (current.idle) clearTimeout(current.idle);
+	current.idle = undefined;
+	try {
+		return await current.browser;
+	} catch (error) {
+		current.users--;
+		throw error;
+	}
+}
+
+function releaseBrowser(browser: Browser): void {
+	const current = shared;
+	if (!current || current.launched !== browser) return;
+	current.users = Math.max(0, current.users - 1);
+	if (current.users > 0) return;
+	current.idle = setTimeout(() => {
+		if (shared === current && current.users === 0) discardBrowser(current.browser);
+	}, BROWSER_IDLE_MS);
+	current.idle.unref();
+}
+
+function discardBrowser(browser: Promise<Browser>): void {
+	if (shared?.browser === browser) {
+		if (shared.idle) clearTimeout(shared.idle);
+		shared = undefined;
+	}
+	void browser.then((launched) => launched.close()).catch(() => {});
+}
+
+/** Closes the shared checker browser, for application shutdown and test teardown. */
+export async function closeEvaluationBrowser(): Promise<void> {
+	const current = shared;
+	if (!current) return;
+	discardBrowser(current.browser);
+	await current.browser.then((launched) => launched.close()).catch(() => {});
+}
 const PREVIEW_CSP =
 	"default-src 'none'; base-uri 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; navigate-to 'none'; img-src data:; media-src 'none'; font-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'";
 
@@ -48,6 +120,15 @@ export function findEvaluationBrowserPath(): string | undefined {
 	}
 	candidates.push(chromium.executablePath());
 	return candidates.find((candidate) => existsSync(candidate));
+}
+
+/** Matches the desktop preview: the drawing box keeps the viewBox ratio, so out-of-viewBox drawing stays clipped. */
+function svgFitStyle(content: string): string {
+	const root = content.match(/<svg\b[^>]*>/i)?.[0] ?? "";
+	const attribute = (name: string) => root.match(new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1] ?? null;
+	const aspect = evaluationSvgAspect(attribute("viewBox"), attribute("width"), attribute("height"));
+	const size = aspect ? evaluationSvgFitSize(aspect) : undefined;
+	return `<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:none;max-width:100%;max-height:100%${size ? `;width:${size.width}!important;height:${size.height}!important` : ""}}</style>`;
 }
 
 function assertBehavior(condition: unknown, description: string): asserts condition {
@@ -412,21 +493,25 @@ export async function checkEvaluationBrowser(
 	let executingArtifact = false;
 	let budgetExceeded = false;
 	const completed = new Map<string, EvaluationCheck>();
+	// Only this check's context is closed; other checks keep using the shared browser.
 	const close = () => {
 		void context?.close().catch(() => {});
-		void browser?.close().catch(() => {});
 	};
-	const abort = () => close();
+	// A hung page can delay context closing; cancellation must not wait for it.
+	let rejectAborted: ((reason: unknown) => void) | undefined;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAborted = reject;
+	});
+	aborted.catch(() => {});
+	const abort = () => {
+		close();
+		rejectAborted?.(signal?.reason);
+	};
 	signal?.addEventListener("abort", abort, { once: true });
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const work = async () => {
-			browser = await chromium.launch({
-				executablePath: browserPath,
-				headless: true,
-				timeout: 5000,
-				args: ["--disable-background-networking", "--disable-component-update", "--no-first-run"],
-			});
+			browser = await acquireBrowser(browserPath);
 			signal?.throwIfAborted();
 			context = await browser.newContext({
 				acceptDownloads: false,
@@ -456,7 +541,7 @@ export async function checkEvaluationBrowser(
 				artifact.type === "svg"
 					? PREVIEW_CSP.replace("script-src 'unsafe-inline'", "script-src 'none'")
 					: PREVIEW_CSP;
-			const content = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">${artifact.type === "svg" ? "<style>html,body{margin:0;width:100%;height:100%;display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style>" : ""}${artifact.content}`;
+			const content = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">${artifact.type === "svg" ? svgFitStyle(artifact.content) : ""}${artifact.content}`;
 			const escaped = content
 				.replaceAll("&", "&amp;")
 				.replaceAll('"', "&quot;")
@@ -519,6 +604,7 @@ export async function checkEvaluationBrowser(
 		};
 		await Promise.race([
 			work(),
+			aborted,
 			new Promise<never>((_resolve, reject) => {
 				timer = setTimeout(() => {
 					budgetExceeded = true;
@@ -543,14 +629,26 @@ export async function checkEvaluationBrowser(
 		if (timer) clearTimeout(timer);
 		signal?.removeEventListener("abort", abort);
 		const currentBrowser = browser;
-		if (currentBrowser)
-			await Promise.race([
-				currentBrowser.close().catch(() => {}),
-				new Promise<void>((resolve) => {
-					const cleanupTimer = setTimeout(resolve, 1800);
-					cleanupTimer.unref();
-				}),
-			]);
+		const currentContext = context;
+		if (currentBrowser) {
+			const closed = currentContext
+				? await Promise.race([
+						currentContext.close().then(
+							() => true,
+							() => false,
+						),
+						new Promise<boolean>((resolve) => {
+							const cleanupTimer = setTimeout(() => resolve(false), CONTEXT_CLOSE_MS);
+							cleanupTimer.unref();
+						}),
+					])
+				: true;
+			// A renderer that will not close (for example a hung script) takes the shared browser down with it.
+			if (!closed) {
+				if (shared?.launched === currentBrowser) discardBrowser(shared.browser);
+				void currentBrowser.close().catch(() => {});
+			} else releaseBrowser(currentBrowser);
+		}
 	}
 	return specs.map(
 		(spec) =>

@@ -186,6 +186,8 @@ export interface EvaluationResultView
 	followups: EvaluationFollowupView[];
 	anonymousLabel: string;
 	revealed: boolean;
+	/** Output, thinking and artifacts were left out of a focused view; fetch this group to read them. */
+	contentOmitted?: true;
 	/** Relative elapsed runtime is visible during anonymous evaluation; queued or unknown timings are null. */
 	elapsedMs?: number | null;
 	profile?: EvaluationProfile;
@@ -221,16 +223,23 @@ export interface EvaluationBootstrap {
 	tasks: EvaluationTask[];
 	models: EvaluationModel[];
 	runs: EvaluationRunSummary[];
+	/** Unreadable stored files that were set aside so the rest of the data stays usable. */
+	warnings: string[];
 }
+/** Only this task sample carries answer content; null omits content from every group. */
+export type EvaluationViewFocus = { taskId: string; sample: number } | null;
 export type EvaluationRequest =
 	| { action: "bootstrap" }
 	| { action: "task.save"; task: EvaluationTask }
+	| { action: "task.delete"; taskId: string }
 	| { action: "run.start"; name: string; taskIds: string[]; profiles: EvaluationProfileInput[]; samples: 1 | 3 | 5 }
-	| { action: "run.get"; runId: string }
+	| { action: "run.get"; runId: string; focus?: EvaluationViewFocus }
 	| { action: "run.list" }
 	| { action: "run.cancel"; runId: string }
+	| { action: "run.delete"; runId: string }
 	| { action: "run.append"; runId: string; samples: 3 | 5 }
 	| { action: "run.retry"; runId: string; resultId: string }
+	| { action: "run.resume"; runId: string }
 	| { action: "conversation.send"; runId: string; resultId: string; prompt: string }
 	| { action: "conversation.cancel"; runId: string; resultId: string; followupId: string }
 	| {
@@ -244,12 +253,15 @@ export type EvaluationRequest =
 export interface EvaluationResponseMap {
 	bootstrap: EvaluationBootstrap;
 	"task.save": EvaluationTask;
+	"task.delete": EvaluationTask[];
 	"run.start": EvaluationRunView;
 	"run.get": EvaluationRunView;
 	"run.list": EvaluationRunSummary[];
 	"run.cancel": EvaluationRunView;
+	"run.delete": EvaluationRunSummary[];
 	"run.append": EvaluationRunView;
 	"run.retry": EvaluationRunView;
+	"run.resume": EvaluationRunView;
 	"run.reveal": EvaluationRunView;
 	"conversation.send": EvaluationRunView;
 	"conversation.cancel": EvaluationRunView;

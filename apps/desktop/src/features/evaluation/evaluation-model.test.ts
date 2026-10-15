@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DOMParser } from "linkedom";
 import type { EvaluationProfile, EvaluationResultView, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
-import { evaluationStatistics, groupResults, isolatedPreview, profileKey, selectProfile } from "./evaluation-model.ts";
+import { canRetryResult, evaluationStatistics, firstSummaryCategory, groupResults, isolatedPreview, profileKey, resumableCount, selectProfile } from "./evaluation-model.ts";
 
 const profile: EvaluationProfile = {
 	id: "profile-a", provider: "fixture", modelId: "model", thinkingLevel: "default", maxTokens: 8192, timeoutMs: 1000,
@@ -41,8 +41,10 @@ test("summary excludes anonymous metrics and does not convert unknown cost, unch
 	assert.equal(stats[0].failed, 1);
 	assert.equal(stats[0].scored, 1);
 	assert.deepEqual(stats[0].criterionStats.map((item) => ({ id: item.id, total: item.total, count: item.count, sampleCount: item.sampleCount })), [{ id: "r1", total: 4, count: 1, sampleCount: 2 }]);
-	assert.equal(stats[0].durationCount, 2);
-	assert.equal(stats[0].durationTotal, 3000);
+	// The failed result's 2 s is not a generation-speed measurement.
+	assert.equal(stats[0].completed, 2);
+	assert.equal(stats[0].durationCount, 1);
+	assert.equal(stats[0].durationTotal, 1000);
 	assert.equal(stats[0].costCount, 1);
 	assert.equal(stats[0].costTotal, 0.12);
 	assert.deepEqual(evaluationStatistics(run([result("a")]), "html"), []);
@@ -97,6 +99,22 @@ test("summary keeps each scoring axis separate and never mixes SVG, JSON or cust
 		{ id: "action", mean: 4, count: 1 },
 		{ id: "clarity", mean: 1, count: 1 },
 	]);
+});
+
+test("only the newest unrevealed attempt can be retried or resumed, and the summary opens on a category the run has", () => {
+	const fixture = run([
+		result("a", { revealed: false, profile: undefined, status: "failed" }),
+		result("retry", { revealed: false, profile: undefined, status: "interrupted", attempt: 2, retryOf: "a" }),
+		result("b", { revealed: false, profile: undefined, status: "cancelled" }),
+		result("shown", { status: "interrupted" }),
+	]);
+	assert.equal(canRetryResult(fixture, fixture.results[0]), false);
+	assert.equal(canRetryResult(fixture, fixture.results[1]), true);
+	assert.equal(canRetryResult(fixture, fixture.results[3]), false);
+	assert.equal(resumableCount(fixture), 2);
+	assert.equal(firstSummaryCategory(fixture), "svg");
+	fixture.tasks = [{ ...fixture.tasks[0], category: "code" }];
+	assert.equal(firstSummaryCategory(fixture), "code");
 });
 
 test("zero price remains a known metric and configurations distinguish provider and thinking level", () => {

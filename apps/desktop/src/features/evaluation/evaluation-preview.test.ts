@@ -23,10 +23,9 @@ test("SVG viewport wrapper preserves original viewBox and source while enforcing
 	const svg = document.querySelector("svg");
 	assert.equal(svg?.getAttribute("viewBox"), "0 0 400 260");
 	assert.equal(svg?.getAttribute("preserveAspectRatio"), "xMidYMid meet");
-	assert.match(svg?.getAttribute("style") ?? "", /width:100%/);
-	assert.match(svg?.getAttribute("style") ?? "", /height:100%/);
+	assert.match(svg?.getAttribute("style") ?? "", /width:\s*min\(100vw, calc\(100vh \* 400 \/ 260\)\)/);
+	assert.match(svg?.getAttribute("style") ?? "", /height:\s*min\(100vh, calc\(100vw \* 260 \/ 400\)\)/);
 	assert.match(output, /min-height:0/);
-	assert.match(output, /object-fit:contain/);
 	assert.match(output, /script-src 'none'/);
 	assert.equal(document.querySelector("script"), null);
 	assert.match(ORIGINAL_SVG, /width="400" height="260"/);
@@ -58,6 +57,9 @@ test("400×260 SVG fully fits both a 200px thumbnail and an expanded viewport in
 			assert.ok(geometry.svg.right <= geometry.width + 1, `SVG extends past ${size.width}px preview width`);
 			assert.ok(geometry.svg.bottom <= geometry.height + 1, `SVG extends past ${size.height}px preview height`);
 			assert.ok(geometry.wheel.right <= geometry.width + 1 && geometry.wheel.bottom <= geometry.height + 1, "The bottom wheel is cropped");
+			// The drawing box keeps the viewBox ratio, so drawing outside the viewBox cannot show in letterbox space.
+			const ratio = (geometry.svg.right - geometry.svg.x) / (geometry.svg.bottom - geometry.svg.y);
+			assert.ok(Math.abs(ratio - 400 / 260) < 0.02, `SVG box ratio ${ratio} differs from its viewBox`);
 		}
 		}
 	} finally { await browser.close(); }

@@ -8,20 +8,33 @@ export class EvaluationStore {
 	private readonly root: string;
 	private readonly runs = new Map<string, EvaluationRun>();
 	private tasks: EvaluationTask[] = [];
+	/** One unreadable file must not make every other evaluation unavailable. */
+	readonly warnings: string[] = [];
 
 	constructor(agentDir: string) {
 		this.root = join(agentDir, "model-evaluations");
 		mkdirSync(join(this.root, "runs"), { recursive: true });
 		const taskPath = join(this.root, "tasks.json");
 		if (existsSync(taskPath)) {
-			const tasks: unknown = JSON.parse(readFileSync(taskPath, "utf8"));
-			if (!Array.isArray(tasks)) throw new Error("模型测评题库文件格式错误");
-			this.tasks = tasks as EvaluationTask[];
+			try {
+				const tasks: unknown = JSON.parse(readFileSync(taskPath, "utf8"));
+				if (!Array.isArray(tasks)) throw new Error("not an array");
+				this.tasks = tasks as EvaluationTask[];
+			} catch {
+				this.quarantine(taskPath, "自定义题库文件无法读取");
+			}
 		}
 		for (const name of readdirSync(join(this.root, "runs"))) {
 			if (!name.endsWith(".json")) continue;
-			const run = JSON.parse(readFileSync(join(this.root, "runs", name), "utf8")) as EvaluationRun;
-			if (!run.id || !Array.isArray(run.results)) throw new Error(`模型测评记录格式错误：${name}`);
+			const path = join(this.root, "runs", name);
+			let run: EvaluationRun;
+			try {
+				run = JSON.parse(readFileSync(path, "utf8")) as EvaluationRun;
+				if (!run.id || !Array.isArray(run.results) || !Array.isArray(run.groups)) throw new Error("invalid run");
+			} catch {
+				this.quarantine(path, `测评记录 ${name} 无法读取`);
+				continue;
+			}
 			this.runs.set(run.id, run);
 			let changed = false;
 			let initialInterrupted = false;
@@ -62,6 +75,13 @@ export class EvaluationStore {
 		this.writeAtomic(join(this.root, "tasks.json"), this.tasks);
 	}
 
+	deleteTask(id: string): void {
+		const remaining = this.tasks.filter((entry) => entry.id !== id);
+		if (remaining.length === this.tasks.length) throw new Error("题目不存在");
+		this.writeAtomic(join(this.root, "tasks.json"), remaining);
+		this.tasks = remaining;
+	}
+
 	listRuns(): EvaluationRun[] {
 		return [...this.runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 	}
@@ -78,10 +98,28 @@ export class EvaluationStore {
 		this.runs.set(run.id, run);
 	}
 
+	deleteRun(id: string): void {
+		const run = this.getRun(id);
+		const path = join(this.root, "runs", `${run.id}.json`);
+		if (existsSync(path)) unlinkSync(path);
+		this.runs.delete(run.id);
+	}
+
+	private quarantine(path: string, description: string): void {
+		const target = `${path}.corrupt-${Date.now()}`;
+		try {
+			renameSync(path, target);
+			this.warnings.push(`${description}，已改名为 ${target} 保留原文件`);
+		} catch {
+			this.warnings.push(`${description}，已跳过`);
+		}
+	}
+
 	private writeAtomic(path: string, value: unknown): void {
 		const temporary = `${path}.${randomUUID()}.tmp`;
 		try {
-			writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+			// Compact JSON: run files carry every answer and are rewritten while answers stream.
+			writeFileSync(temporary, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
 			renameSync(temporary, path);
 		} finally {
 			if (existsSync(temporary)) unlinkSync(temporary);

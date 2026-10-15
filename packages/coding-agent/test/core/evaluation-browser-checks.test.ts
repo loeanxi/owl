@@ -1,6 +1,10 @@
 import { createServer } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkEvaluationBrowser, findEvaluationBrowserPath } from "../../src/core/evaluation/check-browser.ts";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import {
+	checkEvaluationBrowser,
+	closeEvaluationBrowser,
+	findEvaluationBrowserPath,
+} from "../../src/core/evaluation/check-browser.ts";
 import {
 	BUILTIN_EVALUATION_TASKS,
 	EVALUATION_BOARD,
@@ -69,6 +73,7 @@ const records=${JSON.stringify(EVALUATION_RECORDS)},dialog=document.getElementBy
 ];
 
 afterEach(() => vi.unstubAllEnvs());
+afterAll(() => closeEvaluationBrowser());
 
 describe("browser availability is reported honestly", () => {
 	it("returns unchecked render and behavior when the explicit browser path is absent", async () => {

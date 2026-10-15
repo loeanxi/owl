@@ -34,7 +34,8 @@ export function evaluationConversations(results: EvaluationResultView[]): Evalua
 }
 
 export function evaluationHasLiveWork(run: EvaluationRunView): boolean {
-	return run.status === "running" || run.results.some((result) => result.followups?.some((item) => item.status === "queued" || item.status === "running"));
+	const live = (status: string) => status === "queued" || status === "running";
+	return run.status === "running" || run.results.some((result) => live(result.status) || result.followups?.some((item) => live(item.status)));
 }
 
 export interface EvaluationConversationState {
@@ -51,6 +52,23 @@ export interface EvaluationRunUiState {
 	attemptCounts: Map<string, number>;
 }
 
-export function createEvaluationRunUiState(): EvaluationRunUiState {
-	return { conversations: new Map(), ratings: {}, selectedAttempts: {}, attemptCounts: new Map() };
+const DRAFT_PREFIX = "owl.evaluation.ratingDrafts.";
+
+/** Unsubmitted scores stay on this device until reveal, so a reload or restart does not lose review work. */
+export function loadRatingDrafts(runId: string): Record<string, EvaluationRating> {
+	try {
+		const value: unknown = JSON.parse(localStorage.getItem(DRAFT_PREFIX + runId) ?? "{}");
+		return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, EvaluationRating> : {};
+	} catch { return {}; }
+}
+
+export function saveRatingDrafts(runId: string, ratings: Record<string, EvaluationRating>): void {
+	try {
+		if (Object.keys(ratings).length) localStorage.setItem(DRAFT_PREFIX + runId, JSON.stringify(ratings));
+		else localStorage.removeItem(DRAFT_PREFIX + runId);
+	} catch { /* Storage may be unavailable or full; drafts then remain in memory for this session. */ }
+}
+
+export function createEvaluationRunUiState(runId?: string): EvaluationRunUiState {
+	return { conversations: new Map(), ratings: runId ? loadRatingDrafts(runId) : {}, selectedAttempts: {}, attemptCounts: new Map() };
 }

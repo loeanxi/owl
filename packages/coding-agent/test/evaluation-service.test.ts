@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,11 +7,17 @@ import type {
 	EvaluationInvocationResult,
 	EvaluationInvoker,
 } from "../src/core/evaluation/model.ts";
-import { EvaluationService, type EvaluationServiceOptions } from "../src/core/evaluation/service.ts";
+import {
+	EvaluationService,
+	type EvaluationServiceOptions,
+	isTransientEvaluationError,
+} from "../src/core/evaluation/service.ts";
 import { EvaluationStore } from "../src/core/evaluation/store.ts";
 import type {
+	EvaluationBootstrap,
 	EvaluationModel,
 	EvaluationRequest,
+	EvaluationRunSummary,
 	EvaluationRunView,
 	EvaluationTask,
 } from "../src/core/evaluation/types.ts";
@@ -79,6 +85,7 @@ async function setup(
 	invoke: EvaluationInvoker = async () => structuredClone(reply),
 	idleTimeoutMs = 1000,
 	check?: EvaluationServiceOptions["check"],
+	extra: Partial<EvaluationServiceOptions> = {},
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "owl-evaluation-test-"));
 	directories.push(directory);
@@ -94,6 +101,7 @@ async function setup(
 				artifact: { type: tested.outputType, content: text, previewAllowed: true },
 				checks: [{ id: "format", label: "格式", status: "passed", detail: "fixture checked" }],
 			})),
+		...extra,
 	});
 	services.push(service);
 	return { directory, service };
@@ -496,5 +504,211 @@ describe("durable model evaluation", () => {
 					result.thinking === reply.thinking,
 			),
 		).toBe(true);
+	});
+});
+
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+describe("evaluation queue and lifecycle", () => {
+	it("retries only the newest attempt and refuses new attempts in a revealed group", async () => {
+		let count = 0;
+		const { service } = await setup(async () => {
+			count++;
+			return count === 1
+				? { ...structuredClone(reply), stopReason: "error", error: "fake provider rejected" }
+				: structuredClone(reply);
+		});
+		const done = await settle(service, (await start(service)).id);
+		const failed = done.results.find((result) => result.status === "failed");
+		await service.handle({ action: "run.retry", runId: done.id, resultId: failed?.id ?? "" });
+		await expect(service.handle({ action: "run.retry", runId: done.id, resultId: failed?.id ?? "" })).rejects.toThrow(
+			"最新",
+		);
+		const finished = await settle(service, done.id);
+		const newest = finished.results.find((result) => result.retryOf === failed?.id);
+		expect(newest?.attempt).toBe(2);
+		await service.handle({ action: "run.reveal", runId: done.id, taskId: task.id, sample: 1, mode: "skip" });
+		await expect(service.handle({ action: "run.retry", runId: done.id, resultId: newest?.id ?? "" })).rejects.toThrow(
+			"已揭晓",
+		);
+	});
+
+	it("continues cancelled results as new attempts", async () => {
+		let hang = true;
+		const { service } = await setup(async () =>
+			hang ? new Promise<EvaluationInvocationResult>(() => {}) : structuredClone(reply),
+		);
+		const begun = await start(service);
+		await service.handle({ action: "run.cancel", runId: begun.id });
+		await settle(service, begun.id);
+		hang = false;
+		const resumed = (await service.handle({ action: "run.resume", runId: begun.id })) as EvaluationRunView;
+		expect(resumed.results).toHaveLength(4);
+		const finished = await settle(service, begun.id);
+		expect(finished.status).toBe("completed");
+		expect(
+			finished.results.filter((result) => result.status === "completed").map((result) => result.attempt),
+		).toEqual([2, 2]);
+		await expect(service.handle({ action: "run.resume", runId: begun.id })).rejects.toThrow("没有");
+	});
+
+	it("focused views carry answer content for one task sample only", async () => {
+		const { service } = await setup();
+		const done = await settle(service, (await start(service, 3)).id);
+		expect(done.results.every((result) => result.output === reply.text && !result.contentOmitted)).toBe(true);
+		const focused = (await service.handle({
+			action: "run.get",
+			runId: done.id,
+			focus: { taskId: task.id, sample: 2 },
+		})) as EvaluationRunView;
+		for (const result of focused.results) {
+			expect(result.status).toBe("completed");
+			if (result.sample === 2) {
+				expect(result.output).toBe(reply.text);
+				expect(result.contentOmitted).toBeUndefined();
+			} else {
+				expect(result).toMatchObject({ output: "", thinking: "", artifact: null, contentOmitted: true });
+			}
+		}
+		const none = (await service.handle({ action: "run.get", runId: done.id, focus: null })) as EvaluationRunView;
+		expect(none.results.every((result) => result.contentOmitted === true)).toBe(true);
+	});
+
+	it("retries transient failures that returned nothing, but not failures that already streamed content", async () => {
+		const calls = new Map<string, number>();
+		const { service } = await setup(
+			async (request) => {
+				const count = (calls.get(request.profile.modelId) ?? 0) + 1;
+				calls.set(request.profile.modelId, count);
+				if (request.profile.modelId === "model-one") {
+					if (count === 1) throw new Error("429 Too Many Requests");
+					return structuredClone(reply);
+				}
+				request.onPartial("partial body", "");
+				return { ...structuredClone(reply), text: "partial body", stopReason: "error", error: "503 overloaded" };
+			},
+			1000,
+			undefined,
+			{ transientRetryDelaysMs: [0, 0] },
+		);
+		const done = await settle(service, (await start(service)).id);
+		const revealed = (await service.handle({
+			action: "run.reveal",
+			runId: done.id,
+			taskId: task.id,
+			sample: 1,
+			mode: "skip",
+		})) as EvaluationRunView;
+		const byModel = (id: string) => revealed.results.find((result) => result.profile?.modelId === id);
+		expect(byModel("model-one")?.status).toBe("completed");
+		expect(byModel("model-two")).toMatchObject({ status: "failed", output: "partial body" });
+		expect(calls.get("model-one")).toBe(2);
+		expect(calls.get("model-two")).toBe(1);
+		expect(isTransientEvaluationError("fake provider rejected")).toBe(false);
+		expect(isTransientEvaluationError("fetch failed")).toBe(true);
+	});
+
+	it("limits calls per provider while other providers keep running", async () => {
+		const providerModels: EvaluationModel[] = ["p1", "p2"].flatMap((provider) =>
+			["m1", "m2"].map((modelId) => ({ ...models[0], provider, modelId, name: `${provider}-${modelId}` })),
+		);
+		const active = new Map<string, number>();
+		const peaks = new Map<string, number>();
+		let total = 0;
+		let peak = 0;
+		const { service } = await setup(
+			async (request) => {
+				const provider = request.profile.provider;
+				const now = (active.get(provider) ?? 0) + 1;
+				active.set(provider, now);
+				peaks.set(provider, Math.max(peaks.get(provider) ?? 0, now));
+				total++;
+				peak = Math.max(peak, total);
+				await pause(20);
+				active.set(provider, (active.get(provider) ?? 1) - 1);
+				total--;
+				return structuredClone(reply);
+			},
+			1000,
+			undefined,
+			{ listModels: async () => structuredClone(providerModels), concurrency: 4, providerConcurrency: 1 },
+		);
+		const begun = (await service.handle({
+			action: "run.start",
+			name: "providers",
+			taskIds: [task.id],
+			samples: 1,
+			profiles: providerModels.map((model, index) => ({
+				id: `p-${index}`,
+				provider: model.provider,
+				modelId: model.modelId,
+				thinkingLevel: "default",
+			})),
+		})) as EvaluationRunView;
+		await settle(service, begun.id);
+		expect(peaks.get("p1")).toBe(1);
+		expect(peaks.get("p2")).toBe(1);
+		expect(peak).toBe(2);
+	});
+
+	it("cancelling an evaluation also stops its queued follow-ups", async () => {
+		let followupCalls = 0;
+		const { service } = await setup(
+			async (request) => {
+				if (request.conversation) followupCalls++;
+				if (request.profile.modelId === "model-two") return new Promise<EvaluationInvocationResult>(() => {});
+				return structuredClone(reply);
+			},
+			1000,
+			undefined,
+			{ concurrency: 1 },
+		);
+		const begun = await start(service);
+		let answered: EvaluationRunView | undefined;
+		for (let attempt = 0; attempt < 100 && !answered; attempt++) {
+			const current = (await service.handle({ action: "run.get", runId: begun.id })) as EvaluationRunView;
+			const statuses = current.results.map((result) => result.status);
+			if (statuses.includes("completed") && statuses.includes("running")) answered = current;
+			else await pause(5);
+		}
+		const completed = answered?.results.find((result) => result.status === "completed");
+		const sent = (await service.handle({
+			action: "conversation.send",
+			runId: begun.id,
+			resultId: completed?.id ?? "",
+			prompt: "再改一下",
+		})) as EvaluationRunView;
+		expect(sent.results.find((result) => result.id === completed?.id)?.followups[0]?.status).toBe("queued");
+		await expect(service.handle({ action: "run.delete", runId: begun.id })).rejects.toThrow("取消");
+		await service.handle({ action: "run.cancel", runId: begun.id });
+		const cancelled = await settle(service, begun.id);
+		expect(cancelled.results.find((result) => result.id === completed?.id)?.followups[0]?.status).toBe("cancelled");
+		await pause(20);
+		expect(followupCalls).toBe(0);
+	});
+
+	it("sets aside an unreadable run file and deletes runs and custom tasks on request", async () => {
+		const { service, directory } = await setup();
+		const done = await settle(service, (await start(service)).id);
+		await writeFile(join(directory, "model-evaluations", "runs", "broken.json"), "{not json");
+		const reloaded = new EvaluationService({
+			agentDir: directory,
+			builtinTasks: [task],
+			listModels: async () => models,
+			invoke: async () => reply,
+		});
+		services.push(reloaded);
+		const boot = (await reloaded.handle({ action: "bootstrap" })) as EvaluationBootstrap;
+		expect(boot.warnings).toHaveLength(1);
+		expect(boot.runs.map((run) => run.id)).toEqual([done.id]);
+		const names = await readdir(join(directory, "model-evaluations", "runs"));
+		expect(names.some((name) => name.startsWith("broken.json.corrupt-"))).toBe(true);
+		const remaining = (await reloaded.handle({ action: "run.delete", runId: done.id })) as EvaluationRunSummary[];
+		expect(remaining).toEqual([]);
+		await expect(reloaded.handle({ action: "run.get", runId: done.id })).rejects.toThrow("不存在");
+		await expect(reloaded.handle({ action: "task.delete", taskId: task.id })).rejects.toThrow("内置");
+		await reloaded.handle({ action: "task.save", task: { ...task, id: "my-task" } });
+		const tasks = (await reloaded.handle({ action: "task.delete", taskId: "my-task" })) as EvaluationTask[];
+		expect(tasks.map((entry) => entry.id)).toEqual([task.id]);
 	});
 });
