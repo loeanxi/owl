@@ -264,6 +264,13 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	finishTurn?: FinishTurn;
 
 	/**
+	 * How many tool calls one user turn may execute before the loop stops and
+	 * asks for a final answer. Repeated unknown tool names and identical failed
+	 * arguments stop the loop earlier. Defaults to 32.
+	 */
+	maxToolExecutions?: number;
+
+	/**
 	 * Called immediately before every conversational provider request, including the first.
 	 * Pending messages have already been appended. The returned context, model, and thinking level
 	 * replace the runtime values for this and later requests in the run. This hook does not poll queues.

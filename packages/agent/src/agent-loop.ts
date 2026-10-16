@@ -172,6 +172,12 @@ async function runLoop(
 	let config = initialConfig;
 	let lastCompletedTurn: PrepareNextTurnContext | undefined;
 	let explicitContinuation = false;
+	let toolExecutions = 0;
+	const failedUnknownTools = new Set<string>();
+	const failedCallKeys = new Set<string>();
+	let finalAnswerOnly = false;
+	let stopRequest: AgentMessage | undefined;
+	const maxToolExecutions = initialConfig.maxToolExecutions ?? DEFAULT_MAX_TOOL_EXECUTIONS;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
@@ -261,15 +267,35 @@ async function runLoop(
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
 			if (toolCalls.length > 0) {
+				const closing = finalAnswerOnly;
+				const refusal = explainToolRefusal(toolCalls, {
+					finalAnswerOnly,
+					toolExecutions,
+					maxToolExecutions,
+					failedUnknownTools,
+					failedCallKeys,
+				});
 				// A "length" stop means the output was cut off by the token limit, so
 				// every tool call in the message may carry truncated arguments. Fail
 				// them all instead of executing potentially borked calls.
-				const executedToolBatch =
-					message.stopReason === "length"
+				const executedToolBatch = refusal
+					? await refuseToolCalls(toolCalls, refusal.toolMessage, emit)
+					: message.stopReason === "length"
 						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
 						: await executeToolCalls(currentContext, message, config, signal, emit);
 				toolResults.push(...executedToolBatch.messages);
-				hasMoreToolCalls = !executedToolBatch.terminate;
+				hasMoreToolCalls = !refusal && !executedToolBatch.terminate;
+				if (!refusal) {
+					toolExecutions += toolResults.length;
+					rememberToolFailures(message, toolResults, failedUnknownTools, failedCallKeys);
+				} else if (!closing) {
+					finalAnswerOnly = true;
+					stopRequest = {
+						role: "user",
+						content: refusal.userMessage,
+						timestamp: Date.now(),
+					};
+				}
 
 				for (const result of toolResults) {
 					currentContext.messages.push(result);
@@ -293,6 +319,18 @@ async function runLoop(
 
 			explicitContinuation = decision?.action === "continue";
 			pendingMessages = (await config.getSteeringMessages?.()) || [];
+			if (pendingMessages.length > 0) {
+				// A real user steer starts a fresh budget. Drop the synthetic stop.
+				finalAnswerOnly = false;
+				stopRequest = undefined;
+				toolExecutions = 0;
+				failedUnknownTools.clear();
+				failedCallKeys.clear();
+			} else if (stopRequest) {
+				pendingMessages = [stopRequest];
+				stopRequest = undefined;
+				hasMoreToolCalls = true;
+			}
 			if (hasMoreToolCalls || pendingMessages.length > 0) {
 				explicitContinuation = false;
 			}
@@ -301,8 +339,13 @@ async function runLoop(
 		// Agent would stop here. Check for follow-up messages.
 		const followUpMessages = (await config.getFollowUpMessages?.()) || [];
 		if (followUpMessages.length > 0) {
-			// Set as pending so inner loop processes them
+			// Set as pending so inner loop processes them. A new user message gets its own tool budget.
 			explicitContinuation = false;
+			finalAnswerOnly = false;
+			stopRequest = undefined;
+			toolExecutions = 0;
+			failedUnknownTools.clear();
+			failedCallKeys.clear();
 			pendingMessages = followUpMessages;
 			continue;
 		}
@@ -468,6 +511,126 @@ async function streamAssistantResponse(
 	}
 	await emit({ type: "message_end", message: finalMessage });
 	return finalMessage;
+}
+
+/**
+ * Tool executions one user message may run before the loop stops and asks for a
+ * final answer. The system prompt tells the model to stop around this number.
+ */
+export const DEFAULT_MAX_TOOL_EXECUTIONS = 32;
+
+type ToolRefusal = {
+	toolMessage: string;
+	userMessage: string;
+};
+
+function explainToolRefusal(
+	toolCalls: AgentToolCall[],
+	state: {
+		finalAnswerOnly: boolean;
+		toolExecutions: number;
+		maxToolExecutions: number;
+		failedUnknownTools: ReadonlySet<string>;
+		failedCallKeys: ReadonlySet<string>;
+	},
+): ToolRefusal | undefined {
+	if (toolCalls.length === 0) return undefined;
+	if (state.finalAnswerOnly) {
+		return {
+			toolMessage: "本轮已经要求停止调用工具。这些调用没有执行。",
+			userMessage: "",
+		};
+	}
+	if (state.toolExecutions >= state.maxToolExecutions) {
+		return {
+			toolMessage: `本轮工具调用已达上限 ${state.maxToolExecutions} 次，这些调用没有执行。`,
+			userMessage: `工具调用已达到本轮上限 ${state.maxToolExecutions} 次。不要再调用任何工具。用用户的语言用几句话说明：已经确认的事实、还没做成的部分、一个下一步。`,
+		};
+	}
+	if (toolCalls.some((call) => state.failedUnknownTools.has(call.name))) {
+		const names = [
+			...new Set(toolCalls.map((call) => call.name).filter((name) => state.failedUnknownTools.has(name))),
+		];
+		return {
+			toolMessage: `工具 ${names.join(", ")} 在本轮已经确认不存在，这些调用没有执行。`,
+			userMessage:
+				"你又调用了本轮已经确认不存在的工具。不要再调用任何工具，也不要再猜工具名。用用户的语言说明卡在哪里，以及用现有工具能做的下一步。",
+		};
+	}
+	if (toolCalls.some((call) => state.failedCallKeys.has(toolCallKey(call.name, call.arguments)))) {
+		return {
+			toolMessage: "与本轮已经失败的调用参数相同，没有再次执行。",
+			userMessage:
+				"你在重复一组已经失败的工具参数。不要再调用任何工具。用用户的语言说明这次失败的原因，以及需要用户决定的下一步。",
+		};
+	}
+	return undefined;
+}
+
+function toolCallKey(name: string, args: unknown): string {
+	return `${name}\n${stableValue(args)}`;
+}
+
+function stableValue(value: unknown): string {
+	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+	if (Array.isArray(value)) return `[${value.map((item) => stableValue(item)).join(",")}]`;
+	const record = value as Record<string, unknown>;
+	return `{${Object.keys(record)
+		.sort()
+		.map((key) => `${JSON.stringify(key)}:${stableValue(record[key])}`)
+		.join(",")}}`;
+}
+
+function toolResultText(message: ToolResultMessage): string {
+	if (!Array.isArray(message.content)) return "";
+	return message.content
+		.map((block) => (block.type === "text" && "text" in block ? block.text : ""))
+		.filter((text) => text.length > 0)
+		.join("\n");
+}
+
+function rememberToolFailures(
+	assistant: AssistantMessage,
+	results: ToolResultMessage[],
+	unknownTools: Set<string>,
+	failedKeys: Set<string>,
+): void {
+	const calls = new Map(
+		assistant.content.filter((block) => block.type === "toolCall").map((block) => [block.id, block]),
+	);
+	for (const result of results) {
+		if (!result.isError) continue;
+		const unknownName = /^Tool ([^\s.]+) not found\b/.exec(toolResultText(result))?.[1];
+		if (unknownName) unknownTools.add(unknownName);
+		const call = calls.get(result.toolCallId);
+		if (call?.type === "toolCall") failedKeys.add(toolCallKey(call.name, call.arguments));
+	}
+}
+
+async function refuseToolCalls(
+	toolCalls: AgentToolCall[],
+	reason: string,
+	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	const messages: ToolResultMessage[] = [];
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
+		const finalized: FinalizedToolCallOutcome = {
+			toolCall,
+			result: createErrorToolResult(reason),
+			isError: true,
+		};
+		await emitToolExecutionEnd(finalized, emit);
+		const toolResultMessage = createToolResultMessage(finalized);
+		await emitToolResultMessage(toolResultMessage, emit);
+		messages.push(toolResultMessage);
+	}
+	return { messages, terminate: false };
 }
 
 /** One assistant message may run at most this many tool calls. A larger batch is not executed. */

@@ -2310,6 +2310,120 @@ describe("tool call batch guard", () => {
 		expect(text && "text" in text && text.text).toContain("None were executed");
 	});
 
+	it("stops when the same unknown tool is called again and asks for a final answer", async () => {
+		const events: AgentEvent[] = [];
+		let llmCalls = 0;
+		const stream = agentLoop(
+			[createUserMessage("go")],
+			{ messages: [], tools: [echoTool([])] },
+			{ model: createModel(), convertToLlm: identityConverter },
+			undefined,
+			() => {
+				llmCalls++;
+				const response = new MockAssistantStream();
+				queueMicrotask(() => {
+					if (llmCalls === 1) {
+						response.push({
+							type: "done",
+							reason: "toolUse",
+							message: createAssistantMessage([toolCall("missing-1", "refactor-baseline")]),
+						});
+						return;
+					}
+					if (llmCalls === 2) {
+						response.push({
+							type: "done",
+							reason: "toolUse",
+							message: createAssistantMessage([toolCall("missing-2", "refactor-baseline", "again")]),
+						});
+						return;
+					}
+					response.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "这个工具不存在，我停下来。" }]),
+					});
+				});
+				return response;
+			},
+		);
+		for await (const event of stream) events.push(event);
+		const messages = await stream.result();
+		expect(llmCalls).toBe(3);
+		const results = messages.filter((message) => message.role === "toolResult");
+		expect(results).toHaveLength(2);
+		expect(results[1] && "content" in results[1] && JSON.stringify(results[1].content)).toContain("已经确认不存在");
+		expect(
+			messages.some((message) => message.role === "user" && String(message.content).includes("不要再猜工具名")),
+		).toBe(true);
+		expect(events.some((event) => event.type === "agent_end")).toBe(true);
+	});
+
+	it("does not execute a tool call that repeats arguments which already failed", async () => {
+		const executed: string[] = [];
+		const failing = echoTool(executed);
+		failing.execute = async (_id, params) => {
+			executed.push(params.value);
+			return { content: [{ type: "text", text: "nope" }], details: {}, isError: true };
+		};
+		let llmCalls = 0;
+		const stream = agentLoop(
+			[createUserMessage("go")],
+			{ messages: [], tools: [failing] },
+			{ model: createModel(), convertToLlm: identityConverter },
+			undefined,
+			() => {
+				llmCalls++;
+				const response = new MockAssistantStream();
+				queueMicrotask(() => {
+					if (llmCalls < 3) {
+						response.push({
+							type: "done",
+							reason: "toolUse",
+							message: createAssistantMessage([toolCall(`echo-${llmCalls}`, "echo", "same")]),
+						});
+						return;
+					}
+					response.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "停了" }]),
+					});
+				});
+				return response;
+			},
+		);
+		for await (const event of stream) void event;
+		expect(executed).toEqual(["same"]);
+		expect(llmCalls).toBe(3);
+	});
+
+	it("stops after the configured tool execution budget and does not keep calling tools", async () => {
+		const executed: string[] = [];
+		let llmCalls = 0;
+		const stream = agentLoop(
+			[createUserMessage("go")],
+			{ messages: [], tools: [echoTool(executed)] },
+			{ model: createModel(), convertToLlm: identityConverter, maxToolExecutions: 1 },
+			undefined,
+			() => {
+				llmCalls++;
+				const response = new MockAssistantStream();
+				queueMicrotask(() => {
+					response.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage([toolCall(`echo-${llmCalls}`, "echo", String(llmCalls))]),
+					});
+				});
+				return response;
+			},
+		);
+		for await (const event of stream) void event;
+		expect(executed).toEqual(["1"]);
+		expect(llmCalls).toBe(3);
+	});
+
 	it("runs a batch of exactly sixteen known tool calls", async () => {
 		const executed: string[] = [];
 		const calls = Array.from({ length: 16 }, (_, index) => toolCall(`echo-${index}`, "echo", String(index)));
