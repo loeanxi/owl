@@ -2,6 +2,7 @@ import type {
 	Api,
 	Model,
 	ModelThinkingLevel,
+	OpenAICompletionsCompat,
 	SimpleStreamOptions,
 	StreamOptions,
 	ThinkingBudgets,
@@ -102,6 +103,40 @@ export function capThinkingLevelForOutput(level: ModelThinkingLevel, maxTokens: 
 		const candidate = OUTPUT_THINKING_LEVELS[cursor]!;
 		const answerFloor = candidate === "off" ? 0 : MIN_ANSWER_TOKENS;
 		if (OUTPUT_THINKING_BUDGET[candidate] + answerFloor <= maxTokens) return candidate;
+	}
+	return "off";
+}
+
+/**
+ * Reasoning and the answer share `max_tokens` unless the provider has a separate thinking budget.
+ * DeepSeek's `thinking: { type: "enabled" }` is this shape: `max` can fill the whole response.
+ */
+export function reasoningSharesOutputCeiling(model: Pick<Model<Api>, "api" | "reasoning" | "compat">): boolean {
+	if (model.api !== "openai-completions" || !model.reasoning) return false;
+	const compat = model.compat as OpenAICompletionsCompat | undefined;
+	if (compat?.supportsThinkingTokenBudget || compat?.thinkingTokenBudgetField) return false;
+	if (compat?.thinkingFormat === "chat-template") return false;
+	return true;
+}
+
+/**
+ * Lowest change that leaves answer room on a shared ceiling, skipping efforts the model rejects.
+ * Never raises the selected level. A missing map entry is allowed; an explicit `null` is not.
+ */
+export function capSharedCeilingThinkingLevel(
+	level: ModelThinkingLevel,
+	maxTokens: number,
+	thinkingLevelMap?: Model<Api>["thinkingLevelMap"],
+): ModelThinkingLevel {
+	const capped = capThinkingLevelForOutput(level, maxTokens);
+	const index = OUTPUT_THINKING_LEVELS.indexOf(capped);
+	if (index < 0) return capped;
+	for (let cursor = index; cursor >= 0; cursor--) {
+		const candidate = OUTPUT_THINKING_LEVELS[cursor]!;
+		if (thinkingLevelMap?.[candidate] === null) continue;
+		if (!Number.isFinite(maxTokens) || maxTokens <= 0) return candidate;
+		const answerFloor = candidate === "off" ? 0 : MIN_ANSWER_TOKENS;
+		if (OUTPUT_THINKING_BUDGET[candidate] + answerFloor <= maxTokens || candidate === "off") return candidate;
 	}
 	return "off";
 }

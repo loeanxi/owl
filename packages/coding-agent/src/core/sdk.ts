@@ -2,8 +2,10 @@ import { join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelsSimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import {
+	capSharedCeilingThinkingLevel,
 	clampMaxTokensToContext,
 	MIN_ANSWER_TOKENS,
+	reasoningSharesOutputCeiling,
 	thinkingBudgetForLevel,
 } from "@earendil-works/pi-ai/api/simple-options";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
@@ -380,16 +382,23 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		if (recoveryMaxTokens !== undefined) maxTokens = Math.min(maxTokens, recoveryMaxTokens);
 		if (requestModel.maxTokens > 0) maxTokens = Math.min(maxTokens, requestModel.maxTokens);
 		maxTokens = clampMaxTokensToContext(requestModel, context, maxTokens);
+		const sharedCeiling = reasoningSharesOutputCeiling(requestModel);
+		const reasoning =
+			options.reasoning && sharedCeiling
+				? capSharedCeilingThinkingLevel(options.reasoning, maxTokens, requestModel.thinkingLevelMap)
+				: options.reasoning;
 		if (options.sessionId === sessionManager.getSessionId()) {
 			sessionRef.current?.recordRequestOutputBudget(
 				requestModel,
 				maxTokens,
 				options.maxTokens === undefined && settingsManager.getSettings().requestMaxTokens === undefined,
-				Boolean(options.reasoning),
+				Boolean(reasoning && reasoning !== "off"),
+				reasoning,
 			);
 		}
 		return {
 			...options,
+			...(sharedCeiling ? { reasoning: reasoning === "off" ? undefined : reasoning } : {}),
 			maxTokens,
 			timeoutMs: options.timeoutMs ?? providerRetrySettings.timeoutMs ?? effectiveTimeoutMs,
 			websocketConnectTimeoutMs: options.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs(),

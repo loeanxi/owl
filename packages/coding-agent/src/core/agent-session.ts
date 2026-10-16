@@ -33,7 +33,7 @@ import {
 	type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import { type Api, contentText, getCurrentSystemMessage } from "@earendil-works/pi-ai";
-import { capThinkingLevelForOutput } from "@earendil-works/pi-ai/api/simple-options";
+import { capThinkingLevelForOutput, reasoningSharesOutputCeiling } from "@earendil-works/pi-ai/api/simple-options";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -414,6 +414,7 @@ export class AgentSession {
 		maxTokens: number;
 		isDefault: boolean;
 		positiveThinking: boolean;
+		sentThinking?: ThinkingLevel;
 	};
 	private _recoveryRequestMaxTokens?: { provider: string; modelId: string; maxTokens: number };
 
@@ -882,6 +883,7 @@ export class AgentSession {
 		maxTokens: number,
 		isDefault: boolean,
 		positiveThinking: boolean,
+		sentThinking?: ThinkingLevel,
 	): void {
 		this._lastRequestOutputBudget = {
 			provider: model.provider,
@@ -889,6 +891,7 @@ export class AgentSession {
 			maxTokens,
 			isDefault,
 			positiveThinking,
+			sentThinking,
 		};
 	}
 
@@ -2016,9 +2019,36 @@ export class AgentSession {
 		) {
 			// A newly queued real request supersedes this stalled response; its delivery resets the window.
 			if (this.agent.peekQueuedMessages().some((queued) => queued.role === "user")) return true;
-			this._emptyLengthRecoveryCount++;
 			const model = this._modelForMessage(message);
 			const budget = this._lastRequestOutputBudget;
+			if (
+				model &&
+				reasoningSharesOutputCeiling(model) &&
+				this.thinkingLevel !== "off" &&
+				budget?.positiveThinking &&
+				budget.provider === model.provider &&
+				budget.modelId === model.id &&
+				message.content.some((part) => part.type === "thinking" && part.thinking.trim())
+			) {
+				const sentThinking = budget.sentThinking ?? this.thinkingLevel;
+				this._appendCustomMessage({
+					role: "custom",
+					customType: "owl-empty-length-stop",
+					display: true,
+					content:
+						sentThinking === this.thinkingLevel
+							? `模型响应仅有思考并触及输出长度上限（${budget.maxTokens} tokens）。思考等级「${sentThinking}」在这个额度里放得下，响应仍没有正文或工具调用，已停止续跑，不再提高额度。`
+							: `模型响应仅有思考并触及输出长度上限（${budget.maxTokens} tokens）。这个额度放不下「${this.thinkingLevel}」思考加回答，本次请求已将思考降为「${sentThinking}」；降级后仍然没有正文或工具调用，已停止续跑，不再提高额度。`,
+					details: {
+						maxTokens: budget.maxTokens,
+						selectedThinking: this.thinkingLevel,
+						sentThinking,
+					},
+					timestamp: Date.now(),
+				});
+				return false;
+			}
+			this._emptyLengthRecoveryCount++;
 			if (
 				model?.api === "openai-completions" &&
 				model.reasoning &&
