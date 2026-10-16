@@ -1,14 +1,19 @@
 /**
  * 模型发现 —— 移植自 manager `ModelDiscoveryService` 里管理台会打到的部分：
  * 列出已发现模型、同步各平台上游目录、按已发现目录补未上架草稿、批量上架、核验。
- * Claude/Gemini/Grok 上游暂时不可达时回退内置清单。WorkBuddy、Trae、Qoder 失败时保留上次成功快照。
+ * Claude/Gemini/Grok 上游暂时不可达时回退内置清单。
+ * WorkBuddy、Trae、Qoder 按账号拉取：单个账号失败不否决其余账号；全部失败时保留上次成功快照。
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { type Account, BusinessError, type Platform, type PublishedModel, parseCredentials } from "owl-pool";
 import type { SqliteCatalogStore } from "../store/gateway-stores.ts";
-import { fetchTraeCatalog } from "./trae-catalog.ts";
-import { fetchWorkBuddyVisibleModels, type WorkBuddyCatalogConfig } from "./workbuddy-catalog.ts";
+import { fetchTraeCatalog, type TraeCatalogModel } from "./trae-catalog.ts";
+import {
+	fetchWorkBuddyVisibleModels,
+	type WorkBuddyCatalogConfig,
+	type WorkBuddyVisibleModel,
+} from "./workbuddy-catalog.ts";
 
 export interface DiscoveredDescriptor {
 	upstreamModel: string;
@@ -54,6 +59,8 @@ interface DiscoveryNotice {
 	unavailableModels: string[];
 	noticeRevision: string | null;
 	noticeAdded: string[];
+	/** 这次同步里没拉到目录的账号，格式为「账号名：原因」。其余账号的结果仍然写入。 */
+	accountErrors: string[];
 }
 
 const notices: Record<string, DiscoveryNotice> = {
@@ -118,9 +125,9 @@ export async function syncDiscovered(
 	await syncHttpPlatform(db, accounts, "GEMINI", discoverGemini);
 	await syncHttpPlatform(db, accounts, "GROK", discoverGrok);
 	await syncHttpPlatform(db, accounts, "ZCODE", discoverZcode);
-	await syncAuthoritative(db, accounts, "TRAE", "trae", "trae_live", (active) => discoverTrae(active, live));
+	await syncAuthoritative(db, accounts, "TRAE", "trae", "trae_live", (active) => discoverTrae(db, active, live));
 	await syncAuthoritative(db, accounts, "WORKBUDDY", "workbuddy", "workbuddy_ui", (active) =>
-		discoverWorkBuddy(active, live),
+		discoverWorkBuddy(db, active, live),
 	);
 	await syncAuthoritative(db, accounts, "QODER", "qoder", "qoder_builtin_live", (active) =>
 		discoverSdk(active, live, "Qoder CN 当前账号未返回可用内置模型"),
@@ -263,13 +270,18 @@ export function replacePlatformSnapshot(
 	return firstSeen;
 }
 
+interface CatalogPull {
+	descriptors: DiscoveredDescriptor[];
+	accountErrors: string[];
+}
+
 async function syncAuthoritative(
 	db: DatabaseSync,
 	accounts: Account[],
 	platform: Platform,
 	noticeKey: string,
 	source: string,
-	discover: (active: Account[]) => Promise<DiscoveredDescriptor[]>,
+	discover: (active: Account[]) => Promise<CatalogPull>,
 ): Promise<void> {
 	const active = accounts.filter(
 		(account) => account.enabled && account.platform === platform && hasCatalogCredential(account),
@@ -281,10 +293,10 @@ async function syncAuthoritative(
 	}
 	const before = availableIds(db, platform, source);
 	try {
-		const descriptors = await discover(active);
-		const current = new Set(descriptors.map((item) => item.upstreamModel));
-		replacePlatformSnapshot(db, platform, descriptors);
-		noteSuccess(db, noticeKey, platform, source, before, current, true);
+		const pulled = await discover(active);
+		const current = new Set(pulled.descriptors.map((item) => item.upstreamModel));
+		replacePlatformSnapshot(db, platform, pulled.descriptors);
+		noteSuccess(db, noticeKey, platform, source, before, current, true, pulled.accountErrors);
 	} catch (error) {
 		const message = error instanceof Error && error.message.length > 0 ? error.message : "官方模型目录不可用";
 		noteFailure(noticeKey, message);
@@ -304,7 +316,11 @@ async function syncSdkSnapshot(
 		return;
 	}
 	try {
-		replacePlatformSnapshot(db, platform, await discoverSdk(active, live, "当前账号未返回可用模型目录"));
+		replacePlatformSnapshot(
+			db,
+			platform,
+			(await discoverSdk(active, live, "当前账号未返回可用模型目录")).descriptors,
+		);
 	} catch (error) {
 		console.warn(
 			`Model discovery failed for ${platform} (${error instanceof Error ? error.message : "官方模型目录不可用"})`,
@@ -312,101 +328,130 @@ async function syncSdkSnapshot(
 	}
 }
 
-async function discoverTrae(accounts: Account[], live: LiveDiscoveryOptions): Promise<DiscoveredDescriptor[]> {
+async function discoverTrae(db: DatabaseSync, accounts: Account[], live: LiveDiscoveryOptions): Promise<CatalogPull> {
 	if (live.trae === undefined) {
 		throw new Error("Trae 模型目录客户端未配置");
 	}
 	const union = new Map<string, DiscoveredDescriptor>();
+	const accountErrors: string[] = [];
 	for (const account of accounts) {
-		const models = await fetchTraeCatalog(account, live.trae, live.trae.remoteBaseUrl);
-		if (models.length === 0) {
-			throw new Error("Trae 账号的可见模型目录为空");
-		}
-		for (const model of models) {
-			const existing = union.get(model.upstreamModel);
-			union.set(model.upstreamModel, {
-				upstreamModel: model.upstreamModel,
-				name: existing?.name ?? model.name,
-				catalogSource: "trae_live",
-				contextWindow: wider(existing?.contextWindow, model.contextWindow),
-				maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
-				upstreamMultimodal: model.upstreamMultimodal,
-				availableModes: [...new Set([...(existing?.availableModes ?? []), ...model.modes])],
-			});
+		try {
+			const models = await fetchTraeCatalog(account, live.trae, live.trae.remoteBaseUrl);
+			if (models.length === 0) {
+				throw new Error("可见模型目录为空");
+			}
+			saveTraeAccountFunctions(db, account.id, models);
+			for (const model of models) {
+				const existing = union.get(model.upstreamModel);
+				union.set(model.upstreamModel, {
+					upstreamModel: model.upstreamModel,
+					name: existing?.name ?? model.name,
+					catalogSource: "trae_live",
+					contextWindow: wider(existing?.contextWindow, model.contextWindow),
+					maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
+					upstreamMultimodal: model.upstreamMultimodal,
+					availableModes: [...new Set([...(existing?.availableModes ?? []), ...model.modes])],
+				});
+			}
+		} catch (error) {
+			accountErrors.push(`${account.name}：${errorText(error, "可见模型目录为空")}`);
 		}
 	}
-	return [...union.values()];
+	if (union.size === 0) {
+		throw new Error(accountErrors.join("；") || "Trae 账号的可见模型目录为空");
+	}
+	return { descriptors: [...union.values()], accountErrors };
 }
 
-async function discoverWorkBuddy(accounts: Account[], live: LiveDiscoveryOptions): Promise<DiscoveredDescriptor[]> {
+async function discoverWorkBuddy(
+	db: DatabaseSync,
+	accounts: Account[],
+	live: LiveDiscoveryOptions,
+): Promise<CatalogPull> {
 	if (live.workbuddy === undefined) {
 		throw new Error("WorkBuddy 模型目录客户端未配置");
 	}
 	const union = new Map<string, DiscoveredDescriptor>();
+	const accountErrors: string[] = [];
 	for (const account of accounts) {
-		const models = await fetchWorkBuddyVisibleModels(account, live.workbuddy);
-		if (models.length === 0) {
-			throw new Error(`账号“${account.name}”的官方可见模型列表为空`);
-		}
-		for (const model of models) {
-			const existing = union.get(model.upstreamModel);
-			union.set(model.upstreamModel, {
-				upstreamModel: model.upstreamModel,
-				name: model.name,
-				catalogSource: "workbuddy_ui",
-				modelVersion: model.modelVersion,
-				contextWindow: wider(existing?.contextWindow, model.contextWindow),
-				maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
-				supportsImages: model.supportsImages,
-				supportsTools: model.supportsTools,
-				reasoningEfforts: model.reasoningEfforts,
-				defaultReasoningEffort: model.defaultReasoningEffort,
-			});
+		try {
+			const models = await fetchWorkBuddyVisibleModels(account, live.workbuddy);
+			if (models.length === 0) {
+				throw new Error("官方可见模型列表为空");
+			}
+			saveWorkBuddyAccountModels(db, account.id, models);
+			for (const model of models) {
+				const existing = union.get(model.upstreamModel);
+				union.set(model.upstreamModel, {
+					upstreamModel: model.upstreamModel,
+					name: model.name,
+					catalogSource: "workbuddy_ui",
+					modelVersion: model.modelVersion,
+					contextWindow: wider(existing?.contextWindow, model.contextWindow),
+					maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
+					supportsImages: model.supportsImages,
+					supportsTools: model.supportsTools,
+					reasoningEfforts: model.reasoningEfforts,
+					defaultReasoningEffort: model.defaultReasoningEffort,
+				});
+			}
+		} catch (error) {
+			accountErrors.push(`${account.name}：${errorText(error, "官方可见模型列表为空")}`);
 		}
 	}
-	return [...union.values()];
+	if (union.size === 0) {
+		throw new Error(accountErrors.join("；") || "WorkBuddy 官方可见模型列表为空");
+	}
+	return { descriptors: [...union.values()], accountErrors };
 }
 
 async function discoverSdk(
 	accounts: Account[],
 	live: LiveDiscoveryOptions,
 	emptyMessage: string,
-): Promise<DiscoveredDescriptor[]> {
+): Promise<CatalogPull> {
 	if (live.sdkCatalog === undefined) {
 		throw new Error("平台运行组件未启用");
 	}
 	const found = new Map<string, DiscoveredDescriptor>();
+	const accountErrors: string[] = [];
 	for (const account of accounts) {
-		const raw = await live.sdkCatalog(account);
-		const rows = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.models) ? raw.models : [];
-		if (rows.length === 0) {
-			throw new Error(emptyMessage);
-		}
-		for (const row of rows) {
-			if (!isRecord(row) || typeof row.id !== "string" || row.id.trim().length === 0) {
-				continue;
+		try {
+			const raw = await live.sdkCatalog(account);
+			const rows = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.models) ? raw.models : [];
+			const before = found.size;
+			for (const row of rows) {
+				if (!isRecord(row) || typeof row.id !== "string" || row.id.trim().length === 0) {
+					continue;
+				}
+				const id = row.id.trim();
+				found.set(id, {
+					upstreamModel: id,
+					name: typeof row.name === "string" && row.name.trim().length > 0 ? row.name.trim() : id,
+					catalogSource: account.platform === "QODER" ? "qoder_builtin_live" : "provider_catalog",
+					modelVersion: typeof row.modelVersion === "string" ? row.modelVersion : null,
+					contextWindow: positive(row.contextWindow),
+					maxOutputTokens: positive(row.maxOutputTokens),
+					supportsImages: typeof row.supportsImages === "boolean" ? row.supportsImages : null,
+					supportsTools: typeof row.supportsTools === "boolean" ? row.supportsTools : null,
+					reasoningEfforts: Array.isArray(row.reasoningEfforts)
+						? row.reasoningEfforts.filter((item): item is string => typeof item === "string")
+						: null,
+					defaultReasoningEffort:
+						typeof row.defaultReasoningEffort === "string" ? row.defaultReasoningEffort : null,
+				});
 			}
-			const id = row.id.trim();
-			found.set(id, {
-				upstreamModel: id,
-				name: typeof row.name === "string" && row.name.trim().length > 0 ? row.name.trim() : id,
-				catalogSource: account.platform === "QODER" ? "qoder_builtin_live" : "provider_catalog",
-				modelVersion: typeof row.modelVersion === "string" ? row.modelVersion : null,
-				contextWindow: positive(row.contextWindow),
-				maxOutputTokens: positive(row.maxOutputTokens),
-				supportsImages: typeof row.supportsImages === "boolean" ? row.supportsImages : null,
-				supportsTools: typeof row.supportsTools === "boolean" ? row.supportsTools : null,
-				reasoningEfforts: Array.isArray(row.reasoningEfforts)
-					? row.reasoningEfforts.filter((item): item is string => typeof item === "string")
-					: null,
-				defaultReasoningEffort: typeof row.defaultReasoningEffort === "string" ? row.defaultReasoningEffort : null,
-			});
+			if (found.size === before) {
+				throw new Error(emptyMessage);
+			}
+		} catch (error) {
+			accountErrors.push(`${account.name}：${errorText(error, emptyMessage)}`);
 		}
 	}
 	if (found.size === 0) {
-		throw new Error(emptyMessage);
+		throw new Error(accountErrors.join("；") || emptyMessage);
 	}
-	return [...found.values()];
+	return { descriptors: [...found.values()], accountErrors };
 }
 
 function hasCatalogCredential(account: Account): boolean {
@@ -425,10 +470,11 @@ function noteSuccess(
 	before: Set<string>,
 	current: Set<string>,
 	manual: boolean,
+	accountErrors: string[] = [],
 ): void {
 	const previous = notices[key] ?? emptyNotice();
-	const added = before.size === 0 ? [] : [...current].filter((id) => !before.has(id));
-	const removed = before.size === 0 ? [] : [...before].filter((id) => !current.has(id));
+	const added = [...current].filter((id) => !before.has(id));
+	const removed = [...before].filter((id) => !current.has(id));
 	const unchanged = [...current].filter((id) => before.has(id)).length;
 	const unavailable = unavailableIds(db, platform, source);
 	const now = new Date().toISOString();
@@ -446,13 +492,21 @@ function noteSuccess(
 		unavailableModels: unavailable,
 		noticeRevision: noticeAdded.length === 0 ? null : manual ? previous.noticeRevision : now,
 		noticeAdded,
+		accountErrors,
 	};
 }
 
 function noteFailure(key: string, message: string): void {
 	const previous = notices[key] ?? emptyNotice();
 	const now = new Date().toISOString();
-	notices[key] = { ...previous, state: "failed", lastAttemptAt: now, lastFailureAt: now, error: message };
+	notices[key] = {
+		...previous,
+		state: "failed",
+		lastAttemptAt: now,
+		lastFailureAt: now,
+		error: message,
+		accountErrors: [],
+	};
 }
 
 function emptyNotice(): DiscoveryNotice {
@@ -469,7 +523,95 @@ function emptyNotice(): DiscoveryNotice {
 		unavailableModels: [],
 		noticeRevision: null,
 		noticeAdded: [],
+		accountErrors: [],
 	};
+}
+
+function errorText(error: unknown, fallback: string): string {
+	return error instanceof Error && error.message.length > 0 ? error.message : fallback;
+}
+
+export function saveWorkBuddyAccountModels(db: DatabaseSync, accountId: string, models: WorkBuddyVisibleModel[]): void {
+	const ids = models.map((model) => model.upstreamModel);
+	const contexts: Record<string, number> = {};
+	const outputs: Record<string, number> = {};
+	const efforts: Record<string, string[]> = {};
+	for (const model of models) {
+		if (model.contextWindow !== null) {
+			contexts[model.upstreamModel] = model.contextWindow;
+		}
+		if (model.maxOutputTokens !== null) {
+			outputs[model.upstreamModel] = model.maxOutputTokens;
+		}
+		if (model.reasoningEfforts !== null && model.reasoningEfforts.length > 0) {
+			efforts[model.upstreamModel] = model.reasoningEfforts;
+		}
+	}
+	db.prepare(`
+		INSERT INTO workbuddy_account_model_snapshots (
+			account_id, model_ids, context_windows, max_output_tokens, reasoning_efforts, synced_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id) DO UPDATE SET
+			model_ids = excluded.model_ids,
+			context_windows = excluded.context_windows,
+			max_output_tokens = excluded.max_output_tokens,
+			reasoning_efforts = excluded.reasoning_efforts,
+			synced_at = excluded.synced_at
+	`).run(
+		accountId,
+		JSON.stringify(ids),
+		JSON.stringify(contexts),
+		JSON.stringify(outputs),
+		JSON.stringify(efforts),
+		Date.now(),
+	);
+}
+
+export function workBuddyAccountAllows(db: DatabaseSync, accountId: string, model: string): boolean {
+	const row = db
+		.prepare("SELECT model_ids FROM workbuddy_account_model_snapshots WHERE account_id = ?")
+		.get(accountId) as { model_ids?: string } | undefined;
+	const ids = parseJson(row?.model_ids);
+	return Array.isArray(ids) && ids.some((id) => id === model);
+}
+
+export function saveTraeAccountFunctions(db: DatabaseSync, accountId: string, models: TraeCatalogModel[]): void {
+	const functions: Record<string, string> = {};
+	for (const model of models) {
+		if (model.functionName.trim().length > 0) {
+			functions[model.upstreamModel] = model.functionName;
+		}
+	}
+	db.prepare(`
+		INSERT INTO trae_account_model_snapshots (account_id, model_functions, synced_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(account_id) DO UPDATE SET
+			model_functions = excluded.model_functions,
+			synced_at = excluded.synced_at
+	`).run(accountId, JSON.stringify(functions), Date.now());
+}
+
+export function traeAccountFunction(db: DatabaseSync, accountId: string, model: string): string | null {
+	const row = db
+		.prepare("SELECT model_functions FROM trae_account_model_snapshots WHERE account_id = ?")
+		.get(accountId) as { model_functions?: string } | undefined;
+	const map = parseJson(row?.model_functions);
+	if (map === null || typeof map !== "object" || Array.isArray(map)) {
+		return null;
+	}
+	const value = (map as Record<string, unknown>)[model];
+	return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function parseJson(raw: string | undefined): unknown {
+	if (raw === undefined || raw.length === 0) {
+		return null;
+	}
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
 }
 
 function availableIds(db: DatabaseSync, platform: Platform, source: string): Set<string> {

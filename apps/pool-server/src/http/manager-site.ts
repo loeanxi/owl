@@ -69,7 +69,7 @@ export function tryServeManagerSite(request: IncomingMessage, response: ServerRe
 	const ext = extname(filePath).toLowerCase();
 	response.writeHead(200, {
 		"Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
-		"Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600",
+		"Cache-Control": "no-cache",
 		"X-Content-Type-Options": "nosniff",
 	});
 	if (request.method === "HEAD") {

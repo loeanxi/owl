@@ -1,6 +1,7 @@
 /**
  * WorkBuddy 官方可见模型 —— 移植自 manager `ModelCatalogService.fetchWorkBuddyVisibleModels`。
- * 读 /v3/config，按默认 Agent 白名单过滤，并去掉付费复制线路。
+ * 读 /v3/config。账号带了 availableModels 时，以这份客户端可选白名单为准；
+ * 没有这份名单时才退回默认 Agent 白名单。两种路径都去掉付费复制线路。
  */
 import { readFileSync } from "node:fs";
 import { isAbsolute, join, normalize, relative } from "node:path";
@@ -81,8 +82,8 @@ export function parseWorkBuddyVisibleModels(body: string): WorkBuddyVisibleModel
 	const config = isRecord(root.data) ? root.data : null;
 	const models = Array.isArray(config?.models) ? config.models.filter(isRecord) : [];
 	const agents = Array.isArray(config?.agents) ? config.agents.filter(isRecord) : [];
-	if (config === null || models.length === 0 || agents.length === 0) {
-		throw new Error("WorkBuddy 模型配置缺少模型或 Agent 列表");
+	if (config === null || models.length === 0) {
+		throw new Error("WorkBuddy 模型配置缺少模型列表");
 	}
 	const available = config.availableModels;
 	if (available !== undefined && available !== null && !Array.isArray(available)) {
@@ -102,59 +103,9 @@ export function parseWorkBuddyVisibleModels(body: string): WorkBuddyVisibleModel
 			throw new Error("WorkBuddy 可用模型白名单无有效项");
 		}
 	}
-	const filtered = models.filter((model) => {
-		const id = firstText(model, "id");
-		if (id === null || id.length > 80 || id.includes(" ") || id.includes("@")) {
-			return false;
-		}
-		return allowed.size === 0 || allowed.has(id);
-	});
-	const agent = selectAgent(agents);
-	const declared = agent === undefined || !Array.isArray(agent.models) ? [] : agent.models;
-	if (declared.length === 0) {
-		throw new Error("WorkBuddy 默认 Agent 模型白名单为空");
-	}
-	const selected: Array<Record<string, unknown>> = [];
-	const selectedIds = new Set<string>();
-	for (const item of declared) {
-		if (typeof item !== "string") {
-			continue;
-		}
-		for (const model of filtered) {
-			const id = firstText(model, "id");
-			const name = firstText(model, "name");
-			if (id !== null && (item === id || item === name) && !isCustom(model) && !selectedIds.has(id)) {
-				selectedIds.add(id);
-				selected.push(model);
-				break;
-			}
-		}
-	}
-	if (selected.length === 0) {
-		throw new Error("WorkBuddy 默认 Agent 白名单未匹配到官方模型");
-	}
 	const paid = paidIds(config);
-	const visible: WorkBuddyVisibleModel[] = [];
-	for (const model of selected) {
-		const id = firstText(model, "id");
-		if (id === null || paid.has(id)) {
-			continue;
-		}
-		const reasoning = isRecord(model.reasoning) ? model.reasoning : {};
-		const efforts = reportedEfforts(model);
-		const fromReasoning = efforts.length === 0 ? reportedEfforts(reasoning) : efforts;
-		visible.push({
-			upstreamModel: id,
-			name: firstText(model, "name", "displayName", "display_name") ?? id,
-			modelVersion: firstText(model, "modelVersion", "version"),
-			contextWindow: contextWindow(model),
-			maxOutputTokens: positiveInt(model.maxOutputTokens),
-			supportsImages: optionalBoolean(model.supportsImages),
-			supportsTools: optionalBoolean(model.supportsToolCall),
-			reasoningEfforts: fromReasoning.length === 0 ? null : fromReasoning,
-			defaultReasoningEffort: firstText(reasoning, "defaultEffort", "effort"),
-		});
-	}
+	const selected = allowed.size > 0 ? selectAvailable(models, allowed, paid) : selectAgentModels(models, agents);
+	const visible = selected.map(toVisible).filter((model) => !paid.has(model.upstreamModel));
 	if (visible.length === 0) {
 		throw new Error("WorkBuddy 官方可见模型列表为空");
 	}
@@ -175,6 +126,89 @@ export function workBuddyToken(account: Account, roots: string[]): string {
 		}
 	}
 	throw new Error("WorkBuddy 账号缺少有效访问凭据");
+}
+
+function selectAvailable(
+	models: Array<Record<string, unknown>>,
+	allowed: Set<string>,
+	paid: Set<string>,
+): Array<Record<string, unknown>> {
+	const selected: Array<Record<string, unknown>> = [];
+	const selectedIds = new Set<string>();
+	for (const id of allowed) {
+		const model = models.find((item) => firstText(item, "id") === id);
+		if (model === undefined || !acceptableId(id) || isCustom(model) || paid.has(id) || selectedIds.has(id)) {
+			continue;
+		}
+		selectedIds.add(id);
+		selected.push(model);
+	}
+	if (selected.length === 0) {
+		throw new Error("WorkBuddy 可用模型白名单未匹配到官方模型");
+	}
+	return selected;
+}
+
+function selectAgentModels(
+	models: Array<Record<string, unknown>>,
+	agents: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+	if (agents.length === 0) {
+		throw new Error("WorkBuddy 模型配置缺少模型或 Agent 列表");
+	}
+	const agent = selectAgent(agents);
+	const declared = agent === undefined || !Array.isArray(agent.models) ? [] : agent.models;
+	if (declared.length === 0) {
+		throw new Error("WorkBuddy 默认 Agent 模型白名单为空");
+	}
+	const selected: Array<Record<string, unknown>> = [];
+	const selectedIds = new Set<string>();
+	for (const item of declared) {
+		if (typeof item !== "string") {
+			continue;
+		}
+		for (const model of models) {
+			const id = firstText(model, "id");
+			const name = firstText(model, "name");
+			if (
+				id !== null &&
+				acceptableId(id) &&
+				(item === id || item === name) &&
+				!isCustom(model) &&
+				!selectedIds.has(id)
+			) {
+				selectedIds.add(id);
+				selected.push(model);
+				break;
+			}
+		}
+	}
+	if (selected.length === 0) {
+		throw new Error("WorkBuddy 默认 Agent 白名单未匹配到官方模型");
+	}
+	return selected;
+}
+
+function toVisible(model: Record<string, unknown>): WorkBuddyVisibleModel {
+	const id = firstText(model, "id") ?? "";
+	const reasoning = isRecord(model.reasoning) ? model.reasoning : {};
+	const efforts = reportedEfforts(model);
+	const fromReasoning = efforts.length === 0 ? reportedEfforts(reasoning) : efforts;
+	return {
+		upstreamModel: id,
+		name: firstText(model, "name", "displayName", "display_name") ?? id,
+		modelVersion: firstText(model, "modelVersion", "version"),
+		contextWindow: contextWindow(model),
+		maxOutputTokens: positiveInt(model.maxOutputTokens),
+		supportsImages: optionalBoolean(model.supportsImages),
+		supportsTools: optionalBoolean(model.supportsToolCall),
+		reasoningEfforts: fromReasoning.length === 0 ? null : fromReasoning,
+		defaultReasoningEffort: firstText(reasoning, "defaultEffort", "effort"),
+	};
+}
+
+function acceptableId(id: string): boolean {
+	return id.length > 0 && id.length <= 80 && !id.includes(" ") && !id.includes("@");
 }
 
 function selectAgent(agents: Array<Record<string, unknown>>): Record<string, unknown> | undefined {

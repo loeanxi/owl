@@ -61,4 +61,24 @@ describe("live model catalogs", () => {
 		expect(models.map((model) => model.upstreamModel)).toEqual(["hy3"]);
 		expect(models[0]?.supportsTools).toBe(true);
 	});
+
+	it("uses the account picker whitelist instead of the default agent list", () => {
+		const models = parseWorkBuddyVisibleModels(
+			JSON.stringify({
+				code: 0,
+				data: {
+					models: [
+						{ id: "step-5-preview", name: "Step-5-Preview", supportsToolCall: true },
+						{ id: "glm-5.3", name: "GLM-5.3", supportsToolCall: true },
+						{ id: "glm-5.3-x", name: "GLM-5.3 Pro", supportsToolCall: true },
+						{ id: "kimi-k3-1", name: "Kimi-K3" },
+					],
+					agents: [{ name: "cli", tags: ["default"], models: ["glm-5.3", "kimi-k3-1"] }],
+					availableModels: ["step-5-preview", "glm-5.3", "glm-5.3-x"],
+					productFeaturesConfig: { ModelRateLimitCap: { lines: [{ freeId: "glm-5.3", paidId: "glm-5.3-x" }] } },
+				},
+			}),
+		);
+		expect(models.map((model) => model.upstreamModel)).toEqual(["step-5-preview", "glm-5.3"]);
+	});
 });

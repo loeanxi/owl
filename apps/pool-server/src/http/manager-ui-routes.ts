@@ -42,7 +42,11 @@ export function registerManagerUiRoutes(router: Router, deps: ManagerUiRoutesDep
 		if (deps.db === undefined) {
 			throw BusinessError.of("catalog.discoveryUnavailable", "模型发现存储未启用");
 		}
-		return syncDiscovered(deps.db, deps.accounts.list(), deps.liveDiscovery);
+		const discovered = await syncDiscovered(deps.db, deps.accounts.list(), deps.liveDiscovery);
+		if (deps.catalog !== undefined) {
+			backfillDiscoveredDrafts(deps.db, deps.catalog, deps.accounts.list());
+		}
+		return discovered;
 	});
 	router.post("/api/models/drafts/from-discovered", async () => {
 		if (deps.db === undefined || deps.catalog === undefined) {

@@ -2,7 +2,7 @@
 const POOL_PLATFORMS = { WORKBUDDY: "WorkBuddy", TRAE: "Trae", CODEX: "Codex", ZCODE: "ZCode", MIMO: "MiMo", CURSOR: "Cursor", COPILOT: "GitHub Copilot", QODER: "Qoder CN", CLAUDE: "Claude", GEMINI: "Gemini", GROK: "Grok" };
 /* CLAUDE 走托管 OAuth 授权对话框（授权链接 + 粘贴回调），不经 Node bridge。 */
 const POOL_LOGIN_PLATFORMS = ["CURSOR", "COPILOT", "QODER", "CLAUDE"];
-const poolState = { models: [], discovered: [], discoveredLoaded: false, discoveryStatus: null, discoveryStatusPolling: false, seenNoticeRevisions: {}, tab: "public", loaded: false, editId: null, loginAccount: null, loginTimer: null, loginGeneration: 0, loginJob: null, keySelection: null, keyReady: false, keyGeneration: 0, batchSelection: new Set(), batchPublishing: false };
+const poolState = { models: [], discovered: [], discoveredLoaded: false, discoveryStatus: null, discoveryStatusPolling: false, syncing: false, seenNoticeRevisions: {}, tab: "public", loaded: false, editId: null, loginAccount: null, loginTimer: null, loginGeneration: 0, loginJob: null, keySelection: null, keyReady: false, keyGeneration: 0, batchSelection: new Set(), batchPublishing: false };
 poolState.authOpening = false;
 poolState.authOpenState = "";
 poolState.authOpenUrl = "";
@@ -71,25 +71,80 @@ function poolModelNames(value) { return Array.isArray(value) ? value.map(name =>
 function poolSyncStatuses(data = poolState.discoveryStatus) {
   return Object.entries(POOL_SYNC_PLATFORMS).map(([key, label]) => ({ key, label, status: data?.[key] || null }));
 }
+function setPoolSyncButton(busy) {
+  const button = $("#btn-pool-model-sync");
+  if (!button) return;
+  button.disabled = busy;
+  button.classList.toggle("is-syncing", busy);
+  button.setAttribute("aria-busy", busy ? "true" : "false");
+  button.dataset.i18n = busy ? "pool.syncing" : "pool.sync";
+  button.textContent = t(busy ? "pool.syncing" : "pool.sync");
+}
+
+function showPoolSyncingBanner() {
+  const alert = $("#pool-discovery-alert");
+  if (!alert) return;
+  alert.hidden = false;
+  alert.classList.add("syncing");
+  alert.classList.remove("error");
+  $("#pool-discovery-alert-title").textContent = t("pool.syncingTitle");
+  const line = document.createElement("div");
+  line.textContent = t("pool.syncingBody");
+  $("#pool-discovery-alert-body").replaceChildren(line);
+}
+
+const POOL_SYNC_PLATFORM_IDS = { workbuddy: "WORKBUDDY", qoder: "QODER", trae: "TRAE" };
+
+function poolAddedModelLabel(platformKey, id) {
+  const platform = POOL_SYNC_PLATFORM_IDS[platformKey];
+  const found = poolState.discovered.find(model => model.platform === platform && model.upstreamModel === id);
+  const name = String(found?.name || "").trim();
+  return name && name !== id ? `${name}（${id}）` : id;
+}
+
+function poolSyncAddedLine(platformKey, label, status) {
+  if (status?.state !== "ok") return "";
+  const added = poolModelNames(status.added);
+  if (!added.length) return t("pool.discoveryAddedNone", { platform: label });
+  return t("pool.discoveryAddedNow", {
+    platform: label,
+    count: added.length,
+    models: added.map(id => poolAddedModelLabel(platformKey, id)).join("、"),
+  });
+}
+
 function renderPoolDiscoveryAlert() {
   const alert = $("#pool-discovery-alert");
   if (!alert) return;
-  const lines = [];
-  for (const { label, status } of poolSyncStatuses()) {
+  if (poolState.syncing) {
+    showPoolSyncingBanner();
+    return;
+  }
+  alert.classList.remove("syncing");
+  const problems = [];
+  const additions = [];
+  for (const { key, label, status } of poolSyncStatuses()) {
     if (status?.state === "failed") {
-      lines.push(t("pool.discoveryFailedAt", {
+      problems.push(t("pool.discoveryFailedAt", {
         platform: label, time: formatTime(status.lastFailureAt || status.lastAttemptAt),
         message: status.error || t("pool.discoveryUnknownReason")
       }));
-      continue;
+    } else {
+      const unavailable = poolModelNames(status?.unavailableModels);
+      if (unavailable.length) problems.push(t("pool.discoveryRemoved", { platform: label, count: unavailable.length, models: unavailable.join("、") }));
+      const affected = poolModelNames(status?.affectedPublicModels);
+      if (unavailable.length && affected.length) problems.push(t("pool.discoveryAffected", { platform: label, models: affected.join("、") }));
+      const skipped = poolModelNames(status?.accountErrors);
+      if (status?.state === "ok" && skipped.length) problems.push(t("pool.discoveryAccountSkipped", { platform: label, accounts: skipped.join("；") }));
     }
-    const unavailable = poolModelNames(status?.unavailableModels);
-    if (unavailable.length) lines.push(t("pool.discoveryRemoved", { platform: label, count: unavailable.length, models: unavailable.join("、") }));
-    const affected = poolModelNames(status?.affectedPublicModels);
-    if (unavailable.length && affected.length) lines.push(t("pool.discoveryAffected", { platform: label, models: affected.join("、") }));
+    const addedLine = poolSyncAddedLine(key, label, status);
+    if (addedLine) additions.push(addedLine);
   }
+  const lines = [...problems, ...additions];
+  alert.classList.toggle("error", problems.length > 0);
+  alert.classList.toggle("result", problems.length === 0 && additions.length > 0);
   alert.hidden = lines.length === 0;
-  $("#pool-discovery-alert-title").textContent = lines.length ? t("pool.discoveryAttention") : "";
+  $("#pool-discovery-alert-title").textContent = lines.length ? t(problems.length ? "pool.discoveryAttention" : "pool.discoveryAddedTitle") : "";
   $("#pool-discovery-alert-body").replaceChildren(...lines.map(line => {
     const item = document.createElement("div");
     item.textContent = line;
@@ -142,7 +197,7 @@ async function loadPoolModels({ suppressAddedToast = false } = {}) {
 }
 
 async function pollPoolDiscoveryStatus() {
-  if (poolState.discoveryStatusPolling || state.view !== "models" || !state.admin.authenticated) return;
+  if (poolState.syncing || poolState.discoveryStatusPolling || state.view !== "models" || !state.admin.authenticated) return;
   poolState.discoveryStatusPolling = true;
   try {
     const previousAttempts = Object.fromEntries(poolSyncStatuses().map(({ key, status }) => [key, status?.lastAttemptAt || null]));
@@ -795,29 +850,41 @@ function bindPoolUI() {
   $("#btn-pool-generate-drafts").addEventListener("click", generateMissingDiscoveredDrafts);
   document.querySelectorAll("[data-pool-tab]").forEach(button => button.addEventListener("click", () => setPoolTab(button.dataset.poolTab)));
   $("#btn-pool-model-sync").addEventListener("click", async event => {
-    event.currentTarget.disabled = true;
+    if (poolState.syncing) return;
+    poolState.syncing = true;
+    setPoolSyncButton(true);
+    showPoolSyncingBanner();
+    toast(t("pool.syncingBody"), "warn");
     let syncError = null;
     try { await api("/api/models/sync", { method: "POST" }); }
     catch (error) { syncError = error; }
     try {
+      poolState.syncing = false;
       const refresh = await loadPoolModels({ suppressAddedToast: true });
       const statuses = poolSyncStatuses().filter(({ status }) => status && status.state !== "never");
       const failed = statuses.filter(({ status }) => status.state === "failed");
-      if (syncError || failed.length) {
+      const skipped = statuses.filter(({ status }) => status.state === "ok" && poolModelNames(status.accountErrors).length);
+      const addedLines = statuses.map(({ key, label, status }) => poolSyncAddedLine(key, label, status)).filter(Boolean);
+      if (syncError || failed.length || skipped.length) {
         const messages = failed.map(({ label, status }) => t("pool.discoverySyncFailed", { platform: label, message: status.error || t("pool.discoveryUnknownReason") }));
+        messages.push(...skipped.map(({ label, status }) => t("pool.discoveryAccountSkipped", { platform: label, accounts: poolModelNames(status.accountErrors).join("；") })));
+        messages.push(...addedLines);
         if (syncError) messages.unshift(syncError.message);
         toast(messages.join(" · "), "err");
       } else if (!refresh.statusLoaded || !statuses.length) {
         toast(t("pool.discoveryStatusUnavailable"), "err");
       } else {
-        toast(statuses.map(({ label, status }) => t("pool.discoverySyncStats", {
+        toast([...addedLines, ...statuses.map(({ label, status }) => t("pool.discoverySyncStats", {
           platform: label, added: poolModelNames(status.added).length,
           removed: poolModelNames(status.removed).length,
           unchanged: Number(status.unchangedCount || 0)
-        })).join(" · "), "ok");
+        }))].join(" · "), "ok");
       }
     } catch (error) { toast(error.message, "err"); }
-    finally { $("#btn-pool-model-sync").disabled = false; }
+    finally {
+      poolState.syncing = false;
+      setPoolSyncButton(false);
+    }
   });
   setInterval(pollPoolDiscoveryStatus, 60000);
   $("#form-pool-model").addEventListener("submit", submitPoolModel);

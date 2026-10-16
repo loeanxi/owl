@@ -17,6 +17,8 @@ export interface TraeCatalogModel {
 	maxOutputTokens: number | null;
 	upstreamMultimodal: boolean | null;
 	modes: string[];
+	/** 该账号调用这个模型时要带的 function。 */
+	functionName: string;
 }
 
 export async function fetchTraeCatalog(
@@ -154,6 +156,7 @@ export function mergeTraeCatalog(
 					maxOutputTokens: wire.maxOutputTokens,
 					upstreamMultimodal: multimodal,
 					preferred,
+					functionName: wire.functionName,
 					modes: new Set<string>(),
 				};
 				found.set(key(wire.id), model);
@@ -162,6 +165,7 @@ export function mergeTraeCatalog(
 				model.contextWindow = contextWindow;
 				model.upstreamMultimodal = multimodal;
 				model.preferred = true;
+				model.functionName = wire.functionName;
 			}
 			model.modes.add(mode);
 		}
@@ -176,6 +180,7 @@ export function mergeTraeCatalog(
 		maxOutputTokens: model.maxOutputTokens,
 		upstreamMultimodal: model.upstreamMultimodal,
 		modes: ["Work", "Code", "Design"].filter((mode) => model.modes.has(mode)),
+		functionName: model.functionName,
 	}));
 }
 
@@ -193,6 +198,7 @@ interface Mutable {
 	maxOutputTokens: number | null;
 	upstreamMultimodal: boolean | null;
 	preferred: boolean;
+	functionName: string;
 	modes: Set<string>;
 }
 

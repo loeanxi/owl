@@ -43,6 +43,25 @@
 .pool-platform-filter { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .pool-platform-filter select { min-width: 164px; padding: 8px 10px; }
 .pool-discovery-alert { margin: 0 0 16px; background: color-mix(in srgb, var(--danger, #c96c6c) 8%, transparent); }
+.pool-discovery-alert.syncing,
+.pool-discovery-alert.result { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent-2); }
+#btn-pool-model-sync.is-syncing {
+  background: var(--accent);
+  color: #1a1208;
+  border-color: var(--accent);
+  cursor: progress;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+#btn-pool-model-sync.is-syncing::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pool-sync-spin 0.7s linear infinite;
+}
+@keyframes pool-sync-spin { to { transform: rotate(360deg); } }
 .pool-discovery-alert strong { display: block; margin-bottom: 4px; }
 .pool-discovery-alert #pool-discovery-alert-body { display: grid; gap: 3px; }
 .pool-route-unavailable { color: var(--danger, #c96c6c); }

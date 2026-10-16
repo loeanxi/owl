@@ -25,7 +25,7 @@ import { AccountLoginService } from "./account/login.ts";
 import { pingAccount } from "./account/ping.ts";
 import { QoderCheckInProvider } from "./account/qoder-checkin.ts";
 import { TraeTokenService } from "./account/trae-auth.ts";
-import { probeAccount } from "./catalog/discovery.ts";
+import { probeAccount, traeAccountFunction, workBuddyAccountAllows } from "./catalog/discovery.ts";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
 import { createClaudeTokenResolver } from "./gateway/claude-token.ts";
@@ -165,7 +165,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			streamMaxDurationMs: config.gateway.workbuddy.streamMaxDurationMs,
 		},
 		authFileRoots: config.workbuddyAuthFileRoots,
-		supportsModel: (account, model) => workBuddySupports(db, account.id, model),
+		supportsModel: (account, model) => workBuddyAccountAllows(db, account.id, model),
 	});
 	upstreams.set(workbuddy.platform(), workbuddy);
 	const traeTokens = new TraeTokenService({ accounts });
@@ -180,7 +180,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			product: config.gateway.trae.product,
 			...config.gateway.upstreamDeadline,
 		},
-		functionFor: (account, model) => traeFunctionFor(db, account.id, model),
+		functionFor: (account, model) => traeAccountFunction(db, account.id, model),
 		resolveJwt: (account) => traeTokens.resolveJwt(account),
 	});
 	upstreams.set(trae.platform(), trae);
@@ -462,43 +462,6 @@ async function claudeUsage(
 
 function isLoopback(host: string): boolean {
 	return host === "127.0.0.1" || host === "localhost" || host === "::1";
-}
-
-/** Trae 调用名以该账号已迁入的模型快照为准；没有快照就不能猜。 */
-function traeFunctionFor(db: DatabaseSync, accountId: string, model: string): string | null {
-	const row = db
-		.prepare("SELECT model_functions FROM trae_account_model_snapshots WHERE account_id = ?")
-		.get(accountId) as { model_functions?: string } | undefined;
-	if (row?.model_functions === undefined || row.model_functions.length === 0) return null;
-	let map: unknown;
-	try {
-		map = JSON.parse(row.model_functions);
-	} catch {
-		return null;
-	}
-	if (map === null || typeof map !== "object") return null;
-	const value = (map as Record<string, unknown>)[model];
-	return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-/** 有快照时只放行目录里的模型；没有快照就不能猜。 */
-function workBuddySupports(db: DatabaseSync, accountId: string, model: string): boolean {
-	const row = db
-		.prepare("SELECT model_ids FROM workbuddy_account_model_snapshots WHERE account_id = ?")
-		.get(accountId) as { model_ids?: string } | undefined;
-	if (row?.model_ids === undefined || row.model_ids.length === 0) {
-		return false;
-	}
-	let ids: unknown;
-	try {
-		ids = JSON.parse(row.model_ids);
-	} catch {
-		return false;
-	}
-	if (!Array.isArray(ids)) {
-		return false;
-	}
-	return ids.some((id) => id === model);
 }
 
 // 直接运行时才启动（被测试/其他模块 import 时不拉起服务）
