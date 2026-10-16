@@ -23,7 +23,6 @@ test/suite/regressions/7187-malformed-package-manifest.test.ts > issue #7187 mal
 test/sdk-session-manager.test.ts > createAgentSession session manager defaults runs the built-in bash tool in the session cwd
 
 # Behavior drifted from the expectation; needs a decision on which side is right.
-test/model-resolver.test.ts > default model selection built-in chat providers have defaults in their generated catalogs
 test/model-runtime-classifiers.test.ts > ModelRuntime classifiers lists Jev separately and classifies with runtime-resolved auth
 test/suite/agent-session-boundaries.test.ts > AgentSession actionable boundaries does not compact from usage belonging to a boundary-omitted assistant
 test/suite/agent-session-boundaries.test.ts > AgentSession actionable boundaries does not trigger successful-response overflow from usage captured before a boundary edit

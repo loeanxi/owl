@@ -30,6 +30,7 @@ export const defaultModelPerProvider: Partial<Record<KnownProvider, string>> = {
 	google: "gemini-3.1-pro-preview",
 	"google-vertex": "gemini-3.1-pro-preview",
 	"github-copilot": "gpt-5.4",
+	cursor: "default",
 	openrouter: "moonshotai/kimi-k2.6",
 	"vercel-ai-gateway": "zai/glm-5.1",
 	xai: "grok-4.7",
